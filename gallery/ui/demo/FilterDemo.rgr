@@ -45,6 +45,14 @@ treefactory Flt {
     tag ValTxt   EVGElement (props (className "fd-val-text") (elementType 1) (a11yHidden true))
     tag Menu     EVGElement (props (className "fd-menu") (role "button"))
     tag MenuTxt  EVGElement (props (className "fd-menu-text") (elementType 1) (a11yHidden true))
+    ; THE MENU THE ELLIPSIS PROMISES. It used to remove the rule on the first
+    ; click and open nothing — a control drawn as "more actions" that had
+    ; exactly one, and the destructive one, with no way back.
+    tag MenuList EVGElement (props (className "fd-menulist") (isOverlay true) (overlaySide "bottom") (overlayAlign "end") (role "menu"))
+    tag MenuItem EVGElement (props (className "fd-menuitem") (role "menuitem") (a11yFocusable true))
+    tag MenuItemDanger EVGElement (props (className "fd-menuitem fd-menuitem-danger") (role "menuitem") (a11yFocusable true))
+    tag MenuItemTx EVGElement (props (className "fd-menuitem-text") (elementType 1) (a11yHidden true))
+    tag MenuItemTxDanger EVGElement (props (className "fd-menuitem-text fd-menuitem-text-danger") (elementType 1) (a11yHidden true))
     tag Add      EVGElement (props (className "fd-add") (role "button"))
     tag AddTxt   EVGElement (props (className "fd-add-text") (elementType 1) (a11yHidden true))
     tag List     EVGElement (props (className "fd-list") (role "listbox"))
@@ -202,9 +210,20 @@ class FilterDemo {
             ; falls back to half an em outside 32-126, which spaces a RUN
             ; wrongly; a single centred glyph is unaffected, which is what this
             ; is — the same reasoning the calendar's chevrons are under.
-            chip.addChild((tree Flt
-                (Menu (props (id (id + "-menu")) (a11yLabel ("Remove the " + f.label + " filter")))
-                    (MenuTxt "⋮"))))
+            def menuBtn (tree Flt
+                (Menu (props (id (id + "-menu"))
+                             (a11yLabel ("More actions for the " + f.label + " filter"))
+                             (a11yHasPopup "menu"))
+                    (MenuTxt "⋮")))
+            menuBtn.a11yExpanded = (EVGA11yTri.no())
+            if (model.isOpen((id + "-menu"))) {
+                menuBtn.a11yExpanded = (EVGA11yTri.yes())
+                menuBtn.isOverlayAnchor = true
+            }
+            chip.addChild(menuBtn)
+            if (model.isOpen((id + "-menu"))) {
+                chip.addChild((this.ruleMenu(id)))
+            }
             bar.addChild(chip)
 
             if (model.isOpen(id)) {
@@ -268,6 +287,67 @@ class FilterDemo {
         return page
     }
 
+    ; The negated form of an operator, found the way `positiveOf` is checked
+    ; rather than written as a second table: among the operators this field
+    ; kind offers, the negated one whose positive form is this one. A second
+    ; hand-written mapping is exactly what `positiveOf`'s own comment warns
+    ; about — two branches that have to stay in step.
+    fn negatedOf:string (fieldKey:string op:string) {
+        def positive:string (FilterCtl.positiveOf(op))
+        def f:FilterField (model.field(fieldKey))
+        def ops:[string] (FilterCtl.operatorsFor(f.kind))
+        def i:int 0
+        while (i < (array_length ops)) {
+            def cand:string (itemAt ops i)
+            if (FilterCtl.isNegated(cand)) {
+                if ((FilterCtl.positiveOf(cand)) == positive) {
+                    return cand
+                }
+            }
+            i = (i + 1)
+        }
+        return op
+    }
+
+    ; A serial for ids the demo mints itself. `addRule` takes the id, so the
+    ; caller owns uniqueness: a duplicate reusing its source's id would make
+    ; `node()` answer with whichever it found first.
+    def newRuleSerial:int 0
+
+    fn duplicateRule:void (id:string) {
+        def src:FilterNode (model.node(id))
+        newRuleSerial = (newRuleSerial + 1)
+        def copyId:string (("copy-" + (to_string newRuleSerial)) + ("-" + id))
+        model.addRule(copyId "" src.path src.operator)
+        model.setValues(copyId src.vals)
+        model.activeId = copyId
+    }
+
+    ; What the ellipsis opens. Three actions, and every one of them is a call
+    ; the controller already answers — nothing here invents behaviour:
+    ;
+    ;   Negate / un-negate   setOperator, through positiveOf / negatedOf
+    ;   Duplicate            addRule + setValues
+    ;   Remove               removeNode, which is all this button used to do
+    fn ruleMenu:EVGElement (id:string) {
+        def rule:FilterNode (model.node(id))
+        def menu (tree Flt (MenuList (props (id (id + "-menulist")) (a11yLabel "Filter actions"))))
+        def negLabel:string "Negate"
+        if (FilterCtl.isNegated(rule.operator)) {
+            negLabel = "Un-negate"
+        }
+        menu.addChild((tree Flt
+            (MenuItem (props (id (id + "-menu-negate")) (a11yLabel negLabel))
+                (MenuItemTx negLabel))))
+        menu.addChild((tree Flt
+            (MenuItem (props (id (id + "-menu-duplicate")) (a11yLabel "Duplicate"))
+                (MenuItemTx "Duplicate"))))
+        menu.addChild((tree Flt
+            (MenuItemDanger (props (id (id + "-menu-remove")) (a11yLabel "Remove"))
+                (MenuItemTxDanger "Remove"))))
+        return menu
+    }
+
     ; --- events --------------------------------------------------------------
 
     fn press:boolean (target:string) {
@@ -307,8 +387,44 @@ class FilterDemo {
                 this.rebuild()
                 return true
             }
-            if (target == (id + "-menu")) {
+            ; The ITEMS first, for the reason the options above are first: an
+            ; item's id begins with the button's, and the button's test would
+            ; swallow every one of them.
+            if (target == (id + "-menu-negate")) {
+                ; Named, not chained: Ranger has no field access on a call
+                ; result, which this file's own comment says a few lines up.
+                def rn:FilterNode (model.node(id))
+                def cur:string rn.operator
+                if (FilterCtl.isNegated(cur)) {
+                    model.setOperator(id (FilterCtl.positiveOf(cur)))
+                } {
+                    model.setOperator(id (this.negatedOf(rn.path cur)))
+                }
+                model.close()
+                this.rebuild()
+                return true
+            }
+            if (target == (id + "-menu-duplicate")) {
+                this.duplicateRule(id)
+                model.close()
+                this.rebuild()
+                return true
+            }
+            if (target == (id + "-menu-remove")) {
+                model.close()
                 model.removeNode(id)
+                this.rebuild()
+                return true
+            }
+            ; The ellipsis OPENS the menu. It used to remove the rule on the
+            ; first click: a control drawn as "more actions" with exactly one
+            ; action, the destructive one, and no way back.
+            if (target == (id + "-menu")) {
+                if (model.isOpen((id + "-menu"))) {
+                    model.close()
+                } {
+                    model.open((id + "-menu"))
+                }
                 this.rebuild()
                 return true
             }

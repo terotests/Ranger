@@ -2037,6 +2037,154 @@
       "$comment": "Jumping the year does not clear the selection — it just takes it off screen. Nothing in the shown month is marked, and coming back to May 2026 finds it still there."
     }
   },
+  "modes": {
+    "multiple": {
+      "steps": [
+        {
+          "click": "2026-05-12",
+          "selected": [
+            "2026-05-12"
+          ]
+        },
+        {
+          "click": "2026-05-20",
+          "selected": [
+            "2026-05-12",
+            "2026-05-20"
+          ]
+        },
+        {
+          "click": "2026-05-05",
+          "selected": [
+            "2026-05-12",
+            "2026-05-20",
+            "2026-05-05"
+          ]
+        },
+        {
+          "click": "2026-05-20",
+          "selected": [
+            "2026-05-12",
+            "2026-05-05"
+          ]
+        }
+      ],
+      "$comment": "Appends in CLICK order, not sorted — 12, 20, 05 stays in that order. Clicking a day already in the set removes it, which is the single mode's toggle applied per day."
+    },
+    "rangeForward": {
+      "steps": [
+        {
+          "click": "2026-05-12",
+          "selected": {
+            "from": "2026-05-12",
+            "to": "2026-05-12"
+          }
+        },
+        {
+          "click": "2026-05-20",
+          "selected": {
+            "from": "2026-05-12",
+            "to": "2026-05-20"
+          }
+        },
+        {
+          "click": "2026-05-05",
+          "selected": {
+            "from": "2026-05-05",
+            "to": "2026-05-20"
+          }
+        }
+      ],
+      "$comment": "The FIRST click gives {from: d, to: d} — a one-day range, not a half-open one with `to` undefined. The second extends `to`. A click BEFORE the start moves `from` rather than restarting: 05 against 12..20 gives 05..20."
+    },
+    "rangeBackward": {
+      "steps": [
+        {
+          "click": "2026-05-20",
+          "selected": {
+            "from": "2026-05-20",
+            "to": "2026-05-20"
+          }
+        },
+        {
+          "click": "2026-05-12",
+          "selected": {
+            "from": "2026-05-12",
+            "to": "2026-05-20"
+          }
+        }
+      ],
+      "$comment": "Clicked high then low, the range comes back ordered 12..20."
+    },
+    "rangeSameDay": {
+      "steps": [
+        {
+          "click": "2026-05-12",
+          "selected": {
+            "from": "2026-05-12",
+            "to": "2026-05-12"
+          }
+        },
+        {
+          "click": "2026-05-12",
+          "selected": null
+        }
+      ],
+      "$comment": "Clicking the one selected day again CLEARS the whole range, the way single mode clears its day."
+    },
+    "rangeThirdClick": {
+      "steps": [
+        {
+          "click": "2026-05-12",
+          "selected": {
+            "from": "2026-05-12",
+            "to": "2026-05-12"
+          }
+        },
+        {
+          "click": "2026-05-20",
+          "selected": {
+            "from": "2026-05-12",
+            "to": "2026-05-20"
+          }
+        },
+        {
+          "click": "2026-05-25",
+          "selected": {
+            "from": "2026-05-12",
+            "to": "2026-05-25"
+          }
+        }
+      ],
+      "$comment": "THE ONE THAT IS NOT GUESSABLE. A click past the end of a complete range EXTENDS it to 12..25. It does not start a new range at 25, which is what most re-implementations do."
+    },
+    "rangeInside": {
+      "steps": [
+        {
+          "click": "2026-05-12",
+          "selected": {
+            "from": "2026-05-12",
+            "to": "2026-05-12"
+          }
+        },
+        {
+          "click": "2026-05-20",
+          "selected": {
+            "from": "2026-05-12",
+            "to": "2026-05-20"
+          }
+        },
+        {
+          "click": "2026-05-15",
+          "selected": {
+            "from": "2026-05-12",
+            "to": "2026-05-15"
+          }
+        }
+      ],
+      "$comment": "And a click INSIDE a complete range shrinks `to` onto it: 12..20 with 15 clicked gives 12..15."
+    }
+  },
   "findings": {
     "homeAndEndAreWeekRelative": "Home and End move within the displayed WEEK, not the month: Home from 2026-05-13 is 2026-05-10 (that week's Sunday) and End is 2026-05-16. From 2026-05-01, a Friday, Home is 2026-04-26 — an outside day — and the displayed month changes to April. A calendar whose Home key means 'the 1st' is a different component, and that is the obvious wrong guess.",
     "pageKeysKeepTheDayOfMonth": "PageUp and PageDown shift by one month and hold the day number: 2026-05-13 goes to 2026-04-13 and 2026-06-13. At the ends this is capped by the target month's length — PageUp from 2026-05-31 is 2026-04-30, because April has no 31st.",

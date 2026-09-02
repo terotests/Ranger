@@ -77,6 +77,26 @@ class CalendarCtl extends UiCtl {
 
     def showOutsideDays:boolean true
 
+    ; --- what a selection IS --------------------------------------------------
+    ;
+    ; "single" (the default and what everything above was measured against),
+    ; "multiple", or "range". Every rule below comes from driving
+    ; react-day-picker in that mode; `calendar.json`'s `modes` block holds the
+    ; clicks and what they produced, and `calendar_check.mjs` replays them.
+    def mode:string "single"
+
+    ; multiple: the chosen days, IN CLICK ORDER. Measured — clicking 12, 20,
+    ; then 05 leaves them in that order and not sorted, and clicking one
+    ; already in the set removes it.
+    def chosenDays:[int]
+
+    ; range: from..to inclusive. The first click gives a ONE-DAY range rather
+    ; than a half-open one, so `hasRange` and `rangeFrom == rangeTo` is a real
+    ; state and not an intermediate.
+    def rangeFrom:int 0
+    def rangeTo:int 0
+    def hasRange:boolean false
+
     ; --- reaching a year -----------------------------------------------------
     ;
     ; Reported: getting to 2019 is forty-eight presses of the previous-month
@@ -124,6 +144,21 @@ class CalendarCtl extends UiCtl {
 
     fn clearSelected:void () {
         hasSelection = false
+    }
+
+    ; Changing mode CLEARS. A day chosen in single mode is not the from of a
+    ; range, and carrying one shape into another is how a calendar ends up
+    ; showing a selection its mode cannot express.
+    fn setMode:void (m:string) {
+        if (m == mode) {
+            return
+        }
+        mode = m
+        hasSelection = false
+        hasRange = false
+        def empty:[int]
+        chosenDays = empty
+        this.build()
     }
 
     fn setMinDate:void (y:int m:int d:int) {
@@ -516,8 +551,135 @@ class CalendarCtl extends UiCtl {
     ; Choosing a day. In single mode without `required` this TOGGLES: the
     ; measured reference clears the selection when the selected day is chosen
     ; again, by pointer and by Enter alike.
+    ; --- multiple -------------------------------------------------------------
+
+    fn indexOfChosen:int (day:int) {
+        def i:int 0
+        while (i < (array_length chosenDays)) {
+            if ((itemAt chosenDays i) == day) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn isChosen:boolean (day:int) {
+        return ((this.indexOfChosen(day)) >= 0)
+    }
+
+    fn chosenCount:int () {
+        return (array_length chosenDays)
+    }
+
+    fn chosenAt:int (i:int) {
+        if (i < 0) {
+            return 0
+        }
+        if (i >= (array_length chosenDays)) {
+            return 0
+        }
+        return (itemAt chosenDays i)
+    }
+
+    fn toggleChosen:void (day:int) {
+        def at:int (this.indexOfChosen(day))
+        if (at < 0) {
+            push chosenDays day
+            return
+        }
+        ; Removed by rebuilding without it: Ranger has no splice, and the
+        ; ORDER of what remains is measured — 12, 20, 05 with 20 removed is
+        ; 12, 05 and not 05, 12.
+        def keep:[int]
+        def i:int 0
+        while (i < (array_length chosenDays)) {
+            if (i != at) {
+                push keep (itemAt chosenDays i)
+            }
+            i = (i + 1)
+        }
+        chosenDays = keep
+    }
+
+    ; --- range ----------------------------------------------------------------
+
+    fn isInRange:boolean (day:int) {
+        if (hasRange == false) {
+            return false
+        }
+        if (day < rangeFrom) {
+            return false
+        }
+        if (day > rangeTo) {
+            return false
+        }
+        return true
+    }
+
+    fn isRangeEnd:boolean (day:int) {
+        if (hasRange == false) {
+            return false
+        }
+        if (day == rangeFrom) {
+            return true
+        }
+        if (day == rangeTo) {
+            return true
+        }
+        return false
+    }
+
+    ; The rule that is NOT guessable, and the reason this is measured rather
+    ; than written from memory: a click past the end of a COMPLETE range
+    ; extends it — 12..20 with 25 clicked is 12..25, not a fresh range at 25.
+    ; Most re-implementations restart. A click inside shrinks `to` onto it,
+    ; a click before the start moves `from`, and clicking the single day of a
+    ; one-day range clears the whole thing.
+    fn pickRange:void (day:int) {
+        if (hasRange == false) {
+            rangeFrom = day
+            rangeTo = day
+            hasRange = true
+            return
+        }
+        if (rangeFrom == rangeTo) {
+            if (day == rangeFrom) {
+                hasRange = false
+                return
+            }
+            if (day < rangeFrom) {
+                ; Clicked backwards: the range comes back ordered.
+                rangeTo = rangeFrom
+                rangeFrom = day
+                return
+            }
+            rangeTo = day
+            return
+        }
+        if (day < rangeFrom) {
+            rangeFrom = day
+            return
+        }
+        rangeTo = day
+    }
+
     fn pickDay:void (day:int) {
         if (this.isDisabledDay(day)) {
+            return
+        }
+        if (mode == "multiple") {
+            this.toggleChosen(day)
+            focusDay = day
+            hasFocusDay = true
+            this.build()
+            return
+        }
+        if (mode == "range") {
+            this.pickRange(day)
+            focusDay = day
+            hasFocusDay = true
+            this.build()
             return
         }
         if hasSelection {

@@ -37,6 +37,7 @@
 
 Import "../src/CalendarCtl.rgr"
 Import "../src/UiDate.rgr"
+Import "../src/RadioGroupCtl.rgr"
 Import "../../evg/EVGElement.rgr"
 Import "../../evg/EVGUnit.rgr"
 Import "../../evg/EVGLayout.rgr"
@@ -46,6 +47,7 @@ Import "../../evg/EVGTransition.rgr"
 Import "../../evg/EVGA11yTree.rgr"
 Import "../../evg/EVGA11yFromTree.rgr"
 Import "../../evg/EVGHitTest.rgr"
+Import "../../evg/EVGTextEngine.rgr"
 
 treefactory Cal {
     child addChild
@@ -92,6 +94,18 @@ treefactory Cal {
     tag Week      EVGElement (props (className "cd-week") (role "row"))
     tag Day       EVGElement (props (className "cd-day") (role "gridcell"))
     tag DayNum    EVGElement (props (className "cd-daynum") (elementType 1) (a11yHidden true))
+    ; THE MODE SWITCHER. Asked for as checkboxes; they are RADIOS, because the
+    ; three modes are mutually exclusive and a checkbox that unchecks its
+    ; neighbour is telling a reader something untrue about itself. They are
+    ; drawn as a row of small boxes with a mark on the active one, which is
+    ; the picture the request described, and `RadioGroupCtl` — measured — owns
+    ; which one is on.
+    tag Modes     EVGElement (props (className "cd-modes") (role "radiogroup") (a11yLabel "Selection mode"))
+    tag ModeOpt   EVGElement (props (className "cd-modeopt") (role "radio"))
+    tag ModeBox   EVGElement (props (className "cd-modebox"))
+    tag ModeBoxOn EVGElement (props (className "cd-modebox cd-modebox-on"))
+    tag ModeMark  EVGElement (props (className "cd-modemark") (elementType 1) (a11yHidden true))
+    tag ModeTx    EVGElement (props (className "cd-modetx") (elementType 1) (a11yHidden true))
     tag Note      EVGElement (props (className "cd-note") (elementType 1))
 }
 
@@ -100,6 +114,11 @@ class CalendarDemo {
     def model:CalendarCtl (new CalendarCtl())
     def root@(optional):EVGElement
     def sheet@(optional):EVGStyleSheet
+    ; A measurer owning no tree, for sizing the month name to its own text.
+    def capMeasurer:EVGLayout (new EVGLayout())
+    ; Which mode is on. The group is the measured control; the calendar is
+    ; told what it says.
+    def modes:RadioGroupCtl (new RadioGroupCtl())
     def transitions:EVGTransition (new EVGTransition())
     def layout@(optional):EVGLayout
     def hovered:string ""
@@ -129,6 +148,14 @@ class CalendarDemo {
         model.endYear = 2036
         ; Newest first, so the years near today are the ones you land on.
         model.reverseYears = true
+
+        modes.tid = "cd-modes"
+        modes.name = "Selection mode"
+        modes.addItem("single" "Single" false)
+        modes.addItem("multiple" "Multiple" false)
+        modes.addItem("range" "Range" false)
+        modes.selectValue("single")
+        modes.build()
         model.build()
 
         root = (this.page())
@@ -171,7 +198,48 @@ class CalendarDemo {
                 cls = (cls + " cd-day-selected")
             }
         }
+        ; The two other modes paint from their own state. A chosen day in
+        ; multiple mode reads the same as a selected one in single; a range
+        ; has ENDS and a band between them, which are different pictures.
+        if (model.isChosen(day)) {
+            cls = (cls + " cd-day-selected")
+        }
+        if (model.isRangeEnd(day)) {
+            cls = (cls + " cd-day-selected")
+        } {
+            if (model.isInRange(day)) {
+                cls = (cls + " cd-day-inrange")
+            }
+        }
         return cls
+    }
+
+    ; The three mode options.
+    fn modeRow:EVGElement () {
+        def row (tree Cal (Modes (props (id "cd-modes"))))
+        def i:int 0
+        def vals:[string] ([] _:string ( "single" "multiple" "range" ))
+        def names:[string] ([] _:string ( "Single" "Multiple" "Range" ))
+        while (i < 3) {
+            def v:string (itemAt vals i)
+            def on:boolean (modes.value == v)
+            ; A named intermediate: a computed child in text position is read
+            ; as a TAG NAME by the tree factory.
+            def label:string (itemAt names i)
+            def opt (tree Cal
+                (ModeOpt (props (id (modes.itemTid(v))) (a11yLabel label))))
+            if on {
+                opt.a11yChecked = (EVGA11yTri.yes())
+                opt.addChild((tree Cal (ModeBoxOn (ModeMark "✓"))))
+            } {
+                opt.a11yChecked = (EVGA11yTri.no())
+                opt.addChild((tree Cal (ModeBox)))
+            }
+            opt.addChild((tree Cal (ModeTx label)))
+            row.addChild(opt)
+            i = (i + 1)
+        }
+        return row
     }
 
     ; The day NUMBER's classes. It needs its own, because EVGStyleSheet has no
@@ -187,6 +255,15 @@ class CalendarDemo {
             if (day == model.selectedDay) {
                 cls = (cls + " cd-daynum-selected")
             }
+        }
+        ; The other two modes mark days too, and the numeral needs the token
+        ; on every path that darkens the cell under it — one missed branch is
+        ; a black numeral on a black cell.
+        if (model.isChosen(day)) {
+            cls = (cls + " cd-daynum-selected")
+        }
+        if (model.isRangeEnd(day)) {
+            cls = (cls + " cd-daynum-selected")
         }
         return cls
     }
@@ -208,6 +285,27 @@ class CalendarDemo {
             i = (i + 1)
         }
         return el
+    }
+
+    ; The ink width of a caption run, at the size the stylesheet draws it.
+    fn captionTextWidth:double (text:string) {
+        def eng:EVGTextEngine (capMeasurer.getTextEngine())
+        def m:EVGTextMetrics (eng.measureRun(text "system-ui" 14.0))
+        return m.width
+    }
+
+    sfn px:string (v:double) {
+        def scaled:int (to_int (v * 100.0))
+        def whole:int (idiv scaled 100)
+        def frac:int (scaled - (whole * 100))
+        if (frac < 0) {
+            frac = (0 - frac)
+        }
+        def fs:string (to_string frac)
+        if (frac < 10) {
+            fs = "0" + fs
+        }
+        return ((to_string whole) + "." + fs + "px")
     }
 
     fn yearBtnLabel:string () {
@@ -335,7 +433,7 @@ class CalendarDemo {
                 (NavBtn (props (id "cal-prev") (a11yLabel "Go to the Previous Month"))
                     (NavGlyph "‹"))
                 (Caption (props (id "cal-caption"))
-                    (MonthTxt (UiDate.monthName(model.viewMonth))))
+                    (MonthTxt (props (id "cal-month")) (UiDate.monthName(model.viewMonth))))
                 (NavBtn (props (id "cal-next") (a11yLabel "Go to the Next Month"))
                     (NavGlyph "›"))))
         ; The year goes INSIDE the caption, beside the month. Not after it:
@@ -343,6 +441,20 @@ class CalendarDemo {
         ; changes, and a year drawn outside it would leave the announcement
         ; saying "May" with no year in it.
         def cap:EVGElement (CalendarDemo.byId(nav "cal-caption"))
+        ; THE MONTH BOX IS AS WIDE AS THE MONTH.
+        ;
+        ; It was a fixed 96px with `text-align: right`, so "May" — about 27px
+        ; of ink — was drawn at the right end of a box that began 69px
+        ; earlier. The caption centres its content, and it was centring a box
+        ; that was mostly empty on its left: every BOX lined up on the grid's
+        ; centre at 163 while the ink people actually see sat near 197.
+        ; Reported as the selector not being centred, and it was not.
+        ;
+        ; Measured rather than guessed, the way the message demo sizes a name
+        ; in its typing marker: a month is as wide as its own name, and
+        ; September is not May.
+        def monthEl:EVGElement (CalendarDemo.byId(cap "cal-month"))
+        UiTree.inline(monthEl "width" (CalendarDemo.px((this.captionTextWidth((UiDate.monthName(model.viewMonth)))))))
         ; A named intermediate rather than `(YearTxt (to_string ...))`: a
         ; computed child in text position is read as a TAG NAME by the tree
         ; factory, and the error says `to_string is not a tag of Cal`.
@@ -407,6 +519,7 @@ class CalendarDemo {
         def note:string ("Arrow keys move a day, Home and End move within the week, "
             + "PageUp and PageDown move a month. Enter chooses; Enter on the "
             + "chosen day clears it.")
+        page.addChild((this.modeRow()))
         page.addChild((tree Cal (Note note)))
         return page
     }
@@ -414,6 +527,23 @@ class CalendarDemo {
     ; --- events --------------------------------------------------------------
 
     fn press:boolean (target:string) {
+        ; The mode switcher first: the group decides, and the calendar is told
+        ; what it decided. Changing mode clears the selection, which is
+        ; CalendarCtl's rule — a day chosen in one mode is not a range in
+        ; another.
+        def i:int 0
+        def vals:[string] ([] _:string ( "single" "multiple" "range" ))
+        while (i < 3) {
+            def v:string (itemAt vals i)
+            if (target == (modes.itemTid(v))) {
+                modes.selectValue(v)
+                model.setMode(v)
+                focused = target
+                this.rebuild()
+                return true
+            }
+            i = (i + 1)
+        }
         def wasOpen:boolean model.yearPanelOpen
         model.activate(target)
         ; Opening the panel parks it on the year you are on. Without this it

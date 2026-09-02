@@ -210,3 +210,48 @@
   color: #a1a1aa;
   height: 16px;
 }
+
+/* --- the ellipsis menu ----------------------------------------------------
+ *
+ * Reported: the three-dot button only removed the rule. It was drawn as
+ * "more actions" and had exactly one, the destructive one, with no way back.
+ * Three now, and each is a call FilterCtl already answers. */
+.fd-menulist {
+  display: flex;
+  flex-direction: column;
+  width: 132px;
+  padding: 4px;
+  gap: 2px;
+  border: 1px solid #e4e4e7;
+  border-radius: 8px;
+  background-color: #ffffff;
+}
+
+.fd-menuitem {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  padding-left: 8px;
+  padding-right: 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 100ms ease-out;
+}
+
+.fd-menuitem:hover { background-color: #f4f4f5; }
+
+.fd-menuitem-danger:hover { background-color: #fee2e2; }
+
+/* Its own token: no descendant selectors, so a red item's label cannot
+ * inherit anything from the item around it. */
+.fd-menuitem-text {
+  font-size: 13px;
+  color: #18181b;
+  height: 18px;
+}
+
+.fd-menuitem-text-danger {
+  font-size: 13px;
+  color: #b91c1c;
+  height: 18px;
+}

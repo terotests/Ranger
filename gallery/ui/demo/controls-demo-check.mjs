@@ -59,6 +59,7 @@ const flat = (d) => {
   return out;
 };
 const byId = (d, id) => flat(d).find((e) => e.id === id);
+const hasCls = (el, c) => String(el.className || "").split(/\s+/).includes(c);
 const cmds = (d) => JSON.parse(d.displayListJson()).cmds;
 const texts = (d) => cmds(d).filter((c) => c.text !== undefined).map((c) => c.text);
 const clickOn = (d, id) => {
@@ -196,8 +197,13 @@ console.log("nothing is drawn dark on dark");
   // StepperCtl's rule and this gate had it backwards.
   clickOn(d, "cx-next");
   const dotTxt = byId(d, "cx-step-account").children[0].children[0];
+  // The WHOLE token, not a substring. This read `.includes("cx-dottxt-complete")`
+  // and passed on `cx-dottxt-completed` — which is the class the controller
+  // actually emits, against a stylesheet that only defined `-complete`. The
+  // rule matched nothing, every step painted identically, and this assertion
+  // said it was fine.
   ok("a completed step's tick has its own token too",
-    (dotTxt.className || "").includes("cx-dottxt-complete"), dotTxt.className);
+    (dotTxt.className || "").split(/\s+/).includes("cx-dottxt-completed"), dotTxt.className);
 }
 
 console.log("the number field's own rules survive being drawn");
@@ -511,6 +517,134 @@ console.log("the sliders move");
   // are now three, and the rule is the same one: focus decides.
   ok("so an arrow key belongs to the field again", d.key("ArrowUp"));
   eq("and the slider it left did not move", d.storage.value, heldStorage);
+}
+
+// EVERY CLASS THE DEMO EMITS IS A CLASS THE STYLESHEET DEFINES.
+//
+// The defect this exists for: `StepperCtl.stateOf` answers `active` /
+// `completed` / `inactive` / `disabled` / `loading`, and controls.css was
+// written against `current` / `complete` / `upcoming`. Nine rules — the
+// current step's black circle, its white glyph, its dark title, and the same
+// three for completed and for upcoming — matched nothing at all, so every
+// step painted identically and the step you were standing on was
+// indistinguishable from the ones you had not reached.
+//
+// Nothing could see it. The stylesheet parses without error, because an
+// unused rule is not an error; the tree builds; the layout is fine; and the
+// one assertion pointed at it matched a SUBSTRING. A class name is the seam
+// between two files, and this is the gate for that seam.
+console.log("every emitted class is a class the stylesheet defines");
+{
+  const d = fresh();
+  // The tokens the stylesheet defines, from its own text: `.token {`, plus
+  // any pseudo-class form.
+  const defined = new Set();
+  for (const m of CSS.matchAll(/\.([A-Za-z0-9_-]+)\s*(?::[a-z-]+)?\s*\{/g)) defined.add(m[1]);
+  ok("the stylesheet defines some classes", defined.size > 20, String(defined.size));
+
+  // Walk every state the page can reach, not just the one it opens in: a
+  // class only a completed step carries is invisible until a step completes.
+  const seen = new Map();
+  const sweep = () => {
+    for (const el of flat(d)) {
+      for (const c of String(el.className || "").split(/\s+/)) {
+        if (c) seen.set(c, (el.id || el.className));
+      }
+    }
+  };
+  sweep();
+  clickOn(d, "cx-next"); d.displayListJson(); sweep();
+  clickOn(d, "cx-next"); d.displayListJson(); sweep();
+  clickOn(d, "cx-back"); d.displayListJson(); sweep();
+
+  const orphans = [...seen.keys()].filter((c) => !defined.has(c)).sort();
+  ok("no class is emitted that the stylesheet never defines",
+    orphans.length === 0, orphans.join(", "));
+  // And the state variants specifically: the controller's vocabulary is the
+  // one that counts, because it is the measured one.
+  for (const state of ["active", "completed", "inactive", "disabled", "loading"]) {
+    for (const base of ["cx-dot", "cx-dottxt", "cx-steplbl"]) {
+      ok(`${base}-${state} is defined`, defined.has(`${base}-${state}`));
+    }
+  }
+}
+
+// The four steps are one shape.
+//
+// Reported: "step 1 on jotenkin väärin asetelmoitu muihin nähden". `.cx-step`
+// had no `flex-wrap` — `.cx-strip` was given `nowrap` for this same reason and
+// the step one level down was not — so the WIDEST step wrapped its circle onto
+// a line of its own. Nothing about it was special except that its badge says
+// "In Progress" rather than "Pending".
+console.log("the four steps are one shape");
+{
+  const d = fresh();
+  const steps = flat(d).filter((e) => e.id && e.id.startsWith("cx-step-") && hasCls(e, "cx-step"));
+  ok("four steps", steps.length === 4, String(steps.length));
+  const heights = steps.map((e) => Math.round(e.calculatedHeight));
+  ok("all the same height", new Set(heights).size === 1, heights.join("/"));
+  // The circle beside the title, not above it: same row means the circle's
+  // box sits inside the step's vertical span rather than starting at its top
+  // with the column below.
+  for (const st of steps) {
+    const dot = st.children[0];
+    const col = st.children[1];
+    const overlap = Math.min(dot.calculatedY + dot.calculatedHeight, col.calculatedY + col.calculatedHeight)
+      - Math.max(dot.calculatedY, col.calculatedY);
+    ok(`${st.id}: the circle is beside its column`, overlap > 0,
+      `dot ${dot.calculatedY}..${dot.calculatedY + dot.calculatedHeight}, col ${col.calculatedY}..${col.calculatedY + col.calculatedHeight}`);
+  }
+  // And the current step LOOKS current. Before the vocabulary was fixed, the
+  // glyph and the title were the same grey on all four.
+  const colOf = (e) => (e.color ? `${e.color.r},${e.color.g},${e.color.b}` : "-");
+  const cur = steps[0];
+  const other = steps[1];
+  ok("the current step's glyph differs from a pending one's",
+    colOf(cur.children[0].children[0]) !== colOf(other.children[0].children[0]),
+    colOf(cur.children[0].children[0]));
+  ok("and so does its title",
+    colOf(cur.children[1].children[1]) !== colOf(other.children[1].children[1]),
+    colOf(cur.children[1].children[1]));
+}
+
+// The ruler is a ruler.
+//
+// Reported: "stepit ei oo ihan tasamittaisia". The row was
+// `justify-content: space-between` over thirteen cells sized by their labels,
+// and space-between divides the LEFTOVER evenly — so cells of different widths
+// give centres at different intervals. Measured before: nine gaps of 23.47px
+// and then three of 26.53. The ends were wrong too, each mark being centred in
+// a cell that began at the row's edge.
+console.log("the ruler is evenly divided");
+{
+  const d = fresh();
+  const marks = flat(d).filter((e) => hasCls(e, "cx-tickmark"));
+  ok("thirteen ticks for 0..12 by one", marks.length === 13, String(marks.length));
+  const centres = marks.map((m) => +(m.calculatedX + m.calculatedWidth / 2).toFixed(2));
+  const gaps = centres.slice(1).map((v, i) => +(v - centres[i]).toFixed(2));
+  ok("every gap is the same", new Set(gaps).size === 1, gaps.join(" "));
+  // And it spans the TRACK, end to end — the thing space-between could not do
+  // while its cells had width.
+  const track = byId(d, "cx-duration-track");
+  ok("the first tick is on the track's left edge",
+    Math.abs(centres[0] - track.calculatedX) < 0.01, `${centres[0]} vs ${track.calculatedX}`);
+  ok("and the last on its right",
+    Math.abs(centres[12] - (track.calculatedX + track.calculatedWidth)) < 0.01,
+    `${centres[12]} vs ${track.calculatedX + track.calculatedWidth}`);
+  // A tick sits where its VALUE does. Checked against the controller rather
+  // than against 25px, so a different range or step still has to agree.
+  const s = d.duration;
+  for (let i = 0; i < marks.length; i++) {
+    const want = track.calculatedX + s.tickFraction(i) * 300;
+    if (Math.abs(centres[i] - want) > 0.01) {
+      ok(`tick ${i} sits at its own fraction`, false, `${centres[i]} vs ${want}`);
+      break;
+    }
+    if (i === marks.length - 1) ok("every tick sits at its own fraction", true);
+  }
+  // The numbers are still on the major ticks only.
+  const labelled = flat(d).filter((e) => hasCls(e, "cx-ticktxt") && e.textContent).map((e) => e.textContent);
+  ok("only the major ticks carry a number", labelled.join(",") === "0,2,4,6,8,10,12", labelled.join(","));
 }
 
 console.log(`\npassed=${passed} failed=${failed}`);

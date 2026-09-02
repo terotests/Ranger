@@ -214,6 +214,90 @@ class EVGTextMeasurer {
         return false
     }
 
+
+    ; --- symbols above ASCII --------------------------------------------------
+    ;
+    ; MEASURED, the same way the ASCII table was: `advance_oracle.mjs` asks a
+    ; browser for each one with canvas `measureText` at a 100px reference.
+    ;
+    ; Everything above printable ASCII used to take the 0.5em guess below —
+    ; one number for a chevron, a lock, a braille drag handle and a box-drawing
+    ; glyph alike. What that cost, at the 12px a step's icon is drawn:
+    ;
+    ;   U+25A4 "▤"  really 11.34px, believed 6.00
+    ;   U+263A "☺"  really 12.25px, believed 6.00
+    ;   U+2713 "✓"  really 10.05px, believed 6.00
+    ;   U+2022 "•"  really  4.20px, believed 6.00
+    ;
+    ; A glyph nearly twice as wide as its box does not sit in the middle of
+    ; that box, which is what was reported: a step's icon visibly off-centre
+    ; in a circle whose geometry was correct. The box was the thing that was
+    ; wrong, and it was wrong for all 63 of these.
+    ;
+    ; The codes are SORTED, and looked up by bisection: this is on the path
+    ; that measures every character of every string.
+    ;
+    ; Derived from the sources rather than listed by hand — the oracle scans
+    ; the gallery for the code points it actually draws, and
+    ; `advance_check.mjs` fails if a source introduces one this table lacks.
+    sfn symbolCodes:[int] () {
+        return ([] _:int (
+            167 178 179 183 215 228 233 238 246 8211
+            8212 8226 8230 8249 8250 8309 8419 8594 8599 8600
+            8613 8634 8677 8679 8706 8722 8728 8801 8804 8805
+            8942 8963 8964 8981 8984 9472 9474 9492 9500 9516
+            9635 9636 9645 9650 9656 9658 9660 9662 9676 9679
+            9685 9719 9728 9730 9733 9742 9786 9790 9881 10003
+            10005 10303 33394
+        ))
+    }
+
+    sfn symbolEm:[double] () {
+        return ([] _:double (
+            0.55615 0.33301 0.33301 0.33301 0.58398 0.55615 0.55615 0.27783
+            0.55615 0.55615 1.00000 0.35010 1.00000 0.33301 0.33301 0.41455
+            0.00000 1.00000 0.83789 0.83789 0.83789 0.83789 0.83789 0.83789
+            0.49414 0.58398 0.62598 0.58350 0.54883 0.54883 1.00000 0.83789
+            0.83789 0.56000 1.00000 0.70850 0.62500 0.70850 0.70850 0.70850
+            0.94482 0.94482 0.94482 0.98975 0.50195 0.98975 0.98975 0.50195
+            0.59424 0.60400 0.60400 0.87256 0.89648 0.89648 0.89648 1.24561
+            1.02100 0.89648 0.89648 0.83789 0.83789 0.73242 1.00000
+        ))
+    }
+
+    sfn monoSymbolEm:[double] () {
+        return ([] _:double (
+            0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205
+            0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205
+            0.00000 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205
+            0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 1.00000 0.60205
+            0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205
+            0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205
+            0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205
+            0.60205 0.60205 0.60205 0.60205 0.60205 0.73242 1.00000
+        ))
+    }
+
+    ; The index of `ch` in `symbolCodes`, or -1. Bisection over a sorted table.
+    sfn symbolIndex:int (ch:int) {
+        def codes:[int] (EVGTextMeasurer.symbolCodes())
+        def lo:int 0
+        def hi:int ((array_length codes) - 1)
+        while (lo <= hi) {
+            def mid:int (lo + (idiv (hi - lo) 2))
+            def v:int (itemAt codes mid)
+            if (v == ch) {
+                return mid
+            }
+            if (v < ch) {
+                lo = (mid + 1)
+            } {
+                hi = (mid - 1)
+            }
+        }
+        return -1
+    }
+
     fn measureChar:double (ch:int fontFamily:string fontSize:double) {
         def mono:boolean (EVGTextMeasurer.isMono(fontFamily))
         if (ch == 8364) {
@@ -269,17 +353,23 @@ class EVGTextMeasurer {
         if (ch == 65039) {
             return 0.0
         }
-        ; Outside the table — anything beyond printable ASCII and the euro.
-        ; Half an em, which is the middle of the measured range rather than a
-        ; number picked by feel, and it is a GUESS: the honest fix for a
-        ; character this table does not hold is to measure with the face that
-        ; will draw it, through `EVGTextEngine.setMeasurer`.
+        ; The measured symbols, before the guess.
+        def si:int (EVGTextMeasurer.symbolIndex(ch))
+        if (si >= 0) {
+            def st:[double] (EVGTextMeasurer.symbolEm())
+            if mono {
+                st = (EVGTextMeasurer.monoSymbolEm())
+            }
+            return ((itemAt st si) * fontSize)
+        }
+        ; Outside every table. Half an em, which is the middle of the measured
+        ; range rather than a number picked by feel, and it is a GUESS: the
+        ; honest fix for a character no table holds is to measure with the
+        ; face that will draw it, through `EVGTextEngine.setMeasurer`.
         ;
-        ; Measured, for the record, so the size of the guess is known rather
-        ; than assumed: a left chevron is 0.3999 em, an a-umlaut 0.6128, a
-        ; bullet 0.5898 and the euro 0.6362. Half an em is within about a
-        ; fifth of all of them, which is fine for a glyph alone in a box and
-        ; is not fine for a sentence.
+        ; This is now reached only by a character the gallery does not itself
+        ; draw — the symbols it does draw are measured above, and the oracle
+        ; derives that set from the sources so it cannot fall behind them.
         return (fontSize * 0.5)
     }
 

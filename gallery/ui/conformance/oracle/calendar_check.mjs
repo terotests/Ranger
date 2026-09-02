@@ -364,6 +364,81 @@ console.log("the year panel (specified — the reference uses a native select)")
   check("pressing the year again closes it", c.yearPanelOpen, false);
 }
 
+// --- the other two modes ----------------------------------------------------
+//
+// Every step here is REPLAYED from the capture: the clicks the oracle made and
+// what the library produced. Nothing is transcribed, so a newer
+// react-day-picker with different rules makes this file ask the new questions.
+//
+// Range is the case that earns the measurement. A third click past the end of
+// a complete range EXTENDS it — 12..20 with 25 clicked is 12..25 — and almost
+// every re-implementation restarts instead.
+console.log("multiple and range, replayed from the capture");
+{
+  const mk2 = (m) => {
+    const c = mk();
+    c.setMode(m);
+    return c;
+  };
+  const days = (c) => {
+    const out = [];
+    for (let i = 0; i < c.chosenCount(); i++) out.push(H.UiDate.isoOfDays(c.chosenAt(i)));
+    return out;
+  };
+  const range = (c) => (c.hasRange
+    ? { from: H.UiDate.isoOfDays(c.rangeFrom), to: H.UiDate.isoOfDays(c.rangeTo) }
+    : null);
+
+  // multiple
+  {
+    const c = mk2("multiple");
+    const steps = oracle.modes.multiple.steps;
+    for (const st of steps) {
+      c.activate(cell(st.click));
+      check(`multiple: after ${st.click}`, days(c).join(","),
+        (st.selected || []).join(","));
+    }
+  }
+
+  // range, in all five shapes the capture holds
+  for (const key of ["rangeForward", "rangeBackward", "rangeSameDay", "rangeThirdClick", "rangeInside"]) {
+    const c = mk2("range");
+    for (const st of oracle.modes[key].steps) {
+      c.activate(cell(st.click));
+      const want = st.selected ? `${st.selected.from}..${st.selected.to}` : "none";
+      const got = c.hasRange ? `${H.UiDate.isoOfDays(c.rangeFrom)}..${H.UiDate.isoOfDays(c.rangeTo)}` : "none";
+      check(`${key}: after ${st.click}`, got, want);
+    }
+  }
+
+  // And the shape questions the capture cannot ask, which are this kit's own:
+  // switching mode clears, because a day chosen in one mode is not a range in
+  // another.
+  {
+    const c = mk2("multiple");
+    c.activate(cell("2026-05-12"));
+    check("a day is chosen in multiple", c.chosenCount(), 1);
+    c.setMode("range");
+    check("switching to range clears it", c.chosenCount(), 0);
+    check("and starts with no range", c.hasRange, false);
+    c.activate(cell("2026-05-12"));
+    c.activate(cell("2026-05-20"));
+    check("a range is built", `${H.UiDate.isoOfDays(c.rangeFrom)}..${H.UiDate.isoOfDays(c.rangeTo)}`,
+      "2026-05-12..2026-05-20");
+    // `isInRange` is what a demo paints the band with.
+    check("the middle of it is inside", c.isInRange(H.UiDate.toDays(2026, 5, 15)), true);
+    check("a day past it is not", c.isInRange(H.UiDate.toDays(2026, 5, 21)), false);
+    check("the ends are ends", c.isRangeEnd(H.UiDate.toDays(2026, 5, 12)), true);
+    check("and the middle is not an end", c.isRangeEnd(H.UiDate.toDays(2026, 5, 15)), false);
+    c.setMode("single");
+    check("switching to single clears the range", c.hasRange, false);
+    c.activate(cell("2026-05-12"));
+    check("and single still toggles as it always did", sel(c), "2026-05-12");
+    c.activate(cell("2026-05-12"));
+    check("cleared by the same day again", sel(c), null);
+  }
+}
+
 const total = pass + fail;
 console.log("");
 console.log(`parity: ${pass}/${total} behaviours match react-day-picker ${oracle.reactDayPicker}`);

@@ -54,9 +54,16 @@
   gap: 8px;
 }
 
+/* `nowrap` here for the same reason the strip has it, one level down. The
+ * strip got it and the step did not, and the step is where it showed: the
+ * WIDEST step wrapped its circle onto a line of its own, so the current step
+ * — whose badge says "In Progress" rather than "Pending" — stood 26px taller
+ * than the other three and sat with its circle above its title instead of
+ * beside it. Nothing about it was special except that it was widest. */
 .cx-step {
   display: flex;
   flex-direction: row;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 8px;
 }
@@ -82,19 +89,28 @@
   cursor: pointer;
 }
 
-.cx-dot-current {
+/* THE STATE NAMES ARE THE CONTROLLER'S. `StepperCtl.stateOf` answers
+ * `active` / `completed` / `inactive` / `disabled` / `loading`, and this file
+ * was written against `current` / `complete` / `upcoming`. Two vocabularies
+ * for one thing, so `.cx-dot-active` and the eight rules like it matched
+ * nothing and every step painted identically — the current step's circle was
+ * white with a grey glyph instead of black with a white one, and its title
+ * was the same grey as the steps it had already passed. The badge's own three
+ * happened to be spelled the controller's way, which is why one part of the
+ * step did change and the rest did not. */
+.cx-dot-active {
   background-color: #0a0a0a;
   border-color: #0a0a0a;
 }
 
-.cx-dot-complete {
+.cx-dot-completed {
   background-color: #16a34a;
   border-color: #16a34a;
 }
 
 /* An unreachable step is not merely pale — the cursor says so too, because a
  * circle that looks clickable and is not is the worst of the three states. */
-.cx-dot-upcoming {
+.cx-dot-inactive {
   background-color: #fafafa;
   cursor: default;
 }
@@ -104,20 +120,27 @@
   cursor: default;
 }
 
+/* `loading` is the fifth thing `stateOf` can say. It had no rule at all,
+ * which the new "every emitted class is defined" gate is what found. */
+.cx-dot-loading {
+  background-color: #fef3c7;
+  border-color: #fde68a;
+}
+
 .cx-dottxt {
   font-size: 12px;
   color: #71717a;
 }
 
-.cx-dottxt-current {
+.cx-dottxt-active {
   color: #ffffff;
 }
 
-.cx-dottxt-complete {
+.cx-dottxt-completed {
   color: #ffffff;
 }
 
-.cx-dottxt-upcoming {
+.cx-dottxt-inactive {
   color: #a1a1aa;
 }
 
@@ -125,25 +148,33 @@
   color: #d4d4d8;
 }
 
+.cx-dottxt-loading {
+  color: #78350f;
+}
+
 .cx-steplbl {
   font-size: 13px;
   color: #71717a;
 }
 
-.cx-steplbl-current {
+.cx-steplbl-active {
   color: #0a0a0a;
 }
 
-.cx-steplbl-complete {
+.cx-steplbl-completed {
   color: #16a34a;
 }
 
-.cx-steplbl-upcoming {
+.cx-steplbl-inactive {
   color: #a1a1aa;
 }
 
 .cx-steplbl-disabled {
   color: #d4d4d8;
+}
+
+.cx-steplbl-loading {
+  color: #78350f;
 }
 
 /* ReUI's block under each circle: an eyebrow, the title, a state badge. */
@@ -181,6 +212,17 @@
   background-color: #fef3c7;
 }
 
+/* The two the new class-seam gate found on its first run: a pending step's
+ * badge was falling through to the base `.cx-badge`, which happened to be the
+ * grey it wanted. Right by accident is still the same seam. */
+.cx-badge-inactive {
+  background-color: #f4f4f5;
+}
+
+.cx-badge-disabled {
+  background-color: #fafafa;
+}
+
 /* Every badge label needs its own token, for the reason every other label in
  * this file does: there are no descendant selectors, so a dark badge with a
  * label inheriting nothing draws dark on dark. */
@@ -199,6 +241,14 @@
 
 .cx-badgetxt-loading {
   color: #78350f;
+}
+
+.cx-badgetxt-inactive {
+  color: #71717a;
+}
+
+.cx-badgetxt-disabled {
+  color: #a1a1aa;
 }
 
 /* The separator takes the state of the step BEFORE it. */
@@ -295,10 +345,13 @@
 
 /* The ruler. Every tick has a cell; a MINOR one is a shorter mark with an
  * empty label, which is how ReUI hides the number without losing the space. */
+/* The ruler is POSITIONED, not spread. Each cell is absolute at its tick's
+ * fraction of the track (see `sliderWithTicks`), so this only has to be the
+ * containing block and stand as tall as a cell. `space-between` over cells
+ * sized by their labels is what put the marks at uneven intervals. */
 .cx-ticks {
-  display: flex;
-  flex-direction: row;
-  justify-content: space-between;
+  position: relative;
+  height: 22px;
 }
 
 .cx-tick {

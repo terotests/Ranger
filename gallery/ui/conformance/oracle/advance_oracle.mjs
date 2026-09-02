@@ -41,7 +41,47 @@ import { fileURLToPath } from "node:url";
 import { requireDom, findChromium } from "../dom-adapter.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.resolve(HERE, "..", "..", "..", "..");
 const REF = 100;
+
+/**
+ * The SYMBOLS the gallery actually draws, read out of the sources.
+ *
+ * Printable ASCII was measured from the start and everything above it fell
+ * back to `fontSize * 0.55615` — one number for a chevron, a lock, a braille
+ * drag handle and a crying emoji alike. Ninety-three distinct code points,
+ * all measured the same, which is what put a step's icon visibly off-centre
+ * in a circle whose box was correct: the glyph's BOX was 6px and the font
+ * drew it twice that, so a centred box does not centre a glyph.
+ *
+ * Derived rather than listed. A hand-written list is a list that goes stale
+ * the first time someone adds an icon, and `advance_check.mjs` asserts the
+ * table covers the sources — so adding a glyph without re-running this fails
+ * the gate instead of silently getting the fallback.
+ */
+function galleryCodePoints() {
+  const out = new Set();
+  const skip = /node_modules|[\/]bin[\/]|\.git/;
+  const walk = (dir) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name);
+      if (skip.test(p)) continue;
+      if (e.isDirectory()) { walk(p); continue; }
+      if (!/\.(rgr|css)$/.test(e.name)) continue;
+      for (const ch of fs.readFileSync(p, "utf8")) {
+        const c = ch.codePointAt(0);
+        if (c > 126 && c !== 0x2028 && c !== 0x2029) out.add(c);
+      }
+    }
+  };
+  for (const d of ["gallery/ui/demo", "gallery/ui/src", "gallery/evg"]) {
+    const abs = path.join(ROOT, d);
+    if (fs.existsSync(abs)) walk(abs);
+  }
+  return [...out].sort((a, b) => a - b);
+}
+
+const SYMBOLS = galleryCodePoints();
 
 // The families the gallery actually asks for.
 const FAMILIES = ["Arial", "Helvetica", "sans-serif", "monospace"];
@@ -60,7 +100,7 @@ const browser = await chromium.launch({ executablePath: findChromium() });
 const page = await browser.newPage({ viewport: { width: 400, height: 200 } });
 await page.setContent("<canvas id=c></canvas>");
 
-const out = await page.evaluate(({ ref, families, strings }) => {
+const out = await page.evaluate(({ ref, families, strings, symbols }) => {
   const ctx = document.getElementById("c").getContext("2d");
   const res = {};
   for (const fam of families) {
@@ -71,19 +111,24 @@ const out = await page.evaluate(({ ref, families, strings }) => {
       const ch = String.fromCharCode(code);
       adv[code] = Math.round(ctx.measureText(ch).width * 1000) / 1000;
     }
-    adv[8364] = Math.round(ctx.measureText("€").width * 1000) / 1000;
+    // Every symbol the gallery draws, at the same reference size. Emoji are
+    // in here too: they are wider than any letter and were getting the same
+    // 0.556em as everything else.
+    for (const cp of symbols) {
+      adv[cp] = Math.round(ctx.measureText(String.fromCodePoint(cp)).width * 1000) / 1000;
+    }
     const whole = strings.map((s) => ({
       s, w: Math.round(ctx.measureText(s).width * 1000) / 1000,
     }));
     res[fam] = { advance: adv, whole };
   }
   return res;
-}, { ref: REF, families: FAMILIES, strings: STRINGS });
+}, { ref: REF, families: FAMILIES, strings: STRINGS, symbols: SYMBOLS });
 
 await browser.close();
 
 fs.writeFileSync(path.join(HERE, "advance.json"),
-  JSON.stringify({ referenceSize: REF, families: out }, null, 2) + "\n");
+  JSON.stringify({ referenceSize: REF, symbols: SYMBOLS, families: out }, null, 2) + "\n");
 
 // A first look at the drift, so the number is on the record from the start.
 for (const fam of FAMILIES) {
@@ -96,5 +141,17 @@ for (const fam of FAMILIES) {
     if (d > worst) { worst = d; worstS = s; }
   }
   console.log(`  ${fam.padEnd(12)} worst sum-vs-whole drift at 13px: ${worst.toFixed(3)}px  (${worstS})`);
+}
+console.log(`  symbols measured: ${SYMBOLS.length} code points above ASCII`);
+{
+  // What the fallback was costing, at the size the demos draw an icon.
+  const adv = out["Arial"].advance;
+  const fall = 0.55615 * 13;
+  let worst = 0, worstCp = 0;
+  for (const cp of SYMBOLS) {
+    const real = (adv[cp] / REF) * 13;
+    if (Math.abs(real - fall) > worst) { worst = Math.abs(real - fall); worstCp = cp; }
+  }
+  console.log(`  worst fallback error at 13px: ${worst.toFixed(2)}px on U+${worstCp.toString(16).toUpperCase()} ${JSON.stringify(String.fromCodePoint(worstCp))}`);
 }
 console.log("wrote advance.json");

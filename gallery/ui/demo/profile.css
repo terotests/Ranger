@@ -279,3 +279,142 @@
 
 .pf-opttxt { color: #0a0a0a; font-family: Arial; font-size: 13px; height: 18px; }
 .pf-optmark { color: #0a0a0a; font-family: Arial; font-size: 13px; height: 18px; width: 12px; }
+
+/* --- the date picker ------------------------------------------------------
+ *
+ * The calendar icon used to be a glyph drawn inside the box and nothing else.
+ * This file's header said so and said why — "an icon that opens nothing would
+ * be a lie about what is here" — and it opens one now.
+ *
+ * The grid's geometry is CalendarCtl's, the measured one. Nothing in here
+ * decides which day is in which cell. */
+
+.pf-calbtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 120ms ease-out;
+}
+
+.pf-calbtn:hover { background-color: #f4f4f5; }
+
+.pf-calglyph {
+  font-size: 15px;
+  color: #52525b;
+  height: 20px;
+  text-align: center;
+}
+
+.pf-calpop {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 252px;
+  padding: 10px;
+  border: 1px solid #e4e4e7;
+  border-radius: 10px;
+  background-color: #ffffff;
+}
+
+.pf-calnav {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: space-between;
+  width: 232px;
+  height: 28px;
+}
+
+.pf-calnavbtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid #e4e4e7;
+  border-radius: 6px;
+  background-color: #ffffff;
+  cursor: pointer;
+}
+
+.pf-calnavbtn:hover { background-color: #f4f4f5; }
+
+.pf-calnavglyph {
+  font-size: 13px;
+  color: #52525b;
+  width: 24px;
+  height: 18px;
+  text-align: center;
+}
+
+.pf-calcap {
+  font-size: 13px;
+  font-weight: bold;
+  color: #18181b;
+  width: 160px;
+  height: 18px;
+  text-align: center;
+}
+
+.pf-calgrid {
+  display: flex;
+  flex-direction: column;
+  width: 232px;
+}
+
+.pf-calhead {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+}
+
+.pf-calwd {
+  font-size: 11px;
+  color: #a1a1aa;
+  width: 32px;
+  height: 16px;
+  text-align: center;
+}
+
+.pf-calweek {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+}
+
+.pf-calday {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 28px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 100ms ease-out;
+}
+
+.pf-calday:hover { background-color: #f4f4f5; }
+
+.pf-calday-on { background-color: #18181b; }
+
+/* Its own token, like every other label in this file: there are no descendant
+ * selectors, so a dark cell with a number inheriting nothing draws black on
+ * black. */
+.pf-calnum {
+  font-size: 12px;
+  color: #18181b;
+  width: 30px;
+  height: 16px;
+  text-align: center;
+}
+
+/* One token per state, not a descendant selector — which is what the comment
+ * directly above says, and what this line was two minutes after it. */
+.pf-calnum-outside { color: #d4d4d8; }
+
+.pf-calnum-on { color: #ffffff; }

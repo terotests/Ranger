@@ -327,6 +327,14 @@ class ControlsDemo {
     ; controller owns. Every position here is its FRACTION times the width.
     def trackW:double 300.0
 
+    ; A tick cell is a fixed width so its mark lands on the tick's own
+    ; position: the cell is centred on the fraction, and the mark is centred
+    ; in the cell. A cell sized by its label would move the mark whenever the
+    ; number under it got wider, which is the defect this replaced.
+    sfn tickCellW:double () {
+        return 24.0
+    }
+
     fn trackFor:EVGElement (s:SliderCtl) {
         def track (tree Ctl (Track (props (id (s.tid + "-track")))))
         UiTree.inline(track "width" (ControlsDemo.px(trackW)))
@@ -392,6 +400,28 @@ class ControlsDemo {
         while (i < (s.tickCount())) {
             def major:boolean (s.tickIsMajor(i))
             def cell (tree Ctl (Tick))
+            ; PLACED BY ITS FRACTION, not spread by the flexbox.
+            ;
+            ; This row was `justify-content: space-between` over thirteen
+            ; cells, and a cell is as wide as its label: "10" and "12" are
+            ; wider than "0" and far wider than the empty label a minor tick
+            ; carries. Space-between divides the LEFTOVER evenly, so unequal
+            ; cells give unequal centres — the measured gaps were nine of
+            ; 23.47px and then three of 26.53. The ends were wrong too: the
+            ; first mark sat 3.1px inside the track's left edge and the last
+            ; 6.1px inside its right, because each mark is centred in a cell
+            ; that starts at the row's edge.
+            ;
+            ; A tick belongs at its VALUE's position on the track, which is
+            ; what `tickFraction` answers, and this is the one place that
+            ; becomes pixels. Same rule as the thumb and the filled range.
+            ; The width in a local first: `(ControlsDemo.tickCellW() / 2.0)`
+            ; parses as a CALL taking `(/ () 2)` rather than a division of its
+            ; result, which the compiler reports as an undefined `/`.
+            def cw:double (ControlsDemo.tickCellW())
+            cell.position = "absolute"
+            cell.left = (EVGUnit.px((((s.tickFraction(i)) * trackW) - (cw / 2.0))))
+            UiTree.inline(cell "width" (ControlsDemo.px(cw)))
             def markCls:string "cx-tickmark cx-tickmark-minor"
             if major {
                 markCls = "cx-tickmark cx-tickmark-major"
