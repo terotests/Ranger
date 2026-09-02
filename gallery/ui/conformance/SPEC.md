@@ -337,6 +337,16 @@ Chromium is found via `$RANGER_CHROMIUM`, then `$PLAYWRIGHT_BROWSERS_PATH`,
 then playwright's default. The Ranger adapter needs none of this and is what CI
 runs, through `npm run ui:test`.
 
+**`temporal-polyfill` is pinned to an exact `0.3.0`, and must stay that way.**
+`@schedule-x/calendar` — the event calendar reference — declares it as a peer
+at exactly `0.3.0`, not a range. A caret range there resolves to 1.x and
+`npm install` fails outright with `ERESOLVE`, so the whole reference host
+becomes uninstallable on a clean machine. `dom/package-lock.json` is
+gitignored, so a working tree left over from an install with
+`--legacy-peer-deps` hides this completely: it is only ever seen by someone
+installing fresh. Re-capturing `eventcal.json` on 0.3.0 produces byte-identical
+measurements, so the pin costs nothing.
+
 ## Adding a component
 
 1. Catalogue its behaviours in `behaviours.json` first. The score drops — that
