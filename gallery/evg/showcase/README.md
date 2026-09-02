@@ -33,7 +33,17 @@ draws the same SVG byte for byte. A PDF proves the API built a chart once on a
 build machine; this is what proves the API still runs where the reader is.
 `npm run showcase:api` opens it in Chromium and checks all of it — 22 checks.
 
-[`tracer/`](../web/tracer/) is the other live page: upload a JPEG/PNG, tweak
+[`responsive/`](../web/responsive/) is the one whose LAYOUT is what runs. It is
+a page as wide as the browser window, laid out again on every resize by the
+compiled engine — `@media` blocks resolved against the window, `4vw` margins,
+a card grid that goes from four columns to one — and the browser is handed
+finished pixels, not a tree to lay out. Drag the window edge and the whole
+pipeline runs again. `npm run evg:responsive:web:serve` builds it and serves it
+at <http://localhost:8007/>; `npm run evg:responsive:check` asserts the same
+breakpoints in Node, by counting where the boxes landed, and
+`npm run evg:responsive:web:smoke` drives the built page in Chromium.
+
+[`tracer/`](../web/tracer/) is the third live page: upload a JPEG/PNG, tweak
 Potrace-style parameters, and vectorize with the compiled `EvgBitmapTracer`.
 To run it on your own machine, `npm run evg:trace:web:serve` builds the page
 and serves it at <http://localhost:8006/>. Everything happens in the browser —

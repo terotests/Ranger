@@ -114,6 +114,8 @@ __pycache__/
 gallery/evg/showcase/dist/
 # Bitmap tracer live page build (npm run evg:trace:web)
 gallery/evg/web/tracer/dist/
+gallery/evg/web/responsive/dist/
+gallery/evg/web/responsive/.stage/
 
 # scratch
 .chk/

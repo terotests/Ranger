@@ -418,3 +418,46 @@ with. A baseline captured on frame 1 and a candidate settled over six frames
 are not the same experiment, and the first version of that comparison reported a
 difference my change had not caused. Compare like with like, and when a
 comparison fails, check the baseline before the change.
+
+## Issue #7: shrink-to-fit text can wrap inside the box its own width produced
+
+**Status:** Open
+**Severity:** Low (cosmetic; a label that fits is drawn on two lines)
+**Found:** September 2, 2026
+**Component:** `EVGLayout.rgr` / `EVGTextEngine.rgr`
+
+### What happens
+
+A text element with no stated width shrink-wraps: layout measures the run, adds
+the padding and border, and that sum is the box. The line breaker then works
+with the content width, which is that sum *minus* the same padding — and for
+some strings the round trip does not land back on the number it started from,
+so the breaker sees a width a fraction narrower than the text and breaks it.
+
+Reproduced in `gallery/evg/web/responsive`, whose sidebar is six labels in a
+column. Five sit on one line and `Display list` does not:
+
+```
+measure 'Display list' = 62.12453   'Text engine' = 67.93241
+item 'Display list' w=86.12453 h=47.9     <- 24px padding, two lines
+item 'Text engine'  w=91.93241 h=32.95    <- 24px padding, one line
+```
+
+Both boxes are exactly `measured + 24`. Both are therefore exactly on the
+threshold. One wraps and the other does not, which is what says this is a
+floating-point artifact of `(w + pad) - pad` and not a measurement disagreement:
+the run measurement and the sum of the per-word measurements agree to the last
+digit for both strings.
+
+### Why it is recorded rather than fixed here
+
+The fix belongs in the line breaker — a shrink-wrapped box should not be able to
+break its own content, so the comparison there wants an epsilon (or the content
+width wants to be carried alongside the box width rather than recomputed from
+it). Either is a change to how every EVG document breaks lines, and it needs
+its own measurement against the conformance oracles before it lands.
+
+### Workaround
+
+State a `min-width`, which takes the box off the threshold. The responsive
+demo's `.nav-item` does exactly that, and says so.
