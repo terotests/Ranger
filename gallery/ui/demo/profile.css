@@ -237,3 +237,45 @@
 .pf-btn-text-solid { color: #ffffff; }
 
 .pf-note { color: #71717a; font-size: 12px; padding: 14px 0 0 0; width: 730px; height: 34px; }
+
+/* --- the select, open ------------------------------------------------------
+ *
+ * The surface is a SIBLING of the trigger, not a child, so the wrapper is what
+ * holds the two and the overlay pass anchors one to the other. The wrapper
+ * itself must not add a box: it is `display: block` with no padding so the
+ * closed row measures exactly as it did before the list existed. */
+.pf-selwrap {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.pf-listbox {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  border-radius: 10px;
+  border: 1px solid #e4e4e7;
+  background-color: #ffffff;
+  padding: 4px 4px 4px 4px;
+  width: 220px;
+}
+
+.pf-option {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  border-radius: 6px;
+  padding: 0 8px 0 8px;
+  height: 32px;
+  cursor: pointer;
+}
+
+/* The KEYBOARD's cursor, which is not the same thing as the chosen value —
+ * arrowing through a list must not look like choosing. The tick says chosen;
+ * this says where the cursor is. */
+.pf-option-active { background-color: #f4f4f5; }
+
+.pf-opttxt { color: #0a0a0a; font-family: Arial; font-size: 13px; height: 18px; }
+.pf-optmark { color: #0a0a0a; font-family: Arial; font-size: 13px; height: 18px; width: 12px; }

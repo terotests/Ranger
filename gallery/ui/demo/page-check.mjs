@@ -167,6 +167,46 @@ let freshForm;
 let box;
 const IN_TEXT = 40;
 
+// THE SELECT, ON THE PAGE. It works in Node — trigger opens, option chooses —
+// and that proves nothing about here: the page's press door is
+// `beginSelection`, not `press`, and a control routed through the wrong door
+// is this gallery's most-repeated defect. Three of them survived every Node
+// assertion before this file existed.
+{
+  const box = async (id) => page.evaluate((x) => {
+    const el = document.querySelector(`[data-a11y-id="${x}"]`);
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+  }, id);
+  const roleOf = async (id) => page.evaluate((x) => {
+    const el = document.querySelector(`[data-a11y-id="${x}"]`);
+    return el ? el.getAttribute("role") : null;
+  }, id);
+
+  const trig = await box("pf-visibility");
+  ok("the Visibility select is on the page", !!trig);
+  if (trig) {
+    ok("and it is a combobox", (await roleOf("pf-visibility")) === "combobox");
+    await page.mouse.click(trig.x, trig.y);
+    await page.waitForTimeout(150);
+    const opt = await box("pf-visibility-item-nobody");
+    ok("clicking it opens the list", !!opt, "no option element after the click");
+    if (opt) {
+      await page.mouse.click(opt.x, opt.y);
+      await page.waitForTimeout(150);
+      const label = await page.evaluate(() => {
+        const l = JSON.parse(window.__lastList || "{}");
+        return (l.cmds || []).filter((c) => c.text).map((c) => c.text)
+          .find((t) => t === "Nobody" || t === "Team only" || t === "Everyone");
+      });
+      ok("choosing an option puts its label on the trigger", label === "Nobody", String(label));
+      const stillOpen = await box("pf-visibility-item-nobody");
+      ok("and closes the list", !stillOpen);
+    }
+  }
+}
+
 console.log("--- the pointer edits the text, not just the focus ---");
 {
   // THE BUG THIS EXISTS FOR. `FormDemo.pressAt` could put the caret under the
@@ -741,9 +781,30 @@ console.log("--- the surface ripples where it was touched ---");
 
   // The second pass really ran: `rippled` is the renderer saying it drew the
   // page into a texture and put it on the screen through the shader.
-  const stats = await page.evaluate(() => window.__lastStats || null);
-  if (stats) ok("the renderer took the post-pass", stats.rippled === 1, JSON.stringify(stats.rippled));
-  else console.log("  (the page does not publish renderer stats; skipped)");
+  //
+  // POLLED, NOT SAMPLED. This read `window.__lastStats` once, 80ms after the
+  // drag, and `rippled` is a PER-FRAME flag: whether the last frame took the
+  // post-pass, not whether any frame did. Whether that one read landed on a
+  // rippled frame depended on where the animation clock happened to be, so the
+  // assertion passed and failed on identical code — measured twice in a row,
+  // once each way. A gate that answers differently to the same question is
+  // worse than no gate, because it teaches everyone to re-run it.
+  //
+  // So: wait for the frame rather than guess at when it will be. Failure is
+  // still a real failure — a second of frames with no post-pass among them
+  // means the renderer never took it.
+  let rippled = 0;
+  for (let i = 0; i < 40; i++) {
+    const st = await page.evaluate(() => window.__lastStats || null);
+    if (st && st.rippled === 1) { rippled = 1; break; }
+    await page.waitForTimeout(25);
+  }
+  // The skip that used to hang off this — "the page does not publish renderer
+  // stats" — went with the sampling: the poll above already distinguishes a
+  // page that never reports from a page that reports zero, and both are the
+  // same failure for a check whose whole subject is whether the post-pass ran.
+  ok("the renderer took the post-pass", rippled === 1,
+    "no frame in a second of them reported rippled=1");
 }
 
 await browser.close();

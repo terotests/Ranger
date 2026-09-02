@@ -266,6 +266,111 @@ console.log("--- what a reader gets ---");
   ok("no style errors", d.styleErrorCount() === 0, d.styleErrorAt(0) || "");
 }
 
+console.log("--- the select opens, and it is the controller that says so ---");
+{
+  // This page used to draw a CLOSED trigger and stop — the header said the open
+  // state needed the overlay layer. The overlay layer already existed and
+  // `SelectCtl` already had `openList`, `activate` and `keyDown` measured
+  // against Radix; what was missing was a demo that drew the state the
+  // controller was keeping. Every assertion here goes through the hit test or
+  // the key handler, never straight at the controller, because a control that
+  // works in its API and not on the page is the failure this gallery keeps
+  // finding.
+  const d = fresh();
+  const rect = (id) => { const n = one(d, id); return n && n.el; };
+  const clickOn = (id) => {
+    const e = rect(id);
+    if (!e) return { hit: "(missing " + id + ")", handled: false };
+    const hit = d.hitId(e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2);
+    const handled = d.press(hit);
+    d.displayListJson();
+    return { hit, handled };
+  };
+
+  ok("it starts closed", d.visibility.open === false);
+  ok("and shows the chosen label", (rect("pf-visibility").children[0].textContent || "") === "Team only",
+    rect("pf-visibility").children[0].textContent);
+
+  const t = clickOn("pf-visibility");
+  ok("a click on the trigger lands on it", t.hit === "pf-visibility", t.hit);
+  ok("and opens the list", d.visibility.open === true);
+
+  const list = rect(d.visibility.contentTid());
+  ok("the list is drawn", !!list);
+  // BELOW THE TRIGGER, which is the whole reason it is an overlay sibling and
+  // not a child: a listbox inside a combobox would be both wrong in the tree
+  // and wrong on the screen.
+  const trig = rect("pf-visibility");
+  ok("below the trigger", list.calculatedY >= trig.calculatedY + trig.calculatedHeight - 1,
+    `list.y=${list.calculatedY} trigger bottom=${trig.calculatedY + trig.calculatedHeight}`);
+  ok("and starting at its left edge", Math.abs(list.calculatedX - trig.calculatedX) < 2,
+    `list.x=${list.calculatedX} trigger.x=${trig.calculatedX}`);
+  ok("with a row per item", find(d, "pf-option").length === 3, String(find(d, "pf-option").length));
+
+  // The keyboard moves a CURSOR. Choosing is a separate act, and a list you can
+  // arrow through must not change the value while you do it.
+  const before = d.visibility.value;
+  d.keyWith("ArrowDown", false, false);
+  d.displayListJson();
+  ok("an arrow moves the active row", d.visibility.activeValue !== "",
+    JSON.stringify(d.visibility.activeValue));
+  ok("without changing the value", d.visibility.value === before,
+    `${before} -> ${d.visibility.value}`);
+  ok("and the list stays open", d.visibility.open === true);
+
+  d.keyWith("Escape", false, false);
+  d.displayListJson();
+  ok("Escape closes it", d.visibility.open === false);
+  ok("and leaves the value alone", d.visibility.value === before, d.visibility.value);
+}
+
+console.log("--- choosing an option, by pointer ---");
+{
+  const d = fresh();
+  const rect = (id) => { const n = one(d, id); return n && n.el; };
+  const clickOn = (id) => {
+    const e = rect(id);
+    if (!e) return { hit: "(missing " + id + ")", handled: false };
+    const hit = d.hitId(e.calculatedX + e.calculatedWidth / 2, e.calculatedY + e.calculatedHeight / 2);
+    const handled = d.press(hit);
+    d.displayListJson();
+    return { hit, handled };
+  };
+  clickOn("pf-visibility");
+  const nobody = d.visibility.itemTid("nobody");
+  const c = clickOn(nobody);
+  ok("the click reaches the option it aimed at", c.hit === nobody, c.hit);
+  ok("choosing sets the value", d.visibility.value === "nobody", d.visibility.value);
+  ok("and closes the list", d.visibility.open === false);
+  ok("the trigger shows the new label",
+    (rect("pf-visibility").children[0].textContent || "") === "Nobody",
+    rect("pf-visibility").children[0].textContent);
+
+  // What a reader is told about all of it.
+  const ns = JSON.parse(d.a11yJson(1, "")).nodes;
+  const trg = ns.find((n) => n.id === "pf-visibility");
+  ok("the trigger is a combobox", trg && trg.role === "combobox", JSON.stringify(trg && trg.role));
+  // `expanded` serialises as EVGA11yTri's number, not a string: 1 is
+  // collapsed, 2 is expanded. Asserting the string "false" here passed
+  // vacuously for exactly as long as it took to look.
+  ok("and reports itself collapsed", trg && trg.expanded === 1, JSON.stringify(trg && trg.expanded));
+
+  clickOn("pf-visibility");
+  const ns2 = JSON.parse(d.a11yJson(2, "")).nodes;
+  const trg2 = ns2.find((n) => n.id === "pf-visibility");
+  ok("expanded once it is open", trg2 && trg2.expanded === 2, JSON.stringify(trg2 && trg2.expanded));
+  ok("the surface is a listbox", ns2.some((n) => n.role === "listbox"),
+    JSON.stringify(ns2.map((n) => n.role)));
+  // `selected` is a boolean and is only PRESENT on the chosen row — an
+  // unselected option carries no key at all, which is what the tree does for
+  // every tri-state that is not set.
+  const chosen = ns2.filter((n) => n.selected === true);
+  ok("exactly one option is selected", chosen.length === 1, JSON.stringify(chosen.map((n) => n.name)));
+  ok("and it is the chosen one", chosen[0] && chosen[0].name === "Nobody",
+    JSON.stringify(chosen[0] && chosen[0].name));
+  ok("no lint with it open", d.a11yProblems().length === 0, d.a11yProblems().join("; "));
+}
+
 console.log("");
 console.log("passed=" + passed + " failed=" + failed);
 if (failed > 0) { console.log("FAILURES"); process.exit(1); }
