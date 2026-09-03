@@ -1,8 +1,9 @@
 # gallery/realtrainer — an app, on the GPU
 
-A four-scene application built from `gallery/ui`'s components and painted by
+A five-scene application built from `gallery/ui`'s components and painted by
 EVG's WebGL painter: a loading screen with a spinning ring, the sign-in page it
-hands over to, a dashboard, and one training session with a countdown dial.
+hands over to, a dashboard, one training session with a countdown dial, and the
+parsed document behind all of it.
 
 **License: AGPL-3.0-or-later** (Gallery).
 
@@ -17,6 +18,8 @@ npm run rt:frame    # the same app in Chromium, checked at the pixels
 ![the dashboard](web/shots/realtrainer-dashboard.png)
 
 ![the session's dial](web/shots/realtrainer-timer.png)
+
+![the document](web/shots/realtrainer-document.png)
 
 `npm run rt:shots` regenerates every screenshot in `web/shots/` from the page
 that is running, so a picture in this file cannot drift from what the app
@@ -101,6 +104,17 @@ walking rows never meets one, and this does the same.
 A life row is drawn the way `Text.tsx` draws it: `Weight 78.5kg tänään` is three
 parts — the label, the number, and the words after it — because a reader looking
 for the number should not have to find it inside a sentence.
+
+**The document screen** (the rail's third button) is the row library with
+nothing on top of it: every row the parser produced, drawn by its family. It is
+where a family that renders as a blank line would be obvious, which is the
+reason to have it.
+
+Whether two runs touch is a property of the family and not a choice the renderer
+makes. `3x5` and `x80kg` are one reading and must not be prised apart; a phase
+marker and its name, a duration and its description, and a split's fields are
+separate words, and the reference spaces them. So the gap is a class the row
+picks by family.
 
 The session screen is built from this and nothing else. `fixtures/session.compact`
 names the workout, its exercise rows are the moves, the section headings are shown

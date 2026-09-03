@@ -300,6 +300,38 @@ ok("and carries no steppers",
    !measured.includes("Sarjat") && measured.some((t) => t.startsWith("Mitattu sarja")),
    measured.join("|"));
 
+console.log("\n--- the document ---");
+// The session screen shows one move at a time, which hides everything else the
+// parser did. This screen is the other half: every row, drawn by its family.
+app.press("rt-rail-log");
+ok("the rail opens the document", app.sceneName() === "document", app.sceneName());
+const doc = textsOf(listOf());
+ok("the whole document is drawn", doc.includes("14 riviä"), doc.join("|"));
+ok("a summary is drawn", doc.includes("Kova mutta hallittu treeni"), doc.join("|"));
+ok("a phase carries its number", doc.includes("Phase1"), doc.join("|"));
+ok("a duration is drawn", doc.includes("10min") && doc.includes("Alkulämmittely"), doc.join("|"));
+ok("a run derives its pace", doc.includes(" @0:36/100m"), doc.join("|"));
+ok("a custom row is name and value", doc.includes("~4"), doc.join("|"));
+// The life line's number is its own element, which is the whole point of
+// splitting it out: a reader can be pointed at it.
+ok("a life line's number is its own run", doc.includes("78.5kg"), doc.join("|"));
+ok("and its label is too", doc.includes("Weight"), doc.join("|"));
+ok("both sections are headings",
+   doc.includes("Pääosa") && doc.includes("Loppuverryttely"), doc.join("|"));
+// Tags and emojis belong to the workout, not to the list.
+ok("tags are not a row", !doc.some((t) => t.includes("kontrasti")), doc.join("|"));
+const docTree = JSON.parse(app.a11yJson(1, "")).nodes;
+ok("the list is a list", docTree.some((n) => n.id === "rt-doc-list" && n.role === "list"),
+   JSON.stringify(docTree.find((n) => n.id === "rt-doc-list")));
+ok("with an item per row",
+   docTree.filter((n) => n.role === "listitem").length === 14,
+   docTree.filter((n) => n.role === "listitem").length + " items");
+
+// And back, because the rail is a navigation and not a one-way door.
+ok("the rail goes home again",
+   app.press("rt-rail-home") === true && app.sceneName() === "dashboard",
+   app.sceneName());
+
 console.log("\n--- what a reader is told ---");
 app.press("rt-quit");
 app.press("rt-tabs-tab-dash");

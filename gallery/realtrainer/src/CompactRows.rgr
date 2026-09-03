@@ -871,6 +871,25 @@ class CompactStatBuilder {
         return out
     }
 
+    ; The family, as a word. A renderer uses it for a class name and a check
+    ; reads it; both want the name the format uses, not the generated one.
+    sfn kind:string (row:CompactRow) {
+        match row {
+            Exercise ex { return "exercise" }
+            Move mv { return "move" }
+            Pyramid py { return "pyramid" }
+            Split sp { return "split" }
+            Section s { return "section" }
+            Text t { return "text" }
+            Summary sm { return "summary" }
+            Phase ph { return "phase" }
+            Custom cu { return "custom" }
+            Duration du { return "duration" }
+            Unknown un { return "unknown" }
+        }
+        return "unknown"
+    }
+
     ; The row's own name — the exercise, the section heading, the line of text.
     sfn label:string (row:CompactRow) {
         match row {

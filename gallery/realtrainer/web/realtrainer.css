@@ -1024,6 +1024,110 @@
   color: #8b8177;
 }
 
+/* --- scene five: the document -------------------------------------------- */
+
+/* One column of rows, each of them a family. The list is the row library with
+   nothing on top of it, so the styling says only what a family IS: a heading
+   stands apart, everything else is a name on the left and its parts on the
+   right. */
+.rt-main-doc {
+  gap: 6px;
+}
+
+.rt-doc-list {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 2px;
+  width: 868px;
+}
+
+.rt-doc-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: baseline;
+  gap: 10px;
+  width: 868px;
+  padding: 6px 12px;
+  border-radius: 8px;
+}
+
+.rt-doc-head {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  width: 868px;
+  padding: 14px 12px 4px 12px;
+}
+
+/* Its own class rather than a descendant selector: the cascade here is
+   class-first and takes one class per rule. */
+.rt-doc-head-label {
+  color: #ffffff;
+  font-family: Arial;
+  font-weight: bold;
+  font-size: 15px;
+  height: 22px;
+}
+
+.rt-doc-label {
+  color: #e8e2da;
+  font-family: Arial;
+  font-size: 14px;
+  height: 20px;
+}
+
+.rt-doc-parts {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: baseline;
+  gap: 0px;
+  height: 20px;
+}
+
+/* For the families whose runs are separate words. See documentRow(). */
+.rt-doc-parts-gap {
+  gap: 8px;
+}
+
+/* A summary and a free line are commentary, not entries. */
+.rt-doc-summary,
+.rt-doc-text {
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+
+/* An unparsed line is the one thing on this screen that is a problem. */
+.rt-doc-unknown {
+  background-color: rgba(214, 92, 92, 0.14);
+}
+
+/* The life label, spaced off its body the way the reference spaces it — a
+   margin on the label itself, not a gap between every run, because the runs
+   after it already carry their own spaces. */
+.rt-stat-label {
+  color: #6fb7d8;
+  font-weight: bold;
+  margin-right: 8px;
+}
+
+.rt-stat-number {
+  color: #6fd39a;
+  font-weight: bold;
+}
+
+.rt-stat-heading {
+  color: #ffffff;
+  font-weight: bold;
+}
+
+.rt-stat-warn {
+  color: #e8a0a0;
+}
+
 /* The section heading a move sits under, and the note a measured row carries
    where its steppers would be. */
 .rt-move-where {

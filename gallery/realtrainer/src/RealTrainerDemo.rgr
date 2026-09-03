@@ -178,6 +178,16 @@ treefactory Rt {
     tag MovePlan EVGElement (props (className "rt-move-plan") (id "rt-move-plan"))
     tag StatTx   EVGElement (props (className "rt-stat") (elementType 1))
     tag MoveWhere EVGElement (props (className "rt-move-where") (elementType 1))
+
+    ; --- scene five: the document ---------------------------------------------
+    ; Every row of the parsed workout, drawn by its family. This is the row
+    ; library with nothing else on top of it.
+    tag DocList  EVGElement (props (className "rt-doc-list") (id "rt-doc-list")
+                                   (role "list") (a11yLabel "Harjoituksen rivit"))
+    tag DocRow   EVGElement (props (className "rt-doc-row") (role "listitem"))
+    tag DocHead  EVGElement (props (className "rt-doc-head") (role "listitem"))
+    tag DocLabel EVGElement (props (className "rt-doc-label") (elementType 1))
+    tag DocParts EVGElement (props (className "rt-doc-parts"))
     tag Steps    EVGElement (props (className "rt-steps"))
     tag Step     EVGElement (props (className "rt-step"))
     tag StepCap  EVGElement (props (className "rt-step-cap") (elementType 1))
@@ -959,6 +969,76 @@ class RealTrainerDemo {
                     (child main))))
     }
 
+    ; --- scene five: the whole document ---------------------------------------
+    ;
+    ; The session screen shows ONE move at a time, which is what a person
+    ; training wants and what hides the rest of the parser's work. This screen
+    ; is the other half: every row the document has, drawn by its family, with
+    ; nothing between it and `CompactStatBuilder`.
+
+    fn documentRow:EVGElement (row:CompactRow index:int) {
+        def kind:string (CompactStatBuilder.kind(row))
+        def label:string (CompactStatBuilder.label(row))
+        def rowId:string ("rt-doc-" + (to_string index))
+
+        ; A section is a heading and not an entry: it names what follows
+        ; rather than saying anything of its own.
+        if (kind == "section") {
+            return (tree Rt
+                (DocHead (props (id rowId) (className "rt-doc-head") (a11yLabel label))
+                    (DocLabel (props (id (rowId + "-label")) (className "rt-doc-head-label")) label)))
+        }
+
+        def el (tree Rt (DocRow (props (id rowId) (className ("rt-doc-row rt-doc-" + kind)))))
+        if ((strlen label) > 0) {
+            el.addChild((tree Rt (DocLabel (props (id (rowId + "-label"))) label)))
+        }
+        el.addChild((tree Rt (Spacer)))
+        ; Whether the runs touch is a property of the FAMILY, not of the
+        ; renderer. `3x5` and `x80kg` are one reading and must not be prised
+        ; apart; a phase marker and its name, a duration and its description,
+        ; and a split's fields are separate words and the reference spaces
+        ; them. So the gap is a class on the container and not a guess.
+        def partsClass@(mutable):string "rt-doc-parts"
+        if (kind == "phase") {
+            partsClass = "rt-doc-parts rt-doc-parts-gap"
+        }
+        if (kind == "duration") {
+            partsClass = "rt-doc-parts rt-doc-parts-gap"
+        }
+        if (kind == "split") {
+            partsClass = "rt-doc-parts rt-doc-parts-gap"
+        }
+        def parts (tree Rt (DocParts (props (id (rowId + "-parts")) (className partsClass))))
+        def list:[StatPart] (CompactStatBuilder.parts(row))
+        for list p:StatPart i {
+            parts.addChild((tree Rt
+                (StatTx (props (id ((rowId + "-p") + (to_string i)))
+                               (className ("rt-stat rt-stat-" + p.tone))) p.text)))
+        }
+        el.addChild(parts)
+        return el
+    }
+
+    fn document:EVGElement () {
+        def main (tree Rt (Main (props (className "rt-main rt-main-doc"))))
+        main.addChild((tree Rt
+            (Top
+                (Title workTitle)
+                (Spacer)
+                (Note ((to_string (array_length rows)) + " riviä")))))
+        def list (tree Rt (DocList))
+        for rows r:CompactRow i {
+            list.addChild((this.documentRow(r i)))
+        }
+        main.addChild(list)
+        return (tree Rt
+            (Page (props (id "rt-page") (className "rt-page rt-page-dash"))
+                (App
+                    (child (this.rail()))
+                    (child main))))
+    }
+
     fn rebuild:void () {
         if (scene == "signin") {
             root = (this.signin())
@@ -968,6 +1048,9 @@ class RealTrainerDemo {
         }
         if (scene == "session") {
             root = (this.workout())
+        }
+        if (scene == "document") {
+            root = (this.document())
         }
         if (scene == "loading") {
             root = (this.loader())
@@ -1203,6 +1286,13 @@ class RealTrainerDemo {
         if (id == "") {
             return false
         }
+        ; The rail is drawn on three screens, so it is answered before any of
+        ; them. It used to live inside the dashboard's branch, which is why its
+        ; buttons did nothing while a session was open — a navigation you can
+        ; only use from one page is not one.
+        if (this.pressRail(id)) {
+            return true
+        }
         if (scene == "signin") {
             if (id == "rt-google") {
                 this.setScene("dashboard")
@@ -1219,14 +1309,6 @@ class RealTrainerDemo {
             return false
         }
         if (scene == "dashboard") {
-            if (id == "rt-rail-out") {
-                this.setScene("loading")
-                return true
-            }
-            if (id == "rt-rail-train") {
-                this.setScene("session")
-                return true
-            }
             ; A TAB PRESS ALWAYS REFILLS, EVEN WHEN IT CHANGES NOTHING.
             ;
             ; `activate` calls the controller's own `build()`, which clears
@@ -1279,6 +1361,32 @@ class RealTrainerDemo {
     ; The session screen's own presses. Steppers write numbers, the radio group
     ; answers for the rest chips, and the two big buttons move between the card
     ; and the dial.
+    fn pressRail:boolean (id:string) {
+        if (scene == "signin") {
+            return false
+        }
+        if (scene == "loading") {
+            return false
+        }
+        if (id == "rt-rail-out") {
+            this.setScene("loading")
+            return true
+        }
+        if (id == "rt-rail-train") {
+            this.setScene("session")
+            return true
+        }
+        if (id == "rt-rail-log") {
+            this.setScene("document")
+            return true
+        }
+        if (id == "rt-rail-home") {
+            this.setScene("dashboard")
+            return true
+        }
+        return false
+    }
+
     fn pressSession:boolean (id:string) {
         if (id == "rt-quit") {
             this.setScene("dashboard")

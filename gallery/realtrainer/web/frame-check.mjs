@@ -325,6 +325,25 @@ ok("all turning about one point", pivots.size === 1, [...pivots].join(" / "));
 await page.waitForTimeout(1600);
 const litLater = await litTicks();
 ok("and the ring empties as the clock runs", litLater < litAt, `${litAt} -> ${litLater}`);
+// --- and the document -------------------------------------------------------
+//
+// The session shows one move at a time. This is every row the parser produced,
+// drawn by its family — the row library with nothing on top of it.
+ok("the rail opens the document", await clickId("rt-rail-log"), "no rt-rail-log node");
+await page.waitForTimeout(200);
+const docTexts = (await listNow()).filter((c) => c.k === 3).map((c) => c.text);
+ok("the document scene is on",
+   (await page.evaluate("window.__app.sceneName()")) === "document",
+   await page.evaluate("window.__app.sceneName()"));
+ok("every family is drawn",
+   ["Kova mutta hallittu treeni", "Phase1", "Alkulämmittely", " @0:36/100m", "~4", "78.5kg"]
+     .every((t) => docTexts.includes(t)),
+   docTexts.join("|"));
+if (pngOut) {
+  await page.locator("#stage canvas").screenshot({ path: stem + "-document.png" });
+  console.log("  wrote " + stem + "-document.png (the document)");
+}
+
 if (pngOut) {
   await page.locator("#stage canvas").screenshot({ path: stem + "-timer.png" });
   console.log("  wrote " + stem + "-timer.png (the dial)");
