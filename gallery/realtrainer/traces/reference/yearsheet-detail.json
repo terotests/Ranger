@@ -1,0 +1,994 @@
+{
+ "id": "yearsheet-detail",
+ "machine": "",
+ "viewport": "390x844",
+ "frames": [
+  {
+   "step": "tick 4000",
+   "handled": true,
+   "state": "",
+   "nodes": [
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Vuosisuunnitelma 2026",
+     "state": "level=1"
+    },
+    {
+     "role": "paragraph",
+     "name": "5.1.2026 - 2.1.2028 • Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Poista ja aloita alusta",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kopioi JSON leikepöydälle",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Liitä JSON leikepöydältä",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Muokkaa vuosisuunnitelmaa",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Featuret",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kaudet",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Rivit",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "\"Kategoria Kuntoutus & Ylläpito 5.1 - 2.1 Yhteensä Harjoittelu (kpl, h) 1 - 1 - Kausityypit: base build peak race recovery transition general\"",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Jaksot ja esimerkkiviikot",
+     "state": "level=3"
+    },
+    {
+     "role": "button",
+     "name": "Kuntoutus & Ylläpito (104 vk) general Esimerkkiviikot ✓",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-ys-period-0",
+   "handled": true,
+   "state": "",
+   "nodes": [
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Vuosisuunnitelma 2026",
+     "state": "level=1"
+    },
+    {
+     "role": "paragraph",
+     "name": "5.1.2026 - 2.1.2028 • Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Poista ja aloita alusta",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kopioi JSON leikepöydälle",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Liitä JSON leikepöydältä",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Muokkaa vuosisuunnitelmaa",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Featuret",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kaudet",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Rivit",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "\"Kategoria Kuntoutus & Ylläpito 5.1 - 2.1 Yhteensä Harjoittelu (kpl, h) 1 - 1 - Kausityypit: base build peak race recovery transition general\"",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Jaksot ja esimerkkiviikot",
+     "state": "level=3"
+    },
+    {
+     "role": "button",
+     "name": "Kuntoutus & Ylläpito (104 vk) general Esimerkkiviikot ✓",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "strong",
+     "name": "\"Tavoitteet:\"",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Kuntoutus ja ylläpito",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "🎯 Tavoiteviikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "🌊 Kevyt viikko",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Tavoiteviikko",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "\"Ma Tags Voimaharjoittelu Emojis 💪🏋️ # LÄMMITTELY Time 10min | Kuntopyörä # PÄÄOSA Penkkipunnerrus käsipa... ... Ti Tags kestävyys Time 40min | rauhallinen Ke Tags Voimaharjoittelu Kyykky 5x5x80kg Maastaveto 3x5x100kg To Tags lepo Pe Tags huolto Time 30min | venyttely La Tags kestävyys Time 70min | pitkä Su Tags lepo\"",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Katso täydet ohjelmat",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-ys-week-0-light",
+   "handled": true,
+   "state": "",
+   "nodes": [
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Vuosisuunnitelma 2026",
+     "state": "level=1"
+    },
+    {
+     "role": "paragraph",
+     "name": "5.1.2026 - 2.1.2028 • Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Poista ja aloita alusta",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kopioi JSON leikepöydälle",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Liitä JSON leikepöydältä",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Muokkaa vuosisuunnitelmaa",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Featuret",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kaudet",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Rivit",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "\"Kategoria Kuntoutus & Ylläpito 5.1 - 2.1 Yhteensä Harjoittelu (kpl, h) 1 - 1 - Kausityypit: base build peak race recovery transition general\"",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Jaksot ja esimerkkiviikot",
+     "state": "level=3"
+    },
+    {
+     "role": "button",
+     "name": "Kuntoutus & Ylläpito (104 vk) general Esimerkkiviikot ✓",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "strong",
+     "name": "\"Tavoitteet:\"",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Kuntoutus ja ylläpito",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "🎯 Tavoiteviikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "🌊 Kevyt viikko",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Kevyt viikko",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Ma Tags Voimaharjoittelu Time 40min | kevyt Ti Lepo Ke Tags kestävyys Time 30min | kevyt To Lepo Pe Lepo La Tags huolto Time 45min | rauhallinen Su Lepo",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Katso täydet ohjelmat",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-ys-periods",
+   "handled": true,
+   "state": "",
+   "nodes": [
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Vuosisuunnitelma 2026",
+     "state": "level=1"
+    },
+    {
+     "role": "paragraph",
+     "name": "5.1.2026 - 2.1.2028 • Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Poista ja aloita alusta",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kopioi JSON leikepöydälle",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Liitä JSON leikepöydältä",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Muokkaa vuosisuunnitelmaa",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Featuret",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kaudet",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Rivit",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Kausien muokkaus",
+     "state": "level=3"
+    },
+    {
+     "role": "button",
+     "name": "Lisää kausi",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "1. Kuntoutus & Ylläpito",
+     "state": ""
+    },
+    {
+     "role": "spinbutton",
+     "name": "\"104\"",
+     "state": ""
+    },
+    {
+     "role": "combobox",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "option",
+     "name": "vk",
+     "state": "selected"
+    },
+    {
+     "role": "option",
+     "name": "pv",
+     "state": ""
+    },
+    {
+     "role": "combobox",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "option",
+     "name": "Peruskausi",
+     "state": ""
+    },
+    {
+     "role": "option",
+     "name": "Rakennuskausi",
+     "state": ""
+    },
+    {
+     "role": "option",
+     "name": "Huippukausi",
+     "state": ""
+    },
+    {
+     "role": "option",
+     "name": "Kilpailukausi",
+     "state": ""
+    },
+    {
+     "role": "option",
+     "name": "Palautuminen",
+     "state": ""
+    },
+    {
+     "role": "option",
+     "name": "Siirtymä",
+     "state": ""
+    },
+    {
+     "role": "option",
+     "name": "Yleinen",
+     "state": "selected"
+    },
+    {
+     "role": "button",
+     "name": "Lukitse päivämäärät",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": "disabled"
+    },
+    {
+     "role": "text",
+     "name": "\"Yhteensä: 104 viikkoa Kategoria Kuntoutus & Ylläpito 5.1 - 2.1 Yhteensä Harjoittelu (kpl, h) 1 - 1 - Kausityypit: base build peak race recovery transition general\"",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Jaksot ja esimerkkiviikot",
+     "state": "level=3"
+    },
+    {
+     "role": "button",
+     "name": "Kuntoutus & Ylläpito (104 vk) general Esimerkkiviikot ✓",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "strong",
+     "name": "\"Tavoitteet:\"",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Kuntoutus ja ylläpito",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "🎯 Tavoiteviikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "🌊 Kevyt viikko",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Kevyt viikko",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Ma Tags Voimaharjoittelu Time 40min | kevyt Ti Lepo Ke Tags kestävyys Time 30min | kevyt To Lepo Pe Lepo La Tags huolto Time 45min | rauhallinen Su Lepo",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Katso täydet ohjelmat",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-ys-rows",
+   "handled": true,
+   "state": "",
+   "nodes": [
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Vuosisuunnitelma 2026",
+     "state": "level=1"
+    },
+    {
+     "role": "paragraph",
+     "name": "5.1.2026 - 2.1.2028 • Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Poista ja aloita alusta",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kopioi JSON leikepöydälle",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Liitä JSON leikepöydältä",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Muokkaa vuosisuunnitelmaa",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Featuret",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kaudet",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Rivit",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Rivien muokkaus (Tilikartta)",
+     "state": "level=3"
+    },
+    {
+     "role": "button",
+     "name": "Lisää rivi",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Harjoittelu count, duration",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää alarivi",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "\"Kategoria Kuntoutus & Ylläpito 5.1 - 2.1 Yhteensä Harjoittelu (kpl, h) 1 - 1 - Kausityypit: base build peak race recovery transition general\"",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Jaksot ja esimerkkiviikot",
+     "state": "level=3"
+    },
+    {
+     "role": "button",
+     "name": "Kuntoutus & Ylläpito (104 vk) general Esimerkkiviikot ✓",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "strong",
+     "name": "\"Tavoitteet:\"",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Kuntoutus ja ylläpito",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "🎯 Tavoiteviikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "🌊 Kevyt viikko",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Kevyt viikko",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Ma Tags Voimaharjoittelu Time 40min | kevyt Ti Lepo Ke Tags kestävyys Time 30min | kevyt To Lepo Pe Lepo La Tags huolto Time 45min | rauhallinen Su Lepo",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Katso täydet ohjelmat",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-ys-back",
+   "handled": true,
+   "state": "",
+   "nodes": [
+    {
+     "role": "banner",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Credits: 100k. Click to purchase more credits.",
+     "state": ""
+    },
+    {
+     "role": "img",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "100k credits",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "📋 Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "T",
+     "state": ""
+    },
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Dashboard",
+     "state": "level=1"
+    },
+    {
+     "role": "button",
+     "name": "Muokkaa vuosisuunnitelmaa",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Aktiivinen suunnitelma",
+     "state": "level=2"
+    },
+    {
+     "role": "button",
+     "name": "Avaa suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Vuosisuunnitelma 2026",
+     "state": "level=3"
+    },
+    {
+     "role": "paragraph",
+     "name": "Referenssin vuosisuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "\"Aloitettu: 5.1.2026\"",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Nykyinen jakso",
+     "state": "level=3"
+    },
+    {
+     "role": "paragraph",
+     "name": "Kuntoutus & Ylläpito",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Viikko 35 / 104",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "general 5.1.2026 2.1.2028",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "strong",
+     "name": "\"Tavoite:\"",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Kuntoutus ja ylläpito",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Tavoitteet",
+     "state": "level=2"
+    },
+    {
+     "role": "text",
+     "name": "Harjoittelu sport",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  }
+ ]
+}

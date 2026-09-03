@@ -200,6 +200,36 @@ past entries.
 gate is a Ranger-only scenario (`calendar-wizard-encrypted`): the original's
 toggle is a box with no role, so the reference cannot be driven through it.
 
+### The year sheet, and the sums its grid shows
+
+`/summary/yearsheet` is `YearSheetPageV2.tsx` — 1 926 lines around three
+things: the list of the user's sheets, one sheet as a grid of rows by periods,
+and two editors folded into its header. `src/RtYearSheet.rgr` keeps the
+state, which is small (which view, which editor, which periods are unfolded
+and to which example week, the rows), and computes the grid's sums: the
+monorepo's `app-ranger/lib/yearsheet` collects them from workout snapshots,
+and this side counts the seed's entries in a period and adds their minutes —
+the two metrics (`count`, `duration`) the default row carries, which the
+storage layer gives a sheet with no rows the moment the page opens it (and
+which the dashboard's "Tavoitteet" then lists, as the reference's does after
+the page has saved). Period dates are the simple case only: a start and
+durations in weeks or days, one after the other; the library's fixed-date
+segments are not ported, since the seed has none.
+
+The page draws inside the shell without its header, as the original does:
+the list's card is named by everything on it (the created date included),
+the sheet's toolbar is the original's seven buttons, the period editor uses
+the library's `SelectCtl` for the unit and the type and `NumberCtl` for the
+duration (drawn here as a spinbutton with a step either side), the row editor
+lists the chart's rows, and each period unfolds to its goals, the week-type
+switch and the week. Back is `onBack`: the dashboard.
+
+`yearsheet` and `yearsheet-detail` match the reference 100 % in order. The
+list's card cannot be pressed on the reference — it reloads the page and
+loses the test sign-in — so the sheet is opened by route. The modals behind
+"Lisää kausi", "Muokkaa vuosisuunnitelmaa" and the toolbar's clipboard and
+reset buttons are not ported; they answer nothing.
+
 ## Traces: the app itself as the oracle
 
 A machine that passes its transition table can still be wired to the wrong
@@ -474,6 +504,7 @@ src/PlanDialogHost.rgr    the plan-week machine, run from its definition; the ho
 src/ChatHost.rgr          the conversation machine, likewise, and the mock adapter that streams on the clock
 src/RtCalendar.rgr        the seed and its calendars, the week, an entry's title and tags, the icons
 src/CalendarWizard.rgr    the calendar wizard: four steps on StepperCtl, a gate each, the strength score
+src/RtYearSheet.rgr       the year sheet: its view state, period dates, and the grid's sums from the seed
 fixtures/reference/       seed.json — what the recorder puts in the emulator and this side draws
 traces/reference/         the reference's recorded traces, diffed by rt:trace:diff
 scripts/record-reference-trace.mjs  the reference recorder: seeds, signs in, drives, snapshots

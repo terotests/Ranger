@@ -163,6 +163,10 @@ class EVGA11yFromTree {
     }
 
     sfn namedOnlyByLabel:boolean (role:string) {
+        ; A combobox is not named from its content either: what is inside
+        ; it is its VALUE, and a value read out as the name is a select that
+        ; introduces itself as "vk". Its name is a label, or nothing.
+        if (role == "combobox")   { return true }
         if (role == "banner")     { return true }
         if (role == "main")       { return true }
         if (role == "navigation") { return true }

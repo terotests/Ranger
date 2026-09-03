@@ -1,0 +1,94 @@
+{
+ "id": "yearsheet-list",
+ "machine": "",
+ "viewport": "390x844",
+ "frames": [
+  {
+   "step": "tick 300",
+   "handled": true,
+   "state": "",
+   "nodes": [
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Vuosisuunnitelmat",
+     "state": "level=1"
+    },
+    {
+     "role": "paragraph",
+     "name": "1 suunnitelmaa",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Vuosisuunnitelma 2026 Referenssin vuosisuunnitelma 5.1.2026 • 1 kautta Luotu: 3.9.2026",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Vuosisuunnitelma 2026",
+     "state": "level=3"
+    },
+    {
+     "role": "paragraph",
+     "name": "Referenssin vuosisuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "\"5.1.2026 • 1 kautta Luotu: 3.9.2026\"",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Poista suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  }
+ ]
+}

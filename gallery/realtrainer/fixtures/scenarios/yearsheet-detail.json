@@ -1,0 +1,51 @@
+{
+  "_": "One year sheet — /summary/yearsheet/ys-ref-1: the header and its toolbar, the grid, the period with its example weeks unfolded, the two editors, and back to the dashboard.",
+  "id": "yearsheet-detail",
+  "area": "vuosi",
+  "machine": "",
+  "source": "frontend/src/pages/YearSheetPageV2.tsx",
+  "reference": {
+    "route": "/summary/yearsheet/ys-ref-1"
+  },
+  "setup": [
+    {
+      "page": "390x844"
+    },
+    {
+      "route": "/summary/yearsheet/ys-ref-1"
+    }
+  ],
+  "steps": [
+    {
+      "tick": 4000,
+      "why": "the original loads the sheet from Firestore"
+    },
+    {
+      "id": "rt-ys-period-0",
+      "role": "button",
+      "name": "Kuntoutus & Ylläpito (104 vk) general Esimerkkiviikot ✓"
+    },
+    {
+      "id": "rt-ys-week-0-light",
+      "role": "button",
+      "name": "🌊 Kevyt viikko"
+    },
+    {
+      "id": "rt-ys-periods",
+      "role": "button",
+      "name": "Kaudet"
+    },
+    {
+      "id": "rt-ys-rows",
+      "role": "button",
+      "name": "Rivit"
+    },
+    {
+      "id": "rt-ys-back",
+      "role": "button",
+      "name": "",
+      "nth": 0,
+      "why": "the header's arrow: onBack, which is the dashboard"
+    }
+  ]
+}

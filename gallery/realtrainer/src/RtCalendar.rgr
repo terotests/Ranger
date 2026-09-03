@@ -73,7 +73,10 @@ class RtExampleWeek {
 }
 
 class RtPeriod {
+    def id@(mutable):string ""
     def name@(mutable):string ""
+    ; "weeks" or "days" — what `duration` counts.
+    def durationUnit@(mutable):string "weeks"
     ; `type`, `duration` in weeks and `goals` — what the dashboard's period
     ; card shows beside the name.
     def kind@(mutable):string ""
@@ -116,6 +119,7 @@ class RtSeed {
     def entries:[RtSeedEntry]
     ; The first yearsheet: its name, description and start date are the
     ; dashboard's "Aktiivinen suunnitelma" card.
+    def sheetId@(mutable):string ""
     def sheetName@(mutable):string ""
     def sheetDescription@(mutable):string ""
     def sheetStart@(mutable):string ""
@@ -159,6 +163,7 @@ class RtSeed {
         while (s < (sheets.count())) {
             def sheet:VlJson (sheets.at(s))
             if (s == 0) {
+                sheetId = (sheet.stringOr("id" ""))
                 sheetName = (sheet.stringOr("name" ""))
                 sheetDescription = (sheet.stringOr("description" ""))
                 sheetStart = (sheet.stringOr("startDate" ""))
@@ -168,7 +173,9 @@ class RtSeed {
             while (p < (ps.count())) {
                 def pj:VlJson (ps.at(p))
                 def period (new RtPeriod)
+                period.id = (pj.stringOr("id" ""))
                 period.name = (pj.stringOr("name" ""))
+                period.durationUnit = (pj.stringOr("durationUnit" "weeks"))
                 period.kind = (pj.stringOr("type" ""))
                 period.durationWeeks = (pj.intOr("duration" 0))
                 period.goals = (pj.stringOr("goals" ""))
@@ -425,6 +432,53 @@ class RtEntry {
     }
 
     ; "#kuntosali #voima #kevyt" — the first three, as the row shows them.
+    ; The minutes an entry's `Duration` or `Time` line says: "45min",
+    ; "1h 10min", "2h". The first such line counts; none is zero.
+    sfn minutesOf:int (compact:string) {
+        def lines:[string] (RtEntry.splitLines(compact))
+        for lines line:string i {
+            def t:string (RtEntry.trimmed(line))
+            def rest@(mutable):string ""
+            if (RtEntry.hasPrefix(t "Duration ")) { rest = (substring t 9 (strlen t)) }
+            if (RtEntry.hasPrefix(t "Time ")) { rest = (substring t 5 (strlen t)) }
+            if ((strlen rest) > 0) {
+                def bar:int (RtEntry.findIn(rest "|"))
+                if (bar >= 0) { rest = (substring rest 0 bar) }
+                return (RtEntry.minutesIn(rest))
+            }
+        }
+        return 0
+    }
+
+    ; "1h 10min" → 70: every number takes the unit that follows it.
+    sfn minutesIn:int (text:string) {
+        def total@(mutable):int 0
+        def num@(mutable):int 0
+        def has@(mutable):boolean false
+        def i@(mutable):int 0
+        def n:int (strlen text)
+        while (i < n) {
+            def c:int (charAt text i)
+            if ((c >= 48) && (c <= 57)) {
+                num = ((num * 10) + (c - 48))
+                has = true
+            } {
+                if (c == 104) {
+                    if has { total = (total + (num * 60)) }
+                    num = 0
+                    has = false
+                }
+                if (c == 109) {
+                    if has { total = (total + num) }
+                    num = 0
+                    has = false
+                }
+            }
+            i = (i + 1)
+        }
+        return total
+    }
+
     fn tagText:string () {
         def out@(mutable):string ""
         def n@(mutable):int 0
@@ -667,6 +721,38 @@ class RtIcons {
         if (key == "test-log") { return (RtIcons.clipboardList(color)) }
         if (key == "measurement") { return (RtIcons.activity(color)) }
         return (RtIcons.ellipsis(color))
+    }
+
+    sfn arrowLeft:string (color:string) {
+        return (RtIcons.svgOf(((RtIcons.pathOf("M19 12H5")) + (RtIcons.pathOf("m12 19-7-7 7-7"))) color))
+    }
+
+    sfn trash:string (color:string) {
+        return (RtIcons.svgOf((((RtIcons.pathOf("M3 6h18")) + (RtIcons.pathOf("M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"))) + (RtIcons.pathOf("M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"))) color))
+    }
+
+    sfn rotateCcw:string (color:string) {
+        return (RtIcons.svgOf(((RtIcons.pathOf("M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8")) + (RtIcons.pathOf("M3 3v5h5"))) color))
+    }
+
+    sfn copy:string (color:string) {
+        return (RtIcons.svgOf(("<rect x='8' y='8' width='14' height='14' rx='2' ry='2'/>" + (RtIcons.pathOf("M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"))) color))
+    }
+
+    sfn clipboardPaste:string (color:string) {
+        return (RtIcons.svgOf(((((RtIcons.pathOf("M15 2H9a1 1 0 0 0-1 1v2c0 .6.4 1 1 1h6c.6 0 1-.4 1-1V3c0-.6-.4-1-1-1Z")) + (RtIcons.pathOf("M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"))) + ((RtIcons.pathOf("M16 4h2a2 2 0 0 1 2 2v2")) + (RtIcons.pathOf("M11 14h10")))) + (RtIcons.pathOf("m17 10 4 4-4 4"))) color))
+    }
+
+    sfn sparkles:string (color:string) {
+        return (RtIcons.svgOf((RtIcons.pathOf("M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z")) color))
+    }
+
+    sfn barChart:string (color:string) {
+        return (RtIcons.svgOf(((((RtIcons.pathOf("M3 3v18h18")) + (RtIcons.pathOf("M18 17V9"))) + (RtIcons.pathOf("M13 17V5"))) + (RtIcons.pathOf("M8 17v-3"))) color))
+    }
+
+    sfn plus:string (color:string) {
+        return (RtIcons.svgOf(((RtIcons.pathOf("M5 12h14")) + (RtIcons.pathOf("M12 5v14"))) color))
     }
 
     sfn x:string (color:string) {

@@ -1,0 +1,284 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+; =============================================================================
+; RtYearSheet — the year sheet page's state, and the sums its grid shows
+; =============================================================================
+; `YearSheetPageV2.tsx` is 1 926 lines around three things: a list of the
+; user's sheets, one sheet as a grid of rows by periods, and two editors
+; folded into its header. The state is small — which view, which editor,
+; which periods are unfolded and to which example week — and it is here.
+; The sums are the grid's: `app-ranger/lib/yearsheet` collects them from
+; workout snapshots in the monorepo; this side counts the seed's entries in
+; a period and adds their minutes, which is the two metrics the default row
+; carries (`count`, `duration`).
+;
+; Period dates are the simple case only — a start and durations in weeks
+; or days, one after the other. The library's fixed-date segments are not
+; ported: the seed has none, and the page draws the same either way.
+
+Import "RtCalendar.rgr"
+
+; A row of the chart of accounts. The seed's sheet has none, and the
+; storage layer then gives it the one row every sheet has.
+class RtYsRow {
+    def id@(mutable):string ""
+    def name@(mutable):string ""
+    def kind@(mutable):string "sport"
+    def metricKeys:[string]
+    def units:[string]
+
+    Constructor () {
+    }
+
+    fn unitText:string () {
+        def out@(mutable):string ""
+        for units u:string i {
+            if (i > 0) { out = (out + ", ") }
+            out = (out + u)
+        }
+        return out
+    }
+
+    fn keyText:string () {
+        def out@(mutable):string ""
+        for metricKeys k:string i {
+            if (i > 0) { out = (out + ", ") }
+            out = (out + k)
+        }
+        return out
+    }
+}
+
+class RtYearSheet {
+    ; "list" or "detail".
+    def view@(mutable):string "list"
+    ; "none", "periods" or "rows" — `editorMode`.
+    def editor@(mutable):string "none"
+    def expanded:[boolean]
+    def weekTypes:[string]
+    def rows:[RtYsRow]
+    def rowSeq@(mutable):int 0
+
+    Constructor () {
+    }
+
+    ; The sheet as loaded: no rows yet — the seed's has none, and the
+    ; storage layer gives it the default one only when the page opens it —
+    ; every period folded, every one on its target week.
+    fn load:void (seed:RtSeed) {
+        clear rows
+        rowSeq = 0
+        clear expanded
+        clear weekTypes
+        for seed.periods p:RtPeriod i {
+            push expanded false
+            push weekTypes "target"
+        }
+        view = "list"
+        editor = "none"
+    }
+
+    fn addDefaultRow:void () {
+        def r (new RtYsRow)
+        r.id = "default-training"
+        r.name = "Harjoittelu"
+        r.kind = "sport"
+        push r.metricKeys "count"
+        push r.units "kpl"
+        push r.metricKeys "duration"
+        push r.units "h"
+        push rows r
+    }
+
+    ; `addRow()` at the top level: a new row, one metric, named as the
+    ; original names it.
+    fn addRow:void () {
+        rowSeq = (rowSeq + 1)
+        def r (new RtYsRow)
+        r.id = ("row-" + (to_string rowSeq))
+        r.name = "Uusi rivi"
+        r.kind = "custom"
+        push r.metricKeys "count"
+        push r.units "kpl"
+        push rows r
+    }
+
+    fn removeRow:boolean (i:int) {
+        if ((i < 0) || (i >= (array_length rows))) { return false }
+        def kept:[RtYsRow]
+        for rows r:RtYsRow k {
+            if (k != i) {
+                push kept r
+            }
+        }
+        clear rows
+        for kept r2:RtYsRow k2 {
+            push rows r2
+        }
+        return true
+    }
+
+    fn openList:void () {
+        view = "list"
+        editor = "none"
+    }
+
+    ; Opening the sheet is what loads it, and a sheet with no rows gets the
+    ; one every sheet has — which the page then saves, so the dashboard's
+    ; goals show it from then on.
+    fn openDetail:void () {
+        view = "detail"
+        if ((array_length rows) == 0) {
+            this.addDefaultRow()
+        }
+    }
+
+    ; The two editor buttons toggle: the one that is on goes off, the
+    ; other replaces it.
+    fn toggleEditor:boolean (mode:string) {
+        if (editor == mode) {
+            editor = "none"
+        } {
+            editor = mode
+        }
+        return true
+    }
+
+    fn isExpanded:boolean (i:int) {
+        if ((i < 0) || (i >= (array_length expanded))) { return false }
+        return (itemAt expanded i)
+    }
+
+    fn togglePeriod:boolean (i:int) {
+        if ((i < 0) || (i >= (array_length expanded))) { return false }
+        def was:boolean (itemAt expanded i)
+        set expanded i (was == false)
+        return true
+    }
+
+    fn weekTypeAt:string (i:int) {
+        if ((i < 0) || (i >= (array_length weekTypes))) { return "target" }
+        return (itemAt weekTypes i)
+    }
+
+    fn setWeekType:boolean (i:int t:string) {
+        if ((i < 0) || (i >= (array_length weekTypes))) { return false }
+        if ((t != "target") && (t != "light")) { return false }
+        set weekTypes i t
+        return true
+    }
+
+    ; --- the periods' dates -------------------------------------------------
+
+    sfn periodDays:int (p:RtPeriod) {
+        if (p.durationUnit == "days") {
+            return p.durationWeeks
+        }
+        return (p.durationWeeks * 7)
+    }
+
+    ; The day the i-th period starts: the sheet's start plus everything
+    ; before it.
+    sfn periodStart:string (seed:RtSeed i:int) {
+        def offset@(mutable):int 0
+        def k@(mutable):int 0
+        while (k < i) {
+            offset = (offset + (RtYearSheet.periodDays((itemAt seed.periods k))))
+            k = (k + 1)
+        }
+        return (RtWeek.shifted(seed.sheetStart offset))
+    }
+
+    sfn periodEnd:string (seed:RtSeed i:int) {
+        def start:string (RtYearSheet.periodStart(seed i))
+        return (RtWeek.shifted(start ((RtYearSheet.periodDays((itemAt seed.periods i))) - 1)))
+    }
+
+    sfn sheetEnd:string (seed:RtSeed) {
+        def n:int (array_length seed.periods)
+        if (n == 0) { return seed.sheetStart }
+        return (RtYearSheet.periodEnd(seed (n - 1)))
+    }
+
+    ; Weeks in all, the way the editor's footer counts them — days as
+    ; sevenths.
+    sfn totalWeeks:int (seed:RtSeed) {
+        def days@(mutable):int 0
+        for seed.periods p:RtPeriod i {
+            days = (days + (RtYearSheet.periodDays(p)))
+        }
+        return (to_int ((int2double days) / 7.0))
+    }
+
+    ; "5.1 - 2.1" — the grid's column dates, day and month only.
+    sfn shortDate:string (iso:string) {
+        return (((to_string (RtWeek.dayOfMonth(iso))) + ".") + (to_string (RtWeek.monthOf(iso))))
+    }
+
+    ; --- the sums --------------------------------------------------------------
+
+    sfn entriesBetween:[RtSeedEntry] (seed:RtSeed startIso:string endIso:string) {
+        def out:[RtSeedEntry]
+        def a:int (RtWeek.daysOf(startIso))
+        def b:int (RtWeek.daysOf(endIso))
+        def mine:[RtSeedEntry] (seed.selectedEntries())
+        for mine e:RtSeedEntry i {
+            def d:int (RtWeek.daysOf(e.date))
+            if ((d >= a) && (d <= b)) {
+                push out e
+            }
+        }
+        return out
+    }
+
+    sfn countBetween:int (seed:RtSeed startIso:string endIso:string) {
+        return (array_length (RtYearSheet.entriesBetween(seed startIso endIso)))
+    }
+
+    sfn minutesBetween:int (seed:RtSeed startIso:string endIso:string) {
+        def total@(mutable):int 0
+        def es:[RtSeedEntry] (RtYearSheet.entriesBetween(seed startIso endIso))
+        for es e:RtSeedEntry i {
+            total = (total + (RtEntry.minutesOf(e.compact)))
+        }
+        return total
+    }
+
+    ; A metric's cell: a count as it is, minutes as hours with one decimal,
+    ; and "-" for nothing — `formatMetricValue`.
+    sfn cellText:string (key:string seed:RtSeed startIso:string endIso:string) {
+        if (key == "count") {
+            def c:int (RtYearSheet.countBetween(seed startIso endIso))
+            if (c == 0) { return "-" }
+            return (to_string c)
+        }
+        if (key == "duration") {
+            def m:int (RtYearSheet.minutesBetween(seed startIso endIso))
+            if (m == 0) { return "-" }
+            def tenths:int (to_int ((int2double ((m * 10) + 30)) / 60.0))
+            def whole:int (to_int ((int2double tenths) / 10.0))
+            return (((to_string whole) + ".") + (to_string (tenths - (whole * 10))))
+        }
+        return "-"
+    }
+
+    ; The seven period types and their colours — `PERIOD_TYPE_COLORS`.
+    sfn kindColor:string (kind:string) {
+        if (kind == "base") { return "#3b82f6" }
+        if (kind == "build") { return "#8b5cf6" }
+        if (kind == "peak") { return "#f97316" }
+        if (kind == "race") { return "#ef4444" }
+        if (kind == "recovery") { return "#22c55e" }
+        if (kind == "transition") { return "#eab308" }
+        return "#6b7280"
+    }
+
+    sfn kindLabel:string (kind:string) {
+        if (kind == "base") { return "Peruskausi" }
+        if (kind == "build") { return "Rakennuskausi" }
+        if (kind == "peak") { return "Huippukausi" }
+        if (kind == "race") { return "Kilpailukausi" }
+        if (kind == "recovery") { return "Palautuminen" }
+        if (kind == "transition") { return "Siirtymä" }
+        return "Yleinen"
+    }
+}

@@ -91,6 +91,9 @@ Import "PlanDialogHost.rgr"
 Import "ChatHost.rgr"
 Import "RtCalendar.rgr"
 Import "CalendarWizard.rgr"
+Import "RtYearSheet.rgr"
+Import "../../ui/src/SelectCtl.rgr"
+Import "../../ui/src/NumberCtl.rgr"
 Import "../../ui/src/InputCtl.rgr"
 
 treefactory Rt {
@@ -392,6 +395,34 @@ treefactory Rt {
     tag WizFoot  EVGElement (props (className "rt-wiz-foot"))
     tag WizBtn   EVGElement (props (className "rt-wiz-btn") (role "button") (a11yFocusable true))
     tag WizBtnTx EVGElement (props (className "rt-wiz-btn-text") (elementType 1))
+    ; The year sheet page: its header, the cards, the toolbar, the grid,
+    ; the legend, the periods and their example weeks.
+    tag YsHead   EVGElement (props (className "rt-ys-head"))
+    tag YsHd     EVGElement (props (className "rt-ys-hd") (elementType 1) (role "heading") (a11yLevel 1))
+    tag YsH3     EVGElement (props (className "rt-ys-h3") (elementType 1) (role "heading") (a11yLevel 3))
+    tag YsPara   EVGElement (props (className "rt-ys-para") (elementType 1) (role "paragraph"))
+    tag YsTx     EVGElement (props (className "rt-ys-text") (elementType 1))
+    tag YsDim    EVGElement (props (className "rt-ys-dim") (elementType 1))
+    tag YsStrong EVGElement (props (className "rt-ys-strong") (elementType 1))
+    tag YsCard   EVGElement (props (className "rt-ys-card"))
+    tag YsCardBtn EVGElement (props (className "rt-ys-card-btn") (role "button") (a11yFocusable true))
+    tag YsTools  EVGElement (props (className "rt-ys-tools"))
+    tag YsToolBtn EVGElement (props (className "rt-ys-tool") (role "button") (a11yFocusable true))
+    tag YsToolTx EVGElement (props (className "rt-ys-tool-text") (elementType 1))
+    tag YsPanel  EVGElement (props (className "rt-ys-panel"))
+    tag YsGrid   EVGElement (props (className "rt-ys-grid"))
+    tag YsGridRow EVGElement (props (className "rt-ys-grid-row"))
+    tag YsCell   EVGElement (props (className "rt-ys-cell"))
+    tag YsCellTx EVGElement (props (className "rt-ys-cell-text") (elementType 1))
+    tag YsLegend EVGElement (props (className "rt-ys-legend"))
+    tag YsSwatch EVGElement (props (className "rt-ys-swatch") (a11yHidden true))
+    tag YsPeriod EVGElement (props (className "rt-ys-period"))
+    tag YsPeriodBtn EVGElement (props (className "rt-ys-period-btn") (role "button") (a11yFocusable true))
+    tag YsEditRow EVGElement (props (className "rt-ys-edit-row"))
+    ; A number field: a text field — `NumberCtl` measured Base UI's, and it
+    ; is not a spinbutton — its value, and the two steps beside it.
+    tag YsNum    EVGElement (props (className "rt-ys-num") (role "textbox") (a11yFocusable true))
+    tag YsNumTx  EVGElement (props (className "rt-ys-num-text") (elementType 1))
     ; A toast, in the toaster's landmark: a list with one item, as sonner has it.
     tag Toast    EVGElement (props (className "rt-toast") (role "list"))
     tag ToastItem EVGElement (props (className "rt-toast-item") (role "listitem"))
@@ -527,6 +558,12 @@ class RealTrainerDemo {
     def wizScroll:double 0.0
     def toastText@(mutable):string ""
     def toastMs:double 0.0
+    ; The year sheet page, and the editors' controls — one duration, one
+    ; unit and one type per period, built when the seed is loaded.
+    def ys:RtYearSheet (new RtYearSheet())
+    def ysDur:[NumberCtl]
+    def ysUnit:[SelectCtl]
+    def ysType:[SelectCtl]
     def wizName:InputCtl (new InputCtl())
     def wizDesc:InputCtl (new InputCtl())
     def wizGoals:InputCtl (new InputCtl())
@@ -792,6 +829,38 @@ class RealTrainerDemo {
         if ((strlen seed.week) > 0) {
             weekStart = seed.week
         }
+        ys.load(seed)
+        clear ysDur
+        clear ysUnit
+        clear ysType
+        for seed.periods p:RtPeriod i {
+            def d (new NumberCtl())
+            d.tid = ("rt-ys-dur-" + (to_string i))
+            d.name = "Kesto"
+            d.setValue((int2double p.durationWeeks))
+            d.setRange(1.0 520.0)
+            d.groupThousands = false
+            push ysDur d
+            def u (new SelectCtl())
+            u.tid = ("rt-ys-unit-" + (to_string i))
+            u.name = ""
+            u.addItem("weeks" "vk" false)
+            u.addItem("days" "pv" false)
+            u.value = p.durationUnit
+            push ysUnit u
+            def t (new SelectCtl())
+            t.tid = ("rt-ys-type-" + (to_string i))
+            t.name = ""
+            t.addItem("base" "Peruskausi" false)
+            t.addItem("build" "Rakennuskausi" false)
+            t.addItem("peak" "Huippukausi" false)
+            t.addItem("race" "Kilpailukausi" false)
+            t.addItem("recovery" "Palautuminen" false)
+            t.addItem("transition" "Siirtymä" false)
+            t.addItem("general" "Yleinen" false)
+            t.value = p.kind
+            push ysType t
+        }
     }
 
     ; A phone is 390 by 844; on its side 844 by 390. The shell reads which.
@@ -814,6 +883,21 @@ class RealTrainerDemo {
         def q:int (RtEntry.findIn(route "?week="))
         if (q >= 0) {
             weekStart = (RtWeek.mondayOf((substring route (q + 6) (q + 16))))
+        }
+        ; `/summary/yearsheet` (and `/yearsheet`): the list; with an id, the
+        ; sheet. Both draw inside the shell, without its header.
+        if ((RtEntry.hasPrefix(route "/summary/yearsheet")) || (RtEntry.hasPrefix(route "/yearsheet"))) {
+            def tail@(mutable):string ""
+            if (RtEntry.hasPrefix(route "/summary/yearsheet/")) { tail = (substring route 19 (strlen route)) }
+            if (RtEntry.hasPrefix(route "/yearsheet/")) { tail = (substring route 11 (strlen route)) }
+            ys.openList()
+            if ((strlen tail) > 0) {
+                ys.openDetail()
+            }
+            docScroll = 0.0
+            scene = "yearsheet"
+            this.rebuild()
+            return true
         }
         ; `/new-calendar` is a page of its own: the wizard, and nothing of the
         ; shell around it.
@@ -2259,6 +2343,14 @@ class RealTrainerDemo {
             now.addChild((tree Rt (DashPara (props (id "rt-dash-goal") (className "rt-dash-goal")) ("Tavoite: " + period.goals))))
             dash.addChild(now)
         }
+        ; The goals: the sheet's rows, once it has any — the original shows
+        ; them from the saved sheet, which has rows once the page opened it.
+        if ((array_length ys.rows) > 0) {
+            dash.addChild((tree Rt (DashH2 (props (id "rt-h-goals")) "Tavoitteet")))
+            for ys.rows r:RtYsRow i {
+                dash.addChild((tree Rt (DashPara (props (id ("rt-dash-goal-row-" + (to_string i)))) ((r.name + " ") + r.kind))))
+            }
+        }
         body.addChild(dash)
     }
 
@@ -2628,6 +2720,356 @@ class RealTrainerDemo {
         section = "home"
         docScroll = 0.0
         toastMs = 4000.0
+    }
+
+    ; --- the year sheet ------------------------------------------------------------
+    ; `YearSheetPageV2`: the list, or one sheet — inside the shell, under
+    ; the bar, without the header. Everything is read from `ys` and the seed.
+    fn yearsheetScreen:EVGElement () {
+        def page (tree Rt (Phone))
+        def main (tree Rt (PhMain))
+        main.setAttribute("overflow" "hidden")
+        main.scrollTop = docScroll
+        def body (tree Rt (PhBody))
+        if (ys.view == "list") {
+            this.ysList(body)
+        } {
+            this.ysDetail(body)
+        }
+        main.addChild(body)
+        page.addChild(main)
+        if (this.isPortrait()) {
+            this.overlays(page)
+            page.addChild((this.bottomNav()))
+        }
+        page.addChild((this.toasts()))
+        return page
+    }
+
+    ; The list: a card per sheet, named by everything on it.
+    fn ysList:void (body:EVGElement) {
+        def head (tree Rt (YsHead))
+        head.addChild((this.iconBtn("rt-ys-back" "" (RtIcons.arrowLeft("#f2f2f2")))))
+        def titles (tree Rt (Col))
+        titles.addChild((tree Rt (YsHd "Vuosisuunnitelmat")))
+        def n@(mutable):int 0
+        if ((strlen seed.sheetId) > 0) { n = 1 }
+        titles.addChild((tree Rt (YsPara (props (id "rt-ys-count")) ((to_string n) + " suunnitelmaa"))))
+        head.addChild(titles)
+        body.addChild(head)
+        if (n == 0) {
+            body.addChild((tree Rt (YsPara (props (id "rt-ys-none")) "Sinulla ei ole vielä vuosisuunnitelmia.")))
+            return
+        }
+        def card (tree Rt (YsCard))
+        def meta:string ((((RtWeek.fiDate(seed.sheetStart)) + " • ") + (to_string (array_length seed.periods))) + (" kautta Luotu: " + (RtWeek.fiDate(today))))
+        def open (tree Rt (YsCardBtn))
+        open.id = ("rt-ys-open-" + seed.sheetId)
+        open.a11yLabel = ((((seed.sheetName + " ") + seed.sheetDescription) + " ") + meta)
+        open.addChild((tree Rt (YsH3 (props (id "rt-ys-card-name")) seed.sheetName)))
+        if ((strlen seed.sheetDescription) > 0) {
+            open.addChild((tree Rt (YsPara (props (id "rt-ys-card-desc")) seed.sheetDescription)))
+        }
+        open.addChild((tree Rt (YsDim meta)))
+        card.addChild(open)
+        card.addChild((this.iconBtn(("rt-ys-delete-" + seed.sheetId) "Poista suunnitelma" (RtIcons.trash("#999999")))))
+        body.addChild(card)
+    }
+
+    ; One sheet: the header and its toolbar, an editor when one is on, the
+    ; grid, the legend, and the periods with their example weeks.
+    fn ysDetail:void (body:EVGElement) {
+        def head (tree Rt (YsHead))
+        head.addChild((this.iconBtn("rt-ys-back" "" (RtIcons.arrowLeft("#f2f2f2")))))
+        def titles (tree Rt (Col))
+        titles.addChild((tree Rt (YsHd seed.sheetName)))
+        def range:string ((((RtWeek.fiDate(seed.sheetStart)) + " - ") + (RtWeek.fiDate((RtYearSheet.sheetEnd(seed))))) + (" • " + seed.calendarName))
+        titles.addChild((tree Rt (YsPara (props (id "rt-ys-range")) range)))
+        head.addChild(titles)
+        body.addChild(head)
+        def tools (tree Rt (YsTools))
+        tools.addChild((this.iconBtn("rt-ys-reset" "Poista ja aloita alusta" (RtIcons.rotateCcw("#ef4444")))))
+        tools.addChild((this.iconBtn("rt-ys-copy" "Kopioi JSON leikepöydälle" (RtIcons.copy("#f2f2f2")))))
+        tools.addChild((this.iconBtn("rt-ys-paste" "Liitä JSON leikepöydältä" (RtIcons.clipboardPaste("#f2f2f2")))))
+        tools.addChild((this.ysTool("rt-ys-ai" "Muokkaa vuosisuunnitelmaa" (RtIcons.sparkles("#ffffff")) "rt-ys-tool rt-ys-tool-violet")))
+        tools.addChild((this.ysTool("rt-ys-features" "Featuret" (RtIcons.barChart("#f2f2f2")) "rt-ys-tool rt-ys-tool-outline")))
+        def pcls@(mutable):string "rt-ys-tool"
+        if (ys.editor == "periods") { pcls = "rt-ys-tool rt-ys-tool-on" }
+        tools.addChild((this.ysTool("rt-ys-periods" "Kaudet" (RtIcons.penLine("#f2f2f2")) pcls)))
+        def rcls@(mutable):string "rt-ys-tool"
+        if (ys.editor == "rows") { rcls = "rt-ys-tool rt-ys-tool-on" }
+        tools.addChild((this.ysTool("rt-ys-rows" "Rivit" (RtIcons.penLine("#f2f2f2")) rcls)))
+        body.addChild(tools)
+        if (ys.editor == "periods") { this.ysPeriodEditor(body) }
+        if (ys.editor == "rows") { this.ysRowEditor(body) }
+        this.ysGrid(body)
+        def legend (tree Rt (YsLegend))
+        legend.addChild((tree Rt (YsDim (props (className "rt-ys-dim rt-ys-legend-cap")) "Kausityypit:")))
+        def kinds:[string] ([] _:string ("base" "build" "peak" "race" "recovery" "transition" "general"))
+        for kinds k:string i {
+            def sw (tree Rt (YsSwatch))
+            sw.setAttribute("background-color" (RtYearSheet.kindColor(k)))
+            legend.addChild(sw)
+            legend.addChild((tree Rt (YsDim k)))
+        }
+        body.addChild(legend)
+        def sec (tree Rt (YsPanel))
+        sec.addChild((tree Rt (YsH3 (props (id "rt-ys-h-periods")) "Jaksot ja esimerkkiviikot")))
+        for seed.periods p:RtPeriod i {
+            sec.addChild((this.ysPeriod(p i)))
+        }
+        body.addChild(sec)
+    }
+
+    fn ysTool:EVGElement (id:string label:string icon:string className:string) {
+        def b (tree Rt (YsToolBtn))
+        b.id = id
+        b.a11yLabel = label
+        b.className = className
+        if ((strlen icon) > 0) {
+            def ic (tree Rt (PhIcon (props (className "rt-ph-icon rt-ph-icon-sm"))))
+            ic.svgSource = icon
+            b.addChild(ic)
+        }
+        b.addChild((tree Rt (YsToolTx label)))
+        return b
+    }
+
+    ; "Kausien muokkaus": a row per period — its number and name, the
+    ; duration, its unit, its type, the date lock, and delete, which is
+    ; disabled while the period is the only one.
+    fn ysPeriodEditor:void (body:EVGElement) {
+        def panel (tree Rt (YsPanel))
+        def top (tree Rt (ModalRow))
+        top.addChild((tree Rt (YsH3 (props (id "rt-ys-h-edit")) "Kausien muokkaus")))
+        top.addChild((tree Rt (Spacer)))
+        top.addChild((this.ysTool("rt-ys-add-period" "Lisää kausi" (RtIcons.plus("#ffffff")) "rt-ys-tool rt-ys-tool-green")))
+        panel.addChild(top)
+        for seed.periods p:RtPeriod i {
+            def row (tree Rt (YsEditRow))
+            row.addChild((tree Rt (YsTx (((to_string (i + 1)) + ". ") + p.name))))
+            ; The duration: `NumberCtl` keeps the value, the range and the
+            ; steps; the box, the value and the two step buttons are drawn
+            ; here, as `ControlsDemo` draws its own.
+            def dur:NumberCtl (itemAt ysDur i)
+            def durBox (tree Rt (YsNum))
+            durBox.id = dur.tid
+            durBox.a11yLabel = dur.name
+            durBox.addChild((this.iconBtn((dur.tid + "-dec") "Vähennä" (RtIcons.chevronLeft("#999999")))))
+            durBox.addChild((tree Rt (YsNumTx (dur.plain()))))
+            durBox.addChild((this.iconBtn((dur.tid + "-inc") "Lisää" (RtIcons.chevronRight("#999999")))))
+            row.addChild(durBox)
+            def unit:SelectCtl (itemAt ysUnit i)
+            this.dress(unit)
+            def unitBox:EVGElement (unwrap unit.rootEl)
+            unitBox.setAttribute("width" "80px")
+            row.addChild(unitBox)
+            def kind:SelectCtl (itemAt ysType i)
+            this.dress(kind)
+            def kindBox:EVGElement (unwrap kind.rootEl)
+            kindBox.setAttribute("width" "150px")
+            row.addChild(kindBox)
+            row.addChild((this.ysTool(("rt-ys-lock-" + (to_string i)) "Lukitse päivämäärät" (RtIcons.lock("#f2f2f2")) "rt-ys-tool rt-ys-tool-outline")))
+            def del (this.iconBtn(("rt-ys-del-period-" + (to_string i)) "" (RtIcons.trash("#999999"))))
+            if ((array_length seed.periods) < 2) {
+                del.a11yDisabled = true
+            }
+            row.addChild(del)
+            panel.addChild(row)
+        }
+        panel.addChild((tree Rt (YsDim (props (id "rt-ys-total")) (("Yhteensä: " + (to_string (RtYearSheet.totalWeeks(seed)))) + " viikkoa"))))
+        body.addChild(panel)
+    }
+
+    ; "Rivien muokkaus (Tilikartta)": a row per row of the chart — its name
+    ; and metric keys, a child to add, and delete.
+    fn ysRowEditor:void (body:EVGElement) {
+        def panel (tree Rt (YsPanel))
+        def top (tree Rt (ModalRow))
+        top.addChild((tree Rt (YsH3 (props (id "rt-ys-h-edit")) "Rivien muokkaus (Tilikartta)")))
+        top.addChild((tree Rt (Spacer)))
+        top.addChild((this.ysTool("rt-ys-add-row" "Lisää rivi" (RtIcons.plus("#ffffff")) "rt-ys-tool rt-ys-tool-green")))
+        panel.addChild(top)
+        for ys.rows r:RtYsRow i {
+            def row (tree Rt (YsEditRow))
+            row.addChild((tree Rt (YsTx ((r.name + " ") + (r.keyText())))))
+            row.addChild((tree Rt (Spacer)))
+            row.addChild((this.ysTool(("rt-ys-add-child-" + (to_string i)) "Lisää alarivi" (RtIcons.plus("#f2f2f2")) "rt-ys-tool rt-ys-tool-outline")))
+            row.addChild((this.iconBtn(("rt-ys-del-row-" + (to_string i)) "" (RtIcons.trash("#999999")))))
+            panel.addChild(row)
+        }
+        body.addChild(panel)
+    }
+
+    ; The grid: a column per period and a total, a row per row of the chart
+    ; with one line per metric. Text only, as the original's is.
+    fn ysGrid:void (body:EVGElement) {
+        def grid (tree Rt (YsGrid))
+        def headRow (tree Rt (YsGridRow (props (className "rt-ys-grid-row rt-ys-grid-head"))))
+        headRow.addChild((this.ysCell("Kategoria" "" "rt-ys-cell rt-ys-cell-name")))
+        for seed.periods p:RtPeriod i {
+            def dates:string (((RtYearSheet.shortDate((RtYearSheet.periodStart(seed i)))) + " - ") + (RtYearSheet.shortDate((RtYearSheet.periodEnd(seed i)))))
+            def cell:EVGElement (this.ysCell(p.name dates "rt-ys-cell"))
+            grid.addChild((tree Rt (Spacer)))
+            headRow.addChild(cell)
+        }
+        headRow.addChild((this.ysCell("Yhteensä" "" "rt-ys-cell rt-ys-cell-total")))
+        grid.addChild(headRow)
+        for ys.rows r:RtYsRow ri {
+            def row (tree Rt (YsGridRow))
+            def rowName:string (((r.name + " (") + (r.unitText())) + ")")
+            row.addChild((this.ysCell(rowName "" "rt-ys-cell rt-ys-cell-name")))
+            for seed.periods p:RtPeriod i {
+                def a:string (RtYearSheet.periodStart(seed i))
+                def b:string (RtYearSheet.periodEnd(seed i))
+                def first@(mutable):string "-"
+                def second@(mutable):string ""
+                if ((array_length r.metricKeys) > 0) { first = (RtYearSheet.cellText((itemAt r.metricKeys 0) seed a b)) }
+                if ((array_length r.metricKeys) > 1) { second = (RtYearSheet.cellText((itemAt r.metricKeys 1) seed a b)) }
+                row.addChild((this.ysCell(first second "rt-ys-cell")))
+            }
+            def ta:string seed.sheetStart
+            def tb:string (RtYearSheet.sheetEnd(seed))
+            def tfirst@(mutable):string "-"
+            def tsecond@(mutable):string ""
+            if ((array_length r.metricKeys) > 0) { tfirst = (RtYearSheet.cellText((itemAt r.metricKeys 0) seed ta tb)) }
+            if ((array_length r.metricKeys) > 1) { tsecond = (RtYearSheet.cellText((itemAt r.metricKeys 1) seed ta tb)) }
+            row.addChild((this.ysCell(tfirst tsecond "rt-ys-cell rt-ys-cell-total")))
+            grid.addChild(row)
+        }
+        body.addChild(grid)
+    }
+
+    fn ysCell:EVGElement (line1:string line2:string className:string) {
+        def cell (tree Rt (YsCell))
+        cell.className = className
+        cell.addChild((tree Rt (YsCellTx line1)))
+        if ((strlen line2) > 0) {
+            cell.addChild((tree Rt (YsDim line2)))
+        }
+        return cell
+    }
+
+    ; A period and, unfolded, its goals, the week-type switch and the week.
+    fn ysPeriod:EVGElement (p:RtPeriod i:int) {
+        def box (tree Rt (YsPeriod))
+        def unitWord@(mutable):string "vk"
+        if (p.durationUnit == "days") { unitWord = "pv" }
+        def label@(mutable):string ((((((p.name + " (") + (to_string p.durationWeeks)) + " ") + unitWord) + ") ") + p.kind)
+        if ((array_length p.weeks) > 0) {
+            label = (label + " Esimerkkiviikot ✓")
+        }
+        def btn (tree Rt (YsPeriodBtn))
+        btn.id = ("rt-ys-period-" + (to_string i))
+        btn.a11yLabel = label
+        btn.addChild((tree Rt (YsTx p.name)))
+        btn.addChild((tree Rt (YsDim (((("(" + (to_string p.durationWeeks)) + " ") + unitWord) + ")"))))
+        def kindTag (tree Rt (YsDim (props (className "rt-ys-dim rt-ys-kind")) p.kind)))
+        btn.addChild(kindTag)
+        if ((array_length p.weeks) > 0) {
+            btn.addChild((tree Rt (YsDim "Esimerkkiviikot ✓")))
+        }
+        box.addChild(btn)
+        if (ys.isExpanded(i)) {
+            def goalsRow (tree Rt (ModalRow))
+            goalsRow.addChild((tree Rt (YsStrong "Tavoitteet:")))
+            goalsRow.addChild((tree Rt (YsDim p.goals)))
+            box.addChild(goalsRow)
+            def seg (tree Rt (ModalRow))
+            def wt:string (ys.weekTypeAt(i))
+            seg.addChild((this.ysWeekBtn(i "target" "🎯 Tavoiteviikko" (wt == "target"))))
+            seg.addChild((this.ysWeekBtn(i "light" "🌊 Kevyt viikko" (wt == "light"))))
+            box.addChild(seg)
+            def week:RtExampleWeek (p.weekOf(wt))
+            box.addChild((tree Rt (YsPara (props (id ("rt-ys-week-desc-" + (to_string i)))) week.description)))
+            def days@(mutable):string ""
+            def d@(mutable):int 0
+            while (d < 7) {
+                def compact:string (week.dayAt(d))
+                if ((strlen compact) > 0) {
+                    def e:RtEntry (RtEntry.of(compact))
+                    if ((strlen days) > 0) { days = (days + " · ") }
+                    days = (days + (((RtWeek.dayShort(d)) + " ") + e.title))
+                }
+                d = (d + 1)
+            }
+            box.addChild((tree Rt (YsDim days)))
+            box.addChild((this.ysTool(("rt-ys-full-" + (to_string i)) "Katso täydet ohjelmat" "" "rt-ys-tool rt-ys-tool-outline")))
+        }
+        return box
+    }
+
+    fn ysWeekBtn:EVGElement (i:int t:string label:string on:boolean) {
+        def cls@(mutable):string "rt-ys-tool rt-ys-tool-outline"
+        if on { cls = "rt-ys-tool rt-ys-tool-on" }
+        return (this.ysTool((("rt-ys-week-" + (to_string i)) + ("-" + t)) label "" cls))
+    }
+
+    fn pressYearsheet:boolean (id:string) {
+        ; Back is `onBack`: the dashboard.
+        if (id == "rt-ys-back") {
+            if (ys.view == "detail") {
+                ys.openList()
+            }
+            scene = "app"
+            section = "dashboard"
+            docScroll = 0.0
+            return true
+        }
+        if (RtEntry.hasPrefix(id "rt-ys-open-")) {
+            ys.openDetail()
+            docScroll = 0.0
+            return true
+        }
+        if (ys.view != "detail") {
+            return false
+        }
+        if (id == "rt-ys-periods") { return (ys.toggleEditor("periods")) }
+        if (id == "rt-ys-rows") { return (ys.toggleEditor("rows")) }
+        if (id == "rt-ys-add-row") {
+            ys.addRow()
+            return true
+        }
+        def delRow:int (RealTrainerDemo.digitOf(id "rt-ys-del-row-"))
+        if (delRow >= 0) { return (ys.removeRow(delRow)) }
+        def per:int (RealTrainerDemo.digitOf(id "rt-ys-period-"))
+        if (per >= 0) { return (ys.togglePeriod(per)) }
+        if (RtEntry.hasPrefix(id "rt-ys-week-")) {
+            def rest:string (substring id 11 (strlen id))
+            def dash:int (RtEntry.findIn(rest "-"))
+            if (dash > 0) {
+                def wi:int (to_int (?? (to_double (substring rest 0 dash)) 0.0))
+                return (ys.setWeekType(wi (substring rest (dash + 1) (strlen rest))))
+            }
+            return false
+        }
+        ; The editors' controls: a step or a select answers, and the period
+        ; follows it.
+        for ysDur d:NumberCtl i {
+            if ((id == (d.tid + "-inc")) || (id == (d.tid + "-dec"))) {
+                if (id == (d.tid + "-inc")) { d.increment() } { d.decrement() }
+                def pd:RtPeriod (itemAt seed.periods i)
+                pd.durationWeeks = (to_int d.value)
+                return true
+            }
+        }
+        for ysUnit u:SelectCtl i {
+            if (RealTrainerDemo.owns((u.tids()) id)) {
+                u.activate(id)
+                def p:RtPeriod (itemAt seed.periods i)
+                p.durationUnit = u.value
+                return true
+            }
+        }
+        for ysType t:SelectCtl i {
+            if (RealTrainerDemo.owns((t.tids()) id)) {
+                t.activate(id)
+                def p2:RtPeriod (itemAt seed.periods i)
+                p2.kind = t.value
+                return true
+            }
+        }
+        return false
     }
 
     ; "rt-wiz-color-7" → 7, or -1 when the id is not one of that family.
@@ -3090,6 +3532,13 @@ class RealTrainerDemo {
                 moreOpen = false
                 return true
             }
+            if (id == "rt-more-yearsheet") {
+                moreOpen = false
+                ys.openList()
+                docScroll = 0.0
+                scene = "yearsheet"
+                return true
+            }
             if ((strlen id) > 7) {
                 if ((substring id 0 7) == "rt-nav-") {
                     moreOpen = false
@@ -3117,6 +3566,13 @@ class RealTrainerDemo {
             return true
         }
         if (id == "rt-nav-dashboard") { return (this.goSection("dashboard")) }
+        if (id == "rt-dash-open") {
+            ys.openList()
+            ys.openDetail()
+            docScroll = 0.0
+            scene = "yearsheet"
+            return true
+        }
         if (id == "rt-nav-chat") { return (this.goSection("chat")) }
         if (id == "rt-nav-more") {
             moreOpen = true
@@ -3433,7 +3889,7 @@ class RealTrainerDemo {
             }
             return false
         }
-        if (scene == "app") {
+        if ((scene == "app") || (scene == "yearsheet")) {
             def r0:EVGElement (unwrap root)
             ; A dialog that is open takes the wheel: its body scrolls, the
             ; page under it does not.
@@ -3522,6 +3978,9 @@ class RealTrainerDemo {
         }
         if (scene == "wizard") {
             root = (this.wizardScreen())
+        }
+        if (scene == "yearsheet") {
+            root = (this.yearsheetScreen())
         }
         if (scene == "loading") {
             root = (this.loader())
@@ -3823,6 +4282,32 @@ class RealTrainerDemo {
             focused = c.tid
             this.rebuild()
             return true
+        }
+        ; The year sheet draws inside the shell: its own presses first, then
+        ; the bar's, which leave it.
+        if (scene == "yearsheet") {
+            if (this.pressYearsheet(id)) {
+                this.rebuild()
+                return true
+            }
+            if ((RtEntry.hasPrefix(id "rt-nav-")) || moreOpen) {
+                if (id != "rt-nav-more") {
+                    if (moreOpen == false) {
+                        scene = "app"
+                    }
+                }
+                if (this.pressApp(id)) {
+                    if (scene == "yearsheet") {
+                        if (section != "calendar") {
+                            ; A section the bar chose while the sheet was up.
+                        }
+                    }
+                    this.rebuild()
+                    return true
+                }
+                return false
+            }
+            return false
         }
         ; The wizard is a page of its own, with nothing of the shell on it.
         if (scene == "wizard") {
