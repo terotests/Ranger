@@ -309,6 +309,10 @@ its tree:
 @media (max-width: 640px)                            { … }
 @media (min-width: 900px) and (orientation: landscape) { … }
 @media (pointer: coarse)                             { … }
+
+@vars           { --ink: #09090b; }   /* the palette, every theme */
+@vars classic   { --ink: #1b1a17; }   /* …and what "classic" makes of it */
+.caption { color: var(--ink); }
 ```
 
 **Resolution order**, with source order breaking ties inside each group:
@@ -359,6 +363,50 @@ sheet.applyTreeIn(root theme w h coarse)   ; or both in one call
 **With no viewport stated, a conditional rule does not apply at all.** A media
 query that cannot be evaluated has no truth value, and guessing "yes" would
 style a print page for a phone.
+
+### Custom properties
+
+```css
+@vars          { --ink: #09090b; --line: #e4e4e7; --brand: #14b8a6; }
+@vars marine   { --ink: #0a3344; --line: #b6d4e0; }
+@media (max-width: 640px) { @vars { --gap: 8px; } }
+
+.card  { border: 1px solid var(--line); color: var(--ink); }
+.badge { background-color: var(--brand, #333); }   /* with a fallback */
+```
+
+**The palette is sheet-level, and `@vars` says so.** In a browser `--x` is an
+inherited property of an *element*, and `:root { --x }` is only the commonest
+place to put it. This engine has no root element and no inheritance, so a
+palette written on a class would look element-scoped and not be — `--x` inside
+a class rule is therefore **an error**, not a thing that half works.
+
+A declaration inside `@media` carries that condition, exactly as a rule does.
+Precedence is the sheet's own, applied to the palette: theme-scoped beats
+unscoped, later beats earlier among equals, and a block whose media condition
+does not hold is not a candidate. A variable may be written in terms of
+another, so a theme can move one name and everything defined from it follows.
+
+`var(--x)` with **no definition and no fallback drops the declaration** and
+reports it: half a shorthand is worse than the value that was already there,
+and the error list says where. So does an unclosed `var(` and a definition
+cycle.
+
+**What it costs: nothing measurable.** `var()` is resolved where a rule's value
+becomes an element's — when a *plan* is built, once per (class, theme, state)
+— and never per element. Measured on the bench table with every colour in the
+sheet turned into a variable, both the full pass and the skip pass are
+unchanged within run-to-run noise: 22,403 elements are styled from **18**
+plans, so the palette is read eighteen times over and not once per element per
+frame. Substitution is textual and happens before the value reaches
+`setAttribute`, which is what lets it work inside a shorthand
+(`border: 1px solid var(--line)`) with no property having to know variables
+exist.
+
+[`EVGStyleVarTest.rgr`](EVGStyleVarTest.rgr) (`npm run evg:stylevar:test`)
+covers the meaning and the cost; the cache suite's fixture uses variables too,
+so the two places a value is resolved — the plan builder and the direct scan it
+is checked against — cannot drift apart.
 
 ### Transitions
 

@@ -15,6 +15,24 @@
 ;   @media (min-width: 900px) and (orientation: landscape) { ... }
 ;   @media (pointer: coarse)  { ... }   ; a finger, not a mouse
 ;
+;   @vars          { --ink: #09090b; }  ; the palette, in every theme
+;   @vars classic  { --ink: #1b1a17; }  ; ...and what "classic" makes of it
+;   .caption { color: var(--ink); }     ; used anywhere in any value
+;   .rule    { border: 1px solid var(--line, #ddd); }   ; with a fallback
+;
+; CUSTOM PROPERTIES ARE SHEET-LEVEL HERE, and `@vars` says so out loud. In a
+; browser `--x` is an inherited property of an ELEMENT and `:root { --x }` is
+; only the commonest place to put it; this engine has no root element and no
+; inheritance, so a palette written on a class would look element-scoped and
+; not be. Declaring `--x` in a class rule is therefore an error rather than a
+; thing that half works.
+;
+; `var()` is resolved when a plan is BUILT — once per (class, theme, state) —
+; and never per element, so a sheet that is all variables costs what one that
+; is all literals costs. It is textual substitution before the value reaches
+; `setAttribute`, which is what lets it work inside a shorthand
+; (`border: 1px solid var(--line)`) with no property having to know.
+;
 ; A media block is a CONDITION on the rules inside it, not a new kind of
 ; selector: the rules keep the same specificity they would have had outside,
 ; and a block that does not match contributes nothing. Conditions are
@@ -183,6 +201,26 @@ class EVGStyleRule {
 
 class EVGStyleSheet {
     def rules:[EVGStyleRule]
+    ; --- the palette ----------------------------------------------------------
+    ;
+    ; Every `@vars` declaration in source order, as four parallel arrays: the
+    ; theme it was written under ("" for every theme), the media condition of
+    ; the block it sat in, the name and the value. A list and not a map,
+    ; because which declaration wins depends on the theme and the viewport
+    ; being asked about — the same question `rules` answers the same way.
+    def varThemes:[string]
+    def varMedia:[EVGMediaQuery]
+    def varNames:[string]
+    def varValues:[string]
+    ; Timing functions already checked, so a `transition` built out of
+    ; variables is reported once rather than once per plan that resolves it.
+    def varChecked:[string:int]
+    ; And the same for what resolution complains about. A parse error happens
+    ; once because parsing happens once; a resolution error happens wherever a
+    ; plan is built, so one typo in one rule would be reported once per class
+    ; that rule matches — forty copies of one sentence in the panel that is
+    ; supposed to tell you which sentence it is.
+    def varReported:[string:int]
     ; Rules that failed to parse, kept so tools can report them instead of
     ; silently rendering an unstyled page.
     def errors:[string]
@@ -344,6 +382,22 @@ class EVGStyleSheet {
         rules = r
         def e:[string]
         errors = e
+        ; AND THE PALETTE, for the same reason the rules go: `parse` appends,
+        ; so a sheet reloaded without this keeps every variable the old text
+        ; declared — and an old declaration outlives the new one, because the
+        ; later of two equals wins.
+        def vt:[string]
+        varThemes = vt
+        def vm:[EVGMediaQuery]
+        varMedia = vm
+        def vn:[string]
+        varNames = vn
+        def vv:[string]
+        varValues = vv
+        def vc:[string:int]
+        varChecked = vc
+        def vr:[string:int]
+        varReported = vr
         ruleCounter = 0
         this.parse(css)
     }
@@ -498,13 +552,21 @@ class EVGStyleSheet {
             } {
                 if ((strlen selectorText) > 0) {
                     if ((charAt selectorText 0) == 64) {
-                        ; Some other at-rule. Skipped as a whole, and said so,
-                        ; rather than its body being read as bare selectors.
                         def skipTo:int (this.matchingBrace(src braceAt))
                         if (skipTo < 0) {
                             push errors ("Unclosed at-rule: " + selectorText)
                             return
                         }
+                        ; `@vars` and `@vars <theme>` — the palette. It carries
+                        ; the media condition of the block it sits in, like a
+                        ; rule does, so a variable can answer a narrow window.
+                        if (this.startsWith(selectorText "@vars")) {
+                            this.addVars(selectorText (substring src (braceAt + 1) skipTo) cond)
+                            i = (skipTo + 1)
+                            continue
+                        }
+                        ; Some other at-rule. Skipped as a whole, and said so,
+                        ; rather than its body being read as bare selectors.
                         push errors ("Unsupported at-rule ignored: " + selectorText)
                         i = (skipTo + 1)
                         continue
@@ -841,6 +903,200 @@ class EVGStyleSheet {
         pendingMedia = (new EVGMediaQuery())
     }
 
+    ; `@vars { --a: 1 }` / `@vars classic { --a: 2 }`.
+    ;
+    ; The header is the at-rule word and, at most, a theme name. A second word
+    ; is an error rather than a guess: `@vars theme classic` reads as if it
+    ; ought to work, and quietly filing it under the theme "theme" would be the
+    ; kind of failure that looks like a wrong colour.
+    fn addVars:void (header:string body:string cond:EVGMediaQuery) {
+        def parts:[string] (this.splitWhitespace(header))
+        def theme:string ""
+        if ((array_length parts) > 2) {
+            push errors ("@vars takes at most a theme name: " + header)
+            return
+        }
+        if ((array_length parts) == 2) {
+            theme = (itemAt parts 1)
+        }
+        def decls:[EVGStyleDecl] (this.parseDeclarations(body))
+        def i:int 0
+        while (i < (array_length decls)) {
+            def d:EVGStyleDecl (itemAt decls i)
+            if ((this.startsWith(d.name "--")) == false) {
+                ; A property in here would go nowhere: `@vars` declares the
+                ; palette and nothing wears it.
+                push errors ("Only custom properties belong in @vars: " + d.name)
+            } {
+                push varThemes theme
+                push varMedia cond
+                push varNames d.name
+                push varValues d.value
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn getVarCount:int () {
+        return (array_length varNames)
+    }
+
+    ; What `--name` is worth under `theme` and the stated viewport, or "" when
+    ; nothing defines it. A value is never empty — `parseDeclarations` drops an
+    ; empty one — so "" is an unambiguous "no".
+    ;
+    ; Precedence is the sheet's own, applied to the palette: a theme-scoped
+    ; declaration beats an unscoped one, and among equals the last one written
+    ; wins. A declaration inside a `@media` block that does not hold is not a
+    ; candidate at all.
+    fn lookupVar:string (name:string theme:string) {
+        def best:string ""
+        def bestScoped:boolean false
+        def i:int 0
+        def n:int (array_length varNames)
+        while (i < n) {
+            if ((itemAt varNames i) == name) {
+                def th:string (itemAt varThemes i)
+                def scoped:boolean ((strlen th) > 0)
+                def applies:boolean true
+                if scoped {
+                    applies = (th == theme)
+                }
+                if applies {
+                    def mq:EVGMediaQuery (itemAt varMedia i)
+                    applies = (mq.matches(viewportW viewportH coarsePointer))
+                }
+                if applies {
+                    ; An unscoped declaration cannot displace a themed one.
+                    if (scoped || (bestScoped == false)) {
+                        best = (itemAt varValues i)
+                        bestScoped = scoped
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return best
+    }
+
+    ; `var(--name)` and `var(--name, fallback)`, resolved against the palette.
+    ;
+    ; Called from the two places a rule's value becomes an element's — the plan
+    ; builder and the direct applier — so it runs once per (class, theme,
+    ; state) and not once per element. `prop` is carried only to say which
+    ; declaration was at fault.
+    ;
+    ; Returns "" when the value cannot be resolved, and the caller then writes
+    ; NOTHING: half a shorthand is worse than the value that was there before,
+    ; and the error list says what happened.
+    fn resolveVars:string (value:string theme:string prop:string) {
+        def at:int (this.findVar(value 0))
+        if (at < 0) {
+            return value
+        }
+        def out:string value
+        def guard:int 0
+        while (at >= 0) {
+            guard = (guard + 1)
+            if (guard > 32) {
+                ; `--a: var(--b)` and `--b: var(--a)`. A depth limit rather
+                ; than a visited-set: the limit is also what catches a chain
+                ; nobody meant to write.
+                this.reportOnce(("Custom property nested too deeply (a cycle?): " + prop))
+                return ""
+            }
+            def close:int (this.matchParen(out (at + 3)))
+            if (close < 0) {
+                this.reportOnce(("Unclosed var(): " + value))
+                return ""
+            }
+            def inner:string (trim (substring out (at + 4) close))
+            def comma:int (this.findChar(inner 0 44))
+            def name:string inner
+            def fallback:string ""
+            def hasFallback:boolean false
+            if (comma >= 0) {
+                name = (trim (substring inner 0 comma))
+                fallback = (trim (substring inner (comma + 1) (strlen inner)))
+                hasFallback = true
+            }
+            def got:string (this.lookupVar(name theme))
+            def repl:string got
+            if ((strlen got) == 0) {
+                if (hasFallback == false) {
+                    this.reportOnce(((("Undefined custom property " + name) + " in: ") + prop))
+                    return ""
+                }
+                repl = fallback
+            }
+            out = (((substring out 0 at) + repl) + (substring out (close + 1) (strlen out)))
+            at = (this.findVar(out 0))
+        }
+        ; A `transition` assembled out of variables cannot be checked when the
+        ; sheet is parsed, because until a theme is named it has no value. It
+        ; is checked here instead, once per distinct resolved value.
+        if (prop == "transition") {
+            def seen@(optional):int (get varChecked out)
+            if (null? seen) {
+                set varChecked out 1
+                this.checkTransition(out)
+            }
+        }
+        return out
+    }
+
+    ; Say it once. See `varReported`.
+    fn reportOnce:void (msg:string) {
+        def seen@(optional):int (get varReported msg)
+        if (null? seen) {
+            set varReported msg 1
+            push errors msg
+        }
+    }
+
+    ; The next "var(" at or after `from`, or -1. Four character comparisons in
+    ; the common case, and the common case is a value with no variable in it —
+    ; which is why this is a scan and not a split.
+    fn findVar:int (s:string from:int) {
+        def n:int (strlen s)
+        def i:int from
+        while ((i + 4) <= n) {
+            if ((charAt s i) == 118) {
+                if ((charAt s (i + 1)) == 97) {
+                    if ((charAt s (i + 2)) == 114) {
+                        if ((charAt s (i + 3)) == 40) {
+                            return i
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    ; The ')' that closes the '(' at `open`. Nested parentheses are counted,
+    ; because a fallback may be a function: `var(--c, rgb(0, 0, 0))`.
+    fn matchParen:int (s:string open:int) {
+        def n:int (strlen s)
+        def depth:int 0
+        def i:int open
+        while (i < n) {
+            def c:int (charAt s i)
+            if (c == 40) {
+                depth = (depth + 1)
+            }
+            if (c == 41) {
+                depth = (depth - 1)
+                if (depth == 0) {
+                    return i
+                }
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
     ; ".caption" -> class rule; ".theme-classic .caption" -> theme-scoped rule.
     ; Anything else is outside the subset and is reported rather than guessed at.
     fn addRuleForSelector:void (sel:string decls:[EVGStyleDecl]) {
@@ -910,7 +1166,22 @@ class EVGStyleSheet {
     }
 
     fn pushRule:void (rule:EVGStyleRule decls:[EVGStyleDecl]) {
-        rule.decls = decls
+        ; `--x` on a class. There is no element-scoped palette here, so this
+        ; would be planned for every element wearing the class and dropped in
+        ; silence by `setAttribute` — a declaration that reads like CSS and
+        ; does nothing. It is reported and removed instead.
+        def keep:[EVGStyleDecl]
+        def k:int 0
+        while (k < (array_length decls)) {
+            def d:EVGStyleDecl (itemAt decls k)
+            if (this.startsWith(d.name "--")) {
+                push errors ((("Custom properties are declared in @vars, not on ." + rule.className) + ": ") + d.name)
+            } {
+                push keep d
+            }
+            k = (k + 1)
+        }
+        rule.decls = keep
         rule.media = pendingMedia
         rule.order = ruleCounter
         ruleCounter = (ruleCounter + 1)
@@ -965,8 +1236,16 @@ class EVGStyleSheet {
                     d.name = (trim (substring part 0 colon))
                     d.value = (this.unquote((trim (substring part (colon + 1) (strlen part)))))
                     if (((strlen d.name) > 0) && ((strlen d.value) > 0)) {
+                        ; A transition assembled out of variables has no
+                        ; value yet — until a theme is named, `var(--dur)`
+                        ; is neither a duration nor a timing function, and
+                        ; checking it here reports the variable itself as an
+                        ; unsupported function. `resolveVars` checks the
+                        ; resolved value instead, once per distinct result.
                         if (d.name == "transition") {
-                            this.checkTransition(d.value)
+                            if ((this.findVar(d.value 0)) < 0) {
+                                this.checkTransition(d.value)
+                            }
                         }
                         push out d
                     } {
@@ -1348,9 +1627,15 @@ class EVGStyleSheet {
                         def d:int 0
                         while (d < (array_length rule.decls)) {
                             def decl:EVGStyleDecl (itemAt rule.decls d)
-                            push planNames decl.name
-                            push planValues decl.value
-                            push planRules i
+                            ; ONCE PER PLAN, which is once per (class, theme,
+                            ; state) — the reason a sheet written entirely in
+                            ; variables costs what a literal one costs.
+                            def v:string (this.resolveVars(decl.value theme decl.name))
+                            if ((strlen v) > 0) {
+                                push planNames decl.name
+                                push planValues v
+                                push planRules i
+                            }
                             d = (d + 1)
                         }
                     }
@@ -1483,7 +1768,7 @@ class EVGStyleSheet {
                 }
                 if applies {
                     if (this.matchesClass(classes rule.className)) {
-                        this.applyDecls(el rule)
+                        this.applyDecls(el rule theme)
                     }
                 }
             }
@@ -1502,13 +1787,20 @@ class EVGStyleSheet {
         return false
     }
 
-    fn applyDecls:void (el:EVGElement rule:EVGStyleRule) {
+    ; The direct path's write. It resolves `var()` like the plan builder does,
+    ; and it has to: `EVGStyleCacheTest` styles the same tree both ways and
+    ; compares the display lists, so a variable the cache understood and this
+    ; did not would show up as the cache being wrong.
+    fn applyDecls:void (el:EVGElement rule:EVGStyleRule theme:string) {
         def i:int 0
         while (i < (array_length rule.decls)) {
             def d:EVGStyleDecl (itemAt rule.decls i)
             ; Inline attributes outrank every stylesheet rule.
             if ((el.hasInline(d.name)) == false) {
-                el.setAttribute(d.name d.value)
+                def v:string (this.resolveVars(d.value theme d.name))
+                if ((strlen v) > 0) {
+                    el.setAttribute(d.name v)
+                }
             }
             i = (i + 1)
         }

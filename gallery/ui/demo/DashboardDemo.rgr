@@ -1800,7 +1800,15 @@ class DashboardDemo {
         probe.className = cls
         s.applyTo(probe theme)
         if probe.color {
-            return (unwrap probe.color)
+            def got:EVGColor (unwrap probe.color)
+            ; `isSet`, not "is the field there": an element that was never
+            ; given a colour carries `EVGColor.noColor()`, so the field is
+            ; always there and the fallback below was unreachable. An unset
+            ; colour writes "none" into the Vega specification, which is a
+            ; transparent chart rather than a visible mistake.
+            if got.isSet {
+                return got
+            }
         }
         ; No `color` in the sheet for that class — a name that is not in the
         ; file, in practice. Black, which is what an element with no colour
