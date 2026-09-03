@@ -930,7 +930,7 @@ console.log("--- the title bar is rounded only at the top ---");
     rc && rc[0] > 0 && rc[1] > 0 && rc[2] === 0 && rc[3] === 0, JSON.stringify(rc));
 }
 
-console.log("--- the dashboard has a second palette ---");
+console.log("--- the dashboard has three palettes ---");
 {
   // The theme radio, in a real page. What the node-level check cannot say is
   // that the control is wired to the demo at all: `dashboard-check.mjs` calls
@@ -954,6 +954,14 @@ console.log("--- the dashboard has a second palette ---");
   ok("the theme reaches the surface effect", marine.speed === 320, String(marine.speed));
   // The whole claim of a theme in this engine: colours change, boxes do not.
   ok("and not one box moved", marine.geom === light.geom);
+  // The third palette, through the same one control.
+  await page.click('#dashthemes input[value="sunrise"]');
+  await page.waitForTimeout(200);
+  const sunrise = await shot();
+  ok("a third palette is the same mechanism",
+    JSON.stringify(sunrise.bg) === "[255,243,230,1]" && sunrise.speed === 260,
+    JSON.stringify(sunrise.bg) + " " + sunrise.speed);
+  ok("and it moves nothing either", sunrise.geom === light.geom);
   await page.click('#dashthemes input[value="default"]');
   await page.waitForTimeout(200);
   const back = await shot();

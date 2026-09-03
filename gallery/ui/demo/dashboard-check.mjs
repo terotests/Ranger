@@ -948,22 +948,25 @@ console.log("--- what a reader is told about a carried row ---");
     JSON.stringify(live.map((n) => n.name)));
 }
 
-console.log("--- a second palette over the same layout ---");
+console.log("--- three palettes over the same layout ---");
 {
-  // A THEME IS A NAME. The sheet holds both palettes and `applyTree(root,
-  // theme)` picks one; nothing in the tree gains or loses a class. So what is
-  // checked here is that the page repaints and does not MOVE — and that
-  // leaving the theme puts every colour back, which only holds while every
-  // themed declaration has an unscoped counterpart to fall back to.
+  // A THEME IS A NAME. The sheet holds three palettes — `@vars`, `@vars
+  // marine`, `@vars sunrise` — and `applyTree(root, theme)` picks one; every
+  // rule in the file names a role rather than a colour, so nothing in the tree
+  // gains or loses a class. What is checked here is that the page repaints and
+  // does not MOVE, in either theme, and that leaving one puts every colour
+  // back.
   const geom = (json) =>
     JSON.parse(json).cmds
       .map((c) => [c.k, c.x, c.y, c.w, c.h, c.text || "", (c.pts || []).join(" ")].join(","))
       .join("|");
   const paint = (json) =>
     JSON.parse(json).cmds.map((c) => (c.c || []).join(",")).join("|");
+  const bg = (json) => JSON.parse(json).cmds[0].c.join(",");
+  const speed = (json) => JSON.parse(json).effect.speed;
 
   const d = fresh();
-  ok("the page starts on the sheet's unscoped rules", d.themeName() === "",
+  ok("the page starts on the sheet's unscoped palette", d.themeName() === "",
     JSON.stringify(d.themeName()));
   const light = d.displayListJson();
 
@@ -971,63 +974,84 @@ console.log("--- a second palette over the same layout ---");
   ok("asking for the one already on is not", d.setTheme("marine") === false);
   ok("and it says which it is on", d.themeName() === "marine", d.themeName());
   const marine = d.displayListJson();
+  d.setTheme("sunrise");
+  const sunrise = d.displayListJson();
 
-  ok("nothing moved", geom(marine) === geom(light));
-  ok("but the colours are not the same", paint(marine) !== paint(light));
-  const bg = (json) => JSON.parse(json).cmds[0].c.join(",");
+  ok("nothing moved under marine", geom(marine) === geom(light));
+  ok("nor under sunrise", geom(sunrise) === geom(light));
+  ok("but marine's colours are not the default's", paint(marine) !== paint(light));
+  ok("and sunrise's are neither", paint(sunrise) !== paint(light) && paint(sunrise) !== paint(marine));
   ok("the page itself is repainted", bg(marine) === "212,234,242,1", bg(marine));
-  // The surface effect is style like everything else, so a theme may slow the
-  // water down: 320 against the default's 220.
-  const speed = (json) => JSON.parse(json).effect.speed;
-  ok("and a theme reaches the effect too", speed(light) === 220 && speed(marine) === 320,
-    speed(light) + " -> " + speed(marine));
+  ok("in each theme", bg(sunrise) === "255,243,230,1", bg(sunrise));
+  // The surface effect is style like everything else, so a theme may change
+  // the speed of the water — `--ripple-speed` is a role like a colour is.
+  ok("and a theme reaches the effect too",
+    speed(light) === 220 && speed(marine) === 320 && speed(sunrise) === 260,
+    [speed(light), speed(marine), speed(sunrise)].join(" "));
 
   // THE HALF OF THE PAGE THAT WEARS NO CLASS. The chart is Vela's and the
   // scroll indicator is two rectangles; both take their colours from
   // `.db-ink-*` in the sheet, which is the only reason a theme can reach them.
+  d.setTheme("marine");
   ok("the chart's ink comes from the theme",
     /#7EC8DD/.test(d.specText()) && /#0E7490/.test(d.specText()),
     (d.specText().match(/#[0-9A-F]{6}/g) || []).join(" "));
+  d.setTheme("sunrise");
+  ok("in each theme",
+    /#FCD9A8/.test(d.specText()) && /#EA580C/.test(d.specText()),
+    (d.specText().match(/#[0-9A-F]{6}/g) || []).join(" "));
   d.setTheme("");
-  ok("and from the sheet's unscoped rules when there is no theme",
+  ok("and from the unscoped palette when there is no theme",
     /#D4D4D8/.test(d.specText()) && /#3F3F46/.test(d.specText()),
     (d.specText().match(/#[0-9A-F]{6}/g) || []).join(" "));
 
-  // Byte for byte, and it has to be: an element holds whatever the last plan
-  // wrote to it, so a theme that declared a property the unscoped rule does
-  // not would leave that value behind for good.
+  // Byte for byte. With the palette this is structural — there is one
+  // declaration per property and it is resolved per theme — where a theme
+  // built out of rules had to be checked declaration by declaration for one
+  // with nothing to fall back to.
   ok("leaving the theme puts the page back exactly", d.displayListJson() === light);
 
-  // Which is an invariant of the STYLESHEET, so it is checked there rather
-  // than inferred from one page: every `.theme-x .y` declaration needs a `.y`
-  // declaring the same property.
-  const decls = new Map();
+  // What replaced that check: every name a theme moves has to exist in the
+  // unscoped palette. A `@vars sunrise` name that is nowhere else is a name
+  // that resolves in one theme and reports an error in the other two.
   const body = CSS.replace(/\/\*[\s\S]*?\*\//g, "");
-  for (const m of body.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
-    const sel = m[1].trim().replace(/\s+/g, " ");
-    const props = decls.get(sel) || new Set();
+  const palettes = new Map();
+  for (const m of body.matchAll(/@vars([^{]*)\{([^{}]*)\}/g)) {
+    const theme = m[1].trim() || "";
+    const names = palettes.get(theme) || new Set();
     for (const decl of m[2].split(";")) {
       const at = decl.indexOf(":");
-      if (at > 0) props.add(decl.slice(0, at).trim());
+      if (at > 0) names.add(decl.slice(0, at).trim());
     }
-    decls.set(sel, props);
+    palettes.set(theme, names);
   }
-  const themed = [...decls.keys()].filter((sel) => sel.startsWith(".theme-"));
-  ok("the sheet has a theme in it", themed.length > 0, String(themed.length));
+  ok("the sheet has an unscoped palette", (palettes.get("") || new Set()).size > 0);
+  ok("and the two themes", palettes.has("marine") && palettes.has("sunrise"),
+    [...palettes.keys()].join(" "));
+  const base = palettes.get("");
   const orphans = [];
-  for (const sel of themed) {
-    const bare = sel.slice(sel.indexOf(" ") + 1);
-    for (const prop of decls.get(sel)) {
-      if (!decls.has(bare) || !decls.get(bare).has(prop)) orphans.push(sel + " { " + prop + " }");
+  for (const [theme, names] of palettes) {
+    if (theme === "") continue;
+    for (const n of names) if (!base.has(n)) orphans.push(theme + " " + n);
+  }
+  ok("every name a theme moves is in the unscoped palette", orphans.length === 0,
+    orphans.join(", "));
+  // A theme declaring a length would make the layout a function of the
+  // palette, and every measured position in this file true of one theme only.
+  const lengths = [];
+  for (const m of body.matchAll(/@vars[^{]*\{([^{}]*)\}/g)) {
+    for (const decl of m[1].split(";")) {
+      const at = decl.indexOf(":");
+      if (at < 0) continue;
+      if (/\d(px|%|em|rem|vh|vw)/.test(decl.slice(at + 1))) lengths.push(decl.trim());
     }
   }
-  ok("and every declaration in it has one to fall back to",
-    orphans.length === 0, orphans.join(", "));
-  // A theme that moved something would make the layout a function of the
-  // palette, and every measured position in this file true of one theme only.
-  const moves = themed.filter((sel) =>
-    [...decls.get(sel)].some((p) => /^(width|height|padding|margin|gap|flex|display|font-size|font-weight|border-radius|border-width)$/.test(p)));
-  ok("and none of it moves anything", moves.length === 0, moves.join(", "));
+  ok("and none of them is a length", lengths.length === 0, lengths.join(", "));
+  // The rules that USE the palette state no colour of their own — which is
+  // what makes the palette the only place a colour lives.
+  const rulesOnly = body.replace(/@vars[^{]*\{[^{}]*\}/g, "");
+  const literals = rulesOnly.match(/#[0-9a-fA-F]{3,8}\b/g) || [];
+  ok("and no rule states a colour", literals.length === 0, literals.join(" "));
   ok("the sheet parsed without complaint", d.inspectStyleErrors() === "[]", d.inspectStyleErrors());
 }
 

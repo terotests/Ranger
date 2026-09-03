@@ -156,12 +156,13 @@
           <h2>theme</h2>
           <div id="dashthemes"></div>
           <p class="hint">
-            One name, handed to <code>applyTree</code>. The sheet holds both
-            palettes &mdash; <code>.theme-marine .db-card</code> beats
-            <code>.db-card</code> &mdash; so nothing in the tree gains or loses
-            a class, and nothing moves: the marine block declares colours and
-            not one width, padding or gap. <code>?theme=marine</code> lands on
-            it directly.
+            One name, handed to <code>applyTree</code>. The sheet holds all
+            three palettes &mdash; <code>@vars marine { --page: &hellip; }</code>
+            beats the unscoped <code>@vars</code> &mdash; and every rule in the
+            file names a role rather than a colour. So nothing in the tree gains
+            or loses a class and nothing moves: a theme is forty-one colours,
+            not a second set of rules. <code>?theme=sunrise</code> lands on one
+            directly.
           </p>
         </section>
         <section data-for="dashboard">

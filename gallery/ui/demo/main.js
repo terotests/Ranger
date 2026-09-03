@@ -1708,11 +1708,11 @@ const wanted = new URLSearchParams(location.search).get("demo");
 if (wanted && DEMO_NAMES.includes(wanted)) state.which = wanted;
 
 // The dashboard's palettes. The name on the left is what the radio says and
-// what `?theme=` takes; the name on the right is what the sheet scopes its
-// rules with, and "" is the unscoped rules — the light theme the page was
-// built as. Adding a third is a block of `.theme-<name>` rules in
-// `dashboard.css` and one line here.
-const DASH_THEMES = { default: "", marine: "marine" };
+// what `?theme=` takes; the name on the right is the name the sheet's `@vars`
+// blocks are written under, and "" is the unscoped palette — the light theme
+// the page was built as. Adding a fourth is a `@vars <name>` block in
+// `dashboard.css` and one line here: forty-one colours, no rules.
+const DASH_THEMES = { default: "", marine: "marine", sunrise: "sunrise" };
 const askedTheme = new URLSearchParams(location.search).get("theme");
 if (askedTheme && askedTheme in DASH_THEMES) dashboard.setTheme(DASH_THEMES[askedTheme]);
 
