@@ -346,8 +346,44 @@ class IosBuild {
                 print "the compiler reported no failure but wrote no " + app.generatedDir + "/" + app.generatedFile
                 return false
             }
+            if ((this.rejectTopLevelCode(app.generatedDir app.generatedFile)) == false) {
+                return false
+            }
         }
         return true
+    }
+
+    ; The generated Swift is a LIBRARY: it is compiled together with the port's
+    ; hand-written `main.swift`, which is where `UIApplicationMain` is called.
+    ; A facade that declares a static method named `main` -- with or without
+    ; the @(main) annotation -- makes the compiler emit `__main__swift()` as a
+    ; TOP-LEVEL statement, and Swift allows those only in a file actually
+    ; called main.swift. swiftc says "expressions are not allowed at the top
+    ; level" and names a line 19 000 lines into generated code, which is a long
+    ; way from the one line of Ranger that caused it.
+    ;
+    ; It is caught here instead, on any machine, because the whole point of
+    ; this port is that everything short of swiftc can be checked without a Mac.
+    fn rejectTopLevelCode:boolean (dir:string file:string) {
+        def textOpt@(optional):string (read_file dir file)
+        if (null? textOpt) {
+            return true
+        }
+        def text:string (unwrap textOpt)
+        if ((indexOf text "\n__main__swift()") < 0) {
+            return true
+        }
+        print ""
+        print dir + "/" + file + " has a program entry point in it."
+        print ""
+        print "  " + app.rangerFile + " declares a static method named `main`, so the"
+        print "  compiler emitted `__main__swift()` at the top level. This file is a"
+        print "  library -- the app's entry point is the hand-written main.swift -- and"
+        print "  Swift allows a top-level statement only in a file called main.swift."
+        print ""
+        print "  Remove the `sfn main` from the facade. A program that drives it belongs"
+        print "  in its own file, the way check_*.rgr does."
+        return false
     }
 
     fn makeTarget@(optional):AppleTarget (o:IosBuildOptions tools:AppleToolchain sh:Shell) {

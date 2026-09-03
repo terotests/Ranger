@@ -403,7 +403,10 @@ class RtIos {
         return (app.styleErrorAt(i))
     }
 
-    sfn main:void () {
-        print "rt_ios is a library for the Apple host; run check_rt_ios.rgr to drive it"
-    }
+    ; No `main` here, deliberately. This facade is a LIBRARY: the app's entry
+    ; point is the hand-written `ios/main.swift`, which calls
+    ; `UIApplicationMain`. A static method named `main` -- with or without the
+    ; @(main) annotation -- makes the compiler emit `__main__swift()` as a
+    ; top-level statement, and Swift allows those only in a file actually
+    ; called main.swift. `check_rt_ios.rgr` is the program that drives this.
 }
