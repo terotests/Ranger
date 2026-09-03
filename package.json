@@ -851,7 +851,7 @@
     "rt:parser:check": "node gallery/realtrainer/scripts/sync-parser.mjs --check",
     "rt:build": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./gallery/realtrainer/src/RealTrainerDemo.rgr -d=./gallery/realtrainer/bin -o=RealTrainerDemo.cjs",
     "rt:compact:build": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./gallery/realtrainer/src/CompactRows.rgr -d=./gallery/realtrainer/bin -o=CompactRows.cjs",
-    "rt:machine:build": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./gallery/realtrainer/src/AddWorkoutDialog.rgr -d=./gallery/realtrainer/bin -o=AddWorkoutDialog.cjs",
+    "rt:machine:build": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./gallery/realtrainer/src/AddWorkoutDialog.rgr -d=./gallery/realtrainer/bin -o=AddWorkoutDialog.cjs && RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./gallery/realtrainer/src/AddWorkoutChart.rgr -d=./gallery/realtrainer/bin -o=AddWorkoutChart.cjs",
     "rt:machine": "npm run rt:machine:build --silent && node gallery/realtrainer/web/machine-check.mjs",
     "rt:trace": "npm run rt:build --silent && node gallery/realtrainer/web/trace-check.mjs",
     "rt:trace:record": "npm run rt:build --silent && node gallery/realtrainer/web/trace-check.mjs --record",

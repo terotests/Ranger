@@ -87,6 +87,12 @@ machine calls `new Date()` inside its own reducer, so its reset depends on when
 it ran. Here "today" is handed in by the host — a clock belongs outside a state
 machine for the same reason it belongs outside a workout controller.
 
+The table is run through **two** implementations: the hand-written port, and
+the same machine as DATA on [`gallery/statechart`](../statechart/README.md)'s
+generic runner. Two independent readings of one specification either agree with
+it or one of them is wrong, which is what makes transcribing the table worth
+doing — a single implementation checked against itself could never show that.
+
 ![the ported dialog](web/shots/realtrainer-dialog.png)
 
 The dialog is drawn from the machine's state and nothing else: no local "is it

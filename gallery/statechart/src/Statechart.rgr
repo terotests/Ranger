@@ -1,0 +1,207 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; Statechart — a machine as DATA, and the runner that walks it
+; =============================================================================
+; Not a clone of XState. XState is MIT (Copyright (c) 2015 David Khourshid) so
+; a clone would be allowed; it is the wrong thing to build. A clone means API
+; compatibility with actors, spawning, the actor system and inspection — none
+; of which the machines being ported use — and it would be judged against
+; XState's whole semantics rather than against the app's behaviour, which is
+; the only thing that matters here.
+;
+; What earns its keep is the OTHER half: with the machine as data, a port stops
+; being hand-written code per machine and becomes one runner plus a definition.
+; And the definition compiles to Kotlin and Swift like everything else here,
+; which a JavaScript library never would.
+;
+; The surface is the subset three real machines use, measured rather than
+; guessed (`grep` over their sources):
+;
+;   addWorkoutDialogMachine   states · on · assign
+;   planDialogMachine         + entry actions
+;   chatMachine               + guards · always · after · invoke · nested states
+;
+; This is the first tier: states, transitions, and assignments to a string
+; context. Guards, entry actions and nesting arrive when the machine that needs
+; them does — and each arrives with the transition table that proves it.
+;
+; Conformance is not this module's own opinion: `gallery/realtrainer` runs the
+; table transcribed from the XState source through both this runner and a
+; hand-written port, and requires the same answer in all twenty-one cells.
+; =============================================================================
+
+; Where an assignment's new value comes from.
+;   "literal"        the literal, as written
+;   "value"          the event's payload
+;   "context"        another context key, named by `literal`
+;   "valueOrContext" the payload when it has one, else that context key —
+;                    which is `event.targetDate || today` in the original
+class ScAssign {
+    def key@(mutable):string ""
+    def source@(mutable):string "literal"
+    def literal@(mutable):string ""
+
+    Constructor () {
+    }
+
+    sfn of:ScAssign (key:string source:string literal:string) {
+        def a (new ScAssign)
+        a.key = key
+        a.source = source
+        a.literal = literal
+        return a
+    }
+}
+
+class ScTransition {
+    def event@(mutable):string ""
+    ; "" means the transition assigns but does not move — XState's internal
+    ; transition, and the reason `SET_INPUT_TEXT` does not re-enter `open`.
+    def target@(mutable):string ""
+    def assigns:[ScAssign]
+
+    Constructor () {
+    }
+}
+
+class ScState {
+    def name@(mutable):string ""
+    def transitions:[ScTransition]
+
+    Constructor () {
+    }
+
+    fn on:ScTransition (event:string target:string) {
+        def t (new ScTransition)
+        t.event = event
+        t.target = target
+        push transitions t
+        return t
+    }
+}
+
+class Statechart {
+    def id@(mutable):string ""
+    def initial@(mutable):string ""
+    def states:[ScState]
+    ; The initial context, as parallel key/value lists. A map would read
+    ; better and travels worse: two arrays are the same thing on every target.
+    def keys:[string]
+    def values:[string]
+
+    Constructor () {
+    }
+
+    fn state:ScState (name:string) {
+        def s (new ScState)
+        s.name = name
+        push states s
+        return s
+    }
+
+    fn context:void (key:string value:string) {
+        push keys key
+        push values value
+    }
+
+    fn stateNamed:ScState (name:string) {
+        for states s:ScState i {
+            if (s.name == name) {
+                return s
+            }
+        }
+        return (new ScState)
+    }
+}
+
+; =============================================================================
+; ScRunner — one machine, running
+; =============================================================================
+class ScRunner {
+    def chart@(optional):Statechart
+    def state@(mutable):string ""
+    def keys:[string]
+    def values:[string]
+
+    Constructor () {
+    }
+
+    fn start:void (definition:Statechart) {
+        chart = definition
+        state = definition.initial
+        clear keys
+        clear values
+        for definition.keys k:string i {
+            push keys k
+            push values (itemAt definition.values i)
+        }
+    }
+
+    fn get:string (key:string) {
+        for keys k:string i {
+            if (k == key) {
+                return (itemAt values i)
+            }
+        }
+        return ""
+    }
+
+    fn set:void (key:string value:string) {
+        for keys k:string i {
+            if (k == key) {
+                set values i value
+                return
+            }
+        }
+        push keys key
+        push values value
+    }
+
+    ; The chart's own initial value for a key — what a reset assigns.
+    fn initialOf:string (key:string) {
+        def c:Statechart (unwrap chart)
+        for c.keys k:string i {
+            if (k == key) {
+                return (itemAt c.values i)
+            }
+        }
+        return ""
+    }
+
+    ; `true` when the event moved the machine or changed the context. An event
+    ; the current state does not handle answers `false` and changes nothing —
+    ; and that is most of the table: thirteen of addWorkoutDialog's twenty-one
+    ; cells are events it ignores.
+    fn send:boolean (event:string value:string) {
+        def c:Statechart (unwrap chart)
+        def here:ScState (c.stateNamed(state))
+        for here.transitions t:ScTransition i {
+            if (t.event == event) {
+                for t.assigns a:ScAssign j {
+                    if (a.source == "literal") {
+                        this.set(a.key a.literal)
+                    }
+                    if (a.source == "value") {
+                        this.set(a.key value)
+                    }
+                    if (a.source == "context") {
+                        this.set(a.key (this.get(a.literal)))
+                    }
+                    if (a.source == "valueOrContext") {
+                        if ((strlen value) > 0) {
+                            this.set(a.key value)
+                        } {
+                            this.set(a.key (this.get(a.literal)))
+                        }
+                    }
+                }
+                if ((strlen t.target) > 0) {
+                    state = t.target
+                }
+                return true
+            }
+        }
+        return false
+    }
+}

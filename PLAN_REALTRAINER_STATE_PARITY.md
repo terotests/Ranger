@@ -143,6 +143,35 @@ sovellus ajaa: `rt:trace:record`. Vanhentuneen nauhoituksen huomaa siitä että 
 
 ---
 
+## 2.5 Kone datana — `gallery/statechart`
+
+XState on **MIT** (Copyright © 2015 David Khourshid), joten kloonaaminen olisi sallittua.
+Se on silti väärä asia rakentaa: klooni tarkoittaa API-yhteensopivuutta actoreiden,
+spawnin, actor-systeemin ja inspectionin kanssa — joita yksikään portattava kone ei käytä —
+ja sitä arvioitaisiin XStaten koko semantiikkaa vasten sen sovelluksen käyttäytymisen sijaan
+jonka pitää pysyä toimivana.
+
+Sen sijaan `gallery/statechart` on pieni ajonaikainen kone jossa **määrittely on dataa**.
+Käytetty osajoukko on mitattu (`grep` kolmen koneen yli), ei arvattu:
+
+| Kone | Käyttää |
+|------|---------|
+| `addWorkoutDialogMachine` | tilat · `on` · `assign` |
+| `planDialogMachine` | + entry-toiminnot |
+| `chatMachine` | + guardit · `always` · `after` · `invoke` · sisäkkäiset tilat |
+
+Taso yksi on toteutettu: tilat, siirtymät valinnaisella kohteella, ja sijoitukset
+merkkijonokontekstiin. Kohteeton siirtymä sijoittaa muttei liiku — XStaten sisäinen
+siirtymä, ja syy siihen ettei dialogiin kirjoittaminen aja `open`-tilaan uudelleen.
+
+**Argumentti runnerin puolesta on rivimäärä.** Käsin kirjoitettu portti on ~150 riviä
+haarautumista per kone; `planDialog`issa on kuusi tilaa ja 17 tapahtumaa ja `chat`issa
+sisäkkäiset. Määrittelynä sama kone on kuvaus.
+
+Konformanssi ei ole moduulin oma mielipide: `rt:machine` ajaa XState-lähteestä
+transkriboidun taulukon **sekä käsin kirjoitetun portin että runnerin** läpi, ja kaikkien
+kolmen on oltava samaa mieltä. 21 solua, 13 niistä ignoreja, molemmat toteutukset täsmäävät.
+
 ## 3. Vaiheistus
 
 | Vaihe | Alue | Sisältö | Valmis kun |

@@ -33,6 +33,54 @@ if (!fs.existsSync(BIN)) {
 }
 const require_ = createRequire(import.meta.url);
 const { AddWorkoutDialog } = require_(BIN);
+const CHART = path.join(HERE, "..", "bin", "AddWorkoutChart.cjs");
+if (!fs.existsSync(CHART)) {
+  console.error("compiled chart missing — run `npm run rt:machine:build` first");
+  process.exit(3);
+}
+const { AddWorkoutChart } = require_(CHART);
+
+// Two independent readings of one specification. The hand-written port is the
+// machine written out as branches; the chart is the same machine as DATA, run
+// by gallery/statechart's generic runner. Either they agree with the table or
+// one of them is wrong — which is what makes the table worth transcribing, and
+// what a single implementation checked against itself could never show.
+const IMPLEMENTATIONS = [
+  {
+    name: "hand-written  (src/AddWorkoutDialog.rgr)",
+    make: (today) => {
+      const d = new AddWorkoutDialog();
+      d.today = today;
+      d.reset();
+      return {
+        send: (e, v) => d.send(e, v),
+        state: () => d.state,
+        context: () => ({
+          targetDate: d.targetDate,
+          targetCalendarId: d.targetCalendarId,
+          inputText: d.inputText,
+          error: d.error,
+        }),
+      };
+    },
+  },
+  {
+    name: "as data       (src/AddWorkoutChart.rgr on gallery/statechart)",
+    make: (today) => {
+      const r = AddWorkoutChart.started(today);
+      return {
+        send: (e, v) => r.send(e, v),
+        state: () => r.state,
+        context: () => ({
+          targetDate: r.get("targetDate"),
+          targetCalendarId: r.get("targetCalendarId"),
+          inputText: r.get("inputText"),
+          error: r.get("error"),
+        }),
+      };
+    },
+  },
+];
 
 const table = JSON.parse(
   fs.readFileSync(
@@ -42,37 +90,32 @@ const table = JSON.parse(
 );
 
 let failed = 0;
-const context = (d) => ({
-  targetDate: d.targetDate,
-  targetCalendarId: d.targetCalendarId,
-  inputText: d.inputText,
-  error: d.error,
-});
 
-console.log(`\n  ${table.machine} — ${table.source}\n`);
+console.log(`\n  ${table.machine} — ${table.source}`);
 
-for (const cell of table.cells) {
-  const d = new AddWorkoutDialog();
-  d.today = table.today;
-  d.reset();
-  for (const [event, value] of table.seeds[cell.from]) d.send(event, value);
+for (const impl of IMPLEMENTATIONS) {
+  console.log(`\n  · ${impl.name}\n`);
+  for (const cell of table.cells) {
+    const m = impl.make(table.today);
+    for (const [event, value] of table.seeds[cell.from]) m.send(event, value);
 
-  if (d.state !== cell.from) {
-    failed += 1;
-    console.log(`  FAIL ${cell.from} + ${cell.event} — seed left it in ${d.state}`);
-    continue;
-  }
+    if (m.state() !== cell.from) {
+      failed += 1;
+      console.log(`  FAIL ${cell.from} + ${cell.event} — seed left it in ${m.state()}`);
+      continue;
+    }
 
-  const moved = d.send(cell.event, cell.value);
-  const got = { moved, state: d.state, context: context(d) };
-  const want = { moved: cell.moved, state: cell.to, context: cell.context };
-  const same = JSON.stringify(got) === JSON.stringify(want);
-  const label = `${cell.from} + ${cell.event}`.padEnd(34);
-  if (same) {
-    console.log(`  PASS ${label} → ${cell.to}${cell.ignored ? "  (ignored)" : ""}`);
-  } else {
-    failed += 1;
-    console.log(`  FAIL ${label}\n         want ${JSON.stringify(want)}\n          got ${JSON.stringify(got)}`);
+    const moved = m.send(cell.event, cell.value);
+    const got = { moved, state: m.state(), context: m.context() };
+    const want = { moved: cell.moved, state: cell.to, context: cell.context };
+    const same = JSON.stringify(got) === JSON.stringify(want);
+    const label = `${cell.from} + ${cell.event}`.padEnd(34);
+    if (same) {
+      console.log(`  PASS ${label} → ${cell.to}${cell.ignored ? "  (ignored)" : ""}`);
+    } else {
+      failed += 1;
+      console.log(`  FAIL ${label}\n         want ${JSON.stringify(want)}\n          got ${JSON.stringify(got)}`);
+    }
   }
 }
 
@@ -83,5 +126,6 @@ if (failed) {
   process.exit(1);
 }
 console.log(
-  `all ${table.cells.length} cells match the machine — ${ignores} of them events it ignores`,
+  `all ${table.cells.length} cells match the machine in ${IMPLEMENTATIONS.length} implementations ` +
+    `— ${ignores} of them events it ignores`,
 );
