@@ -9,6 +9,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Every tap answered about 300ms late, on both Apple ports, and it was not
+  the renderer.** `UITapGestureRecognizer.delaysTouchesEnded` defaults to
+  TRUE, and on the two-tap recogniser that handles the reset-zoom gesture that
+  means every SINGLE tap has its `touchesEnded` held back for the whole
+  double-tap interval while UIKit waits to see whether a second tap arrives.
+  The page cannot respond to a press it has not been told about, so every
+  button answered a third of a second late by the clock however fast the frame
+  was. It reads exactly like a slow renderer. The double tap still works -- it
+  fires when it recognises -- and the single tap is no longer punished for its
+  existence.
+
+- **Five controls showed nothing at all while a finger was on them.** A finger
+  has no hover, so a control styled with only a `:hover` rule does not move
+  between landing and lifting; on a mouse the hover arrives before the click
+  and hides that. `.ui-tab`, `.ui-checkbox`, `.ui-toggle`,
+  `.ui-accordion-trigger` and `.rt-quit` all had a hover and no `:active`, and
+  the tabs are what a reader taps most. Measured on the frames themselves: the
+  tab bar went from never changing -- not once in 30 frames -- to changing on
+  the frame the finger lands. `check_rt_ios.rgr` now asserts that every control
+  the hit test can reach shows its press within two frames, because this is a
+  gap that reads as slowness rather than as a missing rule.
+
+### Added
+
+- **`RANGER_PROFILE` reports where a frame's time went, on the device.** With
+  it set in the launched process's environment the host logs, every 60 frames,
+  the milliseconds spent laying the page out and building the display list
+  against the milliseconds spent turning that list into pixels, plus the
+  command count. Guessing which of the two is slow from the outside is how an
+  afternoon disappears.
+
+### Fixed
+
 - **Both native painters ignored a rotation's origin, which drew RealTrainer's
   loading spinner as one small bar.** The ring is twelve 8x26 blades fanned
   into a circle by `transform: rotate(Ndeg)` about

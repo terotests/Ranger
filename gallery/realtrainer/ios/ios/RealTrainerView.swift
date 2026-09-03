@@ -67,16 +67,30 @@ final class RealTrainerView: UIView {
         let pan = UIPanGestureRecognizer(target: self, action: #selector(onPan(_:)))
         pan.cancelsTouchesInView = false
         pan.delaysTouchesBegan = false
+        pan.delaysTouchesEnded = false
         addGestureRecognizer(pan)
 
         let pinch = UIPinchGestureRecognizer(target: self, action: #selector(onPinch(_:)))
         pinch.cancelsTouchesInView = false
         pinch.delaysTouchesBegan = false
+        pinch.delaysTouchesEnded = false
         addGestureRecognizer(pinch)
 
         let doubleTap = UITapGestureRecognizer(target: self, action: #selector(onDoubleTap(_:)))
         doubleTap.numberOfTapsRequired = 2
         doubleTap.cancelsTouchesInView = false
+        // `delaysTouchesEnded` defaults to TRUE, and on a two-tap recogniser
+        // that means every SINGLE tap has its `touchesEnded` held back for the
+        // whole double-tap interval — roughly 300ms — while UIKit waits to see
+        // whether a second tap arrives. The page cannot respond to a press it
+        // has not been told about, so every button on the app answered about a
+        // third of a second late, by the clock, no matter how fast the frame
+        // was. It reads exactly like a slow renderer and is not one.
+        //
+        // The double tap still works: it fires on its own when it recognises.
+        // Giving up the delay only means the single tap is no longer punished
+        // for its existence.
+        doubleTap.delaysTouchesEnded = false
         addGestureRecognizer(doubleTap)
 
         // A pointer that is not pressing: an iPad trackpad, or the Simulator's
@@ -159,9 +173,23 @@ final class RealTrainerView: UIView {
 
     // MARK: - drawing
 
+    /// Frame timings, on the device, when asked for. Set RANGER_PROFILE in the
+    /// launched process's environment and every 60 painted frames the host
+    /// reports where the time went — laying the page out and building the
+    /// display list, against turning that list into pixels. Guessing which of
+    /// the two is slow from the outside is how an afternoon disappears.
+    ///
+    ///     npm run rt:ios:run -- --console          # simulator, output here
+    ///     SIMCTL_CHILD_RANGER_PROFILE=1 npm run rt:ios:run -- --console
+    private let profiling = ProcessInfo.processInfo.environment["RANGER_PROFILE"] != nil
+    private var profFrames = 0
+    private var profBuild: CFTimeInterval = 0
+    private var profPaint: CFTimeInterval = 0
+
     override func draw(_ rect: CGRect) {
         guard started, let ctx = UIGraphicsGetCurrentContext() else { return }
 
+        let t0 = profiling ? CACurrentMediaTime() : 0
         let list: EVGDisplayList
         if let cached = cachedFrame {
             list = cached
@@ -169,6 +197,7 @@ final class RealTrainerView: UIView {
             list = app.frame()
             cachedFrame = list
         }
+        let t1 = profiling ? CACurrentMediaTime() : 0
 
         ctx.saveGState()
         // The two transforms the facade's arithmetic assumes, in the order it
@@ -185,6 +214,24 @@ final class RealTrainerView: UIView {
         // other size. That is why a pinch stays sharp.
         EvgPainter.paint(list, into: CoreGraphicsEvgSurface(context: ctx))
         ctx.restoreGState()
+
+        if profiling {
+            let t2 = CACurrentMediaTime()
+            profBuild += t1 - t0
+            profPaint += t2 - t1
+            profFrames += 1
+            if profFrames == 60 {
+                let build = profBuild * 1000.0 / 60.0
+                let paint = profPaint * 1000.0 / 60.0
+                NSLog(String(
+                    format: "ranger: %.2f ms/frame — layout+list %.2f, paint %.2f, %d commands",
+                    build + paint, build, paint, list.cmds.count
+                ))
+                profFrames = 0
+                profBuild = 0
+                profPaint = 0
+            }
+        }
     }
 
     // MARK: - touches

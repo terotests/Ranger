@@ -59,16 +59,30 @@ final class DashboardView: UIView {
         let pan = UIPanGestureRecognizer(target: self, action: #selector(onPan(_:)))
         pan.cancelsTouchesInView = false
         pan.delaysTouchesBegan = false
+        pan.delaysTouchesEnded = false
         addGestureRecognizer(pan)
 
         let pinch = UIPinchGestureRecognizer(target: self, action: #selector(onPinch(_:)))
         pinch.cancelsTouchesInView = false
         pinch.delaysTouchesBegan = false
+        pinch.delaysTouchesEnded = false
         addGestureRecognizer(pinch)
 
         let doubleTap = UITapGestureRecognizer(target: self, action: #selector(onDoubleTap(_:)))
         doubleTap.numberOfTapsRequired = 2
         doubleTap.cancelsTouchesInView = false
+        // `delaysTouchesEnded` defaults to TRUE, and on a two-tap recogniser
+        // that means every SINGLE tap has its `touchesEnded` held back for the
+        // whole double-tap interval — roughly 300ms — while UIKit waits to see
+        // whether a second tap arrives. The page cannot respond to a press it
+        // has not been told about, so every button on the app answered about a
+        // third of a second late, by the clock, no matter how fast the frame
+        // was. It reads exactly like a slow renderer and is not one.
+        //
+        // The double tap still works: it fires on its own when it recognises.
+        // Giving up the delay only means the single tap is no longer punished
+        // for its existence.
+        doubleTap.delaysTouchesEnded = false
         addGestureRecognizer(doubleTap)
     }
 

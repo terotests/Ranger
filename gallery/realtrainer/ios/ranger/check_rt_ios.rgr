@@ -322,6 +322,74 @@ class CheckRtIos {
             (to_string ((padContain.scale()) / (padFill.scale()))))
     }
 
+    ; --- the press has to show -------------------------------------------------
+
+    ; A frame reduced to what it would look like: kind, box and colour of every
+    ; command. Two frames with the same fingerprint draw the same picture.
+    fn fingerprint:string (app:RtIos) {
+        def dl:EVGDisplayList (app.frame())
+        def out:string ""
+        for dl.cmds c:EVGDrawCmd i {
+            out = out + (to_string c.kind) + ":" + (to_string c.x) + "," + (to_string c.y)
+            out = out + "," + (to_string c.w) + "x" + (to_string c.h)
+            out = out + "," + (to_string c.r) + "/" + (to_string c.g) + "/" + (to_string c.b)
+            out = out + "/" + (to_string c.a) + ";"
+        }
+        return out
+    }
+
+    ; How many frames after a finger lands before the picture differs, or -1 if
+    ; it never does.
+    fn framesUntilPressShows:int (app:RtIos x:double y:double) {
+        def before:string (this.fingerprint(app))
+        app.pressAt(x y)
+        def i:int 0
+        while (i < 20) {
+            if ((this.fingerprint(app)) != before) {
+                return i
+            }
+            app.tick(16.0)
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    fn pressShowsAt:void (scene:string want:string) {
+        def app:RtIos (this.fresh(1180.0 820.0))
+        app.setScene(scene)
+        def x:double 4.0
+        while (x < 1180.0) {
+            def y:double 4.0
+            while (y < 820.0) {
+                if ((app.hitAt(x y)) == want) {
+                    def fresh:RtIos (this.fresh(1180.0 820.0))
+                    fresh.setScene(scene)
+                    def n:int (this.framesUntilPressShows(fresh x y))
+                    this.okDetail((want + ": the press shows") ((n >= 0) && (n <= 2))
+                        ((to_string n) + " frames"))
+                    return
+                }
+                y = (y + 6.0)
+            }
+            x = (x + 6.0)
+        }
+        this.ok((want + ": is reachable by a finger") false)
+    }
+
+    ; A finger has no hover. A control styled only with `:hover` therefore does
+    ; NOTHING between landing and lifting, and the reader -- who cannot see the
+    ; press register -- reads the whole gesture as the app being slow. That is
+    ; not a rendering cost and no amount of frame budget fixes it; it is a
+    ; missing `:active` rule, and this is where one goes missing again.
+    fn checkPressFeedback:void () {
+        print "--- a press shows before the finger lifts ---"
+        this.pressShowsAt("dashboard" "rt-tabs-tab-cal")
+        this.pressShowsAt("dashboard" "rt-tabs-tab-drills")
+        this.pressShowsAt("signin" "rt-google")
+        this.pressShowsAt("signin" "rt-remember")
+        this.pressShowsAt("session" "rt-start")
+    }
+
     ; --- the clock ------------------------------------------------------------
 
     fn checkClock:void () {
@@ -411,6 +479,7 @@ class CheckRtIos {
         c.checkInput()
         c.checkZoom()
         c.checkFillWidth()
+        c.checkPressFeedback()
         c.checkClock()
         c.checkScenes()
         c.checkScreens()
