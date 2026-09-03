@@ -87,6 +87,7 @@ Import "../../evg/EVGA11yFromTree.rgr"
 Import "../../evg/EVGHitTest.rgr"
 Import "CompactRows.rgr"
 Import "AddWorkoutDialog.rgr"
+Import "PlanDialogHost.rgr"
 
 treefactory Rt {
     child addChild
@@ -204,6 +205,24 @@ treefactory Rt {
                                    (a11yLabel "Lisää harjoitus") (a11yFocusable true))
     tag AddTx    EVGElement (props (className "rt-add-text") (elementType 1))
 
+    ; --- the plan-week dialog ------------------------------------------------
+    ; Drawn from `PlanDialogHost`'s machine state and nothing else, the way the
+    ; add-workout sheet is drawn from its machine. The same sheet classes, so
+    ; the two dialogs are one dialog in the stylesheet.
+    tag PlanBtn  EVGElement (props (className "rt-add") (id "rt-plan") (role "button")
+                                   (a11yLabel "Suunnittele viikko") (a11yFocusable true))
+    tag PlanSheet EVGElement (props (className "rt-sheet rt-plan-sheet") (id "rt-plan-sheet")
+                                   (role "dialog") (a11yLabel "Suunnittele viikko"))
+    tag PlanHd   EVGElement (props (className "rt-sheet-head") (elementType 1)
+                                   (role "heading") (a11yLevel 2) (id "rt-plan-head"))
+    tag PlanErr  EVGElement (props (className "rt-sheet-err") (elementType 1) (role "status")
+                                   (id "rt-plan-err"))
+    tag PlanDays EVGElement (props (className "rt-plan-days") (id "rt-plan-days")
+                                   (role "list") (a11yLabel "Viikon päivät"))
+    tag PlanDay  EVGElement (props (className "rt-plan-day") (role "listitem"))
+    tag PlanDayName EVGElement (props (className "rt-plan-day-name") (elementType 1))
+    tag PlanDayNote EVGElement (props (className "rt-plan-day-note") (elementType 1))
+
     tag DocView  EVGElement (props (className "rt-doc-view") (id "rt-doc-view"))
     tag DocList  EVGElement (props (className "rt-doc-list") (id "rt-doc-list")
                                    (role "list") (a11yLabel "Harjoituksen rivit"))
@@ -295,6 +314,18 @@ class RealTrainerDemo {
     ; drawn from its state and nothing else — which is the point of porting a
     ; machine rather than a screen.
     def addDialog:AddWorkoutDialog (new AddWorkoutDialog())
+    ; The "Suunnittele viikko" machine, run from its own definition by the
+    ; statechart runner — see PlanDialogHost. The job it starts is simulated
+    ; with the same latency model the save is.
+    def plan:PlanDialogHost (new PlanDialogHost())
+    def planJob:RtBackendSim (new RtBackendSim())
+    def weekType:RadioGroupCtl (new RadioGroupCtl())
+    ; One checkbox per weekday for each of the three by-day maps the machine
+    ; keeps. They are drawn FROM the context on every rebuild and never
+    ; toggled directly: the machine is the only place the answer lives.
+    def replaceDay:[CheckboxCtl]
+    def keepDay:[CheckboxCtl]
+    def showDay:[CheckboxCtl]
     def doneMoves:int 0
     def timerOn:boolean false
     def timerRunning:boolean false
@@ -451,6 +482,36 @@ class RealTrainerDemo {
         session.name = "Harjoituksen eteneminen"
         session.maxValue = (int2double moveCount)
         session.value = 0.0
+
+        weekType.tid = "rt-plan-type"
+        weekType.name = "Viikon tyyppi"
+        weekType.addItem("target" "Tavoiteviikko" false)
+        weekType.addItem("light" "Kevyt viikko" false)
+        weekType.value = "target"
+        planJob.latencyMs = 900.0
+        def d:int 0
+        while (d < 7) {
+            def rc (new CheckboxCtl())
+            rc.tid = ("rt-plan-day-" + (to_string d))
+            rc.name = ("Korvaa " + (PlanDialogHost.dayName(d)))
+            push replaceDay rc
+            def kc (new CheckboxCtl())
+            kc.tid = ("rt-plan-keep-" + (to_string d))
+            kc.name = ("Pidä ennallaan " + (PlanDialogHost.dayName(((d + 1) % 7))))
+            push keepDay kc
+            def sc (new CheckboxCtl())
+            sc.tid = ("rt-plan-show-" + (to_string d))
+            sc.name = ("Näytä edellinen " + (PlanDialogHost.dayName(((d + 1) % 7))))
+            push showDay sc
+            d = (d + 1)
+        }
+    }
+
+    ; The machine, as text — the browser has no filesystem and the headless
+    ; check should read the same bytes the page does. Until it is loaded the
+    ; button on the dashboard does nothing, and says so by answering `false`.
+    fn loadPlanMachine:void (text:string) {
+        plan.load(text "2026-02-09")
     }
 
     ; The chosen rest, in milliseconds. The controller holds a STRING, because
@@ -859,7 +920,11 @@ class RealTrainerDemo {
                 (Top
                     (Title "Dashboard")
                     (Spacer)
+                    (PlanBtn (AddTx "Suunnittele viikko"))
                     (Note "Tero — 95 %"))))
+        if (plan.isOpen()) {
+            main.addChild((this.planSheet()))
+        }
         main.addChild((unwrap tabs.rootEl))
         return (tree Rt
             (Page (props (id "rt-page") (className "rt-page rt-page-dash"))
@@ -1136,6 +1201,240 @@ class RealTrainerDemo {
         return sheet
     }
 
+    ; --- the plan-week dialog ---------------------------------------------------
+    ; Six states, one sheet: what is on it is decided by `plan.state()` and the
+    ; context behind it, and a press sends an event and redraws. The dialog
+    ; never keeps a value of its own.
+    fn planSheet:EVGElement () {
+        def st:string (plan.state())
+        def sheet (tree Rt (PlanSheet))
+        def title@(mutable):string "Suunnittele viikko"
+        if (st == "confirmation") { title = "Vahvista korvattavat päivät" }
+        if (st == "creating") { title = "Luodaan suunnitelmaa" }
+        if (st == "editInstructions") { title = "Muokkaa ohjeita" }
+        if (st == "regenerating") { title = "Luodaan uudelleen" }
+        sheet.addChild((tree Rt (PlanHd title)))
+
+        if (st == "weekSelection") {
+            this.planWeekRows(sheet)
+        }
+        if (st == "confirmation") {
+            this.planConfirmRows(sheet)
+        }
+        if (st == "editInstructions") {
+            this.planEditRows(sheet)
+        }
+        if (st == "creating") {
+            sheet.addChild((tree Rt (SheetRow (SheetVal (props (id "rt-plan-state")) "Luodaan suunnitelmaa…"))))
+        }
+        if (st == "regenerating") {
+            sheet.addChild((tree Rt (SheetRow (SheetVal (props (id "rt-plan-state")) "Luodaan ohjeiden mukaan uudelleen…"))))
+        }
+        def err:string (plan.text("error"))
+        if ((strlen err) > 0) {
+            sheet.addChild((tree Rt (PlanErr err)))
+        }
+
+        def actions (tree Rt (SheetRow (props (className "rt-sheet-row rt-sheet-actions"))))
+        actions.addChild((this.planBtn("rt-plan-cancel" "Peruuta" "Peruuta" false)))
+        if (st == "weekSelection") {
+            actions.addChild((this.planBtn("rt-plan-edit" "Muokkaa ohjeita" "Muokkaa ohjeita" false)))
+            actions.addChild((tree Rt (Spacer)))
+            actions.addChild((this.planBtn("rt-plan-confirm" "Jatka" "Jatka" true)))
+        }
+        if (st == "confirmation") {
+            actions.addChild((tree Rt (Spacer)))
+            actions.addChild((this.planBtn("rt-plan-create" "Luo suunnitelma" "Luo suunnitelma" true)))
+        }
+        if (st == "editInstructions") {
+            actions.addChild((this.planBtn("rt-plan-reverse" "Käännä päivien järjestys" "Käännä järjestys" false)))
+            actions.addChild((tree Rt (Spacer)))
+            actions.addChild((this.planBtn("rt-plan-regen" "Luo uudelleen" "Luo uudelleen" true)))
+        }
+        sheet.addChild(actions)
+        return sheet
+    }
+
+    fn planBtn:EVGElement (id:string label:string text:string primary:boolean) {
+        def b (tree Rt (SheetBtn (SheetBtnTx text)))
+        b.id = id
+        b.a11yLabel = label
+        if primary {
+            b.className = "rt-sheet-btn rt-sheet-primary"
+        }
+        return b
+    }
+
+    fn planWeekRows:void (sheet:EVGElement) {
+        def week (tree Rt (SheetRow (SheetCap "Viikko")))
+        week.addChild((this.planBtn("rt-plan-prev" "Edellinen viikko" "◀" false)))
+        week.addChild((tree Rt (SheetVal (props (id "rt-plan-week")) (plan.text("targetWeekStart")))))
+        week.addChild((this.planBtn("rt-plan-next" "Seuraava viikko" "▶" false)))
+        sheet.addChild(week)
+        weekType.value = (plan.text("weekType"))
+        this.dress(weekType)
+        def kind (tree Rt (SheetRow (SheetCap "Tyyppi")))
+        kind.addChild((unwrap weekType.rootEl))
+        sheet.addChild(kind)
+        if (plan.flag("showInstructionsField")) {
+            def instr@(mutable):string (plan.text("createInstructions"))
+            if ((strlen instr) == 0) {
+                instr = "—"
+            }
+            def row (tree Rt (SheetRow (SheetCap "Ohjeet")))
+            row.addChild((tree Rt (SheetVal (props (id "rt-plan-instr-val")) instr)))
+            row.addChild((tree Rt (Spacer)))
+            row.addChild((this.planBtn("rt-plan-instr" "Kirjoita esimerkkiohje" "Kirjoita ohje" false)))
+            sheet.addChild(row)
+        }
+    }
+
+    ; The days of the chosen week, Monday first; the calendar's entries are
+    ; the ones the machine's named action selected for replacement.
+    fn planConfirmRows:void (sheet:EVGElement) {
+        sheet.addChild((tree Rt (SheetRow (SheetCap "Viikko") (Spacer)
+            (SheetVal (props (id "rt-plan-week")) (plan.text("targetWeekStart"))))))
+        def days (tree Rt (PlanDays))
+        def i:int 0
+        while (i < 7) {
+            def wd:int ((i + 1) % 7)
+            def ctl:CheckboxCtl (itemAt replaceDay wd)
+            ctl.checkState = 0
+            if (plan.flagIn("replaceSelectedByDay" wd)) {
+                ctl.checkState = 1
+            }
+            this.dress(ctl)
+            def box:EVGElement (unwrap ctl.rootEl)
+            box.setAttribute("width" "220px")
+            def row (tree Rt (PlanDay))
+            row.addChild(box)
+            days.addChild(row)
+            i = (i + 1)
+        }
+        sheet.addChild(days)
+        sheet.addChild((tree Rt (SheetRow (SheetVal (props (id "rt-plan-fetched"))
+            ((to_string (plan.fetchedCount())) + " merkintää viikolla")))))
+    }
+
+    ; The edit sheet: general feedback, then the days in the machine's order,
+    ; each with its instruction and its two switches.
+    fn planEditRows:void (sheet:EVGElement) {
+        def fb@(mutable):string (plan.text("editGeneralFeedback"))
+        if ((strlen fb) == 0) {
+            fb = "—"
+        }
+        def row (tree Rt (SheetRow (SheetCap "Palaute")))
+        row.addChild((tree Rt (SheetVal (props (id "rt-plan-feedback-val")) fb)))
+        row.addChild((tree Rt (Spacer)))
+        row.addChild((this.planBtn("rt-plan-feedback" "Kirjoita esimerkkipalaute" "Kirjoita palaute" false)))
+        sheet.addChild(row)
+        def days (tree Rt (PlanDays))
+        def order:[int] (plan.dayOrder())
+        for order d:int i {
+            def kc:CheckboxCtl (itemAt keepDay d)
+            kc.checkState = 0
+            if (plan.flagIn("keepSameByDay" d)) {
+                kc.checkState = 1
+            }
+            this.dress(kc)
+            def sc:CheckboxCtl (itemAt showDay d)
+            sc.checkState = 0
+            if (plan.flagIn("showPreviousByDay" d)) {
+                sc.checkState = 1
+            }
+            this.dress(sc)
+            def line (tree Rt (PlanDay (PlanDayName (PlanDialogHost.dayName(((d + 1) % 7))))))
+            def note@(mutable):string (plan.textIn("editDayInstructions" d))
+            if ((strlen note) > 0) {
+                line.addChild((tree Rt (PlanDayNote note)))
+            }
+            line.addChild((tree Rt (Spacer)))
+            line.addChild((this.planBtn(("rt-plan-instr-" + (to_string d)) ("Ohje: " + (PlanDialogHost.dayName(((d + 1) % 7)))) "Ohje" false)))
+            def keepBox:EVGElement (unwrap kc.rootEl)
+            keepBox.setAttribute("width" "230px")
+            line.addChild(keepBox)
+            def showBox:EVGElement (unwrap sc.rootEl)
+            showBox.setAttribute("width" "230px")
+            line.addChild(showBox)
+            days.addChild(line)
+        }
+        sheet.addChild(days)
+    }
+
+    ; The plan dialog's presses. It is modal in the same sense the add sheet
+    ; is: answered before the screen under it.
+    fn pressPlan:boolean (id:string) {
+        if (id == "rt-plan") {
+            if (scene != "dashboard") {
+                return false
+            }
+            return (plan.open(true "cal-1"))
+        }
+        if ((plan.isOpen()) == false) {
+            return false
+        }
+        if (id == "rt-plan-cancel") { return (plan.close()) }
+        if (id == "rt-plan-prev") { return (plan.shiftWeek(-1)) }
+        if (id == "rt-plan-next") { return (plan.shiftWeek(1)) }
+        if (RealTrainerDemo.owns((weekType.tids()) id)) {
+            weekType.activate(id)
+            return (plan.setWeekType(weekType.value))
+        }
+        if (id == "rt-plan-instr") { return (plan.setInstructions("Kevyt viikko, painotus tekniikkaan")) }
+        if (id == "rt-plan-edit") { return (plan.openEdit()) }
+        if (id == "rt-plan-confirm") { return (plan.confirmWeek()) }
+        if (id == "rt-plan-create") {
+            def started:boolean (plan.confirmReplacement())
+            if started {
+                planJob.failNext = backend.failNext
+                planJob.begin("plan")
+            }
+            return started
+        }
+        if (id == "rt-plan-feedback") { return (plan.setFeedback("Enemmän vetoja, vähemmän juoksua")) }
+        if (id == "rt-plan-reverse") { return (plan.reverseDays()) }
+        if (id == "rt-plan-regen") {
+            def regen:boolean (plan.startRegenerating())
+            if regen {
+                planJob.failNext = backend.failNext
+                planJob.begin("regenerate")
+            }
+            return regen
+        }
+        def day:int (RealTrainerDemo.dayOf(id "rt-plan-day-"))
+        if (day >= 0) {
+            return (plan.setReplace(day ((plan.flagIn("replaceSelectedByDay" day)) == false)))
+        }
+        def keep:int (RealTrainerDemo.dayOf(id "rt-plan-keep-"))
+        if (keep >= 0) {
+            return (plan.setKeep(keep ((plan.flagIn("keepSameByDay" keep)) == false)))
+        }
+        def show:int (RealTrainerDemo.dayOf(id "rt-plan-show-"))
+        if (show >= 0) {
+            return (plan.setShowPrevious(show ((plan.flagIn("showPreviousByDay" show)) == false)))
+        }
+        def instr:int (RealTrainerDemo.dayOf(id "rt-plan-instr-"))
+        if (instr >= 0) {
+            return (plan.setDayInstructions(instr "Pitkä juoksu, rauhallinen"))
+        }
+        return false
+    }
+
+    ; "rt-plan-day-3" → 3, or -1 when the id is not one of that family.
+    sfn dayOf:int (id:string prefix:string) {
+        def plen:int (strlen prefix)
+        if ((strlen id) != (plen + 1)) {
+            return -1
+        }
+        if ((substring id 0 plen) != prefix) {
+            return -1
+        }
+        def ch:int (charAt id plen)
+        if (ch < 48) { return -1 }
+        if (ch > 54) { return -1 }
+        return (ch - 48)
+    }
+
     fn document:EVGElement () {
         def main (tree Rt (Main (props (className "rt-main rt-main-doc"))))
         main.addChild((tree Rt
@@ -1251,6 +1550,13 @@ class RealTrainerDemo {
     ; is a frozen one, and this one stops by changing scene rather than by
     ; running out of things to move.
     fn tick:boolean (dtMs:double) {
+        if (planJob.tick(dtMs)) {
+            ; The job the plan dialog started is the job that answers it.
+            plan.complete((planJob.state == "saved") "Suunnitelman luonti epäonnistui — yritä uudelleen")
+            planJob.clear()
+            this.rebuild()
+            return true
+        }
         if (backend.tick(dtMs)) {
             ; The save that the dialog started is the save that answers it.
             if (addDialog.state == "saving") {
@@ -1472,6 +1778,10 @@ class RealTrainerDemo {
         ; buttons did nothing while a session was open — a navigation you can
         ; only use from one page is not one.
         if (this.pressSheet(id)) {
+            this.rebuild()
+            return true
+        }
+        if (this.pressPlan(id)) {
             this.rebuild()
             return true
         }

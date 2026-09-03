@@ -113,6 +113,38 @@ states, the events each handles, and where each goes.
 The dialog is drawn from the machine's state and nothing else: no local "is it
 open" flag, no second copy of the text.
 
+### The plan-week dialog, from its own definition
+
+`src/PlanDialogHost.rgr` is the second machine on a screen, and it is not a
+port: `fixtures/machines/planDialog.machine.json` — six states, eighteen
+events, the file `rt:machine:live` runs through XState itself — is read by
+[`gallery/statechart`](../statechart/README.md)'s runner as it is. What the
+host adds is the two things the machine names and does not do: the clock
+(the original computes its default week with `new Date()` inside the reducer),
+and the named action `selectFetchedDaysForReplacement`, which turns the
+calendar's entries for the week into the map of weekdays to replace.
+
+That action is the part worth knowing about. The runner **stops while a named
+action is owed**, because the state it settles into depends on what the action
+puts in the context; so every send from the view is `send → run what pending
+names → resume`, not `send`. `PlanDialogHost.send` is that loop, and
+`ranActions` is what a test reads to see it happened.
+
+The sheet on the dashboard — *Suunnittele viikko* — draws whichever of the six
+states the machine is in: the week and its type, the seven days with a
+checkbox each on confirmation, the feedback and per-day instructions and two
+switches on the edit sheet, and a status while the simulated job runs. The
+checkboxes are `CheckboxCtl`s and the week type is a `RadioGroupCtl`, drawn
+**from** the context on every rebuild and never toggled on their own: a press
+sends the event, and the machine is the only place the answer lives.
+
+![the plan-week dialog, confirming the days to replace](web/shots/realtrainer-plan.png)
+
+Two scenarios walk it, `plan-week` and `plan-edit`, and `rt:trace` now checks
+the machine's state after every step against the one the scenario says it
+should be in — the same field the reference recorder reads from
+`window.__machineState` on the React side.
+
 ## Traces: the app itself as the oracle
 
 A machine that passes its transition table can still be wired to the wrong
@@ -356,6 +388,11 @@ the screenshots in `web/shots/` with `--png`.
 ```
 src/RealTrainerDemo.rgr   the app: four scenes, the clock, the hit routing
 src/CompactRows.rgr       COMPACT text → rows → the parts a row draws
+src/AddWorkoutDialog.rgr  the add-workout machine, ported by hand
+src/PlanDialogHost.rgr    the plan-week machine, run from its definition; the host's clock and named action
+fixtures/machines/        the machines in the shape createMachine() takes
+fixtures/scenarios/       the scripts both sides are driven through
+traces/                   this side's recorded traces, checked by rt:trace
 PATCHES.md                what this demo changed in the parser, and why
 patches/                  those changes as diffs, to apply upstream
 parser/                   the COMPACT v1 parser, vendored from its own repo

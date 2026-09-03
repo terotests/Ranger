@@ -1,0 +1,358 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; PlanDialogHost — the "Suunnittele viikko" machine, run from its own definition
+; =============================================================================
+; The machine is `fixtures/machines/planDialog.machine.json`: six states and
+; eighteen events, in the shape `createMachine()` takes, measured against
+; XState itself by `rt:machine:live`. Nothing about it is transcribed here —
+; `gallery/statechart`'s runner reads the file and this class is the HOST
+; around it: the two things the machine names and does not do.
+;
+;   a clock          the original computes its default week with `new Date()`
+;                    inside its reducer. The host hands the date in, so the
+;                    same run gives the same answer twice.
+;   a named action   CONFIRM_WEEK_SELECTION reduces the fetched entries to a
+;                    map of weekdays — that is arithmetic on dates, which the
+;                    machine names (`selectFetchedDaysForReplacement`) and the
+;                    host performs. The runner STOPS while the action is owed,
+;                    so every send here is `send → run pending → resume`.
+;
+; What the calendar holds in a week is simulated, like everything the demo
+; would otherwise fetch: three entries, Tuesday, Thursday and Saturday.
+; =============================================================================
+
+Import "../../statechart/src/Statechart.rgr"
+Import "../../statechart/src/StatechartJson.rgr"
+Import "../../ui/src/UiDate.rgr"
+
+class PlanDialogHost {
+    def runner:ScRunner (new ScRunner())
+    def loaded@(mutable):boolean false
+    def today@(mutable):string ""
+    ; The weekdays the simulated calendar has an entry on, Sunday = 0.
+    def entryDays:[int] ([] _:int (2 4 6))
+    ; The named actions the host ran, in order — what a test asserts on.
+    def ranActions:[string]
+
+    Constructor () {
+    }
+
+    ; --- loading ------------------------------------------------------------
+
+    fn load:void (text:string todayIso:string) {
+        def chart:Statechart (StatechartJson.load(text))
+        today = todayIso
+        runner.start(chart)
+        def monday:string (PlanDialogHost.mondayOf(todayIso))
+        runner.setStr("defaultWeekStart" monday)
+        runner.setStr("targetWeekStart" monday)
+        loaded = true
+    }
+
+    fn state:string () {
+        return runner.state
+    }
+
+    fn isOpen:boolean () {
+        if (loaded == false) {
+            return false
+        }
+        return (runner.state != "closed")
+    }
+
+    ; --- reading the context --------------------------------------------------
+
+    fn text:string (key:string) {
+        return (PlanDialogHost.textOf((runner.get(key))))
+    }
+
+    fn flag:boolean (key:string) {
+        return (PlanDialogHost.flagOf((runner.get(key))))
+    }
+
+    ; `map[day]` as a flag — the by-day maps key by weekday number, which JSON
+    ; makes a string.
+    fn flagIn:boolean (key:string day:int) {
+        return (PlanDialogHost.flagOf((PlanDialogHost.entryOf((runner.get(key)) (to_string day)))))
+    }
+
+    fn textIn:string (key:string day:int) {
+        return (PlanDialogHost.textOf((PlanDialogHost.entryOf((runner.get(key)) (to_string day)))))
+    }
+
+    ; `editDayOrder` — the days as the dialog lists them.
+    fn dayOrder:[int] () {
+        def out:[int]
+        def items:[ScVal] (ScValOps.items((runner.get("editDayOrder"))))
+        for items item:ScVal i {
+            push out (PlanDialogHost.intOf(item))
+        }
+        return out
+    }
+
+    fn fetchedCount:int () {
+        return (ScValOps.sizeOf((runner.get("fetchedEntriesInWeek"))))
+    }
+
+    sfn textOf:string (v:ScVal) {
+        match v {
+            Str s { return s.text }
+            Nothing { return "" }
+            Bool b { return "" }
+            Num n { return (ScValOps.toJson(v)) }
+            List l { return "" }
+            Map m { return "" }
+        }
+        return ""
+    }
+
+    sfn flagOf:boolean (v:ScVal) {
+        match v {
+            Bool b { return b.flag }
+            Nothing { return false }
+            Str s { return false }
+            Num n { return false }
+            List l { return false }
+            Map m { return false }
+        }
+        return false
+    }
+
+    sfn intOf:int (v:ScVal) {
+        match v {
+            Num n { return (to_int n.value) }
+            Nothing { return 0 }
+            Str s { return 0 }
+            Bool b { return 0 }
+            List l { return 0 }
+            Map m { return 0 }
+        }
+        return 0
+    }
+
+    sfn entryOf:ScVal (v:ScVal key:string) {
+        match v {
+            Map m {
+                for m.keys k:string i {
+                    if (k == key) {
+                        return (itemAt m.entries i)
+                    }
+                }
+            }
+            Nothing { }
+            Str s { }
+            Bool b { }
+            Num n { }
+            List l { }
+        }
+        return (ScValOps.nothing())
+    }
+
+    ; --- sending, and settling what the machine owes --------------------------
+
+    fn send:boolean (e:ScEvent) {
+        def ok:boolean (runner.send(e))
+        this.settleHost()
+        return ok
+    }
+
+    ; The runner stops while a named action is owed. Run what it names, tell it
+    ; to carry on, and repeat until it names nothing — bounded, because a
+    ; machine that owed for ever would otherwise hang the host.
+    fn settleHost:void () {
+        def rounds@(mutable):int 0
+        while ((array_length runner.pending) > 0) {
+            rounds = (rounds + 1)
+            if (rounds > 8) {
+                return
+            }
+            for runner.pending name:string i {
+                push ranActions name
+                if (name == "selectFetchedDaysForReplacement") {
+                    this.selectFetchedDays()
+                }
+            }
+            runner.resume()
+        }
+    }
+
+    ; `selectFetchedDaysForReplacement`: every fetched entry's weekday, selected.
+    ; The same reduction `fixtures/machines/manifest.mjs` gives XState.
+    fn selectFetchedDays:void () {
+        def out@(mutable):ScVal (ScValOps.emptyMap())
+        def items:[ScVal] (ScValOps.items((runner.get("fetchedEntriesInWeek"))))
+        for items item:ScVal i {
+            def iso:string (PlanDialogHost.textOf((PlanDialogHost.entryOf(item "date"))))
+            if ((strlen iso) >= 10) {
+                def wd:int (PlanDialogHost.weekdayOf(iso))
+                out = (ScValOps.withKey(out (to_string wd) (ScValOps.bool(true))))
+            }
+        }
+        runner.set("replaceSelectedByDay" out)
+    }
+
+    ; --- the events the dialog sends --------------------------------------------
+
+    fn open:boolean (showInstructions:boolean calendarId:string) {
+        def e:ScEvent (ScEvent.of("OPEN_WEEK_SELECTION"))
+        e.withStr("weekStart" (this.text("defaultWeekStart")))
+        e.withStr("weekType" "target")
+        e.with("showInstructions" (ScValOps.bool(showInstructions)))
+        e.withStr("targetCalendarId" calendarId)
+        return (this.send(e))
+    }
+
+    fn close:boolean () {
+        return (this.send((ScEvent.of("CLOSE"))))
+    }
+
+    fn shiftWeek:boolean (weeks:int) {
+        def e:ScEvent (ScEvent.of("SET_WEEK_START"))
+        e.withStr("weekStart" (PlanDialogHost.shifted((this.text("targetWeekStart")) (weeks * 7))))
+        return (this.send(e))
+    }
+
+    fn setWeekType:boolean (weekType:string) {
+        def e:ScEvent (ScEvent.of("SET_WEEK_TYPE"))
+        e.withStr("weekType" weekType)
+        return (this.send(e))
+    }
+
+    fn setInstructions:boolean (instructions:string) {
+        def e:ScEvent (ScEvent.of("SET_CREATE_INSTRUCTIONS"))
+        e.withStr("instructions" instructions)
+        return (this.send(e))
+    }
+
+    fn openEdit:boolean () {
+        return (this.send((ScEvent.of("OPEN_EDIT_INSTRUCTIONS"))))
+    }
+
+    ; The week's entries come from the calendar — here, from the simulation —
+    ; and go in with the event, as the original's fetch hands them over.
+    fn confirmWeek:boolean () {
+        def weekStart:string (this.text("targetWeekStart"))
+        def list@(mutable):ScVal (ScValOps.emptyList())
+        for entryDays wd:int i {
+            def keys:[string]
+            def entries:[ScVal]
+            push keys "id"
+            push entries (ScValOps.str(("entry-" + (to_string wd))))
+            push keys "date"
+            ; Monday-based offset from the week's start: Monday 0 … Sunday 6.
+            push entries (ScValOps.str((PlanDialogHost.shifted(weekStart ((wd + 6) % 7)))))
+            list = (ScValOps.appended(list (new ScVal.Map(keys entries))))
+        }
+        def e:ScEvent (ScEvent.of("CONFIRM_WEEK_SELECTION"))
+        e.with("fetchedEntries" list)
+        return (this.send(e))
+    }
+
+    fn setReplace:boolean (day:int selected:boolean) {
+        def e:ScEvent (ScEvent.of("SET_REPLACE_SELECTED_BY_DAY"))
+        e.with("day" (ScValOps.num((int2double day))))
+        e.with("selected" (ScValOps.bool(selected)))
+        return (this.send(e))
+    }
+
+    fn confirmReplacement:boolean () {
+        return (this.send((ScEvent.of("CONFIRM_REPLACEMENT"))))
+    }
+
+    fn setFeedback:boolean (feedback:string) {
+        def e:ScEvent (ScEvent.of("SET_EDIT_GENERAL_FEEDBACK"))
+        e.withStr("feedback" feedback)
+        return (this.send(e))
+    }
+
+    fn setDayInstructions:boolean (day:int instructions:string) {
+        def e:ScEvent (ScEvent.of("SET_EDIT_DAY_INSTRUCTIONS"))
+        e.with("dayIndex" (ScValOps.num((int2double day))))
+        e.withStr("instructions" instructions)
+        return (this.send(e))
+    }
+
+    fn setKeep:boolean (day:int keep:boolean) {
+        def e:ScEvent (ScEvent.of("SET_KEEP_SAME_BY_DAY"))
+        e.with("day" (ScValOps.num((int2double day))))
+        e.with("keep" (ScValOps.bool(keep)))
+        return (this.send(e))
+    }
+
+    fn setShowPrevious:boolean (day:int show:boolean) {
+        def e:ScEvent (ScEvent.of("SET_SHOW_PREVIOUS_BY_DAY"))
+        e.with("day" (ScValOps.num((int2double day))))
+        e.with("show" (ScValOps.bool(show)))
+        return (this.send(e))
+    }
+
+    ; The order reversed — the one reordering a demo without drag can offer.
+    fn reverseDays:boolean () {
+        def order:[int] (this.dayOrder())
+        def list@(mutable):ScVal (ScValOps.emptyList())
+        def i@(mutable):int ((array_length order) - 1)
+        while (i >= 0) {
+            list = (ScValOps.appended(list (ScValOps.num((int2double (itemAt order i))))))
+            i = (i - 1)
+        }
+        def e:ScEvent (ScEvent.of("REORDER_DAYS"))
+        e.with("newOrder" list)
+        return (this.send(e))
+    }
+
+    fn startRegenerating:boolean () {
+        return (this.send((ScEvent.of("START_REGENERATING"))))
+    }
+
+    ; The job the host started has answered. Which event that is depends on
+    ; where the machine is waiting, and a failure carries its message.
+    fn complete:boolean (ok:boolean message:string) {
+        if (ok == false) {
+            def e:ScEvent (ScEvent.of("ERROR"))
+            e.withStr("error" message)
+            return (this.send(e))
+        }
+        if (runner.state == "creating") {
+            return (this.send((ScEvent.of("CREATION_COMPLETE"))))
+        }
+        if (runner.state == "regenerating") {
+            return (this.send((ScEvent.of("REGENERATION_COMPLETE"))))
+        }
+        return false
+    }
+
+    ; --- dates ------------------------------------------------------------------
+
+    sfn daysOf:int (iso:string) {
+        def y:int (to_int (?? (to_double (substring iso 0 4)) 0.0))
+        def m:int (to_int (?? (to_double (substring iso 5 7)) 0.0))
+        def d:int (to_int (?? (to_double (substring iso 8 10)) 0.0))
+        return (UiDate.toDays(y m d))
+    }
+
+    ; Sunday = 0, as `Date.getDay()` answers on the other side.
+    sfn weekdayOf:int (iso:string) {
+        return (UiDate.weekday((PlanDialogHost.daysOf(iso))))
+    }
+
+    sfn shifted:string (iso:string days:int) {
+        return (UiDate.isoOfDays(((PlanDialogHost.daysOf(iso)) + days)))
+    }
+
+    sfn mondayOf:string (iso:string) {
+        def wd:int (PlanDialogHost.weekdayOf(iso))
+        def back:int ((wd + 6) % 7)
+        return (PlanDialogHost.shifted(iso (0 - back)))
+    }
+
+    sfn dayName:string (wd:int) {
+        if (wd == 0) { return "sunnuntai" }
+        if (wd == 1) { return "maanantai" }
+        if (wd == 2) { return "tiistai" }
+        if (wd == 3) { return "keskiviikko" }
+        if (wd == 4) { return "torstai" }
+        if (wd == 5) { return "perjantai" }
+        return "lauantai"
+    }
+}

@@ -239,6 +239,7 @@ if (pngOut) {
   console.log("  wrote " + stem + "-dashboard.png (the dashboard)");
 }
 
+
 console.log("\n--- the tab that is on, and the one that was ---");
 // A class that goes away does not undo what it wrote — the cascade writes what
 // the CURRENT classes ask for — so a state rule may only override a property
@@ -368,6 +369,47 @@ await clickId("rt-pause");
 const paused = await litTicks();
 await page.waitForTimeout(700);
 ok("pausing stops it", (await litTicks()) === paused, `${paused} -> ${await litTicks()}`);
+
+// The plan-week dialog: a six-state machine run from its own definition, drawn
+// on the dashboard. `rt:trace` walks it step by step; this is the same view in
+// a real browser, one step in and one step out.
+await clickId("rt-rail-home");
+await page.waitForTimeout(150);
+ok("the plan dialog opens", await clickId("rt-plan"), "no rt-plan node");
+await page.waitForTimeout(150);
+ok("into the week selection",
+   (await page.evaluate("window.__app.plan.state()")) === "weekSelection",
+   await page.evaluate("window.__app.plan.state()"));
+await clickId("rt-plan-confirm");
+await page.waitForTimeout(150);
+ok("confirming the week runs the machine's named action and lands in confirmation",
+   (await page.evaluate("window.__app.plan.state()")) === "confirmation",
+   await page.evaluate("window.__app.plan.state()"));
+const planTexts = (await listNow()).filter((c) => c.k === 3).map((c) => c.text);
+ok("and the calendar's entries are counted on it",
+   planTexts.includes("3 merkintää viikolla"), planTexts.join("|"));
+if (pngOut) {
+  await page.locator("#stage canvas").screenshot({ path: stem + "-plan.png" });
+  console.log("  wrote " + stem + "-plan.png (the plan-week dialog)");
+}
+await clickId("rt-plan-cancel");
+await page.waitForTimeout(150);
+ok("cancelling closes it",
+   (await page.evaluate("window.__app.plan.state()")) === "closed",
+   await page.evaluate("window.__app.plan.state()"));
+// …and the other branch, the edit sheet, for the picture's sake.
+await clickId("rt-plan");
+await page.waitForTimeout(150);
+await clickId("rt-plan-edit");
+await page.waitForTimeout(150);
+ok("the edit sheet is the other way in",
+   (await page.evaluate("window.__app.plan.state()")) === "editInstructions",
+   await page.evaluate("window.__app.plan.state()"));
+if (pngOut) {
+  await page.locator("#stage canvas").screenshot({ path: stem + "-plan-edit.png" });
+  console.log("  wrote " + stem + "-plan-edit.png (the plan-week dialog, editing)");
+}
+await clickId("rt-plan-cancel");
 
 ok("nothing errored along the way", problems.length === 0, [...new Set(problems)].join("; "));
 

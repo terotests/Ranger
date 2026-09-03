@@ -5,6 +5,7 @@
   {
    "step": "rt-add",
    "handled": true,
+   "state": "open",
    "nodes": [
     {
      "role": "group",
@@ -191,6 +192,7 @@
   {
    "step": "rt-sheet-type",
    "handled": true,
+   "state": "open",
    "nodes": [
     {
      "role": "group",
@@ -377,6 +379,7 @@
   {
    "step": "rt-sheet-save",
    "handled": true,
+   "state": "saving",
    "nodes": [
     {
      "role": "group",
@@ -553,6 +556,7 @@
   {
    "step": "tick 800",
    "handled": true,
+   "state": "closed",
    "nodes": [
     {
      "role": "group",

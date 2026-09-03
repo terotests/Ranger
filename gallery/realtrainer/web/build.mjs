@@ -53,6 +53,12 @@ fs.writeFileSync(
     JSON.stringify(
       fs.readFileSync(path.join(HERE, "..", "fixtures", "session.compact"), "utf8"),
     ) +
+    ";\n" +
+    // …and the plan-week machine, from the same file XState is measured on.
+    "export const REALTRAINER_PLAN_MACHINE = " +
+    JSON.stringify(
+      fs.readFileSync(path.join(HERE, "..", "fixtures", "machines", "planDialog.machine.json"), "utf8"),
+    ) +
     ";\n",
 );
 

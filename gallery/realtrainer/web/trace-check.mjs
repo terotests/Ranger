@@ -42,6 +42,12 @@ const COMPACT = fs.readFileSync(
   path.join(ROOT, "fixtures", "session.compact"),
   "utf8",
 );
+// The plan-week machine is read from its own definition — the same file
+// `rt:machine:live` runs through XState — so the view is never a transcription.
+const PLAN_MACHINE = fs.readFileSync(
+  path.join(ROOT, "fixtures", "machines", "planDialog.machine.json"),
+  "utf8",
+);
 
 /** Role, name and state per node — the fields both sides can answer. */
 function snapshot(app) {
@@ -52,24 +58,42 @@ function snapshot(app) {
   }));
 }
 
+/**
+ * Where the machine the scenario names is, on this side — the same answer the
+ * React side gives through `window.__machineState`. A step that says which
+ * state it should leave behind is checked, not just recorded.
+ */
+function machineState(app, machine) {
+  if (machine === "addWorkoutDialog") return app.addDialog.state;
+  if (machine === "planDialog") return app.plan.state();
+  return "";
+}
+
 function runScenario(file) {
   const scenario = JSON.parse(fs.readFileSync(file, "utf8"));
   const app = new RealTrainerDemo();
   app.init(CSS, COMPACT);
+  app.loadPlanMachine(PLAN_MACHINE);
   const apply = (step) => {
     if (step.tick !== undefined) return app.tick(step.tick);
     return app.press(step.id);
   };
   for (const step of scenario.setup ?? []) apply(step);
+  const wrong = [];
   const frames = scenario.steps.map((step) => {
     const handled = apply(step);
+    const state = machineState(app, scenario.machine);
+    if (step.state !== undefined && step.state !== state) {
+      wrong.push(`${step.id ?? `tick ${step.tick}`}: in ${state}, wanted ${step.state}`);
+    }
     return {
       step: step.id ?? `tick ${step.tick}`,
       handled: !!handled,
+      state,
       nodes: snapshot(app),
     };
   });
-  return { id: scenario.id, machine: scenario.machine, frames };
+  return { id: scenario.id, machine: scenario.machine, frames, wrong };
 }
 
 const dir = path.join(ROOT, "fixtures", "scenarios");
@@ -77,9 +101,14 @@ const out = path.join(ROOT, "traces");
 let failed = 0;
 
 for (const name of fs.readdirSync(dir).filter((f) => f.endsWith(".json"))) {
-  const trace = runScenario(path.join(dir, name));
+  const { wrong, ...trace } = runScenario(path.join(dir, name));
   const target = path.join(out, name);
   const text = JSON.stringify(trace, null, 1) + "\n";
+  if (wrong.length) {
+    failed += 1;
+    console.log(`  FAIL ${name} — the machine is not where the scenario says: ${wrong.join("; ")}`);
+    continue;
+  }
   if (record) {
     fs.mkdirSync(out, { recursive: true });
     fs.writeFileSync(target, text);

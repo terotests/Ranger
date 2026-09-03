@@ -1,0 +1,79 @@
+{
+  "_": "The plan dialog's other branch: straight into editing the instructions, feedback, a day's instruction, the two by-day switches, the order reversed, regenerate — the job answers into confirmation — and cancel.",
+  "id": "plan-edit-regenerate-cancel",
+  "area": "suunnittelu",
+  "machine": "planDialog",
+  "source": "frontend/src/machines/planDialogMachine.ts",
+  "setup": [
+    {
+      "tick": 4000,
+      "why": "past the loader"
+    },
+    {
+      "id": "rt-google",
+      "role": "button",
+      "name": "Jatka Googlella"
+    }
+  ],
+  "steps": [
+    {
+      "id": "rt-plan",
+      "role": "button",
+      "name": "Suunnittele viikko",
+      "state": "weekSelection"
+    },
+    {
+      "id": "rt-plan-edit",
+      "role": "button",
+      "name": "Muokkaa ohjeita",
+      "state": "editInstructions"
+    },
+    {
+      "id": "rt-plan-feedback",
+      "role": "button",
+      "name": "Kirjoita esimerkkipalaute",
+      "state": "editInstructions"
+    },
+    {
+      "id": "rt-plan-instr-2",
+      "role": "button",
+      "name": "Ohje: keskiviikko",
+      "state": "editInstructions"
+    },
+    {
+      "id": "rt-plan-keep-3",
+      "role": "checkbox",
+      "name": "Pidä ennallaan torstai",
+      "state": "editInstructions"
+    },
+    {
+      "id": "rt-plan-show-4",
+      "role": "checkbox",
+      "name": "Näytä edellinen perjantai",
+      "state": "editInstructions"
+    },
+    {
+      "id": "rt-plan-reverse",
+      "role": "button",
+      "name": "Käännä päivien järjestys",
+      "state": "editInstructions"
+    },
+    {
+      "id": "rt-plan-regen",
+      "role": "button",
+      "name": "Luo uudelleen",
+      "state": "regenerating"
+    },
+    {
+      "tick": 1000,
+      "state": "confirmation",
+      "why": "the simulated job answers"
+    },
+    {
+      "id": "rt-plan-cancel",
+      "role": "button",
+      "name": "Peruuta",
+      "state": "closed"
+    }
+  ]
+}

@@ -1,0 +1,67 @@
+{
+  "_": "The plan dialog, the happy path: open, move a week on, confirm the week (the machine's named action selects the calendar's days), unselect one day, create. The simulated job answers on the clock.",
+  "id": "plan-week-confirm-create",
+  "area": "suunnittelu",
+  "machine": "planDialog",
+  "source": "frontend/src/machines/planDialogMachine.ts",
+  "setup": [
+    {
+      "tick": 4000,
+      "why": "past the loader"
+    },
+    {
+      "id": "rt-google",
+      "role": "button",
+      "name": "Jatka Googlella"
+    }
+  ],
+  "steps": [
+    {
+      "id": "rt-plan",
+      "role": "button",
+      "name": "Suunnittele viikko",
+      "state": "weekSelection"
+    },
+    {
+      "id": "rt-plan-next",
+      "role": "button",
+      "name": "Seuraava viikko",
+      "state": "weekSelection"
+    },
+    {
+      "id": "rt-plan-type-light",
+      "role": "radio",
+      "name": "Kevyt viikko",
+      "state": "weekSelection"
+    },
+    {
+      "id": "rt-plan-instr",
+      "role": "button",
+      "name": "Kirjoita esimerkkiohje",
+      "state": "weekSelection"
+    },
+    {
+      "id": "rt-plan-confirm",
+      "role": "button",
+      "name": "Jatka",
+      "state": "confirmation"
+    },
+    {
+      "id": "rt-plan-day-2",
+      "role": "checkbox",
+      "name": "Korvaa tiistai",
+      "state": "confirmation"
+    },
+    {
+      "id": "rt-plan-create",
+      "role": "button",
+      "name": "Luo suunnitelma",
+      "state": "creating"
+    },
+    {
+      "tick": 1000,
+      "state": "closed",
+      "why": "the simulated job answers"
+    }
+  ]
+}

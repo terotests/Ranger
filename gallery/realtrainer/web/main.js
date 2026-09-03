@@ -16,7 +16,7 @@
 import { renderDisplayList } from "../../evg/gl/evg-webgl.js";
 import { createA11yMirror, pressAtCentre } from "../../evg/gl/evg-a11y.js";
 import { RealTrainerDemo } from "./generated-host.js";
-import { REALTRAINER_CSS, REALTRAINER_COMPACT } from "./generated.js";
+import { REALTRAINER_CSS, REALTRAINER_COMPACT, REALTRAINER_PLAN_MACHINE } from "./generated.js";
 
 const stage = document.getElementById("stage");
 const canvas = document.getElementById("c");
@@ -26,6 +26,7 @@ const sceneEl = document.getElementById("scene");
 
 const app = new RealTrainerDemo();
 app.init(REALTRAINER_CSS, REALTRAINER_COMPACT);
+app.loadPlanMachine(REALTRAINER_PLAN_MACHINE);
 
 // For anything driving this page from outside — the browser check reads the
 // last frame's list rather than guessing at pixels.

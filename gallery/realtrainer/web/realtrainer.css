@@ -1658,3 +1658,36 @@
 .ui-radio-state-checked:hover {
   background: linear-gradient(180deg, #ffa040, #f97316);
 }
+
+/* --- the plan-week dialog: the add sheet's classes, plus its day list ------ */
+.rt-plan-days {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 4px;
+}
+
+.rt-plan-day {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 10px;
+  width: 836px;
+  height: 36px;
+}
+
+.rt-plan-day-name {
+  color: #e8e2da;
+  font-family: Arial;
+  font-size: 13px;
+  width: 96px;
+  height: 18px;
+}
+
+.rt-plan-day-note {
+  color: #9aa3b8;
+  font-family: Arial;
+  font-size: 12px;
+  height: 16px;
+}

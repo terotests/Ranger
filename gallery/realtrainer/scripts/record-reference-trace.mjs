@@ -109,6 +109,9 @@ for (const name of fs.readdirSync(dir).filter((f) => f.endsWith(".json"))) {
     frames.push({
       step: step.id ?? `tick ${step.tick}`,
       handled,
+      // The machine's state, which the dev build exposes; "" where it does
+      // not. The Ranger side writes the same field from its own runner.
+      state: await page.evaluate(() => globalThis.__machineState ?? ""),
       nodes: await snapshot(),
     });
   }
