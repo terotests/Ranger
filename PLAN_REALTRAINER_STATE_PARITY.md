@@ -257,11 +257,77 @@ maksavat mitään. Sama logiikka kuin rivikerroksessa: L0 ensin, sitten renderö
 
 ---
 
-## 5. Ensimmäinen konkreettinen askel
+## 5. Mistä jatketaan
 
-1. Aja `cd e2e && npm test` yhdellä koneella jolla emulaattorit ovat, ja varmista että
-   yhdeksän olemassa olevaa speciä menevät läpi — se on lähtötaso.
-2. Kirjoita `e2e/trace/record.mjs`: ajaa skenaarion askeleet ja kirjoittaa a11y-jäljen JSONina.
-3. Nauhoita `add-workout-open-and-cancel` — kolme tilaa, seitsemän tapahtumaa, pienin kone.
-4. Toista sama Ranger-puolella ja katso mitä eroaa. Ensimmäinen diff on suunnitelman
-   ensimmäinen todellinen mittaus.
+Järjestyksessä, ylimmäinen ensin. Jokainen kohta on kirjoitettu niin että sen voi ottaa
+käteen tuntematta tätä istuntoa.
+
+### 5.1 Nauhoita referenssijälki *(vaatii koneen jolla emulaattorit ovat)*
+
+Tämä on S0:n ainoa jäljellä oleva osa ja koko suunnitelman ainoa kohta jota **ei voi tehdä
+täällä**: se vaatii RealTrainer-monorepon ja Firebase-emulaattorit.
+
+1. `cd realtrainer/e2e && npm test` — varmista että yhdeksän olemassa olevaa speciä
+   menevät läpi. Se on lähtötaso; jos ne eivät mene, mitään ei kannata mitata.
+2. `cd realtrainer/e2e && npm run ui:emulator:ready` nostaa frontendin (:5175) ja
+   emulaattorit, ja sitten
+   `node gallery/realtrainer/scripts/record-reference-trace.mjs`
+   ajaa samat skenaariot Playwrightilla oikeaa sovellusta vasten ja kirjoittaa a11y-jäljen
+   `gallery/realtrainer/traces/reference/`iin. Valitsimet `--url` ja `--out`, jos portti
+   on muu. Skripti sanoo itse jos sovellusta ei löydy.
+3. Diffaa se Ranger-puolen jälkeä vasten: `npm run rt:trace` toistaa saman skenaarion
+   `RealTrainerDemo`illa ja vertaa nauhoitettuun. **Ensimmäinen diff on suunnitelman
+   ensimmäinen todellinen mittaus** — siihen asti pariteetti on koneiden pariteettia,
+   ei näkymien.
+
+Muistutus siitä miksi avain on rooli+nimi eikä `data-testid`: näissä näkymissä ei ole
+yhtään `data-testid`-attribuuttia (§1.2).
+
+### 5.2 S4:n ja S5:n näkymät
+
+Koneet ovat valmiit ja mitattu XStatea vasten; näkymiä ei ole. Järjestys:
+
+1. **`planDialog`in näkymä.** Kone on `fixtures/machines/planDialog.machine.json`, ja
+   `gallery/statechart`in runner ajaa sen sellaisenaan — näkymän tehtävä on vain piirtää
+   `r.state` ja lähettää tapahtumia. Alkuperäinen on `DashboardPage.tsx`:n sisällä
+   (3 364 r), joten poimi siitä vain dialogi. `gallery/ui`:ssä on `StepperCtl`,
+   `InputCtl` ja `NumberCtl` valmiina.
+2. **`chat`in näkymä.** `ChatController.ts` (441 r) ja `mockAdapter.ts` (227 r) →
+   `RtBackendSim`. Striimaus on `STREAM_CHUNK`-tapahtumia kellosta, ei verkosta:
+   demo on simulaatio (§0), joten adapteri saa keksiä vastauksen.
+3. Kummallekin skenaario `fixtures/scenarios/`iin ja `rt:trace`-portti, samalla tavalla
+   kuin `add-workout`ille.
+
+**Nimetyt toiminnot ovat hostin.** Kone nimeää `takeResponse`in ja `acceptAll`in, host
+ajaa ne — ja runner **pysähtyy niin kauan kuin nimetty toiminto on velkaa**, koska
+`reviewing` haarautuu sen täyttämän listan pituudesta. Näkymän silmukan on siis oltava
+`send → aja pending → resume`, ei pelkkä `send`. Katso `gallery/statechart/README.md`.
+
+### 5.3 S2, S3, S6
+
+Näihin ei ole koskettu. `CalendarWizard` (612 r) on pienin ja `StepperCtl` on valmiina,
+joten se on luonteva seuraava. `YearSheetPageV2` (1 926 r) kannattaa aloittaa
+selvityksellä siitä mitä `app-ranger/lib/yearsheet` (722 r) jo kattaa.
+
+### 5.4 Piirroksen luettavuus
+
+`gallery/statechart` osaa piirtää koneen ja ajon siitä. Reititys on kesken:
+[`gallery/rangerflow/docs/PLAN_READABLE_ROUTING.md`](gallery/rangerflow/docs/PLAN_READABLE_ROUTING.md)
+on speksi loppuun — prioriteettijärjestys, kustannusfunktio, pipeline ja se mittari joka
+jokaisella säännöllä pitää olla ennen kuin se on tehty.
+
+## 6. Portit, ja mikä niistä vaatii mitä
+
+| Portti | Vaatii | Mitä mittaa |
+|--------|--------|-------------|
+| `rt:compact` · `rt:l0` · `rt:coverage:check` | ei mitään | rivikerros oraakkelia vasten |
+| `rt:machine` | `xstate` | 21 solua neljässä toteutuksessa + 400 satunnaissarjaa |
+| `rt:machine:live` | `xstate` | planDialog 108 + chat 96 solua, 300 sarjaa kumpikin |
+| `statechart:parity` | `xstate` | modulin omat koneet, ei sovelluskoodia |
+| `statechart:viz:check` | — | piirros: laatikot, nuolet, portit, nimiöt |
+| `rt:trace` | ei mitään | Ranger-jälki nauhoitettua vasten |
+| `rt:machine:config` | **monorepo** | konfiguraatio oikeaa `.ts`:ää vasten |
+| referenssinauhoitus | **monorepo + emulaattorit** | React-jälki |
+
+Kaksi alinta poistuvat 0:lla ja sanovat miksi, kun lähteitä ei ole — ne eivät ole CI:ssä
+mutta ne on tarkoitus ajaa koneella jolla ne toimivat.
