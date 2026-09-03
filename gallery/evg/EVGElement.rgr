@@ -709,6 +709,33 @@ class EVGElement {
     ; role of their own — the same rule the HTML name calculation uses, and the
     ; reason a row of Label + Shortcut announces as one thing.
     def a11yLabel:string ""
+    ; What a text field CONTAINS, as opposed to what it is called.
+    ;
+    ; A reader that is told "Full name, text box" and not the name in it is
+    ; being told half of what is on screen — and this was missing entirely:
+    ; the tree carried the label and the role, the DOM mirror asked for
+    ; `node.value`, and nothing on this side ever set it. The conformance
+    ; trace has had the value all along through `UiRow.text`, which is the
+    ; CONTROLLER's path; a demo that draws its own tree went without.
+    ;
+    ; A password field must leave this EMPTY. `value` is the text and
+    ; `glyphText()` is the bullets, and neither belongs to a reader: a browser
+    ; exposes no value for `type=password` either.
+    def a11yValue:string ""
+    ; `aria-required`, `aria-invalid` and `aria-readonly`, as the DOM spells
+    ; them: "true", "false", or "" for a control that says nothing.
+    ;
+    ; STRINGS AND NOT BOOLEANS, and that is the whole point of them. Absent
+    ; and "false" are different claims — a field that says
+    ; `aria-required="false"` has been asked and answered, and one that says
+    ; nothing has not. The controller path has spelled them this way since the
+    ; `input_required` spec recorded the rule against a real <input>
+    ; ("aria-required is published only when it was asked for"); the element
+    ; path could not say either at all, so a demo-built form drew a red ring
+    ; and a message for a person and told a reader nothing.
+    def a11yRequired:string ""
+    def a11yInvalid:string ""
+    def a11yReadOnly:string ""
     ; What a reader says INSTEAD of the role — "sortable" on a draggable row.
     def a11yRoleDescription:string ""
     ; `aria-describedby`, ALREADY RESOLVED to the sentence it points at — a
@@ -817,6 +844,14 @@ class EVGElement {
     ; symptom: an ADDED child is caught anyway, because a new element has never
     ; been styled.
     def styleKids:int (0 - 1)
+
+    ; Where this element sits in the last inspect walk, or -1 when the
+    ; inspector has never run. `EVGInspect` stamps it, and two things read it:
+    ; the display list, to say which element emitted a command, and the hit
+    ; test, to turn a point into a node path without comparing object
+    ; identity — which Ranger has no operator for. One int, untouched and
+    ; meaningless while nothing inspects anything.
+    def inspectSlot:int (0 - 1)
 
     def isLayoutComplete:boolean false
     def unitsResolved:boolean false
@@ -2298,6 +2333,10 @@ class EVGElement {
         transitionSpec = other.transitionSpec
         role = other.role
         a11yLabel = other.a11yLabel
+        a11yValue = other.a11yValue
+        a11yRequired = other.a11yRequired
+        a11yInvalid = other.a11yInvalid
+        a11yReadOnly = other.a11yReadOnly
         a11yRoleDescription = other.a11yRoleDescription
         a11yDescription = other.a11yDescription
         a11yHasPopup = other.a11yHasPopup
@@ -2332,6 +2371,12 @@ class EVGElement {
         styleGen = other.styleGen
         styleSlot = other.styleSlot
         styleKids = other.styleKids
+        ; Where the inspector last saw this element. Declared with the field
+        ; and not copied here, so `evg:adopt:check` — which reads the field
+        ; list and this function and compares them — named it the moment the
+        ; suite could run again. A reconciled element that loses its slot is
+        ; an element the display list and the hit test can no longer name.
+        inspectSlot = other.inspectSlot
         isLayoutComplete = other.isLayoutComplete
         unitsResolved = other.unitsResolved
         hasReturn = other.hasReturn
@@ -2444,6 +2489,27 @@ class EVGElement {
         ; and a hand-written element all say it the same way.
         if ((name == "role") || (name == "a11yRole")) {
             role = (trim value)
+            return
+        }
+        ; A BARE `return`, like every other branch here: `setAttribute` is
+        ; declared `:void`. These four said `return true`, which JavaScript
+        ; ignores and C++ refuses — `return-statement with a value, in function
+        ; returning 'void'` — so the whole surface compiled and every JS suite
+        ; passed while the C++ build of the deck editor was broken.
+        if ((name == "a11yRequired") || (name == "aria-required")) {
+            a11yRequired = value
+            return
+        }
+        if ((name == "a11yInvalid") || (name == "aria-invalid")) {
+            a11yInvalid = value
+            return
+        }
+        if ((name == "a11yReadOnly") || (name == "aria-readonly")) {
+            a11yReadOnly = value
+            return
+        }
+        if ((name == "a11yValue") || (name == "aria-valuetext")) {
+            a11yValue = value
             return
         }
         if ((name == "aria-label") || (name == "a11yLabel")) {
@@ -2894,6 +2960,56 @@ class EVGElement {
         }
         if ((name == "flex-wrap") || (name == "flexWrap")) {
             flexWrap = value
+            return
+        }
+        ; `flex-grow`, WHICH WAS NOT HERE. `flex-shrink`, `flex-basis` and the
+        ; `flex` shorthand all were, so a stylesheet using the shorthand worked
+        ; and one using the longhand was silently ignored — the property name
+        ; falls through to the end of this function and nothing says so.
+        ;
+        ; What that looked like: `.cx-rail { flex-grow: 1 }` in the stepper.
+        ; With the grow factor dropped the rail has no width of its own, so it
+        ; took the parent's whole 852px, each of the three did, the row
+        ; overflowed by a factor of three and the steps stacked down the page
+        ; on top of one another. Chromium gives each rail 320 — the 640 of free
+        ; space split two ways — which is what the oracle beside this now
+        ; asserts.
+        ; `position`, WHICH WAS ALSO NOT HERE. The field exists, the layout
+        ; branches on it — `if (kid.position == "absolute")` in half a dozen
+        ; places — and until now the ONLY way to set it was from Ranger code.
+        ; Every `position: absolute` written in a stylesheet was read, matched,
+        ; and dropped on the floor.
+        ;
+        ; What that looked like: `.cx-thumb { position: absolute }` on the
+        ; sliders. The thumb stayed in flow, so it took horizontal space beside
+        ; the filled range instead of riding over it, and the two overlapped by
+        ; exactly the thumb's overhang. `.fd-menu` in the filter bar is the same
+        ; fault with a louder symptom — a popup that pushes the rows below it
+        ; instead of covering them.
+        ;
+        ; `fixed` maps to `absolute`: EVG has one out-of-flow mode and tests for
+        ; that string by name. The difference between them is which box you are
+        ; positioned against, and nothing here models a viewport separate from
+        ; the root, so calling it absolute is honest rather than approximate.
+        ; `sticky` has no implementation at all and stays in flow, which is what
+        ; it does until it sticks.
+        if (name == "position") {
+            def pv:string (trim value)
+            if ((pv == "absolute") || (pv == "fixed")) {
+                position = "absolute"
+                return
+            }
+            if ((pv == "static") || (pv == "relative") || (pv == "sticky")) {
+                position = "relative"
+                return
+            }
+            return
+        }
+        if ((name == "flex-grow") || (name == "flexGrow")) {
+            def gv@(optional):double (to_double value)
+            if gv {
+                flex = (unwrap gv)
+            }
             return
         }
         if ((name == "flex-shrink") || (name == "flexShrink")) {

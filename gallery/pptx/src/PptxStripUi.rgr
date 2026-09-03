@@ -233,6 +233,22 @@ class PptxStripUi {
                 }
                 def b (tree Strip (Btn (props (className cls)
                     (id ("ps-btn-" + (to_string j))) (a11yLabel name))))
+                ; THE POINTER, HANDED TO THE STYLESHEET.
+                ;
+                ; `.ps-btn:hover` has been in the sheet since this was written
+                ; and never once fired, because a rule only applies to an
+                ; element that says it is hovered and nothing here said so. The
+                ; strip therefore had a hover state in CSS, no hover on screen,
+                ; and no way to tell the two apart by reading either file.
+                ;
+                ; `bar.hot` is the model's answer to "which button is the
+                ; pointer over", maintained by `EVGToolbar` from the same
+                ; coordinates the hit test uses. Copying it onto the element is
+                ; the whole of the wiring: press already comes through as the
+                ; `ps-btn-on` class, and the two now arrive by the same route.
+                if (bar.hot == j) {
+                    b.isHovered = true
+                }
                 ; THE PICTURE IS A HOLE. The icon is drawn into this box
                 ; afterwards, so the box has to be there and empty — an icon
                 ; that is a text glyph would be measured as text and centred on

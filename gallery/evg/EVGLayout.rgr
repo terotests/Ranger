@@ -1080,8 +1080,31 @@ class EVGLayout {
             ; Check if we need to wrap to next row (for row direction). Gated on
             ; flexWrap: "nowrap" keeps everything on one line (children overflow /
             ; shrink); the historical/default "wrap" auto-wraps.
+            ;
+            ; --- WHY THE COMPARISON HAS A TOLERANCE ---------------------------
+            ;
+            ; A `flex: 1` child's width was computed BY THIS LAYOUT, out of the
+            ; same `innerWidth` it is now being measured against: the flex pass
+            ; took the line, subtracted the fixed children and the gaps, and
+            ; handed back the remainder. Adding those parts back up is not
+            ; guaranteed to return the number they were subtracted from — in
+            ; binary floating point `(a - b - c) + b + c` can land one ulp
+            ; above `a` — and a bare `>` then says the row is too wide for
+            ; itself and wraps.
+            ;
+            ; That is not theoretical and it is not rare. A sidebar of 240px
+            ; beside a `flex: 1` panel, with `4vw` page padding, wrapped at 127
+            ; of the 680 window widths between 821 and 1500 — scattered, so
+            ; dragging a window edge flickered the panel below the sidebar and
+            ; back up again a pixel later. See gallery/evg/web/responsive.
+            ;
+            ; A hundredth of a pixel is far below anything a painter can draw
+            ; and far above the error being cancelled (~1e-13 at these
+            ; magnitudes), so an overflow smaller than that is arithmetic
+            ; rather than a layout that does not fit. An item that genuinely
+            ; does not fit misses the line by whole pixels and still wraps.
             if (isColumn == false) {
-                def availableWidth:double ((startX + innerWidth) - currentX)
+                def availableWidth:double (((startX + innerWidth) - currentX) + 0.01)
                 if (((childTotalWidth > availableWidth) && ((array_length rowElements) > 0)) && (parent.flexWrap != "nowrap")) {
                     ; Wrap to next row
                     this.alignRow(rowElements parent rowHeight startX innerWidth)
@@ -2074,7 +2097,22 @@ class EVGLayout {
 
     fn intrinsicWidth:double (el:EVGElement wantMin:boolean) {
         def outer:double 0.0
-        if el.width.isSet {
+        ; A PERCENTAGE IS NOT A DEFINITE WIDTH HERE. Intrinsic sizing is the
+        ; question "how wide would this be with unlimited / with no space",
+        ; asked while the containing block's width is still being worked out —
+        ; so there is nothing for a percentage to be a percentage OF, and CSS
+        ; says such a width behaves as `auto` for the contribution. Taking it
+        ; as definite reads it as whatever the last resolve happened to leave
+        ; behind, which in the middle of a flex pass is zero: a cell holding
+        ; `.chartBox { width: 100% }` around a 220px chart reported a
+        ; min-content width of NOTHING, and the automatic minimum that is
+        ; supposed to stop the cell being squeezed below its contents let it
+        ; be squeezed to half a row instead.
+        def definite:boolean el.width.isSet
+        if (el.width.isPercent()) {
+            definite = false
+        }
+        if definite {
             ; A definite width is both the min- and the max-content size.
             outer = el.width.pixels
         } {
@@ -2191,8 +2229,33 @@ class EVGLayout {
                 ; PERCENTAGE padding, whose max-content size is undefined in
                 ; CSS anyway and which nothing in this gallery uses; `px` and
                 ; `em` resolve the same whatever they are given.
+                ;
+                ; AND A MEASUREMENT MUST NOT FREEZE THE RESOLUTION. `el` is
+                ; being MEASURED, so its inner width is not decided yet — a
+                ; `flex: 1` item is asked for its min-content size in the
+                ; middle of the pass that works out how wide it gets, and
+                ; `calculatedInnerWidth` is still zero there. Resolving a kid
+                ; against that zero is harmless for the measure (a percentage
+                ; contributes nothing to min-content, which is what CSS says
+                ; too) and fatal afterwards: `resolveUnits` latches
+                ; `unitsResolved`, so `width: 100%` stayed at the 0 it was
+                ; measured with and the flow never asked again.
+                ;
+                ; That is the charts sliding off the left of the showcase
+                ; pages. `.chartBox { width: 100%; align-items: center }` in a
+                ; `flex: 1` cell came out zero wide, and centring a 220px chart
+                ; in a 0px box puts its left edge at -110.
+                ;
+                ; So a kid that was NOT resolved before this pass is handed
+                ; back unresolved, and the flow resolves it for real against
+                ; the width it actually got. A kid that was already resolved
+                ; keeps what it had — the flow resolved it, not this.
+                def wasResolved:boolean kid.unitsResolved
                 kid.resolveUnits(el.calculatedInnerWidth el.calculatedInnerHeight)
                 def w:double (this.intrinsicWidth(kid wantMin))
+                if (wasResolved == false) {
+                    kid.unitsResolved = false
+                }
                 if (w > widest) {
                     widest = w
                 }

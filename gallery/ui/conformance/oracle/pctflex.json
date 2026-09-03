@@ -1,0 +1,334 @@
+{
+  "$source": "Chromium via playwright-core, measured by gallery/ui/conformance/oracle/pctflex_oracle.mjs",
+  "cases": {
+    "pctInGrown": {
+      "note": "width:100% under flex:1, with a fixed box centred in it",
+      "css": ".row{display:flex;flex-direction:row;width:487px;height:200px}\n          .cell{display:flex;flex-direction:column}\n          .box{display:flex;flex-direction:column;align-items:center}\n          .chart{width:220.55px;height:172px}\n          .cell{flex:1}\n          .box{width:100%}",
+      "html": "<div class=\"row\" id=\"row\"><div class=\"cell\" id=\"c1\"><div class=\"box\" id=\"b1\"><div class=\"chart\" id=\"ch1\"></div></div></div><div class=\"cell\" id=\"c2\"></div></div>",
+      "ids": [
+        "row",
+        "c1",
+        "b1",
+        "ch1",
+        "c2"
+      ],
+      "boxes": {
+        "row": {
+          "x": 0,
+          "y": 0,
+          "w": 487,
+          "h": 200
+        },
+        "c1": {
+          "x": 0,
+          "y": 0,
+          "w": 243.5,
+          "h": 200
+        },
+        "b1": {
+          "x": 0,
+          "y": 0,
+          "w": 243.5,
+          "h": 172
+        },
+        "ch1": {
+          "x": 11.47,
+          "y": 0,
+          "w": 220.55,
+          "h": 172
+        },
+        "c2": {
+          "x": 243.5,
+          "y": 0,
+          "w": 243.5,
+          "h": 200
+        }
+      }
+    },
+    "pctHalfInGrown": {
+      "note": "a percentage that is a real fraction of the width flex decided",
+      "css": ".row{display:flex;flex-direction:row;width:487px;height:200px}\n          .cell{display:flex;flex-direction:column}\n          .box{display:flex;flex-direction:column;align-items:center}\n          .chart{width:220.55px;height:172px}\n          .cell{flex:1}\n          .box{width:50%}\n          .chart{width:40px;height:20px}",
+      "html": "<div class=\"row\" id=\"row\"><div class=\"cell\" id=\"c1\"><div class=\"box\" id=\"b1\"><div class=\"chart\" id=\"ch1\"></div></div></div><div class=\"cell\" id=\"c2\"></div></div>",
+      "ids": [
+        "row",
+        "c1",
+        "b1",
+        "ch1",
+        "c2"
+      ],
+      "boxes": {
+        "row": {
+          "x": 0,
+          "y": 0,
+          "w": 487,
+          "h": 200
+        },
+        "c1": {
+          "x": 0,
+          "y": 0,
+          "w": 243.5,
+          "h": 200
+        },
+        "b1": {
+          "x": 0,
+          "y": 0,
+          "w": 121.75,
+          "h": 20
+        },
+        "ch1": {
+          "x": 40.88,
+          "y": 0,
+          "w": 40,
+          "h": 20
+        },
+        "c2": {
+          "x": 243.5,
+          "y": 0,
+          "w": 243.5,
+          "h": 200
+        }
+      }
+    },
+    "pctInGrownDeep": {
+      "note": "two levels of percentage below the grown item",
+      "css": ".row{display:flex;flex-direction:row;width:487px;height:200px}\n          .cell{display:flex;flex-direction:column}\n          .box{display:flex;flex-direction:column;align-items:center}\n          .chart{width:220.55px;height:172px}\n          .cell{flex:1}\n          .box{width:100%}\n          .inner{display:flex;flex-direction:column;align-items:center;width:50%}\n          .chart{width:40px;height:20px}",
+      "html": "<div class=\"row\" id=\"row\"><div class=\"cell\" id=\"c1\"><div class=\"box\" id=\"b1\"><div class=\"inner\" id=\"in1\"><div class=\"chart\" id=\"ch1\"></div></div></div></div><div class=\"cell\" id=\"c2\"></div></div>",
+      "ids": [
+        "row",
+        "c1",
+        "b1",
+        "in1",
+        "ch1",
+        "c2"
+      ],
+      "boxes": {
+        "row": {
+          "x": 0,
+          "y": 0,
+          "w": 487,
+          "h": 200
+        },
+        "c1": {
+          "x": 0,
+          "y": 0,
+          "w": 243.5,
+          "h": 200
+        },
+        "b1": {
+          "x": 0,
+          "y": 0,
+          "w": 243.5,
+          "h": 20
+        },
+        "in1": {
+          "x": 60.88,
+          "y": 0,
+          "w": 121.75,
+          "h": 20
+        },
+        "ch1": {
+          "x": 101.75,
+          "y": 0,
+          "w": 40,
+          "h": 20
+        },
+        "c2": {
+          "x": 243.5,
+          "y": 0,
+          "w": 243.5,
+          "h": 200
+        }
+      }
+    },
+    "pctWeighted": {
+      "note": "factors 1 and 3, so the two cells resolve against different widths",
+      "css": ".row{display:flex;flex-direction:row;width:487px;height:200px}\n          .cell{display:flex;flex-direction:column}\n          .box{display:flex;flex-direction:column;align-items:center}\n          .chart{width:220.55px;height:172px}\n          .one{flex:1;display:flex;flex-direction:column}\n          .three{flex:3;display:flex;flex-direction:column}\n          .box{width:100%}\n          .chart{width:40px;height:20px}",
+      "html": "<div class=\"row\" id=\"row\"><div class=\"one\" id=\"c1\"><div class=\"box\" id=\"b1\"><div class=\"chart\" id=\"ch1\"></div></div></div><div class=\"three\" id=\"c2\"><div class=\"box\" id=\"b2\"><div class=\"chart\" id=\"ch2\"></div></div></div></div>",
+      "ids": [
+        "row",
+        "c1",
+        "b1",
+        "ch1",
+        "c2",
+        "b2",
+        "ch2"
+      ],
+      "boxes": {
+        "row": {
+          "x": 0,
+          "y": 0,
+          "w": 487,
+          "h": 200
+        },
+        "c1": {
+          "x": 0,
+          "y": 0,
+          "w": 121.75,
+          "h": 200
+        },
+        "b1": {
+          "x": 0,
+          "y": 0,
+          "w": 121.75,
+          "h": 20
+        },
+        "ch1": {
+          "x": 40.88,
+          "y": 0,
+          "w": 40,
+          "h": 20
+        },
+        "c2": {
+          "x": 121.75,
+          "y": 0,
+          "w": 365.25,
+          "h": 200
+        },
+        "b2": {
+          "x": 121.75,
+          "y": 0,
+          "w": 365.25,
+          "h": 20
+        },
+        "ch2": {
+          "x": 284.38,
+          "y": 0,
+          "w": 40,
+          "h": 20
+        }
+      }
+    },
+    "pctInFixed": {
+      "note": "the control: a stated width on the cell, which always worked",
+      "css": ".row{display:flex;flex-direction:row;width:487px;height:200px}\n          .cell{display:flex;flex-direction:column}\n          .box{display:flex;flex-direction:column;align-items:center}\n          .chart{width:220.55px;height:172px}\n          .cell{width:243.5px}\n          .box{width:100%}",
+      "html": "<div class=\"row\" id=\"row\"><div class=\"cell\" id=\"c1\"><div class=\"box\" id=\"b1\"><div class=\"chart\" id=\"ch1\"></div></div></div><div class=\"cell\" id=\"c2\"></div></div>",
+      "ids": [
+        "row",
+        "c1",
+        "b1",
+        "ch1",
+        "c2"
+      ],
+      "boxes": {
+        "row": {
+          "x": 0,
+          "y": 0,
+          "w": 487,
+          "h": 200
+        },
+        "c1": {
+          "x": 0,
+          "y": 0,
+          "w": 243.5,
+          "h": 200
+        },
+        "b1": {
+          "x": 0,
+          "y": 0,
+          "w": 243.5,
+          "h": 172
+        },
+        "ch1": {
+          "x": 11.47,
+          "y": 0,
+          "w": 220.55,
+          "h": 172
+        },
+        "c2": {
+          "x": 243.5,
+          "y": 0,
+          "w": 243.5,
+          "h": 200
+        }
+      }
+    },
+    "pctOverMin": {
+      "note": "content wider than the share on offer, so the automatic minimum decides",
+      "css": ".row{display:flex;flex-direction:row;width:300px;height:200px}\n          .cell{display:flex;flex-direction:column;flex:1}\n          .box{display:flex;flex-direction:column;align-items:center;width:100%}\n          .chart{width:220.55px;height:172px}",
+      "html": "<div class=\"row\" id=\"row\"><div class=\"cell\" id=\"c1\"><div class=\"box\" id=\"b1\"><div class=\"chart\" id=\"ch1\"></div></div></div><div class=\"cell\" id=\"c2\"></div></div>",
+      "ids": [
+        "row",
+        "c1",
+        "b1",
+        "ch1",
+        "c2"
+      ],
+      "boxes": {
+        "row": {
+          "x": 0,
+          "y": 0,
+          "w": 300,
+          "h": 200
+        },
+        "c1": {
+          "x": 0,
+          "y": 0,
+          "w": 220.55,
+          "h": 200
+        },
+        "b1": {
+          "x": 0,
+          "y": 0,
+          "w": 220.55,
+          "h": 172
+        },
+        "ch1": {
+          "x": 0,
+          "y": 0,
+          "w": 220.55,
+          "h": 172
+        },
+        "c2": {
+          "x": 220.55,
+          "y": 0,
+          "w": 79.45,
+          "h": 200
+        }
+      }
+    },
+    "pctMinZero": {
+      "note": "min-width:0 — a half of the row whatever it holds, overflowing evenly",
+      "css": ".row{display:flex;flex-direction:row;width:300px;height:200px}\n          .cell{display:flex;flex-direction:column;flex:1;min-width:0}\n          .box{display:flex;flex-direction:column;align-items:center;width:100%}\n          .chart{width:220.55px;height:172px}",
+      "html": "<div class=\"row\" id=\"row\"><div class=\"cell\" id=\"c1\"><div class=\"box\" id=\"b1\"><div class=\"chart\" id=\"ch1\"></div></div></div><div class=\"cell\" id=\"c2\"></div></div>",
+      "ids": [
+        "row",
+        "c1",
+        "b1",
+        "ch1",
+        "c2"
+      ],
+      "boxes": {
+        "row": {
+          "x": 0,
+          "y": 0,
+          "w": 300,
+          "h": 200
+        },
+        "c1": {
+          "x": 0,
+          "y": 0,
+          "w": 150,
+          "h": 200
+        },
+        "b1": {
+          "x": 0,
+          "y": 0,
+          "w": 150,
+          "h": 172
+        },
+        "ch1": {
+          "x": -35.27,
+          "y": 0,
+          "w": 220.55,
+          "h": 172
+        },
+        "c2": {
+          "x": 150,
+          "y": 0,
+          "w": 150,
+          "h": 200
+        }
+      }
+    }
+  }
+}

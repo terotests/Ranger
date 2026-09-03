@@ -23,8 +23,24 @@ jobs:
           # dorny paths-filter '**' + '!gallery/**' is OR-matched, so '**' makes
           # non_gallery always true and gallery-only PRs incorrectly run full CI.
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            git fetch --no-tags --depth=1 origin "${{ github.base_ref }}" 2>/dev/null || true
-            files=$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD)
+            # `fetch-depth: 0` above already brought the whole history. The
+            # `--depth=1` fetch that used to stand here made the repository
+            # SHALLOW again, and — with no refspec — it updated FETCH_HEAD
+            # rather than `refs/remotes/origin/<base>`, so the base ref stayed
+            # behind the new shallow boundary and merge-base had nothing to
+            # find: `fatal: origin/master...HEAD: no merge base`, exit 128.
+            # That failed `changes`, skipped every job that needs it, and
+            # turned `test-gate` red on every open pull request at once.
+            git fetch --no-tags origin \
+              "+refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}" \
+              2>/dev/null || true
+            # AND THE FILTER MUST NOT BE ABLE TO FAIL THE BUILD. It decides
+            # which suites to skip; it is an optimisation, and the step runs
+            # under `bash -e`, so an unreadable diff took the whole workflow
+            # down with it. An empty list falls through to the branch below,
+            # which runs everything — the safe answer to "I do not know what
+            # changed".
+            files=$(git diff --name-only "origin/${{ github.base_ref }}...HEAD" || true)
           else
             files=$(git diff --name-only HEAD~1...HEAD 2>/dev/null || true)
           fi
@@ -284,6 +300,25 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      # `ui:demo:page` loads the demo page in a real browser — it is the one
+      # suite here that cannot be answered in Node, and the reason it exists:
+      # three wiring defects passed every Node assertion while the page was
+      # dead. This runner had no browser at all, so that suite failed with
+      # "Executable doesn't exist at .../chromium_headless_shell-1234" the
+      # first time it ran in CI.
+      #
+      # `playwright-core` is a devDependency of this repository and ships the
+      # same `install` command as the full package; `chromium` brings the
+      # headless shell the launch actually asks for, since page-check.mjs
+      # launches headless. `--with-deps` is Playwright's documented CI form.
+      #
+      # This downloads the browser on every run. That is the going rate for a
+      # gate that drives a real page, and the alternative — pointing at a
+      # stock Chrome on the image — unpins the browser from the
+      # playwright-core the harness uses.
+      - name: Install Chromium for the browser-driven suites
+        run: npx playwright-core install --with-deps chromium
 
       - name: Run the gallery editor suites
         run: npm run gallery:editors:test

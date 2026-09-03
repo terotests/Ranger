@@ -53,7 +53,8 @@ compiler — the long-form writeups live here.
 | [`ui/android`](ui/android/README.md) | The `gallery/ui` dashboard as an **Android app**: Ranger → Kotlin → `android.graphics`, and a Java2D twin so the port can be checked with no device |
 | [`ui/ios`](ui/ios/README.md) | The same dashboard on **iPhone, iPad and Apple Watch**: Ranger → Swift → CoreGraphics, built by a **Ranger program** that calls `xcrun`, `swiftc`, `plutil`, `codesign` and `simctl` — no Xcode project, and `--dry-run` prints the whole plan on a machine that is not a Mac |
 | [`evg/apple`](evg/apple/README.md) | The EVG painter and the CoreGraphics surface the Apple ports draw through — one backend for UIKit, SwiftUI and watchOS |
-| `evg`, `evg_video`, `watch_evg`, `zip`, `ts_to_ranger` | Smaller experiments |
+| [`evg`](evg/README.md) | **The layout engine** everything above draws through: the CSS-shaped box model, flex, grid, units, the stylesheet with `@media` and pseudo-classes, text measurement, transitions, hit testing, the accessibility tree, and the display list the painters read |
+| `evg_video`, `watch_evg`, `zip`, `ts_to_ranger` | Smaller experiments |
 
 ---
 

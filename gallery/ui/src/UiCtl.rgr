@@ -69,6 +69,18 @@ class UiRow {
     ; a chevron is not something a reader can see. Measured on Radix: the
     ; dropdown's own trigger carries it too, not only the nested rows.
     def hasPopup:string ""
+    ; `aria-multiselectable`, as the DOM spells it: "true" on a listbox a
+    ; person picks several from, "" on one that closes after a pick. A string
+    ; for the reason `required` is one — absent and "false" are different
+    ; claims.
+    ;
+    ; The one thing that separates a filter chip's value list from a select's:
+    ; both are listboxes of options with a selected state, and without this a
+    ; reader cannot tell whether picking a second one replaces the first. It
+    ; travels the CONTROLLER path only; `EVGA11yNode` has no field for it yet,
+    ; so a demo that draws its list through the element tree does not publish
+    ; it. Recorded rather than quietly half-done.
+    def multiSelectable:string ""
     ; `aria-level` and `aria-setsize`, 0 for a row that has neither.
     ;
     ; Their own fields for the reason `sorted` has one: a tree is a flat list
@@ -113,6 +125,18 @@ class UiRow {
     def hasRange:boolean false
     def valueMin:int 0
     def valueMax:int 0
+    ; `aria-valuetext`, as the DOM spells it: what a reader is told INSTEAD of
+    ; the number. "" for a control that publishes none.
+    ;
+    ; Its own field for the reason `sorted` has one. A progress bar reading
+    ; "40 of 100 files" and one reading "40" are identical in every field
+    ; above, and the text is the whole point of the label a caller supplied.
+    ; It is also how INDETERMINATE stays legible: both references leave the
+    ; attribute absent when there is no value, and "" here is that absence.
+    ;
+    ; The element path already carries this as `a11yValue`; this is the
+    ; controller path's spelling of the same attribute.
+    def valueText:string ""
     ; What a text field HOLDS, and where the caret is in it.
     ;
     ; The slider's lesson a second time, and worse: every field above is
@@ -145,6 +169,13 @@ class UiRow {
     ; This is what makes a Field's hint and its error message part of the
     ; contract instead of decoration beside it.
     def description:string ""
+    ; `aria-keyshortcuts`: the key that reaches this control directly.
+    ;
+    ; A questionnaire's choices carry A, B, C — drawn as a badge in the
+    ; corner, which is decoration, and published here, which is the half that
+    ; works without eyes. Empty for a control with no shortcut, which is
+    ; almost all of them.
+    def keyShortcut:string ""
     ; `aria-rowcount` and `aria-rowindex`, 0 for a row that publishes neither.
     ;
     ; These are what a VIRTUALISED table owes a reader, and the reason they are

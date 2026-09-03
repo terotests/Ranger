@@ -9500,6 +9500,7 @@ class RangerLispParser  {
     this.get_op_pred = 0;     /* note: unused */
     this.had_error = false;
     this.disableOperators = false;
+    this.recv_tmp_count = 0;
     this.source_text = RangerLispParser.normalizeLineEndings(code_module.code);
     this.buff = this.source_text;
     this.code = code_module;
@@ -10366,6 +10367,87 @@ class RangerLispParser  {
         let vref_end = this.i;
         if ( ((((this.i < this.__len && s.charCodeAt(this.i ) > 32) && c != 58) && c != 40) && c != 41) && c != (125) ) {
           if ( this.curr_node.is_block_node == true && s.charCodeAt(this.i ) == (46) ) {
+            let didRewrite65 = false;
+            if ( this.i > 0 ) {
+              if ( s.charCodeAt((this.i - 1) ) == (41) ) {
+                const save65 = this.i;
+                const fp_sp = this.i;
+                let cc65 = s.charCodeAt(this.i );
+                while (((((this.i < this.__len && s.charCodeAt(this.i ) > 32) && cc65 != 58) && cc65 != 40) && cc65 != 41) && cc65 != (125)) {
+                  if ( this.i > fp_sp ) {
+                    const isop65 = this.isOperator(s, disable_ops_set);
+                    if ( isop65 > 0 ) {
+                      break;
+                    }
+                  }
+                  this.i = 1 + this.i;
+                  cc65 = s.charCodeAt(this.i );
+                };
+                const fp_ep = this.i;
+                let lk65 = this.i;
+                while (lk65 < this.__len && s.charCodeAt(lk65 ) <= 32) {
+                  lk65 = lk65 + 1;
+                };
+                let isAssign65 = false;
+                if ( lk65 < this.__len ) {
+                  if ( s.charCodeAt(lk65 ) == (61) ) {
+                    isAssign65 = true;
+                    if ( lk65 + 1 < this.__len ) {
+                      if ( s.charCodeAt((lk65 + 1) ) == (61) ) {
+                        isAssign65 = false;
+                      }
+                    }
+                  }
+                }
+                if ( (isAssign65 && fp_ep - fp_sp > 1) && this.curr_node.children.length > 0 ) {
+                  const blk65 = this.curr_node;
+                  const recv65 = blk65.children.splice((blk65.children.length - 1), 1).pop();
+                  this.recv_tmp_count = this.recv_tmp_count + 1;
+                  const tmp65 = "__rgr_recv_" + (this.recv_tmp_count.toString());
+                  const defNode65 = new CodeNode(this.code, fp_sp, fp_ep);
+                  defNode65.expression = true;
+                  defNode65.parent = blk65;
+                  const kw65 = new CodeNode(this.code, fp_sp, fp_ep);
+                  kw65.vref = "def";
+                  kw65.value_type = 11;
+                  kw65.parsed_type = 11;
+                  kw65.ns = "def".split(".");
+                  kw65.parent = defNode65;
+                  defNode65.children.push(kw65);
+                  const nm65 = new CodeNode(this.code, fp_sp, fp_ep);
+                  nm65.vref = tmp65;
+                  nm65.value_type = 11;
+                  nm65.parsed_type = 11;
+                  nm65.ns = tmp65.split(".");
+                  nm65.parent = defNode65;
+                  defNode65.children.push(nm65);
+                  recv65.parent = defNode65;
+                  defNode65.children.push(recv65);
+                  blk65.children.push(defNode65);
+                  const stmt65 = new CodeNode(this.code, fp_sp, fp_ep);
+                  stmt65.expression = true;
+                  stmt65.parent = blk65;
+                  blk65.children.push(stmt65);
+                  const tgt65 = new CodeNode(this.code, fp_sp, fp_ep);
+                  tgt65.vref = tmp65 + s.substring(fp_sp, fp_ep );
+                  tgt65.value_type = 11;
+                  tgt65.parsed_type = 11;
+                  tgt65.ns = tgt65.vref.split(".");
+                  tgt65.parent = stmt65;
+                  stmt65.children.push(tgt65);
+                  this.curr_node = stmt65;
+                  this.parents.push(stmt65);
+                  this.paren_cnt = 1 + this.paren_cnt;
+                  this.parseBuf(s, disable_ops_set);
+                  didRewrite65 = true;
+                } else {
+                  this.i = save65;
+                }
+              }
+            }
+            if ( didRewrite65 ) {
+              continue;
+            }
             const err_node = new CodeNode(this.code, this.i, this.i + 1);
             const err_line = err_node.getLine();
             console.log((err_node.getFilename() + " Line: ") + err_line);
@@ -10603,6 +10685,87 @@ class RangerLispParser  {
                 const rn = iNode.right_node;
                 new_vref_node.parent = rn;
                 pTarget = rn;
+              }
+            }
+            if ( new_vref_node.vref.length > 1 ) {
+              if ( new_vref_node.vref.charCodeAt(0 ) == (46) ) {
+                let lk76 = this.i;
+                while (lk76 < this.__len && s.charCodeAt(lk76 ) <= 32) {
+                  lk76 = lk76 + 1;
+                };
+                let isAssign76 = false;
+                if ( lk76 < this.__len ) {
+                  if ( s.charCodeAt(lk76 ) == (61) ) {
+                    isAssign76 = true;
+                    if ( lk76 + 1 < this.__len ) {
+                      if ( s.charCodeAt((lk76 + 1) ) == (61) ) {
+                        isAssign76 = false;
+                      }
+                    }
+                  }
+                }
+                if ( isAssign76 ) {
+                  const stmt76 = pTarget;
+                  const blk76 = stmt76.parent;
+                  let stmtIdx76 = 0 - 1;
+                  if ( (typeof(blk76) !== "undefined" && blk76 != null )  ) {
+                    if ( blk76.is_block_node && pTarget.children.length > 0 ) {
+                      let k76 = blk76.children.length - 1;
+                      while (k76 >= 0) {
+                        const cand76 = blk76.children[k76];
+                        if ( cand76.sp == stmt76.sp ) {
+                          stmtIdx76 = k76;
+                          break;
+                        }
+                        k76 = k76 - 1;
+                      };
+                    }
+                  }
+                  if ( stmtIdx76 >= 0 ) {
+                    this.recv_tmp_count = this.recv_tmp_count + 1;
+                    const tmp76 = "__rgr_recv_" + (this.recv_tmp_count.toString());
+                    const defNode76 = new CodeNode(this.code, sp, ep);
+                    defNode76.expression = true;
+                    defNode76.parent = blk76;
+                    const kw76 = new CodeNode(this.code, sp, ep);
+                    kw76.vref = "def";
+                    kw76.value_type = 11;
+                    kw76.parsed_type = 11;
+                    kw76.ns = "def".split(".");
+                    kw76.parent = defNode76;
+                    defNode76.children.push(kw76);
+                    const nm76 = new CodeNode(this.code, sp, ep);
+                    nm76.vref = tmp76;
+                    nm76.value_type = 11;
+                    nm76.parsed_type = 11;
+                    nm76.ns = tmp76.split(".");
+                    nm76.parent = defNode76;
+                    defNode76.children.push(nm76);
+                    const rcv76 = new CodeNode(this.code, sp, ep);
+                    rcv76.expression = true;
+                    rcv76.parent = defNode76;
+                    while (pTarget.children.length > 0) {
+                      const mv76 = pTarget.children.splice(0, 1).pop();
+                      mv76.parent = rcv76;
+                      rcv76.children.push(mv76);
+                    };
+                    defNode76.children.push(rcv76);
+                    blk76.children.splice(stmtIdx76, 0, defNode76);
+                    new_vref_node.vref = tmp76 + new_vref_node.vref;
+                    new_vref_node.ns = new_vref_node.vref.split(".");
+                  } else {
+                    const err76 = new CodeNode(this.code, sp, ep);
+                    const line76 = err76.getLine();
+                    console.log((err76.getFilename() + " Line: ") + line76);
+                    console.log("Parser error: a field of a call result can not be assigned to directly.");
+                    console.log(err76.getLineString(line76));
+                    console.log("The assignment would be silently dropped. Bind the call result first:");
+                    console.log("    def recv:SomeType (the.call())");
+                    console.log("    recv.field = value");
+                    this.had_error = true;
+                    break;
+                  }
+                }
               }
             }
             pTarget.children.push(new_vref_node);

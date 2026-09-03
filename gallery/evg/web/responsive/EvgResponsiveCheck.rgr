@@ -1,0 +1,271 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EvgResponsiveCheck — the responsive page, laid out at four widths, no browser
+; ==============================================================================
+;
+;   npm run evg:responsive:check
+;
+; The page in `EvgResponsiveDemo.rgr` is meant to be dragged, and a layout that
+; is only ever checked by dragging it is a layout nobody checks. So this runs
+; the same `render()` the browser calls, at four widths chosen to sit either
+; side of the three breakpoints, and asserts the things the `@media` blocks are
+; supposed to do:
+;
+;   1280px  four cards across, sidebar beside the content
+;   1000px  three across
+;    760px  two across, and the sidebar has moved above the content
+;    420px  one across
+;
+; It counts CARD COLUMNS by grouping the laid-out cards by their `y`, which is
+; the only definition that does not just restate the stylesheet: however the
+; grid decided to place them, the cards sharing the top row ARE the columns.
+;
+; The sidebar test is the same kind: at 1280 the sidebar and the content start
+; on the same line and the sidebar is the narrower of the two; at 760 the
+; sidebar is above and as wide as the content. Neither reads a CSS property
+; back — they read where the boxes ended up.
+; ==============================================================================
+
+Import "EvgResponsiveDemo.rgr"
+Import "../../EVGElement.rgr"
+Import "../../EVGLayout.rgr"
+Import "../../EVGStyleSheet.rgr"
+
+class EvgResponsiveCheck {
+
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ((("       got " + (to_string got)) + " want ") + (to_string want))
+        }
+        this.ok(name good)
+    }
+
+    ; `className` is a space-separated list, so "chip" must not match
+    ; "chip-wide". Padding both sides is the whole-token test, and it is two
+    ; lines rather than a split.
+    fn hasClass:boolean (el:EVGElement cls:string) {
+        def haystack:string ((" " + el.className) + " ")
+        def needle:string ((" " + cls) + " ")
+        return ((indexOf haystack needle) >= 0)
+    }
+
+    ; Every element in the tree carrying `cls` among its classes.
+    fn collect:void (el:EVGElement cls:string out:[EVGElement]) {
+        if (this.hasClass(el cls)) {
+            push out el
+        }
+        def c:int 0
+        def n:int (el.getChildCount())
+        while (c < n) {
+            this.collect((el.getChild(c)) cls out)
+            c = (c + 1)
+        }
+    }
+
+    fn find:[EVGElement] (root:EVGElement cls:string) {
+        def out:[EVGElement]
+        this.collect(root cls out)
+        return out
+    }
+
+    ; How many boxes share the topmost row. A grid column count, derived from
+    ; the geometry rather than from the declaration that produced it.
+    fn topRowCount:int (els:[EVGElement]) {
+        if ((array_length els) == 0) {
+            return 0
+        }
+        def top:double 999999.0
+        def i:int 0
+        while (i < (array_length els)) {
+            def e:EVGElement (itemAt els i)
+            if (e.calculatedY < top) {
+                top = e.calculatedY
+            }
+            i = (i + 1)
+        }
+        def count:int 0
+        def j:int 0
+        while (j < (array_length els)) {
+            def e2:EVGElement (itemAt els j)
+            if ((e2.calculatedY - top) < 1.0) {
+                count = (count + 1)
+            }
+            j = (j + 1)
+        }
+        return count
+    }
+
+    ; The tree as the browser would get it at this width: built, styled against
+    ; the stated viewport, and laid out.
+    fn layoutAt:EVGElement (w:double h:double coarse:boolean) {
+        def demo (new EvgResponsiveDemo())
+        demo.setViewport(w h coarse)
+        def root:EVGElement (demo.build())
+        def sheet (new EVGStyleSheet())
+        sheet.parse((demo.stylesheet()))
+        sheet.setViewport(w h coarse)
+        sheet.applyTree(root "")
+        def lay (new EVGLayout())
+        lay.setPageSize(w h)
+        lay.layout(root)
+        return root
+    }
+
+    fn columnsAt:int (w:double) {
+        def root:EVGElement (this.layoutAt(w 900.0 false))
+        def cards:[EVGElement] (this.find(root "card"))
+        return (this.topRowCount(cards))
+    }
+
+    fn run:void () {
+        print "EvgResponsiveCheck"
+
+        ; --- the stylesheet parses at all -------------------------------------
+        def sheet (new EVGStyleSheet())
+        sheet.parse((EvgResponsiveDemo.defaultCss()))
+        this.eqInt("stylesheet parses with no errors" (array_length sheet.errors) 0)
+
+        ; --- the grid changes how many columns it has -------------------------
+        this.eqInt("1280px -> four cards across" (this.columnsAt(1280.0)) 4)
+        this.eqInt("1000px -> three across" (this.columnsAt(1000.0)) 3)
+        this.eqInt("760px -> two across" (this.columnsAt(760.0)) 2)
+        this.eqInt("420px -> one across" (this.columnsAt(420.0)) 1)
+
+        ; --- a page with no viewport is a page with no @media -----------------
+        ;
+        ; The sheet refuses to guess: with the viewport left at zero, every
+        ; conditional rule is inert and the page is its wide self. This is the
+        ; rule `EVGStyleSheet`'s header states, checked rather than trusted.
+        def bare (new EvgResponsiveDemo())
+        def bareRoot:EVGElement (bare.build())
+        def bareSheet (new EVGStyleSheet())
+        bareSheet.parse((bare.stylesheet()))
+        bareSheet.applyTree(bareRoot "")
+        def bareLay (new EVGLayout())
+        bareLay.setPageSize(420.0 900.0)
+        bareLay.layout(bareRoot)
+        def bareCards:[EVGElement] (this.find(bareRoot "card"))
+        this.eqInt("no viewport stated -> no @media block applies"
+            (this.topRowCount(bareCards)) 4)
+
+        ; --- the sidebar moves ------------------------------------------------
+        def wide:EVGElement (this.layoutAt(1280.0 900.0 false))
+        def wSide:[EVGElement] (this.find(wide "side"))
+        def wMain:[EVGElement] (this.find(wide "main"))
+        def ws:EVGElement (itemAt wSide 0)
+        def wm:EVGElement (itemAt wMain 0)
+        this.ok("1280px: sidebar beside the content"
+            (((ws.calculatedY - wm.calculatedY) < 1.0)
+                && ((wm.calculatedY - ws.calculatedY) < 1.0)))
+        this.ok("1280px: sidebar is the narrow one"
+            (ws.calculatedWidth < wm.calculatedWidth))
+
+        def narrow:EVGElement (this.layoutAt(760.0 900.0 false))
+        def nSide:[EVGElement] (this.find(narrow "side"))
+        def nMain:[EVGElement] (this.find(narrow "main"))
+        def ns:EVGElement (itemAt nSide 0)
+        def nm:EVGElement (itemAt nMain 0)
+        this.ok("760px: sidebar above the content"
+            ((ns.calculatedY + ns.calculatedHeight) <= (nm.calculatedY + 1.0)))
+        this.ok("760px: sidebar as wide as the content"
+            ((ns.calculatedWidth - nm.calculatedWidth) < 1.0))
+
+        ; --- 4vw is a share of the PAGE, not of the parent ---------------------
+        ;
+        ; The hero's left padding is declared once, in `vw`, and is a different
+        ; number of pixels at every width. A percentage could not do this: the
+        ; hero's parent is as wide as the page, so `4%` would agree here by
+        ; accident — and stop agreeing the moment anything was nested.
+        def heroWide:[EVGElement] (this.find(wide "hero"))
+        def heroNarrow:[EVGElement] (this.find(narrow "hero"))
+        def hw:EVGElement (itemAt heroWide 0)
+        def hn:EVGElement (itemAt heroNarrow 0)
+        this.eqInt("1280px: hero padding-left is 4vw" (to_int hw.box.paddingLeftPx) 51)
+        this.eqInt("760px: hero padding-left is 4vw" (to_int hn.box.paddingLeftPx) 30)
+
+        ; --- (pointer: coarse) --------------------------------------------------
+        def mouse:EVGElement (this.layoutAt(1280.0 900.0 false))
+        def finger:EVGElement (this.layoutAt(1280.0 900.0 true))
+        def mItems:[EVGElement] (this.find(mouse "nav-item"))
+        def fItems:[EVGElement] (this.find(finger "nav-item"))
+        def mi:EVGElement (itemAt mItems 0)
+        def fi:EVGElement (itemAt fItems 0)
+        this.ok("a finger gets taller nav rows than a mouse"
+            (fi.calculatedHeight > mi.calculatedHeight))
+
+        ; --- the page is STABLE across widths, not just correct at four -------
+        ;
+        ; The defect this exists for was invisible at any single width: the
+        ; sidebar and the content are a flex row, `.main` is `flex: 1`, and its
+        ; width is computed out of the same line it is then measured against.
+        ; Adding the parts back up could land one ulp over the whole, so the row
+        ; wrapped — at 127 of the 680 integer widths between 821 and 1500,
+        ; scattered, which on a dragged window edge is a flicker rather than a
+        ; layout. `EVGLayout`'s wrap test now has a sub-pixel tolerance and
+        ; `gallery/evg/EVGFlexWrapTest.rgr` guards it in the engine; this is the
+        ; same question asked of THIS page, at quarter-pixel steps because a
+        ; `4vw` padding and a device pixel ratio both produce fractional widths.
+        def flickers:int 0
+        def sw:double 830.0
+        while (sw <= 1600.0) {
+            def r:EVGElement (this.layoutAt(sw 900.0 false))
+            def sSide:[EVGElement] (this.find(r "side"))
+            def sMain:[EVGElement] (this.find(r "main"))
+            def s1:EVGElement (itemAt sSide 0)
+            def m1:EVGElement (itemAt sMain 0)
+            def dy:double (m1.calculatedY - s1.calculatedY)
+            if (dy < 0.0) {
+                dy = (0.0 - dy)
+            }
+            if (dy >= 1.0) {
+                flickers = (flickers + 1)
+                if (flickers < 6) {
+                    print ("       sidebar wrapped at width " + (to_string sw))
+                }
+            }
+            sw = (sw + 0.25)
+        }
+        this.eqInt("above 820px the sidebar never wraps below the content" flickers 0)
+
+        ; --- the page still renders -------------------------------------------
+        def demo (new EvgResponsiveDemo())
+        demo.setViewport(420.0 900.0 false)
+        def json:string (demo.render())
+        this.ok("420px: the display list is not empty" ((demo.commandCount()) > 40))
+        this.ok("420px: the page is taller than the window"
+            ((demo.contentHeight()) > 900.0))
+        this.ok("420px: JSON carries the measured height"
+            ((indexOf json "\"height\":") > 0))
+
+        print ""
+        print ((("Passed: " + (to_string passed)) + "  Failed: ") + (to_string failed))
+        if (failed > 0) {
+            print "FAILED"
+        } {
+            print "OK"
+        }
+    }
+
+    sfn m@(main):void () {
+        def c (new EvgResponsiveCheck())
+        c.run()
+    }
+}

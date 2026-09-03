@@ -1,0 +1,471 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; FilterDemo — the filter bar, drawn, clickable, and filtering something
+; =============================================================================
+; `FilterCtl` owns the predicates, the rule tree and the chip text, and is
+; measured against @tanstack/table-core in `conformance/oracle/filters_check.mjs`
+; — 121 assertions. Nothing about any of that is decided again here.
+;
+; WHAT THIS FILE IS FOR. A controller nobody can click is the exact failure the
+; input work was pulled up on: logic written and never wired to a surface, so
+; the half that is missing looks identical from outside to the half that works.
+; So this demo does not stop at drawing chips. IT SHOWS THE ROWS THAT SURVIVE.
+; A filter bar whose result list never changes is a picture of a filter bar,
+; and the only way to tell those apart is to put the answer on the screen next
+; to the question.
+;
+; The chips are the ones in the reference screenshot: an assignee chip reading
+; "has any of" over four people, and a priority chip reading "is Urgent". The
+; four-value assignee chip is there because it is the one that collapses —
+; three names and a "+1" — and a demo that never overflows never shows it.
+; =============================================================================
+
+Import "../src/FilterCtl.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGStyleSheet.rgr"
+Import "../../evg/EVGTransition.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+Import "../../evg/EVGA11yFromTree.rgr"
+Import "../../evg/EVGHitTest.rgr"
+
+treefactory Flt {
+    child addChild
+    text  textContent
+
+    tag Page     EVGElement (props (className "fd-page"))
+    tag Title    EVGElement (props (className "fd-title") (elementType 1))
+    tag Bar      EVGElement (props (className "fd-bar") (role "toolbar") (a11yLabel "Filters"))
+    tag Chip     EVGElement (props (className "fd-chip") (role "group"))
+    tag Part     EVGElement (props (className "fd-part") (role "button"))
+    tag PartTxt  EVGElement (props (className "fd-part-text") (elementType 1) (a11yHidden true))
+    tag OpTxt    EVGElement (props (className "fd-op-text") (elementType 1) (a11yHidden true))
+    tag ValTxt   EVGElement (props (className "fd-val-text") (elementType 1) (a11yHidden true))
+    tag Menu     EVGElement (props (className "fd-menu") (role "button"))
+    tag MenuTxt  EVGElement (props (className "fd-menu-text") (elementType 1) (a11yHidden true))
+    tag Add      EVGElement (props (className "fd-add") (role "button"))
+    tag AddTxt   EVGElement (props (className "fd-add-text") (elementType 1) (a11yHidden true))
+    tag List     EVGElement (props (className "fd-list") (role "listbox"))
+    tag Opt      EVGElement (props (className "fd-opt") (role "option"))
+    tag OptTxt   EVGElement (props (className "fd-opt-text") (elementType 1) (a11yHidden true))
+    tag Results  EVGElement (props (className "fd-results") (role "list") (a11yLabel "Matching tasks"))
+    tag Row      EVGElement (props (className "fd-row") (role "listitem"))
+    tag RowTxt   EVGElement (props (className "fd-row-text") (elementType 1) (a11yHidden true))
+    tag Count    EVGElement (props (className "fd-count") (role "status") (elementType 1))
+    tag Note     EVGElement (props (className "fd-note") (elementType 1))
+}
+
+class FilterDemo {
+    def model:FilterCtl (new FilterCtl())
+    def root@(optional):EVGElement
+    def sheet@(optional):EVGStyleSheet
+    def transitions:EVGTransition (new EVGTransition())
+    def layout@(optional):EVGLayout
+    def hovered:string ""
+    def pressed:string ""
+    def focused:string ""
+    def pageW:double 900.0
+    def pageH:double 460.0
+    ; The titles, parallel to the controller's record keys, so a result row can
+    ; say something a person recognises. Held here rather than in FilterCtl
+    ; because a filter does not need to know what a row is called.
+    def rowKeys:[string]
+    def rowTitles:[string]
+
+    Constructor () {
+        def a:[string]
+        def b:[string]
+        rowKeys = a
+        rowTitles = b
+    }
+
+    fn init:void (css:string) {
+        def s (new EVGStyleSheet())
+        s.parse(css)
+        sheet = s
+
+        model.tid = "filters"
+        model.name = "Filters"
+
+        model.addField("assignee" "Assignee" "multi")
+        model.addOption("assignee" "ada" "Ada")
+        model.addOption("assignee" "grace" "Grace")
+        model.addOption("assignee" "alan" "Alan")
+        model.addOption("assignee" "katherine" "Katherine")
+
+        model.addField("priority" "Priority" "option")
+        model.addOption("priority" "urgent" "Urgent")
+        model.addOption("priority" "high" "High")
+        model.addOption("priority" "medium" "Medium")
+        model.addOption("priority" "low" "Low")
+
+        ; The same six rows the oracle measured against, so what is on the
+        ; screen and what the gate checks are the same data.
+        this.addRow("r1" "Ship the parser" "ada" "urgent")
+        this.addRow("r2" "Fix the lexer" "grace" "high")
+        this.addRow("r3" "Write the docs" "" "low")
+        this.addRow("r4" "Ship the linker" "alan" "urgent")
+        this.addRow("r5" "Audit the tests" "katherine" "medium")
+        this.addRow("r6" "Trim the atlas" "ada" "low")
+
+        ; The two chips from the screenshot, with the assignee one holding four
+        ; values so the "+1" overflow is on the page rather than only in a gate.
+        model.addRule("seed-1" "" "assignee" "has_any_of")
+        model.setValues("seed-1" ([] _:string ( "ada" "grace" "alan" "katherine" )))
+        model.addRule("seed-2" "" "priority" "is")
+        model.setValues("seed-2" ([] _:string ( "urgent" )))
+
+        root = (this.page())
+    }
+
+    fn addRow:void (key:string title:string who:string priority:string) {
+        model.addRecord(key)
+        def people:[string]
+        if ((strlen who) > 0) {
+            push people who
+        }
+        model.setCell(key "assignee" people)
+        model.setCell(key "priority" ([] _:string ( priority )))
+        push rowKeys key
+        push rowTitles title
+    }
+
+    fn titleOf:string (key:string) {
+        def i:int 0
+        while (i < (array_length rowKeys)) {
+            if ((itemAt rowKeys i) == key) {
+                return (itemAt rowTitles i)
+            }
+            i = (i + 1)
+        }
+        return key
+    }
+
+    ; --- the look ------------------------------------------------------------
+
+    fn chipClass:string (id:string) {
+        def cls:string "fd-chip"
+        if (model.isOpen(id)) {
+            cls = (cls + " fd-chip-open")
+        }
+        if (model.activeId == id) {
+            cls = (cls + " fd-chip-active")
+        }
+        return cls
+    }
+
+    fn optClass:string (ruleId:string value:string) {
+        if (model.isChosen(ruleId value)) {
+            return "fd-opt fd-opt-chosen"
+        }
+        return "fd-opt"
+    }
+
+    fn optTextClass:string (ruleId:string value:string) {
+        ; Its own token: EVGStyleSheet has no descendant selectors, so the
+        ; label cannot inherit "I am inside a chosen option" from its parent.
+        if (model.isChosen(ruleId value)) {
+            return "fd-opt-text fd-opt-text-chosen"
+        }
+        return "fd-opt-text"
+    }
+
+    fn page:EVGElement () {
+        def page (tree Flt (Page))
+        page.addChild((tree Flt (Title "Tasks")))
+
+        def bar (tree Flt (Bar (props (id "fd-bar"))))
+        def rootNode:FilterNode (model.node("root"))
+        def i:int 0
+        while (i < (array_length rootNode.kids)) {
+            def id:string (itemAt rootNode.kids i)
+            def rule:FilterNode (model.node(id))
+            def f:FilterField (model.field(rule.path))
+
+            def chip (tree Flt
+                (Chip (props (id id)
+                             (className (this.chipClass(id)))
+                             (a11yLabel (model.chipText(id))))))
+
+            chip.addChild((tree Flt
+                (Part (props (id (id + "-field")) (a11yLabel f.label) (a11yHasPopup "menu"))
+                    (PartTxt f.label))))
+            chip.addChild((tree Flt
+                (Part (props (id (id + "-op")) (a11yLabel (FilterCtl.operatorLabel(rule.operator))) (a11yHasPopup "menu"))
+                    (OpTxt (FilterCtl.operatorLabel(rule.operator))))))
+            chip.addChild((tree Flt
+                (Part (props (id (id + "-value")) (a11yLabel (model.valueText(id))) (a11yHasPopup "listbox"))
+                    (ValTxt (model.valueText(id))))))
+            ; A vertical ellipsis, one glyph alone in its own box. The measurer
+            ; falls back to half an em outside 32-126, which spaces a RUN
+            ; wrongly; a single centred glyph is unaffected, which is what this
+            ; is — the same reasoning the calendar's chevrons are under.
+            chip.addChild((tree Flt
+                (Menu (props (id (id + "-menu")) (a11yLabel ("Remove the " + f.label + " filter")))
+                    (MenuTxt "⋮"))))
+            bar.addChild(chip)
+
+            if (model.isOpen(id)) {
+                def list (tree Flt (List (props (id (id + "-list")) (a11yLabel f.label))))
+                ; `aria-multiselectable` is NOT published here, and that is a
+                ; recorded gap rather than an oversight: `EVGElement` has no
+                ; field for it, so the element path — the one every demo uses —
+                ; cannot say it. `UiRow` can, and the filters gate checks it
+                ; there. Writing something else onto this listbox to fill the
+                ; hole would be the half-wiring this whole demo exists to
+                ; avoid: the only honest options are to carry it properly
+                ; through EVGElement or to say plainly that it is missing.
+                def oi:int 0
+                while (oi < (array_length f.options)) {
+                    def o:FilterOption (itemAt f.options oi)
+                    def opt (tree Flt
+                        (Opt (props (id (id + "-opt-" + o.value))
+                                    (className (this.optClass(id o.value)))
+                                    (a11yLabel o.label))
+                            (OptTxt (props (className (this.optTextClass(id o.value)))) o.label)))
+                    if (model.isChosen(id o.value)) {
+                        opt.a11ySelected = (EVGA11yTri.yes())
+                    } {
+                        opt.a11ySelected = (EVGA11yTri.no())
+                    }
+                    list.addChild(opt)
+                    oi = (oi + 1)
+                }
+                bar.addChild(list)
+            }
+            i = (i + 1)
+        }
+
+        bar.addChild((tree Flt
+            (Add (props (id "add") (a11yLabel "Add filter") (a11yHasPopup "menu"))
+                (AddTxt "+"))))
+        page.addChild(bar)
+
+        ; THE ANSWER, on the screen next to the question. Without this the page
+        ; is a picture of a filter bar and a broken predicate looks exactly
+        ; like a working one.
+        def kept:[string] (model.survivors())
+        def count (tree Flt
+            (Count ((to_string (array_length kept)) + " of "
+                + (to_string (array_length rowKeys)) + " tasks")))
+        page.addChild(count)
+
+        def results (tree Flt (Results (props (id "fd-results"))))
+        def k:int 0
+        while (k < (array_length kept)) {
+            def key:string (itemAt kept k)
+            results.addChild((tree Flt
+                (Row (props (id ("row-" + key)) (a11yLabel (this.titleOf(key))))
+                    (RowTxt (this.titleOf(key))))))
+            k = (k + 1)
+        }
+        page.addChild(results)
+
+        page.addChild((tree Flt (Note
+            "Click a value to open its list. Arrow keys move between chips; Backspace removes the focused one.")))
+        return page
+    }
+
+    ; --- events --------------------------------------------------------------
+
+    fn press:boolean (target:string) {
+        if (target == "") {
+            return false
+        }
+        focused = target
+        ; An option inside an open list. Checked FIRST, because an option id
+        ; starts with its rule's id and a prefix test the other way round would
+        ; read every option as a click on the chip that owns it.
+        def rootNode:FilterNode (model.node("root"))
+        def i:int 0
+        while (i < (array_length rootNode.kids)) {
+            def id:string (itemAt rootNode.kids i)
+            ; Named rather than chained: Ranger has no field access on a call
+            ; result, so `(model.node(id)).path` is a compile error and not a
+            ; style preference.
+            def ruleNode:FilterNode (model.node(id))
+            def f:FilterField (model.field(ruleNode.path))
+            def oi:int 0
+            while (oi < (array_length f.options)) {
+                def o:FilterOption (itemAt f.options oi)
+                if (target == (id + "-opt-" + o.value)) {
+                    model.toggleValue(id o.value)
+                    model.activeId = id
+                    this.rebuild()
+                    return true
+                }
+                oi = (oi + 1)
+            }
+            if (target == (id + "-value")) {
+                if (model.isOpen(id)) {
+                    model.close()
+                } {
+                    model.open(id)
+                }
+                this.rebuild()
+                return true
+            }
+            if (target == (id + "-menu")) {
+                model.removeNode(id)
+                this.rebuild()
+                return true
+            }
+            if (target == (id + "-field")) {
+                model.activeId = id
+                this.rebuild()
+                return true
+            }
+            if (target == (id + "-op")) {
+                model.activeId = id
+                this.rebuild()
+                return true
+            }
+            if (target == id) {
+                model.activeId = id
+                this.rebuild()
+                return true
+            }
+            i = (i + 1)
+        }
+        if (target == "add") {
+            model.activeId = "add"
+            this.rebuild()
+            return true
+        }
+        return false
+    }
+
+    fn key:boolean (k:string) {
+        ; Nothing else on this page takes a key, so an unfocused bar arms its
+        ; first stop rather than swallowing the press — the same rule the
+        ; calendar is under, and for the same reason: otherwise the first
+        ; arrow key does nothing and the second one works.
+        def handled:boolean (model.onKey(k))
+        if handled {
+            focused = model.activeId
+            this.rebuild()
+        }
+        return handled
+    }
+
+    fn setHover:void (id:string) {
+        hovered = id
+    }
+
+    fn setPressed:void (id:string) {
+        pressed = id
+    }
+
+    fn setFocus:void (id:string) {
+        focused = id
+    }
+
+    fn rebuild:void () {
+        root = (this.page())
+    }
+
+    fn markStates:void (el:EVGElement) {
+        el.isHovered = false
+        el.isPressed = false
+        el.isFocused = false
+        if ((strlen el.id) > 0) {
+            if (el.id == hovered) {
+                el.isHovered = true
+            }
+            if (el.id == pressed) {
+                el.isPressed = true
+            }
+            if (el.id == focused) {
+                el.isFocused = true
+            }
+        }
+        def i:int 0
+        while (i < (el.getChildCount())) {
+            this.markStates((el.getChild(i)))
+            i = (i + 1)
+        }
+    }
+
+    fn laidOut:EVGLayout () {
+        def r:EVGElement (unwrap root)
+        def s:EVGStyleSheet (unwrap sheet)
+        s.setViewport(pageW pageH false)
+        this.markStates(r)
+        s.applyTree(r "")
+        def t:EVGTransition transitions
+        t.reconcileTree(r)
+        if layout {
+            def lay:EVGLayout (unwrap layout)
+            if ((s.layoutClean()) == false) {
+                lay.layout(r)
+            }
+            return lay
+        }
+        def fresh (new EVGLayout())
+        fresh.setPageSize(pageW pageH)
+        layout = fresh
+        fresh.layout(r)
+        return fresh
+    }
+
+    fn displayListJson:string () {
+        def lay:EVGLayout (this.laidOut())
+        def r:EVGElement (unwrap root)
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(r)
+        return (dl.toJson())
+    }
+
+    fn hitId:string (px:double py:double) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def hit (new EVGHitTest())
+        return (hit.idAt(r px py))
+    }
+
+    fn a11yJson:string (generation:int focusId:string) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "Filters demo" generation focusId))
+        return (t.toJson())
+    }
+
+    fn a11yProblems:[string] () {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "Filters demo" 1 ""))
+        return (t.lint())
+    }
+
+    fn styleErrorCount:int () {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (s.getErrorCount())
+    }
+
+    fn styleErrorAt:string (i:int) {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (s.getError(i))
+    }
+
+    fn tick:boolean (dtMs:double) {
+        def r:EVGElement (unwrap root)
+        def t:EVGTransition transitions
+        t.advanceTree(r dtMs)
+        return (t.busy(r))
+    }
+
+    fn busyNow:boolean () {
+        def r:EVGElement (unwrap root)
+        def t:EVGTransition transitions
+        return (t.busy(r))
+    }
+
+    fn heightPx:double () {
+        return pageH
+    }
+}

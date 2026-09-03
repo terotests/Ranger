@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="fi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EVG — responsive layout</title>
+<style>
+  /* This stylesheet styles the CHROME — the strip of controls at the bottom —
+     and nothing else. The page above it has no CSS in this file at all: it is
+     an <svg> full of absolute coordinates that EVG computed, and the browser
+     is not laying any of it out. */
+  * { box-sizing: border-box }
+  html, body { margin: 0; padding: 0; background: #f6f7fb }
+  body { font: 13px/1.4 ui-sans-serif, system-ui, sans-serif; color: #10162b }
+
+  /* The stage is the full width of the document, which is the whole point:
+     whatever this element is, EVG is told that number and lays the page out
+     to it. `clientWidth` excludes the scrollbar, so the width EVG is given is
+     the width it actually has. */
+  #stage { width: 100%; display: block }
+  #stage svg { display: block }
+
+  #hud {
+    position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%);
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+    padding: 8px 10px; border-radius: 999px;
+    background: rgba(16, 22, 43, .92); color: #dbe4f7;
+    box-shadow: 0 6px 24px rgba(16, 22, 43, .28);
+    font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  #hud button {
+    font: inherit; color: #dbe4f7; cursor: pointer;
+    background: #26314c; border: 1px solid #3a4767;
+    border-radius: 999px; padding: 4px 10px;
+  }
+  #hud button:hover { border-color: #7cc4ff }
+  #hud button[aria-pressed="true"] { background: #7cc4ff; color: #06122e; border-color: #7cc4ff }
+  #hud .num { color: #7cc4ff }
+  #hud .sep { opacity: .35 }
+  #err { padding: 20px; color: #a1002a; font: 13px ui-monospace, monospace; white-space: pre-wrap }
+</style>
+</head>
+<body>
+
+<div id="stage"></div>
+<p id="err"></p>
+
+<div id="hud">
+  <span>leveys <b class="num" id="hudW">–</b> px</span>
+  <span class="sep">·</span>
+  <span><b class="num" id="hudCmds">–</b> komentoa</span>
+  <span class="sep">·</span>
+  <span><b class="num" id="hudMs">–</b> ms</span>
+  <span class="sep">|</span>
+  <button id="btnFull" aria-pressed="true">koko ikkuna</button>
+  <button data-w="1280">1280</button>
+  <button data-w="900">900</button>
+  <button data-w="720">720</button>
+  <button data-w="420">420</button>
+  <span class="sep">|</span>
+  <button id="btnCoarse" aria-pressed="false">pointer: coarse</button>
+</div>
+
+<script src="./evg_responsive_demo.js"></script>
+<script type="module">
+import { renderDisplayList } from "./evg-html.js";
+
+const stage = document.getElementById("stage");
+const errBox = document.getElementById("err");
+
+const demo = new EvgResponsiveDemo();
+
+/** null = follow the window; a number = pretend the window is that wide. */
+let forcedWidth = null;
+let coarse = false;
+let lastKey = "";
+
+function paint(force) {
+  // The width EVG is handed. When a preset is active the stage is narrowed to
+  // it and centred, so the page is laid out to a width it can see — nothing
+  // here scales or transforms the result, because a scaled screenshot is
+  // exactly what this demo is not.
+  const w = Math.max(240, Math.round(forcedWidth !== null ? forcedWidth : stage.clientWidth));
+  const h = Math.max(240, window.innerHeight);
+  const key = `${w}x${h}:${coarse}`;
+  if (!force && key === lastKey) return;
+  lastKey = key;
+
+  demo.setViewport(w, h, coarse);
+  const t0 = performance.now();
+  const doc = JSON.parse(demo.render());
+  const ms = performance.now() - t0;
+
+  renderDisplayList(stage, doc);
+
+  document.getElementById("hudW").textContent = String(w);
+  document.getElementById("hudCmds").textContent = String(doc.list.cmds.length);
+  document.getElementById("hudMs").textContent = ms.toFixed(1);
+
+  // What a browser check needs, and what is worth seeing in a console: the
+  // numbers the layout produced, not the picture it produced them for.
+  window.__evgResponsive = {
+    width: w, height: doc.height, coarse,
+    commands: doc.list.cmds.length, cssErrors: doc.cssErrors, ms,
+  };
+}
+
+function setForced(w, button) {
+  forcedWidth = w;
+  for (const b of document.querySelectorAll("#hud button[data-w], #btnFull")) {
+    b.setAttribute("aria-pressed", String(b === button));
+  }
+  stage.style.maxWidth = w === null ? "" : w + "px";
+  stage.style.margin = w === null ? "" : "0 auto";
+  paint(true);
+}
+
+document.getElementById("btnFull").addEventListener("click", (e) => setForced(null, e.currentTarget));
+for (const b of document.querySelectorAll("#hud button[data-w]")) {
+  b.addEventListener("click", (e) => setForced(Number(e.currentTarget.dataset.w), e.currentTarget));
+}
+document.getElementById("btnCoarse").addEventListener("click", (e) => {
+  coarse = !coarse;
+  e.currentTarget.setAttribute("aria-pressed", String(coarse));
+  paint(true);
+});
+
+// The resize path. A ResizeObserver on the stage rather than a window listener
+// because the two differ exactly where it matters: the page can grow tall
+// enough for a scrollbar, which takes ~15px off the width, and only the
+// element knows that happened. The observer fires again, the page is laid out
+// narrower, and it settles — `lastKey` is what stops it looping when nothing
+// actually moved.
+new ResizeObserver(() => paint(false)).observe(stage);
+window.addEventListener("resize", () => paint(false));
+
+try {
+  paint(true);
+} catch (e) {
+  errBox.textContent = String((e && e.stack) || e);
+  window.__evgResponsive = { error: String(e) };
+}
+</script>
+</body>
+</html>

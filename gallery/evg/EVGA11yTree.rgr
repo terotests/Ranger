@@ -140,12 +140,25 @@ class EVGA11yRole {
     ; lint is the only reason that was noticed.
     sfn rowGroup:int ()         { return 45 }
 
+    ; A LOG: a live region whose new content is appended, and which a reader
+    ; announces as it arrives. `status` is the other polite one and they are
+    ; not interchangeable — a status is a single changing value, a log is a
+    ; growing list, and a transcript is the second.
+    ;
+    ; Added because a tree literal saying role="log" produced no error and no
+    ; node: `EVGA11yFromTree` drops a role it does not know AND everything
+    ; under it, so a whole conversation went missing from the accessible tree
+    ; while the picture looked perfect. The lint said so, which is the only
+    ; reason it was noticed.
+    sfn log:int ()              { return 46 }
+
     ; The ARIA role string. A browser host writes this straight into role="…";
     ; a native adapter maps it to the platform's own constant.
     sfn ariaName:string (role:int) {
         if (role == 43) { return "navigation" }
         if (role == 44) { return "form" }
         if (role == 45) { return "rowgroup" }
+        if (role == 46) { return "log" }
         if (role == 41) { return "tree" }
         if (role == 42) { return "treeitem" }
         if (role == 1)  { return "group" }
@@ -243,7 +256,18 @@ class EVGA11yNode {
     def focused:boolean false
     def disabled:boolean false
     def selected:boolean false
-    def readOnly:boolean false
+    ; `aria-required`, `aria-invalid` and `aria-readonly`, as the DOM spells
+    ; them: "true", "false", or "" for a node that says nothing.
+    ;
+    ; STRINGS, and `readOnly` used to be a boolean here. That was the weaker
+    ; spelling and it could not express the distinction the `input_required`
+    ; spec exists to record: absent and "false" are different claims. The
+    ; controller path has always used three states; this one had one and a
+    ; half, and no `required` or `invalid` at all — so a demo-built form drew
+    ; a red ring and an error sentence for a person and told a reader nothing.
+    def required:string ""
+    def invalid:string ""
+    def readOnly:string ""
     ; A dialog that owns the screen while it is up. Every platform has this —
     ; aria-modal, UIA IsModal, AT-SPI MODAL, AccessKit Modal — and a host uses
     ; it to hide everything the user cannot currently reach, which is the
@@ -515,8 +539,14 @@ class EVGA11yTree {
         if n.selected {
             out = (out + ",\"selected\":true")
         }
-        if n.readOnly {
-            out = (out + ",\"readonly\":true")
+        if ((strlen n.required) > 0) {
+            out = (out + ",\"required\":" + (EVGA11yTree.jsonString(n.required)))
+        }
+        if ((strlen n.invalid) > 0) {
+            out = (out + ",\"invalid\":" + (EVGA11yTree.jsonString(n.invalid)))
+        }
+        if ((strlen n.readOnly) > 0) {
+            out = (out + ",\"readonly\":" + (EVGA11yTree.jsonString(n.readOnly)))
         }
         if n.modal {
             out = (out + ",\"modal\":true")
@@ -646,7 +676,16 @@ class EVGA11yTree {
         if n.selected {
             out = (EVGA11yTree.addWord(out "selected"))
         }
-        if n.readOnly {
+        ; The words a reader hears. Only a "true" is spoken: "not required" is
+        ; not something anybody says out loud, and `aria-required="false"` is
+        ; still a claim worth carrying in the tree even though it is silent.
+        if (n.required == "true") {
+            out = (EVGA11yTree.addWord(out "required"))
+        }
+        if (n.invalid == "true") {
+            out = (EVGA11yTree.addWord(out "invalid"))
+        }
+        if (n.readOnly == "true") {
             out = (EVGA11yTree.addWord(out "readonly"))
         }
         if n.modal {

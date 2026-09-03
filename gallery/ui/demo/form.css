@@ -222,3 +222,49 @@
 }
 
 .fm-note { color: #71717a; font-size: 11px; padding: 14px 0 0 0; width: 572px; height: 32px; }
+
+/* --- states the page had none of -------------------------------------------
+ *
+ * Reported together, and they are one omission: this sheet declared no
+ * `:hover` and no disabled styling anywhere, so a pointer over the buttons did
+ * nothing and a radio that cannot be chosen looked exactly like the two beside
+ * it. Both were read as "not clickable", and that was the right reading — the
+ * page gave no other information.
+ */
+
+/* The pointer, on the two things that take a click. `cursor` as well as the
+ * tint: a shape that reacts to being hovered but keeps the arrow still reads
+ * as decoration. */
+.fm-cancel {
+  cursor: pointer;
+  transition: background-color 120ms ease-out, border-color 120ms ease-out;
+}
+.fm-cancel:hover  { background-color: #f4f4f5; border-color: #d4d4d8; }
+.fm-cancel:active { background-color: #e4e4e7; }
+
+.fm-submit {
+  cursor: pointer;
+  transition: background-color 120ms ease-out;
+}
+.fm-submit:hover  { background-color: #27272a; border-color: #27272a; }
+.fm-submit:active { background-color: #3f3f46; border-color: #3f3f46; }
+
+/* The radio that cannot be chosen. Paler ring, paler label, and the arrow
+ * stays an arrow — three signals rather than one, because a single grey is
+ * ambiguous against a light theme. */
+.fm-radio-off { cursor: default; }
+.fm-ring-off { border-color: #e4e4e7; background-color: #fafafa; }
+.fm-radio-label-off { color: #a1a1aa; }
+
+/* The label beside a radio, unpinned.
+ *
+ * It carried `height: 18px` while the circle beside it is 10px, and
+ * `align-items: center` centres the BOXES: an 18px box whose glyphs sit on a
+ * baseline near its top is centred correctly and still looks a pixel or two
+ * low next to a circle. Letting the line box set the height makes the two
+ * agree, because then the box IS the text. */
+.fm-radio-label { height: auto; }
+
+/* The eye is placed from the right edge by measurement, not by flow — see the
+ * note in FormDemo where it is positioned. */
+.fm-eye { position: absolute; }

@@ -351,6 +351,62 @@ class FormDemo {
         return a
     }
 
+    ; Where a field's box is on the page, and where a caret index falls
+    ; inside it. Both exist so a check can click at a stated place and say what
+    ; it expected — a test that computed these itself would be asserting its
+    ; own arithmetic rather than the demo's.
+    ; The element with this id, anywhere under the root. EVGElement has no
+    ; lookup of its own and the hit test walks paint order rather than the
+    ; tree, so this is a plain recursive search — three lines, and it keeps the
+    ; measurement in the demo where a check can ask for it.
+    ; NOT AN OPTIONAL. It hands back the element it was given when nothing
+    ; matches, so a caller tests `found.id == tid` rather than threading an
+    ; optional through three call sites — Ranger's optionals are `null?` and
+    ; `unwrap`, and a search that cannot fail reads better than one that can.
+    sfn byId:EVGElement (el:EVGElement tid:string) {
+        if (el.id == tid) {
+            return el
+        }
+        def i:int 0
+        while (i < (el.getChildCount())) {
+            def kid:EVGElement (FormDemo.byId((el.getChild(i)) tid))
+            if (kid.id == tid) {
+                return kid
+            }
+            i = (i + 1)
+        }
+        return el
+    }
+
+    fn boxXOf:double (tid:string) {
+        def lay:EVGLayout (this.laidOutOnce())
+        def r:EVGElement (unwrap root)
+        def el:EVGElement (FormDemo.byId(r tid))
+        if (el.id != tid) {
+            return 0.0
+        }
+        return (el.calculatedX)
+    }
+
+    fn boxWidthOf:double (tid:string) {
+        def lay:EVGLayout (this.laidOutOnce())
+        def r:EVGElement (unwrap root)
+        def el:EVGElement (FormDemo.byId(r tid))
+        if (el.id != tid) {
+            return 0.0
+        }
+        return (el.calculatedWidth)
+    }
+
+    fn caretXOf:double (tid:string index:int) {
+        def c:InputCtl (this.inputFor(tid))
+        if (c.tid != tid) {
+            return 0.0
+        }
+        def eng:EVGTextEngine (this.engine())
+        return (c.caretXAt(eng index))
+    }
+
     fn inputFor:InputCtl (tid:string) {
         def i:int 0
         def all:[InputCtl] (this.inputs())
@@ -400,16 +456,41 @@ class FormDemo {
         ; The Field's two strings, handed over: the label names it and the hint
         ; — or the error, never both — describes it.
         box.a11yDescription = (f.describedText())
+        ; What the field CONTAINS, as opposed to what it is called. A reader
+        ; told "Full name, text box" and not the name in it has been given
+        ; half the screen. Nothing set this before: the tree carried the label
+        ; and the role, the DOM mirror asked for `node.value`, and the
+        ; producer never filled it in.
+        ;
+        ; Empty for a password, deliberately: `value` is the text,
+        ; `glyphText()` is the bullets, and a browser exposes neither for
+        ; `type=password`.
+        if (c.kind != "password") {
+            box.a11yValue = c.value
+        }
         box.a11yFocusable = (c.disabled == false)
         box.a11yDisabled = c.disabled
-        ; `required` and `invalid` are NOT published here, and that is a limit
-        ; rather than an omission: `EVGA11yNode` has no field for either, so a
-        ; demo-built tree cannot state them. They are measured where the
-        ; instrument exists — `input_required` drives a required and an invalid
-        ; field against a real <input> and compares both — and the picture's
-        ; claim is the red ring and the message under it, which the gate checks
-        ; as a class and a description. Publishing half of it here would be a
-        ; second, weaker answer to a question already answered properly.
+        ; `required`, `invalid` and `readonly`, in the DOM's own three states:
+        ; "true", or NOTHING. Never "false" — absent and "false" are different
+        ; claims, and that distinction is the finding the `input_required`
+        ; spec was written to record.
+        ;
+        ; This block used to say the opposite: that `EVGA11yNode` had no field
+        ; for either, so a demo-built tree could not state them, and that
+        ; publishing half of it would be a weaker answer. The first half was
+        ; true when it was written and stopped being true without the comment
+        ; noticing — which is how a recorded limit becomes a reason nobody
+        ; rechecks. The picture's red ring and "That address is missing an @."
+        ; reached a person and reached nobody else.
+        if f.required {
+            box.a11yRequired = "true"
+        }
+        if (f.isBad()) {
+            box.a11yInvalid = "true"
+        }
+        if (c.readOnly) {
+            box.a11yReadOnly = "true"
+        }
         def eng:EVGTextEngine (this.engine())
 
         ; How far the text run starts from the box's content edge. A prefix is
@@ -528,6 +609,20 @@ class FormDemo {
             def r (tree Fm (Radio (props (id ("fm-delivery-" + it.value)) (a11yLabel it.name))))
             r.a11yDisabled = it.disabled
             r.a11yFocusable = (it.disabled == false)
+            ; AND A CLASS, so the disabled one LOOKS disabled.
+            ;
+            ; "No receipt" is disabled on purpose — the demo is showing five
+            ; kinds of control and one of the states they have — but it was
+            ; drawn exactly like the two beside it. A control that cannot be
+            ; chosen and gives no sign of it is indistinguishable from one that
+            ; is broken, and it was reported as broken, which is the correct
+            ; reading of what was on the screen.
+            ;
+            ; The accessible tree has always said so; a screen reader was told
+            ; and a person looking was not.
+            if it.disabled {
+                UiTree.addClass(r "fm-radio-off")
+            }
             ; EVERY radio says whether it is chosen, not just the chosen one.
             ; A `role="radio"` with no `aria-checked` is a required attribute
             ; missing, which axe reports as critical and the internal lint did
@@ -537,9 +632,22 @@ class FormDemo {
                 r.addChild((tree Fm (Dot)))
             } {
                 r.a11yChecked = (EVGA11yTri.no())
-                r.addChild((tree Fm (Ring)))
+                def ring (tree Fm (Ring))
+                ; ON THE RING ITSELF, not on an ancestor. EVG's stylesheet has
+                ; no descendant selectors outside the `.theme-x .y` form — a
+                ; real limit of the engine rather than an oversight here — so
+                ; `.fm-radio-off .fm-ring` is not a rule that can be written
+                ; and each part carries its own class.
+                if it.disabled {
+                    UiTree.addClass(ring "fm-ring-off")
+                }
+                r.addChild(ring)
             }
-            r.addChild((tree Fm (RadioLb it.name)))
+            def rlb (tree Fm (RadioLb it.name))
+            if it.disabled {
+                UiTree.addClass(rlb "fm-radio-label-off")
+            }
+            r.addChild(rlb)
             g.addChild(r)
             i = (i + 1)
         }
@@ -573,14 +681,66 @@ class FormDemo {
         if secretShown {
             eyeLabel = "Hide password"
         }
-        def eye (tree Fm (Eye (props (id "fm-secret-eye") (a11yLabel eyeLabel)) "👁"))
-        ; The NAME carries the state, not `aria-pressed`. The plan calls for a
-        ; toggle button, and EVGElement has no aria-pressed to set from a
-        ; demo-built tree — so rather than half-claim it, this uses the other
-        ; accepted spelling: a button whose accessible name says what pressing
-        ; it will do. A reader hears "Show password" and then "Hide password",
-        ; which is the same information in one fewer attribute. See the task
-        ; for aria-pressed on a demo tree.
+        ; Two glyphs, not one. A single eye is the same picture in both states,
+        ; so the only feedback that the press did anything was the dots turning
+        ; into letters — and on a short password that is a small change in a
+        ; small place. The closed eye is what the control looks like when the
+        ; text is showing.
+        def eyeGlyph:string "👁"
+        if secretShown {
+            eyeGlyph = "🙈"
+        }
+        def eye (tree Fm (Eye (props (id "fm-secret-eye") (a11yLabel eyeLabel)) eyeGlyph))
+        eye.a11yPressed = (EVGA11yTri.no())
+        if secretShown {
+            eye.a11yPressed = (EVGA11yTri.yes())
+        }
+        ; AT THE END OF THE BOX, CENTRED — anchored to the right edge, not
+        ; measured to a text width.
+        ;
+        ; Three spellings, and only the third is stable. It was first appended
+        ; straight after the text in a row, so it moved with every character
+        ; typed. The obvious fix is a `width: fill` spacer between the two, and
+        ; that is what it was until the containment check caught it overflowing
+        ; its box by fifty pixels — the bug written down as "a spacer eats its
+        ; space twice". So it became absolute at `left = halfTextW - 6`, which
+        ; stopped it following the text but pinned it to a HALF-WIDTH CONSTANT
+        ; instead: on a 244px box the eye sat at 116, three-quarters of the way
+        ; across and nowhere near an edge, which is what it looked like.
+        ;
+        ; `right` is the property that means what this wants, and the layout
+        ; honours it for absolutes — `calculatedX = parentWidth - right - width`
+        ; — so the anchor is the box's own right edge whatever its width.
+        ; `left` must stay unset: it wins over `right` when both are given.
+        ;
+        ; ZERO, not the ten the padding is. That `parentWidth` is the CONTENT
+        ; width and the origin already carries the left padding, so `right: 0`
+        ; puts the glyph's right edge exactly on the content edge — which is
+        ; the same inset the text starts from on the left, and is what makes
+        ; the two look symmetric. Ten put it at twenty-one from the border and
+        ; the gate said so.
+        ;
+        ; Vertically it is centred by arithmetic rather than by flow, because
+        ; an absolute child is skipped by the row's `align-items: center`: the
+        ; box is 36 high and the glyph 18, so 9 from the top. Both numbers are
+        ; in form.css beside each other.
+        eye.position = "absolute"
+        eye.right = (EVGUnit.px(0.0))
+        eye.top = (EVGUnit.px(9.0))
+        ; A TOGGLE, and it says so in the state as well as in the name.
+        ;
+        ; The comment that used to be here said `EVGElement` has no
+        ; aria-pressed to set from a demo-built tree, so the name carried the
+        ; state instead. That was simply wrong — `a11yPressed` is on the
+        ; element, `pressed` is on the node, `EVGA11yFromTree` copies one to
+        ; the other, and it serialises. The whole chain existed and nothing
+        ; used it. A limit written down once and never rechecked is worse than
+        ; no note at all, because it stops anyone looking.
+        ;
+        ; The name still says what pressing it will DO — "Show password" while
+        ; hidden — which is the other accepted spelling and is not redundant
+        ; with the state: one tells a reader what happens next, the other what
+        ; is true now.
         pwBox.addChild(eye)
         row.addChild(pw)
 
@@ -777,6 +937,312 @@ class FormDemo {
             return true
         }
         return false
+    }
+
+    ; --- the pointer, which is half of a text field ---------------------------
+    ;
+    ; `press` takes an element id and nothing else, which is enough to focus a
+    ; field and not enough to put a caret in it: clicking anywhere in a text
+    ; box left the caret wherever it had been. `InputCtl.indexAtX` has been
+    ; able to answer "which character is under this x" since the field was
+    ; written — it was simply never asked.
+    ;
+    ; It STILL was not asked from the page. These methods existed and
+    ; `form-check.mjs` called them directly, so the gate was green while
+    ; `main.js` passed `press(id)` with the coordinate dropped on the floor.
+    ; A check that calls the API cannot see that nothing calls the API; the
+    ; end-to-end gate for this now lives in `page-check.mjs`, which clicks the
+    ; canvas the way a person does.
+    ;
+    ; The rules are measured, in `conformance/oracle/pointer.json`:
+    ; a click snaps to the NEARER character boundary, a drag keeps its anchor
+    ; (including backwards), a drag that leaves the box clamps rather than
+    ; collapsing, and a double-click takes the run of one character class.
+
+    ; The field a selection drag started in. The pointer wanders — out of the
+    ; box, off the canvas — and `hitAt` then names something else or nothing,
+    ; so the drag has to remember its own field or the selection dies the
+    ; moment the pointer crosses the border.
+    def dragField:string ""
+
+    fn fieldBoxOf:EVGElement (target:string) {
+        this.laidOutOnce()
+        def r:EVGElement (unwrap root)
+        return (FormDemo.byId(r target))
+    }
+
+
+    ; Which field an element BELONGS to.
+    ;
+    ; A click on the letters themselves hits `fm-name-text`, not `fm-name`:
+    ; the glyph run is a child of the box and it is what is under the pointer
+    ; wherever there is text. So `press("fm-name-text")` found no field, and
+    ; clicking a field's own characters did nothing at all — only the empty
+    ; part of the box to the right of the text focused it. Which is precisely
+    ; backwards, and invisible in a screenshot.
+    ;
+    ; Resolved by containment rather than by name: an id prefix test would
+    ; also match a second field called `fm-name-2`, and this is the sort of
+    ; rule that is only ever wrong once someone adds one.
+    fn fieldOwning:string (target:string) {
+        this.laidOutOnce()
+        def r:EVGElement (unwrap root)
+        def all:[InputCtl] (this.inputs())
+        def i:int 0
+        while (i < (array_length all)) {
+            def c:InputCtl (itemAt all i)
+            if (c.tid == target) {
+                return target
+            }
+            def box:EVGElement (FormDemo.byId(r c.tid))
+            if (box.id == c.tid) {
+                def inner:EVGElement (FormDemo.byId(box target))
+                if (inner.id == target) {
+                    ; A CONTROL of its own is not part of the field, even
+                    ; though it sits inside its box. The password's eye is a
+                    ; button living in the password's box: mapping every
+                    ; descendant to the field made clicking the eye focus the
+                    ; field instead of toggling it, which is the bug this rule
+                    ; introduced and the reason a role check belongs here.
+                    ; A glyph run and a caret have no role; a button does.
+                    if ((strlen inner.role) > 0) {
+                        return target
+                    }
+                    return c.tid
+                }
+            }
+            i = (i + 1)
+        }
+        return target
+    }
+
+    fn indexAt:int (target:string px:double) {
+        def c:InputCtl (this.inputFor(target))
+        def box:EVGElement (this.fieldBoxOf(target))
+        if (box.id != target) {
+            return -1
+        }
+        return (InputCtl.indexAtPageX((this.engine()) c box px))
+    }
+
+    ; A press inside a field. `extend` is Shift+click, which keeps the anchor
+    ; where it was and moves only the caret — measured as [2,10] from a caret
+    ; at 2 and a click at 10.
+    fn beginSelection:boolean (rawTarget:string px:double extend:boolean) {
+        def target:string (this.fieldOwning(rawTarget))
+        def took:boolean (this.press(target))
+        if (took == false) {
+            return false
+        }
+        ; `inputFor` hands back a blank field rather than nothing when the id
+        ; is not one, so the tid is what says whether this is really a field.
+        def c:InputCtl (this.inputFor(target))
+        if (c.tid != target) {
+            dragField = ""
+            return true
+        }
+        def idx:int (this.indexAt(target px))
+        if (idx < 0) {
+            dragField = ""
+            return true
+        }
+        c.moveTo(idx extend)
+        dragField = target
+        this.rebuild()
+        return true
+    }
+
+    ; The pointer moved with the button down. The x may be well outside the
+    ; box; `indexAtX` clamps at both ends, which is what makes a drag off the
+    ; edge keep selecting to it instead of collapsing.
+    fn extendSelection:boolean (px:double) {
+        if (dragField == "") {
+            return false
+        }
+        def c:InputCtl (this.inputFor(dragField))
+        if (c.tid != dragField) {
+            return false
+        }
+        def idx:int (this.indexAt(dragField px))
+        if (idx < 0) {
+            return false
+        }
+        if (idx == c.caret) {
+            return false
+        }
+        c.moveTo(idx true)
+        this.rebuild()
+        return true
+    }
+
+    fn endSelection:boolean () {
+        if (dragField == "") {
+            return false
+        }
+        dragField = ""
+        return false
+    }
+
+    ; Double-click. The run under the pointer, by character class — so a word
+    ; on a letter, the comma alone in "beta,gamma", and the whole run of
+    ; spaces on a space.
+    fn selectWordAt:boolean (rawTarget:string px:double) {
+        def target:string (this.fieldOwning(rawTarget))
+        def c:InputCtl (this.inputFor(target))
+        if (c.tid != target) {
+            return false
+        }
+        def idx:int (this.indexAt(target px))
+        if (idx < 0) {
+            return false
+        }
+        ; The click has already snapped to a BOUNDARY, and a boundary is
+        ; between two characters. Double-clicking the right half of "a" and
+        ; the left half of "b" must take the same run, so the index is pulled
+        ; back onto the character the pointer is actually over.
+        def at:int idx
+        if (at >= (strlen c.value)) {
+            at = ((strlen c.value) - 1)
+        }
+        c.selectWordAt(at)
+        this.rebuild()
+        return true
+    }
+
+    ; The PAGE x of a caret index — the inverse of `indexAt`, through the same
+    ; inset. It exists so no caller has to know what the inset is: the offline
+    ; check used to spell it `bx + 10`, which is the padding without the
+    ; border, and it agreed with a `pressAt` that made the identical mistake.
+    ; Two wrongs matching is what a round-trip test through one constant buys
+    ; you; the real inset is 11 and the caret was a pixel off the pointer for
+    ; as long as both said 10.
+    fn pageXOf:double (target:string index:int) {
+        def c:InputCtl (this.inputFor(target))
+        if (c.tid != target) {
+            return 0.0
+        }
+        def box:EVGElement (this.fieldBoxOf(target))
+        if (box.id != target) {
+            return 0.0
+        }
+        def inset:double (box.box.borderWidthPx + box.box.paddingLeftPx)
+        def eng:EVGTextEngine (this.engine())
+        return ((((box.calculatedX) + inset) + (c.caretXAt(eng index))) - c.scrollX)
+    }
+
+    ; Kept for the offline check, which drives the demo directly.
+    fn pressAt:boolean (target:string px:double) {
+        return (this.beginSelection(target px false))
+    }
+
+    fn dragTo:boolean (target:string px:double) {
+        dragField = target
+        return (this.extendSelection(px))
+    }
+
+
+    ; What the pointer should look like. A canvas UI has no `cursor: text` for
+    ; free — the page picks the cursor from the accessible tree, where a field
+    ; and a button are both "activatable" and would both say `pointer`. So the
+    ; field boxes are tested directly.
+    ;
+    ; It matters more than it sounds: an I-beam is how a person knows a
+    ; rectangle is text they can put a caret in, and without one a drawn form
+    ; reads as a picture of a form.
+    fn cursorAt:string (px:double py:double) {
+        this.laidOutOnce()
+        def r:EVGElement (unwrap root)
+        def all:[InputCtl] (this.inputs())
+        def i:int 0
+        while (i < (array_length all)) {
+            def c:InputCtl (itemAt all i)
+            def box:EVGElement (FormDemo.byId(r c.tid))
+            if (box.id == c.tid) {
+                def x0:double (box.calculatedX)
+                def y0:double (box.calculatedY)
+                if ((px >= x0) && (px <= (x0 + (box.calculatedWidth)))) {
+                    if ((py >= y0) && (py <= (y0 + (box.calculatedHeight)))) {
+                        if (c.disabled) {
+                            return "default"
+                        }
+                        return "text"
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+
+    ; --- the platform text-input session --------------------------------------
+    ;
+    ; The web host puts a real, transparent `<input>` over the focused field
+    ; and lets the browser do the editing; these two methods are the seam.
+    ; JSON across it, the way the display list and the accessible tree already
+    ; cross it — one method rather than nine accessors that can drift.
+
+    fn focusedField:string () {
+        def all:[InputCtl] (this.inputs())
+        def i:int 0
+        while (i < (array_length all)) {
+            def c:InputCtl (itemAt all i)
+            if (c.tid == focused) {
+                return c.tid
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    ; Everything the proxy needs to become this field: what it holds, where
+    ; the selection is, what KIND it is — which decides the proxy's `type` and
+    ; `inputmode`, so a password proxy reveals correctly and a number proxy
+    ; brings up a numeric keypad on a phone — and where it is drawn, so the
+    ; IME's candidate window appears next to the text it is composing rather
+    ; than in a corner.
+    fn fieldStateJson:string (tid:string) {
+        def c:InputCtl (this.inputFor(tid))
+        if (c.tid != tid) {
+            return "null"
+        }
+        def box:EVGElement (this.fieldBoxOf(tid))
+        def out:string "{"
+        out = (out + "\"tid\":" + (EVGA11yTree.jsonString(c.tid)))
+        out = (out + ",\"value\":" + (EVGA11yTree.jsonString(c.value)))
+        out = (out + ",\"selStart\":" + (to_string (c.selStart())))
+        out = (out + ",\"selEnd\":" + (to_string (c.selEnd())))
+        out = (out + ",\"kind\":" + (EVGA11yTree.jsonString(c.kind)))
+        out = (out + ",\"maxLength\":" + (to_string c.maxLength))
+        if c.readOnly {
+            out = (out + ",\"readOnly\":true")
+        }
+        if (box.id == tid) {
+            out = (out + ",\"box\":{\"x\":" + (to_string (to_int (box.calculatedX))))
+            out = (out + ",\"y\":" + (to_string (to_int (box.calculatedY))))
+            out = (out + ",\"w\":" + (to_string (to_int (box.calculatedWidth))))
+            out = (out + ",\"h\":" + (to_string (to_int (box.calculatedHeight))) + "}")
+        }
+        return (out + "}")
+    }
+
+    ; The session reported an edit. Wholesale — see `InputCtl.applyEdit`: the
+    ; browser has already done the work, and there is nothing here to replay.
+    fn applyEdit:boolean (tid:string v:string selStart:int selEnd:int) {
+        def c:InputCtl (this.inputFor(tid))
+        if (c.tid != tid) {
+            return false
+        }
+        if (c.readOnly) {
+            return false
+        }
+        if (c.disabled) {
+            return false
+        }
+        c.applyEdit(v selStart selEnd)
+        c.ensureCaretVisible((this.engine()))
+        this.rebuild()
+        return true
     }
 
     fn setHover:void (id:string) { hovered = id }

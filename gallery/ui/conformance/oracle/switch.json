@@ -1,0 +1,108 @@
+{
+  "baseUi": "1.7.0",
+  "atRest": {
+    "tag": "SPAN",
+    "role": "switch",
+    "ariaChecked": "false",
+    "ariaDisabled": null,
+    "disabledAttr": false,
+    "tabIndex": 0,
+    "attrs": {
+      "data-unchecked": "",
+      "role": "switch",
+      "tabindex": "0",
+      "id": "base-ui-:r0:",
+      "aria-checked": "false"
+    },
+    "checked": false
+  },
+  "thumb": {
+    "tag": "SPAN",
+    "role": null,
+    "ariaChecked": null,
+    "ariaDisabled": null,
+    "disabledAttr": false,
+    "tabIndex": -1,
+    "attrs": {
+      "data-unchecked": ""
+    }
+  },
+  "afterClick": {
+    "tag": "SPAN",
+    "role": "switch",
+    "ariaChecked": "true",
+    "ariaDisabled": null,
+    "disabledAttr": false,
+    "tabIndex": 0,
+    "attrs": {
+      "role": "switch",
+      "tabindex": "0",
+      "id": "base-ui-:r0:",
+      "aria-checked": "true",
+      "data-checked": ""
+    },
+    "checked": true
+  },
+  "afterSpace": {
+    "tag": "SPAN",
+    "role": "switch",
+    "ariaChecked": "true",
+    "ariaDisabled": null,
+    "disabledAttr": false,
+    "tabIndex": 0,
+    "attrs": {
+      "role": "switch",
+      "tabindex": "0",
+      "id": "base-ui-:r0:",
+      "aria-checked": "true",
+      "data-checked": ""
+    },
+    "checked": true
+  },
+  "enter": {
+    "before": true,
+    "after": false,
+    "toggles": true,
+    "$comment": "A <button> toggles on Enter because the browser says so, not because the library does. Whether a switch SHOULD is not settled — the ARIA pattern names Space and is silent on Enter — so whichever way this falls, it is a fact about the reference and not a rule."
+  },
+  "hiddenInput": [
+    {
+      "id": "sw",
+      "type": "checkbox",
+      "name": "airplane",
+      "checked": false,
+      "ariaHidden": "true",
+      "tabIndex": -1
+    },
+    {
+      "id": "sw-off",
+      "type": "checkbox",
+      "name": "off",
+      "checked": false,
+      "ariaHidden": "true",
+      "tabIndex": -1
+    }
+  ],
+  "idGoesToTheInput": {
+    "$comment": "The `id` prop lands on the hidden native input, not on the switch. So a <label for> points at the input and a querySelector('#id') finds an aria-hidden checkbox rather than the control — which is exactly how the first version of this probe failed."
+  },
+  "disabled": {
+    "tag": "SPAN",
+    "role": "switch",
+    "ariaChecked": "false",
+    "ariaDisabled": "true",
+    "disabledAttr": false,
+    "tabIndex": -1,
+    "attrs": {
+      "data-disabled": "",
+      "data-unchecked": "",
+      "role": "switch",
+      "tabindex": "-1",
+      "aria-disabled": "true",
+      "id": "base-ui-:r3:",
+      "aria-checked": "false"
+    }
+  },
+  "disabledAfterClick": "false",
+  "disabledInert": true
+}

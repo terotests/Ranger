@@ -1,0 +1,40 @@
+; ISSUES.md #76 / #65 — the shape the rewrite must NOT touch.
+;
+; `.name` starts a line of its own, after an unrelated statement. The previous
+; statement does end in `)`, so a rewrite that looked only for a call result
+; behind it would steal `b.touch()` as the receiver and store into whatever it
+; returned. The rewrite therefore requires the `.` to sit IMMEDIATELY after the
+; `)`, with nothing between — a newline here means this stays #65's error.
+;
+; This fixture must FAIL to compile.
+
+class Box {
+    def name:string "unset"
+    Constructor () {
+    }
+}
+
+class Bag {
+    def items:[Box]
+    Constructor () {
+    }
+    fn at:Box (idx:int) {
+        return (itemAt items idx)
+    }
+    fn touch:void () {
+        print "touch"
+    }
+}
+
+class Main {
+    Constructor () {
+    }
+    sfn main:void () {
+        def b:Bag (new Bag ())
+        def it:Box (new Box ())
+        push b.items it
+        b.touch()
+        .name = "stolen"
+        print "after"
+    }
+}

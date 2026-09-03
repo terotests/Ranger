@@ -1,0 +1,164 @@
+{
+  "note": "Captured by stepper_oracle.mjs. There is NO stepper reference to measure — see FINDINGS.noStepperExists. What is captured is the two shapes a stepper could take, so the choice between them is made against data rather than taste.",
+  "library": "@radix-ui/react-tabs@1.1.21",
+  "tabs": {
+    "hostRole": "div",
+    "items": [
+      {
+        "tag": "button",
+        "text": "Account",
+        "role": "tab",
+        "selected": "true",
+        "current": null,
+        "tabIndex": -1,
+        "attrs": {
+          "type": "button",
+          "role": "tab",
+          "aria-selected": "true",
+          "aria-controls": "radix-:r0:-content-s1",
+          "data-state": "active",
+          "id": "radix-:r0:-trigger-s1",
+          "tabindex": "-1",
+          "data-orientation": "horizontal",
+          "data-radix-collection-item": ""
+        }
+      },
+      {
+        "tag": "button",
+        "text": "Address",
+        "role": "tab",
+        "selected": "false",
+        "current": null,
+        "tabIndex": -1,
+        "attrs": {
+          "type": "button",
+          "role": "tab",
+          "aria-selected": "false",
+          "aria-controls": "radix-:r0:-content-s2",
+          "data-state": "inactive",
+          "id": "radix-:r0:-trigger-s2",
+          "tabindex": "-1",
+          "data-orientation": "horizontal",
+          "data-radix-collection-item": ""
+        }
+      },
+      {
+        "tag": "button",
+        "text": "Payment",
+        "role": "tab",
+        "selected": "false",
+        "current": null,
+        "tabIndex": -1,
+        "attrs": {
+          "type": "button",
+          "role": "tab",
+          "aria-selected": "false",
+          "aria-controls": "radix-:r0:-content-s3",
+          "data-state": "inactive",
+          "id": "radix-:r0:-trigger-s3",
+          "tabindex": "-1",
+          "data-orientation": "horizontal",
+          "data-radix-collection-item": ""
+        }
+      },
+      {
+        "tag": "button",
+        "text": "Review",
+        "role": "tab",
+        "selected": "false",
+        "current": null,
+        "tabIndex": -1,
+        "attrs": {
+          "type": "button",
+          "role": "tab",
+          "aria-selected": "false",
+          "aria-controls": "radix-:r0:-content-s4",
+          "data-state": "inactive",
+          "id": "radix-:r0:-trigger-s4",
+          "tabindex": "-1",
+          "data-orientation": "horizontal",
+          "data-radix-collection-item": ""
+        }
+      },
+      {
+        "tag": "div",
+        "text": "Account panel",
+        "role": "tabpanel",
+        "selected": null,
+        "current": null,
+        "tabIndex": 0,
+        "attrs": {
+          "data-state": "active",
+          "data-orientation": "horizontal",
+          "role": "tabpanel",
+          "aria-labelledby": "radix-:r0:-trigger-s1",
+          "id": "radix-:r0:-content-s1",
+          "tabindex": "0",
+          "style": "animation-duration: 0s;"
+        }
+      }
+    ]
+  },
+  "current": {
+    "hostRole": "ol",
+    "items": [
+      {
+        "tag": "li",
+        "text": "Account",
+        "role": null,
+        "selected": null,
+        "current": null,
+        "tabIndex": -1,
+        "attrs": {}
+      },
+      {
+        "tag": "li",
+        "text": "Address",
+        "role": null,
+        "selected": null,
+        "current": "step",
+        "tabIndex": -1,
+        "attrs": {
+          "aria-current": "step"
+        }
+      },
+      {
+        "tag": "li",
+        "text": "Payment",
+        "role": null,
+        "selected": null,
+        "current": null,
+        "tabIndex": -1,
+        "attrs": {}
+      },
+      {
+        "tag": "li",
+        "text": "Review",
+        "role": null,
+        "selected": null,
+        "current": null,
+        "tabIndex": -1,
+        "attrs": {}
+      }
+    ]
+  },
+  "tabKeys": {
+    "afterArrowRight": "Address",
+    "afterThreeMoreArrows": "Account",
+    "note": "A tablist activates as it moves and WRAPS. Four steps and four presses from the first lands back on the first — which is the behaviour a stepper must not have: arrowing past the last step into the first is not a thing that can happen to a person filling in a form."
+  },
+  "FINDINGS": {
+    "noStepperExists": {
+      "what": "None of the three registries shadcn ships over has a stepper: not Radix, not Base UI, not React Aria. WAI-ARIA has no stepper role either. reui.io, which does have one, is refused by the proxy.",
+      "consequence": "The FLOW below is SPECIFIED, like the questionnaire's, and nothing here is dressed up as measured. What IS measured is the difference between the two shapes a stepper could take."
+    },
+    "aTabIsFreelySelectableAndAStepIsNot": {
+      "what": "The tablist capture shows roving tabindex and aria-selected, and `tabKeys` shows arrow movement ACTIVATING as it goes and WRAPPING from the last item back to the first.",
+      "consequence": "That is the wrong promise for a stepper. A reader told it can arrow to step four finds either that nothing happens — a tablist that lies — or that it has skipped the two steps in between. StepperCtl is an ordered LIST with aria-current='step', which is the token ARIA has for exactly this, and its arrows do not wrap."
+    },
+    "ariaCurrentTakesTheStepToken": {
+      "what": "The `current` capture is a plain <ol>: no role override, no tabindex, one item carrying aria-current='step'. No library ships it, which is why it is hand-written here.",
+      "consequence": "`UiRow.current` is already a free-form string — the breadcrumb puts 'page' in it — so this needed no new plumbing on either the controller or the element path. That is the tell that it is the right shape: it is the same claim a breadcrumb makes, about a different kind of sequence."
+    }
+  }
+}

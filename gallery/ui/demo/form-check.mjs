@@ -174,6 +174,47 @@ console.log("--- the password's value is never the password's glyphs ---");
   ok("and the value did not change", d.secret.value === "correcthorse");
 }
 
+console.log("--- and the eye sits at the end of its box, centred ---");
+{
+  // It was absolute at `left = halfTextW - 6`, which is a HALF-WIDTH CONSTANT
+  // and not an edge: on a 244px box it landed at 116, three-quarters across.
+  // Nothing caught it because every assertion above asks what the eye DOES,
+  // and none asked where it is. So: the right edges line up to the box's own
+  // padding, and the two vertical centres agree.
+  const d = fresh();
+  const rect = (n) => ({ x: n.el.calculatedX, y: n.el.calculatedY,
+                         w: n.el.calculatedWidth, h: n.el.calculatedHeight });
+  const box = rect(one(d, "fm-secret"));
+  const eye = rect(one(d, "fm-secret-eye"));
+  ok("both are laid out", box.w > 0 && eye.w > 0, JSON.stringify({ box, eye }));
+  // The rule is SYMMETRY, not a number: whatever inset the text starts at on
+  // the left, the eye ends at on the right. Asserting the inset itself would
+  // just re-state form.css; asserting they are equal is the thing a person
+  // sees.
+  const text = find(d, "fm-text").find((n) => /^•+$/.test(n.el.textContent || ""));
+  const leftInset = text.el.calculatedX - box.x;
+  const rightInset = (box.x + box.w) - (eye.x + eye.w);
+  ok("it ends as far from the right edge as the text starts from the left",
+    Math.abs(leftInset - rightInset) < 1.5,
+    `left=${leftInset} right=${rightInset} ${JSON.stringify({ box, eye })}`);
+  // Anchored to the EDGE, not to the text: it must be past where the widest
+  // plausible value would end, which the old spelling was not.
+  ok("and well past the middle of the box", eye.x > box.x + box.w * 0.75,
+    JSON.stringify({ box, eye }));
+  const boxMid = box.y + box.h / 2;
+  const eyeMid = eye.y + eye.h / 2;
+  ok("vertically centred in the box", Math.abs(boxMid - eyeMid) < 1.5,
+    `boxMid=${boxMid} eyeMid=${eyeMid}`);
+  // The glyph is a different emoji per state, so a press is visible on its own
+  // and not only in the dots beside it.
+  const glyphOf = () => one(d, "fm-secret-eye").el.textContent;
+  const hidden = glyphOf();
+  d.press("fm-secret-eye");
+  d.displayListJson();
+  ok("the glyph changes when the text is revealed", glyphOf() !== hidden,
+    `${hidden} -> ${glyphOf()}`);
+}
+
 console.log("--- it types, and the caret keeps up ---");
 {
   const d = fresh();
@@ -324,6 +365,53 @@ console.log("--- what a reader gets ---");
 
   ok("no lint", d.a11yProblems().length === 0, d.a11yProblems().join("; "));
   ok("no style errors", d.styleErrorCount() === 0, d.styleErrorAt(0) || "");
+}
+
+// --- clicking puts the caret where you clicked -------------------------------
+//
+// The field could always answer "which character is under this x" —
+// `indexAtX` — and was never asked, so a click focused a box and left the
+// caret wherever it had been. It also could not have answered correctly until
+// the advance table went in: fed the old bucket estimate it would have
+// returned an index several characters out on any string of mixed widths.
+//
+// So this asserts both halves at once: that the click is wired, and that the
+// index it lands on is the one under the pointer.
+{
+  const d = fresh();
+  const bx = d.boxXOf("fm-name"), bw = d.boxWidthOf("fm-name");
+  const c = d.inputFor("fm-name");
+  const value = c.value;                     // "Ada Lovelace"
+
+  // Click before the first character: caret 0, whichever way the pointer
+  // approaches the left edge.
+  d.pressAt("fm-name", bx + 2);
+  ok("a click at the very left puts the caret at 0", c.caret === 0, c.caret);
+
+  // Click past the end of the text: the last index, not an overflow.
+  d.pressAt("fm-name", bx + bw - 2);
+  ok("a click past the end puts the caret at the end", c.caret === value.length, c.caret);
+
+  // And in between: walk the string and check the caret lands on the character
+  // whose box contains the x. The measurement is exact for this string, so
+  // this is an equality and not a tolerance.
+  let wrong = 0, firstWrong = "";
+  for (let i = 1; i < value.length; i++) {
+    // Through the demo's own inverse, not `bx + 10`. That literal was the
+    // padding without the border — the same mistake `pressAt` made, so the
+    // round trip agreed with itself and the caret sat a pixel off the pointer.
+    const x = d.pageXOf("fm-name", i) - 0.5;   // just inside char i
+    d.pressAt("fm-name", x);
+    if (c.caret !== i) { wrong++; if (!firstWrong) firstWrong = `x for index ${i} landed on ${c.caret}`; }
+  }
+  ok(`every position in "${value}" maps back to its own index`, wrong === 0, firstWrong);
+
+  // Dragging extends rather than moves: the anchor stays where the press put it.
+  d.pressAt("fm-name", bx + 10 + d.caretXOf("fm-name", 4));
+  d.dragTo("fm-name", bx + 10 + d.caretXOf("fm-name", 9));
+  ok("a drag keeps the anchor and moves the caret", c.anchor === 4 && c.caret === 9,
+     `anchor ${c.anchor} caret ${c.caret}`);
+  ok("which is a selection", c.hasSelection());
 }
 
 console.log("");

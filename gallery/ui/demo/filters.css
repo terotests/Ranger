@@ -1,0 +1,212 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+ *
+ * The filter bar, as an EVG stylesheet.
+ *
+ * The LAYOUT here is specified from the reference screenshot; the BEHAVIOUR it
+ * dresses is measured — see FilterCtl.rgr and the 121 assertions in
+ * conformance/oracle/filters_check.mjs. Nothing in this file decides what a
+ * filter matches.
+ *
+ * Class-first, and every class is one FilterDemo.rgr writes. EVGStyleSheet
+ * matches ONE class token per selector and has no descendant selectors, so a
+ * variant is its own token on the same element — which is why a chosen
+ * option's LABEL carries `fd-opt-text-chosen` instead of inheriting a colour
+ * from the row around it. White-on-white is what you get for assuming it can.
+ */
+
+.fd-page {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+  background-color: #ffffff;
+  padding: 24px;
+  width: 900px;
+  height: 460px;
+}
+
+.fd-title {
+  font-size: 18px;
+  color: #0a0a0a;
+  height: 24px;
+}
+
+/* The chips sit on one line and wrap nowhere: the reference bar is a single
+ * row with an add button on the end, and a chip that dropped to a second line
+ * would put that button somewhere a person does not look for it. */
+.fd-bar {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+}
+
+.fd-chip {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  height: 34px;
+  border-width: 1px;
+  border-color: #e4e4e7;
+  border-radius: 8px;
+  background-color: #ffffff;
+}
+
+.fd-chip-active {
+  border-color: #a1a1aa;
+}
+
+.fd-chip-open {
+  border-color: #0a0a0a;
+}
+
+/* Each part is separately clickable, because each opens a different thing:
+ * the field name a field list, the operator an operator list, the value its
+ * options. A chip that is one button cannot express that. */
+.fd-part {
+  display: flex;
+  align-items: center;
+  height: 32px;
+  padding-left: 10px;
+  padding-right: 10px;
+  cursor: pointer;
+}
+
+.fd-part:hover {
+  background-color: #f4f4f5;
+}
+
+.fd-part-text {
+  font-size: 13px;
+  color: #0a0a0a;
+}
+
+/* The operator reads as the quiet middle of the phrase — "Assignee HAS ANY OF
+ * Ada" — so it is greyed the way the screenshot greys it. */
+.fd-op-text {
+  font-size: 13px;
+  color: #71717a;
+}
+
+.fd-val-text {
+  font-size: 13px;
+  color: #0a0a0a;
+}
+
+.fd-menu {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 32px;
+  cursor: pointer;
+}
+
+.fd-menu:hover {
+  background-color: #f4f4f5;
+}
+
+.fd-menu-text {
+  font-size: 14px;
+  color: #71717a;
+}
+
+.fd-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-width: 1px;
+  border-color: #e4e4e7;
+  border-radius: 8px;
+  background-color: #ffffff;
+  cursor: pointer;
+}
+
+.fd-add:hover {
+  background-color: #f4f4f5;
+}
+
+.fd-add-text {
+  font-size: 16px;
+  color: #0a0a0a;
+}
+
+/* The open value list. It sits in the bar's flow rather than floating, which
+ * is a deliberate simplification and not an oversight: the overlay layer is
+ * exercised by the dropdown and dialog demos, and a popover here would be
+ * re-testing those instead of showing this. */
+.fd-list {
+  display: flex;
+  flex-direction: column;
+  border-width: 1px;
+  border-color: #e4e4e7;
+  border-radius: 8px;
+  background-color: #ffffff;
+  padding: 4px;
+}
+
+.fd-opt {
+  display: flex;
+  align-items: center;
+  height: 26px;
+  padding-left: 8px;
+  padding-right: 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.fd-opt:hover {
+  background-color: #f4f4f5;
+}
+
+.fd-opt-chosen {
+  background-color: #0a0a0a;
+}
+
+.fd-opt-text {
+  font-size: 13px;
+  color: #0a0a0a;
+}
+
+.fd-opt-text-chosen {
+  color: #ffffff;
+}
+
+/* The count is role=status, so a reader hears the result change when a chip
+ * does. Without it the filter is silent to anyone who cannot see the list
+ * shorten. */
+.fd-count {
+  font-size: 13px;
+  color: #71717a;
+  height: 18px;
+}
+
+.fd-results {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 400px;
+}
+
+.fd-row {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  padding-left: 10px;
+  border-radius: 6px;
+  background-color: #fafafa;
+}
+
+.fd-row-text {
+  font-size: 13px;
+  color: #0a0a0a;
+}
+
+.fd-note {
+  font-size: 12px;
+  color: #a1a1aa;
+  height: 16px;
+}

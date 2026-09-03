@@ -139,6 +139,12 @@ class EVGDrawCmd {
     ; somewhere the box is not. A backend that ignores these two fields keeps
     ; the old behaviour exactly, which is why they are additive rather than a
     ; change to `rotate`.
+    ; Which element emitted this, as an `EVGElement.inspectSlot`, or -1 when
+    ; nothing was inspecting. Written only while `EVGDisplayList.attribute` is
+    ; on, and written to the JSON only then, so a list built without an
+    ; inspector is byte-identical to the one built before this field existed.
+    def node:int (0 - 1)
+
     def rotOriginX:double 0.0
     def rotOriginY:double 0.0
     def hasRotOrigin:boolean false
@@ -226,6 +232,10 @@ class EVGSceneBinary {
 
 class EVGDisplayList {
     def cmds:[EVGDrawCmd]
+    ; Attribution, off by default. On, every command records the element that
+    ; emitted it — see `addCmd` and `walk`.
+    def attribute:boolean false
+    def curNode:int (0 - 1)
     ; Overlay surfaces met during the first pass, drawn by the second. See
     ; `build`.
     def deferredOverlays:[EVGElement]
@@ -240,6 +250,14 @@ class EVGDisplayList {
 
     fn setTextEngine:void (e:EVGTextEngine) {
         textEngine = e
+    }
+
+    ; Every command in this file is appended here, so the element being walked
+    ; is stamped on it in one place rather than at twenty. The walk sets
+    ; `curNode`; this is the only thing that reads it.
+    fn addCmd:void (c:EVGDrawCmd) {
+        c.node = curNode
+        push cmds c
     }
 
     fn count:int () {
@@ -266,7 +284,7 @@ class EVGDisplayList {
         c.g = (col.green())
         c.b = (col.blue())
         c.a = (col.alpha())
-        push cmds c
+        this.addCmd(c)
     }
 
     fn addFrame:void (x:double y:double w:double h:double thickness:double col:EVGColor) {
@@ -281,7 +299,7 @@ class EVGDisplayList {
         c.g = (col.green())
         c.b = (col.blue())
         c.a = (col.alpha())
-        push cmds c
+        this.addCmd(c)
     }
 
     ; The measured width and height come from the caller, because the list has
@@ -307,7 +325,7 @@ class EVGDisplayList {
         c.flipH = flipH
         c.flipV = flipV
         c.rotate = rotate
-        push cmds c
+        this.addCmd(c)
     }
 
     fn addText:void (text:string x:double y:double size:double col:EVGColor family:string bold:boolean italic:boolean width:double height:double) {
@@ -333,7 +351,7 @@ class EVGDisplayList {
         c.g = (col.green())
         c.b = (col.blue())
         c.a = (col.alpha())
-        push cmds c
+        this.addCmd(c)
     }
 
     ; One side's contribution to the box-wide scale factor: the smaller of what
@@ -368,7 +386,7 @@ class EVGDisplayList {
         c.y = y
         c.w = w
         c.h = h
-        push cmds c
+        this.addCmd(c)
     }
 
     ; A stroked polyline and a filled polygon, given in page coordinates.
@@ -395,7 +413,7 @@ class EVGDisplayList {
         }
         push c.ringEnds (array_length c.pts)
         this.setPolyBounds(c)
-        push cmds c
+        this.addCmd(c)
     }
 
     ; A filled shape made of SEVERAL rings, with holes.
@@ -434,7 +452,7 @@ class EVGDisplayList {
             return
         }
         this.setPolyBounds(c)
-        push cmds c
+        this.addCmd(c)
     }
 
     fn addPolygon:void (pts:[double] col:EVGColor) {
@@ -454,7 +472,7 @@ class EVGDisplayList {
         }
         push c.ringEnds (array_length c.pts)
         this.setPolyBounds(c)
-        push cmds c
+        this.addCmd(c)
     }
 
     ; A path command still carries a box, because the GL backend scissors and
@@ -493,7 +511,7 @@ class EVGDisplayList {
     fn addClipEnd:void () {
         def c:EVGDrawCmd (new EVGDrawCmd)
         c.kind = 5
-        push cmds c
+        this.addCmd(c)
     }
 
 
@@ -549,7 +567,7 @@ class EVGDisplayList {
                     cf.b = (item.fillColor.blue())
                     cf.a = (item.fillColor.alpha())
                     this.copyRings(cf rings)
-                    push cmds cf
+                    this.addCmd(cf)
                 }
                 if (item.hasStroke()) {
                     def cs (new EVGDrawCmd())
@@ -564,7 +582,7 @@ class EVGDisplayList {
                     cs.b = (item.strokeColor.blue())
                     cs.a = (item.strokeColor.alpha())
                     this.copyRings(cs rings)
-                    push cmds cs
+                    this.addCmd(cs)
                 }
             }
             k = (k + 1)
@@ -630,7 +648,7 @@ class EVGDisplayList {
             cf.b = (fillColor.blue())
             cf.a = (fillColor.alpha())
             this.copyRings(cf rings)
-            push cmds cf
+            this.addCmd(cf)
         }
 
         if el.strokeColor.isSet {
@@ -656,7 +674,7 @@ class EVGDisplayList {
                 cs.b = (sc.blue())
                 cs.a = (sc.alpha())
                 this.copyRings(cs rings)
-                push cmds cs
+                this.addCmd(cs)
             }
         }
     }
@@ -959,7 +977,16 @@ class EVGDisplayList {
         ; exactly what it and its children add — nested fades then multiply as
         ; the recursion unwinds. A transform uses the same range.
         def emitStart:int (array_length cmds)
+        ; The element every command appended below belongs to. Saved and put
+        ; back rather than cleared, because `walkOpaque` recurses through here
+        ; and a child must not leave its own slot behind for the commands its
+        ; parent emits afterwards.
+        def prevNode:int curNode
+        if attribute {
+            curNode = el.inspectSlot
+        }
         this.walkOpaque(el)
+        curNode = prevNode
         this.fadeFrom(emitStart el.opacity)
         this.transformFrom(emitStart el)
     }
@@ -1077,7 +1104,7 @@ class EVGDisplayList {
                 EVGDisplayList.applyGradient(c el)
             }
             c.backdropBlur = el.backdropBlur
-            push cmds c
+            this.addCmd(c)
             painted = true
         }
         if (painted == false) {
@@ -1101,7 +1128,7 @@ class EVGDisplayList {
                 ; exactly right.
                 cb.a = 0.0
                 cb.backdropBlur = el.backdropBlur
-                push cmds cb
+                this.addCmd(cb)
             }
         }
 
@@ -1132,7 +1159,7 @@ class EVGDisplayList {
             c2.g = (bc.green())
             c2.b = (bc.blue())
             c2.a = (bc.alpha())
-            push cmds c2
+            this.addCmd(c2)
         }
 
 
@@ -1159,7 +1186,7 @@ class EVGDisplayList {
                 c3.radiusBL = rBL
             }
             c3.src = el.src
-            push cmds c3
+            this.addCmd(c3)
         }
 
         ; Text. One command per element; a backend that shapes lines itself can
@@ -1233,7 +1260,7 @@ class EVGDisplayList {
                 c4.g = tg
                 c4.b = tb
                 c4.a = ta
-                push cmds c4
+                this.addCmd(c4)
                 li = (li + 1)
             }
         }
@@ -1250,7 +1277,7 @@ class EVGDisplayList {
             cp.y = y
             cp.w = w
             cp.h = h
-            push cmds cp
+            this.addCmd(cp)
         }
         def i:int 0
         while (i < (el.getChildCount())) {
@@ -1267,7 +1294,7 @@ class EVGDisplayList {
         if clips {
             def pp (new EVGDrawCmd())
             pp.kind = 5
-            push cmds pp
+            this.addCmd(pp)
         }
     }
 
@@ -1558,6 +1585,9 @@ class EVGDisplayList {
                 out = out + ","
             }
             out = out + "{\"k\":" + (to_string c.kind)
+            if attribute {
+                out = out + ",\"n\":" + (to_string c.node)
+            }
             out = out + ",\"x\":" + (EVGDisplayList.num(c.x))
             out = out + ",\"y\":" + (EVGDisplayList.num(c.y))
             out = out + ",\"w\":" + (EVGDisplayList.num(c.w))

@@ -1,0 +1,61 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; OffsetProbe — what a string index MEANS, per backend.
+; =============================================================================
+;
+; `InputCtl` carries a comment saying that on a C++ backend `charAt` and
+; `substring` count BYTES, so a caret in non-ASCII text breaks there. That
+; comment has never been checked. It is either a real limit that needs a
+; conversion layer, or it is wrong and the comment is the bug.
+;
+; So this file does not assert anything. It PRINTS, and the same source is
+; compiled to JavaScript and to C++ and the two outputs are diffed. A probe
+; that asserted would have to know the answer first, which is exactly what is
+; missing.
+;
+; The strings are chosen so that every encoding disagrees about them:
+;
+;   "abc"      3 bytes, 3 UTF-16 units, 3 code points — the control.
+;   "héllo"    6 bytes, 5 UTF-16 units, 5 code points (é is 2 bytes).
+;   "aä"       3 bytes, 2 UTF-16 units, 2 code points.
+;   an emoji   4 bytes, 2 UTF-16 units, 1 code point — the one where UTF-16
+;              is itself not a count of characters.
+;
+; If the two backends print the same numbers, one convention holds everywhere
+; and the comment in `InputCtl` should go. If they differ, the difference is
+; the specification for the conversion layer, written by measurement.
+; =============================================================================
+
+class OffsetProbe {
+
+    sfn dump:void (name:string s:string) {
+        def n:int (strlen s)
+        print (name + " strlen=" + (to_string n))
+        def codes:string ""
+        def i:int 0
+        while (i < n) {
+            if (i > 0) {
+                codes = (codes + ",")
+            }
+            codes = (codes + (to_string (charAt s i)))
+            i = (i + 1)
+        }
+        print (name + " charAt=[" + codes + "]")
+        if (n >= 2) {
+            print (name + " substring(0,2)=[" + (substring s 0 2) + "]")
+        }
+        if (n >= 1) {
+            print (name + " substring(1,n)=[" + (substring s 1 n) + "]")
+        }
+    }
+
+    sfn main:void () {
+        print "=== string offsets, as this backend counts them ==="
+        OffsetProbe.dump("ascii" "abc")
+        OffsetProbe.dump("latin1" "héllo")
+        OffsetProbe.dump("umlaut" "aä")
+        OffsetProbe.dump("emoji" "a🙂b")
+        print "=== end ==="
+    }
+}

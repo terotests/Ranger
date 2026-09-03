@@ -1,0 +1,510 @@
+{
+  "note": "Captured by eventcal_oracle.mjs from a rendered @schedule-x/calendar. The layout geometry is MEASURED, read off the inline styles the library writes. ReUI's own surface is NOT in here — see FINDINGS.",
+  "library": "@schedule-x/calendar@4.7.0",
+  "week": "2026-05-11 (Monday) to 2026-05-17",
+  "views": {
+    "day": {
+      "timeColumns": 1,
+      "monthDayCells": 0,
+      "events": [
+        {
+          "id": "j",
+          "kind": "allDayBand",
+          "overflowRight": true,
+          "overflowLeft": false,
+          "top": null,
+          "height": null,
+          "left": null,
+          "width": null,
+          "spanPercent": 100,
+          "zIndex": null,
+          "lane": 1
+        },
+        {
+          "id": "a",
+          "kind": "timed",
+          "overflowRight": false,
+          "overflowLeft": false,
+          "top": 37.5,
+          "height": 4.16667,
+          "left": 0,
+          "width": 100,
+          "spanPercent": null,
+          "zIndex": 0,
+          "lane": null
+        },
+        {
+          "id": "b",
+          "kind": "timed",
+          "overflowRight": false,
+          "overflowLeft": false,
+          "top": 37.5,
+          "height": 2.08333,
+          "left": 50,
+          "width": 50,
+          "spanPercent": null,
+          "zIndex": 1,
+          "lane": null
+        },
+        {
+          "id": "c",
+          "kind": "timed",
+          "overflowRight": false,
+          "overflowLeft": false,
+          "top": 39.5833,
+          "height": 4.16667,
+          "left": 50,
+          "width": 50,
+          "spanPercent": null,
+          "zIndex": 1,
+          "lane": null
+        },
+        {
+          "id": "d",
+          "kind": "timed",
+          "overflowRight": false,
+          "overflowLeft": false,
+          "top": 41.6667,
+          "height": 4.16667,
+          "left": 0,
+          "width": 100,
+          "spanPercent": null,
+          "zIndex": 0,
+          "lane": null
+        },
+        {
+          "id": "e",
+          "kind": "timed",
+          "overflowRight": false,
+          "overflowLeft": false,
+          "top": 58.3333,
+          "height": 4.16667,
+          "left": 0,
+          "width": 100,
+          "spanPercent": null,
+          "zIndex": 0,
+          "lane": null
+        },
+        {
+          "id": "g",
+          "kind": "timed",
+          "overflowRight": false,
+          "overflowLeft": false,
+          "top": 66.6667,
+          "height": 4.16667,
+          "left": 0,
+          "width": 100,
+          "spanPercent": null,
+          "zIndex": 0,
+          "lane": null
+        },
+        {
+          "id": "h",
+          "kind": "timed",
+          "overflowRight": false,
+          "overflowLeft": false,
+          "top": 67.3611,
+          "height": 4.16667,
+          "left": 33.3333,
+          "width": 66.6667,
+          "spanPercent": null,
+          "zIndex": 1,
+          "lane": null
+        },
+        {
+          "id": "i",
+          "kind": "timed",
+          "overflowRight": false,
+          "overflowLeft": false,
+          "top": 68.0556,
+          "height": 4.16667,
+          "left": 66.6667,
+          "width": 33.3333,
+          "spanPercent": null,
+          "zIndex": 2,
+          "lane": null
+        },
+        {
+          "id": "l",
+          "kind": "timed",
+          "overflowRight": false,
+          "overflowLeft": false,
+          "top": 75,
+          "height": 2.08333,
+          "left": 0,
+          "width": 100,
+          "spanPercent": null,
+          "zIndex": 0,
+          "lane": null
+        }
+      ]
+    },
+    "week": {
+      "timeColumns": 7,
+      "monthDayCells": 0,
+      "events": [
+        {
+          "id": "j",
+          "kind": "allDayBand",
+          "overflowRight": false,
+          "overflowLeft": false,
+          "top": null,
+          "height": null,
+          "left": null,
+          "width": null,
+          "spanPercent": 200,
+          "zIndex": null,
+          "lane": 1
+        },
+        {
+          "id": "f",
+          "kind": "allDayBand",
+          "overflowRight": false,
+          "overflowLeft": false,
+          "top": null,
+          "height": null,
+          "left": null,
+          "width": null,
+          "spanPercent": 300,
+          "zIndex": null,
+          "lane": 2
+        },
+        {
+          "id": "k",
+          "kind": "allDayBand",
+          "overflowRight": false,
+          "overflowLeft": false,
+          "top": null,
+          "height": null,
+          "left": null,
+          "width": null,
+          "spanPercent": 300,
+          "zIndex": null,
+          "lane": 1
+        },
+        {
+          "id": "a",
+          "kind": "timed",
+          "overflowRight": false,
+          "overflowLeft": false,
+          "top": 37.5,
+          "height": 4.16667,
+          "left": 0,
+          "width": 100,
+          "spanPercent": null,
+          "zIndex": 0,
+          "lane": null
+        },
+        {
+          "id": "b",
+          "kind": "timed",
+          "overflowRight": false,
+          "overflowLeft": false,
+          "top": 37.5,
+          "height": 2.08333,
+          "left": 50,
+          "width": 50,
+          "spanPercent": null,
+          "zIndex": 1,
+          "lane": null
+        },
+        {
+          "id": "c",
+          "kind": "timed",
+          "overflowRight": false,
+          "overflowLeft": false,
+          "top": 39.5833,
+          "height": 4.16667,
+          "left": 50,
+          "width": 50,
+          "spanPercent": null,
+          "zIndex": 1,
+          "lane": null
+        },
+        {
+          "id": "d",
+          "kind": "timed",
+          "overflowRight": false,
+          "overflowLeft": false,
+          "top": 41.6667,
+          "height": 4.16667,
+          "left": 0,
+          "width": 100,
+          "spanPercent": null,
+          "zIndex": 0,
+          "lane": null
+        },
+        {
+          "id": "e",
+          "kind": "timed",
+          "overflowRight": false,
+          "overflowLeft": false,
+          "top": 58.3333,
+          "height": 4.16667,
+          "left": 0,
+          "width": 100,
+          "spanPercent": null,
+          "zIndex": 0,
+          "lane": null
+        },
+        {
+          "id": "g",
+          "kind": "timed",
+          "overflowRight": false,
+          "overflowLeft": false,
+          "top": 66.6667,
+          "height": 4.16667,
+          "left": 0,
+          "width": 100,
+          "spanPercent": null,
+          "zIndex": 0,
+          "lane": null
+        },
+        {
+          "id": "h",
+          "kind": "timed",
+          "overflowRight": false,
+          "overflowLeft": false,
+          "top": 67.3611,
+          "height": 4.16667,
+          "left": 33.3333,
+          "width": 66.6667,
+          "spanPercent": null,
+          "zIndex": 1,
+          "lane": null
+        },
+        {
+          "id": "i",
+          "kind": "timed",
+          "overflowRight": false,
+          "overflowLeft": false,
+          "top": 68.0556,
+          "height": 4.16667,
+          "left": 66.6667,
+          "width": 33.3333,
+          "spanPercent": null,
+          "zIndex": 2,
+          "lane": null
+        },
+        {
+          "id": "l",
+          "kind": "timed",
+          "overflowRight": false,
+          "overflowLeft": false,
+          "top": 75,
+          "height": 2.08333,
+          "left": 0,
+          "width": 100,
+          "spanPercent": null,
+          "zIndex": 0,
+          "lane": null
+        }
+      ]
+    },
+    "month": {
+      "timeColumns": 0,
+      "monthDayCells": 35,
+      "events": [
+        {
+          "id": "j",
+          "kind": "monthChip",
+          "overflowRight": false,
+          "overflowLeft": false,
+          "top": null,
+          "height": null,
+          "left": null,
+          "width": null,
+          "spanPercent": 200,
+          "zIndex": null,
+          "lane": 1
+        },
+        {
+          "id": "a",
+          "kind": "monthChip",
+          "overflowRight": false,
+          "overflowLeft": false,
+          "top": null,
+          "height": null,
+          "left": null,
+          "width": null,
+          "spanPercent": 100,
+          "zIndex": null,
+          "lane": 2
+        },
+        {
+          "id": "b",
+          "kind": "monthChip",
+          "overflowRight": false,
+          "overflowLeft": false,
+          "top": null,
+          "height": null,
+          "left": null,
+          "width": null,
+          "spanPercent": 100,
+          "zIndex": null,
+          "lane": 3
+        },
+        {
+          "id": "c",
+          "kind": "monthChip",
+          "overflowRight": false,
+          "overflowLeft": false,
+          "top": null,
+          "height": null,
+          "left": null,
+          "width": null,
+          "spanPercent": 100,
+          "zIndex": null,
+          "lane": 4
+        },
+        {
+          "id": "f",
+          "kind": "monthChip",
+          "overflowRight": false,
+          "overflowLeft": false,
+          "top": null,
+          "height": null,
+          "left": null,
+          "width": null,
+          "spanPercent": 300,
+          "zIndex": null,
+          "lane": 2
+        },
+        {
+          "id": "k",
+          "kind": "monthChip",
+          "overflowRight": false,
+          "overflowLeft": false,
+          "top": null,
+          "height": null,
+          "left": null,
+          "width": null,
+          "spanPercent": 300,
+          "zIndex": null,
+          "lane": 1
+        }
+      ]
+    }
+  },
+  "timed": [
+    {
+      "id": "a",
+      "top": 37.5,
+      "height": 4.1667,
+      "left": 0,
+      "width": 100,
+      "zIndex": 0
+    },
+    {
+      "id": "b",
+      "top": 37.5,
+      "height": 2.0833,
+      "left": 50,
+      "width": 50,
+      "zIndex": 1
+    },
+    {
+      "id": "c",
+      "top": 39.5833,
+      "height": 4.1667,
+      "left": 50,
+      "width": 50,
+      "zIndex": 1
+    },
+    {
+      "id": "d",
+      "top": 41.6667,
+      "height": 4.1667,
+      "left": 0,
+      "width": 100,
+      "zIndex": 0
+    },
+    {
+      "id": "e",
+      "top": 58.3333,
+      "height": 4.1667,
+      "left": 0,
+      "width": 100,
+      "zIndex": 0
+    },
+    {
+      "id": "g",
+      "top": 66.6667,
+      "height": 4.1667,
+      "left": 0,
+      "width": 100,
+      "zIndex": 0
+    },
+    {
+      "id": "h",
+      "top": 67.3611,
+      "height": 4.1667,
+      "left": 33.3333,
+      "width": 66.6667,
+      "zIndex": 1
+    },
+    {
+      "id": "i",
+      "top": 68.0556,
+      "height": 4.1667,
+      "left": 66.6667,
+      "width": 33.3333,
+      "zIndex": 2
+    },
+    {
+      "id": "l",
+      "top": 75,
+      "height": 2.0833,
+      "left": 0,
+      "width": 100,
+      "zIndex": 0
+    }
+  ],
+  "allDay": [
+    {
+      "id": "j",
+      "days": 2,
+      "lane": 1
+    },
+    {
+      "id": "f",
+      "days": 3,
+      "lane": 2
+    },
+    {
+      "id": "k",
+      "days": 3,
+      "lane": 1
+    }
+  ],
+  "FINDINGS": {
+    "widthIsNotOneOverN": {
+      "what": "Three mutually overlapping events get widths 100%, 66.67% and 33.33% at lefts 0%, 33.33% and 66.67%, with z-index equal to the column. `left = column / total`, `width = (total - column) / total`.",
+      "consequence": "Every event reaches the right edge and later columns overlay earlier ones. The obvious implementation — n equal columns, a third each — is visibly a different calendar, and it is what a reimplementation writes if nobody looks. Measured with THREE events, because two are 50/50 under either rule and would have proved nothing."
+    },
+    "oneTotalPerBatch": {
+      "what": "In the 09:00 group the four events are laid out as total = 2, even though only some pairs overlap: A and D take column 0 while B and C take column 1. The divisor is the widest point of the whole connected batch, not each event's own concurrency count.",
+      "consequence": "Column widths line up down the batch instead of every event choosing its own divisor and drawing a ragged edge. It also means the layout is two passes, not one: the columns are assigned first and the total is only known when the batch closes."
+    },
+    "columnsAreReused": {
+      "what": "D starts at 10:00, exactly when A ends, and takes A's column 0 rather than a fourth column. C takes B's column 1 the same way — B ends at 09:30 and C starts at 09:30.",
+      "consequence": "Assignment is first-fit against the events STILL RUNNING, not a counter. And touching is not overlapping: the test is `end > start` strictly. A calendar using `>=` puts D in a fourth column and squeezes the morning to a quarter of its width for no reason a person can see."
+    },
+    "geometryIsAFractionOfTheDay": {
+      "what": "09:00–10:00 is top 37.5%, height 4.1667% — 9/24 and 1/24. The grid is the whole 24 hours regardless of which hours carry events.",
+      "consequence": "Nothing here is measured in pixels, so the same numbers hold at any height. EventCalCtl reports the same two fractions."
+    },
+    "midnightCrossingIsPromoted": {
+      "what": "The 23:00–01:00 event does NOT appear in the time grid at all. It is drawn in the all-day band as a two-day span.",
+      "consequence": "A timed event that crosses midnight is a multi-day event, not two boxes. This is a real decision and a surprising one — the plausible guess is that it is split at midnight — so it is recorded and implemented rather than left to whichever way the code happens to fall."
+    },
+    "allDayLanesArePackedFirstFit": {
+      "what": "Three all-day bands: 11–12 and 13–15 share lane 1, and 12–14 is pushed to lane 2. The end date is INCLUSIVE, which is why 11–12 and 12–14 collide at all — they share the 12th.",
+      "consequence": "All-day bands stack by first fit over INCLUSIVE date ranges, a different rule from the timed grid's exclusive `end > start`. Two overlap tests in one component, and using either one twice is wrong in one place — which is the kind of thing that looks correct in a screenshot of a week with no collisions in it."
+    },
+    "notAnOracleForReui": {
+      "what": "reui.io is blocked by the egress proxy, so ReUI's event calendar was never read. This capture is schedule-x's layout, which is one real answer and not the only one.",
+      "consequence": "The geometry below is measured and gated. ReUI's chrome — its view switcher, its labels, its colours — is NOT implemented from a guess about what the page looks like; it waits for the source or a screenshot, the way the four shadcn components did."
+    }
+  }
+}
