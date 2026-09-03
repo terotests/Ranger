@@ -15,6 +15,7 @@
 
 import { renderDisplayList } from "../../evg/gl/evg-webgl.js";
 import { createA11yMirror, pressAtCentre } from "../../evg/gl/evg-a11y.js";
+import { createTextInputBridge } from "../../evg/gl/evg-textinput.js";
 import { RealTrainerDemo } from "./generated-host.js";
 import { REALTRAINER_CSS, REALTRAINER_COMPACT, REALTRAINER_PLAN_MACHINE, REALTRAINER_CHAT_MACHINE, REALTRAINER_SEED } from "./generated.js";
 
@@ -114,6 +115,51 @@ function press(x, y) {
   const id = app.hitId(x, y);
   app.setPressed("");
   if (app.press(id)) paint();
+  syncTextSession();
+}
+
+// --- the text fields ---------------------------------------------------------
+//
+// The platform owns the editing session: a real <input> sits over the drawn
+// field and Ranger mirrors its value and selection. See evg-textinput.js for
+// what was measured first and why a keydown-driven editor was a dead end.
+const textInput = createTextInputBridge({
+  host: stage,
+  canvas,
+  onEdit: ({ value, selStart, selEnd }) => {
+    const tid = textInput.activeTid();
+    if (!tid) return;
+    if (!app.applyEdit(tid, value, selStart, selEnd)) return;
+    paint();
+    const after = JSON.parse(app.fieldStateJson(tid));
+    if (after && after.value !== value) textInput.sync(after);
+  },
+  onKey: (k) => {
+    if (k.key !== "Tab" && k.key !== "Escape" && k.key !== "Enter") return false;
+    const took = app.keyWith(k.key, k.shiftKey, k.ctrlKey || k.metaKey);
+    syncTextSession();
+    if (took) paint();
+    return took;
+  },
+});
+
+/** Hand the keyboard to the field the app says is focused, or take it back. */
+function syncTextSession() {
+  const tid = app.focusedField();
+  if (!tid) {
+    textInput.blurField();
+    return;
+  }
+  const st = JSON.parse(app.fieldStateJson(tid));
+  if (!st) {
+    textInput.blurField();
+    return;
+  }
+  if (textInput.activeTid() === tid) {
+    textInput.sync(st);
+    return;
+  }
+  textInput.focusField(tid, st);
 }
 
 canvas.addEventListener("pointerdown", (ev) => {

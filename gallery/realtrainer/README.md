@@ -181,10 +181,11 @@ test` on 5175 with the Firebase emulators — driven through the same scenario
 and compared frame for frame.
 
 ```bash
-npm run rt:trace          # replay the scenarios on this side  (CI)
-npm run rt:trace:record   # re-record this side
-# and, on a machine with the monorepo and the emulators:
-node gallery/realtrainer/scripts/record-reference-trace.mjs
+npm run rt:trace            # replay the scenarios on this side  (CI)
+npm run rt:trace:record     # re-record this side
+npm run rt:trace:diff       # this side against the reference, frame by frame
+# and, with the monorepo beside this one and the emulators up:
+npm run rt:trace:reference  # re-record the reference (--only, --shots, --url)
 ```
 
 Steps are clicked **by role and name**, not by test id: the views in scope
@@ -193,9 +194,34 @@ repository for every node measured. Roles and names are already there, and they
 are what the EVG side publishes through `UiCtl.rows()` anyway — the same key
 `gallery/ui` diffs against Radix.
 
-The reference recorder is here and says plainly that it cannot run here. The
-Ranger trace is committed for the reason the L0 oracle is: this repository's CI
-has neither the emulators nor the private frontend.
+The recorder seeds the emulator from `fixtures/reference/seed.json` — one plan
+calendar, one week, one entry, one yearsheet with a period and its two example
+weeks — and the Ranger side draws from the same file, so the two are looking at
+the same data. A frame is the accessibility tree: every button, heading,
+textbox, checkbox and landmark, in order, with `disabled` and `checked`. The
+diff is a longest common subsequence over that order, per frame, and the gate is
+the worst frame against `RT_TRACE_FLOOR` (0.9).
+
+What the traces found, in the order they found it: the reference's dialogs sit
+*before* the bottom bar in the tree and the add sheet *after* it; the bar's
+"Lisää" is a sheet over the current section, not a section; the bar's
+"Kalenteri" opens this week, not the route's; the confirmation step has no close
+cross and says "Viikko on tyhjä" for a week with nothing in it; the AI chat with
+no backend fails at once and puts the failure in the log as the assistant's
+message, with the composer free again; and every icon button in the original
+has an empty name. The port copies that last one so the traces line up; the
+lint lists them.
+
+Two frames are not 100 % and are left so on purpose. The edit sheet's tree
+sits inside the example-week panel in the original — between its buttons and
+the week-type switch — where EVG's absolute box would cover the panel, not the
+page; and the plan dialog's `creating` state is a state here, drawn, where the
+reference closes at once because its job fails without a backend. A scenario
+the reference cannot play at all — a reply the AI would have to write — says
+`noReference` and is this side's alone (`chat-review`).
+
+The Ranger trace is committed for the reason the L0 oracle is: this
+repository's CI has neither the emulators nor the private frontend.
 
 ## The coverage table, measured
 
@@ -419,6 +445,11 @@ src/CompactRows.rgr       COMPACT text → rows → the parts a row draws
 src/AddWorkoutDialog.rgr  the add-workout machine, ported by hand
 src/PlanDialogHost.rgr    the plan-week machine, run from its definition; the host's clock and named action
 src/ChatHost.rgr          the conversation machine, likewise, and the mock adapter that streams on the clock
+src/RtCalendar.rgr        the seed, the week, an entry's title and tags, the icons
+fixtures/reference/       seed.json — what the recorder puts in the emulator and this side draws
+traces/reference/         the reference's recorded traces, diffed by rt:trace:diff
+scripts/record-reference-trace.mjs  the reference recorder: seeds, signs in, drives, snapshots
+web/trace-diff.mjs        the diff, frame by frame, and the floor
 fixtures/machines/        the machines in the shape createMachine() takes
 fixtures/scenarios/       the scripts both sides are driven through
 traces/                   this side's recorded traces, checked by rt:trace

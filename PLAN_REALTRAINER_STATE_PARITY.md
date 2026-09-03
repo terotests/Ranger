@@ -1,6 +1,6 @@
 # PLAN — RealTrainerin tilanhallinta EVG:lle, mitattuna ajettavaa sovellusta vasten
 
-Status: `S0–S1 aloitettu · S4 ja S5: koneet ja näkymät tehty` · 2026-09-03
+Status: `S0 tehty: referenssi ajettu ja nauhoitettu · S1, S4, S5: koneet ja näkymät tehty, tekstikentät hostattu · puhelimen kuori ja osiot piirretty · joka ruutu ≥ 97 % referenssistä` · 2026-09-03
 Liittyy: [`PLAN_COMPACT_UI_PARITY_DEMO.md`](PLAN_COMPACT_UI_PARITY_DEMO.md) (rivikerros, P0–P5 tehty)
 
 COMPACT-rivit on portattu ja mitattu. Se on sovelluksen **sisältökerros**. Tämä suunnitelma
@@ -262,26 +262,28 @@ maksavat mitään. Sama logiikka kuin rivikerroksessa: L0 ensin, sitten renderö
 Järjestyksessä, ylimmäinen ensin. Jokainen kohta on kirjoitettu niin että sen voi ottaa
 käteen tuntematta tätä istuntoa.
 
-### 5.1 Nauhoita referenssijälki *(vaatii koneen jolla emulaattorit ovat)*
+### 5.1 Referenssijälki *(tehty; näin se ajetaan uudestaan)*
 
-Tämä on S0:n ainoa jäljellä oleva osa ja koko suunnitelman ainoa kohta jota **ei voi tehdä
-täällä**: se vaatii RealTrainer-monorepon ja Firebase-emulaattorit.
+Referenssi ajettiin tässä istunnossa: monorepo `../realtrainer`, emulaattorit
+(`firebase emulators:start`, auth 9099, firestore 8080), frontend `vite --mode test`
+portissa 5175 (`npm run build:ranger-lib` ensin — se hakee kääntäjän `../../Ranger`ista).
+`scripts/record-reference-trace.mjs` tyhjentää emulaattorit, luo käyttäjän, syöttää
+`fixtures/reference/seed.json`in Firestoreen REST-rajapinnalla, kirjautuu
+`window.__testSignIn`illä, avaa reitin ja ajaa skenaariot roolilla ja nimellä.
+Playwrightin selain: `PLAYWRIGHT_BROWSERS_PATH` osoittamaan asennukseen jonka revisio
+täsmää `playwright-core`n kanssa.
 
-1. `cd realtrainer/e2e && npm test` — varmista että yhdeksän olemassa olevaa speciä
-   menevät läpi. Se on lähtötaso; jos ne eivät mene, mitään ei kannata mitata.
-2. `cd realtrainer/e2e && npm run ui:emulator:ready` nostaa frontendin (:5175) ja
-   emulaattorit, ja sitten
-   `node gallery/realtrainer/scripts/record-reference-trace.mjs`
-   ajaa samat skenaariot Playwrightilla oikeaa sovellusta vasten ja kirjoittaa a11y-jäljen
-   `gallery/realtrainer/traces/reference/`iin. Valitsimet `--url` ja `--out`, jos portti
-   on muu. Skripti sanoo itse jos sovellusta ei löydy.
-3. Diffaa se Ranger-puolen jälkeä vasten: `npm run rt:trace` toistaa saman skenaarion
-   `RealTrainerDemo`illa ja vertaa nauhoitettuun. **Ensimmäinen diff on suunnitelman
-   ensimmäinen todellinen mittaus** — siihen asti pariteetti on koneiden pariteettia,
-   ei näkymien.
+```bash
+npm run rt:trace:reference     # nauhoita referenssi (--only add-workout, --shots hakemisto)
+npm run rt:trace:record        # nauhoita Ranger-puoli
+npm run rt:trace:diff          # ruutu ruudulta; huonoin ruutu RT_TRACE_FLOOR (0.9) vastaan
+```
 
-Muistutus siitä miksi avain on rooli+nimi eikä `data-testid`: näissä näkymissä ei ole
-yhtään `data-testid`-attribuuttia (§1.2).
+Mitä diffi opetti on kirjattu `gallery/realtrainer/README.md`:n Traces-osioon: dialogien
+paikka puussa, "Lisää"-lakana, palkin "Kalenteri" avaa tämän viikon, vahvistusaskeleen
+"Viikko on tyhjä", chatin virhe lokissa, nimettömät ikoninapit. Kaksi ruutua jää
+tarkoituksella alle sadan (muokkauslakanan paikka puussa, `creating`-tila) ja README
+sanoo miksi.
 
 ### 5.2 S4:n ja S5:n näkymät
 
@@ -290,10 +292,13 @@ omasta tiedostostaan, host antaa kellon ja nimetyt toiminnot, näkymä piirtää
 `state`n ja kontekstin eikä pidä omaa kopiota mistään, ja skenaario kulkee `rt:trace`n
 läpi tila askeleittain tarkistettuna. Jäljellä:
 
-1. **Tekstinsyöttö.** Kaikki kolme dialogia kirjoittavat vielä esimerkkitekstin
-   napista (`rt-sheet-type`, `rt-plan-instr`, `rt-chat-type`). `InputCtl` on
-   `gallery/ui`:ssä valmiina; sen isännöinti EVG-puussa on sama työ kaikille ja
-   `add-workout`in S1-jäännös. Skenaarion `type`-askel (§2.3) tarvitsee sen.
+1. **Tekstinsyöttö — tehty.** Kentät ovat `InputCtl`-instansseja EVG-puussa
+   (`rt-chat-field`, `rt-plan-field`, `rt-add-field`, muokkauslakanan yleinen ja
+   päiväkohtaiset kentät), nimettyinä placeholderin mukaan kuten alkuperäisen
+   textareat. Jokainen muokkaus lähetetään koneelle ja kenttä asetetaan koneesta
+   joka uudelleenrakennuksessa. Skenaarion `type`-askel kulkee niiden läpi.
+   Selaimessa `web/main.js` kytkee `evg-textinput.js`-sillan; sen käyttö oikealla
+   näppäimistöllä on katsottu vain ohjelmallisesti (`typeText`, `keyWith`).
 2. **Kuva.** `SET_IMAGE` kantaa nyt tiedostonimen; oikea kuva on hostin asia.
 3. **`CLOSE_REVIEW` ilman hyväksyttyjä** ja `REJECT_ALL` ovat koneessa ja napeissa
    mutta ei skenaarioissa; `rt:machine:live` kattaa ne solutasolla.

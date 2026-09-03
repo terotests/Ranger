@@ -61,8 +61,18 @@ function snapshot(app) {
   return JSON.parse(app.a11yJson(1, "")).nodes.map((n) => ({
     role: n.role,
     name: n.name ?? "",
-    // A heading's level is its state, as the reference reports it.
-    state: n.state ?? (n.role === "heading" && n.level ? `level=${n.level}` : ""),
+    // What the reference reports as state: disabled, checked, a heading's
+    // level.
+    // `checked` is the tree's tri-state: 1 no, 2 yes, 3 mixed.
+    state: n.disabled
+      ? "disabled"
+      : n.checked === 2
+        ? "checked"
+        : n.checked === 3
+          ? "mixed"
+        : n.role === "heading" && n.level
+          ? `level=${n.level}`
+          : (n.state ?? ""),
   }));
 }
 
@@ -87,7 +97,8 @@ function runScenario(file) {
   app.loadReference(SEED);
   // A step is a tick, a page size, a route, a press, or a press and a typed
   // string — the same five the reference recorder understands, except that
-  // here a press is by id and there by role and name.
+  // here a press is by id and there by role and name. A `fail` step is this
+  // side's only: it arms the failure the reference has anyway.
   const apply = (step) => {
     if (step.tick !== undefined) return app.tick(step.tick);
     if (step.page !== undefined) {
@@ -96,8 +107,14 @@ function runScenario(file) {
       return true;
     }
     if (step.route !== undefined) return app.openRoute(step.route);
+    // The next request fails — what the reference does with no AI behind it.
+    if (step.fail !== undefined) {
+      app.armFailure();
+      return true;
+    }
     const pressed = app.press(step.id);
     if (step.type !== undefined) return app.typeText(step.type) || pressed;
+    if (step.key !== undefined) return app.keyWith(step.key, false, false) || pressed;
     return pressed;
   };
   for (const step of scenario.setup ?? []) apply(step);

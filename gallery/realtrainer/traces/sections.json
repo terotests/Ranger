@@ -1,11 +1,11 @@
 {
- "id": "plan-edit-regenerate-cancel",
- "machine": "planDialog",
+ "id": "sections",
+ "machine": "",
  "frames": [
   {
-   "step": "rt-tab-example",
+   "step": "rt-nav-dashboard",
    "handled": true,
-   "state": "closed",
+   "state": "",
    "nodes": [
     {
      "role": "group",
@@ -33,48 +33,58 @@
      "state": ""
     },
     {
-     "role": "button",
-     "name": "Lisää harjoitus",
-     "state": ""
+     "role": "heading",
+     "name": "Dashboard",
+     "state": "level=1"
     },
     {
      "role": "button",
-     "name": "Päivitä suunnitelma",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Viikot",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Malliviikko",
+     "name": "Muokkaa vuosisuunnitelmaa",
      "state": ""
     },
     {
      "role": "heading",
-     "name": "Kuntoutus & Ylläpito",
+     "name": "Aktiivinen suunnitelma",
+     "state": "level=2"
+    },
+    {
+     "role": "button",
+     "name": "Avaa suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Vuosisuunnitelma 2026",
      "state": "level=3"
     },
     {
-     "role": "button",
-     "name": "Muokkaa",
+     "role": "paragraph",
+     "name": "Referenssin vuosisuunnitelma",
      "state": ""
     },
     {
-     "role": "button",
-     "name": "Luo viikolle",
+     "role": "paragraph",
+     "name": "Aloitettu: 5.1.2026",
      "state": ""
     },
     {
-     "role": "button",
-     "name": "Tavoiteviikko",
+     "role": "heading",
+     "name": "Nykyinen jakso",
+     "state": "level=3"
+    },
+    {
+     "role": "paragraph",
+     "name": "Kuntoutus & Ylläpito",
      "state": ""
     },
     {
-     "role": "button",
-     "name": "Kevyt viikko",
+     "role": "paragraph",
+     "name": "Viikko 35 / 104",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Tavoite: Kuntoutus ja ylläpito",
      "state": ""
     },
     {
@@ -115,9 +125,9 @@
    ]
   },
   {
-   "step": "rt-ex-edit",
+   "step": "rt-nav-home",
    "handled": true,
-   "state": "editInstructions",
+   "state": "",
    "nodes": [
     {
      "role": "group",
@@ -156,43 +166,8 @@
     },
     {
      "role": "button",
-     "name": "Viikot",
+     "name": "Lisää kuva",
      "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Malliviikko",
-     "state": ""
-    },
-    {
-     "role": "heading",
-     "name": "Kuntoutus & Ylläpito",
-     "state": "level=3"
-    },
-    {
-     "role": "button",
-     "name": "Muokkaa",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Luo viikolle",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Tavoiteviikko",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Kevyt viikko",
-     "state": ""
-    },
-    {
-     "role": "heading",
-     "name": "Muokkaa viikkosuunnitelmaa",
-     "state": "level=3"
     },
     {
      "role": "button",
@@ -200,228 +175,13 @@
      "state": ""
     },
     {
-     "role": "textbox",
-     "name": "Esim. pidä torstai kevyenä, lisää polven kuntoutusta, vältä kahta kovaa päivää peräkkäin",
+     "role": "paragraph",
+     "name": "Ei tulevia tapahtumia",
      "state": ""
     },
     {
      "role": "button",
-     "name": "Raahaa päivän paikkaa",
-     "state": ""
-    },
-    {
-     "role": "checkbox",
-     "name": "Nykyinen on hyvä — pidä samana",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Hyväksy tämä",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Näytä nykyinen",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Kopioi nykyinen",
-     "state": ""
-    },
-    {
-     "role": "textbox",
-     "name": "Päiväkohtainen ohje (esim. tiistai vain palauttava uinti)",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Raahaa päivän paikkaa",
-     "state": ""
-    },
-    {
-     "role": "checkbox",
-     "name": "Nykyinen on hyvä — pidä samana",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Hyväksy tämä",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Näytä nykyinen",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Kopioi nykyinen",
-     "state": ""
-    },
-    {
-     "role": "textbox",
-     "name": "Päiväkohtainen ohje (esim. tiistai vain palauttava uinti)",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Raahaa päivän paikkaa",
-     "state": ""
-    },
-    {
-     "role": "checkbox",
-     "name": "Nykyinen on hyvä — pidä samana",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Hyväksy tämä",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Näytä nykyinen",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Kopioi nykyinen",
-     "state": ""
-    },
-    {
-     "role": "textbox",
-     "name": "Päiväkohtainen ohje (esim. tiistai vain palauttava uinti)",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Raahaa päivän paikkaa",
-     "state": ""
-    },
-    {
-     "role": "checkbox",
-     "name": "Nykyinen on hyvä — pidä samana",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Hyväksy tämä",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Näytä nykyinen",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Kopioi nykyinen",
-     "state": ""
-    },
-    {
-     "role": "textbox",
-     "name": "Päiväkohtainen ohje (esim. tiistai vain palauttava uinti)",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Raahaa päivän paikkaa",
-     "state": ""
-    },
-    {
-     "role": "checkbox",
-     "name": "Nykyinen on hyvä — pidä samana",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Hyväksy tämä",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Näytä nykyinen",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Kopioi nykyinen",
-     "state": ""
-    },
-    {
-     "role": "textbox",
-     "name": "Päiväkohtainen ohje (esim. tiistai vain palauttava uinti)",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Raahaa päivän paikkaa",
-     "state": ""
-    },
-    {
-     "role": "checkbox",
-     "name": "Nykyinen on hyvä — pidä samana",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Hyväksy tämä",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Näytä nykyinen",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Kopioi nykyinen",
-     "state": ""
-    },
-    {
-     "role": "textbox",
-     "name": "Päiväkohtainen ohje (esim. tiistai vain palauttava uinti)",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Raahaa päivän paikkaa",
-     "state": ""
-    },
-    {
-     "role": "checkbox",
-     "name": "Nykyinen on hyvä — pidä samana",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Hyväksy tämä",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Näytä nykyinen",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Kopioi nykyinen",
-     "state": ""
-    },
-    {
-     "role": "textbox",
-     "name": "Päiväkohtainen ohje (esim. tiistai vain palauttava uinti)",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Peruuta",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Tallenna ohjeet ja generoi",
+     "name": "Näytä menneet (1)",
      "state": ""
     },
     {
@@ -462,9 +222,151 @@
    ]
   },
   {
-   "step": "rt-plan-close",
+   "step": "rt-nav-more",
    "handled": true,
-   "state": "closed",
+   "state": "",
+   "nodes": [
+    {
+     "role": "group",
+     "name": "RealTrainer",
+     "state": ""
+    },
+    {
+     "role": "banner",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Credits: 100k. Click to purchase more credits.",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "📋 Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää harjoitus",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Päivitä suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kuva",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Ei tulevia tapahtumia",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä menneet (1)",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Vuosilakana",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Harjoituspaikat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Tietopankki",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Jaetut kalenterit",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Asetukset",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Vie tietokanta",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Toggle theme",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kirjaudu ulos",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-nav-calendar",
+   "handled": true,
+   "state": "",
    "nodes": [
     {
      "role": "group",
@@ -512,28 +414,58 @@
      "state": ""
     },
     {
-     "role": "heading",
-     "name": "Kuntoutus & Ylläpito",
-     "state": "level=3"
-    },
-    {
      "role": "button",
-     "name": "Muokkaa",
+     "name": "Edellinen viikko",
      "state": ""
     },
     {
      "role": "button",
-     "name": "Luo viikolle",
+     "name": "vko 36 31.8. – 6.9.",
      "state": ""
     },
     {
      "role": "button",
-     "name": "Tavoiteviikko",
+     "name": "Luo suunnitelma",
      "state": ""
     },
     {
      "role": "button",
-     "name": "Kevyt viikko",
+     "name": "Seuraava viikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "31 Ma –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "1 Ti –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "2 Ke –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "3 To –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "4 Pe –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "5 La –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "6 Su –",
      "state": ""
     },
     {

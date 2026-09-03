@@ -62,6 +62,11 @@ class RtExampleWeek {
 
 class RtPeriod {
     def name@(mutable):string ""
+    ; `type`, `duration` in weeks and `goals` — what the dashboard's period
+    ; card shows beside the name.
+    def kind@(mutable):string ""
+    def durationWeeks@(mutable):int 0
+    def goals@(mutable):string ""
     def weeks:[RtExampleWeek]
 
     Constructor () {
@@ -93,6 +98,11 @@ class RtSeed {
     def calendarName@(mutable):string ""
     def calendarType@(mutable):string ""
     def entries:[RtSeedEntry]
+    ; The first yearsheet: its name, description and start date are the
+    ; dashboard's "Aktiivinen suunnitelma" card.
+    def sheetName@(mutable):string ""
+    def sheetDescription@(mutable):string ""
+    def sheetStart@(mutable):string ""
     def periods:[RtPeriod]
 
     Constructor () {
@@ -125,12 +135,21 @@ class RtSeed {
         def sheets:VlJson (root.get("yearsheets"))
         def s@(mutable):int 0
         while (s < (sheets.count())) {
-            def ps:VlJson ((sheets.at(s)).get("periods"))
+            def sheet:VlJson (sheets.at(s))
+            if (s == 0) {
+                sheetName = (sheet.stringOr("name" ""))
+                sheetDescription = (sheet.stringOr("description" ""))
+                sheetStart = (sheet.stringOr("startDate" ""))
+            }
+            def ps:VlJson (sheet.get("periods"))
             def p@(mutable):int 0
             while (p < (ps.count())) {
                 def pj:VlJson (ps.at(p))
                 def period (new RtPeriod)
                 period.name = (pj.stringOr("name" ""))
+                period.kind = (pj.stringOr("type" ""))
+                period.durationWeeks = (pj.intOr("duration" 0))
+                period.goals = (pj.stringOr("goals" ""))
                 def ws:VlJson (pj.get("exampleWeeks"))
                 def w@(mutable):int 0
                 while (w < (ws.count())) {
@@ -164,6 +183,19 @@ class RtSeed {
         def out:[RtSeedEntry]
         for entries e:RtSeedEntry i {
             if (e.date == iso) {
+                push out e
+            }
+        }
+        return out
+    }
+
+    ; The entries whose date falls in the week that starts on `mondayIso`.
+    fn entriesInWeek:[RtSeedEntry] (mondayIso:string) {
+        def out:[RtSeedEntry]
+        def first:int (RtWeek.daysOf(mondayIso))
+        for entries e:RtSeedEntry i {
+            def d:int (RtWeek.daysOf(e.date))
+            if ((d >= first) && (d < (first + 7))) {
                 push out e
             }
         }
@@ -214,6 +246,11 @@ class RtWeek {
 
     sfn monthOf:int (iso:string) {
         return (to_int (?? (to_double (substring iso 5 7)) 0.0))
+    }
+
+    ; "5.1.2026" — the date as fi-FI writes it, no padding.
+    sfn fiDate:string (iso:string) {
+        return ((((to_string (RtWeek.dayOfMonth(iso))) + ".") + (to_string (RtWeek.monthOf(iso)))) + ("." + (substring iso 0 4)))
     }
 
     ; ISO 8601: the week that holds the Thursday. The Thursday of the week a

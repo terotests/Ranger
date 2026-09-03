@@ -53,6 +53,11 @@ const URL = arg("--url", "http://localhost:5175");
 const OUT = path.resolve(ROOT, arg("--out", path.join("traces", "reference")));
 const [VW, VH] = arg("--viewport", "390x844").split("x").map(Number);
 const ONLY = arg("--only", "");
+// `--probe` prints, after every step, the headings and dialogs the DOM holds —
+// for the moment a step did something the accessibility tree does not show.
+const PROBE = args.includes("--probe");
+// `--shots <dir>` saves a screenshot after every step, named after it.
+const SHOTS = arg("--shots", "");
 
 // --- the emulators, as the e2e helpers talk to them --------------------------
 const AUTH = "http://127.0.0.1:9099";
@@ -212,7 +217,8 @@ async function snapshot() {
     if (!line) continue;
     const m = /^([a-z]+)(?:\s+"((?:[^"\\]|\\.)*)")?(.*)$/.exec(line);
     if (!m) continue;
-    const [, role, name = "", rest] = m;
+    const [, role, rawName = "", rest] = m;
+    const name = rawName.replace(/\\"/g, '"');
     const states = [...rest.matchAll(/\[([a-z]+)(?:=([^\]]+))?\]/g)].map(([, k, v]) => (v ? `${k}=${v}` : k));
     // What the plain text of a leaf says, when it has no name of its own:
     // `- generic: wk 36` → the text is the name a reader hears.
@@ -222,20 +228,58 @@ async function snapshot() {
   return out;
 }
 
+async function targetOf(step) {
+  if (step.name === undefined) {
+    const all = page.getByRole(step.role);
+    return (await all.count()) ? (step.nth !== undefined ? all.nth(step.nth) : all.last()) : null;
+  }
+  if (step.name !== "") {
+    const all = page.getByRole(step.role, { name: step.name, exact: true });
+    return (await all.count()) ? (step.nth !== undefined ? all.nth(step.nth) : all.last()) : null;
+  }
+  const all = page.getByRole(step.role);
+  const n = await all.count();
+  const unnamed = [];
+  for (let i = 0; i < n; i++) {
+    const el = all.nth(i);
+    const label = await el.getAttribute("aria-label");
+    const title = await el.getAttribute("title");
+    const text = (await el.innerText().catch(() => "")).trim();
+    if (!label && !title && !text) unnamed.push(el);
+  }
+  if (!unnamed.length) return null;
+  return step.nth !== undefined ? unnamed[step.nth] : unnamed[unnamed.length - 1];
+}
+
 async function apply(step) {
   if (step.tick !== undefined) {
     await page.waitForTimeout(step.tick);
     return true;
   }
-  const target = (step.name
-    ? page.getByRole(step.role, { name: step.name, exact: true })
-    : page.getByRole(step.role)
-  ).first();
-  if ((await target.count()) === 0) return false;
-  if (step.type !== undefined) {
-    await target.fill(step.type);
-  } else {
-    await target.click();
+  // The Ranger side arms a failure with this; here there is no AI behind the
+  // app and every request fails on its own.
+  if (step.fail !== undefined) return true;
+  // The LAST match unless the step says which: a dialog's button comes after
+  // the page's button of the same name in the DOM, and it is the one on top.
+  // `nth` picks another — the first unnamed button is a dialog's close.
+  //
+  // An EMPTY name is a real filter here. To Playwright `name: ""` is no
+  // filter at all, and the last button on the page is the bar's "Lisää" —
+  // which is how three scenarios opened the More sheet by accident.
+  const target = await targetOf(step);
+  if (!target) return false;
+  try {
+    if (step.type !== undefined) {
+      await target.fill(step.type, { timeout: 5000 });
+    } else if (step.key !== undefined) {
+      await target.press(step.key, { timeout: 5000 });
+    } else {
+      await target.scrollIntoViewIfNeeded({ timeout: 2000 }).catch(() => {});
+      await target.click({ timeout: 5000 });
+    }
+  } catch (e) {
+    console.log(`    ${step.name ?? step.role}: ${String(e.message).split("\n")[0]}`);
+    return false;
   }
   await page.waitForTimeout(150);
   return true;
@@ -247,6 +291,9 @@ fs.mkdirSync(OUT, { recursive: true });
 for (const name of fs.readdirSync(dir).filter((f) => f.endsWith(".json"))) {
   if (ONLY && !name.startsWith(ONLY)) continue;
   const scenario = JSON.parse(fs.readFileSync(path.join(dir, name), "utf8"));
+  // A scenario the reference cannot play — a reply the AI would have to
+  // write — is the port's alone, and has no reference trace.
+  if (scenario.noReference) continue;
   const ref = scenario.reference ?? {};
   await resetEmulators();
   const uid = await createUser();
@@ -260,15 +307,30 @@ for (const name of fs.readdirSync(dir).filter((f) => f.endsWith(".json"))) {
   // every tab so an action can open its dialog without a tab switch. It is
   // not on the screen, and the trace is of the screen.
   // Its dialogs are `fixed` and escape the clipping, so they stay.
+  // Playwright prunes a subtree at the first hidden element, dialogs
+  // included, so the host is given a box and only the panel's own sections
+  // — everything under it that is not a fixed overlay — are taken out.
   await page.addStyleTag({
     content:
-      ".max-h-0.overflow-hidden * { visibility: hidden !important; }" +
-      ".max-h-0.overflow-hidden .fixed, .max-h-0.overflow-hidden .fixed * { visibility: visible !important; }",
+      ".max-h-0.overflow-hidden { max-height: none !important; overflow: visible !important; }" +
+      ".max-h-0.overflow-hidden > * > *:not(.fixed) { display: none !important; }",
   });
   await page.waitForTimeout(600);
   const frames = [];
   for (const step of scenario.steps) {
     const handled = await apply(step);
+    if (PROBE) {
+      const seen = await page.evaluate(() =>
+        [...document.querySelectorAll("h1,h2,h3,[role=dialog],.fixed")].map(
+          (e) => `${e.tagName.toLowerCase()}${e.className ? "." + String(e.className).split(" ").slice(0, 3).join(".") : ""}: ${(e.textContent || "").trim().slice(0, 60)}`,
+        ),
+      );
+      console.log(`    after ${step.id ?? step.name ?? `tick ${step.tick}`}:\n      ${seen.join("\n      ")}`);
+    }
+    if (SHOTS) {
+      fs.mkdirSync(SHOTS, { recursive: true });
+      await page.screenshot({ path: path.join(SHOTS, `${name.replace(/\.json$/, "")}-${frames.length + 1}.png`) });
+    }
     frames.push({
       step: step.id ?? `tick ${step.tick}`,
       handled,

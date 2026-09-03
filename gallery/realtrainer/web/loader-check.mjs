@@ -392,9 +392,11 @@ ok("and stops there too", app.scrollDocument(-100) === false, "kept scrolling");
 // a view.
 ok("the dialog opens", app.press("rt-add") === true, "no change");
 let sheet = textsOf(listOf());
-ok("and shows the day it was opened for", sheet.includes("2026-02-09"), sheet.join("|"));
-ok("with nothing typed yet", sheet.includes("—"), sheet.join("|"));
-app.press("rt-sheet-type");
+ok("with its heading", sheet.includes("Lisää harjoitus"), sheet.join("|"));
+ok("and the field's placeholder while nothing is typed",
+   sheet.includes('Luo harjoitusohjelma, esim. "viikon peruskuntojakso"'), sheet.join("|"));
+app.press("rt-add-field");
+app.typeText("Exercise Maastaveto|3x5@100kg");
 ok("typing reaches the machine",
    textsOf(listOf()).includes("Exercise Maastaveto|3x5@100kg"),
    textsOf(listOf()).join("|"));
@@ -410,7 +412,8 @@ ok("and a finished save closes it",
 // save that threw away what was typed would be a second failure. That arm is
 // one of the twenty-one cells rt:machine checks; this is it on screen.
 app.press("rt-add");
-app.press("rt-sheet-type");
+app.press("rt-add-field");
+app.typeText("Exercise Maastaveto|3x5@100kg");
 app.press("rt-fail");
 app.press("rt-sheet-save");
 app.tick(800);

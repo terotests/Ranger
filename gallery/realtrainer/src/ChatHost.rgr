@@ -228,6 +228,13 @@ class ChatHost {
         return (this.send(e))
     }
 
+    ; The composer empties when a message goes — the component's own
+    ; `setInputValue('')` beside the machine, which keeps `inputText` as the
+    ; prompt until RESET. This is that assignment, on the context.
+    fn clearInput:void () {
+        runner.setStr("inputText" "")
+    }
+
     fn setImage:boolean (name:string) {
         def e:ScEvent (ScEvent.of("SET_IMAGE"))
         e.withStr("image" name)

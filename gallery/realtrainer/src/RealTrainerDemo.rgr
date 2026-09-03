@@ -90,6 +90,7 @@ Import "AddWorkoutDialog.rgr"
 Import "PlanDialogHost.rgr"
 Import "ChatHost.rgr"
 Import "RtCalendar.rgr"
+Import "../../ui/src/InputCtl.rgr"
 
 treefactory Rt {
     child addChild
@@ -318,6 +319,50 @@ treefactory Rt {
     tag ExDayTags EVGElement (props (className "rt-ex-day-tags") (elementType 1))
     tag ExDayLine EVGElement (props (className "rt-ex-day-line") (elementType 1))
 
+    ; --- a text field, and the dialogs the original draws ---------------------
+    tag Field    EVGElement (props (className "rt-field") (role "textbox") (a11yFocusable true))
+    tag FieldText EVGElement (props (className "rt-field-text") (elementType 1))
+    tag FieldGhost EVGElement (props (className "rt-field-ghost") (elementType 1))
+    tag FieldCaret EVGElement (props (className "rt-field-caret") (a11yHidden true))
+    tag Overlay  EVGElement (props (className "rt-overlay"))
+    tag Modal    EVGElement (props (className "rt-modal"))
+    tag ModalHead EVGElement (props (className "rt-modal-head"))
+    tag ModalTitle EVGElement (props (className "rt-modal-title") (elementType 1) (role "heading"))
+    tag ModalBody EVGElement (props (className "rt-modal-body"))
+    tag ModalRow EVGElement (props (className "rt-modal-row"))
+    tag ModalTx  EVGElement (props (className "rt-modal-text") (elementType 1))
+    tag ModalPara EVGElement (props (className "rt-modal-para") (elementType 1) (role "paragraph"))
+    tag ModalDim EVGElement (props (className "rt-modal-dim") (elementType 1))
+    tag IconBtn  EVGElement (props (className "rt-icon-btn") (role "button") (a11yFocusable true))
+    tag ModalFoot EVGElement (props (className "rt-modal-foot"))
+    tag ChatHd   EVGElement (props (className "rt-chat-hd") (id "rt-chat-hd") (elementType 1) (role "heading") (a11yLevel 2))
+    tag ChatTools EVGElement (props (className "rt-chat-tools"))
+    tag ChatTool EVGElement (props (className "rt-chat-tool") (role "button") (a11yFocusable true))
+    tag ChatToolTx EVGElement (props (className "rt-chat-tool-text") (elementType 1))
+    tag ChatPara EVGElement (props (className "rt-chat-para") (elementType 1) (role "paragraph"))
+    tag ChatCompose EVGElement (props (className "rt-chat-compose"))
+    ; A message and the buttons beside it, as `DiaryChatMessageItem` has them.
+    tag MsgRow   EVGElement (props (className "rt-msg-row"))
+    ; The bottom sheet the bar's "Lisää" opens, and its rows.
+    tag MoreSheet EVGElement (props (className "rt-modal rt-more-sheet") (id "rt-more-sheet"))
+    tag MoreItem EVGElement (props (className "rt-more-item") (role "button") (a11yFocusable true))
+    tag MoreItemTx EVGElement (props (className "rt-more-item-text") (elementType 1))
+    ; The phone's dashboard: the page heading, the plan card, the period card.
+    tag DashHd   EVGElement (props (className "rt-dash-hd") (elementType 1) (role "heading") (a11yLevel 1))
+    tag DashH2   EVGElement (props (className "rt-dash-h2") (elementType 1) (role "heading") (a11yLevel 2))
+    tag DashH3   EVGElement (props (className "rt-dash-h3") (elementType 1) (role "heading") (a11yLevel 3))
+    tag DashPara EVGElement (props (className "rt-dash-para") (elementType 1) (role "paragraph"))
+    tag DashCard EVGElement (props (className "rt-dash-card"))
+    tag DashMeta EVGElement (props (className "rt-dash-meta") (elementType 1))
+    ; The home screen's quick entry: the original's box is a contenteditable
+    ; the tree reports as text, so this one is a box with the placeholder in
+    ; it and no textbox role.
+    tag HomeBox  EVGElement (props (className "rt-field rt-home-box"))
+    ; One day of the edit sheet: the drag handle, the day's text, the
+    ; checkbox, the three buttons and the day's own field.
+    tag EditDay  EVGElement (props (className "rt-edit-day"))
+    tag EditDayTx EVGElement (props (className "rt-edit-day-text") (elementType 1))
+
     tag DocView  EVGElement (props (className "rt-doc-view") (id "rt-doc-view"))
     tag DocList  EVGElement (props (className "rt-doc-list") (id "rt-doc-list")
                                    (role "list") (a11yLabel "Harjoituksen rivit"))
@@ -425,6 +470,23 @@ class RealTrainerDemo {
     def weekStart:string "2026-02-09"
     def exWeekType:string "target"
     def today:string "2026-09-03"
+    ; The text fields: one per dialog that has one in the original, each a
+    ; `InputCtl` named by its placeholder as the original's textareas are.
+    ; The machine is the source of truth for the value — every edit is sent
+    ; to it, and the field is set from it on every rebuild.
+    def chatField:InputCtl (new InputCtl())
+    def planField:InputCtl (new InputCtl())
+    def addField:InputCtl (new InputCtl())
+    ; The edit sheet's fields: the general feedback and one per weekday.
+    def editField:InputCtl (new InputCtl())
+    def dayFields:[InputCtl]
+    ; The bar's "Lisää" opens a sheet over whichever section is up; it is not
+    ; a section of its own, and the original keeps it the same way.
+    def moreOpen@(mutable):boolean false
+    ; How far the plan dialog's body is scrolled — the edit sheet is taller
+    ; than a phone, and scrolls inside the dialog as the original's does.
+    def modalScroll:double 0.0
+    def measurer:EVGLayout (new EVGLayout())
     def chatSim:RtChatSim (new RtChatSim())
     def chatJob:RtBackendSim (new RtBackendSim())
     def planJob:RtBackendSim (new RtBackendSim())
@@ -598,6 +660,34 @@ class RealTrainerDemo {
         weekType.addItem("light" "Kevyt viikko" false)
         weekType.value = "target"
         planJob.latencyMs = 900.0
+
+        chatField.tid = "rt-chat-field"
+        chatField.placeholder = "Kysy jotain päiväkirjastasi..."
+        chatField.name = chatField.placeholder
+        planField.tid = "rt-plan-field"
+        planField.placeholder = "Esim. keskity kuntoutusjuoksuihin, kevyempi viikko"
+        planField.name = planField.placeholder
+        addField.tid = "rt-add-field"
+        addField.placeholder = "Luo harjoitusohjelma, esim. \"viikon peruskuntojakso\""
+        addField.name = addField.placeholder
+        editField.tid = "rt-plan-edit-field"
+        editField.placeholder = "Esim. pidä torstai kevyenä, lisää polven kuntoutusta, vältä kahta kovaa päivää peräkkäin"
+        editField.name = editField.placeholder
+        def fd:int 0
+        while (fd < 7) {
+            def dayField (new InputCtl())
+            dayField.tid = ("rt-plan-day-field-" + (to_string fd))
+            dayField.placeholder = "Päiväkohtainen ohje (esim. tiistai vain palauttava uinti)"
+            dayField.name = dayField.placeholder
+            push dayFields dayField
+            fd = (fd + 1)
+        }
+        def fields:[InputCtl] (this.fields())
+        for fields f:InputCtl i {
+            f.fontFamily = "Arial"
+            f.fontSize = 13.0
+            f.boxWidth = 300.0
+        }
         def d:int 0
         while (d < 7) {
             def rc (new CheckboxCtl())
@@ -606,7 +696,7 @@ class RealTrainerDemo {
             push replaceDay rc
             def kc (new CheckboxCtl())
             kc.tid = ("rt-plan-keep-" + (to_string d))
-            kc.name = ("Pidä ennallaan " + (PlanDialogHost.dayName(((d + 1) % 7))))
+            kc.name = "Nykyinen on hyvä — pidä samana"
             push keepDay kc
             def sc (new CheckboxCtl())
             sc.tid = ("rt-plan-show-" + (to_string d))
@@ -1314,102 +1404,118 @@ class RealTrainerDemo {
     ; The dialog, drawn from the machine's state. There is no local flag for
     ; "is it open" and no second copy of the text: `addDialog` holds both, and
     ; this reads them.
+    ; "Lisää harjoitus" as the original draws it: a heading, a close button,
+    ; "Lisää kuva", the AI input, and a send button that is disabled until
+    ; there is something to send. Drawn from the machine's state.
     fn addSheet:EVGElement () {
-        def sheet (tree Rt (Sheet))
-        sheet.addChild((tree Rt (SheetHd "Lisää harjoitus")))
-        sheet.addChild((tree Rt
-            (SheetRow
-                (SheetCap "Päivä")
-                (Spacer)
-                (SheetVal (props (id "rt-sheet-date")) addDialog.targetDate))))
-        def textValue@(mutable):string addDialog.inputText
-        if ((strlen textValue) == 0) {
-            textValue = "—"
-        }
-        sheet.addChild((tree Rt
-            (SheetRow
-                (SheetCap "Harjoitus")
-                (Spacer)
-                (SheetVal (props (id "rt-sheet-text")) textValue))))
+        def modal (tree Rt (Modal (props (id "rt-sheet"))))
+        def head (tree Rt (ModalHead))
+        def title (tree Rt (ModalTitle (props (id "rt-sheet-head")) "Lisää harjoitus"))
+        title.a11yLevel = 2
+        head.addChild(title)
+        head.addChild((tree Rt (Spacer)))
+        head.addChild((this.iconBtn("rt-sheet-cancel" "" (RtIcons.x("#f2f2f2")))))
+        modal.addChild(head)
+        def body (tree Rt (ModalBody))
         if ((strlen addDialog.error) > 0) {
-            sheet.addChild((tree Rt (SheetErr addDialog.error)))
+            body.addChild((tree Rt (SheetErr addDialog.error)))
         }
-        def actions (tree Rt (SheetRow (props (className "rt-sheet-row rt-sheet-actions"))))
         if (addDialog.state == "saving") {
-            actions.addChild((tree Rt
-                (SheetBtn (props (id "rt-sheet-cancel") (a11yLabel "Peruuta"))
-                          (SheetBtnTx "Peruuta"))))
-            actions.addChild((tree Rt (Spacer)))
-            actions.addChild((tree Rt (SheetVal (props (id "rt-sheet-state")) "Tallennetaan…")))
-        } {
-            actions.addChild((tree Rt
-                (SheetBtn (props (id "rt-sheet-cancel") (a11yLabel "Peruuta"))
-                          (SheetBtnTx "Peruuta"))))
-            actions.addChild((tree Rt
-                (SheetBtn (props (id "rt-sheet-type") (a11yLabel "Kirjoita esimerkkirivi"))
-                          (SheetBtnTx "Kirjoita rivi"))))
-            actions.addChild((tree Rt (Spacer)))
-            actions.addChild((tree Rt
-                (SheetBtn (props (id "rt-sheet-save") (className "rt-sheet-btn rt-sheet-primary")
-                                 (a11yLabel "Tallenna harjoitus"))
-                          (SheetBtnTx "Tallenna"))))
+            body.addChild((tree Rt (ModalDim (props (id "rt-sheet-state")) "Tallennetaan…")))
         }
-        sheet.addChild(actions)
-        return sheet
+        def tools (tree Rt (ModalRow))
+        tools.addChild((this.sheetBtn("rt-sheet-image" "Lisää kuva" "Lisää kuva" false)))
+        body.addChild(tools)
+        def compose (tree Rt (ChatCompose))
+        compose.addChild((this.fieldBox(addField)))
+        def send (this.iconBtn("rt-sheet-save" "" (RtIcons.chevronRight("#ffffff"))))
+        send.className = "rt-icon-btn rt-send-btn"
+        if ((strlen addDialog.inputText) == 0) {
+            send.a11yDisabled = true
+            send.className = "rt-icon-btn rt-send-btn rt-send-off"
+        }
+        compose.addChild(send)
+        body.addChild(compose)
+        modal.addChild(body)
+        return modal
+    }
+
+    fn iconBtn:EVGElement (id:string label:string icon:string) {
+        def b (tree Rt (IconBtn))
+        b.id = id
+        b.a11yLabel = label
+        def glyph (tree Rt (PhIcon))
+        glyph.svgSource = icon
+        b.addChild(glyph)
+        return b
     }
 
     ; --- the plan-week dialog ---------------------------------------------------
     ; Six states, one sheet: what is on it is decided by `plan.state()` and the
     ; context behind it, and a press sends an event and redraws. The dialog
     ; never keeps a value of its own.
+    ; The plan dialog as `ExampleWeekPanel` draws it. Week selection: the
+    ; week either way, the instructions, what will be created, cancel and
+    ; create. Confirmation: what the week holds and whether to go ahead. The
+    ; edit sheet is the machine's `editInstructions`, reached from "Muokkaa".
     fn planSheet:EVGElement () {
         def st:string (plan.state())
-        def sheet (tree Rt (PlanSheet))
-        def title@(mutable):string "Suunnittele viikko"
-        if (st == "confirmation") { title = "Vahvista korvattavat päivät" }
-        if (st == "creating") { title = "Luodaan suunnitelmaa" }
-        if (st == "editInstructions") { title = "Muokkaa ohjeita" }
-        if (st == "regenerating") { title = "Luodaan uudelleen" }
-        sheet.addChild((tree Rt (PlanHd title)))
-
-        if (st == "weekSelection") {
-            this.planWeekRows(sheet)
+        def modal (tree Rt (Modal (props (id "rt-plan-sheet"))))
+        def head (tree Rt (ModalHead))
+        def titleText@(mutable):string "Päivitä suunnitelma"
+        if (st == "confirmation") { titleText = "Luo harjoitukset" }
+        if (st == "creating") { titleText = "Luo harjoitukset" }
+        if (st == "editInstructions") { titleText = "Muokkaa viikkosuunnitelmaa" }
+        if (st == "regenerating") { titleText = "Muokkaa viikkosuunnitelmaa" }
+        def title (tree Rt (ModalTitle (props (id "rt-plan-head")) titleText))
+        title.a11yLevel = 3
+        head.addChild(title)
+        head.addChild((tree Rt (Spacer)))
+        ; The confirmation step has no close cross in the original; the
+        ; others do.
+        if (st != "confirmation") {
+            head.addChild((this.iconBtn("rt-plan-cancel" "" (RtIcons.x("#f2f2f2")))))
         }
-        if (st == "confirmation") {
-            this.planConfirmRows(sheet)
-        }
-        if (st == "editInstructions") {
-            this.planEditRows(sheet)
-        }
-        if (st == "creating") {
-            sheet.addChild((tree Rt (SheetRow (SheetVal (props (id "rt-plan-state")) "Luodaan suunnitelmaa…"))))
-        }
-        if (st == "regenerating") {
-            sheet.addChild((tree Rt (SheetRow (SheetVal (props (id "rt-plan-state")) "Luodaan ohjeiden mukaan uudelleen…"))))
-        }
+        modal.addChild(head)
+        def body (tree Rt (ModalBody (props (id "rt-plan-body"))))
+        body.setAttribute("overflow" "hidden")
+        ; The page's height less the bar, the overlay's padding, the head and the foot:
+        ; what is left for the body, which scrolls when the sheet is taller.
+        body.setAttribute("max-height" ((to_string (to_int (pageH - 250.0))) + "px"))
+        body.scrollTop = modalScroll
         def err:string (plan.text("error"))
         if ((strlen err) > 0) {
-            sheet.addChild((tree Rt (PlanErr err)))
+            body.addChild((tree Rt (SheetErr (props (id "rt-plan-err")) err)))
         }
-
-        def actions (tree Rt (SheetRow (props (className "rt-sheet-row rt-sheet-actions"))))
-        actions.addChild((this.sheetBtn("rt-plan-cancel" "Peruuta" "Peruuta" false)))
         if (st == "weekSelection") {
-            actions.addChild((this.sheetBtn("rt-plan-edit" "Muokkaa ohjeita" "Muokkaa ohjeita" false)))
-            actions.addChild((tree Rt (Spacer)))
-            actions.addChild((this.sheetBtn("rt-plan-confirm" "Jatka" "Jatka" true)))
+            this.planWeekRows(body)
         }
         if (st == "confirmation") {
-            actions.addChild((tree Rt (Spacer)))
-            actions.addChild((this.sheetBtn("rt-plan-create" "Luo suunnitelma" "Luo suunnitelma" true)))
+            this.planConfirmRows(body)
         }
         if (st == "editInstructions") {
-            actions.addChild((this.sheetBtn("rt-plan-reverse" "Käännä päivien järjestys" "Käännä järjestys" false)))
-            actions.addChild((tree Rt (Spacer)))
-            actions.addChild((this.sheetBtn("rt-plan-regen" "Luo uudelleen" "Luo uudelleen" true)))
+            this.planEditRows(body)
         }
-        sheet.addChild(actions)
-        return sheet
+        if (st == "creating") {
+            body.addChild((tree Rt (ModalDim (props (id "rt-plan-state")) "Luodaan harjoituksia…")))
+        }
+        if (st == "regenerating") {
+            body.addChild((tree Rt (ModalDim (props (id "rt-plan-state")) "Generoidaan...")))
+        }
+        def foot (tree Rt (ModalFoot))
+        foot.addChild((this.sheetBtn("rt-plan-close" "Peruuta" "Peruuta" false)))
+        if (st == "weekSelection") {
+            foot.addChild((this.sheetBtn("rt-plan-confirm" "Luo suunnitelma" "Luo suunnitelma" true)))
+        }
+        if (st == "confirmation") {
+            foot.addChild((this.sheetBtn("rt-plan-go" "Luo" "Luo" true)))
+        }
+        if (st == "editInstructions") {
+            foot.addChild((this.sheetBtn("rt-plan-regen" "Tallenna ohjeet ja generoi" "Tallenna ohjeet ja generoi" true)))
+        }
+        modal.addChild(body)
+        modal.addChild(foot)
+        return modal
     }
 
     fn sheetBtn:EVGElement (id:string label:string text:string primary:boolean) {
@@ -1422,100 +1528,106 @@ class RealTrainerDemo {
         return b
     }
 
-    fn planWeekRows:void (sheet:EVGElement) {
-        def week (tree Rt (SheetRow (SheetCap "Viikko")))
-        week.addChild((this.sheetBtn("rt-plan-prev" "Edellinen viikko" "◀" false)))
-        week.addChild((tree Rt (SheetVal (props (id "rt-plan-week")) (plan.text("targetWeekStart")))))
-        week.addChild((this.sheetBtn("rt-plan-next" "Seuraava viikko" "▶" false)))
-        sheet.addChild(week)
-        weekType.value = (plan.text("weekType"))
-        this.dress(weekType)
-        def kind (tree Rt (SheetRow (SheetCap "Tyyppi")))
-        kind.addChild((unwrap weekType.rootEl))
-        sheet.addChild(kind)
+    fn planWeekRows:void (body:EVGElement) {
+        def week (tree Rt (ModalRow))
+        week.addChild((this.iconBtn("rt-plan-prev" "" (RtIcons.chevronLeft("#f2f2f2")))))
+        def start:string (plan.text("targetWeekStart"))
+        def range:string ((((start + " – ") + (RtWeek.shifted(start 6))) + " Viikko ") + (to_string (RtWeek.isoWeekNumber(start))))
+        week.addChild((tree Rt (ModalTx (props (id "rt-plan-week")) range)))
+        week.addChild((this.iconBtn("rt-plan-next" "" (RtIcons.chevronRight("#f2f2f2")))))
+        body.addChild(week)
         if (plan.flag("showInstructionsField")) {
-            def instr@(mutable):string (plan.text("createInstructions"))
-            if ((strlen instr) == 0) {
-                instr = "—"
-            }
-            def row (tree Rt (SheetRow (SheetCap "Ohjeet")))
-            row.addChild((tree Rt (SheetVal (props (id "rt-plan-instr-val")) instr)))
-            row.addChild((tree Rt (Spacer)))
-            row.addChild((this.sheetBtn("rt-plan-instr" "Kirjoita esimerkkiohje" "Kirjoita ohje" false)))
-            sheet.addChild(row)
+            body.addChild((tree Rt (ModalTx "Anna ohjeita suunnitelman luomiseen")))
+            body.addChild((this.fieldBox(planField)))
         }
+        def info@(mutable):string "Luodaan tavoiteviikon harjoitukset valitulle viikolle"
+        if ((plan.text("weekType")) == "light") {
+            info = "Luodaan kevyen viikon harjoitukset valitulle viikolle"
+        }
+        body.addChild((tree Rt (ModalPara info)))
     }
 
-    ; The days of the chosen week, Monday first; the calendar's entries are
-    ; the ones the machine's named action selected for replacement.
-    fn planConfirmRows:void (sheet:EVGElement) {
-        sheet.addChild((tree Rt (SheetRow (SheetCap "Viikko") (Spacer)
-            (SheetVal (props (id "rt-plan-week")) (plan.text("targetWeekStart"))))))
-        def days (tree Rt (PlanDays))
-        def i:int 0
-        while (i < 7) {
-            def wd:int ((i + 1) % 7)
-            def ctl:CheckboxCtl (itemAt replaceDay wd)
-            ctl.checkState = 0
-            if (plan.flagIn("replaceSelectedByDay" wd)) {
-                ctl.checkState = 1
+    ; The week to be written over: empty, and it says so; or the days it has,
+    ; a checkbox each, selected by the machine's named action.
+    fn planConfirmRows:void (body:EVGElement) {
+        def start:string (plan.text("targetWeekStart"))
+        if ((plan.fetchedCount()) == 0) {
+            body.addChild((tree Rt (ModalPara "Viikko on tyhjä")))
+        } {
+            def days (tree Rt (PlanDays))
+            def i@(mutable):int 0
+            while (i < 7) {
+                def wd:int ((i + 1) % 7)
+                def ctl:CheckboxCtl (itemAt replaceDay wd)
+                ctl.checkState = 0
+                if (plan.flagIn("replaceSelectedByDay" wd)) {
+                    ctl.checkState = 1
+                }
+                this.dress(ctl)
+                def box:EVGElement (unwrap ctl.rootEl)
+                box.setAttribute("width" "220px")
+                def row (tree Rt (PlanDay))
+                row.addChild(box)
+                days.addChild(row)
+                i = (i + 1)
             }
-            this.dress(ctl)
-            def box:EVGElement (unwrap ctl.rootEl)
-            box.setAttribute("width" "220px")
-            def row (tree Rt (PlanDay))
-            row.addChild(box)
-            days.addChild(row)
-            i = (i + 1)
+            body.addChild(days)
         }
-        sheet.addChild(days)
-        sheet.addChild((tree Rt (SheetRow (SheetVal (props (id "rt-plan-fetched"))
-            ((to_string (plan.fetchedCount())) + " merkintää viikolla")))))
+        def range:string ((((start + " – ") + (RtWeek.shifted(start 6))) + " Viikko ") + (to_string (RtWeek.isoWeekNumber(start))))
+        body.addChild((tree Rt (ModalTx (props (id "rt-plan-week")) range)))
+        body.addChild((tree Rt (ModalPara "Luodaanko malliviikon harjoitukset tälle viikolle?")))
     }
 
-    ; The edit sheet: general feedback, then the days in the machine's order,
-    ; each with its instruction and its two switches.
-    fn planEditRows:void (sheet:EVGElement) {
-        def fb@(mutable):string (plan.text("editGeneralFeedback"))
-        if ((strlen fb) == 0) {
-            fb = "—"
-        }
-        def row (tree Rt (SheetRow (SheetCap "Palaute")))
-        row.addChild((tree Rt (SheetVal (props (id "rt-plan-feedback-val")) fb)))
-        row.addChild((tree Rt (Spacer)))
-        row.addChild((this.sheetBtn("rt-plan-feedback" "Kirjoita esimerkkipalaute" "Kirjoita palaute" false)))
-        sheet.addChild(row)
-        def days (tree Rt (PlanDays))
+    ; The edit sheet as `EditInstructionsDialog` lays it out: the general
+    ; feedback, then the days in the machine's order — a drag handle, the
+    ; day's current text, "the current one is fine", three buttons and the
+    ; day's own instruction field. There is no drag here; the handle is
+    ; drawn because the original's is, and answers nothing.
+    fn planEditRows:void (body:EVGElement) {
+        body.addChild((tree Rt (ModalTx "Yleiset ohjeet regenerointiin")))
+        body.addChild((this.fieldBox(editField)))
+        body.addChild((tree Rt (ModalTx "Päiväjärjestys ja päiväkohtaiset ohjeet (raahaa vasemman kahvan avulla)")))
+        def period:RtPeriod (seed.firstPeriod())
+        def week:RtExampleWeek (period.weekOf(exWeekType))
         def order:[int] (plan.dayOrder())
         for order d:int i {
+            def line (tree Rt (EditDay))
+            def top (tree Rt (ModalRow))
+            top.addChild((this.iconBtn(("rt-plan-drag-" + (to_string d)) "Raahaa päivän paikkaa" (RtIcons.ellipsis("#999999")))))
+            ; `d` is Monday-based, as the seed's `dayOfWeek` is.
+            def compact:string (week.dayAt(d))
+            def entry:RtEntry (RtEntry.of(compact))
+            def preview@(mutable):string ((RtWeek.dayShort(d)) + " ")
+            if ((strlen entry.title) > 0) {
+                preview = (preview + ("## " + entry.title))
+                if ((array_length entry.tags) > 0) {
+                    preview = (preview + (" · Tags " + (entry.tagText())))
+                }
+            } {
+                preview = (preview + "—")
+            }
+            top.addChild((tree Rt (EditDayTx preview)))
+            line.addChild(top)
             def kc:CheckboxCtl (itemAt keepDay d)
             kc.checkState = 0
             if (plan.flagIn("keepSameByDay" d)) {
                 kc.checkState = 1
             }
             this.dress(kc)
-            def sc:CheckboxCtl (itemAt showDay d)
-            sc.checkState = 0
-            if (plan.flagIn("showPreviousByDay" d)) {
-                sc.checkState = 1
-            }
-            this.dress(sc)
-            def line (tree Rt (PlanDay (PlanDayName (PlanDialogHost.dayName(((d + 1) % 7))))))
-            def note@(mutable):string (plan.textIn("editDayInstructions" d))
-            if ((strlen note) > 0) {
-                line.addChild((tree Rt (PlanDayNote note)))
-            }
-            line.addChild((tree Rt (Spacer)))
-            line.addChild((this.sheetBtn(("rt-plan-instr-" + (to_string d)) ("Ohje: " + (PlanDialogHost.dayName(((d + 1) % 7)))) "Ohje" false)))
             def keepBox:EVGElement (unwrap kc.rootEl)
-            keepBox.setAttribute("width" "230px")
+            keepBox.setAttribute("width" "300px")
             line.addChild(keepBox)
-            def showBox:EVGElement (unwrap sc.rootEl)
-            showBox.setAttribute("width" "230px")
-            line.addChild(showBox)
-            days.addChild(line)
+            def btns (tree Rt (ModalRow))
+            btns.addChild((this.sheetBtn(("rt-plan-accept-" + (to_string d)) "Hyväksy tämä" "Hyväksy tämä" false)))
+            btns.addChild((this.sheetBtn(("rt-plan-show-" + (to_string d)) "Näytä nykyinen" "Näytä nykyinen" false)))
+            btns.addChild((this.sheetBtn(("rt-plan-copy-" + (to_string d)) "Kopioi nykyinen" "Kopioi nykyinen" false)))
+            line.addChild(btns)
+            if (plan.flagIn("showPreviousByDay" d)) {
+                line.addChild((tree Rt (ModalPara compact)))
+            }
+            line.addChild((this.fieldBox((itemAt dayFields d))))
+            body.addChild(line)
         }
-        sheet.addChild(days)
     }
 
     ; The plan dialog's presses. It is modal in the same sense the add sheet
@@ -1527,13 +1639,14 @@ class RealTrainerDemo {
             }
             return (plan.open(true "cal-1"))
         }
-        if ((scene == "app") && ((id == "rt-plan-update") || (id == "rt-plan-create"))) {
-            return (plan.open(true "cal-plan"))
-        }
+
         if ((plan.isOpen()) == false) {
             return false
         }
-        if (id == "rt-plan-cancel") { return (plan.close()) }
+        if ((id == "rt-plan-cancel") || (id == "rt-plan-close")) {
+            modalScroll = 0.0
+            return (plan.close())
+        }
         if (id == "rt-plan-prev") { return (plan.shiftWeek(-1)) }
         if (id == "rt-plan-next") { return (plan.shiftWeek(1)) }
         if (RealTrainerDemo.owns((weekType.tids()) id)) {
@@ -1542,8 +1655,18 @@ class RealTrainerDemo {
         }
         if (id == "rt-plan-instr") { return (plan.setInstructions("Kevyt viikko, painotus tekniikkaan")) }
         if (id == "rt-plan-edit") { return (plan.openEdit()) }
-        if (id == "rt-plan-confirm") { return (plan.confirmWeek()) }
-        if (id == "rt-plan-create") {
+        if (id == "rt-plan-confirm") {
+            ; The week's entries, from the seed the reference was given too.
+            def week:[RtSeedEntry] (seed.entriesInWeek((plan.text("targetWeekStart"))))
+            def ids:[string]
+            def dates:[string]
+            for week e:RtSeedEntry i {
+                push ids e.id
+                push dates e.date
+            }
+            return (plan.confirmWeekWith(ids dates))
+        }
+        if (id == "rt-plan-go") {
             def started:boolean (plan.confirmReplacement())
             if started {
                 planJob.failNext = backend.failNext
@@ -1572,6 +1695,18 @@ class RealTrainerDemo {
         def show:int (RealTrainerDemo.dayOf(id "rt-plan-show-"))
         if (show >= 0) {
             return (plan.setShowPrevious(show ((plan.flagIn("showPreviousByDay" show)) == false)))
+        }
+        ; "Hyväksy tämä" keeps the day as it is; "Kopioi nykyinen" puts the
+        ; day's current text into its instruction field to edit from.
+        def accept:int (RealTrainerDemo.dayOf(id "rt-plan-accept-"))
+        if (accept >= 0) {
+            return (plan.setKeep(accept true))
+        }
+        def copy:int (RealTrainerDemo.dayOf(id "rt-plan-copy-"))
+        if (copy >= 0) {
+            def period:RtPeriod (seed.firstPeriod())
+            def week:RtExampleWeek (period.weekOf(exWeekType))
+            return (plan.setDayInstructions(copy (week.dayAt(copy))))
         }
         def instr:int (RealTrainerDemo.dayOf(id "rt-plan-instr-"))
         if (instr >= 0) {
@@ -1727,10 +1862,16 @@ class RealTrainerDemo {
             def prompt:string (chat.text("inputText"))
             def sent:boolean (chat.sendMessage())
             if sent {
-                ; The switch says the NEXT thing fails, and this is it.
-                chatSim.failNext = backend.failNext
-                backend.failNext = false
-                chatSim.begin(prompt)
+                chat.clearInput()
+                ; The switch says the NEXT thing fails, and this is it: the
+                ; request fails at once, as the original's does with no
+                ; backend behind it.
+                if backend.failNext {
+                    backend.failNext = false
+                    this.chatFailed()
+                } {
+                    chatSim.begin(prompt)
+                }
             }
             return sent
         }
@@ -1744,13 +1885,16 @@ class RealTrainerDemo {
         if (id == "rt-chat-retry") {
             def again:boolean (chat.retry())
             if again {
-                chatSim.failNext = backend.failNext
-                backend.failNext = false
-                def last@(mutable):string ""
-                if ((array_length chat.sentTexts) > 0) {
-                    last = (itemAt chat.sentTexts ((array_length chat.sentTexts) - 1))
+                if backend.failNext {
+                    backend.failNext = false
+                    this.chatFailed()
+                } {
+                    def last@(mutable):string ""
+                    if ((array_length chat.sentTexts) > 0) {
+                        last = (itemAt chat.sentTexts ((array_length chat.sentTexts) - 1))
+                    }
+                    chatSim.begin(last)
                 }
-                chatSim.begin(last)
             }
             return again
         }
@@ -1766,6 +1910,22 @@ class RealTrainerDemo {
         def rej:int (RealTrainerDemo.dayOf(id "rt-chat-reject-"))
         if (rej >= 0) { return (chat.rejectAction(rej)) }
         return false
+    }
+
+    ; The request failed. The machine goes through `error`, and the screen
+    ; answers it the way `AIDiaryChat` does: the failure becomes the
+    ; assistant's message in the log and the composer is free again — which
+    ; is CANCEL, from `error` back to `idle`.
+    fn chatFailed:void () {
+        chatSim.stop()
+        chat.streamError("Valitettavasti tapahtui virhe. Yritä uudelleen.")
+        push chat.replies "Valitettavasti tapahtui virhe. Yritä uudelleen."
+        chat.cancel()
+    }
+
+    ; The trace's `fail` step: the next request fails.
+    fn armFailure:void () {
+        backend.failNext = true
     }
 
     ; An accept may have moved the machine into `processing`; if it did, the
@@ -1787,7 +1947,9 @@ class RealTrainerDemo {
         if (this.isPortrait()) {
             page.addChild((this.phoneHeader()))
             page.addChild((this.phoneMain()))
+            this.overlays(page)
             page.addChild((this.bottomNav()))
+            this.addOverlay(page)
             page.addChild((tree Rt (PhToasts)))
             return page
         }
@@ -1797,8 +1959,71 @@ class RealTrainerDemo {
         side.addChild((this.phoneHeader()))
         side.addChild((this.phoneMain()))
         page.addChild(side)
+        this.overlays(page)
+        this.addOverlay(page)
         page.addChild((tree Rt (PhToasts)))
         return page
+    }
+
+    ; A dialog is drawn over everything. Where it comes in the tree is where
+    ; the original has it: the plan dialog and the More sheet BEFORE the
+    ; bar, the add sheet after it — the reference's tree reads them so.
+    fn overlays:void (page:EVGElement) {
+        if (plan.isOpen()) {
+            def over2 (tree Rt (Overlay))
+            over2.addChild((this.planSheet()))
+            page.addChild(over2)
+        }
+        if moreOpen {
+            def over3 (tree Rt (Overlay (props (className "rt-overlay rt-overlay-bottom"))))
+            over3.addChild((this.moreSheet()))
+            page.addChild(over3)
+        }
+    }
+
+    fn addOverlay:void (page:EVGElement) {
+        if (addDialog.isOpen()) {
+            def over (tree Rt (Overlay))
+            over.addChild((this.addSheet()))
+            page.addChild(over)
+        }
+    }
+
+    ; The bar's "Lisää": a sheet from the bottom with the rest of the app in
+    ; it, in the order `MoreSheet` lists them.
+    fn moreSheet:EVGElement () {
+        def sheet (tree Rt (MoreSheet))
+        def head (tree Rt (ModalHead))
+        head.addChild((tree Rt (ModalTx "Lisää")))
+        head.addChild((tree Rt (Spacer)))
+        head.addChild((this.iconBtn("rt-more-close" "" (RtIcons.x("#f2f2f2")))))
+        sheet.addChild(head)
+        def body (tree Rt (ModalBody))
+        body.addChild((this.moreItem("rt-more-yearsheet" "Vuosilakana" (RtIcons.calendarDays("#f2f2f2")))))
+        body.addChild((this.moreItem("rt-more-venues" "Harjoituspaikat" (RtIcons.building("#f2f2f2")))))
+        body.addChild((this.moreItem("rt-more-knowledge" "Tietopankki" (RtIcons.bookOpen("#f2f2f2")))))
+        body.addChild((this.moreItem("rt-more-shared" "Jaetut kalenterit" (RtIcons.users("#f2f2f2")))))
+        body.addChild((this.moreItem("rt-more-settings" "Asetukset" (RtIcons.settings("#f2f2f2")))))
+        body.addChild((this.moreItem("rt-more-export" "Vie tietokanta" (RtIcons.database("#f2f2f2")))))
+        def theme (tree Rt (ModalRow))
+        theme.addChild((tree Rt (ModalTx "Teema")))
+        theme.addChild((tree Rt (Spacer)))
+        theme.addChild((this.iconBtn("rt-more-theme" "Toggle theme" (RtIcons.settings("#f2f2f2")))))
+        body.addChild(theme)
+        body.addChild((this.moreItem("rt-more-logout" "Kirjaudu ulos" (RtIcons.logOut("#f2f2f2")))))
+        sheet.addChild(body)
+        return sheet
+    }
+
+    fn moreItem:EVGElement (id:string label:string icon:string) {
+        def b (tree Rt (MoreItem))
+        b.id = id
+        b.a11yLabel = label
+        def ic (tree Rt (PhIcon))
+        ic.svgSource = icon
+        b.addChild(ic)
+        b.addChild((tree Rt (MoreItemTx label)))
+        return b
     }
 
     fn phoneHeader:EVGElement () {
@@ -1836,22 +2061,104 @@ class RealTrainerDemo {
             body.addChild((this.chatBody()))
         }
         if (section == "dashboard") {
-            body.addChild((this.dashPanel()))
+            this.phoneDashboard(body)
         }
         if (section == "home") {
-            body.addChild((tree Rt (Section (props (id "rt-h-home")) "Koti")))
-        }
-        if (section == "more") {
-            body.addChild((tree Rt (Section (props (id "rt-h-more")) "Lisää")))
-        }
-        if (addDialog.isOpen()) {
-            body.addChild((this.addSheet()))
-        }
-        if (plan.isOpen()) {
-            body.addChild((this.planSheet()))
+            this.homeSection(body)
         }
         main.addChild(body)
         return main
+    }
+
+    ; Home, as `HomeView` has it: the two actions, the quick entry with its
+    ; image and send buttons, and the coming events — none, and the past ones
+    ; behind a button that counts them.
+    fn homeSection:void (body:EVGElement) {
+        def actions (tree Rt (CalActions))
+        actions.addChild((this.calButton("rt-add" "Lisää harjoitus" (RtIcons.penLine("#ffffff")))))
+        if ((array_length seed.periods) > 0) {
+            actions.addChild((this.calButton("rt-plan-update" "Päivitä suunnitelma" (RtIcons.refreshCw("#ffffff")))))
+        }
+        body.addChild(actions)
+        def home (tree Rt (Col (props (className "rt-home"))))
+        def entry (tree Rt (ModalRow))
+        entry.addChild((this.iconBtn("rt-home-image" "Lisää kuva" (RtIcons.penLine("#999999")))))
+        def box (tree Rt (HomeBox))
+        box.addChild((tree Rt (FieldGhost "Kirjoita merkintä... esim. \"maanantai: juoksu 45min\"")))
+        entry.addChild(box)
+        def send (this.iconBtn("rt-home-send" "" (RtIcons.chevronRight("#ffffff"))))
+        send.className = "rt-icon-btn rt-send-btn"
+        entry.addChild(send)
+        home.addChild(entry)
+        def empty (tree Rt (Row (props (className "rt-home-center"))))
+        empty.addChild((tree Rt (ChatPara (props (className "rt-home-empty")) "Ei tulevia tapahtumia")))
+        home.addChild(empty)
+        def pastRow (tree Rt (Row (props (className "rt-home-center"))))
+        def past:int (array_length seed.entries)
+        def pastBtn (this.exButton("rt-home-past" (("Näytä menneet (" + (to_string past)) + ")") (("Näytä menneet (" + (to_string past)) + ")")))
+        pastBtn.className = "rt-ex-btn rt-link-btn"
+        RealTrainerDemo.tintText(pastBtn "rt-ex-btn-text rt-link-text")
+        pastRow.addChild(pastBtn)
+        home.addChild(pastRow)
+        body.addChild(home)
+    }
+
+    ; The dashboard, as `DashboardView` has it on the phone: the heading and
+    ; the edit button, the active plan with its card, and the period the
+    ; calendar is in — counted from the plan's start to today.
+    fn phoneDashboard:void (body:EVGElement) {
+        def dash (tree Rt (Col (props (className "rt-dash-phone"))))
+        def top (tree Rt (ModalRow))
+        top.addChild((tree Rt (DashHd "Dashboard")))
+        top.addChild((tree Rt (Spacer)))
+        def edit (this.exButton("rt-dash-edit" "Muokkaa vuosisuunnitelmaa" "Muokkaa vuosisuunnitelmaa"))
+        edit.className = "rt-ex-btn rt-outline-btn"
+        top.addChild(edit)
+        dash.addChild(top)
+        def active (tree Rt (ModalRow))
+        active.addChild((tree Rt (DashH2 (props (id "rt-h-plan")) "Aktiivinen suunnitelma")))
+        active.addChild((tree Rt (Spacer)))
+        def open (this.exButton("rt-dash-open" "Avaa suunnitelma" "Avaa suunnitelma ›"))
+        open.className = "rt-ex-btn rt-link-btn"
+        RealTrainerDemo.tintText(open "rt-ex-btn-text rt-link-text")
+        active.addChild(open)
+        dash.addChild(active)
+        def card (tree Rt (DashCard (props (id "rt-dash-plan"))))
+        card.addChild((tree Rt (DashH3 (props (id "rt-dash-plan-name")) seed.sheetName)))
+        card.addChild((tree Rt (DashPara (props (id "rt-dash-plan-desc")) seed.sheetDescription)))
+        card.addChild((tree Rt (DashPara (props (id "rt-dash-plan-when")) ("Aloitettu: " + (RtWeek.fiDate(seed.sheetStart))))))
+        dash.addChild(card)
+        if ((array_length seed.periods) > 0) {
+            def period:RtPeriod (seed.firstPeriod())
+            dash.addChild((tree Rt (DashH3 (props (id "rt-h-period") (className "rt-dash-h2")) "Nykyinen jakso")))
+            def now (tree Rt (DashCard (props (id "rt-dash-period"))))
+            def nameRow (tree Rt (ModalRow))
+            nameRow.addChild((tree Rt (DashPara (props (id "rt-dash-period-name") (className "rt-dash-h3")) period.name)))
+            nameRow.addChild((tree Rt (Spacer)))
+            nameRow.addChild((tree Rt (DashMeta (props (className "rt-dash-kind")) period.kind)))
+            now.addChild(nameRow)
+            def weekNo:int (to_int (((int2double ((RtWeek.daysOf(today)) - (RtWeek.daysOf(seed.sheetStart))))) / 7.0))
+            now.addChild((tree Rt (DashPara (props (id "rt-dash-week")) ((("Viikko " + (to_string (weekNo + 1))) + " / ") + (to_string period.durationWeeks)))))
+            def bar (tree Rt (Row (props (className "rt-dash-bar"))))
+            def fill (tree Rt (Row (props (className "rt-dash-bar-fill"))))
+            def pct@(mutable):int 0
+            if (period.durationWeeks > 0) {
+                pct = (to_int ((int2double ((weekNo + 1) * 100)) / (int2double period.durationWeeks)))
+            }
+            if (pct > 100) { pct = 100 }
+            fill.setAttribute("width" ((to_string pct) + "%"))
+            bar.addChild(fill)
+            now.addChild(bar)
+            def ends:string (RtWeek.shifted(seed.sheetStart ((period.durationWeeks * 7) - 1)))
+            def dates (tree Rt (ModalRow))
+            dates.addChild((tree Rt (DashMeta (RtWeek.fiDate(seed.sheetStart)))))
+            dates.addChild((tree Rt (Spacer)))
+            dates.addChild((tree Rt (DashMeta (RtWeek.fiDate(ends)))))
+            now.addChild(dates)
+            now.addChild((tree Rt (DashPara (props (id "rt-dash-goal") (className "rt-dash-goal")) ("Tavoite: " + period.goals))))
+            dash.addChild(now)
+        }
+        body.addChild(dash)
     }
 
     ; Five at the bottom, the way `MobileBottomNav` has them, active in the
@@ -1862,7 +2169,7 @@ class RealTrainerDemo {
         nav.addChild((this.navItem("rt-nav-calendar" "Kalenteri" (section == "calendar") (RtIcons.calendarDays((this.navColor((section == "calendar"))))))))
         nav.addChild((this.navItem("rt-nav-dashboard" "Dashboard" (section == "dashboard") (RtIcons.layoutDashboard((this.navColor((section == "dashboard"))))))))
         nav.addChild((this.navItem("rt-nav-chat" "AI Chat" (section == "chat") (RtIcons.messageSquare((this.navColor((section == "chat"))))))))
-        nav.addChild((this.navItem("rt-nav-more" "Lisää" (section == "more") (RtIcons.ellipsis((this.navColor((section == "more"))))))))
+        nav.addChild((this.navItem("rt-nav-more" "Lisää" moreOpen (RtIcons.ellipsis((this.navColor(moreOpen)))))))
         return nav
     }
 
@@ -1895,7 +2202,7 @@ class RealTrainerDemo {
     ; and at the bottom the export, the theme and the way out.
     fn iconRail:EVGElement () {
         def rail (tree Rt (PhRail))
-        def gauge (tree Rt (PhRailBtn (props (id "rt-credits") (a11yLabel "AI Credits: 100k. Click to purchase more credits."))))
+        def gauge (tree Rt (PhRailBtn (props (id "rt-rail-credits") (a11yLabel "AI Credits: 100k. Click to purchase more credits."))))
         def g (tree Rt (PhIcon))
         g.svgSource = (RtIcons.battery("#22c55e"))
         gauge.addChild(g)
@@ -2142,6 +2449,16 @@ class RealTrainerDemo {
         return panel
     }
 
+    ; The button's text child, reclassed — the stylesheet subset has no
+    ; descendant selectors beyond a theme's.
+    sfn tintText:void (b:EVGElement className:string) {
+        for b.children c:EVGElement i {
+            if (c.elementType == 1) {
+                c.className = className
+            }
+        }
+    }
+
     fn exButton:EVGElement (id:string label:string text:string) {
         def b (tree Rt (ExBtn))
         b.id = id
@@ -2165,26 +2482,155 @@ class RealTrainerDemo {
 
     ; The conversation, as a section rather than a screen: the same log and
     ; box `chatScreen` draws, without the frame around them.
+    ; `AIDiaryChat` on a phone: a heading, four tools, the calendar chip, a
+    ; word of help and the example questions while there is nothing yet, the
+    ; conversation, the actions a reply proposes, and the composer.
     fn chatBody:EVGElement () {
-        def full:EVGElement (this.chatScreen())
+        def st:string (chat.state())
         def col (tree Rt (Col (props (className "rt-chat-section"))))
-        def found@(optional):EVGElement (RealTrainerDemo.byId(full "rt-chat-log"))
-        if found {
-            col.addChild((unwrap found))
+        def hd (tree Rt (ModalRow))
+        hd.addChild((tree Rt (ChatHd "AI Chat")))
+        if ((array_length chat.sentTexts) > 0) {
+            hd.addChild((tree Rt (Spacer)))
+            hd.addChild((this.iconBtn("rt-chat-copy-all" "Kopioi koko keskustelu" (RtIcons.bookOpen("#999999")))))
         }
-        def box@(optional):EVGElement (RealTrainerDemo.byId(full "rt-chat-box"))
-        if box {
-            col.addChild((unwrap box))
+        col.addChild(hd)
+        def tools (tree Rt (ChatTools))
+        tools.addChild((this.chatTool("rt-chat-new" "Uusi keskustelu")))
+        tools.addChild((this.chatTool("rt-chat-history" "Keskusteluhistoria")))
+        tools.addChild((this.chatTool("rt-chat-notes" "Tallennetut muistiinpanot")))
+        tools.addChild((this.chatTool("rt-chat-guide" "AI-ohjeet")))
+        col.addChild(tools)
+        col.addChild((this.chatTool("rt-chat-cal" seed.calendarName)))
+        if ((array_length chat.sentTexts) == 0) {
+            col.addChild((tree Rt (ChatPara "Valitse kalenteri(t) ja kysy mitä vain päiväkirjamerkinnöistäsi!")))
+            col.addChild((this.chatTool("rt-chat-feedback" "Anna palautetta harjoittelustani")))
+            col.addChild((tree Rt (ChatPara "Esimerkkikysymyksiä:")))
+            col.addChild((tree Rt (ChatPara "\"Paljonko söin proteiinia viime viikolla?\"")))
+            col.addChild((tree Rt (ChatPara "\"Analysoi harjoitteluni viimeisen kuukauden aikana\"")))
+            col.addChild((tree Rt (ChatPara "\"Mitä parannettavaa näet ruokavaliossani?\"")))
         }
+        ; The log: a message and, as `DiaryChatMessageItem` has them, "copy"
+        ; after each, and "save to notes" before the assistant's.
+        def log (tree Rt (ChatLog))
+        for chat.sentTexts sent:string i {
+            def mine (tree Rt (MsgRow (props (className "rt-msg-row rt-msg-row-end"))))
+            mine.addChild((tree Rt (ChatUser (ChatTx sent))))
+            mine.addChild((this.iconBtn(("rt-chat-copy-u" + (to_string i)) "Kopioi viesti" (RtIcons.bookOpen("#999999")))))
+            log.addChild(mine)
+            if (i < (array_length chat.replies)) {
+                def reply:string (itemAt chat.replies i)
+                def theirs (tree Rt (MsgRow))
+                theirs.addChild((this.iconBtn(("rt-chat-note-" + (to_string i)) "Tallenna muistiin" (RtIcons.penLine("#999999")))))
+                theirs.addChild((tree Rt (ChatBot (ChatTx reply))))
+                theirs.addChild((this.iconBtn(("rt-chat-copy-a" + (to_string i)) "Kopioi viesti" (RtIcons.bookOpen("#999999")))))
+                log.addChild(theirs)
+            }
+        }
+        if (chat.inside("sending")) {
+            def streaming@(mutable):string (chat.text("streamingContent"))
+            if ((strlen streaming) == 0) {
+                streaming = "…"
+            }
+            log.addChild((tree Rt (ChatStream (ChatTx streaming))))
+        }
+        col.addChild(log)
+        if (chat.inside("reviewing")) {
+            def box (tree Rt (ChatBox))
+            this.chatReviewRows(box (st == "reviewing.multiAction"))
+            col.addChild(box)
+        }
+        if (chat.inside("processing")) {
+            col.addChild((tree Rt (ChatPara (props (id "rt-chat-state")) "Tallennetaan päiväkirjaan…")))
+        }
+        if (st == "error") {
+            col.addChild((tree Rt (SheetErr (props (id "rt-chat-err")) (chat.text("error")))))
+            def again (tree Rt (ModalRow))
+            again.addChild((this.sheetBtn("rt-chat-cancel" "Peruuta" "Peruuta" false)))
+            again.addChild((this.sheetBtn("rt-chat-retry" "Yritä uudelleen" "Yritä uudelleen" true)))
+            col.addChild(again)
+        }
+        ; The composer. While the reply streams the send button is disabled
+        ; and shows a spinner in the original; there is no cancel button, and
+        ; none here — CANCEL stays reachable by id for the host's tests.
+        def compose (tree Rt (ChatCompose))
+        compose.addChild((this.fieldBox(chatField)))
+        def send (this.iconBtn("rt-chat-send" "" (RtIcons.chevronRight("#ffffff"))))
+        send.className = "rt-icon-btn rt-send-btn"
+        def canSend@(mutable):boolean (st == "idle")
+        if ((strlen (chat.text("inputText"))) == 0) {
+            if ((chat.hasImage()) == false) {
+                canSend = false
+            }
+        }
+        if (canSend == false) {
+            send.a11yDisabled = true
+            send.className = "rt-icon-btn rt-send-btn rt-send-off"
+        }
+        compose.addChild(send)
+        col.addChild(compose)
         return col
     }
 
+    fn chatTool:EVGElement (id:string label:string) {
+        def b (tree Rt (ChatTool))
+        b.id = id
+        b.a11yLabel = label
+        b.addChild((tree Rt (ChatToolTx label)))
+        return b
+    }
+
     fn pressApp:boolean (id:string) {
+        ; The sheet the bar opened is answered first: it is over everything.
+        ; The bar stays reachable under it, and a press there closes it on
+        ; the way.
+        if moreOpen {
+            if ((id == "rt-more-close") || (id == "rt-nav-more")) {
+                moreOpen = false
+                return true
+            }
+            if ((strlen id) > 7) {
+                if ((substring id 0 7) == "rt-nav-") {
+                    moreOpen = false
+                } {
+                    if ((strlen id) > 8) {
+                        if ((substring id 0 8) == "rt-more-") {
+                            ; The pages behind these are not in the port;
+                            ; the sheet closes, as it would on the way to one.
+                            moreOpen = false
+                            return true
+                        }
+                    }
+                    return false
+                }
+            } {
+                return false
+            }
+        }
         if (id == "rt-nav-home") { return (this.goSection("home")) }
-        if (id == "rt-nav-calendar") { return (this.goSection("calendar")) }
+        if (id == "rt-nav-calendar") {
+            ; The bar's calendar is this week's; the route's `?week=` is
+            ; only for the route.
+            weekStart = (RtWeek.mondayOf(today))
+            this.goSection("calendar")
+            return true
+        }
         if (id == "rt-nav-dashboard") { return (this.goSection("dashboard")) }
         if (id == "rt-nav-chat") { return (this.goSection("chat")) }
-        if (id == "rt-nav-more") { return (this.goSection("more")) }
+        if (id == "rt-nav-more") {
+            moreOpen = true
+            return true
+        }
+        if ((id == "rt-plan-update") || (id == "rt-plan-create")) {
+            def opened:boolean (plan.open(true "cal-plan"))
+            if opened {
+                plan.setWeekType(exWeekType)
+                def e:ScEvent (ScEvent.of("SET_WEEK_START"))
+                e.withStr("weekStart" weekStart)
+                plan.send(e)
+            }
+            return opened
+        }
         if (section != "calendar") {
             return false
         }
@@ -2216,8 +2662,8 @@ class RealTrainerDemo {
             exWeekType = "light"
             return true
         }
-        if ((id == "rt-plan-update") || (id == "rt-plan-create")) {
-            return (plan.open(true "cal-plan"))
+        if (id == "rt-ex-edit") {
+            return (plan.openEdit())
         }
         return false
     }
@@ -2228,6 +2674,194 @@ class RealTrainerDemo {
         }
         section = name
         docScroll = 0.0
+        return true
+    }
+
+    ; --- the text fields ---------------------------------------------------------
+    fn fields:[InputCtl] () {
+        def a:[InputCtl]
+        push a chatField
+        push a planField
+        push a addField
+        push a editField
+        for dayFields f:InputCtl i {
+            push a f
+        }
+        return a
+    }
+
+    fn fieldFor:InputCtl (tid:string) {
+        def all:[InputCtl] (this.fields())
+        for all c:InputCtl i {
+            if (c.tid == tid) {
+                return c
+            }
+            if ((c.tid + "-text") == tid) {
+                return c
+            }
+        }
+        return (new InputCtl())
+    }
+
+    fn hasField:boolean (tid:string) {
+        def c:InputCtl (this.fieldFor(tid))
+        return ((strlen c.tid) > 0)
+    }
+
+    fn engine:EVGTextEngine () {
+        return (measurer.getTextEngine())
+    }
+
+    ; The box the original's textarea is: the value or the placeholder, and a
+    ; caret when it has focus, placed by measuring the text before it — the
+    ; same measurement the painter makes, so it lands between the right two
+    ; glyphs. See `gallery/ui/demo/FormDemo.rgr`, which this follows.
+    fn fieldBox:EVGElement (c:InputCtl) {
+        def box (tree Rt (Field))
+        box.id = c.tid
+        box.a11yLabel = c.name
+        if ((strlen c.value) == 0) {
+            box.addChild((tree Rt (FieldGhost c.placeholder)))
+        } {
+            def glyphs:string (c.glyphText())
+            def t (tree Rt (FieldText glyphs))
+            t.id = (c.tid + "-text")
+            box.addChild(t)
+        }
+        if (focused == c.tid) {
+            box.className = "rt-field rt-field-focused"
+            def eng:EVGTextEngine (this.engine())
+            def cx:double (c.caretXAt(eng c.caret))
+            def car (tree Rt (FieldCaret))
+            car.id = (c.tid + "-caret")
+            car.left = (EVGUnit.px((cx - c.scrollX)))
+            box.addChild(car)
+        }
+        return box
+    }
+
+    ; An edit reached the field; the machine hears about it, and the field is
+    ; drawn from the machine again on the next rebuild.
+    fn fieldChanged:void (c:InputCtl) {
+        if (c.tid == "rt-chat-field") {
+            chat.setInput(c.value)
+        }
+        if (c.tid == "rt-plan-field") {
+            plan.setInstructions(c.value)
+        }
+        if (c.tid == "rt-add-field") {
+            addDialog.send("SET_INPUT_TEXT" c.value)
+        }
+        if (c.tid == "rt-plan-edit-field") {
+            plan.setFeedback(c.value)
+        }
+        def day:int (RealTrainerDemo.dayOf(c.tid "rt-plan-day-field-"))
+        if (day >= 0) {
+            plan.setDayInstructions(day c.value)
+        }
+    }
+
+    ; Set the fields from the machines before drawing them.
+    fn syncFields:void () {
+        if ((chat.text("inputText")) != chatField.value) {
+            chatField.setValue((chat.text("inputText")))
+        }
+        if ((plan.text("createInstructions")) != planField.value) {
+            planField.setValue((plan.text("createInstructions")))
+        }
+        if (addDialog.inputText != addField.value) {
+            addField.setValue(addDialog.inputText)
+        }
+        if ((plan.text("editGeneralFeedback")) != editField.value) {
+            editField.setValue((plan.text("editGeneralFeedback")))
+        }
+        for dayFields f:InputCtl d {
+            def note:string (plan.textIn("editDayInstructions" d))
+            if (note != f.value) {
+                f.setValue(note)
+            }
+        }
+    }
+
+    ; One whole string, a character at a time — the harness's `type` step.
+    fn typeText:boolean (text:string) {
+        if ((this.hasField(focused)) == false) {
+            return false
+        }
+        def c:InputCtl (this.fieldFor(focused))
+        def i@(mutable):int 0
+        def len:int (strlen text)
+        while (i < len) {
+            c.typeChar(focused (substring text i (i + 1)))
+            i = (i + 1)
+        }
+        c.ensureCaretVisible((this.engine()))
+        this.fieldChanged(c)
+        this.rebuild()
+        return true
+    }
+
+    fn typeChar:boolean (ch:string) {
+        return (this.typeText(ch))
+    }
+
+    fn keyWith:boolean (k:string shift:boolean ctrl:boolean) {
+        if ((this.hasField(focused)) == false) {
+            return false
+        }
+        def c:InputCtl (this.fieldFor(focused))
+        c.keyDownWith(focused k shift ctrl)
+        c.ensureCaretVisible((this.engine()))
+        this.fieldChanged(c)
+        this.rebuild()
+        return true
+    }
+
+    ; --- what the browser's text session asks ---------------------------------
+    fn focusedField:string () {
+        if (this.hasField(focused)) {
+            return focused
+        }
+        return ""
+    }
+
+    fn setFocus:void (id:string) {
+        focused = id
+    }
+
+    fn fieldStateJson:string (tid:string) {
+        def c:InputCtl (this.fieldFor(tid))
+        if (c.tid != tid) {
+            return "null"
+        }
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def found@(optional):EVGElement (RealTrainerDemo.byId(r tid))
+        def out@(mutable):string "{"
+        out = (out + "\"tid\":" + (EVGA11yTree.jsonString(c.tid)))
+        out = (out + ",\"value\":" + (EVGA11yTree.jsonString(c.value)))
+        out = (out + ",\"selStart\":" + (to_string (c.selStart())))
+        out = (out + ",\"selEnd\":" + (to_string (c.selEnd())))
+        out = (out + ",\"kind\":\"text\",\"maxLength\":0")
+        if found {
+            def box:EVGElement (unwrap found)
+            out = (out + ",\"box\":{\"x\":" + (to_string (to_int (box.calculatedX))))
+            out = (out + ",\"y\":" + (to_string (to_int (box.calculatedY))))
+            out = (out + ",\"w\":" + (to_string (to_int (box.calculatedWidth))))
+            out = (out + ",\"h\":" + (to_string (to_int (box.calculatedHeight))) + "}")
+        }
+        return (out + "}")
+    }
+
+    fn applyEdit:boolean (tid:string v:string selStart:int selEnd:int) {
+        def c:InputCtl (this.fieldFor(tid))
+        if (c.tid != tid) {
+            return false
+        }
+        c.applyEdit(v selStart selEnd)
+        c.ensureCaretVisible((this.engine()))
+        this.fieldChanged(c)
+        this.rebuild()
         return true
     }
 
@@ -2264,6 +2898,20 @@ class RealTrainerDemo {
     fn scrollDocument:boolean (delta:double) {
         if (scene == "app") {
             def r0:EVGElement (unwrap root)
+            ; A dialog that is open takes the wheel: its body scrolls, the
+            ; page under it does not.
+            if (plan.isOpen()) {
+                def foundM@(optional):EVGElement (RealTrainerDemo.byId(r0 "rt-plan-body"))
+                if foundM {
+                    def mb:EVGElement (unwrap foundM)
+                    def beforeM:double mb.scrollTop
+                    mb.scrollTop = (mb.scrollTop + delta)
+                    this.laidOut()
+                    modalScroll = mb.scrollTop
+                    return (mb.scrollTop != beforeM)
+                }
+                return false
+            }
             def found0@(optional):EVGElement (RealTrainerDemo.byId(r0 "rt-ph-main"))
             if found0 {
                 def body:EVGElement (unwrap found0)
@@ -2316,6 +2964,7 @@ class RealTrainerDemo {
     }
 
     fn rebuild:void () {
+        this.syncFields()
         if (scene == "signin") {
             root = (this.signin())
         }
@@ -2376,7 +3025,7 @@ class RealTrainerDemo {
                 chat.complete(chatSim.reply chatSim.kinds chatSim.ids)
             }
             if (chatSim.produced == "error") {
-                chat.streamError("Yhteys valmentajaan katkesi")
+                this.chatFailed()
             }
             this.rebuild()
             return true
@@ -2610,6 +3259,13 @@ class RealTrainerDemo {
         if (id == "") {
             return false
         }
+        ; A field takes focus, and that is all a press on it does.
+        if (this.hasField(id)) {
+            def c:InputCtl (this.fieldFor(id))
+            focused = c.tid
+            this.rebuild()
+            return true
+        }
         ; The rail is drawn on three screens, so it is answered before any of
         ; them. It used to live inside the dashboard's branch, which is why its
         ; buttons did nothing while a session was open — a navigation you can
@@ -2734,7 +3390,13 @@ class RealTrainerDemo {
         if (id == "rt-sheet-type") {
             return (addDialog.send("SET_INPUT_TEXT" "Exercise Maastaveto|3x5@100kg"))
         }
+        if (id == "rt-sheet-image") {
+            return false
+        }
         if (id == "rt-sheet-save") {
+            if ((strlen addDialog.inputText) == 0) {
+                return false
+            }
             def started:boolean (addDialog.send("START_SAVING" ""))
             if (started) {
                 backend.begin(addDialog.inputText)

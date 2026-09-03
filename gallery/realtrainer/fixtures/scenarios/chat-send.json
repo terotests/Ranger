@@ -1,0 +1,45 @@
+{
+  "_": "AI Chat on the phone: the screen, a question typed, sent — and the request failing, which is what the reference does with no AI behind it. The failure is the assistant's message in the log and the composer is free again.",
+  "id": "chat-send-fails",
+  "area": "keskustelu",
+  "machine": "chat",
+  "source": "frontend/src/machines/chatMachine.ts",
+  "reference": {
+    "route": "/calendar/cal-plan?week=2026-02-09"
+  },
+  "setup": [
+    {
+      "page": "390x844",
+      "why": "a phone, upright"
+    },
+    {
+      "route": "/calendar/cal-plan?week=2026-02-09"
+    },
+    {
+      "fail": "chat",
+      "why": "the reference's request fails at once; this side is told to"
+    }
+  ],
+  "steps": [
+    {
+      "id": "rt-nav-chat",
+      "role": "button",
+      "name": "AI Chat",
+      "state": "idle"
+    },
+    {
+      "id": "rt-chat-field",
+      "role": "textbox",
+      "name": "Kysy jotain päiväkirjastasi...",
+      "type": "Maastaveto 3x5@100kg",
+      "state": "idle"
+    },
+    {
+      "id": "rt-chat-send",
+      "role": "button",
+      "name": "",
+      "state": "idle",
+      "why": "the send button is an icon with no name in the original; the failed request lands back in idle with the error in the log"
+    }
+  ]
+}

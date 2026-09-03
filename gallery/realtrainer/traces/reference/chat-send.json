@@ -1,17 +1,13 @@
 {
- "id": "add-workout-open-type-save",
- "machine": "addWorkoutDialog",
+ "id": "chat-send-fails",
+ "machine": "chat",
+ "viewport": "390x844",
  "frames": [
   {
-   "step": "rt-add",
+   "step": "rt-nav-chat",
    "handled": true,
-   "state": "open",
+   "state": "",
    "nodes": [
-    {
-     "role": "group",
-     "name": "RealTrainer",
-     "state": ""
-    },
     {
      "role": "banner",
      "name": "",
@@ -23,8 +19,23 @@
      "state": ""
     },
     {
+     "role": "img",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "100k credits",
+     "state": ""
+    },
+    {
      "role": "button",
      "name": "📋 Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "T",
      "state": ""
     },
     {
@@ -33,128 +44,68 @@
      "state": ""
     },
     {
-     "role": "button",
-     "name": "Lisää harjoitus",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Päivitä suunnitelma",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Viikot",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Malliviikko",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Edellinen viikko",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "vko 7 9. – 15.2.",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Luo suunnitelma",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Seuraava viikko",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "9 Ma –",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "10 Ti Kevyt salitreeni #kuntosali #voima #kevyt",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "11 Ke –",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "12 To –",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "13 Pe –",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "14 La –",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "15 Su –",
-     "state": ""
-    },
-    {
-     "role": "navigation",
-     "name": "",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Koti",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Kalenteri",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Dashboard",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "AI Chat",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Lisää",
-     "state": ""
-    },
-    {
      "role": "heading",
-     "name": "Lisää harjoitus",
+     "name": "AI Chat",
      "state": "level=2"
     },
     {
      "role": "button",
-     "name": "",
+     "name": "Uusi keskustelu",
      "state": ""
     },
     {
      "role": "button",
-     "name": "Lisää kuva",
+     "name": "Keskusteluhistoria",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Tallennetut muistiinpanot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI-ohjeet",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Valitse kalenteri(t) ja kysy mitä vain päiväkirjamerkinnöistäsi!",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Anna palautetta harjoittelustani",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "\"Esimerkkikysymyksiä:\"",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "\"\\\"Paljonko söin proteiinia viime viikolla?\\\"\"",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "\"\\\"Analysoi harjoitteluni viimeisen kuukauden aikana\\\"\"",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "\"\\\"Mitä parannettavaa näet ruokavaliossani?\\\"\"",
      "state": ""
     },
     {
      "role": "textbox",
-     "name": "Luo harjoitusohjelma, esim. \"viikon peruskuntojakso\"",
+     "name": "Kysy jotain päiväkirjastasi...",
      "state": ""
     },
     {
@@ -163,6 +114,36 @@
      "state": "disabled"
     },
     {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
      "role": "region",
      "name": "Notifications alt+T",
      "state": ""
@@ -170,15 +151,10 @@
    ]
   },
   {
-   "step": "rt-add-field",
+   "step": "rt-chat-field",
    "handled": true,
-   "state": "open",
+   "state": "",
    "nodes": [
-    {
-     "role": "group",
-     "name": "RealTrainer",
-     "state": ""
-    },
     {
      "role": "banner",
      "name": "",
@@ -190,8 +166,23 @@
      "state": ""
     },
     {
+     "role": "img",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "100k credits",
+     "state": ""
+    },
+    {
      "role": "button",
      "name": "📋 Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "T",
      "state": ""
     },
     {
@@ -200,78 +191,73 @@
      "state": ""
     },
     {
+     "role": "heading",
+     "name": "AI Chat",
+     "state": "level=2"
+    },
+    {
      "role": "button",
-     "name": "Lisää harjoitus",
+     "name": "Uusi keskustelu",
      "state": ""
     },
     {
      "role": "button",
-     "name": "Päivitä suunnitelma",
+     "name": "Keskusteluhistoria",
      "state": ""
     },
     {
      "role": "button",
-     "name": "Viikot",
+     "name": "Tallennetut muistiinpanot",
      "state": ""
     },
     {
      "role": "button",
-     "name": "Malliviikko",
+     "name": "AI-ohjeet",
      "state": ""
     },
     {
      "role": "button",
-     "name": "Edellinen viikko",
+     "name": "Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Valitse kalenteri(t) ja kysy mitä vain päiväkirjamerkinnöistäsi!",
      "state": ""
     },
     {
      "role": "button",
-     "name": "vko 7 9. – 15.2.",
+     "name": "Anna palautetta harjoittelustani",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "\"Esimerkkikysymyksiä:\"",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "\"\\\"Paljonko söin proteiinia viime viikolla?\\\"\"",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "\"\\\"Analysoi harjoitteluni viimeisen kuukauden aikana\\\"\"",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "\"\\\"Mitä parannettavaa näet ruokavaliossani?\\\"\"",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "Kysy jotain päiväkirjastasi...",
      "state": ""
     },
     {
      "role": "button",
-     "name": "Luo suunnitelma",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Seuraava viikko",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "9 Ma –",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "10 Ti Kevyt salitreeni #kuntosali #voima #kevyt",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "11 Ke –",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "12 To –",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "13 Pe –",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "14 La –",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "15 Su –",
+     "name": "",
      "state": ""
     },
     {
@@ -305,31 +291,6 @@
      "state": ""
     },
     {
-     "role": "heading",
-     "name": "Lisää harjoitus",
-     "state": "level=2"
-    },
-    {
-     "role": "button",
-     "name": "",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Lisää kuva",
-     "state": ""
-    },
-    {
-     "role": "textbox",
-     "name": "Luo harjoitusohjelma, esim. \"viikon peruskuntojakso\"",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "",
-     "state": ""
-    },
-    {
      "role": "region",
      "name": "Notifications alt+T",
      "state": ""
@@ -337,15 +298,10 @@
    ]
   },
   {
-   "step": "rt-sheet-cancel",
+   "step": "rt-chat-send",
    "handled": true,
-   "state": "closed",
+   "state": "",
    "nodes": [
-    {
-     "role": "group",
-     "name": "RealTrainer",
-     "state": ""
-    },
     {
      "role": "banner",
      "name": "",
@@ -357,8 +313,23 @@
      "state": ""
     },
     {
+     "role": "img",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "100k credits",
+     "state": ""
+    },
+    {
      "role": "button",
      "name": "📋 Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "T",
      "state": ""
     },
     {
@@ -367,79 +338,79 @@
      "state": ""
     },
     {
+     "role": "heading",
+     "name": "AI Chat",
+     "state": "level=2"
+    },
+    {
      "role": "button",
-     "name": "Lisää harjoitus",
+     "name": "Kopioi koko keskustelu",
      "state": ""
     },
     {
      "role": "button",
-     "name": "Päivitä suunnitelma",
+     "name": "Uusi keskustelu",
      "state": ""
     },
     {
      "role": "button",
-     "name": "Viikot",
+     "name": "Keskusteluhistoria",
      "state": ""
     },
     {
      "role": "button",
-     "name": "Malliviikko",
+     "name": "Tallennetut muistiinpanot",
      "state": ""
     },
     {
      "role": "button",
-     "name": "Edellinen viikko",
+     "name": "AI-ohjeet",
      "state": ""
     },
     {
      "role": "button",
-     "name": "vko 7 9. – 15.2.",
+     "name": "Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Maastaveto 3x5@100kg 22.16",
      "state": ""
     },
     {
      "role": "button",
-     "name": "Luo suunnitelma",
+     "name": "Kopioi viesti",
      "state": ""
     },
     {
      "role": "button",
-     "name": "Seuraava viikko",
+     "name": "Tallenna muistiin",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Valitettavasti tapahtui virhe. Yritä uudelleen.",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "\"22.16\"",
      "state": ""
     },
     {
      "role": "button",
-     "name": "9 Ma –",
+     "name": "Kopioi viesti",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "Kysy jotain päiväkirjastasi...",
      "state": ""
     },
     {
      "role": "button",
-     "name": "10 Ti Kevyt salitreeni #kuntosali #voima #kevyt",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "11 Ke –",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "12 To –",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "13 Pe –",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "14 La –",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "15 Su –",
-     "state": ""
+     "name": "",
+     "state": "disabled"
     },
     {
      "role": "navigation",

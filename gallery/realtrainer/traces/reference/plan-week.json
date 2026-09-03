@@ -1,17 +1,13 @@
 {
  "id": "plan-week-confirm-create",
  "machine": "planDialog",
+ "viewport": "390x844",
  "frames": [
   {
    "step": "rt-plan-update",
    "handled": true,
-   "state": "weekSelection",
+   "state": "",
    "nodes": [
-    {
-     "role": "group",
-     "name": "RealTrainer",
-     "state": ""
-    },
     {
      "role": "banner",
      "name": "",
@@ -23,8 +19,23 @@
      "state": ""
     },
     {
+     "role": "img",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "100k credits",
+     "state": ""
+    },
+    {
      "role": "button",
      "name": "📋 Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "T",
      "state": ""
     },
     {
@@ -123,8 +134,18 @@
      "state": ""
     },
     {
+     "role": "text",
+     "name": "2026-02-09 – 2026-02-15 Viikko 7",
+     "state": ""
+    },
+    {
      "role": "button",
      "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Anna ohjeita suunnitelman luomiseen",
      "state": ""
     },
     {
@@ -187,13 +208,8 @@
   {
    "step": "rt-plan-next",
    "handled": true,
-   "state": "weekSelection",
+   "state": "",
    "nodes": [
-    {
-     "role": "group",
-     "name": "RealTrainer",
-     "state": ""
-    },
     {
      "role": "banner",
      "name": "",
@@ -205,8 +221,23 @@
      "state": ""
     },
     {
+     "role": "img",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "100k credits",
+     "state": ""
+    },
+    {
      "role": "button",
      "name": "📋 Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "T",
      "state": ""
     },
     {
@@ -305,8 +336,18 @@
      "state": ""
     },
     {
+     "role": "text",
+     "name": "2026-02-16 – 2026-02-22 Viikko 8",
+     "state": ""
+    },
+    {
      "role": "button",
      "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Anna ohjeita suunnitelman luomiseen",
      "state": ""
     },
     {
@@ -369,13 +410,8 @@
   {
    "step": "rt-plan-field",
    "handled": true,
-   "state": "weekSelection",
+   "state": "",
    "nodes": [
-    {
-     "role": "group",
-     "name": "RealTrainer",
-     "state": ""
-    },
     {
      "role": "banner",
      "name": "",
@@ -387,8 +423,23 @@
      "state": ""
     },
     {
+     "role": "img",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "100k credits",
+     "state": ""
+    },
+    {
      "role": "button",
      "name": "📋 Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "T",
      "state": ""
     },
     {
@@ -487,8 +538,18 @@
      "state": ""
     },
     {
+     "role": "text",
+     "name": "2026-02-16 – 2026-02-22 Viikko 8",
+     "state": ""
+    },
+    {
      "role": "button",
      "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Anna ohjeita suunnitelman luomiseen",
      "state": ""
     },
     {
@@ -551,13 +612,8 @@
   {
    "step": "rt-plan-confirm",
    "handled": true,
-   "state": "confirmation",
+   "state": "",
    "nodes": [
-    {
-     "role": "group",
-     "name": "RealTrainer",
-     "state": ""
-    },
     {
      "role": "banner",
      "name": "",
@@ -569,8 +625,23 @@
      "state": ""
     },
     {
+     "role": "img",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "100k credits",
+     "state": ""
+    },
+    {
      "role": "button",
      "name": "📋 Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "T",
      "state": ""
     },
     {
@@ -664,6 +735,11 @@
      "state": ""
     },
     {
+     "role": "text",
+     "name": "2026-02-16 – 2026-02-22 Viikko 8",
+     "state": ""
+    },
+    {
      "role": "paragraph",
      "name": "Luodaanko malliviikon harjoitukset tälle viikolle?",
      "state": ""
@@ -712,19 +788,34 @@
      "role": "region",
      "name": "Notifications alt+T",
      "state": ""
+    },
+    {
+     "role": "list",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "listitem",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "img",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Esimerkkiviikkojen uudelleengenerointi epäonnistui",
+     "state": ""
     }
    ]
   },
   {
    "step": "rt-plan-go",
    "handled": true,
-   "state": "creating",
+   "state": "",
    "nodes": [
-    {
-     "role": "group",
-     "name": "RealTrainer",
-     "state": ""
-    },
     {
      "role": "banner",
      "name": "",
@@ -736,8 +827,23 @@
      "state": ""
     },
     {
+     "role": "img",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "100k credits",
+     "state": ""
+    },
+    {
      "role": "button",
      "name": "📋 Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "T",
      "state": ""
     },
     {
@@ -821,21 +927,6 @@
      "state": ""
     },
     {
-     "role": "heading",
-     "name": "Luo harjoitukset",
-     "state": "level=3"
-    },
-    {
-     "role": "button",
-     "name": "",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Peruuta",
-     "state": ""
-    },
-    {
      "role": "navigation",
      "name": "",
      "state": ""
@@ -868,6 +959,41 @@
     {
      "role": "region",
      "name": "Notifications alt+T",
+     "state": ""
+    },
+    {
+     "role": "list",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "listitem",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "img",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Harjoitusten luonti epäonnistui",
+     "state": ""
+    },
+    {
+     "role": "listitem",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "img",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Esimerkkiviikkojen uudelleengenerointi epäonnistui",
      "state": ""
     }
    ]
@@ -875,13 +1001,8 @@
   {
    "step": "tick 1200",
    "handled": true,
-   "state": "closed",
+   "state": "",
    "nodes": [
-    {
-     "role": "group",
-     "name": "RealTrainer",
-     "state": ""
-    },
     {
      "role": "banner",
      "name": "",
@@ -893,8 +1014,23 @@
      "state": ""
     },
     {
+     "role": "img",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "100k credits",
+     "state": ""
+    },
+    {
      "role": "button",
      "name": "📋 Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "T",
      "state": ""
     },
     {
@@ -1010,6 +1146,41 @@
     {
      "role": "region",
      "name": "Notifications alt+T",
+     "state": ""
+    },
+    {
+     "role": "list",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "listitem",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "img",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Harjoitusten luonti epäonnistui",
+     "state": ""
+    },
+    {
+     "role": "listitem",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "img",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Esimerkkiviikkojen uudelleengenerointi epäonnistui",
      "state": ""
     }
    ]

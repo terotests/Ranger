@@ -1,17 +1,13 @@
 {
  "id": "add-workout-open-type-save",
  "machine": "addWorkoutDialog",
+ "viewport": "390x844",
  "frames": [
   {
    "step": "rt-add",
    "handled": true,
-   "state": "open",
+   "state": "",
    "nodes": [
-    {
-     "role": "group",
-     "name": "RealTrainer",
-     "state": ""
-    },
     {
      "role": "banner",
      "name": "",
@@ -23,8 +19,23 @@
      "state": ""
     },
     {
+     "role": "img",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "100k credits",
+     "state": ""
+    },
+    {
      "role": "button",
      "name": "📋 Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "T",
      "state": ""
     },
     {
@@ -172,13 +183,8 @@
   {
    "step": "rt-add-field",
    "handled": true,
-   "state": "open",
+   "state": "",
    "nodes": [
-    {
-     "role": "group",
-     "name": "RealTrainer",
-     "state": ""
-    },
     {
      "role": "banner",
      "name": "",
@@ -190,8 +196,23 @@
      "state": ""
     },
     {
+     "role": "img",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "100k credits",
+     "state": ""
+    },
+    {
      "role": "button",
      "name": "📋 Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "T",
      "state": ""
     },
     {
@@ -339,13 +360,8 @@
   {
    "step": "rt-sheet-cancel",
    "handled": true,
-   "state": "closed",
+   "state": "",
    "nodes": [
-    {
-     "role": "group",
-     "name": "RealTrainer",
-     "state": ""
-    },
     {
      "role": "banner",
      "name": "",
@@ -357,8 +373,23 @@
      "state": ""
     },
     {
+     "role": "img",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "100k credits",
+     "state": ""
+    },
+    {
      "role": "button",
      "name": "📋 Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "T",
      "state": ""
     },
     {

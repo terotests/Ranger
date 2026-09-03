@@ -96,6 +96,7 @@ class EVGA11yFromTree {
         if (name == "region")           { return (EVGA11yRole.region()) }
         if (name == "banner")           { return (EVGA11yRole.banner()) }
         if (name == "main")             { return (EVGA11yRole.mainContent()) }
+        if (name == "paragraph")        { return (EVGA11yRole.paragraph()) }
         if (name == "list")             { return (EVGA11yRole.list()) }
         if (name == "listitem")         { return (EVGA11yRole.listItem()) }
         if (name == "table")            { return (EVGA11yRole.table()) }

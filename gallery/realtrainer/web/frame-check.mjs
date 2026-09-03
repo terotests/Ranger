@@ -350,7 +350,8 @@ if (pngOut) {
 // machine wired to a view and drawn.
 ok("the dialog opens", await clickId("rt-add"), "no rt-add node");
 await page.waitForTimeout(150);
-await clickId("rt-sheet-type");
+await clickId("rt-add-field");
+await page.evaluate("window.__app.typeText('Exercise Maastaveto|3x5@100kg')");
 await page.waitForTimeout(150);
 const sheetTexts = (await listNow()).filter((c) => c.k === 3).map((c) => c.text);
 ok("and shows what was typed",
@@ -386,13 +387,13 @@ ok("confirming the week runs the machine's named action and lands in confirmatio
    (await page.evaluate("window.__app.plan.state()")) === "confirmation",
    await page.evaluate("window.__app.plan.state()"));
 const planTexts = (await listNow()).filter((c) => c.k === 3).map((c) => c.text);
-ok("and the calendar's entries are counted on it",
-   planTexts.includes("3 merkintää viikolla"), planTexts.join("|"));
+ok("and the week's entries are on it, a checkbox each",
+   planTexts.includes("Korvaa tiistai"), planTexts.join("|"));
 if (pngOut) {
   await page.locator("#stage canvas").screenshot({ path: stem + "-plan.png" });
   console.log("  wrote " + stem + "-plan.png (the plan-week dialog)");
 }
-await clickId("rt-plan-cancel");
+await clickId("rt-plan-close");
 await page.waitForTimeout(150);
 ok("cancelling closes it",
    (await page.evaluate("window.__app.plan.state()")) === "closed",
@@ -400,7 +401,9 @@ ok("cancelling closes it",
 // …and the other branch, the edit sheet, for the picture's sake.
 await clickId("rt-plan");
 await page.waitForTimeout(150);
-await clickId("rt-plan-edit");
+// The edit sheet opens from the example week's "Muokkaa" on the phone; the
+// dashboard has no such button, and the event is sent by id.
+await page.evaluate("window.__app.press('rt-plan-edit')");
 await page.waitForTimeout(150);
 ok("the edit sheet is the other way in",
    (await page.evaluate("window.__app.plan.state()")) === "editInstructions",

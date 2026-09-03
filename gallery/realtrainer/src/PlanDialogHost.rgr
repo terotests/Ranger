@@ -233,15 +233,27 @@ class PlanDialogHost {
     ; and go in with the event, as the original's fetch hands them over.
     fn confirmWeek:boolean () {
         def weekStart:string (this.text("targetWeekStart"))
-        def list@(mutable):ScVal (ScValOps.emptyList())
+        def ids:[string]
+        def dates:[string]
         for entryDays wd:int i {
+            push ids ("entry-" + (to_string wd))
+            ; Monday-based offset from the week's start: Monday 0 … Sunday 6.
+            push dates (PlanDialogHost.shifted(weekStart ((wd + 6) % 7)))
+        }
+        return (this.confirmWeekWith(ids dates))
+    }
+
+    ; The same event with the entries a calendar actually has — the app's
+    ; seed, on the app; the simulated weekdays above, in the tests.
+    fn confirmWeekWith:boolean (ids:[string] dates:[string]) {
+        def list@(mutable):ScVal (ScValOps.emptyList())
+        for ids id:string i {
             def keys:[string]
             def entries:[ScVal]
             push keys "id"
-            push entries (ScValOps.str(("entry-" + (to_string wd))))
+            push entries (ScValOps.str(id))
             push keys "date"
-            ; Monday-based offset from the week's start: Monday 0 … Sunday 6.
-            push entries (ScValOps.str((PlanDialogHost.shifted(weekStart ((wd + 6) % 7)))))
+            push entries (ScValOps.str((itemAt dates i)))
             list = (ScValOps.appended(list (new ScVal.Map(keys entries))))
         }
         def e:ScEvent (ScEvent.of("CONFIRM_WEEK_SELECTION"))
