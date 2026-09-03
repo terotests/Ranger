@@ -173,6 +173,33 @@ status while the accepted ones are saved, and the error with its two ways out.
 Nothing on it is kept anywhere but in the machine's context, except the
 transcript, which the machine does not keep because the original's UI does.
 
+### The calendar wizard, and a gate per step
+
+`/new-calendar` is a page of its own in the original — `CalendarWizard.tsx`,
+four steps and a dozen `useState`s, no machine. What it does have is a gate
+per step: the name must not be blank, an encrypted calendar needs a password
+of strength two that matches its confirmation, and a step cannot be passed
+until its gate opens. That is a linear stepper, and `src/CalendarWizard.rgr`
+runs the four steps on `gallery/ui`'s `StepperCtl` — the one that clamps
+instead of wrapping and refuses to advance past an incomplete step — with
+the gates computed from the form exactly as the component's `canGoNext` does
+and the strength score by the same five rules. The stepper is told a step is
+complete the moment its gate opens; the dots in the header are the app's.
+
+The screen is drawn from the wizard alone: the thirteen type cards (a card's
+name is its label and its description, as the tree reads a button with both),
+the four fields, the encryption card with its switch and the password fields
+behind it, the preview, ten swatches and three visibilities. "Luo kalenteri"
+starts a job; when it answers, the calendar joins the seed's, is selected, and
+Home opens with a toast — `navigateTo('home')` and `toast.success`. The seed
+now carries its calendars and every entry's owner, so the new calendar's Home
+says "Kirjoita yllä olevaan kenttään…" where the plan calendar's counts its
+past entries.
+
+`calendar-wizard` matches the reference 100 % on every frame. The encryption
+gate is a Ranger-only scenario (`calendar-wizard-encrypted`): the original's
+toggle is a box with no role, so the reference cannot be driven through it.
+
 ## Traces: the app itself as the oracle
 
 A machine that passes its transition table can still be wired to the wrong
@@ -445,7 +472,8 @@ src/CompactRows.rgr       COMPACT text → rows → the parts a row draws
 src/AddWorkoutDialog.rgr  the add-workout machine, ported by hand
 src/PlanDialogHost.rgr    the plan-week machine, run from its definition; the host's clock and named action
 src/ChatHost.rgr          the conversation machine, likewise, and the mock adapter that streams on the clock
-src/RtCalendar.rgr        the seed, the week, an entry's title and tags, the icons
+src/RtCalendar.rgr        the seed and its calendars, the week, an entry's title and tags, the icons
+src/CalendarWizard.rgr    the calendar wizard: four steps on StepperCtl, a gate each, the strength score
 fixtures/reference/       seed.json — what the recorder puts in the emulator and this side draws
 traces/reference/         the reference's recorded traces, diffed by rt:trace:diff
 scripts/record-reference-trace.mjs  the reference recorder: seeds, signs in, drives, snapshots

@@ -1,6 +1,6 @@
 # PLAN — RealTrainerin tilanhallinta EVG:lle, mitattuna ajettavaa sovellusta vasten
 
-Status: `S0 tehty: referenssi ajettu ja nauhoitettu · S1, S4, S5: koneet ja näkymät tehty, tekstikentät hostattu · puhelimen kuori ja osiot piirretty · joka ruutu ≥ 97 % referenssistä` · 2026-09-03
+Status: `S0 tehty: referenssi ajettu ja nauhoitettu · S1, S2, S4, S5: koneet ja näkymät tehty, tekstikentät hostattu · puhelimen kuori ja osiot piirretty · joka ruutu ≥ 97 % referenssistä, velho 100 %` · 2026-09-03
 Liittyy: [`PLAN_COMPACT_UI_PARITY_DEMO.md`](PLAN_COMPACT_UI_PARITY_DEMO.md) (rivikerros, P0–P5 tehty)
 
 COMPACT-rivit on portattu ja mitattu. Se on sovelluksen **sisältökerros**. Tämä suunnitelma
@@ -232,7 +232,7 @@ täsmäävät, sekä 400 satunnaissarjaa lukkoaskeleessa.
 |-------|------|---------|-----------|
 | **S0 — jäljen koneisto** *(osin tehty)* | — | Tehty: skenaariomuoto (`fixtures/scenarios/`), Ranger-puolen toistin ja `rt:trace`-portti nauhoitettua jälkeä vasten, sekä referenssinauhoitin (`scripts/record-reference-trace.mjs`) joka ajaa Playwrightilla sovellusta vastaan. Jäljellä: **aja nauhoitin koneella jolla emulaattorit ovat** ja diffaa puolet | React-jälki nauhoitettu ja diffattu Ranger-jälkeä vasten |
 | **S1 — harjoituksen lisäys** *(osin tehty)* | parsinta | Tehty: `AddWorkoutDialog.rgr` (3 tilaa, 7 tapahtumaa), **siirtymätaulukko kaikista 21 solusta** `rt:machine`-porttina — 13 niistä ignoreja — ja dialogi EVG:llä dokumenttinäkymässä, piirrettynä koneen tilasta. Jäljellä: oikea tekstinsyöttö (`InputCtl`) ja kalenterivalinta | `rt:machine` 21/21; React-jälki vielä nauhoittamatta |
-| **S2 — kalenterin luonti** | kalenterit | `CalendarWizard` (612 r) askelittain; `StepperCtl` on `gallery/ui`:ssä valmiina | velhon askeleet ja validoinnit täsmäävät |
+| **S2 — kalenterin luonti** *(tehty)* | kalenterit | Tehty: `src/CalendarWizard.rgr` ajaa neljä askelta `StepperCtl`illä (lineaarinen, ei kierrä), portit laskettu lomakkeesta kuten komponentin `canGoNext` ja salasanan vahvuus samoilla viidellä säännöllä. Näkymä `/new-calendar` on oma sivunsa: 13 tyyppikorttia, kentät, salauskortti kytkimineen ja salasanakenttineen, esikatselu, 10 väriä, 3 näkyvyyttä. Luonti on työ, jonka vastaus lisää kalenterin seediin, valitsee sen ja avaa Kodin toastilla. `calendar-wizard` täsmää referenssiin 100 % joka ruudussa; salausportti on Ranger-puolen oma skenaario, koska alkuperäisen kytkin on roolittomana laatikkona | velhon askeleet ja validoinnit täsmäävät ✓ |
 | **S3 — vuosisuunnitelma** | vuosi | `YearSheetPageV2` (1 926 r); ensin selvitys mitä `app-ranger/lib/yearsheet` (722 r) jo kattaa; `TableCtl` ja `EventCalCtl` valmiina | vuosinäkymän ruudukko ja valinnat täsmäävät |
 | **S4 — suunnittelu** *(kone ja näkymä tehty)* | suunnittelu | Tehty: `planDialog.machine.json` (6 tilaa, 18 tapahtumaa) ajossa `gallery/statechart`illa, **108 solua ja 300 satunnaissarjaa lukkoaskeleessa oikean XStaten kanssa** (`rt:machine:live`). Ajonaikainen kone sai tyypitetyn kontekstin (`ScVal`), `setKey`-lausekkeen ja nimetyt hostin toiminnot. Näkymä: `src/PlanDialogHost.rgr` ajaa koneen sen omasta määrittelystä (kello ja `selectFetchedDaysForReplacement` hostilta, silmukka `send → pending → resume`), ja dashboardin *Suunnittele viikko* piirtää kaikki kuusi tilaa `CheckboxCtl`/`RadioGroupCtl`-kontrolleilla suoraan kontekstista. Kaksi skenaariota (`plan-week`, `plan-edit`) `rt:trace`-portissa, joka tarkistaa koneen tilan joka askeleen jälkeen. Jäljellä: oikea tekstinsyöttö (`InputCtl`) ohjeille ja palautteelle, React-jälki | kuusi tilaa ja niiden siirtymät täsmäävät ✓ · näkymä ajaa ne kaikki ✓ |
 | **S5 — chat** *(kone ja näkymä tehty)* | keskustelu | Tehty: `chat.machine.json` (8 lehtitilaa kolmessa tasossa, 16 tapahtumaa) ajossa `gallery/statechart`illa, **96 solua ja 300 satunnaissarjaa lukkoaskeleessa oikean XStaten kanssa** (`rt:machine:live`), ja rakenne + guardien nimet diffattu oikeaa `chatMachine.ts`:ää vasten (`rt:machine:config`). Näkymä: `src/ChatHost.rgr` ajaa koneen määrittelystään ja hoitaa sen kuusi nimettyä toimintoa (host muistaa lähettämänsä tapahtuman, koska runner pitää nimet eikä tapahtumia); `RtChatSim` on `mockAdapter` kellolla — vastaus striimataan sana kerrallaan `STREAM_CHUNK`-tapahtumina ja päättyy `STREAM_COMPLETE`en, jonka toimintojen määrä (0/1/2 promptista) vie `reviewing`n kaikkiin kolmeen haaraan. Railin *Valmentaja*-näyttö piirtää transkriptin, striimin, toiminnot päätöksineen, tallennuksen ja virheen. Kolme skenaariota (`chat-single`, `chat-multi`, `chat-error`) `rt:trace`ssa. Jäljellä: oikea tekstinsyöttö, kuva oikeasti, React-jälki | streaming- ja review-tilat täsmäävät ✓ · näkymä ajaa kaikki 16 tapahtumaa ✓ |
@@ -309,11 +309,15 @@ ajaa ne — ja runner **pysähtyy niin kauan kuin nimetty toiminto on velkaa**, 
 `send → aja pending → resume`, ei pelkkä `send`. `PlanDialogHost.settleHost` on se
 silmukka; katso myös `gallery/statechart/README.md`.
 
-### 5.3 S2, S3, S6
+### 5.3 S3, S6
 
-Näihin ei ole koskettu. `CalendarWizard` (612 r) on pienin ja `StepperCtl` on valmiina,
-joten se on luonteva seuraava. `YearSheetPageV2` (1 926 r) kannattaa aloittaa
-selvityksellä siitä mitä `app-ranger/lib/yearsheet` (722 r) jo kattaa.
+S2 on tehty (taulukko yllä). `YearSheetPageV2` (1 926 r) kannattaa aloittaa
+selvityksellä siitä mitä `app-ranger/lib/yearsheet` (722 r) jo kattaa; reitti on
+`/yearsheet` ja `/yearsheet/:periodId`, ja nauhoitin ajaa sen samalla seedillä
+(`ys-ref-1`, yksi jakso, kaksi malliviikkoa). S6:sta on jo se mitä näkymät ovat
+vaatineet: seedissä on kalenterit omistajineen, valinta (`selectCalendar`) ja
+lisäys (`addCalendar`) — `appStore`n `calendars`/`selectCalendar`/`addCalendar`
+sen verran kuin S1, S2 ja S4 tarvitsivat.
 
 ### 5.4 Piirroksen luettavuus
 

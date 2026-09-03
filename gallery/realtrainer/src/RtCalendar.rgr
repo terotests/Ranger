@@ -27,8 +27,20 @@ Import "../../ui/src/UiDate.rgr"
 
 class RtSeedEntry {
     def id@(mutable):string ""
+    def calendarId@(mutable):string ""
     def date@(mutable):string ""
     def compact@(mutable):string ""
+
+    Constructor () {
+    }
+}
+
+; One calendar of the seed — and one the wizard made, once it has.
+class RtSeedCalendar {
+    def id@(mutable):string ""
+    def name@(mutable):string ""
+    def kind@(mutable):string ""
+    def color@(mutable):string ""
 
     Constructor () {
     }
@@ -94,6 +106,10 @@ class RtPeriod {
 class RtSeed {
     def loaded@(mutable):boolean false
     def week@(mutable):string ""
+    ; The calendars, and the selected one's id, name and type — what the
+    ; header shows and the calendar screen draws. `selectCalendar` is the
+    ; store's `selectCalendar`: the three are set from the list.
+    def calendars:[RtSeedCalendar]
     def calendarId@(mutable):string ""
     def calendarName@(mutable):string ""
     def calendarType@(mutable):string ""
@@ -112,12 +128,17 @@ class RtSeed {
         def parser (new VlJsonParser)
         def root:VlJson (parser.parse(text))
         week = (root.stringOr("week" ""))
+        clear calendars
         def cals:VlJson (root.get("calendars"))
-        if ((cals.count()) > 0) {
-            def c:VlJson (cals.at(0))
-            calendarId = (c.stringOr("id" ""))
-            calendarName = (c.stringOr("name" ""))
-            calendarType = (c.stringOr("type" ""))
+        def ci@(mutable):int 0
+        while (ci < (cals.count())) {
+            def c:VlJson (cals.at(ci))
+            this.addCalendar((c.stringOr("id" "")) (c.stringOr("name" "")) (c.stringOr("type" "")) (c.stringOr("color" "")))
+            ci = (ci + 1)
+        }
+        if ((array_length calendars) > 0) {
+            def first:RtSeedCalendar (itemAt calendars 0)
+            this.selectCalendar(first.id)
         }
         clear entries
         def es:VlJson (root.get("entries"))
@@ -126,6 +147,7 @@ class RtSeed {
             def e:VlJson (es.at(i))
             def entry (new RtSeedEntry)
             entry.id = (e.stringOr("id" ""))
+            entry.calendarId = (e.stringOr("calendarId" ""))
             entry.date = (e.stringOr("date" ""))
             entry.compact = (e.stringOr("compact" ""))
             push entries entry
@@ -178,11 +200,53 @@ class RtSeed {
         loaded = true
     }
 
+    fn addCalendar:void (id:string name:string kind:string color:string) {
+        def c (new RtSeedCalendar)
+        c.id = id
+        c.name = name
+        c.kind = kind
+        c.color = color
+        push calendars c
+    }
+
+    ; The selected calendar; an id the list does not have selects nothing.
+    fn selectCalendar:boolean (id:string) {
+        for calendars c:RtSeedCalendar i {
+            if (c.id == id) {
+                calendarId = c.id
+                calendarName = c.name
+                calendarType = c.kind
+                return true
+            }
+        }
+        return false
+    }
+
+    ; An entry of the selected calendar — or of any, when the file did not
+    ; say whose it is.
+    fn isSelected:boolean (e:RtSeedEntry) {
+        if ((strlen e.calendarId) == 0) {
+            return true
+        }
+        return (e.calendarId == calendarId)
+    }
+
+    ; The selected calendar's entries, in the order the file has them.
+    fn selectedEntries:[RtSeedEntry] () {
+        def out:[RtSeedEntry]
+        for entries e:RtSeedEntry i {
+            if (this.isSelected(e)) {
+                push out e
+            }
+        }
+        return out
+    }
+
     ; The entries on one date, in the order the file has them.
     fn entriesOn:[RtSeedEntry] (iso:string) {
         def out:[RtSeedEntry]
         for entries e:RtSeedEntry i {
-            if (e.date == iso) {
+            if ((e.date == iso) && (this.isSelected(e))) {
                 push out e
             }
         }
@@ -195,7 +259,7 @@ class RtSeed {
         def first:int (RtWeek.daysOf(mondayIso))
         for entries e:RtSeedEntry i {
             def d:int (RtWeek.daysOf(e.date))
-            if ((d >= first) && (d < (first + 7))) {
+            if ((d >= first) && (d < (first + 7)) && (this.isSelected(e))) {
                 push out e
             }
         }
@@ -530,6 +594,79 @@ class RtIcons {
 
     sfn logOut:string (color:string) {
         return (RtIcons.svgOf((((RtIcons.pathOf("m16 17 5-5-5-5")) + (RtIcons.pathOf("M21 12H9"))) + (RtIcons.pathOf("M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"))) color))
+    }
+
+    sfn dumbbell:string (color:string) {
+        return (RtIcons.svgOf(((((RtIcons.pathOf("M14.4 14.4 9.6 9.6")) + (RtIcons.pathOf("M18.657 21.485a2 2 0 1 1-2.829-2.828l-1.767 1.768a2 2 0 1 1-2.829-2.829l6.364-6.364a2 2 0 1 1 2.829 2.829l-1.768 1.767a2 2 0 1 1 2.828 2.829z"))) + ((RtIcons.pathOf("m21.5 21.5-1.4-1.4")) + (RtIcons.pathOf("M3.9 3.9 2.5 2.5")))) + (RtIcons.pathOf("M6.404 12.768a2 2 0 1 1-2.829-2.829l1.768-1.767a2 2 0 1 1-2.828-2.829l2.828-2.828a2 2 0 1 1 2.829 2.828l1.767-1.768a2 2 0 1 1 2.829 2.829z"))) color))
+    }
+
+    sfn clipboardList:string (color:string) {
+        return (RtIcons.svgOf((("<rect x='8' y='2' width='8' height='4' rx='1'/>" + (RtIcons.pathOf("M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"))) + ((((RtIcons.pathOf("M12 11h4")) + (RtIcons.pathOf("M12 16h4"))) + (RtIcons.pathOf("M8 11h.01"))) + (RtIcons.pathOf("M8 16h.01")))) color))
+    }
+
+    sfn utensils:string (color:string) {
+        return (RtIcons.svgOf((((RtIcons.pathOf("M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2")) + (RtIcons.pathOf("M7 2v20"))) + (RtIcons.pathOf("M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"))) color))
+    }
+
+    sfn moon:string (color:string) {
+        return (RtIcons.svgOf((RtIcons.pathOf("M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z")) color))
+    }
+
+    sfn heart:string (color:string) {
+        return (RtIcons.svgOf((RtIcons.pathOf("M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z")) color))
+    }
+
+    sfn activity:string (color:string) {
+        return (RtIcons.svgOf((RtIcons.pathOf("M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2")) color))
+    }
+
+    sfn trophy:string (color:string) {
+        return (RtIcons.svgOf(((((RtIcons.pathOf("M6 9H4.5a2.5 2.5 0 0 1 0-5H6")) + (RtIcons.pathOf("M18 9h1.5a2.5 2.5 0 0 0 0-5H18"))) + ((RtIcons.pathOf("M4 22h16")) + (RtIcons.pathOf("M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22")))) + ((RtIcons.pathOf("M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22")) + (RtIcons.pathOf("M18 2H6v7a6 6 0 0 0 12 0V2Z")))) color))
+    }
+
+    sfn tent:string (color:string) {
+        return (RtIcons.svgOf(((((RtIcons.pathOf("M3.5 21 14 3")) + (RtIcons.pathOf("M20.5 21 10 3"))) + (RtIcons.pathOf("M15.5 21 12 15l-3.5 6"))) + (RtIcons.pathOf("M2 21h20"))) color))
+    }
+
+    sfn wallet:string (color:string) {
+        return (RtIcons.svgOf(((RtIcons.pathOf("M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1")) + (RtIcons.pathOf("M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"))) color))
+    }
+
+    sfn lock:string (color:string) {
+        return (RtIcons.svgOf(("<rect x='3' y='11' width='18' height='11' rx='2' ry='2'/>" + (RtIcons.pathOf("M7 11V7a5 5 0 0 1 10 0v4"))) color))
+    }
+
+    sfn unlock:string (color:string) {
+        return (RtIcons.svgOf(("<rect x='3' y='11' width='18' height='11' rx='2' ry='2'/>" + (RtIcons.pathOf("M7 11V7a5 5 0 0 1 9.9-1"))) color))
+    }
+
+    sfn shield:string (color:string) {
+        return (RtIcons.svgOf((RtIcons.pathOf("M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z")) color))
+    }
+
+    sfn check:string (color:string) {
+        return (RtIcons.svgOf((RtIcons.pathOf("M20 6 9 17l-5-5")) color))
+    }
+
+    sfn alertTriangle:string (color:string) {
+        return (RtIcons.svgOf((((RtIcons.pathOf("m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3")) + (RtIcons.pathOf("M12 9v4"))) + (RtIcons.pathOf("M12 17h.01"))) color))
+    }
+
+    ; The icon a calendar type has — `typeIcons` in the wizard.
+    sfn kindIcon:string (key:string color:string) {
+        if (key == "training") { return (RtIcons.dumbbell(color)) }
+        if (key == "plan") { return (RtIcons.clipboardList(color)) }
+        if (key == "sleep") { return (RtIcons.moon(color)) }
+        if (key == "nutrition") { return (RtIcons.utensils(color)) }
+        if (key == "feelings") { return (RtIcons.heart(color)) }
+        if (key == "competition") { return (RtIcons.trophy(color)) }
+        if (key == "camp") { return (RtIcons.tent(color)) }
+        if (key == "group-training") { return (RtIcons.users(color)) }
+        if (key == "expenses") { return (RtIcons.wallet(color)) }
+        if (key == "test-plan") { return (RtIcons.clipboardList(color)) }
+        if (key == "test-log") { return (RtIcons.clipboardList(color)) }
+        if (key == "measurement") { return (RtIcons.activity(color)) }
+        return (RtIcons.ellipsis(color))
     }
 
     sfn x:string (color:string) {

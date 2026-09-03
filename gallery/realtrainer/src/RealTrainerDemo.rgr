@@ -90,6 +90,7 @@ Import "AddWorkoutDialog.rgr"
 Import "PlanDialogHost.rgr"
 Import "ChatHost.rgr"
 Import "RtCalendar.rgr"
+Import "CalendarWizard.rgr"
 Import "../../ui/src/InputCtl.rgr"
 
 treefactory Rt {
@@ -362,6 +363,39 @@ treefactory Rt {
     ; checkbox, the three buttons and the day's own field.
     tag EditDay  EVGElement (props (className "rt-edit-day"))
     tag EditDayTx EVGElement (props (className "rt-edit-day-text") (elementType 1))
+    ; The calendar wizard — a page of its own, `fixed inset-0`: header with
+    ; the step dots, the step's body, the footer with the two buttons.
+    tag Wiz      EVGElement (props (className "rt-wiz") (id "rt-page"))
+    tag WizHead  EVGElement (props (className "rt-wiz-head"))
+    tag WizHd    EVGElement (props (className "rt-wiz-hd") (elementType 1) (role "heading") (a11yLevel 1))
+    tag WizH2    EVGElement (props (className "rt-wiz-h2") (elementType 1) (role "heading") (a11yLevel 2))
+    tag WizPara  EVGElement (props (className "rt-wiz-para") (elementType 1) (role "paragraph"))
+    tag WizTx    EVGElement (props (className "rt-wiz-text") (elementType 1))
+    tag WizLabel EVGElement (props (className "rt-wiz-label") (elementType 1))
+    tag WizDots  EVGElement (props (className "rt-wiz-dots") (a11yHidden true))
+    tag WizDot   EVGElement (props (className "rt-wiz-dot"))
+    tag WizBody  EVGElement (props (className "rt-wiz-body") (id "rt-wiz-body"))
+    tag WizCenter EVGElement (props (className "rt-wiz-center"))
+    tag WizGrid  EVGElement (props (className "rt-wiz-grid"))
+    tag WizCard  EVGElement (props (className "rt-wiz-card") (role "button") (a11yFocusable true))
+    tag WizCardTitle EVGElement (props (className "rt-wiz-card-title") (elementType 1))
+    tag WizCardDesc EVGElement (props (className "rt-wiz-card-desc") (elementType 1))
+    tag WizIcon  EVGElement (props (className "rt-wiz-icon") (tagName "path"))
+    tag WizBadge EVGElement (props (className "rt-wiz-badge"))
+    tag WizBox   EVGElement (props (className "rt-wiz-box"))
+    tag WizSwitch EVGElement (props (className "rt-wiz-switch"))
+    tag WizKnob  EVGElement (props (className "rt-wiz-knob"))
+    tag WizBars  EVGElement (props (className "rt-wiz-bars"))
+    tag WizBar   EVGElement (props (className "rt-wiz-bar"))
+    tag WizSwatch EVGElement (props (className "rt-wiz-swatch") (role "button") (a11yFocusable true))
+    tag WizVis   EVGElement (props (className "rt-wiz-vis") (role "button") (a11yFocusable true))
+    tag WizFoot  EVGElement (props (className "rt-wiz-foot"))
+    tag WizBtn   EVGElement (props (className "rt-wiz-btn") (role "button") (a11yFocusable true))
+    tag WizBtnTx EVGElement (props (className "rt-wiz-btn-text") (elementType 1))
+    ; A toast, in the toaster's landmark: a list with one item, as sonner has it.
+    tag Toast    EVGElement (props (className "rt-toast") (role "list"))
+    tag ToastItem EVGElement (props (className "rt-toast-item") (role "listitem"))
+    tag ToastTx  EVGElement (props (className "rt-toast-text") (elementType 1))
 
     tag DocView  EVGElement (props (className "rt-doc-view") (id "rt-doc-view"))
     tag DocList  EVGElement (props (className "rt-doc-list") (id "rt-doc-list")
@@ -486,6 +520,19 @@ class RealTrainerDemo {
     ; How far the plan dialog's body is scrolled — the edit sheet is taller
     ; than a phone, and scrolls inside the dialog as the original's does.
     def modalScroll:double 0.0
+    ; The calendar wizard, the job that writes the calendar it makes, and
+    ; the toast that says so. Its six fields are the form's.
+    def wizard:CalendarWizard (new CalendarWizard())
+    def wizJob:RtBackendSim (new RtBackendSim())
+    def wizScroll:double 0.0
+    def toastText@(mutable):string ""
+    def toastMs:double 0.0
+    def wizName:InputCtl (new InputCtl())
+    def wizDesc:InputCtl (new InputCtl())
+    def wizGoals:InputCtl (new InputCtl())
+    def wizLevel:InputCtl (new InputCtl())
+    def wizPass:InputCtl (new InputCtl())
+    def wizConfirm:InputCtl (new InputCtl())
     def measurer:EVGLayout (new EVGLayout())
     def chatSim:RtChatSim (new RtChatSim())
     def chatJob:RtBackendSim (new RtBackendSim())
@@ -682,6 +729,27 @@ class RealTrainerDemo {
             push dayFields dayField
             fd = (fd + 1)
         }
+        wizName.tid = "rt-wiz-name"
+        wizName.placeholder = "esim. Juoksuharjoittelu 2026"
+        wizName.name = wizName.placeholder
+        wizDesc.tid = "rt-wiz-desc"
+        wizDesc.placeholder = "Lyhyt kuvaus kalenterista..."
+        wizDesc.name = wizDesc.placeholder
+        wizGoals.tid = "rt-wiz-goals"
+        wizGoals.placeholder = "esim. Juosta maraton alle 4 tunnissa"
+        wizGoals.name = wizGoals.placeholder
+        wizLevel.tid = "rt-wiz-level"
+        wizLevel.placeholder = "esim. Puolimaraton 2h, juoksen 3x viikossa"
+        wizLevel.name = wizLevel.placeholder
+        wizPass.tid = "rt-wiz-pass"
+        wizPass.kind = "password"
+        wizPass.placeholder = "••••••••••••"
+        wizPass.name = wizPass.placeholder
+        wizConfirm.tid = "rt-wiz-confirm"
+        wizConfirm.kind = "password"
+        wizConfirm.placeholder = "••••••••••••"
+        wizConfirm.name = wizConfirm.placeholder
+        wizJob.latencyMs = 300.0
         def fields:[InputCtl] (this.fields())
         for fields f:InputCtl i {
             f.fontFamily = "Arial"
@@ -747,9 +815,28 @@ class RealTrainerDemo {
         if (q >= 0) {
             weekStart = (RtWeek.mondayOf((substring route (q + 6) (q + 16))))
         }
+        ; `/new-calendar` is a page of its own: the wizard, and nothing of the
+        ; shell around it.
+        if (RtEntry.hasPrefix(route "/new-calendar")) {
+            wizard.open()
+            wizScroll = 0.0
+            scene = "wizard"
+            this.rebuild()
+            return true
+        }
         if (RtEntry.hasPrefix(route "/calendar/")) {
+            def rest:string (substring route 10 (strlen route))
+            def qm:int (RtEntry.findIn(rest "?"))
+            def id@(mutable):string rest
+            if (qm >= 0) {
+                id = (substring rest 0 qm)
+            }
+            seed.selectCalendar(id)
             section = "calendar"
             calTab = "weeks"
+        }
+        if ((route == "/") || (route == "/home")) {
+            section = "home"
         }
         scene = "app"
         this.rebuild()
@@ -1950,7 +2037,7 @@ class RealTrainerDemo {
             this.overlays(page)
             page.addChild((this.bottomNav()))
             this.addOverlay(page)
-            page.addChild((tree Rt (PhToasts)))
+            page.addChild((this.toasts()))
             return page
         }
         page.className = "rt-phone rt-phone-wide"
@@ -1961,7 +2048,7 @@ class RealTrainerDemo {
         page.addChild(side)
         this.overlays(page)
         this.addOverlay(page)
-        page.addChild((tree Rt (PhToasts)))
+        page.addChild((this.toasts()))
         return page
     }
 
@@ -2091,15 +2178,29 @@ class RealTrainerDemo {
         entry.addChild(send)
         home.addChild(entry)
         def empty (tree Rt (Row (props (className "rt-home-center"))))
-        empty.addChild((tree Rt (ChatPara (props (className "rt-home-empty")) "Ei tulevia tapahtumia")))
+        empty.addChild((tree Rt (ChatPara (props (id "rt-home-empty") (className "rt-home-empty")) "Ei tulevia tapahtumia")))
         home.addChild(empty)
-        def pastRow (tree Rt (Row (props (className "rt-home-center"))))
-        def past:int (array_length seed.entries)
-        def pastBtn (this.exButton("rt-home-past" (("Näytä menneet (" + (to_string past)) + ")") (("Näytä menneet (" + (to_string past)) + ")")))
-        pastBtn.className = "rt-ex-btn rt-link-btn"
-        RealTrainerDemo.tintText(pastBtn "rt-ex-btn-text rt-link-text")
-        pastRow.addChild(pastBtn)
-        home.addChild(pastRow)
+        ; The selected calendar's past entries, counted on the button — or,
+        ; with none, the hint the original shows a new calendar.
+        def mine:[RtSeedEntry] (seed.selectedEntries())
+        def past@(mutable):int 0
+        for mine e:RtSeedEntry i {
+            if ((RtWeek.daysOf(e.date)) < (RtWeek.daysOf(today))) {
+                past = (past + 1)
+            }
+        }
+        if (past > 0) {
+            def pastRow (tree Rt (Row (props (className "rt-home-center"))))
+            def pastBtn (this.exButton("rt-home-past" (("Näytä menneet (" + (to_string past)) + ")") (("Näytä menneet (" + (to_string past)) + ")")))
+            pastBtn.className = "rt-ex-btn rt-link-btn"
+            RealTrainerDemo.tintText(pastBtn "rt-ex-btn-text rt-link-text")
+            pastRow.addChild(pastBtn)
+            home.addChild(pastRow)
+        } {
+            def hint (tree Rt (Row (props (className "rt-home-center"))))
+            hint.addChild((tree Rt (ChatPara (props (id "rt-home-hint")) "Kirjoita yllä olevaan kenttään lisätäksesi ensimmäisen merkinnän")))
+            home.addChild(hint)
+        }
         body.addChild(home)
     }
 
@@ -2159,6 +2260,406 @@ class RealTrainerDemo {
             dash.addChild(now)
         }
         body.addChild(dash)
+    }
+
+    ; --- the calendar wizard -------------------------------------------------------
+    ; `CalendarWizard.tsx`, step by step: the header with the dots, the
+    ; step's body, and the footer that goes back or on. Everything drawn is
+    ; read from `wizard`; the gates are its.
+    fn wizardScreen:EVGElement () {
+        def page (tree Rt (Wiz))
+        def head (tree Rt (WizHead))
+        head.addChild((this.iconBtn("rt-wiz-close" "Sulje" (RtIcons.x("#f2f2f2")))))
+        def titles (tree Rt (Col))
+        titles.addChild((tree Rt (WizHd "Luo kalenteri")))
+        titles.addChild((tree Rt (WizPara (props (id "rt-wiz-step")) (wizard.stepText()))))
+        head.addChild(titles)
+        head.addChild((tree Rt (Spacer)))
+        def dots (tree Rt (WizDots))
+        def i@(mutable):int 0
+        while (i < (wizard.stepCount())) {
+            def dot (tree Rt (WizDot))
+            if (i == (wizard.stepIndex())) {
+                dot.className = "rt-wiz-dot rt-wiz-dot-on"
+            }
+            if (i < (wizard.stepIndex())) {
+                dot.className = "rt-wiz-dot rt-wiz-dot-done"
+            }
+            dots.addChild(dot)
+            i = (i + 1)
+        }
+        head.addChild(dots)
+        page.addChild(head)
+        def body (tree Rt (WizBody))
+        body.setAttribute("overflow" "hidden")
+        body.setAttribute("height" ((to_string (to_int (pageH - 144.0))) + "px"))
+        body.scrollTop = wizScroll
+        def st:string wizard.state
+        if (st == "type") { this.wizardTypeStep(body) }
+        if (st == "details") { this.wizardDetailsStep(body) }
+        if (st == "encryption") { this.wizardEncryptionStep(body) }
+        if ((st == "appearance") || (st == "creating")) { this.wizardAppearanceStep(body) }
+        page.addChild(body)
+        page.addChild((this.wizardFoot()))
+        page.addChild((this.toasts()))
+        return page
+    }
+
+    fn wizAccent:string (on:boolean) {
+        if on { return "#f97316" }
+        return "#999999"
+    }
+
+    ; Step one: the thirteen types, two to a row on a phone. A card's name is
+    ; its label and its description, as the tree reads a button with both.
+    fn wizardTypeStep:void (body:EVGElement) {
+        def center (tree Rt (WizCenter))
+        center.addChild((tree Rt (WizH2 (props (id "rt-wiz-h2")) "Valitse tyyppi")))
+        center.addChild((tree Rt (WizPara (props (id "rt-wiz-sub")) "Millaista sisältöä haluat kirjata?")))
+        body.addChild(center)
+        def grid (tree Rt (WizGrid))
+        def cw:int (to_int ((pageW - 44.0) / 2.0))
+        for wizard.kinds k:RtCalendarKind i {
+            def on:boolean (k.key == wizard.typeKey)
+            def card (tree Rt (WizCard))
+            card.id = ("rt-wiz-type-" + k.key)
+            card.a11yLabel = ((k.label + " ") + k.description)
+            card.setAttribute("width" ((to_string cw) + "px"))
+            if on {
+                card.className = "rt-wiz-card rt-wiz-card-on"
+            }
+            def ic (tree Rt (WizIcon))
+            ic.svgSource = (RtIcons.kindIcon(k.key (this.wizAccent(on))))
+            card.addChild(ic)
+            card.addChild((tree Rt (WizCardTitle k.label)))
+            card.addChild((tree Rt (WizCardDesc k.description)))
+            grid.addChild(card)
+        }
+        body.addChild(grid)
+    }
+
+    fn wizBadge:EVGElement (icon:string className:string) {
+        def badge (tree Rt (WizBadge))
+        badge.className = className
+        def ic (tree Rt (WizIcon))
+        ic.svgSource = icon
+        badge.addChild(ic)
+        return badge
+    }
+
+    ; Step two: the name, which is required, and three that are not.
+    fn wizardDetailsStep:void (body:EVGElement) {
+        def kind:RtCalendarKind (wizard.selectedKind())
+        def center (tree Rt (WizCenter))
+        center.addChild((this.wizBadge((RtIcons.kindIcon(kind.key "#f97316")) "rt-wiz-badge")))
+        center.addChild((tree Rt (WizH2 (props (id "rt-wiz-h2")) "Kalenterin tiedot")))
+        center.addChild((tree Rt (WizPara (props (id "rt-wiz-sub")) kind.description)))
+        body.addChild(center)
+        body.addChild((tree Rt (WizLabel "Nimi *")))
+        body.addChild((this.fieldBox(wizName)))
+        body.addChild((tree Rt (WizLabel "Kuvaus")))
+        body.addChild((this.fieldBox(wizDesc)))
+        body.addChild((tree Rt (WizLabel "Tavoitteet")))
+        body.addChild((this.fieldBox(wizGoals)))
+        body.addChild((tree Rt (WizLabel "Nykyinen taso")))
+        body.addChild((this.fieldBox(wizLevel)))
+    }
+
+    ; Step three: encryption, off by default. The toggle card is a box with
+    ; no role in the original and is one here; it answers to its id.
+    fn wizardEncryptionStep:void (body:EVGElement) {
+        def on:boolean wizard.encrypted
+        def center (tree Rt (WizCenter))
+        center.addChild((this.wizBadge((RtIcons.shield("#22c55e")) "rt-wiz-badge rt-wiz-badge-green")))
+        center.addChild((tree Rt (WizH2 (props (id "rt-wiz-h2")) "Suojaa tietosi")))
+        center.addChild((tree Rt (WizPara (props (id "rt-wiz-sub")) "Salaus suojaa tietosi niin, ettei kukaan muu voi lukea niitä - edes me.")))
+        body.addChild(center)
+        def box (tree Rt (WizBox (props (id "rt-wiz-encrypt"))))
+        if on {
+            box.className = "rt-wiz-box rt-wiz-box-on"
+        }
+        def row (tree Rt (ModalRow))
+        def lockColor@(mutable):string "#999999"
+        if on { lockColor = "#22c55e" }
+        row.addChild((this.wizBadge((RtIcons.lock(lockColor)) "rt-wiz-badge rt-wiz-badge-sm")))
+        def col (tree Rt (Col (props (className "rt-wiz-box-col"))))
+        def line (tree Rt (ModalRow))
+        line.addChild((tree Rt (WizTx "Salaa tämä kalenteri")))
+        line.addChild((tree Rt (Spacer)))
+        def sw (tree Rt (WizSwitch))
+        def knob (tree Rt (WizKnob))
+        if on {
+            sw.className = "rt-wiz-switch rt-wiz-switch-on"
+            knob.className = "rt-wiz-knob rt-wiz-knob-on"
+        }
+        sw.addChild(knob)
+        line.addChild(sw)
+        col.addChild(line)
+        col.addChild((tree Rt (WizPara (props (id "rt-wiz-encrypt-desc")) "Vain sinä voit nähdä sisällön salasanallasi")))
+        row.addChild(col)
+        box.addChild(row)
+        body.addChild(box)
+        if on {
+            def warn (tree Rt (WizBox (props (className "rt-wiz-box rt-wiz-warn"))))
+            def wrow (tree Rt (ModalRow))
+            def wi (tree Rt (PhIcon))
+            wi.svgSource = (RtIcons.alertTriangle("#f59e0b"))
+            wrow.addChild(wi)
+            def wcol (tree Rt (Col (props (className "rt-wiz-box-col"))))
+            wcol.addChild((tree Rt (WizTx (props (className "rt-wiz-text rt-wiz-amber")) "Tärkeää!")))
+            wcol.addChild((tree Rt (WizPara (props (id "rt-wiz-warn-text")) "Jos unohdat salasanan, emme voi palauttaa tietojasi. Tallenna salasana turvalliseen paikkaan.")))
+            wrow.addChild(wcol)
+            warn.addChild(wrow)
+            body.addChild(warn)
+            body.addChild((tree Rt (WizLabel "Salaussalasana")))
+            def prow (tree Rt (ModalRow))
+            prow.addChild((this.fieldBox(wizPass)))
+            def showText@(mutable):string "Näytä"
+            if wizard.showPassword { showText = "Piilota" }
+            prow.addChild((this.wizButton("rt-wiz-show" showText "" "rt-wiz-btn rt-wiz-link")))
+            body.addChild(prow)
+            if ((strlen wizard.password) > 0) {
+                def score:int (wizard.strength())
+                def tone@(mutable):string "rt-wiz-red"
+                if (score > 1) { tone = "rt-wiz-orange" }
+                if (score > 2) { tone = "rt-wiz-yellow" }
+                if (score > 3) { tone = "rt-wiz-green" }
+                def bars (tree Rt (WizBars))
+                def b@(mutable):int 1
+                while (b <= 5) {
+                    def bar (tree Rt (WizBar))
+                    if (b <= score) {
+                        bar.className = ("rt-wiz-bar rt-wiz-bar-" + tone)
+                    }
+                    bars.addChild(bar)
+                    b = (b + 1)
+                }
+                body.addChild(bars)
+                body.addChild((tree Rt (WizPara (props (id "rt-wiz-strength") (className ("rt-wiz-para " + tone))) (wizard.strengthLabel()))))
+            }
+            body.addChild((tree Rt (WizLabel "Vahvista salasana")))
+            def cb:EVGElement (this.fieldBox(wizConfirm))
+            if ((strlen wizard.confirm) > 0) {
+                if (wizard.passwordsMatch()) {
+                    cb.className = (cb.className + " rt-field-ok")
+                } {
+                    cb.className = (cb.className + " rt-field-bad")
+                }
+            }
+            body.addChild(cb)
+            if ((strlen wizard.confirm) > 0) {
+                if (wizard.passwordsMatch()) {
+                    body.addChild((tree Rt (WizPara (props (id "rt-wiz-match") (className "rt-wiz-para rt-wiz-green")) "Salasanat täsmäävät")))
+                } {
+                    body.addChild((tree Rt (WizPara (props (id "rt-wiz-match") (className "rt-wiz-para rt-wiz-red")) "Salasanat eivät täsmää")))
+                }
+            }
+        } {
+            def info (tree Rt (WizBox))
+            info.addChild((tree Rt (WizPara (props (id "rt-wiz-noenc")) "Ilman salausta tiedot tallennetaan palvelimelle suojaamattomina. Ne ovat edelleen yksityisiä, mutta ylläpito voi teknisesti nähdä ne.")))
+            body.addChild(info)
+        }
+    }
+
+    ; Step four: the preview, the ten colours, the three visibilities.
+    fn wizardAppearanceStep:void (body:EVGElement) {
+        def kind:RtCalendarKind (wizard.selectedKind())
+        def center (tree Rt (WizCenter))
+        center.addChild((tree Rt (WizH2 (props (id "rt-wiz-h2")) "Ulkoasu")))
+        center.addChild((tree Rt (WizPara (props (id "rt-wiz-sub")) "Valitse väri ja näkyvyysasetukset")))
+        body.addChild(center)
+        ; The preview's border is the chosen colour — a class of its own,
+        ; with no border colour of its own for the stylesheet to put back.
+        def preview (tree Rt (WizBox (props (className "rt-wiz-preview"))))
+        preview.setAttribute("border-color" wizard.color)
+        def prow (tree Rt (ModalRow))
+        prow.addChild((this.wizBadge((RtIcons.kindIcon(kind.key wizard.color)) "rt-wiz-badge rt-wiz-badge-sm")))
+        def pcol (tree Rt (Col (props (className "rt-wiz-box-col"))))
+        def nrow (tree Rt (ModalRow))
+        def shown@(mutable):string (wizard.nameTrimmed())
+        if ((strlen shown) == 0) { shown = "Kalenterin esikatselu" }
+        nrow.addChild((tree Rt (WizTx shown)))
+        if wizard.encrypted {
+            def li (tree Rt (PhIcon (props (className "rt-ph-icon rt-ph-icon-sm"))))
+            li.svgSource = (RtIcons.lock("#22c55e"))
+            nrow.addChild(li)
+        }
+        pcol.addChild(nrow)
+        pcol.addChild((tree Rt (WizPara (props (id "rt-wiz-preview-kind")) kind.label)))
+        prow.addChild(pcol)
+        preview.addChild(prow)
+        body.addChild(preview)
+        body.addChild((tree Rt (WizLabel "Väri")))
+        def swatches (tree Rt (WizGrid))
+        for wizard.colors c:string i {
+            def sw (tree Rt (WizSwatch))
+            sw.id = ("rt-wiz-color-" + (to_string i))
+            sw.a11yLabel = ""
+            sw.setAttribute("background-color" c)
+            if (c == wizard.color) {
+                sw.className = "rt-wiz-swatch rt-wiz-swatch-on"
+            }
+            swatches.addChild(sw)
+        }
+        body.addChild(swatches)
+        body.addChild((tree Rt (WizLabel "Näkyvyys")))
+        def vis (tree Rt (ModalRow))
+        vis.addChild((this.wizVis("private" "Yksityinen" (RtIcons.lock((this.wizAccent((wizard.visibility == "private"))))))))
+        vis.addChild((this.wizVis("group" "Ryhmälle" (RtIcons.users((this.wizAccent((wizard.visibility == "group"))))))))
+        vis.addChild((this.wizVis("public" "Julkinen" (RtIcons.unlock((this.wizAccent((wizard.visibility == "public"))))))))
+        body.addChild(vis)
+    }
+
+    fn wizVis:EVGElement (key:string label:string icon:string) {
+        def b (tree Rt (WizVis))
+        b.id = ("rt-wiz-vis-" + key)
+        b.a11yLabel = label
+        if (wizard.visibility == key) {
+            b.className = "rt-wiz-vis rt-wiz-vis-on"
+        }
+        def ic (tree Rt (PhIcon))
+        ic.svgSource = icon
+        b.addChild(ic)
+        b.addChild((tree Rt (WizCardTitle label)))
+        return b
+    }
+
+    ; Back or cancel on the left; next, or create on the last step, on the
+    ; right — disabled while the step's gate is shut, as the original's.
+    fn wizardFoot:EVGElement () {
+        def foot (tree Rt (WizFoot))
+        if ((wizard.stepIndex()) > 0) {
+            foot.addChild((this.wizButton("rt-wiz-back" "Takaisin" (RtIcons.chevronLeft("#f2f2f2")) "rt-wiz-btn")))
+        } {
+            foot.addChild((this.wizButton("rt-wiz-cancel" "Peruuta" (RtIcons.chevronLeft("#f2f2f2")) "rt-wiz-btn")))
+        }
+        foot.addChild((tree Rt (Spacer)))
+        if ((wizard.isLast()) == false) {
+            def next (this.wizButton("rt-wiz-next" "Seuraava" (RtIcons.chevronRight("#ffffff")) "rt-wiz-btn rt-wiz-primary"))
+            if ((wizard.canGoNext()) == false) {
+                next.a11yDisabled = true
+                next.className = "rt-wiz-btn rt-wiz-primary rt-wiz-off"
+            }
+            foot.addChild(next)
+        } {
+            def creating:boolean (wizard.state == "creating")
+            def label@(mutable):string "Luo kalenteri"
+            if creating { label = "Luodaan..." }
+            def go (this.wizButton("rt-wiz-create" label (RtIcons.check("#ffffff")) "rt-wiz-btn rt-wiz-go"))
+            if (creating || ((strlen (wizard.nameTrimmed())) == 0)) {
+                go.a11yDisabled = true
+                go.className = "rt-wiz-btn rt-wiz-go rt-wiz-off"
+            }
+            foot.addChild(go)
+        }
+        return foot
+    }
+
+    fn wizButton:EVGElement (id:string label:string icon:string className:string) {
+        def b (tree Rt (WizBtn))
+        b.id = id
+        b.a11yLabel = label
+        b.className = className
+        if ((strlen icon) > 0) {
+            def ic (tree Rt (PhIcon (props (className "rt-ph-icon rt-ph-icon-sm"))))
+            ic.svgSource = icon
+            b.addChild(ic)
+        }
+        b.addChild((tree Rt (WizBtnTx label)))
+        return b
+    }
+
+    fn pressWizard:boolean (id:string) {
+        if ((id == "rt-wiz-close") || (id == "rt-wiz-cancel")) {
+            wizard.close()
+            scene = "app"
+            section = "home"
+            docScroll = 0.0
+            return true
+        }
+        if (id == "rt-wiz-back") { return (wizard.goPrev()) }
+        if (id == "rt-wiz-next") {
+            def moved:boolean (wizard.goNext())
+            if moved { wizScroll = 0.0 }
+            return moved
+        }
+        if (RtEntry.hasPrefix(id "rt-wiz-type-")) {
+            return (wizard.setType((substring id 12 (strlen id))))
+        }
+        if (id == "rt-wiz-encrypt") { return (wizard.toggleEncrypted()) }
+        if (id == "rt-wiz-show") { return (wizard.toggleShowPassword()) }
+        def ci:int (RealTrainerDemo.digitOf(id "rt-wiz-color-"))
+        if (ci >= 0) { return (wizard.setColorAt(ci)) }
+        if (RtEntry.hasPrefix(id "rt-wiz-vis-")) {
+            return (wizard.setVisibility((substring id 11 (strlen id))))
+        }
+        if (id == "rt-wiz-create") {
+            def started:boolean (wizard.submit())
+            if started {
+                wizJob.failNext = backend.failNext
+                backend.failNext = false
+                wizJob.begin((wizard.nameTrimmed()))
+            }
+            return started
+        }
+        return false
+    }
+
+    ; The job answered. Made: the calendar joins the seed's, is selected,
+    ; and Home opens with a toast — `navigateTo('home')` and
+    ; `toast.success`. Not made: back to the last step, and the toast says so.
+    fn wizardDone:void (ok:boolean) {
+        if (ok == false) {
+            wizard.complete(false)
+            toastText = "Päiväkirjan luonti epäonnistui"
+            toastMs = 4000.0
+            return
+        }
+        def id:string ("cal-new-" + (to_string (wizard.created + 1)))
+        def newName:string (wizard.nameTrimmed())
+        seed.addCalendar(id newName wizard.typeKey wizard.color)
+        seed.selectCalendar(id)
+        toastText = (("Päiväkirja \"" + newName) + "\" luotu")
+        if wizard.encrypted {
+            toastText = (("Salattu päiväkirja \"" + newName) + "\" luotu 🔐")
+        }
+        wizard.complete(true)
+        scene = "app"
+        section = "home"
+        docScroll = 0.0
+        toastMs = 4000.0
+    }
+
+    ; "rt-wiz-color-7" → 7, or -1 when the id is not one of that family.
+    sfn digitOf:int (id:string prefix:string) {
+        def plen:int (strlen prefix)
+        if ((strlen id) != (plen + 1)) {
+            return -1
+        }
+        if ((substring id 0 plen) != prefix) {
+            return -1
+        }
+        def ch:int (charAt id plen)
+        if (ch < 48) { return -1 }
+        if (ch > 57) { return -1 }
+        return (ch - 48)
+    }
+
+    ; The toaster's landmark, and the toast in it while there is one.
+    fn toasts:EVGElement () {
+        def region (tree Rt (PhToasts))
+        if ((strlen toastText) > 0) {
+            def list (tree Rt (Toast))
+            list.setAttribute("width" ((to_string (to_int (pageW - 32.0))) + "px"))
+            def item (tree Rt (ToastItem))
+            def ic (tree Rt (PhIcon))
+            ic.svgSource = (RtIcons.check("#22c55e"))
+            item.addChild(ic)
+            item.addChild((tree Rt (ToastTx toastText)))
+            list.addChild(item)
+            region.addChild(list)
+        }
+        return region
     }
 
     ; Five at the bottom, the way `MobileBottomNav` has them, active in the
@@ -2687,6 +3188,12 @@ class RealTrainerDemo {
         for dayFields f:InputCtl i {
             push a f
         }
+        push a wizName
+        push a wizDesc
+        push a wizGoals
+        push a wizLevel
+        push a wizPass
+        push a wizConfirm
         return a
     }
 
@@ -2759,6 +3266,12 @@ class RealTrainerDemo {
         if (day >= 0) {
             plan.setDayInstructions(day c.value)
         }
+        if (c.tid == "rt-wiz-name") { wizard.setName(c.value) }
+        if (c.tid == "rt-wiz-desc") { wizard.setDescription(c.value) }
+        if (c.tid == "rt-wiz-goals") { wizard.setGoals(c.value) }
+        if (c.tid == "rt-wiz-level") { wizard.setLevel(c.value) }
+        if (c.tid == "rt-wiz-pass") { wizard.setPassword(c.value) }
+        if (c.tid == "rt-wiz-confirm") { wizard.setConfirm(c.value) }
     }
 
     ; Set the fields from the machines before drawing them.
@@ -2781,6 +3294,17 @@ class RealTrainerDemo {
                 f.setValue(note)
             }
         }
+        if (wizard.name != wizName.value) { wizName.setValue(wizard.name) }
+        if (wizard.description != wizDesc.value) { wizDesc.setValue(wizard.description) }
+        if (wizard.goals != wizGoals.value) { wizGoals.setValue(wizard.goals) }
+        if (wizard.level != wizLevel.value) { wizLevel.setValue(wizard.level) }
+        if (wizard.password != wizPass.value) { wizPass.setValue(wizard.password) }
+        if (wizard.confirm != wizConfirm.value) { wizConfirm.setValue(wizard.confirm) }
+        ; "Näytä" shows the password: the field's kind follows the switch.
+        def kind@(mutable):string "password"
+        if wizard.showPassword { kind = "text" }
+        wizPass.kind = kind
+        wizConfirm.kind = kind
     }
 
     ; One whole string, a character at a time — the harness's `type` step.
@@ -2896,6 +3420,19 @@ class RealTrainerDemo {
     ; anything moved. Nothing is rebuilt: the tree is the same tree, and only
     ; the offset on its viewport changed.
     fn scrollDocument:boolean (delta:double) {
+        if (scene == "wizard") {
+            def rw:EVGElement (unwrap root)
+            def foundW@(optional):EVGElement (RealTrainerDemo.byId(rw "rt-wiz-body"))
+            if foundW {
+                def wb:EVGElement (unwrap foundW)
+                def beforeW:double wb.scrollTop
+                wb.scrollTop = (wb.scrollTop + delta)
+                this.laidOut()
+                wizScroll = wb.scrollTop
+                return (wb.scrollTop != beforeW)
+            }
+            return false
+        }
         if (scene == "app") {
             def r0:EVGElement (unwrap root)
             ; A dialog that is open takes the wheel: its body scrolls, the
@@ -2983,6 +3520,9 @@ class RealTrainerDemo {
         if (scene == "app") {
             root = (this.appScreen())
         }
+        if (scene == "wizard") {
+            root = (this.wizardScreen())
+        }
         if (scene == "loading") {
             root = (this.loader())
         }
@@ -3014,6 +3554,24 @@ class RealTrainerDemo {
     ; is a frozen one, and this one stops by changing scene rather than by
     ; running out of things to move.
     fn tick:boolean (dtMs:double) {
+        ; A toast stays for a while and goes.
+        if (toastMs > 0.0) {
+            toastMs = (toastMs - dtMs)
+            if (toastMs <= 0.0) {
+                toastMs = 0.0
+                toastText = ""
+                this.rebuild()
+                return true
+            }
+        }
+        ; The calendar the wizard asked for is written, or is not.
+        if (wizJob.tick(dtMs)) {
+            def ok:boolean (wizJob.state == "saved")
+            wizJob.clear()
+            this.wizardDone(ok)
+            this.rebuild()
+            return true
+        }
         ; The stream. Each chunk is an event the machine appends through its
         ; named action; the end is the reply, or the failure the switch asked
         ; for.
@@ -3265,6 +3823,14 @@ class RealTrainerDemo {
             focused = c.tid
             this.rebuild()
             return true
+        }
+        ; The wizard is a page of its own, with nothing of the shell on it.
+        if (scene == "wizard") {
+            if (this.pressWizard(id)) {
+                this.rebuild()
+                return true
+            }
+            return false
         }
         ; The rail is drawn on three screens, so it is answered before any of
         ; them. It used to live inside the dashboard's branch, which is why its

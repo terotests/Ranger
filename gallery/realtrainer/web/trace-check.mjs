@@ -85,6 +85,7 @@ function machineState(app, machine) {
   if (machine === "addWorkoutDialog") return app.addDialog.state;
   if (machine === "planDialog") return app.plan.state();
   if (machine === "chat") return app.chat.state();
+  if (machine === "calendarWizard") return app.wizard.state;
   return "";
 }
 
@@ -113,7 +114,12 @@ function runScenario(file) {
       return true;
     }
     const pressed = app.press(step.id);
-    if (step.type !== undefined) return app.typeText(step.type) || pressed;
+    // `type` is the recorder's `fill`: the field's whole value, replaced —
+    // not keystrokes appended to what was there.
+    if (step.type !== undefined) {
+      const n = step.type.length;
+      return app.applyEdit(step.id, step.type, n, n) || app.typeText(step.type) || pressed;
+    }
     if (step.key !== undefined) return app.keyWith(step.key, false, false) || pressed;
     return pressed;
   };
