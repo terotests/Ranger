@@ -269,8 +269,8 @@ class RealTrainerDemo {
     fn setupControls:void () {
         bar.tid = "rt-bar"
         bar.name = "Lataus"
-        bar.maxValue = 100
-        bar.value = 0
+        bar.maxValue = 100.0
+        bar.value = 0.0
 
         remember.tid = "rt-remember"
         remember.name = "Muista minut tällä laitteella"
@@ -327,8 +327,8 @@ class RealTrainerDemo {
 
         session.tid = "rt-session"
         session.name = "Harjoituksen eteneminen"
-        session.maxValue = 2
-        session.value = 0
+        session.maxValue = 2.0
+        session.value = 0.0
     }
 
     ; The chosen rest, in milliseconds. The controller holds a STRING, because
@@ -842,7 +842,7 @@ class RealTrainerDemo {
     }
 
     fn workout:EVGElement () {
-        session.value = doneMoves
+        session.value = (to_double doneMoves)
         this.dress(session)
         def main (tree Rt (Main (props (className "rt-main rt-main-work"))))
         def top (tree Rt
@@ -979,7 +979,11 @@ class RealTrainerDemo {
         }
         def r:EVGElement (unwrap root)
         def p:double (this.progress())
-        bar.value = (to_int ((p * 100.0) + 0.5))
+        ; ProgressCtl's value is a double now -- it carries a measured
+        ; 33.333 straight through to aria-valuenow -- and does its own
+        ; rounding for the percentage a reader is told. So the true value
+        ; goes in rather than one pre-rounded to an int.
+        bar.value = (p * 100.0)
         this.dress(bar)
         def ring@(optional):EVGElement (RealTrainerDemo.byId(r "rt-ring"))
         if ring {
@@ -990,7 +994,12 @@ class RealTrainerDemo {
         def pct@(optional):EVGElement (RealTrainerDemo.byId(r "rt-pct"))
         if pct {
             def e:EVGElement (unwrap pct)
-            e.textContent = ((to_string bar.value) + " %")
+            ; The controller rounds, and both references it is measured
+            ; against round the same way -- 3 of 8 reads "38%", not "37%". Now
+            ; that `value` is a double this has to ask for the percentage
+            ; rather than stringify the value, or the caption reads
+            ; "19.230769230769234 %".
+            e.textContent = ((to_string (bar.percent())) + " %")
         }
         def cap@(optional):EVGElement (RealTrainerDemo.byId(r "rt-caption"))
         if cap {
