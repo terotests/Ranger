@@ -1343,13 +1343,21 @@ class RealTrainerDemo {
         return fresh
     }
 
-    fn displayListJson:string () {
+    ; The frame as an OBJECT. A browser host has to parse something anyway, so
+    ; it asks for the JSON below; a host that shares a process with this demo --
+    ; the Apple port paints from Swift -- should not serialise a display list
+    ; only to parse it back. It is the same list either way.
+    fn display:EVGDisplayList () {
         def lay:EVGLayout (this.laidOut())
         def r:EVGElement (unwrap root)
         def dl (new EVGDisplayList())
         dl.setTextEngine((lay.getTextEngine()))
         dl.build(r)
-        return (dl.toJson())
+        return dl
+    }
+
+    fn displayListJson:string () {
+        return ((this.display()).toJson())
     }
 
     fn hitId:string (px:double py:double) {

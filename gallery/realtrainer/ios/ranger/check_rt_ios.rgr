@@ -1,0 +1,363 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; check_rt_ios.rgr — the RealTrainer iOS port, driven without a Mac.
+; ==============================================================================
+;
+; The Apple half of this port is Swift and needs a Mac to compile at all.
+; Everything underneath it does not: the demo is Ranger, the facade is Ranger,
+; and the display list the painter is handed is a Ranger object. So the
+; questions a device would answer are asked here, in the same `RtIos` the app
+; runs -- not in a second implementation of the same sums.
+;
+;   npm run rt:ios:verify
+;
+; What this proves:
+;
+;   * the demo behind the facade builds all four scenes and answers with a
+;     display list of real commands;
+;   * the CONTAIN fit -- the one thing this port has that the dashboard's does
+;     not: the whole 980x760 page on screen, centred, letterboxed, and never
+;     re-laid-out to the window's shape;
+;   * the safe area is taken off before any of that, so nothing lands under the
+;     clock or the home indicator;
+;   * a press at a WINDOW coordinate -- insets, letterbox and all -- reaches
+;     the control drawn there, and a press in the letterbox reaches nothing;
+;   * a pinch holds the point under the fingers still, and a pan stops at the
+;     page's edge rather than sliding it off the screen;
+;   * the clock advances the loading scene and hands over to the sign-in page,
+;     which is the demo's own behaviour driven through this facade.
+;
+; What it does NOT prove is the platform delegation: CoreGraphicsEvgSurface
+; calling CGContext, and RealTrainerView unpacking a UITouch. Those need a Mac,
+; and `npm run rt:ios` is what builds them.
+; ==============================================================================
+
+Import "rt_ios.rgr"
+
+class CheckRtIos {
+
+    def passed:int 0
+    def failed:int 0
+    def css:string ""
+
+    fn ok:void (what:string cond:boolean) {
+        if cond {
+            passed = passed + 1
+        } {
+            failed = failed + 1
+            print "  FAIL " + what
+        }
+    }
+
+    fn okDetail:void (what:string cond:boolean detail:string) {
+        if cond {
+            passed = passed + 1
+        } {
+            failed = failed + 1
+            print "  FAIL " + what + "  (" + detail + ")"
+        }
+    }
+
+    sfn near:boolean (a:double b:double eps:double) {
+        def d:double (a - b)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        return (d <= eps)
+    }
+
+    fn fresh:RtIos (w:double h:double) {
+        def app:RtIos (new RtIos)
+        app.start(w h css)
+        return app
+    }
+
+    fn freshInset:RtIos (w:double h:double top:double bottom:double) {
+        def app:RtIos (new RtIos)
+        app.start(w h css)
+        app.setSafeArea(top bottom 0.0 0.0)
+        return app
+    }
+
+    ; Find the element with this id the way a finger would: ask the hit test at
+    ; a grid of WINDOW points and press the first one that answers. Deliberately
+    ; the whole input path -- window point, safe area, letterbox, scale, hit
+    ; test -- rather than a call to press(id), because the conversion is what
+    ; this port adds and therefore what is worth checking.
+    fn pressUntil:boolean (app:RtIos id:string w:double h:double) {
+        def x:double 4.0
+        while (x < w) {
+            def y:double 4.0
+            while (y < h) {
+                if ((app.hitAt(x y)) == id) {
+                    app.pressAt(x y)
+                    app.releasePress()
+                    return true
+                }
+                y = (y + 8.0)
+            }
+            x = (x + 8.0)
+        }
+        return false
+    }
+
+    fn commandCount:int (app:RtIos) {
+        def dl:EVGDisplayList (app.frame())
+        return (array_length dl.cmds)
+    }
+
+    ; --- the page -------------------------------------------------------------
+
+    fn checkPage:void () {
+        print "--- the page the painter is handed ---"
+        def app:RtIos (this.fresh(1180.0 820.0))
+        this.ok("the page has its designed width" ((app.pageWidth()) > 900.0))
+        this.ok("and its designed height" ((app.pageHeight()) > 700.0))
+        this.ok("the first frame has commands" ((this.commandCount(app)) > 20))
+        this.ok("the app starts on the loading scene" ((app.sceneName()) == "loading"))
+        this.okDetail("the stylesheet parsed without errors" ((app.styleErrorCount()) == 0)
+            (to_string (app.styleErrorCount())))
+    }
+
+    ; --- the contain fit ------------------------------------------------------
+
+    fn checkFit:void () {
+        print "--- the page is contained, whole, and centred ---"
+
+        ; A landscape iPad: wider than the page's aspect, so HEIGHT is the
+        ; binding dimension and the letterbox is at the sides.
+        def wide:RtIos (this.fresh(1366.0 700.0))
+        def sW:double (wide.scale())
+        this.okDetail("a wide window fits by height" (CheckRtIos.near(sW (700.0 / (wide.pageHeight())) 0.001))
+            (to_string sW))
+        this.ok("the whole page width is on screen"
+            (((wide.pageWidth()) * sW) <= 1366.1))
+        this.ok("and the whole page height"
+            (((wide.pageHeight()) * sW) <= 700.1))
+        this.ok("with a letterbox at the left" ((wide.offsetX()) > 0.0))
+        this.okDetail("and none at the top" (CheckRtIos.near((wide.offsetY()) 0.0 0.001))
+            (to_string (wide.offsetY())))
+
+        ; A tall window: WIDTH binds, and the letterbox moves to the top and
+        ; bottom. The same page, not a re-laid-out one.
+        def tall:RtIos (this.fresh(800.0 1200.0))
+        def sT:double (tall.scale())
+        this.okDetail("a tall window fits by width" (CheckRtIos.near(sT (800.0 / (tall.pageWidth())) 0.001))
+            (to_string sT))
+        this.ok("with a letterbox at the top" ((tall.offsetY()) > 0.0))
+        this.ok("and the page centred in it"
+            (CheckRtIos.near((tall.offsetY()) ((1200.0 - ((tall.pageHeight()) * sT)) / 2.0) 0.001)))
+
+        ; The composition is never re-laid-out to the window: a fixed page has
+        ; one size, and both windows agree about it.
+        this.ok("the page keeps its size in both" ((wide.pageHeight()) == (tall.pageHeight())))
+    }
+
+    ; --- the safe area --------------------------------------------------------
+
+    fn checkSafeArea:void () {
+        print "--- the safe area comes off first ---"
+        def plain:RtIos (this.fresh(1180.0 820.0))
+        def inset:RtIos (this.freshInset(1180.0 820.0 59.0 34.0))
+        this.ok("insets shrink the usable height"
+            ((inset.usableHeight()) == ((plain.usableHeight()) - 93.0)))
+        this.ok("so an inset window scales the page down"
+            ((inset.scale()) <= (plain.scale())))
+        this.ok("and the page starts below the status bar"
+            ((inset.offsetY()) >= 59.0))
+        def bottomEdge:double ((inset.offsetY()) + ((inset.pageHeight()) * (inset.scale())))
+        this.okDetail("and ends above the home indicator" (bottomEdge <= (820.0 - 34.0 + 0.1))
+            (to_string bottomEdge))
+    }
+
+    ; --- window point to page point -------------------------------------------
+
+    fn checkMapping:void () {
+        print "--- a window point becomes the right page point ---"
+        def app:RtIos (this.freshInset(1180.0 820.0 59.0 34.0))
+        def s:double (app.scale())
+
+        ; The page's own corner, mapped back, is the origin.
+        this.ok("the page corner maps to 0"
+            (CheckRtIos.near((app.toPageX((app.offsetX()))) 0.0 0.001)))
+        this.ok("in both axes"
+            (CheckRtIos.near((app.toPageY((app.offsetY()))) 0.0 0.001)))
+
+        ; And a point one page pixel in is one page pixel in, whatever the
+        ; scale and the letterbox are doing.
+        def x100:double ((app.offsetX()) + (100.0 * s))
+        this.okDetail("100 page pixels across is 100 back" (CheckRtIos.near((app.toPageX(x100)) 100.0 0.01))
+            (to_string (app.toPageX(x100))))
+
+        this.ok("a point in the letterbox is off the page" ((app.onPage(1.0 1.0)) == false))
+        this.ok("and the middle of the window is on it" (app.onPage(590.0 410.0)))
+    }
+
+    ; --- input ----------------------------------------------------------------
+
+    fn checkInput:void () {
+        print "--- a finger reaches the control drawn under it ---"
+        def app:RtIos (this.freshInset(1180.0 820.0 59.0 34.0))
+
+        ; The loader is on screen at the start, and its ring is the thing the
+        ; page is built around. Hitting anything at all through the full
+        ; window -> page conversion is the point.
+        def hit:string (app.hitAt(590.0 410.0))
+        this.okDetail("the middle of the window hits the page" ((strlen hit) > 0) hit)
+
+        ; The loading scene hands over on its own; drive it to the sign-in page
+        ; and press the control the demo's own check presses.
+        app.setScene("signin")
+        this.ok("the scene changed" ((app.sceneName()) == "signin"))
+        ; `rt-google` is the sign-in page's own button -- the one the browser
+        ; check presses too, so the two agree about what the page offers.
+        def reached:boolean (this.pressUntil(app "rt-google" 1180.0 820.0))
+        this.ok("the sign-in button is reachable by a window point" reached)
+        this.okDetail("and pressing it moves the app on" ((app.sceneName()) == "dashboard")
+            (app.sceneName()))
+
+        ; A press that lands in the letterbox marks nothing.
+        def app2:RtIos (this.fresh(1366.0 700.0))
+        this.ok("a press in the letterbox presses nothing" ((app2.pressAt(2.0 2.0)) == false))
+        app2.releasePress()
+    }
+
+    ; --- pinch and pan --------------------------------------------------------
+
+    fn checkZoom:void () {
+        print "--- a pinch holds the point under the fingers ---"
+        def app:RtIos (this.fresh(1180.0 820.0))
+        def fx:double 700.0
+        def fy:double 500.0
+        def beforeX:double (app.toPageX(fx))
+        def beforeY:double (app.toPageY(fy))
+        this.ok("a pinch reports a change" (app.pinch(1.8 fx fy)))
+        this.okDetail("the page point under the fingers did not move"
+            (CheckRtIos.near((app.toPageX(fx)) beforeX 0.01))
+            (to_string (app.toPageX(fx))))
+        this.ok("in both axes" (CheckRtIos.near((app.toPageY(fy)) beforeY 0.01)))
+        this.ok("and the page is now bigger than the window" (app.canPan()))
+
+        ; Zoomed in, a drag moves the page and stops at its edge.
+        this.ok("a drag moves it" (app.panBy(-40.0 -40.0)))
+        def far:boolean true
+        def n:int 0
+        while (n < 200) {
+            app.panBy(-60.0 -60.0)
+            n = (n + 1)
+        }
+        def s:double (app.scale())
+        def rightEdge:double ((app.offsetX()) + ((app.pageWidth()) * s))
+        this.okDetail("and stops with the page's right edge on screen" (rightEdge >= 1179.9)
+            (to_string rightEdge))
+
+        this.ok("a double tap resets it" (app.resetZoom()))
+        this.ok("back to the contain fit" ((app.canPan()) == false))
+        this.ok("and a second reset is a no-op" ((app.resetZoom()) == false))
+
+        ; At rest the page fits, so a drag does nothing rather than sliding the
+        ; composition off the screen.
+        def rest:RtIos (this.fresh(1180.0 820.0))
+        this.ok("a drag on a page that fits does nothing" ((rest.panBy(-80.0 -80.0)) == false))
+    }
+
+    ; --- the clock ------------------------------------------------------------
+
+    fn checkClock:void () {
+        print "--- the clock runs the loading scene ---"
+        def app:RtIos (this.fresh(1180.0 820.0))
+        this.ok("it starts loading" ((app.sceneName()) == "loading"))
+        this.ok("a tick reports movement" (app.tick(16.0)))
+
+        ; The ring turns and the bar fills for a fixed time, then the app hands
+        ; over. Driven here with a made-up clock, exactly as the browser check
+        ; drives it.
+        def n:int 0
+        while (n < 400) {
+            app.tick(16.0)
+            n = (n + 1)
+        }
+        this.okDetail("and hands over to the sign-in page" ((app.sceneName()) == "signin")
+            (app.sceneName()))
+        this.ok("the sign-in page draws" ((this.commandCount(app)) > 20))
+    }
+
+    ; --- every scene draws ----------------------------------------------------
+
+    fn checkScenes:void () {
+        print "--- every scene draws on the device's window ---"
+        def app:RtIos (this.freshInset(1180.0 820.0 59.0 34.0))
+        def names:[string]
+        push names "signin"
+        push names "dashboard"
+        push names "session"
+        for names name:string i {
+            app.setScene(name)
+            def n:int (this.commandCount(app))
+            this.okDetail((("the " + name) + " scene draws") (n > 20) (to_string n))
+        }
+    }
+
+    ; --- the screens this is for ----------------------------------------------
+
+    fn checkScreens:void () {
+        print "--- the sizes this is actually for ---"
+        def w:[double]
+        def h:[double]
+        def names:[string]
+        ; iPad Pro 11", iPad 10.9", iPad mini, iPhone 15 Pro Max, iPhone SE --
+        ; points, landscape for the tablets and portrait for the phones.
+        push names "iPad Pro 11 landscape"
+        push w 1194.0
+        push h 834.0
+        push names "iPad 10.9 landscape"
+        push w 1180.0
+        push h 820.0
+        push names "iPad mini portrait"
+        push w 744.0
+        push h 1133.0
+        push names "iPhone 15 Pro Max"
+        push w 430.0
+        push h 932.0
+        push names "iPhone SE"
+        push w 375.0
+        push h 667.0
+        for names name:string i {
+            def app:RtIos (this.fresh((itemAt w i) (itemAt h i)))
+            def s:double (app.scale())
+            def shownW:double ((app.pageWidth()) * s)
+            def shownH:double ((app.pageHeight()) * s)
+            def fitsW:boolean (shownW <= ((itemAt w i) + 0.1))
+            def fitsH:boolean (shownH <= ((itemAt h i) + 0.1))
+            def shown:string ((to_string shownW) + "x" + (to_string shownH))
+            this.okDetail((name + ": the whole page is on screen") (fitsW && fitsH) shown)
+            this.ok((name + ": and it draws") ((this.commandCount(app)) > 20))
+        }
+    }
+
+    sfn main:void () {
+        def c:CheckRtIos (new CheckRtIos)
+        def cssText@(optional):string (read_file "gallery/realtrainer/web" "realtrainer.css")
+        if (null? cssText) {
+            print "gallery/realtrainer/web/realtrainer.css is missing"
+            exit 1
+        }
+        c.css = (unwrap cssText)
+        c.checkPage()
+        c.checkFit()
+        c.checkSafeArea()
+        c.checkMapping()
+        c.checkInput()
+        c.checkZoom()
+        c.checkClock()
+        c.checkScenes()
+        c.checkScreens()
+        print ""
+        print ((to_string (c.passed + c.failed)) + " checks, " + (to_string c.failed) + " failed")
+        if (c.failed > 0) {
+            exit 1
+        }
+        print "the page is contained, converted, pressed and ticked"
+    }
+}

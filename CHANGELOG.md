@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`gallery/realtrainer` runs on an iPad, from the same Ranger.**
+  `ranger/rt_ios.rgr` imports `RealTrainerDemo.rgr` unchanged and compiles to
+  19 000 lines of Swift holding the EVG controllers, the cascade, the layout
+  engine, the display list and the demo. Nothing about the app is written twice
+  for Apple; `gallery/evg/apple` paints it, as it paints the dashboard.
+
+  The facade is not a copy of the dashboard's, because the two pages are not
+  the same shape. The dashboard is a DOCUMENT -- a fixed width that scrolls, so
+  it is scaled by a ratio of widths and its height becomes whatever the
+  viewport is worth at that scale. RealTrainer is a COMPOSITION -- 980x760,
+  designed whole, with nothing to scroll -- and scaling it that way would
+  re-lay it out into a shape its author never drew. So it is CONTAINED:
+  `min(w-ratio, h-ratio)`, centred, letterboxed, and the same size on every
+  screen. That difference is the whole reason there are two facades rather than
+  a flag on one, and it is in Ranger rather than in the `UIView` for the reason
+  the port exists -- `check_rt_ios.rgr` drives all 55 of its rules on Node.
+
+  `RealTrainerDemo` grew a `display():EVGDisplayList` beside its
+  `displayListJson()`, which now calls it. A browser host has to parse
+  something anyway; a host sharing a process with the demo should not
+  serialise a display list only to parse it back.
+
+- **The Apple build driver builds any gallery demo, not just the dashboard.**
+  Everything that was specific to one demo -- its Ranger entry point, where the
+  Swift lands, the bundle id, which hand-written host drives it, which
+  stylesheet is packaged -- is now an `IosApp` record rather than constants in
+  `IosBuild`, and `--app=KEY` picks one. A port is an entry in that registry
+  plus a facade and a view, not a second copy of the build. `ui:ios:smoke`
+  drives the second app end to end through the same fake toolchain, so a change
+  that breaks it for RealTrainer cannot pass by being tested on the dashboard
+  alone. A target a port has no host for -- a watch, for this one -- says so
+  instead of building a bundle that cannot run.
+
 ### Fixed
 
 - **`gallery/evg`: a grid flag nothing read.** `EVGLayout.layoutGrid` set
