@@ -1,0 +1,45 @@
+{
+  "_": "The calendar screen as the phone shows it: the week's seven rows, a week either way, the two tabs. The first scenario that measures a SCREEN rather than a machine — every name here is what the reference renders, and the Ranger side has to render the same.",
+  "id": "calendar-week-browse",
+  "area": "kalenteri",
+  "machine": "",
+  "reference": {
+    "route": "/calendar/cal-plan?week=2026-02-09"
+  },
+  "setup": [
+    {
+      "page": "390x844",
+      "why": "a phone, upright"
+    },
+    {
+      "route": "/calendar/cal-plan?week=2026-02-09"
+    }
+  ],
+  "steps": [
+    {
+      "id": "rt-week-next",
+      "role": "button",
+      "name": "Seuraava viikko"
+    },
+    {
+      "id": "rt-week-prev",
+      "role": "button",
+      "name": "Edellinen viikko"
+    },
+    {
+      "id": "rt-tab-example",
+      "role": "button",
+      "name": "Malliviikko"
+    },
+    {
+      "id": "rt-week-light",
+      "role": "button",
+      "name": "Kevyt viikko"
+    },
+    {
+      "id": "rt-tab-weeks",
+      "role": "button",
+      "name": "Viikot"
+    }
+  ]
+}

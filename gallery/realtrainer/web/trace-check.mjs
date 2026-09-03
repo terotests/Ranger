@@ -52,13 +52,17 @@ const CHAT_MACHINE = fs.readFileSync(
   path.join(ROOT, "fixtures", "machines", "chat.machine.json"),
   "utf8",
 );
+// …and the reference seed: the calendar, its entries and the year plan the
+// recorder puts into the emulator, so both sides draw the same week.
+const SEED = fs.readFileSync(path.join(ROOT, "fixtures", "reference", "seed.json"), "utf8");
 
 /** Role, name and state per node — the fields both sides can answer. */
 function snapshot(app) {
   return JSON.parse(app.a11yJson(1, "")).nodes.map((n) => ({
     role: n.role,
     name: n.name ?? "",
-    state: n.state ?? "",
+    // A heading's level is its state, as the reference reports it.
+    state: n.state ?? (n.role === "heading" && n.level ? `level=${n.level}` : ""),
   }));
 }
 
@@ -80,9 +84,21 @@ function runScenario(file) {
   app.init(CSS, COMPACT);
   app.loadPlanMachine(PLAN_MACHINE);
   app.loadChatMachine(CHAT_MACHINE);
+  app.loadReference(SEED);
+  // A step is a tick, a page size, a route, a press, or a press and a typed
+  // string — the same five the reference recorder understands, except that
+  // here a press is by id and there by role and name.
   const apply = (step) => {
     if (step.tick !== undefined) return app.tick(step.tick);
-    return app.press(step.id);
+    if (step.page !== undefined) {
+      const [w, h] = step.page.split("x").map(Number);
+      app.setPageSize(w, h);
+      return true;
+    }
+    if (step.route !== undefined) return app.openRoute(step.route);
+    const pressed = app.press(step.id);
+    if (step.type !== undefined) return app.typeText(step.type) || pressed;
+    return pressed;
   };
   for (const step of scenario.setup ?? []) apply(step);
   const wrong = [];

@@ -89,6 +89,7 @@ Import "CompactRows.rgr"
 Import "AddWorkoutDialog.rgr"
 Import "PlanDialogHost.rgr"
 Import "ChatHost.rgr"
+Import "RtCalendar.rgr"
 
 treefactory Rt {
     child addChild
@@ -242,6 +243,81 @@ treefactory Rt {
     tag ChatBox  EVGElement (props (className "rt-sheet rt-chat-box") (id "rt-chat-box")
                                    (role "region") (a11yLabel "Viesti"))
 
+    ; --- the shell as the original draws it ----------------------------------
+    ; A phone: a header, the section, a bar of five at the bottom. Turned on
+    ; its side, or on a desk: the icon rail down the left instead. These are
+    ; `MobileHeader`, `MobileBottomNav` and `IconNav` in the original, and the
+    ; roles and names here are theirs.
+    tag Phone    EVGElement (props (className "rt-phone") (id "rt-page"))
+    tag PhHead   EVGElement (props (className "rt-ph-head") (id "rt-ph-head") (role "banner"))
+    tag PhCredits EVGElement (props (className "rt-ph-credits") (id "rt-credits") (role "button")
+                                   (a11yLabel "AI Credits: 100k. Click to purchase more credits.") (a11yFocusable true))
+    tag PhCreditsTx EVGElement (props (className "rt-ph-credits-text") (elementType 1))
+    tag PhCalSel EVGElement (props (className "rt-ph-calsel") (id "rt-calsel") (role "button") (a11yFocusable true))
+    tag PhCalTx  EVGElement (props (className "rt-ph-calsel-text") (elementType 1))
+    tag PhCalEmoji EVGElement (props (className "rt-ph-calsel-emoji") (elementType 1))
+    tag PhAvatar EVGElement (props (className "rt-ph-avatar"))
+    tag PhAvatarTx EVGElement (props (className "rt-ph-avatar-text") (elementType 1))
+    tag PhMain   EVGElement (props (className "rt-ph-main") (id "rt-ph-main") (role "main"))
+    tag PhBody   EVGElement (props (className "rt-ph-body") (id "rt-ph-body"))
+    tag PhNav    EVGElement (props (className "rt-ph-nav") (id "rt-ph-nav") (role "navigation"))
+    tag PhNavItem EVGElement (props (className "rt-ph-nav-item") (role "button") (a11yFocusable true))
+    tag PhNavTx  EVGElement (props (className "rt-ph-nav-text") (elementType 1))
+    tag PhIcon   EVGElement (props (className "rt-ph-icon") (tagName "path"))
+    tag PhRail   EVGElement (props (className "rt-ph-rail") (id "rt-ph-rail") (role "navigation"))
+    tag PhRailBtn EVGElement (props (className "rt-ph-rail-btn") (role "button") (a11yFocusable true))
+    tag PhRailGap EVGElement (props (className "rt-ph-rail-gap"))
+    tag PhSide   EVGElement (props (className "rt-ph-side"))
+    tag PhPct    EVGElement (props (className "rt-ph-pct") (elementType 1))
+    ; Where the toasts land. Empty until one does, and a landmark all the same
+    ; — the original's toaster is on every screen.
+    tag PhToasts EVGElement (props (className "rt-ph-toasts") (id "rt-toasts") (role "region")
+                                   (a11yLabel "Notifications alt+T"))
+
+    ; --- the calendar: MobileWeekView, and ExampleWeekPanel ------------------
+    tag CalActions EVGElement (props (className "rt-cal-actions"))
+    tag CalBtn   EVGElement (props (className "rt-cal-btn") (role "button") (a11yFocusable true))
+    tag CalBtnTx EVGElement (props (className "rt-cal-btn-text") (elementType 1))
+    tag CalTabs  EVGElement (props (className "rt-cal-tabs"))
+    tag CalTab   EVGElement (props (className "rt-cal-tab") (role "button") (a11yFocusable true))
+    tag CalTabTx EVGElement (props (className "rt-cal-tab-text") (elementType 1))
+    tag CalTabBar EVGElement (props (className "rt-cal-tab-bar") (a11yHidden true))
+    tag WeekHead EVGElement (props (className "rt-week-head"))
+    tag WeekNavBtn EVGElement (props (className "rt-week-nav") (role "button") (a11yFocusable true))
+    tag WeekMid  EVGElement (props (className "rt-week-mid"))
+    tag WeekTitleBtn EVGElement (props (className "rt-week-title") (id "rt-week-today") (role "button") (a11yFocusable true))
+    tag WeekNo   EVGElement (props (className "rt-week-no") (elementType 1))
+    tag WeekRange EVGElement (props (className "rt-week-range") (elementType 1))
+    tag WeekPill EVGElement (props (className "rt-week-pill") (id "rt-plan-create") (role "button")
+                                   (a11yLabel "Luo suunnitelma") (a11yFocusable true))
+    tag WeekPillTx EVGElement (props (className "rt-week-pill-text") (elementType 1))
+    tag DayRows  EVGElement (props (className "rt-day-rows"))
+    tag DayRow   EVGElement (props (className "rt-day-row") (role "button") (a11yFocusable true))
+    tag DayNum   EVGElement (props (className "rt-day-num"))
+    tag DayNumTx EVGElement (props (className "rt-day-num-text") (elementType 1))
+    tag DayCol   EVGElement (props (className "rt-day-col"))
+    tag DayName  EVGElement (props (className "rt-day-name") (elementType 1))
+    tag DayTitle EVGElement (props (className "rt-day-title") (elementType 1))
+    tag DayTags  EVGElement (props (className "rt-day-tags") (elementType 1))
+    tag DayDash  EVGElement (props (className "rt-day-dash") (elementType 1))
+    tag ExPanel  EVGElement (props (className "rt-ex-panel"))
+    tag ExHead   EVGElement (props (className "rt-ex-head") (id "rt-ex-head") (elementType 1)
+                                   (role "heading") (a11yLevel 3))
+    tag ExSub    EVGElement (props (className "rt-ex-sub") (elementType 1))
+    tag ExBtns   EVGElement (props (className "rt-ex-btns"))
+    tag ExBtn    EVGElement (props (className "rt-ex-btn") (role "button") (a11yFocusable true))
+    tag ExBtnTx  EVGElement (props (className "rt-ex-btn-text") (elementType 1))
+    tag ExSeg    EVGElement (props (className "rt-ex-seg"))
+    tag ExSegBtn EVGElement (props (className "rt-ex-seg-btn") (role "button") (a11yFocusable true))
+    tag ExSegTx  EVGElement (props (className "rt-ex-seg-text") (elementType 1))
+    tag ExDays   EVGElement (props (className "rt-ex-days"))
+    tag ExDay    EVGElement (props (className "rt-ex-day"))
+    tag ExDayName EVGElement (props (className "rt-ex-day-name") (elementType 1))
+    tag ExDayBody EVGElement (props (className "rt-ex-day-body"))
+    tag ExDayTitle EVGElement (props (className "rt-ex-day-title") (elementType 1))
+    tag ExDayTags EVGElement (props (className "rt-ex-day-tags") (elementType 1))
+    tag ExDayLine EVGElement (props (className "rt-ex-day-line") (elementType 1))
+
     tag DocView  EVGElement (props (className "rt-doc-view") (id "rt-doc-view"))
     tag DocList  EVGElement (props (className "rt-doc-list") (id "rt-doc-list")
                                    (role "list") (a11yLabel "Harjoituksen rivit"))
@@ -340,6 +416,15 @@ class RealTrainerDemo {
     ; The conversation machine, likewise run from its definition, and the
     ; mock adapter that streams its reply on the clock.
     def chat:ChatHost (new ChatHost())
+    ; The reference: the same seed file the recorder puts into the emulator,
+    ; and the screen it is opened on. `section` is `activeNavSection` in the
+    ; original, `calTab` its `mobileCalendarTab`, `weekStart` the `?week=`.
+    def seed:RtSeed (new RtSeed())
+    def section:string "calendar"
+    def calTab:string "weeks"
+    def weekStart:string "2026-02-09"
+    def exWeekType:string "target"
+    def today:string "2026-09-03"
     def chatSim:RtChatSim (new RtChatSim())
     def chatJob:RtBackendSim (new RtBackendSim())
     def planJob:RtBackendSim (new RtBackendSim())
@@ -541,6 +626,44 @@ class RealTrainerDemo {
     fn loadChatMachine:void (text:string) {
         chat.load(text)
         chatJob.latencyMs = 600.0
+    }
+
+    ; The same file the reference recorder seeds from.
+    fn loadReference:void (text:string) {
+        seed.load(text)
+        if ((strlen seed.week) > 0) {
+            weekStart = seed.week
+        }
+    }
+
+    ; A phone is 390 by 844; on its side 844 by 390. The shell reads which.
+    fn setPageSize:void (w:double h:double) {
+        pageW = w
+        pageH = h
+        def fresh (new EVGLayout())
+        fresh.setPageSize(pageW pageH)
+        layout = fresh
+        this.rebuild()
+    }
+
+    fn isPortrait:boolean () {
+        return (pageH > pageW)
+    }
+
+    ; "/calendar/cal-plan?week=2026-02-09" — the route the reference opens.
+    ; Only the calendar is routed today; everything else is a section.
+    fn openRoute:boolean (route:string) {
+        def q:int (RtEntry.findIn(route "?week="))
+        if (q >= 0) {
+            weekStart = (RtWeek.mondayOf((substring route (q + 6) (q + 16))))
+        }
+        if (RtEntry.hasPrefix(route "/calendar/")) {
+            section = "calendar"
+            calTab = "weeks"
+        }
+        scene = "app"
+        this.rebuild()
+        return true
     }
 
     ; The chosen rest, in milliseconds. The controller holds a STRING, because
@@ -1404,6 +1527,9 @@ class RealTrainerDemo {
             }
             return (plan.open(true "cal-1"))
         }
+        if ((scene == "app") && ((id == "rt-plan-update") || (id == "rt-plan-create"))) {
+            return (plan.open(true "cal-plan"))
+        }
         if ((plan.isOpen()) == false) {
             return false
         }
@@ -1653,6 +1779,458 @@ class RealTrainerDemo {
         return moved
     }
 
+    ; --- the shell ----------------------------------------------------------------
+    ; Portrait: header, section, bottom bar. Landscape: the icon rail, then a
+    ; column of header and section. Same sections either way.
+    fn appScreen:EVGElement () {
+        def page (tree Rt (Phone))
+        if (this.isPortrait()) {
+            page.addChild((this.phoneHeader()))
+            page.addChild((this.phoneMain()))
+            page.addChild((this.bottomNav()))
+            page.addChild((tree Rt (PhToasts)))
+            return page
+        }
+        page.className = "rt-phone rt-phone-wide"
+        page.addChild((this.iconRail()))
+        def side (tree Rt (PhSide))
+        side.addChild((this.phoneHeader()))
+        side.addChild((this.phoneMain()))
+        page.addChild(side)
+        page.addChild((tree Rt (PhToasts)))
+        return page
+    }
+
+    fn phoneHeader:EVGElement () {
+        def head (tree Rt (PhHead))
+        def credits (tree Rt (PhCredits))
+        def gauge (tree Rt (PhIcon))
+        gauge.svgSource = (RtIcons.battery("#22c55e"))
+        credits.addChild(gauge)
+        credits.addChild((tree Rt (PhCreditsTx "100k credits")))
+        head.addChild(credits)
+        def sel (tree Rt (PhCalSel))
+        sel.a11yLabel = ("📋 " + seed.calendarName)
+        sel.addChild((tree Rt (PhCalEmoji "📋")))
+        sel.addChild((tree Rt (PhCalTx seed.calendarName)))
+        def down (tree Rt (PhIcon (props (className "rt-ph-icon rt-ph-icon-sm"))))
+        down.svgSource = (RtIcons.chevronDown("#999999"))
+        sel.addChild(down)
+        head.addChild(sel)
+        if ((this.isPortrait()) == false) {
+            head.addChild((tree Rt (PhPct "50%")))
+        }
+        head.addChild((tree Rt (PhAvatar (PhAvatarTx "T"))))
+        return head
+    }
+
+    fn phoneMain:EVGElement () {
+        def main (tree Rt (PhMain))
+        main.setAttribute("overflow" "hidden")
+        main.scrollTop = docScroll
+        def body (tree Rt (PhBody))
+        if (section == "calendar") {
+            this.calendarSection(body)
+        }
+        if (section == "chat") {
+            body.addChild((this.chatBody()))
+        }
+        if (section == "dashboard") {
+            body.addChild((this.dashPanel()))
+        }
+        if (section == "home") {
+            body.addChild((tree Rt (Section (props (id "rt-h-home")) "Koti")))
+        }
+        if (section == "more") {
+            body.addChild((tree Rt (Section (props (id "rt-h-more")) "Lisää")))
+        }
+        if (addDialog.isOpen()) {
+            body.addChild((this.addSheet()))
+        }
+        if (plan.isOpen()) {
+            body.addChild((this.planSheet()))
+        }
+        main.addChild(body)
+        return main
+    }
+
+    ; Five at the bottom, the way `MobileBottomNav` has them, active in the
+    ; accent colour.
+    fn bottomNav:EVGElement () {
+        def nav (tree Rt (PhNav))
+        nav.addChild((this.navItem("rt-nav-home" "Koti" (section == "home") (RtIcons.home((this.navColor((section == "home"))))))))
+        nav.addChild((this.navItem("rt-nav-calendar" "Kalenteri" (section == "calendar") (RtIcons.calendarDays((this.navColor((section == "calendar"))))))))
+        nav.addChild((this.navItem("rt-nav-dashboard" "Dashboard" (section == "dashboard") (RtIcons.layoutDashboard((this.navColor((section == "dashboard"))))))))
+        nav.addChild((this.navItem("rt-nav-chat" "AI Chat" (section == "chat") (RtIcons.messageSquare((this.navColor((section == "chat"))))))))
+        nav.addChild((this.navItem("rt-nav-more" "Lisää" (section == "more") (RtIcons.ellipsis((this.navColor((section == "more"))))))))
+        return nav
+    }
+
+    fn navColor:string (active:boolean) {
+        if active {
+            return "#fb923c"
+        }
+        return "#999999"
+    }
+
+    fn navItem:EVGElement (id:string label:string active:boolean icon:string) {
+        def item (tree Rt (PhNavItem))
+        item.id = id
+        item.a11yLabel = label
+        if active {
+            item.className = "rt-ph-nav-item rt-ph-nav-active"
+        }
+        def glyph (tree Rt (PhIcon))
+        glyph.svgSource = icon
+        item.addChild(glyph)
+        def tx (tree Rt (PhNavTx label))
+        if active {
+            tx.className = "rt-ph-nav-text rt-ph-nav-text-active"
+        }
+        item.addChild(tx)
+        return item
+    }
+
+    ; The rail down the left — `IconNav`: eight sections, a divider, settings,
+    ; and at the bottom the export, the theme and the way out.
+    fn iconRail:EVGElement () {
+        def rail (tree Rt (PhRail))
+        def gauge (tree Rt (PhRailBtn (props (id "rt-credits") (a11yLabel "AI Credits: 100k. Click to purchase more credits."))))
+        def g (tree Rt (PhIcon))
+        g.svgSource = (RtIcons.battery("#22c55e"))
+        gauge.addChild(g)
+        rail.addChild(gauge)
+        rail.addChild((this.railItem("rt-nav-home" "Koti" (section == "home") (RtIcons.home((this.navColor((section == "home"))))))))
+        rail.addChild((this.railItem("rt-nav-dashboard" "Dashboard" (section == "dashboard") (RtIcons.layoutDashboard((this.navColor((section == "dashboard"))))))))
+        rail.addChild((this.railItem("rt-nav-calendar" "Kalenteri" (section == "calendar") (RtIcons.calendarDays((this.navColor((section == "calendar"))))))))
+        rail.addChild((this.railItem("rt-nav-shared" "Jaetut" false (RtIcons.users("#999999")))))
+        rail.addChild((this.railItem("rt-nav-chat" "AI Chat" (section == "chat") (RtIcons.messageSquare((this.navColor((section == "chat"))))))))
+        rail.addChild((this.railItem("rt-nav-venues" "Harjoituspaikat" false (RtIcons.building("#999999")))))
+        rail.addChild((this.railItem("rt-nav-knowledge" "Tietopankki" false (RtIcons.bookOpen("#999999")))))
+        rail.addChild((this.railItem("rt-nav-settings" "Asetukset" false (RtIcons.settings("#999999")))))
+        rail.addChild((tree Rt (PhRailGap)))
+        rail.addChild((this.railItem("rt-nav-export" "Vie tietokanta" false (RtIcons.database("#999999")))))
+        rail.addChild((this.railItem("rt-nav-logout" "Kirjaudu ulos" false (RtIcons.logOut("#999999")))))
+        return rail
+    }
+
+    fn railItem:EVGElement (id:string label:string active:boolean icon:string) {
+        def item (tree Rt (PhRailBtn))
+        item.id = id
+        item.a11yLabel = label
+        if active {
+            item.className = "rt-ph-rail-btn rt-ph-rail-active"
+        }
+        def glyph (tree Rt (PhIcon))
+        glyph.svgSource = icon
+        item.addChild(glyph)
+        return item
+    }
+
+    ; --- the calendar section --------------------------------------------------
+    ; `DashboardPage`'s mobile calendar: two orange buttons, two tabs, and the
+    ; week — or the example week.
+    fn calendarSection:void (body:EVGElement) {
+        def actions (tree Rt (CalActions))
+        actions.addChild((this.calButton("rt-add" "Lisää harjoitus" (RtIcons.penLine("#ffffff")))))
+        if ((array_length seed.periods) > 0) {
+            actions.addChild((this.calButton("rt-plan-update" "Päivitä suunnitelma" (RtIcons.refreshCw("#ffffff")))))
+        }
+        body.addChild(actions)
+        if (seed.calendarType == "plan") {
+            def tabs (tree Rt (CalTabs))
+            tabs.addChild((this.calTabBtn("rt-tab-weeks" "Viikot" (calTab == "weeks"))))
+            tabs.addChild((this.calTabBtn("rt-tab-example" "Malliviikko" (calTab == "example"))))
+            body.addChild(tabs)
+        }
+        if (calTab == "weeks") {
+            body.addChild((this.weekView()))
+        } {
+            body.addChild((this.examplePanel()))
+        }
+    }
+
+    fn calButton:EVGElement (id:string label:string icon:string) {
+        def b (tree Rt (CalBtn))
+        b.id = id
+        b.a11yLabel = label
+        def glyph (tree Rt (PhIcon (props (className "rt-ph-icon rt-ph-icon-sm"))))
+        glyph.svgSource = icon
+        b.addChild(glyph)
+        b.addChild((tree Rt (CalBtnTx label)))
+        return b
+    }
+
+    ; The original underlines the active tab with a 2px bottom border. EVG
+    ; draws a border on all four sides or none, so the underline is a bar of
+    ; its own under the label.
+    fn calTabBtn:EVGElement (id:string label:string active:boolean) {
+        def b (tree Rt (CalTab))
+        b.id = id
+        b.a11yLabel = label
+        def tx (tree Rt (CalTabTx label))
+        def bar (tree Rt (CalTabBar))
+        if active {
+            tx.className = "rt-cal-tab-text rt-cal-tab-text-active"
+            bar.className = "rt-cal-tab-bar rt-cal-tab-bar-active"
+        }
+        b.addChild(tx)
+        b.addChild(bar)
+        return b
+    }
+
+    ; `MobileWeekView`: the header with the week either way, and seven rows.
+    fn weekView:EVGElement () {
+        def col (tree Rt (Col (props (className "rt-week-view"))))
+        def head (tree Rt (WeekHead))
+        head.addChild((this.weekNav("rt-week-prev" "Edellinen viikko" (RtIcons.chevronLeft("#f2f2f2")))))
+        def mid (tree Rt (WeekMid))
+        def title (tree Rt (WeekTitleBtn))
+        def no:string ("vko " + (to_string (RtWeek.isoWeekNumber(weekStart))))
+        def range:string (RtWeek.rangeText(weekStart))
+        title.a11yLabel = ((no + " ") + range)
+        title.addChild((tree Rt (WeekNo no)))
+        title.addChild((tree Rt (WeekRange range)))
+        mid.addChild(title)
+        if (seed.calendarType == "plan") {
+            if ((array_length seed.periods) > 0) {
+                def pill (tree Rt (WeekPill))
+                def glyph (tree Rt (PhIcon (props (className "rt-ph-icon rt-ph-icon-xs"))))
+                glyph.svgSource = (RtIcons.refreshCw("#f97316"))
+                pill.addChild(glyph)
+                pill.addChild((tree Rt (WeekPillTx "Luo suunnitelma")))
+                mid.addChild(pill)
+            }
+        }
+        head.addChild(mid)
+        head.addChild((this.weekNav("rt-week-next" "Seuraava viikko" (RtIcons.chevronRight("#f2f2f2")))))
+        col.addChild(head)
+        def rows (tree Rt (DayRows))
+        def i@(mutable):int 0
+        while (i < 7) {
+            rows.addChild((this.dayRow(i)))
+            i = (i + 1)
+        }
+        col.addChild(rows)
+        return col
+    }
+
+    fn weekNav:EVGElement (id:string label:string icon:string) {
+        def b (tree Rt (WeekNavBtn))
+        b.id = id
+        b.a11yLabel = label
+        def glyph (tree Rt (PhIcon))
+        glyph.svgSource = icon
+        b.addChild(glyph)
+        return b
+    }
+
+    ; One day: the number in a circle — orange today, filled when there is
+    ; something on it — the short name, the title and the tags, and the
+    ; chevron. Its name is what a reader hears the original say: "10 Ti Kevyt
+    ; salitreeni #kuntosali #voima #kevyt", or "9 Ma –".
+    fn dayRow:EVGElement (i:int) {
+        def iso:string (RtWeek.shifted(weekStart i))
+        def entries:[RtSeedEntry] (seed.entriesOn(iso))
+        def isToday:boolean (iso == today)
+        def row (tree Rt (DayRow))
+        row.id = ("rt-day-" + (to_string i))
+        if isToday {
+            row.className = "rt-day-row rt-day-today"
+        }
+        def num (tree Rt (DayNum))
+        def dayNo:string (to_string (RtWeek.dayOfMonth(iso)))
+        def numTx (tree Rt (DayNumTx dayNo))
+        if isToday {
+            num.className = "rt-day-num rt-day-num-today"
+            numTx.className = "rt-day-num-text rt-day-num-text-today"
+        } {
+            if ((array_length entries) > 0) {
+                num.className = "rt-day-num rt-day-num-busy"
+                numTx.className = "rt-day-num-text rt-day-num-text-busy"
+            }
+        }
+        num.addChild(numTx)
+        row.addChild(num)
+        def col (tree Rt (DayCol))
+        def short:string (RtWeek.dayShort(i))
+        def name (tree Rt (DayName short))
+        if isToday {
+            name.className = "rt-day-name rt-day-name-today"
+        }
+        col.addChild(name)
+        def label@(mutable):string (((to_string (RtWeek.dayOfMonth(iso))) + " ") + (RtWeek.dayShort(i)))
+        if ((array_length entries) > 0) {
+            def firstSeed:RtSeedEntry (itemAt entries 0)
+            def first:RtEntry (RtEntry.of(firstSeed.compact))
+            def title@(mutable):string first.title
+            if ((array_length entries) > 1) {
+                def secondSeed:RtSeedEntry (itemAt entries 1)
+                def second:RtEntry (RtEntry.of(secondSeed.compact))
+                title = ((title + " & ") + second.title)
+            }
+            col.addChild((tree Rt (DayTitle title)))
+            label = ((label + " ") + title)
+            def tags:string (first.tagText())
+            if ((strlen tags) > 0) {
+                col.addChild((tree Rt (DayTags tags)))
+                label = ((label + " ") + tags)
+            }
+        } {
+            col.addChild((tree Rt (DayDash "–")))
+            label = (label + " –")
+        }
+        row.a11yLabel = label
+        row.addChild(col)
+        def chev (tree Rt (PhIcon (props (className "rt-ph-icon rt-ph-icon-sm"))))
+        chev.svgSource = (RtIcons.chevronRight("#999999"))
+        row.addChild(chev)
+        return row
+    }
+
+    ; `ExampleWeekPanel`: the period, "Malliviikko", edit and create, the two
+    ; week types, and the seven days with their COMPACT under them.
+    fn examplePanel:EVGElement () {
+        def panel (tree Rt (ExPanel))
+        def period:RtPeriod (seed.firstPeriod())
+        panel.addChild((tree Rt (ExHead period.name)))
+        panel.addChild((tree Rt (ExSub "Malliviikko")))
+        def btns (tree Rt (ExBtns))
+        btns.addChild((this.exButton("rt-ex-edit" "Muokkaa" "Muokkaa")))
+        btns.addChild((this.exButton("rt-ex-create" "Luo viikolle" "Luo viikolle")))
+        panel.addChild(btns)
+        if ((period.hasWeek("target")) && (period.hasWeek("light"))) {
+            def seg (tree Rt (ExSeg))
+            seg.addChild((this.exSegBtn("rt-week-target" "Tavoiteviikko" (exWeekType == "target"))))
+            seg.addChild((this.exSegBtn("rt-week-light" "Kevyt viikko" (exWeekType == "light"))))
+            panel.addChild(seg)
+        }
+        def week:RtExampleWeek (period.weekOf(exWeekType))
+        def days (tree Rt (ExDays))
+        def i@(mutable):int 0
+        while (i < 7) {
+            def compact:string (week.dayAt(i))
+            def day (tree Rt (ExDay))
+            def short:string (RtWeek.dayShort(i))
+            def name (tree Rt (ExDayName short))
+            def bodyEl (tree Rt (ExDayBody))
+            if ((strlen compact) > 0) {
+                day.className = "rt-ex-day rt-ex-day-busy"
+                name.className = "rt-ex-day-name rt-ex-day-name-busy"
+                def e:RtEntry (RtEntry.of(compact))
+                def title@(mutable):string e.title
+                if ((strlen e.emojis) > 0) {
+                    title = ((e.emojis + "  ") + title)
+                }
+                bodyEl.addChild((tree Rt (ExDayTitle title)))
+                def tags:string (e.tagText())
+                if ((strlen tags) > 0) {
+                    bodyEl.addChild((tree Rt (ExDayTags tags)))
+                }
+                for e.bodyLines line:string j {
+                    bodyEl.addChild((tree Rt (ExDayLine line)))
+                }
+            }
+            day.addChild(name)
+            day.addChild(bodyEl)
+            days.addChild(day)
+            i = (i + 1)
+        }
+        panel.addChild(days)
+        def desc:string week.description
+        panel.addChild((tree Rt (ExSub desc)))
+        return panel
+    }
+
+    fn exButton:EVGElement (id:string label:string text:string) {
+        def b (tree Rt (ExBtn))
+        b.id = id
+        b.a11yLabel = label
+        b.addChild((tree Rt (ExBtnTx text)))
+        return b
+    }
+
+    fn exSegBtn:EVGElement (id:string label:string active:boolean) {
+        def b (tree Rt (ExSegBtn))
+        b.id = id
+        b.a11yLabel = label
+        def tx (tree Rt (ExSegTx label))
+        if active {
+            b.className = "rt-ex-seg-btn rt-ex-seg-active"
+            tx.className = "rt-ex-seg-text rt-ex-seg-text-active"
+        }
+        b.addChild(tx)
+        return b
+    }
+
+    ; The conversation, as a section rather than a screen: the same log and
+    ; box `chatScreen` draws, without the frame around them.
+    fn chatBody:EVGElement () {
+        def full:EVGElement (this.chatScreen())
+        def col (tree Rt (Col (props (className "rt-chat-section"))))
+        def found@(optional):EVGElement (RealTrainerDemo.byId(full "rt-chat-log"))
+        if found {
+            col.addChild((unwrap found))
+        }
+        def box@(optional):EVGElement (RealTrainerDemo.byId(full "rt-chat-box"))
+        if box {
+            col.addChild((unwrap box))
+        }
+        return col
+    }
+
+    fn pressApp:boolean (id:string) {
+        if (id == "rt-nav-home") { return (this.goSection("home")) }
+        if (id == "rt-nav-calendar") { return (this.goSection("calendar")) }
+        if (id == "rt-nav-dashboard") { return (this.goSection("dashboard")) }
+        if (id == "rt-nav-chat") { return (this.goSection("chat")) }
+        if (id == "rt-nav-more") { return (this.goSection("more")) }
+        if (section != "calendar") {
+            return false
+        }
+        if (id == "rt-week-next") {
+            weekStart = (RtWeek.shifted(weekStart 7))
+            return true
+        }
+        if (id == "rt-week-prev") {
+            weekStart = (RtWeek.shifted(weekStart -7))
+            return true
+        }
+        if (id == "rt-week-today") {
+            weekStart = (RtWeek.mondayOf(today))
+            return true
+        }
+        if (id == "rt-tab-weeks") {
+            calTab = "weeks"
+            return true
+        }
+        if (id == "rt-tab-example") {
+            calTab = "example"
+            return true
+        }
+        if (id == "rt-week-target") {
+            exWeekType = "target"
+            return true
+        }
+        if (id == "rt-week-light") {
+            exWeekType = "light"
+            return true
+        }
+        if ((id == "rt-plan-update") || (id == "rt-plan-create")) {
+            return (plan.open(true "cal-plan"))
+        }
+        return false
+    }
+
+    fn goSection:boolean (name:string) {
+        if (section == name) {
+            return false
+        }
+        section = name
+        docScroll = 0.0
+        return true
+    }
+
     fn document:EVGElement () {
         def main (tree Rt (Main (props (className "rt-main rt-main-doc"))))
         main.addChild((tree Rt
@@ -1684,6 +2262,19 @@ class RealTrainerDemo {
     ; anything moved. Nothing is rebuilt: the tree is the same tree, and only
     ; the offset on its viewport changed.
     fn scrollDocument:boolean (delta:double) {
+        if (scene == "app") {
+            def r0:EVGElement (unwrap root)
+            def found0@(optional):EVGElement (RealTrainerDemo.byId(r0 "rt-ph-main"))
+            if found0 {
+                def body:EVGElement (unwrap found0)
+                def before0:double body.scrollTop
+                body.scrollTop = (body.scrollTop + delta)
+                this.laidOut()
+                docScroll = body.scrollTop
+                return (body.scrollTop != before0)
+            }
+            return false
+        }
         if (scene != "document") {
             return false
         }
@@ -1739,6 +2330,9 @@ class RealTrainerDemo {
         }
         if (scene == "chat") {
             root = (this.chatScreen())
+        }
+        if (scene == "app") {
+            root = (this.appScreen())
         }
         if (scene == "loading") {
             root = (this.loader())
@@ -2033,6 +2627,19 @@ class RealTrainerDemo {
                 this.rebuild()
                 return true
             }
+        }
+        if (scene == "app") {
+            if (this.pressApp(id)) {
+                this.rebuild()
+                return true
+            }
+            if (section == "chat") {
+                if (this.pressChat(id)) {
+                    this.rebuild()
+                    return true
+                }
+            }
+            return false
         }
         if (this.pressRail(id)) {
             return true

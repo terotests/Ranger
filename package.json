@@ -863,6 +863,8 @@
     "rt:machine:config": "node gallery/realtrainer/scripts/check-machine-config.mjs",
     "rt:trace": "npm run rt:build --silent && node gallery/realtrainer/web/trace-check.mjs",
     "rt:trace:record": "npm run rt:build --silent && node gallery/realtrainer/web/trace-check.mjs --record",
+    "rt:trace:diff": "node gallery/realtrainer/web/trace-diff.mjs",
+    "rt:trace:reference": "node gallery/realtrainer/scripts/record-reference-trace.mjs",
     "rt:compact": "npm run rt:compact:build --silent && node gallery/realtrainer/web/compact-check.mjs",
     "rt:l0": "npm run rt:compact:build --silent && node gallery/realtrainer/web/l0-check.mjs",
     "rt:l0:record": "npm run rt:compact:build --silent && node gallery/realtrainer/oracle/record.mjs",

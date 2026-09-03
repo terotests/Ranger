@@ -1,0 +1,93 @@
+{
+  "_": "What the reference recorder seeds into the Firestore emulator before every scenario, and what the Ranger side draws the same week from. One plan calendar, the week of 2026-02-09, one entry on the Tuesday — the shape of the screenshot the port is measured against.",
+  "week": "2026-02-09",
+  "calendars": [
+    {
+      "id": "cal-plan",
+      "name": "Harjoitussuunnitelma",
+      "type": "plan",
+      "color": "#3B82F6"
+    }
+  ],
+  "entries": [
+    {
+      "id": "entry-tue",
+      "calendarId": "cal-plan",
+      "date": "2026-02-10",
+      "compact": "[2026-02-10]\n## Kevyt salitreeni\nTags kuntosali, voima, kevyt\nDuration 45min"
+    }
+  ],
+  "yearsheets": [
+    {
+      "id": "ys-ref-1",
+      "name": "Vuosisuunnitelma 2026",
+      "description": "Referenssin vuosisuunnitelma",
+      "startDate": "2026-01-05",
+      "rows": [],
+      "periods": [
+        {
+          "id": "period-ref-1",
+          "name": "Kuntoutus & Ylläpito",
+          "type": "general",
+          "duration": 104,
+          "durationUnit": "weeks",
+          "goals": "Kuntoutus ja ylläpito",
+          "exampleWeeks": [
+            {
+              "type": "target",
+              "description": "Tavoiteviikko",
+              "days": [
+                {
+                  "dayOfWeek": 0,
+                  "compact": "## Ylävartalon voima - Eristävä\nTags Voimaharjoittelu\nEmojis 💪🏋️\n\n# LÄMMITTELY\nTime 10min | Kuntopyörä\n\n# PÄÄOSA\nPenkkipunnerrus käsipainoilla 3x12x22-25kg\nYlätalja leveä ote 3x12x55-60kg\nVipunostot sivulle 3x15x10kg"
+                },
+                {
+                  "dayOfWeek": 1,
+                  "compact": "## Kevyt lenkki\nTags kestävyys\nTime 40min | rauhallinen"
+                },
+                {
+                  "dayOfWeek": 2,
+                  "compact": "## Alavartalon voima\nTags Voimaharjoittelu\nKyykky 5x5x80kg\nMaastaveto 3x5x100kg"
+                },
+                {
+                  "dayOfWeek": 3,
+                  "compact": "## Lepo\nTags lepo"
+                },
+                {
+                  "dayOfWeek": 4,
+                  "compact": "## Liikkuvuus\nTags huolto\nTime 30min | venyttely"
+                },
+                {
+                  "dayOfWeek": 5,
+                  "compact": "## Pitkä lenkki\nTags kestävyys\nTime 70min | pitkä"
+                },
+                {
+                  "dayOfWeek": 6,
+                  "compact": "## Lepo\nTags lepo"
+                }
+              ]
+            },
+            {
+              "type": "light",
+              "description": "Kevyt viikko",
+              "days": [
+                {
+                  "dayOfWeek": 0,
+                  "compact": "## Kevyt sali\nTags Voimaharjoittelu\nTime 40min | kevyt"
+                },
+                {
+                  "dayOfWeek": 2,
+                  "compact": "## Kevyt lenkki\nTags kestävyys\nTime 30min | kevyt"
+                },
+                {
+                  "dayOfWeek": 5,
+                  "compact": "## Kävely\nTags huolto\nTime 45min | rauhallinen"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

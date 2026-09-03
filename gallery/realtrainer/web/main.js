@@ -16,7 +16,7 @@
 import { renderDisplayList } from "../../evg/gl/evg-webgl.js";
 import { createA11yMirror, pressAtCentre } from "../../evg/gl/evg-a11y.js";
 import { RealTrainerDemo } from "./generated-host.js";
-import { REALTRAINER_CSS, REALTRAINER_COMPACT, REALTRAINER_PLAN_MACHINE, REALTRAINER_CHAT_MACHINE } from "./generated.js";
+import { REALTRAINER_CSS, REALTRAINER_COMPACT, REALTRAINER_PLAN_MACHINE, REALTRAINER_CHAT_MACHINE, REALTRAINER_SEED } from "./generated.js";
 
 const stage = document.getElementById("stage");
 const canvas = document.getElementById("c");
@@ -28,6 +28,19 @@ const app = new RealTrainerDemo();
 app.init(REALTRAINER_CSS, REALTRAINER_COMPACT);
 app.loadPlanMachine(REALTRAINER_PLAN_MACHINE);
 app.loadChatMachine(REALTRAINER_CHAT_MACHINE);
+app.loadReference(REALTRAINER_SEED);
+// `?page=390x844&route=/calendar/cal-plan?week=2026-02-09` opens the app the
+// way the reference recorder opens the original: a phone, on a route.
+{
+  const params = new URLSearchParams(location.search);
+  const page = params.get("page");
+  if (page) {
+    const [w, h] = page.split("x").map(Number);
+    if (w > 0 && h > 0) app.setPageSize(w, h);
+  }
+  const route = params.get("route");
+  if (route) app.openRoute(route);
+}
 
 // For anything driving this page from outside — the browser check reads the
 // last frame's list rather than guessing at pixels.

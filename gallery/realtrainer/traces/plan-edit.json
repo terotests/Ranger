@@ -50,7 +50,7 @@
     {
      "role": "heading",
      "name": "Dashboard",
-     "state": ""
+     "state": "level=1"
     },
     {
      "role": "button",
@@ -65,7 +65,7 @@
     {
      "role": "heading",
      "name": "Suunnittele viikko",
-     "state": ""
+     "state": "level=2"
     },
     {
      "role": "button",
@@ -140,7 +140,7 @@
     {
      "role": "heading",
      "name": "Aktiivinen suunnitelma",
-     "state": ""
+     "state": "level=2"
     },
     {
      "role": "status",
@@ -150,7 +150,7 @@
     {
      "role": "heading",
      "name": "Tavoitteet",
-     "state": ""
+     "state": "level=2"
     },
     {
      "role": "button",
@@ -292,7 +292,7 @@
     {
      "role": "heading",
      "name": "Dashboard",
-     "state": ""
+     "state": "level=1"
     },
     {
      "role": "button",
@@ -307,7 +307,7 @@
     {
      "role": "heading",
      "name": "Muokkaa ohjeita",
-     "state": ""
+     "state": "level=2"
     },
     {
      "role": "button",
@@ -502,7 +502,7 @@
     {
      "role": "heading",
      "name": "Aktiivinen suunnitelma",
-     "state": ""
+     "state": "level=2"
     },
     {
      "role": "status",
@@ -512,7 +512,7 @@
     {
      "role": "heading",
      "name": "Tavoitteet",
-     "state": ""
+     "state": "level=2"
     },
     {
      "role": "button",
@@ -654,7 +654,7 @@
     {
      "role": "heading",
      "name": "Dashboard",
-     "state": ""
+     "state": "level=1"
     },
     {
      "role": "button",
@@ -669,7 +669,7 @@
     {
      "role": "heading",
      "name": "Muokkaa ohjeita",
-     "state": ""
+     "state": "level=2"
     },
     {
      "role": "button",
@@ -864,7 +864,7 @@
     {
      "role": "heading",
      "name": "Aktiivinen suunnitelma",
-     "state": ""
+     "state": "level=2"
     },
     {
      "role": "status",
@@ -874,7 +874,7 @@
     {
      "role": "heading",
      "name": "Tavoitteet",
-     "state": ""
+     "state": "level=2"
     },
     {
      "role": "button",
@@ -1016,7 +1016,7 @@
     {
      "role": "heading",
      "name": "Dashboard",
-     "state": ""
+     "state": "level=1"
     },
     {
      "role": "button",
@@ -1031,7 +1031,7 @@
     {
      "role": "heading",
      "name": "Muokkaa ohjeita",
-     "state": ""
+     "state": "level=2"
     },
     {
      "role": "button",
@@ -1226,7 +1226,7 @@
     {
      "role": "heading",
      "name": "Aktiivinen suunnitelma",
-     "state": ""
+     "state": "level=2"
     },
     {
      "role": "status",
@@ -1236,7 +1236,7 @@
     {
      "role": "heading",
      "name": "Tavoitteet",
-     "state": ""
+     "state": "level=2"
     },
     {
      "role": "button",
@@ -1378,7 +1378,7 @@
     {
      "role": "heading",
      "name": "Dashboard",
-     "state": ""
+     "state": "level=1"
     },
     {
      "role": "button",
@@ -1393,7 +1393,7 @@
     {
      "role": "heading",
      "name": "Muokkaa ohjeita",
-     "state": ""
+     "state": "level=2"
     },
     {
      "role": "button",
@@ -1588,7 +1588,7 @@
     {
      "role": "heading",
      "name": "Aktiivinen suunnitelma",
-     "state": ""
+     "state": "level=2"
     },
     {
      "role": "status",
@@ -1598,7 +1598,7 @@
     {
      "role": "heading",
      "name": "Tavoitteet",
-     "state": ""
+     "state": "level=2"
     },
     {
      "role": "button",
@@ -1740,7 +1740,7 @@
     {
      "role": "heading",
      "name": "Dashboard",
-     "state": ""
+     "state": "level=1"
     },
     {
      "role": "button",
@@ -1755,7 +1755,7 @@
     {
      "role": "heading",
      "name": "Muokkaa ohjeita",
-     "state": ""
+     "state": "level=2"
     },
     {
      "role": "button",
@@ -1950,7 +1950,7 @@
     {
      "role": "heading",
      "name": "Aktiivinen suunnitelma",
-     "state": ""
+     "state": "level=2"
     },
     {
      "role": "status",
@@ -1960,7 +1960,7 @@
     {
      "role": "heading",
      "name": "Tavoitteet",
-     "state": ""
+     "state": "level=2"
     },
     {
      "role": "button",
@@ -2102,7 +2102,7 @@
     {
      "role": "heading",
      "name": "Dashboard",
-     "state": ""
+     "state": "level=1"
     },
     {
      "role": "button",
@@ -2117,7 +2117,7 @@
     {
      "role": "heading",
      "name": "Muokkaa ohjeita",
-     "state": ""
+     "state": "level=2"
     },
     {
      "role": "button",
@@ -2312,7 +2312,7 @@
     {
      "role": "heading",
      "name": "Aktiivinen suunnitelma",
-     "state": ""
+     "state": "level=2"
     },
     {
      "role": "status",
@@ -2322,7 +2322,7 @@
     {
      "role": "heading",
      "name": "Tavoitteet",
-     "state": ""
+     "state": "level=2"
     },
     {
      "role": "button",
@@ -2464,7 +2464,7 @@
     {
      "role": "heading",
      "name": "Dashboard",
-     "state": ""
+     "state": "level=1"
     },
     {
      "role": "button",
@@ -2479,7 +2479,7 @@
     {
      "role": "heading",
      "name": "Luodaan uudelleen",
-     "state": ""
+     "state": "level=2"
     },
     {
      "role": "button",
@@ -2514,7 +2514,7 @@
     {
      "role": "heading",
      "name": "Aktiivinen suunnitelma",
-     "state": ""
+     "state": "level=2"
     },
     {
      "role": "status",
@@ -2524,7 +2524,7 @@
     {
      "role": "heading",
      "name": "Tavoitteet",
-     "state": ""
+     "state": "level=2"
     },
     {
      "role": "button",
@@ -2666,7 +2666,7 @@
     {
      "role": "heading",
      "name": "Dashboard",
-     "state": ""
+     "state": "level=1"
     },
     {
      "role": "button",
@@ -2681,7 +2681,7 @@
     {
      "role": "heading",
      "name": "Vahvista korvattavat päivät",
-     "state": ""
+     "state": "level=2"
     },
     {
      "role": "list",
@@ -2796,7 +2796,7 @@
     {
      "role": "heading",
      "name": "Aktiivinen suunnitelma",
-     "state": ""
+     "state": "level=2"
     },
     {
      "role": "status",
@@ -2806,7 +2806,7 @@
     {
      "role": "heading",
      "name": "Tavoitteet",
-     "state": ""
+     "state": "level=2"
     },
     {
      "role": "button",
@@ -2948,7 +2948,7 @@
     {
      "role": "heading",
      "name": "Dashboard",
-     "state": ""
+     "state": "level=1"
     },
     {
      "role": "button",
@@ -2983,7 +2983,7 @@
     {
      "role": "heading",
      "name": "Aktiivinen suunnitelma",
-     "state": ""
+     "state": "level=2"
     },
     {
      "role": "status",
@@ -2993,7 +2993,7 @@
     {
      "role": "heading",
      "name": "Tavoitteet",
-     "state": ""
+     "state": "level=2"
     },
     {
      "role": "button",

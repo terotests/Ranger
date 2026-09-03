@@ -1,0 +1,507 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; RtCalendar — what the calendar screen is made of, before it is drawn
+; =============================================================================
+; The reference recorder seeds the Firestore emulator from
+; `fixtures/reference/seed.json` — one plan calendar, its entries, a year plan
+; with an example week — and drives the React app over it. This reads the SAME
+; file, so what the EVG side draws for wk 7 is the same week from the same
+; COMPACT, and a difference in the trace is a difference in the port.
+;
+; Three things live here and none of them draws:
+;
+;   RtSeed      the file, parsed: calendars, entries by date, periods and
+;               their example weeks
+;   RtWeek      the arithmetic the original does with `Date`: the Monday of a
+;               week, the ISO week number, "9. – 15.2.", Ma…Su
+;   RtEntry     what a day row says about an entry — title, tags, emojis —
+;               read off the COMPACT lines the way `MobileWeekView` reads them
+;               off the parsed workout
+;   RtIcons     lucide's paths for the icons the shell uses, as SVG the EVG
+;               parser draws with a stroke, so the glyphs are the originals
+; =============================================================================
+
+Import "../../vela/src/VlJson.rgr"
+Import "../../ui/src/UiDate.rgr"
+
+class RtSeedEntry {
+    def id@(mutable):string ""
+    def date@(mutable):string ""
+    def compact@(mutable):string ""
+
+    Constructor () {
+    }
+}
+
+class RtExampleDay {
+    def dayOfWeek@(mutable):int 0
+    def compact@(mutable):string ""
+
+    Constructor () {
+    }
+}
+
+class RtExampleWeek {
+    def weekType@(mutable):string "target"
+    def description@(mutable):string ""
+    def days:[RtExampleDay]
+
+    Constructor () {
+    }
+
+    fn dayAt:string (dayOfWeek:int) {
+        for days d:RtExampleDay i {
+            if (d.dayOfWeek == dayOfWeek) {
+                return d.compact
+            }
+        }
+        return ""
+    }
+}
+
+class RtPeriod {
+    def name@(mutable):string ""
+    def weeks:[RtExampleWeek]
+
+    Constructor () {
+    }
+
+    fn weekOf:RtExampleWeek (weekType:string) {
+        for weeks w:RtExampleWeek i {
+            if (w.weekType == weekType) {
+                return w
+            }
+        }
+        return (new RtExampleWeek)
+    }
+
+    fn hasWeek:boolean (weekType:string) {
+        for weeks w:RtExampleWeek i {
+            if (w.weekType == weekType) {
+                return true
+            }
+        }
+        return false
+    }
+}
+
+class RtSeed {
+    def loaded@(mutable):boolean false
+    def week@(mutable):string ""
+    def calendarId@(mutable):string ""
+    def calendarName@(mutable):string ""
+    def calendarType@(mutable):string ""
+    def entries:[RtSeedEntry]
+    def periods:[RtPeriod]
+
+    Constructor () {
+    }
+
+    fn load:void (text:string) {
+        def parser (new VlJsonParser)
+        def root:VlJson (parser.parse(text))
+        week = (root.stringOr("week" ""))
+        def cals:VlJson (root.get("calendars"))
+        if ((cals.count()) > 0) {
+            def c:VlJson (cals.at(0))
+            calendarId = (c.stringOr("id" ""))
+            calendarName = (c.stringOr("name" ""))
+            calendarType = (c.stringOr("type" ""))
+        }
+        clear entries
+        def es:VlJson (root.get("entries"))
+        def i@(mutable):int 0
+        while (i < (es.count())) {
+            def e:VlJson (es.at(i))
+            def entry (new RtSeedEntry)
+            entry.id = (e.stringOr("id" ""))
+            entry.date = (e.stringOr("date" ""))
+            entry.compact = (e.stringOr("compact" ""))
+            push entries entry
+            i = (i + 1)
+        }
+        clear periods
+        def sheets:VlJson (root.get("yearsheets"))
+        def s@(mutable):int 0
+        while (s < (sheets.count())) {
+            def ps:VlJson ((sheets.at(s)).get("periods"))
+            def p@(mutable):int 0
+            while (p < (ps.count())) {
+                def pj:VlJson (ps.at(p))
+                def period (new RtPeriod)
+                period.name = (pj.stringOr("name" ""))
+                def ws:VlJson (pj.get("exampleWeeks"))
+                def w@(mutable):int 0
+                while (w < (ws.count())) {
+                    def wj:VlJson (ws.at(w))
+                    def ew (new RtExampleWeek)
+                    ew.weekType = (wj.stringOr("type" "target"))
+                    ew.description = (wj.stringOr("description" ""))
+                    def ds:VlJson (wj.get("days"))
+                    def d@(mutable):int 0
+                    while (d < (ds.count())) {
+                        def dj:VlJson (ds.at(d))
+                        def day (new RtExampleDay)
+                        day.dayOfWeek = (dj.intOr("dayOfWeek" 0))
+                        day.compact = (dj.stringOr("compact" ""))
+                        push ew.days day
+                        d = (d + 1)
+                    }
+                    push period.weeks ew
+                    w = (w + 1)
+                }
+                push periods period
+                p = (p + 1)
+            }
+            s = (s + 1)
+        }
+        loaded = true
+    }
+
+    ; The entries on one date, in the order the file has them.
+    fn entriesOn:[RtSeedEntry] (iso:string) {
+        def out:[RtSeedEntry]
+        for entries e:RtSeedEntry i {
+            if (e.date == iso) {
+                push out e
+            }
+        }
+        return out
+    }
+
+    fn firstPeriod:RtPeriod () {
+        if ((array_length periods) > 0) {
+            return (itemAt periods 0)
+        }
+        return (new RtPeriod)
+    }
+}
+
+; -----------------------------------------------------------------------------
+; The week
+; -----------------------------------------------------------------------------
+class RtWeek {
+    Constructor () {
+    }
+
+    sfn daysOf:int (iso:string) {
+        def y:int (to_int (?? (to_double (substring iso 0 4)) 0.0))
+        def m:int (to_int (?? (to_double (substring iso 5 7)) 0.0))
+        def d:int (to_int (?? (to_double (substring iso 8 10)) 0.0))
+        return (UiDate.toDays(y m d))
+    }
+
+    sfn isoOf:string (days:int) {
+        return (UiDate.isoOfDays(days))
+    }
+
+    ; The Monday on or before the date — `getWeekStart` in the original.
+    sfn mondayOf:string (iso:string) {
+        def days:int (RtWeek.daysOf(iso))
+        def wd:int (UiDate.weekday(days))
+        def back:int ((wd + 6) % 7)
+        return (UiDate.isoOfDays((days - back)))
+    }
+
+    sfn shifted:string (iso:string byDays:int) {
+        return (UiDate.isoOfDays(((RtWeek.daysOf(iso)) + byDays)))
+    }
+
+    sfn dayOfMonth:int (iso:string) {
+        return (to_int (?? (to_double (substring iso 8 10)) 0.0))
+    }
+
+    sfn monthOf:int (iso:string) {
+        return (to_int (?? (to_double (substring iso 5 7)) 0.0))
+    }
+
+    ; ISO 8601: the week that holds the Thursday. The Thursday of the week a
+    ; Monday starts is three days on; its week number is one plus the number
+    ; of whole weeks between it and the year's first Thursday's Monday.
+    sfn isoWeekNumber:int (mondayIso:string) {
+        def thursday:int ((RtWeek.daysOf(mondayIso)) + 3)
+        def parts:[int] ([] _:int (0 0 0))
+        UiDate.fromDays(thursday parts)
+        def year:int (itemAt parts 0)
+        def jan1:int (UiDate.toDays(year 1 1))
+        ; The Monday of the week that holds January 1st's nearest Thursday.
+        def jan1wd:int (UiDate.weekday(jan1))
+        def jan1back:int ((jan1wd + 6) % 7)
+        def firstMonday@(mutable):int (jan1 - jan1back)
+        ; Week 1 is the week with the year's first Thursday: if January 1st is
+        ; a Friday, Saturday or Sunday, that week belongs to the previous year.
+        if (jan1back > 3) {
+            firstMonday = (firstMonday + 7)
+        }
+        return ((idiv (thursday - firstMonday) 7) + 1)
+    }
+
+    ; "9. – 15.2." within one month, "26.1. – 1.2." across two — the
+    ; original's `weekRange`.
+    sfn rangeText:string (mondayIso:string) {
+        def sunday:string (RtWeek.shifted(mondayIso 6))
+        def d1:int (RtWeek.dayOfMonth(mondayIso))
+        def m1:int (RtWeek.monthOf(mondayIso))
+        def d2:int (RtWeek.dayOfMonth(sunday))
+        def m2:int (RtWeek.monthOf(sunday))
+        if (m1 == m2) {
+            return (((((to_string d1) + ". – ") + (to_string d2)) + ".") + (to_string m2)) + "."
+        }
+        return (((((((to_string d1) + ".") + (to_string m1)) + ". – ") + (to_string d2)) + ".") + (to_string m2)) + "."
+    }
+
+    ; Monday first, as the rows are — `common.mondayShort` and on.
+    sfn dayShort:string (i:int) {
+        if (i == 0) { return "Ma" }
+        if (i == 1) { return "Ti" }
+        if (i == 2) { return "Ke" }
+        if (i == 3) { return "To" }
+        if (i == 4) { return "Pe" }
+        if (i == 5) { return "La" }
+        return "Su"
+    }
+}
+
+; -----------------------------------------------------------------------------
+; What a row says about an entry
+; -----------------------------------------------------------------------------
+class RtEntry {
+    def title@(mutable):string ""
+    def tags:[string]
+    def emojis@(mutable):string ""
+    ; The COMPACT lines that are content rather than the header — what the
+    ; example week draws under the title.
+    def bodyLines:[string]
+
+    Constructor () {
+    }
+
+    ; `## Title`, `Tags a, b`, `Emojis 💪` — read off the lines, the way the
+    ; original reads them off the parsed workout. The date bracket on the
+    ; first line is the entry's, not the title's.
+    sfn of:RtEntry (compact:string) {
+        def e (new RtEntry)
+        def lines:[string] (RtEntry.splitLines(compact))
+        for lines raw:string i {
+            def line:string (RtEntry.trimmed(raw))
+            if ((strlen line) == 0) {
+                continue
+            }
+            if ((RtEntry.hasPrefix(line "## ")) && ((strlen e.title) == 0)) {
+                e.title = (RtEntry.trimmed((substring line 3 (strlen line))))
+                continue
+            }
+            if (RtEntry.hasPrefix(line "[")) {
+                ; "[2026-02-10] ## Title" keeps its title after the bracket.
+                def close:int (RtEntry.findIn(line "]"))
+                if (close >= 0) {
+                    def rest:string (RtEntry.trimmed((substring line (close + 1) (strlen line))))
+                    if ((RtEntry.hasPrefix(rest "## ")) && ((strlen e.title) == 0)) {
+                        e.title = (RtEntry.trimmed((substring rest 3 (strlen rest))))
+                    }
+                }
+                continue
+            }
+            if (RtEntry.hasPrefix(line "Tags ")) {
+                def list:string (substring line 5 (strlen line))
+                def parts:[string] (RtEntry.splitOn(list 44))
+                for parts p:string j {
+                    def tag:string (RtEntry.trimmed(p))
+                    if ((strlen tag) > 0) {
+                        push e.tags tag
+                    }
+                }
+                continue
+            }
+            if (RtEntry.hasPrefix(line "Emojis ")) {
+                e.emojis = (RtEntry.trimmed((substring line 7 (strlen line))))
+                continue
+            }
+            push e.bodyLines line
+        }
+        return e
+    }
+
+    ; "#kuntosali #voima #kevyt" — the first three, as the row shows them.
+    fn tagText:string () {
+        def out@(mutable):string ""
+        def n@(mutable):int 0
+        for tags t:string i {
+            if (n < 3) {
+                if (n > 0) {
+                    out = (out + " ")
+                }
+                out = ((out + "#") + t)
+                n = (n + 1)
+            }
+        }
+        return out
+    }
+
+    sfn splitLines:[string] (text:string) {
+        return (RtEntry.splitOn(text 10))
+    }
+
+    sfn splitOn:[string] (text:string sep:int) {
+        def out:[string]
+        def run@(mutable):string ""
+        def i@(mutable):int 0
+        def len:int (strlen text)
+        while (i < len) {
+            def ch:int (charAt text i)
+            if (ch == sep) {
+                push out run
+                run = ""
+            } {
+                run = (run + (substring text i (i + 1)))
+            }
+            i = (i + 1)
+        }
+        push out run
+        return out
+    }
+
+    sfn hasPrefix:boolean (text:string prefix:string) {
+        def n:int (strlen prefix)
+        if ((strlen text) < n) {
+            return false
+        }
+        return ((substring text 0 n) == prefix)
+    }
+
+    sfn findIn:int (text:string needle:string) {
+        def n:int (strlen needle)
+        def len:int (strlen text)
+        def i@(mutable):int 0
+        while ((i + n) <= len) {
+            if ((substring text i (i + n)) == needle) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    sfn trimmed:string (text:string) {
+        def s@(mutable):int 0
+        def e@(mutable):int (strlen text)
+        def leading@(mutable):boolean true
+        while (leading) {
+            if (s >= e) {
+                leading = false
+            } {
+                def c:int (charAt text s)
+                if ((c == 32) || (c == 13) || (c == 9)) {
+                    s = (s + 1)
+                } {
+                    leading = false
+                }
+            }
+        }
+        def trailing@(mutable):boolean true
+        while (trailing) {
+            if (e <= s) {
+                trailing = false
+            } {
+                def c2:int (charAt text (e - 1))
+                if ((c2 == 32) || (c2 == 13) || (c2 == 9)) {
+                    e = (e - 1)
+                } {
+                    trailing = false
+                }
+            }
+        }
+        return (substring text s e)
+    }
+}
+
+; -----------------------------------------------------------------------------
+; The icons — lucide, stroked, in the colour the state asks for
+; -----------------------------------------------------------------------------
+class RtIcons {
+    Constructor () {
+    }
+
+    sfn svgOf:string (body:string color:string) {
+        return ((((("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='" + color) + "' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'>") + body) + "</svg>"))
+    }
+
+    sfn pathOf:string (d:string) {
+        return (("<path d='" + d) + "'/>")
+    }
+
+    sfn home:string (color:string) {
+        return (RtIcons.svgOf(((RtIcons.pathOf("M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8")) + (RtIcons.pathOf("M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"))) color))
+    }
+
+    sfn calendarDays:string (color:string) {
+        return (RtIcons.svgOf((((((RtIcons.pathOf("M8 2v4")) + (RtIcons.pathOf("M16 2v4"))) + "<rect width='18' height='18' x='3' y='4' rx='2'/>") + (RtIcons.pathOf("M3 10h18"))) + ((RtIcons.pathOf("M8 14h.01")) + ((RtIcons.pathOf("M12 14h.01")) + ((RtIcons.pathOf("M16 14h.01")) + ((RtIcons.pathOf("M8 18h.01")) + ((RtIcons.pathOf("M12 18h.01")) + (RtIcons.pathOf("M16 18h.01")))))))) color))
+    }
+
+    sfn layoutDashboard:string (color:string) {
+        return (RtIcons.svgOf("<rect width='7' height='9' x='3' y='3' rx='1'/><rect width='7' height='5' x='14' y='3' rx='1'/><rect width='7' height='9' x='14' y='12' rx='1'/><rect width='7' height='5' x='3' y='16' rx='1'/>" color))
+    }
+
+    sfn messageSquare:string (color:string) {
+        return (RtIcons.svgOf((RtIcons.pathOf("M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z")) color))
+    }
+
+    sfn ellipsis:string (color:string) {
+        return (RtIcons.svgOf("<circle cx='12' cy='12' r='1'/><circle cx='19' cy='12' r='1'/><circle cx='5' cy='12' r='1'/>" color))
+    }
+
+    sfn penLine:string (color:string) {
+        return (RtIcons.svgOf(((RtIcons.pathOf("M13 21h8")) + (RtIcons.pathOf("M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"))) color))
+    }
+
+    sfn refreshCw:string (color:string) {
+        return (RtIcons.svgOf((((RtIcons.pathOf("M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8")) + (RtIcons.pathOf("M21 3v5h-5"))) + ((RtIcons.pathOf("M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16")) + (RtIcons.pathOf("M8 16H3v5")))) color))
+    }
+
+    sfn chevronLeft:string (color:string) {
+        return (RtIcons.svgOf((RtIcons.pathOf("m15 18-6-6 6-6")) color))
+    }
+
+    sfn chevronRight:string (color:string) {
+        return (RtIcons.svgOf((RtIcons.pathOf("m9 18 6-6-6-6")) color))
+    }
+
+    sfn chevronDown:string (color:string) {
+        return (RtIcons.svgOf((RtIcons.pathOf("m6 9 6 6 6-6")) color))
+    }
+
+    sfn users:string (color:string) {
+        return (RtIcons.svgOf((((RtIcons.pathOf("M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2")) + (RtIcons.pathOf("M16 3.128a4 4 0 0 1 0 7.744"))) + ((RtIcons.pathOf("M22 21v-2a4 4 0 0 0-3-3.87")) + "<circle cx='9' cy='7' r='4'/>")) color))
+    }
+
+    sfn building:string (color:string) {
+        return (RtIcons.svgOf((((RtIcons.pathOf("M10 12h4")) + (RtIcons.pathOf("M10 8h4"))) + ((RtIcons.pathOf("M14 21v-3a2 2 0 0 0-4 0v3")) + (RtIcons.pathOf("M6 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16")))) color))
+    }
+
+    sfn bookOpen:string (color:string) {
+        return (RtIcons.svgOf(((RtIcons.pathOf("M12 7v14")) + (RtIcons.pathOf("M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"))) color))
+    }
+
+    sfn settings:string (color:string) {
+        return (RtIcons.svgOf(((RtIcons.pathOf("M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915")) + "<circle cx='12' cy='12' r='3'/>") color))
+    }
+
+    sfn database:string (color:string) {
+        return (RtIcons.svgOf((("<ellipse cx='12' cy='5' rx='9' ry='3'/>" + (RtIcons.pathOf("M3 5V19A9 3 0 0 0 21 19V5"))) + (RtIcons.pathOf("M3 12A9 3 0 0 0 21 12"))) color))
+    }
+
+    sfn logOut:string (color:string) {
+        return (RtIcons.svgOf((((RtIcons.pathOf("m16 17 5-5-5-5")) + (RtIcons.pathOf("M21 12H9"))) + (RtIcons.pathOf("M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"))) color))
+    }
+
+    sfn x:string (color:string) {
+        return (RtIcons.svgOf(((RtIcons.pathOf("M18 6 6 18")) + (RtIcons.pathOf("m6 6 12 12"))) color))
+    }
+
+    ; The credits gauge: a battery, filled to the fraction left.
+    sfn battery:string (color:string) {
+        def body:string ((("<rect x='4' y='2' width='16' height='20' rx='3'/><rect x='7' y='6' width='10' height='13' rx='1' fill='" + color) + "'/>") + "<path d='M10 2V1M14 2V1'/>")
+        return (RtIcons.svgOf(body color))
+    }
+}

@@ -64,6 +64,11 @@ fs.writeFileSync(
     JSON.stringify(
       fs.readFileSync(path.join(HERE, "..", "fixtures", "machines", "chat.machine.json"), "utf8"),
     ) +
+    ";\n" +
+    "export const REALTRAINER_SEED = " +
+    JSON.stringify(
+      fs.readFileSync(path.join(HERE, "..", "fixtures", "reference", "seed.json"), "utf8"),
+    ) +
     ";\n",
 );
 

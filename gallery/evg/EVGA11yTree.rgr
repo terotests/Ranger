@@ -133,6 +133,12 @@ class EVGA11yRole {
     ; this role.
     sfn form:int ()             { return 44 }
 
+    ; The page's own landmarks: the header strip and the content. A reader
+    ; jumps between them, and a screen with a bottom bar and a top bar has to
+    ; say which of its three regions is which.
+    sfn banner:int ()           { return 47 }
+    sfn mainContent:int ()      { return 48 }
+
     ; `rowgroup` — a thead or a tbody. Missing until a table was built out of
     ; roles rather than out of `<table>` tags, and an unrecognised role drops
     ; the element AND EVERYTHING UNDER IT, so the whole body of the dashboard's
@@ -159,6 +165,8 @@ class EVGA11yRole {
         if (role == 44) { return "form" }
         if (role == 45) { return "rowgroup" }
         if (role == 46) { return "log" }
+        if (role == 47) { return "banner" }
+        if (role == 48) { return "main" }
         if (role == 41) { return "tree" }
         if (role == 42) { return "treeitem" }
         if (role == 1)  { return "group" }

@@ -50,7 +50,7 @@
     {
      "role": "heading",
      "name": "Valmentaja",
-     "state": ""
+     "state": "level=1"
     },
     {
      "role": "list",
@@ -142,7 +142,7 @@
     {
      "role": "heading",
      "name": "Valmentaja",
-     "state": ""
+     "state": "level=1"
     },
     {
      "role": "list",
@@ -234,7 +234,7 @@
     {
      "role": "heading",
      "name": "Valmentaja",
-     "state": ""
+     "state": "level=1"
     },
     {
      "role": "list",
@@ -316,7 +316,7 @@
     {
      "role": "heading",
      "name": "Valmentaja",
-     "state": ""
+     "state": "level=1"
     },
     {
      "role": "list",
@@ -398,7 +398,7 @@
     {
      "role": "heading",
      "name": "Valmentaja",
-     "state": ""
+     "state": "level=1"
     },
     {
      "role": "list",
@@ -500,7 +500,7 @@
     {
      "role": "heading",
      "name": "Valmentaja",
-     "state": ""
+     "state": "level=1"
     },
     {
      "role": "list",
@@ -577,7 +577,7 @@
     {
      "role": "heading",
      "name": "Valmentaja",
-     "state": ""
+     "state": "level=1"
     },
     {
      "role": "list",

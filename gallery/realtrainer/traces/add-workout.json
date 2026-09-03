@@ -50,7 +50,7 @@
     {
      "role": "heading",
      "name": "Kontrastivoima",
-     "state": ""
+     "state": "level=1"
     },
     {
      "role": "button",
@@ -65,7 +65,7 @@
     {
      "role": "heading",
      "name": "Lisää harjoitus",
-     "state": ""
+     "state": "level=2"
     },
     {
      "role": "button",
@@ -242,7 +242,7 @@
     {
      "role": "heading",
      "name": "Kontrastivoima",
-     "state": ""
+     "state": "level=1"
     },
     {
      "role": "button",
@@ -257,7 +257,7 @@
     {
      "role": "heading",
      "name": "Lisää harjoitus",
-     "state": ""
+     "state": "level=2"
     },
     {
      "role": "button",
@@ -434,7 +434,7 @@
     {
      "role": "heading",
      "name": "Kontrastivoima",
-     "state": ""
+     "state": "level=1"
     },
     {
      "role": "button",
@@ -449,7 +449,7 @@
     {
      "role": "heading",
      "name": "Lisää harjoitus",
-     "state": ""
+     "state": "level=2"
     },
     {
      "role": "button",
@@ -616,7 +616,7 @@
     {
      "role": "heading",
      "name": "Kontrastivoima",
-     "state": ""
+     "state": "level=1"
     },
     {
      "role": "button",
