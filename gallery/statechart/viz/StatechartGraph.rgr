@@ -37,6 +37,7 @@
 
 Import "../../rangerflow/core/GraphModel.rgr"
 Import "../../rangerflow/core/EdgeRouter.rgr"
+Import "../../rangerflow/layout/ReadableRouter.rgr"
 Import "../src/Statechart.rgr"
 
 ; The colours. A palette rather than literals at the call sites, because the
@@ -551,6 +552,7 @@ class StatechartGraph {
             def e:FlowEdge (g.edgeAt(k))
             if ((strlen e.label) > 0) {
                 def path:EdgePath (EdgeRouter.route(g e))
+                path.flatten(12)
                 push idx k
                 push ax (path.midX())
                 push ay (path.midY())
@@ -680,6 +682,7 @@ class StatechartGraph {
             def e:FlowEdge (g.edgeAt(k))
             if ((strlen e.label) > 0) {
                 def path:EdgePath (EdgeRouter.route(g e))
+                path.flatten(12)
                 push idx k
                 push px ((path.midX()) + e.labelDX)
                 push py ((path.midY()) + e.labelDY)
@@ -702,13 +705,16 @@ class StatechartGraph {
                 }
                 j = (j + 1)
             }
+            ; …and on a box: the shape itself, not its bounding box, since the
+            ; corners of a diamond's box are empty and a label there is on
+            ; nothing.
             def n@(mutable):int 0
             while (n < (g.nodeCount())) {
                 def nd:FlowNode (g.nodeAt(n))
-                def ox2:double (((((itemAt bw i) * 0.5) + (nd.width * 0.5)) - (fabs ((itemAt px i) - (nd.centerX())))))
-                def oy2:double (((((itemAt bh i) * 0.5) + (nd.height * 0.5)) - (fabs ((itemAt py i) - (nd.centerY())))))
-                if (ox2 > 0.0) {
-                    if (oy2 > 0.0) {
+                def box:FlowRect (FlowRect.create(((itemAt px i) - ((itemAt bw i) * 0.5)) ((itemAt py i) - ((itemAt bh i) * 0.5)) (itemAt bw i) (itemAt bh i)))
+                def r:FlowRect (nd.rect())
+                if (box.overlaps(r)) {
+                    if ((ReadableRouter.coveredBy(box nd r)) > 0.0) {
                         hits = (hits + 1)
                     }
                 }
@@ -725,53 +731,15 @@ class StatechartGraph {
         return v
     }
 
-    ; The box the view will draw around a label. Measured from what the
-    ; renderer actually emits rather than guessed: at the default label size a
-    ; character is about 8.2 model pixels wide, a line is 14 tall, the box is
-    ; padded, and a label wider than 160 wraps onto a second line. The first
-    ; draft guessed 6.6 and lost `STREAM_COMPLETE` underneath a label it had
-    ; measured as narrower than it was.
+    ; The box the view will draw around a label — the router's own measure,
+    ; because the router treats a placed label as an obstacle and the two had
+    ; better agree on how big it is.
     sfn labelWidth:double (text:string) {
-        def w:double (StatechartGraph.rawLabelWidth(text))
-        if (w > 160.0) {
-            return 174.0
-        }
-        return (w + 14.0)
-    }
-
-    sfn rawLabelWidth:double (text:string) {
-        def widest@(mutable):double 0.0
-        def run@(mutable):double 0.0
-        def i@(mutable):int 0
-        def len:int (strlen text)
-        while (i < len) {
-            if ((charAt text i) == 10) {
-                if (run > widest) { widest = run }
-                run = 0.0
-            } {
-                run = (run + 8.2)
-            }
-            i = (i + 1)
-        }
-        if (run > widest) { widest = run }
-        return widest
+        return (ReadableRouter.labelBoxWidth(text))
     }
 
     sfn labelHeight:double (text:string) {
-        def lines@(mutable):double 1.0
-        def i@(mutable):int 0
-        def len:int (strlen text)
-        while (i < len) {
-            if ((charAt text i) == 10) {
-                lines = (lines + 1.0)
-            }
-            i = (i + 1)
-        }
-        ; …and the renderer's own wrap, which the label does not ask for.
-        if ((StatechartGraph.rawLabelWidth(text)) > 160.0) {
-            lines = (lines + 1.0)
-        }
-        return ((lines * 14.0) + 8.0)
+        return (ReadableRouter.labelBoxHeight(text))
     }
 
     ; Text metrics good enough to size a box; the view measures for real when

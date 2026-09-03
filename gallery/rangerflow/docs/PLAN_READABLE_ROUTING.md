@@ -1,9 +1,9 @@
 # Readable routing — the plan
 
-Status: **step 1–2 done** (oriented ports, perpendicular stubs) · steps 3–11 open
-· 2026-09-03
+Status: **steps 1–11 done** in `layout/ReadableRouter.rgr`, gated by
+`statechart:viz:check` · what is left is in *Open* below · 2026-09-03
 
-The routing is currently a stack of independent local passes:
+The routing was a stack of independent local passes:
 
 ```
 LayeredLayout.run          places the nodes
@@ -11,15 +11,25 @@ StatechartGraph.faceEdges  picks a SIDE for each end
 EdgeLanes.assign           spreads endpoints, picks tracks
 lay.routeLongEdges         chains edges that skip layers
 OrthoRouter.repairAll      pushes routes off nodes they cross
-OrientedPorts.apply        sockets + perpendicular stubs      ← new
-StatechartGraph.declutter  moves labels off each other        ← new
+OrientedPorts.apply        sockets + perpendicular stubs
+StatechartGraph.declutter  moves labels off each other
 ```
 
-Each pass improves the picture and none of them can see the others. That is the
-architectural finding behind everything below: **a later route does not react to
-an earlier one**, so edges end up sharing corridors, crossing at each other's
-bends, and running along node borders — each of which is locally fine and
-globally unreadable.
+Each pass improved the picture and none of them could see the others. That was
+the architectural finding behind everything below: **a later route did not
+react to an earlier one**, so edges shared corridors, crossed at each other's
+bends, and ran along node borders — each locally fine and globally unreadable.
+
+The statechart pipeline is now:
+
+```
+LayeredLayout.run          places the nodes
+StatechartGraph.faceEdges  picks a SIDE for each end            (still local)
+ReadableRouter.route       sockets, lanes, halos, grid, every edge against
+                           every route already drawn, conflict rounds
+ReadableRouter.placeLabels each label beside its own edge, then an obstacle
+ReadableRouter.finish      reroute through labels, simplify detours
+```
 
 ## The objective, in priority order
 
@@ -66,181 +76,140 @@ cost = distance
 
 ## Done
 
-### 1–2 · Oriented ports and perpendicular stubs — `layout/OrientedPorts.rgr`
+All of it lives in `layout/ReadableRouter.rgr`; the numbers are its fields.
 
-A port is a point **and** a direction. A side is a segment, not a point.
+### 1–2 · Sides, sockets, perpendicular stubs
 
-- Every rectangular node has four independent sides. Edges using the same side
-  get several **sockets**, spread evenly along the usable length with a margin
-  off each corner, ordered to match the spatial order of what they connect to.
-- Every edge leaves its socket along the side's **outward normal** for
-  `exitDistance` before it may turn, and arrives at the target socket along that
-  side's normal. Hard constraint: simplification may merge a stub into a longer
-  straight, never shorten one.
+Sides are still `StatechartGraph.faceEdges` (see *Open*). Sockets are
+`OrientedPorts.assignSockets`, and the stub is not searched at all: the search
+starts at the stub's far end travelling along the normal and must reach the
+target stub's far end travelling into it, so the first and last segments are
+perpendicular by construction. On a diamond the line is run on to the outline,
+because the socket sits on the bounding box and the shape does not.
 
-```
-top → (0,-1)   right → (+1,0)   bottom → (0,+1)   left → (-1,0)
+### 3 · Departure lanes — `assignStubs`
 
-socket → straight perpendicular exit → bends → perpendicular entry → socket
-```
-
-Measured by `OrientedPorts.faults(g)`, printed by the statechart demo and gated
-at **zero** by `npm run statechart:viz:check`.
-
-### 9 (partly) · Labels moved off each other — `StatechartGraph.declutter`
-
-Relaxation with label boxes, node boxes as immovable pushers, the short way out,
-and a weak pull back to the edge's own line so a label settles just clear of what
-it hit. On `chatMachine`: 120 labels sitting on something → 14.
-
-## Open, in the order worth doing
-
-### 3 · Departure lanes
-
-Sockets are distinct but their **routes converge two pixels later**, so
-distributing sockets does not by itself separate the lines.
-
-```
-socket A ─┐
-socket B ─┤        ← what happens now
-socket C ─┤
-socket D ─┘
-          │
-```
-
-> Each socket owns a short exclusive departure lane. Different sockets on the
-> same side must stay separated for at least `fanOutDistance` before their
-> routes may converge or cross.
+Among the edges on one side heading the same way along it, the socket nearest
+that way turns at `exitDistance` and each next one `fanOutStep` further out.
+Ordered like that the fan never crosses itself, and no two siblings share the
+corridor at the node.
 
 ```ts
-exitDistance   = 16
-fanOutDistance = 40
+exitDistance = 20   fanOutStep = 14
 ```
 
-Cheapest implementation: stagger the turn distance per socket index, so siblings
-turn at different distances and never share a corridor near the node.
+### 4–5 · Clearance halo
 
-### 4–5 · Node clearance halo, and no turning inside it
-
-Routes currently turn immediately beside a node, and run close enough to a
-border to read as part of the box:
-
-```
-┌──────────┐│
-│          ││   ← the vertical is a different edge
-└──────────┘│
-```
-
-> No edge may turn inside another node's clearance area, and no segment may run
-> closer than `nodeClearance` to a node boundary, except for its own
-> entry/exit stub.
+Every node is inflated by `nodeClearance` and a grid segment inside the inflated
+rect is impassable, so a route can neither run closer than the clearance nor
+turn inside it. Grazing the halo line is allowed — that IS the clearance. The
+halo is given up in steps (20 → 10 → 4 → 0) only when a stub stands inside
+another box's halo and no route exists at all.
 
 ```ts
 nodeClearance = 20
 ```
 
-### 6 · One global router instead of many local passes
+### 6 · One global router — `search`
 
-Replace `EdgeLanes` + `routeLongEdges` + `OrthoRouter.repairAll` with a single
-grid-based orthogonal search:
+An orthogonal grid: the two stub ends, every halo's four sides, two lines
+outside everything, and every gap split into lanes at least `minParallelGap`
+wide. Dijkstra over `(cell, travel direction)` — direction, not axis, so a
+reversal is impossible and the start and goal each have one forbidden way.
+Edges are routed shortest first, and **every finished route is recorded**: the
+next search is charged, per grid segment, for what it does to them.
 
-- Candidate lines: each node's `left-clearance` and `right+clearance` (and the
-  same in y), plus every socket and exit/entry coordinate.
-- A grid segment is blocked if it intersects an inflated node rect.
-- A\* over `(xIndex, yIndex, direction)` so a bend is a state change and can be
-  charged for.
-- Route edges in a deterministic order, **recording each finished route** so the
-  next one is charged `crossings` and `parallelProximity` against it. That is
-  the whole point: later routes must see earlier ones.
-
-### 7 · Crossings, and crossings at a bend
+### 7–8 · Crossings, junctions, corridors — `segmentExtra`, `turnExtraAt`
 
 ```
-    │
-────┼────    is this a junction or a crossing?
-    │
+cost = distance
+     + bends * 25
+     + crossings * 200
+     + crossing within 8 px of the other edge's bend or socket   + 500
+     + turning within 8 px of another edge's line                + 500
+     + parallel closer than 12 px:  2 per pixel of shared span
+     + the same line:               + 8 per pixel
+     + through a placed label       + 150
 ```
 
-A reader cannot tell. Crossings are expensive; a crossing at another edge's
-bend, socket or junction should be effectively forbidden (`500`).
+Then `conflictRounds` (3): each edge's conflict is its full cost minus its
+length and bends; the most conflicted are lifted off the page one at a time,
+routed again against everything else, and kept only if cheaper.
 
-### 8 · Parallel separation
+### 9–10 · Labels — `placeLabel`, `finish`
 
-> Two unrelated edges must never occupy the same or nearly the same corridor.
+A label is tried beside every segment of its own edge, at three points along it,
+on both sides, at four distances out. The score prefers a long segment, the
+middle of the edge, and closeness; it charges a box by how much of it the label
+covers (the shape, not its bounding box — a diamond's corners are empty),
+another label likewise, another edge's line through the box heavily and near it
+a little, and its own edge's other segments a little. Placed, the box is an
+obstacle; an edge already drawn through somebody's label is routed again with
+the labels on the page, and its own label placed again after.
 
-```ts
-minParallelEdgeGap = 12
-```
+The old `declutter` was measuring from `(0, 0)`: it read `EdgePath.midX` of a
+path nobody had flattened. `midX` is now half way along by **length**, so the
+anchor no longer moves with the zoom either.
 
-### 9–10 · Labels as obstacles, and attached to their own edge
+### 11 · Simplify — `simplify`
 
-Two changes:
+Any two non-adjacent corners that can be joined straight or by one bend, without
+entering a halo, without more bends, and with a lower total cost, are joined and
+the detour between them dropped. Stubs are never touched.
 
-- A placed label's bounding box becomes a **routing obstacle**, so a later route
-  does not run through it. (Today the label pass runs last and the router has
-  never heard of it.)
-- A label goes **beside the longest unobstructed segment of its own edge**, not
-  at the geometric midpoint, and keeps more distance from neighbouring edges than
-  from its own:
+## Open
 
-```
-        LABEL                      ──────── other edge ────────
-─────────────────  edge      not         LABEL
-                                   ───────── own edge ─────────
-```
-
-`[hasSingleAction]` and `[hasMultipleActions]` in the chat drawing are the case
-that shows why: a reader has to work out which of three lines each belongs to.
-
-### 11 · Simplify
-
-```
-│
-└──┐
-   │      a detour that goes down, aside, and back the same way
-┌──┘
-│
-```
-
-> Remove redundant orthogonal detours whenever two non-adjacent segments can be
-> connected without violating obstacles or port constraints.
-
-Never at the cost of rule 2: a stub is not a detour.
+- **Side assignment is still local.** `faceEdges` chooses left/right/top/bottom
+  from the centre-to-centre vector before the router runs. `else` on
+  `chatMachine` leaves the diamond's left and has to go round `error` because
+  its corridor is full; from the bottom tip it would not. Step 1 of the pipeline
+  wants the router to try the candidate sides and keep the cheapest.
+- **Crossings.** `chatMachine` draws with six, none at a bend. Whether any of
+  them can go is a question for side assignment and for the layout, not for the
+  search.
+- **A label with nowhere to go.** `ACCEPT_ALL, CLOSE_REVIEW [hasAcceptedActions]`
+  has a 53-pixel segment between two boxes with a third above; every candidate
+  covers something, and the least-covering one is taken. More room is a layout
+  answer (`nodeGap`), or a narrower wrap.
+- **The RangerFlow scenarios** still run `EdgeLanes` + `routeLongEdges` +
+  `OrthoRouter.repairAll`. The router is opt-in; `rangerflow:test` covers it on
+  its own graph (`testReadableRouter`) but the nine demos have not been moved.
 
 ## How it is measured
 
-Every rule needs a number the gate can check, in the way `OrientedPorts.faults`
-already is. The ones that exist:
+Every rule has a number the gate checks. `statechart:viz:check` prints and
+holds:
 
 | Metric | Where | Gate |
 | --- | --- | --- |
-| ends not leaving square | `OrientedPorts.faults(g)` | `statechart:viz:check`, must be 0 |
-| labels sitting on something | `StatechartGraph.clutter(g)` | `statechart:viz:check`, must fall and stay under a cap |
-| overlapping segment pairs | `EdgeOverlap.pairs(g, tol)` | printed by `rangerflow:demo` |
-| edges through an unrelated node | `EdgeOverlap.nodeCrossings(g)` | printed by `rangerflow:demo` |
-| edges crossing each other | `EdgeOverlap.edgeCrossings(g)` | printed by `rangerflow:demo` |
+| ends not leaving square | `OrientedPorts.faults(g)` | 0 |
+| labels sitting on something | `StatechartGraph.clutter(g)` | ≤ before, and ≤ 1 on chat, 0 on the fixtures |
+| every transition routed | `ReadableRouter.route` | all of them |
+| edges through an unrelated node | `EdgeOverlap.nodeCrossings(g)` | 0 |
+| turns inside a clearance halo | `ReadableRouter.haloTurns(g, 20)` | 0 |
+| parallel segments closer than 12 px | `ReadableRouter.parallelClose(g, 12)` | 0 |
+| crossings at another edge's bend | `ReadableRouter.crossingsAtBend(g, 8)` | 0 |
+| labels crossed by another edge | `ReadableRouter.labelHits(g)` | 0 |
+| edges crossing each other | `EdgeOverlap.edgeCrossings(g)` | ≤ 6 on chat, 0 on the fixtures |
 
-The ones still to write: turns inside a clearance halo, parallel segments closer
-than `minParallelEdgeGap`, crossings at a bend, and labels intersecting an edge
-that is not their own.
-
-**A rule with no metric is a preference.** Add the metric with the rule, print it
-from the demo, and gate it — that is what stopped the label pass and the port
-pass from quietly regressing.
+**A rule with no metric is a preference.** The caps are what the router reaches
+today with no room to spare, so a change that adds a crossing has to say so in
+the gate.
 
 ## Where the code is
 
 | | |
 | --- | --- |
+| `layout/ReadableRouter.rgr` | the router, the label placer, the simplifier, and the metrics |
 | `core/GraphModel.rgr` | `FlowPort` (side + offset), `FlowEdge.portNudge*`, `labelDX/labelDY` |
-| `core/EdgeRouter.rgr` | path building; `route()` uses `e.waypoints` verbatim when they exist |
-| `layout/OrientedPorts.rgr` | sockets and stubs (done) |
-| `layout/EdgeLanes.rgr` | today's endpoint spreading and track assignment |
-| `layout/OrthoRouter.rgr` | today's repair pass |
-| `gallery/statechart/demo/statechart_viz.rgr` | the pipeline as it stands, and the metrics it prints |
+| `core/EdgeRouter.rgr` | path building; `route()` uses `e.waypoints` verbatim when they exist; `midX/midY` half way by length |
+| `layout/OrientedPorts.rgr` | sockets (used by the router) and the stub measure |
+| `layout/OrthoRouter.rgr` | the heap and the grid helpers the router reuses; still the repair pass for the RangerFlow scenarios |
+| `gallery/statechart/demo/statechart_viz.rgr` | the pipeline, and the metrics it prints |
 | `gallery/statechart/tests/viz-check.mjs` | the gate |
+| `tests/RangerFlowTest.rgr` · `testReadableRouter` | a fan of three, a box in the corridor, a label on every line |
 
 The statechart drawing is the test case with the hardest geometry — ten boxes,
 seventeen edges, six of them returning to one node — so work the rules against
-`npm run statechart:viz` and keep `npm run rangerflow:test` (601 assertions)
-green, since the nine RangerFlow scenarios use the same routing.
+`npm run statechart:viz` and keep `npm run rangerflow:test` (615 assertions)
+green.

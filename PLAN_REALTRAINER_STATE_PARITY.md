@@ -311,10 +311,14 @@ selvityksellä siitä mitä `app-ranger/lib/yearsheet` (722 r) jo kattaa.
 
 ### 5.4 Piirroksen luettavuus
 
-`gallery/statechart` osaa piirtää koneen ja ajon siitä. Reititys on kesken:
+`gallery/statechart` osaa piirtää koneen ja ajon siitä. Reititys on nyt yksi
+reititin jokaiselle nuolelle (`gallery/rangerflow/layout/ReadableRouter.rgr`):
+laatikoiden ympärillä suojavyöhyke, jokaiselle socketille oma lähtökaista, ja haku
+joka maksaa risteyksistä, jaetuista käytävistä ja nimiöistä kaikkia jo piirrettyjä
+reittejä vasten. `statechart:viz:check` pitää säännöt nollassa.
 [`gallery/rangerflow/docs/PLAN_READABLE_ROUTING.md`](gallery/rangerflow/docs/PLAN_READABLE_ROUTING.md)
-on speksi loppuun — prioriteettijärjestys, kustannusfunktio, pipeline ja se mittari joka
-jokaisella säännöllä pitää olla ennen kuin se on tehty.
+kertoo mikä on tehty ja mikä jäi: sivun valinta on yhä `faceEdges`, ja `chatMachine`
+piirtyy kuudella risteyksellä.
 
 ## 6. Portit, ja mikä niistä vaatii mitä
 

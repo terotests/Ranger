@@ -55,35 +55,40 @@ one of them replaced a draft that was not:
   router, arrows arrive on the *flank* of the box they are entering and the line
   runs along the side of the shape for its last hundred pixels, which reads as a
   line that missed rather than one that arrived.
-- **Labels are moved off each other and off the boxes.** The router keeps lines
-  apart; nothing keeps their labels apart, and a label sits at the middle of its
-  route, so two routes running beside each other have their middles beside each
-  other. `declutter` gives every label a box, lets boxes that overlap push each
-  other apart along whichever axis they overlap *less* on — the shorter way out
-  — lets the state boxes push but never be pushed, and pulls each label back
-  toward its own line whenever nothing is pushing it, so it settles just clear
-  of whatever it hit rather than drifting to wherever there was room. Damped,
-  bounded and run to a fixed point, so the same drawing twice is the same
-  drawing. On `chatMachine` that is 120 labels sitting on something down to 14,
-  and `statechart:viz:check` fails if it stops working.
+- **One router, for every arrow.** The routing used to be a stack of passes
+  — lanes, long-edge chains, an orthogonal repair, sockets, labels — and none
+  of them could see the others, so unrelated arrows shared corridors, crossed
+  at each other's bends and ran along boxes they had nothing to do with.
+  `rangerflow/layout/ReadableRouter.rgr` replaces the stack: every box gets a
+  clearance halo no line may enter or turn in; every socket gets its own
+  departure lane, sibling stubs staggered so the fan is distinct from the first
+  pixel; and each arrow is searched over an orthogonal grid where every route
+  already drawn charges it for a crossing, for a crossing at a bend or socket,
+  for running parallel too close, and for passing through a label. The edges
+  that conflict most are then lifted and routed again against the rest.
+  Readability first, shortest path last.
+- **A port is a point and a direction.** A side is a segment with several
+  sockets on it, spread evenly and ordered to match what they connect to, and
+  every arrow leaves its socket along the side's outward normal for a stub
+  before it may turn. On a diamond the line runs on to the outline, not to the
+  bounding box the socket sits on.
+- **A label goes beside its own arrow.** Beside the longest clear segment, on
+  the side with the least in the way, further out only when beside it is on
+  top of something — and once placed it is a box the router routes around.
+  The earlier relaxation pass turned out to be measuring from the origin: it
+  read the middle of a path nobody had flattened, so `120 → 14` was a count of
+  labels stacked at `(0, 0)`. The anchor is now half way along by length, so it
+  does not move with the zoom.
 
-The label boxes are measured from what the renderer emits, not guessed: an
-early guess of 6.6 px per character lost `STREAM_COMPLETE` underneath a
-two-line label it had measured as narrower than it was.
-
-**A port is a point and a direction.** `rangerflow/layout/OrientedPorts.rgr` is
-the abstraction the routing was missing: a side is a segment with several
-sockets on it, spread evenly and ordered to match what they connect to, and
-every edge leaves its socket along the side's outward normal for a stub before
-it may turn. `statechart:viz:check` gates that at zero.
-
-It is not finished. Edges still share corridors, cross at each other's bends and
-run close to node borders, because the routing is a stack of local passes and a
-later route cannot see an earlier one.
+Every rule has a number, and `statechart:viz:check` holds it: no line through
+a box, no turn inside a box's clearance, no two unrelated lines in one
+corridor, no crossing at another edge's bend, no label with another edge's line
+through it, and no more crossings than the machine needs — six on
+`chatMachine`, none on the fixtures.
 [`../rangerflow/docs/PLAN_READABLE_ROUTING.md`](../rangerflow/docs/PLAN_READABLE_ROUTING.md)
-is the spec for the rest: the priority order (readability before shortest path),
-the cost function, the pipeline, and the metric each rule needs before it counts
-as done.
+is the spec, and says what is left: the side an arrow leaves from is still
+chosen by `faceEdges` before the router runs, and the nine RangerFlow scenarios
+still route the old way.
 
 ### …and a run drawn on it
 

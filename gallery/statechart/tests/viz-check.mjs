@@ -53,6 +53,18 @@ function labelClutter(output) {
   return m ? { before: Number(m[1]), after: Number(m[2]) } : null;
 }
 
+/**
+ * …and the router: "routes  17 routed · 6 crossings, 0 at a bend · 0 parallel
+ * pairs under 12px · 0 turns in a halo · 0 through a box · 0 labels on another
+ * edge". Each number is one of the rules in PLAN_READABLE_ROUTING.
+ */
+function routeMetrics(output) {
+  const m = /routes\s+(\d+) routed · (\d+) crossings, (\d+) at a bend · (\d+) parallel pairs under \d+px · (\d+) turns in a halo · (\d+) through a box · (\d+) labels on another edge/.exec(output);
+  if (!m) return null;
+  const [routed, crossings, atBend, parallel, halo, throughBox, labelHits] = m.slice(1).map(Number);
+  return { routed, crossings, atBend, parallel, halo, throughBox, labelHits };
+}
+
 /** …and the port pass: "ports  5 ends not leaving square → 0". */
 function portFaults(output) {
   const m = /ports\s+(\d+) ends not leaving square → (\d+)/.exec(output);
@@ -89,14 +101,17 @@ const CASES = [
   // `labelCap` is what the relaxation actually reaches, with a little room:
   // a number nobody can reach is not a gate, and a number that only goes up is
   // not one either.
-  { file: "gallery/statechart/fixtures/machines/trafficLight.machine.json", stem: "statechart-trafficLight", labelCap: 6 },
-  { file: "gallery/statechart/fixtures/machines/checkout.machine.json", stem: "statechart-checkout", labelCap: 14 },
+  // `crossingCap` likewise: what the router reaches on that machine, with no
+  // room to spare, so a change that adds a crossing is a change that has to
+  // say so here.
+  { file: "gallery/statechart/fixtures/machines/trafficLight.machine.json", stem: "statechart-trafficLight", labelCap: 0, crossingCap: 0 },
+  { file: "gallery/statechart/fixtures/machines/checkout.machine.json", stem: "statechart-checkout", labelCap: 0, crossingCap: 0 },
   // The real one. A drawing that only ever sees its own fixtures is a drawing
   // of its own fixtures.
-  { file: "gallery/realtrainer/fixtures/machines/chat.machine.json", stem: "statechart-chat", labelCap: 18 },
+  { file: "gallery/realtrainer/fixtures/machines/chat.machine.json", stem: "statechart-chat", labelCap: 1, crossingCap: 6 },
 ];
 
-for (const { file, stem, labelCap } of CASES) {
+for (const { file, stem, labelCap, crossingCap } of CASES) {
   const config = JSON.parse(fs.readFileSync(path.join(REPO, file), "utf8"));
   const output = draw([file]);
   const g = graphOf(stem);
@@ -143,13 +158,37 @@ for (const { file, stem, labelCap } of CASES) {
       ports !== null && ports.after === 0,
       ports === null ? "the demo did not report the pass" : `${ports.before} → ${ports.after}`);
 
-  // The label pass, gated. A relaxation that silently stopped relaxing would
+  // The label pass, gated. A placement that silently stopped placing would
   // leave a picture that still passes every structural check above.
   const clutter = labelClutter(output);
   say("labels are moved off each other and off the boxes",
-      clutter !== null && clutter.after < clutter.before && clutter.after <= labelCap,
+      clutter !== null && clutter.after <= clutter.before && clutter.after <= labelCap,
       clutter === null ? "the demo did not report the pass"
                        : `${clutter.before} → ${clutter.after}, cap ${labelCap}`);
+
+  // The router's own rules. The hard ones are gated at zero — a line through
+  // a box, a turn inside a box's clearance, two unrelated lines in one
+  // corridor, a crossing that looks like a junction, a label with somebody
+  // else's line through it — and crossings at the number the machine needs.
+  const routes = routeMetrics(output);
+  say("every transition was routed",
+      routes !== null && routes.routed === g.edges.length,
+      routes === null ? "the demo did not report the router" : `${routes.routed} of ${g.edges.length}`);
+  say("no line runs through a box, or turns inside a box's clearance",
+      routes !== null && routes.throughBox === 0 && routes.halo === 0,
+      routes === null ? "" : `${routes.throughBox} through, ${routes.halo} turns in a halo`);
+  say("no two unrelated lines share a corridor",
+      routes !== null && routes.parallel === 0,
+      routes === null ? "" : `${routes.parallel} parallel pairs`);
+  say("no crossing where a reader would see a junction",
+      routes !== null && routes.atBend === 0,
+      routes === null ? "" : `${routes.atBend} at a bend`);
+  say("no more crossings than the machine needs",
+      routes !== null && routes.crossings <= crossingCap,
+      routes === null ? "" : `${routes.crossings}, cap ${crossingCap}`);
+  say("no label has another edge's line through it",
+      routes !== null && routes.labelHits === 0,
+      routes === null ? "" : `${routes.labelHits}`);
 }
 
 // …and a live run: the point of the module.
