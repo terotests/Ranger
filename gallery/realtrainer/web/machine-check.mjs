@@ -24,6 +24,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
+import { requireHostTool } from "../../ui/conformance/dom-adapter.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const BIN = path.join(HERE, "..", "bin", "AddWorkoutDialog.cjs");
@@ -68,6 +69,76 @@ const machineJson = fs.readFileSync(
 // by gallery/statechart's generic runner. Either they agree with the table or
 // one of them is wrong — which is what makes the table worth transcribing, and
 // what a single implementation checked against itself could never show.
+// --- and the same config through REAL XSTATE --------------------------------
+//
+// The table is a transcription, and three implementations agreeing with a
+// transcription mostly proves they agree with each other. XState itself is the
+// oracle: the same config object, executed by the library the app runs, is
+// what says whether the transcription — and this runner's semantics — are
+// right.
+//
+// The declarative value expressions become real `assign` functions here, and
+// that translation is the claim being tested: `{"or": [{"event":"targetDate"},
+// {"context":"today"}]}` has to mean what `event.targetDate || today` means.
+let xstate = null;
+let xstateVersion = "";
+try {
+  xstate = requireHostTool("xstate");
+  xstateVersion = requireHostTool("xstate/package.json").version ?? "";
+} catch {
+  // Missing is not a pass: it is a gate that could not run, and it says so at
+  // the end rather than going quiet.
+}
+
+function xstateValue(spec) {
+  if (spec.or) {
+    const parts = spec.or.map(xstateValue);
+    return (context, event) => {
+      for (const part of parts) {
+        const answer = part(context, event);
+        if (answer !== undefined && answer !== null && answer !== "") return answer;
+      }
+      return "";
+    };
+  }
+  if (spec.event !== undefined) return (_c, event) => event[spec.event] ?? "";
+  if (spec.context !== undefined) return (context) => context[spec.context] ?? "";
+  return () => spec.value ?? "";
+}
+
+function xstateMachine(config, today) {
+  const { createMachine, assign } = xstate;
+  const states = {};
+  for (const [name, node] of Object.entries(config.states)) {
+    const on = {};
+    for (const [event, spec] of Object.entries(node.on ?? {})) {
+      if (typeof spec === "string") {
+        on[event] = { target: spec };
+        continue;
+      }
+      const actions = (spec.actions ?? []).map((action) => {
+        const fields = Object.entries(action.assign ?? {}).map(([key, value]) => [
+          key,
+          xstateValue(value),
+        ]);
+        return assign(({ context, event }) =>
+          Object.fromEntries(fields.map(([key, read]) => [key, read(context, event)])),
+        );
+      });
+      on[event] = spec.target ? { target: spec.target, actions } : { actions };
+    }
+    states[name] = { on };
+  }
+  return createMachine({
+    id: config.id,
+    initial: config.initial,
+    // The harness's own initialisation, which the other implementations do
+    // with two `set` calls: the host's date, and the reset that follows it.
+    context: { ...config.context, today, targetDate: today },
+    states,
+  });
+}
+
 const IMPLEMENTATIONS = [
   {
     name: "hand-written  (src/AddWorkoutDialog.rgr)",
@@ -127,6 +198,43 @@ const IMPLEMENTATIONS = [
   },
 ];
 
+if (xstate) {
+  IMPLEMENTATIONS.push({
+    name: `real XState (xstate ${xstateVersion}, the same config)`,
+    make: (today) => {
+      const actor = xstate.createActor(xstateMachine(JSON.parse(machineJson), today)).start();
+      const read = () => {
+        const s = actor.getSnapshot();
+        return {
+          state: s.value,
+          context: {
+            targetDate: s.context.targetDate,
+            targetCalendarId: s.context.targetCalendarId,
+            inputText: s.context.inputText,
+            error: s.context.error,
+          },
+        };
+      };
+      return {
+        send: (type, value, field) => {
+          const event = field ? { type, [field]: value } : { type };
+          // `can` is the question the other implementations answer: did the
+          // current state HANDLE this event. An earlier draft here compared
+          // the snapshot before and after instead, which is a different
+          // question — and the fuzz below caught it on the first run it
+          // mattered: `SET_INPUT_TEXT { text: "" }` while the text is already
+          // empty is handled and changes nothing.
+          const handled = actor.getSnapshot().can(event);
+          actor.send(event);
+          return handled;
+        },
+        state: () => read().state,
+        context: () => read().context,
+      };
+    },
+  });
+}
+
 const table = JSON.parse(
   fs.readFileSync(
     path.join(HERE, "..", "fixtures", "machines", "addWorkoutDialog.json"),
@@ -164,11 +272,92 @@ for (const impl of IMPLEMENTATIONS) {
   }
 }
 
+// --- differential fuzz against the real library -----------------------------
+//
+// Twenty-one cells from three seeds is a table, not a parity test: it only
+// asks what happens from the three contexts someone thought to write down.
+// This walks random event sequences instead and requires every implementation
+// to stay in lockstep with XState after EVERY step — state and whole context.
+//
+// The sequences are seeded, so a divergence is reproducible: the seed and the
+// step are printed and the run can be repeated exactly.
+if (xstate) {
+  const EVENTS = Object.keys(
+    Object.values(JSON.parse(machineJson).states).reduce(
+      (all, node) => Object.assign(all, node.on ?? {}),
+      {},
+    ),
+  );
+  const FIELD = Object.fromEntries(
+    table.cells.filter((c) => c.field).map((c) => [c.event, c.field]),
+  );
+  const VALUES = ["", "2026-07-04", "Exercise Kyykky|5x5", "boom"];
+
+  // A small deterministic generator: a fuzz that cannot be re-run is a bug
+  // report nobody can act on.
+  let seed = 20260903;
+  const next = () => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return seed;
+  };
+  const pick = (list) => list[next() % list.length];
+
+  const RUNS = 400;
+  const LENGTH = 12;
+  let diverged = 0;
+
+  for (let run = 0; run < RUNS && diverged === 0; run += 1) {
+    const made = IMPLEMENTATIONS.map((impl) => ({
+      name: impl.name,
+      m: impl.make(table.today),
+    }));
+    for (let step = 0; step < LENGTH; step += 1) {
+      const type = pick(EVENTS);
+      const field = FIELD[type] ?? "";
+      const value = field ? pick(VALUES) : "";
+      const answers = made.map(({ name, m }) => {
+        const moved = m.send(type, value, field);
+        return { name, moved, state: m.state(), context: m.context() };
+      });
+      const oracle = answers[answers.length - 1];
+      const off = answers.filter(
+        (a) => JSON.stringify({ ...a, name: 0 }) !== JSON.stringify({ ...oracle, name: 0 }),
+      );
+      if (off.length > 0) {
+        diverged += 1;
+        failed += 1;
+        console.log(
+          `\n  FAIL fuzz run ${run}, step ${step}: ${type}` +
+            (field ? ` { ${field}: ${JSON.stringify(value)} }` : "") +
+            `\n         XState ${JSON.stringify({ ...oracle, name: undefined })}`,
+        );
+        for (const a of off) {
+          console.log(`         ${a.name}\n           ${JSON.stringify({ ...a, name: undefined })}`);
+        }
+        break;
+      }
+    }
+  }
+  if (diverged === 0) {
+    console.log(
+      `\n  PASS ${RUNS} random sequences of ${LENGTH} events — every implementation\n` +
+        `       stayed in lockstep with xstate ${xstateVersion} after every step`,
+    );
+  }
+}
+
 const ignores = table.cells.filter((c) => c.ignored).length;
 console.log("");
 if (failed) {
   console.log(`${failed} of ${table.cells.length} cell(s) differ from the machine`);
   process.exit(1);
+}
+if (!xstate) {
+  console.log(
+    "NOTE: xstate is not installed, so the real library did not run and these\n" +
+      "implementations are only agreeing with a transcription. Install it with\n" +
+      "`npm run ui:conformance:install`.",
+  );
 }
 console.log(
   `all ${table.cells.length} cells match the machine in ${IMPLEMENTATIONS.length} implementations ` +

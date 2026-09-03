@@ -100,15 +100,33 @@ anything; here it is two parallel string arrays, which reads worse than a map
 and travels better — this compiles to Kotlin and Swift as well as ES6. A typed
 context arrives with the machine that needs one, like everything else here.
 
-## Conformance
+## Conformance — against XState itself
 
-This module has no gate of its own — that would be the runtime grading its own
-homework. It is measured where it is used:
+This module has no gate of its own; that would be the runtime grading its own
+homework. It is measured where it is used, and the oracle is the real library:
 
 ```bash
-npm run rt:machine   # the table from addWorkoutDialogMachine.ts, through
-                     # BOTH the hand-written port and this runner
+npm run rt:machine   # four implementations of one machine, XState among them
 ```
 
-Twenty-one cells, thirteen of them events the machine ignores. Two independent
-readings of one specification either agree with it or one of them is wrong.
+Four readings of one specification: the machine hand-written as branches, the
+same machine as data, the config loaded and run by this runner, and **the same
+config executed by `xstate` itself**. All twenty-one cells of the transition
+table agree in all four.
+
+A table is not a parity test, though — twenty-one cells from three seeds only
+ask what happens from the three contexts someone thought to write down. So the
+gate also walks **400 random event sequences of twelve events** and requires
+every implementation to stay in lockstep with XState after every step, state
+and whole context. The sequences are seeded, so a divergence is reproducible.
+
+That fuzz earned its place on the run that introduced it. It caught a
+divergence immediately — in the harness, not the runner: the XState adapter was
+answering "did anything change" where every other implementation answers "did
+the current state handle this event", and `SET_INPUT_TEXT { text: "" }` when
+the text is already empty is handled and changes nothing. `snapshot.can(event)`
+is the question the others answer, and asking XState the same question is what
+made the comparison mean anything.
+
+Without `xstate` installed the gate still runs and says so, rather than passing
+quietly on a transcription.

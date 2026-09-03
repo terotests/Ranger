@@ -95,9 +95,13 @@ The table is run through **three** implementations:
 | `src/AddWorkoutChart.rgr` | the same machine as data, on [`gallery/statechart`](../statechart/README.md) |
 | `fixtures/machines/addWorkoutDialog.machine.json` | the config XState itself takes, loaded and run |
 
-Three independent readings of one specification either agree with it or one of
-them is wrong — which is what makes transcribing the table worth doing, and
-what a single implementation checked against itself could never show.
+…and a fourth: **the same config executed by `xstate` itself**, which is the
+oracle the other three are measured against rather than against each other.
+
+The table is not the whole test. Twenty-one cells from three seeds only ask
+what happens from three contexts someone thought to write down, so the gate
+also walks 400 seeded random sequences of twelve events and requires every
+implementation to stay in lockstep with XState after each one.
 
 The third one closes the loop, because the config is checked against the real
 machine rather than trusted: `npm run rt:machine:config` evaluates
