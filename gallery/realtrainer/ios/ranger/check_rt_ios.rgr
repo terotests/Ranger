@@ -262,116 +262,67 @@ class CheckRtIos {
         this.ok("a drag on a page that fits does nothing" ((rest.panBy(-80.0 -80.0)) == false))
     }
 
-    ; --- the phone's fit ------------------------------------------------------
+    ; --- nothing is ever cut off ----------------------------------------------
 
-    fn checkFillWidth:void () {
-        print "--- a phone spends the whole width on the page ---"
-        ; An iPhone 16 Pro on its side: 19.5:9 against a 1.29:1 page, which is
-        ; the case where contain wastes most of the screen.
-        def wide:double 874.0
-        def high:double 402.0
+    ; Filling the width and letting the reader move down was tried here and
+    ; measured wrong for this app. On an 874x402 landscape phone it pushes 276pt
+    ; off the bottom of EVERY content scene -- the sign-in button, the goals
+    ; table's last rows, the session's controls -- and the page has no scroll
+    ; container, no scrollbar and no cut-off row, so nothing on it announces
+    ; that the content continues. In portrait it buys nothing: the width binds
+    ; either way. So the page is contained, and this is the check that says so
+    ; for every scene on every screen the port claims to support.
+    fn checkNothingCutOff:void () {
+        print "--- every scene is whole, on every screen ---"
+        def w:[double]
+        def h:[double]
+        def names:[string]
+        push names "iPad 10.9 landscape"
+        push w 1180.0
+        push h 820.0
+        push names "iPad mini portrait"
+        push w 744.0
+        push h 1133.0
+        push names "iPhone 16 Pro landscape"
+        push w 874.0
+        push h 402.0
+        push names "iPhone 16 Pro portrait"
+        push w 393.0
+        push h 852.0
+        push names "iPhone SE portrait"
+        push w 375.0
+        push h 667.0
 
-        ; On a CONTENT scene: the loading splash is contained whatever the host
-        ; asked for (checkSplashFits), so the two fits only differ once the app
-        ; has handed over.
-        def contained:RtIos (this.fresh(wide high))
-        contained.setScene("dashboard")
-        def fill:RtIos (new RtIos)
-        fill.useFillWidth()
-        fill.start(wide high css)
-        fill.setScene("dashboard")
+        def scenes:[string]
+        push scenes "loading"
+        push scenes "signin"
+        push scenes "dashboard"
+        push scenes "session"
 
-        this.ok("contain is still the default" ((contained.fillsWidth()) == false))
-        this.ok("and fill-width says so" (fill.fillsWidth()))
-
-        def cw:double ((contained.pageWidth()) * (contained.scale()))
-        def fw:double ((fill.pageWidth()) * (fill.scale()))
-        this.okDetail("contain leaves most of the width empty" (cw < (wide * 0.7))
-            (to_string cw))
-        this.okDetail("fill-width uses all of it" (CheckRtIos.near(fw wide 0.5))
-            (to_string fw))
-        this.ok("so the page is drawn bigger" ((fill.scale()) > (contained.scale())))
-
-        ; Taller than the window, so it pans -- and starts at the top rather
-        ; than opening with the heading already scrolled off.
-        this.ok("the page now overflows downwards" (fill.canPan()))
-        this.okDetail("and starts at its top" (CheckRtIos.near((fill.offsetY()) 0.0 0.001))
-            (to_string (fill.offsetY())))
-        this.ok("a drag moves it" (fill.panBy(0.0 -60.0)))
-        def n:int 0
-        while (n < 100) {
-            fill.panBy(0.0 -80.0)
-            n = (n + 1)
+        for names screen:string i {
+            def sw:double (itemAt w i)
+            def sh:double (itemAt h i)
+            for scenes scene:string si {
+                def app:RtIos (this.fresh(sw sh))
+                app.setScene(scene)
+                def shownW:double ((app.pageWidth()) * (app.scale()))
+                def shownH:double ((app.pageHeight()) * (app.scale()))
+                def fitsW:boolean (shownW <= (sw + 0.1))
+                def fitsH:boolean (shownH <= (sh + 0.1))
+                this.okDetail(((screen + " / ") + scene) (fitsW && fitsH)
+                    ((to_string shownW) + "x" + (to_string shownH)))
+            }
         }
-        def bottom:double ((fill.offsetY()) + ((fill.pageHeight()) * (fill.scale())))
-        this.okDetail("and stops with the page's last row on screen" (bottom >= (high - 0.5))
-            (to_string bottom))
 
-        ; Contain is never the larger of the two -- it is the smaller of the
-        ; width and height ratios, and fill-width is the width one. On a tablet
-        ; the gap is small (1.08 against 1.20 on a 1180x820 iPad) and contain
-        ; wins the argument, because it shows the whole composition for the 12%
-        ; it gives up. On the phone above the gap is more than double, and it
-        ; does not. That is the whole reason this is the host's choice rather
-        ; than one rule applied everywhere.
-        def padContain:RtIos (this.fresh(1180.0 820.0))
-        padContain.setScene("dashboard")
-        def padFill:RtIos (new RtIos)
-        padFill.useFillWidth()
-        padFill.start(1180.0 820.0 css)
-        padFill.setScene("dashboard")
-        this.ok("contain never scales up more than fill-width"
-            ((padContain.scale()) <= ((padFill.scale()) + 0.001)))
-        this.ok("on a tablet contain still shows the whole page"
-            ((padContain.canPan()) == false))
-        this.okDetail("and gives up little to do it"
-            (((padContain.scale()) / (padFill.scale())) > 0.85)
-            (to_string ((padContain.scale()) / (padFill.scale()))))
+        ; And with a notch and a home indicator taken off first.
+        def inset:RtIos (this.freshInset(874.0 402.0 59.0 21.0))
+        inset.setScene("signin")
+        def bottom:double ((inset.offsetY()) + ((inset.pageHeight()) * (inset.scale())))
+        this.okDetail("the sign-in button clears the home indicator"
+            (bottom <= (402.0 - 21.0 + 0.1)) (to_string bottom))
+        this.ok("and there is nothing to pan to" ((inset.canPan()) == false))
     }
 
-    ; --- the splash has to be whole -------------------------------------------
-
-    fn checkSplashFits:void () {
-        print "--- the loading screen is never cut off ---"
-        ; The phone's fit, where the page is wider than tall and fill-width
-        ; would push the card's button off the bottom.
-        def wide:double 874.0
-        def high:double 402.0
-        def app:RtIos (new RtIos)
-        app.useFillWidth()
-        app.start(wide high css)
-
-        this.ok("it opens on the loading scene" ((app.sceneName()) == "loading"))
-        def shownH:double ((app.pageHeight()) * (app.scale()))
-        this.okDetail("and the whole card is on screen" (shownH <= (high + 0.1))
-            (to_string shownH))
-        this.ok("with nothing to pan to" ((app.canPan()) == false))
-
-        ; Then it hands over on its own, and the content scene takes the fit the
-        ; host asked for.
-        def n:int 0
-        while (n < 400) {
-            app.tick(16.0)
-            n = (n + 1)
-        }
-        this.okDetail("it hands over" ((app.sceneName()) == "signin") (app.sceneName()))
-        def fw:double ((app.pageWidth()) * (app.scale()))
-        this.okDetail("and the next scene fills the width again" (CheckRtIos.near(fw wide 0.5))
-            (to_string fw))
-
-        ; Pressing back to a splash-like scene would contain again; going the
-        ; other way is what matters here -- the fit follows the scene without
-        ; the host being told.
-        app.setScene("loading")
-        def backH:double ((app.pageHeight()) * (app.scale()))
-        this.okDetail("going back contains it again" (backH <= (high + 0.1))
-            (to_string backH))
-
-        ; On a tablet, where contain was already the answer, nothing changes.
-        def pad:RtIos (this.fresh(1180.0 820.0))
-        def padH:double ((pad.pageHeight()) * (pad.scale()))
-        this.ok("a tablet is unaffected" (padH <= 820.1))
-    }
 
     ; --- the press has to show -------------------------------------------------
 
@@ -529,9 +480,8 @@ class CheckRtIos {
         c.checkMapping()
         c.checkInput()
         c.checkZoom()
-        c.checkFillWidth()
         c.checkPressFeedback()
-        c.checkSplashFits()
+        c.checkNothingCutOff()
         c.checkClock()
         c.checkScenes()
         c.checkScreens()

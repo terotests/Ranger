@@ -57,29 +57,6 @@ class RtIos {
     def fitScale:double 1.0
     def zoomValue:double 1.0
 
-    ; How the page is fitted. 0 = CONTAIN: the whole composition on screen,
-    ; letterboxed where the aspect ratios disagree. 1 = FILL WIDTH: the page is
-    ; as wide as the usable area and the reader pans down for the rest.
-    ;
-    ; Contain is the right answer on a tablet, whose shape is close enough to
-    ; the page's 980x760 that little is wasted. On a PHONE it is not: a 19.5:9
-    ; window against a 1.29:1 page leaves about 40% of the screen empty and
-    ; makes the text half the size it could be. Fill-width spends the whole
-    ; width on the page and asks the reader to move, which is what a phone
-    ; showing a wide layout has always done.
-    ;
-    ; Which one is the HOST's call, because only the host knows whether it is a
-    ; phone -- the same division `ui_ios.rgr` makes for the watch, and for the
-    ; same reason: the rule is here, where it can be checked, and only the
-    ; choice is in Swift.
-    def fitMode:int 0
-
-    ; The scene the fit was last computed for. A scene change can change which
-    ; fit applies (see sceneMustFitWhole), and the app changes scene by itself
-    ; -- the loading screen hands over on a timer -- so this is watched rather
-    ; than waited for.
-    def fittedScene:string ""
-
     ; Where the page's top-left corner sits in the window, in points. At rest
     ; this centres the page; a pinch moves it and `clampOffset` keeps the page
     ; from being dragged off the screen.
@@ -114,23 +91,6 @@ class RtIos {
         this.refit()
     }
 
-    ; Spend the whole width on the page and pan for the rest. Called once, by
-    ; the host, before start -- a phone.
-    fn useFillWidth:void () {
-        fitMode = 1
-        this.refit()
-    }
-
-    ; The whole composition on screen, letterboxed. The default -- a tablet.
-    fn useContain:void () {
-        fitMode = 0
-        this.refit()
-    }
-
-    fn fillsWidth:boolean () {
-        return (fitMode == 1)
-    }
-
     fn setSafeArea:void (top:double bottom:double left:double right:double) {
         insetTop = top
         insetBottom = bottom
@@ -161,53 +121,32 @@ class RtIos {
     ; screen and the leftover is a letterbox. Cover would fill the window and
     ; cut the composition off at one edge, which for a page with a sign-in
     ; button near the bottom means a button nobody can reach.
-    ; A scene that has to be visible WHOLE, whatever the host asked for.
+    ; CONTAIN: the smaller of the two ratios, so the whole page is on screen and
+    ; the leftover is a letterbox.
     ;
-    ; The loading screen is a splash: one card, centred, with a progress bar and
-    ; a button at its foot. Nothing about it says "there is more below" -- no
-    ; scrollbar, no cut-off row, no affordance at all -- so a reader who cannot
-    ; see the button has no way to learn it exists. Fill-width is the right
-    ; answer for a page you can move around and the wrong one for a picture.
-    ;
-    ; The content scenes are the other way round: the dashboard and the session
-    ; are lists and panels, they read better filling the width, and moving down
-    ; them is the ordinary thing to do.
-    fn sceneMustFitWhole:boolean (name:string) {
-        return (name == "loading")
-    }
-
+    ; Filling the width instead and letting the reader move down was tried, and
+    ; measured wrong for this app. On an 874x402 landscape phone it pushes 276pt
+    ; off the bottom of EVERY content scene -- the sign-in button, the table's
+    ; last rows, the session's controls -- and there is no scroll container, no
+    ; scrollbar and no cut-off row anywhere on the page, so nothing announces
+    ; that the content continues. In portrait it buys nothing at all: the width
+    ; binds either way. The page is a fixed 980x760 composition and no scale
+    ; both fills a 19.5:9 phone and keeps all of it on screen; keeping all of it
+    ; is the half worth having.
     fn refit:void () {
         def pw:double (app.widthPx())
         def ph:double (app.heightPx())
-        fittedScene = (app.sceneName())
-        def contain:boolean (fitMode == 0)
-        if (this.sceneMustFitWhole(fittedScene)) {
-            contain = true
-        }
         if (pw > 0.0) {
             if (ph > 0.0) {
                 def byWidth:double ((this.usableWidth()) / pw)
+                def byHeight:double ((this.usableHeight()) / ph)
                 fitScale = byWidth
-                ; Contain takes the SMALLER of the two ratios so the whole page
-                ; is on screen; fill-width keeps the width ratio and lets the
-                ; height overflow, which `clampOffset` then makes pannable.
-                if contain {
-                    def byHeight:double ((this.usableHeight()) / ph)
-                    if (byHeight < byWidth) {
-                        fitScale = byHeight
-                    }
+                if (byHeight < byWidth) {
+                    fitScale = byHeight
                 }
             }
         }
         this.centre()
-    }
-
-    ; Refit if the app has moved to a scene the other fit applies to. Cheap
-    ; enough to ask every frame: it is a string compare until it is not.
-    fn syncFit:void () {
-        if ((app.sceneName()) != fittedScene) {
-            this.refit()
-        }
     }
 
     ; Put the page in the middle of the usable area at the current scale. This
@@ -403,9 +342,7 @@ class RtIos {
         if (started == false) {
             return false
         }
-        def moved:boolean (app.tick(dtMs))
-        this.syncFit()
-        return moved
+        return (app.tick(dtMs))
     }
 
     ; --- input ----------------------------------------------------------------
@@ -435,9 +372,7 @@ class RtIos {
         if ((strlen id) == 0) {
             return true
         }
-        def changed:boolean (app.press(id))
-        this.syncFit()
-        return changed
+        return (app.press(id))
     }
 
     fn cancelPress:boolean () {
@@ -477,7 +412,6 @@ class RtIos {
 
     fn setScene:void (name:string) {
         app.setScene(name)
-        this.syncFit()
     }
 
     fn styleErrorCount:int () {

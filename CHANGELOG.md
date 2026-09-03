@@ -9,51 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **The loading splash could be cut off on a phone, hiding its button.** The
-  phone fit spends the whole width on the page and lets the reader move down
-  it, which is right for the dashboard and the session -- lists and panels,
-  where moving down is the ordinary thing to do -- and wrong for the splash.
-  That scene is one centred card with a progress bar and a button at its foot,
-  and nothing about it says "there is more below": no scrollbar, no cut-off
-  row, no affordance at all. A reader who cannot see the button has no way to
-  learn it exists.
+- **Content was cut off at the bottom on a phone.** The port briefly filled the
+  width on phones and let the reader move down the page, on the grounds that
+  containing a 980x760 composition in a 19.5:9 window wastes about 40% of the
+  screen. Measuring it settled the argument the other way. On an 874x402
+  landscape phone fill-width pushes **276pt off the bottom of every content
+  scene** -- the sign-in button, the goals table's last rows and the session's
+  controls, all by the same amount, because it is a property of the page and
+  not of one screen. The page has no scroll container, no scrollbar and no
+  cut-off row, so nothing on it announces that the content continues; and in
+  portrait the mode buys nothing at all, since the width binds either way.
 
-  A scene that has to be visible WHOLE is now contained whatever the host asked
-  for, and the fit follows the scene without the host being told -- the loading
-  screen hands over on its own timer, so the change is watched for rather than
-  waited on.
+  So the page is contained, and `check_rt_ios.rgr` asserts that every one of
+  the four scenes is whole on every screen the port claims to support, notch
+  and home indicator included. The fill-width mode is gone rather than left
+  switched off: a mode nothing can select is worse than no mode.
 
-  Worth saying where the boundary is, because CSS looks like the obvious lever
-  and is not: the stylesheet's viewport is the demo's own fixed 980x760 canvas,
-  which is what `setViewport` is handed on every target. A `@media` query or a
-  `min()`/`calc()` in `realtrainer.css` would be answering questions about a
-  canvas that never changes size — the device's shape never reaches it. Fitting
-  that canvas onto a screen is the host's, which is why it is in `rt_ios.rgr`
-  where `check_rt_ios.rgr` drives it.
-
-### Fixed
-
-- **Every tap answered about 300ms late, on both Apple ports, and it was not
-  the renderer.** `UITapGestureRecognizer.delaysTouchesEnded` defaults to
-  TRUE, and on the two-tap recogniser that handles the reset-zoom gesture that
-  means every SINGLE tap has its `touchesEnded` held back for the whole
-  double-tap interval while UIKit waits to see whether a second tap arrives.
-  The page cannot respond to a press it has not been told about, so every
-  button answered a third of a second late by the clock however fast the frame
-  was. It reads exactly like a slow renderer. The double tap still works -- it
-  fires when it recognises -- and the single tap is no longer punished for its
-  existence.
-
-- **Five controls showed nothing at all while a finger was on them.** A finger
-  has no hover, so a control styled with only a `:hover` rule does not move
-  between landing and lifting; on a mouse the hover arrives before the click
-  and hides that. `.ui-tab`, `.ui-checkbox`, `.ui-toggle`,
-  `.ui-accordion-trigger` and `.rt-quit` all had a hover and no `:active`, and
-  the tabs are what a reader taps most. Measured on the frames themselves: the
-  tab bar went from never changing -- not once in 30 frames -- to changing on
-  the frame the finger lands. `check_rt_ios.rgr` now asserts that every control
-  the hit test can reach shows its press within two frames, because this is a
-  gap that reads as slowness rather than as a missing rule.
+  Worth recording where the boundary is, because CSS looks like the obvious
+  lever and is not: the stylesheet's viewport is the demo's own fixed 980x760
+  canvas, which is what `setViewport` is handed on every target, so a `@media`
+  query or a `min()`/`calc()` in `realtrainer.css` would be answering questions
+  about a canvas that never changes size. Making the page reflow for a phone
+  means letting `pageW`/`pageH` follow the device and then writing a phone
+  layout for four scenes -- a real piece of design work, and the only thing
+  that would let this composition both fill a phone and keep all of itself.
 
 ### Added
 

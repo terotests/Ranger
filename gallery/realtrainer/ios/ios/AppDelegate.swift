@@ -38,17 +38,18 @@ final class RealTrainerViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        // Which fit, and the only platform-specific decision in this port. The
-        // page is a 980x760 composition: on an iPad that shape is close enough
-        // to the window that showing all of it costs little, and on a phone it
-        // is not — a 19.5:9 window leaves about 40% of the screen empty and
-        // halves the size of the text. A phone spends the whole width on the
-        // page and lets the reader move down it. The arithmetic for both is in
-        // `rt_ios.rgr`, where check_rt_ios.rgr drives it; only this choice
-        // needs to know what kind of device it is on.
-        if traitCollection.userInterfaceIdiom == .phone {
-            page.app.useFillWidth()
-        }
+        // Contain, everywhere. Fill-width was tried for phones and measured
+        // wrong: on an 874x402 landscape phone EVERY content scene overflows by
+        // the same 276pt — it is not a property of one screen — and this app
+        // has no scroll container, no scrollbar and no cut-off row, so anything
+        // past the fold is content a reader has no way to learn about. In
+        // portrait it buys nothing at all: the width binds either way and the
+        // page is 305pt tall in an 852pt window.
+        //
+        // The page is a fixed 980x760 composition, and no scale both fills a
+        // 19.5:9 phone and keeps all of it on screen. Showing all of it is the
+        // half worth keeping. `useFillWidth` stays in the facade, checked and
+        // working, for a page that does scroll.
         page.start(css: RealTrainerViewController.loadStylesheet())
     }
 
