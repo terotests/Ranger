@@ -69,6 +69,53 @@ npm run rt:parser:sync     # refresh the vendored parser
 npm run rt:parser:check    # fail if the copy is stale
 ```
 
+## A ported state machine, and how it is checked
+
+`src/AddWorkoutDialog.rgr` is a port of `addWorkoutDialogMachine.ts` from the
+RealTrainer monorepo — an XState v5 machine of three states and seven events,
+the smallest the app has, which is why it went first.
+
+`npm run rt:machine` drives it through **all twenty-one cells** of the
+transition table transcribed in `fixtures/machines/`. Thirteen of them are
+IGNORES, and they are the point: `OPEN` while already open must not re-blank
+what someone typed, `ERROR` out of `saving` must keep the input rather than
+throw it away, and `START_SAVING` while saving must do nothing. A port tested
+only on its happy path passes while being wrong about every one of them.
+
+One deliberate difference, and it is the reason this is testable at all: the
+machine calls `new Date()` inside its own reducer, so its reset depends on when
+it ran. Here "today" is handed in by the host — a clock belongs outside a state
+machine for the same reason it belongs outside a workout controller.
+
+![the ported dialog](web/shots/realtrainer-dialog.png)
+
+The dialog is drawn from the machine's state and nothing else: no local "is it
+open" flag, no second copy of the text.
+
+## Traces: the app itself as the oracle
+
+A machine that passes its transition table can still be wired to the wrong
+screen. The benchmark for that is the app as it really runs — `frontend --mode
+test` on 5175 with the Firebase emulators — driven through the same scenario
+and compared frame for frame.
+
+```bash
+npm run rt:trace          # replay the scenarios on this side  (CI)
+npm run rt:trace:record   # re-record this side
+# and, on a machine with the monorepo and the emulators:
+node gallery/realtrainer/scripts/record-reference-trace.mjs
+```
+
+Steps are clicked **by role and name**, not by test id: the views in scope
+carry zero `data-testid` attributes, so ids would mean changing the private
+repository for every node measured. Roles and names are already there, and they
+are what the EVG side publishes through `UiCtl.rows()` anyway — the same key
+`gallery/ui` diffs against Radix.
+
+The reference recorder is here and says plainly that it cannot run here. The
+Ranger trace is committed for the reason the L0 oracle is: this repository's CI
+has neither the emulators nor the private frontend.
+
 ## The coverage table, measured
 
 [`COVERAGE.md`](COVERAGE.md) is what this demo does with each of COMPACT's row

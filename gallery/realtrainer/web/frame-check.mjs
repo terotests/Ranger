@@ -344,6 +344,22 @@ if (pngOut) {
   console.log("  wrote " + stem + "-document.png (the document)");
 }
 
+// The ported XState machine, on a screen. Which states it has and what each
+// event does is checked exhaustively by `npm run rt:machine`; this is that
+// machine wired to a view and drawn.
+ok("the dialog opens", await clickId("rt-add"), "no rt-add node");
+await page.waitForTimeout(150);
+await clickId("rt-sheet-type");
+await page.waitForTimeout(150);
+const sheetTexts = (await listNow()).filter((c) => c.k === 3).map((c) => c.text);
+ok("and shows what was typed",
+   sheetTexts.includes("Exercise Maastaveto|3x5@100kg"), sheetTexts.join("|"));
+if (pngOut) {
+  await page.locator("#stage canvas").screenshot({ path: stem + "-dialog.png" });
+  console.log("  wrote " + stem + "-dialog.png (the ported dialog)");
+}
+await clickId("rt-sheet-cancel");
+
 if (pngOut) {
   await page.locator("#stage canvas").screenshot({ path: stem + "-timer.png" });
   console.log("  wrote " + stem + "-timer.png (the dial)");

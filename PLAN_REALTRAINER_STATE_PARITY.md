@@ -1,6 +1,6 @@
 # PLAN — RealTrainerin tilanhallinta EVG:lle, mitattuna ajettavaa sovellusta vasten
 
-Status: `suunnitelma` · 2026-09-03
+Status: `S0–S1 aloitettu` · 2026-09-03
 Liittyy: [`PLAN_COMPACT_UI_PARITY_DEMO.md`](PLAN_COMPACT_UI_PARITY_DEMO.md) (rivikerros, P0–P5 tehty)
 
 COMPACT-rivit on portattu ja mitattu. Se on sovelluksen **sisältökerros**. Tämä suunnitelma
@@ -147,8 +147,8 @@ sovellus ajaa: `rt:trace:record`. Vanhentuneen nauhoituksen huomaa siitä että 
 
 | Vaihe | Alue | Sisältö | Valmis kun |
 |-------|------|---------|-----------|
-| **S0 — jäljen koneisto** | — | Skenaariomuoto, `e2e/`iin recorder joka ajaa askeleet ja kirjoittaa a11y-jäljen; Ranger-puolelle sama toistin; diff ja `rt:trace`-portti | yksi triviaali skenaario (kirjautuminen → dashboard) täsmää tai listaa eronsa |
-| **S1 — harjoituksen lisäys** | parsinta | `addWorkoutDialogMachine` (3 tilaa) → Ranger-kontrolleri; dialogi EVG:llä; parsinta on jo tehty (`CompactRowMapper`) | dialogin kolme tilaa ja tallennus täsmäävät jäljessä |
+| **S0 — jäljen koneisto** *(osin tehty)* | — | Tehty: skenaariomuoto (`fixtures/scenarios/`), Ranger-puolen toistin ja `rt:trace`-portti nauhoitettua jälkeä vasten, sekä referenssinauhoitin (`scripts/record-reference-trace.mjs`) joka ajaa Playwrightilla sovellusta vastaan. Jäljellä: **aja nauhoitin koneella jolla emulaattorit ovat** ja diffaa puolet | React-jälki nauhoitettu ja diffattu Ranger-jälkeä vasten |
+| **S1 — harjoituksen lisäys** *(osin tehty)* | parsinta | Tehty: `AddWorkoutDialog.rgr` (3 tilaa, 7 tapahtumaa), **siirtymätaulukko kaikista 21 solusta** `rt:machine`-porttina — 13 niistä ignoreja — ja dialogi EVG:llä dokumenttinäkymässä, piirrettynä koneen tilasta. Jäljellä: oikea tekstinsyöttö (`InputCtl`) ja kalenterivalinta | `rt:machine` 21/21; React-jälki vielä nauhoittamatta |
 | **S2 — kalenterin luonti** | kalenterit | `CalendarWizard` (612 r) askelittain; `StepperCtl` on `gallery/ui`:ssä valmiina | velhon askeleet ja validoinnit täsmäävät |
 | **S3 — vuosisuunnitelma** | vuosi | `YearSheetPageV2` (1 926 r); ensin selvitys mitä `app-ranger/lib/yearsheet` (722 r) jo kattaa; `TableCtl` ja `EventCalCtl` valmiina | vuosinäkymän ruudukko ja valinnat täsmäävät |
 | **S4 — suunnittelu** | suunnittelu | `planDialogMachine` (6 tilaa, 17 tapahtumaa) → Ranger; viikkovalinta, päiväkohtaiset liput, uudelleengenerointi | kuusi tilaa ja niiden siirtymät täsmäävät |

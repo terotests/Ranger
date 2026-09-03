@@ -86,6 +86,7 @@ Import "../../evg/EVGA11yTree.rgr"
 Import "../../evg/EVGA11yFromTree.rgr"
 Import "../../evg/EVGHitTest.rgr"
 Import "CompactRows.rgr"
+Import "AddWorkoutDialog.rgr"
 
 treefactory Rt {
     child addChild
@@ -187,6 +188,22 @@ treefactory Rt {
     ; and translates the subtree. There is no scrollbar, because a canvas app
     ; that draws one has to make it work, and a document this long does not
     ; need one to be readable.
+    ; --- the add-workout dialog ----------------------------------------------
+    tag Sheet    EVGElement (props (className "rt-sheet") (id "rt-sheet")
+                                   (role "dialog") (a11yLabel "Lisää harjoitus"))
+    tag SheetHd  EVGElement (props (className "rt-sheet-head") (elementType 1)
+                                   (role "heading") (a11yLevel 2) (id "rt-sheet-head"))
+    tag SheetRow EVGElement (props (className "rt-sheet-row"))
+    tag SheetCap EVGElement (props (className "rt-sheet-cap") (elementType 1))
+    tag SheetVal EVGElement (props (className "rt-sheet-val") (elementType 1))
+    tag SheetErr EVGElement (props (className "rt-sheet-err") (elementType 1) (role "status")
+                                   (id "rt-sheet-err"))
+    tag SheetBtn EVGElement (props (className "rt-sheet-btn") (role "button") (a11yFocusable true))
+    tag SheetBtnTx EVGElement (props (className "rt-sheet-btn-text") (elementType 1))
+    tag AddBtn   EVGElement (props (className "rt-add") (id "rt-add") (role "button")
+                                   (a11yLabel "Lisää harjoitus") (a11yFocusable true))
+    tag AddTx    EVGElement (props (className "rt-add-text") (elementType 1))
+
     tag DocView  EVGElement (props (className "rt-doc-view") (id "rt-doc-view"))
     tag DocList  EVGElement (props (className "rt-doc-list") (id "rt-doc-list")
                                    (role "list") (a11yLabel "Harjoituksen rivit"))
@@ -274,6 +291,10 @@ class RealTrainerDemo {
     ; express cannot be damaged by saving.
     def doc@(optional):CompactDocument
     def backend:RtBackendSim (new RtBackendSim())
+    ; The "Lisää harjoitus" machine, ported from XState. The dialog below is
+    ; drawn from its state and nothing else — which is the point of porting a
+    ; machine rather than a screen.
+    def addDialog:AddWorkoutDialog (new AddWorkoutDialog())
     def doneMoves:int 0
     def timerOn:boolean false
     def timerRunning:boolean false
@@ -1068,13 +1089,64 @@ class RealTrainerDemo {
         return el
     }
 
+    ; The dialog, drawn from the machine's state. There is no local flag for
+    ; "is it open" and no second copy of the text: `addDialog` holds both, and
+    ; this reads them.
+    fn addSheet:EVGElement () {
+        def sheet (tree Rt (Sheet))
+        sheet.addChild((tree Rt (SheetHd "Lisää harjoitus")))
+        sheet.addChild((tree Rt
+            (SheetRow
+                (SheetCap "Päivä")
+                (Spacer)
+                (SheetVal (props (id "rt-sheet-date")) addDialog.targetDate))))
+        def textValue@(mutable):string addDialog.inputText
+        if ((strlen textValue) == 0) {
+            textValue = "—"
+        }
+        sheet.addChild((tree Rt
+            (SheetRow
+                (SheetCap "Harjoitus")
+                (Spacer)
+                (SheetVal (props (id "rt-sheet-text")) textValue))))
+        if ((strlen addDialog.error) > 0) {
+            sheet.addChild((tree Rt (SheetErr addDialog.error)))
+        }
+        def actions (tree Rt (SheetRow (props (className "rt-sheet-row rt-sheet-actions"))))
+        if (addDialog.state == "saving") {
+            actions.addChild((tree Rt
+                (SheetBtn (props (id "rt-sheet-cancel") (a11yLabel "Peruuta"))
+                          (SheetBtnTx "Peruuta"))))
+            actions.addChild((tree Rt (Spacer)))
+            actions.addChild((tree Rt (SheetVal (props (id "rt-sheet-state")) "Tallennetaan…")))
+        } {
+            actions.addChild((tree Rt
+                (SheetBtn (props (id "rt-sheet-cancel") (a11yLabel "Peruuta"))
+                          (SheetBtnTx "Peruuta"))))
+            actions.addChild((tree Rt
+                (SheetBtn (props (id "rt-sheet-type") (a11yLabel "Kirjoita esimerkkirivi"))
+                          (SheetBtnTx "Kirjoita rivi"))))
+            actions.addChild((tree Rt (Spacer)))
+            actions.addChild((tree Rt
+                (SheetBtn (props (id "rt-sheet-save") (className "rt-sheet-btn rt-sheet-primary")
+                                 (a11yLabel "Tallenna harjoitus"))
+                          (SheetBtnTx "Tallenna"))))
+        }
+        sheet.addChild(actions)
+        return sheet
+    }
+
     fn document:EVGElement () {
         def main (tree Rt (Main (props (className "rt-main rt-main-doc"))))
         main.addChild((tree Rt
             (Top
                 (Title workTitle)
                 (Spacer)
+                (AddBtn (AddTx "＋  Lisää harjoitus"))
                 (Note ((to_string (array_length rows)) + " riviä")))))
+        if (addDialog.isOpen()) {
+            main.addChild((this.addSheet()))
+        }
         def list (tree Rt (DocList))
         for rows r:CompactRow i {
             list.addChild((this.documentRow(r i)))
@@ -1180,6 +1252,14 @@ class RealTrainerDemo {
     ; running out of things to move.
     fn tick:boolean (dtMs:double) {
         if (backend.tick(dtMs)) {
+            ; The save that the dialog started is the save that answers it.
+            if (addDialog.state == "saving") {
+                if (backend.state == "saved") {
+                    addDialog.send("SAVE_COMPLETE" "")
+                } {
+                    addDialog.send("ERROR" backend.message)
+                }
+            }
             this.rebuild()
             return true
         }
@@ -1391,6 +1471,10 @@ class RealTrainerDemo {
         ; them. It used to live inside the dashboard's branch, which is why its
         ; buttons did nothing while a session was open — a navigation you can
         ; only use from one page is not one.
+        if (this.pressSheet(id)) {
+            this.rebuild()
+            return true
+        }
         if (this.pressRail(id)) {
             return true
         }
@@ -1455,13 +1539,45 @@ class RealTrainerDemo {
         }
         ; On the loader there is nothing to press but the loader itself, and a
         ; press there is worth something: it skips the wait.
-        elapsedMs = (fillMs + holdMs)
-        return true
+        ;
+        ; The scene test is not decoration: this used to be the fall-through
+        ; for EVERY scene, so once the document screen existed, an id nothing
+        ; had handled came back as handled and the host redrew for nothing.
+        if (scene == "loading") {
+            elapsedMs = (fillMs + holdMs)
+            return true
+        }
+        return false
     }
 
     ; The session screen's own presses. Steppers write numbers, the radio group
     ; answers for the rest chips, and the two big buttons move between the card
     ; and the dial.
+    ; The dialog answers before the screen under it, which is what a modal is.
+    fn pressSheet:boolean (id:string) {
+        if (id == "rt-add") {
+            addDialog.today = "2026-02-09"
+            return (addDialog.open("2026-02-09" "cal-1"))
+        }
+        if (addDialog.isOpen() == false) {
+            return false
+        }
+        if (id == "rt-sheet-cancel") {
+            return (addDialog.send("CLOSE" ""))
+        }
+        if (id == "rt-sheet-type") {
+            return (addDialog.send("SET_INPUT_TEXT" "Exercise Maastaveto|3x5@100kg"))
+        }
+        if (id == "rt-sheet-save") {
+            def started:boolean (addDialog.send("START_SAVING" ""))
+            if (started) {
+                backend.begin(addDialog.inputText)
+            }
+            return started
+        }
+        return false
+    }
+
     fn pressRail:boolean (id:string) {
         if (scene == "signin") {
             return false
@@ -1483,6 +1599,13 @@ class RealTrainerDemo {
         }
         if (id == "rt-rail-home") {
             this.setScene("dashboard")
+            return true
+        }
+        ; The failure switch is a debug control, and it belongs to every screen
+        ; that can save rather than to the one it was first drawn on.
+        if (id == "rt-fail") {
+            backend.failNext = (backend.failNext == false)
+            this.rebuild()
             return true
         }
         return false

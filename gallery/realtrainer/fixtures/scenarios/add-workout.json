@@ -1,0 +1,18 @@
+{
+  "_": "A scenario is one script driven against BOTH sides. The Ranger side presses `id`; the React side clicks by `role` + `name`, because the views being measured carry zero data-testid attributes and roles and names are the only thing both sides publish. `state` names the machine state the step should leave behind — the thing that makes a trace readable when the node diff is large.",
+  "id": "add-workout-open-type-save",
+  "area": "parsinta",
+  "machine": "addWorkoutDialog",
+  "source": "frontend/src/machines/addWorkoutDialogMachine.ts",
+  "setup": [
+    { "tick": 4000, "why": "past the loader" },
+    { "id": "rt-google", "role": "button", "name": "Jatka Googlella" },
+    { "id": "rt-rail-log", "role": "link", "name": "Päiväkirja" }
+  ],
+  "steps": [
+    { "id": "rt-add", "role": "button", "name": "Lisää harjoitus", "state": "open" },
+    { "id": "rt-sheet-type", "role": "button", "name": "Kirjoita esimerkkirivi", "state": "open" },
+    { "id": "rt-sheet-save", "role": "button", "name": "Tallenna harjoitus", "state": "saving" },
+    { "tick": 800, "state": "closed", "why": "the simulated save answers" }
+  ]
+}

@@ -1102,6 +1102,115 @@
   font-size: 12px;
 }
 
+/* --- the add-workout dialog ------------------------------------------------
+   Drawn from the ported machine's state and nothing else. */
+.rt-add {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  width: 170px;
+  height: 30px;
+  border-radius: 8px;
+  background-color: #2b3242;
+  cursor: pointer;
+}
+
+.rt-add:hover  { background-color: #38415a; }
+
+.rt-add-text {
+  color: #e8e2da;
+  font-family: Arial;
+  font-weight: bold;
+  font-size: 13px;
+  height: 18px;
+}
+
+.rt-sheet {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 10px;
+  width: 868px;
+  padding: 16px;
+  border-radius: 12px;
+  border-width: 1px;
+  border-color: #3a4152;
+  background-color: #1b1f27;
+}
+
+.rt-sheet-head {
+  color: #ffffff;
+  font-family: Arial;
+  font-weight: bold;
+  font-size: 16px;
+  height: 22px;
+}
+
+.rt-sheet-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 10px;
+  width: 836px;
+  height: 28px;
+}
+
+.rt-sheet-actions {
+  height: 34px;
+}
+
+.rt-sheet-cap {
+  color: #8b8177;
+  font-family: Arial;
+  font-size: 13px;
+  width: 90px;
+  height: 18px;
+}
+
+.rt-sheet-val {
+  color: #e8e2da;
+  font-family: Arial;
+  font-size: 13px;
+  height: 18px;
+}
+
+.rt-sheet-err {
+  color: #e8a0a0;
+  font-family: Arial;
+  font-size: 13px;
+  height: 18px;
+}
+
+.rt-sheet-btn {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  width: 130px;
+  height: 30px;
+  border-radius: 8px;
+  background-color: #2b3242;
+  cursor: pointer;
+}
+
+.rt-sheet-btn:hover { background-color: #38415a; }
+
+.rt-sheet-primary {
+  background: linear-gradient(180deg, #fb8a1e, #ea580c);
+}
+
+.rt-sheet-btn-text {
+  color: #e8e2da;
+  font-family: Arial;
+  font-weight: bold;
+  font-size: 13px;
+  height: 18px;
+}
+
 /* --- scene five: the document -------------------------------------------- */
 
 /* One column of rows, each of them a family. The list is the row library with

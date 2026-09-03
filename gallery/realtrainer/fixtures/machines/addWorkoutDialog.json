@@ -1,0 +1,321 @@
+{
+ "_": "Transcribed from frontend/src/machines/addWorkoutDialogMachine.ts in the RealTrainer monorepo — three states, seven events, all twenty-one cells. A cell marked `ignored` is one the machine does not handle: the state and the whole context must be unchanged and the send must answer false. Those are the cells a hand-port gets wrong.",
+ "machine": "addWorkoutDialog",
+ "source": "frontend/src/machines/addWorkoutDialogMachine.ts",
+ "today": "2026-01-01",
+ "seeds": {
+  "closed": [],
+  "open": [
+   [
+    "OPEN",
+    "2026-02-09"
+   ],
+   [
+    "SET_INPUT_TEXT",
+    "Exercise Kyykky|3x10"
+   ]
+  ],
+  "saving": [
+   [
+    "OPEN",
+    "2026-02-09"
+   ],
+   [
+    "SET_INPUT_TEXT",
+    "Exercise Kyykky|3x10"
+   ],
+   [
+    "START_SAVING",
+    ""
+   ]
+  ]
+ },
+ "cells": [
+  {
+   "from": "closed",
+   "event": "OPEN",
+   "value": "2026-05-05",
+   "moved": true,
+   "to": "open",
+   "context": {
+    "targetDate": "2026-05-05",
+    "targetCalendarId": "",
+    "inputText": "",
+    "error": ""
+   }
+  },
+  {
+   "from": "closed",
+   "event": "CLOSE",
+   "value": "",
+   "moved": false,
+   "to": "closed",
+   "context": {
+    "targetDate": "2026-01-01",
+    "targetCalendarId": "",
+    "inputText": "",
+    "error": ""
+   },
+   "ignored": true
+  },
+  {
+   "from": "closed",
+   "event": "SET_TARGET_DATE",
+   "value": "2026-03-01",
+   "moved": false,
+   "to": "closed",
+   "context": {
+    "targetDate": "2026-01-01",
+    "targetCalendarId": "",
+    "inputText": "",
+    "error": ""
+   },
+   "ignored": true
+  },
+  {
+   "from": "closed",
+   "event": "SET_INPUT_TEXT",
+   "value": "toinen",
+   "moved": false,
+   "to": "closed",
+   "context": {
+    "targetDate": "2026-01-01",
+    "targetCalendarId": "",
+    "inputText": "",
+    "error": ""
+   },
+   "ignored": true
+  },
+  {
+   "from": "closed",
+   "event": "START_SAVING",
+   "value": "",
+   "moved": false,
+   "to": "closed",
+   "context": {
+    "targetDate": "2026-01-01",
+    "targetCalendarId": "",
+    "inputText": "",
+    "error": ""
+   },
+   "ignored": true
+  },
+  {
+   "from": "closed",
+   "event": "SAVE_COMPLETE",
+   "value": "",
+   "moved": false,
+   "to": "closed",
+   "context": {
+    "targetDate": "2026-01-01",
+    "targetCalendarId": "",
+    "inputText": "",
+    "error": ""
+   },
+   "ignored": true
+  },
+  {
+   "from": "closed",
+   "event": "ERROR",
+   "value": "boom",
+   "moved": false,
+   "to": "closed",
+   "context": {
+    "targetDate": "2026-01-01",
+    "targetCalendarId": "",
+    "inputText": "",
+    "error": ""
+   },
+   "ignored": true
+  },
+  {
+   "from": "open",
+   "event": "OPEN",
+   "value": "2026-05-05",
+   "moved": false,
+   "to": "open",
+   "context": {
+    "targetDate": "2026-02-09",
+    "targetCalendarId": "",
+    "inputText": "Exercise Kyykky|3x10",
+    "error": ""
+   },
+   "ignored": true
+  },
+  {
+   "from": "open",
+   "event": "CLOSE",
+   "value": "",
+   "moved": true,
+   "to": "closed",
+   "context": {
+    "targetDate": "2026-01-01",
+    "targetCalendarId": "",
+    "inputText": "",
+    "error": ""
+   }
+  },
+  {
+   "from": "open",
+   "event": "SET_TARGET_DATE",
+   "value": "2026-03-01",
+   "moved": true,
+   "to": "open",
+   "context": {
+    "targetDate": "2026-03-01",
+    "targetCalendarId": "",
+    "inputText": "Exercise Kyykky|3x10",
+    "error": ""
+   }
+  },
+  {
+   "from": "open",
+   "event": "SET_INPUT_TEXT",
+   "value": "toinen",
+   "moved": true,
+   "to": "open",
+   "context": {
+    "targetDate": "2026-02-09",
+    "targetCalendarId": "",
+    "inputText": "toinen",
+    "error": ""
+   }
+  },
+  {
+   "from": "open",
+   "event": "START_SAVING",
+   "value": "",
+   "moved": true,
+   "to": "saving",
+   "context": {
+    "targetDate": "2026-02-09",
+    "targetCalendarId": "",
+    "inputText": "Exercise Kyykky|3x10",
+    "error": ""
+   }
+  },
+  {
+   "from": "open",
+   "event": "SAVE_COMPLETE",
+   "value": "",
+   "moved": false,
+   "to": "open",
+   "context": {
+    "targetDate": "2026-02-09",
+    "targetCalendarId": "",
+    "inputText": "Exercise Kyykky|3x10",
+    "error": ""
+   },
+   "ignored": true
+  },
+  {
+   "from": "open",
+   "event": "ERROR",
+   "value": "boom",
+   "moved": false,
+   "to": "open",
+   "context": {
+    "targetDate": "2026-02-09",
+    "targetCalendarId": "",
+    "inputText": "Exercise Kyykky|3x10",
+    "error": ""
+   },
+   "ignored": true
+  },
+  {
+   "from": "saving",
+   "event": "OPEN",
+   "value": "2026-05-05",
+   "moved": false,
+   "to": "saving",
+   "context": {
+    "targetDate": "2026-02-09",
+    "targetCalendarId": "",
+    "inputText": "Exercise Kyykky|3x10",
+    "error": ""
+   },
+   "ignored": true
+  },
+  {
+   "from": "saving",
+   "event": "CLOSE",
+   "value": "",
+   "moved": true,
+   "to": "closed",
+   "context": {
+    "targetDate": "2026-01-01",
+    "targetCalendarId": "",
+    "inputText": "",
+    "error": ""
+   }
+  },
+  {
+   "from": "saving",
+   "event": "SET_TARGET_DATE",
+   "value": "2026-03-01",
+   "moved": false,
+   "to": "saving",
+   "context": {
+    "targetDate": "2026-02-09",
+    "targetCalendarId": "",
+    "inputText": "Exercise Kyykky|3x10",
+    "error": ""
+   },
+   "ignored": true
+  },
+  {
+   "from": "saving",
+   "event": "SET_INPUT_TEXT",
+   "value": "toinen",
+   "moved": false,
+   "to": "saving",
+   "context": {
+    "targetDate": "2026-02-09",
+    "targetCalendarId": "",
+    "inputText": "Exercise Kyykky|3x10",
+    "error": ""
+   },
+   "ignored": true
+  },
+  {
+   "from": "saving",
+   "event": "START_SAVING",
+   "value": "",
+   "moved": false,
+   "to": "saving",
+   "context": {
+    "targetDate": "2026-02-09",
+    "targetCalendarId": "",
+    "inputText": "Exercise Kyykky|3x10",
+    "error": ""
+   },
+   "ignored": true
+  },
+  {
+   "from": "saving",
+   "event": "SAVE_COMPLETE",
+   "value": "",
+   "moved": true,
+   "to": "closed",
+   "context": {
+    "targetDate": "2026-01-01",
+    "targetCalendarId": "",
+    "inputText": "",
+    "error": ""
+   }
+  },
+  {
+   "from": "saving",
+   "event": "ERROR",
+   "value": "boom",
+   "moved": true,
+   "to": "open",
+   "context": {
+    "targetDate": "2026-02-09",
+    "targetCalendarId": "",
+    "inputText": "Exercise Kyykky|3x10",
+    "error": "boom"
+   }
+  }
+ ]
+}

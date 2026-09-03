@@ -383,6 +383,51 @@ ok("and comes back to the top",
    `${bottomBefore} -> ${lastText().y}`);
 ok("and stops there too", app.scrollDocument(-100) === false, "kept scrolling");
 
+// --- the ported state machine, on a screen ---------------------------------
+//
+// The dialog is drawn from `addWorkoutDialog`'s state and nothing else: there
+// is no local "is it open" flag and no second copy of the text. Which states
+// it has and what each event does is checked exhaustively by `rt:machine`
+// against the XState machine it was ported from; this is that machine wired to
+// a view.
+ok("the dialog opens", app.press("rt-add") === true, "no change");
+let sheet = textsOf(listOf());
+ok("and shows the day it was opened for", sheet.includes("2026-02-09"), sheet.join("|"));
+ok("with nothing typed yet", sheet.includes("—"), sheet.join("|"));
+app.press("rt-sheet-type");
+ok("typing reaches the machine",
+   textsOf(listOf()).includes("Exercise Maastaveto|3x5@100kg"),
+   textsOf(listOf()).join("|"));
+ok("saving waits", app.press("rt-sheet-save") === true && textsOf(listOf()).includes("Tallennetaan…"),
+   textsOf(listOf()).join("|"));
+app.tick(800);
+ok("and a finished save closes it",
+   !textsOf(listOf()).includes("Tallennetaan…") &&
+     !textsOf(listOf()).includes("Exercise Maastaveto|3x5@100kg"),
+   textsOf(listOf()).join("|"));
+
+// ERROR takes `saving` back to `open` and does NOT clear the input — a failed
+// save that threw away what was typed would be a second failure. That arm is
+// one of the twenty-one cells rt:machine checks; this is it on screen.
+app.press("rt-add");
+app.press("rt-sheet-type");
+app.press("rt-fail");
+app.press("rt-sheet-save");
+app.tick(800);
+sheet = textsOf(listOf());
+ok("a failed save says so", sheet.some((t) => t.startsWith("Tallennus epäonnistui")), sheet.join("|"));
+ok("and keeps what was typed",
+   sheet.includes("Exercise Maastaveto|3x5@100kg"), sheet.join("|"));
+ok("the dialog is still there", sheet.includes("Lisää harjoitus"), sheet.join("|"));
+app.press("rt-sheet-cancel");
+app.press("rt-fail");
+ok("cancel closes it",
+   !textsOf(listOf()).includes("Päivä"), textsOf(listOf()).join("|"));
+
+// An id nothing handled is not handled. This was a real hole: the loader's
+// "a press skips the wait" was the fall-through for every scene.
+ok("an unknown id is not claimed", app.press("rt-nothing-here") === false, "claimed it");
+
 // And back, because the rail is a navigation and not a one-way door.
 ok("the rail goes home again",
    app.press("rt-rail-home") === true && app.sceneName() === "dashboard",

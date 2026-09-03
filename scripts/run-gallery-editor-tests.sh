@@ -252,6 +252,15 @@ SUITES=(
   # is generated, so it is checked: a coverage table nobody regenerates is a
   # coverage table that says what was true once.
   rt:coverage:check
+  # The ported XState machine against the machine it was ported from: every
+  # state crossed with every event, and the thirteen cells of twenty-one that
+  # are IGNORES — the half a hand-port gets wrong while its happy path passes.
+  rt:machine
+  # And the machine wired to a view: the scenario replayed on the Ranger side,
+  # against the trace recorded from it. The other half of that benchmark — the
+  # same scenario against the React app on the Firebase emulators — is
+  # scripts/record-reference-trace.mjs, which cannot run here and says so.
+  rt:trace
 )
 
 failed=()
