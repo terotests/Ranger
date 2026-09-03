@@ -271,10 +271,15 @@ class CheckRtIos {
         def wide:double 874.0
         def high:double 402.0
 
+        ; On a CONTENT scene: the loading splash is contained whatever the host
+        ; asked for (checkSplashFits), so the two fits only differ once the app
+        ; has handed over.
         def contained:RtIos (this.fresh(wide high))
+        contained.setScene("dashboard")
         def fill:RtIos (new RtIos)
         fill.useFillWidth()
         fill.start(wide high css)
+        fill.setScene("dashboard")
 
         this.ok("contain is still the default" ((contained.fillsWidth()) == false))
         this.ok("and fill-width says so" (fill.fillsWidth()))
@@ -310,9 +315,11 @@ class CheckRtIos {
         ; does not. That is the whole reason this is the host's choice rather
         ; than one rule applied everywhere.
         def padContain:RtIos (this.fresh(1180.0 820.0))
+        padContain.setScene("dashboard")
         def padFill:RtIos (new RtIos)
         padFill.useFillWidth()
         padFill.start(1180.0 820.0 css)
+        padFill.setScene("dashboard")
         this.ok("contain never scales up more than fill-width"
             ((padContain.scale()) <= ((padFill.scale()) + 0.001)))
         this.ok("on a tablet contain still shows the whole page"
@@ -320,6 +327,50 @@ class CheckRtIos {
         this.okDetail("and gives up little to do it"
             (((padContain.scale()) / (padFill.scale())) > 0.85)
             (to_string ((padContain.scale()) / (padFill.scale()))))
+    }
+
+    ; --- the splash has to be whole -------------------------------------------
+
+    fn checkSplashFits:void () {
+        print "--- the loading screen is never cut off ---"
+        ; The phone's fit, where the page is wider than tall and fill-width
+        ; would push the card's button off the bottom.
+        def wide:double 874.0
+        def high:double 402.0
+        def app:RtIos (new RtIos)
+        app.useFillWidth()
+        app.start(wide high css)
+
+        this.ok("it opens on the loading scene" ((app.sceneName()) == "loading"))
+        def shownH:double ((app.pageHeight()) * (app.scale()))
+        this.okDetail("and the whole card is on screen" (shownH <= (high + 0.1))
+            (to_string shownH))
+        this.ok("with nothing to pan to" ((app.canPan()) == false))
+
+        ; Then it hands over on its own, and the content scene takes the fit the
+        ; host asked for.
+        def n:int 0
+        while (n < 400) {
+            app.tick(16.0)
+            n = (n + 1)
+        }
+        this.okDetail("it hands over" ((app.sceneName()) == "signin") (app.sceneName()))
+        def fw:double ((app.pageWidth()) * (app.scale()))
+        this.okDetail("and the next scene fills the width again" (CheckRtIos.near(fw wide 0.5))
+            (to_string fw))
+
+        ; Pressing back to a splash-like scene would contain again; going the
+        ; other way is what matters here -- the fit follows the scene without
+        ; the host being told.
+        app.setScene("loading")
+        def backH:double ((app.pageHeight()) * (app.scale()))
+        this.okDetail("going back contains it again" (backH <= (high + 0.1))
+            (to_string backH))
+
+        ; On a tablet, where contain was already the answer, nothing changes.
+        def pad:RtIos (this.fresh(1180.0 820.0))
+        def padH:double ((pad.pageHeight()) * (pad.scale()))
+        this.ok("a tablet is unaffected" (padH <= 820.1))
     }
 
     ; --- the press has to show -------------------------------------------------
@@ -480,6 +531,7 @@ class CheckRtIos {
         c.checkZoom()
         c.checkFillWidth()
         c.checkPressFeedback()
+        c.checkSplashFits()
         c.checkClock()
         c.checkScenes()
         c.checkScreens()

@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The loading splash could be cut off on a phone, hiding its button.** The
+  phone fit spends the whole width on the page and lets the reader move down
+  it, which is right for the dashboard and the session -- lists and panels,
+  where moving down is the ordinary thing to do -- and wrong for the splash.
+  That scene is one centred card with a progress bar and a button at its foot,
+  and nothing about it says "there is more below": no scrollbar, no cut-off
+  row, no affordance at all. A reader who cannot see the button has no way to
+  learn it exists.
+
+  A scene that has to be visible WHOLE is now contained whatever the host asked
+  for, and the fit follows the scene without the host being told -- the loading
+  screen hands over on its own timer, so the change is watched for rather than
+  waited on.
+
+  Worth saying where the boundary is, because CSS looks like the obvious lever
+  and is not: the stylesheet's viewport is the demo's own fixed 980x760 canvas,
+  which is what `setViewport` is handed on every target. A `@media` query or a
+  `min()`/`calc()` in `realtrainer.css` would be answering questions about a
+  canvas that never changes size — the device's shape never reaches it. Fitting
+  that canvas onto a screen is the host's, which is why it is in `rt_ios.rgr`
+  where `check_rt_ios.rgr` drives it.
+
+### Fixed
+
 - **Every tap answered about 300ms late, on both Apple ports, and it was not
   the renderer.** `UITapGestureRecognizer.delaysTouchesEnded` defaults to
   TRUE, and on the two-tap recogniser that handles the reset-zoom gesture that

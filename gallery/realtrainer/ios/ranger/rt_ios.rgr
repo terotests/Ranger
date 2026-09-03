@@ -74,6 +74,12 @@ class RtIos {
     ; choice is in Swift.
     def fitMode:int 0
 
+    ; The scene the fit was last computed for. A scene change can change which
+    ; fit applies (see sceneMustFitWhole), and the app changes scene by itself
+    ; -- the loading screen hands over on a timer -- so this is watched rather
+    ; than waited for.
+    def fittedScene:string ""
+
     ; Where the page's top-left corner sits in the window, in points. At rest
     ; this centres the page; a pinch moves it and `clampOffset` keeps the page
     ; from being dragged off the screen.
@@ -155,9 +161,29 @@ class RtIos {
     ; screen and the leftover is a letterbox. Cover would fill the window and
     ; cut the composition off at one edge, which for a page with a sign-in
     ; button near the bottom means a button nobody can reach.
+    ; A scene that has to be visible WHOLE, whatever the host asked for.
+    ;
+    ; The loading screen is a splash: one card, centred, with a progress bar and
+    ; a button at its foot. Nothing about it says "there is more below" -- no
+    ; scrollbar, no cut-off row, no affordance at all -- so a reader who cannot
+    ; see the button has no way to learn it exists. Fill-width is the right
+    ; answer for a page you can move around and the wrong one for a picture.
+    ;
+    ; The content scenes are the other way round: the dashboard and the session
+    ; are lists and panels, they read better filling the width, and moving down
+    ; them is the ordinary thing to do.
+    fn sceneMustFitWhole:boolean (name:string) {
+        return (name == "loading")
+    }
+
     fn refit:void () {
         def pw:double (app.widthPx())
         def ph:double (app.heightPx())
+        fittedScene = (app.sceneName())
+        def contain:boolean (fitMode == 0)
+        if (this.sceneMustFitWhole(fittedScene)) {
+            contain = true
+        }
         if (pw > 0.0) {
             if (ph > 0.0) {
                 def byWidth:double ((this.usableWidth()) / pw)
@@ -165,7 +191,7 @@ class RtIos {
                 ; Contain takes the SMALLER of the two ratios so the whole page
                 ; is on screen; fill-width keeps the width ratio and lets the
                 ; height overflow, which `clampOffset` then makes pannable.
-                if (fitMode == 0) {
+                if contain {
                     def byHeight:double ((this.usableHeight()) / ph)
                     if (byHeight < byWidth) {
                         fitScale = byHeight
@@ -174,6 +200,14 @@ class RtIos {
             }
         }
         this.centre()
+    }
+
+    ; Refit if the app has moved to a scene the other fit applies to. Cheap
+    ; enough to ask every frame: it is a string compare until it is not.
+    fn syncFit:void () {
+        if ((app.sceneName()) != fittedScene) {
+            this.refit()
+        }
     }
 
     ; Put the page in the middle of the usable area at the current scale. This
@@ -369,7 +403,9 @@ class RtIos {
         if (started == false) {
             return false
         }
-        return (app.tick(dtMs))
+        def moved:boolean (app.tick(dtMs))
+        this.syncFit()
+        return moved
     }
 
     ; --- input ----------------------------------------------------------------
@@ -399,7 +435,9 @@ class RtIos {
         if ((strlen id) == 0) {
             return true
         }
-        return (app.press(id))
+        def changed:boolean (app.press(id))
+        this.syncFit()
+        return changed
     }
 
     fn cancelPress:boolean () {
@@ -439,6 +477,7 @@ class RtIos {
 
     fn setScene:void (name:string) {
         app.setScene(name)
+        this.syncFit()
     }
 
     fn styleErrorCount:int () {
