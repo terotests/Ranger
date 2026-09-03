@@ -250,7 +250,15 @@ kääntyy `-l=kotlin` ja `-l=swift6` puhtaasti. P7 ei siis ole tuntematon, vaan 
 
 ---
 
-## 8. Seuraava askel — P3
+## 8. Jatko — sovelluksen tilanhallinta
+
+Rivikerros on portattu ja mitattu. Sen ympärillä oleva tilanhallinta — harjoitusten
+suunnittelu, vuosisuunnitelma, harjoitusten parsinta, kalenterien lisäys — on oma
+suunnitelmansa: [`PLAN_REALTRAINER_STATE_PARITY.md`](PLAN_REALTRAINER_STATE_PARITY.md).
+Se listaa näkymät alkuperäisistä `.tsx`-tiedostoista ja mittaa portin sovelluksen
+paikallisesti ajettavaa versiota vasten, Playwrightin päällä.
+
+## 8.1 Seuraava askel — P3
 
 Ajettavissa nyt: `rt:compact` (18 tarkistusta), `rt:l0` (21 casea), `rt:check`, `rt:frame`.
 
