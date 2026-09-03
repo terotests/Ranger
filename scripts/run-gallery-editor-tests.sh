@@ -248,6 +248,10 @@ SUITES=(
   # would pass a port that had lost the distinction the theme draws. The
   # recording is committed, which is what lets this run here at all.
   rt:l0
+  # And the report that says what this demo does with each COMPACT family. It
+  # is generated, so it is checked: a coverage table nobody regenerates is a
+  # coverage table that says what was true once.
+  rt:coverage:check
 )
 
 failed=()

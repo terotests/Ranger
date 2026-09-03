@@ -1,6 +1,6 @@
 # PLAN — COMPACT-sisältö `gallery/realtrainer`-demoon
 
-Status: `P0–P2 tehty` · 2026-09-03
+Status: `P0–P5 tehty` · 2026-09-03
 
 **Päätös:** RealTrainerin UI ajetaan Rangerin EVG-komponenteilla. Reactia tai käsin kirjoitettua
 JavaScriptiä ei jää. Työ ei ole uuden moduulin rakentamista: **`gallery/realtrainer/` on jo

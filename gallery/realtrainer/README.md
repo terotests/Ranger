@@ -69,6 +69,24 @@ npm run rt:parser:sync     # refresh the vendored parser
 npm run rt:parser:check    # fail if the copy is stale
 ```
 
+## The coverage table, measured
+
+[`COVERAGE.md`](COVERAGE.md) is what this demo does with each of COMPACT's row
+families — generated, not maintained. `COMPACT_FEATURE_MATRIX.md` upstream
+lists the same families against seven columns and every cell in it is `❓`,
+because it is a checklist someone has to remember to update. This one runs
+every family's line through the parser and the row layer on the way to being
+printed.
+
+```bash
+npm run rt:coverage         # regenerate it
+npm run rt:coverage:check   # fail if it is stale  (CI)
+```
+
+Reaching `text` is not scored as a gap: the reference gives a row type of its
+own only to what it draws specially. The column that shows real work left is
+**Drawn** — the families the demo's own document does not yet contain.
+
 ## Saving, and why it does not serialise the rows
 
 A view model is lossy on purpose: fourteen life families come out as a line of

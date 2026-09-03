@@ -854,6 +854,8 @@
     "rt:compact": "npm run rt:compact:build --silent && node gallery/realtrainer/web/compact-check.mjs",
     "rt:l0": "npm run rt:compact:build --silent && node gallery/realtrainer/web/l0-check.mjs",
     "rt:l0:record": "npm run rt:compact:build --silent && node gallery/realtrainer/oracle/record.mjs",
+    "rt:coverage": "npm run rt:compact:build --silent && node gallery/realtrainer/scripts/coverage.mjs",
+    "rt:coverage:check": "npm run rt:compact:build --silent && node gallery/realtrainer/scripts/coverage.mjs --check",
     "rt:check": "npm run rt:build --silent && node gallery/realtrainer/web/loader-check.mjs",
     "rt:page": "npm run rt:build --silent && node gallery/realtrainer/web/build.mjs",
     "rt:frame": "npm run rt:page --silent && node gallery/realtrainer/web/frame-check.mjs",
