@@ -262,6 +262,66 @@ class CheckRtIos {
         this.ok("a drag on a page that fits does nothing" ((rest.panBy(-80.0 -80.0)) == false))
     }
 
+    ; --- the phone's fit ------------------------------------------------------
+
+    fn checkFillWidth:void () {
+        print "--- a phone spends the whole width on the page ---"
+        ; An iPhone 16 Pro on its side: 19.5:9 against a 1.29:1 page, which is
+        ; the case where contain wastes most of the screen.
+        def wide:double 874.0
+        def high:double 402.0
+
+        def contained:RtIos (this.fresh(wide high))
+        def fill:RtIos (new RtIos)
+        fill.useFillWidth()
+        fill.start(wide high css)
+
+        this.ok("contain is still the default" ((contained.fillsWidth()) == false))
+        this.ok("and fill-width says so" (fill.fillsWidth()))
+
+        def cw:double ((contained.pageWidth()) * (contained.scale()))
+        def fw:double ((fill.pageWidth()) * (fill.scale()))
+        this.okDetail("contain leaves most of the width empty" (cw < (wide * 0.7))
+            (to_string cw))
+        this.okDetail("fill-width uses all of it" (CheckRtIos.near(fw wide 0.5))
+            (to_string fw))
+        this.ok("so the page is drawn bigger" ((fill.scale()) > (contained.scale())))
+
+        ; Taller than the window, so it pans -- and starts at the top rather
+        ; than opening with the heading already scrolled off.
+        this.ok("the page now overflows downwards" (fill.canPan()))
+        this.okDetail("and starts at its top" (CheckRtIos.near((fill.offsetY()) 0.0 0.001))
+            (to_string (fill.offsetY())))
+        this.ok("a drag moves it" (fill.panBy(0.0 -60.0)))
+        def n:int 0
+        while (n < 100) {
+            fill.panBy(0.0 -80.0)
+            n = (n + 1)
+        }
+        def bottom:double ((fill.offsetY()) + ((fill.pageHeight()) * (fill.scale())))
+        this.okDetail("and stops with the page's last row on screen" (bottom >= (high - 0.5))
+            (to_string bottom))
+
+        ; Contain is never the larger of the two -- it is the smaller of the
+        ; width and height ratios, and fill-width is the width one. On a tablet
+        ; the gap is small (1.08 against 1.20 on a 1180x820 iPad) and contain
+        ; wins the argument, because it shows the whole composition for the 12%
+        ; it gives up. On the phone above the gap is more than double, and it
+        ; does not. That is the whole reason this is the host's choice rather
+        ; than one rule applied everywhere.
+        def padContain:RtIos (this.fresh(1180.0 820.0))
+        def padFill:RtIos (new RtIos)
+        padFill.useFillWidth()
+        padFill.start(1180.0 820.0 css)
+        this.ok("contain never scales up more than fill-width"
+            ((padContain.scale()) <= ((padFill.scale()) + 0.001)))
+        this.ok("on a tablet contain still shows the whole page"
+            ((padContain.canPan()) == false))
+        this.okDetail("and gives up little to do it"
+            (((padContain.scale()) / (padFill.scale())) > 0.85)
+            (to_string ((padContain.scale()) / (padFill.scale()))))
+    }
+
     ; --- the clock ------------------------------------------------------------
 
     fn checkClock:void () {
@@ -350,6 +410,7 @@ class CheckRtIos {
         c.checkMapping()
         c.checkInput()
         c.checkZoom()
+        c.checkFillWidth()
         c.checkClock()
         c.checkScenes()
         c.checkScreens()

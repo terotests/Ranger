@@ -38,6 +38,17 @@ final class RealTrainerViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        // Which fit, and the only platform-specific decision in this port. The
+        // page is a 980x760 composition: on an iPad that shape is close enough
+        // to the window that showing all of it costs little, and on a phone it
+        // is not — a 19.5:9 window leaves about 40% of the screen empty and
+        // halves the size of the text. A phone spends the whole width on the
+        // page and lets the reader move down it. The arithmetic for both is in
+        // `rt_ios.rgr`, where check_rt_ios.rgr drives it; only this choice
+        // needs to know what kind of device it is on.
+        if traitCollection.userInterfaceIdiom == .phone {
+            page.app.useFillWidth()
+        }
         page.start(css: RealTrainerViewController.loadStylesheet())
     }
 

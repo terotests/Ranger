@@ -66,16 +66,28 @@ enum EvgPainter {
                 continue
             }
 
-            // A rotation turns the command about its own box centre, which is
-            // what the PDF matrix and the GL shader both do. Wrapping it in
-            // save/restore keeps the clip stack above untouched.
+            // A rotation turns the command about the point the display list
+            // names, and about the command's own box centre only when it names
+            // none. `EVGDisplayList` resolves `transform-origin` into
+            // rotOriginX/Y and sets hasRotOrigin, exactly because the centre is
+            // "right for a lone rotated label and wrong for everything else: a
+            // box, its text and its children have to turn about ONE point or
+            // they come apart".
+            //
+            // Ignoring it is what made RealTrainer's loading spinner a single
+            // small bar. Its twelve blades are one 8x26 box each, fanned into a
+            // ring by `transform: rotate(Ndeg)` about `transform-origin: 4px
+            // 54px` -- a point 41px BELOW each blade's own centre. Turned about
+            // their centres they all spin in place and land on top of each
+            // other. Wrapping it in save/restore keeps the clip stack above
+            // untouched.
             let turned = c.rotate > 0.001 || c.rotate < -0.001
             if turned {
                 surface.save()
                 surface.rotate(
                     degrees: CGFloat(c.rotate),
-                    px: CGFloat(c.x + c.w * 0.5),
-                    py: CGFloat(c.y + c.h * 0.5)
+                    px: c.hasRotOrigin ? CGFloat(c.rotOriginX) : CGFloat(c.x + c.w * 0.5),
+                    py: c.hasRotOrigin ? CGFloat(c.rotOriginY) : CGFloat(c.y + c.h * 0.5)
                 )
             }
 

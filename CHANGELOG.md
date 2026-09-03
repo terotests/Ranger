@@ -9,6 +9,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Both native painters ignored a rotation's origin, which drew RealTrainer's
+  loading spinner as one small bar.** The ring is twelve 8x26 blades fanned
+  into a circle by `transform: rotate(Ndeg)` about
+  `transform-origin: 4px 54px` -- a point 41px BELOW each blade's own centre.
+  `EvgPainter` turned every command about its own box centre instead, so all
+  twelve spun in place and landed on top of each other.
+
+  `EVGDisplayList` has carried `rotOriginX`/`rotOriginY` and a `hasRotOrigin`
+  flag for exactly this, and says so: the centre is "right for a lone rotated
+  label and wrong for everything else: a box, its text and its children have to
+  turn about ONE point or they come apart", and "a backend that ignores these
+  two fields keeps the old behaviour exactly". Both native backends were
+  ignoring them -- the WebGL painter reads them, which is why the browser drew
+  the ring correctly and neither Apple nor Android did. Fixed in both; the
+  surfaces' `rotate(degrees:px:py:)` already took the pivot.
+
+- **A face cache that was thrown away sixty times a second.**
+  `CoreGraphicsEvgSurface` wraps the `CGContext` handed to `draw(_:)`, which is
+  a different object every frame, so the surface is built per frame -- and it
+  owned the `CTFont` cache. Its own comment explains what that costs: a page
+  draws around 190 text runs a frame and asks for about six distinct faces, and
+  "making a `CTFont` per run is the difference between a frame and a stutter".
+  The faces now outlive the surface, which is what the cache was for. All three
+  Apple hosts were affected.
+
+### Added
+
+- **A fit mode for the RealTrainer port, and the one platform-specific
+  decision in it.** Contain -- the whole 980x760 composition on screen -- is
+  right on an iPad, where the window's shape is close enough that it gives up
+  about 12%. On a phone it is not: a 19.5:9 window against a 1.29:1 page leaves
+  roughly 40% of the screen empty and halves the size of the text. A phone now
+  spends the whole width on the page and pans down it, starting at the top
+  rather than opening with the heading already scrolled off. Both fits are in
+  `rt_ios.rgr` where `check_rt_ios.rgr` drives them; only the choice between
+  them is in Swift, which is the same division `ui_ios.rgr` makes for the
+  watch.
+
+### Fixed
+
 - **Every Swift string operation was O(n) where every other target's is O(1),
   which made EVG's linear scans quadratic.** The RealTrainer port ran visibly
   slower on an iPhone than the same Ranger does on an Android emulator, with a

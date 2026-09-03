@@ -52,10 +52,27 @@ class RtIos {
     def insetLeft:double 0.0
     def insetRight:double 0.0
 
-    ; What the page is scaled by to be contained in the usable area, and what
-    ; the reader has pinched in by on top of that.
+    ; What the page is scaled by to fit, and what the reader has pinched in by
+    ; on top of that.
     def fitScale:double 1.0
     def zoomValue:double 1.0
+
+    ; How the page is fitted. 0 = CONTAIN: the whole composition on screen,
+    ; letterboxed where the aspect ratios disagree. 1 = FILL WIDTH: the page is
+    ; as wide as the usable area and the reader pans down for the rest.
+    ;
+    ; Contain is the right answer on a tablet, whose shape is close enough to
+    ; the page's 980x760 that little is wasted. On a PHONE it is not: a 19.5:9
+    ; window against a 1.29:1 page leaves about 40% of the screen empty and
+    ; makes the text half the size it could be. Fill-width spends the whole
+    ; width on the page and asks the reader to move, which is what a phone
+    ; showing a wide layout has always done.
+    ;
+    ; Which one is the HOST's call, because only the host knows whether it is a
+    ; phone -- the same division `ui_ios.rgr` makes for the watch, and for the
+    ; same reason: the rule is here, where it can be checked, and only the
+    ; choice is in Swift.
+    def fitMode:int 0
 
     ; Where the page's top-left corner sits in the window, in points. At rest
     ; this centres the page; a pinch moves it and `clampOffset` keeps the page
@@ -89,6 +106,23 @@ class RtIos {
         screenW = w
         screenH = h
         this.refit()
+    }
+
+    ; Spend the whole width on the page and pan for the rest. Called once, by
+    ; the host, before start -- a phone.
+    fn useFillWidth:void () {
+        fitMode = 1
+        this.refit()
+    }
+
+    ; The whole composition on screen, letterboxed. The default -- a tablet.
+    fn useContain:void () {
+        fitMode = 0
+        this.refit()
+    }
+
+    fn fillsWidth:boolean () {
+        return (fitMode == 1)
     }
 
     fn setSafeArea:void (top:double bottom:double left:double right:double) {
@@ -127,10 +161,15 @@ class RtIos {
         if (pw > 0.0) {
             if (ph > 0.0) {
                 def byWidth:double ((this.usableWidth()) / pw)
-                def byHeight:double ((this.usableHeight()) / ph)
                 fitScale = byWidth
-                if (byHeight < byWidth) {
-                    fitScale = byHeight
+                ; Contain takes the SMALLER of the two ratios so the whole page
+                ; is on screen; fill-width keeps the width ratio and lets the
+                ; height overflow, which `clampOffset` then makes pannable.
+                if (fitMode == 0) {
+                    def byHeight:double ((this.usableHeight()) / ph)
+                    if (byHeight < byWidth) {
+                        fitScale = byHeight
+                    }
                 }
             }
         }
@@ -144,7 +183,14 @@ class RtIos {
         def shownW:double ((app.widthPx()) * s)
         def shownH:double ((app.heightPx()) * s)
         offXValue = (insetLeft + (((this.usableWidth()) - shownW) / 2.0))
-        offYValue = (insetTop + (((this.usableHeight()) - shownH) / 2.0))
+        ; A page taller than the viewport starts at its TOP. Centring it would
+        ; open the app with the first row already scrolled off, which reads as
+        ; a page that has lost its heading.
+        if (shownH > (this.usableHeight())) {
+            offYValue = insetTop
+        } {
+            offYValue = (insetTop + (((this.usableHeight()) - shownH) / 2.0))
+        }
         this.clampOffset()
     }
 
