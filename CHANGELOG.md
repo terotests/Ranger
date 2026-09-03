@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Every Swift string operation was O(n) where every other target's is O(1),
+  which made EVG's linear scans quadratic.** The RealTrainer port ran visibly
+  slower on an iPhone than the same Ranger does on an Android emulator, with a
+  lag between a tap and the page responding. It is not the painter and not the
+  demo: it is that `strlen`, `charAt`, `substring`, `indexOf` and
+  `lastIndexOf` were written against Swift's `String`, which indexes by
+  GRAPHEME CLUSTER and walks from `startIndex` for every one of them.
+
+  EVG scans strings the way anything parsing text does --
+  `while (i < (strlen s)) { def c:char (charAt s i) ... }` -- and that loop is
+  O(n) on Kotlin, Java, JavaScript and C#, where `s.length` and `s[i]` are
+  constant time. On Swift it was O(n squared). Measured on the same page:
+
+  | | charAt calls | characters walked |
+  | --- | --- | --- |
+  | parsing the 28 KB stylesheet | 84 057 | **1 250 993 706** |
+  | one frame of the dashboard | 68 392 | **4 608 275** |
+
+  The first column is the work Kotlin does. The second is what Swift was doing.
+
+  Ranger's string is a sequence of UTF-16 code units -- that is what `charAt`
+  and `strlen` mean on JavaScript, Kotlin, Java and C#. Swift's UTF-16 view is
+  the matching model AND the one the standard library keeps *breadcrumbs* for,
+  so that offsetting into it is amortised constant time; it exists for NSString
+  bridging. The six operators now go through small helpers over `s.utf16`,
+  installed once per file as a polyfill. Swift is both faster and more
+  consistent with the other targets than it was.
+
 ### Added
 
 - **`gallery/realtrainer` runs on an iPad, from the same Ranger.**
