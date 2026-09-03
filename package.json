@@ -852,6 +852,8 @@
     "rt:build": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./gallery/realtrainer/src/RealTrainerDemo.rgr -d=./gallery/realtrainer/bin -o=RealTrainerDemo.cjs",
     "rt:compact:build": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./gallery/realtrainer/src/CompactRows.rgr -d=./gallery/realtrainer/bin -o=CompactRows.cjs",
     "rt:compact": "npm run rt:compact:build --silent && node gallery/realtrainer/web/compact-check.mjs",
+    "rt:l0": "npm run rt:compact:build --silent && node gallery/realtrainer/web/l0-check.mjs",
+    "rt:l0:record": "npm run rt:compact:build --silent && node gallery/realtrainer/oracle/record.mjs",
     "rt:check": "npm run rt:build --silent && node gallery/realtrainer/web/loader-check.mjs",
     "rt:page": "npm run rt:build --silent && node gallery/realtrainer/web/build.mjs",
     "rt:frame": "npm run rt:page --silent && node gallery/realtrainer/web/frame-check.mjs",

@@ -58,6 +58,23 @@ exactly as before.
 
 ---
 
+## Known gaps, found and not patched
+
+The L0 corpus turned up two rows from `COMPACT_FEATURE_MATRIX.md` that the
+parser drops. Both sides of the parity gate agree on them, because both consume
+the same parser — which is the limit of what L0 measures. It compares the PORT,
+not the parse.
+
+| COMPACT | Matrix | What the parser gives | Should be |
+| --- | --- | --- | --- |
+| `Exercise Veto\|4x6@60kg/2-3min` | §5.4 recovery range | `recovery: null` | value 2, max 3, unit min |
+| `Exercise Vatsarutistus\|3xmax` | §5.2 max reps | `reps: null` | `RepCount = 'max'` |
+
+Neither is fixed here: a recovery range and a max-rep count are the parser's
+own grammar and worth a test in its suite rather than a patch carried by a
+demo. `fixtures/cases.json` keeps both cases, so the day the parser learns them
+the recording has to be refreshed and the gate will say so.
+
 ## Fixes that stayed in this repository
 
 These are not parser patches — they are recorded here because they were made in

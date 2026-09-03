@@ -60,9 +60,33 @@ lose the distinction the theme actually draws.
 
 ```bash
 npm run rt:compact         # text in, rows out, the spec line each row draws
+npm run rt:l0              # the same rows against the TypeScript library  (CI)
+npm run rt:l0:record       # re-record that reference
 npm run rt:parser:sync     # refresh the vendored parser
-npm run rt:parser:check    # fail if the copy is stale  (CI)
+npm run rt:parser:check    # fail if the copy is stale
 ```
+
+## Measured against the library it is a port of
+
+`realtrainer-compact/ui/react` renders COMPACT in React, and this renders it on
+the GPU. The two agree or one of them is wrong, so `rt:l0` says which: every
+case in `fixtures/cases.json` goes through both sides and the parts are diffed.
+
+Parts, not strings. `3x5` and `x80kg` print as `3x5x80kg` either way, and a port
+that returned the one string would pass every text assertion while having lost
+the only distinction a theme draws. Tone and kind are compared too.
+
+The reference is RECORDED — `oracle/record.mjs` bundles the library's own
+`parsedRowMapping`, `formatters` and row utils, runs the corpus through them and
+writes `oracle/expected.json`, which is committed. That is what lets the gate run
+in CI, where the library is not checked out, instead of quietly passing because
+the oracle went missing. What the recorder imports and what it transcribes from
+the components is written at the top of that file, because move, pyramid and
+split build their parts inside JSX and there is no function to call.
+
+Twenty-one cases, matching part for part. The twenty-second is an `interval`,
+which that library has no renderer for at all — it is listed as not compared
+rather than left out, because a family with no reference is a gap and not a pass.
 
 Three families so far — section, text, exercise. Every one that follows makes
 `match` demand an arm.

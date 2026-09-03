@@ -1,0 +1,30 @@
+{
+  "_": "One case per cell of COMPACT_FEATURE_MATRIX.md. `row` is the COMPACT line(s); the harness wraps them in a workout header. `oracle` says where the expected parts come from: `ts` = computed from realtrainer-compact/ui/react, `spec` = written down here because that library has no renderer for the family.",
+  "cases": [
+    { "id": "exercise-fixed-sets-reps", "family": "exercise", "dimension": "fixed", "matrix": "5.2", "oracle": "ts", "row": "Exercise Kyykky|3x10" },
+    { "id": "exercise-set-range", "family": "exercise", "dimension": "range", "matrix": "5.2", "oracle": "ts", "row": "Exercise Kyykky|2-3x10" },
+    { "id": "exercise-rep-range", "family": "exercise", "dimension": "range", "matrix": "5.2", "oracle": "ts", "row": "Exercise Kyykky|1x5-8" },
+    { "id": "exercise-set-and-rep-range", "family": "exercise", "dimension": "range", "matrix": "5.2", "oracle": "ts", "row": "Exercise Kyykky|2-3x15-20" },
+    { "id": "exercise-bilateral-reps", "family": "exercise", "dimension": "bilateral", "matrix": "5.2", "oracle": "ts", "row": "Exercise Askelkyykky|2x10+10" },
+    { "id": "exercise-max-reps", "family": "exercise", "dimension": "max", "matrix": "5.2", "oracle": "ts", "row": "Exercise Vatsarutistus|3xmax" },
+    { "id": "exercise-measured-three", "family": "exercise", "dimension": "measured", "matrix": "5.2", "oracle": "ts", "row": "Exercise Isometrinen kyykkypito|3x45s,45s,0s" },
+    { "id": "exercise-measured-two", "family": "exercise", "dimension": "measured", "matrix": "5.2", "oracle": "ts", "row": "Exercise Lankku|2x25s,24s" },
+    { "id": "exercise-weight", "family": "exercise", "dimension": "weight", "matrix": "5.3", "oracle": "ts", "row": "Exercise Penkkipunnerrus|3x5@80kg" },
+    { "id": "exercise-weight-with-set-range", "family": "exercise", "dimension": "weight", "matrix": "5.3", "oracle": "ts", "row": "Exercise Penkkipunnerrus|2-3x5@80kg" },
+    { "id": "exercise-no-weight", "family": "exercise", "dimension": "weight", "matrix": "5.3", "oracle": "ts", "row": "Exercise Vauhditon pituus|3x4" },
+    { "id": "exercise-recovery", "family": "exercise", "dimension": "recovery", "matrix": "5.4", "oracle": "ts", "row": "Exercise Veto|4x6@60kg/2min" },
+    { "id": "exercise-recovery-range", "family": "exercise", "dimension": "recovery", "matrix": "5.4", "oracle": "ts", "row": "Exercise Veto|4x6@60kg/2-3min" },
+    { "id": "exercise-note", "family": "exercise", "dimension": "note", "matrix": "3", "oracle": "ts", "row": "Exercise Takakyykky|3x5@90kg|Lämmittelysarjat erikseen" },
+    { "id": "exercise-distance", "family": "exercise", "dimension": "distance", "matrix": "5.3", "oracle": "ts", "row": "Exercise Kelkkaveto|3x20m" },
+
+    { "id": "move-distance-and-duration", "family": "move", "dimension": "distance+time", "matrix": "5.3", "oracle": "ts", "row": "Run 5km 25min" },
+    { "id": "move-duration-only", "family": "move", "dimension": "time", "matrix": "5.3", "oracle": "ts", "row": "Run 40min" },
+    { "id": "move-distance-only", "family": "move", "dimension": "distance", "matrix": "5.3", "oracle": "ts", "row": "Run 10km" },
+    { "id": "move-with-splits", "family": "move", "dimension": "nested", "matrix": "3", "oracle": "ts", "row": "Run 10km 50min\n> 1km 4:30/km 150bpm\n> 2km 5:00/km" },
+
+    { "id": "pyramid-weighted", "family": "pyramid", "dimension": "weighted", "matrix": "5.5", "oracle": "ts", "row": "Pyramid Penkkipunnerrus|5x60,4x70,3x80" },
+    { "id": "pyramid-reps-only", "family": "pyramid", "dimension": "reps-only", "matrix": "5.5", "oracle": "ts", "row": "Pyramid Leuanveto|8,6,4" },
+
+    { "id": "interval-numeric-intensity", "family": "interval", "dimension": "intensity", "matrix": "5.4", "oracle": "spec", "row": "Interval 4x400m@80-90%/2min", "expect": [] }
+  ]
+}

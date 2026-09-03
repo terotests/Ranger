@@ -242,6 +242,12 @@ SUITES=(
   # library this is ported from produces, and a builder that returned one
   # string would pass a text assertion while losing what the theme draws.
   rt:compact
+  # And the same rows against the TypeScript library this is a port OF. Every
+  # case in the corpus goes through both sides and the PARTS are diffed —
+  # `3x5` and `x80kg` print as one string either way, so comparing the string
+  # would pass a port that had lost the distinction the theme draws. The
+  # recording is committed, which is what lets this run here at all.
+  rt:l0
 )
 
 failed=()

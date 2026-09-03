@@ -1,6 +1,6 @@
 # PLAN — COMPACT-sisältö `gallery/realtrainer`-demoon
 
-Status: `P0 tehty` · 2026-09-03
+Status: `P0–P2 tehty` · 2026-09-03
 
 **Päätös:** RealTrainerin UI ajetaan Rangerin EVG-komponenteilla. Reactia tai käsin kirjoitettua
 JavaScriptiä ei jää. Työ ei ole uuden moduulin rakentamista: **`gallery/realtrainer/` on jo
@@ -185,8 +185,8 @@ olemassa — se saa vihdoin oikean odotuksen odotettavakseen.
 | Vaihe | Sisältö | Valmis kun |
 |-------|---------|-----------|
 | ~~**P0 — parseri sisään**~~ **tehty** | Vendoroitu parseri + `rt:parser:sync`/`rt:parser:check`; `shape CompactRow` (section, text, exercise); `CompactRowMapper`, `CompactStatBuilder`, `StatPart`; `rt:compact`-portti | `npm run rt:compact` vihreä: 13 tarkistusta, `3x5@90kg` → `3x5` + `x90kg` |
-| **P1 — sisältö tilalle** | `sets/reps/weight` → `[CompactRow]`; `planLine()` → `[StatPart]`; `moveCard()` renderöi parsitun rivin | session-näkymä näyttää parsittua sisältöä, `rt:frame` vihreä |
-| **P2 — L0 core** | Core-familiat (`exercise`, `move`, `interval`, `pyramid`, `split`) §5.2–5.4:n varianteilla + orakkelifixturet | L0 vihreä core-caseille |
+| ~~**P1 — sisältö tilalle**~~ **tehty** | `sets/reps/weight` → `[CompactRow]`; `planLine()` → `[StatPart]`, yksi elementti per osa; `moveCard()` renderöi parsitun rivin; mitattu rivi piilottaa stepperit | `rt:check` ja `rt:frame` vihreät, kuvat päivitetty |
+| ~~**P2 — L0 core**~~ **tehty** | `shape` sai `Move`, `Pyramid` ja `Split` -caset; muotoilijat portattu TS-kirjastosta; 22 casen korpus, `oracle/record.mjs` + committoitu `expected.json`, `rt:l0` gallery-suitessa | **21/21 vertailukelpoista casea täsmää osa osalta**; `interval` merkitty vertaamattomaksi (ei renderöijää referenssikirjastossa) |
 | **P3 — rivikirjasto** | Loput familiat EVG-renderöijinä; teema `realtrainer.css`:ään; pitkä dokumentti `ScrollAreaCtl`illa | MONSTER.compact renderöityy kokonaan |
 | **P4 — ajastin** | `WorkoutTimingController` → Ranger; dial lukee segmenttejä; L1 | L1 vihreä |
 | **P5 — vuorovaikutus** | Rivin muokkaus (`InputCtl`, `NumberCtl`, `StepperCtl`), `RtBackendSim`, L2-tarkistukset | edit → save → uudelleenlataus säilyy |
@@ -219,7 +219,14 @@ upstream-lähteeseen ja synkattiin; se odottaa vielä pushia yksityiseen repoon,
 kirjattuna `gallery/realtrainer/PATCHES.md`:hen ja diffinä `patches/`-hakemistoon.
 
 `partJsonList:[string]` on yhä merkkijonoja — sama korjaus, eri solmuperhe, ja se odottaa
-kunnes jokin näkymä tarvitsee sitä.
+kunnes jokin näkymä tarvitsee sitä. Samoin `MoveNode`:n ja `PyramidSetNode`:n raa'at
+numeromerkkijonot (`distanceValue:string`, `durationValueRaw`, `weightValueRaw`): P2:n mapperi
+parsii ne kerran sisääntulossa, mutta oikea paikka on solmu.
+
+**L0 mittaa portin, ei parseria.** Korpus paljasti kaksi matriisin riviä jotka parseri pudottaa
+(`/2-3min` → `recovery: null`, `3xmax` → `reps: null`). Molemmat puolet ovat yhtä mieltä, koska
+molemmat kuluttavat samaa parseria — gapit on kirjattu `PATCHES.md`:hen, eikä niitä korjattu
+demossa: ne kuuluvat parserin omaan testisuiteen.
 
 **`rt:build` oli rikki ennestään.** `ProgressCtl.value` ja `maxValue` ovat `double`, ja demo
 sijoitti niihin int-literaaleja (`bar.maxValue = 100`) — kuusi sijoitusta, 12 käännösvirhettä,
@@ -243,18 +250,16 @@ kääntyy `-l=kotlin` ja `-l=swift6` puhtaasti. P7 ei siis ole tuntematon, vaan 
 
 ---
 
-## 8. Seuraava askel — P1
+## 8. Seuraava askel — P3
 
-P0 on ajettavissa: `npm run rt:compact`. Seuraavaksi sisältö sovellukseen.
+Ajettavissa nyt: `rt:compact` (18 tarkistusta), `rt:l0` (21 casea), `rt:check`, `rt:frame`.
 
-1. `RealTrainerDemo`: `sets:int / reps:int / weight:int` → `[CompactRow]`, luettuna
-   `fixtures/session.compact`:sta. Kentät ovat kolmessa paikassa (`setupControls`, `moveCard`,
-   `pressSession`-stepperit), joten steppereiden kirjoituskohde vaihtuu samalla.
-2. `planLine()` → `CompactStatBuilder.parts(row)`: `MovePlan`-solmu saa yhden lapsen per
-   `StatPart`, ja `tone` menee luokkanimeksi (`rt-stat-weight`), ei väriksi.
-3. `moveCard()` ottaa rivin parametrina; session-näkymä toistaa sen jokaiselle
-   `Exercise`-riville ja piirtää `Section`-rivit väliotsikoiksi.
-4. `rt:check`iin rivit: parsittu nimi näkyy puussa, ja `x90kg` on oma solmunsa.
+P3 on rivikirjasto: loput familiat EVG-renderöijinä ja pitkä dokumentti `ScrollAreaCtl`illa,
+niin että `MONSTER.compact` renderöityy kokonaan. Konkreettinen järjestys:
 
-Sen jälkeen P2:n L0-orakkeli: aja TS-kirjaston `formatExerciseSchemeParts` samalle korpukselle,
-talleta JSON-fixtureiksi, ja vertaa `CompactStatBuilder`in tulokseen osa osalta.
+1. Laajenna korpusta matriisin §5.2–5.4 lopuilla soluilla ja aja `rt:l0:record` — puuttuvat
+   familiat näkyvät heti vertaamattomina.
+2. Lisää `shape`en `Duration`, `Interval`, `Circuit` ja kevyet rivit; `match` vaatii käden
+   jokaiselle, joten mitään ei voi unohtaa.
+3. Session-näkymä listaksi: `Section`-rivit väliotsikoiksi ja `ScrollAreaCtl` ympärille, kun
+   dokumentti ei enää mahdu ruudulle.

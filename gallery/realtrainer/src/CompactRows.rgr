@@ -107,10 +107,81 @@ class ExerciseSpec {
     }
 }
 
+
+; --- the endurance families ---------------------------------------------
+;
+; The parser keeps several of these numbers as RAW STRINGS ("5", "2.5") and
+; turns them into JSON numbers only when it serialises. That is the same
+; stringly-typed shape PATCHES.md's first entry removed from measured
+; durations, one family over; here the specs parse them once, on the way in,
+; so nothing downstream has to.
+
+class MoveSpec {
+    def sport@(mutable):string ""
+    def sets@(mutable):int 1
+    def count@(mutable):int 1
+    def hasDuration@(mutable):boolean false
+    def durationValue@(mutable):double 0.0
+    def durationUnit@(mutable):string ""
+    def hasDistance@(mutable):boolean false
+    def distanceValue@(mutable):double 0.0
+    def distanceUnit@(mutable):string ""
+    def hasSteps@(mutable):boolean false
+    def steps@(mutable):int 0
+    def note@(mutable):string ""
+    def splits:[SplitSpec]
+
+    Constructor () {
+    }
+}
+
+class SplitSpec {
+    def hasDistance@(mutable):boolean false
+    def distanceValue@(mutable):double 0.0
+    def distanceUnit@(mutable):string ""
+    def hasPace@(mutable):boolean false
+    def paceMinutes@(mutable):int 0
+    def paceSeconds@(mutable):int 0
+    def hasPacePer@(mutable):boolean false
+    def pacePerValue@(mutable):double 0.0
+    def pacePerUnit@(mutable):string ""
+    def hasDuration@(mutable):boolean false
+    def durationValue@(mutable):double 0.0
+    def durationUnit@(mutable):string ""
+    def hasHr@(mutable):boolean false
+    def hr@(mutable):int 0
+    def note@(mutable):string ""
+    def text@(mutable):string ""
+
+    Constructor () {
+    }
+}
+
+class PyramidSet {
+    def reps@(mutable):int 0
+    def hasWeight@(mutable):boolean false
+    def weightKg@(mutable):double 0.0
+
+    Constructor () {
+    }
+}
+
+class PyramidSpec {
+    def name@(mutable):string ""
+    def sets:[PyramidSet]
+    def note@(mutable):string ""
+
+    Constructor () {
+    }
+}
+
 shape CompactRow {
     case Section  { def name:string "" }
     case Text     { def text:string "" }
     case Exercise { def spec:ExerciseSpec }
+    case Move     { def spec:MoveSpec }
+    case Pyramid  { def spec:PyramidSpec }
+    case Split    { def spec:SplitSpec }
 }
 
 ; =============================================================================
@@ -191,6 +262,205 @@ class CompactStatBuilder {
             }
         }
         return (("/ palautus " + (to_string e.recoveryValue)) + unit)
+    }
+
+    ; A number as the TypeScript side writes it: `5` and not `5.0`, `2.5` when
+    ; there is a fraction. Both sides have to print the same string or L0 fails
+    ; on a decimal point.
+    sfn num:string (v:double) {
+        def whole:int (to_int v)
+        if ((int2double whole) == v) {
+            return (to_string whole)
+        }
+        return (to_string v)
+    }
+
+    ; `formatMoveDuration`. A minute value is re-expressed as whole minutes and
+    ; seconds, so 25.5min reads `25min 30s` — and the seconds are dropped when
+    ; there are none, rather than printed as `min 0s`.
+    sfn moveDuration:string (e:MoveSpec) {
+        if (e.hasDuration == false) {
+            return ""
+        }
+        if (e.durationUnit == "min") {
+            def total:int (to_int ((e.durationValue * 60.0) + 0.5))
+            def mins:int (to_int (total / 60))
+            def secs:int (total - (mins * 60))
+            if (secs == 0) {
+                return ((to_string mins) + "min")
+            }
+            return ((((to_string mins) + "min ") + (to_string secs)) + "s")
+        }
+        return ((CompactStatBuilder.num(e.durationValue)) + e.durationUnit)
+    }
+
+    ; `deriveMovePace`: seconds per hundred metres, and only when there is a
+    ; minute duration and a metric distance to divide. A mile gets no pace
+    ; rather than a wrong one.
+    sfn movePace:string (e:MoveSpec) {
+        if (e.hasDuration == false) {
+            return ""
+        }
+        if (e.hasDistance == false) {
+            return ""
+        }
+        if (e.durationUnit != "min") {
+            return ""
+        }
+        def meters@(mutable):double 0.0
+        if (e.distanceUnit == "km") {
+            meters = (e.distanceValue * 1000.0)
+        }
+        if (e.distanceUnit == "m") {
+            meters = e.distanceValue
+        }
+        if (meters <= 0.0) {
+            return ""
+        }
+        def per100:double ((e.durationValue * 60.0) / (meters / 100.0))
+        def mins@(mutable):int (to_int (per100 / 60.0))
+        def secs@(mutable):int (to_int ((per100 - ((int2double mins) * 60.0)) + 0.5))
+        if (secs == 60) {
+            mins = (mins + 1)
+            secs = 0
+        }
+        def ss@(mutable):string (to_string secs)
+        if (secs < 10) {
+            ss = ("0" + ss)
+        }
+        return (((("@" + (to_string mins)) + ":") + ss) + "/100m")
+    }
+
+    ; The move's right-hand column: how many, how long, how far, how fast. The
+    ; separating space lives INSIDE the part, which is the component's own
+    ; arrangement and not a detail — a renderer that put a gap between the
+    ; spans would space the steps count differently.
+    sfn moveParts:[StatPart] (e:MoveSpec) {
+        def texts:[string]
+        if (e.sets != 0) {
+            if (e.count != 0) {
+                if ((e.sets == 1) && (e.count == 1)) {
+                } {
+                    push texts (((to_string e.sets) + "x") + (to_string e.count))
+                }
+            }
+        }
+        def dur:string (CompactStatBuilder.moveDuration(e))
+        if ((strlen dur) > 0) {
+            push texts dur
+        }
+        if (e.hasDistance) {
+            if (e.distanceValue != 0.0) {
+                push texts ((CompactStatBuilder.num(e.distanceValue)) + e.distanceUnit)
+            }
+        }
+        def pace:string (CompactStatBuilder.movePace(e))
+        if ((strlen pace) > 0) {
+            push texts pace
+        }
+
+        def out:[StatPart]
+        for texts t:string i {
+            def lead@(mutable):string ""
+            if (i > 0) {
+                lead = " "
+            }
+            ; A pace is the one run the component colours, and it is spelled by
+            ; its leading `@` rather than by its position.
+            def tone@(mutable):string "default"
+            if ((indexOf t "@") == 0) {
+                tone = "weight"
+            }
+            push out (new StatPart((lead + t) tone "spec"))
+        }
+        if (e.hasSteps) {
+            push out (new StatPart(((" " + (to_string e.steps)) + " steps") "default" "meta"))
+        }
+        return out
+    }
+
+    ; Two runs per set — `5x` then `60kg` — and a set of no reps is not drawn
+    ; at all.
+    sfn pyramidParts:[StatPart] (e:PyramidSpec) {
+        def out:[StatPart]
+        for e.sets set:PyramidSet i {
+            if (set.reps > 0) {
+                push out (new StatPart(((to_string set.reps) + "x") "default" "spec"))
+                if (set.hasWeight) {
+                    if (set.weightKg > 0.0) {
+                        push out (new StatPart(((CompactStatBuilder.num(set.weightKg)) + "kg") "weight" "weight"))
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    ; `formatSplitPace` — `4'30"/1km`. The minutes carry no padding and the
+    ; seconds always do.
+    sfn splitPace:string (e:SplitSpec) {
+        if (e.hasPace == false) {
+            return ""
+        }
+        def ss@(mutable):string (to_string e.paceSeconds)
+        if (e.paceSeconds < 10) {
+            ss = ("0" + ss)
+        }
+        def per@(mutable):string ""
+        if (e.hasPacePer) {
+            per = (("/" + (CompactStatBuilder.num(e.pacePerValue))) + e.pacePerUnit)
+        }
+        return (((((to_string e.paceMinutes) + "'") + ss) + "\"") + per)
+    }
+
+    ; `formatSplitDuration` — seconds become `1'05"`, minutes stay minutes.
+    sfn splitDuration:string (e:SplitSpec) {
+        if (e.hasDuration == false) {
+            return ""
+        }
+        if (e.durationUnit == "s") {
+            def total@(mutable):int (to_int (e.durationValue + 0.5))
+            if (total < 0) {
+                total = 0
+            }
+            def mins:int (to_int (total / 60))
+            def secs:int (total - (mins * 60))
+            def ss@(mutable):string (to_string secs)
+            if (secs < 10) {
+                ss = ("0" + ss)
+            }
+            return ((((to_string mins) + "'") + ss) + "\"")
+        }
+        if (e.durationUnit == "min") {
+            return ((CompactStatBuilder.num(e.durationValue)) + "min")
+        }
+        return ((CompactStatBuilder.num(e.durationValue)) + e.durationUnit)
+    }
+
+    ; A split is separate spans with no separator of their own — the gap
+    ; between them is the row's, so nothing is inserted here.
+    sfn splitParts:[StatPart] (e:SplitSpec) {
+        def out:[StatPart]
+        if (e.hasDistance) {
+            if (e.distanceValue != 0.0) {
+                push out (new StatPart(((CompactStatBuilder.num(e.distanceValue)) + e.distanceUnit) "default" "spec"))
+            }
+        }
+        def pace:string (CompactStatBuilder.splitPace(e))
+        if ((strlen pace) > 0) {
+            push out (new StatPart(pace "default" "pace"))
+        }
+        def dur:string (CompactStatBuilder.splitDuration(e))
+        if ((strlen dur) > 0) {
+            push out (new StatPart(dur "default" "duration"))
+        }
+        if (e.hasHr) {
+            push out (new StatPart(((to_string e.hr) + "bpm") "weight" "meta"))
+        }
+        if ((strlen e.note) > 0) {
+            push out (new StatPart(e.note "muted" "meta"))
+        }
+        return out
     }
 
     ; `2-3` when a set range was given, `3` when it was not, and "" for a row
@@ -320,6 +590,18 @@ class CompactStatBuilder {
                 def e:ExerciseSpec (unwrap ex.spec)
                 return (CompactStatBuilder.exerciseParts(e))
             }
+            Move mv {
+                def m:MoveSpec (unwrap mv.spec)
+                return (CompactStatBuilder.moveParts(m))
+            }
+            Pyramid py {
+                def pd:PyramidSpec (unwrap py.spec)
+                return (CompactStatBuilder.pyramidParts(pd))
+            }
+            Split sp {
+                def sd:SplitSpec (unwrap sp.spec)
+                return (CompactStatBuilder.splitParts(sd))
+            }
             Section s {
                 push out (new StatPart(s.name "muted" "meta"))
             }
@@ -348,6 +630,20 @@ class CompactStatBuilder {
                 def e:ExerciseSpec (unwrap ex.spec)
                 return e.name
             }
+            Move mv {
+                def m:MoveSpec (unwrap mv.spec)
+                if ((strlen m.sport) > 0) {
+                    return m.sport
+                }
+                return "Move"
+            }
+            Pyramid py {
+                def pd:PyramidSpec (unwrap py.spec)
+                return pd.name
+            }
+            Split sp {
+                return ""
+            }
             Section s {
                 return s.name
             }
@@ -370,6 +666,107 @@ class CompactStatBuilder {
 class CompactRowMapper {
 
     Constructor () {
+    }
+
+    ; The parser keeps several numbers as raw strings. A value it could not
+    ; make a number of is zero here, which is also how the serialiser treats it.
+    sfn toNum:double (raw:string) {
+        def parsed (str2double raw)
+        if (null? parsed) {
+            return 0.0
+        }
+        return (unwrap parsed)
+    }
+
+    sfn fromSplit:SplitSpec (node:SplitNode) {
+        def sp (new SplitSpec)
+        if (node.hasDistance) {
+            sp.hasDistance = true
+            if (node.useDistanceRaw) {
+                sp.distanceValue = (CompactRowMapper.toNum(node.distanceValueRaw))
+            } {
+                sp.distanceValue = (int2double node.distanceValue)
+            }
+            sp.distanceUnit = node.distanceUnit
+        }
+        if (node.hasDuration) {
+            sp.hasDuration = true
+            sp.durationValue = (int2double node.durationValue)
+            sp.durationUnit = node.durationUnit
+        }
+        if (node.hasPace) {
+            sp.hasPace = true
+            sp.paceMinutes = node.paceMinutes
+            sp.paceSeconds = node.paceSeconds
+            if (node.pacePerDistanceValue > 0) {
+                sp.hasPacePer = true
+                sp.pacePerValue = (int2double node.pacePerDistanceValue)
+                sp.pacePerUnit = node.pacePerDistanceUnit
+            }
+        }
+        if (node.hasHr) {
+            sp.hasHr = true
+            sp.hr = node.hr
+        }
+        if (node.hasNote) {
+            sp.note = node.note
+        }
+        return sp
+    }
+
+    sfn moveSpec:MoveSpec (node:MoveNode) {
+        def m (new MoveSpec)
+        m.sport = node.sport
+        if (node.hasSetsVal) {
+            m.sets = node.setsVal
+        }
+        if (node.hasCountVal) {
+            m.count = node.countVal
+        }
+        ; A move's duration is always minutes on the wire, whatever the source
+        ; said — the serialiser writes the unit as a literal.
+        if (node.hasDuration) {
+            m.hasDuration = true
+            m.durationValue = (CompactRowMapper.toNum(node.durationValueRaw))
+            m.durationUnit = "min"
+        }
+        if (node.hasDistanceNumeric) {
+            m.hasDistance = true
+            m.distanceValue = (CompactRowMapper.toNum(node.distanceValue))
+            m.distanceUnit = node.distanceUnit
+        }
+        if (node.hasSteps) {
+            m.hasSteps = true
+            m.steps = node.steps
+        }
+        if (node.hasNote) {
+            m.note = node.note
+        }
+        for node.splits child:AstNode i {
+            if (child.type == "split") {
+                def sn:SplitNode (cast child to:SplitNode)
+                push m.splits (CompactRowMapper.fromSplit(sn))
+            }
+        }
+        return m
+    }
+
+    sfn fromPyramid:CompactRow (node:PyramidNode) {
+        def pd (new PyramidSpec)
+        pd.name = node.name
+        for node.sets item:PyramidSetNode i {
+            def set (new PyramidSet)
+            set.reps = item.reps
+            if (item.hasWeight) {
+                set.hasWeight = true
+                set.weightKg = (CompactRowMapper.toNum(item.weightValueRaw))
+            }
+            push pd.sets set
+        }
+        if (node.hasNote) {
+            pd.note = node.note
+        }
+        return (new CompactRow.Pyramid(pd))
     }
 
     sfn fromExercise:CompactRow (node:ExerciseNode) {
@@ -432,6 +829,29 @@ class CompactRowMapper {
             if (node.type == "exercise") {
                 def ex:ExerciseNode (cast node to:ExerciseNode)
                 push rows (CompactRowMapper.fromExercise(ex))
+                continue
+            }
+            if (node.type == "move") {
+                def mv:MoveNode (cast node to:MoveNode)
+                def mspec:MoveSpec (CompactRowMapper.moveSpec(mv))
+                push rows (new CompactRow.Move(mspec))
+                ; A move's splits are rows of their own on the screen, under
+                ; the move they belong to. Flattening them into one list is
+                ; what a renderer walking rows top to bottom wants; which move
+                ; they came from is the move directly above them.
+                for mspec.splits sp:SplitSpec si {
+                    push rows (new CompactRow.Split(sp))
+                }
+                continue
+            }
+            if (node.type == "pyramid") {
+                def py:PyramidNode (cast node to:PyramidNode)
+                push rows (CompactRowMapper.fromPyramid(py))
+                continue
+            }
+            if (node.type == "split") {
+                def sn:SplitNode (cast node to:SplitNode)
+                push rows (new CompactRow.Split((CompactRowMapper.fromSplit(sn))))
                 continue
             }
             if (node.type == "text") {
@@ -499,6 +919,15 @@ class CompactRowEdit {
                 }
                 return e.hasSets
             }
+            Move mv {
+                return false
+            }
+            Pyramid py {
+                return false
+            }
+            Split sp {
+                return false
+            }
             Section s {
                 return false
             }
@@ -511,11 +940,20 @@ class CompactRowEdit {
 
     sfn isSection:boolean (row:CompactRow) {
         match row {
+            Section s {
+                return true
+            }
             Exercise ex {
                 return false
             }
-            Section s {
-                return true
+            Move mv {
+                return false
+            }
+            Pyramid py {
+                return false
+            }
+            Split sp {
+                return false
             }
             Text t {
                 return false
@@ -528,6 +966,15 @@ class CompactRowEdit {
         match row {
             Exercise ex {
                 return true
+            }
+            Move mv {
+                return false
+            }
+            Pyramid py {
+                return false
+            }
+            Split sp {
+                return false
             }
             Section s {
                 return false
@@ -545,6 +992,15 @@ class CompactRowEdit {
                 def e:ExerciseSpec (unwrap ex.spec)
                 return e.sets
             }
+            Move mv {
+                return 0
+            }
+            Pyramid py {
+                return 0
+            }
+            Split sp {
+                return 0
+            }
             Section s {
                 return 0
             }
@@ -561,6 +1017,15 @@ class CompactRowEdit {
                 def e:ExerciseSpec (unwrap ex.spec)
                 return e.reps
             }
+            Move mv {
+                return 0
+            }
+            Pyramid py {
+                return 0
+            }
+            Split sp {
+                return 0
+            }
             Section s {
                 return 0
             }
@@ -576,6 +1041,15 @@ class CompactRowEdit {
             Exercise ex {
                 def e:ExerciseSpec (unwrap ex.spec)
                 return e.weightKg
+            }
+            Move mv {
+                return 0
+            }
+            Pyramid py {
+                return 0
+            }
+            Split sp {
+                return 0
             }
             Section s {
                 return 0
@@ -621,6 +1095,12 @@ class CompactRowEdit {
                         }
                     }
                 }
+            }
+            Move mv {
+            }
+            Pyramid py {
+            }
+            Split sp {
             }
             Section s {
             }
