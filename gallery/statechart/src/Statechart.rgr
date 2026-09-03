@@ -15,18 +15,21 @@
 ; And the definition compiles to Kotlin and Swift like everything else here,
 ; which a JavaScript library never would.
 ;
-; The surface is the subset three real machines use, measured rather than
-; guessed (`grep` over their sources), and each tier arrived with the machine
-; that needed it:
+; The surface is what three real machines use, measured rather than guessed
+; (`grep` over their sources), and each tier arrived with the machine that
+; needed it:
 ;
-;   addWorkoutDialogMachine   states · on · assign
+;   addWorkoutDialogMachine   id · initial · states · on · target · assign
 ;   planDialogMachine         + a typed context · named host actions
-;   chatMachine               + guards · always · final/onDone · machine-level
-;                               on · nested states
+;   chatMachine               + nested states · guards · always · onDone ·
+;                               type:"final" · machine-level on
 ;
-; `after` and `invoke` are deliberately absent. Both are time and effects,
-; which belong to the host and not to a definition that compiles to Kotlin and
-; Swift; the machine names what it wants and the host does it.
+; Nothing of theirs is missing: `after`, `invoke`, `entry` and `exit` appear in
+; none of the three. (An earlier note here claimed chatMachine used `after` and
+; `invoke`, on the strength of a comment in its source saying a state WOULD
+; invoke a save service. It does not — `SAVE_COMPLETE` is an ordinary event.)
+; Were they to arrive they would still be the host's: both are time and
+; effects, which a definition that compiles to Kotlin and Swift cannot own.
 ;
 ; Conformance is not this module's own opinion. `gallery/realtrainer` runs the
 ; table transcribed from the XState source through this runner, a hand-written

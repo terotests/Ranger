@@ -25,11 +25,24 @@ against a hand-written port of the same machine, and all three have to agree.
 
 `grep` over the three machines being ported says what is actually used:
 
-| Machine | Uses |
-| --- | --- |
-| `addWorkoutDialogMachine` (123 r) | states · `on` · `assign` |
-| `planDialogMachine` (289 r) | + entry actions |
-| `chatMachine` (449 r) | + guards · `always` · `after` · `invoke` · nested states |
+| Machine | Uses | Missing here |
+| --- | --- | --- |
+| `addWorkoutDialogMachine` (123 r) | `id` · `initial` · `states` · `on` · `target` · `actions`/`assign` | — |
+| `planDialogMachine` (289 r) | + nothing new (six states of the same) | — |
+| `chatMachine` (449 r) | + nested `states` · `initial` per level · `guard`/`guards` · `always` · `onDone` · `type: 'final'` · machine-level `on` | — |
+
+**Nothing is missing.** `after`, `invoke`, `entry` and `exit` appear in none of
+the three (`grep -n "after:\|invoke:\|entry:\|exit:"` over all three returns
+nothing) — an earlier draft of this table claimed `chatMachine` used `after`
+and `invoke` on the strength of a comment in its source that says a state
+*would* invoke a save service. It does not; `SAVE_COMPLETE` is an event like
+any other. So the subset here is not a subset of what the app needs, it is all
+of it.
+
+Were `after` or `invoke` to arrive, they would still not belong in the
+definition: both are *time and effects*, which are the host's, and a definition
+that compiles to Kotlin and Swift cannot own either. The machine names what it
+wants and the host does it, which is XState's own `setup({ actions })`.
 
 All three are ported, so all three tiers are here — and each arrived with the
 machine that needed it, never ahead of one. A runtime that grew features nobody
@@ -43,11 +56,6 @@ had a machine for would have no way to know it got them right.
 
 A transition with no target assigns and stays — XState's internal transition,
 and the reason typing into a dialog does not re-enter its state.
-
-Two things of `chatMachine`'s are deliberately absent: `after` and `invoke`.
-Both are *time and effects*, which belong to the host and not to a definition
-that has to compile to Kotlin and Swift. The machine names what it wants and
-the host does it, which is XState's own `setup({ actions })`.
 
 ### Nesting, and where a state IS
 

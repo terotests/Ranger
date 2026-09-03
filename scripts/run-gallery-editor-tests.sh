@@ -256,11 +256,13 @@ SUITES=(
   # state crossed with every event, and the thirteen cells of twenty-one that
   # are IGNORES — the half a hand-port gets wrong while its happy path passes.
   rt:machine
-  # And a machine too big to transcribe: planDialog's six states and eighteen
-  # events, run cell by cell and then fuzzed against xstate itself. It found
-  # the one thing reading could not — that `a || b` yields its last operand
-  # when everything is falsy, so a context held null where the machine holds
-  # false.
+  # And the machines too big to transcribe: planDialog's six states and
+  # eighteen events, chat's six-it-can-rest-in and sixteen, run cell by cell
+  # and then fuzzed against xstate itself. It found the one thing reading could
+  # not — that `a || b` yields its last operand when everything is falsy, so a
+  # context held null where the machine holds false — and, on the run that
+  # added chat, that the fuzz had never been random: `seed * 1103515245` runs
+  # past 2^53 and every "random sequence" was one event repeated.
   rt:machine:live
   # And the machine wired to a view: the scenario replayed on the Ranger side,
   # against the trace recorded from it. The other half of that benchmark — the

@@ -156,9 +156,16 @@ Käytetty osajoukko on mitattu (`grep` kolmen koneen yli), ei arvattu:
 
 | Kone | Käyttää |
 |------|---------|
-| `addWorkoutDialogMachine` | tilat · `on` · `assign` |
-| `planDialogMachine` | + entry-toiminnot |
-| `chatMachine` | + guardit · `always` · `after` · `invoke` · sisäkkäiset tilat |
+| `addWorkoutDialogMachine` | `id` · `initial` · `states` · `on` · `target` · `assign` |
+| `planDialogMachine` | + ei mitään uutta (kuusi tilaa samaa) |
+| `chatMachine` | + sisäkkäiset `states` · `initial` per taso · `guard`/`guards` · `always` · `onDone` · `type: 'final'` · koneen oma `on` |
+
+**Mitään ei puutu.** `after`, `invoke`, `entry` ja `exit` eivät esiinny
+yhdessäkään kolmesta. Aiempi versio tästä taulukosta väitti `chatMachine`n
+käyttävän `after`ia ja `invoke`a — sen lähteessä on kommentti että tila
+*voisi* kutsua tallennuspalvelua, mutta se ei kutsu: `SAVE_COMPLETE` on
+tavallinen tapahtuma. Osajoukko ei siis ole osajoukko siitä mitä sovellus
+tarvitsee, vaan se kaikki.
 
 Kaikki kolme tasoa on toteutettu, ja jokainen tuli sen koneen mukana joka sitä tarvitsi:
 
@@ -170,10 +177,6 @@ Kaikki kolme tasoa on toteutettu, ja jokainen tuli sen koneen mukana joka sitä 
 
 Kohteeton siirtymä sijoittaa muttei liiku — XStaten sisäinen siirtymä, ja syy siihen
 ettei dialogiin kirjoittaminen aja `open`-tilaan uudelleen.
-
-`after` ja `invoke` jäävät tarkoituksella pois: molemmat ovat **aikaa ja sivuvaikutuksia**,
-jotka kuuluvat hostille eivätkä määrittelyyn joka kääntyy Kotliniksi ja Swiftiksi. Kone
-nimeää mitä haluaa, host tekee sen — mikä on XStaten oma `setup({ actions })`.
 
 Sisäkkäisyys tuo kaksi asiaa. Aktiivinen tila on **polku** (`reviewing.multiAction`), koska
 nimi ei ole osoite: kahdella vanhemmalla voi olla lapsi nimeltä `done`. Ja asettuminen
