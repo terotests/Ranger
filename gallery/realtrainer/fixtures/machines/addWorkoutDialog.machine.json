@@ -1,5 +1,5 @@
 {
-  "_": "The machine itself, in the shape createMachine() takes. Structure, state names, event names and targets are those of frontend/src/machines/addWorkoutDialogMachine.ts. What differs is `assign`: in XState it is a function and a function is not data, so the assignments are written declaratively — `{event, default}` is `event.targetDate || today` written down instead of run.",
+  "_": "The machine itself, in the shape createMachine() takes. Structure, state names, event names and targets are those of frontend/src/machines/addWorkoutDialogMachine.ts. What differs is `assign`: in XState it is a function and a function is not data, so an assignment is a value expression — a literal, a named field of the event, a context key, or `or` between them. The event field names are the machine\u0027s own (targetDate, date, text, error), from its event union.",
   "id": "addWorkoutDialog",
   "initial": "closed",
   "context": {
@@ -16,7 +16,7 @@
           "target": "open",
           "actions": [
             { "assign": {
-              "targetDate": { "event": "value", "default": { "context": "today" } },
+              "targetDate": { "or": [ { "event": "targetDate" }, { "context": "today" } ] },
               "targetCalendarId": { "value": "" },
               "inputText": { "value": "" },
               "error": { "value": "" }
@@ -39,10 +39,10 @@
           ]
         },
         "SET_TARGET_DATE": {
-          "actions": [ { "assign": { "targetDate": { "event": "value" } } } ]
+          "actions": [ { "assign": { "targetDate": { "event": "date" } } } ]
         },
         "SET_INPUT_TEXT": {
-          "actions": [ { "assign": { "inputText": { "event": "value" } } } ]
+          "actions": [ { "assign": { "inputText": { "event": "text" } } } ]
         },
         "START_SAVING": "saving"
       }
@@ -62,7 +62,7 @@
         },
         "ERROR": {
           "target": "open",
-          "actions": [ { "assign": { "error": { "event": "value" } } } ]
+          "actions": [ { "assign": { "error": { "event": "error" } } } ]
         },
         "CLOSE": {
           "target": "closed",

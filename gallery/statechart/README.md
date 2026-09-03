@@ -32,7 +32,7 @@ against a hand-written port of the same machine, and all three have to agree.
 | `chatMachine` (449 r) | + guards · `always` · `after` · `invoke` · nested states |
 
 **Tier one, here now:** states, transitions with an optional target, and
-assignments to a string context. A transition with no target assigns and stays
+assignments to a string context, driven by events with named fields. A transition with no target assigns and stays
 — XState's internal transition, and the reason typing into a dialog does not
 re-enter its state.
 
@@ -67,18 +67,38 @@ stubbed — `createMachine` hands back its config — and diffs the structure:
 states, the events each one handles, and where each goes. It needs the
 monorepo, so it exits 0 and says so where the sources are not checked out.
 
-## An assignment's source
+## Events are objects, and assignments are expressions
+
+XState's events are objects — `{ type: "OPEN", targetDate: "2026-02-09" }` —
+and an assignment reads them by name, so this takes the same:
 
 ```
-literal          the literal, as written
-value            the event's payload
-context          another context key
-valueOrContext   the payload when it has one, else that key
+ScEvent.of("OPEN").with("targetDate", "2026-02-09")
 ```
 
-The last one is `event.targetDate || today` from the original. The context is
-two parallel string arrays rather than a map: a map reads better and travels
-worse, and this compiles to Kotlin and Swift as well as ES6.
+An earlier draft took a single payload string. It worked for one machine and
+would have broken on the next: `OPEN` carries a date AND a calendar id, and
+nothing tells them apart when they are both "the value".
+
+An assignment's new value is an expression, in the general forms rather than
+one per machine:
+
+```
+{ "value": "x" }              a literal
+{ "event": "targetDate" }     a named field of the event
+{ "context": "today" }        a context key
+{ "or": [ … ] }               the first part that has anything in it
+```
+
+`{"or": [{"event":"targetDate"}, {"context":"today"}]}` is
+`event.targetDate || today`. **`or` is what `||` is**, not a special case for
+the machine that needed it first — naming the general form rather than the
+instance is the difference between a runtime and a fixture.
+
+**Context values are strings, and that is tier one.** XState's context holds
+anything; here it is two parallel string arrays, which reads worse than a map
+and travels better — this compiles to Kotlin and Swift as well as ES6. A typed
+context arrives with the machine that needs one, like everything else here.
 
 ## Conformance
 

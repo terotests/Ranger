@@ -31,25 +31,112 @@
 ; hand-written port, and requires the same answer in all twenty-one cells.
 ; =============================================================================
 
-; Where an assignment's new value comes from.
-;   "literal"        the literal, as written
-;   "value"          the event's payload
-;   "context"        another context key, named by `literal`
-;   "valueOrContext" the payload when it has one, else that context key —
-;                    which is `event.targetDate || today` in the original
-class ScAssign {
-    def key@(mutable):string ""
-    def source@(mutable):string "literal"
-    def literal@(mutable):string ""
+; =============================================================================
+; An event is a TYPE and named fields
+; =============================================================================
+; XState's events are objects — `{ type: "OPEN", targetDate: "2026-02-09" }` —
+; and an assignment reads them by name. An earlier draft of this took a single
+; payload string, which worked for one machine and would have been the first
+; thing to break on the next: `OPEN` carries a date AND a calendar id, and
+; nothing distinguishes them when they are both "the value".
+class ScEvent {
+    def type@(mutable):string ""
+    def keys:[string]
+    def values:[string]
 
     Constructor () {
     }
 
-    sfn of:ScAssign (key:string source:string literal:string) {
+    sfn of:ScEvent (type:string) {
+        def e (new ScEvent)
+        e.type = type
+        return e
+    }
+
+    fn with:ScEvent (key:string value:string) {
+        push keys key
+        push values value
+        return this
+    }
+
+    fn get:string (key:string) {
+        for keys k:string i {
+            if (k == key) {
+                return (itemAt values i)
+            }
+        }
+        return ""
+    }
+
+    fn has:boolean (key:string) {
+        for keys k:string i {
+            if (k == key) {
+                return ((strlen (itemAt values i)) > 0)
+            }
+        }
+        return false
+    }
+}
+
+; =============================================================================
+; A value expression — where an assignment's new value comes from
+; =============================================================================
+;   "literal"   the literal, as written
+;   "event"     a named field of the event
+;   "context"   a context key
+;   "or"        the first of its parts that has anything in it
+;
+; `or` is not a special case for one machine. It is what `a || b` is, and
+; assignments in these machines are made of exactly this: a field, a key, a
+; constant, and a fallback between them. Naming the general form rather than
+; the instance is the difference between a runtime and a fixture.
+class ScValue {
+    def kind@(mutable):string "literal"
+    def name@(mutable):string ""
+    def parts:[ScValue]
+
+    Constructor () {
+    }
+
+    sfn literal:ScValue (text:string) {
+        def v (new ScValue)
+        v.kind = "literal"
+        v.name = text
+        return v
+    }
+
+    sfn event:ScValue (field:string) {
+        def v (new ScValue)
+        v.kind = "event"
+        v.name = field
+        return v
+    }
+
+    sfn context:ScValue (key:string) {
+        def v (new ScValue)
+        v.kind = "context"
+        v.name = key
+        return v
+    }
+
+    sfn either:ScValue () {
+        def v (new ScValue)
+        v.kind = "or"
+        return v
+    }
+}
+
+class ScAssign {
+    def key@(mutable):string ""
+    def value@(optional):ScValue
+
+    Constructor () {
+    }
+
+    sfn of:ScAssign (key:string value:ScValue) {
         def a (new ScAssign)
         a.key = key
-        a.source = source
-        a.literal = literal
+        a.value = value
         return a
     }
 }
@@ -169,32 +256,43 @@ class ScRunner {
         return ""
     }
 
+    ; A value expression, resolved against this context and this event.
+    fn resolve:string (value:ScValue event:ScEvent) {
+        if (value.kind == "literal") {
+            return value.name
+        }
+        if (value.kind == "event") {
+            return (event.get(value.name))
+        }
+        if (value.kind == "context") {
+            return (this.get(value.name))
+        }
+        if (value.kind == "or") {
+            for value.parts part:ScValue i {
+                def answer:string (this.resolve(part event))
+                if ((strlen answer) > 0) {
+                    return answer
+                }
+            }
+            return ""
+        }
+        return ""
+    }
+
     ; `true` when the event moved the machine or changed the context. An event
-    ; the current state does not handle answers `false` and changes nothing —
-    ; and that is most of the table: thirteen of addWorkoutDialog's twenty-one
-    ; cells are events it ignores.
-    fn send:boolean (event:string value:string) {
+    ; the current state does not handle answers `false` and changes nothing.
+    ;
+    ; Those are most of any machine's behaviour and the half a hand-port gets
+    ; wrong: a state crossed with every event is mostly cells that do nothing,
+    ; and doing nothing correctly is a requirement rather than an absence.
+    fn send:boolean (event:ScEvent) {
         def c:Statechart (unwrap chart)
         def here:ScState (c.stateNamed(state))
         for here.transitions t:ScTransition i {
-            if (t.event == event) {
+            if (t.event == event.type) {
                 for t.assigns a:ScAssign j {
-                    if (a.source == "literal") {
-                        this.set(a.key a.literal)
-                    }
-                    if (a.source == "value") {
-                        this.set(a.key value)
-                    }
-                    if (a.source == "context") {
-                        this.set(a.key (this.get(a.literal)))
-                    }
-                    if (a.source == "valueOrContext") {
-                        if ((strlen value) > 0) {
-                            this.set(a.key value)
-                        } {
-                            this.set(a.key (this.get(a.literal)))
-                        }
-                    }
+                    def v:ScValue (unwrap a.value)
+                    this.set(a.key (this.resolve(v event)))
                 }
                 if ((strlen t.target) > 0) {
                     state = t.target
@@ -203,5 +301,10 @@ class ScRunner {
             }
         }
         return false
+    }
+
+    ; An event with no fields, which most of them are.
+    fn sendType:boolean (type:string) {
+        return (this.send((ScEvent.of(type))))
     }
 }

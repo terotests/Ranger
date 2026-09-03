@@ -1,5 +1,5 @@
 {
- "_": "Transcribed from frontend/src/machines/addWorkoutDialogMachine.ts in the RealTrainer monorepo — three states, seven events, all twenty-one cells. A cell marked `ignored` is one the machine does not handle: the state and the whole context must be unchanged and the send must answer false. Those are the cells a hand-port gets wrong.",
+ "_": "Transcribed from frontend/src/machines/addWorkoutDialogMachine.ts in the RealTrainer monorepo — three states, seven events, all twenty-one cells. A cell marked `ignored` is one the machine does not handle: the state and the whole context must be unchanged and the send must answer false. Those are the cells a hand-port gets wrong. Each cell names the EVENT FIELD its payload belongs to — targetDate, date, text, error — because XState's events are objects and an assignment reads them by name.",
  "machine": "addWorkoutDialog",
  "source": "frontend/src/machines/addWorkoutDialogMachine.ts",
  "today": "2026-01-01",
@@ -8,24 +8,29 @@
   "open": [
    [
     "OPEN",
-    "2026-02-09"
+    "2026-02-09",
+    "targetDate"
    ],
    [
     "SET_INPUT_TEXT",
-    "Exercise Kyykky|3x10"
+    "Exercise Kyykky|3x10",
+    "text"
    ]
   ],
   "saving": [
    [
     "OPEN",
-    "2026-02-09"
+    "2026-02-09",
+    "targetDate"
    ],
    [
     "SET_INPUT_TEXT",
-    "Exercise Kyykky|3x10"
+    "Exercise Kyykky|3x10",
+    "text"
    ],
    [
     "START_SAVING",
+    "",
     ""
    ]
   ]
@@ -42,7 +47,8 @@
     "targetCalendarId": "",
     "inputText": "",
     "error": ""
-   }
+   },
+   "field": "targetDate"
   },
   {
    "from": "closed",
@@ -70,7 +76,8 @@
     "inputText": "",
     "error": ""
    },
-   "ignored": true
+   "ignored": true,
+   "field": "date"
   },
   {
    "from": "closed",
@@ -84,7 +91,8 @@
     "inputText": "",
     "error": ""
    },
-   "ignored": true
+   "ignored": true,
+   "field": "text"
   },
   {
    "from": "closed",
@@ -126,7 +134,8 @@
     "inputText": "",
     "error": ""
    },
-   "ignored": true
+   "ignored": true,
+   "field": "error"
   },
   {
    "from": "open",
@@ -140,7 +149,8 @@
     "inputText": "Exercise Kyykky|3x10",
     "error": ""
    },
-   "ignored": true
+   "ignored": true,
+   "field": "targetDate"
   },
   {
    "from": "open",
@@ -166,7 +176,8 @@
     "targetCalendarId": "",
     "inputText": "Exercise Kyykky|3x10",
     "error": ""
-   }
+   },
+   "field": "date"
   },
   {
    "from": "open",
@@ -179,7 +190,8 @@
     "targetCalendarId": "",
     "inputText": "toinen",
     "error": ""
-   }
+   },
+   "field": "text"
   },
   {
    "from": "open",
@@ -220,7 +232,8 @@
     "inputText": "Exercise Kyykky|3x10",
     "error": ""
    },
-   "ignored": true
+   "ignored": true,
+   "field": "error"
   },
   {
    "from": "saving",
@@ -234,7 +247,8 @@
     "inputText": "Exercise Kyykky|3x10",
     "error": ""
    },
-   "ignored": true
+   "ignored": true,
+   "field": "targetDate"
   },
   {
    "from": "saving",
@@ -261,7 +275,8 @@
     "inputText": "Exercise Kyykky|3x10",
     "error": ""
    },
-   "ignored": true
+   "ignored": true,
+   "field": "date"
   },
   {
    "from": "saving",
@@ -275,7 +290,8 @@
     "inputText": "Exercise Kyykky|3x10",
     "error": ""
    },
-   "ignored": true
+   "ignored": true,
+   "field": "text"
   },
   {
    "from": "saving",
@@ -315,7 +331,8 @@
     "targetCalendarId": "",
     "inputText": "Exercise Kyykky|3x10",
     "error": "boom"
-   }
+   },
+   "field": "error"
   }
  ]
 }

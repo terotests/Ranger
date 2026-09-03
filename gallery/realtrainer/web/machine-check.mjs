@@ -44,7 +44,20 @@ if (!fs.existsSync(JSONBIN)) {
   console.error("compiled loader missing — run `npm run rt:machine:build` first");
   process.exit(3);
 }
-const { StatechartJson, ScRunner } = require_(JSONBIN);
+const { StatechartJson } = require_(JSONBIN);
+const { ScRunner, ScEvent } = require_(
+  path.join(HERE, "..", "..", "statechart", "bin", "Statechart.cjs"),
+);
+
+// XState's events are objects — `{ type: "OPEN", targetDate: "…" }` — and an
+// assignment reads them by name, so the table says which field each event's
+// payload belongs to. The hand-written port takes one payload and knows what
+// it is for; the two data-driven ones are handed the real event.
+const eventOf = (type, field, value) => {
+  const e = ScEvent.of(type);
+  if (field) e.with(field, value);
+  return e;
+};
 const machineJson = fs.readFileSync(
   path.join(HERE, "..", "fixtures", "machines", "addWorkoutDialog.machine.json"),
   "utf8",
@@ -85,7 +98,7 @@ const IMPLEMENTATIONS = [
       r.set("today", today);
       r.set("targetDate", today);
       return {
-        send: (e, v) => r.send(e, v),
+        send: (type, value, field) => r.send(eventOf(type, field, value)),
         state: () => r.state,
         context: () => ({
           targetDate: r.get("targetDate"),
@@ -101,7 +114,7 @@ const IMPLEMENTATIONS = [
     make: (today) => {
       const r = AddWorkoutChart.started(today);
       return {
-        send: (e, v) => r.send(e, v),
+        send: (type, value, field) => r.send(eventOf(type, field, value)),
         state: () => r.state,
         context: () => ({
           targetDate: r.get("targetDate"),
@@ -129,7 +142,7 @@ for (const impl of IMPLEMENTATIONS) {
   console.log(`\n  · ${impl.name}\n`);
   for (const cell of table.cells) {
     const m = impl.make(table.today);
-    for (const [event, value] of table.seeds[cell.from]) m.send(event, value);
+    for (const [event, value, field] of table.seeds[cell.from]) m.send(event, value, field);
 
     if (m.state() !== cell.from) {
       failed += 1;
@@ -137,7 +150,7 @@ for (const impl of IMPLEMENTATIONS) {
       continue;
     }
 
-    const moved = m.send(cell.event, cell.value);
+    const moved = m.send(cell.event, cell.value, cell.field);
     const got = { moved, state: m.state(), context: m.context() };
     const want = { moved: cell.moved, state: cell.to, context: cell.context };
     const same = JSON.stringify(got) === JSON.stringify(want);

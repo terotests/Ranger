@@ -32,10 +32,10 @@ class AddWorkoutChart {
     ; `new Date()` lives.
     sfn resetAssigns:[ScAssign] () {
         def out:[ScAssign]
-        push out (ScAssign.of("targetDate" "context" "today"))
-        push out (ScAssign.of("targetCalendarId" "literal" ""))
-        push out (ScAssign.of("inputText" "literal" ""))
-        push out (ScAssign.of("error" "literal" ""))
+        push out (ScAssign.of("targetDate" (ScValue.context("today"))))
+        push out (ScAssign.of("targetCalendarId" (ScValue.literal(""))))
+        push out (ScAssign.of("inputText" (ScValue.literal(""))))
+        push out (ScAssign.of("error" (ScValue.literal(""))))
         return out
     }
 
@@ -57,10 +57,13 @@ class AddWorkoutChart {
         ; and the rest of the context is blanked: a dialog that opened showing
         ; the last thing someone typed would be a bug, not a convenience.
         def opening:ScTransition (closed.on("OPEN" "open"))
-        push opening.assigns (ScAssign.of("targetDate" "valueOrContext" "today"))
-        push opening.assigns (ScAssign.of("targetCalendarId" "literal" ""))
-        push opening.assigns (ScAssign.of("inputText" "literal" ""))
-        push opening.assigns (ScAssign.of("error" "literal" ""))
+        def orToday:ScValue (ScValue.either())
+        push orToday.parts (ScValue.event("targetDate"))
+        push orToday.parts (ScValue.context("today"))
+        push opening.assigns (ScAssign.of("targetDate" orToday))
+        push opening.assigns (ScAssign.of("targetCalendarId" (ScValue.literal(""))))
+        push opening.assigns (ScAssign.of("inputText" (ScValue.literal(""))))
+        push opening.assigns (ScAssign.of("error" (ScValue.literal(""))))
 
         def closing:ScTransition (open.on("CLOSE" "closed"))
         for (AddWorkoutChart.resetAssigns()) a:ScAssign i {
@@ -70,9 +73,9 @@ class AddWorkoutChart {
         ; No target: these assign and stay, which is why typing does not
         ; re-enter `open`.
         def setDate:ScTransition (open.on("SET_TARGET_DATE" ""))
-        push setDate.assigns (ScAssign.of("targetDate" "value" ""))
+        push setDate.assigns (ScAssign.of("targetDate" (ScValue.event("date"))))
         def setText:ScTransition (open.on("SET_INPUT_TEXT" ""))
-        push setText.assigns (ScAssign.of("inputText" "value" ""))
+        push setText.assigns (ScAssign.of("inputText" (ScValue.event("text"))))
 
         open.on("START_SAVING" "saving")
 
@@ -84,7 +87,7 @@ class AddWorkoutChart {
         ; Back to `open` carrying the error, and the input is NOT cleared: a
         ; failed save that threw away what was typed would be a second failure.
         def failed:ScTransition (saving.on("ERROR" "open"))
-        push failed.assigns (ScAssign.of("error" "value" ""))
+        push failed.assigns (ScAssign.of("error" (ScValue.event("error"))))
 
         def abandoned:ScTransition (saving.on("CLOSE" "closed"))
         for (AddWorkoutChart.resetAssigns()) a3:ScAssign k {

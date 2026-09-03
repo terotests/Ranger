@@ -1,15 +1,77 @@
+class ScEvent  {
+  constructor() {
+    this.type = "";
+    this.keys = [];
+    this.values = [];
+  }
+  with (key, value) {
+    this.keys.push(key);
+    this.values.push(value);
+    return this;
+  };
+  get (key) {
+    for ( let i = 0; i < this.keys.length; i++) {
+      var k = this.keys[i];
+      if ( k == key ) {
+        return this.values[i];
+      }
+    };
+    return "";
+  };
+  has (key) {
+    for ( let i = 0; i < this.keys.length; i++) {
+      var k = this.keys[i];
+      if ( k == key ) {
+        return this.values[i].length > 0;
+      }
+    };
+    return false;
+  };
+}
+ScEvent.of = function(type) {
+  const e = new ScEvent();
+  e.type = type;
+  return e;
+};
+class ScValue  {
+  constructor() {
+    this.kind = "literal";
+    this.name = "";
+    this.parts = [];
+  }
+}
+ScValue.literal = function(text) {
+  const v = new ScValue();
+  v.kind = "literal";
+  v.name = text;
+  return v;
+};
+ScValue.event = function(field) {
+  const v = new ScValue();
+  v.kind = "event";
+  v.name = field;
+  return v;
+};
+ScValue.context = function(key) {
+  const v = new ScValue();
+  v.kind = "context";
+  v.name = key;
+  return v;
+};
+ScValue.either = function() {
+  const v = new ScValue();
+  v.kind = "or";
+  return v;
+};
 class ScAssign  {
   constructor() {
     this.key = "";
-    this.source = "literal";
-    this.literal = "";
   }
 }
-ScAssign.of = function(key, source, literal) {
+ScAssign.of = function(key, value) {
   const a = new ScAssign();
   a.key = key;
-  a.source = source;
-  a.literal = literal;
+  a.value = value;
   return a;
 };
 class ScTransition  {
@@ -107,30 +169,38 @@ class ScRunner  {
     };
     return "";
   };
-  send (event, value) {
+  resolve (value, event) {
+    if ( value.kind == "literal" ) {
+      return value.name;
+    }
+    if ( value.kind == "event" ) {
+      return event.get(value.name);
+    }
+    if ( value.kind == "context" ) {
+      return this.get(value.name);
+    }
+    if ( value.kind == "or" ) {
+      for ( let i = 0; i < value.parts.length; i++) {
+        var part = value.parts[i];
+        const answer = this.resolve(part, event);
+        if ( answer.length > 0 ) {
+          return answer;
+        }
+      };
+      return "";
+    }
+    return "";
+  };
+  send (event) {
     const c = this.chart;
     const here = c.stateNamed(this.state);
     for ( let i = 0; i < here.transitions.length; i++) {
       var t = here.transitions[i];
-      if ( t.event == event ) {
+      if ( t.event == event.type ) {
         for ( let j = 0; j < t.assigns.length; j++) {
           var a = t.assigns[j];
-          if ( a.source == "literal" ) {
-            this.set(a.key, a.literal);
-          }
-          if ( a.source == "value" ) {
-            this.set(a.key, value);
-          }
-          if ( a.source == "context" ) {
-            this.set(a.key, this.get(a.literal));
-          }
-          if ( a.source == "valueOrContext" ) {
-            if ( value.length > 0 ) {
-              this.set(a.key, value);
-            } else {
-              this.set(a.key, this.get(a.literal));
-            }
-          }
+          const v = a.value;
+          this.set(a.key, this.resolve(v, event));
         };
         if ( t.target.length > 0 ) {
           this.state = t.target;
@@ -139,6 +209,9 @@ class ScRunner  {
       }
     };
     return false;
+  };
+  sendType (type) {
+    return this.send(ScEvent.of(type));
   };
 }
 /**
@@ -1132,25 +1205,25 @@ class StatechartJson  {
   constructor() {
   }
 }
-StatechartJson.assignOf = function(key, spec) {
+StatechartJson.valueOf = function(spec) {
+  if ( spec.has("or") ) {
+    const either = ScValue.either();
+    const parts = spec.get("or");
+    const count = parts.count();
+    let i = 0;
+    while (i < count) {
+      either.parts.push(StatechartJson.valueOf(parts.at(i)));
+      i = i + 1;
+    };
+    return either;
+  }
   if ( spec.has("event") ) {
-    if ( spec.has("default") ) {
-      const fallback = spec.get("default");
-      if ( fallback.has("context") ) {
-        return ScAssign.of(
-          key,
-          "valueOrContext",
-          fallback.stringOr("context", "")
-        );
-      }
-      return ScAssign.of(key, "value", "");
-    }
-    return ScAssign.of(key, "value", "");
+    return ScValue.event(spec.stringOr("event", ""));
   }
   if ( spec.has("context") ) {
-    return ScAssign.of(key, "context", spec.stringOr("context", ""));
+    return ScValue.context(spec.stringOr("context", ""));
   }
-  return ScAssign.of(key, "literal", spec.stringOr("value", ""));
+  return ScValue.literal(spec.stringOr("value", ""));
 };
 StatechartJson.readActions = function(t, actions) {
   const count = actions.count();
@@ -1161,7 +1234,7 @@ StatechartJson.readActions = function(t, actions) {
       const assigns = action.get("assign");
       for ( let k = 0; k < assigns.keys.length; k++) {
         var key = assigns.keys[k];
-        t.assigns.push(StatechartJson.assignOf(key, assigns.get(key)));
+        t.assigns.push(ScAssign.of(key, StatechartJson.valueOf(assigns.get(key))));
       };
     }
     i = i + 1;
@@ -1206,6 +1279,8 @@ StatechartJson.load = function(text) {
   };
   return chart;
 };
+module.exports.ScEvent = ScEvent;
+module.exports.ScValue = ScValue;
 module.exports.ScAssign = ScAssign;
 module.exports.ScTransition = ScTransition;
 module.exports.ScState = ScState;

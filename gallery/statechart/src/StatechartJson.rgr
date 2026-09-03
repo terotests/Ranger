@@ -11,18 +11,17 @@
 ;
 ; What cannot come across as-is is `assign`. In XState it is a FUNCTION —
 ; `assign(({event}) => ({ targetDate: event.targetDate || today }))` — and a
-; function is not data. So assignments are written declaratively, one object
-; per key, in the four forms the ported machines actually use:
+; function is not data. So an assignment is a VALUE EXPRESSION, and the forms
+; are the general ones rather than one per machine:
 ;
-;   { "value": "x" }                              a literal
-;   { "event": "value" }                          the event's payload
-;   { "context": "today" }                        another context key
-;   { "event": "value", "default": {"context": "today"} }   payload, or that key
+;   { "value": "x" }                     a literal
+;   { "event": "targetDate" }            a named field of the event
+;   { "context": "today" }               a context key
+;   { "or": [ … ] }                      the first part that has anything
 ;
-; The last one is `event.targetDate || today` written down instead of run. That
-; is the whole gap between this and the original, and it is a small one: the
-; three machines being ported assign literals, event fields and context fields
-; and nothing else.
+; `{ "or": [ {"event":"targetDate"}, {"context":"today"} ] }` is
+; `event.targetDate || today` written down instead of run — and `or` is what
+; `||` is, not a special case for the machine that happened to need it first.
 ;
 ; `"on": { "EVENT": "stateName" }` is accepted as XState accepts it — the
 ; shorthand for a target with no actions.
@@ -36,26 +35,27 @@ class StatechartJson {
     Constructor () {
     }
 
-    ; One assignment descriptor → one ScAssign.
-    sfn assignOf:ScAssign (key:string spec:VlJson) {
-        if (spec.has("event")) {
-            if (spec.has("default")) {
-                def fallback:VlJson (spec.get("default"))
-                if (fallback.has("context")) {
-                    return (ScAssign.of(key "valueOrContext" (fallback.stringOr("context" ""))))
-                }
-                ; A literal fallback is the same shape with the literal in it,
-                ; and the runner has no form for it — a default that is not a
-                ; context key has not come up, and inventing one here would be
-                ; a feature with no machine behind it.
-                return (ScAssign.of(key "value" ""))
+    ; One value expression, read recursively — `or` holds expressions and one
+    ; of them may be an `or` in turn.
+    sfn valueOf:ScValue (spec:VlJson) {
+        if (spec.has("or")) {
+            def either:ScValue (ScValue.either())
+            def parts:VlJson (spec.get("or"))
+            def count:int (parts.count())
+            def i@(mutable):int 0
+            while (i < count) {
+                push either.parts (StatechartJson.valueOf((parts.at(i))))
+                i = (i + 1)
             }
-            return (ScAssign.of(key "value" ""))
+            return either
+        }
+        if (spec.has("event")) {
+            return (ScValue.event((spec.stringOr("event" ""))))
         }
         if (spec.has("context")) {
-            return (ScAssign.of(key "context" (spec.stringOr("context" ""))))
+            return (ScValue.context((spec.stringOr("context" ""))))
         }
-        return (ScAssign.of(key "literal" (spec.stringOr("value" ""))))
+        return (ScValue.literal((spec.stringOr("value" ""))))
     }
 
     sfn readActions:void (t:ScTransition actions:VlJson) {
@@ -66,7 +66,7 @@ class StatechartJson {
             if (action.has("assign")) {
                 def assigns:VlJson (action.get("assign"))
                 for assigns.keys key:string k {
-                    push t.assigns (StatechartJson.assignOf(key (assigns.get(key))))
+                    push t.assigns (ScAssign.of(key (StatechartJson.valueOf((assigns.get(key))))))
                 }
             }
             i = (i + 1)
