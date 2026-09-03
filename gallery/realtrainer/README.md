@@ -67,6 +67,13 @@ npm run rt:parser:check    # fail if the copy is stale  (CI)
 Three families so far — section, text, exercise. Every one that follows makes
 `match` demand an arm.
 
+A measured row — `Lankku|2x25s,24s`, what was done rather than what was planned —
+prints `25s, 24s`, and a set that measured zero is dropped rather than written as
+`0s`. Reading those numbers needed a change in the parser: they used to be JSON
+strings built during the parse. The parser is a copy, so the change was made
+upstream and re-synced, and it is written down in [PATCHES.md](PATCHES.md) —
+which is where every change this demo needs in someone else's source goes.
+
 ## What is the library's and what is the app's
 
 The point of this directory is that almost nothing here is a control. Seven of
@@ -170,6 +177,8 @@ the screenshots in `web/shots/` with `--png`.
 ```
 src/RealTrainerDemo.rgr   the app: four scenes, the clock, the hit routing
 src/CompactRows.rgr       COMPACT text → rows → the parts a row draws
+PATCHES.md                what this demo changed in the parser, and why
+patches/                  those changes as diffs, to apply upstream
 parser/                   the COMPACT v1 parser, vendored from its own repo
 fixtures/                 .compact input the checks read
 web/compact-check.mjs     the COMPACT layer, with no app around it

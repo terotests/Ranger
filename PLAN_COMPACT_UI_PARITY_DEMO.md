@@ -209,10 +209,17 @@ kannattaa tietää ennen kuin kirjoittaa 31 casea.
 !e`); `gallery/ui`:n idiomi on `if (e.hasSets == false)`. `!null?` toimii, koska se on oma
 operaattorinsa.
 
-**Mitatut kestot ovat AST:ssä JSON-merkkijonoja.** `ExerciseNode.measuredDurationJsonList:[string]`
-ja `partJsonList:[string]` — juuri se `RANGER_STYLE_REVIEW.md`:n havainto 2, jota ei ole vielä
-korjattu näiltä osin. `45s, 45s` -muotoilu vaatii siis joko JSON:n uudelleenparsinnan Rangerissa
-tai solmujen tyypittämisen upstreamissa. Jälkimmäinen on oikea korjaus ja kuuluu P2:een.
+**Mitatut kestot olivat AST:ssä JSON-merkkijonoja — korjattu.**
+`ExerciseNode.measuredDurationJsonList:[string]` → `measuredDurations:[MeasuredDurationNode]`
+(`RANGER_STYLE_REVIEW.md`:n havainto 2 sille solmuperheelle jota ei ollut vielä käyty läpi).
+Tuotettu JSON on tavulleen sama — todennettu parsimalla `MONSTER.compact`,
+`MINI_TRAINING_PLAN.compact` ja `sample.compact` vanhalla ja uudella parserilla ja vertaamalla
+`DocumentNode.toJSONString()`. `45s, 45s` renderöityy nyt suoraan luvuista. Korjaus tehtiin
+upstream-lähteeseen ja synkattiin; se odottaa vielä pushia yksityiseen repoon, ja on siihen asti
+kirjattuna `gallery/realtrainer/PATCHES.md`:hen ja diffinä `patches/`-hakemistoon.
+
+`partJsonList:[string]` on yhä merkkijonoja — sama korjaus, eri solmuperhe, ja se odottaa
+kunnes jokin näkymä tarvitsee sitä.
 
 **`rt:build` oli rikki ennestään.** `ProgressCtl.value` ja `maxValue` ovat `double`, ja demo
 sijoitti niihin int-literaaleja (`bar.maxValue = 100`) — kuusi sijoitusta, 12 käännösvirhettä,

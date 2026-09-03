@@ -48,8 +48,27 @@ class StatPart {
 ; case fields. A shape case is constructed positionally, so the fields that
 ; arrive one `if` at a time from the parser would be twenty-five arguments in a
 ; fixed order — which is a rename away from a silent bug.
+; One timed set as it was actually performed: `45s`, or `30s+30s` when the two
+; sides were timed apart. The parser hands these over typed now — until the
+; patch listed in PATCHES.md they were JSON strings, and a renderer that wanted
+; the number had to parse the parser's output back.
+class MeasuredSet {
+    def left@(mutable):int 0
+    def hasRight@(mutable):boolean false
+    def right@(mutable):int 0
+    def unit@(mutable):string "s"
+
+    Constructor () {
+    }
+}
+
 class ExerciseSpec {
     def name@(mutable):string ""
+
+    ; "measured" when the row records what was done rather than what was
+    ; planned — `Lankku|3x45s,45s,0s` is three sets that happened.
+    def specType@(mutable):string ""
+    def measured:[MeasuredSet]
 
     def hasSets@(mutable):boolean false
     def sets@(mutable):int 0
@@ -108,6 +127,72 @@ class CompactStatBuilder {
     Constructor () {
     }
 
+    ; `45s`, `2min`, `1min30s`. A minute unit stays in minutes; seconds roll up
+    ; once there is a whole minute in them.
+    sfn measuredValue:string (value:int unit:string) {
+        if (unit == "min") {
+            return ((to_string value) + "min")
+        }
+        if (value >= 60) {
+            def mins:int (to_int (value / 60))
+            def secs:int (value - (mins * 60))
+            if (secs > 0) {
+                return ((((to_string mins) + "min") + (to_string secs)) + "s")
+            }
+            return ((to_string mins) + "min")
+        }
+        return ((to_string value) + "s")
+    }
+
+    ; `45s, 45s` — a set that measured zero is dropped rather than printed,
+    ; because a zero is a set that was not done and not a set of no length.
+    sfn measuredText:string (e:ExerciseSpec) {
+        def items:[string]
+        for e.measured m:MeasuredSet i {
+            def left@(mutable):string ""
+            if (m.left > 0) {
+                left = (CompactStatBuilder.measuredValue(m.left m.unit))
+            }
+            def right@(mutable):string ""
+            if (m.hasRight) {
+                if (m.right > 0) {
+                    right = (CompactStatBuilder.measuredValue(m.right m.unit))
+                }
+            }
+            if ((strlen left) > 0) {
+                if ((strlen right) > 0) {
+                    push items ((left + "+") + right)
+                } {
+                    push items left
+                }
+            } {
+                if ((strlen right) > 0) {
+                    push items right
+                }
+            }
+        }
+        return (join items ", ")
+    }
+
+    ; The spelt-out recovery a measured row carries: `/ palautus 2-3min`. The
+    ; planned rows use the terse `/2-3min` instead — two spellings on purpose,
+    ; and both are the TypeScript library's.
+    sfn recoveryLabel:string (e:ExerciseSpec) {
+        if (e.hasRecovery == false) {
+            return ""
+        }
+        def unit:string e.recoveryUnit
+        if (unit == "sec") {
+            unit = "s"
+        }
+        if (e.hasRecoveryMax) {
+            if (e.recoveryMax != e.recoveryValue) {
+                return ((((("/ palautus " + (to_string e.recoveryValue)) + "-") + (to_string e.recoveryMax)) + unit))
+            }
+        }
+        return (("/ palautus " + (to_string e.recoveryValue)) + unit)
+    }
+
     ; `2-3` when a set range was given, `3` when it was not, and "" for a row
     ; with no set count at all.
     sfn setsText:string (e:ExerciseSpec) {
@@ -160,6 +245,19 @@ class CompactStatBuilder {
 
     sfn exerciseParts:[StatPart] (e:ExerciseSpec) {
         def out:[StatPart]
+
+        ; A measured row reports what happened, so it prints the times and not
+        ; the plan that produced them. First branch, as it is in the library.
+        if (e.specType == "measured") {
+            if ((array_length e.measured) > 0) {
+                push out (new StatPart((CompactStatBuilder.measuredText(e)) "default" "spec"))
+                def rec:string (CompactStatBuilder.recoveryLabel(e))
+                if ((strlen rec) > 0) {
+                    push out (new StatPart((" • " + rec) "muted" "recovery"))
+                }
+                return out
+            }
+        }
 
         ; A distance row reads as a distance, not as reps: `3x400m/2min` with
         ; the load hanging off the end.
@@ -304,6 +402,18 @@ class CompactRowMapper {
         e.hasRecoveryMax = node.hasRecoveryMax
         e.recoveryMax = node.recoveryMax
         e.recoveryUnit = node.recoveryUnit
+
+        if (node.hasSpecType) {
+            e.specType = node.specType
+        }
+        for node.measuredDurations md:MeasuredDurationNode i {
+            def m (new MeasuredSet)
+            m.left = md.left
+            m.hasRight = md.hasRight
+            m.right = md.right
+            m.unit = md.unit
+            push e.measured m
+        }
 
         if (node.hasNote) {
             e.note = node.note

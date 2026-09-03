@@ -65,7 +65,7 @@ ok("every row is a shape case", rows.every((r) => typeof r.__rg_kind === "string
 
 const kinds = rows.map((r) => r.__rg_kind.replace("CompactRow_", ""));
 ok("the rows arrive in the order they were written",
-   kinds.join(",") === "Section,Exercise,Exercise,Exercise,Section,Text",
+   kinds.join(",") === "Section,Exercise,Exercise,Exercise,Exercise,Exercise,Section,Text",
    kinds.join(","));
 
 const spec = (i) => CompactStatBuilder.text(rows[i]);
@@ -97,8 +97,20 @@ ok("a section heading is a row too",
    CompactStatBuilder.label(rows[0]) === "Pääosa",
    CompactStatBuilder.label(rows[0]));
 ok("free text survives the round trip",
-   spec(5) === "Hyvä fiilis, selkä kesti",
-   spec(5));
+   spec(7) === "Hyvä fiilis, selkä kesti",
+   spec(7));
+
+// A measured row reports what happened, so it prints the times and not the
+// plan that produced them — and a set that measured zero is a set that was not
+// done, so it is dropped rather than printed as `0s`. Both strings are what
+// the TypeScript library's own parity test asserts.
+ok("a measured row prints its times", spec(4) === "45s, 45s", spec(4));
+ok("a zero set is dropped, not printed", !spec(4).includes("0s"), spec(4));
+ok("the second measured row is its own", spec(5) === "25s, 24s", spec(5));
+ok("a measured row is one part", parts(4).length === 1, JSON.stringify(parts(4)));
+ok("and it is toned as spec",
+   parts(4)[0]?.tone === "default" && parts(4)[0]?.kind === "spec",
+   JSON.stringify(parts(4)[0]));
 
 console.log("");
 if (failed) {
