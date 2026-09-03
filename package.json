@@ -854,7 +854,15 @@
     "rt:page": "npm run rt:build --silent && node gallery/realtrainer/web/build.mjs",
     "rt:frame": "npm run rt:page --silent && node gallery/realtrainer/web/frame-check.mjs",
     "rt:shots": "npm run rt:page --silent && node gallery/realtrainer/web/frame-check.mjs --png gallery/realtrainer/web/shots/realtrainer.png",
-    "rt:web": "npm run rt:page --silent && node gallery/realtrainer/web/serve.mjs"
+    "rt:web": "npm run rt:page --silent && node gallery/realtrainer/web/serve.mjs",
+    "rt:ios": "bash gallery/realtrainer/ios/scripts/build-app.sh",
+    "rt:ios:run": "bash gallery/realtrainer/ios/scripts/build-app.sh --run",
+    "rt:ios:device": "bash gallery/realtrainer/ios/scripts/build-app.sh --target=ios-device --run",
+    "rt:ios:device:console": "bash gallery/realtrainer/ios/scripts/build-app.sh --target=ios-device --run --console",
+    "rt:ios:check": "bash gallery/realtrainer/ios/scripts/build-app.sh --check",
+    "rt:ios:plan": "bash gallery/realtrainer/ios/scripts/build-app.sh --dry-run",
+    "rt:ios:verify": "bash gallery/realtrainer/ios/scripts/verify.sh",
+    "rt:ios:swift": "bash gallery/realtrainer/ios/scripts/build-ranger.sh"
   },
   "repository": {
     "type": "git",

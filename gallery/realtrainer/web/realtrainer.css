@@ -701,6 +701,7 @@
 }
 
 .ui-checkbox:hover { background-color: #16233a; }
+.ui-checkbox:active { background-color: #24344a; }
 .ui-checkbox-state-checked {
   border-color: #2563eb;
   background-color: #16335c;
@@ -787,7 +788,14 @@
   transition: background-color 160ms ease-out;
 }
 
+/* A press has to SHOW, and on a touch screen it is the only feedback there is:
+ * a finger has no hover, so between it landing and it lifting a control with
+ * only a `:hover` rule does not move at all. On a mouse the hover arrives
+ * before the click and hides that; on a phone it reads as the app being slow
+ * to answer. Every control the hit test can reach therefore has an `:active`,
+ * and `check_rt_ios.rgr` asserts it. */
 .ui-tab:hover { background: linear-gradient(180deg, #1d2937, #1d2937); }
+.ui-tab:active { background: linear-gradient(180deg, #2b3b52, #2b3b52); }
 .ui-tab-state-active {
   background: linear-gradient(180deg, #2563eb, #1d4ed8);
   color: #ffffff;
@@ -828,6 +836,7 @@
 }
 
 .ui-toggle:hover { background-color: #16233a; }
+.ui-toggle:active { background-color: #24344a; }
 .ui-toggle-state-on {
   border-color: #2563eb;
   background-color: #16335c;
@@ -870,6 +879,7 @@
 }
 
 .ui-accordion-trigger:hover { background: linear-gradient(180deg, #1d2937, #1d2937); }
+.ui-accordion-trigger:active { background: linear-gradient(180deg, #2b3b52, #2b3b52); }
 .ui-accordion-trigger-state-open {
   background: linear-gradient(180deg, #1b2b41, #14202f);
   color: #ffffff;
@@ -949,6 +959,7 @@
 }
 
 .rt-quit:hover { background-color: #1d2937; }
+.rt-quit:active { background-color: #2b3b52; }
 
 .rt-quit-text {
   color: #94a3b8;

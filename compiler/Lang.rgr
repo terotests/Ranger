@@ -5590,7 +5590,83 @@ std::vector<std::string> r_str_split(const std::string& data, const std::string&
                 java7 ( (e 1) ".length()") 
                 scala ( (e 1) ".length()")  
                 swift3 ( (e 1) ".characters.count")  
-                swift6 ( (e 1) ".count")  
+                swift6 ( "r_strlen(" (e 1) ")"
+(create_polyfill "
+// Ranger's string is a sequence of UTF-16 CODE UNITS, indexed in O(1). That is
+// what `charAt`, `strlen` and `substring` mean on JavaScript, Kotlin, Java and
+// C#, and every scan EVG writes -- `while (i < (strlen s)) { charAt s i }` --
+// assumes it.
+//
+// Swift's String indexes by GRAPHEME CLUSTER instead, and every such operation
+// walks from startIndex, so those linear scans became quadratic: parsing a
+// 28 KB stylesheet walked 1.25 BILLION characters where Kotlin read 84 000,
+// and one frame of the page walked 4.6 million where Kotlin read 68 000.
+//
+// The UTF-16 view is both the model the other targets use and the one the
+// standard library keeps breadcrumbs for -- it exists so NSString bridging can
+// offset in amortised constant time -- so this is the faster answer AND the
+// more consistent one.
+func r_utf16(_ s: String) -> String.UTF16View { s.utf16 }
+
+func r_strlen(_ s: String) -> Int { s.utf16.count }
+
+func r_char_at(_ s: String, _ at: Int) -> Int {
+    if at < 0 { return 0 }
+    let u = s.utf16
+    if at >= u.count { return 0 }
+    return Int(u[u.index(u.startIndex, offsetBy: at)])
+}
+
+func r_substring(_ s: String, _ from: Int, _ to: Int) -> String {
+    let u = s.utf16
+    let n = u.count
+    var a = from < 0 ? 0 : from
+    var b = to > n ? n : to
+    if a > n { a = n }
+    if b < a { b = a }
+    let lo = u.index(u.startIndex, offsetBy: a)
+    let hi = u.index(u.startIndex, offsetBy: b)
+    return String(decoding: Array(u[lo..<hi]), as: UTF16.self)
+}
+
+// An index answered in UTF-16 units, so it can be fed straight back to
+// r_char_at and r_substring.
+func r_index_of(_ s: String, _ needle: String, _ from: Int) -> Int {
+    let u = s.utf16
+    let n = u.count
+    let m = needle.utf16.count
+    if m == 0 { return from <= n ? max(from, 0) : -1 }
+    if m > n { return -1 }
+    let hay = Array(u)
+    let pin = Array(needle.utf16)
+    var i = from < 0 ? 0 : from
+    while i + m <= n {
+        var k = 0
+        while k < m && hay[i + k] == pin[k] { k += 1 }
+        if k == m { return i }
+        i += 1
+    }
+    return -1
+}
+
+func r_last_index_of(_ s: String, _ needle: String) -> Int {
+    let hay = Array(s.utf16)
+    let pin = Array(needle.utf16)
+    let n = hay.count
+    let m = pin.count
+    if m == 0 { return n }
+    if m > n { return -1 }
+    var i = n - m
+    while i >= 0 {
+        var k = 0
+        while k < m && hay[i + k] == pin[k] { k += 1 }
+        if k == m { return i }
+        i -= 1
+    }
+    return -1
+}
+")
+                )
                 csharp ( (e 1) ".Length")
                 php ( "strlen(" (e 1) ")") 
                 go ( "int64(len([]rune(" (e 1) ")))")
@@ -6461,7 +6537,83 @@ std::string r_utf8_char_at(const std::string& str, int pos_i)
                 go ( "string([]rune(" (e 1) ")[" (e 2) "])")  
 
                 swift3 ( (imp 'Foundation') (e 1) "[" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 2) ")..<" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 2) " + 1)]" )
-                swift6 ( "String(" (e 1) "[" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 2) ")])" )
+                swift6 ( "r_substring(" (e 1) ", " (e 2) ", (" (e 2) ") + 1)"
+(create_polyfill "
+// Ranger's string is a sequence of UTF-16 CODE UNITS, indexed in O(1). That is
+// what `charAt`, `strlen` and `substring` mean on JavaScript, Kotlin, Java and
+// C#, and every scan EVG writes -- `while (i < (strlen s)) { charAt s i }` --
+// assumes it.
+//
+// Swift's String indexes by GRAPHEME CLUSTER instead, and every such operation
+// walks from startIndex, so those linear scans became quadratic: parsing a
+// 28 KB stylesheet walked 1.25 BILLION characters where Kotlin read 84 000,
+// and one frame of the page walked 4.6 million where Kotlin read 68 000.
+//
+// The UTF-16 view is both the model the other targets use and the one the
+// standard library keeps breadcrumbs for -- it exists so NSString bridging can
+// offset in amortised constant time -- so this is the faster answer AND the
+// more consistent one.
+func r_utf16(_ s: String) -> String.UTF16View { s.utf16 }
+
+func r_strlen(_ s: String) -> Int { s.utf16.count }
+
+func r_char_at(_ s: String, _ at: Int) -> Int {
+    if at < 0 { return 0 }
+    let u = s.utf16
+    if at >= u.count { return 0 }
+    return Int(u[u.index(u.startIndex, offsetBy: at)])
+}
+
+func r_substring(_ s: String, _ from: Int, _ to: Int) -> String {
+    let u = s.utf16
+    let n = u.count
+    var a = from < 0 ? 0 : from
+    var b = to > n ? n : to
+    if a > n { a = n }
+    if b < a { b = a }
+    let lo = u.index(u.startIndex, offsetBy: a)
+    let hi = u.index(u.startIndex, offsetBy: b)
+    return String(decoding: Array(u[lo..<hi]), as: UTF16.self)
+}
+
+// An index answered in UTF-16 units, so it can be fed straight back to
+// r_char_at and r_substring.
+func r_index_of(_ s: String, _ needle: String, _ from: Int) -> Int {
+    let u = s.utf16
+    let n = u.count
+    let m = needle.utf16.count
+    if m == 0 { return from <= n ? max(from, 0) : -1 }
+    if m > n { return -1 }
+    let hay = Array(u)
+    let pin = Array(needle.utf16)
+    var i = from < 0 ? 0 : from
+    while i + m <= n {
+        var k = 0
+        while k < m && hay[i + k] == pin[k] { k += 1 }
+        if k == m { return i }
+        i += 1
+    }
+    return -1
+}
+
+func r_last_index_of(_ s: String, _ needle: String) -> Int {
+    let hay = Array(s.utf16)
+    let pin = Array(needle.utf16)
+    let n = hay.count
+    let m = pin.count
+    if m == 0 { return n }
+    if m > n { return -1 }
+    var i = n - m
+    while i >= 0 {
+        var k = 0
+        while k < m && hay[i + k] == pin[k] { k += 1 }
+        if k == m { return i }
+        i -= 1
+    }
+    return -1
+}
+")
+                )
                 
                 ; swift3 ( 'Int( ( NSString(string: ' (e 1) ' ) ).character( at: ' (e 2) ' ) )')
                 ; swift3 ( (imp 'Foundation')  (e 1) '.substring(from: ' (e 1) '.index(' (e 1) '.startIndex, offsetBy: ' (e 2) ' + 1), to: ' (e 1) '.index(' (e 1) '.startIndex, offsetBy: ' (e 2) ' + 1))')    
@@ -6495,19 +6647,78 @@ std::string r_utf8_char_at(const std::string& str, int pos_i)
                 ; type checker over its budget.
                 swift6 ( "r_char_at(" (e 1) ", " (e 2) ")"
 (create_polyfill "
+// Ranger's string is a sequence of UTF-16 CODE UNITS, indexed in O(1). That is
+// what `charAt`, `strlen` and `substring` mean on JavaScript, Kotlin, Java and
+// C#, and every scan EVG writes -- `while (i < (strlen s)) { charAt s i }` --
+// assumes it.
+//
+// Swift's String indexes by GRAPHEME CLUSTER instead, and every such operation
+// walks from startIndex, so those linear scans became quadratic: parsing a
+// 28 KB stylesheet walked 1.25 BILLION characters where Kotlin read 84 000,
+// and one frame of the page walked 4.6 million where Kotlin read 68 000.
+//
+// The UTF-16 view is both the model the other targets use and the one the
+// standard library keeps breadcrumbs for -- it exists so NSString bridging can
+// offset in amortised constant time -- so this is the faster answer AND the
+// more consistent one.
+func r_utf16(_ s: String) -> String.UTF16View { s.utf16 }
+
+func r_strlen(_ s: String) -> Int { s.utf16.count }
+
 func r_char_at(_ s: String, _ at: Int) -> Int {
-    // One walk, not two: `s.count` and `index(offsetBy:)` are each O(n) on a
-    // String, and a scanner calls this once per character.
     if at < 0 { return 0 }
-    var i = s.startIndex
-    var seen = 0
-    while seen < at {
-        if i == s.endIndex { return 0 }
-        i = s.index(after: i)
-        seen += 1
+    let u = s.utf16
+    if at >= u.count { return 0 }
+    return Int(u[u.index(u.startIndex, offsetBy: at)])
+}
+
+func r_substring(_ s: String, _ from: Int, _ to: Int) -> String {
+    let u = s.utf16
+    let n = u.count
+    var a = from < 0 ? 0 : from
+    var b = to > n ? n : to
+    if a > n { a = n }
+    if b < a { b = a }
+    let lo = u.index(u.startIndex, offsetBy: a)
+    let hi = u.index(u.startIndex, offsetBy: b)
+    return String(decoding: Array(u[lo..<hi]), as: UTF16.self)
+}
+
+// An index answered in UTF-16 units, so it can be fed straight back to
+// r_char_at and r_substring.
+func r_index_of(_ s: String, _ needle: String, _ from: Int) -> Int {
+    let u = s.utf16
+    let n = u.count
+    let m = needle.utf16.count
+    if m == 0 { return from <= n ? max(from, 0) : -1 }
+    if m > n { return -1 }
+    let hay = Array(u)
+    let pin = Array(needle.utf16)
+    var i = from < 0 ? 0 : from
+    while i + m <= n {
+        var k = 0
+        while k < m && hay[i + k] == pin[k] { k += 1 }
+        if k == m { return i }
+        i += 1
     }
-    if i == s.endIndex { return 0 }
-    return Int(s[i].asciiValue ?? 0)
+    return -1
+}
+
+func r_last_index_of(_ s: String, _ needle: String) -> Int {
+    let hay = Array(s.utf16)
+    let pin = Array(needle.utf16)
+    let n = hay.count
+    let m = pin.count
+    if m == 0 { return n }
+    if m > n { return -1 }
+    var i = n - m
+    while i >= 0 {
+        var k = 0
+        while k < m && hay[i + k] == pin[k] { k += 1 }
+        if k == m { return i }
+        i -= 1
+    }
+    return -1
 }
 ")
                 )
@@ -6611,7 +6822,83 @@ std::vector<std::string> r_get_keys_of_map( const M & orig_map )  {
                 php ( "substr(" (e 1) ", " (e 2) ", " (e 3) " - " (e 2) ")")    
                 go ( "string([]rune(" (e 1) ")[" (e 2) ":" (e 3) "])")               
                 swift3 ( (e 1) "[" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 2) ")..<" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 3) ")]" )
-                swift6 ( "String(" (e 1) "[" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 2) ")..<" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 3) ")])" )
+                swift6 ( "r_substring(" (e 1) ", " (e 2) ", " (e 3) ")"
+(create_polyfill "
+// Ranger's string is a sequence of UTF-16 CODE UNITS, indexed in O(1). That is
+// what `charAt`, `strlen` and `substring` mean on JavaScript, Kotlin, Java and
+// C#, and every scan EVG writes -- `while (i < (strlen s)) { charAt s i }` --
+// assumes it.
+//
+// Swift's String indexes by GRAPHEME CLUSTER instead, and every such operation
+// walks from startIndex, so those linear scans became quadratic: parsing a
+// 28 KB stylesheet walked 1.25 BILLION characters where Kotlin read 84 000,
+// and one frame of the page walked 4.6 million where Kotlin read 68 000.
+//
+// The UTF-16 view is both the model the other targets use and the one the
+// standard library keeps breadcrumbs for -- it exists so NSString bridging can
+// offset in amortised constant time -- so this is the faster answer AND the
+// more consistent one.
+func r_utf16(_ s: String) -> String.UTF16View { s.utf16 }
+
+func r_strlen(_ s: String) -> Int { s.utf16.count }
+
+func r_char_at(_ s: String, _ at: Int) -> Int {
+    if at < 0 { return 0 }
+    let u = s.utf16
+    if at >= u.count { return 0 }
+    return Int(u[u.index(u.startIndex, offsetBy: at)])
+}
+
+func r_substring(_ s: String, _ from: Int, _ to: Int) -> String {
+    let u = s.utf16
+    let n = u.count
+    var a = from < 0 ? 0 : from
+    var b = to > n ? n : to
+    if a > n { a = n }
+    if b < a { b = a }
+    let lo = u.index(u.startIndex, offsetBy: a)
+    let hi = u.index(u.startIndex, offsetBy: b)
+    return String(decoding: Array(u[lo..<hi]), as: UTF16.self)
+}
+
+// An index answered in UTF-16 units, so it can be fed straight back to
+// r_char_at and r_substring.
+func r_index_of(_ s: String, _ needle: String, _ from: Int) -> Int {
+    let u = s.utf16
+    let n = u.count
+    let m = needle.utf16.count
+    if m == 0 { return from <= n ? max(from, 0) : -1 }
+    if m > n { return -1 }
+    let hay = Array(u)
+    let pin = Array(needle.utf16)
+    var i = from < 0 ? 0 : from
+    while i + m <= n {
+        var k = 0
+        while k < m && hay[i + k] == pin[k] { k += 1 }
+        if k == m { return i }
+        i += 1
+    }
+    return -1
+}
+
+func r_last_index_of(_ s: String, _ needle: String) -> Int {
+    let hay = Array(s.utf16)
+    let pin = Array(needle.utf16)
+    let n = hay.count
+    let m = pin.count
+    if m == 0 { return n }
+    if m > n { return -1 }
+    var i = n - m
+    while i >= 0 {
+        var k = 0
+        while k < m && hay[i + k] == pin[k] { k += 1 }
+        if k == m { return i }
+        i -= 1
+    }
+    return -1
+}
+")
+                )
                 python ( (e 1) "[" (e 2) ":" (e 3) "]" )
                 rust ( (custom _) )
                 * ( (e 1) ".substring(" (e 2) ", " (e 3) " )")
@@ -6700,7 +6987,83 @@ public static class RgUtf8 {
                 ; a Swift Character is a grapheme cluster, which is the closest
                 ; thing the language offers and matches its own substring
                 swift3 ( (e 1) "[" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 2) ")..<" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 3) ")]" )
-                swift6 ( "String(" (e 1) "[" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 2) ")..<" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 3) ")])" )
+                swift6 ( "r_substring(" (e 1) ", " (e 2) ", " (e 3) ")"
+(create_polyfill "
+// Ranger's string is a sequence of UTF-16 CODE UNITS, indexed in O(1). That is
+// what `charAt`, `strlen` and `substring` mean on JavaScript, Kotlin, Java and
+// C#, and every scan EVG writes -- `while (i < (strlen s)) { charAt s i }` --
+// assumes it.
+//
+// Swift's String indexes by GRAPHEME CLUSTER instead, and every such operation
+// walks from startIndex, so those linear scans became quadratic: parsing a
+// 28 KB stylesheet walked 1.25 BILLION characters where Kotlin read 84 000,
+// and one frame of the page walked 4.6 million where Kotlin read 68 000.
+//
+// The UTF-16 view is both the model the other targets use and the one the
+// standard library keeps breadcrumbs for -- it exists so NSString bridging can
+// offset in amortised constant time -- so this is the faster answer AND the
+// more consistent one.
+func r_utf16(_ s: String) -> String.UTF16View { s.utf16 }
+
+func r_strlen(_ s: String) -> Int { s.utf16.count }
+
+func r_char_at(_ s: String, _ at: Int) -> Int {
+    if at < 0 { return 0 }
+    let u = s.utf16
+    if at >= u.count { return 0 }
+    return Int(u[u.index(u.startIndex, offsetBy: at)])
+}
+
+func r_substring(_ s: String, _ from: Int, _ to: Int) -> String {
+    let u = s.utf16
+    let n = u.count
+    var a = from < 0 ? 0 : from
+    var b = to > n ? n : to
+    if a > n { a = n }
+    if b < a { b = a }
+    let lo = u.index(u.startIndex, offsetBy: a)
+    let hi = u.index(u.startIndex, offsetBy: b)
+    return String(decoding: Array(u[lo..<hi]), as: UTF16.self)
+}
+
+// An index answered in UTF-16 units, so it can be fed straight back to
+// r_char_at and r_substring.
+func r_index_of(_ s: String, _ needle: String, _ from: Int) -> Int {
+    let u = s.utf16
+    let n = u.count
+    let m = needle.utf16.count
+    if m == 0 { return from <= n ? max(from, 0) : -1 }
+    if m > n { return -1 }
+    let hay = Array(u)
+    let pin = Array(needle.utf16)
+    var i = from < 0 ? 0 : from
+    while i + m <= n {
+        var k = 0
+        while k < m && hay[i + k] == pin[k] { k += 1 }
+        if k == m { return i }
+        i += 1
+    }
+    return -1
+}
+
+func r_last_index_of(_ s: String, _ needle: String) -> Int {
+    let hay = Array(s.utf16)
+    let pin = Array(needle.utf16)
+    let n = hay.count
+    let m = pin.count
+    if m == 0 { return n }
+    if m > n { return -1 }
+    var i = n - m
+    while i >= 0 {
+        var k = 0
+        while k < m && hay[i + k] == pin[k] { k += 1 }
+        if k == m { return i }
+        i -= 1
+    }
+    return -1
+}
+")
+                )
                 ; Array.from splits on code points, not on UTF-16 units
                 * ( "Array.from(" (e 1) ").slice(" (e 2) ", " (e 3) ").join('')" )
             }
@@ -6719,7 +7082,83 @@ public static class RgUtf8 {
                 java7 ( "((" (e 1) ".getBytes())[0])") 
                 swift3 ( "UInt8( (  NSString(string: " (e 1) " )     ).character( at: 0 ) )" (imp "Foundation"))
                 swift3 ( "UInt8( String( " (e 1) ".characters[" (e 1) ".startIndex]))! ")
-                swift6 ( "Int(" (e 1) ".utf8.first ?? 0)" )
+                swift6 ( "r_char_at(" (e 1) ", 0)"
+(create_polyfill "
+// Ranger's string is a sequence of UTF-16 CODE UNITS, indexed in O(1). That is
+// what `charAt`, `strlen` and `substring` mean on JavaScript, Kotlin, Java and
+// C#, and every scan EVG writes -- `while (i < (strlen s)) { charAt s i }` --
+// assumes it.
+//
+// Swift's String indexes by GRAPHEME CLUSTER instead, and every such operation
+// walks from startIndex, so those linear scans became quadratic: parsing a
+// 28 KB stylesheet walked 1.25 BILLION characters where Kotlin read 84 000,
+// and one frame of the page walked 4.6 million where Kotlin read 68 000.
+//
+// The UTF-16 view is both the model the other targets use and the one the
+// standard library keeps breadcrumbs for -- it exists so NSString bridging can
+// offset in amortised constant time -- so this is the faster answer AND the
+// more consistent one.
+func r_utf16(_ s: String) -> String.UTF16View { s.utf16 }
+
+func r_strlen(_ s: String) -> Int { s.utf16.count }
+
+func r_char_at(_ s: String, _ at: Int) -> Int {
+    if at < 0 { return 0 }
+    let u = s.utf16
+    if at >= u.count { return 0 }
+    return Int(u[u.index(u.startIndex, offsetBy: at)])
+}
+
+func r_substring(_ s: String, _ from: Int, _ to: Int) -> String {
+    let u = s.utf16
+    let n = u.count
+    var a = from < 0 ? 0 : from
+    var b = to > n ? n : to
+    if a > n { a = n }
+    if b < a { b = a }
+    let lo = u.index(u.startIndex, offsetBy: a)
+    let hi = u.index(u.startIndex, offsetBy: b)
+    return String(decoding: Array(u[lo..<hi]), as: UTF16.self)
+}
+
+// An index answered in UTF-16 units, so it can be fed straight back to
+// r_char_at and r_substring.
+func r_index_of(_ s: String, _ needle: String, _ from: Int) -> Int {
+    let u = s.utf16
+    let n = u.count
+    let m = needle.utf16.count
+    if m == 0 { return from <= n ? max(from, 0) : -1 }
+    if m > n { return -1 }
+    let hay = Array(u)
+    let pin = Array(needle.utf16)
+    var i = from < 0 ? 0 : from
+    while i + m <= n {
+        var k = 0
+        while k < m && hay[i + k] == pin[k] { k += 1 }
+        if k == m { return i }
+        i += 1
+    }
+    return -1
+}
+
+func r_last_index_of(_ s: String, _ needle: String) -> Int {
+    let hay = Array(s.utf16)
+    let pin = Array(needle.utf16)
+    let n = hay.count
+    let m = pin.count
+    if m == 0 { return n }
+    if m > n { return -1 }
+    var i = n - m
+    while i >= 0 {
+        var k = 0
+        while k < m && hay[i + k] == pin[k] { k += 1 }
+        if k == m { return i }
+        i -= 1
+    }
+    return -1
+}
+")
+                )
                 python ( "ord(" (e 1) "[0])" )
                 kotlin ( (e 1) "[0].code" )
                 csharp ( "(byte)(" (e 1) "[0])" )
@@ -7679,7 +8118,83 @@ i "}" nl ))
                 dart ( (e 1) ".indexOf(" (e 2) ")" )
                 python ( (e 1) ".find(" (e 2) ")" )
                 swift3 ( (e 1) ".range(of:" (e 2) ")?.lowerBound.encodedOffset ?? -1" )
-                swift6 ( "(" (e 1) ".range(of:" (e 2) ").map { " (e 1) ".distance(from: " (e 1) ".startIndex, to: $0.lowerBound) } ?? -1)" )
+                swift6 ( "r_index_of(" (e 1) ", " (e 2) ", 0)"
+(create_polyfill "
+// Ranger's string is a sequence of UTF-16 CODE UNITS, indexed in O(1). That is
+// what `charAt`, `strlen` and `substring` mean on JavaScript, Kotlin, Java and
+// C#, and every scan EVG writes -- `while (i < (strlen s)) { charAt s i }` --
+// assumes it.
+//
+// Swift's String indexes by GRAPHEME CLUSTER instead, and every such operation
+// walks from startIndex, so those linear scans became quadratic: parsing a
+// 28 KB stylesheet walked 1.25 BILLION characters where Kotlin read 84 000,
+// and one frame of the page walked 4.6 million where Kotlin read 68 000.
+//
+// The UTF-16 view is both the model the other targets use and the one the
+// standard library keeps breadcrumbs for -- it exists so NSString bridging can
+// offset in amortised constant time -- so this is the faster answer AND the
+// more consistent one.
+func r_utf16(_ s: String) -> String.UTF16View { s.utf16 }
+
+func r_strlen(_ s: String) -> Int { s.utf16.count }
+
+func r_char_at(_ s: String, _ at: Int) -> Int {
+    if at < 0 { return 0 }
+    let u = s.utf16
+    if at >= u.count { return 0 }
+    return Int(u[u.index(u.startIndex, offsetBy: at)])
+}
+
+func r_substring(_ s: String, _ from: Int, _ to: Int) -> String {
+    let u = s.utf16
+    let n = u.count
+    var a = from < 0 ? 0 : from
+    var b = to > n ? n : to
+    if a > n { a = n }
+    if b < a { b = a }
+    let lo = u.index(u.startIndex, offsetBy: a)
+    let hi = u.index(u.startIndex, offsetBy: b)
+    return String(decoding: Array(u[lo..<hi]), as: UTF16.self)
+}
+
+// An index answered in UTF-16 units, so it can be fed straight back to
+// r_char_at and r_substring.
+func r_index_of(_ s: String, _ needle: String, _ from: Int) -> Int {
+    let u = s.utf16
+    let n = u.count
+    let m = needle.utf16.count
+    if m == 0 { return from <= n ? max(from, 0) : -1 }
+    if m > n { return -1 }
+    let hay = Array(u)
+    let pin = Array(needle.utf16)
+    var i = from < 0 ? 0 : from
+    while i + m <= n {
+        var k = 0
+        while k < m && hay[i + k] == pin[k] { k += 1 }
+        if k == m { return i }
+        i += 1
+    }
+    return -1
+}
+
+func r_last_index_of(_ s: String, _ needle: String) -> Int {
+    let hay = Array(s.utf16)
+    let pin = Array(needle.utf16)
+    let n = hay.count
+    let m = pin.count
+    if m == 0 { return n }
+    if m > n { return -1 }
+    var i = n - m
+    while i >= 0 {
+        var k = 0
+        while k < m && hay[i + k] == pin[k] { k += 1 }
+        if k == m { return i }
+        i -= 1
+    }
+    return -1
+}
+")
+                )
                 cpp (
                     "r_string_index_of(" (e 1) " , " (e 2) ")"
 (create_polyfill
@@ -7709,7 +8224,83 @@ int r_string_index_of( const std::string& str, const std::string& key )  {
                 java7 ( (e 1) ".indexOf(" (e 2 ) ", (int)" (e 3) ")" )
                 python ( (e 1) ".find(" (e 2) ", " (e 3) ")" )
                 swift3 ( "(" (e 1) ".range(of:" (e 2) ", range: " (e 1) ".index(" (e 1) ".startIndex, offsetBy: " (e 3) ")..<" (e 1) ".endIndex).map { " (e 1) ".distance(from: " (e 1) ".startIndex, to: $0.lowerBound) } ?? -1)" )
-                swift6 ( "(" (e 1) ".range(of:" (e 2) ", range: " (e 1) ".index(" (e 1) ".startIndex, offsetBy: " (e 3) ")..<" (e 1) ".endIndex).map { " (e 1) ".distance(from: " (e 1) ".startIndex, to: $0.lowerBound) } ?? -1)" )
+                swift6 ( "r_index_of(" (e 1) ", " (e 2) ", " (e 3) ")"
+(create_polyfill "
+// Ranger's string is a sequence of UTF-16 CODE UNITS, indexed in O(1). That is
+// what `charAt`, `strlen` and `substring` mean on JavaScript, Kotlin, Java and
+// C#, and every scan EVG writes -- `while (i < (strlen s)) { charAt s i }` --
+// assumes it.
+//
+// Swift's String indexes by GRAPHEME CLUSTER instead, and every such operation
+// walks from startIndex, so those linear scans became quadratic: parsing a
+// 28 KB stylesheet walked 1.25 BILLION characters where Kotlin read 84 000,
+// and one frame of the page walked 4.6 million where Kotlin read 68 000.
+//
+// The UTF-16 view is both the model the other targets use and the one the
+// standard library keeps breadcrumbs for -- it exists so NSString bridging can
+// offset in amortised constant time -- so this is the faster answer AND the
+// more consistent one.
+func r_utf16(_ s: String) -> String.UTF16View { s.utf16 }
+
+func r_strlen(_ s: String) -> Int { s.utf16.count }
+
+func r_char_at(_ s: String, _ at: Int) -> Int {
+    if at < 0 { return 0 }
+    let u = s.utf16
+    if at >= u.count { return 0 }
+    return Int(u[u.index(u.startIndex, offsetBy: at)])
+}
+
+func r_substring(_ s: String, _ from: Int, _ to: Int) -> String {
+    let u = s.utf16
+    let n = u.count
+    var a = from < 0 ? 0 : from
+    var b = to > n ? n : to
+    if a > n { a = n }
+    if b < a { b = a }
+    let lo = u.index(u.startIndex, offsetBy: a)
+    let hi = u.index(u.startIndex, offsetBy: b)
+    return String(decoding: Array(u[lo..<hi]), as: UTF16.self)
+}
+
+// An index answered in UTF-16 units, so it can be fed straight back to
+// r_char_at and r_substring.
+func r_index_of(_ s: String, _ needle: String, _ from: Int) -> Int {
+    let u = s.utf16
+    let n = u.count
+    let m = needle.utf16.count
+    if m == 0 { return from <= n ? max(from, 0) : -1 }
+    if m > n { return -1 }
+    let hay = Array(u)
+    let pin = Array(needle.utf16)
+    var i = from < 0 ? 0 : from
+    while i + m <= n {
+        var k = 0
+        while k < m && hay[i + k] == pin[k] { k += 1 }
+        if k == m { return i }
+        i += 1
+    }
+    return -1
+}
+
+func r_last_index_of(_ s: String, _ needle: String) -> Int {
+    let hay = Array(s.utf16)
+    let pin = Array(needle.utf16)
+    let n = hay.count
+    let m = pin.count
+    if m == 0 { return n }
+    if m > n { return -1 }
+    var i = n - m
+    while i >= 0 {
+        var k = 0
+        while k < m && hay[i + k] == pin[k] { k += 1 }
+        if k == m { return i }
+        i -= 1
+    }
+    return -1
+}
+")
+                )
                 cpp (
                     "r_string_index_of_from(" (e 1) " , " (e 2) ", " (e 3) ")"
 (create_polyfill
@@ -7741,7 +8332,83 @@ int r_string_index_of_from( const std::string& str, const std::string& key, int 
                 python ( (e 1) ".rfind(" (e 2) ")" )
                 go ( "int64(strings.LastIndex(" (e 1) ", " (e 2) "))" (imp "strings"))
                 swift3 ( "(" (e 1) ".range(of:" (e 2) ", options: .backwards).map { " (e 1) ".distance(from: " (e 1) ".startIndex, to: $0.lowerBound) } ?? -1)" )
-                swift6 ( "(" (e 1) ".range(of:" (e 2) ", options: .backwards).map { " (e 1) ".distance(from: " (e 1) ".startIndex, to: $0.lowerBound) } ?? -1)" )
+                swift6 ( "r_last_index_of(" (e 1) ", " (e 2) ")"
+(create_polyfill "
+// Ranger's string is a sequence of UTF-16 CODE UNITS, indexed in O(1). That is
+// what `charAt`, `strlen` and `substring` mean on JavaScript, Kotlin, Java and
+// C#, and every scan EVG writes -- `while (i < (strlen s)) { charAt s i }` --
+// assumes it.
+//
+// Swift's String indexes by GRAPHEME CLUSTER instead, and every such operation
+// walks from startIndex, so those linear scans became quadratic: parsing a
+// 28 KB stylesheet walked 1.25 BILLION characters where Kotlin read 84 000,
+// and one frame of the page walked 4.6 million where Kotlin read 68 000.
+//
+// The UTF-16 view is both the model the other targets use and the one the
+// standard library keeps breadcrumbs for -- it exists so NSString bridging can
+// offset in amortised constant time -- so this is the faster answer AND the
+// more consistent one.
+func r_utf16(_ s: String) -> String.UTF16View { s.utf16 }
+
+func r_strlen(_ s: String) -> Int { s.utf16.count }
+
+func r_char_at(_ s: String, _ at: Int) -> Int {
+    if at < 0 { return 0 }
+    let u = s.utf16
+    if at >= u.count { return 0 }
+    return Int(u[u.index(u.startIndex, offsetBy: at)])
+}
+
+func r_substring(_ s: String, _ from: Int, _ to: Int) -> String {
+    let u = s.utf16
+    let n = u.count
+    var a = from < 0 ? 0 : from
+    var b = to > n ? n : to
+    if a > n { a = n }
+    if b < a { b = a }
+    let lo = u.index(u.startIndex, offsetBy: a)
+    let hi = u.index(u.startIndex, offsetBy: b)
+    return String(decoding: Array(u[lo..<hi]), as: UTF16.self)
+}
+
+// An index answered in UTF-16 units, so it can be fed straight back to
+// r_char_at and r_substring.
+func r_index_of(_ s: String, _ needle: String, _ from: Int) -> Int {
+    let u = s.utf16
+    let n = u.count
+    let m = needle.utf16.count
+    if m == 0 { return from <= n ? max(from, 0) : -1 }
+    if m > n { return -1 }
+    let hay = Array(u)
+    let pin = Array(needle.utf16)
+    var i = from < 0 ? 0 : from
+    while i + m <= n {
+        var k = 0
+        while k < m && hay[i + k] == pin[k] { k += 1 }
+        if k == m { return i }
+        i += 1
+    }
+    return -1
+}
+
+func r_last_index_of(_ s: String, _ needle: String) -> Int {
+    let hay = Array(s.utf16)
+    let pin = Array(needle.utf16)
+    let n = hay.count
+    let m = pin.count
+    if m == 0 { return n }
+    if m > n { return -1 }
+    var i = n - m
+    while i >= 0 {
+        var k = 0
+        while k < m && hay[i + k] == pin[k] { k += 1 }
+        if k == m { return i }
+        i -= 1
+    }
+    return -1
+}
+")
+                )
                 php( "strrpos(" (e 1) ", " (e 2) ") !== false ? strrpos(" (e 1) ", " (e 2) ") : -1")
                 cpp (
                     "r_string_last_index_of(" (e 1) " , " (e 2) ")"

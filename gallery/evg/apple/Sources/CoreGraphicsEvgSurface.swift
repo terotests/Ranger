@@ -20,13 +20,74 @@ import CoreGraphics
 import CoreText
 import Foundation
 
+/// Faces, kept for the life of the process rather than the life of a surface.
+///
+/// A surface wraps the `CGContext` the system hands to `draw(_:)`, and that is
+/// a different object every frame — so a surface is made per frame, and a cache
+/// owned by one is a cache thrown away sixty times a second. That is exactly
+/// what the cache exists to prevent: a page draws around 190 text runs a frame
+/// and asks for about six distinct faces, and `CTFontCreateUIFontForLanguage`
+/// plus `CTFontCreateCopyWithSymbolicTraits` are not cheap enough to run per
+/// run. Tapping a tab took most of a second on a phone with this cache being
+/// discarded.
+///
+/// A `CTFont` is immutable and safe to share. The lock is here because the type
+/// is `Sendable` by assertion and a future host may paint off the main thread;
+/// it is uncontended in the one-thread case that actually happens.
+final class EvgFontCache: @unchecked Sendable {
+
+    static let shared = EvgFontCache()
+
+    private var faces: [String: CTFont] = [:]
+    private let lock = NSLock()
+
+    func face(size: CGFloat, family: String, bold: Bool, italic: Bool) -> CTFont {
+        let key = "\(family)|\(size)|\(bold)|\(italic)"
+        lock.lock()
+        if let cached = faces[key] {
+            lock.unlock()
+            return cached
+        }
+        lock.unlock()
+
+        let made = EvgFontCache.make(size: size, family: family, bold: bold, italic: italic)
+        lock.lock()
+        faces[key] = made
+        lock.unlock()
+        return made
+    }
+
+    private static func make(size: CGFloat, family: String, bold: Bool, italic: Bool) -> CTFont {
+        let lower = family.lowercased()
+        var base: CTFont
+        if lower.contains("mono") || lower.contains("courier") || lower.contains("consol") {
+            base = CTFontCreateWithName("Menlo" as CFString, size, nil)
+        } else if lower.contains("serif") && !lower.contains("sans") {
+            base = CTFontCreateWithName("Georgia" as CFString, size, nil)
+        } else {
+            // The platform's own sans. `gallery/ui` lays out with EVG's width
+            // estimate rather than a face, exactly as the browser build does,
+            // so bundling a TrueType file here would make the picture *less*
+            // like the one the demo is checked against, not more.
+            base = CTFontCreateUIFontForLanguage(.system, size, nil)
+                ?? CTFontCreateWithName("Helvetica" as CFString, size, nil)
+        }
+
+        var traits: CTFontSymbolicTraits = []
+        if bold { traits.insert(.traitBold) }
+        if italic { traits.insert(.traitItalic) }
+        if !traits.isEmpty {
+            if let styled = CTFontCreateCopyWithSymbolicTraits(base, size, nil, traits, traits) {
+                base = styled
+            }
+        }
+        return base
+    }
+}
+
 final class CoreGraphicsEvgSurface: EvgSurface {
 
     private let ctx: CGContext
-    /// Faces are made once and reused. This page draws 186 text runs a frame
-    /// and asks for about six distinct faces; making a `CTFont` per run is the
-    /// difference between a frame and a stutter.
-    private var fontCache: [String: CTFont] = [:]
 
     init(context: CGContext) {
         self.ctx = context
@@ -233,34 +294,7 @@ final class CoreGraphicsEvgSurface: EvgSurface {
     // MARK: - text
 
     private func fontFor(size: CGFloat, family: String, bold: Bool, italic: Bool) -> CTFont {
-        let key = "\(family)|\(size)|\(bold)|\(italic)"
-        if let cached = fontCache[key] { return cached }
-
-        let lower = family.lowercased()
-        var base: CTFont
-        if lower.contains("mono") || lower.contains("courier") || lower.contains("consol") {
-            base = CTFontCreateWithName("Menlo" as CFString, size, nil)
-        } else if lower.contains("serif") && !lower.contains("sans") {
-            base = CTFontCreateWithName("Georgia" as CFString, size, nil)
-        } else {
-            // The platform's own sans. `gallery/ui` lays out with EVG's width
-            // estimate rather than a face, exactly as the browser build does,
-            // so bundling a TrueType file here would make the picture *less*
-            // like the one the demo is checked against, not more.
-            base = CTFontCreateUIFontForLanguage(.system, size, nil)
-                ?? CTFontCreateWithName("Helvetica" as CFString, size, nil)
-        }
-
-        var traits: CTFontSymbolicTraits = []
-        if bold { traits.insert(.traitBold) }
-        if italic { traits.insert(.traitItalic) }
-        if !traits.isEmpty {
-            if let styled = CTFontCreateCopyWithSymbolicTraits(base, size, nil, traits, traits) {
-                base = styled
-            }
-        }
-        fontCache[key] = base
-        return base
+        EvgFontCache.shared.face(size: size, family: family, bold: bold, italic: italic)
     }
 
     func drawTextRun(

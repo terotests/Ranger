@@ -7,6 +7,172 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The page was fitted to its canvas rather than to what it draws, and came
+  out a quarter smaller than it needed to be.** The demo is a 980x760
+  composition, and the fit scaled that whole rectangle into the window. But the
+  scenes do not fill it: measured on the display list, the words stop at y=607
+  on the loading screen, y=586 on the dashboard and y=346 on the session --
+  which uses less than half its canvas. The rest is the full-height rail and
+  the panel behind it, and fitting that empty remainder is what made the page
+  small on a phone.
+
+  The fit is now against the content. On an iPhone 16 Pro in landscape that is
+  20% bigger on the loading screen, 10% on the sign-in page, 25% on the
+  dashboard and 69% on the session. Nothing is cut off, by construction:
+  fitting the content box is what guarantees it, where before the guarantee
+  came from fitting a canvas that was mostly empty.
+
+  Decoration below the last line is allowed to run off the bottom of the
+  screen, which is what a full-height rail should do -- ending partway up with
+  a gap beneath it is the thing that looked wrong. The content box is measured
+  from the display list, which is in page coordinates and so does not depend on
+  the scale; a tab change that moves it refits, with a threshold so the page
+  does not twitch on rounding noise.
+
+  `check_rt_ios.rgr` asserts the invariant this rests on: every word of every
+  scene is on screen, on every device the port claims to support, notch and
+  home indicator included.
+
+  Two earlier attempts are worth recording as measured dead ends. Filling the
+  width and letting the reader pan hides real content -- the page has no
+  scrollbar and no cut-off row, so nothing announces that it continues. And
+  containing the canvas is what this replaces. What CSS cannot do here is
+  unchanged: the stylesheet's viewport is the fixed 980x760 canvas on every
+  target, so a `@media` query would be answering questions about a rectangle
+  that never changes size.
+
+### Added
+
+- **`RANGER_PROFILE` reports where a frame's time went, on the device.** With
+  it set in the launched process's environment the host logs, every 60 frames,
+  the milliseconds spent laying the page out and building the display list
+  against the milliseconds spent turning that list into pixels, plus the
+  command count. Guessing which of the two is slow from the outside is how an
+  afternoon disappears.
+
+### Fixed
+
+- **Both native painters ignored a rotation's origin, which drew RealTrainer's
+  loading spinner as one small bar.** The ring is twelve 8x26 blades fanned
+  into a circle by `transform: rotate(Ndeg)` about
+  `transform-origin: 4px 54px` -- a point 41px BELOW each blade's own centre.
+  `EvgPainter` turned every command about its own box centre instead, so all
+  twelve spun in place and landed on top of each other.
+
+  `EVGDisplayList` has carried `rotOriginX`/`rotOriginY` and a `hasRotOrigin`
+  flag for exactly this, and says so: the centre is "right for a lone rotated
+  label and wrong for everything else: a box, its text and its children have to
+  turn about ONE point or they come apart", and "a backend that ignores these
+  two fields keeps the old behaviour exactly". Both native backends were
+  ignoring them -- the WebGL painter reads them, which is why the browser drew
+  the ring correctly and neither Apple nor Android did. Fixed in both; the
+  surfaces' `rotate(degrees:px:py:)` already took the pivot.
+
+- **A face cache that was thrown away sixty times a second.**
+  `CoreGraphicsEvgSurface` wraps the `CGContext` handed to `draw(_:)`, which is
+  a different object every frame, so the surface is built per frame -- and it
+  owned the `CTFont` cache. Its own comment explains what that costs: a page
+  draws around 190 text runs a frame and asks for about six distinct faces, and
+  "making a `CTFont` per run is the difference between a frame and a stutter".
+  The faces now outlive the surface, which is what the cache was for. All three
+  Apple hosts were affected.
+
+### Added
+
+- **A fit mode for the RealTrainer port, and the one platform-specific
+  decision in it.** Contain -- the whole 980x760 composition on screen -- is
+  right on an iPad, where the window's shape is close enough that it gives up
+  about 12%. On a phone it is not: a 19.5:9 window against a 1.29:1 page leaves
+  roughly 40% of the screen empty and halves the size of the text. A phone now
+  spends the whole width on the page and pans down it, starting at the top
+  rather than opening with the heading already scrolled off. Both fits are in
+  `rt_ios.rgr` where `check_rt_ios.rgr` drives them; only the choice between
+  them is in Swift, which is the same division `ui_ios.rgr` makes for the
+  watch.
+
+### Fixed
+
+- **Every Swift string operation was O(n) where every other target's is O(1),
+  which made EVG's linear scans quadratic.** The RealTrainer port ran visibly
+  slower on an iPhone than the same Ranger does on an Android emulator, with a
+  lag between a tap and the page responding. It is not the painter and not the
+  demo: it is that `strlen`, `charAt`, `substring`, `indexOf` and
+  `lastIndexOf` were written against Swift's `String`, which indexes by
+  GRAPHEME CLUSTER and walks from `startIndex` for every one of them.
+
+  EVG scans strings the way anything parsing text does --
+  `while (i < (strlen s)) { def c:char (charAt s i) ... }` -- and that loop is
+  O(n) on Kotlin, Java, JavaScript and C#, where `s.length` and `s[i]` are
+  constant time. On Swift it was O(n squared). Measured on the same page:
+
+  | | charAt calls | characters walked |
+  | --- | --- | --- |
+  | parsing the 28 KB stylesheet | 84 057 | **1 250 993 706** |
+  | one frame of the dashboard | 68 392 | **4 608 275** |
+
+  The first column is the work Kotlin does. The second is what Swift was doing.
+
+  Ranger's string is a sequence of UTF-16 code units -- that is what `charAt`
+  and `strlen` mean on JavaScript, Kotlin, Java and C#. Swift's UTF-16 view is
+  the matching model AND the one the standard library keeps *breadcrumbs* for,
+  so that offsetting into it is amortised constant time; it exists for NSString
+  bridging. The six operators now go through small helpers over `s.utf16`,
+  installed once per file as a polyfill. Swift is both faster and more
+  consistent with the other targets than it was.
+
+### Added
+
+- **`gallery/realtrainer` runs on an iPad, from the same Ranger.**
+  `ranger/rt_ios.rgr` imports `RealTrainerDemo.rgr` unchanged and compiles to
+  19 000 lines of Swift holding the EVG controllers, the cascade, the layout
+  engine, the display list and the demo. Nothing about the app is written twice
+  for Apple; `gallery/evg/apple` paints it, as it paints the dashboard.
+
+  The facade is not a copy of the dashboard's, because the two pages are not
+  the same shape. The dashboard is a DOCUMENT -- a fixed width that scrolls, so
+  it is scaled by a ratio of widths and its height becomes whatever the
+  viewport is worth at that scale. RealTrainer is a COMPOSITION -- 980x760,
+  designed whole, with nothing to scroll -- and scaling it that way would
+  re-lay it out into a shape its author never drew. So it is CONTAINED:
+  `min(w-ratio, h-ratio)`, centred, letterboxed, and the same size on every
+  screen. That difference is the whole reason there are two facades rather than
+  a flag on one, and it is in Ranger rather than in the `UIView` for the reason
+  the port exists -- `check_rt_ios.rgr` drives all 55 of its rules on Node.
+
+  `RealTrainerDemo` grew a `display():EVGDisplayList` beside its
+  `displayListJson()`, which now calls it. A browser host has to parse
+  something anyway; a host sharing a process with the demo should not
+  serialise a display list only to parse it back.
+
+- **The Apple build driver builds any gallery demo, not just the dashboard.**
+  Everything that was specific to one demo -- its Ranger entry point, where the
+  Swift lands, the bundle id, which hand-written host drives it, which
+  stylesheet is packaged -- is now an `IosApp` record rather than constants in
+  `IosBuild`, and `--app=KEY` picks one. A port is an entry in that registry
+  plus a facade and a view, not a second copy of the build. `ui:ios:smoke`
+  drives the second app end to end through the same fake toolchain, so a change
+  that breaks it for RealTrainer cannot pass by being tested on the dashboard
+  alone. A target a port has no host for -- a watch, for this one -- says so
+  instead of building a bundle that cannot run.
+
+### Fixed
+
+- **`gallery/evg`: a grid flag nothing read.** `EVGLayout.layoutGrid` set
+  `usingSubgrid = true` when a column template inherited its tracks from the
+  enclosing grid, and then never looked at it. The subgrid effect is carried
+  entirely by rewriting `colSpec` into the parent's pixel tracks, and the rows
+  branch a few lines down does the same job with no flag at all -- so this was
+  a leftover from an earlier shape of the code, not a guard someone forgot to
+  finish. Removed.
+
+  This one was the source's own, not the compiler's: `swiftc` is simply the
+  first target that says "written to, but never read" out loud. Worth keeping
+  it that way rather than teaching the writer to drop a dead store silently --
+  the warning found real dead code, and eliding it would have hidden exactly
+  that. It was the only one in 46 000 generated lines.
+
 ### Added
 
 - **Four more things swiftc could not build, and the last of the warnings.**
