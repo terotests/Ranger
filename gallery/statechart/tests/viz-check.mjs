@@ -13,6 +13,7 @@
 //   is every state the machine can be in on it
 //   is every transition on it, and no transition twice
 //   does the entry dot point at the state the machine starts in
+//   did the label pass actually move labels off each other and off the boxes
 //   does a live run highlight the state it ended in, and its exits
 //
 // Structure comes from the graph JSON the demo writes rather than from the
@@ -42,7 +43,13 @@ const say = (name, cond, detail) => {
 };
 
 function draw(args) {
-  execFileSync(process.execPath, [BIN, ...args], { cwd: REPO, stdio: "pipe" });
+  return execFileSync(process.execPath, [BIN, ...args], { cwd: REPO, stdio: "pipe" }).toString();
+}
+
+/** The demo reports the label pass: "labels  120 sitting on something → 14". */
+function labelClutter(output) {
+  const m = /labels\s+(\d+) sitting on something → (\d+)/.exec(output);
+  return m ? { before: Number(m[1]), after: Number(m[2]) } : null;
 }
 
 function graphOf(stem) {
@@ -72,16 +79,19 @@ function entryLeaf(config, path_) {
 }
 
 const CASES = [
-  { file: "gallery/statechart/fixtures/machines/trafficLight.machine.json", stem: "statechart-trafficLight" },
-  { file: "gallery/statechart/fixtures/machines/checkout.machine.json", stem: "statechart-checkout" },
+  // `labelCap` is what the relaxation actually reaches, with a little room:
+  // a number nobody can reach is not a gate, and a number that only goes up is
+  // not one either.
+  { file: "gallery/statechart/fixtures/machines/trafficLight.machine.json", stem: "statechart-trafficLight", labelCap: 6 },
+  { file: "gallery/statechart/fixtures/machines/checkout.machine.json", stem: "statechart-checkout", labelCap: 14 },
   // The real one. A drawing that only ever sees its own fixtures is a drawing
   // of its own fixtures.
-  { file: "gallery/realtrainer/fixtures/machines/chat.machine.json", stem: "statechart-chat" },
+  { file: "gallery/realtrainer/fixtures/machines/chat.machine.json", stem: "statechart-chat", labelCap: 18 },
 ];
 
-for (const { file, stem } of CASES) {
+for (const { file, stem, labelCap } of CASES) {
   const config = JSON.parse(fs.readFileSync(path.join(REPO, file), "utf8"));
-  draw([file]);
+  const output = draw([file]);
   const g = graphOf(stem);
   const ids = new Set(g.nodes.map((n) => n.id));
   const leaves = leavesOf(config.states, "");
@@ -117,6 +127,14 @@ for (const { file, stem } of CASES) {
       g.edges.every((e) => e.source === "<start>" || (e.label ?? "").length > 0),
       g.edges.filter((e) => e.source !== "<start>" && !(e.label ?? "").length)
              .map((e) => `${e.source}→${e.target}`).join(", "));
+
+  // The label pass, gated. A relaxation that silently stopped relaxing would
+  // leave a picture that still passes every structural check above.
+  const clutter = labelClutter(output);
+  say("labels are moved off each other and off the boxes",
+      clutter !== null && clutter.after < clutter.before && clutter.after <= labelCap,
+      clutter === null ? "the demo did not report the pass"
+                       : `${clutter.before} → ${clutter.after}, cap ${labelCap}`);
 }
 
 // …and a live run: the point of the module.

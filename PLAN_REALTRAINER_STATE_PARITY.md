@@ -209,6 +209,12 @@ TypeScript-funktioon. `present` ja `nonBlank` ovat erikseen tarkoituksella: `has
 alkuperäisessä `inputText.trim().length > 0`, mikä ei ole sama kysymys kuin "onko merkkejä"
 ja olisi lähettänyt tyhjän viestin välilyönnillä.
 
+`gallery/statechart` on nyt **oma projektinsa**: pariteettiportti (`statechart:parity`)
+ja sen omat koneet asuvat siellä, ja `rt:machine:live` on sama portti eri manifestilla.
+Siellä on myös **visualisoija** RangerFlow'n päällä — sama kone piirrettynä, ja
+`--run` piirtää *mihin tapahtumasarja jätti sen*: aktiivinen tila korostettuna ja
+siitä lähtevät siirtymät korostevärillä. `chat.machine.json` on yksi sen kuvista.
+
 **Kumpikaan portti ei yksin ole pariteetti.** `rt:machine:live` ajaa saman konfiguraation
 molempien läpi, joten se mittaa *runneria* eikä voi koskaan huomata transkriptiovirhettä —
 väärä guard on väärä identtisesti molemmilla puolilla. `rt:machine:config` lukee oikean

@@ -256,6 +256,12 @@ SUITES=(
   # state crossed with every event, and the thirteen cells of twenty-one that
   # are IGNORES — the half a hand-port gets wrong while its happy path passes.
   rt:machine
+  # The statechart runtime on its own account: its own two machines against
+  # xstate — one that is the smallest thing still a machine, one that uses
+  # everything the runner has — and the drawing it makes of them. Conformance
+  # used to live only in gallery/realtrainer, which meant the module could not
+  # be checked without that app's fixtures.
+  statechart:test
   # And the machines too big to transcribe: planDialog's six states and
   # eighteen events, chat's six-it-can-rest-in and sixteen, run cell by cell
   # and then fuzzed against xstate itself. It found the one thing reading could

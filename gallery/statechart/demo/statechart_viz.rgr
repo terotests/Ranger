@@ -97,7 +97,7 @@ class StatechartVizDemo {
         print ((((("  graph  " + (to_string (g.nodeCount()))) + " states, ") + (to_string (g.edgeCount()))) + " transitions"))
 
         def lay:LayeredLayout (LayeredLayout.of(g))
-        lay.direction = "TB"
+        lay.direction = "LR"
         ; Roomy on purpose. A back-edge is routed round the outside, and a lane
         ; with no room to sit in ends up drawn along the flank of the box it is
         ; entering, which reads as a line that missed rather than one that
@@ -112,6 +112,13 @@ class StatechartVizDemo {
         lay.routeLongEdges()
         EdgeLanes.assign(g)
         OrthoRouter.repairAll(g)
+        ; …and then the labels, which the router does not know about: a label
+        ; sits at the middle of its route, and two routes running beside each
+        ; other have their middles beside each other.
+        def before:int (StatechartGraph.clutter(g))
+        StatechartGraph.declutter(g)
+        def after:int (StatechartGraph.clutter(g))
+        print ((("  labels  " + (to_string before)) + " sitting on something → ") + (to_string after))
 
         def v:FlowView (FlowView.of(g))
         v.notation = "plain"

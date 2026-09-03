@@ -36,6 +36,7 @@
 ; ============================================================================
 
 Import "../../rangerflow/core/GraphModel.rgr"
+Import "../../rangerflow/core/EdgeRouter.rgr"
 Import "../src/Statechart.rgr"
 
 ; The colours. A palette rather than literals at the call sites, because the
@@ -269,8 +270,8 @@ class StatechartGraph {
             n.bgColor = (ScVizTheme.active())
             n.borderColor = (ScVizTheme.activeEdge())
         }
-        n.sourcePosition = 2
-        n.targetPosition = 0
+        n.sourcePosition = 1
+        n.targetPosition = 3
         if ((n.sectionCount()) > 0) {
             n.layoutCompartments()
             ; `layoutCompartments` sizes the box to header + rows exactly, which
@@ -472,14 +473,18 @@ class StatechartGraph {
     }
 
     ; Which side of a box each end of an edge leaves and arrives on. Without
-    ; this the router picks, and a back-edge arrives on the flank of the box it
-    ; is entering — the line then runs along the side of the shape for its last
-    ; hundred pixels, which reads as a line that missed.
+    ; this the router picks, and an arrow arrives on the flank of the box it is
+    ; entering — the line then runs along the side of the shape for its last
+    ; hundred pixels, which reads as a line that missed rather than one that
+    ; arrived. Every arrow should meet a box at a right angle.
     ;
-    ; A statechart is read top to bottom, so a forward transition leaves the
-    ; bottom and arrives on the top. A transition back UP the page leaves and
-    ; arrives sideways, on the side it is heading for, so it goes round the
-    ; outside instead of back through everything it just came past.
+    ; A statechart is laid out LEFT TO RIGHT here, because that is where the
+    ; room is: a machine has few states and many transitions BACK, and a
+    ; back-edge needs somewhere to go that is not through everything it came
+    ; past. So a forward transition leaves the right side and arrives on the
+    ; left; a transition back leaves and arrives on the top or the bottom, and
+    ; when several go straight back they take turns, because sent along one
+    ; edge they stack and their labels land on the boxes they pass.
     sfn faceEdges:void (g:FlowGraph) {
         def backEdges@(mutable):int 0
         def k@(mutable):int 0
@@ -491,43 +496,283 @@ class StatechartGraph {
                     def b:FlowNode (g.nodeAt(e.targetIndex))
                     def dx:double ((b.centerX()) - (a.centerX()))
                     def dy:double ((b.centerY()) - (a.centerY()))
-                    if (dy > 0.0) {
-                        e.sourceHandle = 2
-                        e.targetHandle = 0
+                    if (dx > 0.0) {
+                        e.sourceHandle = 1
+                        e.targetHandle = 3
                     } {
-                        ; A back-edge leaves by the side it is heading for. When
-                        ; it is heading straight up — which most of them are, a
-                        ; machine's "back to where you were" — there is no side
-                        ; to prefer, so they take turns. Sent up one column they
-                        ; stack, and their labels land on top of the boxes they
-                        ; pass.
-                        def side@(mutable):int 1
-                        if (dx < 0.0) { side = 3 }
-                        ; "Heading for" means meaningfully to one side. Half a
-                        ; box over is straight up as far as a reader is
-                        ; concerned, and that is where they stack.
-                        if ((fabs dx) < 60.0) {
-                            if ((backEdges % 2) == 1) { side = 3 }
+                        def side@(mutable):int 2
+                        if (dy < 0.0) { side = 0 }
+                        if ((fabs dy) < 60.0) {
+                            if ((backEdges % 2) == 1) { side = 0 }
                             backEdges = (backEdges + 1)
                         }
                         e.sourceHandle = side
                         e.targetHandle = side
                     }
-                    ; …and one that is mostly sideways goes out of the side it
-                    ; is heading for rather than down and back up again.
-                    if ((fabs dx) > ((fabs dy) * 1.4)) {
-                        if (dx > 0.0) {
-                            e.sourceHandle = 1
-                            e.targetHandle = 3
+                    ; …and one that is mostly up or down goes out of the side it
+                    ; is heading for rather than across and back again.
+                    if ((fabs dy) > ((fabs dx) * 1.4)) {
+                        if (dy > 0.0) {
+                            e.sourceHandle = 2
+                            e.targetHandle = 0
                         } {
-                            e.sourceHandle = 3
-                            e.targetHandle = 1
+                            e.sourceHandle = 0
+                            e.targetHandle = 2
                         }
                     }
                 }
             }
             k = (k + 1)
         }
+    }
+
+    ; ------------------------------------------------------------------------
+    ; Declutter — labels out from under each other and off the boxes
+    ; ------------------------------------------------------------------------
+    ; The router keeps LINES apart; nothing keeps their labels apart. A label
+    ; sits at the middle of its route, and two routes that run beside each
+    ; other have their middles beside each other — so `CANCEL` lands on
+    ; `RETRY`, and `STREAM_COMPLETE` lands on the box it passes.
+    ;
+    ; This is the standard relaxation: give every label a box, let boxes that
+    ; overlap push each other apart along whichever axis they overlap LESS on
+    ; (the shorter way out), and let the state boxes push but never be pushed.
+    ; Damped, bounded, and run to a fixed point or to a step limit, so it is
+    ; deterministic — the same drawing twice is the same drawing.
+    ;
+    ; It runs after routing, because before routing a label has no middle.
+    sfn declutter:void (g:FlowGraph) {
+        def idx:[int]
+        def ax:[double]
+        def ay:[double]
+        def bw:[double]
+        def bh:[double]
+        def k@(mutable):int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            if ((strlen e.label) > 0) {
+                def path:EdgePath (EdgeRouter.route(g e))
+                push idx k
+                push ax (path.midX())
+                push ay (path.midY())
+                push bw (StatechartGraph.labelWidth(e.label))
+                push bh (StatechartGraph.labelHeight(e.label))
+                e.labelDX = 0.0
+                e.labelDY = 0.0
+            }
+            k = (k + 1)
+        }
+
+        def count:int (array_length idx)
+        def step@(mutable):int 0
+        while (step < 240) {
+            step = (step + 1)
+            def moved@(mutable):int 0
+            def i@(mutable):int 0
+            while (i < count) {
+                def ei:FlowEdge (g.edgeAt((itemAt idx i)))
+                def ix:double ((itemAt ax i) + ei.labelDX)
+                def iy:double ((itemAt ay i) + ei.labelDY)
+                def pushX@(mutable):double 0.0
+                def pushY@(mutable):double 0.0
+
+                ; …against every other label.
+                def j@(mutable):int 0
+                while (j < count) {
+                    if (j != i) {
+                        def ej:FlowEdge (g.edgeAt((itemAt idx j)))
+                        def jx:double ((itemAt ax j) + ej.labelDX)
+                        def jy:double ((itemAt ay j) + ej.labelDY)
+                        def ox:double ((((itemAt bw i) + (itemAt bw j)) * 0.5) - (fabs (ix - jx)))
+                        def oy:double ((((itemAt bh i) + (itemAt bh j)) * 0.5) - (fabs (iy - jy)))
+                        if (ox > 0.0) {
+                            if (oy > 0.0) {
+                                ; Out the short way. A label pushed along the
+                                ; axis it barely overlaps on moves a few pixels;
+                                ; pushed along the other it crosses the diagram.
+                                if (oy <= ox) {
+                                    def dirY@(mutable):double 1.0
+                                    if (iy < jy) { dirY = -1.0 }
+                                    if (iy == jy) {
+                                        ; Exactly on top of each other: someone
+                                        ; has to go first, and it is the earlier
+                                        ; edge, every time.
+                                        dirY = -1.0
+                                        if (i > j) { dirY = 1.0 }
+                                    }
+                                    pushY = (pushY + (dirY * (oy * 0.5)))
+                                } {
+                                    def dirX@(mutable):double 1.0
+                                    if (ix < jx) { dirX = -1.0 }
+                                    if (ix == jx) {
+                                        dirX = -1.0
+                                        if (i > j) { dirX = 1.0 }
+                                    }
+                                    pushX = (pushX + (dirX * (ox * 0.5)))
+                                }
+                            }
+                        }
+                    }
+                    j = (j + 1)
+                }
+
+                ; …and against every box, which pushes and is never pushed.
+                def n@(mutable):int 0
+                while (n < (g.nodeCount())) {
+                    def nd:FlowNode (g.nodeAt(n))
+                    def ox2:double (((((itemAt bw i) * 0.5) + (nd.width * 0.5)) - (fabs (ix - (nd.centerX())))))
+                    def oy2:double (((((itemAt bh i) * 0.5) + (nd.height * 0.5)) - (fabs (iy - (nd.centerY())))))
+                    if (ox2 > 0.0) {
+                        if (oy2 > 0.0) {
+                            if (oy2 <= ox2) {
+                                def dirY2@(mutable):double 1.0
+                                if (iy < (nd.centerY())) { dirY2 = -1.0 }
+                                pushY = (pushY + (dirY2 * oy2))
+                            } {
+                                def dirX2@(mutable):double 1.0
+                                if (ix < (nd.centerX())) { dirX2 = -1.0 }
+                                pushX = (pushX + (dirX2 * ox2))
+                            }
+                        }
+                    }
+                    n = (n + 1)
+                }
+
+                if ((fabs pushX) > 0.25) { moved = (moved + 1) }
+                if ((fabs pushY) > 0.25) { moved = (moved + 1) }
+
+                ; …and a weak pull back to the line, but ONLY while nothing is
+                ; pushing. A label is a label OF something, and one that drifted
+                ; to where there was room stops saying which arrow it belongs
+                ; to; a label still in a conflict has more pressing business.
+                ; Together they settle it just clear of whatever it hit.
+                if ((fabs pushX) <= 0.25) {
+                    if ((fabs pushY) <= 0.25) {
+                        pushX = (0.0 - (ei.labelDX * 0.12))
+                        pushY = (0.0 - (ei.labelDY * 0.12))
+                        if ((fabs pushX) > 0.25) { moved = (moved + 1) }
+                        if ((fabs pushY) > 0.25) { moved = (moved + 1) }
+                    }
+                }
+                ; Damped, so two labels do not swap places for ever, and bounded,
+                ; so a label never ends up somewhere its line is not.
+                ei.labelDX = (StatechartGraph.clampTo((ei.labelDX + (pushX * 0.5)) 140.0))
+                ei.labelDY = (StatechartGraph.clampTo((ei.labelDY + (pushY * 0.5)) 140.0))
+                i = (i + 1)
+            }
+            if (moved == 0) {
+                return
+            }
+        }
+    }
+
+    ; How many labels still sit on top of another label or on a box. Printed by
+    ; the demo before and after, because a pass whose effect nobody measures is
+    ; a pass that quietly stops working.
+    sfn clutter:int (g:FlowGraph) {
+        def hits@(mutable):int 0
+        def idx:[int]
+        def px:[double]
+        def py:[double]
+        def bw:[double]
+        def bh:[double]
+        def k@(mutable):int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            if ((strlen e.label) > 0) {
+                def path:EdgePath (EdgeRouter.route(g e))
+                push idx k
+                push px ((path.midX()) + e.labelDX)
+                push py ((path.midY()) + e.labelDY)
+                push bw (StatechartGraph.labelWidth(e.label))
+                push bh (StatechartGraph.labelHeight(e.label))
+            }
+            k = (k + 1)
+        }
+        def count:int (array_length idx)
+        def i@(mutable):int 0
+        while (i < count) {
+            def j@(mutable):int (i + 1)
+            while (j < count) {
+                def ox:double ((((itemAt bw i) + (itemAt bw j)) * 0.5) - (fabs ((itemAt px i) - (itemAt px j))))
+                def oy:double ((((itemAt bh i) + (itemAt bh j)) * 0.5) - (fabs ((itemAt py i) - (itemAt py j))))
+                if (ox > 0.0) {
+                    if (oy > 0.0) {
+                        hits = (hits + 1)
+                    }
+                }
+                j = (j + 1)
+            }
+            def n@(mutable):int 0
+            while (n < (g.nodeCount())) {
+                def nd:FlowNode (g.nodeAt(n))
+                def ox2:double (((((itemAt bw i) * 0.5) + (nd.width * 0.5)) - (fabs ((itemAt px i) - (nd.centerX())))))
+                def oy2:double (((((itemAt bh i) * 0.5) + (nd.height * 0.5)) - (fabs ((itemAt py i) - (nd.centerY())))))
+                if (ox2 > 0.0) {
+                    if (oy2 > 0.0) {
+                        hits = (hits + 1)
+                    }
+                }
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return hits
+    }
+
+    sfn clampTo:double (v:double limit:double) {
+        if (v > limit) { return limit }
+        if (v < (0.0 - limit)) { return (0.0 - limit) }
+        return v
+    }
+
+    ; The box the view will draw around a label. Measured from what the
+    ; renderer actually emits rather than guessed: at the default label size a
+    ; character is about 8.2 model pixels wide, a line is 14 tall, the box is
+    ; padded, and a label wider than 160 wraps onto a second line. The first
+    ; draft guessed 6.6 and lost `STREAM_COMPLETE` underneath a label it had
+    ; measured as narrower than it was.
+    sfn labelWidth:double (text:string) {
+        def w:double (StatechartGraph.rawLabelWidth(text))
+        if (w > 160.0) {
+            return 174.0
+        }
+        return (w + 14.0)
+    }
+
+    sfn rawLabelWidth:double (text:string) {
+        def widest@(mutable):double 0.0
+        def run@(mutable):double 0.0
+        def i@(mutable):int 0
+        def len:int (strlen text)
+        while (i < len) {
+            if ((charAt text i) == 10) {
+                if (run > widest) { widest = run }
+                run = 0.0
+            } {
+                run = (run + 8.2)
+            }
+            i = (i + 1)
+        }
+        if (run > widest) { widest = run }
+        return widest
+    }
+
+    sfn labelHeight:double (text:string) {
+        def lines@(mutable):double 1.0
+        def i@(mutable):int 0
+        def len:int (strlen text)
+        while (i < len) {
+            if ((charAt text i) == 10) {
+                lines = (lines + 1.0)
+            }
+            i = (i + 1)
+        }
+        ; …and the renderer's own wrap, which the label does not ask for.
+        if ((StatechartGraph.rawLabelWidth(text)) > 160.0) {
+            lines = (lines + 1.0)
+        }
+        return ((lines * 14.0) + 8.0)
     }
 
     ; Text metrics good enough to size a box; the view measures for real when

@@ -30,7 +30,8 @@ What is drawn is the same `Statechart` object the runner walks, not a second
 description of it. A picture that could disagree with the machine would be
 worse than no picture.
 
-Four choices are what make it readable rather than a plate of noodles:
+Six choices are what make it readable rather than a plate of noodles, and every
+one of them replaced a draft that was not:
 
 - **Only states the machine can be in.** A compound state is *where its
   children are*, never a place of its own. The first draft drew one box per
@@ -44,10 +45,31 @@ Four choices are what make it readable rather than a plate of noodles:
   "back to where you started" — `chatMachine` has six landing on `idle` — and
   six lines between the same two boxes is six lines a reader has to check are
   the same line. `CANCEL, RESET` says it.
-- **Back-edges leave sideways, and take turns.** A transition back up the page
-  goes round the outside rather than back through everything it just came past,
-  and when several go straight up they alternate left and right, so their labels
-  do not stack in one column on top of the boxes they pass.
+- **Left to right, because that is where the room is.** A machine has few
+  states and many transitions *back*, and a back-edge needs somewhere to go
+  that is not through everything it came past. Top-to-bottom put five return
+  arrows into one column above `idle`.
+- **Every arrow meets a box at a right angle.** A forward transition leaves the
+  right side and arrives on the left; a back-edge leaves and arrives on the top
+  or the bottom, and when several go straight back they take turns. Left to the
+  router, arrows arrive on the *flank* of the box they are entering and the line
+  runs along the side of the shape for its last hundred pixels, which reads as a
+  line that missed rather than one that arrived.
+- **Labels are moved off each other and off the boxes.** The router keeps lines
+  apart; nothing keeps their labels apart, and a label sits at the middle of its
+  route, so two routes running beside each other have their middles beside each
+  other. `declutter` gives every label a box, lets boxes that overlap push each
+  other apart along whichever axis they overlap *less* on — the shorter way out
+  — lets the state boxes push but never be pushed, and pulls each label back
+  toward its own line whenever nothing is pushing it, so it settles just clear
+  of whatever it hit rather than drifting to wherever there was room. Damped,
+  bounded and run to a fixed point, so the same drawing twice is the same
+  drawing. On `chatMachine` that is 120 labels sitting on something down to 14,
+  and `statechart:viz:check` fails if it stops working.
+
+The label boxes are measured from what the renderer emits, not guessed: an
+early guess of 6.6 px per character lost `STREAM_COMPLETE` underneath a
+two-line label it had measured as narrower than it was.
 
 ### …and a run drawn on it
 
