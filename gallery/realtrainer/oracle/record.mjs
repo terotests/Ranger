@@ -151,12 +151,73 @@ function splitParts(split) {
   return parts;
 }
 
+const LIFE_LABELS = new Set([
+  "Drinking", "Food", "Expense", "Reminder", "Feeling", "Pain", "Sleep",
+  "Health", "Vitals", "Weight", "BodyFat", "Waist", "Hip", "Measurement",
+]);
+
+/**
+ * Text.tsx: a life row's label is set apart and the numbers in its body are
+ * picked out. The split is the component's own regex; the empty strings a
+ * capturing split produces are dropped, because a span with no text draws
+ * nothing on either side.
+ */
+function textParts(text) {
+  const match = text.text.match(/^([A-Za-z]+)\s+(.*)$/);
+  if (!match || !LIFE_LABELS.has(match[1])) {
+    return [{ text: text.text, tone: "muted", kind: "meta" }];
+  }
+  const parts = [{ text: match[1], tone: "label", kind: "meta" }];
+  for (const piece of match[2].split(/(\d+(?:[.,]\d+)?(?:[a-zA-Z%°]+)?)/g)) {
+    if (piece === "") continue;
+    parts.push({
+      text: piece,
+      tone: /^\d/.test(piece) ? "number" : "default",
+      kind: "meta",
+    });
+  }
+  return parts;
+}
+
+/** Summary.tsx, Section.tsx, Phase.tsx, Custom.tsx, Unknown.tsx. */
+function summaryParts(row) {
+  return [{ text: row.text, tone: "muted", kind: "meta" }];
+}
+function sectionParts(row) {
+  return [{ text: row.name, tone: "default", kind: "heading" }];
+}
+function phaseParts(row) {
+  const parts = [
+    { text: row.number === null ? "Phase" : `Phase${row.number}`, tone: "weight", kind: "meta" },
+    { text: row.name, tone: "default", kind: "spec" },
+  ];
+  if (row.details) parts.push({ text: row.details, tone: "muted", kind: "meta" });
+  return parts;
+}
+function customParts(row) {
+  const value = row.value === null || row.value === undefined ? "" : String(row.value);
+  const range = typeof row.valueMax === "number" ? `${value}-${row.valueMax}` : value;
+  return [
+    { text: `${row.name}: `, tone: "muted", kind: "meta" },
+    { text: `~${range}${row.unit ?? ""}`, tone: "default", kind: "spec" },
+  ];
+}
+function unknownParts(row) {
+  return [{ text: row.raw, tone: "warn", kind: "meta" }];
+}
+
 function partsFor(content) {
   const row = lib.compactRowFromParsedContent(content);
   if (row.type === "exercise") return lib.formatExerciseSchemeParts(row);
   if (row.type === "move" || row.type === "run") return moveParts(row);
   if (row.type === "pyramid") return pyramidParts(row);
   if (row.type === "split") return splitParts(row);
+  if (row.type === "summary") return summaryParts(row);
+  if (row.type === "section") return sectionParts(row);
+  if (row.type === "phase") return phaseParts(row);
+  if (row.type === "custom") return customParts(row);
+  if (row.type === "text") return textParts(row);
+  if (row.type === "unknown") return unknownParts(row);
   return null;
 }
 
@@ -165,7 +226,7 @@ let skipped = 0;
 
 for (const c of corpus.cases) {
   if (c.oracle !== "ts") {
-    out.cases[c.id] = { parts: c.expect ?? [], oracle: "spec" };
+    out.cases[c.id] = { rows: c.expect ?? [], oracle: "spec", deviation: c.deviation };
     skipped += 1;
     continue;
   }
@@ -175,6 +236,8 @@ for (const c of corpus.cases) {
   const content = doc.workouts?.[0]?.content ?? [];
   const rows = [];
   for (const item of content) {
+    // The library lifts these onto the workout and filters them out of rows.
+    if (item.type === "tags" || item.type === "emojis" || item.type === "derived") continue;
     const parts = partsFor(item);
     if (parts) rows.push({ type: item.type, parts });
     // A move's splits are rows of their own on the Ranger side, so they are

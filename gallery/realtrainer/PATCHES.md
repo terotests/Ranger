@@ -75,6 +75,19 @@ own grammar and worth a test in its suite rather than a patch carried by a
 demo. `fixtures/cases.json` keeps both cases, so the day the parser learns them
 the recording has to be refreshed and the gate will say so.
 
+## A deliberate deviation from the reference
+
+**`Duration.tsx` draws the value twice.** With no description it renders the
+badge — `45min` — and then a `StatChip` beside it whose only part is `45min`
+again. With a description the chip is replaced by the description, so the
+duplicate only appears on a bare duration.
+
+This port draws it once. The two `duration` cases in `fixtures/cases.json` are
+therefore recorded as `oracle: "spec"` with the reason attached, and `rt:l0`
+prints them under "deliberate deviations" on every run. A difference that is
+not on that list still fails the gate; this one is on it, with its reason, so
+it cannot quietly become the thing everyone forgot to look at.
+
 ## Fixes that stayed in this repository
 
 These are not parser patches — they are recorded here because they were made in

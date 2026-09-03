@@ -49,11 +49,17 @@ const FAMILY = {
   CompactRow_Split: "split",
   CompactRow_Section: "section",
   CompactRow_Text: "text",
+  CompactRow_Summary: "summary",
+  CompactRow_Phase: "phase",
+  CompactRow_Custom: "custom",
+  CompactRow_Duration: "duration",
+  CompactRow_Unknown: "unknown",
 };
 
 let failed = 0;
 let matched = 0;
 const skipped = [];
+const deviations = [];
 
 const show = (parts) =>
   parts.map((p) => `${JSON.stringify(p.text)}/${p.tone}/${p.kind}`).join(" ");
@@ -65,11 +71,17 @@ for (const c of corpus.cases) {
     console.log(`  FAIL ${c.id} — no recording; run npm run rt:l0:record`);
     continue;
   }
-  // A family the reference library does not render has nothing to be equal to.
-  // It is listed rather than silently absent, so the gap stays visible.
-  if (want.oracle !== "ts") {
+  // Two kinds of case have no recording from the library. One is a family it
+  // does not render at all; the other is a place this port deliberately draws
+  // something else, and says why. Both are compared against what the corpus
+  // writes down, and the deviations are listed at the end — a difference that
+  // is not on that list is a failure.
+  if (want.oracle !== "ts" && (want.rows ?? []).length === 0) {
     skipped.push(`${c.id} (${c.family}: no renderer in the reference library)`);
     continue;
+  }
+  if (want.oracle !== "ts") {
+    deviations.push(`${c.id} — ${want.deviation ?? "no reason recorded"}`);
   }
 
   const rows = CompactRowMapper.firstWorkoutRows(`[2026-01-01] ## Case\n${c.row}\n`);
@@ -120,6 +132,11 @@ for (const c of corpus.cases) {
 }
 
 console.log("");
+if (deviations.length > 0) {
+  console.log("deliberate deviations, compared against the corpus:");
+  for (const d of deviations) console.log("  · " + d);
+  console.log("");
+}
 if (skipped.length > 0) {
   console.log("not compared:");
   for (const s of skipped) console.log("  · " + s);

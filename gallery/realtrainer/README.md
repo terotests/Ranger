@@ -84,12 +84,23 @@ the oracle went missing. What the recorder imports and what it transcribes from
 the components is written at the top of that file, because move, pyramid and
 split build their parts inside JSX and there is no function to call.
 
-Twenty-one cases, matching part for part. The twenty-second is an `interval`,
-which that library has no renderer for at all — it is listed as not compared
-rather than left out, because a family with no reference is a gap and not a pass.
+Thirty-one cases, matching part for part. Two more are deliberate deviations —
+recorded in the corpus with their reason and printed on every run — and one is
+an `interval`, which that library has no renderer for at all. Both are listed
+rather than left out: a family with no reference is a gap and not a pass, and a
+deviation nobody prints is a difference nobody remembers.
 
-Three families so far — section, text, exercise. Every one that follows makes
-`match` demand an arm.
+Eleven families so far — section, text, exercise, move, pyramid, split, summary,
+phase, custom, duration and the unknown-line fallback. Every one that follows
+makes `match` demand an arm.
+
+Tags, emojis and derived values are deliberately NOT rows. The reference lifts
+them onto the workout and filters them out of the row list, so a renderer
+walking rows never meets one, and this does the same.
+
+A life row is drawn the way `Text.tsx` draws it: `Weight 78.5kg tänään` is three
+parts — the label, the number, and the words after it — because a reader looking
+for the number should not have to find it inside a sentence.
 
 The session screen is built from this and nothing else. `fixtures/session.compact`
 names the workout, its exercise rows are the moves, the section headings are shown

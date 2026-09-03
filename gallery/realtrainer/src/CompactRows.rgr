@@ -175,6 +175,38 @@ class PyramidSpec {
     }
 }
 
+; --- the light families ---------------------------------------------------
+
+class PhaseSpec {
+    def hasNumber@(mutable):boolean false
+    def number@(mutable):int 0
+    def name@(mutable):string ""
+    def details@(mutable):string ""
+
+    Constructor () {
+    }
+}
+
+class CustomSpec {
+    def name@(mutable):string ""
+    def value@(mutable):string ""
+    def hasValueMax@(mutable):boolean false
+    def valueMax@(mutable):string ""
+    def unit@(mutable):string ""
+
+    Constructor () {
+    }
+}
+
+class DurationSpec {
+    def value@(mutable):double 0.0
+    def unit@(mutable):string "min"
+    def description@(mutable):string ""
+
+    Constructor () {
+    }
+}
+
 shape CompactRow {
     case Section  { def name:string "" }
     case Text     { def text:string "" }
@@ -182,6 +214,11 @@ shape CompactRow {
     case Move     { def spec:MoveSpec }
     case Pyramid  { def spec:PyramidSpec }
     case Split    { def spec:SplitSpec }
+    case Summary  { def text:string "" }
+    case Phase    { def spec:PhaseSpec }
+    case Custom   { def spec:CustomSpec }
+    case Duration { def spec:DurationSpec }
+    case Unknown  { def raw:string "" }
 }
 
 ; =============================================================================
@@ -463,6 +500,199 @@ class CompactStatBuilder {
         return out
     }
 
+    ; --- the light families -------------------------------------------------
+
+    ; `Text.tsx` gives a life row two things a plain line does not get: the
+    ; LABEL is set apart, and the numbers in the body are picked out from the
+    ; words around them. Both are parts here, so a theme can draw them and a
+    ; test can read them.
+    sfn isLifeLabel:boolean (word:string) {
+        if (word == "Drinking") { return true }
+        if (word == "Food") { return true }
+        if (word == "Expense") { return true }
+        if (word == "Reminder") { return true }
+        if (word == "Feeling") { return true }
+        if (word == "Pain") { return true }
+        if (word == "Sleep") { return true }
+        if (word == "Health") { return true }
+        if (word == "Vitals") { return true }
+        if (word == "Weight") { return true }
+        if (word == "BodyFat") { return true }
+        if (word == "Waist") { return true }
+        if (word == "Hip") { return true }
+        if (word == "Measurement") { return true }
+        return false
+    }
+
+    sfn isDigit:boolean (code:int) {
+        if (code < 48) { return false }
+        return (code <= 57)
+    }
+
+    sfn isLetter:boolean (code:int) {
+        if (code >= 97) {
+            return (code <= 122)
+        }
+        if (code >= 65) {
+            return (code <= 90)
+        }
+        return false
+    }
+
+    ; What may trail a number and still belong to it: `7h`, `45%`, `21°`.
+    sfn isNumberTail:boolean (code:int) {
+        if (CompactStatBuilder.isLetter(code)) { return true }
+        if (code == 37) { return true }
+        if (code == 176) { return true }
+        return false
+    }
+
+    sfn isSpace:boolean (code:int) {
+        if (code == 32) { return true }
+        if (code == 9) { return true }
+        if (code == 10) { return true }
+        return (code == 13)
+    }
+
+    ; The body, split into numbers and the runs between them. An empty run is
+    ; dropped: the reference splits on a capturing group and keeps the empty
+    ; strings it produces, and a span with no text draws nothing on either side.
+    sfn numberParts:[StatPart] (body:string) {
+        def out:[StatPart]
+        def run@(mutable):string ""
+        def i@(mutable):int 0
+        def len:int (strlen body)
+        while (i < len) {
+            def code:int (charAt body i)
+            if (CompactStatBuilder.isDigit(code)) {
+                if ((strlen run) > 0) {
+                    push out (new StatPart(run "default" "meta"))
+                    run = ""
+                }
+                def start:int i
+                while (i < len) {
+                    if (CompactStatBuilder.isDigit((charAt body i))) {
+                        i = (i + 1)
+                    } {
+                        break
+                    }
+                }
+                ; A decimal point counts only when a digit follows it, so the
+                ; full stop that ends a sentence stays with the words.
+                if (i < (len - 1)) {
+                    def sep:int (charAt body i)
+                    if ((sep == 46) || (sep == 44)) {
+                        if (CompactStatBuilder.isDigit((charAt body (i + 1)))) {
+                            i = (i + 1)
+                            while (i < len) {
+                                if (CompactStatBuilder.isDigit((charAt body i))) {
+                                    i = (i + 1)
+                                } {
+                                    break
+                                }
+                            }
+                        }
+                    }
+                }
+                while (i < len) {
+                    if (CompactStatBuilder.isNumberTail((charAt body i))) {
+                        i = (i + 1)
+                    } {
+                        break
+                    }
+                }
+                push out (new StatPart((substring body start i) "number" "meta"))
+            } {
+                run = (run + (strfromcode code))
+                i = (i + 1)
+            }
+        }
+        if ((strlen run) > 0) {
+            push out (new StatPart(run "default" "meta"))
+        }
+        return out
+    }
+
+    sfn textParts:[StatPart] (raw:string) {
+        def out:[StatPart]
+        def len:int (strlen raw)
+        def i@(mutable):int 0
+        while (i < len) {
+            if (CompactStatBuilder.isLetter((charAt raw i))) {
+                i = (i + 1)
+            } {
+                break
+            }
+        }
+        if (i > 0) {
+            if (i < len) {
+                if (CompactStatBuilder.isSpace((charAt raw i))) {
+                    def label:string (substring raw 0 i)
+                    if (CompactStatBuilder.isLifeLabel(label)) {
+                        def j@(mutable):int i
+                        while (j < len) {
+                            if (CompactStatBuilder.isSpace((charAt raw j))) {
+                                j = (j + 1)
+                            } {
+                                break
+                            }
+                        }
+                        push out (new StatPart(label "label" "meta"))
+                        def body:string (substring raw j len)
+                        def parts:[StatPart] (CompactStatBuilder.numberParts(body))
+                        for parts p:StatPart k {
+                            push out p
+                        }
+                        return out
+                    }
+                }
+            }
+        }
+        push out (new StatPart(raw "muted" "meta"))
+        return out
+    }
+
+    ; `Phase.tsx`: a marker, the name, and the details when there are any.
+    sfn phaseParts:[StatPart] (e:PhaseSpec) {
+        def out:[StatPart]
+        def marker@(mutable):string "Phase"
+        if (e.hasNumber) {
+            marker = ("Phase" + (to_string e.number))
+        }
+        push out (new StatPart(marker "weight" "meta"))
+        push out (new StatPart(e.name "default" "spec"))
+        if ((strlen e.details) > 0) {
+            push out (new StatPart(e.details "muted" "meta"))
+        }
+        return out
+    }
+
+    ; `Custom.tsx`: the name, then the value with its tilde and unit. The
+    ; tilde is the component's, not a rounding claim of ours.
+    sfn customParts:[StatPart] (e:CustomSpec) {
+        def out:[StatPart]
+        push out (new StatPart((e.name + ": ") "muted" "meta"))
+        def value@(mutable):string e.value
+        if (e.hasValueMax) {
+            value = ((value + "-") + e.valueMax)
+        }
+        push out (new StatPart((("~" + value) + e.unit) "default" "spec"))
+        return out
+    }
+
+    ; `Duration.tsx` — see PATCHES.md: the reference draws the value TWICE
+    ; when there is no description, once as the badge and once as the stat
+    ; chip beside it. This draws it once, which is the deviation the corpus
+    ; records rather than a difference it hides.
+    sfn durationParts:[StatPart] (e:DurationSpec) {
+        def out:[StatPart]
+        push out (new StatPart(((CompactStatBuilder.num(e.value)) + e.unit) "weight" "duration"))
+        if ((strlen e.description) > 0) {
+            push out (new StatPart(e.description "default" "meta"))
+        }
+        return out
+    }
+
     ; `2-3` when a set range was given, `3` when it was not, and "" for a row
     ; with no set count at all.
     sfn setsText:string (e:ExerciseSpec) {
@@ -603,10 +833,28 @@ class CompactStatBuilder {
                 return (CompactStatBuilder.splitParts(sd))
             }
             Section s {
-                push out (new StatPart(s.name "muted" "meta"))
+                push out (new StatPart(s.name "default" "heading"))
             }
             Text t {
-                push out (new StatPart(t.text "muted" "meta"))
+                return (CompactStatBuilder.textParts(t.text))
+            }
+            Summary sm {
+                push out (new StatPart(sm.text "muted" "meta"))
+            }
+            Phase ph {
+                def pspec:PhaseSpec (unwrap ph.spec)
+                return (CompactStatBuilder.phaseParts(pspec))
+            }
+            Custom cu {
+                def cspec:CustomSpec (unwrap cu.spec)
+                return (CompactStatBuilder.customParts(cspec))
+            }
+            Duration du {
+                def dspec:DurationSpec (unwrap du.spec)
+                return (CompactStatBuilder.durationParts(dspec))
+            }
+            Unknown un {
+                push out (new StatPart(un.raw "warn" "meta"))
             }
         }
         return out
@@ -648,6 +896,23 @@ class CompactStatBuilder {
                 return s.name
             }
             Text t {
+                return ""
+            }
+            Summary sm {
+                return ""
+            }
+            Phase ph {
+                def pspec:PhaseSpec (unwrap ph.spec)
+                return pspec.name
+            }
+            Custom cu {
+                def cspec:CustomSpec (unwrap cu.spec)
+                return cspec.name
+            }
+            Duration du {
+                return ""
+            }
+            Unknown un {
                 return ""
             }
         }
@@ -854,6 +1119,74 @@ class CompactRowMapper {
                 push rows (new CompactRow.Split((CompactRowMapper.fromSplit(sn))))
                 continue
             }
+            if (node.type == "summary") {
+                def su:SummaryNode (cast node to:SummaryNode)
+                push rows (new CompactRow.Summary(su.text))
+                continue
+            }
+            if (node.type == "phase") {
+                def ph:PhaseNode (cast node to:PhaseNode)
+                def pspec (new PhaseSpec)
+                pspec.hasNumber = ph.hasNumber
+                pspec.number = ph.number
+                pspec.name = ph.name
+                if (ph.hasDetails) {
+                    pspec.details = ph.details
+                }
+                push rows (new CompactRow.Phase(pspec))
+                continue
+            }
+            if (node.type == "custom") {
+                def cu:CustomNode (cast node to:CustomNode)
+                def cspec (new CustomSpec)
+                cspec.name = cu.name
+                cspec.value = cu.valueRaw
+                if (cu.hasValueMax) {
+                    cspec.hasValueMax = true
+                    cspec.valueMax = cu.valueMaxRaw
+                }
+                if (cu.hasUnit) {
+                    cspec.unit = cu.unit
+                }
+                push rows (new CompactRow.Custom(cspec))
+                continue
+            }
+            if (node.type == "duration") {
+                def du:DurationNode (cast node to:DurationNode)
+                def dspec (new DurationSpec)
+                if (du.hasFloatSingle) {
+                    dspec.value = (CompactRowMapper.toNum(du.floatValueRaw))
+                } {
+                    dspec.value = (int2double du.singleValue)
+                }
+                ; The reference reads any unit that is not seconds as minutes.
+                dspec.unit = "min"
+                if (du.unit == "s") {
+                    dspec.unit = "s"
+                }
+                if (du.hasDescription) {
+                    dspec.description = du.description
+                }
+                push rows (new CompactRow.Duration(dspec))
+                continue
+            }
+            if (node.type == "unknown") {
+                def un:UnknownNode (cast node to:UnknownNode)
+                push rows (new CompactRow.Unknown(un.raw))
+                continue
+            }
+            ; Not rows at all. The reference lifts tags, emojis and derived
+            ; values onto the WORKOUT and filters them out of the row list, so
+            ; a renderer walking rows never meets one.
+            if (node.type == "tags") {
+                continue
+            }
+            if (node.type == "emojis") {
+                continue
+            }
+            if (node.type == "derived") {
+                continue
+            }
             if (node.type == "text") {
                 def t:TextLineNode (cast node to:TextLineNode)
                 push rows (new CompactRow.Text(t.value))
@@ -934,6 +1267,21 @@ class CompactRowEdit {
             Text t {
                 return false
             }
+            Summary sm {
+                return false
+            }
+            Phase ph {
+                return false
+            }
+            Custom cu {
+                return false
+            }
+            Duration du {
+                return false
+            }
+            Unknown un {
+                return false
+            }
         }
         return false
     }
@@ -958,6 +1306,21 @@ class CompactRowEdit {
             Text t {
                 return false
             }
+            Summary sm {
+                return false
+            }
+            Phase ph {
+                return false
+            }
+            Custom cu {
+                return false
+            }
+            Duration du {
+                return false
+            }
+            Unknown un {
+                return false
+            }
         }
         return false
     }
@@ -980,6 +1343,21 @@ class CompactRowEdit {
                 return false
             }
             Text t {
+                return false
+            }
+            Summary sm {
+                return false
+            }
+            Phase ph {
+                return false
+            }
+            Custom cu {
+                return false
+            }
+            Duration du {
+                return false
+            }
+            Unknown un {
                 return false
             }
         }
@@ -1007,6 +1385,21 @@ class CompactRowEdit {
             Text t {
                 return 0
             }
+            Summary sm {
+                return 0
+            }
+            Phase ph {
+                return 0
+            }
+            Custom cu {
+                return 0
+            }
+            Duration du {
+                return 0
+            }
+            Unknown un {
+                return 0
+            }
         }
         return 0
     }
@@ -1032,6 +1425,21 @@ class CompactRowEdit {
             Text t {
                 return 0
             }
+            Summary sm {
+                return 0
+            }
+            Phase ph {
+                return 0
+            }
+            Custom cu {
+                return 0
+            }
+            Duration du {
+                return 0
+            }
+            Unknown un {
+                return 0
+            }
         }
         return 0
     }
@@ -1055,6 +1463,21 @@ class CompactRowEdit {
                 return 0
             }
             Text t {
+                return 0
+            }
+            Summary sm {
+                return 0
+            }
+            Phase ph {
+                return 0
+            }
+            Custom cu {
+                return 0
+            }
+            Duration du {
+                return 0
+            }
+            Unknown un {
                 return 0
             }
         }
@@ -1105,6 +1528,16 @@ class CompactRowEdit {
             Section s {
             }
             Text t {
+            }
+            Summary sm {
+            }
+            Phase ph {
+            }
+            Custom cu {
+            }
+            Duration du {
+            }
+            Unknown un {
             }
         }
     }

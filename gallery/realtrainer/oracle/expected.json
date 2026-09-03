@@ -436,8 +436,185 @@
    ],
    "oracle": "ts"
   },
+  "summary-line": {
+   "rows": [
+    {
+     "type": "summary",
+     "parts": [
+      {
+       "text": "Hyvä viikko takana",
+       "tone": "muted",
+       "kind": "meta"
+      }
+     ]
+    }
+   ],
+   "oracle": "ts"
+  },
+  "section-heading": {
+   "rows": [
+    {
+     "type": "section",
+     "parts": [
+      {
+       "text": "Pääosa",
+       "tone": "default",
+       "kind": "heading"
+      }
+     ]
+    }
+   ],
+   "oracle": "ts"
+  },
+  "phase-numbered": {
+   "rows": [
+    {
+     "type": "phase",
+     "parts": [
+      {
+       "text": "Phase1",
+       "tone": "weight",
+       "kind": "meta"
+      },
+      {
+       "text": "Peruskausi",
+       "tone": "default",
+       "kind": "spec"
+      }
+     ]
+    }
+   ],
+   "oracle": "ts"
+  },
+  "custom-value": {
+   "rows": [
+    {
+     "type": "custom",
+     "parts": [
+      {
+       "text": "mieliala: ",
+       "tone": "muted",
+       "kind": "meta"
+      },
+      {
+       "text": "~4",
+       "tone": "default",
+       "kind": "spec"
+      }
+     ]
+    }
+   ],
+   "oracle": "ts"
+  },
+  "text-plain": {
+   "rows": [
+    {
+     "type": "text",
+     "parts": [
+      {
+       "text": "Vapaata tekstiä rivillä",
+       "tone": "muted",
+       "kind": "meta"
+      }
+     ]
+    }
+   ],
+   "oracle": "ts"
+  },
+  "text-life-label": {
+   "rows": [
+    {
+     "type": "text",
+     "parts": [
+      {
+       "text": "Weight",
+       "tone": "label",
+       "kind": "meta"
+      },
+      {
+       "text": "78.5kg",
+       "tone": "number",
+       "kind": "meta"
+      },
+      {
+       "text": " tänään",
+       "tone": "default",
+       "kind": "meta"
+      }
+     ]
+    }
+   ],
+   "oracle": "ts"
+  },
+  "unknown-line": {
+   "rows": [
+    {
+     "type": "unknown",
+     "parts": [
+      {
+       "text": "Jotain tunnistamatonta",
+       "tone": "warn",
+       "kind": "meta"
+      }
+     ]
+    }
+   ],
+   "oracle": "ts"
+  },
+  "workout-level-rows-are-not-rows": {
+   "rows": [
+    {
+     "type": "exercise",
+     "parts": [
+      {
+       "text": "3x10",
+       "tone": "default",
+       "kind": "spec"
+      }
+     ]
+    }
+   ],
+   "oracle": "ts"
+  },
+  "duration-with-description": {
+   "rows": [
+    {
+     "type": "duration",
+     "parts": [
+      {
+       "text": "10min",
+       "tone": "weight",
+       "kind": "duration"
+      },
+      {
+       "text": "Venyttely",
+       "tone": "default",
+       "kind": "meta"
+      }
+     ]
+    }
+   ],
+   "oracle": "spec",
+   "deviation": "Duration.tsx draws the value twice when there is no description — once as the badge and once as the stat chip beside it. This draws it once. See PATCHES.md."
+  },
+  "duration-bare": {
+   "rows": [
+    {
+     "type": "duration",
+     "parts": [
+      {
+       "text": "45min",
+       "tone": "weight",
+       "kind": "duration"
+      }
+     ]
+    }
+   ],
+   "oracle": "spec",
+   "deviation": "Same as duration-with-description: the reference would repeat `45min` as a second run."
+  },
   "interval-numeric-intensity": {
-   "parts": [],
+   "rows": [],
    "oracle": "spec"
   }
  }
