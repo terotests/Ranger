@@ -199,6 +199,26 @@ class ScValOps {
         return ""
     }
 
+    ; `[...list, item]`. A value that is not a list starts one, which is what
+    ; the spread of `undefined ?? []` does on the other side.
+    sfn appended:ScVal (list:ScVal item:ScVal) {
+        def out:[ScVal]
+        match list {
+            List l {
+                for l.items existing:ScVal i {
+                    push out existing
+                }
+            }
+            Nothing { }
+            Str s { }
+            Bool b { }
+            Num n { }
+            Map m { }
+        }
+        push out item
+        return (new ScVal.List(out))
+    }
+
     ; JSON text, which is how a value is compared against the library's own.
     ; Numbers print without a trailing `.0` for the same reason the row layer's
     ; do: both sides have to write the same string.
@@ -351,6 +371,17 @@ class ScValue {
     sfn either:ScValue () {
         def v (new ScValue)
         v.kind = "or"
+        return v
+    }
+
+    ; parts: the list, then the item. `[...items, x]` written down instead of
+    ; run — the list counterpart of `setKey`, and the reason a cart does not
+    ; need the host.
+    sfn append:ScValue (list:ScValue item:ScValue) {
+        def v (new ScValue)
+        v.kind = "append"
+        push v.parts list
+        push v.parts item
         return v
     }
 
@@ -529,6 +560,23 @@ class Statechart {
     fn stateNamed:ScState (name:string) {
         return (this.stateAt(name))
     }
+
+    ; Where entering `path` actually LANDS: its initial child, and on down
+    ; until a leaf. The runner needs it to move and the visualizer needs it to
+    ; point an arrow, so it belongs to the chart rather than to either.
+    fn entryLeaf:string (path:string) {
+        def here@(mutable):string path
+        def depth@(mutable):int 0
+        while (depth < 32) {
+            def s:ScState (this.stateAt(here))
+            if ((strlen s.initial) == 0) {
+                break
+            }
+            here = ((here + ".") + s.initial)
+            depth = (depth + 1)
+        }
+        return here
+    }
 }
 
 ; =============================================================================
@@ -612,7 +660,7 @@ class ScRunner {
     ;   "#chat.reviewing"  absolute, the machine id stripped
     ;   ".idle"            a child of the state that owns the transition
     ;   "multiAction"      a sibling of it
-    fn resolveTarget:string (target:string ownerPath:string) {
+    sfn resolveTarget:string (target:string ownerPath:string) {
         if ((strlen target) == 0) {
             return ""
         }
@@ -675,11 +723,13 @@ class ScRunner {
             def v:ScVal (this.valueOfGuard(g event))
             match v {
                 Str st { return ((strlen (trim st.text)) > 0) }
+                ; Blankness is a question about TEXT. Anything else is asked
+                ; the only question that means anything for it: is it there.
                 Nothing { return false }
-                Bool b { return false }
-                Num n { return false }
-                List l { return false }
-                Map m { return false }
+                Bool b { return (ScValOps.present(v)) }
+                Num n { return (ScValOps.present(v)) }
+                List l { return (ScValOps.present(v)) }
+                Map m { return (ScValOps.present(v)) }
             }
             return false
         }
@@ -755,6 +805,11 @@ class ScRunner {
             ; comparison against the library rather than by reading.
             return last
         }
+        if (value.kind == "append") {
+            def list:ScVal (this.resolve((itemAt value.parts 0) event))
+            def item:ScVal (this.resolve((itemAt value.parts 1) event))
+            return (ScValOps.appended(list item))
+        }
         if (value.kind == "setKey") {
             def target:ScVal (this.resolve((itemAt value.parts 0) event))
             def key:ScVal (this.resolve((itemAt value.parts 1) event))
@@ -779,17 +834,7 @@ class ScRunner {
     ; leaf. Settling is deliberately NOT part of it — see `settle`.
     fn enter:void (path:string) {
         def c:Statechart (unwrap chart)
-        def here@(mutable):string path
-        def guardCount@(mutable):int 0
-        while (guardCount < 32) {
-            def s:ScState (c.stateAt(here))
-            if ((strlen s.initial) == 0) {
-                break
-            }
-            here = ((here + ".") + s.initial)
-            guardCount = (guardCount + 1)
-        }
-        state = here
+        state = (c.entryLeaf(path))
     }
 
     fn take:void (t:ScTransition ownerPath:string event:ScEvent) {
@@ -800,7 +845,7 @@ class ScRunner {
         for t.actions name:string k {
             push pending name
         }
-        def target:string (this.resolveTarget(t.target ownerPath))
+        def target:string (ScRunner.resolveTarget(t.target ownerPath))
         if ((strlen target) > 0) {
             this.enter(target)
         }

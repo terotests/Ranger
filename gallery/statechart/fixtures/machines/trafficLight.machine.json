@@ -1,0 +1,28 @@
+{
+ "_": "The smallest machine that is still a machine: three states, one event that cycles them, one boolean the states set and clear, and a transition on the machine itself that wins from anywhere. Here to keep the runner honest about the simple case, and because a visualizer that cannot draw a traffic light cannot draw anything.",
+ "id": "trafficLight",
+ "initial": "red",
+ "context": { "pedestrianWaiting": false },
+ "states": {
+  "red": {
+   "on": {
+    "TIMER": "green",
+    "PEDESTRIAN": { "actions": [ { "assign": { "pedestrianWaiting": { "value": true } } } ] }
+   }
+  },
+  "green": {
+   "on": {
+    "TIMER": "yellow",
+    "PEDESTRIAN": { "actions": [ { "assign": { "pedestrianWaiting": { "value": true } } } ] }
+   }
+  },
+  "yellow": {
+   "on": {
+    "TIMER": { "target": "red", "actions": [ { "assign": { "pedestrianWaiting": { "value": false } } } ] }
+   }
+  }
+ },
+ "on": {
+  "POWER_OUT": { "target": ".red", "actions": [ { "assign": { "pedestrianWaiting": { "value": false } } } ] }
+ }
+}

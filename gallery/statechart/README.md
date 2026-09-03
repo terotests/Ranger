@@ -7,6 +7,72 @@ and useful anywhere a Ranger program has states rather than flags.
 
 **License: AGPL-3.0-or-later** (Gallery).
 
+```bash
+npm run statechart:test          # both gates below
+npm run statechart:parity        #   the runner against xstate itself
+npm run statechart:viz:check     #   the drawing, checked
+npm run statechart:viz           # draw the fixture machines
+npm run statechart:viz -- <machine.json> --run SEND STREAM_COMPLETE …
+```
+
+## A machine, drawn
+
+![the chat machine, drawn from its own definition](artifacts/chat.png)
+
+A statechart is a picture that has been written down as text. Holding six
+states, sixteen events, two levels of nesting and a fork in your head is work;
+looking at it is not. So `viz/StatechartGraph.rgr` is a **RangerFlow domain** —
+the same mapping `domains/erd` and `domains/flowchart` do, from a vocabulary to
+nodes and edges — and from there it is [RangerFlow](../rangerflow/README.md)'s
+layered layout, lane router and four backends.
+
+What is drawn is the same `Statechart` object the runner walks, not a second
+description of it. A picture that could disagree with the machine would be
+worse than no picture.
+
+Four choices are what make it readable rather than a plate of noodles:
+
+- **Only states the machine can be in.** A compound state is *where its
+  children are*, never a place of its own. The first draft drew one box per
+  state, and the parents floated above the diagram joined to it by a dashed
+  line each.
+- **An internal transition is a row in the box, not a self-loop.** "Typing here
+  does something and leaves you here" is a fact about the state, which is how
+  UML has drawn it since UML — and `cart` alone had three loops whose labels
+  landed on top of each other.
+- **One arrow per pair of states.** A UI machine has several events that mean
+  "back to where you started" — `chatMachine` has six landing on `idle` — and
+  six lines between the same two boxes is six lines a reader has to check are
+  the same line. `CANCEL, RESET` says it.
+- **Back-edges leave sideways, and take turns.** A transition back up the page
+  goes round the outside rather than back through everything it just came past,
+  and when several go straight up they alternate left and right, so their labels
+  do not stack in one column on top of the boxes they pass.
+
+### …and a run drawn on it
+
+![a run, stopped in fulfilment · packing](artifacts/checkout-live.png)
+
+```bash
+npm run statechart:viz -- gallery/statechart/fixtures/machines/checkout.machine.json \
+  --run ADD_ITEM:sku=a ADD_ITEM:sku=b CHECKOUT SET_CARD:card=4242 PAY APPROVED
+```
+
+That is the one that earns the module. Give it a machine and a sequence of
+events and it draws **where that sequence left it**: the state highlighted, its
+ancestors with it — a machine in `sending.streaming` is in `sending` too, which
+is what nesting MEANS and is invisible if only the leaf is coloured — and the
+transitions leaving it in the accent colour.
+
+"Where am I, and what happens if I press this" is the question a UI state
+machine is actually asked, and a JSON file answers it worst.
+
+`npm run statechart:viz:check` asks the drawing the questions a reader would:
+every state the machine can be in has a box and nothing else does, the entry dot
+points where the machine starts, no pair of states has two arrows, every arrow
+says which event takes it, and a live run highlights exactly one box while a
+drawing of the machine highlights none.
+
 ## What this is not
 
 Not a clone of XState. [XState](https://github.com/statelyai/xstate) is MIT
@@ -131,7 +197,14 @@ one per machine:
 { "event": "targetDate" }     a named field of the event
 { "context": "today" }        a context key
 { "or": [ … ] }               the first part that has anything in it
+{ "setKey": { "map": …, "key": …, "value": … } }   `{...m, [k]: v}`
+{ "append": { "list": …, "item": … } }             `[...xs, x]`
 ```
+
+`append` arrived late, and by replacing something worse: a cart appended to a
+list through a NAMED action, on the grounds that appending is computation. It
+is not — it is exactly as declarable as `setKey` already was, and naming it made
+the module's own conformance depend on a host function it had no reason to need.
 
 `{"or": [{"event":"targetDate"}, {"context":"today"}]}` is
 `event.targetDate || today`. **`or` is what `||` is**, not a special case for
@@ -168,12 +241,23 @@ that is where "everything is a string" stops being a simplification.
 
 ## Conformance — against XState itself
 
-This module has no gate of its own; that would be the runtime grading its own
-homework. It is measured where it is used, and the oracle is the real library:
+The oracle is the real library, never this module's own opinion:
 
 ```bash
-npm run rt:machine   # four implementations of one machine, XState among them
+npm run statechart:parity   # this module's own machines
+npm run rt:machine          # four implementations of one ported machine
+npm run rt:machine:live     # …and the two too big to transcribe
 ```
+
+`tests/xstate-parity.mjs` takes a **manifest** saying which machines to run and
+what the host provides. Conformance used to be measured only where the runner
+was USED — three machines ported from one app — which meant this module could
+not be checked without that app's fixtures, and a semantic nobody's machine
+happened to use had nowhere to be tested. It now has two machines of its own:
+`trafficLight`, the smallest thing that is still a machine, and `checkout`,
+which uses everything the runner has and needs no host at all.
+
+`gallery/realtrainer` passes its own manifest for the three machines it ported.
 
 Four readings of one specification: the machine hand-written as branches, the
 same machine as data, the config loaded and run by this runner, and **the same

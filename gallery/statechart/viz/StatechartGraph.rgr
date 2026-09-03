@@ -1,0 +1,538 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; StatechartGraph.rgr — a machine, drawn
+; ============================================================================
+;
+; A statechart is a picture that has been written down as text. Reading
+; `chat.machine.json` and holding six states, sixteen events, two levels of
+; nesting and a fork in your head is work; looking at it is not. So this is a
+; RangerFlow domain — the same mapping `domains/erd` and `domains/flowchart`
+; do, from a vocabulary to nodes and edges — and from there it is the same
+; layered layout, the same lane router and the same four backends.
+;
+;                    ●
+;                    │  initial
+;              ┌─────┴─────┐
+;              │   idle    │ ──── SEND [hasContent] ────┐
+;              └───────────┘                            │
+;                    ▲                          ┌───────┴────────┐
+;                    │                          │    sending     │
+;                    │                          │   ╌ initial ╌► │
+;                CANCEL                         │  ┌──────────┐  │
+;                    └──────────────────────────┼──│ streaming│  │
+;                                               │  └──────────┘  │
+;                                               └────────────────┘
+;
+; What is drawn is exactly what the runner walks — the same `Statechart`
+; object, not a second description of it. A picture that could disagree with
+; the machine would be worse than no picture.
+;
+; The point of it is the LIVE one. `active` is a state path, so a running
+; `ScRunner` can be drawn: the state the UI is in, highlighted, with the
+; transitions leaving it drawn as the things the user can do next. That is the
+; question a UI state machine is actually asked — "where am I and what happens
+; if I press this" — and it is the one a JSON file answers worst.
+; ============================================================================
+
+Import "../../rangerflow/core/GraphModel.rgr"
+Import "../src/Statechart.rgr"
+
+; The colours. A palette rather than literals at the call sites, because the
+; whole point is that a reader tells the kinds apart at a glance.
+class ScVizTheme {
+    sfn plain:string ()     { return "#f4f6fb" }
+    sfn compound:string ()  { return "#eef2ff" }
+
+    ; Nesting is not drawn as a box around a box — a layered layout has nowhere
+    ; to put one — so it is drawn as colour: everything under `payment` reads
+    ; as one region. The palette repeats after six, which is more regions than
+    ; a diagram anyone reads has.
+    sfn tintFor:string (group:string) {
+        def sum@(mutable):int 0
+        def i@(mutable):int 0
+        def len:int (strlen group)
+        while (i < len) {
+            sum = (sum + (charAt group i))
+            i = (i + 1)
+        }
+        def pick:int (sum % 6)
+        if (pick == 0) { return "#eef2ff" }
+        if (pick == 1) { return "#eefaf1" }
+        if (pick == 2) { return "#fff5e9" }
+        if (pick == 3) { return "#f7effb" }
+        if (pick == 4) { return "#eaf6fb" }
+        return "#f4f6fb"
+    }
+    sfn fork:string ()      { return "#fff5e9" }
+    sfn final:string ()     { return "#eefaf1" }
+    ; Not `start`: that name is taken on a class and the compiler answers by
+    ; saying the class has no such method, which is a confusing way to learn it.
+    sfn entryDot:string ()  { return "#334155" }
+    sfn anyState:string ()  { return "#f7effb" }
+    ; The state the machine is IN. Loud on purpose: on a live drawing it is the
+    ; only thing a reader is looking for.
+    sfn active:string ()    { return "#ffe08a" }
+    sfn activeEdge:string () { return "#b45309" }
+    sfn quiet:string ()     { return "#94a3b8" }
+}
+
+class StatechartGraph {
+    def chart@(optional):Statechart
+
+    ; The active state path — "reviewing.multiAction" — or "" for a drawing of
+    ; the machine rather than of a run. Its ancestors are highlighted too: a
+    ; machine in `sending.streaming` is in `sending` as well, which is what
+    ; nesting MEANS and is invisible if only the leaf is coloured.
+    def active@(mutable):string ""
+
+    ; Draw the transitions leaving the active state in the accent colour, so
+    ; "what can I do from here" is answered by looking rather than by reading.
+    def highlightExits@(mutable):boolean true
+
+    ; A compound state's dotted arrow to its initial child. On by default: it
+    ; is the difference between a box that contains states and a box that is
+    ; one.
+    def showInitial@(mutable):boolean true
+
+    ; One entry per PAIR of states, not per transition — see `join`.
+    def pairKeys:[string]
+    def pairSource:[string]
+    def pairTarget:[string]
+    def pairLabels:[string]
+    def pairDashed:[boolean]
+    def pairHot:[boolean]
+
+    Constructor () {
+    }
+
+    sfn of:StatechartGraph (c:Statechart) {
+        def g (new StatechartGraph)
+        g.chart = c
+        return g
+    }
+
+    ; --- what a state is ----------------------------------------------------
+
+    fn isCompound:boolean (s:ScState) {
+        return ((strlen s.initial) > 0)
+    }
+
+    fn isFork:boolean (s:ScState) {
+        return ((array_length s.always) > 0)
+    }
+
+    fn isActive:boolean (path:string) {
+        if ((strlen active) == 0) {
+            return false
+        }
+        if (active == path) {
+            return true
+        }
+        ; An ancestor of the active leaf is active too.
+        def prefix:string (path + ".")
+        if ((strlen active) > (strlen prefix)) {
+            return ((substring active 0 (strlen prefix)) == prefix)
+        }
+        return false
+    }
+
+    ; A state the machine can actually BE in. A compound state is where its
+    ; children are, never a place of its own, and drawing it as a box next to
+    ; them says the opposite — the first draft did, and the parents floated
+    ; above the diagram joined to it by one dashed line each.
+    fn isLeaf:boolean (s:ScState) {
+        return ((this.isCompound(s)) == false)
+    }
+
+    ; The top-level ancestor, which is what a colour is chosen by: everything
+    ; under `payment` should read as one region even though the boxes are its
+    ; children.
+    sfn groupOf:string (path:string) {
+        def i@(mutable):int 0
+        def len:int (strlen path)
+        while (i < len) {
+            if ((charAt path i) == 46) {
+                return (substring path 0 i)
+            }
+            i = (i + 1)
+        }
+        return path
+    }
+
+    ; --- the graph ----------------------------------------------------------
+
+    fn build:FlowGraph () {
+        def c:Statechart (unwrap chart)
+        def g (new FlowGraph)
+
+        ; The entry point. XState draws it as a filled dot, and so does every
+        ; statechart notation since Harel — a state's name does not tell you
+        ; the machine starts there.
+        def start:FlowNode (FlowNode.create("<start>" "" 0.0 0.0))
+        start.nodeType = "start"
+        start.shape = "circle"
+        start.width = 26.0
+        start.height = 26.0
+        start.bgColor = (ScVizTheme.entryDot())
+        start.borderColor = (ScVizTheme.entryDot())
+        start.sourcePosition = 2
+        start.targetPosition = 0
+        start.addSideHandles()
+        start.syncFromModel()
+        g.addNode(start)
+
+        for c.states s:ScState i {
+            if (this.isLeaf(s)) {
+                g.addNode((this.stateNode(c s)))
+            }
+        }
+
+        ; …and a node for the machine's own transitions, when it has any. They
+        ; are available from every state, so drawing one arrow per state would
+        ; bury the diagram; one source called "any state" says the same thing.
+        if ((array_length c.transitions) > 0) {
+            def any:FlowNode (FlowNode.create("<any>" "any state" 0.0 0.0))
+            any.nodeType = "any"
+            any.shape = "stadium"
+            any.width = 104.0
+            any.height = 40.0
+            any.bgColor = (ScVizTheme.anyState())
+            any.borderColor = (ScVizTheme.quiet())
+            any.sourcePosition = 2
+            any.targetPosition = 0
+            any.addSideHandles()
+            any.syncFromModel()
+            g.addNode(any)
+        }
+
+        this.addEdges(g c)
+        this.flush(g)
+        g.reindex()
+        return g
+    }
+
+    ; A state as UML draws one: its name in the header, and the events it
+    ; handles WITHOUT leaving underneath. An internal transition is a fact
+    ; about the state — "typing here does something and leaves you here" — and
+    ; drawing it as a self-loop turns a diagram into a plate of noodles. The
+    ; first draft drew loops; `cart` alone had three, and their labels landed
+    ; on top of each other.
+    fn stateNode:FlowNode (c:Statechart s:ScState) {
+        def n:FlowNode (FlowNode.create(s.path (this.labelOf(s)) 0.0 0.0))
+        n.nodeType = "state"
+        n.shape = "rect"
+        n.headerHeight = 30.0
+        n.rowHeight = 17.0
+        n.bgColor = (ScVizTheme.tintFor((StatechartGraph.groupOf(s.path))))
+
+        ; A state whose only job is to choose is not a place the machine sits
+        ; in, and a diamond is how every notation says so.
+        if (this.isFork(s)) {
+            n.shape = "diamond"
+            n.bgColor = (ScVizTheme.fork())
+        }
+        if s.isFinal {
+            n.shape = "stadium"
+            n.bgColor = (ScVizTheme.final())
+        }
+
+        def widest@(mutable):double (this.textWidth((this.labelOf(s))))
+        if ((this.isFork(s)) == false) {
+            if (s.isFinal == false) {
+                def rows:int (this.internalCount(s))
+                if (rows > 0) {
+                    def sec:FlowSection (n.addSection(""))
+                    for s.transitions t:ScTransition j {
+                        if ((strlen t.target) == 0) {
+                            def row:FlowRow (FlowRow.create("" (this.eventLabel(t)) "" ""))
+                            row.emphasis = 2
+                            sec.addRow(row)
+                            def w:double ((this.textWidth((this.eventLabel(t)))) + 18.0)
+                            if (w > widest) { widest = w }
+                        }
+                    }
+                }
+            }
+        }
+
+        def total@(mutable):double (widest + 30.0)
+        if (total < 118.0) { total = 118.0 }
+        if (total > 230.0) { total = 230.0 }
+        n.width = total
+        n.height = 46.0
+        if (this.isFork(s)) {
+            n.width = (total * 1.35)
+            n.height = 74.0
+        }
+        if (this.isActive(s.path)) {
+            n.bgColor = (ScVizTheme.active())
+            n.borderColor = (ScVizTheme.activeEdge())
+        }
+        n.sourcePosition = 2
+        n.targetPosition = 0
+        if ((n.sectionCount()) > 0) {
+            n.layoutCompartments()
+            ; `layoutCompartments` sizes the box to header + rows exactly, which
+            ; leaves the last row's text on the bottom edge.
+            n.height = (n.height + 10.0)
+        }
+        n.addSideHandles()
+        n.syncFromModel()
+        return n
+    }
+
+    fn internalCount:int (s:ScState) {
+        def n@(mutable):int 0
+        for s.transitions t:ScTransition i {
+            if ((strlen t.target) == 0) {
+                n = (n + 1)
+            }
+        }
+        return n
+    }
+
+    ; A nested state is drawn by its own name with its parent in front of it:
+    ; "entering" is what a reader is looking for and "payment · entering" is
+    ; what tells them where it is. Two parents may both have a child called
+    ; `deciding`, so the parent is not decoration.
+    fn labelOf:string (s:ScState) {
+        if ((strlen s.parent) == 0) {
+            return s.name
+        }
+        return (((s.parent + " · ") + s.name))
+    }
+
+    ; --- edges --------------------------------------------------------------
+
+    fn addEdges:void (g:FlowGraph c:Statechart) {
+        this.join(g "<start>" (c.entryLeaf(c.initial)) "" false false)
+
+        for c.states s:ScState i {
+            for s.transitions t:ScTransition j {
+                ; An internal transition is a row in the box, not an arrow.
+                if ((strlen t.target) > 0) {
+                    this.fromState(g c s t (this.eventLabel(t)) false)
+                }
+            }
+            for s.always a:ScTransition k {
+                this.fromState(g c s a (this.alwaysLabel(a)) true)
+            }
+            ; `onDone` fires when a final CHILD is reached, so that is where the
+            ; arrow starts. Drawn from the parent it is declared on, it would
+            ; leave a box the machine is never in.
+            if (!null? s.onDone) {
+                this.fromFinals(g c s (unwrap s.onDone))
+            }
+        }
+
+        for c.transitions m:ScTransition n {
+            def target:string (ScRunner.resolveTarget(m.target ""))
+            if ((strlen target) > 0) {
+                if (c.hasState(target)) {
+                    this.join(g "<any>" (c.entryLeaf(target)) (this.eventLabel(m)) true false)
+                }
+            }
+        }
+    }
+
+    ; One transition, drawn from every state it is actually available in. On a
+    ; leaf that is the leaf; on a compound state it is every descendant, because
+    ; a parent's `on` is what the machine falls back to when the child ignores
+    ; the event — and a reader who cannot see that has to know the semantics to
+    ; read the picture.
+    fn fromState:void (g:FlowGraph c:Statechart s:ScState t:ScTransition label:string dashed:boolean) {
+        def target:string (ScRunner.resolveTarget(t.target s.path))
+        if ((strlen target) == 0) {
+            return
+        }
+        if ((c.hasState(target)) == false) {
+            return
+        }
+        def to:string (c.entryLeaf(target))
+        if (this.isLeaf(s)) {
+            this.join(g s.path to label dashed (this.isActive(s.path)))
+            return
+        }
+        def inherited:string ((label + " (") + (s.name + ")"))
+        for c.states d:ScState i {
+            if (this.isLeaf(d)) {
+                if (this.isUnder(d.path s.path)) {
+                    this.join(g d.path to inherited true (this.isActive(d.path)))
+                }
+            }
+        }
+    }
+
+    fn fromFinals:void (g:FlowGraph c:Statechart parent:ScState t:ScTransition) {
+        def target:string (ScRunner.resolveTarget(t.target parent.path))
+        if ((strlen target) == 0) {
+            return
+        }
+        if ((c.hasState(target)) == false) {
+            return
+        }
+        def to:string (c.entryLeaf(target))
+        for c.states d:ScState i {
+            if d.isFinal {
+                if (this.isUnder(d.path parent.path)) {
+                    this.join(g d.path to "onDone" true (this.isActive(d.path)))
+                }
+            }
+        }
+    }
+
+    fn isUnder:boolean (path:string ancestor:string) {
+        def prefix:string (ancestor + ".")
+        if ((strlen path) <= (strlen prefix)) {
+            return false
+        }
+        return ((substring path 0 (strlen prefix)) == prefix)
+    }
+
+    ; Transitions are COLLECTED rather than drawn, because a UI machine has
+    ; several events that mean "back to where you started" — `chatMachine` has
+    ; six landing on `idle` — and six lines between the same two boxes is six
+    ; lines a reader has to check are the same line. One arrow labelled
+    ; "CANCEL, RESET, CLOSE_REVIEW" says it, which is how a statechart has been
+    ; drawn by hand since before there were tools.
+    fn join:void (g:FlowGraph source:string target:string label:string dashed:boolean hot:boolean) {
+        def key:string ((((source + ">") + target) + ">") + (to_string dashed))
+        for pairKeys existing:string i {
+            if (existing == key) {
+                if ((strlen label) > 0) {
+                    def had:string (itemAt pairLabels i)
+                    if ((strlen had) == 0) {
+                        set pairLabels i label
+                    } {
+                        set pairLabels i ((had + ", ") + label)
+                    }
+                }
+                if hot {
+                    set pairHot i true
+                }
+                return
+            }
+        }
+        push pairKeys key
+        push pairSource source
+        push pairTarget target
+        push pairLabels label
+        push pairDashed dashed
+        push pairHot hot
+    }
+
+    fn flush:void (g:FlowGraph) {
+        for pairKeys k:string i {
+            def e:FlowEdge (FlowEdge.create("" (itemAt pairSource i) (itemAt pairTarget i)))
+            e.edgeType = "smoothstep"
+            e.markerEnd = "arrowclosed"
+            e.label = (itemAt pairLabels i)
+            if (itemAt pairDashed i) {
+                e.dash = 5.0
+            }
+            if (itemAt pairHot i) {
+                if highlightExits {
+                    e.strokeColor = (ScVizTheme.activeEdge())
+                    e.strokeWidth = 2.0
+                }
+            }
+            g.addEdge(e)
+        }
+        clear pairKeys
+        clear pairSource
+        clear pairTarget
+        clear pairLabels
+        clear pairDashed
+        clear pairHot
+    }
+
+    ; `SEND [hasContent]` — the event, and the guard that decides. A guard with
+    ; no name is drawn by its kind, which is still more than nothing.
+    fn eventLabel:string (t:ScTransition) {
+        if (null? t.guard) {
+            return t.event
+        }
+        def gu:ScGuard (unwrap t.guard)
+        return ((((t.event + " [") + (this.guardName(gu))) + "]"))
+    }
+
+    fn alwaysLabel:string (t:ScTransition) {
+        if (null? t.guard) {
+            return "else"
+        }
+        return ((("[" + (this.guardName((unwrap t.guard)))) + "]"))
+    }
+
+    fn guardName:string (g:ScGuard) {
+        if ((strlen g.name) > 0) {
+            return g.name
+        }
+        return g.kind
+    }
+
+    ; Which side of a box each end of an edge leaves and arrives on. Without
+    ; this the router picks, and a back-edge arrives on the flank of the box it
+    ; is entering — the line then runs along the side of the shape for its last
+    ; hundred pixels, which reads as a line that missed.
+    ;
+    ; A statechart is read top to bottom, so a forward transition leaves the
+    ; bottom and arrives on the top. A transition back UP the page leaves and
+    ; arrives sideways, on the side it is heading for, so it goes round the
+    ; outside instead of back through everything it just came past.
+    sfn faceEdges:void (g:FlowGraph) {
+        def backEdges@(mutable):int 0
+        def k@(mutable):int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            if (e.sourceIndex >= 0) {
+                if (e.targetIndex >= 0) {
+                    def a:FlowNode (g.nodeAt(e.sourceIndex))
+                    def b:FlowNode (g.nodeAt(e.targetIndex))
+                    def dx:double ((b.centerX()) - (a.centerX()))
+                    def dy:double ((b.centerY()) - (a.centerY()))
+                    if (dy > 0.0) {
+                        e.sourceHandle = 2
+                        e.targetHandle = 0
+                    } {
+                        ; A back-edge leaves by the side it is heading for. When
+                        ; it is heading straight up — which most of them are, a
+                        ; machine's "back to where you were" — there is no side
+                        ; to prefer, so they take turns. Sent up one column they
+                        ; stack, and their labels land on top of the boxes they
+                        ; pass.
+                        def side@(mutable):int 1
+                        if (dx < 0.0) { side = 3 }
+                        ; "Heading for" means meaningfully to one side. Half a
+                        ; box over is straight up as far as a reader is
+                        ; concerned, and that is where they stack.
+                        if ((fabs dx) < 60.0) {
+                            if ((backEdges % 2) == 1) { side = 3 }
+                            backEdges = (backEdges + 1)
+                        }
+                        e.sourceHandle = side
+                        e.targetHandle = side
+                    }
+                    ; …and one that is mostly sideways goes out of the side it
+                    ; is heading for rather than down and back up again.
+                    if ((fabs dx) > ((fabs dy) * 1.4)) {
+                        if (dx > 0.0) {
+                            e.sourceHandle = 1
+                            e.targetHandle = 3
+                        } {
+                            e.sourceHandle = 3
+                            e.targetHandle = 1
+                        }
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+    }
+
+    ; Text metrics good enough to size a box; the view measures for real when
+    ; it draws.
+    fn textWidth:double (text:string) {
+        return ((int2double (strlen text)) * 7.0)
+    }
+}

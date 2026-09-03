@@ -283,6 +283,33 @@ ScValOps.fieldJson = function(item, field) {
   };
   return "";
 };
+ScValOps.appended = function(list, item) {
+  let out = [];
+  if( list != null && list.__rg_kind === "ScVal_List" ) /* union case */ {
+    var l = list;
+    for ( let i = 0; i < l.items.length; i++) {
+      var existing = l.items[i];
+      out.push(existing);
+    };
+  };
+  if( list != null && list.__rg_kind === "ScVal_Nothing" ) /* union case */ {
+    var __match1 = list;
+  };
+  if( list != null && list.__rg_kind === "ScVal_Str" ) /* union case */ {
+    var s = list;
+  };
+  if( list != null && list.__rg_kind === "ScVal_Bool" ) /* union case */ {
+    var b = list;
+  };
+  if( list != null && list.__rg_kind === "ScVal_Num" ) /* union case */ {
+    var n = list;
+  };
+  if( list != null && list.__rg_kind === "ScVal_Map" ) /* union case */ {
+    var m = list;
+  };
+  out.push(item);
+  return new ScVal_List(out);
+};
 ScValOps.toJson = function(v) {
   if( v != null && v.__rg_kind === "ScVal_Nothing" ) /* union case */ {
     var __match0 = v;
@@ -408,6 +435,13 @@ ScValue.either = function() {
   v.kind = "or";
   return v;
 };
+ScValue.append = function(list, item) {
+  const v = new ScValue();
+  v.kind = "append";
+  v.parts.push(list);
+  v.parts.push(item);
+  return v;
+};
 ScValue.setKey = function(target, key, value) {
   const v = new ScValue();
   v.kind = "setKey";
@@ -514,6 +548,19 @@ class Statechart  {
   stateNamed (name) {
     return this.stateAt(name);
   };
+  entryLeaf (path) {
+    let here = path;
+    let depth = 0;
+    while (depth < 32) {
+      const s = this.stateAt(here);
+      if ( s.initial.length == 0 ) {
+        break;
+      }
+      here = (here + ".") + s.initial;
+      depth = depth + 1;
+    };
+    return here;
+  };
 }
 class ScRunner  {
   constructor() {
@@ -561,41 +608,6 @@ class ScRunner  {
   setStr (key, value) {
     this.set(key, ScValOps.str(value));
   };
-  resolveTarget (target, ownerPath) {
-    if ( target.length == 0 ) {
-      return "";
-    }
-    if ( target.charCodeAt(0 ) == 35 ) {
-      const rest = target.substring(1, target.length );
-      let dot = -1;
-      let i = 0;
-      const __len = rest.length;
-      while (i < __len) {
-        if ( rest.charCodeAt(i ) == 46 ) {
-          if ( dot < 0 ) {
-            dot = i;
-          }
-        }
-        i = i + 1;
-      };
-      if ( dot < 0 ) {
-        return "";
-      }
-      return rest.substring((dot + 1), __len );
-    }
-    if ( target.charCodeAt(0 ) == 46 ) {
-      const child = target.substring(1, target.length );
-      if ( ownerPath.length == 0 ) {
-        return child;
-      }
-      return (ownerPath + ".") + child;
-    }
-    const parent = ScRunner.parentOf(ownerPath);
-    if ( parent.length == 0 ) {
-      return target;
-    }
-    return (parent + ".") + target;
-  };
   countOf (v) {
     return ScValOps.sizeOf(v);
   };
@@ -624,19 +636,19 @@ class ScRunner  {
       };
       if( v != null && v.__rg_kind === "ScVal_Bool" ) /* union case */ {
         var b = v;
-        return false;
+        return ScValOps.present(v);
       };
       if( v != null && v.__rg_kind === "ScVal_Num" ) /* union case */ {
         var n = v;
-        return false;
+        return ScValOps.present(v);
       };
       if( v != null && v.__rg_kind === "ScVal_List" ) /* union case */ {
         var l = v;
-        return false;
+        return ScValOps.present(v);
       };
       if( v != null && v.__rg_kind === "ScVal_Map" ) /* union case */ {
         var m = v;
-        return false;
+        return ScValOps.present(v);
       };
       return false;
     }
@@ -708,10 +720,15 @@ class ScRunner  {
       };
       return last;
     }
+    if ( value.kind == "append" ) {
+      const list = this.resolve(value.parts[0], event);
+      const item = this.resolve(value.parts[1], event);
+      return ScValOps.appended(list, item);
+    }
     if ( value.kind == "setKey" ) {
       const target = this.resolve(value.parts[0], event);
       const key = this.resolve(value.parts[1], event);
-      const item = this.resolve(value.parts[2], event);
+      const item_1 = this.resolve(value.parts[2], event);
       let keyText = ScValOps.toJson(key);
       if( key != null && key.__rg_kind === "ScVal_Str" ) /* union case */ {
         var st = key;
@@ -732,23 +749,13 @@ class ScRunner  {
       if( key != null && key.__rg_kind === "ScVal_Map" ) /* union case */ {
         var m = key;
       };
-      return ScValOps.withKey(target, keyText, item);
+      return ScValOps.withKey(target, keyText, item_1);
     }
     return ScValOps.nothing();
   };
   enter (path) {
     const c = this.chart;
-    let here = path;
-    let guardCount = 0;
-    while (guardCount < 32) {
-      const s = c.stateAt(here);
-      if ( s.initial.length == 0 ) {
-        break;
-      }
-      here = (here + ".") + s.initial;
-      guardCount = guardCount + 1;
-    };
-    this.state = here;
+    this.state = c.entryLeaf(path);
   };
   take (t, ownerPath, event) {
     for ( let j = 0; j < t.assigns.length; j++) {
@@ -760,7 +767,7 @@ class ScRunner  {
       var name = t.actions[k];
       this.pending.push(name);
     };
-    const target = this.resolveTarget(t.target, ownerPath);
+    const target = ScRunner.resolveTarget(t.target, ownerPath);
     if ( target.length > 0 ) {
       this.enter(target);
     }
@@ -863,6 +870,41 @@ ScRunner.parentOf = function(path) {
     return "";
   }
   return path.substring(0, at );
+};
+ScRunner.resolveTarget = function(target, ownerPath) {
+  if ( target.length == 0 ) {
+    return "";
+  }
+  if ( target.charCodeAt(0 ) == 35 ) {
+    const rest = target.substring(1, target.length );
+    let dot = -1;
+    let i = 0;
+    const __len = rest.length;
+    while (i < __len) {
+      if ( rest.charCodeAt(i ) == 46 ) {
+        if ( dot < 0 ) {
+          dot = i;
+        }
+      }
+      i = i + 1;
+    };
+    if ( dot < 0 ) {
+      return "";
+    }
+    return rest.substring((dot + 1), __len );
+  }
+  if ( target.charCodeAt(0 ) == 46 ) {
+    const child = target.substring(1, target.length );
+    if ( ownerPath.length == 0 ) {
+      return child;
+    }
+    return (ownerPath + ".") + child;
+  }
+  const parent = ScRunner.parentOf(ownerPath);
+  if ( parent.length == 0 ) {
+    return target;
+  }
+  return (parent + ".") + target;
 };
 module.exports.ScVal_Nothing = ScVal_Nothing;
 module.exports.ScVal_Str = ScVal_Str;

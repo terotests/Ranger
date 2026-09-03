@@ -78,6 +78,12 @@ class StatechartJson {
     }
 
     sfn valueOf:ScValue (spec:VlJson) {
+        if (spec.has("append")) {
+            def ap:VlJson (spec.get("append"))
+            return (ScValue.append(
+                (StatechartJson.valueOf((ap.get("list"))))
+                (StatechartJson.valueOf((ap.get("item"))))))
+        }
         if (spec.has("setKey")) {
             def parts:VlJson (spec.get("setKey"))
             return (ScValue.setKey(
@@ -131,6 +137,12 @@ class StatechartJson {
     ; context that was.
     sfn guardOf:ScGuard (spec:VlJson) {
         def g (new ScGuard)
+        ; The name the ORIGINAL gives this guard. The predicate says what the
+        ; guard does; the name says which guard it is — which is what the
+        ; config check compares against a TypeScript function, and what a
+        ; drawing puts on the arrow. `[hasContent]` on an edge is worth
+        ; reading; `[or]` is not.
+        g.name = (spec.stringOr("named" ""))
         if (spec.has("present")) {
             g.kind = "present"
             g.source = (StatechartJson.valueOf((spec.get("present"))))
