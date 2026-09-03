@@ -685,6 +685,7 @@
     "evg:box:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/EVGBoxShorthandTest.rgr -d=./gallery/evg/bin -o=EVGBoxShorthandTest.js -nodecli && node ./gallery/evg/bin/EVGBoxShorthandTest.js",
     "evg:box:oracle": "node gallery/evg/oracle/css_box_oracle.mjs",
     "evg:style:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/EVGStyleStateTest.rgr -d=./gallery/evg/bin -o=EVGStyleStateTest.js -nodecli && node ./gallery/evg/bin/EVGStyleStateTest.js",
+    "evg:stylevar:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/EVGStyleVarTest.rgr -d=./gallery/evg/bin -o=EVGStyleVarTest.js -nodecli && node ./gallery/evg/bin/EVGStyleVarTest.js",
     "evg:overlay:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/EVGOverlayTest.rgr -d=./gallery/evg/bin -o=EVGOverlayTest.js -nodecli && node ./gallery/evg/bin/EVGOverlayTest.js",
     "evg:rtl:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/EVGRtlLayoutTest.rgr -d=./gallery/evg/bin -o=EVGRtlLayoutTest.js -nodecli && node ./gallery/evg/bin/EVGRtlLayoutTest.js",
     "evg:ruler:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/EVGRulerTest.rgr -d=./gallery/evg/bin -o=EVGRulerTest.js -nodecli && node ./gallery/evg/bin/EVGRulerTest.js",

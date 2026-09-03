@@ -52,6 +52,10 @@ const DEMOS = {
     list: (M, css) => {
       const d = new M.DashboardDemo();
       d.init(css);
+      // Which palette. The sheet holds both and the demo holds the name; see
+      // the marine block at the foot of `dashboard.css`.
+      const th = process.env.DASH_THEME;
+      if (th) d.setTheme(th);
       const r = process.env.DASH_RANGE;
       if (r) d.selectRange(r);
       const sc = process.env.DASH_SCROLL;

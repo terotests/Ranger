@@ -64,6 +64,11 @@ SUITES=(
   evg:toolbar:test
   evg:overlay:test
   evg:style:test
+  # `@vars` and `var()`: the palette a theme replaces instead of ninety rules.
+  # Two of its checks are not about colour — that a name nobody defined is
+  # REPORTED rather than painted, and that resolution happens once per plan and
+  # not once per element, which is the whole reason the feature is free.
+  evg:stylevar:test
   evg:timing:test
   evg:box:test
   evg:viewport:test

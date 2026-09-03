@@ -73,9 +73,17 @@ class EVGStyleCacheTest {
 
     sfn sheetText:string () {
         return (""
+            ; A PALETTE, and one name the dark theme moves. `var()` is resolved
+            ; where a value becomes an element's, and there are two such places
+            ; — the plan builder and the direct scan this suite compares it
+            ; against. A variable understood by one and not the other would
+            ; show up here as the cache being wrong, which is the only reason
+            ; the fixture carries variables at all.
+            + "@vars { --ink: #111111; --fill: #cccccc; }"
+            + "@vars dark { --ink: #eeeeee; --fill: #222222; }"
             + ".page { display: flex; flex-direction: column; width: 400px; }"
-            + ".box { width: 100px; height: 20px; background-color: #cccccc;"
-            + "       opacity: 1; transform: none; color: #111111; }"
+            + ".box { width: 100px; height: 20px; background-color: var(--fill);"
+            + "       opacity: 1; transform: none; color: var(--ink); }"
             + ".box:hover  { background-color: #ff0000; opacity: 0.5; }"
             + ".box:focus  { background-color: #00ff00; transform: scale(1.2); }"
             + ".box:active { background-color: #0000ff; }"
@@ -88,7 +96,7 @@ class EVGStyleCacheTest {
             ; existed, and the mutation that removed the theme from the cache
             ; key passed. `testFixtureParses` below is what stops that
             ; happening again.
-            + ".theme-dark .box { color: #eeeeee; background-color: #222222; }"
+            + ".theme-dark .box { border-radius: 4px; }"
             ; A class whose STATE rule sets a property its base rule does not.
             ; That is the only case where clearing the state properties matters
             ; — where the base rule re-writes the property anyway, dropping the
@@ -186,6 +194,18 @@ class EVGStyleCacheTest {
         }
         c.eqInt("the stylesheet has no errors" n 0)
         c.ok("and it has rules with states, themes and media in it" ((s.getRuleCount()) >= 10))
+    }
+
+    ; The fixture's theme has to CHANGE something, or "cached == direct under
+    ; the dark theme" is a comparison of two identical pictures. It used to be
+    ; carried by a theme-scoped rule; now most of it is a palette, and this is
+    ; what says the palette still moves the page.
+    sfn testThemeMatters:void (c:StyleCacheCheck) {
+        print "--- and the fixture's theme is worth comparing ---"
+        def a:EVGElement (EVGStyleCacheTest.page())
+        def b:EVGElement (EVGStyleCacheTest.page())
+        c.ok("the dark theme paints something else"
+            ((EVGStyleCacheTest.paintOf(a "" 400.0 true)) != (EVGStyleCacheTest.paintOf(b "dark" 400.0 true))))
     }
 
     sfn testAgreement:void (c:StyleCacheCheck) {
@@ -381,6 +401,7 @@ class EVGStyleCacheTest {
         def c (new StyleCacheCheck())
         print "=== EVG resolved-style cache ==="
         EVGStyleCacheTest.testFixtureParses(c)
+        EVGStyleCacheTest.testThemeMatters(c)
         EVGStyleCacheTest.testAgreement(c)
         EVGStyleCacheTest.testViewportInvalidates(c)
         EVGStyleCacheTest.testThemeOnOneSheet(c)

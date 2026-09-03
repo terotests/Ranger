@@ -948,6 +948,113 @@ console.log("--- what a reader is told about a carried row ---");
     JSON.stringify(live.map((n) => n.name)));
 }
 
+console.log("--- three palettes over the same layout ---");
+{
+  // A THEME IS A NAME. The sheet holds three palettes — `@vars`, `@vars
+  // marine`, `@vars sunrise` — and `applyTree(root, theme)` picks one; every
+  // rule in the file names a role rather than a colour, so nothing in the tree
+  // gains or loses a class. What is checked here is that the page repaints and
+  // does not MOVE, in either theme, and that leaving one puts every colour
+  // back.
+  const geom = (json) =>
+    JSON.parse(json).cmds
+      .map((c) => [c.k, c.x, c.y, c.w, c.h, c.text || "", (c.pts || []).join(" ")].join(","))
+      .join("|");
+  const paint = (json) =>
+    JSON.parse(json).cmds.map((c) => (c.c || []).join(",")).join("|");
+  const bg = (json) => JSON.parse(json).cmds[0].c.join(",");
+  const speed = (json) => JSON.parse(json).effect.speed;
+
+  const d = fresh();
+  ok("the page starts on the sheet's unscoped palette", d.themeName() === "",
+    JSON.stringify(d.themeName()));
+  const light = d.displayListJson();
+
+  ok("asking for a different one is a change", d.setTheme("marine") === true);
+  ok("asking for the one already on is not", d.setTheme("marine") === false);
+  ok("and it says which it is on", d.themeName() === "marine", d.themeName());
+  const marine = d.displayListJson();
+  d.setTheme("sunrise");
+  const sunrise = d.displayListJson();
+
+  ok("nothing moved under marine", geom(marine) === geom(light));
+  ok("nor under sunrise", geom(sunrise) === geom(light));
+  ok("but marine's colours are not the default's", paint(marine) !== paint(light));
+  ok("and sunrise's are neither", paint(sunrise) !== paint(light) && paint(sunrise) !== paint(marine));
+  ok("the page itself is repainted", bg(marine) === "212,234,242,1", bg(marine));
+  ok("in each theme", bg(sunrise) === "255,243,230,1", bg(sunrise));
+  // The surface effect is style like everything else, so a theme may change
+  // the speed of the water — `--ripple-speed` is a role like a colour is.
+  ok("and a theme reaches the effect too",
+    speed(light) === 220 && speed(marine) === 320 && speed(sunrise) === 260,
+    [speed(light), speed(marine), speed(sunrise)].join(" "));
+
+  // THE HALF OF THE PAGE THAT WEARS NO CLASS. The chart is Vela's and the
+  // scroll indicator is two rectangles; both take their colours from
+  // `.db-ink-*` in the sheet, which is the only reason a theme can reach them.
+  d.setTheme("marine");
+  ok("the chart's ink comes from the theme",
+    /#7EC8DD/.test(d.specText()) && /#0E7490/.test(d.specText()),
+    (d.specText().match(/#[0-9A-F]{6}/g) || []).join(" "));
+  d.setTheme("sunrise");
+  ok("in each theme",
+    /#FCD9A8/.test(d.specText()) && /#EA580C/.test(d.specText()),
+    (d.specText().match(/#[0-9A-F]{6}/g) || []).join(" "));
+  d.setTheme("");
+  ok("and from the unscoped palette when there is no theme",
+    /#D4D4D8/.test(d.specText()) && /#3F3F46/.test(d.specText()),
+    (d.specText().match(/#[0-9A-F]{6}/g) || []).join(" "));
+
+  // Byte for byte. With the palette this is structural — there is one
+  // declaration per property and it is resolved per theme — where a theme
+  // built out of rules had to be checked declaration by declaration for one
+  // with nothing to fall back to.
+  ok("leaving the theme puts the page back exactly", d.displayListJson() === light);
+
+  // What replaced that check: every name a theme moves has to exist in the
+  // unscoped palette. A `@vars sunrise` name that is nowhere else is a name
+  // that resolves in one theme and reports an error in the other two.
+  const body = CSS.replace(/\/\*[\s\S]*?\*\//g, "");
+  const palettes = new Map();
+  for (const m of body.matchAll(/@vars([^{]*)\{([^{}]*)\}/g)) {
+    const theme = m[1].trim() || "";
+    const names = palettes.get(theme) || new Set();
+    for (const decl of m[2].split(";")) {
+      const at = decl.indexOf(":");
+      if (at > 0) names.add(decl.slice(0, at).trim());
+    }
+    palettes.set(theme, names);
+  }
+  ok("the sheet has an unscoped palette", (palettes.get("") || new Set()).size > 0);
+  ok("and the two themes", palettes.has("marine") && palettes.has("sunrise"),
+    [...palettes.keys()].join(" "));
+  const base = palettes.get("");
+  const orphans = [];
+  for (const [theme, names] of palettes) {
+    if (theme === "") continue;
+    for (const n of names) if (!base.has(n)) orphans.push(theme + " " + n);
+  }
+  ok("every name a theme moves is in the unscoped palette", orphans.length === 0,
+    orphans.join(", "));
+  // A theme declaring a length would make the layout a function of the
+  // palette, and every measured position in this file true of one theme only.
+  const lengths = [];
+  for (const m of body.matchAll(/@vars[^{]*\{([^{}]*)\}/g)) {
+    for (const decl of m[1].split(";")) {
+      const at = decl.indexOf(":");
+      if (at < 0) continue;
+      if (/\d(px|%|em|rem|vh|vw)/.test(decl.slice(at + 1))) lengths.push(decl.trim());
+    }
+  }
+  ok("and none of them is a length", lengths.length === 0, lengths.join(", "));
+  // The rules that USE the palette state no colour of their own — which is
+  // what makes the palette the only place a colour lives.
+  const rulesOnly = body.replace(/@vars[^{]*\{[^{}]*\}/g, "");
+  const literals = rulesOnly.match(/#[0-9a-fA-F]{3,8}\b/g) || [];
+  ok("and no rule states a colour", literals.length === 0, literals.join(" "));
+  ok("the sheet parsed without complaint", d.inspectStyleErrors() === "[]", d.inspectStyleErrors());
+}
+
 console.log("");
 console.log("passed=" + passed + " failed=" + failed);
 if (failed > 0) { console.log("FAILURES"); process.exit(1); }
