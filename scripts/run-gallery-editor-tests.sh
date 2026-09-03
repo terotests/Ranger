@@ -232,6 +232,16 @@ SUITES=(
   # where the automatic minimum is what decides the cell, and the
   # `min-width: 0` shape the showcase's chart columns actually ask for.
   evg:pctflex:check
+  # The RealTrainer app, which had no CI gate at all — which is how it came to
+  # be red on main: `ProgressCtl.value` is a double and the demo assigned int
+  # literals to it, so `rt:build` failed twelve times over and nothing said so.
+  rt:check
+  # Its COMPACT layer, with no app around it: text in, rows out, and the spec
+  # line each row draws. The spec line is checked as PARTS — `3x5` and `x90kg`
+  # are two runs with two tones — because that is the structure the TypeScript
+  # library this is ported from produces, and a builder that returned one
+  # string would pass a text assertion while losing what the theme draws.
+  rt:compact
 )
 
 failed=()

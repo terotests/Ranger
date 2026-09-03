@@ -1,0 +1,163 @@
+Import "../V1Json.rgr"
+Import "AstNode.rgr"
+
+class MoveNode {
+    Extends(AstNode)
+
+    def sport:string "juoksu"
+    def hasDistance:boolean false
+    def hasDistanceNumeric:boolean false
+    def distanceValue:string ""
+    def hasDistanceMax:boolean false
+    def distanceValueMax:string ""
+    def distanceUnit:string ""
+    def hasDuration:boolean false
+    def durationValueRaw:string "0"
+    def hasDurationFloat:boolean false
+    def hasSteps:boolean false
+    def steps:int 0
+    def hasIntensityJson:boolean false
+    def intensityJson:string ""
+    def hasSetsVal:boolean false
+    def setsVal:int 1
+    def hasCountVal:boolean false
+    def countVal:int 1
+    def hasCountMax:boolean false
+    def countMax:int 0
+    def hasCountRight:boolean false
+    def countRightVal:int 0
+    def hasDistanceRight:boolean false
+    def distanceRightVal:string ""
+    def hasRecovery:boolean false
+    def recoveryValue:int 0
+    def hasRecoveryMax:boolean false
+    def recoveryMax:int 0
+    def recoveryUnit:string "min"
+    def hasRecoveryText:boolean false
+    def recoveryText:string ""
+    def hasNote:boolean false
+    def note:string ""
+    def splits:[AstNode]
+
+    Constructor () {
+        type = "move"
+    }
+
+    fn toJSONString@(override):string () {
+        def fields:[string]
+        CompactV1Json.addStringField(fields "type" type)
+        CompactV1Json.addStringField(fields "sport" sport)
+        if (hasSetsVal) {
+            CompactV1Json.addIntField(fields "sets" setsVal)
+        } {
+            CompactV1Json.addIntField(fields "sets" 1)
+        }
+        if (hasCountVal) {
+            CompactV1Json.addIntField(fields "count" countVal)
+        } {
+            CompactV1Json.addIntField(fields "count" 1)
+        }
+        if (hasCountMax) {
+            CompactV1Json.addIntField(fields "countMax" countMax)
+        } {
+            CompactV1Json.addRawField(fields "countMax" "null")
+        }
+        if (hasCountRight) {
+            CompactV1Json.addIntField(fields "countRight" countRightVal)
+        }
+
+        if (hasDuration) {
+            def durFields:[string]
+            if (hasDurationFloat) {
+                CompactV1Json.addRawField(durFields "value" durationValueRaw)
+            } {
+                CompactV1Json.addRawField(durFields "value" durationValueRaw)
+            }
+            CompactV1Json.addStringField(durFields "unit" "min")
+            CompactV1Json.addRawField(fields "duration" (CompactV1Json.jsonObject(durFields)))
+        }
+
+        def distFields:[string]
+        if (hasDistance) {
+            if (hasDistanceNumeric) {
+            CompactV1Json.addRawField(distFields "value" distanceValue)
+            if (hasDistanceMax) {
+                CompactV1Json.addRawField(distFields "valueMax" distanceValueMax)
+            } {
+                CompactV1Json.addRawField(distFields "valueMax" "null")
+            }
+            CompactV1Json.addStringField(distFields "unit" distanceUnit)
+            } {
+                CompactV1Json.addRawField(distFields "value" "null")
+                if ((strlen distanceUnit) > 0) {
+                    CompactV1Json.addStringField(distFields "unit" distanceUnit)
+                } {
+                    CompactV1Json.addRawField(distFields "unit" "null")
+                }
+            }
+        } {
+            CompactV1Json.addRawField(distFields "value" "null")
+            CompactV1Json.addRawField(distFields "unit" "null")
+        }
+        CompactV1Json.addRawField(fields "distance" (CompactV1Json.jsonObject(distFields)))
+
+        if (hasDistanceRight) {
+            CompactV1Json.addRawField(fields "distanceRight" distanceRightVal)
+        }
+
+        if (hasSteps) {
+            CompactV1Json.addIntField(fields "steps" steps)
+        } {
+            CompactV1Json.addRawField(fields "steps" "null")
+        }
+
+        if (hasIntensityJson) {
+            CompactV1Json.addRawField(fields "intensity" intensityJson)
+        } {
+            CompactV1Json.addRawField(fields "intensity" "null")
+        }
+
+        if (hasRecovery) {
+            def recFields:[string]
+            CompactV1Json.addIntField(recFields "value" recoveryValue)
+            if (hasRecoveryMax) {
+                CompactV1Json.addIntField(recFields "max" recoveryMax)
+            } {
+                CompactV1Json.addRawField(recFields "max" "null")
+            }
+            CompactV1Json.addStringField(recFields "unit" recoveryUnit)
+            CompactV1Json.addRawField(fields "recovery" (CompactV1Json.jsonObject(recFields)))
+        } {
+            if (hasRecoveryText) {
+                def recTextFields:[string]
+                CompactV1Json.addRawField(recTextFields "value" "null")
+                CompactV1Json.addRawField(recTextFields "max" "null")
+                CompactV1Json.addRawField(recTextFields "unit" "null")
+                CompactV1Json.addStringField(recTextFields "text" recoveryText)
+                CompactV1Json.addRawField(fields "recovery" (CompactV1Json.jsonObject(recTextFields)))
+            } {
+                CompactV1Json.addRawField(fields "recovery" "null")
+            }
+        }
+
+        if (hasNote) {
+            CompactV1Json.addStringField(fields "note" note)
+        } {
+            CompactV1Json.addRawField(fields "note" "null")
+        }
+
+        CompactV1Json.addRawField(fields "description" "null")
+        CompactV1Json.addRawField(fields "customFields" "null")
+        if ((array_length splits) > 0) {
+            def splitJson:[string]
+            for splits child:AstNode sci {
+                push splitJson (child.toJSONString())
+            }
+            CompactV1Json.addRawField(fields "splits" ("[" + (join splitJson ",") + "]"))
+        } {
+            CompactV1Json.addRawField(fields "splits" "null")
+        }
+
+        return (CompactV1Json.jsonObject(fields))
+    }
+}

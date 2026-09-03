@@ -1,0 +1,126 @@
+Import "../V1SharedHelpers.rgr"
+Import "../nodes/CustomNode.rgr"
+
+class CustomParserV1 {
+    static fn parseNameValue:void (n:CustomNode left:string) {
+        def parts (strsplit left " ")
+        def pLen (array_length parts)
+        if (pLen == 0) {
+            return
+        }
+
+        def valueIdx@(mutable):int -1
+        def i@(mutable):int 0
+        while (i < pLen) {
+            def tok (itemAt parts i)
+            def dashPos (V1SharedHelpers.findToken(tok "-"))
+            if (dashPos > 0) {
+                def vMin (V1SharedHelpers.parseStrictInt((substring tok 0 dashPos)))
+                def vMax (V1SharedHelpers.parseStrictInt((substring tok (dashPos + 1) (strlen tok))))
+                if (vMin >= 0) {
+                    if (vMax >= 0) {
+                        def nameParts:[string]
+                        def j@(mutable):int 0
+                        while (j < i) {
+                            push nameParts (itemAt parts j)
+                            j = j + 1
+                        }
+                        n.name = (trim (join nameParts " "))
+                        n.valueRaw = (to_string vMin)
+                        n.hasValueMax = true
+                        n.valueMaxRaw = (to_string vMax)
+                        return
+                    }
+                }
+            }
+            if (V1SharedHelpers.isDecimalToken(tok)) {
+                valueIdx = i
+                i = pLen
+            } {
+                i = i + 1
+            }
+        }
+
+        if (valueIdx < 0) {
+            return
+        }
+
+        def nameParts:[string]
+        def j@(mutable):int 0
+        while (j < valueIdx) {
+            push nameParts (itemAt parts j)
+            j = j + 1
+        }
+        n.name = (trim (join nameParts " "))
+        n.valueRaw = (itemAt parts valueIdx)
+    }
+
+    static fn parse:CustomNode (line:string) {
+        def n (new CustomNode)
+        if ((strlen line) <= 7) {
+            return n
+        }
+        def rest (trim (substring line 7 (strlen line)))
+
+        def barNote (V1SharedHelpers.findToken(rest " | "))
+        def core@(mutable):string rest
+        if (barNote >= 0) {
+            core = (trim (substring rest 0 barNote))
+            def namePart (trim (substring rest (barNote + 3) (strlen rest)))
+            if ((strlen namePart) > 0) {
+                n.name = namePart
+            }
+        }
+
+        def noteSep (V1SharedHelpers.findToken(core " | "))
+        if (noteSep >= 0) {
+            core = (trim (substring core 0 noteSep))
+            def noteText (trim (substring core (noteSep + 3) (strlen core)))
+            if ((strlen noteText) > 0) {
+                n.hasNote = true
+                n.note = noteText
+            }
+        }
+
+        def pipePos (V1SharedHelpers.findToken(core "|"))
+        if (pipePos > 0) {
+            def left (trim (substring core 0 pipePos))
+            def unitPart (trim (substring core (pipePos + 1) (strlen core)))
+            def numEnd (V1SharedHelpers.splitNumAndUnit(left))
+            if (numEnd > 0) {
+                def numPart (substring left 0 numEnd)
+                if (V1SharedHelpers.isDecimalToken(numPart)) {
+                    n.valueRaw = numPart
+                    if ((strlen unitPart) > 0) {
+                        n.hasUnit = true
+                        n.unit = unitPart
+                    }
+                    return n
+                }
+            }
+            CustomParserV1.parseNameValue(n left)
+            if ((strlen unitPart) > 0) {
+                n.hasUnit = true
+                n.unit = unitPart
+            }
+            return n
+        }
+
+        def numEnd2 (V1SharedHelpers.splitNumAndUnit(core))
+        if (numEnd2 > 0) {
+            def numPart2 (substring core 0 numEnd2)
+            if (V1SharedHelpers.isDecimalToken(numPart2)) {
+                n.valueRaw = numPart2
+                def unitPart2 (trim (substring core numEnd2 (strlen core)))
+                if ((strlen unitPart2) > 0) {
+                    n.hasUnit = true
+                    n.unit = unitPart2
+                }
+                return n
+            }
+        }
+
+        CustomParserV1.parseNameValue(n core)
+        return n
+    }
+}

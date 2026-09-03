@@ -1,0 +1,14 @@
+Import "TokenDetectorV1.rgr"
+
+class DrinkingDetectorV1 {
+    Extends(TokenDetectorV1)
+
+    fn detect:LineKindValue (line:string) {
+        def out (new LineKindValue)
+        out.raw = line
+        if (this.startsWith(line "Drinking ")) {
+            out.tag = "drinking"
+        }
+        return out
+    }
+}

@@ -1,0 +1,14 @@
+Import "TokenDetectorV1.rgr"
+
+class SummaryDetectorV1 {
+    Extends(TokenDetectorV1)
+
+    fn detect:LineKindValue (line:string) {
+        def out (new LineKindValue)
+        out.raw = line
+        if (this.startsWith(line "Summary ")) {
+            out.tag = "summary"
+        }
+        return out
+    }
+}

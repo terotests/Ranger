@@ -1,6 +1,6 @@
 # PLAN — COMPACT-sisältö `gallery/realtrainer`-demoon
 
-Status: `suunnitelma` · 2026-09-03
+Status: `P0 tehty` · 2026-09-03
 
 **Päätös:** RealTrainerin UI ajetaan Rangerin EVG-komponenteilla. Reactia tai käsin kirjoitettua
 JavaScriptiä ei jää. Työ ei ole uuden moduulin rakentamista: **`gallery/realtrainer/` on jo
@@ -84,28 +84,30 @@ oma `CompactRow`-unioni `type`-kentällä, joten L0-vertailu (§4) on suora.
 
 ---
 
-## 3. Parserin sijainti — ainoa este
+## 3. Parseri — tehty
 
-`compact_parser_v1.rgr` -lähde on **122 tiedostoa, 17 768 riviä**, yksityisessä repossa
-`realtrainer/parser-ranger-v1/src/`. Julkinen `realtrainer-compact` vendoroi vain generoidun
-TypeScriptin (`src/parser-ranger/compact_parser_v1.ts`, 8 494 r), ei `.rgr`-lähdettä.
+`compact_parser_v1.rgr` -lähde on yksityisessä repossa `realtrainer/parser-ranger-v1/src/`.
+Julkinen `realtrainer-compact` vendoroi vain generoidun TypeScriptin (8 494 r), ei `.rgr`-lähdettä.
+`rt:check` ajaa CI:ssä, joten sisarcheckoutiin nojaava sync olisi rikkonut portin.
 
-Vaihtoehdot:
+**Ratkaisu: vendorointi + sync-skripti.** `gallery/realtrainer/parser/` sisältää entry-tiedoston
+**transitiivisen import-sulkeuman ja ei mitään muuta: 46 tiedostoa, 8 819 riviä.** Lähdepuu
+kantaa myös NG-detektoriraiteen, JSON-adapterit ja testiajurit — yhteensä 122 tiedostoa ja
+17 768 riviä — joista tämä demo ei käännä mitään. Sulkeuma lasketaan joka ajolla, joten kopio
+kutistuu ja kasvaa sen mukaan mitä demo oikeasti käyttää.
 
-1. **Sync-skripti sisarcheckoutista** — `gallery/realtrainer/scripts/sync-parser.mjs`, kaava
-   `realtrainer-compact/scripts/sync-parser-from-ranger-v1.mjs`:stä. Ei kopiota
-   versionhallinnassa; demo ei käänny ilman yksityistä checkoutia.
-2. **Vendorointi** `gallery/realtrainer/parser/`:iin + sync-skripti ajautumisen estoon. Demo
-   kääntyy itsenäisesti ja CI toimii; 17,7k riviä kopiota ylläpidettävänä.
-3. **Julkaisu** `realtrainer-compact`iin `.rgr`-lähteenä — se on jo sen paketin parseribackend,
-   joten lähde kuuluisi sinne muutenkin.
+```bash
+npm run rt:parser:sync     # kopioi sisarcheckoutista
+npm run rt:parser:check    # kaatuu jos kopio on vanhentunut  (CI)
+```
 
-**Suositus: (2) nyt, (3) tavoitteena.** `rt:check` ajaa CI:ssä, joten demo ei voi riippua
-yksityisestä checkoutista — vaihtoehto (1) rikkoisi portin. Vendoroitu kopio merkitään omalla
-lisenssimerkinnällään: `gallery/` on AGPL-3.0-or-later, `realtrainer-compact` GPL-3.0-or-later,
-ja GPLv3-lähteen käyttö AGPLv3-projektissa on sallittu suunta (AGPL §13).
+Skripti poistaa myös orvot: sulkeumasta pudonnut tiedosto lähtee kopiosta, tai demo kääntäisi
+jotain mitä parserissa ei enää ole. Lisenssi: vendoroidut tiedostot ovat GPL-3.0-or-later ja
+pysyvät sellaisina (`parser/README.md`); `gallery/` on AGPL-3.0-or-later, ja GPLv3-lähteen
+käyttö AGPLv3-teoksessa on sallittu suunta (AGPL §13).
 
----
+Tavoite ennallaan: `.rgr`-lähde julkaistaan `realtrainer-compact`iin, jolloin sync osoittaa
+julkiseen pakettiin eikä yksityiseen repoon.
 
 ## 4. Benchmark ja parity
 
@@ -182,7 +184,7 @@ olemassa — se saa vihdoin oikean odotuksen odotettavakseen.
 
 | Vaihe | Sisältö | Valmis kun |
 |-------|---------|-----------|
-| **P0 — parseri sisään** | §3:n ratkaisu; `gallery/realtrainer/parser/` + `rt:parser:sync`; `shape CompactRow` + `exercise`-familia; `CompactRowMapper` ja `CompactStatBuilder` | `rt:check` parsii `.compact`-fixturen ja tulostaa rivien statit |
+| ~~**P0 — parseri sisään**~~ **tehty** | Vendoroitu parseri + `rt:parser:sync`/`rt:parser:check`; `shape CompactRow` (section, text, exercise); `CompactRowMapper`, `CompactStatBuilder`, `StatPart`; `rt:compact`-portti | `npm run rt:compact` vihreä: 13 tarkistusta, `3x5@90kg` → `3x5` + `x90kg` |
 | **P1 — sisältö tilalle** | `sets/reps/weight` → `[CompactRow]`; `planLine()` → `[StatPart]`; `moveCard()` renderöi parsitun rivin | session-näkymä näyttää parsittua sisältöä, `rt:frame` vihreä |
 | **P2 — L0 core** | Core-familiat (`exercise`, `move`, `interval`, `pyramid`, `split`) §5.2–5.4:n varianteilla + orakkelifixturet | L0 vihreä core-caseille |
 | **P3 — rivikirjasto** | Loput familiat EVG-renderöijinä; teema `realtrainer.css`:ään; pitkä dokumentti `ScrollAreaCtl`illa | MONSTER.compact renderöityy kokonaan |
@@ -196,11 +198,35 @@ jolloin README:n kuvat eivät ajaudu erilleen siitä mitä sovellus piirtää.
 
 ---
 
+## 6.1 Mitä P0 löysi
+
+**Shape-casen luokkatyyppinen kenttä saapuu optionaalina.** `case Exercise { def spec:ExerciseSpec }`
+sitoutuu `match`issa optionaaliksi, joten se on `unwrap`attava ennen käyttöä — eikä
+`(unwrap ex.spec).name` kelpaa `return`in argumentiksi ilman omaa sidontaa. Ei este, mutta se
+kannattaa tietää ennen kuin kirjoittaa 31 casea.
+
+**`!` ei toimi jäsenlausekkeella.** `if (!e.hasSets)` ei käänny (`WriteVREF -> Undefined variable
+!e`); `gallery/ui`:n idiomi on `if (e.hasSets == false)`. `!null?` toimii, koska se on oma
+operaattorinsa.
+
+**Mitatut kestot ovat AST:ssä JSON-merkkijonoja.** `ExerciseNode.measuredDurationJsonList:[string]`
+ja `partJsonList:[string]` — juuri se `RANGER_STYLE_REVIEW.md`:n havainto 2, jota ei ole vielä
+korjattu näiltä osin. `45s, 45s` -muotoilu vaatii siis joko JSON:n uudelleenparsinnan Rangerissa
+tai solmujen tyypittämisen upstreamissa. Jälkimmäinen on oikea korjaus ja kuuluu P2:een.
+
+**`rt:build` oli rikki ennestään.** `ProgressCtl.value` ja `maxValue` ovat `double`, ja demo
+sijoitti niihin int-literaaleja (`bar.maxValue = 100`) — kuusi sijoitusta, 12 käännösvirhettä,
+eli `rt:check` oli punainen ennen tätä työtä. Korjattu `100.0`-literaaleiksi ja
+`(int2double doneMoves)`:ksi; portti on taas vihreä.
+
+**Koko ketju kääntyy natiiville jo nyt.** `CompactRows.rgr` — vendoroitu parseri mukaan lukien —
+kääntyy `-l=kotlin` ja `-l=swift6` puhtaasti. P7 ei siis ole tuntematon, vaan hostien kytkentä.
+
 ## 7. Riskit
 
 | Riski | Vaikutus | Torjunta |
 |-------|----------|----------|
-| Parserin lähde on yksityisessä repossa (122 tiedostoa, 17,7k riviä) | `rt:check` ei aja CI:ssä | §3: vendorointi + sync-skripti; ratkaistava ennen P0:aa |
+| ~~Parserin lähde on yksityisessä repossa~~ | — | Ratkaistu §3:ssa: sulkeuma (46 tiedostoa) vendoroitu, sync-skripti estää ajautumisen |
 | Rivikirjasto on kokonaan uutta koodia | suurin yksittäinen työmäärä | L0 ensin: kun muotoilu on Rangerissa ja mitattu, EVG-renderöijä on mekaaninen |
 | `WorkoutTimingController` on 940 riviä tilakonetta | työläs, virhealtis | vasta P4; olemassa olevat testit ovat spesifikaatio. Kirjaston oma `controller/PLAN.md` merkitsee `ActiveDurationTimer.tsx`:n (721 r) korvattavaksi — älä porttaa sen sisäistä tilaa |
 | 31 familiaa on iso shape | käännösaika, kääntäjän rajat | kasvatetaan familia kerrallaan; pieni shape on jo todettu toimivaksi (§2) |
@@ -210,12 +236,18 @@ jolloin README:n kuvat eivät ajaudu erilleen siitä mitä sovellus piirtää.
 
 ---
 
-## 8. Ensimmäinen konkreettinen askel
+## 8. Seuraava askel — P1
 
-1. Päätä parserin sijainti (§3) — estää kaiken muun.
-2. `gallery/realtrainer/src/CompactRow.rgr`: shape `exercise`-familialla, `CompactStatBuilder`
-   `match`illa. Malli on §2:n varmistettu koe.
-3. `moveCard()` lukemaan `[StatPart]` `planLine()`-merkkijonon sijaan — yksi rivi, sama pikseli.
-4. Ensimmäinen L0-testi: `Exercise Takakyykky|3x5@90kg` → `[StatPart]` TS-orakkelista ja
-   Rangerista, deep-equal. Kirjaston oma `CompactBlogView.parity.test.tsx` odottaa muotoa
-   `3x5x90kg`.
+P0 on ajettavissa: `npm run rt:compact`. Seuraavaksi sisältö sovellukseen.
+
+1. `RealTrainerDemo`: `sets:int / reps:int / weight:int` → `[CompactRow]`, luettuna
+   `fixtures/session.compact`:sta. Kentät ovat kolmessa paikassa (`setupControls`, `moveCard`,
+   `pressSession`-stepperit), joten steppereiden kirjoituskohde vaihtuu samalla.
+2. `planLine()` → `CompactStatBuilder.parts(row)`: `MovePlan`-solmu saa yhden lapsen per
+   `StatPart`, ja `tone` menee luokkanimeksi (`rt-stat-weight`), ei väriksi.
+3. `moveCard()` ottaa rivin parametrina; session-näkymä toistaa sen jokaiselle
+   `Exercise`-riville ja piirtää `Section`-rivit väliotsikoiksi.
+4. `rt:check`iin rivit: parsittu nimi näkyy puussa, ja `x90kg` on oma solmunsa.
+
+Sen jälkeen P2:n L0-orakkeli: aja TS-kirjaston `formatExerciseSchemeParts` samalle korpukselle,
+talleta JSON-fixtureiksi, ja vertaa `CompactStatBuilder`in tulokseen osa osalta.

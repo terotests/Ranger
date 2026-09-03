@@ -22,6 +22,51 @@ npm run rt:frame    # the same app in Chromium, checked at the pixels
 that is running, so a picture in this file cannot drift from what the app
 draws.
 
+## The COMPACT layer
+
+The app's training content is parsed, not typed in. `Exercise Takakyykky|3x5@90kg`
+is what a user writes; `3x5` and `x90kg` — two runs, two tones — is what the
+screen draws.
+
+```
+.compact text
+   │  parser/            the Ranger COMPACT v1 parser, vendored (see parser/README.md)
+   ▼
+AstNode                  subclasses tagged by a `type` STRING, narrowed with `cast`
+   │  CompactRowMapper
+   ▼
+CompactRow               a `shape`: `match` over it is checked for exhaustiveness
+   │  CompactStatBuilder
+   ▼
+[StatPart]               { text, tone, kind } — all formatting already done
+```
+
+**Why a shape and not the parser's own nodes.** A string tag is right for a
+parser, where a new row family must not break a build, and wrong for a
+renderer, where a family nobody drew is a blank line in the app. COMPACT has
+thirty-one row families; the bug being designed out is the thirty-second one
+rendering as nothing. `match` will not compile until every case has an arm.
+
+Each case lowers to its own class — `__rg_kind` on ES6, a `sealed interface` on
+Kotlin, a native `enum` on Swift — so thirty-one families cost neither a wide
+record with everything optional nor a class hierarchy.
+
+**Why parts and not a string.** `StatPart` is the three fields the TypeScript
+library's `CompactStatPart` has, and `CompactStatBuilder` is a port of its
+`formatExerciseSchemeParts` — same branches, same order. That library is this
+port's test oracle, and the comparison is only cheap while the two agree on a
+structure. A builder that returned `"3x5x90kg"` would pass a text assertion and
+lose the distinction the theme actually draws.
+
+```bash
+npm run rt:compact         # text in, rows out, the spec line each row draws
+npm run rt:parser:sync     # refresh the vendored parser
+npm run rt:parser:check    # fail if the copy is stale  (CI)
+```
+
+Three families so far — section, text, exercise. Every one that follows makes
+`match` demand an arm.
+
 ## What is the library's and what is the app's
 
 The point of this directory is that almost nothing here is a control. Seven of
@@ -124,6 +169,10 @@ the screenshots in `web/shots/` with `--png`.
 
 ```
 src/RealTrainerDemo.rgr   the app: four scenes, the clock, the hit routing
+src/CompactRows.rgr       COMPACT text → rows → the parts a row draws
+parser/                   the COMPACT v1 parser, vendored from its own repo
+fixtures/                 .compact input the checks read
+web/compact-check.mjs     the COMPACT layer, with no app around it
 web/realtrainer.css       the theme, this app's and the library's classes
 web/main.js               the browser host: a clock, a pointer, one canvas
 web/loader-check.mjs      the headless gate

@@ -1,0 +1,18 @@
+Import "TokenDetectorV1.rgr"
+
+class MoveDetectorV1 {
+    Extends(TokenDetectorV1)
+
+    fn detect:LineKindValue (line:string) {
+        def out (new LineKindValue)
+        out.raw = line
+        if (this.startsWith(line "Run ")) {
+            out.tag = "move"
+        } {
+            if (this.startsWith(line "Move ")) {
+                out.tag = "move"
+            }
+        }
+        return out
+    }
+}

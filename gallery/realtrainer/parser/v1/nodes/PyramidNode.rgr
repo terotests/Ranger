@@ -1,0 +1,37 @@
+Import "../V1Json.rgr"
+Import "AstNode.rgr"
+Import "PyramidSetNode.rgr"
+
+class PyramidNode {
+    Extends(AstNode)
+
+    def name:string ""
+    def sets:[PyramidSetNode]
+    def hasNote:boolean false
+    def note:string ""
+
+    Constructor () {
+        type = "pyramid"
+    }
+
+    fn toJSONString@(override):string () {
+        def fields:[string]
+        CompactV1Json.addStringField(fields "type" type)
+        CompactV1Json.addStringField(fields "name" name)
+        if ((array_length sets) > 0) {
+            def setJson:[string]
+            for sets item:PyramidSetNode si {
+                push setJson (item.toJSONString())
+            }
+            CompactV1Json.addRawField(fields "sets" ("[" + (join setJson ",") + "]"))
+        } {
+            CompactV1Json.addRawField(fields "sets" "[]")
+        }
+        if (hasNote) {
+            CompactV1Json.addStringField(fields "note" note)
+        } {
+            CompactV1Json.addRawField(fields "note" "null")
+        }
+        return (CompactV1Json.jsonObject(fields))
+    }
+}

@@ -1,0 +1,7 @@
+class DateValue @serialize(true) {
+    def kind:string "date"
+    def year:int 0
+    def month:int 0
+    def day:int 0
+    def unknown:boolean true
+}

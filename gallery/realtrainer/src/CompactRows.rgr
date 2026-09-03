@@ -1,0 +1,362 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; CompactRows — the parsed COMPACT document, as rows a screen can draw
+; =============================================================================
+; The parser hands back an AST: `AstNode` subclasses discriminated by a `type`
+; STRING, narrowed with `cast`. That is the right shape for a parser, where a
+; new row family should not break a build, and the wrong one for a renderer,
+; where a row family nobody drew is a blank line in the app.
+;
+; So the UI model is a `shape`. `match` over it is checked for exhaustiveness,
+; which is the whole reason this layer exists rather than the renderer walking
+; `AstNode` and testing strings: COMPACT has thirty-one row families, and the
+; failure mode being designed out is the thirty-second one silently rendering
+; as nothing.
+;
+;   AstNode (parser, string-tagged)  →  CompactRow (shape)  →  [StatPart]
+;
+; `StatPart` is the same three fields as the TypeScript library's
+; `CompactStatPart` — text, tone, kind — because that library is this port's
+; test oracle and the comparison is only cheap while the two agree on a
+; structure. All formatting happens HERE: a renderer receives text and never a
+; number it has to decide how to write.
+;
+; Families so far: section, text, exercise. The rest arrive one at a time, and
+; every one of them makes `match` demand an arm.
+; =============================================================================
+
+Import "../parser/compact_parser_v1.rgr"
+Import "../parser/v1/nodes/AstNode.rgr"
+
+; One run of text in a row's spec line. `tone` is what it looks like, `kind` is
+; what it means; they are separate because a theme may want to colour a weight
+; and a recovery the same and a test never should.
+class StatPart {
+    def text:string ""
+    def tone:string "default"
+    def kind:string "spec"
+
+    Constructor (t:string tn:string k:string) {
+        text = t
+        tone = tn
+        kind = k
+    }
+}
+
+; The exercise payload, as a plain class rather than twenty-five positional
+; case fields. A shape case is constructed positionally, so the fields that
+; arrive one `if` at a time from the parser would be twenty-five arguments in a
+; fixed order — which is a rename away from a silent bug.
+class ExerciseSpec {
+    def name@(mutable):string ""
+
+    def hasSets@(mutable):boolean false
+    def sets@(mutable):int 0
+    def hasSetsMax@(mutable):boolean false
+    def setsMax@(mutable):int 0
+
+    def hasReps@(mutable):boolean false
+    def reps@(mutable):int 0
+    def hasRepsMax@(mutable):boolean false
+    def repsMax@(mutable):int 0
+    def hasRepsRight@(mutable):boolean false
+    def repsRight@(mutable):int 0
+
+    def hasRounds@(mutable):boolean false
+    def rounds@(mutable):int 0
+    def unit@(mutable):string ""
+
+    def hasDistance@(mutable):boolean false
+    def distance@(mutable):int 0
+    def distanceUnit@(mutable):string ""
+
+    def hasWeight@(mutable):boolean false
+    def weightKg@(mutable):int 0
+    def hasWeightCount@(mutable):boolean false
+    def weightCount@(mutable):int 0
+
+    def hasRecovery@(mutable):boolean false
+    def recoveryValue@(mutable):int 0
+    def hasRecoveryMax@(mutable):boolean false
+    def recoveryMax@(mutable):int 0
+    def recoveryUnit@(mutable):string ""
+
+    def note@(mutable):string ""
+
+    Constructor () {
+    }
+}
+
+shape CompactRow {
+    case Section  { def name:string "" }
+    case Text     { def text:string "" }
+    case Exercise { def spec:ExerciseSpec }
+}
+
+; =============================================================================
+; CompactStatBuilder — a row's spec line, as runs of text
+; =============================================================================
+; Ported from `formatExerciseSchemeParts` in the TypeScript library. The
+; branches and their order are its branches and their order, because L0 parity
+; compares the two outputs part for part: `3x5` and `x90kg` are TWO parts that
+; happen to print as `3x5x90kg`, and collapsing them into one string would pass
+; a text test and fail the one that matters.
+; =============================================================================
+class CompactStatBuilder {
+
+    Constructor () {
+    }
+
+    ; `2-3` when a set range was given, `3` when it was not, and "" for a row
+    ; with no set count at all.
+    sfn setsText:string (e:ExerciseSpec) {
+        if (e.hasSets == false) {
+            return ""
+        }
+        if (e.sets <= 0) {
+            return ""
+        }
+        if (e.hasSetsMax) {
+            if (e.setsMax > e.sets) {
+                return ((((to_string e.sets) + "-") + (to_string e.setsMax)) + "x")
+            }
+        }
+        return ((to_string e.sets) + "x")
+    }
+
+    ; `5`, `5-8`, `10+10` — the reps side of the spec, with its unit.
+    sfn repsText:string (e:ExerciseSpec) {
+        if (e.hasReps == false) {
+            return ""
+        }
+        def out@(mutable):string (to_string e.reps)
+        if (e.hasRepsMax) {
+            out = ((out + "-") + (to_string e.repsMax))
+        }
+        out = (out + e.unit)
+        if (e.hasRepsRight) {
+            out = (((out + "+") + (to_string e.repsRight)) + e.unit)
+        }
+        return out
+    }
+
+    ; `/2min`, `/2-3min`. Empty when the row carries no recovery.
+    sfn recoveryText:string (e:ExerciseSpec) {
+        if (e.hasRecovery == false) {
+            return ""
+        }
+        def unit:string e.recoveryUnit
+        if (unit == "sec") {
+            unit = "s"
+        }
+        if (e.hasRecoveryMax) {
+            if (e.recoveryMax != e.recoveryValue) {
+                return (((("/" + (to_string e.recoveryValue)) + "-") + (to_string e.recoveryMax)) + unit)
+            }
+        }
+        return (("/" + (to_string e.recoveryValue)) + unit)
+    }
+
+    sfn exerciseParts:[StatPart] (e:ExerciseSpec) {
+        def out:[StatPart]
+
+        ; A distance row reads as a distance, not as reps: `3x400m/2min` with
+        ; the load hanging off the end.
+        if (e.hasDistance) {
+            def spec@(mutable):string (CompactStatBuilder.setsText(e))
+            spec = ((spec + (to_string e.distance)) + e.distanceUnit)
+            spec = (spec + (CompactStatBuilder.recoveryText(e)))
+            push out (new StatPart(spec "default" "spec"))
+            if (e.hasWeight) {
+                if (e.weightKg > 0) {
+                    def load@(mutable):string "@"
+                    if (e.hasWeightCount) {
+                        if (e.weightCount > 1) {
+                            load = ((load + (to_string e.weightCount)) + "x")
+                        }
+                    }
+                    load = ((load + (to_string e.weightKg)) + "kg")
+                    push out (new StatPart(load "weight" "weight"))
+                }
+            }
+            return out
+        }
+
+        def rounds@(mutable):string ""
+        if (e.hasRounds) {
+            if (e.rounds > 0) {
+                rounds = ((to_string e.rounds) + "x")
+            }
+        }
+        def reps:string (CompactStatBuilder.repsText(e))
+        def spec:string (((rounds + (CompactStatBuilder.setsText(e)))) + reps)
+        push out (new StatPart(spec "default" "spec"))
+
+        ; The `x` before the weight belongs to the weight and not to the reps:
+        ; a row with no reps prints `90kg`, not `x90kg`.
+        if (e.hasWeight) {
+            if (e.weightKg > 0) {
+                def load@(mutable):string ""
+                if ((strlen reps) > 0) {
+                    load = "x"
+                }
+                load = ((load + (to_string e.weightKg)) + "kg")
+                push out (new StatPart(load "weight" "weight"))
+            }
+        }
+
+        def rec:string (CompactStatBuilder.recoveryText(e))
+        if ((strlen rec) > 0) {
+            push out (new StatPart(rec "default" "recovery"))
+        }
+        return out
+    }
+
+    ; The one entry point a renderer calls. Every family answers, and `match`
+    ; will not compile until every family does.
+    sfn parts:[StatPart] (row:CompactRow) {
+        def out:[StatPart]
+        match row {
+            Exercise ex {
+                def e:ExerciseSpec (unwrap ex.spec)
+                return (CompactStatBuilder.exerciseParts(e))
+            }
+            Section s {
+                push out (new StatPart(s.name "muted" "meta"))
+            }
+            Text t {
+                push out (new StatPart(t.text "muted" "meta"))
+            }
+        }
+        return out
+    }
+
+    ; The parts run together, which is what a one-line renderer draws and what
+    ; the parity oracle's `textContent` reports.
+    sfn text:string (row:CompactRow) {
+        def parts:[StatPart] (CompactStatBuilder.parts(row))
+        def out@(mutable):string ""
+        for parts p:StatPart i {
+            out = (out + p.text)
+        }
+        return out
+    }
+
+    ; The row's own name — the exercise, the section heading, the line of text.
+    sfn label:string (row:CompactRow) {
+        match row {
+            Exercise ex {
+                def e:ExerciseSpec (unwrap ex.spec)
+                return e.name
+            }
+            Section s {
+                return s.name
+            }
+            Text t {
+                return ""
+            }
+        }
+        return ""
+    }
+}
+
+; =============================================================================
+; CompactRowMapper — parser AST → rows
+; =============================================================================
+; The only place in the app that knows the parser's field spellings. Anything
+; the mapper does not recognise becomes a Text row carrying what the parser
+; read, so an unsupported family shows up as a line the user can see rather
+; than as a gap they cannot.
+; =============================================================================
+class CompactRowMapper {
+
+    Constructor () {
+    }
+
+    sfn fromExercise:CompactRow (node:ExerciseNode) {
+        def e (new ExerciseSpec())
+        e.name = node.name
+
+        e.hasSets = node.hasSets
+        e.sets = node.sets
+        e.hasSetsMax = node.hasSetsMax
+        e.setsMax = node.setsMax
+
+        e.hasReps = node.hasReps
+        e.reps = node.reps
+        e.hasRepsMax = node.hasRepsMax
+        e.repsMax = node.repsMax
+        e.hasRepsRight = node.hasRepsRight
+        e.repsRight = node.repsRight
+
+        e.unit = node.unit
+
+        e.hasDistance = node.hasExerciseDistance
+        e.distance = node.exerciseDistance
+        e.distanceUnit = node.exerciseDistanceUnit
+
+        e.hasWeight = node.hasWeight
+        e.weightKg = node.weightValue
+
+        e.hasRecovery = node.hasRecovery
+        e.recoveryValue = node.recoveryValue
+        e.hasRecoveryMax = node.hasRecoveryMax
+        e.recoveryMax = node.recoveryMax
+        e.recoveryUnit = node.recoveryUnit
+
+        if (node.hasNote) {
+            e.note = node.note
+        }
+        return (new CompactRow.Exercise(e))
+    }
+
+    sfn fromWorkout:[CompactRow] (workout:WorkoutNode) {
+        def rows:[CompactRow]
+        for workout.content node:AstNode idx {
+            if (node.type == "section") {
+                def sec:SectionNode (cast node to:SectionNode)
+                push rows (new CompactRow.Section(sec.name))
+                continue
+            }
+            if (node.type == "exercise") {
+                def ex:ExerciseNode (cast node to:ExerciseNode)
+                push rows (CompactRowMapper.fromExercise(ex))
+                continue
+            }
+            if (node.type == "text") {
+                def t:TextLineNode (cast node to:TextLineNode)
+                push rows (new CompactRow.Text(t.value))
+                continue
+            }
+            ; Not ported yet. Naming the family beats an empty line.
+            push rows (new CompactRow.Text(("[" + node.type + "]")))
+        }
+        return rows
+    }
+
+    ; Parse text and flatten its first workout. The demo shows one session at a
+    ; time; a document with several is a screen this app does not have yet.
+    sfn firstWorkoutRows:[CompactRow] (text:string) {
+        def doc:DocumentNode (CompactV1Parser.parseText(text))
+        def rows:[CompactRow]
+        if ((array_length doc.workouts) == 0) {
+            return rows
+        }
+        return (CompactRowMapper.fromWorkout((at doc.workouts 0)))
+    }
+
+    sfn firstWorkoutTitle:string (text:string) {
+        def doc:DocumentNode (CompactV1Parser.parseText(text))
+        if ((array_length doc.workouts) == 0) {
+            return ""
+        }
+        def w:WorkoutNode (at doc.workouts 0)
+        if (w.hasTitle) {
+            if (!null? w.title) {
+                return (unwrap w.title)
+            }
+        }
+        return ""
+    }
+}

@@ -1,0 +1,376 @@
+Import "../V1Json.rgr"
+Import "../V1SharedHelpers.rgr"
+
+class RunIntensityParserV1 {
+    static fn paceTimeJson:string (minutes:int seconds:int) {
+        def pf:[string]
+        CompactV1Json.addIntField(pf "minutes" minutes)
+        CompactV1Json.addIntField(pf "seconds" seconds)
+        CompactV1Json.addIntField(pf "fraction" 0)
+        return (CompactV1Json.jsonObject(pf))
+    }
+
+    static fn perDistanceJson:string (valueRaw:string unit:string) {
+        def df:[string]
+        CompactV1Json.addRawField(df "value" valueRaw)
+        CompactV1Json.addStringField(df "unit" unit)
+        return (CompactV1Json.jsonObject(df))
+    }
+
+    static fn wrapHr:string (inner:string) {
+        def hrFields:[string]
+        CompactV1Json.addRawField(hrFields "hr" inner)
+        return (CompactV1Json.jsonObject(hrFields))
+    }
+
+    static fn parseLenientInt:int (s:string) {
+        def vOpt (str2int s)
+        if (null? vOpt) {
+            return -1
+        }
+        return (unwrap vOpt)
+    }
+
+    static fn parseHrZone:string (text:string) {
+        def t (trim text)
+        if ((strlen t) == 0) {
+            return ""
+        }
+        def first (charAt t 0)
+        if ((first != (ccode "Z")) && (first != (ccode "z"))) {
+            return ""
+        }
+        def dash (V1SharedHelpers.findToken(t "-"))
+        if (dash > 0) {
+            def z1 (V1SharedHelpers.parseStrictInt((substring t 1 dash)))
+            def z2Raw (trim (substring t (dash + 1) (strlen t)))
+            if ((strlen z2Raw) > 0) {
+                def z2First (charAt z2Raw 0)
+                if ((z2First == (ccode "Z")) || (z2First == (ccode "z"))) {
+                    z2Raw = (substring z2Raw 1 (strlen z2Raw))
+                }
+            }
+            def z2 (V1SharedHelpers.parseStrictInt(z2Raw))
+            if (z1 >= 0) {
+                if (z2 >= 0) {
+                    def zf:[string]
+                    def zInner:[string]
+                    CompactV1Json.addIntField(zInner "min" z1)
+                    CompactV1Json.addIntField(zInner "max" z2)
+                    CompactV1Json.addRawField(zf "hrZone" (CompactV1Json.jsonObject(zInner)))
+                    return (CompactV1Json.jsonObject(zf))
+                }
+            }
+        } {
+            def zOne (V1SharedHelpers.parseStrictInt((substring t 1 (strlen t))))
+            if (zOne >= 0) {
+                def zf2:[string]
+                def zInner2:[string]
+                CompactV1Json.addIntField(zInner2 "min" zOne)
+                CompactV1Json.addIntField(zInner2 "max" zOne)
+                CompactV1Json.addRawField(zf2 "hrZone" (CompactV1Json.jsonObject(zInner2)))
+                return (CompactV1Json.jsonObject(zf2))
+            }
+        }
+        return ""
+    }
+
+    static fn parseSwimZone:string (text:string) {
+        def t (trim text)
+        def colonPos (V1SharedHelpers.findToken(t ":"))
+        if (colonPos >= 0) {
+            return ""
+        }
+        def pctPos (V1SharedHelpers.findToken(t "%"))
+        if (pctPos >= 0) {
+            return ""
+        }
+        def dash (V1SharedHelpers.findToken(t "-"))
+        if (dash > 0) {
+            def zf:[string]
+            def zInner:[string]
+            CompactV1Json.addStringField(zInner "min" (trim (substring t 0 dash)))
+            CompactV1Json.addStringField(zInner "max" (trim (substring t (dash + 1) (strlen t))))
+            CompactV1Json.addRawField(zf "zone" (CompactV1Json.jsonObject(zInner)))
+            return (CompactV1Json.jsonObject(zf))
+        }
+        if ((strlen t) > 0) {
+            def zf2:[string]
+            def zInner2:[string]
+            CompactV1Json.addStringField(zInner2 "min" t)
+            CompactV1Json.addStringField(zInner2 "max" t)
+            CompactV1Json.addRawField(zf2 "zone" (CompactV1Json.jsonObject(zInner2)))
+            return (CompactV1Json.jsonObject(zf2))
+        }
+        return ""
+    }
+
+    static fn parsePercent:string (text:string) {
+        def t (trim text)
+        def pctPos (V1SharedHelpers.findToken(t "%"))
+        if (pctPos < 0) {
+            return ""
+        }
+        def body (trim (substring t 0 pctPos))
+        def dash (V1SharedHelpers.findToken(body "-"))
+        if (dash > 0) {
+            def p1 (V1SharedHelpers.parseStrictInt((substring body 0 dash)))
+            def p2 (V1SharedHelpers.parseStrictInt((substring body (dash + 1) (strlen body))))
+            if (p1 >= 0) {
+                if (p2 >= 0) {
+                    def pf:[string]
+                    CompactV1Json.addIntField(pf "min" p1)
+                    CompactV1Json.addIntField(pf "max" p2)
+                    return (CompactV1Json.jsonObject(pf))
+                }
+            }
+        } {
+            def pOne (V1SharedHelpers.parseStrictInt(body))
+            if (pOne >= 0) {
+                def pf2:[string]
+                CompactV1Json.addIntField(pf2 "min" pOne)
+                CompactV1Json.addIntField(pf2 "max" pOne)
+                return (CompactV1Json.jsonObject(pf2))
+            }
+        }
+        return ""
+    }
+
+    static fn parseBpm:string (text:string) {
+        def t (trim text)
+        def bpmPos (V1SharedHelpers.findToken(t "bpm"))
+        if (bpmPos < 0) {
+            return ""
+        }
+        def hrBody (trim (substring t 0 bpmPos))
+
+        def ltePos (V1SharedHelpers.findToken(hrBody "<="))
+        if (ltePos == 0) {
+            def v (V1SharedHelpers.parseStrictInt((substring hrBody 2 (strlen hrBody))))
+            if (v >= 0) {
+                def hf:[string]
+                CompactV1Json.addIntField(hf "max" v)
+                CompactV1Json.addStringField(hf "comparison" "lte")
+                return (RunIntensityParserV1.wrapHr((CompactV1Json.jsonObject(hf))))
+            }
+        }
+        def gtePos (V1SharedHelpers.findToken(hrBody ">="))
+        if (gtePos == 0) {
+            def v2 (V1SharedHelpers.parseStrictInt((substring hrBody 2 (strlen hrBody))))
+            if (v2 >= 0) {
+                def hf2:[string]
+                CompactV1Json.addIntField(hf2 "min" v2)
+                CompactV1Json.addStringField(hf2 "comparison" "gte")
+                return (RunIntensityParserV1.wrapHr((CompactV1Json.jsonObject(hf2))))
+            }
+        }
+        if ((strlen hrBody) > 0) {
+            def first (charAt hrBody 0)
+            if (first == (ccode "<")) {
+                def v3 (V1SharedHelpers.parseStrictInt((substring hrBody 1 (strlen hrBody))))
+                if (v3 >= 0) {
+                    def hf3:[string]
+                    CompactV1Json.addIntField(hf3 "max" v3)
+                    CompactV1Json.addStringField(hf3 "comparison" "lt")
+                    return (RunIntensityParserV1.wrapHr((CompactV1Json.jsonObject(hf3))))
+                }
+            }
+            if (first == (ccode ">")) {
+                def v4 (V1SharedHelpers.parseStrictInt((substring hrBody 1 (strlen hrBody))))
+                if (v4 >= 0) {
+                    def hf4:[string]
+                    CompactV1Json.addIntField(hf4 "min" v4)
+                    CompactV1Json.addStringField(hf4 "comparison" "gt")
+                    return (RunIntensityParserV1.wrapHr((CompactV1Json.jsonObject(hf4))))
+                }
+            }
+            if (first == (ccode "=")) {
+                def v5 (V1SharedHelpers.parseStrictInt((substring hrBody 1 (strlen hrBody))))
+                if (v5 >= 0) {
+                    def hf5:[string]
+                    CompactV1Json.addIntField(hf5 "value" v5)
+                    CompactV1Json.addStringField(hf5 "comparison" "eq")
+                    return (RunIntensityParserV1.wrapHr((CompactV1Json.jsonObject(hf5))))
+                }
+            }
+        }
+
+        def dash (V1SharedHelpers.findToken(hrBody "-"))
+        if (dash > 0) {
+            def h1 (V1SharedHelpers.parseStrictInt((substring hrBody 0 dash)))
+            def h2 (V1SharedHelpers.parseStrictInt((substring hrBody (dash + 1) (strlen hrBody))))
+            if (h1 >= 0) {
+                if (h2 >= 0) {
+                    def hf6:[string]
+                    CompactV1Json.addIntField(hf6 "min" h1)
+                    CompactV1Json.addIntField(hf6 "max" h2)
+                    return (RunIntensityParserV1.wrapHr((CompactV1Json.jsonObject(hf6))))
+                }
+            }
+        } {
+            def hOne (V1SharedHelpers.parseStrictInt(hrBody))
+            if (hOne >= 0) {
+                def hf7:[string]
+                CompactV1Json.addIntField(hf7 "value" hOne)
+                return (RunIntensityParserV1.wrapHr((CompactV1Json.jsonObject(hf7))))
+            }
+        }
+        return ""
+    }
+
+    static fn parsePace:string (text:string) {
+        def t (trim text)
+        def slashPos (V1SharedHelpers.findToken(t "/"))
+        if (slashPos < 0) {
+            return ""
+        }
+        def pacePart (trim (substring t 0 slashPos))
+        def distPart (trim (substring t (slashPos + 1) (strlen t)))
+
+        def min@(mutable):int -1
+        def sec@(mutable):int -1
+        def tickPos (V1SharedHelpers.findToken(pacePart "'"))
+        if (tickPos > 0) {
+            def mStr (substring pacePart 0 tickPos)
+            def afterTick (substring pacePart (tickPos + 1) (strlen pacePart))
+            def quotePos (V1SharedHelpers.findToken(afterTick "\""))
+            def secStr:string afterTick
+            if (quotePos >= 0) {
+                secStr = (substring afterTick 0 quotePos)
+            } {
+                secStr = afterTick
+            }
+            def mOpt (V1SharedHelpers.parseStrictInt(mStr))
+            def sOpt (RunIntensityParserV1.parseLenientInt(secStr))
+            if (mOpt >= 0) {
+                if (sOpt >= 0) {
+                    min = mOpt
+                    sec = sOpt
+                }
+            }
+        } {
+            def colonPos (V1SharedHelpers.findToken(pacePart ":"))
+            if (colonPos > 0) {
+                def mStr2 (substring pacePart 0 colonPos)
+                def sStr2 (substring pacePart (colonPos + 1) (strlen pacePart))
+                def mOpt2 (V1SharedHelpers.parseStrictInt(mStr2))
+                def sOpt2 (RunIntensityParserV1.parseLenientInt(sStr2))
+                if (mOpt2 >= 0) {
+                    if (sOpt2 >= 0) {
+                        min = mOpt2
+                        sec = sOpt2
+                    }
+                }
+            }
+        }
+
+        if (min < 0) {
+            return ""
+        }
+        if (sec < 0) {
+            sec = 0
+        }
+
+        def paceJson (RunIntensityParserV1.paceTimeJson(min sec))
+        def out:[string]
+        CompactV1Json.addRawField(out "paceMin" paceJson)
+        CompactV1Json.addRawField(out "paceMax" paceJson)
+
+        if ((strlen distPart) > 0) {
+            def dEnd (V1SharedHelpers.splitNumAndUnit(distPart))
+            if (dEnd > 0) {
+                def dVal (substring distPart 0 dEnd)
+                def dUnit (substring distPart dEnd (strlen distPart))
+                CompactV1Json.addStringField(out "paceUnit" dUnit)
+                CompactV1Json.addRawField(out "pacePerDistance" (RunIntensityParserV1.perDistanceJson(dVal dUnit)))
+            } {
+                CompactV1Json.addStringField(out "paceUnit" distPart)
+            }
+        }
+        return (CompactV1Json.jsonObject(out))
+    }
+
+    static fn parseTemplate:string (text:string) {
+        def t (trim text)
+        def hasBrace (V1SharedHelpers.hasPrefix(t "{{"))
+        if (hasBrace == false) {
+            return ""
+        }
+        def closeBrace (V1SharedHelpers.findToken(t "}}"))
+        if (closeBrace < 0) {
+            return ""
+        }
+        def inner (substring t 2 closeBrace)
+        def colonPos (V1SharedHelpers.findToken(inner ":"))
+        if (colonPos <= 0) {
+            return ""
+        }
+        def typeName (trim (substring inner 0 colonPos))
+        def hint (trim (substring inner (colonPos + 1) (strlen inner)))
+        def tf:[string]
+        def innerObj:[string]
+        CompactV1Json.addStringField(innerObj "type" typeName)
+        CompactV1Json.addStringField(innerObj "hint" hint)
+        CompactV1Json.addRawField(tf "template" (CompactV1Json.jsonObject(innerObj)))
+        return (CompactV1Json.jsonObject(tf))
+    }
+
+    static fn parse:string (intPart:string) {
+        def t (trim intPart)
+        if (t == "?") {
+            def uf:[string]
+            CompactV1Json.addBooleanField(uf "unknown" true)
+            return (CompactV1Json.jsonObject(uf))
+        }
+        if (t == "max") {
+            def mf:[string]
+            CompactV1Json.addIntField(mf "min" 100)
+            CompactV1Json.addIntField(mf "max" 100)
+            CompactV1Json.addStringField(mf "text" "max")
+            return (CompactV1Json.jsonObject(mf))
+        }
+        if (t == "bw") {
+            def bf:[string]
+            CompactV1Json.addStringField(bf "text" "bw")
+            CompactV1Json.addBooleanField(bf "bodyweight" true)
+            return (CompactV1Json.jsonObject(bf))
+        }
+
+        def tmpl (RunIntensityParserV1.parseTemplate(t))
+        if ((strlen tmpl) > 0) {
+            return tmpl
+        }
+
+        def pct (RunIntensityParserV1.parsePercent(t))
+        if ((strlen pct) > 0) {
+            return pct
+        }
+
+        def bpm (RunIntensityParserV1.parseBpm(t))
+        if ((strlen bpm) > 0) {
+            return bpm
+        }
+
+        def hrz (RunIntensityParserV1.parseHrZone(t))
+        if ((strlen hrz) > 0) {
+            return hrz
+        }
+
+        def pace (RunIntensityParserV1.parsePace(t))
+        if ((strlen pace) > 0) {
+            return pace
+        }
+
+        def swim (RunIntensityParserV1.parseSwimZone(t))
+        if ((strlen swim) > 0) {
+            return swim
+        }
+
+        if ((strlen t) > 0) {
+            def tf:[string]
+            CompactV1Json.addStringField(tf "text" t)
+            return (CompactV1Json.jsonObject(tf))
+        }
+        return ""
+    }
+}

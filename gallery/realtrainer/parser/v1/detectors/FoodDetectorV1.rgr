@@ -1,0 +1,18 @@
+Import "TokenDetectorV1.rgr"
+
+class FoodDetectorV1 {
+    Extends(TokenDetectorV1)
+
+    fn detect:LineKindValue (line:string) {
+        def out (new LineKindValue)
+        out.raw = line
+        if (this.startsWith(line "Food ")) {
+            out.tag = "food"
+        } {
+            if (line == "Food") {
+                out.tag = "food"
+            }
+        }
+        return out
+    }
+}
