@@ -1024,6 +1024,84 @@
   color: #8b8177;
 }
 
+/* The save's own line: what it is doing, and the switch that arms a failure. */
+.rt-save-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 12px;
+  width: 868px;
+  height: 26px;
+}
+
+/* A width, because a text element with none fills the row and pushes the two
+   buttons off the page — which is exactly what it did. */
+.rt-save-state {
+  color: #8b8177;
+  font-family: Arial;
+  font-size: 13px;
+  width: 420px;
+  height: 18px;
+}
+
+.rt-save-saving {
+  color: #c2a582;
+}
+
+.rt-save-saved {
+  color: #6fd39a;
+}
+
+.rt-save-failed {
+  color: #e8a0a0;
+}
+
+/* A secondary action, and it sits with the state it changes rather than in the
+   row of the two big ones — a save is not the same kind of thing as starting a
+   set or finishing a move. */
+.rt-save {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  width: 110px;
+  height: 24px;
+  border-radius: 6px;
+  background-color: #2b3242;
+  cursor: pointer;
+}
+
+.rt-save:hover  { background-color: #38415a; }
+.rt-save:active { background-color: #232936; }
+
+.rt-save-text {
+  color: #e8e2da;
+  font-family: Arial;
+  font-weight: bold;
+  font-size: 12px;
+  height: 18px;
+}
+
+.rt-fail {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  padding: 0px 10px;
+  border-radius: 6px;
+  background-color: #24282f;
+}
+
+.rt-fail-text {
+  color: #8b8177;
+  font-family: Arial;
+  font-size: 12px;
+}
+
 /* --- scene five: the document -------------------------------------------- */
 
 /* One column of rows, each of them a family. The list is the row library with

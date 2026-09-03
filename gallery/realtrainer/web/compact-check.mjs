@@ -30,7 +30,8 @@ if (!fs.existsSync(BIN)) {
   process.exit(3);
 }
 const require = createRequire(import.meta.url);
-const { CompactRowMapper, CompactStatBuilder } = require(BIN);
+const { CompactRowMapper, CompactRowEdit, CompactStatBuilder, CompactWrite } =
+  require(BIN);
 
 const text = fs.readFileSync(
   path.join(HERE, "..", "fixtures", "session.compact"),
@@ -169,6 +170,53 @@ ok("a measured row is one part", parts(isometric).length === 1, JSON.stringify(p
 ok("and it is toned as spec",
    parts(isometric)[0]?.tone === "default" && parts(isometric)[0]?.kind === "spec",
    JSON.stringify(parts(isometric)[0]));
+
+// --- the save path ---------------------------------------------------------
+//
+// A view model is lossy on purpose — fourteen life families come out as text
+// with their structure thrown away — so saving does NOT serialise the rows. It
+// patches the one line the edit touched, and this is the guarantee that makes
+// that safe: an editable row, written back with nothing changed, gives the
+// same line it was read from. A form that arrives and does not round-trip
+// fails here rather than quietly rewriting someone's training log.
+console.log("");
+const doc = CompactRowMapper.parseDocument(text);
+ok("every row found its source line",
+   doc.rows.every((_, i) => doc.rowLines[i] >= 0 && doc.lines[doc.rowLines[i]] !== undefined),
+   JSON.stringify(doc.rowLines));
+
+const editable = doc.rows
+  .map((r, i) => [r, i])
+  .filter(([r]) => CompactRowEdit.isPlanned(r));
+ok("there are rows to edit", editable.length === 3, editable.length + " editable");
+const notRoundTripped = editable.filter(
+  ([r, i]) => CompactWrite.line(r) !== doc.lines[doc.rowLines[i]],
+);
+ok("an editable row writes back byte for byte",
+   notRoundTripped.length === 0,
+   notRoundTripped
+     .map(([r, i]) => `${doc.lines[doc.rowLines[i]]} -> ${CompactWrite.line(r)}`)
+     .join(" | "));
+
+// A measured row records what happened. There is no writing it back, and
+// saying so is the point: the caller does not save what it cannot write.
+const measuredRow = doc.rows.find(
+  (r) => CompactStatBuilder.label(r) === "Lankku",
+);
+ok("a measured row refuses to be written",
+   CompactWrite.line(measuredRow) === "", CompactWrite.line(measuredRow));
+
+const before = doc.text();
+CompactRowEdit.nudge(doc.rows[4], "weight", 5);
+doc.replaceLine(doc.lineOf(4), CompactWrite.line(doc.rows[4]));
+const changed = before
+  .split("\n")
+  .map((line, i) => (line === doc.text().split("\n")[i] ? null : i))
+  .filter((i) => i !== null);
+ok("an edit patches exactly one line", changed.length === 1, changed.join(","));
+ok("and it is the row's own",
+   doc.text().split("\n")[changed[0]] === "Exercise Takakyykky|3x5@95kg",
+   doc.text().split("\n")[changed[0]]);
 
 console.log("");
 if (failed) {

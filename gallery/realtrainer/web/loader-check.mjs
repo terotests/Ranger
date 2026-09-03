@@ -250,6 +250,36 @@ for (let i = 0; i < 6; i += 1) app.press("rt-sets-down");
 ok("and clamp at one set", textsOf(listOf()).includes("1x7"),
    textsOf(listOf()).join("|"));
 
+// --- saving, which is simulated and has to look like it ---------------------
+//
+// No network and no cloud. What the screen still needs is the SHAPE of one:
+// a wait with a state on it, and a failure that can be reached on purpose.
+// The backend runs off the app's clock, so this takes no real time.
+ok("saving starts a wait", app.press("rt-save") === true, "no change");
+ok("and says so", textsOf(listOf()).some((t) => t.startsWith("Tallennetaan")),
+   textsOf(listOf()).join("|"));
+app.tick(400);
+ok("still waiting halfway",
+   textsOf(listOf()).some((t) => t.startsWith("Tallennetaan")),
+   textsOf(listOf()).join("|"));
+app.tick(400);
+ok("then it is saved, with a version",
+   textsOf(listOf()).some((t) => t.startsWith("Tallennettu — versio 1")),
+   textsOf(listOf()).join("|"));
+
+// A demo that cannot be made to fail on purpose is a demo whose error state
+// nobody has looked at.
+ok("the failure can be armed", app.press("rt-fail") === true, "no change");
+app.press("rt-save");
+app.tick(800);
+ok("and then the save fails",
+   textsOf(listOf()).some((t) => t.startsWith("Tallennus epäonnistui")),
+   textsOf(listOf()).join("|"));
+const saveState = JSON.parse(app.a11yJson(1, "")).nodes.find((n) => n.id === "rt-save-state");
+ok("the state is announced as one", saveState?.role === "status", JSON.stringify(saveState));
+app.press("rt-fail");
+
+
 // The rest picker is a RadioGroupCtl, so the timer's length is the
 // controller's value and not a number this screen keeps beside it.
 ok("the rest picker takes a press", app.press("rt-rest-90") === true, "no change");
@@ -296,6 +326,10 @@ app.press("rt-done");
 app.press("rt-done");
 const measured = textsOf(listOf());
 ok("a measured row prints its times", measured.includes("45s, 45s"), measured.join("|"));
+ok("a measured row refuses to be saved",
+   app.press("rt-save") === true &&
+     textsOf(listOf()).some((t) => t.startsWith("Tätä riviä ei voi")),
+   textsOf(listOf()).join("|"));
 ok("and carries no steppers",
    !measured.includes("Sarjat") && measured.some((t) => t.startsWith("Mitattu sarja")),
    measured.join("|"));

@@ -1058,6 +1058,80 @@ class CompactStatBuilder {
 }
 
 ; =============================================================================
+; CompactDocument — the rows AND the text they were read from
+; =============================================================================
+; A view model is LOSSY on purpose: fourteen life families come out as a line
+; of text with their structure thrown away, because that is what the reference
+; draws. So a save path must not go through it — serialising the rows back
+; would rewrite `Sleep 7h` as `Text Sleep 7h` and quietly change the document.
+;
+; The document therefore keeps its source, and an edit PATCHES the one line it
+; touched. `rowLines` is how a row finds that line: the parser hands back
+; content in order and each content node came from exactly one line, so the
+; lines are handed out in the same walk that builds the rows.
+; =============================================================================
+class LineCursor {
+    def lines:[string]
+    def at@(mutable):int 0
+
+    Constructor () {
+    }
+
+    ; The next line that carries anything. Blank lines are between rows, not
+    ; rows, and the parser does not report them.
+    fn next:int () {
+        while (at < (array_length lines)) {
+            def line:string (trim (itemAt lines at))
+            def here:int at
+            at = (at + 1)
+            if ((strlen line) > 0) {
+                return here
+            }
+        }
+        return -1
+    }
+}
+
+class CompactDocument {
+    def title@(mutable):string ""
+    def rows:[CompactRow]
+    ; One entry per row: the index in `lines` the row was read from, or -1.
+    def rowLines:[int]
+    def lines:[string]
+
+    Constructor () {
+    }
+
+    fn text:string () {
+        return (join lines "\n")
+    }
+
+    fn lineOf:int (rowIndex:int) {
+        if (rowIndex < 0) {
+            return -1
+        }
+        if (rowIndex >= (array_length rowLines)) {
+            return -1
+        }
+        return (itemAt rowLines rowIndex)
+    }
+
+    ; Replace one line and leave every other byte alone. This is the whole
+    ; save path: what was not edited is not rewritten, so a family this model
+    ; cannot express cannot be damaged by saving.
+    fn replaceLine:boolean (lineIndex:int replacement:string) {
+        if (lineIndex < 0) {
+            return false
+        }
+        if (lineIndex >= (array_length lines)) {
+            return false
+        }
+        set lines lineIndex replacement
+        return true
+    }
+}
+
+; =============================================================================
 ; CompactRowMapper — parser AST → rows
 ; =============================================================================
 ; The only place in the app that knows the parser's field spellings. Anything
@@ -1473,172 +1547,245 @@ class CompactRowMapper {
     }
 
     sfn fromWorkout:[CompactRow] (workout:WorkoutNode) {
-        def rows:[CompactRow]
-        for workout.content node:AstNode idx {
-            if (node.type == "section") {
-                def sec:SectionNode (cast node to:SectionNode)
-                push rows (new CompactRow.Section(sec.name))
-                continue
-            }
-            if (node.type == "exercise") {
-                def ex:ExerciseNode (cast node to:ExerciseNode)
-                push rows (CompactRowMapper.fromExercise(ex))
-                continue
-            }
-            if (node.type == "move") {
-                def mv:MoveNode (cast node to:MoveNode)
-                def mspec:MoveSpec (CompactRowMapper.moveSpec(mv))
-                push rows (new CompactRow.Move(mspec))
-                ; A move's splits are rows of their own on the screen, under
-                ; the move they belong to. Flattening them into one list is
-                ; what a renderer walking rows top to bottom wants; which move
-                ; they came from is the move directly above them.
-                for mspec.splits sp:SplitSpec si {
-                    push rows (new CompactRow.Split(sp))
-                }
-                continue
-            }
-            if (node.type == "pyramid") {
-                def py:PyramidNode (cast node to:PyramidNode)
-                push rows (CompactRowMapper.fromPyramid(py))
-                continue
-            }
-            if (node.type == "split") {
-                def sn:SplitNode (cast node to:SplitNode)
-                push rows (new CompactRow.Split((CompactRowMapper.fromSplit(sn))))
-                continue
-            }
-            if (node.type == "summary") {
-                def su:SummaryNode (cast node to:SummaryNode)
-                push rows (new CompactRow.Summary(su.text))
-                continue
-            }
-            if (node.type == "phase") {
-                def ph:PhaseNode (cast node to:PhaseNode)
-                def pspec (new PhaseSpec)
-                pspec.hasNumber = ph.hasNumber
-                pspec.number = ph.number
-                pspec.name = ph.name
-                if (ph.hasDetails) {
-                    pspec.details = ph.details
-                }
-                push rows (new CompactRow.Phase(pspec))
-                continue
-            }
-            if (node.type == "custom") {
-                def cu:CustomNode (cast node to:CustomNode)
-                def cspec (new CustomSpec)
-                cspec.name = cu.name
-                cspec.value = cu.valueRaw
-                if (cu.hasValueMax) {
-                    cspec.hasValueMax = true
-                    cspec.valueMax = cu.valueMaxRaw
-                }
-                if (cu.hasUnit) {
-                    cspec.unit = cu.unit
-                }
-                push rows (new CompactRow.Custom(cspec))
-                continue
-            }
-            if (node.type == "duration") {
-                def du:DurationNode (cast node to:DurationNode)
-                def dspec (new DurationSpec)
-                if (du.hasFloatSingle) {
-                    dspec.value = (CompactRowMapper.toNum(du.floatValueRaw))
-                } {
-                    dspec.value = (int2double du.singleValue)
-                }
-                ; The reference reads any unit that is not seconds as minutes.
-                dspec.unit = "min"
-                if (du.unit == "s") {
-                    dspec.unit = "s"
-                }
-                if (du.hasDescription) {
-                    dspec.description = du.description
-                }
-                push rows (new CompactRow.Duration(dspec))
-                continue
-            }
-            if (node.type == "circuit") {
-                def ci:CircuitNode (cast node to:CircuitNode)
-                def cspec (new CircuitSpec)
-                cspec.variant = ci.variant
-                cspec.rounds = ci.rounds
-                if (ci.hasRoundRest) {
-                    cspec.hasRoundRest = true
-                    cspec.roundRestValue = ci.roundRestValue
-                    cspec.roundRestUnit = ci.roundRestUnit
-                }
-                if (ci.hasNote) {
-                    cspec.note = ci.note
-                }
-                for ci.exercises item:CircuitExerciseNode ei {
-                    def isp (new CircuitItemSpec)
-                    isp.name = item.name
-                    isp.hasSets = item.hasSets
-                    isp.sets = item.sets
-                    isp.hasReps = item.hasReps
-                    isp.reps = item.reps
-                    isp.hasRepsRight = item.hasRepsRight
-                    isp.repsRight = item.repsRight
-                    if (item.hasUnit) {
-                        isp.unit = item.unit
-                    }
-                    if (item.hasWeightValue) {
-                        isp.hasWeight = true
-                        isp.weightKg = item.weightValue
-                    }
-                    if (item.hasRecovery) {
-                        isp.hasRecovery = true
-                        isp.recoveryValue = item.recoveryValue
-                        isp.recoveryUnit = item.recoveryUnit
-                    }
-                    push cspec.items isp
-                }
-                push rows (new CompactRow.Circuit(cspec))
-                for cspec.items isp2:CircuitItemSpec ii {
-                    push rows (new CompactRow.CircuitItem(isp2))
-                }
-                continue
-            }
-            if (node.type == "unknown") {
-                def un:UnknownNode (cast node to:UnknownNode)
-                push rows (new CompactRow.Unknown(un.raw))
-                continue
-            }
-            ; Not rows at all. The reference lifts tags, emojis and derived
-            ; values onto the WORKOUT and filters them out of the row list, so
-            ; a renderer walking rows never meets one.
-            if (node.type == "tags") {
-                continue
-            }
-            if (node.type == "emojis") {
-                continue
-            }
-            if (node.type == "derived") {
-                continue
-            }
-            if (node.type == "text") {
-                def t:TextLineNode (cast node to:TextLineNode)
-                push rows (new CompactRow.Text(t.value))
-                continue
-            }
-            ; Everything else is a line of text, shaped the way the reference
-            ; shapes it.
-            push rows (new CompactRow.Text((CompactRowMapper.fallbackText(node))))
-        }
-        return rows
+        def doc (new CompactDocument)
+        CompactRowMapper.fillDocument(workout doc)
+        return doc.rows
     }
+
+    ; Every content node consumes exactly one line, whether or not it becomes a
+    ; row — tags and emojis are lines too. A node with children takes one more
+    ; line per child, in the order the children are pushed.
+    sfn fillDocument:void (workout:WorkoutNode doc:CompactDocument) {
+        def cursor (new LineCursor)
+        cursor.lines = doc.lines
+        ; The header is a line and not a row.
+        cursor.next()
+        def rows:[CompactRow] doc.rows
+        for workout.content node:AstNode idx {
+            def line:int (cursor.next())
+            def mark:int (array_length rows)
+            CompactRowMapper.mapNode(node rows cursor)
+            def added:int ((array_length rows) - mark)
+            def k@(mutable):int 0
+            while (k < added) {
+                ; The parent takes the line the node came from; a child takes
+                ; the next line, which is the `>` row underneath it.
+                if (k == 0) {
+                    push doc.rowLines line
+                } {
+                    push doc.rowLines (cursor.next())
+                }
+                k = (k + 1)
+            }
+        }
+    }
+
+    sfn mapNode:void (node:AstNode rows:[CompactRow] cursor:LineCursor) {
+        if (node.type == "section") {
+            def sec:SectionNode (cast node to:SectionNode)
+            push rows (new CompactRow.Section(sec.name))
+            return
+        }
+        if (node.type == "exercise") {
+            def ex:ExerciseNode (cast node to:ExerciseNode)
+            push rows (CompactRowMapper.fromExercise(ex))
+            return
+        }
+        if (node.type == "move") {
+            def mv:MoveNode (cast node to:MoveNode)
+            def mspec:MoveSpec (CompactRowMapper.moveSpec(mv))
+            push rows (new CompactRow.Move(mspec))
+            ; A move's splits are rows of their own on the screen, under
+            ; the move they belong to. Flattening them into one list is
+            ; what a renderer walking rows top to bottom wants; which move
+            ; they came from is the move directly above them.
+            for mspec.splits sp:SplitSpec si {
+                push rows (new CompactRow.Split(sp))
+            }
+            return
+        }
+        if (node.type == "pyramid") {
+            def py:PyramidNode (cast node to:PyramidNode)
+            push rows (CompactRowMapper.fromPyramid(py))
+            return
+        }
+        if (node.type == "split") {
+            def sn:SplitNode (cast node to:SplitNode)
+            push rows (new CompactRow.Split((CompactRowMapper.fromSplit(sn))))
+            return
+        }
+        if (node.type == "summary") {
+            def su:SummaryNode (cast node to:SummaryNode)
+            push rows (new CompactRow.Summary(su.text))
+            return
+        }
+        if (node.type == "phase") {
+            def ph:PhaseNode (cast node to:PhaseNode)
+            def pspec (new PhaseSpec)
+            pspec.hasNumber = ph.hasNumber
+            pspec.number = ph.number
+            pspec.name = ph.name
+            if (ph.hasDetails) {
+                pspec.details = ph.details
+            }
+            push rows (new CompactRow.Phase(pspec))
+            return
+        }
+        if (node.type == "custom") {
+            def cu:CustomNode (cast node to:CustomNode)
+            def cspec (new CustomSpec)
+            cspec.name = cu.name
+            cspec.value = cu.valueRaw
+            if (cu.hasValueMax) {
+                cspec.hasValueMax = true
+                cspec.valueMax = cu.valueMaxRaw
+            }
+            if (cu.hasUnit) {
+                cspec.unit = cu.unit
+            }
+            push rows (new CompactRow.Custom(cspec))
+            return
+        }
+        if (node.type == "duration") {
+            def du:DurationNode (cast node to:DurationNode)
+            def dspec (new DurationSpec)
+            if (du.hasFloatSingle) {
+                dspec.value = (CompactRowMapper.toNum(du.floatValueRaw))
+            } {
+                dspec.value = (int2double du.singleValue)
+            }
+            ; The reference reads any unit that is not seconds as minutes.
+            dspec.unit = "min"
+            if (du.unit == "s") {
+                dspec.unit = "s"
+            }
+            if (du.hasDescription) {
+                dspec.description = du.description
+            }
+            push rows (new CompactRow.Duration(dspec))
+            return
+        }
+        if (node.type == "circuit") {
+            def ci:CircuitNode (cast node to:CircuitNode)
+            def cspec (new CircuitSpec)
+            cspec.variant = ci.variant
+            cspec.rounds = ci.rounds
+            if (ci.hasRoundRest) {
+                cspec.hasRoundRest = true
+                cspec.roundRestValue = ci.roundRestValue
+                cspec.roundRestUnit = ci.roundRestUnit
+            }
+            if (ci.hasNote) {
+                cspec.note = ci.note
+            }
+            for ci.exercises item:CircuitExerciseNode ei {
+                def isp (new CircuitItemSpec)
+                isp.name = item.name
+                isp.hasSets = item.hasSets
+                isp.sets = item.sets
+                isp.hasReps = item.hasReps
+                isp.reps = item.reps
+                isp.hasRepsRight = item.hasRepsRight
+                isp.repsRight = item.repsRight
+                if (item.hasUnit) {
+                    isp.unit = item.unit
+                }
+                if (item.hasWeightValue) {
+                    isp.hasWeight = true
+                    isp.weightKg = item.weightValue
+                }
+                if (item.hasRecovery) {
+                    isp.hasRecovery = true
+                    isp.recoveryValue = item.recoveryValue
+                    isp.recoveryUnit = item.recoveryUnit
+                }
+                push cspec.items isp
+            }
+            push rows (new CompactRow.Circuit(cspec))
+            for cspec.items isp2:CircuitItemSpec ii {
+                push rows (new CompactRow.CircuitItem(isp2))
+            }
+            return
+        }
+        if (node.type == "unknown") {
+            def un:UnknownNode (cast node to:UnknownNode)
+            push rows (new CompactRow.Unknown(un.raw))
+            return
+        }
+        ; Not rows at all. The reference lifts tags, emojis and derived
+        ; values onto the WORKOUT and filters them out of the row list, so
+        ; a renderer walking rows never meets one.
+        if (node.type == "tags") {
+            return
+        }
+        if (node.type == "emojis") {
+            return
+        }
+        if (node.type == "derived") {
+            return
+        }
+        if (node.type == "text") {
+            def t:TextLineNode (cast node to:TextLineNode)
+            push rows (new CompactRow.Text(t.value))
+            return
+        }
+        ; Everything else is a line of text, shaped the way the reference
+        ; shapes it.
+    push rows (new CompactRow.Text((CompactRowMapper.fallbackText(node))))
+}
 
     ; Parse text and flatten its first workout. The demo shows one session at a
     ; time; a document with several is a screen this app does not have yet.
     sfn firstWorkoutRows:[CompactRow] (text:string) {
-        def doc:DocumentNode (CompactV1Parser.parseText(text))
-        def rows:[CompactRow]
-        if ((array_length doc.workouts) == 0) {
-            return rows
+        def doc:CompactDocument (CompactRowMapper.parseDocument(text))
+        return doc.rows
+    }
+
+    ; The document a screen edits: its rows, its title, and the text they came
+    ; from, line by line.
+    ; Ranger has no `split`, and a document is the one place this needs one. A
+    ; trailing carriage return is dropped so a file written on either platform
+    ; gives the same lines.
+    sfn splitLines:[string] (text:string) {
+        def out:[string]
+        def cur@(mutable):string ""
+        def i@(mutable):int 0
+        def len:int (strlen text)
+        while (i < len) {
+            def code:int (charAt text i)
+            if (code == 10) {
+                push out cur
+                cur = ""
+            } {
+                if (code == 13) {
+                } {
+                    cur = (cur + (strfromcode code))
+                }
+            }
+            i = (i + 1)
         }
-        return (CompactRowMapper.fromWorkout((at doc.workouts 0)))
+        push out cur
+        return out
+    }
+
+    sfn parseDocument:CompactDocument (text:string) {
+        def out (new CompactDocument)
+        def lines:[string] (CompactRowMapper.splitLines(text))
+        for lines line:string i {
+            push out.lines line
+        }
+        def parsed:DocumentNode (CompactV1Parser.parseText(text))
+        if ((array_length parsed.workouts) == 0) {
+            return out
+        }
+        def w:WorkoutNode (at parsed.workouts 0)
+        if (w.hasTitle) {
+            if (!null? w.title) {
+                out.title = (unwrap w.title)
+            }
+        }
+        CompactRowMapper.fillDocument(w out)
+        return out
     }
 
     sfn firstWorkoutTitle:string (text:string) {
@@ -2012,5 +2159,145 @@ class CompactRowEdit {
             CircuitItem it {
             }
         }
+    }
+}
+
+; =============================================================================
+; CompactWrite — an edited row, back as the line it came from
+; =============================================================================
+; Only the rows a screen may edit, and only the forms those rows can hold. A
+; serialiser that guessed at the rest would be a way to lose a document, and
+; `rt:compact` pins the guarantee that matters: for every editable row in the
+; fixture, writing the row back with nothing changed gives the SAME LINE it was
+; read from. A form that arrives and does not round-trip fails that check
+; rather than quietly rewriting someone's training log.
+; =============================================================================
+class CompactWrite {
+
+    Constructor () {
+    }
+
+    sfn exerciseSpec:string (e:ExerciseSpec) {
+        def out@(mutable):string ""
+        if (e.hasSets) {
+            out = (out + (to_string e.sets))
+            if (e.hasSetsMax) {
+                if (e.setsMax > e.sets) {
+                    out = ((out + "-") + (to_string e.setsMax))
+                }
+            }
+            out = (out + "x")
+        }
+        if (e.hasReps) {
+            out = (out + (to_string e.reps))
+            if (e.hasRepsMax) {
+                out = ((out + "-") + (to_string e.repsMax))
+            }
+            out = (out + e.unit)
+            if (e.hasRepsRight) {
+                out = (((out + "+") + (to_string e.repsRight)) + e.unit)
+            }
+        }
+        if (e.hasWeight) {
+            if (e.weightKg > 0) {
+                out = ((out + "@") + (to_string e.weightKg))
+                out = (out + "kg")
+            }
+        }
+        if (e.hasRecovery) {
+            out = ((out + "/") + (to_string e.recoveryValue))
+            if (e.hasRecoveryMax) {
+                if (e.recoveryMax != e.recoveryValue) {
+                    out = ((out + "-") + (to_string e.recoveryMax))
+                }
+            }
+            out = (out + e.recoveryUnit)
+        }
+        return out
+    }
+
+    ; "" for a row this cannot write. The caller does not save what it cannot
+    ; write back.
+    sfn line:string (row:CompactRow) {
+        match row {
+            Exercise ex {
+                def e:ExerciseSpec (unwrap ex.spec)
+                if (e.specType == "measured") {
+                    return ""
+                }
+                return ((("Exercise " + e.name) + "|") + (CompactWrite.exerciseSpec(e)))
+            }
+            Move mv { return "" }
+            Pyramid py { return "" }
+            Split sp { return "" }
+            Section s { return "" }
+            Text t { return "" }
+            Summary sm { return "" }
+            Phase ph { return "" }
+            Custom cu { return "" }
+            Duration du { return "" }
+            Unknown un { return "" }
+            Circuit ci { return "" }
+            CircuitItem it { return "" }
+        }
+        return ""
+    }
+}
+
+; =============================================================================
+; RtBackendSim — a backend that is not there
+; =============================================================================
+; No network and no cloud: this demo has neither and does not want either. What
+; it does need is the SHAPE of one, because a screen with no waiting and no
+; failure in it is a screen whose waiting and failure states were never drawn.
+;
+; The clock is the app's, so a save takes the same number of milliseconds in
+; the browser and in the headless check, and a test does not sleep.
+; =============================================================================
+class RtBackendSim {
+    ; "idle" | "saving" | "saved" | "failed"
+    def state@(mutable):string "idle"
+    def message@(mutable):string ""
+    def latencyMs@(mutable):double 700.0
+    def leftMs@(mutable):double 0.0
+    def version@(mutable):int 0
+    ; The next save fails. A demo that cannot be made to fail on purpose is a
+    ; demo whose error state nobody has looked at.
+    def failNext@(mutable):boolean false
+    def pendingText@(mutable):string ""
+
+    Constructor () {
+    }
+
+    fn begin:void (text:string) {
+        pendingText = text
+        state = "saving"
+        message = "Tallennetaan…"
+        leftMs = latencyMs
+    }
+
+    fn tick:boolean (deltaMs:double) {
+        if (state != "saving") {
+            return false
+        }
+        leftMs = (leftMs - deltaMs)
+        if (leftMs > 0.0) {
+            return false
+        }
+        leftMs = 0.0
+        if (failNext) {
+            state = "failed"
+            message = "Tallennus epäonnistui — yritä uudelleen"
+            return true
+        }
+        version = (version + 1)
+        state = "saved"
+        message = ("Tallennettu — versio " + (to_string version))
+        return true
+    }
+
+    fn clear:void () {
+        state = "idle"
+        message = ""
     }
 }

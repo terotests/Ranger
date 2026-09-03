@@ -69,6 +69,32 @@ npm run rt:parser:sync     # refresh the vendored parser
 npm run rt:parser:check    # fail if the copy is stale
 ```
 
+## Saving, and why it does not serialise the rows
+
+A view model is lossy on purpose: fourteen life families come out as a line of
+text with their structure thrown away, because that is what the reference
+draws. Writing the rows back would rewrite `Sleep 7h` as `Text Sleep 7h` and
+quietly change someone's training log.
+
+So the document keeps the text it was read from, and an edit **patches the one
+line it touched**. `CompactDocument.rowLines` is how a row finds that line: the
+parser hands back content in order and each node came from exactly one line, so
+the lines are handed out in the same walk that builds the rows — including a
+circuit's `>` children.
+
+`CompactWrite` writes back only what it can write, and `rt:compact` pins the
+guarantee that makes this safe: an editable row, written back with nothing
+changed, gives the SAME LINE it was read from. A form that arrives and does not
+round-trip fails there instead. A measured row answers with "" — it records
+what happened, and the caller does not save what it cannot write.
+
+The backend is `RtBackendSim`: no network and no cloud, because this demo has
+neither and wants neither. What a screen still needs is the SHAPE of one — a
+wait with a state on it and a failure that can be reached on purpose, since a
+demo that cannot be made to fail is a demo whose error state nobody has looked
+at. It runs off the app's clock, so a save takes the same milliseconds in the
+browser and in the headless check, and no test sleeps.
+
 ## Measured against the library it is a port of
 
 `realtrainer-compact/ui/react` renders COMPACT in React, and this renders it on

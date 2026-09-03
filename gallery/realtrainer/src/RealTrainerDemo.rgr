@@ -208,6 +208,13 @@ treefactory Rt {
     tag Start    EVGElement (props (className "rt-start") (id "rt-start") (role "button")
                                    (a11yLabel "Aloita sarjat") (a11yFocusable true))
     tag StartTx  EVGElement (props (className "rt-start-text") (elementType 1))
+    tag SaveBtn  EVGElement (props (className "rt-save") (id "rt-save") (role "button")
+                                   (a11yLabel "Tallenna liike") (a11yFocusable true))
+    tag SaveTx   EVGElement (props (className "rt-save-text") (elementType 1))
+    tag SaveState EVGElement (props (className "rt-save-state") (elementType 1) (role "status"))
+    tag FailBtn  EVGElement (props (className "rt-fail") (id "rt-fail") (role "button")
+                                   (a11yLabel "Kaada seuraava tallennus") (a11yFocusable true))
+    tag FailTx   EVGElement (props (className "rt-fail-text") (elementType 1))
     tag DoneBtn  EVGElement (props (className "rt-done") (id "rt-done") (role "button")
                                    (a11yLabel "Merkitse liike tehdyksi") (a11yFocusable true))
     tag DoneTx   EVGElement (props (className "rt-done-text") (elementType 1))
@@ -262,6 +269,11 @@ class RealTrainerDemo {
     ; How far the document screen is scrolled. The value the app keeps is the
     ; one the LAYOUT clamped: it knows the content height and this does not.
     def docScroll:double 0.0
+    ; The document, its rows and the text they came from. An edit patches the
+    ; one line it touched — see CompactDocument — so a family this model cannot
+    ; express cannot be damaged by saving.
+    def doc@(optional):CompactDocument
+    def backend:RtBackendSim (new RtBackendSim())
     def doneMoves:int 0
     def timerOn:boolean false
     def timerRunning:boolean false
@@ -293,8 +305,10 @@ class RealTrainerDemo {
     }
 
     fn loadCompact:void (compact:string) {
-        rows = (CompactRowMapper.firstWorkoutRows(compact))
-        workTitle = (CompactRowMapper.firstWorkoutTitle(compact))
+        def parsed:CompactDocument (CompactRowMapper.parseDocument(compact))
+        doc = parsed
+        rows = parsed.rows
+        workTitle = parsed.title
         moveCount = 0
         moveIndex = 0
         def seen:int 0
@@ -852,6 +866,13 @@ class RealTrainerDemo {
                         (StepBtnTx "+")))))
     }
 
+    fn failLabel:string () {
+        if (backend.failNext) {
+            return "vikatila päällä"
+        }
+        return "vikatila pois"
+    }
+
     fn moveCard:EVGElement () {
         this.dress(rest)
         def row:CompactRow (at rows moveIndex)
@@ -966,6 +987,21 @@ class RealTrainerDemo {
                 (WorkSub ((((to_string doneMoves) + " / ") + (to_string moveCount)) + " liikettä tehty"))))
         sub.addChild((unwrap session.rootEl))
         main.addChild(sub)
+        ; The save's own line. A screen with no waiting and no failure in it is
+        ; a screen whose waiting and failure states were never drawn, so both
+        ; are here and both are reachable — `rt-fail` arms the next failure.
+        def status (tree Rt
+            (Row (props (className "rt-save-row"))
+                (SaveState (props (id "rt-save-state")
+                                  (className ("rt-save-state rt-save-" + backend.state)))
+                           backend.message)
+                (Spacer)
+                (FailBtn (props (id "rt-fail")
+                                (a11yLabel "Kaada seuraava tallennus"))
+                         (FailTx (this.failLabel())))
+                (SaveBtn
+                    (SaveTx "Tallenna"))))
+        main.addChild(status)
         if timerOn {
             main.addChild((this.timerPanel()))
         } {
@@ -1078,6 +1114,27 @@ class RealTrainerDemo {
         return (docScroll != before)
     }
 
+    ; --- saving ---------------------------------------------------------------
+    ;
+    ; The current move's line, written back from the row the steppers edited.
+    ; Nothing else in the document is touched.
+    fn saveCurrentMove:boolean () {
+        if ((array_length rows) == 0) {
+            return false
+        }
+        def row:CompactRow (at rows moveIndex)
+        def line:string (CompactWrite.line(row))
+        if ((strlen line) == 0) {
+            backend.state = "failed"
+            backend.message = "Tätä riviä ei voi kirjoittaa takaisin"
+            return true
+        }
+        def d:CompactDocument (unwrap doc)
+        d.replaceLine((d.lineOf(moveIndex)) line)
+        backend.begin((d.text()))
+        return true
+    }
+
     fn rebuild:void () {
         if (scene == "signin") {
             root = (this.signin())
@@ -1122,6 +1179,10 @@ class RealTrainerDemo {
     ; is a frozen one, and this one stops by changing scene rather than by
     ; running out of things to move.
     fn tick:boolean (dtMs:double) {
+        if (backend.tick(dtMs)) {
+            this.rebuild()
+            return true
+        }
         def r:EVGElement (unwrap root)
         def t:EVGTransition transitions
         t.advanceTree(r dtMs)
@@ -1455,6 +1516,16 @@ class RealTrainerDemo {
         if (id == "rt-timer-done") {
             timerOn = false
             timerRunning = false
+            this.rebuild()
+            return true
+        }
+        if (id == "rt-save") {
+            this.saveCurrentMove()
+            this.rebuild()
+            return true
+        }
+        if (id == "rt-fail") {
+            backend.failNext = (backend.failNext == false)
             this.rebuild()
             return true
         }
