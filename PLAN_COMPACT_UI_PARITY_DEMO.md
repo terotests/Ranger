@@ -1,259 +1,250 @@
-# PLAN — `realtrainer-compact` UI:n portti Rangerin UI-järjestelmään
+# PLAN — RealTrainer-UI EVG-komponenteilla (`gallery/`)
 
 Status: `suunnitelma` · 2026-09-03
 
-Tavoite: portata [`RealTrainer/realtrainer-compact`](https://github.com/RealTrainer/realtrainer-compact):n
-React-komponenttikirjasto (`ui/react`, julkaistu nimellä `@realtrainer/compact-ui-react`,
-export `realtrainer-compact/ui`) Rangerin UI-järjestelmään ja mitata parity alkuperäisiä
-komponentteja vastaan demo-kansiossa. **Ei Google Cloud -integraatiota**: UI-logiikkaa ja
-simuloituja backend-kutsuja vain.
+**Päätös:** RealTrainerin UI portataan Rangerin **EVG-pohjaisille komponenteille**
+(`gallery/ui` + `gallery/evg`). Reactia tai käsin kirjoitettua JavaScriptiä ei jää.
+Benchmarkkina käytetään `realtrainer-compact`-kirjaston Ranger-versiota ja sen TS-kirjaston
+käyttäytymistä. Sijoitus: **Ranger-repo, `gallery/`**. Ei Google Cloud -integraatiota —
+UI-logiikkaa ja simuloituja backend-kutsuja vain.
+
+Lähteet: [`RealTrainer/realtrainer-compact`](https://github.com/RealTrainer/realtrainer-compact)
+(`ui/react`, [docs](https://realtrainer.github.io/realtrainer-compact/docs/)) ja
+`terotests/realtrainer` (`parser-ranger-v1`, `frontend/`).
 
 ---
 
-## 1. Miksi tämä kirjasto on poikkeuksellisen hyvä porttikohde
+## 1. Mitä "ei JavaScriptiä" tarkoittaa tarkalleen
 
-`ui/react` on jo jaettu täsmälleen niihin kerroksiin, joita Ranger-portti tarvitsee. Työ ei ole
-arkkitehtuurin keksimistä vaan olemassa olevan rajan siirtämistä kielirajan yli.
+Tämä on jo `gallery/ui/demo/`:n vakiintunut sopimus, ei uusi vaatimus. `demo/build.mjs` sanoo sen
+suoraan: *"Everything bundled here is this repository's own source: nothing on the page imports
+React or a Radix component."*
 
-| Kerros | Tiedostot | Rivit | Riippuu Reactista? |
-|--------|-----------|------:|--------------------|
-| Headless-kontrollerit | `lib/controller/WorkoutTimingController.ts` (940), `WorkoutSessionController.ts`, `VirtualClock.ts`, `workout-controller-types.ts` | ~1 500 | **ei** |
-| Datamalli + mappaus | `lib/types.ts` (`CompactRow`, `CompactStatPart`), `lib/parsedRowMapping.ts`, `lib/normalizedWorkouts.ts` | ~750 | ei (yksi `ReactNode`-koukku) |
-| Muotoilijat | `lib/formatters.ts`, `rows/utils/*` | ~350 | ei |
-| Komponentit | `atoms/` 6, `molecules/` + 13 rivikomponenttia, `organisms/` 7 | ~2 700 | kyllä |
+| Kerros | Selain | Android / iOS |
+|--------|--------|---------------|
+| UI-logiikka, komponentit, layout, muotoilu | Ranger `.rgr` → generoitu ES6 | Ranger `.rgr` → Kotlin / Swift |
+| Piirto | `gallery/evg/gl/evg-webgl.js` (WebGL-painter) | natiivi host (`gallery/ui/android/`, `gallery/ui/ios/`) |
+| Bootstrap | ~40 riviä sivun käynnistystä + `esbuild`-bundlaus | Gradle / Xcode |
 
-Kolme asiaa tekee tästä helpon:
-
-1. **Kontrollerit ovat jo React-vapaita** tilakoneita, joissa on `getState()` / `subscribe()` ja
-   typed events (`state-changed`, `step-started`, `countdown-threshold-reached`). Käsitteellisesti
-   sama asia kuin Rangerin `@process` + `markStateDirty()`.
-2. **`VirtualClock` on jo abstrahoitu** (`advanceBy`, `setNow`, playback rate). Rangerissa kello
-   kuuluu hostiin — `active-workout-process/src/host/workoutClockHost.ts` tekee tämän jo.
-   Deterministinen testiajo säilyy sellaisenaan.
-3. **`CompactStatPart { text, tone, kind }` on jo esitys-DTO.** `formatters.ts` tuottaa valmiiksi
-   muotoillut osat ja komponentit vain renderöivät ne — eli kirjaston tekijä on jo tehnyt sen
-   DTO-jaon, jonka Ranger-builderin kuuluu tuottaa.
-
-Lisäksi ainoa ajonaikainen riippuvuus on `clsx`, peer-riippuvuutena React. **Ei Firebasea, ei
-i18nextiä, ei pilveä** — toisin kuin monorepon `frontend/`. Portti ei tarvitse yksityistä repoa.
-
-Ketjun molemmat päät ovat jo Rangeria: `parser-ranger-v1` on `realtrainer-compact` 3.0.0:n
-parseribackend (`src/parser-ranger/compact_parser_v1.rgr` synkataan sieltä). Portti sulkee
-välissä olevan aukon.
+Käsin kirjoitettua sovelluslogiikkaa JavaScriptillä ei siis ole missään. React esiintyy `gallery/ui`
+-puussa vain yhdessä paikassa: `web/main.jsx` on **Radix-referenssi** conformance-vertailua varten,
+ei tuote. Mobiilipuolella JS:ää ei ole lainkaan.
 
 ---
 
-## 2. Kaksi raidetta — mikä "Rangerin UI-järjestelmä" tarkoittaa
+## 2. Mistä portataan — ja mikä on lähde, mikä spesifikaatio
 
-Rangerissa on **kaksi** eri UI-järjestelmää, ja valinta niiden välillä määrää koko työn.
+`realtrainer-compact/ui/react` on **käyttäytymisspesifikaatio ja testiorakkeli**, ei koodilähde.
+Sen arvo tässä on, että se on jo jaettu kerroksiin joissa vain ylin on Reactia:
 
-### Raide A — `@process` + view-DTO, React hostina
+| Kerros | Tiedostot | Rivit | Kohtalo |
+|--------|-----------|------:|---------|
+| Headless-kontrollerit | `lib/controller/WorkoutTimingController.ts` (940), `WorkoutSessionController.ts`, `VirtualClock.ts` | ~1 500 | **portataan** Ranger-kontrollereiksi |
+| Datamalli | `lib/types.ts` (`CompactRow` 13-haarainen union, `CompactStatPart`) | ~250 | **portataan** Ranger `shape`ksi |
+| Mappaus + muotoilu | `parsedRowMapping.ts` (412), `formatters.ts` (212), `rows/utils/*` | ~750 | **portataan** Rangeriin |
+| React-komponentit | `atoms/` 6, `molecules/` +13 riviä, `organisms/` 7 | ~2 700 | **korvataan** EVG-kontrollereilla; jäävät orakkeliksi |
 
-Domain- ja UI-tila `@process`-luokissa, plain DTO:t builderilla, React tilaa `markStateDirty()`:ä
-`useSyncExternalStore`:lla eikä pidä omaa tilaa. Referenssi:
-`realtrainer/app-ranger/demo/active-workout-process/` (toimiva, testattu, parity-harness pystyssä).
+Kolme asiaa tekee tästä poikkeuksellisen suoraviivaista:
 
-- Rivikomponentit säilyvät Reactina; vain propsit vaihtuvat Ranger-DTO:iksi.
-- Parity mitataan datana ja DOM:ina samaa komponenttia vastaan → hyvin tarkka mittari.
-- Sama Ranger-lähde kääntyy Swiftille ja Kotlinille, mutta natiivi-UI pitää kirjoittaa erikseen.
-- Työmäärä: keskisuuri. Riski: pieni.
+1. **Kontrollerit ovat jo React-vapaita** tilakoneita (`getState()` / `subscribe()`, typed events) ja
+   `VirtualClock` on jo abstrahoitu (`advanceBy`, `setNow`, playback rate). Deterministinen testiajo
+   säilyy sellaisenaan Rangerissa.
+2. **`CompactStatPart { text, tone, kind }` on jo esitys-DTO** — muotoilu on erotettu renderöinnistä,
+   eli juuri se raja jonka EVG-portti tarvitsee. Kirjaston tekijä on tehnyt työn puolestamme.
+3. **`ActiveDurationTimer.tsx` (721 r) on jo merkitty korvattavaksi** kirjaston omassa
+   `lib/controller/PLAN.md`:ssä ("bug-prone React-local timer logic to treat as behavior reference,
+   not as implementation base"). Portti tekee täsmälleen sen, mitä kirjasto itse aikoi tehdä.
 
-### Raide B — `gallery/ui` EVG-kontrollerit, ei Reactia
-
-`gallery/ui/` on 37 kontrolleria (`UiCtl`-kanta + `AccordionCtl`, `DialogCtl`, `TableCtl`,
-`TabsCtl`, `ToastCtl`, `TreeCtl`, `VirtualCtl`, …), jotka mutatoivat EVG-display-treetä paikallaan.
-Ei virtuaali-DOM:ia, ei reconcileria, ei render-passia. Hostit: WebGL, SDL+GL, SoftCanvas, PDF, HTML;
-`gallery/ui/android/` ja `gallery/ui/ios/` ovat olemassa.
-
-Parity-metodologia on täällä valmiiksi ratkaistu ja vahvempi kuin DOM-signatuuri:
-**käyttäytymisparity, ei pikseliparity** — kummaltakin puolelta raportoidaan jokaisen syötteen
-jälkeen 12 kenttää per test id (role, name, state, expanded, pressed, checked, selected, disabled,
-hidden, tabstop, focused, visible) ja jäljet diffataan. Referenssinä ajetaan oikea Radix
-Chromiumissa (`npm run ui:conformance`, `ui:report`, `ui:web`).
-
-- COMPACT-rivit rakennettaisiin EVG-elementeiksi kontrollerien alle, ei JSX:nä.
-- Tulos ajaa natiivina Androidilla ja iOS:llä samasta lähteestä.
-- Työmäärä: iso. Riski: iso — rivikirjasto kirjoitetaan käytännössä uusiksi.
-
-### Suositus
-
-**A ensin, B sen päälle.** Raide A:n DTO-kerros (`CompactRow` shapena + `CompactStatPart[]`) on
-täsmälleen se rajapinta, jonka B tarvitsee syötteekseen: kun muotoilu on Rangerissa, EVG-renderöijä
-on uusi kuluttaja samalle DTO:lle eikä uusi portti. A tuottaa demon nopeasti; B on sen jälkeen
-lisäys, ei uudelleenkirjoitus. Jos tavoite on nimenomaan natiivi mobiili-UI ilman Reactia, mene
-suoraan B:hen — mutta rakenna DTO-kerros silti ensin.
-
-Loput tästä dokumentista kuvaa raiteen A, ja merkitsee kohdat joissa B eroaa.
+Vanhan tuotanto-UI:n (`realtrainer/frontend/src/components/`) rooli on visuaalinen referenssi:
+`ContentRows.tsx` (648 r), `WorkoutBlogContent.tsx`, `ExerciseRow.tsx`, `MoveRow.tsx`. Sitä ei
+portata — se on Firebase- ja i18next-kytketty, ja `ui/react` on sama sisältö puhtaana.
 
 ---
 
-## 3. Kerroskartta: TS → Ranger
+## 3. Arkkitehtuuri
 
 ```text
-  realtrainer-compact/ui/react              Ranger-portti
-  ─────────────────────────────────────     ──────────────────────────────────────
-  WorkoutSessionController          →       @process CompactSessionProcess
-  WorkoutTimingController           →       @process WorkoutTimingProcess  (lapsi)
-  VirtualClock / RealClock          →       host: compactClockHost.ts (tick → proc)
-  controller events / subscribe     →       markStateDirty() + proc_send
-  workout-controller-types.ts       →       shape WorkoutStep + Ranger-luokat
-  ─────────────────────────────────────     ──────────────────────────────────────
-  lib/types.ts  (CompactRow union)  →       shape CompactRow (§3.1)
-  parsedRowMapping.ts               →       CompactRowMapper.rgr  (AST → rivi-DTO)
-  formatters.ts                     →       CompactStatBuilder.rgr → CompactStatPart[]
-  ─────────────────────────────────────     ──────────────────────────────────────
-  rows/*.tsx, molecules/, organisms/ →      React, propsina Ranger-DTO   (raide A)
-                                     →      EVG-kontrollerit gallery/ui:n päällä (raide B)
-  src/renderers/{plaintext,markdown} →      CompactTextRenderer.rgr (headless sim)
+  .compact-teksti
+      │
+      ▼
+  CompactV1Parser              (Ranger, parser-ranger-v1 — §3.3)
+      │  AST-solmut
+      ▼
+  CompactRowMapper.rgr    →    shape CompactRow  (31 familiaa, §3.1)
+  CompactStatBuilder.rgr  →    CompactStatPart[]  (valmiiksi muotoiltu)
+      │
+      ▼
+  RtRowCtl / RtWorkoutCtl / RtSessionCtl        ← UiCtl-kantaiset kontrollerit
+      │  mutatoivat paikallaan
+      ▼
+  EVGElement-puu  →  EVGStyleSheet.applyTree()  →  EVGLayout  →  EVGDisplayList
+      │
+      ├─ WebGL (selain)   ├─ SDL+GL   ├─ SoftCanvas   ├─ PDF
+      └─ Android / iOS natiivi
 ```
 
-Säännöt periytyvät referenssidemosta: React ei pidä domain-tilaa, lapsiprosessi ei importtaa
-parenttia (synkka `pending*`-lipuilla), ja käännös jaetaan `CompactUiLib.rgr` (ei `@(main)`) /
-`CompactUiMain.rgr` (sim).
+Ei virtuaali-DOM:ia, ei reconcileria, ei render-passia: kontrolleri omistaa alipuunsa ja
+mutatoi sitä, tila elää kontrollerin kentissä. Tämä on `UiCtl`:n sopimus.
 
 ### 3.1 `CompactRow` → Ranger `shape`
 
-`lib/types.ts` on 13-haarainen diskriminoiva unioni (`exercise` | `pyramid` | `move` | `split` | …),
-ja `COMPACT_FEATURE_MATRIX.md` listaa 31 rivifamiliaa.
+`lib/types.ts` on 13-haarainen diskriminoiva unioni; `COMPACT_FEATURE_MATRIX.md` listaa 31
+rivifamiliaa. Ranger osaa tämän suoraan: `shape` / `case` / `match` (`PLAN_SHAPES.md` S0–S5
+toteutettu, `SHAPES_IS_OPERATOR.md`), ja `match` antaa kääntäjän tarkistaa että jokainen familia on
+käsitelty täsmälleen kerran.
 
-Ranger osaa tämän nyt suoraan: `shape` / `case` / `match` (`PLAN_SHAPES.md` stagit S0–S5
-toteutettu, `SHAPES_IS_OPERATOR.md`). **TypeScript- ja ES6-targetit lowertavat shapen tagatuksi
-objektiksi (`__rg_kind`)** — eli täsmälleen samaksi rakenteeksi kuin TS:n oma union `type`-kentällä.
-Vastaavuus on 1:1, ja `match` antaa kääntäjän tarkistaa, että jokainen familia on käsitelty.
+> `RANGER_STYLE_REVIEW.md` §4 (2026-07-07) väittää ettei Rangerissa ole sum-tyyppejä. Se on
+> vanhentunut. Älä käytä `SliceParsedValue`-mallia (21 optional-kenttää unionin korvikkeena),
+> äläkä luokkaperintöä: `PLAN_SHAPES.md` toteaa perinnön hajoavan Rust-targetilla
+> (`RUST_ISSUES.md:567`).
 
-> Huom: `RANGER_STYLE_REVIEW.md` §4 (2026-07-07) sanoo "ei sum-tyyppejä". Se on vanhentunut —
-> `SliceParsedValue`:n 21 optional-kenttää on juuri se ongelma, jonka shapet ratkaisevat.
-> Älä toista sitä mallia UI-DTO:ssa, äläkä myöskään luokkaperintöä: `PLAN_SHAPES.md` toteaa
-> perinnön hajoavan Rust-targetilla (`RUST_ISSUES.md:567`).
+### 3.2 Mitä `gallery/ui` antaa valmiina, mitä pitää rakentaa
 
-### 3.2 Parseri prosessiin
+Valmiina (37 kontrolleria, `UiCtl`-kanta, kaikki Radix-mitattuja):
 
-Aloita niin, että host parsii ja prosessi saa AST-JSONin (`loadDocumentJson`), kuten
-`ActiveWorkoutExtract.rgr` nyt. Kun P1 on vihreä, linkitä parserin `.rgr`-lähteet samaan bundleen:
-silloin **teksti → DTO on yhtä Ranger-käännöstä** ja kääntyy myös Swiftille ja Kotlinille.
-DTO-rajapinta ei muutu, joten vaihto ei kosketa Reactia.
+| Tarve RealTrainer-UI:ssa | Valmis kontrolleri |
+|--------------------------|--------------------|
+| Pitkä harjoituslista, vieritys | `ScrollAreaCtl`, `ScrollerCtl`, `VirtualCtl` |
+| Harjoituksen osiot auki/kiinni | `AccordionCtl`, `CollapsibleCtl` |
+| Sarjan/toiston numeeriset kentät | `NumberCtl`, `StepperCtl`, `SliderCtl` |
+| Rivin muokkaus, tekstikenttä | `InputCtl` |
+| Vahvistukset, lopetusmodaali | `DialogCtl`, `AlertDialogCtl`, `PopoverCtl` |
+| Ilmoitukset, tallennuspalaute | `ToastCtl` |
+| Näkymien vaihto | `TabsCtl`, `NavMenuCtl`, `BreadcrumbCtl` |
+| Tilastotaulukot | `TableCtl`, `SortableCtl` |
+| Päivämäärävalinta, kalenterinäkymä | `CalendarCtl`, `EventCalCtl` |
 
----
+Rakennettava uutta: **COMPACT-rivikirjasto** — `RtRowCtl` ja familiakohtaiset renderöijät, jotka
+kääntävät `CompactRow`-shapen EVG-elementeiksi. Tämä on työn ydin ja ainoa iso uusi pala.
+`gallery/ui/demo/DashboardDemo.rgr` (2 308 r) on lähin esikuva sivutason kokoonpanosta.
 
-## 4. Sijoitus ja repo-oikeudet
+### 3.3 Parserin sijainti on avoin kysymys
 
-**Suositus:** demo `realtrainer/app-ranger/demo/compact-ui-process/`, koska tooling on siellä jo
-pystyssä ja todistettu: Ranger-kääntäjän resolvointi (`resolve-ranger-compiler.mjs`, npm-paketti
-ensin, checkout varalla), vite + vitest + Playwright, parity-harness, `check:production-isolation`.
-Ranger-lähteet kirjoitetaan siirrettävään muotoon, ja kun ne vakiintuvat, ne siirtyvät
-`realtrainer-compact/ui/ranger/`:iin `ui/react`:n rinnalle — julkiseen repoon jossa ne kuuluvat
-olla, ja jossa parity ajaa samassa vitest-ajossa kuin kirjaston omat testit.
+`compact_parser_v1.rgr` -lähde (**122 tiedostoa, 17 768 riviä**) on yksityisessä repossa
+`realtrainer/parser-ranger-v1/src/`. `realtrainer-compact` vendoroi vain **generoidun
+TypeScriptin** (`src/parser-ranger/compact_parser_v1.ts`, 8 494 r), ei `.rgr`-lähdettä.
 
-Raiteella B sijoitus on toinen: `gallery/ui/` on AGPL-3.0 Ranger-repossa, joten sen päälle
-rakennettu COMPACT-kontrollerikirjasto kuuluu sinne (`gallery/ui/demo/CompactDemo.rgr` tai oma
-gallery-moduuli), ei realtrainer-puolelle.
+Ranger-repon `gallery/`-demo tarvitsee `.rgr`-lähteen. Kolme vaihtoehtoa:
 
-**Oikeudet tässä sessiossa:**
+1. **Sync-skripti sisarcheckoutista** — kuten `realtrainer-compact/scripts/sync-parser-from-ranger-v1.mjs`
+   tekee jo. Ei kopiota versionhallinnassa, mutta demo ei käänny ilman yksityistä checkoutia.
+2. **Vendorointi `gallery/realtrainer/parser/`:iin** + sync-skripti ajautumisen estoon. Demo kääntyy
+   itsenäisesti; 17,7k riviä kopiota ylläpidettävänä.
+3. **Parserin julkaisu** `realtrainer-compact`iin `.rgr`-lähteenä (se on jo sen paketin
+   parseribackend). Siistein, mutta vaatii muutoksen toiseen repoon.
 
-| Repo | Tila | Tarvitaan |
-|------|------|-----------|
-| `terotests/Ranger` | push (haara `claude/realtrainer-repo-integration-34dayr`) | — |
-| `terotests/realtrainer` | **vain luku** | push-oikeus, jos demo menee `app-ranger/demo/`:hon |
-| `RealTrainer/realtrainer-compact` | kloonattu julkisesti, **ei pushia** | oma sessio tällä repolla (`add_repo` ei salli eri omistajan repoa samaan sessioon) |
-
-Kloonit osuivat sisarhakemistoiksi juuri niin kuin skriptit olettavat
-(`parser-ranger-v1` → `../../realtrainer-compact`, ja `realtrainer-compact` → `../realtrainer/parser-ranger-v1`),
-joten `compact-parity:test` ja `ranger:parity:minimonster:report` ovat ajettavissa tässä sessiossa.
-
----
-
-## 5. Simuloitu backend
-
-`realtrainer-compact` ei sisällä backendiä lainkaan, joten "ei pilveä" on lähtötila, ei rajoite.
-Demo tarvitsee silti kutsupinnan, jotta lataus-, tallennus- ja virhetilat näkyvät UI:ssa.
-`src/host/mockCompactBackend.ts`, sama muoto kuin `mockWorkoutSaveBackend.ts` nyt:
-
-| Operaatio | Simulaatio |
-|-----------|-----------|
-| `listDocuments()` | fixture-hakemisto + `localStorage`, 120–300 ms viive |
-| `loadDocument(id)` | teksti fixtureista, viive, valinnainen 404 |
-| `saveDocument(id, compact)` | viive + `localStorage`, palauttaa version |
-| `streamAssist(prompt)` | striimaa chunkkeina valmiin COMPACT-vastauksen |
-| virhe-injektio | `?fail=save` → virhetilat testattavissa |
-
-Fixturit: `realtrainer-compact/MONSTER.compact`, `MINI_TRAINING_PLAN.compact`, `data/`, `examples/`
-sekä `realtrainer/training_data/*.compact` (9 tiedostoa).
+**Suositus: (1) aluksi, (3) tavoitteena.** Lisenssihuomio: `gallery/` on AGPL-3.0-or-later,
+`realtrainer-compact` GPL-3.0-or-later. GPLv3-lähteen käyttö AGPLv3-projektissa on sallittua
+(AGPL §13), mutta vendoroitu kopio tarvitsee oman lisenssimerkinnän.
 
 ---
 
-## 6. Parity-mittaristo
+## 4. Sijoitus
 
-Neljä tasoa, halvin ensin. **L0 on tämän portin tärkein** ja se, jota nykyinen demo ei vielä tee.
+**Suositus: oma gallery-moduuli `gallery/realtrainer/`**, ei `gallery/ui/demo/`-sivu.
 
-### L0 — DTO- ja muotoiluparity (puhdas data, ei DOM:ia, ei selainta)
+Perustelu: `gallery/ui/demo/` on kontrollikirjaston näyteikkuna (18 sivua, 12 481 riviä, kukin
+esittelee kontrollereita). RealTrainer on sovellus, jolla on oma domain-malli, oma parseri, oma
+tilakone ja oma simuloitu backend. Se kuluttaa `gallery/ui`:ta samalla tavalla kuin `gallery/book`
+kuluttaa EVG:tä.
 
-Aja sama `.compact`-syöte molempien läpi ja vertaa rakenteita:
+```text
+gallery/realtrainer/
+  src/          RtRowCtl, RtWorkoutCtl, RtSessionCtl, CompactRowMapper, CompactStatBuilder
+  parser/       synkattu compact_parser_v1 (§3.3)
+  theme/        EVGStyleSheet — RealTrainerin tokenit
+  demo/         RealTrainerDemo.rgr — ajettava sivu + build.mjs (demo/build.mjs:n kaava)
+  tests/        Ranger-yksikkötestit (UiTest.rgr:n kaava)
+  bench/        parity-orakkeli TS-kirjastoa vastaan (§5)
+  fixtures/     .compact-syötteet
+```
+
+`package.json`-skriptit `rt:*`-etuliitteellä, `ui:*`:n kaavalla.
+
+---
+
+## 5. Benchmark ja parity
+
+Kolme tasoa. Orakkelina TS-kirjasto, joka **ei ole osa buildia** — se ajetaan erikseen ja sen
+tulos talletetaan JSON-fixtureiksi, jotta Ranger-puoli ei riipu Nodesta ajossa.
+
+### L0 — DTO- ja muotoiluparity (puhdas data)
+
+Aja sama `.compact` molempien läpi ja vertaa rakenteita:
 
 - `parsedRowMapping.ts` → `CompactRow[]`  ⟷  `CompactRowMapper.rgr` → shape-arvot
 - `formatters.ts` → `CompactStatPart[]`  ⟷  `CompactStatBuilder.rgr` → sama
 
-Koska `CompactStatPart` on `{ text, tone, kind }` ja Ranger-shape lowertaa TS:ssä tagatuksi
-objektiksi, vertailu on suora deep-equal. Tämä nappaa valtaosan puutteista — yksiköt, rangeet
-(`2-3x15-20`), bilateraalisuus (`2x10+10`), RM, mitatut kestot (`45s, 45s`), palautus
-(`/2-3min`, `/hölkkä`), pace (`@3:50-3:40/km`), HR (`@120-150bpm`) — ilman selainta, jokaisella
-committilla.
+`CompactStatPart` on `{ text, tone, kind }`, joten vertailu on suora deep-equal. Tämä nappaa
+valtaosan puutteista — yksiköt, rangeet (`2-3x15-20`), bilateraalisuus (`2x10+10`), RM, mitatut
+kestot (`45s, 45s`), palautus (`/2-3min`, `/hölkkä`), pace (`@3:50-3:40/km`), HR (`@120-150bpm`) —
+ilman selainta, jokaisella committilla. **Tämä on portin tärkein mittari.**
 
-### L1 — kontrolleriparity (virtuaalikello, ei DOM:ia)
+### L1 — kontrolleriparity (virtuaalikello)
 
-`WorkoutTimingController`:n olemassa olevat yksikkötestit ajetaan Ranger-prosessia vastaan samalla
-skenaariolla: `VirtualClock.advanceBy(n)` ⟷ `tickWorkoutClock(n)`. Verrataan
-`WorkoutControllerState`-snapshotteja ja tapahtumajonoja askel askeleelta. Testitapaukset ovat jo
-olemassa (`lib/controller/`-testit, `ActiveWorkoutSession.test.tsx`).
+`WorkoutTimingController`:n olemassa olevat yksikkötestit ajetaan Ranger-kontrolleria vastaan
+samalla skenaariolla: `VirtualClock.advanceBy(n)` ⟷ Ranger-kellon tick. Verrataan tilasnapshotteja
+ja tapahtumajonoja askel askeleelta. Testitapaukset ovat jo olemassa.
 
-### L2 — DOM-signatuuriparity (Playwright, `reference.html`)
+### L2 — käyttäytymisparity (`gallery/ui` conformance)
 
-Kopioi `active-workout-process`:n koneisto sellaisenaan: `domSignature.ts`, side-by-side -harness,
-`known-deviations.json` (`intentional` / `debt`). Uusi ero kaataa buildin, ja listalla oleva ero
-joka ei enää esiinny kaataa myös. Parity saavutettu kun `debt` on tyhjä.
+Sama koneisto kuin kontrollereilla nyt: jokaisen syötteen jälkeen 12 kenttää per test id (role,
+name, state, expanded, pressed, checked, selected, disabled, hidden, tabstop, focused, visible),
+jäljet diffataan. Uusille RealTrainer-kontrollereille kirjoitetaan omat spec-tiedostot
+`conformance/specs/`-kaavalla. Radix-referenssiä ei ole rivikomponenteille, joten orakkelina toimii
+`ui/react`:n renderöimä DOM `snapshotDom`-muodossa — sama kenttäjoukko, eri lähde.
 
-Vasen sarake = alkuperäinen `CompactRowView` propseilla `CompactRow`, oikea = **sama komponentti**
-propseilla Ranger-DTO. Mitataan siis puhtaasti datakerroksen eroa — tarkempi mittari kuin nykyisen
-demon komponenttiparity.
+**Pikseliparityä ei tavoitella.** Layout-moottorit eroavat tarkoituksella; vertailtava asia on se,
+mitä käyttäjä voi havaita.
 
-Raiteella B tämä taso korvautuu `gallery/ui`:n conformance-jäljillä (12 kenttää per test id).
+### 5.1 Case-korpus ja kattavuusraportti
 
-### L3 — laskettujen tyylien parity
-
-`design-parity.spec.ts`:n kaava, yksi Tailwind-build, molemmat sarakkeet samassa dokumentissa.
-Tarpeen vasta jos rivikomponentteja kirjoitetaan uusiksi.
-
-### 6.1 Case-korpus ja kattavuusraportti
-
-`parity/cases/` — yksi `.compact`-katkelma per `COMPACT_FEATURE_MATRIX.md`:n solu + manifesti:
+`fixtures/cases/` — yksi `.compact`-katkelma per `COMPACT_FEATURE_MATRIX.md`:n solu + manifesti:
 
 ```json
 { "id": "exercise-set-range-rep-range", "family": "exercise",
   "dimension": "range", "compact": "Squat|2-3x15-20@60kg", "matrix": "5.2" }
 ```
 
-`scripts/report-compact-coverage.mjs` lukee L0–L3-liput ja **kirjoittaa
-`COMPACT_FEATURE_MATRIX.md`:n coverage-taulukon uusiksi**: `❓` → `✅ / 🟡 / ❌` mitatusta datasta.
+Raportti lukee L0–L2-liput ja kirjoittaa matriisin coverage-taulukon uusiksi: `❓` → `✅ / 🟡 / ❌`.
 Taulukossa on 31 riviä × 7 saraketta pelkkiä `❓`-merkkejä; tämä tekee siitä elävän tulostaulun.
+Prioriteetti §5.5:n mukaan: `exercise` → `move` → `interval` → `pyramid` → `split`, sitten kevyet.
 
-Prioriteetti matriisin §5.5 mukaan: `exercise` → `move` → `interval` → `pyramid` → `split`, sitten
-kevyet rivit.
+Korpuksen lähteet: `realtrainer-compact/MONSTER.compact`, `MINI_TRAINING_PLAN.compact`, `data/`,
+`examples/` ja `realtrainer/training_data/*.compact` (9 tiedostoa).
 
 ---
 
-## 7. Vaiheistus (raide A)
+## 6. Simuloitu backend
+
+`realtrainer-compact` ei sisällä backendiä lainkaan, joten "ei pilveä" on lähtötila. Demo tarvitsee
+silti kutsupinnan, jotta lataus-, tallennus- ja virhetilat näkyvät UI:ssa. Rangerissa:
+`RtBackendSim.rgr` — kontrolleri joka viivästää vastauksia simuloidulla kellolla, striimaa
+chunkkeina, ja osaa injektoida virheen.
+
+| Operaatio | Simulaatio |
+|-----------|-----------|
+| `listDocuments()` | fixture-hakemisto, 120–300 ms simuloitua viivettä |
+| `loadDocument(id)` | teksti fixtureista, viive, valinnainen 404 |
+| `saveDocument(id, compact)` | viive, palauttaa version; persistointi hostin kautta |
+| `streamAssist(prompt)` | striimaa chunkkeina valmiin COMPACT-vastauksen |
+| virhe-injektio | demon nappi → virhetilat testattavissa |
+
+Sama simuloitu kello kuin L1:ssä, joten backendin viiveet ovat deterministisiä testeissä.
+
+---
+
+## 7. Vaiheistus
 
 | Vaihe | Sisältö | Valmis kun |
 |-------|---------|-----------|
-| **P0 — runko** | Kansio `compact-ui-process/`, konfigit referenssidemosta, `CompactUiLib.rgr`, `shape CompactRow` + `exercise`-familia, `loadDocumentJson`, `npm run dev` renderöi yhden fixturen | fixture renderöityy Ranger-DTO:sta |
-| **P1 — L0 core** | `CompactRowMapper` + `CompactStatBuilder` core-familioille (`exercise`, `move`, `interval`, `pyramid`, `split`) §5.2–5.4:n varianteilla; L0-vertailutestit | L0 vihreä core-caseille |
-| **P2 — kontrollerit** | `WorkoutTimingController` + `WorkoutSessionController` → `@process`; host-kello; L1 olemassa olevilla testeillä | L1 vihreä |
-| **P3 — harness** | `reference.html`, L2, `known-deviations.json`; `npm run sim` (Ranger-tekstirenderöijä) | `debt`-lista olemassa ja kutistuu |
-| **P4 — simuloitu backend + edit** | `mockCompactBackend`, rivin muokkaus prosessissa (`CompactRowEdit`-vastine), `localStorage` reloadin yli (e2e) | edit → save → reload säilyy |
-| **P5 — kattavuus** | Loput familiat; kattavuusraportti kirjoittaa matriisin | matriisissa ei `❓`-soluja |
-| **P6 — parseri bundleen** | §3.2 loppuun; Swift/Kotlin-käännöksen savutesti | teksti → DTO yhdellä Ranger-käännöksellä |
-| **P7 — raide B (valinnainen)** | EVG-kontrollerit `gallery/ui`:n päällä samalle DTO:lle; conformance-jäljet | rivit renderöityvät EVG-hostilla |
-
-`check:production-isolation` laajennetaan uuteen kansioon heti P0:ssa, jotta demo pysyy demona.
+| **P0 — pystytys** | `gallery/realtrainer/`, parserin sync (§3.3), `shape CompactRow` + `exercise`-familia, `RtRowCtl` renderöi yhden rivin EVG:hen, `rt:demo` avaa sivun | yksi harjoitusrivi näkyy selaimessa EVG:llä |
+| **P1 — L0 core** | `CompactRowMapper` + `CompactStatBuilder` core-familioille §5.2–5.4:n varianteilla; L0-orakkelifixturet ja vertailu | L0 vihreä core-caseille |
+| **P2 — rivikirjasto** | Loput familiat EVG-renderöijinä; teema `EVGStyleSheet`nä; pitkä dokumentti `ScrollAreaCtl`illa | MONSTER.compact renderöityy kokonaan |
+| **P3 — kontrollerit** | `WorkoutTimingController` + `WorkoutSessionController` → Ranger; simuloitu kello; L1 | L1 vihreä |
+| **P4 — vuorovaikutus** | Rivin muokkaus (`InputCtl`, `NumberCtl`, `StepperCtl`), modaalit, `RtBackendSim`; L2-spec-tiedostot | conformance-jäljet olemassa ja kutistuvat |
+| **P5 — kattavuus** | Kattavuusraportti kirjoittaa `COMPACT_FEATURE_MATRIX.md`:n | ei `❓`-soluja |
+| **P6 — natiivi** | Käännös Kotlinille ja Swiftille; `gallery/ui/android` ja `/ios` -hostien savutesti | sama lähde ajaa mobiilissa, nolla JS |
 
 ---
 
@@ -261,21 +252,21 @@ kevyet rivit.
 
 | Riski | Vaikutus | Torjunta |
 |-------|----------|----------|
-| `WorkoutTimingController` on 940 riviä tilakonetta | työläin yksittäinen pala | portataan P2:ssa vasta kun L0 vihreä; olemassa olevat testit ovat spesifikaatio |
-| `ActiveDurationTimer.tsx` (721 r) sisältää omaa ajastinlogiikkaa | kaksi kelloa, epädeterministinen parity | kirjaston oma `controller/PLAN.md` merkitsee sen korvattavaksi — portti tekee juuri sen; älä porttaa sen sisäistä tilaa |
-| Shape-tuki on tuore (S0–S5) | kääntäjäbugeja voi tulla vastaan | 31 familiaa on iso shape — savutesti P0:ssa pienellä shapella ennen koko mallin kirjoittamista |
-| `CompactUiRenderers.renderRow` ottaa `ReactNode`:n | ei käänny Rangeriin | jää hostiin: DTO kantaa datan, render-koukku on React-puolen asia |
-| Kirjasto elää (v0.1.0, aktiivinen kehitys) | portti ajautuu erilleen | L0 ajetaan kirjaston omaa `ui/react`-lähdettä vastaan, ei kopiota; ajo CI:hin |
-| Portti eri repossa kuin kohde | parity ei näe molempia | §4: aloita monorepon demossa, siirrä `ui/ranger/`:iin kun vakiintunut |
+| Parserin lähde on yksityisessä repossa (122 tiedostoa, 17,7k riviä) | `gallery/`-demo ei käänny itsenäisesti | §3.3: sync-skripti heti, julkaisu tavoitteena; ratkaistava ennen P0:aa |
+| COMPACT-rivikirjasto on kokonaan uutta koodia | suurin yksittäinen työmäärä | L0 ensin: kun muotoilu on Rangerissa ja mitattu, EVG-renderöijä on kirjoittajalle mekaaninen |
+| `WorkoutTimingController` on 940 riviä tilakonetta | työläs, virhealtis | portataan vasta P3:ssa; olemassa olevat testit ovat spesifikaatio |
+| Shape-tuki on tuore (S0–S5) | kääntäjäbugeja voi tulla vastaan | P0:ssa savutesti pienellä shapella ennen 31-familian mallia |
+| Ei Radix-vastinetta rivikomponenteille | L2:lta puuttuu orakkeli | orakkelina `ui/react`:n DOM `snapshotDom`-muodossa, sama kenttäjoukko |
+| Teksti-intensiivinen UI EVG:llä | rivien mitoitus ja katkaisu | `EVGText`, `EVGTextFit`, `EVGTextMeasurer` ovat olemassa; P0 mittaa yhden rivin ennen kuin kirjastoa kirjoitetaan |
+| AGPL (`gallery/`) vs GPL (`realtrainer-compact`) | lisenssiepäselvyys | yhteensopiva suunta (AGPL §13); vendoroitu parseri saa oman merkinnän |
 
 ---
 
 ## 9. Ensimmäinen konkreettinen askel
 
-1. Valitse raide (§2) ja sijoitus (§4); hanki kirjoitusoikeus siihen repoon.
-2. Savutesti: pieni `shape` 3–4 casella + `match`, käännä `-typescript`, tarkista `__rg_kind`-muoto.
-3. `cp -r app-ranger/demo/active-workout-process compact-ui-process`, riisu Active Workout -sisältö,
-   jätä koneisto.
-4. Ensimmäinen L0-testi: `Exercise Takakyykky|3x5@90kg` → `CompactStatPart[]` TS:stä ja Rangerista,
-   deep-equal. Sama tapaus kuin kirjaston oma `CompactBlogView.parity.test.tsx` odottaa muodossa
-   `3x5x90kg`.
+1. Ratkaise parserin sijainti (§3.3) — tämä estää kaiken muun.
+2. Savutesti: pieni `shape` 3–4 casella + `match`, käännä `-es6` ja `-kotlin`, varmista lowerointi.
+3. `gallery/realtrainer/` pystyyn `gallery/ui/demo/build.mjs`:n kaavalla; yksi
+   `Exercise Takakyykky|3x5@90kg` -rivi EVG-elementeiksi ja WebGL-piirtoon.
+4. Ensimmäinen L0-testi: sama rivi → `CompactStatPart[]` TS-orakkelista ja Rangerista, deep-equal.
+   Kirjaston oma `CompactBlogView.parity.test.tsx` odottaa tästä muotoa `3x5x90kg`.
