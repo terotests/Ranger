@@ -269,8 +269,8 @@ class RealTrainerDemo {
     fn setupControls:void () {
         bar.tid = "rt-bar"
         bar.name = "Lataus"
-        bar.maxValue = 100
-        bar.value = 0
+        bar.maxValue = 100.0
+        bar.value = 0.0
 
         remember.tid = "rt-remember"
         remember.name = "Muista minut tällä laitteella"
@@ -327,8 +327,8 @@ class RealTrainerDemo {
 
         session.tid = "rt-session"
         session.name = "Harjoituksen eteneminen"
-        session.maxValue = 2
-        session.value = 0
+        session.maxValue = 2.0
+        session.value = 0.0
     }
 
     ; The chosen rest, in milliseconds. The controller holds a STRING, because
@@ -842,7 +842,7 @@ class RealTrainerDemo {
     }
 
     fn workout:EVGElement () {
-        session.value = doneMoves
+        session.value = (int2double doneMoves)
         this.dress(session)
         def main (tree Rt (Main (props (className "rt-main rt-main-work"))))
         def top (tree Rt
@@ -979,7 +979,7 @@ class RealTrainerDemo {
         }
         def r:EVGElement (unwrap root)
         def p:double (this.progress())
-        bar.value = (to_int ((p * 100.0) + 0.5))
+        bar.value = (int2double (to_int ((p * 100.0) + 0.5)))
         this.dress(bar)
         def ring@(optional):EVGElement (RealTrainerDemo.byId(r "rt-ring"))
         if ring {
