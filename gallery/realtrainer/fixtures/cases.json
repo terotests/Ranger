@@ -42,6 +42,29 @@
       "row": "Time 45min",
       "expect": [ { "type": "duration", "parts": [ { "text": "45min", "tone": "weight", "kind": "duration" } ] } ] },
 
-    { "id": "interval-numeric-intensity", "family": "interval", "dimension": "intensity", "matrix": "5.4", "oracle": "spec", "row": "Interval 4x400m@80-90%/2min", "expect": [] }
+    { "id": "interval-numeric-intensity", "family": "interval", "dimension": "intensity", "matrix": "5.4", "oracle": "ts", "row": "Interval 4x400m@80-90%/2min" },
+    { "id": "interval-text-intensity", "family": "interval", "dimension": "intensity", "matrix": "5.4", "oracle": "ts", "row": "Interval 6x3min@Ylamaki" },
+
+    { "id": "life-contacts", "family": "contacts", "dimension": "count", "matrix": "2", "oracle": "ts", "row": "Contacts 3x10" },
+    { "id": "life-food", "family": "food", "dimension": "nutrition", "matrix": "2", "oracle": "ts", "row": "Food kaurapuuro 300g" },
+    { "id": "life-food-described", "family": "food", "dimension": "note", "matrix": "2", "oracle": "ts", "row": "Food kaurapuuro 300g | aamupala" },
+    { "id": "life-drinking", "family": "drinking", "dimension": "volume", "matrix": "5.3", "oracle": "ts", "row": "Drinking 5dl vesi" },
+    { "id": "life-expense", "family": "expense", "dimension": "currency", "matrix": "5.3", "oracle": "ts", "row": "Expense jasenmaksu 45EUR" },
+    { "id": "life-expense-described", "family": "expense", "dimension": "note", "matrix": "2", "oracle": "ts", "row": "Expense jasenmaksu 45EUR | sali" },
+    { "id": "life-reminder", "family": "reminder", "dimension": "date", "matrix": "2", "oracle": "ts", "row": "Reminder 2026-03-01 laakari" },
+    { "id": "life-health", "family": "health", "dimension": "event", "matrix": "2", "oracle": "ts", "row": "Health flunssa" },
+    { "id": "life-health-described", "family": "health", "dimension": "note", "matrix": "2", "oracle": "ts", "row": "Health flunssa | 3 paivaa" },
+    { "id": "life-vitals", "family": "vitals", "dimension": "metric", "matrix": "2", "oracle": "ts", "row": "Vitals RHR 52bpm" },
+    { "id": "life-sleep", "family": "sleep", "dimension": "duration", "matrix": "2", "oracle": "ts", "row": "Sleep 7h" },
+    { "id": "life-feeling", "family": "feeling", "dimension": "score", "matrix": "2", "oracle": "ts", "row": "Feeling 4/5" },
+    { "id": "life-pain", "family": "pain", "dimension": "symptom", "matrix": "2", "oracle": "ts", "row": "Pain polvi 3/5" },
+    { "id": "life-measurement", "family": "measurement", "dimension": "body", "matrix": "5.3", "oracle": "ts", "row": "Weight 78.5kg" },
+    { "id": "life-location", "family": "location", "dimension": "place", "matrix": "2", "oracle": "ts", "row": "Location Sali" },
+    { "id": "life-url", "family": "url", "dimension": "link", "matrix": "2", "oracle": "ts", "row": "URL https://example.com" },
+
+    { "id": "generic-meta", "family": "meta", "dimension": "key-value", "matrix": "2", "oracle": "ts", "row": "> paino: 82kg" },
+    { "id": "generic-sport", "family": "sport", "dimension": "taxonomy", "matrix": "2", "oracle": "ts", "row": "Level kuntosali" },
+    { "id": "generic-max", "family": "max", "dimension": "pr", "matrix": "2", "oracle": "ts", "row": "Max Penkki 100kg" },
+    { "id": "generic-best", "family": "best", "dimension": "pr", "matrix": "2", "oracle": "ts", "row": "Best 5km 21:30" }
   ]
 }

@@ -66,7 +66,7 @@ ok("every row is a shape case", rows.every((r) => typeof r.__rg_kind === "string
 const kinds = rows.map((r) => r.__rg_kind.replace("CompactRow_", ""));
 ok("the rows arrive in the order they were written",
    kinds.join(",") ===
-     "Summary,Phase,Section,Duration,Exercise,Exercise,Exercise,Exercise,Exercise,Section,Move,Custom,Text,Text",
+     "Summary,Phase,Section,Duration,Exercise,Exercise,Exercise,Exercise,Exercise,Section,Move,Custom,Text,Text,Text,Text",
    kinds.join(","));
 
 // Rows are found by what they ARE and not by where they sit: the fixture is a
@@ -122,12 +122,25 @@ ok("a custom row is name and value",
    spec(rows.find((r) => kindOf(r) === "Custom")) === "mieliala: ~4");
 ok("a run derives its pace",
    spec(rows.find((r) => kindOf(r) === "Move")) === "18min 3km @0:36/100m");
+// A life family has no row type of its own: the reference turns it into a line
+// of text with a fixed shape, and so does this.
+// The label and its value are separate parts, so the flat text has no space
+// between them — the space is the label's own margin, the way the reference
+// gives it one. Assert on the parts.
+const textParts = rows.filter((r) => kindOf(r) === "Text").map((r) => parts(r));
+const sleep = textParts.find((ps) => ps[0]?.text === "Sleep");
+ok("a life family becomes a line of text",
+   sleep?.[0]?.tone === "label" && sleep?.[1]?.text === "7h",
+   JSON.stringify(sleep));
+ok("a family with no label is one plain run",
+   textParts.some((ps) => ps.length === 1 && ps[0].text === "Location Kotisali"),
+   JSON.stringify(textParts));
 // `Weight 78.5kg aamulla` is a life line: the label and the number are their
 // own parts, so a reader is not made to find the number inside a sentence.
 const life = rows
   .filter((r) => kindOf(r) === "Text")
   .map((r) => parts(r))
-  .find((ps) => ps.length > 1);
+  .find((ps) => ps[0]?.text === "Weight");
 ok("a life line is split into label, number and words",
    life?.[0]?.text === "Weight" && life?.[0]?.tone === "label" &&
      life?.[1]?.text === "78.5kg" && life?.[1]?.tone === "number",

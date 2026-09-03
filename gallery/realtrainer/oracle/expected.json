@@ -614,8 +614,389 @@
    "deviation": "Same as duration-with-description: the reference would repeat `45min` as a second run."
   },
   "interval-numeric-intensity": {
-   "rows": [],
-   "oracle": "spec"
+   "rows": [
+    {
+     "type": "text",
+     "parts": [
+      {
+       "text": "Interval 4x400m",
+       "tone": "muted",
+       "kind": "meta"
+      }
+     ]
+    }
+   ],
+   "oracle": "ts"
+  },
+  "interval-text-intensity": {
+   "rows": [
+    {
+     "type": "text",
+     "parts": [
+      {
+       "text": "Interval 6x3min @Ylamaki",
+       "tone": "muted",
+       "kind": "meta"
+      }
+     ]
+    }
+   ],
+   "oracle": "ts"
+  },
+  "life-contacts": {
+   "rows": [
+    {
+     "type": "text",
+     "parts": [
+      {
+       "text": "Contacts 30",
+       "tone": "muted",
+       "kind": "meta"
+      }
+     ]
+    }
+   ],
+   "oracle": "ts"
+  },
+  "life-food": {
+   "rows": [
+    {
+     "type": "text",
+     "parts": [
+      {
+       "text": "Food",
+       "tone": "muted",
+       "kind": "meta"
+      }
+     ]
+    }
+   ],
+   "oracle": "ts"
+  },
+  "life-food-described": {
+   "rows": [
+    {
+     "type": "text",
+     "parts": [
+      {
+       "text": "Food",
+       "tone": "label",
+       "kind": "meta"
+      },
+      {
+       "text": "| aamupala",
+       "tone": "default",
+       "kind": "meta"
+      }
+     ]
+    }
+   ],
+   "oracle": "ts"
+  },
+  "life-drinking": {
+   "rows": [
+    {
+     "type": "text",
+     "parts": [
+      {
+       "text": "Drinking",
+       "tone": "label",
+       "kind": "meta"
+      },
+      {
+       "text": "5dl",
+       "tone": "number",
+       "kind": "meta"
+      },
+      {
+       "text": " vesi",
+       "tone": "default",
+       "kind": "meta"
+      }
+     ]
+    }
+   ],
+   "oracle": "ts"
+  },
+  "life-expense": {
+   "rows": [
+    {
+     "type": "text",
+     "parts": [
+      {
+       "text": "Expense",
+       "tone": "label",
+       "kind": "meta"
+      },
+      {
+       "text": "45EUR",
+       "tone": "number",
+       "kind": "meta"
+      }
+     ]
+    }
+   ],
+   "oracle": "ts"
+  },
+  "life-expense-described": {
+   "rows": [
+    {
+     "type": "text",
+     "parts": [
+      {
+       "text": "Expense",
+       "tone": "label",
+       "kind": "meta"
+      },
+      {
+       "text": "45EUR",
+       "tone": "number",
+       "kind": "meta"
+      },
+      {
+       "text": " | sali",
+       "tone": "default",
+       "kind": "meta"
+      }
+     ]
+    }
+   ],
+   "oracle": "ts"
+  },
+  "life-reminder": {
+   "rows": [
+    {
+     "type": "text",
+     "parts": [
+      {
+       "text": "Reminder",
+       "tone": "muted",
+       "kind": "meta"
+      }
+     ]
+    }
+   ],
+   "oracle": "ts"
+  },
+  "life-health": {
+   "rows": [
+    {
+     "type": "text",
+     "parts": [
+      {
+       "text": "Health",
+       "tone": "label",
+       "kind": "meta"
+      },
+      {
+       "text": "flunssa",
+       "tone": "default",
+       "kind": "meta"
+      }
+     ]
+    }
+   ],
+   "oracle": "ts"
+  },
+  "life-health-described": {
+   "rows": [
+    {
+     "type": "text",
+     "parts": [
+      {
+       "text": "Health",
+       "tone": "label",
+       "kind": "meta"
+      },
+      {
+       "text": "flunssa | ",
+       "tone": "default",
+       "kind": "meta"
+      },
+      {
+       "text": "3",
+       "tone": "number",
+       "kind": "meta"
+      },
+      {
+       "text": " paivaa",
+       "tone": "default",
+       "kind": "meta"
+      }
+     ]
+    }
+   ],
+   "oracle": "ts"
+  },
+  "life-vitals": {
+   "rows": [
+    {
+     "type": "text",
+     "parts": [
+      {
+       "text": "Vitals",
+       "tone": "muted",
+       "kind": "meta"
+      }
+     ]
+    }
+   ],
+   "oracle": "ts"
+  },
+  "life-sleep": {
+   "rows": [
+    {
+     "type": "text",
+     "parts": [
+      {
+       "text": "Sleep",
+       "tone": "label",
+       "kind": "meta"
+      },
+      {
+       "text": "7h",
+       "tone": "number",
+       "kind": "meta"
+      }
+     ]
+    }
+   ],
+   "oracle": "ts"
+  },
+  "life-feeling": {
+   "rows": [
+    {
+     "type": "text",
+     "parts": [
+      {
+       "text": "Feeling",
+       "tone": "muted",
+       "kind": "meta"
+      }
+     ]
+    }
+   ],
+   "oracle": "ts"
+  },
+  "life-pain": {
+   "rows": [
+    {
+     "type": "text",
+     "parts": [
+      {
+       "text": "Pain",
+       "tone": "muted",
+       "kind": "meta"
+      }
+     ]
+    }
+   ],
+   "oracle": "ts"
+  },
+  "life-measurement": {
+   "rows": [
+    {
+     "type": "text",
+     "parts": [
+      {
+       "text": "weight 78.5kg",
+       "tone": "muted",
+       "kind": "meta"
+      }
+     ]
+    }
+   ],
+   "oracle": "ts"
+  },
+  "life-location": {
+   "rows": [
+    {
+     "type": "text",
+     "parts": [
+      {
+       "text": "Location Sali",
+       "tone": "muted",
+       "kind": "meta"
+      }
+     ]
+    }
+   ],
+   "oracle": "ts"
+  },
+  "life-url": {
+   "rows": [
+    {
+     "type": "text",
+     "parts": [
+      {
+       "text": "URL https://example.com",
+       "tone": "muted",
+       "kind": "meta"
+      }
+     ]
+    }
+   ],
+   "oracle": "ts"
+  },
+  "generic-meta": {
+   "rows": [
+    {
+     "type": "text",
+     "parts": [
+      {
+       "text": "meta: 82kg",
+       "tone": "muted",
+       "kind": "meta"
+      }
+     ]
+    }
+   ],
+   "oracle": "ts"
+  },
+  "generic-sport": {
+   "rows": [
+    {
+     "type": "text",
+     "parts": [
+      {
+       "text": "sport",
+       "tone": "muted",
+       "kind": "meta"
+      }
+     ]
+    }
+   ],
+   "oracle": "ts"
+  },
+  "generic-max": {
+   "rows": [
+    {
+     "type": "text",
+     "parts": [
+      {
+       "text": "max",
+       "tone": "muted",
+       "kind": "meta"
+      }
+     ]
+    }
+   ],
+   "oracle": "ts"
+  },
+  "generic-best": {
+   "rows": [
+    {
+     "type": "text",
+     "parts": [
+      {
+       "text": "best",
+       "tone": "muted",
+       "kind": "meta"
+      }
+     ]
+    }
+   ],
+   "oracle": "ts"
   }
  }
 }

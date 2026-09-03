@@ -1053,6 +1053,258 @@ class CompactRowMapper {
         return (new CompactRow.Pyramid(pd))
     }
 
+    ; --- the life families ----------------------------------------------------
+    ;
+    ; The reference does not give these a row type of their own. It turns each
+    ; into a line of TEXT with a fixed shape — `Sleep 7h`, `Expense 45EUR |
+    ; sali` — and lets the text row draw it, which is why a life line's label
+    ; and numbers come out as separate parts. This is a port of
+    ; `fallbackTextForEntry`, family by family, because a port that invented
+    ; its own wording would look right and compare wrong.
+
+    ; `[a, b, c].filter(Boolean).join(sep)` — an empty piece leaves no
+    ; separator behind, which is the whole reason this exists.
+    sfn joinParts:string (values:[string] sep:string) {
+        def kept:[string]
+        for values v:string i {
+            if ((strlen v) > 0) {
+                push kept v
+            }
+        }
+        return (join kept sep)
+    }
+
+    sfn fallbackText:string (node:AstNode) {
+        if (node.type == "contacts") {
+            def c:ContactsNode (cast node to:ContactsNode)
+            def name@(mutable):string "Contacts"
+            if (c.hasName) {
+                if ((strlen c.name) > 0) {
+                    name = c.name
+                }
+            }
+            def count@(mutable):string ""
+            if (c.hasCount) {
+                count = (to_string c.count)
+            }
+            return (trim ((name + " ") + count))
+        }
+        if (node.type == "interval") {
+            def v:IntervalNode (cast node to:IntervalNode)
+            def count@(mutable):string ""
+            if (v.hasCount) {
+                count = ((to_string v.count) + "x")
+            }
+            def distance@(mutable):string ""
+            if (v.hasDistance) {
+                distance = ((to_string v.distanceValue) + v.distanceUnit)
+            }
+            def intensity@(mutable):string ""
+            if (v.hasIntensityText) {
+                intensity = (" @" + v.intensityText)
+            }
+            return (trim ((("Interval " + count) + distance) + intensity))
+        }
+        if (node.type == "food") {
+            def f:FoodNode (cast node to:FoodNode)
+            def bits:[string]
+            push bits "Food"
+            if (f.hasCalories) {
+                push bits (f.caloriesRaw + "kcal")
+            }
+            if (f.hasProtein) {
+                push bits (f.proteinRaw + "g/prot")
+            }
+            if (f.hasCarbs) {
+                push bits (f.carbsRaw + "g/carb")
+            }
+            if (f.hasFat) {
+                push bits (f.fatRaw + "g/fat")
+            }
+            def head:string (CompactRowMapper.joinParts(bits " "))
+            if (f.hasDescription) {
+                if ((strlen f.description) > 0) {
+                    return (trim ((head + " | ") + f.description))
+                }
+            }
+            return (trim head)
+        }
+        if (node.type == "drinking") {
+            def d:DrinkingNode (cast node to:DrinkingNode)
+            def bits:[string]
+            push bits "Drinking"
+            if (d.hasVolume) {
+                push bits (d.volumeRaw + d.volumeUnit)
+            }
+            if (d.hasLiquid) {
+                push bits d.liquid
+            }
+            def head:string (CompactRowMapper.joinParts(bits " "))
+            if (d.hasDescription) {
+                if ((strlen d.description) > 0) {
+                    return (trim ((head + " | ") + d.description))
+                }
+            }
+            return (trim head)
+        }
+        if (node.type == "expense") {
+            def e:ExpenseNode (cast node to:ExpenseNode)
+            def amount@(mutable):string ""
+            if ((strlen e.amountRaw) > 0) {
+                amount = (e.amountRaw + e.currency)
+            }
+            if (e.hasDescription) {
+                if ((strlen e.description) > 0) {
+                    return (trim ((("Expense " + amount) + " | ") + e.description))
+                }
+            }
+            return (trim ("Expense " + amount))
+        }
+        if (node.type == "reminder") {
+            def r:ReminderNode (cast node to:ReminderNode)
+            def bits:[string]
+            push bits "Reminder"
+            ; The date contributes NOTHING, and that is the reference's
+            ; behaviour rather than an omission: `formatCompactDate` keys on a
+            ; `type` discriminator, and the reminder's date is serialised
+            ; without one. Pinned by a case in the corpus.
+            if (r.hasDescription) {
+                push bits r.description
+            }
+            return (trim (CompactRowMapper.joinParts(bits " ")))
+        }
+        if (node.type == "health") {
+            def h:HealthNode (cast node to:HealthNode)
+            def bits:[string]
+            push bits "Health"
+            push bits h.healthType
+            push bits h.description
+            ; join(" | ") and then replace the FIRST " | " with a space — the
+            ; reference's `.replace(' | ', ' ')` takes one occurrence, so a
+            ; description keeps its own separator.
+            def joined:string (CompactRowMapper.joinParts(bits " | "))
+            def at:int (indexOf joined " | ")
+            if (at >= 0) {
+                joined = ((((substring joined 0 at)) + " ") + (substring joined (at + 3) (strlen joined)))
+            }
+            return (trim joined)
+        }
+        if (node.type == "vitals") {
+            def v:VitalsNode (cast node to:VitalsNode)
+            def bits:[string]
+            push bits "Vitals"
+            if (v.hasKey) {
+                push bits v.key
+            }
+            if (v.hasValue) {
+                def unit@(mutable):string ""
+                if (v.hasUnit) {
+                    unit = v.unit
+                }
+                push bits (v.value + unit)
+            }
+            return (trim (CompactRowMapper.joinParts(bits " ")))
+        }
+        if (node.type == "sleep") {
+            def sl:SleepNode (cast node to:SleepNode)
+            def bits:[string]
+            push bits "Sleep"
+            push bits (sl.durationRaw + "h")
+            if (sl.hasQuality) {
+                push bits sl.quality
+            }
+            return (trim (CompactRowMapper.joinParts(bits " ")))
+        }
+        if (node.type == "feeling") {
+            def fe:FeelingNode (cast node to:FeelingNode)
+            def bits:[string]
+            push bits "Feeling"
+            if (fe.hasValue) {
+                def suffix@(mutable):string "/10"
+                if (fe.scale == "rpe") {
+                    suffix = " RPE"
+                }
+                push bits ((to_string fe.value) + suffix)
+            }
+            if (fe.hasDescription) {
+                if ((strlen fe.description) > 0) {
+                    push bits ("| " + fe.description)
+                }
+            }
+            return (trim (CompactRowMapper.joinParts(bits " ")))
+        }
+        if (node.type == "pain") {
+            def pa:PainNode (cast node to:PainNode)
+            def bits:[string]
+            push bits "Pain"
+            if (pa.hasBodyPart) {
+                push bits pa.bodyPart
+            }
+            if (pa.hasSeverity) {
+                push bits ((to_string pa.severity) + "/10")
+            }
+            if (pa.hasDescription) {
+                if ((strlen pa.description) > 0) {
+                    push bits ("| " + pa.description)
+                }
+            }
+            return (trim (CompactRowMapper.joinParts(bits " ")))
+        }
+        if (node.type == "measurement") {
+            def me:MeasurementNode (cast node to:MeasurementNode)
+            def bits:[string]
+            def label@(mutable):string "Measurement"
+            if ((strlen me.measureType) > 0) {
+                label = me.measureType
+            }
+            push bits label
+            def unit@(mutable):string ""
+            if (me.hasUnit) {
+                unit = me.unit
+            }
+            push bits (me.valueRaw + unit)
+            return (trim (CompactRowMapper.joinParts(bits " ")))
+        }
+        if (node.type == "location") {
+            def lo:LocationNode (cast node to:LocationNode)
+            def bits:[string]
+            push bits "Location"
+            push bits lo.place
+            return (trim (CompactRowMapper.joinParts(bits " ")))
+        }
+        if (node.type == "url") {
+            def ur:UrlNode (cast node to:UrlNode)
+            def bits:[string]
+            push bits "URL"
+            push bits ur.url
+            return (trim (CompactRowMapper.joinParts(bits " ")))
+        }
+        ; The tail: `type: name value description`, or the bare type when the
+        ; row carries none of the three.
+        def bits:[string]
+        if (node.type == "meta") {
+            def mt:MetaNode (cast node to:MetaNode)
+            push bits mt.value
+        }
+        if (node.type == "sport") {
+            def sp:SportNode (cast node to:SportNode)
+            push bits sp.name
+        }
+        if (node.type == "max") {
+            def mx:MaxNode (cast node to:MaxNode)
+            push bits mx.name
+        }
+        if (node.type == "best") {
+            def bt:BestNode (cast node to:BestNode)
+            push bits bt.name
+        }
+        def joined:string (CompactRowMapper.joinParts(bits " "))
+        if ((strlen joined) > 0) {
+            return ((node.type + ": ") + joined)
+        }
+        return node.type
+    }
+
     sfn fromExercise:CompactRow (node:ExerciseNode) {
         def e (new ExerciseSpec())
         e.name = node.name
@@ -1211,8 +1463,9 @@ class CompactRowMapper {
                 push rows (new CompactRow.Text(t.value))
                 continue
             }
-            ; Not ported yet. Naming the family beats an empty line.
-            push rows (new CompactRow.Text(("[" + node.type + "]")))
+            ; Everything else is a line of text, shaped the way the reference
+            ; shapes it.
+            push rows (new CompactRow.Text((CompactRowMapper.fallbackText(node))))
         }
         return rows
     }

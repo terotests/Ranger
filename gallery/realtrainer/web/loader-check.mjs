@@ -306,7 +306,7 @@ console.log("\n--- the document ---");
 app.press("rt-rail-log");
 ok("the rail opens the document", app.sceneName() === "document", app.sceneName());
 const doc = textsOf(listOf());
-ok("the whole document is drawn", doc.includes("14 riviä"), doc.join("|"));
+ok("the whole document is drawn", doc.includes("16 riviä"), doc.join("|"));
 ok("a summary is drawn", doc.includes("Kova mutta hallittu treeni"), doc.join("|"));
 ok("a phase carries its number", doc.includes("Phase1"), doc.join("|"));
 ok("a duration is drawn", doc.includes("10min") && doc.includes("Alkulämmittely"), doc.join("|"));
@@ -324,7 +324,7 @@ const docTree = JSON.parse(app.a11yJson(1, "")).nodes;
 ok("the list is a list", docTree.some((n) => n.id === "rt-doc-list" && n.role === "list"),
    JSON.stringify(docTree.find((n) => n.id === "rt-doc-list")));
 ok("with an item per row",
-   docTree.filter((n) => n.role === "listitem").length === 14,
+   docTree.filter((n) => n.role === "listitem").length === 16,
    docTree.filter((n) => n.role === "listitem").length + " items");
 
 // And back, because the rail is a navigation and not a one-way door.

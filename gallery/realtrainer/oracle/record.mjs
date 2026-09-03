@@ -206,6 +206,12 @@ function unknownParts(row) {
   return [{ text: row.raw, tone: "warn", kind: "meta" }];
 }
 
+/** The ROW's type, which is not the parsed content's: the library turns every
+ *  family it has no renderer for into a text row. */
+function rowTypeFor(content) {
+  return lib.compactRowFromParsedContent(content).type;
+}
+
 function partsFor(content) {
   const row = lib.compactRowFromParsedContent(content);
   if (row.type === "exercise") return lib.formatExerciseSchemeParts(row);
@@ -239,7 +245,7 @@ for (const c of corpus.cases) {
     // The library lifts these onto the workout and filters them out of rows.
     if (item.type === "tags" || item.type === "emojis" || item.type === "derived") continue;
     const parts = partsFor(item);
-    if (parts) rows.push({ type: item.type, parts });
+    if (parts) rows.push({ type: rowTypeFor(item), parts });
     // A move's splits are rows of their own on the Ranger side, so they are
     // rows of their own here too.
     for (const split of item.splits ?? []) {
