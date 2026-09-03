@@ -43,11 +43,11 @@ class AddWorkoutChart {
         def chart (new Statechart)
         chart.id = "addWorkoutDialog"
         chart.initial = "closed"
-        chart.context("today" "")
-        chart.context("targetDate" "")
-        chart.context("targetCalendarId" "")
-        chart.context("inputText" "")
-        chart.context("error" "")
+        chart.contextStr("today" "")
+        chart.contextStr("targetDate" "")
+        chart.contextStr("targetCalendarId" "")
+        chart.contextStr("inputText" "")
+        chart.contextStr("error" "")
 
         def closed:ScState (chart.state("closed"))
         def open:ScState (chart.state("open"))
@@ -102,8 +102,8 @@ class AddWorkoutChart {
     sfn started:ScRunner (today:string) {
         def r (new ScRunner)
         r.start((AddWorkoutChart.define()))
-        r.set("today" today)
-        r.set("targetDate" today)
+        r.setStr("today" today)
+        r.setStr("targetDate" today)
         return r
     }
 }

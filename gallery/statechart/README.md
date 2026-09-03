@@ -130,3 +130,19 @@ made the comparison mean anything.
 
 Without `xstate` installed the gate still runs and says so, rather than passing
 quietly on a transcription.
+
+### And a machine too big to transcribe
+
+A hand-written table proves a machine was READ right, once. It does not scale:
+`planDialogMachine` is six states and eighteen events, and a hundred and eight
+cells transcribed by hand is a hundred and eight chances to write down what you
+assumed. So `npm run rt:machine:live` asks XState instead — the same config in
+both, every state crossed with every event from a seeded path, then 300 random
+sequences of fourteen events.
+
+It found the thing reading could not, on its first run: **`a || b` yields its
+LAST operand when everything is falsy.** `undefined || false` is `false`, and
+this runner returned nothing — so a context held `null` where the machine holds
+`false`. One character of semantics, in eighty-four cells that do nothing and
+twenty-four that do, and no amount of re-reading the source would have shown
+it.

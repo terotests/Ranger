@@ -40,6 +40,7 @@ const SOURCE = path.resolve(
 
 const MACHINES = [
   { json: "addWorkoutDialog.machine.json", ts: "addWorkoutDialogMachine.ts" },
+  { json: "planDialog.machine.json", ts: "planDialogMachine.ts" },
 ];
 
 if (!fs.existsSync(path.join(SOURCE, MACHINES[0].ts))) {
@@ -132,6 +133,8 @@ for (const { json, ts } of MACHINES) {
   // The context keys the machine starts with. Names only: the original's
   // values include `new Date()`, which is the difference the port is explicit
   // about.
+  // The port adds keys the original computes rather than stores — a host's
+  // date, in both machines so far — so this asks that nothing was LOST.
   say("the same context keys",
       Object.keys(config.context ?? {}).every((k) => k in (ours.context ?? {})),
       `${Object.keys(config.context ?? {}).join(",")} / ${Object.keys(ours.context ?? {}).join(",")}`);

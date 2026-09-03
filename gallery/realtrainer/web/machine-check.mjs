@@ -56,9 +56,18 @@ const { ScRunner, ScEvent } = require_(
 // it is for; the two data-driven ones are handed the real event.
 const eventOf = (type, field, value) => {
   const e = ScEvent.of(type);
-  if (field) e.with(field, value);
+  if (field) e.withStr(field, value);
   return e;
 };
+
+// The runner's context is typed now — a string, a boolean, a list, a map — so
+// it is read back as JSON and parsed. That round trip IS the comparison: the
+// two sides agree only if the runner's own JSON bridge writes what the library
+// holds.
+const contextOf = (runner, keys) =>
+  Object.fromEntries(keys.map((k) => [k, JSON.parse(runner.json(k))]));
+
+const CONTEXT_KEYS = ["targetDate", "targetCalendarId", "inputText", "error"];
 const machineJson = fs.readFileSync(
   path.join(HERE, "..", "fixtures", "machines", "addWorkoutDialog.machine.json"),
   "utf8",
@@ -166,17 +175,12 @@ const IMPLEMENTATIONS = [
     make: (today) => {
       const r = new ScRunner();
       r.start(StatechartJson.load(machineJson));
-      r.set("today", today);
-      r.set("targetDate", today);
+      r.setStr("today", today);
+      r.setStr("targetDate", today);
       return {
         send: (type, value, field) => r.send(eventOf(type, field, value)),
         state: () => r.state,
-        context: () => ({
-          targetDate: r.get("targetDate"),
-          targetCalendarId: r.get("targetCalendarId"),
-          inputText: r.get("inputText"),
-          error: r.get("error"),
-        }),
+        context: () => contextOf(r, CONTEXT_KEYS),
       };
     },
   },
@@ -187,12 +191,7 @@ const IMPLEMENTATIONS = [
       return {
         send: (type, value, field) => r.send(eventOf(type, field, value)),
         state: () => r.state,
-        context: () => ({
-          targetDate: r.get("targetDate"),
-          targetCalendarId: r.get("targetCalendarId"),
-          inputText: r.get("inputText"),
-          error: r.get("error"),
-        }),
+        context: () => contextOf(r, CONTEXT_KEYS),
       };
     },
   },

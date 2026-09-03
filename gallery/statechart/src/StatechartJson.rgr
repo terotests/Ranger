@@ -14,10 +14,15 @@
 ; function is not data. So an assignment is a VALUE EXPRESSION, and the forms
 ; are the general ones rather than one per machine:
 ;
-;   { "value": "x" }                     a literal
+;   { "value": … }                       a literal — the JSON value itself, so
+;                                        a string, a number, a boolean, a list
+;                                        or an object all say what they are
 ;   { "event": "targetDate" }            a named field of the event
 ;   { "context": "today" }               a context key
-;   { "or": [ … ] }                      the first part that has anything
+;   { "or": [ … ] }                      the first part that carries anything
+;   { "setKey": { "map": …, "key": …, "value": … } }
+;                                        a map with one key set, which is
+;                                        `{ ...map, [key]: value }`
 ;
 ; `{ "or": [ {"event":"targetDate"}, {"context":"today"} ] }` is
 ; `event.targetDate || today` written down instead of run — and `or` is what
@@ -37,7 +42,49 @@ class StatechartJson {
 
     ; One value expression, read recursively — `or` holds expressions and one
     ; of them may be an `or` in turn.
+    ; A JSON node → a context value. This is the bridge in one direction;
+    ; `ScValOps.toJson` is the other, and the two have to agree or a
+    ; comparison against the library means nothing.
+    sfn valOf:ScVal (node:VlJson) {
+        if (node.isString()) {
+            return (ScValOps.str((node.asString())))
+        }
+        if (node.isBool()) {
+            return (ScValOps.bool((node.asBool())))
+        }
+        if (node.isNumber()) {
+            return (ScValOps.num((node.asDouble())))
+        }
+        if (node.isArray()) {
+            def items:[ScVal]
+            def count:int (node.count())
+            def i@(mutable):int 0
+            while (i < count) {
+                push items (StatechartJson.valOf((node.at(i))))
+                i = (i + 1)
+            }
+            return (new ScVal.List(items))
+        }
+        if (node.isObject()) {
+            def keys:[string]
+            def entries:[ScVal]
+            for node.keys key:string j {
+                push keys key
+                push entries (StatechartJson.valOf((node.get(key))))
+            }
+            return (new ScVal.Map(keys entries))
+        }
+        return (ScValOps.nothing())
+    }
+
     sfn valueOf:ScValue (spec:VlJson) {
+        if (spec.has("setKey")) {
+            def parts:VlJson (spec.get("setKey"))
+            return (ScValue.setKey(
+                (StatechartJson.valueOf((parts.get("map"))))
+                (StatechartJson.valueOf((parts.get("key"))))
+                (StatechartJson.valueOf((parts.get("value"))))))
+        }
         if (spec.has("or")) {
             def either:ScValue (ScValue.either())
             def parts:VlJson (spec.get("or"))
@@ -55,7 +102,7 @@ class StatechartJson {
         if (spec.has("context")) {
             return (ScValue.context((spec.stringOr("context" ""))))
         }
-        return (ScValue.literal((spec.stringOr("value" ""))))
+        return (ScValue.value((StatechartJson.valOf((spec.get("value"))))))
     }
 
     sfn readActions:void (t:ScTransition actions:VlJson) {
@@ -68,6 +115,11 @@ class StatechartJson {
                 for assigns.keys key:string k {
                     push t.assigns (ScAssign.of(key (StatechartJson.valueOf((assigns.get(key))))))
                 }
+            }
+            ; A NAMED action, which the host provides — XState's
+            ; `setup({ actions })`. The runner reports it and runs nothing.
+            if (action.has("action")) {
+                push t.actions (action.stringOr("action" ""))
             }
             i = (i + 1)
         }
@@ -83,7 +135,7 @@ class StatechartJson {
         if (root.has("context")) {
             def context:VlJson (root.get("context"))
             for context.keys key:string i {
-                chart.context(key (context.stringOr(key "")))
+                chart.context(key (StatechartJson.valOf((context.get(key)))))
             }
         }
 

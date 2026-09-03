@@ -256,6 +256,12 @@ SUITES=(
   # state crossed with every event, and the thirteen cells of twenty-one that
   # are IGNORES — the half a hand-port gets wrong while its happy path passes.
   rt:machine
+  # And a machine too big to transcribe: planDialog's six states and eighteen
+  # events, run cell by cell and then fuzzed against xstate itself. It found
+  # the one thing reading could not — that `a || b` yields its last operand
+  # when everything is falsy, so a context held null where the machine holds
+  # false.
+  rt:machine:live
   # And the machine wired to a view: the scenario replayed on the Ranger side,
   # against the trace recorded from it. The other half of that benchmark — the
   # same scenario against the React app on the Firebase emulators — is
