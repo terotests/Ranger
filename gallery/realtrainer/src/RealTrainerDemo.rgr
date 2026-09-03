@@ -88,6 +88,7 @@ Import "../../evg/EVGHitTest.rgr"
 Import "CompactRows.rgr"
 Import "AddWorkoutDialog.rgr"
 Import "PlanDialogHost.rgr"
+Import "ChatHost.rgr"
 
 treefactory Rt {
     child addChild
@@ -223,6 +224,24 @@ treefactory Rt {
     tag PlanDayName EVGElement (props (className "rt-plan-day-name") (elementType 1))
     tag PlanDayNote EVGElement (props (className "rt-plan-day-note") (elementType 1))
 
+    ; --- scene six: the conversation -------------------------------------------
+    ; Drawn from `ChatHost`'s machine state: the transcript, what is streaming
+    ; in, the actions a reply proposes and where each of them stands.
+    tag ChatLog  EVGElement (props (className "rt-chat-log") (id "rt-chat-log")
+                                   (role "list") (a11yLabel "Keskustelu"))
+    tag ChatUser EVGElement (props (className "rt-chat-user") (role "listitem"))
+    tag ChatBot  EVGElement (props (className "rt-chat-bot") (role "listitem"))
+    tag ChatTx   EVGElement (props (className "rt-chat-text") (elementType 1))
+    tag ChatStream EVGElement (props (className "rt-chat-bot rt-chat-stream") (id "rt-chat-stream")
+                                   (role "status"))
+    tag ChatActs EVGElement (props (className "rt-chat-acts") (id "rt-chat-acts")
+                                   (role "list") (a11yLabel "Ehdotetut toiminnot"))
+    tag ChatAct  EVGElement (props (className "rt-chat-act") (role "listitem"))
+    tag ChatActTx EVGElement (props (className "rt-chat-act-text") (elementType 1))
+    tag ChatActSt EVGElement (props (className "rt-chat-act-state") (elementType 1))
+    tag ChatBox  EVGElement (props (className "rt-sheet rt-chat-box") (id "rt-chat-box")
+                                   (role "region") (a11yLabel "Viesti"))
+
     tag DocView  EVGElement (props (className "rt-doc-view") (id "rt-doc-view"))
     tag DocList  EVGElement (props (className "rt-doc-list") (id "rt-doc-list")
                                    (role "list") (a11yLabel "Harjoituksen rivit"))
@@ -318,6 +337,11 @@ class RealTrainerDemo {
     ; statechart runner — see PlanDialogHost. The job it starts is simulated
     ; with the same latency model the save is.
     def plan:PlanDialogHost (new PlanDialogHost())
+    ; The conversation machine, likewise run from its definition, and the
+    ; mock adapter that streams its reply on the clock.
+    def chat:ChatHost (new ChatHost())
+    def chatSim:RtChatSim (new RtChatSim())
+    def chatJob:RtBackendSim (new RtBackendSim())
     def planJob:RtBackendSim (new RtBackendSim())
     def weekType:RadioGroupCtl (new RadioGroupCtl())
     ; One checkbox per weekday for each of the three by-day maps the machine
@@ -512,6 +536,11 @@ class RealTrainerDemo {
     ; button on the dashboard does nothing, and says so by answering `false`.
     fn loadPlanMachine:void (text:string) {
         plan.load(text "2026-02-09")
+    }
+
+    fn loadChatMachine:void (text:string) {
+        chat.load(text)
+        chatJob.latencyMs = 600.0
     }
 
     ; The chosen rest, in milliseconds. The controller holds a STRING, because
@@ -718,6 +747,10 @@ class RealTrainerDemo {
             "<path d='M8 8h6v2H8zm0 4h6v2H8z'/></svg>")
     }
 
+    sfn iconChat:string () {
+        return ((RealTrainerDemo.svgOpen()) + "<path d=\"M4 4h16v11H8l-4 4V4z\"/><path d=\"M8 8h8M8 11h5\"/></svg>")
+    }
+
     sfn iconExit:string () {
         return ((RealTrainerDemo.svgOpen()) +
             "<path d='M5 3h7v2H6v14h6v2H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z'/>" +
@@ -741,6 +774,7 @@ class RealTrainerDemo {
         rail.addChild((RealTrainerDemo.railButton("rt-rail-plan" (RealTrainerDemo.iconCalendar()) "Suunnitelmat")))
         rail.addChild((RealTrainerDemo.railButton("rt-rail-log" (RealTrainerDemo.iconBook()) "Päiväkirja")))
         rail.addChild((RealTrainerDemo.railButton("rt-rail-train" (RealTrainerDemo.iconMic()) "Aloita treeni")))
+        rail.addChild((RealTrainerDemo.railButton("rt-rail-chat" (RealTrainerDemo.iconChat()) "Valmentaja")))
         rail.addChild((RealTrainerDemo.railButton("rt-rail-out" (RealTrainerDemo.iconExit()) "Kirjaudu ulos")))
         return rail
     }
@@ -1236,26 +1270,26 @@ class RealTrainerDemo {
         }
 
         def actions (tree Rt (SheetRow (props (className "rt-sheet-row rt-sheet-actions"))))
-        actions.addChild((this.planBtn("rt-plan-cancel" "Peruuta" "Peruuta" false)))
+        actions.addChild((this.sheetBtn("rt-plan-cancel" "Peruuta" "Peruuta" false)))
         if (st == "weekSelection") {
-            actions.addChild((this.planBtn("rt-plan-edit" "Muokkaa ohjeita" "Muokkaa ohjeita" false)))
+            actions.addChild((this.sheetBtn("rt-plan-edit" "Muokkaa ohjeita" "Muokkaa ohjeita" false)))
             actions.addChild((tree Rt (Spacer)))
-            actions.addChild((this.planBtn("rt-plan-confirm" "Jatka" "Jatka" true)))
+            actions.addChild((this.sheetBtn("rt-plan-confirm" "Jatka" "Jatka" true)))
         }
         if (st == "confirmation") {
             actions.addChild((tree Rt (Spacer)))
-            actions.addChild((this.planBtn("rt-plan-create" "Luo suunnitelma" "Luo suunnitelma" true)))
+            actions.addChild((this.sheetBtn("rt-plan-create" "Luo suunnitelma" "Luo suunnitelma" true)))
         }
         if (st == "editInstructions") {
-            actions.addChild((this.planBtn("rt-plan-reverse" "Käännä päivien järjestys" "Käännä järjestys" false)))
+            actions.addChild((this.sheetBtn("rt-plan-reverse" "Käännä päivien järjestys" "Käännä järjestys" false)))
             actions.addChild((tree Rt (Spacer)))
-            actions.addChild((this.planBtn("rt-plan-regen" "Luo uudelleen" "Luo uudelleen" true)))
+            actions.addChild((this.sheetBtn("rt-plan-regen" "Luo uudelleen" "Luo uudelleen" true)))
         }
         sheet.addChild(actions)
         return sheet
     }
 
-    fn planBtn:EVGElement (id:string label:string text:string primary:boolean) {
+    fn sheetBtn:EVGElement (id:string label:string text:string primary:boolean) {
         def b (tree Rt (SheetBtn (SheetBtnTx text)))
         b.id = id
         b.a11yLabel = label
@@ -1267,9 +1301,9 @@ class RealTrainerDemo {
 
     fn planWeekRows:void (sheet:EVGElement) {
         def week (tree Rt (SheetRow (SheetCap "Viikko")))
-        week.addChild((this.planBtn("rt-plan-prev" "Edellinen viikko" "◀" false)))
+        week.addChild((this.sheetBtn("rt-plan-prev" "Edellinen viikko" "◀" false)))
         week.addChild((tree Rt (SheetVal (props (id "rt-plan-week")) (plan.text("targetWeekStart")))))
-        week.addChild((this.planBtn("rt-plan-next" "Seuraava viikko" "▶" false)))
+        week.addChild((this.sheetBtn("rt-plan-next" "Seuraava viikko" "▶" false)))
         sheet.addChild(week)
         weekType.value = (plan.text("weekType"))
         this.dress(weekType)
@@ -1284,7 +1318,7 @@ class RealTrainerDemo {
             def row (tree Rt (SheetRow (SheetCap "Ohjeet")))
             row.addChild((tree Rt (SheetVal (props (id "rt-plan-instr-val")) instr)))
             row.addChild((tree Rt (Spacer)))
-            row.addChild((this.planBtn("rt-plan-instr" "Kirjoita esimerkkiohje" "Kirjoita ohje" false)))
+            row.addChild((this.sheetBtn("rt-plan-instr" "Kirjoita esimerkkiohje" "Kirjoita ohje" false)))
             sheet.addChild(row)
         }
     }
@@ -1326,7 +1360,7 @@ class RealTrainerDemo {
         def row (tree Rt (SheetRow (SheetCap "Palaute")))
         row.addChild((tree Rt (SheetVal (props (id "rt-plan-feedback-val")) fb)))
         row.addChild((tree Rt (Spacer)))
-        row.addChild((this.planBtn("rt-plan-feedback" "Kirjoita esimerkkipalaute" "Kirjoita palaute" false)))
+        row.addChild((this.sheetBtn("rt-plan-feedback" "Kirjoita esimerkkipalaute" "Kirjoita palaute" false)))
         sheet.addChild(row)
         def days (tree Rt (PlanDays))
         def order:[int] (plan.dayOrder())
@@ -1349,7 +1383,7 @@ class RealTrainerDemo {
                 line.addChild((tree Rt (PlanDayNote note)))
             }
             line.addChild((tree Rt (Spacer)))
-            line.addChild((this.planBtn(("rt-plan-instr-" + (to_string d)) ("Ohje: " + (PlanDialogHost.dayName(((d + 1) % 7)))) "Ohje" false)))
+            line.addChild((this.sheetBtn(("rt-plan-instr-" + (to_string d)) ("Ohje: " + (PlanDialogHost.dayName(((d + 1) % 7)))) "Ohje" false)))
             def keepBox:EVGElement (unwrap kc.rootEl)
             keepBox.setAttribute("width" "230px")
             line.addChild(keepBox)
@@ -1433,6 +1467,190 @@ class RealTrainerDemo {
         if (ch < 48) { return -1 }
         if (ch > 54) { return -1 }
         return (ch - 48)
+    }
+
+    ; --- scene six: the conversation -------------------------------------------
+    ; The machine's state decides what is on the screen: a composer in idle,
+    ; the reply streaming in, the actions it proposed with a verdict each, a
+    ; status while they are saved, the error and its two ways out.
+    fn chatScreen:EVGElement () {
+        def st:string (chat.state())
+        def main (tree Rt (Main (props (className "rt-main rt-main-chat"))))
+        main.addChild((tree Rt
+            (Top
+                (Title "Valmentaja")
+                (Spacer)
+                (Note (("tila: " + st))))))
+
+        def log (tree Rt (ChatLog))
+        for chat.sentTexts sent:string i {
+            log.addChild((tree Rt (ChatUser (ChatTx sent))))
+            if (i < (array_length chat.replies)) {
+                def reply:string (itemAt chat.replies i)
+                log.addChild((tree Rt (ChatBot (ChatTx reply))))
+            }
+        }
+        if (chat.inside("sending")) {
+            def streaming@(mutable):string (chat.text("streamingContent"))
+            if ((strlen streaming) == 0) {
+                streaming = "…"
+            }
+            log.addChild((tree Rt (ChatStream (ChatTx streaming))))
+        }
+        main.addChild(log)
+
+        def box (tree Rt (ChatBox))
+        if (st == "idle") {
+            def val@(mutable):string (chat.text("inputText"))
+            if ((strlen val) == 0) {
+                val = "—"
+            }
+            def row (tree Rt (SheetRow (SheetCap "Viesti")))
+            row.addChild((tree Rt (SheetVal (props (id "rt-chat-input")) val)))
+            if (chat.hasImage()) {
+                row.addChild((tree Rt (SheetVal (props (id "rt-chat-image")) ("📷 " + (chat.text("image"))))))
+            }
+            box.addChild(row)
+            def actions (tree Rt (SheetRow (props (className "rt-sheet-row rt-sheet-actions"))))
+            actions.addChild((this.sheetBtn("rt-chat-type" "Kirjoita liike" "Kirjoita liike" false)))
+            actions.addChild((this.sheetBtn("rt-chat-type2" "Kirjoita kaksi liikettä" "Kaksi liikettä" false)))
+            actions.addChild((this.sheetBtn("rt-chat-ask" "Kirjoita kysymys" "Kysy" false)))
+            if (chat.hasImage()) {
+                actions.addChild((this.sheetBtn("rt-chat-clear-image" "Poista kuva" "Poista kuva" false)))
+            } {
+                actions.addChild((this.sheetBtn("rt-chat-image" "Lisää kuva" "Lisää kuva" false)))
+            }
+            actions.addChild((tree Rt (Spacer)))
+            actions.addChild((this.sheetBtn("rt-chat-send" "Lähetä" "Lähetä" true)))
+            box.addChild(actions)
+        }
+        if (chat.inside("sending")) {
+            def actions2 (tree Rt (SheetRow (props (className "rt-sheet-row rt-sheet-actions"))))
+            actions2.addChild((tree Rt (SheetVal (props (id "rt-chat-state")) "Valmentaja vastaa…")))
+            actions2.addChild((tree Rt (Spacer)))
+            actions2.addChild((this.sheetBtn("rt-chat-cancel" "Peruuta" "Peruuta" false)))
+            box.addChild(actions2)
+        }
+        if (chat.inside("reviewing")) {
+            this.chatReviewRows(box (st == "reviewing.multiAction"))
+        }
+        if (chat.inside("processing")) {
+            box.addChild((tree Rt (SheetRow (SheetVal (props (id "rt-chat-state")) "Tallennetaan päiväkirjaan…"))))
+        }
+        if (st == "error") {
+            box.addChild((tree Rt (SheetErr (props (id "rt-chat-err")) (chat.text("error")))))
+            def actions3 (tree Rt (SheetRow (props (className "rt-sheet-row rt-sheet-actions"))))
+            actions3.addChild((this.sheetBtn("rt-chat-cancel" "Peruuta" "Peruuta" false)))
+            actions3.addChild((tree Rt (Spacer)))
+            actions3.addChild((this.sheetBtn("rt-chat-retry" "Yritä uudelleen" "Yritä uudelleen" true)))
+            box.addChild(actions3)
+        }
+        def foot (tree Rt (SheetRow (props (className "rt-sheet-row rt-sheet-actions"))))
+        foot.addChild((tree Rt (Spacer)))
+        foot.addChild((this.sheetBtn("rt-chat-reset" "Aloita alusta" "Aloita alusta" false)))
+        box.addChild(foot)
+        main.addChild(box)
+
+        return (tree Rt
+            (Page (props (id "rt-page") (className "rt-page rt-page-dash"))
+                (App
+                    (child (this.rail()))
+                    (child main))))
+    }
+
+    ; The proposed actions. One proposes a verdict on the whole; several take
+    ; a verdict each, and closing the review saves whatever was accepted.
+    fn chatReviewRows:void (box:EVGElement multi:boolean) {
+        def acts (tree Rt (ChatActs))
+        def n:int (chat.actionCount())
+        def i@(mutable):int 0
+        while (i < n) {
+            def row (tree Rt (ChatAct))
+            row.addChild((tree Rt (ChatActTx (((chat.actionField(i "kind")) + " · ") + (chat.actionField(i "id"))))))
+            def status:string (chat.actionStatus(i))
+            def word@(mutable):string "odottaa"
+            if (status == "accepted") { word = "hyväksytty" }
+            if (status == "rejected") { word = "hylätty" }
+            row.addChild((tree Rt (ChatActSt word)))
+            row.addChild((tree Rt (Spacer)))
+            if ((strlen status) == 0) {
+                row.addChild((this.sheetBtn(("rt-chat-accept-" + (to_string i)) ("Hyväksy " + (to_string (i + 1))) "Hyväksy" true)))
+                row.addChild((this.sheetBtn(("rt-chat-reject-" + (to_string i)) ("Hylkää " + (to_string (i + 1))) "Hylkää" false)))
+            }
+            acts.addChild(row)
+            i = (i + 1)
+        }
+        box.addChild(acts)
+        def actions (tree Rt (SheetRow (props (className "rt-sheet-row rt-sheet-actions"))))
+        actions.addChild((this.sheetBtn("rt-chat-close" "Sulje tarkistus" "Sulje" false)))
+        if multi {
+            actions.addChild((this.sheetBtn("rt-chat-reject-all" "Hylkää kaikki" "Hylkää kaikki" false)))
+            actions.addChild((tree Rt (Spacer)))
+            actions.addChild((this.sheetBtn("rt-chat-accept-all" "Hyväksy kaikki" "Hyväksy kaikki" true)))
+        }
+        box.addChild(actions)
+    }
+
+    fn pressChat:boolean (id:string) {
+        if (id == "rt-chat-type") { return (chat.setInput("Maastaveto 3x5@100kg")) }
+        if (id == "rt-chat-type2") { return (chat.setInput("Maastaveto 3x5@100kg ja kyykky 5x5@80kg")) }
+        if (id == "rt-chat-ask") { return (chat.setInput("Montako harjoitusta viime viikolla?")) }
+        if (id == "rt-chat-image") { return (chat.setImage("lautanen.jpg")) }
+        if (id == "rt-chat-clear-image") { return (chat.clearImage()) }
+        if (id == "rt-chat-send") {
+            def prompt:string (chat.text("inputText"))
+            def sent:boolean (chat.sendMessage())
+            if sent {
+                ; The switch says the NEXT thing fails, and this is it.
+                chatSim.failNext = backend.failNext
+                backend.failNext = false
+                chatSim.begin(prompt)
+            }
+            return sent
+        }
+        if (id == "rt-chat-cancel") {
+            def ok:boolean (chat.cancel())
+            if ok {
+                chatSim.stop()
+            }
+            return ok
+        }
+        if (id == "rt-chat-retry") {
+            def again:boolean (chat.retry())
+            if again {
+                chatSim.failNext = backend.failNext
+                backend.failNext = false
+                def last@(mutable):string ""
+                if ((array_length chat.sentTexts) > 0) {
+                    last = (itemAt chat.sentTexts ((array_length chat.sentTexts) - 1))
+                }
+                chatSim.begin(last)
+            }
+            return again
+        }
+        if (id == "rt-chat-accept-all") { return (this.chatThenSave((chat.acceptAll()))) }
+        if (id == "rt-chat-reject-all") { return (chat.rejectAll()) }
+        if (id == "rt-chat-close") { return (this.chatThenSave((chat.closeReview()))) }
+        if (id == "rt-chat-reset") {
+            chatSim.stop()
+            return (chat.reset())
+        }
+        def acc:int (RealTrainerDemo.dayOf(id "rt-chat-accept-"))
+        if (acc >= 0) { return (this.chatThenSave((chat.acceptAction(acc)))) }
+        def rej:int (RealTrainerDemo.dayOf(id "rt-chat-reject-"))
+        if (rej >= 0) { return (chat.rejectAction(rej)) }
+        return false
+    }
+
+    ; An accept may have moved the machine into `processing`; if it did, the
+    ; save it is waiting for is started.
+    fn chatThenSave:boolean (moved:boolean) {
+        if moved {
+            if (chat.inside("processing")) {
+                chatJob.begin("chat")
+            }
+        }
+        return moved
     }
 
     fn document:EVGElement () {
@@ -1519,6 +1737,9 @@ class RealTrainerDemo {
         if (scene == "document") {
             root = (this.document())
         }
+        if (scene == "chat") {
+            root = (this.chatScreen())
+        }
         if (scene == "loading") {
             root = (this.loader())
         }
@@ -1550,6 +1771,28 @@ class RealTrainerDemo {
     ; is a frozen one, and this one stops by changing scene rather than by
     ; running out of things to move.
     fn tick:boolean (dtMs:double) {
+        ; The stream. Each chunk is an event the machine appends through its
+        ; named action; the end is the reply, or the failure the switch asked
+        ; for.
+        if (chatSim.tick(dtMs)) {
+            for chatSim.dueChunks c:string i {
+                chat.chunk(c)
+            }
+            if (chatSim.produced == "complete") {
+                chat.complete(chatSim.reply chatSim.kinds chatSim.ids)
+            }
+            if (chatSim.produced == "error") {
+                chat.streamError("Yhteys valmentajaan katkesi")
+            }
+            this.rebuild()
+            return true
+        }
+        if (chatJob.tick(dtMs)) {
+            chat.saveComplete()
+            chatJob.clear()
+            this.rebuild()
+            return true
+        }
         if (planJob.tick(dtMs)) {
             ; The job the plan dialog started is the job that answers it.
             plan.complete((planJob.state == "saved") "Suunnitelman luonti epäonnistui — yritä uudelleen")
@@ -1785,6 +2028,12 @@ class RealTrainerDemo {
             this.rebuild()
             return true
         }
+        if (scene == "chat") {
+            if (this.pressChat(id)) {
+                this.rebuild()
+                return true
+            }
+        }
         if (this.pressRail(id)) {
             return true
         }
@@ -1909,6 +2158,10 @@ class RealTrainerDemo {
         }
         if (id == "rt-rail-home") {
             this.setScene("dashboard")
+            return true
+        }
+        if (id == "rt-rail-chat") {
+            this.setScene("chat")
             return true
         }
         ; The failure switch is a debug control, and it belongs to every screen

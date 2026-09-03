@@ -1691,3 +1691,77 @@
   font-size: 12px;
   height: 16px;
 }
+
+/* --- scene six: the conversation ------------------------------------------ */
+.rt-chat-log {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 8px;
+  width: 868px;
+  padding: 4px 0px;
+}
+
+.rt-chat-user {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-self: flex-end;
+  max-width: 560px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background-color: #2b3242;
+}
+
+.rt-chat-bot {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-self: flex-start;
+  max-width: 560px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background-color: #16233a;
+}
+
+.rt-chat-stream { border-width: 1px; border-color: #2563eb; }
+
+.rt-chat-text {
+  color: #e8e2da;
+  font-family: Arial;
+  font-size: 13px;
+  height: 18px;
+}
+
+.rt-chat-acts {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 4px;
+}
+
+.rt-chat-act {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 10px;
+  width: 836px;
+  height: 34px;
+}
+
+.rt-chat-act-text {
+  color: #e8e2da;
+  font-family: Arial;
+  font-size: 13px;
+  width: 200px;
+  height: 18px;
+}
+
+.rt-chat-act-state {
+  color: #9aa3b8;
+  font-family: Arial;
+  font-size: 12px;
+  width: 90px;
+  height: 16px;
+}

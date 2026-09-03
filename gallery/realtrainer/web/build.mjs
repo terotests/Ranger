@@ -59,6 +59,11 @@ fs.writeFileSync(
     JSON.stringify(
       fs.readFileSync(path.join(HERE, "..", "fixtures", "machines", "planDialog.machine.json"), "utf8"),
     ) +
+    ";\n" +
+    "export const REALTRAINER_CHAT_MACHINE = " +
+    JSON.stringify(
+      fs.readFileSync(path.join(HERE, "..", "fixtures", "machines", "chat.machine.json"), "utf8"),
+    ) +
     ";\n",
 );
 

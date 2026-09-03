@@ -411,6 +411,32 @@ if (pngOut) {
 }
 await clickId("rt-plan-cancel");
 
+// The conversation: the nested machine, its reply streamed in on the app's
+// clock, and the fork that reads how many actions the reply proposed.
+ok("the rail opens the conversation", await clickId("rt-rail-chat"), "no rt-rail-chat node");
+await page.waitForTimeout(150);
+await clickId("rt-chat-type2");
+await clickId("rt-chat-send");
+ok("sending streams",
+   (await page.evaluate("window.__app.chat.state()")) === "sending.streaming",
+   await page.evaluate("window.__app.chat.state()"));
+await page.waitForTimeout(3200);
+ok("two proposed actions land in multiAction",
+   (await page.evaluate("window.__app.chat.state()")) === "reviewing.multiAction",
+   await page.evaluate("window.__app.chat.state()"));
+if (pngOut) {
+  await page.locator("#stage canvas").screenshot({ path: stem + "-chat.png" });
+  console.log("  wrote " + stem + "-chat.png (the conversation, reviewing)");
+}
+await clickId("rt-chat-accept-all");
+ok("accepting all saves",
+   (await page.evaluate("window.__app.chat.state()")) === "processing.saving",
+   await page.evaluate("window.__app.chat.state()"));
+await page.waitForTimeout(900);
+ok("and the save answers back to idle",
+   (await page.evaluate("window.__app.chat.state()")) === "idle",
+   await page.evaluate("window.__app.chat.state()"));
+
 ok("nothing errored along the way", problems.length === 0, [...new Set(problems)].join("; "));
 
 await browser.close();

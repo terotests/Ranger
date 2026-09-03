@@ -145,6 +145,34 @@ the machine's state after every step against the one the scenario says it
 should be in — the same field the reference recorder reads from
 `window.__machineState` on the React side.
 
+### The conversation, and a reply that streams on the clock
+
+`src/ChatHost.rgr` hosts `chat.machine.json` the same way: eight leaf states
+on three levels, sixteen events, guards, an `always` fork and an `onDone`,
+read as they are. Its six named actions — `newRequestId`, `appendChunk`,
+`takeResponse`, `acceptAll`, `acceptAt`, `rejectAt` — are the ones the
+manifest gives XState, and each needs the event that caused it; the runner
+keeps names, not events, so the host remembers the event it just sent and runs
+the action against that.
+
+The reply comes from `RtChatSim`, the original's mock adapter made
+deterministic: a prompt becomes a canned reply, streamed a word per `chunkMs`
+on the app's own clock as `STREAM_CHUNK` events, then `STREAM_COMPLETE` with
+the actions it proposes — none for a question, two for a prompt with " ja "
+in it, one otherwise. That number is what `reviewing` forks on, so the three
+scenarios (`chat-single`, `chat-multi`, `chat-error`) land in all three
+branches, and the debug switch on the rail — *Kaada seuraava tallennus* — fails
+the next stream instead of the next save, which is how `error`, `RETRY` and
+`CANCEL` get walked.
+
+![the conversation, reviewing two proposed actions](web/shots/realtrainer-chat.png)
+
+The screen is the rail's *Valmentaja*: the transcript, the reply streaming in
+with a border while it does, the proposed actions with a verdict each, a
+status while the accepted ones are saved, and the error with its two ways out.
+Nothing on it is kept anywhere but in the machine's context, except the
+transcript, which the machine does not keep because the original's UI does.
+
 ## Traces: the app itself as the oracle
 
 A machine that passes its transition table can still be wired to the wrong
@@ -390,6 +418,7 @@ src/RealTrainerDemo.rgr   the app: four scenes, the clock, the hit routing
 src/CompactRows.rgr       COMPACT text → rows → the parts a row draws
 src/AddWorkoutDialog.rgr  the add-workout machine, ported by hand
 src/PlanDialogHost.rgr    the plan-week machine, run from its definition; the host's clock and named action
+src/ChatHost.rgr          the conversation machine, likewise, and the mock adapter that streams on the clock
 fixtures/machines/        the machines in the shape createMachine() takes
 fixtures/scenarios/       the scripts both sides are driven through
 traces/                   this side's recorded traces, checked by rt:trace

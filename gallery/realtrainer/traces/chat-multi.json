@@ -1,0 +1,802 @@
+{
+ "id": "chat-send-review-multi",
+ "machine": "chat",
+ "frames": [
+  {
+   "step": "rt-chat-type2",
+   "handled": true,
+   "state": "idle",
+   "nodes": [
+    {
+     "role": "group",
+     "name": "RealTrainer",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "Osiot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Etusivu",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Suunnitelmat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Päiväkirja",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Aloita treeni",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Valmentaja",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kirjaudu ulos",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Valmentaja",
+     "state": ""
+    },
+    {
+     "role": "list",
+     "name": "Keskustelu",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Viesti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kirjoita liike",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kirjoita kaksi liikettä",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kirjoita kysymys",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kuva",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lähetä",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Aloita alusta",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-chat-image",
+   "handled": true,
+   "state": "idle",
+   "nodes": [
+    {
+     "role": "group",
+     "name": "RealTrainer",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "Osiot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Etusivu",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Suunnitelmat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Päiväkirja",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Aloita treeni",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Valmentaja",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kirjaudu ulos",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Valmentaja",
+     "state": ""
+    },
+    {
+     "role": "list",
+     "name": "Keskustelu",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Viesti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kirjoita liike",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kirjoita kaksi liikettä",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kirjoita kysymys",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Poista kuva",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lähetä",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Aloita alusta",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-chat-send",
+   "handled": true,
+   "state": "sending.streaming",
+   "nodes": [
+    {
+     "role": "group",
+     "name": "RealTrainer",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "Osiot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Etusivu",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Suunnitelmat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Päiväkirja",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Aloita treeni",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Valmentaja",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kirjaudu ulos",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Valmentaja",
+     "state": ""
+    },
+    {
+     "role": "list",
+     "name": "Keskustelu",
+     "state": ""
+    },
+    {
+     "role": "listitem",
+     "name": "Maastaveto 3x5@100kg ja kyykky 5x5@80kg",
+     "state": ""
+    },
+    {
+     "role": "status",
+     "name": "…",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Viesti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Peruuta",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Aloita alusta",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "tick 3000",
+   "handled": true,
+   "state": "reviewing.multiAction",
+   "nodes": [
+    {
+     "role": "group",
+     "name": "RealTrainer",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "Osiot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Etusivu",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Suunnitelmat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Päiväkirja",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Aloita treeni",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Valmentaja",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kirjaudu ulos",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Valmentaja",
+     "state": ""
+    },
+    {
+     "role": "list",
+     "name": "Keskustelu",
+     "state": ""
+    },
+    {
+     "role": "listitem",
+     "name": "Maastaveto 3x5@100kg ja kyykky 5x5@80kg",
+     "state": ""
+    },
+    {
+     "role": "listitem",
+     "name": "Lisään kaksi liikettä: maastaveto ja kyykky.",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Viesti",
+     "state": ""
+    },
+    {
+     "role": "list",
+     "name": "Ehdotetut toiminnot",
+     "state": ""
+    },
+    {
+     "role": "listitem",
+     "name": "addWorkout · w1 odottaa",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Hyväksy 1",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Hylkää 1",
+     "state": ""
+    },
+    {
+     "role": "listitem",
+     "name": "addWorkout · w2 odottaa",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Hyväksy 2",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Hylkää 2",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Sulje tarkistus",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Hylkää kaikki",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Hyväksy kaikki",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Aloita alusta",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-chat-reject-0",
+   "handled": true,
+   "state": "reviewing.multiAction",
+   "nodes": [
+    {
+     "role": "group",
+     "name": "RealTrainer",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "Osiot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Etusivu",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Suunnitelmat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Päiväkirja",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Aloita treeni",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Valmentaja",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kirjaudu ulos",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Valmentaja",
+     "state": ""
+    },
+    {
+     "role": "list",
+     "name": "Keskustelu",
+     "state": ""
+    },
+    {
+     "role": "listitem",
+     "name": "Maastaveto 3x5@100kg ja kyykky 5x5@80kg",
+     "state": ""
+    },
+    {
+     "role": "listitem",
+     "name": "Lisään kaksi liikettä: maastaveto ja kyykky.",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Viesti",
+     "state": ""
+    },
+    {
+     "role": "list",
+     "name": "Ehdotetut toiminnot",
+     "state": ""
+    },
+    {
+     "role": "listitem",
+     "name": "addWorkout · w1 hylätty",
+     "state": ""
+    },
+    {
+     "role": "listitem",
+     "name": "addWorkout · w2 odottaa",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Hyväksy 2",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Hylkää 2",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Sulje tarkistus",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Hylkää kaikki",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Hyväksy kaikki",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Aloita alusta",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-chat-accept-1",
+   "handled": true,
+   "state": "reviewing.multiAction",
+   "nodes": [
+    {
+     "role": "group",
+     "name": "RealTrainer",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "Osiot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Etusivu",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Suunnitelmat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Päiväkirja",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Aloita treeni",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Valmentaja",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kirjaudu ulos",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Valmentaja",
+     "state": ""
+    },
+    {
+     "role": "list",
+     "name": "Keskustelu",
+     "state": ""
+    },
+    {
+     "role": "listitem",
+     "name": "Maastaveto 3x5@100kg ja kyykky 5x5@80kg",
+     "state": ""
+    },
+    {
+     "role": "listitem",
+     "name": "Lisään kaksi liikettä: maastaveto ja kyykky.",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Viesti",
+     "state": ""
+    },
+    {
+     "role": "list",
+     "name": "Ehdotetut toiminnot",
+     "state": ""
+    },
+    {
+     "role": "listitem",
+     "name": "addWorkout · w1 hylätty",
+     "state": ""
+    },
+    {
+     "role": "listitem",
+     "name": "addWorkout · w2 hyväksytty",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Sulje tarkistus",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Hylkää kaikki",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Hyväksy kaikki",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Aloita alusta",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-chat-close",
+   "handled": true,
+   "state": "processing.saving",
+   "nodes": [
+    {
+     "role": "group",
+     "name": "RealTrainer",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "Osiot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Etusivu",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Suunnitelmat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Päiväkirja",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Aloita treeni",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Valmentaja",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kirjaudu ulos",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Valmentaja",
+     "state": ""
+    },
+    {
+     "role": "list",
+     "name": "Keskustelu",
+     "state": ""
+    },
+    {
+     "role": "listitem",
+     "name": "Maastaveto 3x5@100kg ja kyykky 5x5@80kg",
+     "state": ""
+    },
+    {
+     "role": "listitem",
+     "name": "Lisään kaksi liikettä: maastaveto ja kyykky.",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Viesti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Aloita alusta",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "tick 800",
+   "handled": true,
+   "state": "idle",
+   "nodes": [
+    {
+     "role": "group",
+     "name": "RealTrainer",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "Osiot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Etusivu",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Suunnitelmat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Päiväkirja",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Aloita treeni",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Valmentaja",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kirjaudu ulos",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Valmentaja",
+     "state": ""
+    },
+    {
+     "role": "list",
+     "name": "Keskustelu",
+     "state": ""
+    },
+    {
+     "role": "listitem",
+     "name": "Maastaveto 3x5@100kg ja kyykky 5x5@80kg",
+     "state": ""
+    },
+    {
+     "role": "listitem",
+     "name": "Lisään kaksi liikettä: maastaveto ja kyykky.",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Viesti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kirjoita liike",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kirjoita kaksi liikettä",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kirjoita kysymys",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kuva",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lähetä",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Aloita alusta",
+     "state": ""
+    }
+   ]
+  }
+ ]
+}

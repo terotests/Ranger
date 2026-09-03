@@ -1,6 +1,6 @@
 # PLAN — RealTrainerin tilanhallinta EVG:lle, mitattuna ajettavaa sovellusta vasten
 
-Status: `S0–S1 aloitettu · S4 kone ja näkymä tehty · S5:n kone tehty` · 2026-09-03
+Status: `S0–S1 aloitettu · S4 ja S5: koneet ja näkymät tehty` · 2026-09-03
 Liittyy: [`PLAN_COMPACT_UI_PARITY_DEMO.md`](PLAN_COMPACT_UI_PARITY_DEMO.md) (rivikerros, P0–P5 tehty)
 
 COMPACT-rivit on portattu ja mitattu. Se on sovelluksen **sisältökerros**. Tämä suunnitelma
@@ -235,7 +235,7 @@ täsmäävät, sekä 400 satunnaissarjaa lukkoaskeleessa.
 | **S2 — kalenterin luonti** | kalenterit | `CalendarWizard` (612 r) askelittain; `StepperCtl` on `gallery/ui`:ssä valmiina | velhon askeleet ja validoinnit täsmäävät |
 | **S3 — vuosisuunnitelma** | vuosi | `YearSheetPageV2` (1 926 r); ensin selvitys mitä `app-ranger/lib/yearsheet` (722 r) jo kattaa; `TableCtl` ja `EventCalCtl` valmiina | vuosinäkymän ruudukko ja valinnat täsmäävät |
 | **S4 — suunnittelu** *(kone ja näkymä tehty)* | suunnittelu | Tehty: `planDialog.machine.json` (6 tilaa, 18 tapahtumaa) ajossa `gallery/statechart`illa, **108 solua ja 300 satunnaissarjaa lukkoaskeleessa oikean XStaten kanssa** (`rt:machine:live`). Ajonaikainen kone sai tyypitetyn kontekstin (`ScVal`), `setKey`-lausekkeen ja nimetyt hostin toiminnot. Näkymä: `src/PlanDialogHost.rgr` ajaa koneen sen omasta määrittelystä (kello ja `selectFetchedDaysForReplacement` hostilta, silmukka `send → pending → resume`), ja dashboardin *Suunnittele viikko* piirtää kaikki kuusi tilaa `CheckboxCtl`/`RadioGroupCtl`-kontrolleilla suoraan kontekstista. Kaksi skenaariota (`plan-week`, `plan-edit`) `rt:trace`-portissa, joka tarkistaa koneen tilan joka askeleen jälkeen. Jäljellä: oikea tekstinsyöttö (`InputCtl`) ohjeille ja palautteelle, React-jälki | kuusi tilaa ja niiden siirtymät täsmäävät ✓ · näkymä ajaa ne kaikki ✓ |
-| **S5 — chat** *(kone tehty)* | keskustelu | Tehty: `chat.machine.json` (8 lehtitilaa kolmessa tasossa, 16 tapahtumaa) ajossa `gallery/statechart`illa, **96 solua ja 300 satunnaissarjaa lukkoaskeleessa oikean XStaten kanssa** (`rt:machine:live`), ja rakenne + guardien nimet diffattu oikeaa `chatMachine.ts`:ää vasten (`rt:machine:config`). Runner sai sisäkkäiset tilat, guardit, `always`, `onDone` ja koneen oman `on`:n. Jäljellä: näkymä, `mockAdapter` vastineeksi `RtBackendSim`ille, striimaus | streaming- ja review-tilat täsmäävät ✓ (kone) |
+| **S5 — chat** *(kone ja näkymä tehty)* | keskustelu | Tehty: `chat.machine.json` (8 lehtitilaa kolmessa tasossa, 16 tapahtumaa) ajossa `gallery/statechart`illa, **96 solua ja 300 satunnaissarjaa lukkoaskeleessa oikean XStaten kanssa** (`rt:machine:live`), ja rakenne + guardien nimet diffattu oikeaa `chatMachine.ts`:ää vasten (`rt:machine:config`). Näkymä: `src/ChatHost.rgr` ajaa koneen määrittelystään ja hoitaa sen kuusi nimettyä toimintoa (host muistaa lähettämänsä tapahtuman, koska runner pitää nimet eikä tapahtumia); `RtChatSim` on `mockAdapter` kellolla — vastaus striimataan sana kerrallaan `STREAM_CHUNK`-tapahtumina ja päättyy `STREAM_COMPLETE`en, jonka toimintojen määrä (0/1/2 promptista) vie `reviewing`n kaikkiin kolmeen haaraan. Railin *Valmentaja*-näyttö piirtää transkriptin, striimin, toiminnot päätöksineen, tallennuksen ja virheen. Kolme skenaariota (`chat-single`, `chat-multi`, `chat-error`) `rt:trace`ssa. Jäljellä: oikea tekstinsyöttö, kuva oikeasti, React-jälki | streaming- ja review-tilat täsmäävät ✓ · näkymä ajaa kaikki 16 tapahtumaa ✓ |
 | **S6 — storet** | kaikki | `appStore` (1 974 r) ja `activeWorkoutStore` (1 378 r) sen verran kuin näkymät vaativat — ei kokonaan | näkymät ajavat ilman React-storea |
 
 Järjestys on **pienin kone ensin**: `addWorkoutDialog` on kolme tilaa ja seitsemän tapahtumaa,
@@ -285,21 +285,18 @@ yhtään `data-testid`-attribuuttia (§1.2).
 
 ### 5.2 S4:n ja S5:n näkymät
 
-`planDialog`in näkymä on tehty (S4-rivi yllä). Se on malli chatille: kone luetaan
+Molemmat näkymät on tehty (S4- ja S5-rivit yllä), samalla mallilla: kone luetaan
 omasta tiedostostaan, host antaa kellon ja nimetyt toiminnot, näkymä piirtää
 `state`n ja kontekstin eikä pidä omaa kopiota mistään, ja skenaario kulkee `rt:trace`n
 läpi tila askeleittain tarkistettuna. Jäljellä:
 
-1. **`chat`in näkymä.** `ChatController.ts` (441 r) ja `mockAdapter.ts` (227 r) →
-   `RtBackendSim`. Striimaus on `STREAM_CHUNK`-tapahtumia kellosta, ei verkosta:
-   demo on simulaatio (§0), joten adapteri saa keksiä vastauksen. Hostin nimetyt
-   toiminnot ovat `newRequestId`, `appendChunk`, `takeResponse`, `acceptAll`,
-   `acceptAt` ja `rejectAt` — samat jotka `fixtures/machines/manifest.mjs` antaa
-   XStatelle, joten ne kirjoitetaan `PlanDialogHost.settleHost`in tapaan.
-2. **Tekstinsyöttö.** Kumpikin dialogi kirjoittaa vielä esimerkkitekstin napista.
-   `InputCtl` on `gallery/ui`:ssä valmiina; sen isännöinti EVG-puussa on sama työ
-   molemmille ja `add-workout`in S1-jäännös.
-3. Skenaario `fixtures/scenarios/`iin ja `rt:trace`-portti, kuten `plan-week`ille.
+1. **Tekstinsyöttö.** Kaikki kolme dialogia kirjoittavat vielä esimerkkitekstin
+   napista (`rt-sheet-type`, `rt-plan-instr`, `rt-chat-type`). `InputCtl` on
+   `gallery/ui`:ssä valmiina; sen isännöinti EVG-puussa on sama työ kaikille ja
+   `add-workout`in S1-jäännös. Skenaarion `type`-askel (§2.3) tarvitsee sen.
+2. **Kuva.** `SET_IMAGE` kantaa nyt tiedostonimen; oikea kuva on hostin asia.
+3. **`CLOSE_REVIEW` ilman hyväksyttyjä** ja `REJECT_ALL` ovat koneessa ja napeissa
+   mutta ei skenaarioissa; `rt:machine:live` kattaa ne solutasolla.
 
 **Nimetyt toiminnot ovat hostin.** Kone nimeää `takeResponse`in ja `acceptAll`in, host
 ajaa ne — ja runner **pysähtyy niin kauan kuin nimetty toiminto on velkaa**, koska

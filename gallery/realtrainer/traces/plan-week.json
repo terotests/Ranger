@@ -39,6 +39,11 @@
     },
     {
      "role": "button",
+     "name": "Valmentaja",
+     "state": ""
+    },
+    {
+     "role": "button",
      "name": "Kirjaudu ulos",
      "state": ""
     },
@@ -272,6 +277,11 @@
     {
      "role": "button",
      "name": "Aloita treeni",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Valmentaja",
      "state": ""
     },
     {
@@ -513,6 +523,11 @@
     },
     {
      "role": "button",
+     "name": "Valmentaja",
+     "state": ""
+    },
+    {
+     "role": "button",
      "name": "Kirjaudu ulos",
      "state": ""
     },
@@ -750,6 +765,11 @@
     },
     {
      "role": "button",
+     "name": "Valmentaja",
+     "state": ""
+    },
+    {
+     "role": "button",
      "name": "Kirjaudu ulos",
      "state": ""
     },
@@ -983,6 +1003,11 @@
     {
      "role": "button",
      "name": "Aloita treeni",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Valmentaja",
      "state": ""
     },
     {
@@ -1264,6 +1289,11 @@
     },
     {
      "role": "button",
+     "name": "Valmentaja",
+     "state": ""
+    },
+    {
+     "role": "button",
      "name": "Kirjaudu ulos",
      "state": ""
     },
@@ -1541,6 +1571,11 @@
     },
     {
      "role": "button",
+     "name": "Valmentaja",
+     "state": ""
+    },
+    {
+     "role": "button",
      "name": "Kirjaudu ulos",
      "state": ""
     },
@@ -1734,6 +1769,11 @@
     {
      "role": "button",
      "name": "Aloita treeni",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Valmentaja",
      "state": ""
     },
     {

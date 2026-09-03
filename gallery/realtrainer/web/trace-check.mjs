@@ -48,6 +48,10 @@ const PLAN_MACHINE = fs.readFileSync(
   path.join(ROOT, "fixtures", "machines", "planDialog.machine.json"),
   "utf8",
 );
+const CHAT_MACHINE = fs.readFileSync(
+  path.join(ROOT, "fixtures", "machines", "chat.machine.json"),
+  "utf8",
+);
 
 /** Role, name and state per node — the fields both sides can answer. */
 function snapshot(app) {
@@ -66,6 +70,7 @@ function snapshot(app) {
 function machineState(app, machine) {
   if (machine === "addWorkoutDialog") return app.addDialog.state;
   if (machine === "planDialog") return app.plan.state();
+  if (machine === "chat") return app.chat.state();
   return "";
 }
 
@@ -74,6 +79,7 @@ function runScenario(file) {
   const app = new RealTrainerDemo();
   app.init(CSS, COMPACT);
   app.loadPlanMachine(PLAN_MACHINE);
+  app.loadChatMachine(CHAT_MACHINE);
   const apply = (step) => {
     if (step.tick !== undefined) return app.tick(step.tick);
     return app.press(step.id);
