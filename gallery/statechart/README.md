@@ -31,14 +31,41 @@ against a hand-written port of the same machine, and all three have to agree.
 | `planDialogMachine` (289 r) | + entry actions |
 | `chatMachine` (449 r) | + guards · `always` · `after` · `invoke` · nested states |
 
-**Tier one, here now:** states, transitions with an optional target, and
-assignments to a string context, driven by events with named fields. A transition with no target assigns and stays
-— XState's internal transition, and the reason typing into a dialog does not
-re-enter its state.
+All three are ported, so all three tiers are here — and each arrived with the
+machine that needed it, never ahead of one. A runtime that grew features nobody
+had a machine for would have no way to know it got them right.
 
-Guards, entry actions and nesting arrive when the machine that needs them does,
-and each arrives with the transition table that proves it. A runtime that grew
-features nobody had a machine for would have no way to know it got them right.
+| Tier | Arrived with | What it added |
+| --- | --- | --- |
+| one | `addWorkoutDialogMachine` | states · transitions with an optional target · declarative assignments · events with named fields |
+| two | `planDialogMachine` | a typed context (`ScVal`: lists, maps, numbers, booleans) · named host actions |
+| three | `chatMachine` | nested states · guards · `always` · `type: "final"` + `onDone` · machine-level `on` · guarded transition arrays |
+
+A transition with no target assigns and stays — XState's internal transition,
+and the reason typing into a dialog does not re-enter its state.
+
+Two things of `chatMachine`'s are deliberately absent: `after` and `invoke`.
+Both are *time and effects*, which belong to the host and not to a definition
+that has to compile to Kotlin and Swift. The machine names what it wants and
+the host does it, which is XState's own `setup({ actions })`.
+
+### Nesting, and where a state IS
+
+The active state is a **path** — `reviewing.multiAction` — because a name is
+not an address: two parents may both have a child called `done`. Entering a
+compound state means entering its initial child, and on down; an event is
+offered to the active leaf first and then to each ancestor, so a child's
+transition wins over its parent's, and the machine's own `on` is last.
+
+### Settling, and why it stops
+
+`always` and `onDone` run to a fixed point after every move, bounded at 64
+steps. But settling **stops while a named action is owed**. `reviewing`
+forks three ways on how many pending actions there are, and a named action is
+what puts them there — settling before the host had run one would ask the guard
+about a context a step behind. So the host runs what `pending` names and calls
+`resume`, which is the same loop again. That ordering is not a nicety: it is
+the difference between landing in `multiAction` and falling through to `idle`.
 
 ## It takes the shape XState writes
 
@@ -64,8 +91,16 @@ FUNCTION, and a function is not data. So assignments are written declaratively
 That the config is still the machine is checked, not assumed:
 `npm run rt:machine:config` evaluates the real TypeScript with `xstate`
 stubbed — `createMachine` hands back its config — and diffs the structure:
-states, the events each one handles, and where each goes. It needs the
-monorepo, so it exits 0 and says so where the sources are not checked out.
+every state by path, the events each one handles, where each goes and **which
+named guard decides**, plus each state's initial child, `type: "final"`,
+`always`, `onDone` and the machine's own `on`. It needs the monorepo, so it
+exits 0 and says so where the sources are not checked out.
+
+Note what the two gates each cannot do. `rt:machine:live` runs the same config
+through both sides, so it measures the RUNNER and can never catch a
+mis-transcription — a wrong guard is wrong identically in both. `rt:machine:config`
+reads the real TypeScript, so it catches transcription and cannot run anything.
+Neither alone is parity.
 
 ## Events are objects, and assignments are expressions
 
@@ -95,10 +130,33 @@ one per machine:
 the machine that needed it first — naming the general form rather than the
 instance is the difference between a runtime and a fixture.
 
-**Context values are strings, and that is tier one.** XState's context holds
-anything; here it is two parallel string arrays, which reads worse than a map
-and travels better — this compiles to Kotlin and Swift as well as ES6. A typed
-context arrives with the machine that needs one, like everything else here.
+A guard is a predicate in the same shape:
+
+```
+{ "present": { "context": "image" } }              carries something
+{ "nonBlank": { "context": "inputText" } }         .trim().length > 0
+{ "countGt": { "of": …, "n": 1 } }                 more than one
+{ "some": { "of": …, "field": "processedAs", "eq": "accepted" } }
+{ "or": [ … ] }  { "and": [ … ] }  { "not": … }
+```
+
+`present` and `nonBlank` are separate on purpose: `present` on a string is
+"has characters", and `hasContent` in the original says
+`inputText.trim().length > 0`, which is not the same question and would have
+sent an empty message on a space.
+
+Each guard also carries `named` — the name the original gives it
+(`"named": "hasContent"`) — which is what `rt:machine:config` compares. The
+predicate says what the guard *does*; the name says *which* guard it is, and
+only the second can be checked against a TypeScript function.
+
+**Context values are typed.** `ScVal` is a closed family — nothing, string,
+boolean, number, list, map — so `match` over it is checked for exhaustiveness
+and a kind added later cannot be silently unhandled in the runner, the JSON
+bridge or a comparison. The first machine ported had a context of four strings
+and the context was four strings; `planDialogMachine` has a list of day
+indices, three maps keyed by day, a boolean and a list of fetched entries, and
+that is where "everything is a string" stops being a simplification.
 
 ## Conformance — against XState itself
 
@@ -146,3 +204,22 @@ this runner returned nothing — so a context held `null` where the machine hold
 `false`. One character of semantics, in eighty-four cells that do nothing and
 twenty-four that do, and no amount of re-reading the source would have shown
 it.
+
+`chatMachine` runs in the same gate: six states it can rest in crossed with
+sixteen events, ninety-six cells, then the same 300 sequences. The states it
+is left out of are named and justified — `reviewing.deciding` is an `always`
+fork and `processing.done` a final child whose `onDone` leaves immediately —
+and the gate FAILS if any other leaf has no seed, so a state cannot be quietly
+skipped.
+
+Two harness bugs came out of that run, both of which had been silently making
+the gate weaker:
+
+- **The fuzz was not random.** `seed * 1103515245` runs past 2⁵³, the low bits
+  stop moving, and `next() % n` was returning the same event over and over —
+  every "random sequence" was one event repeated fourteen times. xorshift32
+  now, and the sequences reach every state the machine can rest in.
+- **XState hands a guard one argument**, `{ context, event }`, and the adapter's
+  predicates took the two positionally. Every guard read `undefined` and
+  answered false. It went unnoticed because the first machine with a guard was
+  the one that found it.

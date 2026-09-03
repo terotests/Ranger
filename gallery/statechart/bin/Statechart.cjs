@@ -203,6 +203,86 @@ ScValOps.withKey = function(target, key, value) {
   }
   return new ScVal_Map(keys, entries);
 };
+ScValOps.sizeOf = function(v) {
+  if( v != null && v.__rg_kind === "ScVal_List" ) /* union case */ {
+    var l = v;
+    return l.items.length;
+  };
+  if( v != null && v.__rg_kind === "ScVal_Map" ) /* union case */ {
+    var m = v;
+    return m.keys.length;
+  };
+  if( v != null && v.__rg_kind === "ScVal_Str" ) /* union case */ {
+    var s = v;
+    return s.text.length;
+  };
+  if( v != null && v.__rg_kind === "ScVal_Nothing" ) /* union case */ {
+    var __match3 = v;
+    return 0;
+  };
+  if( v != null && v.__rg_kind === "ScVal_Bool" ) /* union case */ {
+    var b = v;
+    return 0;
+  };
+  if( v != null && v.__rg_kind === "ScVal_Num" ) /* union case */ {
+    var n = v;
+    return 0;
+  };
+  return 0;
+};
+ScValOps.items = function(v) {
+  let out = [];
+  if( v != null && v.__rg_kind === "ScVal_List" ) /* union case */ {
+    var l = v;
+    for ( let i = 0; i < l.items.length; i++) {
+      var item = l.items[i];
+      out.push(item);
+    };
+  };
+  if( v != null && v.__rg_kind === "ScVal_Nothing" ) /* union case */ {
+    var __match1 = v;
+  };
+  if( v != null && v.__rg_kind === "ScVal_Str" ) /* union case */ {
+    var s = v;
+  };
+  if( v != null && v.__rg_kind === "ScVal_Bool" ) /* union case */ {
+    var b = v;
+  };
+  if( v != null && v.__rg_kind === "ScVal_Num" ) /* union case */ {
+    var n = v;
+  };
+  if( v != null && v.__rg_kind === "ScVal_Map" ) /* union case */ {
+    var m = v;
+  };
+  return out;
+};
+ScValOps.fieldJson = function(item, field) {
+  if( item != null && item.__rg_kind === "ScVal_Map" ) /* union case */ {
+    var m = item;
+    for ( let i = 0; i < m.keys.length; i++) {
+      var key = m.keys[i];
+      if ( key == field ) {
+        return ScValOps.toJson(m.entries[i]);
+      }
+    };
+  };
+  if( item != null && item.__rg_kind === "ScVal_Nothing" ) /* union case */ {
+    var __match1 = item;
+  };
+  if( item != null && item.__rg_kind === "ScVal_Str" ) /* union case */ {
+    var s = item;
+  };
+  if( item != null && item.__rg_kind === "ScVal_Bool" ) /* union case */ {
+    var b = item;
+  };
+  if( item != null && item.__rg_kind === "ScVal_Num" ) /* union case */ {
+    var n = item;
+  };
+  if( item != null && item.__rg_kind === "ScVal_List" ) /* union case */ {
+    var l = item;
+  };
+  return "";
+};
 ScValOps.toJson = function(v) {
   if( v != null && v.__rg_kind === "ScVal_Nothing" ) /* union case */ {
     var __match0 = v;
@@ -336,6 +416,15 @@ ScValue.setKey = function(target, key, value) {
   v.parts.push(value);
   return v;
 };
+class ScGuard  {
+  constructor() {
+    this.kind = "true";
+    this.name = "";     /* note: unused */
+    this.field = "";
+    this.number = 0.0;
+    this.parts = [];
+  }
+}
 class ScAssign  {
   constructor() {
     this.key = "";
@@ -358,7 +447,12 @@ class ScTransition  {
 class ScState  {
   constructor() {
     this.name = "";
+    this.path = "";
+    this.parent = "";
+    this.initial = "";
+    this.isFinal = false;
     this.transitions = [];
+    this.always = [];
   }
   on (event, target) {
     const t = new ScTransition();
@@ -373,14 +467,42 @@ class Statechart  {
     this.id = "";     /* note: unused */
     this.initial = "";
     this.states = [];
+    this.transitions = [];
     this.keys = [];
     this.values = [];
   }
   state (name) {
+    return this.child("", name);
+  };
+  child (parentPath, name) {
     const s = new ScState();
     s.name = name;
+    s.parent = parentPath;
+    if ( parentPath.length > 0 ) {
+      s.path = (parentPath + ".") + name;
+    } else {
+      s.path = name;
+    }
     this.states.push(s);
     return s;
+  };
+  stateAt (path) {
+    for ( let i = 0; i < this.states.length; i++) {
+      var s = this.states[i];
+      if ( s.path == path ) {
+        return s;
+      }
+    };
+    return new ScState();
+  };
+  hasState (path) {
+    for ( let i = 0; i < this.states.length; i++) {
+      var s = this.states[i];
+      if ( s.path == path ) {
+        return true;
+      }
+    };
+    return false;
   };
   context (key, value) {
     this.keys.push(key);
@@ -390,13 +512,7 @@ class Statechart  {
     this.context(key, ScValOps.str(value));
   };
   stateNamed (name) {
-    for ( let i = 0; i < this.states.length; i++) {
-      var s = this.states[i];
-      if ( s.name == name ) {
-        return s;
-      }
-    };
-    return new ScState();
+    return this.stateAt(name);
   };
 }
 class ScRunner  {
@@ -408,7 +524,6 @@ class ScRunner  {
   }
   start (definition) {
     this.chart = definition;
-    this.state = definition.initial;
     this.keys.length = 0;
     this.values.length = 0;
     for ( let i = 0; i < definition.keys.length; i++) {
@@ -416,6 +531,9 @@ class ScRunner  {
       this.keys.push(k);
       this.values.push(definition.values[i]);
     };
+    this.pending.length = 0;
+    this.enter(definition.initial);
+    this.settle();
   };
   get (key) {
     for ( let i = 0; i < this.keys.length; i++) {
@@ -442,6 +560,131 @@ class ScRunner  {
   };
   setStr (key, value) {
     this.set(key, ScValOps.str(value));
+  };
+  resolveTarget (target, ownerPath) {
+    if ( target.length == 0 ) {
+      return "";
+    }
+    if ( target.charCodeAt(0 ) == 35 ) {
+      const rest = target.substring(1, target.length );
+      let dot = -1;
+      let i = 0;
+      const __len = rest.length;
+      while (i < __len) {
+        if ( rest.charCodeAt(i ) == 46 ) {
+          if ( dot < 0 ) {
+            dot = i;
+          }
+        }
+        i = i + 1;
+      };
+      if ( dot < 0 ) {
+        return "";
+      }
+      return rest.substring((dot + 1), __len );
+    }
+    if ( target.charCodeAt(0 ) == 46 ) {
+      const child = target.substring(1, target.length );
+      if ( ownerPath.length == 0 ) {
+        return child;
+      }
+      return (ownerPath + ".") + child;
+    }
+    const parent = ScRunner.parentOf(ownerPath);
+    if ( parent.length == 0 ) {
+      return target;
+    }
+    return (parent + ".") + target;
+  };
+  countOf (v) {
+    return ScValOps.sizeOf(v);
+  };
+  valueOfGuard (g, event) {
+    if ( typeof(g.source) === "undefined" ) {
+      return ScValOps.nothing();
+    }
+    return this.resolve(g.source, event);
+  };
+  passes (g, event) {
+    if ( g.kind == "true" ) {
+      return true;
+    }
+    if ( g.kind == "present" ) {
+      return ScValOps.present(this.valueOfGuard(g, event));
+    }
+    if ( g.kind == "nonBlank" ) {
+      const v = this.valueOfGuard(g, event);
+      if( v != null && v.__rg_kind === "ScVal_Str" ) /* union case */ {
+        var st = v;
+        return st.text.trim().length > 0;
+      };
+      if( v != null && v.__rg_kind === "ScVal_Nothing" ) /* union case */ {
+        var __match1 = v;
+        return false;
+      };
+      if( v != null && v.__rg_kind === "ScVal_Bool" ) /* union case */ {
+        var b = v;
+        return false;
+      };
+      if( v != null && v.__rg_kind === "ScVal_Num" ) /* union case */ {
+        var n = v;
+        return false;
+      };
+      if( v != null && v.__rg_kind === "ScVal_List" ) /* union case */ {
+        var l = v;
+        return false;
+      };
+      if( v != null && v.__rg_kind === "ScVal_Map" ) /* union case */ {
+        var m = v;
+        return false;
+      };
+      return false;
+    }
+    if ( g.kind == "not" ) {
+      return this.passes(g.parts[0], event) == false;
+    }
+    if ( g.kind == "or" ) {
+      for ( let i = 0; i < g.parts.length; i++) {
+        var part = g.parts[i];
+        if ( this.passes(part, event) ) {
+          return true;
+        }
+      };
+      return false;
+    }
+    if ( g.kind == "and" ) {
+      for ( let j = 0; j < g.parts.length; j++) {
+        var part2 = g.parts[j];
+        if ( this.passes(part2, event) == false ) {
+          return false;
+        }
+      };
+      return true;
+    }
+    if ( g.kind == "countEq" ) {
+      return parseFloat(this.countOf(this.valueOfGuard(g, event))) == g.number;
+    }
+    if ( g.kind == "countGt" ) {
+      return parseFloat(this.countOf(this.valueOfGuard(g, event))) > g.number;
+    }
+    if ( g.kind == "some" ) {
+      const list = ScValOps.items(this.valueOfGuard(g, event));
+      const wanted = ScValOps.toJson(g.operand);
+      for ( let k = 0; k < list.length; k++) {
+        var item = list[k];
+        if ( ScValOps.fieldJson(item, g.field) == wanted ) {
+          return true;
+        }
+      };
+      return false;
+    }
+    return false;
+  };
+  allowed (t, event) {
+    if ( typeof(t.guard) === "undefined" ) {
+      return true;
+    }
+    return this.passes(t.guard, event);
   };
   resolve (value, event) {
     if ( value.kind == "literal" ) {
@@ -493,26 +736,111 @@ class ScRunner  {
     }
     return ScValOps.nothing();
   };
+  enter (path) {
+    const c = this.chart;
+    let here = path;
+    let guardCount = 0;
+    while (guardCount < 32) {
+      const s = c.stateAt(here);
+      if ( s.initial.length == 0 ) {
+        break;
+      }
+      here = (here + ".") + s.initial;
+      guardCount = guardCount + 1;
+    };
+    this.state = here;
+  };
+  take (t, ownerPath, event) {
+    for ( let j = 0; j < t.assigns.length; j++) {
+      var a = t.assigns[j];
+      const v = a.value;
+      this.set(a.key, this.resolve(v, event));
+    };
+    for ( let k = 0; k < t.actions.length; k++) {
+      var name = t.actions[k];
+      this.pending.push(name);
+    };
+    const target = this.resolveTarget(t.target, ownerPath);
+    if ( target.length > 0 ) {
+      this.enter(target);
+    }
+  };
+  settle () {
+    const c = this.chart;
+    let steps = 0;
+    while (steps < 64) {
+      steps = steps + 1;
+      if ( this.pending.length > 0 ) {
+        return;
+      }
+      let moved = false;
+      const empty = ScEvent.of("");
+      let here = this.state;
+      while (here.length > 0) {
+        const s = c.stateAt(here);
+        for ( let i = 0; i < s.always.length; i++) {
+          var t = s.always[i];
+          if ( moved == false ) {
+            if ( this.allowed(t, empty) ) {
+              this.take(t, here, empty);
+              moved = true;
+            }
+          }
+        };
+        if ( moved ) {
+          here = "";
+        } else {
+          here = ScRunner.parentOf(here);
+        }
+      };
+      if ( moved == false ) {
+        const leaf = c.stateAt(this.state);
+        if ( leaf.isFinal ) {
+          const parentPath = ScRunner.parentOf(this.state);
+          if ( parentPath.length > 0 ) {
+            const parent = c.stateAt(parentPath);
+            if ( (typeof(parent.onDone) !== "undefined" && parent.onDone != null )  ) {
+              this.take(parent.onDone, parentPath, empty);
+              moved = true;
+            }
+          }
+        }
+      }
+      if ( moved == false ) {
+        return;
+      }
+    };
+  };
+  resume () {
+    this.pending.length = 0;
+    this.settle();
+  };
   send (event) {
     const c = this.chart;
-    const here = c.stateNamed(this.state);
     this.pending.length = 0;
-    for ( let i = 0; i < here.transitions.length; i++) {
-      var t = here.transitions[i];
-      if ( t.event == event.type ) {
-        for ( let j = 0; j < t.assigns.length; j++) {
-          var a = t.assigns[j];
-          const v = a.value;
-          this.set(a.key, this.resolve(v, event));
-        };
-        for ( let k = 0; k < t.actions.length; k++) {
-          var name = t.actions[k];
-          this.pending.push(name);
-        };
-        if ( t.target.length > 0 ) {
-          this.state = t.target;
+    let here = this.state;
+    while (here.length > 0) {
+      const s = c.stateAt(here);
+      for ( let i = 0; i < s.transitions.length; i++) {
+        var t = s.transitions[i];
+        if ( t.event == event.type ) {
+          if ( this.allowed(t, event) ) {
+            this.take(t, here, event);
+            this.settle();
+            return true;
+          }
         }
-        return true;
+      };
+      here = ScRunner.parentOf(here);
+    };
+    for ( let j = 0; j < c.transitions.length; j++) {
+      var t2 = c.transitions[j];
+      if ( t2.event == event.type ) {
+        if ( this.allowed(t2, event) ) {
+          this.take(t2, "", event);
+          this.settle();
+          return true;
+        }
       }
     };
     return false;
@@ -521,6 +849,21 @@ class ScRunner  {
     return this.send(ScEvent.of(type));
   };
 }
+ScRunner.parentOf = function(path) {
+  let at = -1;
+  let i = 0;
+  const __len = path.length;
+  while (i < __len) {
+    if ( path.charCodeAt(i ) == 46 ) {
+      at = i;
+    }
+    i = i + 1;
+  };
+  if ( at < 0 ) {
+    return "";
+  }
+  return path.substring(0, at );
+};
 module.exports.ScVal_Nothing = ScVal_Nothing;
 module.exports.ScVal_Str = ScVal_Str;
 module.exports.ScVal_Bool = ScVal_Bool;
@@ -531,6 +874,7 @@ module.exports.ScVal__ops = ScVal__ops;
 module.exports.ScValOps = ScValOps;
 module.exports.ScEvent = ScEvent;
 module.exports.ScValue = ScValue;
+module.exports.ScGuard = ScGuard;
 module.exports.ScAssign = ScAssign;
 module.exports.ScTransition = ScTransition;
 module.exports.ScState = ScState;

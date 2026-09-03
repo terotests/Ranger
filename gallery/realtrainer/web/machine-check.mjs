@@ -293,10 +293,14 @@ if (xstate) {
   const VALUES = ["", "2026-07-04", "Exercise Kyykky|5x5", "boom"];
 
   // A small deterministic generator: a fuzz that cannot be re-run is a bug
-  // report nobody can act on.
-  let seed = 20260903;
+  // report nobody can act on. xorshift32 rather than an LCG on doubles —
+  // `seed * 1103515245` runs past 2^53 and the low bits stop moving, so
+  // `next() % n` was returning the same event over and over.
+  let seed = 20260903 >>> 0;
   const next = () => {
-    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    seed ^= seed << 13; seed >>>= 0;
+    seed ^= seed >>> 17;
+    seed ^= seed << 5; seed >>>= 0;
     return seed;
   };
   const pick = (list) => list[next() % list.length];

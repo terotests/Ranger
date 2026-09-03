@@ -1,6 +1,6 @@
 # PLAN — RealTrainerin tilanhallinta EVG:lle, mitattuna ajettavaa sovellusta vasten
 
-Status: `S0–S1 aloitettu` · 2026-09-03
+Status: `S0–S1 aloitettu · S4:n ja S5:n koneet tehty` · 2026-09-03
 Liittyy: [`PLAN_COMPACT_UI_PARITY_DEMO.md`](PLAN_COMPACT_UI_PARITY_DEMO.md) (rivikerros, P0–P5 tehty)
 
 COMPACT-rivit on portattu ja mitattu. Se on sovelluksen **sisältökerros**. Tämä suunnitelma
@@ -160,9 +160,27 @@ Käytetty osajoukko on mitattu (`grep` kolmen koneen yli), ei arvattu:
 | `planDialogMachine` | + entry-toiminnot |
 | `chatMachine` | + guardit · `always` · `after` · `invoke` · sisäkkäiset tilat |
 
-Taso yksi on toteutettu: tilat, siirtymät valinnaisella kohteella, ja sijoitukset
-merkkijonokontekstiin. Kohteeton siirtymä sijoittaa muttei liiku — XStaten sisäinen
-siirtymä, ja syy siihen ettei dialogiin kirjoittaminen aja `open`-tilaan uudelleen.
+Kaikki kolme tasoa on toteutettu, ja jokainen tuli sen koneen mukana joka sitä tarvitsi:
+
+| Taso | Tuli koneesta | Lisäsi |
+|------|---------------|--------|
+| yksi | `addWorkoutDialogMachine` | tilat · siirtymät valinnaisella kohteella · deklaratiiviset sijoitukset · tapahtumat nimettyine kenttineen |
+| kaksi | `planDialogMachine` | tyypitetty konteksti (`ScVal`) · nimetyt hostin toiminnot |
+| kolme | `chatMachine` | sisäkkäiset tilat · guardit · `always` · `type: "final"` + `onDone` · koneen oma `on` · guardatut siirtymälistat |
+
+Kohteeton siirtymä sijoittaa muttei liiku — XStaten sisäinen siirtymä, ja syy siihen
+ettei dialogiin kirjoittaminen aja `open`-tilaan uudelleen.
+
+`after` ja `invoke` jäävät tarkoituksella pois: molemmat ovat **aikaa ja sivuvaikutuksia**,
+jotka kuuluvat hostille eivätkä määrittelyyn joka kääntyy Kotliniksi ja Swiftiksi. Kone
+nimeää mitä haluaa, host tekee sen — mikä on XStaten oma `setup({ actions })`.
+
+Sisäkkäisyys tuo kaksi asiaa. Aktiivinen tila on **polku** (`reviewing.multiAction`), koska
+nimi ei ole osoite: kahdella vanhemmalla voi olla lapsi nimeltä `done`. Ja asettuminen
+(`always`, `onDone`) **pysähtyy niin kauan kuin nimetty toiminto on velkaa**: `reviewing`
+haarautuu kolmeen sen mukaan montako pending-actionia on, ja nimetty toiminto on se joka ne
+sinne laittaa. Host ajaa mitä `pending` nimeää ja kutsuu `resume`. Ero on `multiAction`in ja
+`idle`iin putoamisen välillä.
 
 **Argumentti runnerin puolesta on rivimäärä.** Käsin kirjoitettu portti on ~150 riviä
 haarautumista per kone; `planDialog`issa on kuusi tilaa ja 17 tapahtumaa ja `chat`issa
@@ -178,12 +196,26 @@ deklaratiivisesti — `{ "event": "value", "default": { "context": "today" } }` 
 
 Että konfiguraatio yhä *on* se kone, tarkistetaan eikä luoteta: `rt:machine:config` evaluoi
 oikean TypeScriptin `xstate` tyngätettynä (`createMachine` palauttaa konfiguraationsa) ja
-diffaa rakenteen — tilat, kunkin käsittelemät tapahtumat ja kohteet.
+diffaa rakenteen — jokainen tila polkuna, kunkin käsittelemät tapahtumat, kohteet ja **mikä
+nimetty guard päättää**, sekä alkulapsi, `type: "final"`, `always`, `onDone` ja koneen oma `on`.
+
+Guard kirjoitetaan predikaattina (`present`, `nonBlank`, `countGt`, `some`, `or`/`and`/`not`)
+mutta kantaa myös `named`-kentän — sen nimen jonka alkuperäinen sille antaa. Predikaatti
+kertoo mitä guard *tekee*, nimi kertoo *mikä* guard se on, ja vain jälkimmäistä voi verrata
+TypeScript-funktioon. `present` ja `nonBlank` ovat erikseen tarkoituksella: `hasContent` on
+alkuperäisessä `inputText.trim().length > 0`, mikä ei ole sama kysymys kuin "onko merkkejä"
+ja olisi lähettänyt tyhjän viestin välilyönnillä.
+
+**Kumpikaan portti ei yksin ole pariteetti.** `rt:machine:live` ajaa saman konfiguraation
+molempien läpi, joten se mittaa *runneria* eikä voi koskaan huomata transkriptiovirhettä —
+väärä guard on väärä identtisesti molemmilla puolilla. `rt:machine:config` lukee oikean
+TypeScriptin, joten se huomaa transkription eikä voi ajaa mitään.
 
 Konformanssi ei ole moduulin oma mielipide: `rt:machine` ajaa XState-lähteestä
-transkriboidun taulukon **kolmen toteutuksen** läpi — käsin kirjoitettu portti, sama kone
-datana, ja XStaten oma konfiguraatio ladattuna — ja kaikkien on oltava samaa mieltä.
-21 solua, 13 niistä ignoreja, kaikki kolme täsmäävät.
+transkriboidun taulukon **neljän toteutuksen** läpi — käsin kirjoitettu portti, sama kone
+datana, sama konfiguraatio tämän runnerin ajamana, ja **sama konfiguraatio XStaten itsensä
+ajamana** — ja kaikkien on oltava samaa mieltä. 21 solua, 13 niistä ignoreja, kaikki neljä
+täsmäävät, sekä 400 satunnaissarjaa lukkoaskeleessa.
 
 ## 3. Vaiheistus
 
@@ -194,7 +226,7 @@ datana, ja XStaten oma konfiguraatio ladattuna — ja kaikkien on oltava samaa m
 | **S2 — kalenterin luonti** | kalenterit | `CalendarWizard` (612 r) askelittain; `StepperCtl` on `gallery/ui`:ssä valmiina | velhon askeleet ja validoinnit täsmäävät |
 | **S3 — vuosisuunnitelma** | vuosi | `YearSheetPageV2` (1 926 r); ensin selvitys mitä `app-ranger/lib/yearsheet` (722 r) jo kattaa; `TableCtl` ja `EventCalCtl` valmiina | vuosinäkymän ruudukko ja valinnat täsmäävät |
 | **S4 — suunnittelu** *(kone tehty)* | suunnittelu | Tehty: `planDialog.machine.json` (6 tilaa, 18 tapahtumaa) ajossa `gallery/statechart`illa, **108 solua ja 300 satunnaissarjaa lukkoaskeleessa oikean XStaten kanssa** (`rt:machine:live`). Ajonaikainen kone sai tyypitetyn kontekstin (`ScVal`), `setKey`-lausekkeen ja nimetyt hostin toiminnot. Jäljellä: näkymä | kuusi tilaa ja niiden siirtymät täsmäävät ✓ |
-| **S5 — chat** | keskustelu | `chatMachine` (449 r) → Ranger; `mockAdapter` vastineeksi `RtBackendSim`ille; striimaus ja action review | streaming- ja review-tilat täsmäävät |
+| **S5 — chat** *(kone tehty)* | keskustelu | Tehty: `chat.machine.json` (8 lehtitilaa kolmessa tasossa, 16 tapahtumaa) ajossa `gallery/statechart`illa, **96 solua ja 300 satunnaissarjaa lukkoaskeleessa oikean XStaten kanssa** (`rt:machine:live`), ja rakenne + guardien nimet diffattu oikeaa `chatMachine.ts`:ää vasten (`rt:machine:config`). Runner sai sisäkkäiset tilat, guardit, `always`, `onDone` ja koneen oman `on`:n. Jäljellä: näkymä, `mockAdapter` vastineeksi `RtBackendSim`ille, striimaus | streaming- ja review-tilat täsmäävät ✓ (kone) |
 | **S6 — storet** | kaikki | `appStore` (1 974 r) ja `activeWorkoutStore` (1 378 r) sen verran kuin näkymät vaativat — ei kokonaan | näkymät ajavat ilman React-storea |
 
 Järjestys on **pienin kone ensin**: `addWorkoutDialog` on kolme tilaa ja seitsemän tapahtumaa,

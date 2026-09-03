@@ -125,6 +125,134 @@ class StatechartJson {
         }
     }
 
+    ; A guard is a predicate over the context. See ScGuard for why they are
+    ; not host functions: `always` runs inside a transition, after its
+    ; assignments, so a guard answered before the send answers about the
+    ; context that was.
+    sfn guardOf:ScGuard (spec:VlJson) {
+        def g (new ScGuard)
+        if (spec.has("present")) {
+            g.kind = "present"
+            g.source = (StatechartJson.valueOf((spec.get("present"))))
+            return g
+        }
+        if (spec.has("nonBlank")) {
+            g.kind = "nonBlank"
+            g.source = (StatechartJson.valueOf((spec.get("nonBlank"))))
+            return g
+        }
+        if (spec.has("not")) {
+            g.kind = "not"
+            push g.parts (StatechartJson.guardOf((spec.get("not"))))
+            return g
+        }
+        if (spec.has("or")) {
+            g.kind = "or"
+            def parts:VlJson (spec.get("or"))
+            def count:int (parts.count())
+            def i@(mutable):int 0
+            while (i < count) {
+                push g.parts (StatechartJson.guardOf((parts.at(i))))
+                i = (i + 1)
+            }
+            return g
+        }
+        if (spec.has("and")) {
+            g.kind = "and"
+            def parts2:VlJson (spec.get("and"))
+            def count2:int (parts2.count())
+            def j@(mutable):int 0
+            while (j < count2) {
+                push g.parts (StatechartJson.guardOf((parts2.at(j))))
+                j = (j + 1)
+            }
+            return g
+        }
+        if (spec.has("countEq")) {
+            def c:VlJson (spec.get("countEq"))
+            g.kind = "countEq"
+            g.source = (StatechartJson.valueOf((c.get("of"))))
+            g.number = (c.doubleOr("n" 0.0))
+            return g
+        }
+        if (spec.has("countGt")) {
+            def c2:VlJson (spec.get("countGt"))
+            g.kind = "countGt"
+            g.source = (StatechartJson.valueOf((c2.get("of"))))
+            g.number = (c2.doubleOr("n" 0.0))
+            return g
+        }
+        if (spec.has("some")) {
+            def sm:VlJson (spec.get("some"))
+            g.kind = "some"
+            g.source = (StatechartJson.valueOf((sm.get("of"))))
+            g.field = (sm.stringOr("field" ""))
+            g.operand = (StatechartJson.valOf((sm.get("eq"))))
+            return g
+        }
+        return g
+    }
+
+    ; One transition spec → one transition. XState writes three shapes:
+    ; a bare target string, an object, or an ARRAY of guarded alternatives
+    ; where the first whose guard passes wins.
+    sfn readOne:ScTransition (event:string spec:VlJson) {
+        def t (new ScTransition)
+        t.event = event
+        if (spec.isString()) {
+            t.target = (spec.asString())
+            return t
+        }
+        t.target = (spec.stringOr("target" ""))
+        if (spec.has("guard")) {
+            t.guard = (StatechartJson.guardOf((spec.get("guard"))))
+        }
+        if (spec.has("actions")) {
+            StatechartJson.readActions(t (spec.get("actions")))
+        }
+        return t
+    }
+
+    sfn readInto:void (out:[ScTransition] event:string spec:VlJson) {
+        if (spec.isArray()) {
+            def count:int (spec.count())
+            def i@(mutable):int 0
+            while (i < count) {
+                push out (StatechartJson.readOne(event (spec.at(i))))
+                i = (i + 1)
+            }
+            return
+        }
+        push out (StatechartJson.readOne(event spec))
+    }
+
+    ; A state and everything under it.
+    sfn readState:void (chart:Statechart parentPath:string name:string node:VlJson) {
+        def state:ScState (chart.child(parentPath name))
+        state.initial = (node.stringOr("initial" ""))
+        if ((node.stringOr("type" "")) == "final") {
+            state.isFinal = true
+        }
+        if (node.has("on")) {
+            def on:VlJson (node.get("on"))
+            for on.keys event:string e {
+                StatechartJson.readInto(state.transitions event (on.get(event)))
+            }
+        }
+        if (node.has("always")) {
+            StatechartJson.readInto(state.always "" (node.get("always")))
+        }
+        if (node.has("onDone")) {
+            state.onDone = (StatechartJson.readOne("" (node.get("onDone"))))
+        }
+        if (node.has("states")) {
+            def kids:VlJson (node.get("states"))
+            for kids.keys childName:string c {
+                StatechartJson.readState(chart state.path childName (kids.get(childName)))
+            }
+        }
+    }
+
     sfn load:Statechart (text:string) {
         def parser (new VlJsonParser)
         def root:VlJson (parser.parse(text))
@@ -139,28 +267,20 @@ class StatechartJson {
             }
         }
 
+        ; The machine's own transitions, available from every state.
+        if (root.has("on")) {
+            def rootOn:VlJson (root.get("on"))
+            for rootOn.keys event:string r {
+                StatechartJson.readInto(chart.transitions event (rootOn.get(event)))
+            }
+        }
+
         if (root.has("states") == false) {
             return chart
         }
         def states:VlJson (root.get("states"))
         for states.keys name:string s {
-            def node:VlJson (states.get(name))
-            def state:ScState (chart.state(name))
-            if (node.has("on")) {
-                def on:VlJson (node.get("on"))
-                for on.keys event:string e {
-                    def spec:VlJson (on.get(event))
-                    ; `"EVENT": "target"` — XState's shorthand.
-                    if (spec.isString()) {
-                        state.on(event (spec.asString()))
-                    } {
-                        def t:ScTransition (state.on(event (spec.stringOr("target" ""))))
-                        if (spec.has("actions")) {
-                            StatechartJson.readActions(t (spec.get("actions")))
-                        }
-                    }
-                }
-            }
+            StatechartJson.readState(chart "" name (states.get(name)))
         }
         return chart
     }

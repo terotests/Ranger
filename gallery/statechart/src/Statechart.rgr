@@ -16,19 +16,24 @@
 ; which a JavaScript library never would.
 ;
 ; The surface is the subset three real machines use, measured rather than
-; guessed (`grep` over their sources):
+; guessed (`grep` over their sources), and each tier arrived with the machine
+; that needed it:
 ;
 ;   addWorkoutDialogMachine   states · on · assign
-;   planDialogMachine         + entry actions
-;   chatMachine               + guards · always · after · invoke · nested states
+;   planDialogMachine         + a typed context · named host actions
+;   chatMachine               + guards · always · final/onDone · machine-level
+;                               on · nested states
 ;
-; This is the first tier: states, transitions, and assignments to a string
-; context. Guards, entry actions and nesting arrive when the machine that needs
-; them does — and each arrives with the transition table that proves it.
+; `after` and `invoke` are deliberately absent. Both are time and effects,
+; which belong to the host and not to a definition that compiles to Kotlin and
+; Swift; the machine names what it wants and the host does it.
 ;
-; Conformance is not this module's own opinion: `gallery/realtrainer` runs the
-; table transcribed from the XState source through both this runner and a
-; hand-written port, and requires the same answer in all twenty-one cells.
+; Conformance is not this module's own opinion. `gallery/realtrainer` runs the
+; table transcribed from the XState source through this runner, a hand-written
+; port and XState ITSELF and requires the same answer in all twenty-one cells;
+; `rt:machine:live` then crosses every state with every event and fuzzes the
+; orders nobody wrote down, and `rt:machine:config` diffs the definition
+; against the real TypeScript.
 ; =============================================================================
 
 ; =============================================================================
@@ -136,6 +141,59 @@ class ScValOps {
             push entries value
         }
         return (new ScVal.Map(keys entries))
+    }
+
+    ; A list's items, or nothing. `match` does not nest inside a loop inside a
+    ; `match` here, so the families are unwrapped one level at a time.
+    ; How many: a list's items, a map's keys, a string's characters.
+    ; Not `count`: that name is taken and the compiler answers by saying the
+    ; class has no such method, which is a confusing way to learn it.
+    sfn sizeOf:int (v:ScVal) {
+        match v {
+            List l { return (array_length l.items) }
+            Map m { return (array_length m.keys) }
+            Str s { return (strlen s.text) }
+            Nothing { return 0 }
+            Bool b { return 0 }
+            Num n { return 0 }
+        }
+        return 0
+    }
+
+    sfn items:[ScVal] (v:ScVal) {
+        def out:[ScVal]
+        match v {
+            List l {
+                for l.items item:ScVal i {
+                    push out item
+                }
+            }
+            Nothing { }
+            Str s { }
+            Bool b { }
+            Num n { }
+            Map m { }
+        }
+        return out
+    }
+
+    ; `item[field]`, as JSON text, or "" when there is no such field.
+    sfn fieldJson:string (item:ScVal field:string) {
+        match item {
+            Map m {
+                for m.keys key:string i {
+                    if (key == field) {
+                        return (ScValOps.toJson((itemAt m.entries i)))
+                    }
+                }
+            }
+            Nothing { }
+            Str s { }
+            Bool b { }
+            Num n { }
+            List l { }
+        }
+        return ""
     }
 
     ; JSON text, which is how a value is compared against the library's own.
@@ -304,6 +362,44 @@ class ScValue {
     }
 }
 
+; =============================================================================
+; A guard — a predicate over the context
+; =============================================================================
+; `chatMachine` names its guards and provides them as functions. They cannot
+; come across as functions, and they cannot be evaluated by the host either:
+; `always` runs INSIDE a transition, after its assignments, so a guard answered
+; before the send would be answering about the context that was.
+;
+; So they are predicates, in the forms those guards are made of:
+;
+;   present   the value carries something          `image !== null`
+;   nonBlank  a string with more than whitespace   `inputText.trim().length > 0`
+;   countEq   how many items a list has, compared  `=== 1`
+;   countGt   the same, greater than               `> 1`
+;   some      any item whose field equals a value  `.some(a => a.x === "y")`
+;   or and not                                     the obvious
+;
+; `present` and `nonBlank` are separate because they are different questions:
+; `present` on a string is "has characters", and `hasContent` in the original
+; says `trim().length > 0`, which would have sent an empty message on a space.
+;
+; A guard also carries the NAME the original gives it. The predicate says what
+; the guard does; the name says which guard it is, and only the second can be
+; compared against a TypeScript function — which is what `rt:machine:config`
+; does.
+class ScGuard {
+    def kind@(mutable):string "true"
+    def name@(mutable):string ""
+    def field@(mutable):string ""
+    def number@(mutable):double 0.0
+    def operand@(optional):ScVal
+    def parts:[ScGuard]
+    def source@(optional):ScValue
+
+    Constructor () {
+    }
+}
+
 class ScAssign {
     def key@(mutable):string ""
     def value@(optional):ScValue
@@ -321,6 +417,7 @@ class ScAssign {
 
 class ScTransition {
     def event@(mutable):string ""
+    def guard@(optional):ScGuard
     ; "" means the transition assigns but does not move — XState's internal
     ; transition, and the reason `SET_INPUT_TEXT` does not re-enter `open`.
     def target@(mutable):string ""
@@ -338,7 +435,19 @@ class ScTransition {
 
 class ScState {
     def name@(mutable):string ""
+    ; The full path from the machine root: "reviewing.multiAction". A state is
+    ; addressed by where it IS, not by its name, because two parents may both
+    ; have a child called `done`.
+    def path@(mutable):string ""
+    def parent@(mutable):string ""
+    def initial@(mutable):string ""
+    def isFinal@(mutable):boolean false
     def transitions:[ScTransition]
+    ; Eventless transitions, taken as soon as the machine settles here. XState
+    ; calls them `always`, and they are what makes a state a decision rather
+    ; than a place.
+    def always:[ScTransition]
+    def onDone@(optional):ScTransition
 
     Constructor () {
     }
@@ -356,6 +465,9 @@ class Statechart {
     def id@(mutable):string ""
     def initial@(mutable):string ""
     def states:[ScState]
+    ; Transitions on the machine itself, available from every state. XState
+    ; puts them in a top-level `on`, and `chatMachine`'s RESET is one.
+    def transitions:[ScTransition]
     ; The initial context, as parallel key/value lists. A map would read
     ; better and travels worse: two arrays are the same thing on every target.
     def keys:[string]
@@ -364,11 +476,42 @@ class Statechart {
     Constructor () {
     }
 
+    ; Every state, by full path. A tree read as a list: the runner asks for
+    ; "reviewing.multiAction" and its ancestors by name, and a list answers
+    ; both without a walk.
     fn state:ScState (name:string) {
+        return (this.child("" name))
+    }
+
+    fn child:ScState (parentPath:string name:string) {
         def s (new ScState)
         s.name = name
+        s.parent = parentPath
+        if ((strlen parentPath) > 0) {
+            s.path = ((parentPath + ".") + name)
+        } {
+            s.path = name
+        }
         push states s
         return s
+    }
+
+    fn stateAt:ScState (path:string) {
+        for states s:ScState i {
+            if (s.path == path) {
+                return s
+            }
+        }
+        return (new ScState)
+    }
+
+    fn hasState:boolean (path:string) {
+        for states s:ScState i {
+            if (s.path == path) {
+                return true
+            }
+        }
+        return false
     }
 
     fn context:void (key:string value:ScVal) {
@@ -381,12 +524,7 @@ class Statechart {
     }
 
     fn stateNamed:ScState (name:string) {
-        for states s:ScState i {
-            if (s.name == name) {
-                return s
-            }
-        }
-        return (new ScState)
+        return (this.stateAt(name))
     }
 }
 
@@ -395,11 +533,12 @@ class Statechart {
 ; =============================================================================
 class ScRunner {
     def chart@(optional):Statechart
+    ; The ACTIVE LEAF, as a full path: "reviewing.multiAction". A compound
+    ; state is never the answer on its own — entering one means entering its
+    ; initial child, and on down.
     def state@(mutable):string ""
     def keys:[string]
     def values:[ScVal]
-    ; The named actions the last handled event asked for, in order. The host
-    ; runs them; the runner only reports that they were asked for.
     def pending:[string]
 
     Constructor () {
@@ -407,14 +546,18 @@ class ScRunner {
 
     fn start:void (definition:Statechart) {
         chart = definition
-        state = definition.initial
         clear keys
         clear values
         for definition.keys k:string i {
             push keys k
             push values (itemAt definition.values i)
         }
+        clear pending
+        this.enter(definition.initial)
+        this.settle()
     }
+
+    ; --- the context ---------------------------------------------------------
 
     fn get:ScVal (key:string) {
         for keys k:string i {
@@ -425,7 +568,6 @@ class ScRunner {
         return (ScValOps.nothing())
     }
 
-    ; The value as JSON text, which is how it is compared with the library's.
     fn json:string (key:string) {
         return (ScValOps.toJson((this.get(key))))
     }
@@ -445,7 +587,147 @@ class ScRunner {
         this.set(key (ScValOps.str(value)))
     }
 
-    ; A value expression, resolved against this context and this event.
+    ; --- paths ---------------------------------------------------------------
+
+    sfn parentOf:string (path:string) {
+        def at@(mutable):int -1
+        def i@(mutable):int 0
+        def len:int (strlen path)
+        while (i < len) {
+            if ((charAt path i) == 46) {
+                at = i
+            }
+            i = (i + 1)
+        }
+        if (at < 0) {
+            return ""
+        }
+        return (substring path 0 at)
+    }
+
+    ; A transition's target, read from where the transition LIVES.
+    ;   "#chat.reviewing"  absolute, the machine id stripped
+    ;   ".idle"            a child of the state that owns the transition
+    ;   "multiAction"      a sibling of it
+    fn resolveTarget:string (target:string ownerPath:string) {
+        if ((strlen target) == 0) {
+            return ""
+        }
+        if ((charAt target 0) == 35) {
+            def rest:string (substring target 1 (strlen target))
+            def dot@(mutable):int -1
+            def i@(mutable):int 0
+            def len:int (strlen rest)
+            while (i < len) {
+                if ((charAt rest i) == 46) {
+                    if (dot < 0) {
+                        dot = i
+                    }
+                }
+                i = (i + 1)
+            }
+            if (dot < 0) {
+                return ""
+            }
+            return (substring rest (dot + 1) len)
+        }
+        if ((charAt target 0) == 46) {
+            def child:string (substring target 1 (strlen target))
+            if ((strlen ownerPath) == 0) {
+                return child
+            }
+            return ((ownerPath + ".") + child)
+        }
+        def parent:string (ScRunner.parentOf(ownerPath))
+        if ((strlen parent) == 0) {
+            return target
+        }
+        return ((parent + ".") + target)
+    }
+
+    ; --- guards --------------------------------------------------------------
+
+    fn countOf:int (v:ScVal) {
+        return (ScValOps.sizeOf(v))
+    }
+
+    fn valueOfGuard:ScVal (g:ScGuard event:ScEvent) {
+        if (null? g.source) {
+            return (ScValOps.nothing())
+        }
+        return (this.resolve((unwrap g.source) event))
+    }
+
+    fn passes:boolean (g:ScGuard event:ScEvent) {
+        if (g.kind == "true") {
+            return true
+        }
+        if (g.kind == "present") {
+            return (ScValOps.present((this.valueOfGuard(g event))))
+        }
+        ; `present` on a string is "has characters"; `nonBlank` is
+        ; "has characters that are not whitespace", which is what
+        ; `inputText.trim().length > 0` says and is not the same question.
+        if (g.kind == "nonBlank") {
+            def v:ScVal (this.valueOfGuard(g event))
+            match v {
+                Str st { return ((strlen (trim st.text)) > 0) }
+                Nothing { return false }
+                Bool b { return false }
+                Num n { return false }
+                List l { return false }
+                Map m { return false }
+            }
+            return false
+        }
+        if (g.kind == "not") {
+            return ((this.passes((itemAt g.parts 0) event)) == false)
+        }
+        if (g.kind == "or") {
+            for g.parts part:ScGuard i {
+                if (this.passes(part event)) {
+                    return true
+                }
+            }
+            return false
+        }
+        if (g.kind == "and") {
+            for g.parts part2:ScGuard j {
+                if ((this.passes(part2 event)) == false) {
+                    return false
+                }
+            }
+            return true
+        }
+        if (g.kind == "countEq") {
+            return ((int2double (this.countOf((this.valueOfGuard(g event))))) == g.number)
+        }
+        if (g.kind == "countGt") {
+            return ((int2double (this.countOf((this.valueOfGuard(g event))))) > g.number)
+        }
+        ; `some(list, field == value)`.
+        if (g.kind == "some") {
+            def list:[ScVal] (ScValOps.items((this.valueOfGuard(g event))))
+            def wanted:string (ScValOps.toJson((unwrap g.operand)))
+            for list item:ScVal k {
+                if ((ScValOps.fieldJson(item g.field)) == wanted) {
+                    return true
+                }
+            }
+            return false
+        }
+        return false
+    }
+
+    fn allowed:boolean (t:ScTransition event:ScEvent) {
+        if (null? t.guard) {
+            return true
+        }
+        return (this.passes((unwrap t.guard) event))
+    }
+
+    ; --- values --------------------------------------------------------------
+
     fn resolve:ScVal (value:ScValue event:ScEvent) {
         if (value.kind == "literal") {
             return (unwrap value.constant)
@@ -466,20 +748,15 @@ class ScRunner {
                 last = answer
             }
             ; `a || b` yields its LAST operand when everything is falsy, not
-            ; nothing — `undefined || false` is `false`, and the difference
-            ; showed up as a context of `null` where the machine holds `false`.
-            ; Found by the live comparison against the library rather than by
-            ; reading, which is the argument for running one.
+            ; nothing — `undefined || false` is `false`. Found by the live
+            ; comparison against the library rather than by reading.
             return last
         }
         if (value.kind == "setKey") {
             def target:ScVal (this.resolve((itemAt value.parts 0) event))
             def key:ScVal (this.resolve((itemAt value.parts 1) event))
             def item:ScVal (this.resolve((itemAt value.parts 2) event))
-            ; The key is whatever the event carried — a day NUMBER in every
-            ; case this exists for — and JSON object keys are strings, which
-            ; is what the original ends up with too.
-            def keyText:string (ScValOps.toJson(key))
+            def keyText@(mutable):string (ScValOps.toJson(key))
             match key {
                 Str st { keyText = st.text }
                 Nothing { }
@@ -493,35 +770,140 @@ class ScRunner {
         return (ScValOps.nothing())
     }
 
-    ; `true` when the current state HANDLED the event. An event it does not
-    ; handle answers `false` and changes nothing.
+    ; --- moving --------------------------------------------------------------
+
+    ; Entering a state means entering its initial child, and on down until a
+    ; leaf. Settling is deliberately NOT part of it — see `settle`.
+    fn enter:void (path:string) {
+        def c:Statechart (unwrap chart)
+        def here@(mutable):string path
+        def guardCount@(mutable):int 0
+        while (guardCount < 32) {
+            def s:ScState (c.stateAt(here))
+            if ((strlen s.initial) == 0) {
+                break
+            }
+            here = ((here + ".") + s.initial)
+            guardCount = (guardCount + 1)
+        }
+        state = here
+    }
+
+    fn take:void (t:ScTransition ownerPath:string event:ScEvent) {
+        for t.assigns a:ScAssign j {
+            def v:ScValue (unwrap a.value)
+            this.set(a.key (this.resolve(v event)))
+        }
+        for t.actions name:string k {
+            push pending name
+        }
+        def target:string (this.resolveTarget(t.target ownerPath))
+        if ((strlen target) > 0) {
+            this.enter(target)
+        }
+    }
+
+    ; `always` and `onDone`, to a fixed point. The bound is a guard against a
+    ; machine that transitions to itself for ever; XState reports that as an
+    ; error and this stops rather than hanging.
+    ;
+    ; It STOPS while named actions are owed. `always` guards read the context —
+    ; `deciding` asks how many pending actions there are — and a named action
+    ; is what put them there, so settling before the host has run one would ask
+    ; the guard about a context that is a step behind. The host runs what
+    ; `pending` names and calls `resume`, which is the same loop again.
+    fn settle:void () {
+        def c:Statechart (unwrap chart)
+        def steps@(mutable):int 0
+        while (steps < 64) {
+            steps = (steps + 1)
+            if ((array_length pending) > 0) {
+                return
+            }
+            def moved@(mutable):boolean false
+            def empty (ScEvent.of(""))
+            ; Innermost first: the active leaf, then each ancestor.
+            def here@(mutable):string state
+            while ((strlen here) > 0) {
+                def s:ScState (c.stateAt(here))
+                for s.always t:ScTransition i {
+                    if (moved == false) {
+                        if (this.allowed(t empty)) {
+                            this.take(t here empty)
+                            moved = true
+                        }
+                    }
+                }
+                if (moved) {
+                    here = ""
+                } {
+                    here = (ScRunner.parentOf(here))
+                }
+            }
+            if (moved == false) {
+                ; A final child is done, and its parent says what that means.
+                def leaf:ScState (c.stateAt(state))
+                if (leaf.isFinal) {
+                    def parentPath:string (ScRunner.parentOf(state))
+                    if ((strlen parentPath) > 0) {
+                        def parent:ScState (c.stateAt(parentPath))
+                        if (!null? parent.onDone) {
+                            this.take((unwrap parent.onDone) parentPath empty)
+                            moved = true
+                        }
+                    }
+                }
+            }
+            if (moved == false) {
+                return
+            }
+        }
+    }
+
+    ; The host has run what `pending` named; carry on settling.
+    fn resume:void () {
+        clear pending
+        this.settle()
+    }
+
+    ; `true` when the machine HANDLED the event: the active state or one of its
+    ; ancestors had a transition for it whose guard passed. Anything else
+    ; answers `false` and changes nothing.
     ;
     ; Those are most of any machine's behaviour and the half a hand-port gets
     ; wrong: a state crossed with every event is mostly cells that do nothing,
     ; and doing nothing correctly is a requirement rather than an absence.
     fn send:boolean (event:ScEvent) {
         def c:Statechart (unwrap chart)
-        def here:ScState (c.stateNamed(state))
         clear pending
-        for here.transitions t:ScTransition i {
-            if (t.event == event.type) {
-                for t.assigns a:ScAssign j {
-                    def v:ScValue (unwrap a.value)
-                    this.set(a.key (this.resolve(v event)))
+        ; Innermost first — a child's transition wins over its parent's.
+        def here@(mutable):string state
+        while ((strlen here) > 0) {
+            def s:ScState (c.stateAt(here))
+            for s.transitions t:ScTransition i {
+                if (t.event == event.type) {
+                    if (this.allowed(t event)) {
+                        this.take(t here event)
+                        this.settle()
+                        return true
+                    }
                 }
-                for t.actions name:string k {
-                    push pending name
+            }
+            here = (ScRunner.parentOf(here))
+        }
+        ; And the machine's own, available from anywhere.
+        for c.transitions t2:ScTransition j {
+            if (t2.event == event.type) {
+                if (this.allowed(t2 event)) {
+                    this.take(t2 "" event)
+                    this.settle()
+                    return true
                 }
-                if ((strlen t.target) > 0) {
-                    state = t.target
-                }
-                return true
             }
         }
         return false
     }
 
-    ; An event with no fields, which most of them are.
     fn sendType:boolean (type:string) {
         return (this.send((ScEvent.of(type))))
     }
