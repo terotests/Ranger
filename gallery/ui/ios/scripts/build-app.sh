@@ -5,11 +5,16 @@
 #   bash gallery/ui/ios/scripts/build-app.sh --run
 #   bash gallery/ui/ios/scripts/build-app.sh --target=watchos-simulator --run
 #   bash gallery/ui/ios/scripts/build-app.sh --check
+#   bash gallery/ui/ios/scripts/build-app.sh --doctor
 #   bash gallery/ui/ios/scripts/build-app.sh --dry-run
 #
 # This script does almost nothing: it compiles the DRIVER and then runs it. The
 # build itself — the Ranger compile, the SDK lookup, Info.plist, swiftc,
 # codesign, simctl — is `ranger/build_ios.rgr`, which is a Ranger program.
+#
+# `--doctor` walks the chain a device build needs -- Xcode, devicectl, the SDK,
+# the cable, the pairing, Developer Mode, the developer disk image, the identity
+# and the profile -- and says what to do about the first link that is missing.
 #
 # `--dry-run` and `--check` work on any machine. Everything else needs a Mac
 # with Xcode or the Command Line Tools installed.

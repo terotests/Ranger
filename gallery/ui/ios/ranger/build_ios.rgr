@@ -35,6 +35,7 @@
 Import "../../../../lib/Shell.rgr"
 Import "../../../../lib/apple/AppleAppBuilder.rgr"
 Import "../../../../lib/apple/AppleSigning.rgr"
+Import "../../../../lib/apple/AppleDeviceDoctor.rgr"
 
 class IosBuildOptions {
 
@@ -46,6 +47,8 @@ class IosBuildOptions {
     def doRun:boolean false
     def dryRun:boolean false
     def checkOnly:boolean false
+    ; Walk the device chain and report on it, instead of building anything.
+    def doctorOnly:boolean false
     def release:boolean false
     def skipRanger:boolean false
     ; Reuse the .app that is already there. `--no-ranger` skips only the
@@ -106,6 +109,9 @@ class IosBuildOptions {
                 case "--check" {
                     o.checkOnly = true
                 }
+                case "--doctor" {
+                    o.doctorOnly = true
+                }
                 case "--release" {
                     o.release = true
                 }
@@ -164,7 +170,7 @@ class IosBuild {
         print "  --target=KEY     ios-simulator (default), ios-device,"
         print "                   watchos-simulator, watchos-device"
         print "  --run            install and launch afterwards -- on a simulator,"
-        print "                   or on the connected device for an ios-device target"
+        print "                   or on the attached device for an ios-device target"
         print "  --device=NAME    which simulator or device: a name substring or an id"
         print "  --console        keep the launched app attached so its output lands here"
         print "  --phone/--pad    build for only one of the two iOS families"
@@ -178,6 +184,7 @@ class IosBuild {
         print "  --no-build       reuse the .app that is already built (implies --no-ranger)"
         print "  --dry-run        print every command and run none of them"
         print "  --check          report what this machine can build, and stop"
+        print "  --doctor         say why a device build cannot run here, and stop"
         print "  --verbose        print each command as it runs"
         print ""
         print "run it from the repository root."
@@ -310,6 +317,23 @@ class IosBuild {
     ; already if Xcode has ever built for a device, so both are FOUND rather
     ; than typed -- which is the difference between one command and three flags.
     ; What the caller passed always wins.
+    ; The device doctor, with the advice this port can give that generic code
+    ; cannot: which of ITS commands run a simulator instead.
+    sfn doctorFor:AppleDeviceDoctor (o:IosBuildOptions sh:Shell bundleId:string) {
+        def doc:AppleDeviceDoctor (new AppleDeviceDoctor (sh))
+        doc.deviceWanted = o.device
+        doc.bundleId = bundleId
+        push doc.simulatorHint "The simulator needs no cable, no Apple account and no provisioning"
+        push doc.simulatorHint "profile, and it boots itself -- you do not have to open Simulator first:"
+        push doc.simulatorHint ""
+        push doc.simulatorHint "  npm run ui:ios:run                      an iPhone or iPad simulator"
+        push doc.simulatorHint "  npm run ui:ios:run -- --device=\"iPad\"   ...a particular one"
+        push doc.simulatorHint "  npm run ui:ios:watch                    an Apple Watch simulator"
+        push doc.simulatorHint ""
+        push doc.simulatorHint "To build for a device without installing, leave --run off."
+        return doc
+    }
+
     fn resolveSigning:boolean (o:IosBuildOptions spec:AppleAppSpec target:AppleTarget sh:Shell tools:AppleToolchain) {
         if target.isSimulator {
             return true
@@ -345,37 +369,31 @@ class IosBuild {
                 print "has and what to do about it."
                 return false
             }
-        }
-        def picked@(optional):AppleDeviceInfo (tools.pickDevice(o.device))
-        if (!null? picked) {
-            def dev:AppleDeviceInfo (unwrap picked)
-            deviceUdid = dev.identifier
-            print "* device      " + (dev.describe())
-        } {
-            if o.doRun {
-                if ((strlen o.device) > 0) {
-                    print "no connected device matches \"" + o.device + "\"."
-                } {
-                    print "no device is connected."
+            ; The device chain, walked before swiftc spends minutes on 46k
+            ; lines rather than after. This also MOUNTS the developer disk
+            ; image when the device has none, which is the commonest reason an
+            ; install is refused and is not something to report at a person.
+            if (sh.dryRun == false) {
+                def doc:AppleDeviceDoctor (IosBuild.doctorFor(o sh spec.bundleId))
+                if ((doc.preflight()) == false) {
+                    doc.report()
+                    return false
                 }
-                print ""
-                print "The simulator needs no cable, no Apple account and no provisioning"
-                print "profile, and it boots itself -- you do not have to open Simulator first:"
-                print ""
-                print "  npm run ui:ios:run                      an iPhone or iPad simulator"
-                print "  npm run ui:ios:run -- --device=\"iPad\"   ...a particular one"
-                print "  npm run ui:ios:watch                    an Apple Watch simulator"
-                print ""
-                print "For a real device: plug it in, unlock it, and trust this computer."
-                print "`xcrun devicectl list devices` shows what it can see -- one listed as"
-                print "\"available (paired)\" rather than \"connected\" is known and not plugged in."
-                print ""
-                print "To build for a device without installing, leave --run off."
-                return false
+                deviceUdid = doc.deviceId
+                print "* device      " + doc.deviceDescription
             }
-            ; No --run: the build is still worth doing, and a profile is
-            ; matched on the bundle id alone.
-            print "* device      none connected; the profile will be matched on the bundle id only"
+        } {
+            ; No --run, so nothing is installed -- but a profile that lists a
+            ; device that is there is a better match than one matched on the
+            ; bundle id alone, and the listing is one question.
+            def picked@(optional):AppleDeviceInfo (tools.pickDevice(o.device))
+            if (!null? picked) {
+                def dev:AppleDeviceInfo (unwrap picked)
+                deviceUdid = dev.identifier
+                print "* device      " + (dev.describe())
+            } {
+                print "* device      none found; the profile will be matched on the bundle id only"
+            }
         }
 
         if (target.signIdentity == "-") {
@@ -448,6 +466,21 @@ class IosBuild {
                 print "run this from the repository root — gallery/ui/demo/dashboard.css is not here"
                 exit 3
             }
+        }
+
+        ; --doctor answers the question a failed device build leaves behind,
+        ; and answers it without building: the chain is about the machine and
+        ; the phone, not about the app.
+        if o.doctorOnly {
+            def probe:AppleTarget (AppleTarget.iosDevice("-"))
+            def doc:AppleDeviceDoctor (IosBuild.doctorFor(o sh ((b.makeSpec(o probe)).bundleId)))
+            print "device check"
+            def fine:boolean (doc.run())
+            doc.report()
+            if (fine == false) {
+                exit 1
+            }
+            return
         }
 
         if o.checkOnly {

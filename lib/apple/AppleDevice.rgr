@@ -40,11 +40,35 @@ class AppleDeviceInfo {
     Constructor () {
     }
 
-    ; Only a connected device can be installed onto. A paired-but-absent one is
-    ; listed and is not a candidate, and saying which is why is better than an
-    ; install that fails four seconds later.
+    ; "connected" means devicectl has a tunnel to the device AT THIS MOMENT.
     fn isConnected:boolean () {
         return ((indexOf state "connected") >= 0)
+    }
+
+    ; "available (paired)" is a device devicectl knows and has no tunnel to
+    ; right now. It is NOT an absent device: the tunnel is raised on demand by
+    ; the first real operation -- `devicectl device info apps` on a phone in
+    ; this state prints "Acquired tunnel connection to device" and then answers
+    ; -- so an install onto it works. Refusing it here is the difference
+    ; between a build that runs and one that stops on a cable that is plugged
+    ; in.
+    ;
+    ; "unavailable" CONTAINS "available", so the negative is tested first; the
+    ; substring test that reads right is the one that is wrong.
+    fn isPaired:boolean () {
+        if ((indexOf state "unavailable") >= 0) {
+            return false
+        }
+        return ((indexOf state "available") >= 0)
+    }
+
+    ; A device worth handing to devicectl: one with a tunnel, or one that can
+    ; raise one.
+    fn isUsable:boolean () {
+        if (this.isConnected()) {
+            return true
+        }
+        return (this.isPaired())
     }
 
     fn describe:string () {
@@ -130,27 +154,142 @@ class AppleDeviceList {
     }
 
     ; The device to install onto. `nameWanted` is a substring of the name, or
-    ; the identifier itself; "" takes the first connected one, which is the
-    ; whole point of a one-command device build.
+    ; the identifier itself; "" takes the first usable one, which is the whole
+    ; point of a one-command device build.
+    ;
+    ; A CONNECTED device wins over a merely paired one when both match, because
+    ; the connected one needs no tunnel raised and is therefore faster and
+    ; surer. A paired one is still returned when it is all there is.
     sfn pick@(optional):AppleDeviceInfo (devices:[AppleDeviceInfo] nameWanted:string) {
         def wanted:string (trim nameWanted)
-        def found@(optional):AppleDeviceInfo
+        def best@(optional):AppleDeviceInfo
+        def fallback@(optional):AppleDeviceInfo
         for devices d:AppleDeviceInfo i {
-            if (null? found) {
-                if (d.isConnected()) {
-                    if ((strlen wanted) == 0) {
-                        found = d
-                    } {
-                        if ((indexOf d.name wanted) >= 0) {
-                            found = d
+            if (d.isUsable()) {
+                def matches:boolean false
+                if ((strlen wanted) == 0) {
+                    matches = true
+                } {
+                    if ((indexOf d.name wanted) >= 0) {
+                        matches = true
+                    }
+                    if (d.identifier == wanted) {
+                        matches = true
+                    }
+                }
+                if matches {
+                    if (d.isConnected()) {
+                        if (null? best) {
+                            best = d
                         }
-                        if (d.identifier == wanted) {
-                            found = d
+                    } {
+                        if (null? fallback) {
+                            fallback = d
                         }
                     }
                 }
             }
         }
+        if (!null? best) {
+            return best
+        }
+        return fallback
+    }
+}
+
+; =============================================================================
+; What `xcrun devicectl device info details --device ID` says about one device.
+; =============================================================================
+;
+; The listing that `list devices` prints has one word for the whole story --
+; "connected", "available (paired)" -- and that word is not enough to tell a
+; device that cannot be used from one that merely has no tunnel open. `info
+; details` has the fields that actually decide it:
+;
+;     ▿ deviceProperties:
+;         • ddiServicesAvailable: false
+;         • developerModeStatus: enabled
+;         • osVersionNumber: 26.3
+;     ▿ connectionProperties:
+;         • pairingState: paired
+;         • tunnelState: unavailable
+;
+; `developerModeStatus` is the one a person has to fix on the phone itself, and
+; `ddiServicesAvailable` is the one that fixes itself the moment anything asks
+; for a developer service. Telling them apart is the difference between "go
+; enable a setting" and "wait four seconds".
+;
+; Parsed as a PURE FUNCTION over the text, like the listing above it: the
+; bullets are decoration, so a value is read as whatever follows "key:" on the
+; line that has it. A field Apple adds, moves or re-indents changes nothing.
+; =============================================================================
+
+class AppleDeviceDetails {
+
+    ; "enabled", "disabled", ""
+    def developerMode:string ""
+    ; The developer disk image is mounted and its services can be called.
+    def ddiAvailable:boolean false
+    ; "connected", "disconnected", "unavailable"
+    def tunnelState:string ""
+    def pairingState:string ""
+    def osVersion:string ""
+    def marketingName:string ""
+    def udid:string ""
+
+    Constructor () {
+    }
+
+    fn developerModeEnabled:boolean () {
+        return (developerMode == "enabled")
+    }
+
+    ; The text after "key:" on the first line that mentions it, trimmed. "" when
+    ; no line does -- which is also the answer for a device that reported the
+    ; field empty, and both mean the same thing to every caller here.
+    ;
+    ; The line is SPLIT on ":" rather than sliced at the offset `indexOf` gives
+    ; for the key. The lines have "•" and "▿" in them, and an offset into a
+    ; string with multi-byte characters before it is counted in runes on some
+    ; targets and in BYTES on others -- so the slice that is right on Node is
+    ; off by two per bullet on Go. Splitting asks no arithmetic and is the same
+    ; answer everywhere. `AppleDeviceList.columns` avoids the same trap for the
+    ; same reason.
+    sfn valueFor:string (text:string key:string) {
+        def lines:[string] (strsplit text "\n")
+        def found:string ""
+        def seen:boolean false
+        for lines raw:string i {
+            if (seen == false) {
+                def parts:[string] (strsplit raw ":")
+                def cnt:int (array_length parts)
+                if (cnt >= 2) {
+                    if ((indexOf (itemAt parts 0) key) >= 0) {
+                        seen = true
+                        ; A value with a ":" in it -- a time, a URL -- keeps it.
+                        def rest:[string]
+                        def pi:int 1
+                        while (pi < cnt) {
+                            push rest (itemAt parts pi)
+                            pi = pi + 1
+                        }
+                        found = (trim (join rest ":"))
+                    }
+                }
+            }
+        }
         return found
+    }
+
+    sfn parse:AppleDeviceDetails (text:string) {
+        def d:AppleDeviceDetails (new AppleDeviceDetails)
+        d.developerMode = (AppleDeviceDetails.valueFor(text "developerModeStatus"))
+        d.tunnelState = (AppleDeviceDetails.valueFor(text "tunnelState"))
+        d.pairingState = (AppleDeviceDetails.valueFor(text "pairingState"))
+        d.osVersion = (AppleDeviceDetails.valueFor(text "osVersionNumber"))
+        d.marketingName = (AppleDeviceDetails.valueFor(text "marketingName"))
+        d.udid = (AppleDeviceDetails.valueFor(text "udid"))
+        d.ddiAvailable = ((AppleDeviceDetails.valueFor(text "ddiServicesAvailable")) == "true")
+        return d
     }
 }

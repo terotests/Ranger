@@ -330,6 +330,51 @@ class AppleToolchain {
         return (sh.capture("xcrun" argv))
     }
 
+    ; Everything the device will say about itself. This is also the cheapest
+    ; way to ask whether a device can be TALKED to at all: it raises the tunnel
+    ; if one is needed, so a failure here is a real connection failure and not
+    ; a stale line in a listing.
+    fn deviceDetails:ShellResult (udid:string) {
+        def argv:[string]
+        push argv "devicectl"
+        push argv "device"
+        push argv "info"
+        push argv "details"
+        push argv "--device"
+        push argv udid
+        return (sh.capture("xcrun" argv))
+    }
+
+    ; The apps already installed. Listing them needs the developer disk image,
+    ; so asking is how the DDI gets mounted on a device that has none: devicectl
+    ; personalises and mounts it, and the answer arrives a few seconds later.
+    ; A build that asks this first therefore fixes the commonest reason an
+    ; install is refused, rather than reporting it.
+    fn listInstalledApps:ShellResult (udid:string) {
+        def argv:[string]
+        push argv "devicectl"
+        push argv "device"
+        push argv "info"
+        push argv "apps"
+        push argv "--device"
+        push argv udid
+        return (sh.capture("xcrun" argv))
+    }
+
+    ; What the USB bus has on it, as raw text. Asked only when devicectl lists
+    ; NOTHING, because it separates "no cable" from "a cable and no pairing" --
+    ; and because it is the one question here that a broken CoreDevice cannot
+    ; get in the way of.
+    fn usbDeviceText:string () {
+        def argv:[string]
+        push argv "SPUSBDataType"
+        def res:ShellResult (sh.capture("system_profiler" argv))
+        if (res.failed()) {
+            return ""
+        }
+        return res.out
+    }
+
     ; --- signing --------------------------------------------------------------
 
     ; The identities available for signing a device build. Ad hoc signing needs

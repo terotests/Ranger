@@ -354,10 +354,10 @@ class AppleAppBuilder {
             def picked@(optional):AppleDeviceInfo (tools.pickDevice(nameWanted))
             if (null? picked) {
                 if ((strlen nameWanted) > 0) {
-                    res.fail("no connected device matches \"" + nameWanted + "\". `xcrun devicectl list devices` shows what is plugged in.")
+                    res.fail("no device matches \"" + nameWanted + "\". `xcrun devicectl list devices` shows what there is; --device takes a substring of the name or the identifier.")
                     return res
                 }
-                res.fail("no device is connected. Plug one in, unlock it, and trust this computer -- `xcrun devicectl list devices` shows what it can see.")
+                res.fail("no device is usable. Plug one in, unlock it, and trust this computer -- `xcrun devicectl list devices` shows what it can see. A device listed as \"available (paired)\" is usable and one listed as \"unavailable\" is not.")
                 return res
             }
             def dev:AppleDeviceInfo (unwrap picked)
