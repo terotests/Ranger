@@ -482,11 +482,10 @@ class StatechartGraph {
     ; room is: a machine has few states and many transitions BACK, and a
     ; back-edge needs somewhere to go that is not through everything it came
     ; past. So a forward transition leaves the right side and arrives on the
-    ; left; a transition back leaves and arrives on the top or the bottom, and
-    ; when several go straight back they take turns, because sent along one
-    ; edge they stack and their labels land on the boxes they pass.
+    ; left, and a transition back is a staple — out of the left, along, and in
+    ; at the right. Which point ON that side each one gets is
+    ; `OrientedPorts`\''s: a side is a segment with sockets on it, not a point.
     sfn faceEdges:void (g:FlowGraph) {
-        def backEdges@(mutable):int 0
         def k@(mutable):int 0
         while (k < (g.edgeCount())) {
             def e:FlowEdge (g.edgeAt(k))
@@ -500,14 +499,14 @@ class StatechartGraph {
                         e.sourceHandle = 1
                         e.targetHandle = 3
                     } {
-                        def side@(mutable):int 2
-                        if (dy < 0.0) { side = 0 }
-                        if ((fabs dy) < 60.0) {
-                            if ((backEdges % 2) == 1) { side = 0 }
-                            backEdges = (backEdges + 1)
-                        }
-                        e.sourceHandle = side
-                        e.targetHandle = side
+                        ; A back-edge is a staple: out of the source's LEFT,
+                        ; along, and into the target's RIGHT. Sending it out of
+                        ; the top instead makes it climb over a box that is
+                        ; already above it and come down onto its lid, which is
+                        ; a hook sitting on the shape rather than an arrow
+                        ; arriving at it.
+                        e.sourceHandle = 3
+                        e.targetHandle = 1
                     }
                     ; …and one that is mostly up or down goes out of the side it
                     ; is heading for rather than across and back again.

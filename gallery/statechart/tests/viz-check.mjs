@@ -13,6 +13,7 @@
 //   is every state the machine can be in on it
 //   is every transition on it, and no transition twice
 //   does the entry dot point at the state the machine starts in
+//   does every arrow leave and arrive square to the side it is on
 //   did the label pass actually move labels off each other and off the boxes
 //   does a live run highlight the state it ended in, and its exits
 //
@@ -49,6 +50,12 @@ function draw(args) {
 /** The demo reports the label pass: "labels  120 sitting on something → 14". */
 function labelClutter(output) {
   const m = /labels\s+(\d+) sitting on something → (\d+)/.exec(output);
+  return m ? { before: Number(m[1]), after: Number(m[2]) } : null;
+}
+
+/** …and the port pass: "ports  5 ends not leaving square → 0". */
+function portFaults(output) {
+  const m = /ports\s+(\d+) ends not leaving square → (\d+)/.exec(output);
   return m ? { before: Number(m[1]), after: Number(m[2]) } : null;
 }
 
@@ -127,6 +134,14 @@ for (const { file, stem, labelCap } of CASES) {
       g.edges.every((e) => e.source === "<start>" || (e.label ?? "").length > 0),
       g.edges.filter((e) => e.source !== "<start>" && !(e.label ?? "").length)
              .map((e) => `${e.source}→${e.target}`).join(", "));
+
+  // The port rule is a HARD constraint, so it is gated at zero: every edge
+  // leaves its socket along the side's outward normal and arrives at the
+  // target's along that one, with a stub long enough to read as a departure.
+  const ports = portFaults(output);
+  say("every arrow leaves and arrives square to the side",
+      ports !== null && ports.after === 0,
+      ports === null ? "the demo did not report the pass" : `${ports.before} → ${ports.after}`);
 
   // The label pass, gated. A relaxation that silently stopped relaxing would
   // leave a picture that still passes every structural check above.

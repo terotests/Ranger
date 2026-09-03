@@ -1,0 +1,369 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; OrientedPorts.rgr — a port is a point AND a direction
+; ============================================================================
+;
+; The abstraction the routing was missing. A connection point on a node is not
+; an `(x, y)`; it is a point on a SIDE, and the side fixes the direction the
+; edge must leave in:
+;
+;     top    → ( 0, -1)
+;     right  → (+1,  0)
+;     bottom → ( 0, +1)
+;     left   → (-1,  0)
+;
+; Two rules follow, and this pass is those two rules.
+;
+; **Sockets.** A side is a segment, not a point. When several edges use the
+; same side they get several sockets, spread evenly along the usable length
+; with a margin off each corner, and ordered to match the spatial order of what
+; they connect to — so the fan does not cross itself. Without this every edge
+; on a side leaves from the middle of it and the lines arrive as a bundle.
+;
+; **A perpendicular stub.** An edge must travel along its port's outward normal
+; for `exitDistance` before it is allowed to turn:
+;
+;     socket → straight perpendicular exit → bends → perpendicular entry → socket
+;
+; It may not run parallel to the side it just left, and it may not turn at the
+; socket itself. That is a hard constraint: simplification may merge a stub
+; into a longer straight, never shorten one. Everything else — fewer bends,
+; fewer crossings, shorter paths — is a preference underneath it.
+;
+;      ✗ what a router does on its own      ✓ what the rule requires
+;
+;      ┌────────┐ ╮                         ┌────────┐
+;      │  idle  ├─╯                         │  idle  ├───────╮
+;      │        ├──╮                        │        ├─────╮ │
+;      └────────┘  │                        └────────┘     │ │
+;       lines leave and turn at once,        each leaves straight out,
+;       so they arrive as a bundle           then turns where there is room
+;
+; The short-route case already obeys the rule: `EdgeRouter.stepPoints` builds
+; its polyline from `normal * offset` at both ends. What did not was every edge
+; the layered layout or the orthogonal repair had already given waypoints to —
+; `EdgeRouter.route` uses those verbatim, so whatever geometry they end with is
+; what gets drawn. This pass runs after routing and rebuilds the two ends of
+; those, keeping the interior the router worked out.
+; ============================================================================
+
+Import "../core/GraphModel.rgr"
+Import "../core/EdgeRouter.rgr"
+
+class OrientedPorts {
+    ; How far off each corner the outermost socket sits. A socket at the corner
+    ; is a socket whose stub grazes the two sides it is between.
+    def cornerMargin@(mutable):double 16.0
+    ; How far an edge travels along the normal before it may turn.
+    def exitDistance@(mutable):double 22.0
+    ; What counts as a stub when the result is measured. Shorter than the
+    ; exit distance, because a rounded corner eats a few pixels of it.
+    def minStub@(mutable):double 8.0
+
+    Constructor () {
+    }
+
+    sfn apply:int (g:FlowGraph) {
+        def op (new OrientedPorts)
+        return (op.run(g))
+    }
+
+    fn run:int (g:FlowGraph) {
+        this.assignSockets(g)
+        return (this.enforceStubs(g))
+    }
+
+    ; ---------------------------------------------------------------- sockets
+    fn assignSockets:void (g:FlowGraph) {
+        def n@(mutable):int 0
+        while (n < (g.nodeCount())) {
+            def nd:FlowNode (g.nodeAt(n))
+            def side@(mutable):int 0
+            while (side < 4) {
+                this.spread(g n nd side)
+                side = (side + 1)
+            }
+            n = (n + 1)
+        }
+    }
+
+    ; Everything attached to one side of one node, spread along it.
+    fn spread:void (g:FlowGraph nodeIdx:int nd:FlowNode side:int) {
+        def ends:[int]
+        def atSrc:[boolean]
+        def keys:[double]
+        def k@(mutable):int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            if (e.sourceIndex == nodeIdx) {
+                if ((g.edgeSide(e true)) == side) {
+                    push ends k
+                    push atSrc true
+                    push keys (OrientedPorts.otherKey(g e true side))
+                }
+            }
+            if (e.targetIndex == nodeIdx) {
+                if ((g.edgeSide(e false)) == side) {
+                    push ends k
+                    push atSrc false
+                    push keys (OrientedPorts.otherKey(g e false side))
+                }
+            }
+            k = (k + 1)
+        }
+        def count:int (array_length ends)
+        if (count == 0) {
+            return
+        }
+
+        ; Ordered by where the other end IS, along the same axis the sockets
+        ; run in. Two edges leaving the same side toward things one above the
+        ; other should leave in that order; sorted any other way they cross
+        ; each other before they have gone anywhere.
+        def i@(mutable):int 1
+        while (i < count) {
+            def j@(mutable):int i
+            while (j > 0) {
+                if ((itemAt keys j) < (itemAt keys (j - 1))) {
+                    def tk:double (itemAt keys j)
+                    set keys j (itemAt keys (j - 1))
+                    set keys (j - 1) tk
+                    def te:int (itemAt ends j)
+                    set ends j (itemAt ends (j - 1))
+                    set ends (j - 1) te
+                    def ta:boolean (itemAt atSrc j)
+                    set atSrc j (itemAt atSrc (j - 1))
+                    set atSrc (j - 1) ta
+                    j = (j - 1)
+                } {
+                    j = 0
+                }
+            }
+            i = (i + 1)
+        }
+
+        def span@(mutable):double nd.height
+        if (side == 0) { span = nd.width }
+        if (side == 2) { span = nd.width }
+        def margin@(mutable):double cornerMargin
+        if (margin > (span * 0.35)) {
+            margin = (span * 0.35)
+        }
+        def usable:double (span - (margin * 2.0))
+
+        def m@(mutable):int 0
+        while (m < count) {
+            def at@(mutable):double 0.0
+            if (count > 1) {
+                at = ((0.0 - (usable * 0.5)) + ((usable * (int2double m)) / (int2double (count - 1))))
+            }
+            def e2:FlowEdge (g.edgeAt((itemAt ends m)))
+            if (itemAt atSrc m) {
+                e2.portNudgeSource = at
+            } {
+                e2.portNudgeTarget = at
+            }
+            m = (m + 1)
+        }
+    }
+
+    ; Where the OTHER end of this edge is, measured along the axis the sockets
+    ; run in: across a top or bottom side, down a left or right one.
+    sfn otherKey:double (g:FlowGraph e:FlowEdge atSource:boolean side:int) {
+        def id@(mutable):string e.source
+        if atSource {
+            id = e.target
+        }
+        def other:FlowNode (g.nodeById(id))
+        if (side == 0) { return (other.centerX()) }
+        if (side == 2) { return (other.centerX()) }
+        return (other.centerY())
+    }
+
+    ; ------------------------------------------------------------------ stubs
+    fn enforceStubs:int (g:FlowGraph) {
+        def touched@(mutable):int 0
+        def k@(mutable):int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            if ((array_length e.waypoints) >= 4) {
+                this.rebuild(g e)
+                touched = (touched + 1)
+            }
+            k = (k + 1)
+        }
+        return touched
+    }
+
+    ; The two ends, rebuilt around the sockets; the interior is the router's
+    ; and is left alone. Points that fell inside a stub are dropped — they were
+    ; placed for the endpoint the edge had before the socket moved it.
+    fn rebuild:void (g:FlowGraph e:FlowEdge) {
+        def x1:double (g.endpointX(e true))
+        def y1:double (g.endpointY(e true))
+        def x2:double (g.endpointX(e false))
+        def y2:double (g.endpointY(e false))
+        def s1:int (g.edgeSide(e true))
+        def s2:int (g.edgeSide(e false))
+        def nx1:double (FlowPosition.normalX(s1))
+        def ny1:double (FlowPosition.normalY(s1))
+        def nx2:double (FlowPosition.normalX(s2))
+        def ny2:double (FlowPosition.normalY(s2))
+        def sx:double (x1 + (nx1 * exitDistance))
+        def sy:double (y1 + (ny1 * exitDistance))
+        def tx:double (x2 + (nx2 * exitDistance))
+        def ty:double (y2 + (ny2 * exitDistance))
+
+        def mid:[double]
+        def n:int (idiv (array_length e.waypoints) 2)
+        def i@(mutable):int 1
+        while (i < (n - 1)) {
+            def px:double (itemAt e.waypoints (i * 2))
+            def pyAt:int ((i * 2) + 1)
+            def py:double (itemAt e.waypoints pyAt)
+            ; Only what falls INSIDE a stub is dropped — a point between the
+            ; socket and the exit is a point the edge is no longer allowed to
+            ; visit. Dropping by plain distance instead took out corridor
+            ; corners the router had put there on purpose, and a route that
+            ; lost its corners collapsed into a hook sitting on the box.
+            def keep@(mutable):boolean true
+            if (OrientedPorts.insideStub(px py x1 y1 nx1 ny1 exitDistance)) { keep = false }
+            if (OrientedPorts.insideStub(px py x2 y2 nx2 ny2 exitDistance)) { keep = false }
+            if keep {
+                push mid px
+                push mid py
+            }
+            i = (i + 1)
+        }
+
+        def out:[double]
+        push out x1
+        push out y1
+        push out sx
+        push out sy
+
+        def midCount:int (idiv (array_length mid) 2)
+        if (midCount > 0) {
+            ; …an elbow from the stub to the first interior point, turned the
+            ; only way the normal allows.
+            def fx:double (itemAt mid 0)
+            def fy:double (itemAt mid 1)
+            OrientedPorts.elbow(out sx sy fx fy (nx1 != 0.0))
+            def j@(mutable):int 0
+            while (j < midCount) {
+                push out (itemAt mid (j * 2))
+                def at:int ((j * 2) + 1)
+                push out (itemAt mid at)
+                j = (j + 1)
+            }
+            def lx:double (itemAt mid ((midCount - 1) * 2))
+            def lyAt:int (((midCount - 1) * 2) + 1)
+            def ly:double (itemAt mid lyAt)
+            ; …and one into the entry, so the last move before it is
+            ; perpendicular to the target's side.
+            OrientedPorts.elbow(out lx ly tx ty (ny2 != 0.0))
+        } {
+            OrientedPorts.elbow(out sx sy tx ty (nx1 != 0.0))
+        }
+
+        push out tx
+        push out ty
+        push out x2
+        push out y2
+
+        clear e.waypoints
+        def tidy:[double] (EdgeRouter.dropCollinear((EdgeRouter.dedupe(out))))
+        def t@(mutable):int 0
+        while (t < (array_length tidy)) {
+            push e.waypoints (itemAt tidy t)
+            t = (t + 1)
+        }
+    }
+
+    ; Is `px, py` in the corridor the stub owns: within `reach` of the socket
+    ; measured ALONG the normal, and beside it across.
+    sfn insideStub:boolean (px:double py:double sxp:double syp:double nx:double ny:double reach:double) {
+        def along:double (((px - sxp) * nx) + ((py - syp) * ny))
+        def across:double (fabs (((px - sxp) * ny) - ((py - syp) * nx)))
+        if (along < 0.0) {
+            return true
+        }
+        if (along > reach) {
+            return false
+        }
+        return (across < 2.0)
+    }
+
+    ; One corner between two points, on the axis the caller says is free.
+    ; `firstIsVertical` says the move OUT of `ax, ay` has to be vertical, which
+    ; is what "perpendicular to a horizontal normal" means.
+    sfn elbow:void (out:[double] ax:double ay:double bx:double by:double firstIsVertical:boolean) {
+        if ((fabs (ax - bx)) < 0.5) {
+            return
+        }
+        if ((fabs (ay - by)) < 0.5) {
+            return
+        }
+        if firstIsVertical {
+            push out ax
+            push out by
+        } {
+            push out bx
+            push out ay
+        }
+    }
+
+    ; ---------------------------------------------------------------- measure
+    ; Ends that break the rule: a first or last segment that is not along the
+    ; port's normal, or is too short to read as a departure at all. A pass
+    ; whose effect nobody measures is a pass that quietly stops working.
+    sfn faults:int (g:FlowGraph) {
+        def op (new OrientedPorts)
+        return (op.count(g))
+    }
+
+    fn count:int (g:FlowGraph) {
+        def bad@(mutable):int 0
+        def k@(mutable):int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            if (e.hidden == false) {
+                def path:EdgePath (EdgeRouter.route(g e))
+                ; `px`/`py` read the flattened polyline, and nothing flattens a
+                ; path until something asks it to. Measuring before this asked
+                ; every edge nothing and got no faults back.
+                path.flatten(6)
+                if ((path.pointCount()) > 1) {
+                    def last:int ((path.pointCount()) - 1)
+                    def s1:int (g.edgeSide(e true))
+                    def s2:int (g.edgeSide(e false))
+                    if ((this.aligned(((path.px(1)) - (path.px(0)))
+                                      ((path.py(1)) - (path.py(0)))
+                                      (FlowPosition.normalX(s1))
+                                      (FlowPosition.normalY(s1)))) == false) {
+                        bad = (bad + 1)
+                    }
+                    ; The arrival runs INTO the socket, so it is against the
+                    ; target's outward normal.
+                    if ((this.aligned(((path.px((last - 1))) - (path.px(last)))
+                                      ((path.py((last - 1))) - (path.py(last)))
+                                      (FlowPosition.normalX(s2))
+                                      (FlowPosition.normalY(s2)))) == false) {
+                        bad = (bad + 1)
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        return bad
+    }
+
+    fn aligned:boolean (dx:double dy:double nx:double ny:double) {
+        def len:double (sqrt ((dx * dx) + (dy * dy)))
+        if (len < minStub) {
+            return false
+        }
+        return (((dx * nx) + (dy * ny)) >= (len * 0.98))
+    }
+}

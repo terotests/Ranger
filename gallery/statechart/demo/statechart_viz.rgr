@@ -24,6 +24,7 @@ Import "../../rangerflow/export/FlowExport.rgr"
 Import "../../rangerflow/layout/LayeredLayout.rgr"
 Import "../../rangerflow/layout/EdgeLanes.rgr"
 Import "../../rangerflow/layout/OrthoRouter.rgr"
+Import "../../rangerflow/layout/OrientedPorts.rgr"
 
 class StatechartVizDemo {
     def outDir:string "gallery/statechart/out"
@@ -112,6 +113,13 @@ class StatechartVizDemo {
         lay.routeLongEdges()
         EdgeLanes.assign(g)
         OrthoRouter.repairAll(g)
+        ; …and then the ports. A side is a segment with several sockets on it,
+        ; and every edge leaves its socket along the side's outward normal for
+        ; a stub before it may turn — see OrientedPorts.
+        def faults0:int (OrientedPorts.faults(g))
+        OrientedPorts.apply(g)
+        def faults1:int (OrientedPorts.faults(g))
+        print ((("  ports   " + (to_string faults0)) + " ends not leaving square → ") + (to_string faults1))
         ; …and then the labels, which the router does not know about: a label
         ; sits at the middle of its route, and two routes running beside each
         ; other have their middles beside each other.

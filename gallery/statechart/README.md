@@ -71,6 +71,20 @@ The label boxes are measured from what the renderer emits, not guessed: an
 early guess of 6.6 px per character lost `STREAM_COMPLETE` underneath a
 two-line label it had measured as narrower than it was.
 
+**A port is a point and a direction.** `rangerflow/layout/OrientedPorts.rgr` is
+the abstraction the routing was missing: a side is a segment with several
+sockets on it, spread evenly and ordered to match what they connect to, and
+every edge leaves its socket along the side's outward normal for a stub before
+it may turn. `statechart:viz:check` gates that at zero.
+
+It is not finished. Edges still share corridors, cross at each other's bends and
+run close to node borders, because the routing is a stack of local passes and a
+later route cannot see an earlier one.
+[`../rangerflow/docs/PLAN_READABLE_ROUTING.md`](../rangerflow/docs/PLAN_READABLE_ROUTING.md)
+is the spec for the rest: the priority order (readability before shortest path),
+the cost function, the pipeline, and the metric each rule needs before it counts
+as done.
+
 ### …and a run drawn on it
 
 ![a run, stopped in fulfilment · packing](artifacts/checkout-live.png)
