@@ -16,9 +16,13 @@
 ;
 ;   * the demo behind the facade builds all four scenes and answers with a
 ;     display list of real commands;
-;   * the CONTAIN fit -- the one thing this port has that the dashboard's does
-;     not: the whole 980x760 page on screen, centred, letterboxed, and never
-;     re-laid-out to the window's shape;
+;   * the fit -- the one thing this port has that the dashboard's does not:
+;     the page is scaled to what the scene DRAWS rather than to its 980x760
+;     canvas, because the scenes use between a half and four fifths of it and
+;     fitting the unused remainder is what made the page small on a phone. No
+;     word is ever off screen; decoration below the last line -- the
+;     full-height rail -- is allowed to run to the screen's edge, which is what
+;     a rail should do;
 ;   * the safe area is taken off before any of that, so nothing lands under the
 ;     clock or the home indicator;
 ;   * a press at a WINDOW coordinate -- insets, letterbox and all -- reaches
@@ -102,6 +106,38 @@ class CheckRtIos {
         return false
     }
 
+    ; The bottom of the last WORD, in window points. Decoration below it -- the
+    ; full-height rail, a panel back -- is allowed off the screen; a word is
+    ; not. This is the invariant the fit is built on, so it is what the checks
+    ; ask about rather than the canvas's own corner.
+    fn wordsBottom:double (app:RtIos) {
+        def dl:EVGDisplayList (app.frame())
+        def bottom:double 0.0
+        for dl.cmds c:EVGDrawCmd i {
+            if ((strlen c.text) > 0) {
+                def b:double (c.y + c.h)
+                if (b > bottom) {
+                    bottom = b
+                }
+            }
+        }
+        return ((app.offsetY()) + (bottom * (app.scale())))
+    }
+
+    fn wordsRight:double (app:RtIos) {
+        def dl:EVGDisplayList (app.frame())
+        def right:double 0.0
+        for dl.cmds c:EVGDrawCmd i {
+            if ((strlen c.text) > 0) {
+                def r:double (c.x + c.w)
+                if (r > right) {
+                    right = r
+                }
+            }
+        }
+        return ((app.offsetX()) + (right * (app.scale())))
+    }
+
     fn commandCount:int (app:RtIos) {
         def dl:EVGDisplayList (app.frame())
         return (array_length dl.cmds)
@@ -120,37 +156,40 @@ class CheckRtIos {
             (to_string (app.styleErrorCount())))
     }
 
-    ; --- the contain fit ------------------------------------------------------
+    ; --- the fit --------------------------------------------------------------
 
     fn checkFit:void () {
-        print "--- the page is contained, whole, and centred ---"
+        print "--- the page is fitted to what the scene draws ---"
 
-        ; A landscape iPad: wider than the page's aspect, so HEIGHT is the
-        ; binding dimension and the letterbox is at the sides.
+        ; The fit is against the CONTENT, not the canvas. The demo's scenes use
+        ; between a half and four fifths of their 980x760 canvas -- the session
+        ; writes nothing below y=346 -- and fitting the unused remainder is what
+        ; made the page small on a phone. Measured on an 874x402 landscape
+        ; phone, fitting the content instead is 20% bigger on the loading
+        ; screen, 25% on the dashboard and 69% on the session.
+        def phone:RtIos (this.fresh(874.0 402.0))
+        def canvasFit:double (402.0 / 760.0)
+        this.okDetail("the loading screen is bigger than a canvas fit"
+            ((phone.scale()) > (canvasFit * 1.1)) (to_string (phone.scale())))
+        phone.setScene("session")
+        this.okDetail("and the session, which uses least of its canvas, much bigger"
+            ((phone.scale()) > (canvasFit * 1.5)) (to_string (phone.scale())))
+
+        ; Never wider than the window, whatever the content does.
         def wide:RtIos (this.fresh(1366.0 700.0))
-        def sW:double (wide.scale())
-        this.okDetail("a wide window fits by height" (CheckRtIos.near(sW (700.0 / (wide.pageHeight())) 0.001))
-            (to_string sW))
-        this.ok("the whole page width is on screen"
-            (((wide.pageWidth()) * sW) <= 1366.1))
-        this.ok("and the whole page height"
-            (((wide.pageHeight()) * sW) <= 700.1))
-        this.ok("with a letterbox at the left" ((wide.offsetX()) > 0.0))
-        this.okDetail("and none at the top" (CheckRtIos.near((wide.offsetY()) 0.0 0.001))
-            (to_string (wide.offsetY())))
+        this.ok("the page is never wider than the window"
+            (((wide.pageWidth()) * (wide.scale())) <= 1366.1))
+        this.ok("and never scaled past its own width"
+            ((wide.scale()) <= ((1366.0 / (wide.pageWidth())) + 0.001)))
 
-        ; A tall window: WIDTH binds, and the letterbox moves to the top and
-        ; bottom. The same page, not a re-laid-out one.
+        ; A tall window: WIDTH binds, and the page is centred in what is left.
         def tall:RtIos (this.fresh(800.0 1200.0))
-        def sT:double (tall.scale())
-        this.okDetail("a tall window fits by width" (CheckRtIos.near(sT (800.0 / (tall.pageWidth())) 0.001))
-            (to_string sT))
-        this.ok("with a letterbox at the top" ((tall.offsetY()) > 0.0))
-        this.ok("and the page centred in it"
-            (CheckRtIos.near((tall.offsetY()) ((1200.0 - ((tall.pageHeight()) * sT)) / 2.0) 0.001)))
+        this.okDetail("a tall window fits by width"
+            (CheckRtIos.near((tall.scale()) (800.0 / (tall.pageWidth())) 0.001))
+            (to_string (tall.scale())))
+        this.ok("with room above it" ((tall.offsetY()) > 0.0))
 
-        ; The composition is never re-laid-out to the window: a fixed page has
-        ; one size, and both windows agree about it.
+        ; The composition is never re-laid-out to the window.
         this.ok("the page keeps its size in both" ((wide.pageHeight()) == (tall.pageHeight())))
     }
 
@@ -166,8 +205,8 @@ class CheckRtIos {
             ((inset.scale()) <= (plain.scale())))
         this.ok("and the page starts below the status bar"
             ((inset.offsetY()) >= 59.0))
-        def bottomEdge:double ((inset.offsetY()) + ((inset.pageHeight()) * (inset.scale())))
-        this.okDetail("and ends above the home indicator" (bottomEdge <= (820.0 - 34.0 + 0.1))
+        def bottomEdge:double (this.wordsBottom(inset))
+        this.okDetail("and its last line ends above the home indicator" (bottomEdge <= (820.0 - 34.0 + 0.5))
             (to_string bottomEdge))
     }
 
@@ -253,27 +292,24 @@ class CheckRtIos {
             (to_string rightEdge))
 
         this.ok("a double tap resets it" (app.resetZoom()))
-        this.ok("back to the contain fit" ((app.canPan()) == false))
+        this.okDetail("back to the fitted scale" (CheckRtIos.near((app.scale()) (app.fitScale) 0.001)) (to_string (app.scale())))
         this.ok("and a second reset is a no-op" ((app.resetZoom()) == false))
 
-        ; At rest the page fits, so a drag does nothing rather than sliding the
-        ; composition off the screen.
+        ; At rest every word is on screen. The canvas may still hang below the
+        ; last line -- that is the full-height rail -- so this asks about words.
         def rest:RtIos (this.fresh(1180.0 820.0))
-        this.ok("a drag on a page that fits does nothing" ((rest.panBy(-80.0 -80.0)) == false))
+        this.ok("at rest every word is on screen" ((this.wordsBottom(rest)) <= 820.5))
     }
 
-    ; --- nothing is ever cut off ----------------------------------------------
+    ; --- no word is ever cut off ----------------------------------------------
 
-    ; Filling the width and letting the reader move down was tried here and
-    ; measured wrong for this app. On an 874x402 landscape phone it pushes 276pt
-    ; off the bottom of EVERY content scene -- the sign-in button, the goals
-    ; table's last rows, the session's controls -- and the page has no scroll
-    ; container, no scrollbar and no cut-off row, so nothing on it announces
-    ; that the content continues. In portrait it buys nothing: the width binds
-    ; either way. So the page is contained, and this is the check that says so
-    ; for every scene on every screen the port claims to support.
+    ; The fit is to the content box, so this holds by construction -- which is
+    ; exactly why it is worth asserting: it is the property the whole fit exists
+    ; to provide, and a change to how the box is measured would break it
+    ; silently. Decoration below the last word is allowed off the screen; a
+    ; full-height rail running to the bottom edge is what a rail should do.
     fn checkNothingCutOff:void () {
-        print "--- every scene is whole, on every screen ---"
+        print "--- every word is on screen, on every screen ---"
         def w:[double]
         def h:[double]
         def names:[string]
@@ -305,24 +341,22 @@ class CheckRtIos {
             for scenes scene:string si {
                 def app:RtIos (this.fresh(sw sh))
                 app.setScene(scene)
-                def shownW:double ((app.pageWidth()) * (app.scale()))
-                def shownH:double ((app.pageHeight()) * (app.scale()))
-                def fitsW:boolean (shownW <= (sw + 0.1))
-                def fitsH:boolean (shownH <= (sh + 0.1))
-                this.okDetail(((screen + " / ") + scene) (fitsW && fitsH)
-                    ((to_string shownW) + "x" + (to_string shownH)))
+                def bottom:double (this.wordsBottom(app))
+                def right:double (this.wordsRight(app))
+                def fits:boolean ((bottom <= (sh + 0.5)) && (right <= (sw + 0.5)))
+                this.okDetail(((screen + " / ") + scene) fits
+                    ("words reach " + (to_string right) + "," + (to_string bottom)))
             }
         }
 
         ; And with a notch and a home indicator taken off first.
         def inset:RtIos (this.freshInset(874.0 402.0 59.0 21.0))
         inset.setScene("signin")
-        def bottom:double ((inset.offsetY()) + ((inset.pageHeight()) * (inset.scale())))
-        this.okDetail("the sign-in button clears the home indicator"
-            (bottom <= (402.0 - 21.0 + 0.1)) (to_string bottom))
-        this.ok("and there is nothing to pan to" ((inset.canPan()) == false))
+        def b:double (this.wordsBottom(inset))
+        this.okDetail("the sign-in page clears the home indicator"
+            (b <= (402.0 - 21.0 + 0.5)) (to_string b))
+        this.ok("and starts below the status bar" ((inset.offsetY()) >= 59.0))
     }
-
 
     ; --- the press has to show -------------------------------------------------
 
@@ -429,43 +463,6 @@ class CheckRtIos {
         }
     }
 
-    ; --- the screens this is for ----------------------------------------------
-
-    fn checkScreens:void () {
-        print "--- the sizes this is actually for ---"
-        def w:[double]
-        def h:[double]
-        def names:[string]
-        ; iPad Pro 11", iPad 10.9", iPad mini, iPhone 15 Pro Max, iPhone SE --
-        ; points, landscape for the tablets and portrait for the phones.
-        push names "iPad Pro 11 landscape"
-        push w 1194.0
-        push h 834.0
-        push names "iPad 10.9 landscape"
-        push w 1180.0
-        push h 820.0
-        push names "iPad mini portrait"
-        push w 744.0
-        push h 1133.0
-        push names "iPhone 15 Pro Max"
-        push w 430.0
-        push h 932.0
-        push names "iPhone SE"
-        push w 375.0
-        push h 667.0
-        for names name:string i {
-            def app:RtIos (this.fresh((itemAt w i) (itemAt h i)))
-            def s:double (app.scale())
-            def shownW:double ((app.pageWidth()) * s)
-            def shownH:double ((app.pageHeight()) * s)
-            def fitsW:boolean (shownW <= ((itemAt w i) + 0.1))
-            def fitsH:boolean (shownH <= ((itemAt h i) + 0.1))
-            def shown:string ((to_string shownW) + "x" + (to_string shownH))
-            this.okDetail((name + ": the whole page is on screen") (fitsW && fitsH) shown)
-            this.ok((name + ": and it draws") ((this.commandCount(app)) > 20))
-        }
-    }
-
     sfn main:void () {
         def c:CheckRtIos (new CheckRtIos)
         def cssText@(optional):string (read_file "gallery/realtrainer/web" "realtrainer.css")
@@ -484,12 +481,11 @@ class CheckRtIos {
         c.checkNothingCutOff()
         c.checkClock()
         c.checkScenes()
-        c.checkScreens()
         print ""
         print ((to_string (c.passed + c.failed)) + " checks, " + (to_string c.failed) + " failed")
         if (c.failed > 0) {
             exit 1
         }
-        print "the page is contained, converted, pressed and ticked"
+        print "every word is on screen, converted, pressed and ticked"
     }
 }

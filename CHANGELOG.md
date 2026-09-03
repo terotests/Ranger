@@ -9,30 +9,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Content was cut off at the bottom on a phone.** The port briefly filled the
-  width on phones and let the reader move down the page, on the grounds that
-  containing a 980x760 composition in a 19.5:9 window wastes about 40% of the
-  screen. Measuring it settled the argument the other way. On an 874x402
-  landscape phone fill-width pushes **276pt off the bottom of every content
-  scene** -- the sign-in button, the goals table's last rows and the session's
-  controls, all by the same amount, because it is a property of the page and
-  not of one screen. The page has no scroll container, no scrollbar and no
-  cut-off row, so nothing on it announces that the content continues; and in
-  portrait the mode buys nothing at all, since the width binds either way.
+- **The page was fitted to its canvas rather than to what it draws, and came
+  out a quarter smaller than it needed to be.** The demo is a 980x760
+  composition, and the fit scaled that whole rectangle into the window. But the
+  scenes do not fill it: measured on the display list, the words stop at y=607
+  on the loading screen, y=586 on the dashboard and y=346 on the session --
+  which uses less than half its canvas. The rest is the full-height rail and
+  the panel behind it, and fitting that empty remainder is what made the page
+  small on a phone.
 
-  So the page is contained, and `check_rt_ios.rgr` asserts that every one of
-  the four scenes is whole on every screen the port claims to support, notch
-  and home indicator included. The fill-width mode is gone rather than left
-  switched off: a mode nothing can select is worse than no mode.
+  The fit is now against the content. On an iPhone 16 Pro in landscape that is
+  20% bigger on the loading screen, 10% on the sign-in page, 25% on the
+  dashboard and 69% on the session. Nothing is cut off, by construction:
+  fitting the content box is what guarantees it, where before the guarantee
+  came from fitting a canvas that was mostly empty.
 
-  Worth recording where the boundary is, because CSS looks like the obvious
-  lever and is not: the stylesheet's viewport is the demo's own fixed 980x760
-  canvas, which is what `setViewport` is handed on every target, so a `@media`
-  query or a `min()`/`calc()` in `realtrainer.css` would be answering questions
-  about a canvas that never changes size. Making the page reflow for a phone
-  means letting `pageW`/`pageH` follow the device and then writing a phone
-  layout for four scenes -- a real piece of design work, and the only thing
-  that would let this composition both fill a phone and keep all of itself.
+  Decoration below the last line is allowed to run off the bottom of the
+  screen, which is what a full-height rail should do -- ending partway up with
+  a gap beneath it is the thing that looked wrong. The content box is measured
+  from the display list, which is in page coordinates and so does not depend on
+  the scale; a tab change that moves it refits, with a threshold so the page
+  does not twitch on rounding noise.
+
+  `check_rt_ios.rgr` asserts the invariant this rests on: every word of every
+  scene is on screen, on every device the port claims to support, notch and
+  home indicator included.
+
+  Two earlier attempts are worth recording as measured dead ends. Filling the
+  width and letting the reader pan hides real content -- the page has no
+  scrollbar and no cut-off row, so nothing announces that it continues. And
+  containing the canvas is what this replaces. What CSS cannot do here is
+  unchanged: the stylesheet's viewport is the fixed 980x760 canvas on every
+  target, so a `@media` query would be answering questions about a rectangle
+  that never changes size.
 
 ### Added
 

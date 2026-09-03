@@ -63,6 +63,9 @@ class RtIos {
     def offXValue:double 0.0
     def offYValue:double 0.0
 
+    ; The content height the current fit was computed against.
+    def fittedBottom:double 0.0
+
     ; The last point a finger was seen at, in page pixels. A press is two
     ; events -- down marks the control, up activates it -- and the demo's
     ; `press` takes the id, so the id has to survive between them.
@@ -121,8 +124,46 @@ class RtIos {
     ; screen and the leftover is a letterbox. Cover would fill the window and
     ; cut the composition off at one edge, which for a page with a sign-in
     ; button near the bottom means a button nobody can reach.
-    ; CONTAIN: the smaller of the two ratios, so the whole page is on screen and
-    ; the leftover is a letterbox.
+    ; How far down the canvas this scene actually writes, plus the margin the
+    ; page keeps below it. Recomputed from the display list, which is in PAGE
+    ; coordinates and so does not depend on the scale -- there is no circle
+    ; here, the box is measured once and the fit follows from it.
+    ;
+    ; TEXT only, deliberately. The left rail and the panel behind it are one
+    ; box each running the full height of the canvas, so an ink extent that
+    ; counted them would always answer 760 and the page would keep being fitted
+    ; to a canvas it does not fill: the dashboard writes nothing below y=586 and
+    ; the session nothing below y=346, and that unused fifth-to-half of the
+    ; canvas is what made the page small on a phone.
+    ;
+    ; Decoration that continues past the last words is allowed to run off the
+    ; bottom of the screen, which is what a full-height rail should do anyway --
+    ; ending partway up with a gap beneath it is the thing that looks wrong.
+    fn contentBottom:double () {
+        def dl:EVGDisplayList (app.display())
+        def bottom:double 0.0
+        for dl.cmds c:EVGDrawCmd i {
+            if ((strlen c.text) > 0) {
+                def b:double (c.y + c.h)
+                if (b > bottom) {
+                    bottom = b
+                }
+            }
+        }
+        if (bottom <= 0.0) {
+            return (app.heightPx())
+        }
+        ; The page's own breathing room under its last line, and never more of
+        ; the canvas than there is.
+        bottom = (bottom + 24.0)
+        if (bottom > (app.heightPx())) {
+            return (app.heightPx())
+        }
+        return bottom
+    }
+
+    ; CONTAIN what the scene DRAWS: the smaller of the two ratios, where the
+    ; height ratio is measured against the content rather than the canvas.
     ;
     ; Filling the width instead and letting the reader move down was tried, and
     ; measured wrong for this app. On an 874x402 landscape phone it pushes 276pt
@@ -135,8 +176,11 @@ class RtIos {
     ; is the half worth having.
     fn refit:void () {
         def pw:double (app.widthPx())
-        def ph:double (app.heightPx())
         if (pw > 0.0) {
+            def ph:double (app.heightPx())
+            if (started) {
+                ph = (this.contentBottom())
+            }
             if (ph > 0.0) {
                 def byWidth:double ((this.usableWidth()) / pw)
                 def byHeight:double ((this.usableHeight()) / ph)
@@ -145,8 +189,28 @@ class RtIos {
                     fitScale = byHeight
                 }
             }
+            fittedBottom = ph
         }
         this.centre()
+    }
+
+    ; The content box the current scale was computed for. A tab change inside a
+    ; scene moves it -- the calendar is taller than the dashboard panel -- so it
+    ; is watched rather than assumed, and only a real move refits: the box is in
+    ; page coordinates and the scale does not feed back into it, but refitting
+    ; on rounding noise would still make the page twitch.
+    fn syncFit:void () {
+        if (started == false) {
+            return
+        }
+        def now:double (this.contentBottom())
+        def d:double (now - fittedBottom)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        if (d > 8.0) {
+            this.refit()
+        }
     }
 
     ; Put the page in the middle of the usable area at the current scale. This
@@ -159,10 +223,14 @@ class RtIos {
         ; A page taller than the viewport starts at its TOP. Centring it would
         ; open the app with the first row already scrolled off, which reads as
         ; a page that has lost its heading.
-        if (shownH > (this.usableHeight())) {
+        def contentH:double (fittedBottom * s)
+        if (contentH > (this.usableHeight())) {
             offYValue = insetTop
         } {
-            offYValue = (insetTop + (((this.usableHeight()) - shownH) / 2.0))
+            ; The CONTENT is centred, not the canvas: what hangs below the last
+            ; line is a rail or a panel back, and it running to the screen's
+            ; edge is right.
+            offYValue = (insetTop + (((this.usableHeight()) - contentH) / 2.0))
         }
         this.clampOffset()
     }
@@ -342,7 +410,9 @@ class RtIos {
         if (started == false) {
             return false
         }
-        return (app.tick(dtMs))
+        def moved:boolean (app.tick(dtMs))
+        this.syncFit()
+        return moved
     }
 
     ; --- input ----------------------------------------------------------------
@@ -372,7 +442,9 @@ class RtIos {
         if ((strlen id) == 0) {
             return true
         }
-        return (app.press(id))
+        def changed:boolean (app.press(id))
+        this.syncFit()
+        return changed
     }
 
     fn cancelPress:boolean () {
@@ -412,6 +484,7 @@ class RtIos {
 
     fn setScene:void (name:string) {
         app.setScene(name)
+        this.syncFit()
     }
 
     fn styleErrorCount:int () {
