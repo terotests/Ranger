@@ -66,7 +66,7 @@ ok("every row is a shape case", rows.every((r) => typeof r.__rg_kind === "string
 const kinds = rows.map((r) => r.__rg_kind.replace("CompactRow_", ""));
 ok("the rows arrive in the order they were written",
    kinds.join(",") ===
-     "Summary,Phase,Section,Duration,Exercise,Exercise,Exercise,Exercise,Exercise,Section,Move,Custom,Text,Text,Text,Text",
+     "Summary,Phase,Section,Duration,Exercise,Exercise,Exercise,Exercise,Exercise,Section,Move,Custom,Text,Text,Text,Text,Circuit,CircuitItem,CircuitItem,CircuitItem,Text",
    kinds.join(","));
 
 // Rows are found by what they ARE and not by where they sit: the fixture is a
@@ -129,6 +129,17 @@ ok("a run derives its pace",
 // gives it one. Assert on the parts.
 const textParts = rows.filter((r) => kindOf(r) === "Text").map((r) => parts(r));
 const sleep = textParts.find((ps) => ps[0]?.text === "Sleep");
+// A circuit's exercises are rows of their own, flattened under their header.
+const circuitItems = rows.filter((r) => kindOf(r) === "CircuitItem");
+ok("a circuit's exercises are rows of their own",
+   circuitItems.length === 3 &&
+     CompactStatBuilder.label(circuitItems[0]) === "Penkkipunnerrus" &&
+     spec(circuitItems[0]) === "8@80kg",
+   circuitItems.map((r) => CompactStatBuilder.label(r) + " " + spec(r)).join("|"));
+ok("and the header says how many rounds",
+   spec(rows.find((r) => kindOf(r) === "Circuit")) === "3xcircuit",
+   spec(rows.find((r) => kindOf(r) === "Circuit")));
+
 ok("a life family becomes a line of text",
    sleep?.[0]?.tone === "label" && sleep?.[1]?.text === "7h",
    JSON.stringify(sleep));

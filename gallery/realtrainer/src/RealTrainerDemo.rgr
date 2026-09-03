@@ -182,6 +182,12 @@ treefactory Rt {
     ; --- scene five: the document ---------------------------------------------
     ; Every row of the parsed workout, drawn by its family. This is the row
     ; library with nothing else on top of it.
+    ; The viewport is a CLIPPED box with a scroll offset on it, which is all
+    ; EVG needs: the layout clamps the offset against the content it measured
+    ; and translates the subtree. There is no scrollbar, because a canvas app
+    ; that draws one has to make it work, and a document this long does not
+    ; need one to be readable.
+    tag DocView  EVGElement (props (className "rt-doc-view") (id "rt-doc-view"))
     tag DocList  EVGElement (props (className "rt-doc-list") (id "rt-doc-list")
                                    (role "list") (a11yLabel "Harjoituksen rivit"))
     tag DocRow   EVGElement (props (className "rt-doc-row") (role "listitem"))
@@ -253,6 +259,9 @@ class RealTrainerDemo {
     def workTitle:string ""
     def moveIndex:int 0
     def moveCount:int 0
+    ; How far the document screen is scrolled. The value the app keeps is the
+    ; one the LAYOUT clamped: it knows the content height and this does not.
+    def docScroll:double 0.0
     def doneMoves:int 0
     def timerOn:boolean false
     def timerRunning:boolean false
@@ -1009,6 +1018,9 @@ class RealTrainerDemo {
         if (kind == "split") {
             partsClass = "rt-doc-parts rt-doc-parts-gap"
         }
+        if (kind == "circuit") {
+            partsClass = "rt-doc-parts rt-doc-parts-gap"
+        }
         def parts (tree Rt (DocParts (props (id (rowId + "-parts")) (className partsClass))))
         def list:[StatPart] (CompactStatBuilder.parts(row))
         for list p:StatPart i {
@@ -1031,12 +1043,39 @@ class RealTrainerDemo {
         for rows r:CompactRow i {
             list.addChild((this.documentRow(r i)))
         }
-        main.addChild(list)
+        def view (tree Rt (DocView))
+        view.setAttribute("overflow" "hidden")
+        view.scrollTop = docScroll
+        view.addChild(list)
+        main.addChild(view)
         return (tree Rt
             (Page (props (id "rt-page") (className "rt-page rt-page-dash"))
                 (App
                     (child (this.rail()))
                     (child main))))
+    }
+
+    ; A wheel, a key, a drag — the host says how far and this says whether
+    ; anything moved. Nothing is rebuilt: the tree is the same tree, and only
+    ; the offset on its viewport changed.
+    fn scrollDocument:boolean (delta:double) {
+        if (scene != "document") {
+            return false
+        }
+        def before:double docScroll
+        def next@(mutable):double (docScroll + delta)
+        if (next < 0.0) {
+            next = 0.0
+        }
+        def r:EVGElement (unwrap root)
+        def found@(optional):EVGElement (RealTrainerDemo.byId(r "rt-doc-view"))
+        if found {
+            def v:EVGElement (unwrap found)
+            v.scrollTop = next
+            this.laidOut()
+            docScroll = v.scrollTop
+        }
+        return (docScroll != before)
     }
 
     fn rebuild:void () {
@@ -1117,6 +1156,7 @@ class RealTrainerDemo {
             return
         }
         scene = name
+        docScroll = 0.0
         elapsedMs = 0.0
         hovered = ""
         pressed = ""

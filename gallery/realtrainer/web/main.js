@@ -31,6 +31,18 @@ app.init(REALTRAINER_CSS, REALTRAINER_COMPACT);
 // last frame's list rather than guessing at pixels.
 window.__app = app;
 
+// The wheel, and nothing else about scrolling: how far the document may move
+// is the layout's answer, because it is the half that measured the content.
+stage.addEventListener(
+  "wheel",
+  (e) => {
+    if (app.scrollDocument(e.deltaY)) {
+      e.preventDefault();
+    }
+  },
+  { passive: false },
+);
+
 const W = app.widthPx();
 const H = app.heightPx();
 const dpr = Math.min(2, window.devicePixelRatio || 1);

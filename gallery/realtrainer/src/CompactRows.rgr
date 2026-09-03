@@ -207,6 +207,47 @@ class DurationSpec {
     }
 }
 
+; --- circuits -------------------------------------------------------------
+;
+; A circuit is a header and a list of exercises under it, and the exercises
+; are NOT the exercise family: their spec is written `8@80kg` where an
+; exercise row would say `8x80kg`. Two cases rather than one, and the items
+; are flattened into the row list after their header the same way a move's
+; splits are — a renderer walking rows top to bottom is what every screen
+; here does.
+
+class CircuitItemSpec {
+    def name@(mutable):string ""
+    def hasSets@(mutable):boolean false
+    def sets@(mutable):int 0
+    def hasReps@(mutable):boolean false
+    def reps@(mutable):int 0
+    def hasRepsRight@(mutable):boolean false
+    def repsRight@(mutable):int 0
+    def unit@(mutable):string ""
+    def hasWeight@(mutable):boolean false
+    def weightKg@(mutable):int 0
+    def hasRecovery@(mutable):boolean false
+    def recoveryValue@(mutable):int 0
+    def recoveryUnit@(mutable):string ""
+
+    Constructor () {
+    }
+}
+
+class CircuitSpec {
+    def variant@(mutable):string "circuit"
+    def rounds@(mutable):int 0
+    def hasRoundRest@(mutable):boolean false
+    def roundRestValue@(mutable):int 0
+    def roundRestUnit@(mutable):string ""
+    def note@(mutable):string ""
+    def items:[CircuitItemSpec]
+
+    Constructor () {
+    }
+}
+
 shape CompactRow {
     case Section  { def name:string "" }
     case Text     { def text:string "" }
@@ -219,6 +260,8 @@ shape CompactRow {
     case Custom   { def spec:CustomSpec }
     case Duration { def spec:DurationSpec }
     case Unknown  { def raw:string "" }
+    case Circuit  { def spec:CircuitSpec }
+    case CircuitItem { def spec:CircuitItemSpec }
 }
 
 ; =============================================================================
@@ -693,6 +736,64 @@ class CompactStatBuilder {
         return out
     }
 
+    ; `CircuitRow.tsx`'s `formatRecovery`: a text recovery wins, otherwise the
+    ; value with its unit. A circuit item never carries text, so this is the
+    ; numeric half.
+    sfn circuitRecovery:string (value:int unit:string) {
+        return ((to_string value) + unit)
+    }
+
+    ; The header: how many rounds, which word, and the rest between rounds.
+    sfn circuitParts:[StatPart] (e:CircuitSpec) {
+        def out:[StatPart]
+        push out (new StatPart(((to_string e.rounds) + "x") "default" "spec"))
+        def label@(mutable):string "circuit"
+        if (e.variant == "superset") {
+            label = "superset"
+        }
+        push out (new StatPart(label "muted" "meta"))
+        if (e.hasRoundRest) {
+            push out (new StatPart(("/" + (CompactStatBuilder.circuitRecovery(e.roundRestValue e.roundRestUnit))) "muted" "meta"))
+        }
+        return out
+    }
+
+    ; `formatSpec`: one run, joined with nothing. A set count of one is not
+    ; written — every item in a circuit is done once per round, so saying so
+    ; would be noise on every line.
+    sfn circuitItemSpec:string (e:CircuitItemSpec) {
+        def out@(mutable):string ""
+        if (e.hasSets) {
+            if (e.sets > 1) {
+                out = (out + ((to_string e.sets) + "x"))
+            }
+        }
+        if (e.hasReps) {
+            if (e.hasRepsRight) {
+                out = (out + (((to_string e.reps) + "+") + (to_string e.repsRight)))
+            } {
+                out = (out + (to_string e.reps))
+            }
+            out = (out + e.unit)
+        }
+        if (e.hasWeight) {
+            out = (out + (("@" + (to_string e.weightKg)) + "kg"))
+        }
+        if (e.hasRecovery) {
+            out = (out + ("/" + (CompactStatBuilder.circuitRecovery(e.recoveryValue e.recoveryUnit))))
+        }
+        return out
+    }
+
+    sfn circuitItemParts:[StatPart] (e:CircuitItemSpec) {
+        def out:[StatPart]
+        def spec:string (CompactStatBuilder.circuitItemSpec(e))
+        if ((strlen spec) > 0) {
+            push out (new StatPart(spec "default" "spec"))
+        }
+        return out
+    }
+
     ; `2-3` when a set range was given, `3` when it was not, and "" for a row
     ; with no set count at all.
     sfn setsText:string (e:ExerciseSpec) {
@@ -856,6 +957,14 @@ class CompactStatBuilder {
             Unknown un {
                 push out (new StatPart(un.raw "warn" "meta"))
             }
+            Circuit ci {
+                def cspec2:CircuitSpec (unwrap ci.spec)
+                return (CompactStatBuilder.circuitParts(cspec2))
+            }
+            CircuitItem it {
+                def ispec:CircuitItemSpec (unwrap it.spec)
+                return (CompactStatBuilder.circuitItemParts(ispec))
+            }
         }
         return out
     }
@@ -886,6 +995,8 @@ class CompactStatBuilder {
             Custom cu { return "custom" }
             Duration du { return "duration" }
             Unknown un { return "unknown" }
+            Circuit ci { return "circuit" }
+            CircuitItem it { return "circuitItem" }
         }
         return "unknown"
     }
@@ -933,6 +1044,13 @@ class CompactStatBuilder {
             }
             Unknown un {
                 return ""
+            }
+            Circuit ci {
+                return ""
+            }
+            CircuitItem it {
+                def ispec:CircuitItemSpec (unwrap it.spec)
+                return ispec.name
             }
         }
         return ""
@@ -1441,6 +1559,48 @@ class CompactRowMapper {
                 push rows (new CompactRow.Duration(dspec))
                 continue
             }
+            if (node.type == "circuit") {
+                def ci:CircuitNode (cast node to:CircuitNode)
+                def cspec (new CircuitSpec)
+                cspec.variant = ci.variant
+                cspec.rounds = ci.rounds
+                if (ci.hasRoundRest) {
+                    cspec.hasRoundRest = true
+                    cspec.roundRestValue = ci.roundRestValue
+                    cspec.roundRestUnit = ci.roundRestUnit
+                }
+                if (ci.hasNote) {
+                    cspec.note = ci.note
+                }
+                for ci.exercises item:CircuitExerciseNode ei {
+                    def isp (new CircuitItemSpec)
+                    isp.name = item.name
+                    isp.hasSets = item.hasSets
+                    isp.sets = item.sets
+                    isp.hasReps = item.hasReps
+                    isp.reps = item.reps
+                    isp.hasRepsRight = item.hasRepsRight
+                    isp.repsRight = item.repsRight
+                    if (item.hasUnit) {
+                        isp.unit = item.unit
+                    }
+                    if (item.hasWeightValue) {
+                        isp.hasWeight = true
+                        isp.weightKg = item.weightValue
+                    }
+                    if (item.hasRecovery) {
+                        isp.hasRecovery = true
+                        isp.recoveryValue = item.recoveryValue
+                        isp.recoveryUnit = item.recoveryUnit
+                    }
+                    push cspec.items isp
+                }
+                push rows (new CompactRow.Circuit(cspec))
+                for cspec.items isp2:CircuitItemSpec ii {
+                    push rows (new CompactRow.CircuitItem(isp2))
+                }
+                continue
+            }
             if (node.type == "unknown") {
                 def un:UnknownNode (cast node to:UnknownNode)
                 push rows (new CompactRow.Unknown(un.raw))
@@ -1554,6 +1714,12 @@ class CompactRowEdit {
             Unknown un {
                 return false
             }
+            Circuit ci {
+                return false
+            }
+            CircuitItem it {
+                return false
+            }
         }
         return false
     }
@@ -1593,6 +1759,12 @@ class CompactRowEdit {
             Unknown un {
                 return false
             }
+            Circuit ci {
+                return false
+            }
+            CircuitItem it {
+                return false
+            }
         }
         return false
     }
@@ -1630,6 +1802,12 @@ class CompactRowEdit {
                 return false
             }
             Unknown un {
+                return false
+            }
+            Circuit ci {
+                return false
+            }
+            CircuitItem it {
                 return false
             }
         }
@@ -1672,6 +1850,12 @@ class CompactRowEdit {
             Unknown un {
                 return 0
             }
+            Circuit ci {
+                return 0
+            }
+            CircuitItem it {
+                return 0
+            }
         }
         return 0
     }
@@ -1712,6 +1896,12 @@ class CompactRowEdit {
             Unknown un {
                 return 0
             }
+            Circuit ci {
+                return 0
+            }
+            CircuitItem it {
+                return 0
+            }
         }
         return 0
     }
@@ -1750,6 +1940,12 @@ class CompactRowEdit {
                 return 0
             }
             Unknown un {
+                return 0
+            }
+            Circuit ci {
+                return 0
+            }
+            CircuitItem it {
                 return 0
             }
         }
@@ -1810,6 +2006,10 @@ class CompactRowEdit {
             Duration du {
             }
             Unknown un {
+            }
+            Circuit ci {
+            }
+            CircuitItem it {
             }
         }
     }

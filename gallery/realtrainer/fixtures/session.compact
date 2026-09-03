@@ -17,3 +17,8 @@ Sleep 7h
 Location Kotisali
 Text Weight 78.5kg aamulla
 Text Hyvä fiilis, selkä kesti
+Circuit|3
+> Penkkipunnerrus 8@80kg
+> Kyykky 12@60kg
+> Lankku 30s
+Text Loppufiilis oli hyvä

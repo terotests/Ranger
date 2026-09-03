@@ -997,6 +997,96 @@
     }
    ],
    "oracle": "ts"
+  },
+  "circuit-three-rounds": {
+   "rows": [
+    {
+     "type": "circuit",
+     "parts": [
+      {
+       "text": "3x",
+       "tone": "default",
+       "kind": "spec"
+      },
+      {
+       "text": "circuit",
+       "tone": "muted",
+       "kind": "meta"
+      }
+     ]
+    },
+    {
+     "type": "circuitItem",
+     "parts": [
+      {
+       "text": "8@80kg",
+       "tone": "default",
+       "kind": "spec"
+      }
+     ]
+    },
+    {
+     "type": "circuitItem",
+     "parts": [
+      {
+       "text": "12@60kg",
+       "tone": "default",
+       "kind": "spec"
+      }
+     ]
+    },
+    {
+     "type": "circuitItem",
+     "parts": [
+      {
+       "text": "30s",
+       "tone": "default",
+       "kind": "spec"
+      }
+     ]
+    }
+   ],
+   "oracle": "ts"
+  },
+  "circuit-superset": {
+   "rows": [
+    {
+     "type": "circuit",
+     "parts": [
+      {
+       "text": "4x",
+       "tone": "default",
+       "kind": "spec"
+      },
+      {
+       "text": "superset",
+       "tone": "muted",
+       "kind": "meta"
+      }
+     ]
+    },
+    {
+     "type": "circuitItem",
+     "parts": [
+      {
+       "text": "10@20kg",
+       "tone": "default",
+       "kind": "spec"
+      }
+     ]
+    },
+    {
+     "type": "circuitItem",
+     "parts": [
+      {
+       "text": "10@20kg",
+       "tone": "default",
+       "kind": "spec"
+      }
+     ]
+    }
+   ],
+   "oracle": "ts"
   }
  }
 }

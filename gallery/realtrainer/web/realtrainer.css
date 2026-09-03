@@ -1034,6 +1034,14 @@
   gap: 6px;
 }
 
+.rt-doc-view {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  width: 868px;
+  height: 620px;
+}
+
 .rt-doc-list {
   display: flex;
   flex-direction: column;

@@ -306,7 +306,7 @@ console.log("\n--- the document ---");
 app.press("rt-rail-log");
 ok("the rail opens the document", app.sceneName() === "document", app.sceneName());
 const doc = textsOf(listOf());
-ok("the whole document is drawn", doc.includes("16 riviä"), doc.join("|"));
+ok("the whole document is drawn", doc.includes("21 riviä"), doc.join("|"));
 ok("a summary is drawn", doc.includes("Kova mutta hallittu treeni"), doc.join("|"));
 ok("a phase carries its number", doc.includes("Phase1"), doc.join("|"));
 ok("a duration is drawn", doc.includes("10min") && doc.includes("Alkulämmittely"), doc.join("|"));
@@ -324,8 +324,30 @@ const docTree = JSON.parse(app.a11yJson(1, "")).nodes;
 ok("the list is a list", docTree.some((n) => n.id === "rt-doc-list" && n.role === "list"),
    JSON.stringify(docTree.find((n) => n.id === "rt-doc-list")));
 ok("with an item per row",
-   docTree.filter((n) => n.role === "listitem").length === 16,
+   docTree.filter((n) => n.role === "listitem").length === 21,
    docTree.filter((n) => n.role === "listitem").length + " items");
+
+// A circuit is a header and its exercises, flattened into the list under it.
+ok("a circuit draws its rounds and its variant",
+   doc.includes("3x") && doc.includes("circuit"), doc.join("|"));
+ok("and its exercises are rows of their own",
+   doc.includes("8@80kg") && doc.includes("12@60kg"), doc.join("|"));
+
+// The document scrolls. How far is the LAYOUT's answer — it measured the
+// content — so the app asks for a distance and is told what it got.
+const lastText = () => {
+  const t = listOf().filter((c) => c.k === 3);
+  return t[t.length - 1];
+};
+const bottomBefore = lastText().y;
+ok("the wheel moves the document", app.scrollDocument(200) === true);
+ok("and the rows move with it", lastText().y < bottomBefore,
+   `${bottomBefore} -> ${lastText().y}`);
+ok("it stops at the end", app.scrollDocument(2000) === false, "kept scrolling");
+ok("and comes back to the top",
+   app.scrollDocument(-9999) === true && lastText().y === bottomBefore,
+   `${bottomBefore} -> ${lastText().y}`);
+ok("and stops there too", app.scrollDocument(-100) === false, "kept scrolling");
 
 // And back, because the rail is a navigation and not a one-way door.
 ok("the rail goes home again",

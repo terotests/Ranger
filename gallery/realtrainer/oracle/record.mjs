@@ -202,6 +202,41 @@ function customParts(row) {
     { text: `~${range}${row.unit ?? ""}`, tone: "default", kind: "spec" },
   ];
 }
+/** CircuitRow.tsx: the header, and one row per exercise under it. */
+function circuitRecovery(recovery) {
+  if (!recovery) return null;
+  if (recovery.text) return recovery.text;
+  if (recovery.value != null) {
+    return `${recovery.value}${recovery.max != null ? `-${recovery.max}` : ""}${recovery.unit ?? ""}`;
+  }
+  return null;
+}
+function circuitParts(row) {
+  const parts = [
+    { text: `${row.rounds}x`, tone: "default", kind: "spec" },
+    { text: row.variant === "superset" ? "superset" : "circuit", tone: "muted", kind: "meta" },
+  ];
+  const rest = circuitRecovery(row.roundRest);
+  if (rest) parts.push({ text: `/${rest}`, tone: "muted", kind: "meta" });
+  return parts;
+}
+function circuitItemSpec(item) {
+  const bits = [];
+  if (item.sets != null && item.sets > 1) bits.push(`${item.sets}x`);
+  if (item.reps != null) {
+    bits.push(item.repsRight != null ? `${item.reps}+${item.repsRight}` : `${item.reps}`);
+    if (item.unit) bits.push(item.unit);
+  }
+  if (item.weightKg != null) bits.push(`@${item.weightKg}kg`);
+  const rec = circuitRecovery(item.recovery);
+  if (rec) bits.push(`/${rec}`);
+  return bits.join("");
+}
+function circuitItemParts(item) {
+  const spec = circuitItemSpec(item);
+  return spec ? [{ text: spec, tone: "default", kind: "spec" }] : [];
+}
+
 function unknownParts(row) {
   return [{ text: row.raw, tone: "warn", kind: "meta" }];
 }
@@ -224,6 +259,7 @@ function partsFor(content) {
   if (row.type === "custom") return customParts(row);
   if (row.type === "text") return textParts(row);
   if (row.type === "unknown") return unknownParts(row);
+  if (row.type === "circuit") return circuitParts(row);
   return null;
 }
 
@@ -246,6 +282,14 @@ for (const c of corpus.cases) {
     if (item.type === "tags" || item.type === "emojis" || item.type === "derived") continue;
     const parts = partsFor(item);
     if (parts) rows.push({ type: rowTypeFor(item), parts });
+    // A circuit's exercises are rows of their own on the Ranger side, drawn
+    // under their header, so they are rows of their own here too.
+    if (item.type === "circuit") {
+      const row = lib.compactRowFromParsedContent(item);
+      for (const ex of row.exercises ?? []) {
+        rows.push({ type: "circuitItem", parts: circuitItemParts(ex) });
+      }
+    }
     // A move's splits are rows of their own on the Ranger side, so they are
     // rows of their own here too.
     for (const split of item.splits ?? []) {

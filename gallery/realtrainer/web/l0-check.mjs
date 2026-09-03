@@ -54,6 +54,8 @@ const FAMILY = {
   CompactRow_Custom: "custom",
   CompactRow_Duration: "duration",
   CompactRow_Unknown: "unknown",
+  CompactRow_Circuit: "circuit",
+  CompactRow_CircuitItem: "circuitItem",
 };
 
 let failed = 0;

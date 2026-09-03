@@ -65,6 +65,9 @@
     { "id": "generic-meta", "family": "meta", "dimension": "key-value", "matrix": "2", "oracle": "ts", "row": "> paino: 82kg" },
     { "id": "generic-sport", "family": "sport", "dimension": "taxonomy", "matrix": "2", "oracle": "ts", "row": "Level kuntosali" },
     { "id": "generic-max", "family": "max", "dimension": "pr", "matrix": "2", "oracle": "ts", "row": "Max Penkki 100kg" },
-    { "id": "generic-best", "family": "best", "dimension": "pr", "matrix": "2", "oracle": "ts", "row": "Best 5km 21:30" }
+    { "id": "generic-best", "family": "best", "dimension": "pr", "matrix": "2", "oracle": "ts", "row": "Best 5km 21:30" },
+
+    { "id": "circuit-three-rounds", "family": "circuit", "dimension": "nested", "matrix": "3", "oracle": "ts", "row": "Circuit|3\n> Penkkipunnerrus 8@80kg\n> Kyykky 12@60kg\n> Lankku 30s" },
+    { "id": "circuit-superset", "family": "circuit", "dimension": "variant", "matrix": "3", "oracle": "ts", "row": "Superset|4\n> Hauis 10@20kg\n> Ojentaja 10@20kg" }
   ]
 }

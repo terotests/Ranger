@@ -87,16 +87,17 @@ the oracle went missing. What the recorder imports and what it transcribes from
 the components is written at the top of that file, because move, pyramid and
 split build their parts inside JSX and there is no function to call.
 
-Fifty-three cases, matching part for part. Two more are deliberate deviations —
+Fifty-five cases, matching part for part. Two more are deliberate deviations —
 recorded in the corpus with their reason and printed on every run — and one is
 an `interval`, which that library has no renderer for at all. Both are listed
 rather than left out: a family with no reference is a gap and not a pass, and a
 deviation nobody prints is a difference nobody remembers.
 
-Eleven row types, and every family COMPACT has reaches one of them. That is the
+Thirteen row types, and every family COMPACT has reaches one of them. That is the
 reference's own arrangement and worth knowing before reading the shape: it gives
 a row type of its own only to what it draws specially — section, text, exercise,
-move, pyramid, split, summary, phase, custom, duration, unknown — and turns the
+move, pyramid, split, summary, phase, custom, duration, circuit, unknown — and
+turns the
 fourteen life families into a line of TEXT with a fixed shape (`Sleep 7h`,
 `Expense 45EUR | sali`). So `Sleep` is not a case here either; it is a text row
 whose wording is a port of `fallbackTextForEntry`, family by family, because a
@@ -114,6 +115,12 @@ for the number should not have to find it inside a sentence.
 nothing on top of it: every row the parser produced, drawn by its family. It is
 where a family that renders as a blank line would be obvious, which is the
 reason to have it.
+
+It scrolls, and how far is the LAYOUT's answer rather than the app's: the
+viewport is a clipped box with a `scrollTop` on it, `EVGLayout` clamps that
+offset against the content it measured and translates the subtree, and the app
+reads back what it got. There is no scrollbar — a canvas app that draws one has
+to make it work, and this needs none to be readable.
 
 Whether two runs touch is a property of the family and not a choice the renderer
 makes. `3x5` and `x80kg` are one reading and must not be prised apart; a phase
