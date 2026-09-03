@@ -470,3 +470,162 @@ class CompactRowMapper {
         return ""
     }
 }
+
+; =============================================================================
+; CompactRowEdit — what a screen may change about a row, and what it may ask
+; =============================================================================
+; The steppers on the session screen write HERE and nowhere else. The row is
+; the only copy of the plan, so a stepper that kept its own number would be a
+; second one, and the two would disagree the moment anything else touched the
+; row.
+;
+; Everything is a `match`, so a family that cannot be edited says so by having
+; an arm that does nothing rather than by being forgotten.
+; =============================================================================
+class CompactRowEdit {
+
+    Constructor () {
+    }
+
+    ; A row whose sets and reps are a PLAN a person can still change. A
+    ; measured row is not one: its numbers are a record of what happened, and
+    ; a stepper under it would be offering to edit the past.
+    sfn isPlanned:boolean (row:CompactRow) {
+        match row {
+            Exercise ex {
+                def e:ExerciseSpec (unwrap ex.spec)
+                if (e.specType == "measured") {
+                    return false
+                }
+                return e.hasSets
+            }
+            Section s {
+                return false
+            }
+            Text t {
+                return false
+            }
+        }
+        return false
+    }
+
+    sfn isSection:boolean (row:CompactRow) {
+        match row {
+            Exercise ex {
+                return false
+            }
+            Section s {
+                return true
+            }
+            Text t {
+                return false
+            }
+        }
+        return false
+    }
+
+    sfn isExercise:boolean (row:CompactRow) {
+        match row {
+            Exercise ex {
+                return true
+            }
+            Section s {
+                return false
+            }
+            Text t {
+                return false
+            }
+        }
+        return false
+    }
+
+    sfn sets:int (row:CompactRow) {
+        match row {
+            Exercise ex {
+                def e:ExerciseSpec (unwrap ex.spec)
+                return e.sets
+            }
+            Section s {
+                return 0
+            }
+            Text t {
+                return 0
+            }
+        }
+        return 0
+    }
+
+    sfn reps:int (row:CompactRow) {
+        match row {
+            Exercise ex {
+                def e:ExerciseSpec (unwrap ex.spec)
+                return e.reps
+            }
+            Section s {
+                return 0
+            }
+            Text t {
+                return 0
+            }
+        }
+        return 0
+    }
+
+    sfn weight:int (row:CompactRow) {
+        match row {
+            Exercise ex {
+                def e:ExerciseSpec (unwrap ex.spec)
+                return e.weightKg
+            }
+            Section s {
+                return 0
+            }
+            Text t {
+                return 0
+            }
+        }
+        return 0
+    }
+
+    ; The clamps are what a stepper is FOR: a set count of zero and a negative
+    ; weight are not states this screen can reach. `step` carries the size, so
+    ; weight moves five at a time and reps one.
+    sfn nudge:void (row:CompactRow field:string delta:int) {
+        match row {
+            Exercise ex {
+                def e:ExerciseSpec (unwrap ex.spec)
+                if (field == "sets") {
+                    def next:int (e.sets + delta)
+                    if (next >= 1) {
+                        if (next <= 10) {
+                            e.sets = next
+                            e.hasSets = true
+                        }
+                    }
+                }
+                if (field == "reps") {
+                    def next:int (e.reps + delta)
+                    if (next >= 1) {
+                        if (next <= 30) {
+                            e.reps = next
+                            e.hasReps = true
+                        }
+                    }
+                }
+                if (field == "weight") {
+                    def next:int (e.weightKg + delta)
+                    if (next >= 0) {
+                        if (next <= 200) {
+                            e.weightKg = next
+                            e.hasWeight = (next > 0)
+                        }
+                    }
+                }
+            }
+            Section s {
+            }
+            Text t {
+            }
+        }
+    }
+}

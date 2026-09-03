@@ -85,6 +85,7 @@ Import "../../evg/EVGTransition.rgr"
 Import "../../evg/EVGA11yTree.rgr"
 Import "../../evg/EVGA11yFromTree.rgr"
 Import "../../evg/EVGHitTest.rgr"
+Import "CompactRows.rgr"
 
 treefactory Rt {
     child addChild
@@ -171,7 +172,12 @@ treefactory Rt {
     tag Move     EVGElement (props (className "rt-move"))
     tag MoveHead EVGElement (props (className "rt-move-head"))
     tag MoveName EVGElement (props (className "rt-move-name") (elementType 1))
-    tag MovePlan EVGElement (props (className "rt-move-plan") (id "rt-move-plan") (elementType 1))
+    ; The spec line is a ROW of runs and not one string: the parts a
+    ; CompactStatBuilder returns carry a tone each, and `3x5` and `x90kg` are
+    ; drawn differently on purpose.
+    tag MovePlan EVGElement (props (className "rt-move-plan") (id "rt-move-plan"))
+    tag StatTx   EVGElement (props (className "rt-stat") (elementType 1))
+    tag MoveWhere EVGElement (props (className "rt-move-where") (elementType 1))
     tag Steps    EVGElement (props (className "rt-steps"))
     tag Step     EVGElement (props (className "rt-step"))
     tag StepCap  EVGElement (props (className "rt-step-cap") (elementType 1))
@@ -230,13 +236,13 @@ class RealTrainerDemo {
     def session:ProgressCtl (new ProgressCtl())
 
     ; --- the training session's own state -------------------------------------
-    ;
-    ; Four numbers and two flags. The steppers write the numbers, the timer
-    ; reads one of them, and the display tree is built from them — there is no
-    ; second copy of any of it anywhere.
-    def sets:int 3
-    def reps:int 5
-    def weight:int 40
+    ; The session's content, parsed from COMPACT. There is no second copy of
+    ; the plan anywhere: the steppers write into the row and the spec line is
+    ; built from the row again, so the two cannot drift apart.
+    def rows:[CompactRow]
+    def workTitle:string ""
+    def moveIndex:int 0
+    def moveCount:int 0
     def doneMoves:int 0
     def timerOn:boolean false
     def timerRunning:boolean false
@@ -255,12 +261,74 @@ class RealTrainerDemo {
     Constructor () {
     }
 
-    fn init:void (css:string) {
+    ; The plan arrives as TEXT rather than as a path: a browser has no
+    ; filesystem, and the headless check should read the same bytes the page
+    ; does rather than a fixture of its own.
+    fn init:void (css:string compact:string) {
         def s (new EVGStyleSheet())
         s.parse(css)
         sheet = s
+        this.loadCompact(compact)
         this.setupControls()
         this.rebuild()
+    }
+
+    fn loadCompact:void (compact:string) {
+        rows = (CompactRowMapper.firstWorkoutRows(compact))
+        workTitle = (CompactRowMapper.firstWorkoutTitle(compact))
+        moveCount = 0
+        moveIndex = 0
+        def seen:int 0
+        for rows r:CompactRow i {
+            if (CompactRowEdit.isExercise(r)) {
+                moveCount = (moveCount + 1)
+                if (seen == 0) {
+                    moveIndex = i
+                    seen = 1
+                }
+            }
+        }
+    }
+
+    ; Where the current move sits in the list of moves, counting from one —
+    ; the number a person reads off a paper plan, not the row index.
+    fn moveOrdinal:int () {
+        def n:int 0
+        def i:int 0
+        while (i <= moveIndex) {
+            if (CompactRowEdit.isExercise((at rows i))) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; The section heading above the current move. A plan that says "Pääosa"
+    ; over four exercises says it once, and the screen shows one of them.
+    fn sectionOf:string (index:int) {
+        def out:string ""
+        def i:int 0
+        while (i < index) {
+            def r:CompactRow (at rows i)
+            if (CompactRowEdit.isSection(r)) {
+                out = (CompactStatBuilder.label(r))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The next move, or where we already are when there is no next one.
+    fn advanceMove:void () {
+        def i:int (moveIndex + 1)
+        while (i < (array_length rows)) {
+            if (CompactRowEdit.isExercise((at rows i))) {
+                moveIndex = i
+                return
+            }
+            i = (i + 1)
+        }
     }
 
     ; Every controller's fixed configuration, once. What CHANGES about them —
@@ -327,7 +395,7 @@ class RealTrainerDemo {
 
         session.tid = "rt-session"
         session.name = "Harjoituksen eteneminen"
-        session.maxValue = 2.0
+        session.maxValue = (int2double moveCount)
         session.value = 0.0
     }
 
@@ -765,36 +833,58 @@ class RealTrainerDemo {
                         (StepBtnTx "+")))))
     }
 
-    fn planLine:string () {
-        return ((((((to_string sets) + " × ") + (to_string reps)) + " @ ") + (to_string weight)) + "kg")
-    }
-
     fn moveCard:EVGElement () {
         this.dress(rest)
-        def steps (tree Rt (Steps))
-        steps.addChild((RealTrainerDemo.stepper("rt-sets" "Sarjat" (to_string sets))))
-        steps.addChild((tree Rt (Times "×")))
-        steps.addChild((RealTrainerDemo.stepper("rt-reps" "Toistot" (to_string reps))))
-        steps.addChild((tree Rt (Times "×")))
-        steps.addChild((RealTrainerDemo.stepper("rt-weight" "Paino" ((to_string weight) + "kg"))))
+        def row:CompactRow (at rows moveIndex)
+
+        ; One element per part, and the tone becomes a CLASS — a controller
+        ; writes class names and never a colour, and this card is held to the
+        ; same rule.
+        def plan (tree Rt (MovePlan))
+        def parts:[StatPart] (CompactStatBuilder.parts(row))
+        for parts p:StatPart i {
+            plan.addChild((tree Rt (StatTx (props (className ("rt-stat rt-stat-" + p.tone))) p.text)))
+        }
+
+        def head (tree Rt
+            (MoveHead
+                (MoveName (((to_string (this.moveOrdinal())) + ". ") + (CompactStatBuilder.label(row))))
+                (Spacer)))
+        head.addChild(plan)
+
+        def card (tree Rt (Move (props (id "rt-move"))))
+        card.addChild(head)
+
+        def where:string (this.sectionOf(moveIndex))
+        if ((strlen where) > 0) {
+            card.addChild((tree Rt (MoveWhere where)))
+        }
+
+        ; A measured row records what happened. Steppers under it would be
+        ; offering to edit the past, so the card says what it is instead.
+        if (CompactRowEdit.isPlanned(row)) {
+            def steps (tree Rt (Steps))
+            steps.addChild((RealTrainerDemo.stepper("rt-sets" "Sarjat" (to_string (CompactRowEdit.sets(row))))))
+            steps.addChild((tree Rt (Times "×")))
+            steps.addChild((RealTrainerDemo.stepper("rt-reps" "Toistot" (to_string (CompactRowEdit.reps(row))))))
+            steps.addChild((tree Rt (Times "×")))
+            steps.addChild((RealTrainerDemo.stepper("rt-weight" "Paino" ((to_string (CompactRowEdit.weight(row))) + "kg"))))
+            card.addChild(steps)
+        } {
+            card.addChild((tree Rt (MoveWhere "Mitattu sarja — luvut ovat jo tapahtuneet")))
+        }
 
         def restRow (tree Rt (RestRow))
         restRow.addChild((tree Rt (RestCap "Tauko:")))
         restRow.addChild((unwrap rest.rootEl))
+        card.addChild(restRow)
 
-        def card (tree Rt
-            (Move (props (id "rt-move"))
-                (MoveHead
-                    (MoveName "1. Rinnalleveto")
-                    (Spacer)
-                    (MovePlan (this.planLine())))
-                (child steps)
-                (child restRow)
-                (Actions
-                    (Start
-                        (StartTx "▷  Aloita sarjat"))
-                    (DoneBtn
-                        (DoneTx "✓  Valmis")))))
+        card.addChild((tree Rt
+            (Actions
+                (Start
+                    (StartTx "▷  Aloita sarjat"))
+                (DoneBtn
+                    (DoneTx "✓  Valmis")))))
         return card
     }
 
@@ -827,7 +917,7 @@ class RealTrainerDemo {
 
     fn timerPanel:EVGElement () {
         def col (tree Rt (Col (props (className "rt-timer"))))
-        col.addChild((tree Rt (WorkName "Rinnalleveto")))
+        col.addChild((tree Rt (WorkName (CompactStatBuilder.label((at rows moveIndex))))))
         col.addChild((RealTrainerDemo.dial()))
         col.addChild((tree Rt
             (Actions (props (className "rt-actions rt-timer-actions"))
@@ -847,14 +937,14 @@ class RealTrainerDemo {
         def main (tree Rt (Main (props (className "rt-main rt-main-work"))))
         def top (tree Rt
             (WorkTop
-                (WorkName "Kevyt salitreeni")
+                (WorkName workTitle)
                 (Spacer)
                 (Quit
                     (QuitTx "✕  Keskeytä harjoitus"))))
         main.addChild(top)
         def sub (tree Rt
             (Row (props (className "rt-work-line"))
-                (WorkSub ((to_string doneMoves) + " / 2 liikettä tehty"))))
+                (WorkSub ((((to_string doneMoves) + " / ") + (to_string moveCount)) + " liikettä tehty"))))
         sub.addChild((unwrap session.rootEl))
         main.addChild(sub)
         if timerOn {
@@ -1221,55 +1311,44 @@ class RealTrainerDemo {
             return true
         }
         if (id == "rt-done") {
-            if (doneMoves < 2) {
+            if (doneMoves < moveCount) {
                 doneMoves = (doneMoves + 1)
             }
+            this.advanceMove()
             this.rebuild()
             return true
         }
-        ; The steppers. Every one of them is the same three lines with a
-        ; different field, and the clamps are what a stepper is FOR: a set
-        ; count of zero and a negative weight are not states this screen can
-        ; reach.
+        ; The steppers. Each one nudges a field of the CURRENT ROW and nothing
+        ; else — the clamps live with the row, because a set count of zero is
+        ; not a state the plan can hold either.
+        def row:CompactRow (at rows moveIndex)
         if (id == "rt-sets-down") {
-            if (sets > 1) {
-                sets = (sets - 1)
-            }
+            CompactRowEdit.nudge(row "sets" -1)
             this.rebuild()
             return true
         }
         if (id == "rt-sets-up") {
-            if (sets < 10) {
-                sets = (sets + 1)
-            }
+            CompactRowEdit.nudge(row "sets" 1)
             this.rebuild()
             return true
         }
         if (id == "rt-reps-down") {
-            if (reps > 1) {
-                reps = (reps - 1)
-            }
+            CompactRowEdit.nudge(row "reps" -1)
             this.rebuild()
             return true
         }
         if (id == "rt-reps-up") {
-            if (reps < 30) {
-                reps = (reps + 1)
-            }
+            CompactRowEdit.nudge(row "reps" 1)
             this.rebuild()
             return true
         }
         if (id == "rt-weight-down") {
-            if (weight > 5) {
-                weight = (weight - 5)
-            }
+            CompactRowEdit.nudge(row "weight" -5)
             this.rebuild()
             return true
         }
         if (id == "rt-weight-up") {
-            if (weight < 200) {
-                weight = (weight + 5)
-            }
+            CompactRowEdit.nudge(row "weight" 5)
             this.rebuild()
             return true
         }

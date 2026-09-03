@@ -30,6 +30,10 @@ if (!fs.existsSync(BIN)) {
 const require = createRequire(import.meta.url);
 const { RealTrainerDemo } = require(BIN);
 const CSS = fs.readFileSync(path.join(HERE, "realtrainer.css"), "utf8");
+const COMPACT = fs.readFileSync(
+  path.join(HERE, "..", "fixtures", "session.compact"),
+  "utf8",
+);
 
 let failed = 0;
 const ok = (name, cond, detail) => {
@@ -41,7 +45,7 @@ const ok = (name, cond, detail) => {
 };
 
 const app = new RealTrainerDemo();
-app.init(CSS);
+app.init(CSS, COMPACT);
 
 console.log("--- the stylesheet ---");
 const errs = [];
@@ -220,16 +224,30 @@ console.log("\n--- the training session ---");
 app.press("rt-tabs-tab-dash");
 ok("the rail opens a session",
    app.press("rt-rail-train") === true && app.sceneName() === "session", app.sceneName());
+// The session's content is PARSED. `Exercise Takakyykky|3x5@90kg` in
+// fixtures/session.compact is what the screen names and what it counts, and
+// the spec line arrives as two runs — `3x5` and `x90kg` — because that is
+// what CompactStatBuilder returns and the card draws one element per part.
 let t4 = textsOf(listOf());
-ok("the plan line reads 3 x 5 @ 40kg", t4.includes("3 × 5 @ 40kg"), t4.join("|"));
-// The steppers, and the clamps that are the reason a stepper exists.
+ok("the workout is named by the document", t4.includes("Kontrastivoima"), t4.join("|"));
+ok("the first move is the first exercise row", t4.includes("1. Takakyykky"), t4.join("|"));
+ok("its spec is two parts, not one string",
+   t4.includes("3x5") && t4.includes("x90kg"), t4.join("|"));
+ok("and the section above it is shown", t4.includes("Pääosa"), t4.join("|"));
+ok("the plan's length is counted, not assumed",
+   t4.includes("0 / 5 liikettä tehty"), t4.join("|"));
+
+// The steppers, and the clamps that are the reason a stepper exists. They
+// write into the ROW, so the spec line is rebuilt from the plan rather than
+// from numbers the screen keeps beside it.
 app.press("rt-reps-up");
 app.press("rt-reps-up");
 app.press("rt-weight-up");
 t4 = textsOf(listOf());
-ok("the steppers write the numbers", t4.includes("3 × 7 @ 45kg"), t4.join("|"));
+ok("the steppers write into the row",
+   t4.includes("3x7") && t4.includes("x95kg"), t4.join("|"));
 for (let i = 0; i < 6; i += 1) app.press("rt-sets-down");
-ok("and clamp at one set", textsOf(listOf()).includes("1 × 7 @ 45kg"),
+ok("and clamp at one set", textsOf(listOf()).includes("1x7"),
    textsOf(listOf()).join("|"));
 
 // The rest picker is a RadioGroupCtl, so the timer's length is the
@@ -261,10 +279,26 @@ ok("and says the rest is over",
    textsOf(listOf()).some((t) => t.startsWith("Tauko ohi")), textsOf(listOf()).join("|"));
 ok("done goes back to the exercise",
    app.press("rt-timer-done") === true &&
-     textsOf(listOf()).includes("1 × 7 @ 45kg"), textsOf(listOf()).join("|"));
+     textsOf(listOf()).includes("1x7"), textsOf(listOf()).join("|"));
+// Done counts one off the plan AND moves to the next exercise row, which is
+// the second one in the document rather than the second thing in it: the
+// section heading between them is a row too, and it is not a move.
 ok("and the session's own bar counts exercises",
    app.press("rt-done") === true &&
-     textsOf(listOf()).includes("1 / 2 liikettä tehty"), textsOf(listOf()).join("|"));
+     textsOf(listOf()).includes("1 / 5 liikettä tehty"), textsOf(listOf()).join("|"));
+ok("done moves on to the next exercise",
+   textsOf(listOf()).includes("2. Vauhditon pituus"), textsOf(listOf()).join("|"));
+
+// The fourth exercise is measured — `3x45s,45s,0s`, what was done rather than
+// what was planned. There is nothing on it for a stepper to write, and the
+// card says so instead of offering three that would edit the past.
+app.press("rt-done");
+app.press("rt-done");
+const measured = textsOf(listOf());
+ok("a measured row prints its times", measured.includes("45s, 45s"), measured.join("|"));
+ok("and carries no steppers",
+   !measured.includes("Sarjat") && measured.some((t) => t.startsWith("Mitattu sarja")),
+   measured.join("|"));
 
 console.log("\n--- what a reader is told ---");
 app.press("rt-quit");

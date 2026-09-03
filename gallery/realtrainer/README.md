@@ -67,6 +67,12 @@ npm run rt:parser:check    # fail if the copy is stale  (CI)
 Three families so far — section, text, exercise. Every one that follows makes
 `match` demand an arm.
 
+The session screen is built from this and nothing else. `fixtures/session.compact`
+names the workout, its exercise rows are the moves, the section headings are shown
+above them, and the plan's length is counted rather than assumed. The steppers write
+into the ROW — there is no second copy of the numbers for them to disagree with —
+and the spec line is rebuilt from it, so a press moves what the document says.
+
 A measured row — `Lankku|2x25s,24s`, what was done rather than what was planned —
 prints `25s, 24s`, and a set that measured zero is dropped rather than written as
 `0s`. Reading those numbers needed a change in the parser: they used to be JSON
@@ -79,7 +85,7 @@ which is where every change this demo needs in someone else's source goes.
 The point of this directory is that almost nothing here is a control. Seven of
 them are `gallery/ui`'s — the same controllers the conformance harness measures
 against Radix, dnd-kit and TanStack — and what this app adds is a theme, a
-layout and four screens.
+layout, four screens, and a parser.
 
 | From `gallery/ui` | Doing what here |
 | --- | --- |

@@ -300,8 +300,11 @@ ok("and the session is the scene",
    await page.evaluate("window.__app.sceneName()"));
 await clickId("rt-reps-up");
 await clickId("rt-weight-up");
+// The spec line is rebuilt from the ROW the steppers wrote into, and it
+// arrives as parts: `3x6` and `x95kg` are two runs with two tones.
 const planLine = (await listNow()).filter((c) => c.k === 3).map((c) => c.text);
-ok("the steppers wrote the numbers", planLine.includes("3 × 6 @ 45kg"), planLine.join("|"));
+ok("the steppers wrote into the row",
+   planLine.includes("3x6") && planLine.includes("x95kg"), planLine.join("|"));
 if (pngOut) {
   await page.locator("#stage canvas").screenshot({ path: stem + "-session.png" });
   console.log("  wrote " + stem + "-session.png (the session)");

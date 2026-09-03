@@ -990,11 +990,47 @@
   height: 24px;
 }
 
+/* The spec line is a row of RUNS, one per CompactStatPart, because the parts
+   carry a tone each and `3x5` and `x90kg` are not the same thing said twice.
+   The container is a flex row with no gap: the parts were built to run
+   together, and a gap here would insert a space the format does not have. */
 .rt-move-plan {
-  color: #c2a582;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: baseline;
+  gap: 0px;
+  height: 20px;
+}
+
+.rt-stat {
   font-family: Arial;
   font-size: 14px;
   height: 20px;
+}
+
+.rt-stat-default {
+  color: #c2a582;
+}
+
+/* The load, which is the number a person changes between sessions and the one
+   they look for first. */
+.rt-stat-weight {
+  color: #f0b46a;
+  font-weight: bold;
+}
+
+.rt-stat-muted {
+  color: #8b8177;
+}
+
+/* The section heading a move sits under, and the note a measured row carries
+   where its steppers would be. */
+.rt-move-where {
+  color: #8b8177;
+  font-family: Arial;
+  font-size: 13px;
+  height: 18px;
 }
 
 /* Three steppers on one row, with a multiplication sign between them. */
