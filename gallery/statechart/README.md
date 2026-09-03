@@ -40,6 +40,33 @@ Guards, entry actions and nesting arrive when the machine that needs them does,
 and each arrives with the transition table that proves it. A runtime that grew
 features nobody had a machine for would have no way to know it got them right.
 
+## It takes the shape XState writes
+
+`StatechartJson.load()` reads `createMachine()`'s own config object:
+
+```json
+{ "id": "addWorkoutDialog", "initial": "closed",
+  "context": { "today": "", "inputText": "" },
+  "states": {
+    "closed": { "on": { "OPEN": { "target": "open", "actions": [ … ] } } },
+    "open":   { "on": { "START_SAVING": "saving" } } } }
+```
+
+Structure, state names, event names, targets and the `"EVENT": "target"`
+shorthand are all XState's. A machine is then ONE FILE the app and this can
+both hold, neither a transcription of the other.
+
+The one thing that cannot come across as-is is `assign`: in XState it is a
+FUNCTION, and a function is not data. So assignments are written declaratively
+(below), and `{ "event": "value", "default": { "context": "today" } }` is
+`event.targetDate || today` written down instead of run.
+
+That the config is still the machine is checked, not assumed:
+`npm run rt:machine:config` evaluates the real TypeScript with `xstate`
+stubbed — `createMachine` hands back its config — and diffs the structure:
+states, the events each one handles, and where each goes. It needs the
+monorepo, so it exits 0 and says so where the sources are not checked out.
+
 ## An assignment's source
 
 ```

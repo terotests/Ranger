@@ -168,9 +168,22 @@ siirtymä, ja syy siihen ettei dialogiin kirjoittaminen aja `open`-tilaan uudell
 haarautumista per kone; `planDialog`issa on kuusi tilaa ja 17 tapahtumaa ja `chat`issa
 sisäkkäiset. Määrittelynä sama kone on kuvaus.
 
+**Runner ottaa vastaan saman syötteen.** `StatechartJson.load()` lukee `createMachine()`:n
+oman konfiguraatio-objektin: rakenne, tilanimet, tapahtumanimet, kohteet ja
+`"EVENT": "target"` -lyhenne ovat XStaten. Kone on silloin **yksi tiedosto** jonka molemmat
+puolet voivat pitää, kumpikaan ei toisen transkriptio. Ainoa mikä ei siirry sellaisenaan on
+`assign`: XStatessa se on funktio eikä funktio ole dataa, joten sijoitukset kirjoitetaan
+deklaratiivisesti — `{ "event": "value", "default": { "context": "today" } }` on
+`event.targetDate || today` kirjoitettuna sen sijaan että se ajettaisiin.
+
+Että konfiguraatio yhä *on* se kone, tarkistetaan eikä luoteta: `rt:machine:config` evaluoi
+oikean TypeScriptin `xstate` tyngätettynä (`createMachine` palauttaa konfiguraationsa) ja
+diffaa rakenteen — tilat, kunkin käsittelemät tapahtumat ja kohteet.
+
 Konformanssi ei ole moduulin oma mielipide: `rt:machine` ajaa XState-lähteestä
-transkriboidun taulukon **sekä käsin kirjoitetun portin että runnerin** läpi, ja kaikkien
-kolmen on oltava samaa mieltä. 21 solua, 13 niistä ignoreja, molemmat toteutukset täsmäävät.
+transkriboidun taulukon **kolmen toteutuksen** läpi — käsin kirjoitettu portti, sama kone
+datana, ja XStaten oma konfiguraatio ladattuna — ja kaikkien on oltava samaa mieltä.
+21 solua, 13 niistä ignoreja, kaikki kolme täsmäävät.
 
 ## 3. Vaiheistus
 

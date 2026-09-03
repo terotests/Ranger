@@ -1,0 +1,115 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; StatechartJson — the machine, read from the shape XState writes
+; =============================================================================
+; `createMachine({ id, initial, context, states: { … on: { EVENT: { target,
+; actions } } } })` is the shape every machine in the app is already written
+; in. This reads it. A machine is then ONE FILE that both sides can hold: the
+; TypeScript app runs it through XState, and this runs it through
+; `gallery/statechart`, and neither is a transcription of the other.
+;
+; What cannot come across as-is is `assign`. In XState it is a FUNCTION —
+; `assign(({event}) => ({ targetDate: event.targetDate || today }))` — and a
+; function is not data. So assignments are written declaratively, one object
+; per key, in the four forms the ported machines actually use:
+;
+;   { "value": "x" }                              a literal
+;   { "event": "value" }                          the event's payload
+;   { "context": "today" }                        another context key
+;   { "event": "value", "default": {"context": "today"} }   payload, or that key
+;
+; The last one is `event.targetDate || today` written down instead of run. That
+; is the whole gap between this and the original, and it is a small one: the
+; three machines being ported assign literals, event fields and context fields
+; and nothing else.
+;
+; `"on": { "EVENT": "stateName" }` is accepted as XState accepts it — the
+; shorthand for a target with no actions.
+; =============================================================================
+
+Import "Statechart.rgr"
+Import "../../vela/src/VlJson.rgr"
+
+class StatechartJson {
+
+    Constructor () {
+    }
+
+    ; One assignment descriptor → one ScAssign.
+    sfn assignOf:ScAssign (key:string spec:VlJson) {
+        if (spec.has("event")) {
+            if (spec.has("default")) {
+                def fallback:VlJson (spec.get("default"))
+                if (fallback.has("context")) {
+                    return (ScAssign.of(key "valueOrContext" (fallback.stringOr("context" ""))))
+                }
+                ; A literal fallback is the same shape with the literal in it,
+                ; and the runner has no form for it — a default that is not a
+                ; context key has not come up, and inventing one here would be
+                ; a feature with no machine behind it.
+                return (ScAssign.of(key "value" ""))
+            }
+            return (ScAssign.of(key "value" ""))
+        }
+        if (spec.has("context")) {
+            return (ScAssign.of(key "context" (spec.stringOr("context" ""))))
+        }
+        return (ScAssign.of(key "literal" (spec.stringOr("value" ""))))
+    }
+
+    sfn readActions:void (t:ScTransition actions:VlJson) {
+        def count:int (actions.count())
+        def i@(mutable):int 0
+        while (i < count) {
+            def action:VlJson (actions.at(i))
+            if (action.has("assign")) {
+                def assigns:VlJson (action.get("assign"))
+                for assigns.keys key:string k {
+                    push t.assigns (StatechartJson.assignOf(key (assigns.get(key))))
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn load:Statechart (text:string) {
+        def parser (new VlJsonParser)
+        def root:VlJson (parser.parse(text))
+        def chart (new Statechart)
+        chart.id = (root.stringOr("id" ""))
+        chart.initial = (root.stringOr("initial" ""))
+
+        if (root.has("context")) {
+            def context:VlJson (root.get("context"))
+            for context.keys key:string i {
+                chart.context(key (context.stringOr(key "")))
+            }
+        }
+
+        if (root.has("states") == false) {
+            return chart
+        }
+        def states:VlJson (root.get("states"))
+        for states.keys name:string s {
+            def node:VlJson (states.get(name))
+            def state:ScState (chart.state(name))
+            if (node.has("on")) {
+                def on:VlJson (node.get("on"))
+                for on.keys event:string e {
+                    def spec:VlJson (on.get(event))
+                    ; `"EVENT": "target"` — XState's shorthand.
+                    if (spec.isString()) {
+                        state.on(event (spec.asString()))
+                    } {
+                        def t:ScTransition (state.on(event (spec.stringOr("target" ""))))
+                        if (spec.has("actions")) {
+                            StatechartJson.readActions(t (spec.get("actions")))
+                        }
+                    }
+                }
+            }
+        }
+        return chart
+    }
+}

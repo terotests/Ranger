@@ -1,0 +1,81 @@
+{
+  "_": "The machine itself, in the shape createMachine() takes. Structure, state names, event names and targets are those of frontend/src/machines/addWorkoutDialogMachine.ts. What differs is `assign`: in XState it is a function and a function is not data, so the assignments are written declaratively — `{event, default}` is `event.targetDate || today` written down instead of run.",
+  "id": "addWorkoutDialog",
+  "initial": "closed",
+  "context": {
+    "today": "",
+    "targetDate": "",
+    "targetCalendarId": "",
+    "inputText": "",
+    "error": ""
+  },
+  "states": {
+    "closed": {
+      "on": {
+        "OPEN": {
+          "target": "open",
+          "actions": [
+            { "assign": {
+              "targetDate": { "event": "value", "default": { "context": "today" } },
+              "targetCalendarId": { "value": "" },
+              "inputText": { "value": "" },
+              "error": { "value": "" }
+            } }
+          ]
+        }
+      }
+    },
+    "open": {
+      "on": {
+        "CLOSE": {
+          "target": "closed",
+          "actions": [
+            { "assign": {
+              "targetDate": { "context": "today" },
+              "targetCalendarId": { "value": "" },
+              "inputText": { "value": "" },
+              "error": { "value": "" }
+            } }
+          ]
+        },
+        "SET_TARGET_DATE": {
+          "actions": [ { "assign": { "targetDate": { "event": "value" } } } ]
+        },
+        "SET_INPUT_TEXT": {
+          "actions": [ { "assign": { "inputText": { "event": "value" } } } ]
+        },
+        "START_SAVING": "saving"
+      }
+    },
+    "saving": {
+      "on": {
+        "SAVE_COMPLETE": {
+          "target": "closed",
+          "actions": [
+            { "assign": {
+              "targetDate": { "context": "today" },
+              "targetCalendarId": { "value": "" },
+              "inputText": { "value": "" },
+              "error": { "value": "" }
+            } }
+          ]
+        },
+        "ERROR": {
+          "target": "open",
+          "actions": [ { "assign": { "error": { "event": "value" } } } ]
+        },
+        "CLOSE": {
+          "target": "closed",
+          "actions": [
+            { "assign": {
+              "targetDate": { "context": "today" },
+              "targetCalendarId": { "value": "" },
+              "inputText": { "value": "" },
+              "error": { "value": "" }
+            } }
+          ]
+        }
+      }
+    }
+  }
+}

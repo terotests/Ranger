@@ -39,6 +39,16 @@ if (!fs.existsSync(CHART)) {
   process.exit(3);
 }
 const { AddWorkoutChart } = require_(CHART);
+const JSONBIN = path.join(HERE, "..", "..", "statechart", "bin", "StatechartJson.cjs");
+if (!fs.existsSync(JSONBIN)) {
+  console.error("compiled loader missing — run `npm run rt:machine:build` first");
+  process.exit(3);
+}
+const { StatechartJson, ScRunner } = require_(JSONBIN);
+const machineJson = fs.readFileSync(
+  path.join(HERE, "..", "fixtures", "machines", "addWorkoutDialog.machine.json"),
+  "utf8",
+);
 
 // Two independent readings of one specification. The hand-written port is the
 // machine written out as branches; the chart is the same machine as DATA, run
@@ -60,6 +70,28 @@ const IMPLEMENTATIONS = [
           targetCalendarId: d.targetCalendarId,
           inputText: d.inputText,
           error: d.error,
+        }),
+      };
+    },
+  },
+  {
+    // The machine read from the shape createMachine() takes — one file the
+    // TypeScript app and this could both hold, neither a transcription of the
+    // other.
+    name: "from the config (fixtures/machines/addWorkoutDialog.machine.json)",
+    make: (today) => {
+      const r = new ScRunner();
+      r.start(StatechartJson.load(machineJson));
+      r.set("today", today);
+      r.set("targetDate", today);
+      return {
+        send: (e, v) => r.send(e, v),
+        state: () => r.state,
+        context: () => ({
+          targetDate: r.get("targetDate"),
+          targetCalendarId: r.get("targetCalendarId"),
+          inputText: r.get("inputText"),
+          error: r.get("error"),
         }),
       };
     },

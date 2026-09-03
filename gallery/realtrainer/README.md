@@ -87,11 +87,22 @@ machine calls `new Date()` inside its own reducer, so its reset depends on when
 it ran. Here "today" is handed in by the host — a clock belongs outside a state
 machine for the same reason it belongs outside a workout controller.
 
-The table is run through **two** implementations: the hand-written port, and
-the same machine as DATA on [`gallery/statechart`](../statechart/README.md)'s
-generic runner. Two independent readings of one specification either agree with
-it or one of them is wrong, which is what makes transcribing the table worth
-doing — a single implementation checked against itself could never show that.
+The table is run through **three** implementations:
+
+| | |
+| --- | --- |
+| `src/AddWorkoutDialog.rgr` | the machine hand-written as branches |
+| `src/AddWorkoutChart.rgr` | the same machine as data, on [`gallery/statechart`](../statechart/README.md) |
+| `fixtures/machines/addWorkoutDialog.machine.json` | the config XState itself takes, loaded and run |
+
+Three independent readings of one specification either agree with it or one of
+them is wrong — which is what makes transcribing the table worth doing, and
+what a single implementation checked against itself could never show.
+
+The third one closes the loop, because the config is checked against the real
+machine rather than trusted: `npm run rt:machine:config` evaluates
+`addWorkoutDialogMachine.ts` with `xstate` stubbed and diffs the structure —
+states, the events each handles, and where each goes.
 
 ![the ported dialog](web/shots/realtrainer-dialog.png)
 
