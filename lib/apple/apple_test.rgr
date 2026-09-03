@@ -22,6 +22,7 @@ Import "AppleAppBuilder.rgr"
 Import "AppleSimulator.rgr"
 Import "AppleDevice.rgr"
 Import "AppleSigning.rgr"
+Import "AppleDeviceDoctor.rgr"
 
 class AppleTest {
 
@@ -362,12 +363,13 @@ class AppleTest {
         push rows "Tero iPhone      00008101-001A.coredevice     1A2B3C4D-5E6F-7890-ABCD-EF1234567890   connected            iPhone 14 Pro (iPhone15,2)"
         push rows "Testi iPad Air   00008103-001B.coredevice     99999999-8888-7777-6666-555555555555   available (paired)   iPad Air (iPad13,16)"
         push rows "Vanha iPhone     00008020-001C.coredevice     11111111-2222-3333-4444-555555555555   connected            iPhone 11 (iPhone12,1)"
+        push rows "Rikki iPhone     00008030-001D.coredevice     22222222-3333-4444-5555-666666666666   unavailable          iPhone SE (iPhone14,6)"
         return (join rows "\n")
     }
 
     fn testDevices:void () {
         def all:[AppleDeviceInfo] (AppleDeviceList.parse((this.devicectlFixture())))
-        this.check("three devices are listed" ((array_length all) == 3))
+        this.check("four devices are listed" ((array_length all) == 4))
 
         def first:AppleDeviceInfo (itemAt all 0)
         ; A name with a single space inside it must survive: the fields are
@@ -379,10 +381,20 @@ class AppleTest {
         this.check("a connected device is connected" (first.isConnected()))
 
         def paired:AppleDeviceInfo (itemAt all 1)
-        ; "available (paired)" is a device that is known and not plugged in.
-        ; Installing onto it fails four seconds later, so it is not a candidate.
+        ; "available (paired)" is a device devicectl has no tunnel to at this
+        ; moment. It is not connected, and it IS usable: the tunnel comes up
+        ; when the first real operation asks for it.
         this.check("a paired device is not connected" ((paired.isConnected()) == false))
+        this.check("a paired device is paired" (paired.isPaired()))
+        this.check("and it is usable" (paired.isUsable()))
         this.check("a two-word state survives" (paired.state == "available (paired)"))
+
+        ; "unavailable" contains "available". A substring test that forgot that
+        ; would call this one usable, which is the bug this checks for.
+        def broken:AppleDeviceInfo (itemAt all 3)
+        this.check("an unavailable device says so" (broken.state == "unavailable"))
+        this.check("an unavailable device is not paired" ((broken.isPaired()) == false))
+        this.check("nor usable" ((broken.isUsable()) == false))
 
         ; The header and the separator hold no identifier and fall out.
         def headerCols:[string] (AppleDeviceList.columns("Name             Hostname                     Identifier"))
@@ -393,10 +405,26 @@ class AppleTest {
         def any:AppleDeviceInfo (unwrap anyPick)
         this.check("and it is the first CONNECTED one" (any.name == "Tero iPhone"))
 
-        ; A name that is only on the paired device is not a device you can
-        ; install onto, so it is absent rather than a fallback to another one.
+        ; A paired device is a candidate on its own name: devicectl raises the
+        ; tunnel when it installs.
         def padPick@(optional):AppleDeviceInfo (AppleDeviceList.pick(all "iPad"))
-        this.check("a paired-only name is refused" (null? padPick))
+        this.check("a paired device is picked by name" (!null? padPick))
+        def pad:AppleDeviceInfo (unwrap padPick)
+        this.check("and it is the paired one" (pad.name == "Testi iPad Air"))
+
+        ; ...but an unavailable one is not, by name or by identifier.
+        def brokenPick@(optional):AppleDeviceInfo (AppleDeviceList.pick(all "Rikki"))
+        this.check("an unavailable device is refused" (null? brokenPick))
+
+        ; With nothing connected, the paired device is what "" picks -- the
+        ; case this whole distinction exists for.
+        def onlyPaired:[AppleDeviceInfo]
+        push onlyPaired paired
+        push onlyPaired broken
+        def pairedPick@(optional):AppleDeviceInfo (AppleDeviceList.pick(onlyPaired ""))
+        this.check("a paired device is picked when it is all there is" (!null? pairedPick))
+        def fell:AppleDeviceInfo (unwrap pairedPick)
+        this.check("and the unavailable one is still skipped" (fell.name == "Testi iPad Air"))
 
         def oldPick@(optional):AppleDeviceInfo (AppleDeviceList.pick(all "Vanha"))
         this.check("a named connected device is found" (!null? oldPick))
@@ -521,6 +549,102 @@ class AppleTest {
         this.checkHas("and says why" refused.message "simulator target")
     }
 
+
+    ; ------------------------------------------------------- device details
+
+    ; Real output, trimmed to the fields that decide anything. The bullets and
+    ; the ▿ are Apple's, and are exactly why the parser reads what follows
+    ; "key:" rather than splitting the line up.
+    fn detailsFixture:string () {
+        def rows:[string]
+        push rows "Current device information:"
+        push rows "• identifier: 5FB20F02-191E-5AE6-B2FC-08A9676BCA54"
+        push rows "▿ hardwareProperties:"
+        push rows "    • marketingName: iPhone 16"
+        push rows "    • productType: iPhone17,3"
+        push rows "    • udid: 00008140-00014D340C78801C"
+        push rows "▿ deviceProperties:"
+        push rows "    • ddiServicesAvailable: false"
+        push rows "    • developerModeStatus: enabled"
+        push rows "    • osVersionNumber: 26.3"
+        push rows "▿ connectionProperties:"
+        push rows "    • pairingState: paired"
+        push rows "    • tunnelState: unavailable"
+        return (join rows "\n")
+    }
+
+    fn testDeviceDetails:void () {
+        def d:AppleDeviceDetails (AppleDeviceDetails.parse((this.detailsFixture())))
+        this.check("the developer mode status is read" (d.developerMode == "enabled"))
+        this.check("and answers as a boolean" (d.developerModeEnabled()))
+        this.check("a false ddi is false" (d.ddiAvailable == false))
+        this.check("the tunnel state is read" (d.tunnelState == "unavailable"))
+        this.check("the pairing state is read" (d.pairingState == "paired"))
+        this.check("the os version is read" (d.osVersion == "26.3"))
+        this.check("a value with a space in it survives" (d.marketingName == "iPhone 16"))
+        this.check("the udid is the hardware one" (d.udid == "00008140-00014D340C78801C"))
+
+        ; The two states that matter are read from the same text, so a device
+        ; with the image mounted must not read as one without it.
+        def mounted:AppleDeviceDetails (AppleDeviceDetails.parse("• ddiServicesAvailable: true\n• developerModeStatus: disabled"))
+        this.check("a true ddi is true" (mounted.ddiAvailable))
+        this.check("and developer mode off is off" ((mounted.developerModeEnabled()) == false))
+
+        ; Nothing to read is not a crash, and is not a device that passed.
+        def empty:AppleDeviceDetails (AppleDeviceDetails.parse(""))
+        this.check("no text is no developer mode" ((empty.developerModeEnabled()) == false))
+        this.check("no text is no image" (empty.ddiAvailable == false))
+    }
+
+    ; ---------------------------------------------------------------- doctor
+
+    ; A dry run asks the questions and gets nothing back, which is the same
+    ; shape as a Mac with nothing plugged in -- so the walk can be checked
+    ; without a device, which is the point of the whole file.
+    fn testDoctor:void () {
+        def sh:Shell (new Shell)
+        sh.dryRun = true
+        def doc:AppleDeviceDoctor (new AppleDeviceDoctor (sh))
+        push doc.simulatorHint "  npm run ui:ios:run"
+
+        def ok:boolean (doc.checkDevice())
+        this.check("no device is not a pass" (ok == false))
+        this.check("and it is reported" ((array_length doc.checks) == 1))
+        def c:AppleCheckResult (itemAt doc.checks 0)
+        this.check("as the device check" (c.name == "device"))
+        this.check("which failed" (c.ok == false))
+        this.check("with something to do about it" ((array_length c.remedy) > 0))
+        this.check("the doctor knows it failed" (doc.failed()))
+
+        ; The caller's simulator advice is carried into the remedy, because
+        ; generic code cannot know which npm script runs which port.
+        def hinted:boolean false
+        for c.remedy line:string i {
+            if ((indexOf line "ui:ios:run") >= 0) {
+                hinted = true
+            }
+        }
+        this.check("and the caller's simulator hint is in it" hinted)
+
+        ; The listing was asked for, and the USB bus after it -- the second
+        ; question is what tells a missing cable from a missing pairing.
+        def askedList:boolean false
+        def askedUsb:boolean false
+        for sh.commands cmd:string i {
+            if ((indexOf cmd "devicectl list devices") >= 0) {
+                askedList = true
+            }
+            if ((indexOf cmd "SPUSBDataType") >= 0) {
+                askedUsb = true
+            }
+        }
+        this.check("the device listing was asked for" askedList)
+        this.check("and the USB bus after it" askedUsb)
+
+        this.check("padding fills to the width" ((strlen (AppleDeviceDoctor.pad("ok" 6))) == 6))
+        this.check("and never truncates" ((AppleDeviceDoctor.pad("developer image" 4)) == "developer image"))
+    }
+
     sfn m@(main):void () {
         def t:AppleTest (new AppleTest)
         print "Apple build driver"
@@ -532,6 +656,8 @@ class AppleTest {
         t.testWatchPlan()
         t.testRunPlan()
         t.testDevices()
+        t.testDeviceDetails()
+        t.testDoctor()
         t.testSigning()
         t.testDeviceRunPlan()
         t.testQuoting()

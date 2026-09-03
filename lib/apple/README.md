@@ -26,7 +26,8 @@ npm run apple:test
 | `AppleTarget.rgr` | The four decisions Xcode hides behind a scheme pop-up: the SDK, the triple, the device families, the signing identity |
 | `AppleAppSpec.rgr` | The app as everything but the code — name, bundle id, sources, resources — and the Info.plist writer |
 | `AppleSimulator.rgr` | Reading `xcrun simctl list devices`, as a pure function over its text |
-| `AppleDevice.rgr` | The same for `xcrun devicectl list devices` — the iPhones and iPads on a cable |
+| `AppleDevice.rgr` | The same for `xcrun devicectl list devices`, and for `devicectl device info details` — the iPhones and iPads on a cable, and what each one says about itself |
+| `AppleDeviceDoctor.rgr` | Why the phone will not take the app: the chain from `xcrun` to the provisioning profile, walked in order, with what to do about the first link that is missing |
 | `AppleSigning.rgr` | Finding the identity and the `.mobileprovision`, so nobody types them |
 | `AppleToolchain.rgr` | `xcrun` and the tools it resolves, as methods |
 | `AppleAppBuilder.rgr` | The pipeline: SDK, bundle, plist, swiftc, resources, signing — then boot, install, launch |
@@ -105,9 +106,54 @@ the foreground with its output coming back, which is the whole point of a test
 build on a cable: a device has no console you can otherwise see.
 
 `nameWanted` is a substring of the device name or the identifier `devicectl`
-assigns; `""` takes the first **connected** device. A paired-but-absent one is
-listed by `devicectl` and is not a candidate — installing onto it fails four
-seconds later, and saying which is why is better than that.
+assigns; `""` takes the first **usable** device, preferring one `devicectl`
+already has a tunnel to.
+
+"Usable" is wider than "connected". `devicectl` prints `available (paired)` for
+a device it knows and has no tunnel to *at that moment*, and the tunnel comes up
+by itself the first time anything asks the device something — so such a device
+installs fine, and refusing it is the difference between a build that runs and
+one that stops on a cable that is plugged in. Only `unavailable` is refused.
+Beware that `unavailable` contains `available`: the negative is tested first.
+
+### When it will not install: `AppleDeviceDoctor`
+
+A device build has a long chain in front of it, and every link answers a
+different question with the same silence — nothing installs:
+
+```
+xcrun -> a selected Xcode -> devicectl -> the iphoneos SDK ->
+a cable -> a pairing -> Developer Mode -> a mounted developer disk image ->
+a signing identity -> a provisioning profile that lists THIS device
+```
+
+`AppleDeviceDoctor` walks it and stops at the first link that is not there,
+because every check after a broken one is asking about a machine that does not
+exist. It prints the check, what it found, and what to do — and only the failing
+check gets advice, since a wall of remedies for problems nobody has is how a
+diagnostic stops being read.
+
+```
+$ npm run ui:ios:doctor
+device check
+  ok   xcode-select      /Applications/Xcode.app/Contents/Developer
+  ok   devicectl         present
+  ok   iphoneos SDK      /Applications/Xcode.app/.../iPhoneOS.sdk
+  ok   device            Tero iPhone (iPhone 16) 5FB2... -- available (paired)
+  ok   connection        iPhone 16 iOS 26.3
+  FAIL developer mode    disabled
+```
+
+Two of the links repair themselves, and are therefore repaired rather than
+reported: a device with no tunnel gets one the moment anything asks it
+something, and a device with no developer disk image gets one the first time
+anything wants a developer service. Both look exactly like a broken cable in
+`devicectl list devices`, and neither is — which is why `build_ios.rgr` runs
+the device half of this walk (`preflight`) before `swiftc` rather than letting
+the install fail an hour later.
+
+The one link nothing here can fix is Developer Mode: Apple made it a physical
+confirmation on the device, so the doctor can only say where the setting is.
 
 ### The three things it needs, and where they come from
 
@@ -177,12 +223,16 @@ has bugs in it: **which program, with which arguments, in which order.**
 * the simulator listing, against a fixture with the two traps in it — a device
   name that contains brackets (`iPhone SE (3rd generation)`) and a runtime
   marked unavailable
-* which device gets picked: booted beats not-booted, named beats booted
+* which device gets picked: booted beats not-booted, named beats booted, and a
+  real device that is merely paired beats nothing at all while an `unavailable`
+  one is never picked
+* the fields `devicectl device info details` reports, including that
+  `unavailable` is not read as `available`
 * the whole plan for an iPhone, a watch and a device, including that the plist
   is linted **before** an hour of compiling and that signing is **last**
 * that a path with a space in it survives into the log quoted
 
-151 checks, on JavaScript, Python, Go, Rust, C++, Java and PHP — the same Ranger
+183 checks, on JavaScript, Python, Go, Rust, C++, Java and PHP — the same Ranger
 source, run on seven runtimes.
 
 ## Using it
@@ -256,5 +306,6 @@ iPhone, iPad and Apple Watch app.
 * **Creating a provisioning profile.** Found, matched and used; not created —
   see above.
 * **Wireless device install.** `devicectl` can do it and this asks for the
-  device it is given, so a device paired over the network works if `devicectl`
-  reports it `connected`. Nothing here pairs one.
+  device it is given, so a device paired over the network works as long as
+  `devicectl` lists it at all. Nothing here pairs one — `AppleDeviceDoctor`
+  says how when there is nothing to install onto.
