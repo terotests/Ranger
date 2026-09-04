@@ -63,6 +63,25 @@ through `RenderEffect.createRuntimeShaderEffect`, which is the same stage
 `evg-webgl.js` runs its own version in. It is a translation of that shader, not
 a second one; API 33 and later, a no-op below.
 
+## Scroll layers, and what this painter does not do yet
+
+A clip that can scroll arrives with `layer` set on its PUSH_CLIP — see
+`EVGDisplayList.refreshLayers`. An app that keeps its list across a scroll
+hands the painter the SAME list, with the commands inside that clip already
+moved to where the scroll put them, so `EvgPainter.paint` draws the right
+frame without knowing a layer from any other clip. What the host saves is
+the layout and the list build; what it still pays is rasterising every
+command in the layer, every frame.
+
+The next step, when a long page on a device asks for it, is the one the
+browser painter took: keep what was made from the layer. Here that is a
+`Bitmap` the size of the layer's range, painted once per `buildSeq` through
+a `Canvas` over it, and drawn per frame at the layer's clip with
+`layerShiftX/Y` subtracted from the shift it was painted at — a scroll
+frame is then one `drawBitmap` under the clip and the commands outside the
+layer. The list's `layerFirst`/`layerLast` give the command range; nothing
+else in the list has to change.
+
 ## What the surfaces do not agree on
 
 Both honour clipping and multi-ring even-odd paths, which the software

@@ -13,7 +13,8 @@
 // headless check can drive the same app with a made-up clock and assert on the
 // same picture.
 
-import { renderDisplayList } from "../../evg/gl/evg-webgl.js";
+import { prepareDisplayList } from "../../evg/gl/evg-webgl.js";
+import { listOf, shiftsOf } from "../../evg/gl/evg-list.js";
 import { createA11yMirror, pressAtCentre } from "../../evg/gl/evg-a11y.js";
 import { createTextInputBridge } from "../../evg/gl/evg-textinput.js";
 import { RealTrainerDemo } from "./generated-host.js";
@@ -60,8 +61,11 @@ app.setPointerCoarse(!!(coarseQuery && coarseQuery.matches));
 }
 
 // For anything driving this page from outside — the browser check reads the
-// last frame's list rather than guessing at pixels.
+// last frame's list rather than guessing at pixels. The list is written as
+// JSON when it is asked for and not before: the frame itself never
+// serialises anything.
 window.__app = app;
+Object.defineProperty(window, "__lastList", { get: () => app.displayListJson() });
 
 // Set by anything that changed what is on the screen without drawing it —
 // a scroll, mostly. The loop below draws once for it, however many events
@@ -98,6 +102,8 @@ const dpr = Math.min(2, window.devicePixelRatio || 1);
 function sizeCanvas() {
   W = app.widthPx();
   H = app.heightPx();
+  // A frame is built for a page size; the next paint builds one for this.
+  dropFrame();
   canvas.style.width = W + "px";
   canvas.style.height = H + "px";
   canvas.width = Math.round(W * dpr);
@@ -111,11 +117,17 @@ function sizeCanvas() {
 }
 sizeCanvas();
 
+// `?gl=preserve` keeps the drawn frame readable after the frame ends, which
+// the pixel checks need and a page does not: with it on, the browser cannot
+// hand the frame to the compositor and has to copy it instead, every frame.
+// `?gl=noaa` turns multisampling off, for measuring what it costs on a GPU
+// that minds it; the paths' edges are what it smooths.
+const glMode = params.get("gl") || "";
 const gl = canvas.getContext("webgl2", {
-  antialias: true,
+  antialias: glMode !== "noaa",
   premultipliedAlpha: false,
   stencil: true,
-  preserveDrawingBuffer: true,
+  preserveDrawingBuffer: glMode === "preserve",
 });
 if (!gl) {
   errEl.textContent = "WebGL 2 is not available in this browser.";
@@ -173,14 +185,35 @@ const mirror = createA11yMirror(stage, {
 const MIRROR_MIN_GAP_MS = 250;
 let mirrorDue = 0;
 
+// The frame the painter built from the list it was last given, kept on the
+// card. The app keeps its list across a scroll and moves the layer inside
+// it — `EVGDisplayList.refreshLayers` — so while the list it hands back is
+// the same build, the frame is drawn again with the layers' shifts and
+// nothing is rebuilt: no arrays, no upload, no JSON. A new build makes a new
+// frame. Measured against the page that serialised and re-read the list and
+// rebuilt every buffer per frame, this is what a scroll frame's JavaScript
+// went to: the shifts, the scissors and the draw calls.
+let frame = null;
+let frameList = null;
+let frameSeq = -1;
+function dropFrame() {
+  if (frame) frame.dispose();
+  frame = null;
+  frameList = null;
+}
+
 function paint() {
   if (!gl) return;
   try {
     errEl.textContent = "";
-    const listJson = app.displayListJson();
-    window.__lastList = listJson;
-    const doc = { width: W, height: H, list: JSON.parse(listJson) };
-    window.__lastStats = renderDisplayList(gl, doc, { dpr });
+    const dl = app.display();
+    if (!frame || dl !== frameList || dl.buildSeq !== frameSeq) {
+      dropFrame();
+      frame = prepareDisplayList(gl, { width: W, height: H, list: listOf(dl) }, { dpr });
+      frameList = dl;
+      frameSeq = dl.buildSeq;
+    }
+    window.__lastStats = frame.draw(shiftsOf(dl));
     sceneEl.textContent = app.sceneName();
   } catch (e) {
     errEl.textContent = String((e && e.stack) || e);

@@ -148,6 +148,9 @@ class EVGDrawCmd {
     def rotOriginX:double 0.0
     def rotOriginY:double 0.0
     def hasRotOrigin:boolean false
+    ; On a PUSH_CLIP: which scroll layer this clip opens, 1-based, or 0 for
+    ; a clip that is not one. See `EVGDisplayList.refreshLayers`.
+    def layer:int 0
 
     Constructor () {
     }
@@ -771,6 +774,137 @@ class EVGDisplayList {
     ; The default is one clip height each way, which also covers the shadow of
     ; a box just off the edge.
     def culling:boolean true
+    ; --- SCROLL LAYERS -------------------------------------------------------
+    ;
+    ; A scroll container's clip is a LAYER: the commands between its push
+    ; and its pop are the content the container shows, drawn with the
+    ; overscan above and below, in page coordinates at the offset the
+    ; container had when the list was built. Scrolling the container does
+    ; not need a new list — the same commands, moved by the difference —
+    ; until the offset leaves the range the overscan covered. That is what
+    ; `refreshLayers` does, and it is what lets a host keep this list, and
+    ; whatever it made from it, across a whole fling: a browser keeps its
+    ; vertex buffers on the card and changes one uniform per frame; a
+    ; CoreGraphics or Android painter paints the same commands, moved, and
+    ; pays no layout and no walk.
+    ;
+    ; The commands ARE moved, in place, so a painter that knows nothing of
+    ; layers draws the right frame. A painter that keeps something built from
+    ; the commands — the browser's buffers — reads `layerShiftX/Y`, the total
+    ; move since the build, and applies the part it has not built in.
+    ;
+    ; A layer is recorded only while culling is on: an uncut list is asked for
+    ; by a check that wants every command, and it should not be kept.
+    def buildSeq:int 0
+    def layerEls:[EVGElement]
+    def layerTop:[double]
+    def layerLeft:[double]
+    def layerShiftX:[double]
+    def layerShiftY:[double]
+    def layerCullL:[double]
+    def layerCullT:[double]
+    def layerCullR:[double]
+    def layerCullB:[double]
+    def layerClip:[int]
+    def layerFirst:[int]
+    def layerLast:[int]
+    def layerStack:[int]
+
+    fn layerCount:int () {
+        return (array_length layerEls)
+    }
+
+    ; The layer this container's clip opens, or -1.
+    fn layerFor:int (el:EVGElement) {
+        def i:int 0
+        while (i < (array_length layerEls)) {
+            if ((itemAt layerEls i) == el) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    ; Move every command in a layer's range — the content, the clips inside
+    ; it, the paths — by (dx, dy). The layer's own clip is not in the range:
+    ; the container stays where it is, its content moves.
+    fn shiftRange:void (first:int last:int dx:double dy:double) {
+        def i:int first
+        while (i < last) {
+            def c:EVGDrawCmd (itemAt cmds i)
+            c.x = (c.x + dx)
+            c.y = (c.y + dy)
+            if c.hasRotOrigin {
+                c.rotOriginX = (c.rotOriginX + dx)
+                c.rotOriginY = (c.rotOriginY + dy)
+            }
+            def n:int (array_length c.pts)
+            if (n > 0) {
+                def p:int 0
+                while (p < n) {
+                    set c.pts p ((itemAt c.pts p) + dx)
+                    set c.pts (p + 1) ((itemAt c.pts (p + 1)) + dy)
+                    p = (p + 2)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Bring the layers up to their containers' current offsets. True when
+    ; every layer still covers what its container shows — the list is good
+    ; for this frame, moved — and false when one has scrolled past what was
+    ; built for it, which is the caller's cue to build again.
+    fn refreshLayers:boolean () {
+        def i:int 0
+        while (i < (array_length layerEls)) {
+            def el:EVGElement (itemAt layerEls i)
+            def dy:double ((itemAt layerTop i) - el.scrollTop)
+            def dx:double ((itemAt layerLeft i) - el.scrollLeft)
+            ; The container's clip as it stands — an outer layer may have
+            ; moved it, and moved this layer's built range with it — has to
+            ; sit inside the built range once that range is moved by the
+            ; content's whole shift. Outside it, a row the viewport shows was
+            ; never built.
+            def cp:EVGDrawCmd (itemAt cmds (itemAt layerClip i))
+            if (cp.y < ((itemAt layerCullT i) + dy)) {
+                return false
+            }
+            if ((cp.y + cp.h) > ((itemAt layerCullB i) + dy)) {
+                return false
+            }
+            if (cp.x < ((itemAt layerCullL i) + dx)) {
+                return false
+            }
+            if ((cp.x + cp.w) > ((itemAt layerCullR i) + dx)) {
+                return false
+            }
+            def sx:double (dx - (itemAt layerShiftX i))
+            def sy:double (dy - (itemAt layerShiftY i))
+            if ((sx != 0.0) || (sy != 0.0)) {
+                this.shiftRange((itemAt layerFirst i) (itemAt layerLast i) sx sy)
+                set layerShiftX i dx
+                set layerShiftY i dy
+                ; The layers inside this one moved with its content, and so
+                ; did the ranges they were built for.
+                def j:int (i + 1)
+                while (j < (array_length layerEls)) {
+                    if ((itemAt layerClip j) > (itemAt layerClip i)) {
+                        if ((itemAt layerClip j) < (itemAt layerLast i)) {
+                            set layerCullL j ((itemAt layerCullL j) + sx)
+                            set layerCullR j ((itemAt layerCullR j) + sx)
+                            set layerCullT j ((itemAt layerCullT j) + sy)
+                            set layerCullB j ((itemAt layerCullB j) + sy)
+                        }
+                    }
+                    j = (j + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        return true
+    }
     def overscanBefore:double (0.0 - 1.0)
     def overscanAfter:double (0.0 - 1.0)
     ; The clip in force, and whether there is one. Not a stack: the rectangle
@@ -820,6 +954,20 @@ class EVGDisplayList {
     fn build:void (root:EVGElement) {
         clear cmds
         clear deferredOverlays
+        clear layerEls
+        clear layerTop
+        clear layerLeft
+        clear layerShiftX
+        clear layerShiftY
+        clear layerCullL
+        clear layerCullT
+        clear layerCullR
+        clear layerCullB
+        clear layerClip
+        clear layerFirst
+        clear layerLast
+        clear layerStack
+        buildSeq = (buildSeq + 1)
         cullOn = false
         effectKind = ""
         def noX:[double]
@@ -1402,6 +1550,13 @@ class EVGDisplayList {
         ; scroll container drew its content straight over whatever was beside
         ; it, and the one thing a scrolling box has to do is stay inside itself.
         def clips:boolean (el.clipsContent())
+        ; A clip that can scroll is a layer — see `refreshLayers`.
+        def scrolls:boolean false
+        if (clips && culling) {
+            if (((el.maxScrollTop()) > 0.0) || ((el.maxScrollLeft()) > 0.0)) {
+                scrolls = true
+            }
+        }
         if clips {
             def cp (new EVGDrawCmd())
             cp.kind = 4
@@ -1409,6 +1564,22 @@ class EVGDisplayList {
             cp.y = y
             cp.w = w
             cp.h = h
+            if scrolls {
+                cp.layer = ((array_length layerEls) + 1)
+                push layerStack (array_length layerEls)
+                push layerEls el
+                push layerTop el.scrollTop
+                push layerLeft el.scrollLeft
+                push layerShiftX 0.0
+                push layerShiftY 0.0
+                push layerClip (array_length cmds)
+                push layerFirst ((array_length cmds) + 1)
+                push layerLast ((array_length cmds) + 1)
+                push layerCullL 0.0
+                push layerCullT 0.0
+                push layerCullR 0.0
+                push layerCullB 0.0
+            }
             this.addCmd(cp)
         }
         ; The clip narrows what is worth walking, and it is restored on the
@@ -1439,6 +1610,13 @@ class EVGDisplayList {
             cullTop = t
             cullRight = r
             cullBottom = b
+            if scrolls {
+                def li:int (itemAt layerStack ((array_length layerStack) - 1))
+                set layerCullL li l
+                set layerCullT li t
+                set layerCullR li r
+                set layerCullB li b
+            }
         }
         def i:int 0
         while (i < (el.getChildCount())) {
@@ -1458,6 +1636,11 @@ class EVGDisplayList {
         cullRight = hadR
         cullBottom = hadB
         if clips {
+            if scrolls {
+                def done:int (itemAt layerStack ((array_length layerStack) - 1))
+                set layerLast done (array_length cmds)
+                removeLast layerStack
+            }
             def pp (new EVGDrawCmd())
             pp.kind = 5
             this.addCmd(pp)
@@ -1750,7 +1933,16 @@ class EVGDisplayList {
                 (EVGDisplayList.num(effectLightZ)) + "]")
             out = (out + "},")
         }
-        out = (out + "\"cmds\":[")
+        out = (out + "\"seq\":" + (to_string buildSeq) + ",\"shifts\":[")
+        def si:int 0
+        while (si < (array_length layerEls)) {
+            if (si > 0) {
+                out = (out + ",")
+            }
+            out = (out + "[" + (EVGDisplayList.num((itemAt layerShiftX si))) + "," + (EVGDisplayList.num((itemAt layerShiftY si))) + "]")
+            si = (si + 1)
+        }
+        out = (out + "],\"cmds\":[")
         def i:int 0
         while (i < (array_length cmds)) {
             def c:EVGDrawCmd (itemAt cmds i)
@@ -1758,6 +1950,9 @@ class EVGDisplayList {
                 out = out + ","
             }
             out = out + "{\"k\":" + (to_string c.kind)
+            if (c.layer > 0) {
+                out = out + ",\"layer\":" + (to_string c.layer)
+            }
             if attribute {
                 out = out + ",\"n\":" + (to_string c.node)
             }

@@ -595,6 +595,21 @@ class RealTrainerDemo {
     ; per-frame writers, a size. Those raise this, and this is never argued
     ; with.
     def boxesDirty:boolean true
+    ; THE LIST IS KEPT ACROSS A SCROLL. `display` hands back the list it
+    ; built last time, moved, while every scroll container it holds is still
+    ; inside the range that list was built for — see
+    ; `EVGDisplayList.refreshLayers`. `listDirty` is what says the picture
+    ; changed for a reason other than a scroll: the sheet ran, a transition
+    ; wrote a frame, a scene was rebuilt.
+    def retained@(optional):EVGDisplayList
+    def listDirty:boolean true
+    ; IS ANYTHING IN FLIGHT. `EVGTransition.advanceTree` and `busy` walk the
+    ; whole tree, and `tick` asked both on every frame of a long document
+    ; with nothing moving in it — two walks of ten thousand elements to find
+    ; no flight. The sheet's pass is where a flight can start, so that is
+    ; where this is asked once; after that a frame walks the tree only while
+    ; the answer was yes, and stops asking when the last flight lands.
+    def flights:boolean false
     ; A scroll since the last frame that `laidOut` has not yet applied. The
     ; offset was written on the container and clamped straight away, so the
     ; caller already knows whether the page moved; the WALK that moves the
@@ -5840,6 +5855,14 @@ class RealTrainerDemo {
                 clear scrolledEls
             }
             scrollPending = true
+            ; A container the kept list has no layer for cannot be moved in
+            ; it: the next frame builds.
+            if retained {
+                def dl:EVGDisplayList (unwrap retained)
+                if ((dl.layerFor(el)) < 0) {
+                    listDirty = true
+                }
+            }
             def known@(mutable):boolean false
             for scrolledEls e:EVGElement i {
                 if (e == el) {
@@ -6116,7 +6139,9 @@ class RealTrainerDemo {
         }
         def r:EVGElement (unwrap root)
         def t:EVGTransition transitions
-        t.advanceTree(r dtMs)
+        if flights {
+            t.advanceTree(r dtMs)
+        }
         if (scene == "session") {
             if timerRunning {
                 timerLeftMs = (timerLeftMs - dtMs)
@@ -6152,7 +6177,15 @@ class RealTrainerDemo {
     ; page out for every frame of a 160ms hover fade was ten full layouts
     ; per hover on a long diary.
     fn inFlight:boolean (t:EVGTransition r:EVGElement) {
-        return (t.busy(r))
+        if (flights == false) {
+            return false
+        }
+        if (t.busy(r)) {
+            listDirty = true
+            return true
+        }
+        flights = false
+        return false
     }
 
     fn setScene:void (name:string) {
@@ -6733,6 +6766,7 @@ class RealTrainerDemo {
                 return kept
             }
         }
+        listDirty = true
         def r:EVGElement (unwrap root)
         def s:EVGStyleSheet (unwrap sheet)
         s.setViewport(pageW pageH coarsePointer)
@@ -6740,6 +6774,7 @@ class RealTrainerDemo {
         s.applyTree(r (this.themeName()))
         def t:EVGTransition transitions
         t.reconcileTree(r)
+        flights = (t.busy(r))
         layoutDirty = false
         ; A pass that wrote only paint — a hover's colours, a pressed row's
         ; background — moved no box, and the sheet says so. The positions
@@ -6800,11 +6835,25 @@ class RealTrainerDemo {
 
     fn setCulling:void (on:boolean) {
         cullOffscreen = on
+        listDirty = true
     }
 
     fn display:EVGDisplayList () {
         def lay:EVGLayout (this.laidOut())
         def r:EVGElement (unwrap root)
+        ; The kept list, moved, while a scroll is all that happened and the
+        ; containers are still inside what it was built for. A frame that
+        ; only scrolled then costs no walk of the tree at all — the layout
+        ; is kept, the list is kept, and a host that keeps what it built
+        ; from the list keeps that too.
+        if ((listDirty == false) && cullOffscreen) {
+            if retained {
+                def kept:EVGDisplayList (unwrap retained)
+                if (kept.refreshLayers()) {
+                    return kept
+                }
+            }
+        }
         def dl (new EVGDisplayList())
         dl.setTextEngine((lay.getTextEngine()))
         dl.setCulling(cullOffscreen)
@@ -6814,20 +6863,23 @@ class RealTrainerDemo {
         if ((cullOffscreen == false) || ((array_length charts) > 0)) {
             r.settleAll()
         }
-        ; THE OVERSCAN FOLLOWS THE THROW. A page in flight is drawn further
-        ; ahead in the direction it is going and less behind, so the rows a
-        ; fast fling arrives at are already there and the ones it has left
-        ; are not paid for. At rest, or under a wheel with no speed to read,
-        ; the list's own default — one height each way — stands.
+        ; THE OVERSCAN IS WHAT THE KEPT LIST LIVES ON: two heights each way
+        ; at rest, and in a fling three ahead and one behind, so a throw
+        ; goes screens between builds and the rows it arrives at are
+        ; already in the list. Under a wheel with no speed to read the two
+        ; are the same.
         def v:double fling.velocity
+        dl.setOverscan((pageH * 2.0) (pageH * 2.0))
         if (v > 0.5) {
-            dl.setOverscan((pageH * 0.5) (pageH * 2.5))
+            dl.setOverscan((pageH * 1.0) (pageH * 3.0))
         }
         if (v < (0.0 - 0.5)) {
-            dl.setOverscan((pageH * 2.5) (pageH * 0.5))
+            dl.setOverscan((pageH * 3.0) (pageH * 1.0))
         }
         dl.build(r)
         this.emitCharts(dl r)
+        retained = dl
+        listDirty = false
         return dl
     }
 
