@@ -362,6 +362,34 @@ Gates: `ui:semantics:check` (11 assertions on the tree) and six more in
 `page-check.mjs` reading the real mirror attributes a screen reader walks,
 including the toggle flipping when clicked.
 
+### P5c — the bench: every field on every page — **done**
+
+The complaint that prompted it was that the fields on the pages do not behave
+like the fields on a shadcn page, while every suite was green. Both true. The
+controller is measured by id and headless; the page gate clicks one field on
+one form. Nothing had ever clicked the other fifteen.
+
+`npm run ui:input:bench` discovers every `textbox` from each page's
+accessibility tree, runs twenty scenarios on it with a real pointer and a real
+keyboard — caret placement, drag, word motion, clipboard, undo, IME, Tab, the
+mirror, masking — and runs the same gestures against a native `<input>` seeded
+with the same value, kind, attributes and font. The matrix, the shadcn/reui
+variant catalogue and the first run's findings are in
+[`demo/INPUT_BENCH.md`](demo/INPUT_BENCH.md).
+
+Five wiring defects on the first run, all of the P1b shape — right in the
+controller, wrong on the page: the number filter dropped `1250.00`'s point the
+moment the field was focused; a click after a `€` prefix or a leading icon
+landed characters to the right of the pointer; the readonly field refused the
+pointer as well as the keyboard; one shared proxy `<input>` let Ctrl+Z reach
+the previous field's history; and the password's eye, a child of a textbox,
+was mirrored inside a void `<input>` and reached no reader. Four fields stay
+red honestly: the calendar's date box, the controls page's quantity, and the
+dialog's two inputs are drawn as textboxes and open no editing session.
+
+Textarea, date picker and OTP are in the catalogue as MISSING. That is the
+list for P5b and Phase 4, and the bench is where they will be scored.
+
 ### P5b — `PasswordCtl` and `OtpCtl`
 
 The two remaining Radix components. `PasswordCtl` is `InputCtl` plus a reveal

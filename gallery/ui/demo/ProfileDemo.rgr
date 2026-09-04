@@ -837,7 +837,7 @@ class ProfileDemo {
             dragField = ""
             return true
         }
-        c.moveTo(idx extend)
+        c.placeCaret(idx extend)
         dragField = target
         this.rebuild()
         return true
@@ -858,7 +858,7 @@ class ProfileDemo {
         if (idx == c.caret) {
             return false
         }
-        c.moveTo(idx true)
+        c.placeCaret(idx true)
         this.rebuild()
         return true
     }
@@ -961,6 +961,13 @@ class ProfileDemo {
         out = (out + ",\"selEnd\":" + (to_string (c.selEnd())))
         out = (out + ",\"kind\":" + (EVGA11yTree.jsonString(c.kind)))
         out = (out + ",\"maxLength\":" + (to_string c.maxLength))
+        ; The placeholder and the disabled flag, for the same reader as the
+        ; rest: a bench that has to know what a field SHOWS when empty, and
+        ; whether a click on it is meant to do anything at all.
+        out = (out + ",\"placeholder\":" + (EVGA11yTree.jsonString(c.placeholder)))
+        if c.disabled {
+            out = (out + ",\"disabled\":true")
+        }
         if c.readOnly {
             out = (out + ",\"readOnly\":true")
         }
@@ -980,9 +987,9 @@ class ProfileDemo {
         if (c.tid != tid) {
             return false
         }
-        if (c.readOnly) {
-            return false
-        }
+        ; Readonly is NOT refused here: `InputCtl.applyEdit` keeps the
+        ; selection and drops the value, which is what the platform's own
+        ; readonly field does.
         if (c.disabled) {
             return false
         }

@@ -61,43 +61,55 @@
  *        anything that opens a menu. Returning true consumes the key.
  */
 export function createTextInputBridge({ host, canvas, onEdit, onComposition, onKey }) {
-  const own = document.createElement("input");
-  own.type = "text";
+  // ONE PROXY PER SESSION, not one for the page. Chromium keeps an input's
+  // undo history across a programmatic `value` write when the input is not
+  // focused at the time, so a proxy reused from field to field carried the
+  // last field's edits in its history: measured, the third Ctrl+Z in Full
+  // Name — after two had taken back the typed "zz" — restored a state from
+  // the session before it, with the caret at 0. A fourth would have put
+  // another field's text into this one. A fresh element has an empty history,
+  // which is what a fresh field has.
+  const makeProxy = () => {
+    const own = document.createElement("input");
+    own.type = "text";
+    // Off the accessibility tree: the drawn field already has a `textbox` node
+    // with a name and a value, and two text boxes for one control is one too
+    // many for a reader. The proxy is a keyboard fixture, not a control.
+    own.setAttribute("aria-hidden", "true");
+    own.tabIndex = -1;
+    own.autocapitalize = "off";
+    own.autocomplete = "off";
+    own.spellcheck = false;
+    // Positioned over the field rather than off-screen. An off-screen input is
+    // the usual trick and it is wrong on a phone: the browser scrolls to the
+    // focused element and to the composition popup, so an input at -9999px
+    // takes the page with it. Transparent and in place costs nothing and keeps
+    // the IME candidate window next to the text it is composing.
+    Object.assign(own.style, {
+      position: "absolute",
+      opacity: "0",
+      padding: "0",
+      margin: "0",
+      border: "0",
+      outline: "none",
+      background: "transparent",
+      color: "transparent",
+      caretColor: "transparent",
+      zIndex: "1",
+      // It must not take the pointer. Ranger does every hit test and places
+      // every caret; the proxy only needs the keyboard, and it is sitting
+      // exactly on top of the field it serves. Without this it swallows the
+      // pointermove over its own box — measured: the I-beam cursor stopped
+      // appearing the moment a field was focused, because the canvas never saw
+      // the pointer again.
+      pointerEvents: "none",
+    });
+    own.style.display = "none";
+    host.appendChild(own);
+    return own;
+  };
+  let own = makeProxy();
   let el = own;
-  // Off the accessibility tree: the drawn field already has a `textbox` node
-  // with a name and a value, and two text boxes for one control is one too
-  // many for a reader. The proxy is a keyboard fixture, not a control.
-  own.setAttribute("aria-hidden", "true");
-  own.tabIndex = -1;
-  own.autocapitalize = "off";
-  own.autocomplete = "off";
-  own.spellcheck = false;
-  // Positioned over the field rather than off-screen. An off-screen input is
-  // the usual trick and it is wrong on a phone: the browser scrolls to the
-  // focused element and to the composition popup, so an input at -9999px
-  // takes the page with it. Transparent and in place costs nothing and keeps
-  // the IME candidate window next to the text it is composing.
-  Object.assign(own.style, {
-    position: "absolute",
-    opacity: "0",
-    padding: "0",
-    margin: "0",
-    border: "0",
-    outline: "none",
-    background: "transparent",
-    color: "transparent",
-    caretColor: "transparent",
-    zIndex: "1",
-    // It must not take the pointer. Ranger does every hit test and places
-    // every caret; the proxy only needs the keyboard, and it is sitting
-    // exactly on top of the field it serves. Without this it swallows the
-    // pointermove over its own box — measured: the I-beam cursor stopped
-    // appearing the moment a field was focused, because the canvas never saw
-    // the pointer again.
-    pointerEvents: "none",
-  });
-  own.style.display = "none";
-  host.appendChild(own);
 
   let active = null;      // the tid of the field the session belongs to
   let composing = false;
@@ -196,6 +208,14 @@ export function createTextInputBridge({ host, canvas, onEdit, onComposition, onK
       // input for this field when the host has one — then the reader, the
       // keyboard and the pointer all meet in one element and Tab walks on
       // from it to the next control — and the hidden proxy otherwise.
+      // A field of our own gets a NEW proxy — see `makeProxy`. A mirror input
+      // is the host's element and keeps whatever history the host gives it.
+      if (!element) {
+        const fresh = makeProxy();
+        if (el === own) takePointer(own, false);
+        own.remove();
+        own = fresh;
+      }
       const next = element || own;
       if (next !== el) {
         takePointer(el, false);

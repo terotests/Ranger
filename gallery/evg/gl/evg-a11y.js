@@ -304,8 +304,9 @@ export function createA11yMirror(host, { canvas, onActivate, onFocus, scale = 1,
     const b = node.b || [0, 0, 0, 0];
     const parent = hostNode(node, byId);
     const pb = parent ? parent.b || [0, 0, 0, 0] : [0, 0, 0, 0];
-    // Relative to the parent, because an absolutely positioned ancestor is the
-    // containing block for everything under it.
+    // Relative to the element this one is placed IN — see `hostNode` — because
+    // an absolutely positioned ancestor is the containing block for everything
+    // under it.
     const left = (b[0] - pb[0]) * scale;
     const top = (b[1] - pb[1]) * scale;
     const w = Math.max(0, b[2] * scale);

@@ -197,6 +197,16 @@ SUITES=(
   # platform text session — paste, undo, IME and a Backspace over a ZWJ
   # family — which cannot be shown anywhere but in a browser.
   ui:demo:page
+  # EVERY TEXT FIELD ON EVERY PAGE, against the browser's own <input>. The
+  # page gate above clicks one field on one form; this one finds the sixteen
+  # fields on five pages from their accessibility trees and runs twenty
+  # scenarios on each — click-to-caret, drag, word motion, clipboard, undo,
+  # IME, Tab, the mirror — with a native input given the same gesture as the
+  # oracle, and scores the matrix against a checked-in baseline. It exists
+  # because the fields on these pages were reported as not behaving like the
+  # fields on a shadcn page while every suite was green: the controller is
+  # measured, the pages that wire it were not.
+  ui:input:bench
   # ISSUES.md #76, and it is a COMPILER check sitting in the gallery runner on
   # purpose. `tests/compiler-issue-76.test.ts` covers the same three fixtures,
   # but no CI job on a pull request runs the full vitest suite — `test:es6`
