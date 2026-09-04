@@ -1,0 +1,6 @@
+
+; Single value in exercise history (mirrors exercise-stats DataPoint).
+class StatsDataPoint {
+  def date:string ""
+  def value:double 0.0
+}

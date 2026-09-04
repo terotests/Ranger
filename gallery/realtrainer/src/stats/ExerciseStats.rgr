@@ -1,0 +1,396 @@
+
+Import "DateExtras.rgr"
+Import "IsoDate/DateMath.rgr"
+Import "CompactWalk.rgr"
+Import "CompactWalkItem.rgr"
+Import "ExerciseStatsTypes.rgr"
+Import "Pace.rgr"
+Import "StatsDataPoint.rgr"
+Import "StatsMath.rgr"
+
+class ExerciseStatsCollector {
+  def summaries:[ExerciseSummary]
+  def filter:string ""
+
+  sfn create:ExerciseStatsCollector (filter:string) {
+    def c:ExerciseStatsCollector (new ExerciseStatsCollector ())
+    c.filter = filter
+    return c
+  }
+}
+
+; Aggregate exercise summaries from COMPACT entries (uses CompactWalk line parser).
+class ExerciseStats {
+
+  sfn normalizeKey:string (name:string) {
+    return (StatsMath.normalizeExerciseName(name))
+  }
+
+  sfn namesMatch:boolean (filter:string key:string) {
+    if ((strlen filter) == 0) {
+      return true
+    }
+    if ((indexOf key filter) >= 0) {
+      return true
+    }
+    if ((indexOf filter key) >= 0) {
+      return true
+    }
+    return false
+  }
+
+  sfn isoWeekKey:string (dateStr:string) {
+    def key:string (DateExtras.isoWeekKey(dateStr))
+    if ((strlen key) > 0) {
+      return key
+    }
+    if ((strlen dateStr) < 10) {
+      return dateStr
+    }
+    return ""
+  }
+
+  sfn findSummaryIndex:int (summaries:[ExerciseSummary] key:string) {
+    def i:int 0
+    while (i < (size summaries)) {
+      def s:ExerciseSummary (at summaries i)
+      if (s.name == key) {
+        return i
+      }
+      i = i + 1
+    }
+    return -1
+  }
+
+  sfn paceIsBetter:boolean (candidate:Pace current:Pace hasCurrent:boolean) {
+    if (hasCurrent == false) {
+      return true
+    }
+    def c:int (StatsMath.paceToSeconds(candidate))
+    def cur:int (StatsMath.paceToSeconds(current))
+    return (c < cur)
+  }
+
+  sfn durationFromWalkItem:int (item:CompactWalkItem) {
+    if (item.durationSeconds > 0) {
+      return item.durationSeconds
+    }
+    if (item.unit == "min") {
+      return (item.reps * 60)
+    }
+    if (item.unit == "s") {
+      return item.reps
+    }
+    return 0
+  }
+
+  sfn categoryFromWalkItem:string (item:CompactWalkItem) {
+    if (item.kind == "move") {
+      return "endurance"
+    }
+    if (item.kind == "duration") {
+      return "bodyweight"
+    }
+    if (item.weight > 0.0) {
+      return "strength"
+    }
+    if (item.unit == "min") {
+      return "bodyweight"
+    }
+    if (item.unit == "s") {
+      return "bodyweight"
+    }
+    return "bodyweight"
+  }
+
+  sfn pushHistory:void (summary:ExerciseSummary date:string value:double) {
+    if ((strlen date) == 0) {
+      return
+    }
+    if (value <= 0.0) {
+      return
+    }
+    def pt:StatsDataPoint (new StatsDataPoint ())
+    pt.date = date
+    pt.value = value
+    push summary.history pt
+  }
+
+  sfn metricValue:double (category:string item:CompactWalkItem rm1:double pace@(optional):Pace duration:int) {
+    if (category == "strength") {
+      if (rm1 > 0.0) {
+        return rm1
+      }
+      return 0.0
+    }
+    if (category == "endurance") {
+      if (!null? pace) {
+        def p:Pace (unwrap pace)
+        return (int2double (StatsMath.paceToSeconds(p)))
+      }
+      return 0.0
+    }
+    if (duration > 0) {
+      return (int2double duration)
+    }
+    return 0.0
+  }
+
+  sfn addWalkItem:void (collector:ExerciseStatsCollector item:CompactWalkItem calendarName:string) {
+    def key:string (ExerciseStats.normalizeKey(item.name))
+    if ((ExerciseStats.namesMatch(collector.filter key)) == false) {
+      return
+    }
+    def category:string (ExerciseStats.categoryFromWalkItem(item))
+    def sets:int item.sets
+    if (sets <= 0) {
+      sets = 1
+    }
+    def reps:int item.reps
+    def weight:double item.weight
+    def duration:int (ExerciseStats.durationFromWalkItem(item))
+    def rm1:double -1.0
+    if (weight > 0.0) {
+      rm1 = (StatsMath.calculateRM1(weight reps))
+    }
+    def tonnage:double (StatsMath.calculateTonnage(sets reps weight))
+    if (item.tonnage > 0.0) {
+      tonnage = item.tonnage
+    }
+    def pace@(optional):Pace
+    if (item.kind == "move") {
+      if (item.durationSeconds > 0) {
+        if (item.distanceMeters > 0.0) {
+          pace = (StatsMath.calculatePace((int2double item.durationSeconds) item.distanceMeters))
+        }
+      }
+    }
+    def metric:double (ExerciseStats.metricValue(category item rm1 pace duration))
+    def idx:int (ExerciseStats.findSummaryIndex(collector.summaries key))
+    if (idx < 0) {
+      def created:ExerciseSummary (new ExerciseSummary ())
+      created.name = key
+      created.displayName = item.name
+      created.category = category
+      created.occurrences = 1
+      if (weight > 0.0) {
+        created.maxWeight = weight
+      }
+      if (rm1 > 0.0) {
+        created.maxRm1 = rm1
+      }
+      if (duration > 0) {
+        created.maxDuration = duration
+      }
+      if (!null? pace) {
+        def bp:Pace (unwrap pace)
+        created.bestPaceMinutes = bp.minutes
+        created.bestPaceSeconds = bp.seconds
+        created.hasBestPace = true
+      }
+      if (item.distanceMeters > 0.0) {
+        created.totalDistance = item.distanceMeters
+      }
+      created.lastDate = item.date
+      (ExerciseStats.pushHistory(created item.date metric))
+      if (tonnage > 0.0) {
+        push created.tonnageDates item.date
+        push created.tonnageValues tonnage
+      }
+      push collector.summaries created
+      return
+    }
+    def existing:ExerciseSummary (at collector.summaries idx)
+    existing.occurrences = existing.occurrences + 1
+    if (weight > 0.0) {
+      if (existing.maxWeight < 0.0) {
+        existing.maxWeight = weight
+      }
+      if (existing.maxWeight >= 0.0) {
+        if (weight > existing.maxWeight) {
+          existing.maxWeight = weight
+        }
+      }
+    }
+    if (rm1 > 0.0) {
+      if (existing.maxRm1 < 0.0) {
+        existing.maxRm1 = rm1
+      }
+      if (existing.maxRm1 >= 0.0) {
+        if (rm1 > existing.maxRm1) {
+          existing.maxRm1 = rm1
+        }
+      }
+    }
+    if (duration > 0) {
+      if (duration > existing.maxDuration) {
+        existing.maxDuration = duration
+      }
+    }
+    if (!null? pace) {
+      def cand:Pace (unwrap pace)
+      def cur:Pace (new Pace ())
+      cur.minutes = existing.bestPaceMinutes
+      cur.seconds = existing.bestPaceSeconds
+      if ((ExerciseStats.paceIsBetter(cand cur existing.hasBestPace))) {
+        existing.bestPaceMinutes = cand.minutes
+        existing.bestPaceSeconds = cand.seconds
+        existing.hasBestPace = true
+      }
+    }
+    if (item.distanceMeters > 0.0) {
+      existing.totalDistance = existing.totalDistance + item.distanceMeters
+    }
+    if ((strlen item.date) > 0) {
+      if ((strlen existing.lastDate) == 0) {
+        existing.lastDate = item.date
+      }
+      if ((strlen existing.lastDate) > 0) {
+        if ((DateMath.compareIso(item.date existing.lastDate)) > 0) {
+          existing.lastDate = item.date
+        }
+      }
+    }
+    (ExerciseStats.pushHistory(existing item.date metric))
+    if (tonnage > 0.0) {
+      push existing.tonnageDates item.date
+      push existing.tonnageValues tonnage
+    }
+  }
+
+  sfn finalizeSummaries:void (summaries:[ExerciseSummary]) {
+    def i:int 0
+    while (i < (size summaries)) {
+      def s:ExerciseSummary (at summaries i)
+      def invert:boolean false
+      if (s.category == "endurance") {
+        invert = true
+      }
+      s.trend = (StatsMath.calculateTrend(s.history invert))
+      if (s.category == "strength") {
+        def total:double 0.0
+        def count:int 0
+        def j:int 0
+        while (j < (size s.tonnageValues)) {
+          def tv:double (at s.tonnageValues j)
+          if (tv > 0.0) {
+            total = total + tv
+            count = count + 1
+          }
+          j = j + 1
+        }
+        if (count > 0) {
+          s.totalTonnage = total
+          s.avgTonnagePerWorkout = (int2double (StatsMath.roundToInt((total / (int2double count)))))
+        }
+      }
+      i = i + 1
+    }
+  }
+
+  sfn findCalendarIndex:int (calendars:[ExerciseStatsCalendar] id:string) {
+    def i:int 0
+    while (i < (size calendars)) {
+      def c:ExerciseStatsCalendar (at calendars i)
+      if (c.id == id) {
+        return i
+      }
+      i = i + 1
+    }
+    return -1
+  }
+
+  sfn collectFromItems:[ExerciseSummary] (calendars:[ExerciseStatsCalendar] batches:[ExerciseStatsParsedItem] options:CollectExercisesOptions) {
+    def filter:string (ExerciseStats.normalizeKey(options.filterName))
+    def collector:ExerciseStatsCollector (ExerciseStatsCollector.create(filter))
+    def i:int 0
+    while (i < (size batches)) {
+      def batch:ExerciseStatsParsedItem (at batches i)
+      def calIdx:int (ExerciseStats.findCalendarIndex(calendars batch.calendarId))
+      if (calIdx < 0) {
+        i = i + 1
+        continue
+      }
+      def calendar:ExerciseStatsCalendar (at calendars calIdx)
+      if (options.excludePlans) {
+        if (calendar.type == "plan") {
+          i = i + 1
+          continue
+        }
+      }
+      def walkItem:CompactWalkItem (unwrap batch.item)
+      (ExerciseStats.addWalkItem(collector walkItem calendar.name))
+      i = i + 1
+    }
+    (ExerciseStats.finalizeSummaries(collector.summaries))
+    return collector.summaries
+  }
+
+  sfn collectFromEntries:[ExerciseSummary] (calendars:[ExerciseStatsCalendar] entries:[ExerciseStatsEntry] options:CollectExercisesOptions) {
+    def filter:string (ExerciseStats.normalizeKey(options.filterName))
+    def collector:ExerciseStatsCollector (ExerciseStatsCollector.create(filter))
+    def c:int 0
+    while (c < (size calendars)) {
+      def cal:ExerciseStatsCalendar (at calendars c)
+      if (options.excludePlans) {
+        if (cal.type == "plan") {
+          c = c + 1
+          continue
+        }
+      }
+      def e:int 0
+      while (e < (size entries)) {
+        def entry:ExerciseStatsEntry (at entries e)
+        if (entry.calendarId == cal.id) {
+          if ((strlen entry.compact) > 0) {
+            def walked:[CompactWalkItem] (CompactWalk.walkCompact(entry.compact entry.date))
+            def w:int 0
+            while (w < (size walked)) {
+              def item:CompactWalkItem (at walked w)
+              (ExerciseStats.addWalkItem(collector item cal.name))
+              w = w + 1
+            }
+          }
+        }
+        e = e + 1
+      }
+      c = c + 1
+    }
+    (ExerciseStats.finalizeSummaries(collector.summaries))
+    return collector.summaries
+  }
+
+  sfn summaryIndexFor:int (summaries:[ExerciseSummary] exerciseName:string) {
+    def key:string (ExerciseStats.normalizeKey(exerciseName))
+    return (ExerciseStats.findSummaryIndex(summaries key))
+  }
+
+  sfn getSummaryAt:ExerciseSummary (summaries:[ExerciseSummary] index:int) {
+    return (at summaries index)
+  }
+
+  sfn countSummaries:int (summaries:[ExerciseSummary]) {
+    return (size summaries)
+  }
+
+  sfn categorizeSummaries:CategorizedExercises (summaries:[ExerciseSummary]) {
+    def result:CategorizedExercises (new CategorizedExercises ())
+    def i:int 0
+    while (i < (size summaries)) {
+      def summary:ExerciseSummary (ExerciseStats.getSummaryAt(summaries i))
+      if (summary.category == "strength") {
+        push result.strength summary
+      }
+      if (summary.category == "endurance") {
+        push result.endurance summary
+      }
+      if (summary.category != "strength") {
+        if (summary.category != "endurance") {
+          push result.bodyweight summary
+        }
+      }
+      i = i + 1
+    }
+    return result
+  }
+}

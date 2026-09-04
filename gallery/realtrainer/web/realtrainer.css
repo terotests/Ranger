@@ -2501,11 +2501,21 @@
 .rt-entry-weight { color: #ff6b35; }
 .rt-entry-muted { color: #94a3b8; }
 .rt-entry-chip { color: #ff6b35; font-family: monospace; font-size: 14px; height: 18px; padding: 4px 10px; border-radius: 6px; background-color: #3a2416; }
-.rt-entry-custom { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 10px; padding: 4px 0px; }
+.rt-entry-customs { display: flex; flex-direction: row; flex-wrap: nowrap; gap: 10px; }
+.rt-entry-custom-lines { display: flex; flex-direction: column; flex-wrap: nowrap; }
+.rt-entry-custom { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 4px; padding: 4px 0px; }
+.rt-entry-run-notes { display: flex; flex-direction: column; flex-wrap: nowrap; margin-left: 42px; }
+.rt-entry-run-note { display: flex; flex-direction: row; flex-wrap: nowrap; gap: 10px; }
+.rt-entry-para-italic { font-style: italic; color: #94a3b8; flex: 1; min-width: 0px; width: auto; }
+.rt-entry-split-no { color: #94a3b8; font-family: Arial; font-size: 13px; height: 18px; }
+.rt-entry-hr-rule { height: 1px; margin: 6px 0px; background-color: #2e2e2e; }
 .rt-entry-band { width: 2px; height: 18px; background-color: #475569; }
 .rt-entry-para { color: #cbd5e1; font-family: Arial; font-size: 13px; width: 100%; padding: 2px 8px; }
 .rt-entry-splits { display: flex; flex-direction: column; flex-wrap: nowrap; margin-left: 42px; }
-.rt-entry-split-line { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 10px; }
+.rt-entry-split-line { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; }
+.rt-entry-split-dist { color: #cbd5e1; font-family: Arial; font-size: 13px; height: 18px; }
+.rt-entry-hr { color: #fda4af; }
+.rt-entry-split-note { color: #94a3b8; font-family: Arial; font-style: italic; font-size: 13px; height: 18px; }
 /* The comment and edit controls stay in the tree for a reader, as the
    original keeps them (it shows them on hover); they take no room and no
    ink for now. */
@@ -2523,3 +2533,14 @@
 .rt-good-3 { color: #fde047; background-color: #3a3210; border-color: #713f12; }
 .rt-good-4 { color: #86efac; background-color: #14351f; border-color: #14532d; }
 .rt-good-5 { color: #6ee7b7; background-color: #0f3328; border-color: #064e3b; }
+/* The band behind a group of custom rows, one height per count. */
+.rt-band-1 { height: 18px; }
+.rt-band-2 { height: 44px; }
+.rt-band-3 { height: 70px; }
+.rt-band-4 { height: 96px; }
+.rt-band-5 { height: 122px; }
+.rt-band-6 { height: 148px; }
+.rt-band-7 { height: 174px; }
+.rt-band-8 { height: 200px; }
+.rt-band-9 { height: 226px; }
+.rt-band-10 { height: 252px; }

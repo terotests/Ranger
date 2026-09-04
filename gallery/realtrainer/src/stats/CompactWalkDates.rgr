@@ -1,0 +1,55 @@
+
+; ISO date helpers for COMPACT walk (subset of CompactMetadata, no chat deps).
+class CompactWalkDates {
+
+  sfn isDigit:boolean (ch:int) {
+    return (ch >= 48 && ch <= 57)
+  }
+
+  sfn looksLikeIsoDateAt:boolean (text:string bracketPos:int) {
+    def len:int (strlen text)
+    if (bracketPos < 0) {
+      return false
+    }
+    if ((bracketPos + 10) >= len) {
+      return false
+    }
+    if ((charAt text bracketPos) != (ccode "[")) {
+      return false
+    }
+    def i:int 1
+    while (i <= 4) {
+      if ((CompactWalkDates.isDigit((charAt text (bracketPos + i)))) == false) {
+        return false
+      }
+      i = i + 1
+    }
+    if ((charAt text (bracketPos + 5)) != 45) {
+      return false
+    }
+    if ((CompactWalkDates.isDigit((charAt text (bracketPos + 6)))) == false) {
+      return false
+    }
+    if ((CompactWalkDates.isDigit((charAt text (bracketPos + 7)))) == false) {
+      return false
+    }
+    if ((charAt text (bracketPos + 8)) != 45) {
+      return false
+    }
+    if ((CompactWalkDates.isDigit((charAt text (bracketPos + 9)))) == false) {
+      return false
+    }
+    if ((CompactWalkDates.isDigit((charAt text (bracketPos + 10)))) == false) {
+      return false
+    }
+    return true
+  }
+
+  sfn extractDateFromCompact:string (compact:string) {
+    def idx:int (indexOf compact "[")
+    if ((CompactWalkDates.looksLikeIsoDateAt(compact idx)) == false) {
+      return ""
+    }
+    return (substring compact (idx + 1) (idx + 11))
+  }
+}

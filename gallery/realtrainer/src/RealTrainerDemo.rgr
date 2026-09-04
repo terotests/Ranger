@@ -92,6 +92,7 @@ Import "ChatHost.rgr"
 Import "RtCalendar.rgr"
 Import "CalendarWizard.rgr"
 Import "RtYearSheet.rgr"
+Import "stats/ExerciseStats.rgr"
 Import "../../ui/src/SelectCtl.rgr"
 Import "../../ui/src/NumberCtl.rgr"
 Import "../../ui/src/InputCtl.rgr"
@@ -328,6 +329,8 @@ treefactory Rt {
     tag EntryNote EVGElement (props (className "rt-entry-note") (elementType 1))
     tag EntryPara EVGElement (props (className "rt-entry-para") (elementType 1) (role "paragraph"))
     tag EntryMono EVGElement (props (className "rt-entry-mono") (elementType 1))
+    tag EntrySplitNo EVGElement (props (className "rt-entry-split-no") (elementType 1))
+    tag EntryRule EVGElement (props (className "rt-entry-hr-rule"))
     tag EntryChip EVGElement (props (className "rt-entry-chip") (elementType 1))
     tag EntryKind EVGElement (props (className "rt-entry-kind") (elementType 1))
     tag CommentBtn EVGElement (props (className "rt-comment-btn") (role "button") (a11yFocusable true))
@@ -3426,7 +3429,9 @@ class RealTrainerDemo {
         ruleRow.addChild((tree Rt (Col (props (className "rt-entry-rule")))))
         card.addChild(ruleRow)
         def timeRow (tree Rt (Row (props (className "rt-entry-center"))))
-        timeRow.addChild((tree Rt (EntryTime (RealTrainerDemo.fiDatePadded(e.date)))))
+        def when@(mutable):string (RealTrainerDemo.fiDatePadded(e.date))
+        if ((strlen entry.time) > 0) { when = ((when + " klo ") + entry.time) }
+        timeRow.addChild((tree Rt (EntryTime when)))
         card.addChild(timeRow)
         def notesRow (tree Rt (Row (props (className "rt-entry-center"))))
         def notes (this.exButton(("rt-entry-notes-" + (to_string i)) "Muistiinpanot" "Muistiinpanot"))
@@ -3447,36 +3452,57 @@ class RealTrainerDemo {
         def moves@(mutable):int 0
         def tonnage@(mutable):int 0
         def folding@(mutable):boolean false
+        def customOpen@(mutable):boolean false
+        def customLines@(mutable):EVGElement (tree Rt (Col (props (className "rt-entry-custom-lines"))))
+        def customBand@(mutable):EVGElement (tree Rt (Col (props (className "rt-entry-band"))))
+        def customCount@(mutable):int 0
+        ; Rows a run took with it — its splits and its note — up to here.
+        def takenUntil@(mutable):int 0
         def rows (tree Rt (Col (props (className "rt-entry-rows"))))
         for doc.rows row:CompactRow ri {
             def kind:string (CompactStatBuilder.kind(row))
             def label:string (CompactStatBuilder.label(row))
             def isMove:boolean (((kind == "exercise") || (kind == "move")) || ((kind == "pyramid") || (kind == "circuitItem")))
             def rowId:string ((to_string i) + ("-" + (to_string ri)))
+            if (ri < takenUntil) { continue }
             if (kind == "split") {
                 ; A split right under its run reads as part of it — the
                 ; original folds it into that row's text, with no buttons of
                 ; its own. One after a line of text stands alone, with the
                 ; comment button a value row gets.
                 if folding { continue }
-                def sline (tree Rt (EntryRow))
-                sline.addChild((tree Rt (EntrySpec (CompactStatBuilder.text(row)))))
-                rows.addChild(sline)
+                def lone (tree Rt (Col (props (className "rt-entry-splits"))))
+                lone.addChild((this.splitLine(row 0)))
+                rows.addChild(lone)
                 rows.addChild((this.commentUnder(rowId)))
                 continue
             }
             folding = isMove
             if (kind == "custom") {
-                ; `Custom.tsx`: a band on the left, the name muted, the value
-                ; in mono after it.
+                ; The custom rows, behind one band as the blog view groups
+                ; them: the name muted, the value after it.
+                if (customOpen == false) {
+                    def group (tree Rt (Row (props (className "rt-entry-customs"))))
+                    customBand = (tree Rt (Col (props (className "rt-entry-band"))))
+                    group.addChild(customBand)
+                    customLines = (tree Rt (Col (props (className "rt-entry-custom-lines"))))
+                    group.addChild(customLines)
+                    rows.addChild(group)
+                    customOpen = true
+                    customCount = 0
+                }
                 def cline (tree Rt (Row (props (className "rt-entry-custom"))))
-                cline.addChild((tree Rt (Col (props (className "rt-entry-band")))))
                 cline.addChild((tree Rt (EntryNote (label + ": "))))
                 cline.addChild((tree Rt (EntryMono (RealTrainerDemo.customValue(row)))))
-                rows.addChild(cline)
-                rows.addChild((this.commentUnder(rowId)))
+                customLines.addChild(cline)
+                customLines.addChild((this.commentUnder(rowId)))
+                customCount = (customCount + 1)
+                def bandN@(mutable):int customCount
+                if (bandN > 10) { bandN = 10 }
+                customBand.className = ("rt-entry-band rt-band-" + (to_string bandN))
                 continue
             }
+            customOpen = false
             if (kind == "duration") {
                 ; `Duration.tsx`: the time as an orange chip, the description
                 ; after it.
@@ -3508,7 +3534,9 @@ class RealTrainerDemo {
                 line.addChild((this.iconBtn(("rt-entry-stats-" + rowId) "Näytä tilastot" (RtIcons.barChart("#999999")))))
                 def col (tree Rt (EntryRowCol))
                 def nameRow (tree Rt (Row (props (className "rt-entry-name-row"))))
-                nameRow.addChild((tree Rt (EntryRowTx label)))
+                def shown@(mutable):string label
+                if (kind == "move") { shown = (RealTrainerDemo.capitalised(label)) }
+                nameRow.addChild((tree Rt (EntryRowTx shown)))
                 if (kind == "pyramid") {
                     nameRow.addChild((tree Rt (EntryKind "pyramid")))
                 }
@@ -3542,25 +3570,55 @@ class RealTrainerDemo {
                     prevWeight = (part.kind == "weight")
                 }
                 rows.addChild(line)
-                ; The splits right under the run, numbered, as `MoveRow`
-                ; lists them behind a band.
+                ; The run takes the splits and the note under it: the splits
+                ; numbered behind a band, as `MoveRow` lists them, and the
+                ; note after them in italics behind its own band, a shade
+                ; lighter than the rows — the original draws the note under
+                ; the run either way.
                 def nSplit@(mutable):int 0
                 def si@(mutable):int (ri + 1)
                 def total:int (array_length doc.rows)
                 def splits (tree Rt (Col (props (className "rt-entry-splits"))))
-                while (si < total) {
+                def notes (tree Rt (Col (props (className "rt-entry-run-notes"))))
+                def nNote@(mutable):int 0
+                def more@(mutable):boolean true
+                while (more && (si < total)) {
                     def next:CompactRow (itemAt doc.rows si)
-                    if ((CompactStatBuilder.kind(next)) != "split") { si = total } {
+                    def nk:string (CompactStatBuilder.kind(next))
+                    if (nk == "split") {
                         nSplit = (nSplit + 1)
-                        def sline (tree Rt (Row (props (className "rt-entry-split-line"))))
-                        sline.addChild((tree Rt (Col (props (className "rt-entry-band")))))
-                        sline.addChild((tree Rt (EntrySpec (((to_string nSplit) + ". ") + (CompactStatBuilder.text(next))))))
-                        splits.addChild(sline)
+                        splits.addChild((this.splitLine(next nSplit)))
+                        if (nNote > 0) {
+                            ; A split after the note is a row of its own to
+                            ; the original, with the comment control a row
+                            ; gets; it keeps that control, hidden like the rest.
+                            notes.addChild((this.commentUnder(((to_string i) + ("-" + (to_string si))))))
+                        }
                         si = (si + 1)
+                    } {
+                        if ((nk == "text") && (nNote == 0)) {
+                            def nline (tree Rt (Row (props (className "rt-entry-run-note"))))
+                            nline.addChild((tree Rt (Col (props (className "rt-entry-band")))))
+                            def nid:string ((to_string i) + ("-" + (to_string si)))
+                            def np (tree Rt (EntryPara (props (id ("rt-entry-text-" + nid))) (CompactStatBuilder.text(next))))
+                            np.className = "rt-entry-para rt-entry-para-italic"
+                            nline.addChild(np)
+                            notes.addChild(nline)
+                            def nacts (tree Rt (Row (props (className "rt-entry-under"))))
+                            nacts.addChild((this.iconBtn(("rt-entry-edit-" + nid) "Muokkaa tekstiä" (RtIcons.penLine("#999999")))))
+                            nacts.addChild((this.commentBtn(nid)))
+                            notes.addChild(nacts)
+                            nNote = 1
+                            si = (si + 1)
+                        } {
+                            more = false
+                        }
                     }
                 }
+                takenUntil = si
                 if (nSplit > 0) { rows.addChild(splits) }
                 rows.addChild((this.commentUnder(rowId)))
+                if (nNote > 0) { rows.addChild(notes) }
                 continue
             }
             if ((kind == "section") || (kind == "phase")) {
@@ -3607,6 +3665,7 @@ class RealTrainerDemo {
             table.addChild(items)
             card.addChild(table)
         }
+        card.addChild((tree Rt (EntryRule)))
         def foot (tree Rt (EntryFoot))
         if (moves > 0) {
             def tons@(mutable):string ((to_string tonnage) + " kg")
@@ -3629,6 +3688,32 @@ class RealTrainerDemo {
         acts.addChild(del)
         card.addChild(acts)
         return card
+    }
+
+    ; A split as `SplitRow` draws it, behind its band: the distance, the
+    ; pace and the duration in mono, the heart rate in rose, the note in
+    ; italic grey — each its own word.
+    fn splitLine:EVGElement (row:CompactRow n:int) {
+        def line (tree Rt (Row (props (className "rt-entry-split-line"))))
+        line.addChild((tree Rt (Col (props (className "rt-entry-band")))))
+        if (n > 0) {
+            line.addChild((tree Rt (EntrySplitNo ((to_string n) + "."))))
+        }
+        def parts:[StatPart] (CompactStatBuilder.parts(row))
+        for parts part:StatPart pi {
+            def tx (tree Rt (EntryMono part.text))
+            if (part.kind == "spec") { tx.className = "rt-entry-split-dist" }
+            if (part.tone == "weight") { tx.className = "rt-entry-mono rt-entry-hr" }
+            if (part.tone == "muted") { tx.className = "rt-entry-split-note" }
+            line.addChild(tx)
+        }
+        return line
+    }
+
+    ; The first letter up — "rintauinti" reads "Rintauinti" over its row.
+    sfn capitalised:string (text:string) {
+        if ((strlen text) == 0) { return text }
+        return ((RealTrainerDemo.upper((substring text 0 1))) + (substring text 1 (strlen text)))
     }
 
     ; Capitals, for the letters Finnish uses.

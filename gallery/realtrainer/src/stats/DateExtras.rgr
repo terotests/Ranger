@@ -1,0 +1,36 @@
+
+Import "IsoDate/DateMath.rgr"
+Import "IsoDate/IsoDateParse.rgr"
+Import "IsoDate/IsoCalendar.rgr"
+
+; RealTrainer-facing API — delegates to Ranger IsoDate stdlib.
+class DateExtras {
+
+  sfn toIsoDateOnly:string (value:string) {
+    return (IsoDateParse.toIsoDateOnly(value))
+  }
+
+  sfn datePartsToISO:string (year:int month:int day:int) {
+    return (IsoDateParse.datePartsToISO(year month day))
+  }
+
+  sfn isoDateToYear:int (iso:string) {
+    return (IsoDateParse.isoDateToYear(iso))
+  }
+
+  sfn isoDateToMonth:int (iso:string) {
+    return (IsoDateParse.isoDateToMonth(iso))
+  }
+
+  sfn isoDateToDay:int (iso:string) {
+    return (IsoDateParse.isoDateToDay(iso))
+  }
+
+  sfn getIsoWeekNumber:int (iso:string) {
+    return (IsoCalendar.getIsoWeekNumber(iso))
+  }
+
+  sfn isoWeekKey:string (iso:string) {
+    return (IsoCalendar.isoWeekKey(iso))
+  }
+}

@@ -411,6 +411,8 @@ class RtWeek {
 ; -----------------------------------------------------------------------------
 class RtEntry {
     def title@(mutable):string ""
+    ; "14:34" from a header with a time, or empty.
+    def time@(mutable):string ""
     def tags:[string]
     def emojis@(mutable):string ""
     ; The COMPACT lines that are content rather than the header — what the
@@ -436,8 +438,14 @@ class RtEntry {
                 continue
             }
             if (RtEntry.hasPrefix(line "[")) {
-                ; "[2026-02-10] ## Title" keeps its title after the bracket.
+                ; "[2026-02-10] ## Title" keeps its title after the bracket;
+                ; "[2026-05-07T14:34+03]" the time of day too.
                 def close:int (RtEntry.findIn(line "]"))
+                if (close >= 17) {
+                    if ((substring line 11 12) == "T") {
+                        e.time = (substring line 12 17)
+                    }
+                }
                 if (close >= 0) {
                     def rest:string (RtEntry.trimmed((substring line (close + 1) (strlen line))))
                     if ((RtEntry.hasPrefix(rest "## ")) && ((strlen e.title) == 0)) {

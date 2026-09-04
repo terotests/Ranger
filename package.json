@@ -849,7 +849,7 @@
     "evg:advance:check": "npm run ui:build --silent && node gallery/ui/conformance/oracle/advance_check.mjs",
     "rt:parser:sync": "node gallery/realtrainer/scripts/sync-parser.mjs",
     "rt:parser:check": "node gallery/realtrainer/scripts/sync-parser.mjs --check",
-    "rt:build": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./gallery/realtrainer/src/RealTrainerDemo.rgr -d=./gallery/realtrainer/bin -o=RealTrainerDemo.cjs",
+    "rt:build": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr:./lib node bin/output.js -es6 -nodemodule ./gallery/realtrainer/src/RealTrainerDemo.rgr -d=./gallery/realtrainer/bin -o=RealTrainerDemo.cjs",
     "rt:compact:build": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./gallery/realtrainer/src/CompactRows.rgr -d=./gallery/realtrainer/bin -o=CompactRows.cjs",
     "statechart:build": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./gallery/statechart/src/Statechart.rgr -d=./gallery/statechart/bin -o=Statechart.cjs && RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./gallery/statechart/src/StatechartJson.rgr -d=./gallery/statechart/bin -o=StatechartJson.cjs",
   "statechart:viz:build": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/statechart/demo/statechart_viz.rgr -d=./gallery/statechart/bin -o=statechart_viz.js -nodecli",
