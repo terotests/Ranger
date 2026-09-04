@@ -274,6 +274,17 @@ over a level-3 title, the menu, the tags, and a box per value.
 `home-diary` matches the reference 100 % — 1032 compared nodes per frame,
 in order. Harjoitteet and Tilastot are tabs only; their pages are ahead.
 
+The card is styled after `WorkoutBlogView` and the row components of
+`realtrainer-compact/ui`: the title centred over its short rule, the date
+and the notes button under it, the tags as a pill cloud in the app's
+palette; a section as a brand-coloured bar and capitals; an exercise's
+scheme in mono with the loads in orange — on the same row on a wide page,
+under the name on a narrow one, as `PyramidRow` stacks below `sm`; a timed
+block's time as an orange chip; a custom value behind a band with its
+`~value`; a line of text as a wrapped paragraph; the comment control under
+each row; and the Derived lines last, as `DerivedTable` shows them — the
+value, its unit, its short label and its goodness as a coloured word.
+
 ## Traces: the app itself as the oracle
 
 A machine that passes its transition table can still be wired to the wrong

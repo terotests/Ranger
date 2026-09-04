@@ -326,7 +326,14 @@ treefactory Rt {
     tag EntryRowTx EVGElement (props (className "rt-entry-row-text") (elementType 1))
     tag EntrySection EVGElement (props (className "rt-entry-section") (elementType 1))
     tag EntryNote EVGElement (props (className "rt-entry-note") (elementType 1))
-    tag EntryPara EVGElement (props (className "rt-entry-note") (elementType 1) (role "paragraph"))
+    tag EntryPara EVGElement (props (className "rt-entry-para") (elementType 1) (role "paragraph"))
+    tag EntryMono EVGElement (props (className "rt-entry-mono") (elementType 1))
+    tag EntryChip EVGElement (props (className "rt-entry-chip") (elementType 1))
+    tag EntryKind EVGElement (props (className "rt-entry-kind") (elementType 1))
+    tag CommentBtn EVGElement (props (className "rt-comment-btn") (role "button") (a11yFocusable true))
+    tag CommentBtnTx EVGElement (props (className "rt-comment-btn-text") (elementType 1))
+    tag DerivedVal EVGElement (props (className "rt-derived-val") (elementType 1))
+    tag DerivedPill EVGElement (props (className "rt-derived-pill") (elementType 1))
     tag MeasHd  EVGElement (props (className "rt-meas-hd") (elementType 1) (role "heading") (a11yLevel 3))
     tag MeasVal EVGElement (props (className "rt-meas-val") (elementType 1))
     tag EntryFoot EVGElement (props (className "rt-entry-foot"))
@@ -3410,15 +3417,29 @@ class RealTrainerDemo {
         addRow.addChild((tree Rt (Spacer)))
         addRow.addChild((this.exButton(("rt-entry-add-" + (to_string i)) "Lisää" "Lisää")))
         card.addChild(addRow)
-        card.addChild((tree Rt (EntryHd (props (id ("rt-entry-hd-" + (to_string i)))) entry.title)))
-        card.addChild((tree Rt (EntryTime (RealTrainerDemo.fiDatePadded(e.date)))))
+        ; The header, centred as the blog view centres it: the title, the
+        ; short rule under it, the date, the notes button.
+        def hdRow (tree Rt (Row (props (className "rt-entry-center"))))
+        hdRow.addChild((tree Rt (EntryHd (props (id ("rt-entry-hd-" + (to_string i)))) entry.title)))
+        card.addChild(hdRow)
+        def ruleRow (tree Rt (Row (props (className "rt-entry-center"))))
+        ruleRow.addChild((tree Rt (Col (props (className "rt-entry-rule")))))
+        card.addChild(ruleRow)
+        def timeRow (tree Rt (Row (props (className "rt-entry-center"))))
+        timeRow.addChild((tree Rt (EntryTime (RealTrainerDemo.fiDatePadded(e.date)))))
+        card.addChild(timeRow)
+        def notesRow (tree Rt (Row (props (className "rt-entry-center"))))
         def notes (this.exButton(("rt-entry-notes-" + (to_string i)) "Muistiinpanot" "Muistiinpanot"))
         notes.className = "rt-ex-btn rt-outline-btn"
-        card.addChild(notes)
+        notesRow.addChild(notes)
+        card.addChild(notesRow)
         if ((array_length entry.tags) > 0) {
             def chips (tree Rt (EntryTags))
+            chips.className = "rt-entry-tags rt-entry-tags-center"
             for entry.tags t:string ti {
-                chips.addChild((tree Rt (EntryTag t)))
+                def chip (tree Rt (EntryTag t))
+                chip.className = ("rt-entry-tag rt-tag-" + (to_string (ti % 8)))
+                chips.addChild(chip)
             }
             card.addChild(chips)
         }
@@ -3426,88 +3447,165 @@ class RealTrainerDemo {
         def moves@(mutable):int 0
         def tonnage@(mutable):int 0
         def folding@(mutable):boolean false
+        def rows (tree Rt (Col (props (className "rt-entry-rows"))))
         for doc.rows row:CompactRow ri {
             def kind:string (CompactStatBuilder.kind(row))
             def label:string (CompactStatBuilder.label(row))
             def isMove:boolean (((kind == "exercise") || (kind == "move")) || ((kind == "pyramid") || (kind == "circuitItem")))
-            def commentOnly@(mutable):boolean ((kind == "custom") || (kind == "duration"))
+            def rowId:string ((to_string i) + ("-" + (to_string ri)))
             if (kind == "split") {
                 ; A split right under its run reads as part of it — the
                 ; original folds it into that row's text, with no buttons of
                 ; its own. One after a line of text stands alone, with the
                 ; comment button a value row gets.
                 if folding { continue }
-                commentOnly = true
+                def sline (tree Rt (EntryRow))
+                sline.addChild((tree Rt (EntrySpec (CompactStatBuilder.text(row)))))
+                rows.addChild(sline)
+                rows.addChild((this.commentUnder(rowId)))
+                continue
             }
-            if (kind != "split") {
-                folding = isMove
+            folding = isMove
+            if (kind == "custom") {
+                ; `Custom.tsx`: a band on the left, the name muted, the value
+                ; in mono after it.
+                def cline (tree Rt (Row (props (className "rt-entry-custom"))))
+                cline.addChild((tree Rt (Col (props (className "rt-entry-band")))))
+                cline.addChild((tree Rt (EntryNote (label + ": "))))
+                cline.addChild((tree Rt (EntryMono (RealTrainerDemo.customValue(row)))))
+                rows.addChild(cline)
+                rows.addChild((this.commentUnder(rowId)))
+                continue
             }
-            if commentOnly {
-                def cline (tree Rt (EntryRow))
-                def ctext@(mutable):string (CompactStatBuilder.text(row))
-                if ((strlen ctext) == 0) { ctext = label }
-                if ((kind == "duration") && ((strlen label) > 0)) { ctext = ((label + " ") + ctext) }
-                cline.addChild((tree Rt (EntryRowTx ctext)))
-                cline.addChild((tree Rt (Spacer)))
-                cline.addChild((this.iconBtn((("rt-entry-comment-" + (to_string i)) + ("-" + (to_string ri))) "Lisää kommentti" (RtIcons.messageSquare("#999999")))))
-                card.addChild(cline)
+            if (kind == "duration") {
+                ; `Duration.tsx`: the time as an orange chip, the description
+                ; after it.
+                def dline (tree Rt (EntryRow))
+                def dparts:[StatPart] (CompactStatBuilder.parts(row))
+                for dparts dp:StatPart di {
+                    if (dp.kind == "duration") {
+                        dline.addChild((tree Rt (EntryChip dp.text)))
+                    } {
+                        dline.addChild((tree Rt (EntryRowTx dp.text)))
+                    }
+                }
+                rows.addChild(dline)
+                rows.addChild((this.commentUnder(rowId)))
                 continue
             }
             if (kind == "text") {
-                def tline (tree Rt (EntryRow))
-                def tcol (tree Rt (EntryRowCol))
-                tcol.addChild((tree Rt (EntryPara (props (id (("rt-entry-text-" + (to_string i)) + ("-" + (to_string ri))))) (CompactStatBuilder.text(row)))))
-                tline.addChild(tcol)
-                tline.addChild((tree Rt (Spacer)))
-                tline.addChild((this.iconBtn((("rt-entry-edit-" + (to_string i)) + ("-" + (to_string ri))) "Muokkaa tekstiä" (RtIcons.penLine("#999999")))))
-                tline.addChild((this.iconBtn((("rt-entry-comment-" + (to_string i)) + ("-" + (to_string ri))) "Lisää kommentti" (RtIcons.messageSquare("#999999")))))
-                card.addChild(tline)
+                rows.addChild((tree Rt (EntryPara (props (id ("rt-entry-text-" + rowId))) (CompactStatBuilder.text(row)))))
+                def tacts (tree Rt (Row (props (className "rt-entry-under"))))
+                tacts.addChild((this.iconBtn(("rt-entry-edit-" + rowId) "Muokkaa tekstiä" (RtIcons.penLine("#999999")))))
+                tacts.addChild((this.commentBtn(rowId)))
+                rows.addChild(tacts)
                 continue
             }
             if isMove {
                 moves = (moves + 1)
                 tonnage = (tonnage + (RealTrainerDemo.tonnageOf(row)))
                 def line (tree Rt (EntryRow))
-                line.addChild((this.iconBtn((("rt-entry-stats-" + (to_string i)) + ("-" + (to_string ri))) "Näytä tilastot" (RtIcons.barChart("#999999")))))
-                ; The name over the spec, as the row is drawn; one node in
-                ; the tree carries both, as the original's text reads.
-                def spec:string (CompactStatBuilder.text(row))
+                line.addChild((this.iconBtn(("rt-entry-stats-" + rowId) "Näytä tilastot" (RtIcons.barChart("#999999")))))
                 def col (tree Rt (EntryRowCol))
-                col.addChild((tree Rt (EntryRowTx label)))
-                if ((strlen spec) > 0) {
-                    col.addChild((tree Rt (EntrySpec spec)))
+                def nameRow (tree Rt (Row (props (className "rt-entry-name-row"))))
+                nameRow.addChild((tree Rt (EntryRowTx label)))
+                if (kind == "pyramid") {
+                    nameRow.addChild((tree Rt (EntryKind "pyramid")))
                 }
-                ; The splits right under the run, numbered, as `Move.tsx`
-                ; lists them.
+                col.addChild(nameRow)
+                line.addChild(col)
+                ; The scheme on the right, as `StatChip` draws it: mono, the
+                ; loads in orange, a gap between a pyramid's sets — and on a
+                ; narrow page under the name, on a wide one on the same row,
+                ; as `PyramidRow` stacks them below `sm`.
+                def parts:[StatPart] (CompactStatBuilder.parts(row))
+                def scheme (tree Rt (Row (props (className "rt-entry-scheme"))))
+                def below:boolean (pageW < 768.0)
+                if below {
+                    line.className = "rt-entry-row rt-entry-row-top"
+                    col.className = "rt-entry-row-col rt-entry-row-col-fill"
+                    scheme.className = "rt-entry-scheme rt-entry-scheme-below"
+                    col.addChild(scheme)
+                } {
+                    line.addChild((tree Rt (Spacer)))
+                    line.addChild(scheme)
+                }
+                def prevWeight@(mutable):boolean false
+                for parts part:StatPart pi {
+                    if (prevWeight && (part.kind == "spec")) {
+                        scheme.addChild((tree Rt (Col (props (className "rt-entry-gap")))))
+                    }
+                    def tx (tree Rt (EntryMono part.text))
+                    if (part.tone == "weight") { tx.className = "rt-entry-mono rt-entry-weight" }
+                    if (part.tone == "muted") { tx.className = "rt-entry-mono rt-entry-muted" }
+                    scheme.addChild(tx)
+                    prevWeight = (part.kind == "weight")
+                }
+                rows.addChild(line)
+                ; The splits right under the run, numbered, as `MoveRow`
+                ; lists them behind a band.
                 def nSplit@(mutable):int 0
                 def si@(mutable):int (ri + 1)
                 def total:int (array_length doc.rows)
+                def splits (tree Rt (Col (props (className "rt-entry-splits"))))
                 while (si < total) {
                     def next:CompactRow (itemAt doc.rows si)
                     if ((CompactStatBuilder.kind(next)) != "split") { si = total } {
                         nSplit = (nSplit + 1)
-                        col.addChild((tree Rt (EntrySpec (((to_string nSplit) + ". ") + (CompactStatBuilder.text(next))))))
+                        def sline (tree Rt (Row (props (className "rt-entry-split-line"))))
+                        sline.addChild((tree Rt (Col (props (className "rt-entry-band")))))
+                        sline.addChild((tree Rt (EntrySpec (((to_string nSplit) + ". ") + (CompactStatBuilder.text(next))))))
+                        splits.addChild(sline)
                         si = (si + 1)
                     }
                 }
-                line.addChild(col)
-                line.addChild((tree Rt (Spacer)))
-                line.addChild((this.iconBtn((("rt-entry-comment-" + (to_string i)) + ("-" + (to_string ri))) "Lisää kommentti" (RtIcons.messageSquare("#999999")))))
-                card.addChild(line)
-            } {
-                if ((kind == "section") || (kind == "phase")) {
-                    card.addChild((tree Rt (EntrySection label)))
-                } {
-                    if ((kind != "unknown") && (kind != "summary")) {
-                        def note@(mutable):string label
-                        def more:string (CompactStatBuilder.text(row))
-                        if ((strlen more) > 0) { note = ((note + " ") + more) }
-                        if ((strlen note) > 0) {
-                            card.addChild((tree Rt (EntryNote note)))
-                        }
-                    }
+                if (nSplit > 0) { rows.addChild(splits) }
+                rows.addChild((this.commentUnder(rowId)))
+                continue
+            }
+            if ((kind == "section") || (kind == "phase")) {
+                ; The section, as the blog view heads it: a bar in the brand
+                ; colour and the name in capitals.
+                def sec (tree Rt (Row (props (className "rt-entry-section-row"))))
+                sec.addChild((tree Rt (Col (props (className "rt-entry-section-bar")))))
+                sec.addChild((tree Rt (EntrySection (RealTrainerDemo.upper(label)))))
+                rows.addChild(sec)
+                continue
+            }
+            if ((kind != "unknown") && (kind != "summary")) {
+                def note@(mutable):string label
+                def more:string (CompactStatBuilder.text(row))
+                if ((strlen more) > 0) { note = ((note + " ") + more) }
+                if ((strlen note) > 0) {
+                    rows.addChild((tree Rt (EntryNote note)))
                 }
             }
+        }
+        card.addChild(rows)
+        ; `DerivedTable`, last: the values the app inferred, each with its
+        ; unit, its label and its goodness.
+        def derived:[RtDerived] (RtDerived.of(e.compact))
+        if ((array_length derived) > 0) {
+            def table (tree Rt (Col (props (className "rt-derived"))))
+            table.addChild((tree Rt (EntryNote "Johdetut arvot")))
+            def items (tree Rt (Row (props (className "rt-derived-items"))))
+            for derived d:RtDerived di {
+                def item (tree Rt (Row (props (className "rt-derived-item"))))
+                item.addChild((tree Rt (DerivedVal d.value)))
+                if ((strlen d.unit) > 0) {
+                    item.addChild((tree Rt (EntryNote d.unit)))
+                }
+                item.addChild((tree Rt (EntryNote (d.label()))))
+                def good:string (d.goodnessLabel())
+                if ((strlen good) > 0) {
+                    def pill (tree Rt (DerivedPill good))
+                    pill.className = ("rt-derived-pill rt-good-" + (to_string d.goodness))
+                    item.addChild(pill)
+                }
+                items.addChild(item)
+            }
+            table.addChild(items)
+            card.addChild(table)
         }
         def foot (tree Rt (EntryFoot))
         if (moves > 0) {
@@ -3531,6 +3629,65 @@ class RealTrainerDemo {
         acts.addChild(del)
         card.addChild(acts)
         return card
+    }
+
+    ; Capitals, for the letters Finnish uses.
+    sfn upper:string (text:string) {
+        def out@(mutable):string ""
+        def i@(mutable):int 0
+        def n:int (strlen text)
+        while (i < n) {
+            def ch:int (charAt text i)
+            def piece@(mutable):string (substring text i (i + 1))
+            if ((ch >= 97) && (ch <= 122)) { piece = (substring "ABCDEFGHIJKLMNOPQRSTUVWXYZ" (ch - 97) (ch - 96)) }
+            if (ch == 228) { piece = "Ä" }
+            if (ch == 246) { piece = "Ö" }
+            if (ch == 229) { piece = "Å" }
+            out = (out + piece)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The comment control under a row, as the blog view hangs it: the ↳ mark
+    ; and the small outlined "Lisää kommentti".
+    fn commentUnder:EVGElement (rowId:string) {
+        def under (tree Rt (Row (props (className "rt-entry-under"))))
+        under.addChild((this.commentBtn(rowId)))
+        return under
+    }
+
+    fn commentBtn:EVGElement (rowId:string) {
+        def b (tree Rt (CommentBtn))
+        b.id = ("rt-entry-comment-" + rowId)
+        b.a11yLabel = "Lisää kommentti"
+        b.addChild((tree Rt (CommentBtnTx "Lisää kommentti")))
+        return b
+    }
+
+    ; `Custom.tsx`: `~value` with the unit, or `~a-b` for a range.
+    sfn customValue:string (row:CompactRow) {
+        match row {
+            Custom cu {
+                def c:CustomSpec (unwrap cu.spec)
+                def v@(mutable):string ("~" + c.value)
+                if c.hasValueMax { v = ((v + "-") + c.valueMax) }
+                return (v + c.unit)
+            }
+            Exercise ex { }
+            Move mv { }
+            Pyramid py { }
+            Split sp { }
+            Section s { }
+            Text t { }
+            Summary sm { }
+            Phase ph { }
+            Duration du { }
+            Unknown un { }
+            Circuit ci { }
+            CircuitItem it { }
+        }
+        return (CompactStatBuilder.text(row))
     }
 
     ; `isMeasurementEntry`: a tag says the entry is a reading, not a workout.

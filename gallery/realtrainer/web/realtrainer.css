@@ -2445,7 +2445,7 @@
 .rt-entry-tags { color: #fb923c; font-family: Arial; font-size: 12px; height: 16px; }
 .rt-entry-row { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 6px; }
 .rt-entry-row-text { color: #f2f2f2; font-family: Arial; font-size: 13px; height: 18px; }
-.rt-entry-section { color: #fb923c; font-family: Arial; font-weight: bold; font-size: 12px; height: 18px; padding-top: 6px; }
+.rt-entry-section { color: #f2f2f2; font-family: Arial; font-weight: bold; font-size: 14px; height: 18px; }
 .rt-entry-note { color: #999999; font-family: Arial; font-size: 12px; height: 16px; }
 .rt-entry-foot { display: flex; flex-direction: row; flex-wrap: nowrap; padding-top: 6px; }
 .rt-entry-foot-text { color: #999999; font-family: Arial; font-size: 12px; height: 16px; }
@@ -2474,3 +2474,52 @@
 .rt-meas-vals { display: flex; flex-direction: row; flex-wrap: wrap; gap: 8px; }
 .rt-meas-box { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 2px; padding: 10px 12px; border-radius: 8px; border-width: 1px; border-color: #3a2a1a; background-color: #1f1712; }
 .rt-meas-val { color: #f97316; font-family: Arial; font-weight: bold; font-size: 18px; height: 24px; }
+
+/* --- the workout card, as WorkoutBlogView styles it ---------------------- */
+.rt-entry-center { display: flex; flex-direction: row; flex-wrap: nowrap; justify-content: center; align-items: center; }
+.rt-entry-rule { width: 48px; height: 2px; background-color: #3a3a3a; }
+.rt-entry-tags-center { justify-content: center; }
+.rt-tag-0 { background-color: #14351f; color: #4ade80; }
+.rt-tag-1 { background-color: #3a2312; color: #fb923c; }
+.rt-tag-2 { background-color: #172a4a; color: #60a5fa; }
+.rt-tag-3 { background-color: #123640; color: #22d3ee; }
+.rt-tag-4 { background-color: #2e1a45; color: #c084fc; }
+.rt-tag-5 { background-color: #3d1717; color: #f87171; }
+.rt-tag-6 { background-color: #3a3210; color: #facc15; }
+.rt-tag-7 { background-color: #3d1730; color: #f472b6; }
+.rt-entry-rows { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 2px; }
+.rt-entry-name-row { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 6px; }
+.rt-entry-kind { color: #cbd5e1; font-family: Arial; font-size: 10px; height: 14px; padding: 2px 6px; border-radius: 4px; background-color: #334155; }
+.rt-entry-scheme { display: flex; flex-direction: row; flex-wrap: wrap; justify-content: flex-end; align-items: center; }
+.rt-entry-row-col-fill { flex: 1; min-width: 0px; }
+.rt-entry-row-top { align-items: flex-start; }
+.rt-entry-scheme-below { justify-content: flex-start; padding: 2px 0px 0px 0px; }
+.rt-entry-section-row { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 10px; padding: 8px 0px 2px 0px; }
+.rt-entry-section-bar { width: 4px; height: 16px; border-radius: 2px; background-color: #c2410c; }
+.rt-entry-gap { width: 10px; height: 4px; }
+.rt-entry-mono { color: #e2e8f0; font-family: monospace; font-size: 13px; height: 18px; }
+.rt-entry-weight { color: #ff6b35; }
+.rt-entry-muted { color: #94a3b8; }
+.rt-entry-chip { color: #ff6b35; font-family: monospace; font-size: 14px; height: 18px; padding: 4px 10px; border-radius: 6px; background-color: #3a2416; }
+.rt-entry-custom { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 10px; padding: 4px 0px; }
+.rt-entry-band { width: 2px; height: 18px; background-color: #475569; }
+.rt-entry-para { color: #cbd5e1; font-family: Arial; font-size: 13px; width: 100%; padding: 2px 8px; }
+.rt-entry-splits { display: flex; flex-direction: column; flex-wrap: nowrap; margin-left: 42px; }
+.rt-entry-split-line { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 10px; }
+/* The comment and edit controls stay in the tree for a reader, as the
+   original keeps them (it shows them on hover); they take no room and no
+   ink for now. */
+.rt-entry-under { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 4px; height: 0px; overflow: hidden; opacity: 0; }
+.rt-comment-btn { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; height: 20px; padding: 0px 6px; border-radius: 6px; border-width: 1px; border-color: #6b6b6b; cursor: pointer; }
+.rt-comment-btn:hover { background-color: #262626; }
+.rt-comment-btn-text { color: #8a8a8a; font-family: Arial; font-weight: bold; font-size: 11px; height: 14px; }
+.rt-derived { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 6px; padding: 12px; border-radius: 8px; background-color: #1f1f1f; }
+.rt-derived-items { display: flex; flex-direction: row; flex-wrap: wrap; gap: 12px; }
+.rt-derived-item { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 4px; }
+.rt-derived-val { color: #f97316; font-family: Arial; font-weight: bold; font-size: 18px; height: 24px; }
+.rt-derived-pill { font-family: Arial; font-weight: bold; font-size: 11px; height: 14px; padding: 2px 6px; border-radius: 8px; border-width: 1px; }
+.rt-good-1 { color: #fca5a5; background-color: #3d1717; border-color: #7f1d1d; }
+.rt-good-2 { color: #fdba74; background-color: #3a2312; border-color: #7c2d12; }
+.rt-good-3 { color: #fde047; background-color: #3a3210; border-color: #713f12; }
+.rt-good-4 { color: #86efac; background-color: #14351f; border-color: #14532d; }
+.rt-good-5 { color: #6ee7b7; background-color: #0f3328; border-color: #064e3b; }

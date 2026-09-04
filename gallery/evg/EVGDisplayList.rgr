@@ -688,6 +688,15 @@ class EVGDisplayList {
                 push c.pts (itemAt ring.pts k)
                 k = (k + 1)
             }
+            ; A stroke is drawn segment by segment, so a ring Z closed gets
+            ; its closing edge as one more point — back to where it began.
+            ; A fill closes by itself and is left as it is.
+            if ((c.kind == 7) && ring.closed) {
+                if ((ring.pointCount()) >= 2) {
+                    push c.pts (itemAt ring.pts 0)
+                    push c.pts (itemAt ring.pts 1)
+                }
+            }
             push c.ringEnds (array_length c.pts)
             i = (i + 1)
         }

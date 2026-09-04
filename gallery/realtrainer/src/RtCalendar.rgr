@@ -607,6 +607,90 @@ class RtEntry {
 }
 
 ; -----------------------------------------------------------------------------
+; A Derived line — `Derived strength.neural_stress 42|score … goodness:4` —
+; as `DerivedRow` shows it: the value, its unit, the short Finnish label the
+; metric has, and the goodness as a word.
+; -----------------------------------------------------------------------------
+class RtDerived {
+    def key@(mutable):string ""
+    def value@(mutable):string ""
+    def unit@(mutable):string ""
+    def goodness@(mutable):int 0
+
+    ; `getDerivedLabel`: the map, or the key without its family and its
+    ; underscores.
+    fn label:string () {
+        if (key == "nutrition.sugar_simple") { return "sokeri" }
+        if (key == "nutrition.sugar_complex") { return "hiilari" }
+        if (key == "nutrition.fat_bad_total") { return "paha rasva" }
+        if (key == "nutrition.fat_good_total") { return "hyvä rasva" }
+        if (key == "endurance.zone1_minutes") { return "Zone1" }
+        if (key == "endurance.zone2_minutes") { return "Zone2" }
+        if (key == "endurance.zone3_minutes") { return "Zone3" }
+        if (key == "endurance.zone4_minutes") { return "Zone4" }
+        if (key == "endurance.zone5_minutes") { return "Zone5" }
+        if (key == "strength.neural_stress") { return "hermokuorma" }
+        if (key == "strength.max_strength_emphasis") { return "maksimivoima" }
+        if (key == "strength.power_emphasis") { return "räjähtävyys" }
+        if (key == "strength.speed_strength_emphasis") { return "nopeusvoima" }
+        if (key == "strength.strength_endurance_emphasis") { return "voimakestävyys" }
+        def dot:int (RtEntry.findIn(key "."))
+        def bare@(mutable):string key
+        if (dot >= 0) {
+            bare = (substring key (dot + 1) (strlen key))
+        }
+        def out@(mutable):string ""
+        def i@(mutable):int 0
+        while (i < (strlen bare)) {
+            def ch:int (charAt bare i)
+            if (ch == 95) { out = (out + " ") } { out = (out + (substring bare i (i + 1))) }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn goodnessLabel:string () {
+        if (goodness == 1) { return "huono" }
+        if (goodness == 2) { return "heikko" }
+        if (goodness == 3) { return "ok" }
+        if (goodness == 4) { return "hyvä" }
+        if (goodness == 5) { return "top" }
+        return ""
+    }
+
+    ; The Derived lines of one entry, in the order the file has them.
+    sfn of:[RtDerived] (compact:string) {
+        def out:[RtDerived]
+        def lines:[string] (RtEntry.splitLines(compact))
+        for lines raw:string i {
+            def line:string (RtEntry.trimmed(raw))
+            if (RtEntry.hasPrefix(line "Derived ")) {
+                def d (new RtDerived)
+                def words:[string] (RtEntry.splitOn(line 32))
+                for words w:string wi {
+                    if ((strlen w) == 0) { continue }
+                    if (wi == 1) { d.key = w }
+                    if (wi == 2) {
+                        def bar:int (RtEntry.findIn(w "|"))
+                        if (bar >= 0) {
+                            d.value = (substring w 0 bar)
+                            d.unit = (substring w (bar + 1) (strlen w))
+                        } {
+                            d.value = w
+                        }
+                    }
+                    if (RtEntry.hasPrefix(w "goodness:")) {
+                        d.goodness = (to_int (?? (to_double (substring w 9 (strlen w))) 0.0))
+                    }
+                }
+                if ((strlen d.key) > 0) { push out d }
+            }
+        }
+        return out
+    }
+}
+
+; -----------------------------------------------------------------------------
 ; The icons — lucide, stroked, in the colour the state asks for
 ; -----------------------------------------------------------------------------
 class RtIcons {
