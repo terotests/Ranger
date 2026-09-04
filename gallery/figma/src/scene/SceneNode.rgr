@@ -28,6 +28,21 @@ class SceneFill {
         return (SceneFill.rgbHex(r g b))
     }
 
+    ; The paint's own alpha folded into the colour (#rrggbbaa). A fill at
+    ; 15% used to become `opacity` on the element, which faded the children
+    ; too — a progress bar inside a translucent track went translucent.
+    fn hexA:string () {
+        def alpha:double (a * opacity)
+        if (alpha >= 0.999) {
+            return (this.hex())
+        }
+        if (alpha < 0.0) {
+            alpha = 0.0
+        }
+        def ai:int (to_int ((alpha * 255.0) + 0.5))
+        return ((this.hex()) + (SceneFill.hex2(ai)))
+    }
+
     sfn rgbHex:string (cr:double cg:double cb:double) {
         def ri:int (to_int ((cr * 255.0) + 0.5))
         def gi:int (to_int ((cg * 255.0) + 0.5))
@@ -131,6 +146,11 @@ class SceneLayout {
     def hugH:boolean false
     def fillW:boolean false
     def fillH:boolean false
+    ; This node's part in its PARENT's layout: grow along the parent's main
+    ; axis, stretch across it, or opt out and sit at its own x/y.
+    def grow:double 0.0
+    def stretch:boolean false
+    def absolute:boolean false
 
     Constructor () {
     }
@@ -155,8 +175,19 @@ class SceneText {
     def lineHeight:double 0.0
     def letterSpacing:double 0.0
     def align:string "left"
+    def valign:string "top"
+    def autoResize:string "none"
+    def textCase:string "original"
+    ; Pre-shaped glyph outlines as one SVG path in node pixels, when the
+    ; source carried them. Painting this needs no font: the glyphs are the
+    ; ones the designer saw, spacing and kerning included.
+    def outline:string ""
 
     Constructor () {
+    }
+
+    fn hasOutline:boolean () {
+        return ((strlen outline) > 0)
     }
 }
 
@@ -270,6 +301,19 @@ class SceneNode {
         return false
     }
 
+    ; Radius of a background blur behind this node, 0 when there is none.
+    fn backdropBlur:double () {
+        def i:int 0
+        while (i < (array_length effects)) {
+            def e:SceneEffect (itemAt effects i)
+            if (e.kind == "backdrop-blur") {
+                return e.blur
+            }
+            i = (i + 1)
+        }
+        return 0.0
+    }
+
     fn childCount:int () {
         return (array_length children)
     }
@@ -353,6 +397,22 @@ class SceneNode {
         }
         if ((strlen text.characters) > 0) {
             o = (o + ",\"text\":\"" + text.characters + "\"")
+        }
+        if (kind == "text") {
+            o = (o + ",\"font\":{\"family\":\"" + text.fontFamily + "\",\"size\":" + (to_string text.fontSize))
+            o = (o + ",\"weight\":\"" + text.fontWeight + "\",\"lineHeight\":" + (to_string text.lineHeight))
+            o = (o + ",\"letterSpacing\":" + (to_string text.letterSpacing) + ",\"align\":\"" + text.align + "\"}")
+            o = (o + ",\"outline\":")
+            if (text.hasOutline()) {
+                o = (o + "true")
+            } {
+                o = (o + "false")
+            }
+        }
+        if (layout.isFlex()) {
+            o = (o + ",\"layout\":{\"mode\":\"" + layout.mode + "\",\"gap\":" + (to_string layout.gap))
+            o = (o + ",\"padding\":[" + (to_string layout.padT) + "," + (to_string layout.padR) + "," + (to_string layout.padB) + "," + (to_string layout.padL) + "]")
+            o = (o + ",\"justify\":\"" + layout.justify + "\",\"align\":\"" + layout.alignItems + "\"}")
         }
         o = (o + ",\"children\":[")
         def i:int 0

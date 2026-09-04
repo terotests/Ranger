@@ -1256,6 +1256,14 @@ class EVGDisplayList {
                 c4.text = (itemAt lines li)
                 c4.fontFamily = face
                 c4.fontSize = fs
+                ; The element's weight, which `addText` has always carried
+                ; and this walk never did: a `font-weight: 700` span was
+                ; laid out bold and painted regular by every GPU backend.
+                if ((strlen el.fontWeight) > 0) {
+                    if (el.fontWeight != "normal") {
+                        c4.fontWeight = el.fontWeight
+                    }
+                }
                 c4.r = tr
                 c4.g = tg
                 c4.b = tb
