@@ -1,0 +1,155 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; Inspect a .fig / .deck: node tree and parse timings.
+;   node gallery/figma/bin/fig_cli.js inspect file.fig
+;   node gallery/figma/bin/fig_cli.js sample
+
+Import "FigParser.rgr"
+Import "FigSample.rgr"
+Import "FigModel.rgr"
+
+class FigCli {
+    sfn main:void () {
+        def n:int (shell_arg_cnt)
+        if (n < 1) {
+            print "usage: fig_cli inspect <file.fig|.deck>"
+            print "       fig_cli sample"
+            print "       fig_cli write-sample <out.fig>"
+            return
+        }
+        def cmd:string (shell_arg 0)
+        if (cmd == "sample") {
+            def p (new FigParser())
+            def doc:FigDoc (p.parseBytes((FigSample.buildFig()) "sample.fig"))
+            FigCli.dump(doc)
+            return
+        }
+        if (cmd == "write-sample") {
+            if (n < 2) {
+                print "usage: fig_cli write-sample <out.fig>"
+                return
+            }
+            def dest:string (shell_arg 1)
+            def bytes:buffer (FigSample.buildFig())
+            def dir:string (FigCli.dirOf(dest))
+            def name:string (FigCli.nameOf(dest))
+            buffer_write_file dir name bytes
+            print ("wrote " + dest + " (" + (to_string (buffer_length bytes)) + " bytes)")
+            return
+        }
+        if (cmd == "inspect") {
+            if (n < 2) {
+                print "usage: fig_cli inspect <file.fig|.deck>"
+                return
+            }
+            def path:string (shell_arg 1)
+            def dir:string (FigCli.dirOf(path))
+            def name:string (FigCli.nameOf(path))
+            def bytes:buffer (buffer_read_file dir name)
+            def p (new FigParser())
+            def doc:FigDoc (p.parseBytes(bytes name))
+            FigCli.dump(doc)
+            return
+        }
+        print ("unknown command: " + cmd)
+    }
+
+    sfn dump:void (doc:FigDoc) {
+        if (doc.ok == false) {
+            print ("error: " + doc.err)
+            return
+        }
+        print ("file     " + doc.fileName)
+        print ("prelude  " + doc.prelude)
+        print ("version  " + (to_string doc.version))
+        print ("nodes    " + (to_string (array_length doc.nodes)))
+        print ("pages    " + (to_string (array_length doc.pages)))
+        print ("blobs    " + (to_string (array_length doc.blobs)))
+        print ("images   " + (to_string (array_length doc.images)))
+        print ("schema   " + (to_string doc.schemaCount) + " types")
+        print ("zstd     " + (FigCli.yesno(doc.usedZstd)))
+        print ("ms zip=" + (to_string doc.zipMs) + " inflate=" + (to_string doc.inflateMs) + " zstd=" + (to_string doc.zstdMs) + " schema=" + (to_string doc.schemaMs) + " decode=" + (to_string doc.decodeMs) + " tree=" + (to_string doc.treeMs) + " total=" + (to_string doc.totalMs))
+        print ""
+        def i:int 0
+        while (i < (array_length doc.pages)) {
+            def page:FigNode (itemAt doc.pages i)
+            FigCli.dumpNode(page 0)
+            i = (i + 1)
+        }
+    }
+
+    sfn dumpNode:void (nd:FigNode depth:int) {
+        def pad:string ""
+        def d:int 0
+        while (d < depth) {
+            pad = (pad + "  ")
+            d = (d + 1)
+        }
+        def extra:string ""
+        if ((nd.w > 0.0) || (nd.h > 0.0)) {
+            extra = ("  " + (to_string nd.w) + "x" + (to_string nd.h))
+        }
+        print (pad + nd.typeName + "  " + nd.name + "  " + nd.id + extra)
+        def i:int 0
+        while (i < (array_length nd.children)) {
+            FigCli.dumpNode((itemAt nd.children i) (depth + 1))
+            i = (i + 1)
+        }
+    }
+
+    sfn yesno:string (v:boolean) {
+        if v {
+            return "yes"
+        }
+        return "no"
+    }
+
+    sfn dirOf:string (path:string) {
+        def n:int (strlen path)
+        def last:int (0 - 1)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt path i)
+            if ((c == 47) || (c == 92)) {
+                last = i
+            }
+            i = (i + 1)
+        }
+        if (last < 0) {
+            return "."
+        }
+        if (last == 0) {
+            return "/"
+        }
+        def out:string ""
+        def j:int 0
+        while (j < last) {
+            out = (out + (strfromcode (charAt path j)))
+            j = (j + 1)
+        }
+        return out
+    }
+
+    sfn nameOf:string (path:string) {
+        def n:int (strlen path)
+        def last:int (0 - 1)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt path i)
+            if ((c == 47) || (c == 92)) {
+                last = i
+            }
+            i = (i + 1)
+        }
+        if (last < 0) {
+            return path
+        }
+        def out:string ""
+        def j:int (last + 1)
+        while (j < n) {
+            out = (out + (strfromcode (charAt path j)))
+            j = (j + 1)
+        }
+        return out
+    }
+}

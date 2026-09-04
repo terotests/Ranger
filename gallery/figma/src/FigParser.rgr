@@ -1,0 +1,250 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ZIP → canvas.fig → kiwi schema + message → FigDoc.
+
+Import "../../zip/ZipReader.rgr"
+Import "../../zip/ZipEntry.rgr"
+Import "FigCanvas.rgr"
+Import "KiwiSchema.rgr"
+Import "KiwiDecode.rgr"
+Import "FigModel.rgr"
+
+class FigParser {
+    def schema:KiwiSchema (new KiwiSchema())
+
+    Constructor () {
+    }
+
+    fn parseBytes:FigDoc (bytes:buffer name:string) {
+        def doc (new FigDoc())
+        def tAll:double (wall_clock_ms)
+        def t0:double (wall_clock_ms)
+        def zip (new ZipReader())
+        if ((zip.openBytes(bytes)) == false) {
+            doc.ok = false
+            doc.err = "not a ZIP (.fig / .deck is a ZIP of canvas.fig)"
+            return doc
+        }
+        doc.zipMs = ((wall_clock_ms) - t0)
+        def names:[string] (zip.listFiles())
+        def foundCanvas:boolean false
+        def canvasName:string ""
+        def ni:int 0
+        while (ni < (array_length names)) {
+            def fn:string (itemAt names ni)
+            if (FigParser.finishesWith(fn "canvas.fig")) {
+                foundCanvas = true
+                canvasName = fn
+            }
+            ni = (ni + 1)
+        }
+        if (foundCanvas == false) {
+            doc.ok = false
+            doc.err = "no canvas.fig inside the archive"
+            return doc
+        }
+        def canvas@(optional):ZipEntry (zip.getEntry(canvasName))
+        if (null? canvas) {
+            doc.ok = false
+            doc.err = "no canvas.fig inside the archive"
+            return doc
+        }
+        def cEntry:ZipEntry (unwrap canvas)
+        def cbytes:buffer (zip.extract(cEntry))
+        def fig (new FigCanvas())
+        if ((fig.parse(cbytes)) == false) {
+            doc.ok = false
+            doc.err = fig.err
+            return doc
+        }
+        doc.prelude = fig.prelude
+        doc.version = fig.version
+        doc.usedZstd = fig.usedZstd
+        doc.inflateMs = fig.inflateMs
+        doc.zstdMs = fig.zstdMs
+        def t1:double (wall_clock_ms)
+        schema = (new KiwiSchema())
+        if ((schema.decode(fig.schemaRaw)) == false) {
+            doc.ok = false
+            doc.err = ("schema: " + schema.err)
+            return doc
+        }
+        doc.schemaMs = ((wall_clock_ms) - t1)
+        doc.schemaCount = (schema.defCount())
+        def si:int 0
+        while (si < (array_length schema.defs)) {
+            def d:KiwiDef (itemAt schema.defs si)
+            push doc.schemaNames d.name
+            si = (si + 1)
+        }
+        def t2:double (wall_clock_ms)
+        def dec (new KiwiDecode())
+        dec.init(schema)
+        def rootType:string "Message"
+        if ((schema.findDef("Message")) < 0) {
+            if ((schema.findDef("NodeChanges")) >= 0) {
+                rootType = "NodeChanges"
+            }
+        }
+        def msg:KiwiValue (dec.decodeNamed(rootType fig.messageRaw))
+        doc.decodeMs = ((wall_clock_ms) - t2)
+        if (dec.ok == false) {
+            doc.ok = false
+            doc.err = ("message: " + dec.err)
+            return doc
+        }
+        doc.root = msg
+        FigModel.buildTree(doc msg)
+        this.readSidecars(zip doc)
+        if ((strlen doc.fileName) == 0) {
+            doc.fileName = name
+        }
+        doc.totalMs = ((wall_clock_ms) - tAll)
+        return doc
+    }
+
+    fn readSidecars:void (zip:ZipReader doc:FigDoc) {
+        def names:[string] (zip.listFiles())
+        def i:int 0
+        while (i < (array_length names)) {
+            def fn:string (itemAt names i)
+            def ent@(optional):ZipEntry (zip.getEntry(fn))
+            if (null? ent) {
+            } {
+                def e:ZipEntry (unwrap ent)
+                if (FigParser.finishesWith(fn "meta.json")) {
+                    def raw:buffer (zip.extract(e))
+                    def text:string (FigParser.asciiBuffer(raw))
+                    doc.fileName = (FigParser.jsonStringField(text "file_name"))
+                }
+                if (FigParser.finishesWith(fn "thumbnail.png")) {
+                    doc.thumbnail = (zip.extract(e))
+                }
+                if (FigParser.hasImagesPath(fn)) {
+                    def im (new FigImage())
+                    im.name = (FigParser.baseName(fn))
+                    im.bytes = (zip.extract(e))
+                    if ((buffer_length im.bytes) > 0) {
+                        push doc.images im
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn finishesWith:boolean (s:string suffix:string) {
+        def n:int (strlen s)
+        def m:int (strlen suffix)
+        if (m > n) {
+            return false
+        }
+        def i:int 0
+        while (i < m) {
+            if ((charAt s ((n - m) + i)) != (charAt suffix i)) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    sfn hasImagesPath:boolean (s:string) {
+        def n:int (strlen s)
+        def i:int 0
+        while (i <= (n - 7)) {
+            if ((charAt s i) == 105) {
+                if ((charAt s (i + 1)) == 109) {
+                    if ((charAt s (i + 2)) == 97) {
+                        if ((charAt s (i + 3)) == 103) {
+                            if ((charAt s (i + 4)) == 101) {
+                                if ((charAt s (i + 5)) == 115) {
+                                    if ((charAt s (i + 6)) == 47) {
+                                        if ((i + 7) < n) {
+                                            return true
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn baseName:string (s:string) {
+        def n:int (strlen s)
+        def last:int (0 - 1)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt s i)
+            if ((c == 47) || (c == 92)) {
+                last = i
+            }
+            i = (i + 1)
+        }
+        if (last < 0) {
+            return s
+        }
+        def out:string ""
+        def j:int (last + 1)
+        while (j < n) {
+            out = (out + (strfromcode (charAt s j)))
+            j = (j + 1)
+        }
+        return out
+    }
+
+    sfn asciiBuffer:string (b:buffer) {
+        def n:int (buffer_length b)
+        def s:string ""
+        def i:int 0
+        while (i < n) {
+            def c:int (buffer_get b i)
+            if (c == 0) {
+                return s
+            }
+            s = (s + (strfromcode c))
+            i = (i + 1)
+        }
+        return s
+    }
+
+    sfn jsonStringField:string (text:string key:string) {
+        def needle:string ("\"" + key + "\"")
+        def n:int (strlen text)
+        def m:int (strlen needle)
+        def i:int 0
+        while (i <= (n - m)) {
+            def match:boolean true
+            def j:int 0
+            while (j < m) {
+                if ((charAt text (i + j)) != (charAt needle j)) {
+                    match = false
+                    j = m
+                }
+                j = (j + 1)
+            }
+            if match {
+                def k:int (i + m)
+                while ((k < n) && ((charAt text k) != 34)) {
+                    k = (k + 1)
+                }
+                if (k < n) {
+                    k = (k + 1)
+                    def out:string ""
+                    while ((k < n) && ((charAt text k) != 34)) {
+                        out = (out + (strfromcode (charAt text k)))
+                        k = (k + 1)
+                    }
+                    return out
+                }
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+}

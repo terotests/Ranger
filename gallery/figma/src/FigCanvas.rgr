@@ -1,0 +1,199 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; canvas.fig: 8-byte prelude + uint32 version + length-prefixed chunks.
+; Chunk 0 is always raw deflate (kiwi schema). Chunk 1 is zstd or raw deflate.
+
+Import "../../zip/Inflate.rgr"
+Import "FigZstd.rgr"
+Import "FigDeflate.rgr"
+
+class FigChunk {
+    def bytes:buffer (buffer_alloc 0)
+
+    Constructor () {
+    }
+}
+
+class FigCanvas {
+    def prelude:string ""
+    def version:int 0
+    def chunks:[FigChunk]
+    def schemaRaw:buffer (buffer_alloc 0)
+    def messageRaw:buffer (buffer_alloc 0)
+    def usedZstd:boolean false
+    def ok:boolean true
+    def err:string ""
+    def inflateMs:double 0.0
+    def zstdMs:double 0.0
+
+    Constructor () {
+    }
+
+    fn fail:void (msg:string) {
+        ok = false
+        err = msg
+    }
+
+    fn parse:boolean (data:buffer) {
+        def n:int (buffer_length data)
+        if (n < 16) {
+            this.fail("canvas.fig too small")
+            return false
+        }
+        prelude = (FigCanvas.asciiAt(data 0 8))
+        if ((FigCanvas.startsFig(prelude)) == false) {
+            this.fail(("unknown prelude: " + prelude))
+            return false
+        }
+        version = (FigCanvas.u32(data 8))
+        def off:int 12
+        while ((off + 4) <= n) {
+            def len:int (FigCanvas.u32(data off))
+            off = (off + 4)
+            if ((off + len) > n) {
+                this.fail("truncated chunk")
+                return false
+            }
+            def c (new FigChunk())
+            c.bytes = (FigCanvas.copyRange(data off len))
+            push chunks c
+            off = (off + len)
+        }
+        if ((array_length chunks) < 2) {
+            this.fail("expected two chunks (schema + message)")
+            return false
+        }
+        def c0:FigChunk (itemAt chunks 0)
+        def t0:double (wall_clock_ms)
+        def inf (new Inflate())
+        schemaRaw = (inf.decompress(c0.bytes))
+        inflateMs = ((wall_clock_ms) - t0)
+        def c1:FigChunk (itemAt chunks 1)
+        if (FigCanvas.isZstd(c1.bytes)) {
+            usedZstd = true
+            def t1:double (wall_clock_ms)
+            messageRaw = (fig_zstd_decompress c1.bytes)
+            zstdMs = ((wall_clock_ms) - t1)
+        } {
+            def t2:double (wall_clock_ms)
+            def inf2 (new Inflate())
+            messageRaw = (inf2.decompress(c1.bytes))
+            inflateMs = (inflateMs + ((wall_clock_ms) - t2))
+        }
+        if ((buffer_length schemaRaw) == 0) {
+            this.fail("schema inflate produced no bytes")
+            return false
+        }
+        return true
+    }
+
+    sfn startsFig:boolean (s:string) {
+        if ((strlen s) < 4) {
+            return false
+        }
+        if ((charAt s 0) != 102) {
+            return false
+        }
+        if ((charAt s 1) != 105) {
+            return false
+        }
+        if ((charAt s 2) != 103) {
+            return false
+        }
+        if ((charAt s 3) != 45) {
+            return false
+        }
+        return true
+    }
+
+    sfn isZstd:boolean (b:buffer) {
+        if ((buffer_length b) < 4) {
+            return false
+        }
+        if ((buffer_get b 0) != 40) {
+            return false
+        }
+        if ((buffer_get b 1) != 181) {
+            return false
+        }
+        if ((buffer_get b 2) != 47) {
+            return false
+        }
+        if ((buffer_get b 3) != 253) {
+            return false
+        }
+        return true
+    }
+
+    sfn u32:int (b:buffer off:int) {
+        def b0:int (buffer_get b off)
+        def b1:int (buffer_get b (off + 1))
+        def b2:int (buffer_get b (off + 2))
+        def b3:int (buffer_get b (off + 3))
+        return (b0 + (b1 * 256) + (b2 * 65536) + (b3 * 16777216))
+    }
+
+    sfn asciiAt:string (b:buffer off:int n:int) {
+        def s:string ""
+        def i:int 0
+        while (i < n) {
+            def ch:int (buffer_get b (off + i))
+            if ((ch >= 32) && (ch < 127)) {
+                s = (s + (strfromcode ch))
+            }
+            i = (i + 1)
+        }
+        return s
+    }
+
+    sfn copyRange:buffer (src:buffer off:int n:int) {
+        def out:buffer (buffer_alloc n)
+        def i:int 0
+        while (i < n) {
+            buffer_set out i (buffer_get src (off + i))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn assemble:buffer (pre:string ver:int schemaComp:buffer msgComp:buffer) {
+        def plen:int (strlen pre)
+        def sl:int (buffer_length schemaComp)
+        def ml:int (buffer_length msgComp)
+        def total:int (12 + 4 + sl + 4 + ml)
+        def out:buffer (buffer_alloc total)
+        def i:int 0
+        while (i < 8) {
+            def ch:int 32
+            if (i < plen) {
+                ch = (charAt pre i)
+            }
+            buffer_set out i ch
+            i = (i + 1)
+        }
+        FigCanvas.writeU32(out 8 ver)
+        FigCanvas.writeU32(out 12 sl)
+        def o:int 16
+        def j:int 0
+        while (j < sl) {
+            buffer_set out (o + j) (buffer_get schemaComp j)
+            j = (j + 1)
+        }
+        o = (o + sl)
+        FigCanvas.writeU32(out o ml)
+        o = (o + 4)
+        def k:int 0
+        while (k < ml) {
+            buffer_set out (o + k) (buffer_get msgComp k)
+            k = (k + 1)
+        }
+        return out
+    }
+
+    sfn writeU32:void (b:buffer off:int v:int) {
+        buffer_set b off (bit_and v 255)
+        buffer_set b (off + 1) (bit_and (bit_ushr v 8) 255)
+        buffer_set b (off + 2) (bit_and (bit_ushr v 16) 255)
+        buffer_set b (off + 3) (bit_and (bit_ushr v 24) 255)
+    }
+}

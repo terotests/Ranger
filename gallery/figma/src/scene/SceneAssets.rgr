@@ -1,0 +1,47 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; Image / font lookup. SceneToEVG never opens files or talks HTTP —
+; the host fills this map (embedded bytes, blob URLs, Ranger resources).
+
+class SceneAssets {
+    def images:[string:string]
+    def fonts:[string:string]
+
+    Constructor () {
+    }
+
+    fn setImage:void (ref:string url:string) {
+        set images ref url
+    }
+
+    fn resolveImage:string (ref:string) {
+        if (has images ref) {
+            return (unwrap (get images ref))
+        }
+        return ref
+    }
+
+    fn hasImage:boolean (ref:string) {
+        if ((strlen ref) == 0) {
+            return false
+        }
+        if (has images ref) {
+            return true
+        }
+        return ((strlen ref) > 0)
+    }
+
+    fn setFont:void (name:string resolved:string) {
+        set fonts name resolved
+    }
+
+    fn resolveFont:string (name:string) {
+        if (has fonts name) {
+            return (unwrap (get fonts name))
+        }
+        if ((strlen name) > 0) {
+            return name
+        }
+        return "Open Sans"
+    }
+}
