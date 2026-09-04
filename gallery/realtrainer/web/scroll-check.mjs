@@ -113,6 +113,7 @@ const visibleText = (app, w, h) =>
 let failed = 0;
 let frames = 0;
 let culled = 0;
+let relaidOut = 0;
 for (const [w, h] of PAGES) {
   for (const route of ROUTES) {
     const long = route === "#document" ? LONG : undefined;
@@ -124,7 +125,12 @@ for (const [w, h] of PAGES) {
     uncut.setCulling(false);
     let bad = false;
     for (const delta of DELTAS) {
+      const before = fast.layoutCount();
       const movedFast = fast.scrollDocument(delta);
+      // The frame loop ticks the clock on every frame, scrolling or not, and
+      // a tick that does nothing must not cost a layout — that regression is
+      // worth ten milliseconds a frame and shows up nowhere but here.
+      fast.tick(16.7);
       const movedFull = full.scrollDocument(delta);
       // `setHover` clears the scroll flag, so this one lays out for real.
       full.setHover("");
@@ -132,6 +138,16 @@ for (const [w, h] of PAGES) {
       const a = fast.displayListJson();
       const b = full.displayListJson();
       frames += 1;
+      const laidOut = fast.layoutCount() - before;
+      if (laidOut > 0) {
+        failed += 1;
+        bad = true;
+        relaidOut += 1;
+        console.log(
+          `  FAIL ${w}x${h} ${route} delta=${delta} — the scroll frame laid out ${laidOut}x`,
+        );
+        break;
+      }
       const seenCulled = visibleText(fast, w, h);
       const seenWhole = visibleText(uncut, w, h);
       if (seenCulled !== seenWhole) {
@@ -178,3 +194,4 @@ if (failed > 0) {
 }
 console.log(`  ${frames} scroll frames, every one identical to a full re-layout`);
 console.log(`  ${culled} of them drew less than the whole document, and saw all of it`);
+console.log(`  ${relaidOut} of them laid the document out again`);

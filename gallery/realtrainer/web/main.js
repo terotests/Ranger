@@ -67,6 +67,11 @@ window.__app = app;
 // a scroll, mostly. The loop below draws once for it, however many events
 // produced it.
 let dirty = true;
+// When the page last moved under a wheel, a finger or a fling. A wheel has
+// no gesture to be in the middle of, so this is what tells the loop the page
+// is still going and the accessibility tree can wait.
+let scrolledAt = 0;
+const STILL_SCROLLING_MS = 200;
 // The page's own speed, in pixels per millisecond, after the finger has gone.
 let fling = 0;
 // Below this a lift is a stop, not a throw: about a third of a pixel a frame.
@@ -84,6 +89,7 @@ stage.addEventListener(
     fling = 0;
     if (app.scrollDocument(e.deltaY)) {
       dirty = true;
+      scrolledAt = performance.now();
       e.preventDefault();
     }
   },
@@ -328,7 +334,10 @@ canvas.addEventListener("pointermove", (ev) => {
       // many moves the browser delivers — a finger reports faster than the
       // screen refreshes, and painting per event is painting frames nobody
       // ever sees.
-      if (app.scrollDocument(dy)) dirty = true;
+      if (app.scrollDocument(dy)) {
+        dirty = true;
+        scrolledAt = now;
+      }
     }
     return;
   }
@@ -396,7 +405,9 @@ function step(now) {
   last = now;
   const coasted = coast(dt);
   const ticked = app.tick(dt);
-  const moving = drag !== null || fling !== 0;
+  if (coasted) scrolledAt = now;
+  const moving =
+    drag !== null || fling !== 0 || now - scrolledAt < STILL_SCROLLING_MS;
   if (ticked || coasted || dirty) {
     dirty = false;
     paint();
