@@ -320,6 +320,11 @@ canvas.addEventListener("pointermove", (ev) => {
   if (drag) {
     const dy = drag.y - y;
     if (drag.moved || Math.abs(dy) > 6) {
+      // The moment a touch becomes a drag the row under it is no longer
+      // pressed — as on a phone — and, as on the iOS host, that is the
+      // one layout the drag costs: the lift finds nothing pressed and the
+      // glide starts without one.
+      if (!drag.moved) app.setPressed("");
       const now = ev.timeStamp || performance.now();
       const dt = now - drag.at;
       drag.at = now;
@@ -341,8 +346,13 @@ canvas.addEventListener("pointermove", (ev) => {
   if (id === hovered) return;
   hovered = id;
   app.setHover(id);
-  // Hover starts a transition, and a transition needs frames — the loop is
-  // already running, so there is nothing to start here beyond the flag.
+  // One frame, to lay the page out with the new hover state: that is where
+  // the stylesheet's :hover rule is applied and the transition it declares
+  // is started. `hitId` above does not lay anything out any more — the app
+  // keeps the last layout until something changes it, and a hover is the
+  // change — so without this the fade would wait for the next thing that
+  // asked for a frame.
+  dirty = true;
 });
 // The resize path, as gallery/evg/web/responsive has it: a ResizeObserver on
 // the stage rather than only a window listener, because the two differ where
@@ -373,6 +383,7 @@ if (fit) {
 canvas.addEventListener("pointerleave", () => {
   hovered = "";
   app.setHover("");
+  dirty = true;
 });
 let hovered = "";
 

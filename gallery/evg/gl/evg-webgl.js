@@ -422,93 +422,153 @@ function atlasRuns(cmds, dpr, view, onlyVisible) {
   return runs;
 }
 
+const nextPow2 = (n) => { let p = 1; while (p < n) p *= 2; return p; };
+
+// The empty border around a slot, so the linear filter never samples a
+// neighbour's ink.
+const PAD = 2;
+
+/** One run, measured with the face it will be drawn in. */
+function measureRun(ctx, c, dpr) {
+  ctx.font = fontSpec(c, dpr);
+  const m = ctx.measureText(verbatim(c.text));
+  // Two different ascents, and the difference between them is the whole of
+  // where a run sits. `actualBoundingBox*` is the INK of these particular
+  // letters — "moon" has no ascender and no descender, "Ãg" has both — and
+  // is what the slot has to be big enough to hold. `fontBoundingBoxAscent`
+  // is the FACE's ascent, the same number for every string in the font, and
+  // is what EVG means: a TEXT command's y is the top of the line box, and
+  // the baseline sits one face-ascent below it. Placing the ink at y
+  // instead pushed every run up by the height of the empty space above its
+  // capitals — a couple of pixels for a caption, most of a line for a
+  // heading — which in a spreadsheet is text climbing out of its row.
+  const asc = m.actualBoundingBoxAscent || c.size * dpr * 0.8;
+  const desc = m.actualBoundingBoxDescent || c.size * dpr * 0.25;
+  const faceAsc = m.fontBoundingBoxAscent || (c.h ? c.h * dpr * 0.78 : c.size * dpr * 1.05);
+  // The face's DESCENT, needed for the half-leading — the line box holds the
+  // whole face, not just the part above the baseline.
+  const faceDesc = m.fontBoundingBoxDescent || c.size * dpr * 0.212;
+  return { c, w: Math.ceil(m.width) + PAD * 2, h: Math.ceil(asc + desc) + PAD * 2, asc, faceAsc, faceDesc };
+}
+
+/**
+ * The atlas is a SHELF: rows of slots, left to right, top to bottom, and a
+ * cursor at the end of the last row. A new run goes after the cursor or
+ * starts the next row. The cursor is KEPT between frames — that is what lets
+ * a frame add the runs it is the first to show behind the ones already there
+ * instead of laying every run out again.
+ */
+function shelfOf(w, limit) {
+  return { w, limit, x: 0, y: 0, rowH: 0 };
+}
+
+/** Place one measured run on the shelf. False when it would pass the limit. */
+function placeRun(shelf, m) {
+  if (shelf.x + m.w > shelf.w) { shelf.x = 0; shelf.y += shelf.rowH; shelf.rowH = 0; }
+  if (shelf.y + m.h > shelf.limit) return false;
+  m.x = shelf.x;
+  m.y = shelf.y;
+  shelf.x += m.w;
+  shelf.rowH = Math.max(shelf.rowH, m.h);
+  return true;
+}
+
+/** How tall a shelf's rows are so far, as a texture height. */
+const shelfHeight = (shelf) => nextPow2(Math.max(64, shelf.y + shelf.rowH));
+
+function slotOf(m, dpr, texW, texH, colored) {
+  return {
+    u0: m.x / texW, v0: m.y / texH,
+    u1: (m.x + m.w) / texW, v1: (m.y + m.h) / texH,
+    w: m.w / dpr, h: m.h / dpr, asc: m.asc / dpr, pad: PAD / dpr,
+    faceAsc: m.faceAsc / dpr, faceDesc: m.faceDesc / dpr,
+    colored,
+  };
+}
+
+function rasterRuns(c2, measured, dpr) {
+  c2.textBaseline = "alphabetic";
+  c2.fillStyle = "#fff";
+  for (const m of measured) {
+    c2.font = fontSpec(m.c, dpr);
+    c2.fillText(verbatim(m.c.text), m.x + PAD, m.y + PAD + m.asc);
+  }
+}
+
+/**
+ * Every run in the list, rasterized from scratch — what the first frame does,
+ * and what a frame does when the shelf is full.
+ *
+ * Packed in rows. A list with more text than one texture holds — a long feed
+ * of cards, most of it scrolled away — used to ask for a texture taller than
+ * the card allows and get nothing back, so every run drew as a solid box.
+ * Now the atlas widens up to the card's limit, then keeps only the runs that
+ * touch the page (the rest are not drawn anyway), and as a last resort drops
+ * what still does not fit.
+ */
 function buildTextAtlas(cmds, dpr, view, maxTex) {
   let runs = atlasRuns(cmds, dpr, view, false);
   let culled = false;
-  if (!runs.length) return { canvas: null, slots: new Map(), culled };
-  const pad = 2;
+  const limit = Math.max(2048, maxTex || 2048);
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
-  const measure = (c) => {
-    ctx.font = fontSpec(c, dpr);
-    const m = ctx.measureText(verbatim(c.text));
-    // Two different ascents, and the difference between them is the whole of
-    // where a run sits. `actualBoundingBox*` is the INK of these particular
-    // letters — "moon" has no ascender and no descender, "Ãg" has both — and
-    // is what the slot has to be big enough to hold. `fontBoundingBoxAscent`
-    // is the FACE's ascent, the same number for every string in the font, and
-    // is what EVG means: a TEXT command's y is the top of the line box, and
-    // the baseline sits one face-ascent below it. Placing the ink at y
-    // instead pushed every run up by the height of the empty space above its
-    // capitals — a couple of pixels for a caption, most of a line for a
-    // heading — which in a spreadsheet is text climbing out of its row.
-    const asc = m.actualBoundingBoxAscent || c.size * dpr * 0.8;
-    const desc = m.actualBoundingBoxDescent || c.size * dpr * 0.25;
-    const faceAsc = m.fontBoundingBoxAscent || (c.h ? c.h * dpr * 0.78 : c.size * dpr * 1.05);
-    // The face's DESCENT, needed for the half-leading — the line box holds the
-    // whole face, not just the part above the baseline.
-    const faceDesc = m.fontBoundingBoxDescent || c.size * dpr * 0.212;
-    return { c, w: Math.ceil(m.width) + pad * 2, h: Math.ceil(asc + desc) + pad * 2, asc, faceAsc, faceDesc };
-  };
-  // Pack the slots in rows. A list with more text than one texture holds —
-  // a long feed of cards, most of it scrolled away — used to ask for a
-  // texture taller than the card allows and get nothing back, so every run
-  // drew as a solid box. Now the atlas widens up to the card's limit, then
-  // keeps only the runs that touch the page (the rest are not drawn anyway),
-  // and as a last resort drops what still does not fit.
-  const limit = Math.max(2048, maxTex || 2048);
+  if (!runs.length) return { canvas: null, slots: new Map(), culled, shelf: shelfOf(Math.min(2048, limit), limit) };
+  const measure = (c) => measureRun(ctx, c, dpr);
+  // Every run on a shelf, however tall that makes it — the fits are judged
+  // after, against the limit.
   const pack = (list, atlasW) => {
-    let x = 0, y = 0, rowH = 0, atlasH = 0;
-    for (const m of list) {
-      if (x + m.w > atlasW) { x = 0; y += rowH; rowH = 0; }
-      m.x = x; m.y = y;
-      x += m.w;
-      rowH = Math.max(rowH, m.h);
-      atlasH = Math.max(atlasH, y + rowH);
-    }
-    return nextPow2(atlasH);
+    const shelf = shelfOf(atlasW, Infinity);
+    for (const m of list) placeRun(shelf, m);
+    shelf.limit = limit;
+    return shelf;
   };
   let measured = runs.map(measure);
   let atlasW = Math.min(2048, nextPow2(Math.max(512, ...measured.map((m) => m.w))));
-  let atlasH = pack(measured, atlasW);
-  while (atlasH > limit && atlasW < limit) {
+  let shelf = pack(measured, atlasW);
+  while (shelfHeight(shelf) > limit && atlasW < limit) {
     atlasW = Math.min(limit, atlasW * 2);
-    atlasH = pack(measured, atlasW);
+    shelf = pack(measured, atlasW);
   }
-  if (atlasH > limit && view) {
+  if (shelfHeight(shelf) > limit && view) {
     runs = atlasRuns(cmds, dpr, view, true);
     culled = true;
     measured = runs.map(measure);
-    atlasH = pack(measured, atlasW);
+    shelf = pack(measured, atlasW);
   }
-  while (atlasH > limit && measured.length > 1) {
+  while (shelfHeight(shelf) > limit && measured.length > 1) {
     measured = measured.slice(0, Math.max(1, Math.floor(measured.length / 2)));
     culled = true;
-    atlasH = pack(measured, atlasW);
+    shelf = pack(measured, atlasW);
   }
   canvas.width = atlasW;
-  canvas.height = Math.min(limit, atlasH);
+  canvas.height = Math.min(limit, shelfHeight(shelf));
   const c2 = canvas.getContext("2d");
   c2.clearRect(0, 0, canvas.width, canvas.height);
-  c2.textBaseline = "alphabetic";
-  c2.fillStyle = "#fff";
+  rasterRuns(c2, measured, dpr);
   const slots = new Map();
   for (const m of measured) {
-    c2.font = fontSpec(m.c, dpr);
-    c2.fillText(verbatim(m.c.text), m.x + pad, m.y + pad + m.asc);
-    slots.set(runKey(m.c, dpr), {
-      u0: m.x / canvas.width, v0: m.y / canvas.height,
-      u1: (m.x + m.w) / canvas.width, v1: (m.y + m.h) / canvas.height,
-      w: m.w / dpr, h: m.h / dpr, asc: m.asc / dpr, pad: pad / dpr,
-      faceAsc: m.faceAsc / dpr, faceDesc: m.faceDesc / dpr,
-      colored: false,
-      _px: m.x, _py: m.y, _pw: m.w, _ph: m.h,
-    });
+    const s = slotOf(m, dpr, canvas.width, canvas.height, false);
+    s._px = m.x; s._py = m.y; s._pw = m.w; s._ph = m.h;
+    slots.set(runKey(m.c, dpr), s);
   }
   markColoredSlots(c2, slots);
-  return { canvas, slots, culled };
+  return { canvas, slots, culled, shelf };
 }
 
+/** Whether a cell of pixels holds anything but white ink. Every other pixel
+ *  each way — enough to catch a sticker, cheap enough not to matter. */
+function inkIsColored(data, W, x0, y0, x1, y1) {
+  for (let y = y0; y < y1; y += 2) {
+    for (let x = x0; x < x1; x += 2) {
+      const i = (y * W + x) * 4;
+      if (data[i + 3] < 24) continue;
+      // White is what a masked glyph is. Anything meaningfully off it was
+      // painted by the browser and has to keep its own pixels.
+      if (data[i] < 232 || data[i + 1] < 232 || data[i + 2] < 232) return true;
+    }
+  }
+  return false;
+}
 
 /**
  * Which atlas cells the browser drew in colours of its own.
@@ -539,25 +599,10 @@ export function markColoredSlots(c2, slots) {
     const x0 = s._px | 0, y0 = s._py | 0;
     const x1 = Math.min(W, x0 + Math.ceil(s._pw));
     const y1 = Math.min(img.height, y0 + Math.ceil(s._ph));
-    let colored = false;
-    for (let y = y0; y < y1 && !colored; y += 2) {
-      for (let x = x0; x < x1; x += 2) {
-        const i = (y * W + x) * 4;
-        if (data[i + 3] < 24) continue;
-        // White is what a masked glyph is. Anything meaningfully off it was
-        // painted by the browser and has to keep its own pixels.
-        if (data[i] < 232 || data[i + 1] < 232 || data[i + 2] < 232) {
-          colored = true;
-          break;
-        }
-      }
-    }
-    s.colored = colored;
+    s.colored = inkIsColored(data, W, x0, y0, x1, y1);
     delete s._px; delete s._py; delete s._pw; delete s._ph;
   }
 }
-
-const nextPow2 = (n) => { let p = 1; while (p < n) p *= 2; return p; };
 
 /**
  * The UV rectangle that makes a source of `sw`×`sh` cover a box of `bw`×`bh`.
@@ -608,34 +653,144 @@ const ATLASES = new WeakMap();
 const IMAGE_TEXTURES = new WeakMap();
 
 /**
- * The text atlas for this context, rebuilt only when the glyphs change.
+ * Make room on a kept atlas: a taller bitmap with the old one drawn at its
+ * top, a texture uploaded from it, and every slot's v rescaled to the new
+ * height. Doubling, so it happens a handful of times in the life of a page.
+ */
+function growAtlas(gl, have, texH) {
+  const big = document.createElement("canvas");
+  big.width = have.texW;
+  big.height = texH;
+  const ctx = big.getContext("2d");
+  ctx.clearRect(0, 0, big.width, big.height);
+  ctx.drawImage(have.bitmap, 0, 0);
+  const scale = have.texH / texH;
+  for (const s of have.slots.values()) {
+    s.v0 *= scale;
+    s.v1 *= scale;
+  }
+  have.bitmap = big;
+  have.ctx = ctx;
+  have.texH = texH;
+  gl.deleteTexture(have.tex);
+  have.tex = makeTexture(gl, big);
+}
+
+/**
+ * The runs a frame shows for the first time, added behind the ones the atlas
+ * already holds. Each new slot is rasterized, read back once — the read
+ * serves both the colour check and the upload — and sent to the card as a
+ * sub-image; nothing already on the atlas is touched. False when the shelf
+ * cannot take them, which is the caller's cue to start a fresh one.
+ */
+function appendRuns(gl, have, runs, dpr) {
+  const measured = runs.map((c) => measureRun(have.ctx, c, dpr));
+  const shelf = { ...have.shelf };
+  for (const m of measured) {
+    if (!placeRun(shelf, m)) return false;
+  }
+  const needH = Math.min(shelf.limit, shelfHeight(shelf));
+  if (needH > have.texH) growAtlas(gl, have, needH);
+  have.shelf = shelf;
+  const c2 = have.ctx;
+  rasterRuns(c2, measured, dpr);
+  gl.bindTexture(gl.TEXTURE_2D, have.tex);
+  for (const m of measured) {
+    const w = Math.min(m.w, have.texW - m.x);
+    const h = Math.min(m.h, have.texH - m.y);
+    let colored = false;
+    if (w > 0 && h > 0) {
+      let img = null;
+      try {
+        img = c2.getImageData(m.x, m.y, w, h);
+      } catch (_) {
+        img = null;               // a tainted canvas: the slot stays a mask, and is uploaded whole
+      }
+      if (img) {
+        colored = inkIsColored(img.data, img.width, 0, 0, img.width, img.height);
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, m.x, m.y, gl.RGBA, gl.UNSIGNED_BYTE, img);
+      } else {
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, have.bitmap);
+      }
+    }
+    have.slots.set(runKey(m.c, dpr), slotOf(m, dpr, have.texW, have.texH, colored));
+  }
+  return true;
+}
+
+/**
+ * The text atlas for this context, ADDED TO as the page shows new text and
+ * rebuilt only when it is full.
  *
- * The key is every distinct run signature in paint order: a frame whose text
- * is the same text at the same sizes reuses the texture that is already on the
- * card. What it does NOT include is where the runs are or what colour they
- * are, because neither changes a glyph.
+ * It used to be keyed by every distinct run in the list, in order, and
+ * rebuilt whole whenever that key changed. On a static page the key never
+ * changed and the atlas was free; on a SCROLLING one it changed on every
+ * frame, because the list is culled to the viewport and every scroll brings
+ * a row in and takes one out — so every scroll frame rasterized every run on
+ * the page onto a 2-D canvas, read the whole canvas back to find the colour
+ * emoji, and uploaded it to the card. In a Chrome profile of a fling that
+ * was a fifth of the frame, and it is what the fling stuttered on.
+ *
+ * Now a frame asks for the runs it holds that the atlas does not — usually
+ * none, and on the frame a new row arrives, that row's — and those alone are
+ * drawn, read back and uploaded. What it does NOT include is where the runs
+ * are or what colour they are, because neither changes a glyph. Runs that
+ * scroll away stay on the shelf, and are there when the page scrolls back;
+ * when the shelf is full the atlas starts again from the runs on the screen.
+ *
+ * A list too big for one texture even alone falls back to the old scheme:
+ * an atlas of the runs that touch the page, keyed by them and rebuilt when
+ * they change. `culled` says which regime is in force.
  */
 function atlasFor(gl, cmds, dpr, view) {
-  const keyOf = (onlyVisible) => atlasRuns(cmds, dpr, view, onlyVisible).map((c) => runKey(c, dpr)).join("\u0001");
-  const key = keyOf(false);
   const have = ATLASES.get(gl);
-  // A culled atlas holds only the runs on the page, so it is the runs on the
-  // page that say whether it still serves — the full list changes with
-  // every scroll while the visible runs may not, and the other way round.
-  if (have && have.key === (have.culled ? keyOf(true) : key)) { have.rebuilt = false; return have; }
-  if (have && have.canvas) gl.deleteTexture(have.canvas);
+  if (have && !have.culled) {
+    const missing = [];
+    const seen = new Set();
+    for (const c of cmds) {
+      if (c.k !== KIND.TEXT || !c.text) continue;
+      const key = runKey(c, dpr);
+      if (have.slots.has(key) || seen.has(key)) continue;
+      seen.add(key);
+      missing.push(c);
+    }
+    if (!missing.length) {
+      have.rebuilt = false;
+      have.added = 0;
+      return have;
+    }
+    if (have.bitmap && appendRuns(gl, have, missing, dpr)) {
+      have.rebuilt = false;
+      have.added = missing.length;
+      return have;
+    }
+  }
+  const keyOf = () => atlasRuns(cmds, dpr, view, true).map((c) => runKey(c, dpr)).join("|");
+  if (have && have.culled && have.key === keyOf()) {
+    have.rebuilt = false;
+    have.added = 0;
+    return have;
+  }
+  if (have && have.tex) gl.deleteTexture(have.tex);
   const maxTex = gl.getParameter(gl.MAX_TEXTURE_SIZE) || 2048;
-  const { canvas, slots, culled } = buildTextAtlas(cmds, dpr, view, maxTex);
+  const { canvas, slots, culled, shelf } = buildTextAtlas(cmds, dpr, view, maxTex);
   const made = {
-    key: culled ? keyOf(true) : key,
+    key: culled ? keyOf() : null,
     culled,
     slots,
+    shelf,
+    bitmap: canvas,
+    ctx: canvas ? canvas.getContext("2d") : null,
+    texW: canvas ? canvas.width : 1,
+    texH: canvas ? canvas.height : 1,
     // Reported in the stats: rebuilding the atlas means rasterising every run
-    // on a 2-D canvas and uploading it, and doing that on a frame where
-    // nothing about the text changed is the waste this cache exists to stop.
-    // A test can watch it; a timing number on a software GL driver cannot.
+    // on the page and uploading it, and doing that on a frame where nothing
+    // about the text changed is the waste this cache exists to stop; adding
+    // means the runs that were new. A test can watch them; a timing number
+    // on a software GL driver cannot.
     rebuilt: true,
-    canvas: canvas ? makeTexture(gl, canvas) : makeTexture(gl, new ImageData(1, 1)),
+    added: slots.size,
+    tex: canvas ? makeTexture(gl, canvas) : makeTexture(gl, new ImageData(1, 1)),
   };
   ATLASES.set(gl, made);
   return made;
@@ -1191,8 +1346,7 @@ export function renderDisplayList(gl, doc, opts = {}) {
   // out every run on a 2-D canvas and uploading the result — and the runs are
   // the same from one frame to the next almost always, because a frame that
   // differs by a moved shape has not changed a single letter.
-  const { canvas: atlasCanvas, slots, rebuilt: atlasRebuilt } = atlasFor(gl, cmds, dpr, { w: doc.width, h: doc.height });
-  const atlas = atlasCanvas;
+  const { tex: atlas, slots, rebuilt: atlasRebuilt, added: atlasAdded } = atlasFor(gl, cmds, dpr, { w: doc.width, h: doc.height });
 
   // One texture per distinct source, uploaded ONCE — not once per frame. This
   // used to make a new GL texture for every picture on every frame and never
@@ -1742,6 +1896,9 @@ export function renderDisplayList(gl, doc, opts = {}) {
     // What this frame had to make rather than reuse. Both should be 0 on a
     // frame that draws what the last one drew.
     atlasRebuilt: atlasRebuilt ? 1 : 0, texturesUploaded,
+    // The runs this frame was the first to show, rasterized and uploaded on
+    // their own. A scroll frame that brought no new row in reports 0.
+    atlasAdded,
     // A context without a stencil buffer cannot fill a path; say so rather than
     // drawing a chart with no bars in it.
     skippedFills,

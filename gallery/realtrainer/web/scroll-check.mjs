@@ -139,8 +139,9 @@ for (const [w, h] of PAGES) {
       // worth ten milliseconds a frame and shows up nowhere but here.
       fast.tick(16.7);
       const movedFull = full.scrollDocument(delta);
-      // `setHover` clears the scroll flag, so this one lays out for real.
-      full.setHover("");
+      // A rebuilt tree is laid out from scratch: this one lays out for real,
+      // and the shortcut's frame has to be the same bytes.
+      full.rebuild();
       uncut.scrollDocument(delta);
       const a = fast.displayListJson();
       const b = full.displayListJson();
@@ -192,6 +193,62 @@ for (const [w, h] of PAGES) {
     }
     if (bad === false) console.log(`  PASS ${w}x${h} ${route}`);
   }
+}
+
+// --- who lays out ------------------------------------------------------------
+//
+// A frame asks the app three questions — what is under the pointer, what to
+// draw, what a reader is told — and only a change to the page is a reason to
+// lay it out again. The one-shot scroll flag this replaced was spent by the
+// first question, so the second laid the page out: 13ms per pointer move on
+// a long diary, twice, and once more when the page settled and the mirror
+// asked. Each of these is a frame that used to cost a layout and must not.
+console.log("");
+console.log("--- who lays out ---");
+{
+  const app = open("#document", 390, 844, LONG);
+  const full = open("#document", 390, 844, LONG);
+  app.scrollDocument(300);
+  full.scrollDocument(300);
+  app.display();
+  full.rebuild();
+  full.display();
+  const before = app.layoutCount();
+  // The pointer, asking what it is over, between two scroll frames.
+  const under = app.hitId(200, 400);
+  app.scrollDocument(40);
+  full.scrollDocument(40);
+  const after = app.hitId(200, 400);
+  app.display();
+  ok("the pointer asking what it is over does not lay out", app.layoutCount() === before,
+     `${app.layoutCount() - before} layouts`);
+  ok("and is answered from where the page is now", after === full.hitId(200, 400),
+     `${under} -> ${after}`);
+  // The mirror, rebuilt when the page settles.
+  app.a11yJson(1, "");
+  ok("the accessibility tree after a scroll does not lay out", app.layoutCount() === before,
+     `${app.layoutCount() - before} layouts`);
+  // Six finger moves between two frames: the document moves once, by their
+  // sum, and the frame shows exactly what a full layout at that offset shows.
+  for (let i = 0; i < 6; i += 1) app.scrollDrag(7, 8);
+  full.scrollDocument(42);
+  full.rebuild();
+  ok("six moves between frames draw the frame one layout would",
+     app.displayListJson() === full.displayListJson() && app.layoutCount() === before,
+     `${app.layoutCount() - before} layouts`);
+  // A hover IS a change — the sheet's :hover rule and the transition it
+  // starts — and it costs one layout, not one per question asked after it.
+  app.setHover(after);
+  app.hitId(200, 401);
+  app.display();
+  app.hitId(200, 402);
+  app.display();
+  ok("a hover lays out once", app.layoutCount() === before + 1,
+     `${app.layoutCount() - before} layouts`);
+  app.setHover(after);
+  app.display();
+  ok("and the same hover again not at all", app.layoutCount() === before + 1,
+     `${app.layoutCount() - before} layouts`);
 }
 
 // --- the throw ---------------------------------------------------------------

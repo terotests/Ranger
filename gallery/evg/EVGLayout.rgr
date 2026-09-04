@@ -702,24 +702,37 @@ class EVGLayout {
         this.scrollOnlyWalk(root)
     }
 
+    ; The clamp alone, for a container whose offset was just written: what
+    ; `scrollOnly` would do to it first, without the walk that moves the
+    ; boxes. A host that gets six pointer reports between two frames clamps
+    ; six times — cheap, and it is what makes "did the page move" and the
+    ; offset it reads back right at once — and moves the subtree once, when
+    ; the frame asks for the layout.
+    fn clampScroll:void (el:EVGElement) {
+        if ((el.clipsContent()) == false) {
+            return
+        }
+        ; The same clamp `applyScroll` does, against the extents it
+        ; measured. They are still right: the content did not move.
+        def maxY:double (el.maxScrollTop())
+        if (el.scrollTop > maxY) {
+            el.scrollTop = maxY
+        }
+        if (el.scrollTop < 0.0) {
+            el.scrollTop = 0.0
+        }
+        def maxX:double (el.maxScrollLeft())
+        if (el.scrollLeft > maxX) {
+            el.scrollLeft = maxX
+        }
+        if (el.scrollLeft < 0.0) {
+            el.scrollLeft = 0.0
+        }
+    }
+
     fn scrollOnlyWalk:void (el:EVGElement) {
         if (el.clipsContent()) {
-            ; The same clamp `applyScroll` does, against the extents it
-            ; measured. They are still right: the content did not move.
-            def maxY:double (el.maxScrollTop())
-            if (el.scrollTop > maxY) {
-                el.scrollTop = maxY
-            }
-            if (el.scrollTop < 0.0) {
-                el.scrollTop = 0.0
-            }
-            def maxX:double (el.maxScrollLeft())
-            if (el.scrollLeft > maxX) {
-                el.scrollLeft = maxX
-            }
-            if (el.scrollLeft < 0.0) {
-                el.scrollLeft = 0.0
-            }
+            this.clampScroll(el)
             def dy:double (el.appliedScrollTop - el.scrollTop)
             def dx:double (el.appliedScrollLeft - el.scrollLeft)
             if ((dx != 0.0) || (dy != 0.0)) {
