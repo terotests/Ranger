@@ -121,6 +121,16 @@ if (clip.meta?.fileKey !== "abc123" || figmaClipboardName(clip.meta) !== "paste 
   console.error("figmeta did not round-trip", clip.meta);
   process.exit(1);
 }
+// What a browser may hand back after sanitising: single quotes, entities.
+const sanitised = html.replace(/"/g, "'").replace(/<!--/g, "&lt;!--").replace(/-->/g, "--&gt;");
+if (figmaClipboard(sanitised).buffer?.byteLength !== canvas.byteLength) {
+  console.error("sanitised clipboard html did not parse");
+  process.exit(1);
+}
+if (!figmaClipboard("<p>plain html</p>").reason || figmaClipboard("").reason !== "no text/html on the clipboard") {
+  console.error("non-Figma html gave no reason");
+  process.exit(1);
+}
 if (figmaClipboard("<p>plain html</p>").buffer !== null) {
   console.error("plain html was taken for a Figma paste");
   process.exit(1);

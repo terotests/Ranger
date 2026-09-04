@@ -4,7 +4,7 @@
  */
 import { renderDisplayList, loadImages } from "./gl/evg-webgl.js";
 import { installZstd } from "./zstd.mjs";
-import { figmaClipboard, figmaClipboardName } from "./clipboard.mjs";
+import { figmaClipboard, figmaClipboardName, readFigmaClipboard } from "./clipboard.mjs";
 
 window.__pageStarted = true;
 
@@ -23,6 +23,7 @@ const sampleEl = document.getElementById("sample");
 const fitEl = document.getElementById("fit");
 const zoom100El = document.getElementById("zoom100");
 const debugEl = document.getElementById("debug");
+const pasteEl = document.getElementById("paste");
 const zoomlabEl = document.getElementById("zoomlab");
 const mainEl = document.querySelector("main");
 
@@ -295,20 +296,55 @@ window.addEventListener("resize", () => draw());
 
 // ⌘V / Ctrl+V straight from Figma: the copied nodes arrive as fig-kiwi bytes
 // inside text/html, and a .fig file copied from the desktop comes as a file.
+async function openClip(clip) {
+  if (!clip.buffer) {
+    statusEl.textContent = "paste: " + (clip.reason || "nothing usable");
+    return false;
+  }
+  statusEl.textContent = "paste: " + clip.buffer.byteLength + " bytes from Figma, parsing…";
+  try {
+    await openBuffer(clip.buffer, figmaClipboardName(clip.meta));
+  } catch (err) {
+    statusEl.textContent = "paste failed: " + (err.message || err);
+    console.error("[figma-viewer] paste", err);
+    return false;
+  }
+  return true;
+}
+
 window.addEventListener("paste", async (e) => {
   const dt = e.clipboardData;
-  if (!dt) return;
+  if (!dt) {
+    statusEl.textContent = "paste: the event carried no clipboardData";
+    return;
+  }
   const file = Array.from(dt.files || []).find((f) => /\.(fig|deck|jam)$/i.test(f.name));
   if (file) {
     e.preventDefault();
     await openBuffer(await file.arrayBuffer(), file.name);
     return;
   }
-  const clip = figmaClipboard(dt.getData("text/html"));
-  if (!clip.buffer) return;
+  const html = dt.getData("text/html");
+  const clip = figmaClipboard(html);
+  if (!clip.buffer) {
+    // Say what came instead, so a paste that does nothing can be explained.
+    statusEl.textContent = "paste: " + clip.reason + " · types: " + Array.from(dt.types || []).join(", ");
+    console.warn("[figma-viewer] paste did not carry a Figma buffer", { types: Array.from(dt.types || []), html: (html || "").slice(0, 400) });
+    return;
+  }
   e.preventDefault();
-  await openBuffer(clip.buffer, figmaClipboardName(clip.meta));
+  await openClip(clip);
 });
+
+if (pasteEl) {
+  pasteEl.addEventListener("click", async () => {
+    try {
+      await openClip(await readFigmaClipboard());
+    } catch (err) {
+      statusEl.textContent = "paste: " + (err.message || err);
+    }
+  });
+}
 
 /** Open a file the page can fetch: `?file=fixtures/health.fig`, with an
  *  optional `&page=N` and `&frame=N` to start on one page or frame.
