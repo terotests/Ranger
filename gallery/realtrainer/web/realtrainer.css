@@ -2435,3 +2435,23 @@
 .rt-fill-w { width: 100%; }
 .rt-bubble-phone { max-width: 290px; }
 .rt-day-count { color: #f97316; }
+
+/* --- a day, opened: the header and a card per workout --------------------- */
+.rt-dv-head { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; padding: 8px 12px; background-color: #171717; }
+.rt-dv-head-text { color: #f2f2f2; font-family: Arial; font-weight: bold; font-size: 15px; height: 20px; }
+.rt-entry { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 8px; margin: 12px; padding: 12px; border-radius: 12px; border-width: 1px; border-color: #2e2e2e; background-color: #171717; }
+.rt-entry-hd { color: #f2f2f2; font-family: Arial; font-weight: bold; font-size: 20px; height: 26px; }
+.rt-entry-time { color: #999999; font-family: Arial; font-size: 12px; height: 16px; }
+.rt-entry-tags { color: #fb923c; font-family: Arial; font-size: 12px; height: 16px; }
+.rt-entry-row { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 6px; }
+.rt-entry-row-text { color: #f2f2f2; font-family: Arial; font-size: 13px; height: 18px; }
+.rt-entry-section { color: #fb923c; font-family: Arial; font-weight: bold; font-size: 12px; height: 18px; padding-top: 6px; }
+.rt-entry-note { color: #999999; font-family: Arial; font-size: 12px; height: 16px; }
+.rt-entry-foot { display: flex; flex-direction: row; flex-wrap: nowrap; padding-top: 6px; }
+.rt-entry-foot-text { color: #999999; font-family: Arial; font-size: 12px; height: 16px; }
+.rt-entry-dot { color: #999999; font-family: Arial; font-size: 12px; height: 16px; }
+.rt-danger-text { color: #ef4444; font-family: Arial; font-weight: bold; font-size: 12px; height: 16px; }
+.rt-entry-tags { display: flex; flex-direction: row; flex-wrap: wrap; gap: 6px; }
+.rt-entry-tag { color: #f2f2f2; font-family: Arial; font-size: 11px; height: 20px; padding: 2px 8px; border-radius: 10px; background-color: #1e3a5f; }
+.rt-entry-row-col { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 2px; }
+.rt-entry-spec { color: #999999; font-family: Arial; font-size: 12px; height: 16px; }

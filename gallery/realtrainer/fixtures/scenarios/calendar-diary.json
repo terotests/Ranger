@@ -1,5 +1,5 @@
 {
-  "_": "The training calendar with a real diary in it — realtrainer-compact's sample.compact, seeded into cal-train. The week of 2026-02-09 has eight workouts on seven days.",
+  "_": "The training calendar with a real diary in it — realtrainer-compact's sample.compact, seeded into cal-train. The week of 2026-02-09 has eight workouts on seven days; a day with one opens the workout, a day with two opens both, and the header's arrow closes the day.",
   "id": "calendar-diary-week",
   "area": "kalenteri",
   "machine": "",
@@ -28,17 +28,17 @@
       "tick": 800
     },
     {
-      "id": "rt-entry-back",
+      "id": "rt-day-back",
       "role": "button",
       "name": "",
       "nth": 0,
-      "why": "whatever closes the workout — surveyed first"
+      "why": "the header's first unnamed button closes the day"
     },
     {
       "id": "rt-day-2026-02-12",
       "role": "button",
       "name": "12 To Lajitekniikka (Kuula) & Kuulantyöntö #kuula #lajitekniikka #yleisurheilu 2",
-      "why": "two workouts: the day panel"
+      "why": "two workouts: both cards"
     },
     {
       "tick": 800

@@ -309,7 +309,15 @@ ajaa ne — ja runner **pysähtyy niin kauan kuin nimetty toiminto on velkaa**, 
 `send → aja pending → resume`, ei pelkkä `send`. `PlanDialogHost.settleHost` on se
 silmukka; katso myös `gallery/statechart/README.md`.
 
-### 5.3 S3:n loput, S6
+### 5.3 S1:n loput: päivänäkymä
+
+Päivänäkymä on tehty (`calendar-diary`, 100 %): viikkolistan päivä avaa
+`WorkoutBlogView`n kortin per harjoitus seedin harjoituspäiväkirjasta
+(`sample.compact`). Kortin napit — Muistiinpanot, Näytä tilastot, Lisää
+kommentti, Compact, JSON, Poista — vastaavat vielä tyhjää; niistä seuraavat
+ovat muistiinpanojen muokkaus ja poisto, jotka koskevat storea (S6).
+
+### 5.3b S3:n loput, S6
 
 S3:n näkymä on tehty (taulukko yllä). Jäljellä lakanalla: "Lisää kausi" -modaali
 (tila, sijainti, kesto, tyyppi), AI-generointimodaali, leikepöydän kopiointi ja

@@ -237,6 +237,25 @@ loses the test sign-in — so the sheet is opened by route. The modals behind
 "Lisää kausi", "Muokkaa vuosisuunnitelmaa" and the toolbar's clipboard and
 reset buttons are not ported; they answer nothing.
 
+### A day, opened — a card per workout
+
+The seed's training calendar carries realtrainer-compact's `sample.compact`
+(`scripts/seed-from-compact.mjs`: ninety-nine workouts over four months, each
+`[date] ## title` block one entry), so the week list shows what a week of a
+real diary looks like: titles, tags, and on a day with several workouts the
+titles joined and the count. Pressing a day opens it — `handleDayClick`: one
+workout opens it directly, several open the day with each of them — and the
+port draws what `WorkoutBlogView` draws: the heading, the date, the notes
+button, the tags, a row per movement with its stats and comment buttons, the
+count and the tonnage ("7 liikettä • Yht. 2.5 t"; the tenths are cut, as
+`toFixed(1)` cuts 2.55), and Compact / JSON / Poista. The rows come from the
+same COMPACT parser the document screen uses, and `CompactStatBuilder.text`
+already says "3x5x90kg" and "25s, 24s" the way the original's row does.
+
+`calendar-diary` matches the reference 100 % on every frame. The buttons on a
+card answer nothing yet — the notes, the stats, the comments, the exports and
+the delete are the next asks.
+
 ## Traces: the app itself as the oracle
 
 A machine that passes its transition table can still be wired to the wrong

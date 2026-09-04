@@ -131,7 +131,7 @@
   },
   {
    "step": "rt-day-2026-02-09",
-   "handled": false,
+   "handled": true,
    "state": "",
    "nodes": [
     {
@@ -171,52 +171,112 @@
     },
     {
      "role": "button",
-     "name": "Edellinen viikko",
+     "name": "",
      "state": ""
     },
     {
      "role": "button",
-     "name": "vko 7 9. – 15.2.",
+     "name": "",
      "state": ""
     },
     {
      "role": "button",
-     "name": "Seuraava viikko",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Kontrastivoima (Sali) & Kierto",
+     "state": "level=1"
+    },
+    {
+     "role": "button",
+     "name": "Muistiinpanot",
      "state": ""
     },
     {
      "role": "button",
-     "name": "9 Ma Kontrastivoima (Sali) & Kierto #voima #kontrasti #sali",
+     "name": "Näytä tilastot",
      "state": ""
     },
     {
      "role": "button",
-     "name": "10 Ti Uintiharjoitus #uinti #kestävyys",
+     "name": "Lisää kommentti",
      "state": ""
     },
     {
      "role": "button",
-     "name": "11 Ke Voimaharjoitus (Rinnalleveto & Core) #voima #rinnalleveto #core",
+     "name": "Näytä tilastot",
      "state": ""
     },
     {
      "role": "button",
-     "name": "12 To Lajitekniikka (Kuula) & Kuulantyöntö #kuula #lajitekniikka #yleisurheilu 2",
+     "name": "Lisää kommentti",
      "state": ""
     },
     {
      "role": "button",
-     "name": "13 Pe Lepopäivä #lepo #hyötyliikunta",
+     "name": "Näytä tilastot",
      "state": ""
     },
     {
      "role": "button",
-     "name": "14 La Muuttohommia #hyötyliikunta #muutto",
+     "name": "Lisää kommentti",
      "state": ""
     },
     {
      "role": "button",
-     "name": "15 Su Aktivoiva iltatreeni (kotona) #koti #aktivoiva #kehonhuolto",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Compact",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "JSON",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Poista",
      "state": ""
     },
     {
@@ -298,52 +358,112 @@
     },
     {
      "role": "button",
-     "name": "Edellinen viikko",
+     "name": "",
      "state": ""
     },
     {
      "role": "button",
-     "name": "vko 7 9. – 15.2.",
+     "name": "",
      "state": ""
     },
     {
      "role": "button",
-     "name": "Seuraava viikko",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Kontrastivoima (Sali) & Kierto",
+     "state": "level=1"
+    },
+    {
+     "role": "button",
+     "name": "Muistiinpanot",
      "state": ""
     },
     {
      "role": "button",
-     "name": "9 Ma Kontrastivoima (Sali) & Kierto #voima #kontrasti #sali",
+     "name": "Näytä tilastot",
      "state": ""
     },
     {
      "role": "button",
-     "name": "10 Ti Uintiharjoitus #uinti #kestävyys",
+     "name": "Lisää kommentti",
      "state": ""
     },
     {
      "role": "button",
-     "name": "11 Ke Voimaharjoitus (Rinnalleveto & Core) #voima #rinnalleveto #core",
+     "name": "Näytä tilastot",
      "state": ""
     },
     {
      "role": "button",
-     "name": "12 To Lajitekniikka (Kuula) & Kuulantyöntö #kuula #lajitekniikka #yleisurheilu 2",
+     "name": "Lisää kommentti",
      "state": ""
     },
     {
      "role": "button",
-     "name": "13 Pe Lepopäivä #lepo #hyötyliikunta",
+     "name": "Näytä tilastot",
      "state": ""
     },
     {
      "role": "button",
-     "name": "14 La Muuttohommia #hyötyliikunta #muutto",
+     "name": "Lisää kommentti",
      "state": ""
     },
     {
      "role": "button",
-     "name": "15 Su Aktivoiva iltatreeni (kotona) #koti #aktivoiva #kehonhuolto",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Compact",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "JSON",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Poista",
      "state": ""
     },
     {
@@ -384,8 +504,8 @@
    ]
   },
   {
-   "step": "rt-entry-back",
-   "handled": false,
+   "step": "rt-day-back",
+   "handled": true,
    "state": "",
    "nodes": [
     {
@@ -512,7 +632,7 @@
   },
   {
    "step": "rt-day-2026-02-12",
-   "handled": false,
+   "handled": true,
    "state": "",
    "nodes": [
     {
@@ -552,52 +672,142 @@
     },
     {
      "role": "button",
-     "name": "Edellinen viikko",
+     "name": "",
      "state": ""
     },
     {
      "role": "button",
-     "name": "vko 7 9. – 15.2.",
+     "name": "",
      "state": ""
     },
     {
      "role": "button",
-     "name": "Seuraava viikko",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Lajitekniikka (Kuula)",
+     "state": "level=1"
+    },
+    {
+     "role": "button",
+     "name": "Muistiinpanot",
      "state": ""
     },
     {
      "role": "button",
-     "name": "9 Ma Kontrastivoima (Sali) & Kierto #voima #kontrasti #sali",
+     "name": "Näytä tilastot",
      "state": ""
     },
     {
      "role": "button",
-     "name": "10 Ti Uintiharjoitus #uinti #kestävyys",
+     "name": "Lisää kommentti",
      "state": ""
     },
     {
      "role": "button",
-     "name": "11 Ke Voimaharjoitus (Rinnalleveto & Core) #voima #rinnalleveto #core",
+     "name": "Näytä tilastot",
      "state": ""
     },
     {
      "role": "button",
-     "name": "12 To Lajitekniikka (Kuula) & Kuulantyöntö #kuula #lajitekniikka #yleisurheilu 2",
+     "name": "Lisää kommentti",
      "state": ""
     },
     {
      "role": "button",
-     "name": "13 Pe Lepopäivä #lepo #hyötyliikunta",
+     "name": "Näytä tilastot",
      "state": ""
     },
     {
      "role": "button",
-     "name": "14 La Muuttohommia #hyötyliikunta #muutto",
+     "name": "Lisää kommentti",
      "state": ""
     },
     {
      "role": "button",
-     "name": "15 Su Aktivoiva iltatreeni (kotona) #koti #aktivoiva #kehonhuolto",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Compact",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "JSON",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Poista",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Kuulantyöntö",
+     "state": "level=1"
+    },
+    {
+     "role": "button",
+     "name": "Muistiinpanot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Compact",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "JSON",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Poista",
      "state": ""
     },
     {
@@ -679,52 +889,142 @@
     },
     {
      "role": "button",
-     "name": "Edellinen viikko",
+     "name": "",
      "state": ""
     },
     {
      "role": "button",
-     "name": "vko 7 9. – 15.2.",
+     "name": "",
      "state": ""
     },
     {
      "role": "button",
-     "name": "Seuraava viikko",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Lajitekniikka (Kuula)",
+     "state": "level=1"
+    },
+    {
+     "role": "button",
+     "name": "Muistiinpanot",
      "state": ""
     },
     {
      "role": "button",
-     "name": "9 Ma Kontrastivoima (Sali) & Kierto #voima #kontrasti #sali",
+     "name": "Näytä tilastot",
      "state": ""
     },
     {
      "role": "button",
-     "name": "10 Ti Uintiharjoitus #uinti #kestävyys",
+     "name": "Lisää kommentti",
      "state": ""
     },
     {
      "role": "button",
-     "name": "11 Ke Voimaharjoitus (Rinnalleveto & Core) #voima #rinnalleveto #core",
+     "name": "Näytä tilastot",
      "state": ""
     },
     {
      "role": "button",
-     "name": "12 To Lajitekniikka (Kuula) & Kuulantyöntö #kuula #lajitekniikka #yleisurheilu 2",
+     "name": "Lisää kommentti",
      "state": ""
     },
     {
      "role": "button",
-     "name": "13 Pe Lepopäivä #lepo #hyötyliikunta",
+     "name": "Näytä tilastot",
      "state": ""
     },
     {
      "role": "button",
-     "name": "14 La Muuttohommia #hyötyliikunta #muutto",
+     "name": "Lisää kommentti",
      "state": ""
     },
     {
      "role": "button",
-     "name": "15 Su Aktivoiva iltatreeni (kotona) #koti #aktivoiva #kehonhuolto",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Compact",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "JSON",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Poista",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Kuulantyöntö",
+     "state": "level=1"
+    },
+    {
+     "role": "button",
+     "name": "Muistiinpanot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Compact",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "JSON",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Poista",
      "state": ""
     },
     {

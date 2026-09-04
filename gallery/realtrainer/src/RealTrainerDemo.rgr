@@ -305,6 +305,26 @@ treefactory Rt {
     tag DayTitle EVGElement (props (className "rt-day-title") (elementType 1))
     tag DayTags  EVGElement (props (className "rt-day-tags") (elementType 1))
     tag DayDash  EVGElement (props (className "rt-day-dash") (elementType 1))
+    ; A day opened from the week: its header, and a card per workout as
+    ; `WorkoutBlogView` draws one — the heading, the date, the tags, a row
+    ; per movement with its two buttons, the count and the tonnage, the
+    ; actions.
+    tag DayHead  EVGElement (props (className "rt-dv-head"))
+    tag DayHeadTx EVGElement (props (className "rt-dv-head-text") (elementType 1))
+    tag EntryCard EVGElement (props (className "rt-entry"))
+    tag EntryHd  EVGElement (props (className "rt-entry-hd") (elementType 1) (role "heading") (a11yLevel 1))
+    tag EntryTime EVGElement (props (className "rt-entry-time") (elementType 1))
+    tag EntryTags EVGElement (props (className "rt-entry-tags"))
+    tag EntryTag EVGElement (props (className "rt-entry-tag") (elementType 1))
+    tag EntryRowCol EVGElement (props (className "rt-entry-row-col"))
+    tag EntrySpec EVGElement (props (className "rt-entry-spec") (elementType 1))
+    tag EntryRow EVGElement (props (className "rt-entry-row"))
+    tag EntryRowTx EVGElement (props (className "rt-entry-row-text") (elementType 1))
+    tag EntrySection EVGElement (props (className "rt-entry-section") (elementType 1))
+    tag EntryNote EVGElement (props (className "rt-entry-note") (elementType 1))
+    tag EntryFoot EVGElement (props (className "rt-entry-foot"))
+    tag EntryFootTx EVGElement (props (className "rt-entry-foot-text") (elementType 1))
+    tag EntryDot EVGElement (props (className "rt-entry-dot") (elementType 1))
     tag ExPanel  EVGElement (props (className "rt-ex-panel"))
     tag ExHead   EVGElement (props (className "rt-ex-head") (id "rt-ex-head") (elementType 1)
                                    (role "heading") (a11yLevel 3))
@@ -535,6 +555,9 @@ class RealTrainerDemo {
     def calTab:string "weeks"
     def weekStart:string "2026-02-09"
     def exWeekType:string "target"
+    ; The day opened from the week list, or none — `editingDate`, and the
+    ; single workout `selectedWorkout` when the day has one.
+    def dayIso@(mutable):string ""
     def today:string "2026-09-03"
     ; The text fields: one per dialog that has one in the original, each a
     ; `InputCtl` named by its placeholder as the original's textareas are.
@@ -3217,11 +3240,162 @@ class RealTrainerDemo {
             tabs.addChild((this.calTabBtn("rt-tab-example" "Malliviikko" (calTab == "example"))))
             body.addChild(tabs)
         }
+        if ((strlen dayIso) > 0) {
+            this.dayView(body)
+            return
+        }
         if (calTab == "weeks") {
             body.addChild((this.weekView()))
         } {
             body.addChild((this.examplePanel()))
         }
+    }
+
+    ; --- a day, opened --------------------------------------------------------------
+    ; `handleDayClick`: one workout opens it, several open the day with each
+    ; of them — the same cards either way, in the panel the week list gave
+    ; way to. The two unnamed buttons in its header both close it, as the
+    ; original's do.
+    fn dayView:void (body:EVGElement) {
+        def head (tree Rt (DayHead))
+        head.addChild((this.iconBtn("rt-day-back" "" (RtIcons.arrowLeft("#f2f2f2")))))
+        def wd:int ((RtWeek.daysOf(dayIso)) - (RtWeek.daysOf((RtWeek.mondayOf(dayIso)))))
+        def title:string ((((RealTrainerDemo.weekdayLong(wd)) + " ") + (to_string (RtWeek.dayOfMonth(dayIso)))) + ("." + ((to_string (RtWeek.monthOf(dayIso))) + ".")))
+        head.addChild((tree Rt (Spacer)))
+        head.addChild((tree Rt (DayHeadTx (props (id "rt-dv-title")) title)))
+        head.addChild((tree Rt (Spacer)))
+        head.addChild((this.iconBtn("rt-day-close" "" (RtIcons.x("#f2f2f2")))))
+        body.addChild(head)
+        def entries:[RtSeedEntry] (seed.entriesOn(dayIso))
+        def n:int (array_length entries)
+        def k@(mutable):int (n - 1)
+        while (k >= 0) {
+            body.addChild((this.entryCard((itemAt entries k) ((n - 1) - k))))
+            k = (k - 1)
+        }
+    }
+
+    fn entryCard:EVGElement (e:RtSeedEntry i:int) {
+        def card (tree Rt (EntryCard))
+        card.id = ("rt-entry-" + (to_string i))
+        def entry:RtEntry (RtEntry.of(e.compact))
+        def addRow (tree Rt (ModalRow))
+        addRow.addChild((tree Rt (Spacer)))
+        addRow.addChild((this.exButton(("rt-entry-add-" + (to_string i)) "Lisää" "Lisää")))
+        card.addChild(addRow)
+        card.addChild((tree Rt (EntryHd (props (id ("rt-entry-hd-" + (to_string i)))) entry.title)))
+        card.addChild((tree Rt (EntryTime (RealTrainerDemo.fiDatePadded(e.date)))))
+        def notes (this.exButton(("rt-entry-notes-" + (to_string i)) "Muistiinpanot" "Muistiinpanot"))
+        notes.className = "rt-ex-btn rt-outline-btn"
+        card.addChild(notes)
+        if ((array_length entry.tags) > 0) {
+            def chips (tree Rt (EntryTags))
+            for entry.tags t:string ti {
+                chips.addChild((tree Rt (EntryTag t)))
+            }
+            card.addChild(chips)
+        }
+        def doc:CompactDocument (CompactRowMapper.parseDocument(e.compact))
+        def moves@(mutable):int 0
+        def tonnage@(mutable):int 0
+        for doc.rows row:CompactRow ri {
+            def kind:string (CompactStatBuilder.kind(row))
+            def label:string (CompactStatBuilder.label(row))
+            def isMove:boolean ((((kind == "exercise") || (kind == "move")) || ((kind == "pyramid") || (kind == "split"))) || (kind == "circuitItem"))
+            if isMove {
+                moves = (moves + 1)
+                tonnage = (tonnage + (RealTrainerDemo.tonnageOf(row)))
+                def line (tree Rt (EntryRow))
+                line.addChild((this.iconBtn((("rt-entry-stats-" + (to_string i)) + ("-" + (to_string ri))) "Näytä tilastot" (RtIcons.barChart("#999999")))))
+                ; The name over the spec, as the row is drawn; one node in
+                ; the tree carries both, as the original's text reads.
+                def spec:string (CompactStatBuilder.text(row))
+                def col (tree Rt (EntryRowCol))
+                col.addChild((tree Rt (EntryRowTx label)))
+                if ((strlen spec) > 0) {
+                    col.addChild((tree Rt (EntrySpec spec)))
+                }
+                line.addChild(col)
+                line.addChild((tree Rt (Spacer)))
+                line.addChild((this.iconBtn((("rt-entry-comment-" + (to_string i)) + ("-" + (to_string ri))) "Lisää kommentti" (RtIcons.messageSquare("#999999")))))
+                card.addChild(line)
+            } {
+                if ((kind == "section") || (kind == "phase")) {
+                    card.addChild((tree Rt (EntrySection label)))
+                } {
+                    if ((kind != "unknown") && (kind != "summary")) {
+                        def note@(mutable):string label
+                        def more:string (CompactStatBuilder.text(row))
+                        if ((strlen more) > 0) { note = ((note + " ") + more) }
+                        if ((strlen note) > 0) {
+                            card.addChild((tree Rt (EntryNote note)))
+                        }
+                    }
+                }
+            }
+        }
+        def foot (tree Rt (EntryFoot))
+        if (moves > 0) {
+            def tons@(mutable):string ((to_string tonnage) + " kg")
+            if (tonnage >= 1000) {
+                ; `(t / 1000).toFixed(1)` — and 2550 is "2.5" there, not
+                ; "2.6": the tenths are cut, not rounded.
+                def tenths:int (to_int ((int2double tonnage) / 100.0))
+                def whole:int (to_int ((int2double tenths) / 10.0))
+                tons = ((((to_string whole) + ".") + (to_string (tenths - (whole * 10)))) + " t")
+            }
+            foot.addChild((tree Rt (EntryFootTx ((((to_string moves) + " liikettä") + " • Yht. ") + tons))))
+        }
+        card.addChild(foot)
+        def acts (tree Rt (ModalRow))
+        acts.addChild((this.exButton(("rt-entry-compact-" + (to_string i)) "Compact" "Compact")))
+        acts.addChild((this.exButton(("rt-entry-json-" + (to_string i)) "JSON" "JSON")))
+        acts.addChild((tree Rt (EntryDot "•")))
+        def del (this.exButton(("rt-entry-delete-" + (to_string i)) "Poista" "Poista"))
+        RealTrainerDemo.tintText(del "rt-ex-btn-text rt-danger-text")
+        acts.addChild(del)
+        card.addChild(acts)
+        return card
+    }
+
+    ; sets × reps × kg, for the exercises that state all three — `totalTonnage`.
+    sfn tonnageOf:int (row:CompactRow) {
+        match row {
+            Exercise ex {
+                def e:ExerciseSpec (unwrap ex.spec)
+                if ((e.hasSets && e.hasReps) && e.hasWeight) {
+                    return ((e.sets * e.reps) * e.weightKg)
+                }
+            }
+            Move mv { }
+            Pyramid py { }
+            Split sp { }
+            Section s { }
+            Text t { }
+            Summary sm { }
+            Phase ph { }
+            Custom cu { }
+            Duration du { }
+            Unknown un { }
+            Circuit ci { }
+            CircuitItem it { }
+        }
+        return 0
+    }
+
+    sfn weekdayLong:string (i:int) {
+        if (i == 0) { return "Maanantai" }
+        if (i == 1) { return "Tiistai" }
+        if (i == 2) { return "Keskiviikko" }
+        if (i == 3) { return "Torstai" }
+        if (i == 4) { return "Perjantai" }
+        if (i == 5) { return "Lauantai" }
+        return "Sunnuntai"
+    }
+
+    ; "09.02.2026" — the card's `<time>`.
+    sfn fiDatePadded:string (iso:string) {
+        return ((((substring iso 8 10) + ".") + (substring iso 5 7)) + ("." + (substring iso 0 4)))
     }
 
     fn calButton:EVGElement (id:string label:string icon:string) {
@@ -3308,7 +3482,7 @@ class RealTrainerDemo {
         def entries:[RtSeedEntry] (seed.entriesOn(iso))
         def isToday:boolean (iso == today)
         def row (tree Rt (DayRow))
-        row.id = ("rt-day-" + (to_string i))
+        row.id = ("rt-day-" + iso)
         if isToday {
             row.className = "rt-day-row rt-day-today"
         }
@@ -3626,6 +3800,16 @@ class RealTrainerDemo {
         if (section != "calendar") {
             return false
         }
+        if ((id == "rt-day-back") || (id == "rt-day-close")) {
+            if ((strlen dayIso) == 0) { return false }
+            dayIso = ""
+            return true
+        }
+        if (RtEntry.hasPrefix(id "rt-day-20")) {
+            dayIso = (substring id 7 (strlen id))
+            docScroll = 0.0
+            return true
+        }
         if (id == "rt-week-next") {
             weekStart = (RtWeek.shifted(weekStart 7))
             return true
@@ -3666,6 +3850,7 @@ class RealTrainerDemo {
         }
         section = name
         docScroll = 0.0
+        dayIso = ""
         return true
     }
 
