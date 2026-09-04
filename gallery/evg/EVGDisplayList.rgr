@@ -719,9 +719,88 @@ class EVGDisplayList {
     ; second pass runs after the clip was popped, which is what a dropdown
     ; inside a scrolling panel needs and what `overflow: hidden` would
     ; otherwise forbid.
+    ; --- VIEWPORT CULLING -----------------------------------------------------
+    ;
+    ; A scrolled document is mostly not on the screen. Walking all of it to
+    ; emit commands for the tenth that is was the largest thing left in a
+    ; scroll frame of `gallery/realtrainer` once the layout stopped running:
+    ; `walkOpaque` alone — resolving corners, colours and gradients for rows
+    ; ten thousand pixels below the fold — was 17% of it, and the text it drew
+    ; had to be re-broken into lines to be drawn at all.
+    ;
+    ; So a subtree that cannot reach the clip it is inside is not walked. Two
+    ; things make that safe rather than merely fast:
+    ;
+    ;   It is tested against `EVGElement.paintTop`/`paintBottom` — the union
+    ;   of the subtree, written by the layout — and NOT against the element's
+    ;   own box, which says nothing about where its children are.
+    ;
+    ;   It happens only inside a real CLIP. An element that overflows a
+    ;   container that does not clip is drawn, and correctly: there is no clip
+    ;   rectangle in force, so nothing is culled. The scroll containers are
+    ;   exactly the elements that clip, which is why this needs no notion of
+    ;   scrolling at all.
+    ;
+    ; A subtree carrying a transform is never culled — see `paintUnbounded`.
+    ;
+    ; THE MARGIN is what keeps a fling from showing blank rows: the clip is
+    ; grown by `overscanBefore` above and `overscanAfter` below before
+    ; anything is tested, so the rows just past the edge are already drawn
+    ; when they arrive. A host that knows which way the finger went can make
+    ; the two different — big ahead, small behind — through `setOverscan`.
+    ; The default is one clip height each way, which also covers the shadow of
+    ; a box just off the edge.
+    def culling:boolean true
+    def overscanBefore:double (0.0 - 1.0)
+    def overscanAfter:double (0.0 - 1.0)
+    ; The clip in force, and whether there is one. Not a stack: the rectangle
+    ; is intersected on the way down and restored on the way back up, which is
+    ; the stack, held in the recursion.
+    def cullOn:boolean false
+    def cullLeft:double 0.0
+    def cullTop:double 0.0
+    def cullRight:double 0.0
+    def cullBottom:double 0.0
+
+    fn setCulling:void (on:boolean) {
+        culling = on
+    }
+
+    ; How far past the clip to draw anyway, in pixels, above and below. A
+    ; negative value means "one clip height", which is the default. Give the
+    ; direction of travel more room than the direction behind it.
+    fn setOverscan:void (before:double after:double) {
+        overscanBefore = before
+        overscanAfter = after
+    }
+
+    ; Is this subtree worth walking into?
+    fn cullable:boolean (el:EVGElement) {
+        if (cullOn == false) {
+            return false
+        }
+        if el.paintUnbounded {
+            return false
+        }
+        if (el.paintBottom < cullTop) {
+            return true
+        }
+        if (el.paintTop > cullBottom) {
+            return true
+        }
+        if (el.paintRight < cullLeft) {
+            return true
+        }
+        if (el.paintLeft > cullRight) {
+            return true
+        }
+        return false
+    }
+
     fn build:void (root:EVGElement) {
         clear cmds
         clear deferredOverlays
+        cullOn = false
         effectKind = ""
         def noX:[double]
         def noY:[double]
@@ -733,9 +812,13 @@ class EVGDisplayList {
         this.walk(root)
         def i:int 0
         while (i < (array_length deferredOverlays)) {
+            ; Outside every clip: a surface is placed against the page, not
+            ; against whatever it was written inside.
+            cullOn = false
             this.walk((itemAt deferredOverlays i))
             i = (i + 1)
         }
+        cullOn = false
     }
 
     ; Apply `opacity` to everything this element and its subtree just emitted.
@@ -984,6 +1067,10 @@ class EVGDisplayList {
     fn walk:void (el:EVGElement) {
         ; `display: none` paints nothing, and nothing under it.
         if (el.isHidden()) {
+            return
+        }
+        ; Nor does a subtree that cannot reach the clip it is inside.
+        if (this.cullable(el)) {
             return
         }
         ; Where this element's own output begins, so `opacity` can scale
@@ -1300,6 +1387,35 @@ class EVGDisplayList {
             cp.h = h
             this.addCmd(cp)
         }
+        ; The clip narrows what is worth walking, and it is restored on the
+        ; way out — the recursion is the stack. See the note on culling above.
+        def hadCull:boolean cullOn
+        def hadL:double cullLeft
+        def hadT:double cullTop
+        def hadR:double cullRight
+        def hadB:double cullBottom
+        if (clips && culling) {
+            def before:double overscanBefore
+            def after:double overscanAfter
+            if (before < 0.0) { before = h }
+            if (after < 0.0) { after = h }
+            def l:double (x - w)
+            def t:double (y - before)
+            def r:double ((x + w) + w)
+            def b:double ((y + h) + after)
+            if cullOn {
+                ; Nested clips intersect: the inner one can only narrow.
+                if (l < cullLeft) { l = cullLeft }
+                if (t < cullTop) { t = cullTop }
+                if (r > cullRight) { r = cullRight }
+                if (b > cullBottom) { b = cullBottom }
+            }
+            cullOn = true
+            cullLeft = l
+            cullTop = t
+            cullRight = r
+            cullBottom = b
+        }
         def i:int 0
         while (i < (el.getChildCount())) {
             def kid:EVGElement (el.getChild(i))
@@ -1312,6 +1428,11 @@ class EVGDisplayList {
             }
             i = (i + 1)
         }
+        cullOn = hadCull
+        cullLeft = hadL
+        cullTop = hadT
+        cullRight = hadR
+        cullBottom = hadB
         if clips {
             def pp (new EVGDrawCmd())
             pp.kind = 5
@@ -1558,6 +1679,13 @@ class EVGDisplayList {
             effectLightX = el.rippleLightX
             effectLightY = el.rippleLightY
             effectLightZ = el.rippleLightZ
+        }
+        ; Nothing below carries one, so there is nothing to find down there.
+        ; `paintHasEffect` is the layout's answer for the whole subtree; an
+        ; element whose own effect was set since the layout is still read
+        ; above, so only the search is short-circuited, never the element.
+        if ((el.paintHasEffect == false) && ((strlen el.surfaceEffect) == 0)) {
+            return
         }
         def i:int 0
         while (i < (el.getChildCount())) {

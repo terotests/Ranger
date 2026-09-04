@@ -357,6 +357,34 @@ class EVGElement {
     def appliedScrollTop:double 0.0
     def appliedScrollLeft:double 0.0
 
+    ; --- WHERE THIS SUBTREE DRAWS ---------------------------------------------
+    ;
+    ; The union of this element's own box and every box under it, written by
+    ; the layout and moved with the subtree. It is what lets the display list
+    ; skip a subtree that is nowhere near the scroll viewport WITHOUT walking
+    ; into it first: an element's own box says nothing about where its
+    ; children are — a zero-height wrapper is at the top of the document and
+    ; its rows are ten thousand pixels down — so the box alone is not a safe
+    ; thing to cull against, and this is.
+    ;
+    ; `paintUnbounded` is the honest answer for a subtree whose drawn output
+    ; is NOT its layout boxes: a transform moves the pixels after the fact and
+    ; a rotation moves them somewhere no rectangle here predicts. Such a
+    ; subtree is never culled, and the flag rises to its ancestors — which
+    ; costs those ancestors their own culling and nothing else, because their
+    ; other children are still tested on their own bounds.
+    def paintLeft:double 0.0
+    def paintTop:double 0.0
+    def paintRight:double 0.0
+    def paintBottom:double 0.0
+    def paintUnbounded:boolean false
+    ; Does anything in this subtree carry a `surfaceEffect`? Written by the
+    ; same pass, and read by `EVGDisplayList.readEffect` — which used to walk
+    ; the WHOLE document on every frame looking for the one element that
+    ; might, and in a page that has none walked all of it and found nothing.
+    ; It was 11% of a scroll frame doing exactly that.
+    def paintHasEffect:boolean false
+
     ; Typography (inherited)
     def fontSize:EVGUnit
     ; fontSize starts UNSET: an element is born without one so that "the author
@@ -1084,6 +1112,25 @@ class EVGElement {
     ; a rail away at a breakpoint, and what `@media` is for.
     fn isHidden:boolean () {
         return (display == "none")
+    }
+
+    ; Is this element's drawn output somewhere its layout box does not say?
+    ; A transform moves the pixels after the boxes are placed, so the answer
+    ; decides whether the subtree can be culled at all — see `paintUnbounded`.
+    fn hasTransform:boolean () {
+        if (rotate != 0.0) {
+            return true
+        }
+        if ((fabs (scale - 1.0)) > 0.000001) {
+            return true
+        }
+        if (translateX != 0.0) {
+            return true
+        }
+        if (translateY != 0.0) {
+            return true
+        }
+        return false
     }
 
     fn hasAbsolutePosition:boolean () {

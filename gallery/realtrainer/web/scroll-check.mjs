@@ -47,20 +47,41 @@ const SEED = read("fixtures", "reference", "seed.json");
 const PLAN = read("fixtures", "machines", "planDialog.machine.json");
 const CHAT = read("fixtures", "machines", "chat.machine.json");
 
-const open = (route, w, h) => {
+// A diary that does not fit on a screen, which is the only kind that proves
+// anything about culling: the fixture as it ships is one workout and every
+// row of it is on the page at once. The mapper reads the FIRST workout, so a
+// long diary is one workout with its body repeated.
+const longDiary = (times) => {
+  const lines = COMPACT.split("\n");
+  const head = lines.slice(0, 5).join("\n");
+  const body = lines.slice(5).join("\n");
+  let out = head;
+  for (let i = 0; i < times; i += 1) out += "\n" + body;
+  return out;
+};
+
+const open = (route, w, h, compact) => {
   const app = new RealTrainerDemo();
-  app.init(CSS, COMPACT);
+  app.init(CSS, compact ?? COMPACT);
   app.loadPlanMachine(PLAN);
   app.loadChatMachine(CHAT);
   app.loadReference(SEED);
   app.setPageSize(w, h);
-  app.openRoute(route);
+  // `document` is not a route: it is the scene the parsed diary draws in, and
+  // the one that gets long.
+  if (route === "#document") app.setScene("document");
+  else app.openRoute(route);
   app.display();
   return app;
 };
 
-// Down, past the end, back up, past the top, and a nudge that moves nothing.
-const DELTAS = [40, 120, 300, 900, 5000, -30, -200, -9000, 17, 0, -1];
+// Down a screen at a time — which is where a culled row arrives at the edge
+// and has to already be drawn — then past the end, back up, past the top, and
+// a nudge that moves nothing.
+const DELTAS = [
+  40, 120, 300, 700, 700, 700, 700, 700, 900, 5000,
+  -30, -200, -700, -700, -700, -9000, 17, 0, -1,
+];
 const PAGES = [[980, 760], [390, 844]];
 const ROUTES = [
   "/",
@@ -68,23 +89,83 @@ const ROUTES = [
   "/summary/yearsheet",
   "/yearsheet/y1",
   "/new-calendar",
+  "#document",
 ];
+// The long-diary pass runs the document scene again with forty times the
+// content, where most of it really is off the screen.
+const LONG = longDiary(40);
+
+// Every text the viewport can see, in the order it is drawn. This is what a
+// culled frame has to have exactly as many of, and in the same order, as an
+// uncalled one: a row that scrolls into view and stays blank is a text
+// command that went missing.
+const visibleText = (app, w, h) =>
+  JSON.parse(app.displayListJson())
+    .cmds.filter(
+      (c) =>
+        c.k === 3 &&
+        c.x < w && c.y < h &&
+        c.x + (c.w ?? 0) > 0 && c.y + (c.h ?? 0) > 0,
+    )
+    .map((c) => `${Math.round(c.x)},${Math.round(c.y)}:${c.text}`)
+    .join("\n");
 
 let failed = 0;
 let frames = 0;
+let culled = 0;
+let relaidOut = 0;
 for (const [w, h] of PAGES) {
   for (const route of ROUTES) {
-    const fast = open(route, w, h);
-    const full = open(route, w, h);
+    const long = route === "#document" ? LONG : undefined;
+    const fast = open(route, w, h, long);
+    const full = open(route, w, h, long);
+    // A third app draws the whole document — nothing left out — so the culled
+    // frame can be held against it.
+    const uncut = open(route, w, h, long);
+    uncut.setCulling(false);
     let bad = false;
     for (const delta of DELTAS) {
+      const before = fast.layoutCount();
       const movedFast = fast.scrollDocument(delta);
+      // The frame loop ticks the clock on every frame, scrolling or not, and
+      // a tick that does nothing must not cost a layout — that regression is
+      // worth ten milliseconds a frame and shows up nowhere but here.
+      fast.tick(16.7);
       const movedFull = full.scrollDocument(delta);
       // `setHover` clears the scroll flag, so this one lays out for real.
       full.setHover("");
+      uncut.scrollDocument(delta);
       const a = fast.displayListJson();
       const b = full.displayListJson();
       frames += 1;
+      const laidOut = fast.layoutCount() - before;
+      if (laidOut > 0) {
+        failed += 1;
+        bad = true;
+        relaidOut += 1;
+        console.log(
+          `  FAIL ${w}x${h} ${route} delta=${delta} — the scroll frame laid out ${laidOut}x`,
+        );
+        break;
+      }
+      const seenCulled = visibleText(fast, w, h);
+      const seenWhole = visibleText(uncut, w, h);
+      if (seenCulled !== seenWhole) {
+        failed += 1;
+        bad = true;
+        console.log(`  FAIL ${w}x${h} ${route} delta=${delta} — culled frame is missing text`);
+        const l = seenCulled.split("\n");
+        const r = seenWhole.split("\n");
+        for (let i = 0; i < Math.max(l.length, r.length); i += 1) {
+          if (l[i] !== r[i]) {
+            console.log("    culled: " + (l[i] ?? "<end>"));
+            console.log("    whole:  " + (r[i] ?? "<end>"));
+            break;
+          }
+        }
+        break;
+      }
+      if (JSON.parse(a).cmds.length < JSON.parse(uncut.displayListJson()).cmds.length) culled += 1;
       if (movedFast !== movedFull || a !== b) {
         failed += 1;
         bad = true;
@@ -112,3 +193,5 @@ if (failed > 0) {
   process.exit(1);
 }
 console.log(`  ${frames} scroll frames, every one identical to a full re-layout`);
+console.log(`  ${culled} of them drew less than the whole document, and saw all of it`);
+console.log(`  ${relaidOut} of them laid the document out again`);

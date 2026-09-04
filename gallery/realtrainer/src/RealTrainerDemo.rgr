@@ -562,12 +562,24 @@ class RealTrainerDemo {
     def root@(optional):EVGElement
     def sheet@(optional):EVGStyleSheet
     def layout@(optional):EVGLayout
-    ; Set by `scrolled` and consumed by `laidOut`: this frame is a SCROLL and
-    ; nothing else, so the boxes it is about to paint are the boxes the last
-    ; layout produced, moved. Everything that changes anything else clears it
-    ; — `rebuild`, `tick`, the page size, the pointer state — so the default is
-    ; always the full layout and the shortcut has to be asked for.
+    ; THIS FRAME IS A SCROLL and nothing else, so the boxes it is about to
+    ; paint are the boxes the last layout produced, moved — see `scrolled`.
+    ;
+    ; Set in one place and CONSUMED by `laidOut`, used or not, so it can never
+    ; make a second frame skip a layout it needed. That is the whole of the
+    ; safety here and it is deliberately not cleverer: a flag that meant "the
+    ; layout is still current" would have to be cleared by every path that
+    ; touches the tree, and a controller that rebuilds its own subtree inside
+    ; `press` is exactly the path that would be forgotten. Asked for, once,
+    ; by the one caller that knows.
     def scrollFrame:boolean false
+    ; How many times the tree has actually been laid out. Only `layoutCount`
+    ; below reads it, and only `web/scroll-check.mjs` calls that: a scroll
+    ; frame that lays out is the regression this counts, and it is not
+    ; something a timing number would catch before someone noticed the page
+    ; had gone slow again.
+    def layouts:int 0
+    def cullOffscreen:boolean true
     def transitions:EVGTransition (new EVGTransition())
 
     ; --- the library's controls ----------------------------------------------
@@ -5915,7 +5927,24 @@ class RealTrainerDemo {
     ; One frame of time. Always true on the loader: a loading screen that idles
     ; is a frozen one, and this one stops by changing scene rather than by
     ; running out of things to move.
+    ; A frame of the clock. The host calls it on EVERY frame, which is what
+    ; makes the wrapper matter: `tickWork` clears the scroll shortcut because
+    ; anything it does invalidates one, but MOST FRAMES IT DOES NOTHING — no
+    ; toast, no job, no transition in flight — and clearing the flag on those
+    ; frames forced a full layout out of every scroll the loop was driving.
+    ; Measured on a forty-workout diary: 0.74ms a frame without this call in
+    ; front of the paint, 13.72 with it. Nothing changed, so nothing was
+    ; invalidated: the flag goes back.
     fn tick:boolean (dtMs:double) {
+        def wasScroll:boolean scrollFrame
+        def changed:boolean (this.tickWork(dtMs))
+        if (changed == false) {
+            scrollFrame = wasScroll
+        }
+        return changed
+    }
+
+    fn tickWork:boolean (dtMs:double) {
         scrollFrame = false
         ; A toast stays for a while and goes.
         if (toastMs > 0.0) {
@@ -6054,7 +6083,12 @@ class RealTrainerDemo {
     ; marked inline so the cascade leaves it alone — without that the
     ; stylesheet would put the rotation back to 0 on the next pass, which is a
     ; ring that never turns.
+    ; WRITES ON THE TREE, so the layout it produced is no longer current:
+    ; this sets class names and the stylesheet is what turns them into
+    ; colours. Skipping `laidOut` after one of these left the ring lit the
+    ; way it was lit a second ago.
     fn writeFrame:void () {
+        scrollFrame = false
         if (scene != "loading") {
             return
         }
@@ -6093,7 +6127,12 @@ class RealTrainerDemo {
     ; sixtieths of the rest are still to run — the arithmetic is here and the
     ; ticks themselves know nothing, which is what makes them sixty copies of
     ; one rule in the stylesheet instead of sixty rules.
+    ; WRITES ON THE TREE, so the layout it produced is no longer current:
+    ; this sets class names and the stylesheet is what turns them into
+    ; colours. Skipping `laidOut` after one of these left the ring lit the
+    ; way it was lit a second ago.
     fn writeDial:void () {
+        scrollFrame = false
         def r:EVGElement (unwrap root)
         def left:double 0.0
         if (timerFullMs > 0.0) {
@@ -6558,9 +6597,9 @@ class RealTrainerDemo {
     fn laidOut:EVGLayout () {
         ; The scroll shortcut. `scrolled` has already moved the subtree and
         ; nothing since then has changed a style, a size or the tree, so there
-        ; is nothing to lay out — see `EVGLayout.scrollOnly`. The flag is
-        ; consumed here whether or not it is used, so it can never make a
-        ; second frame skip a layout it needed.
+        ; is nothing to lay out — see `EVGLayout.scrollOnly`. Consumed here
+        ; whether or not it is used, so it can never make a second frame skip
+        ; a layout it needed.
         def wasScroll:boolean scrollFrame
         scrollFrame = false
         if wasScroll {
@@ -6579,6 +6618,7 @@ class RealTrainerDemo {
         ; the bar's width are written straight onto elements, so the sheet does
         ; not know anything moved and would report the frame clean. The page is
         ; a hundred elements.
+        layouts = (layouts + 1)
         if layout {
             def lay:EVGLayout (unwrap layout)
             lay.layout(r)
@@ -6595,11 +6635,26 @@ class RealTrainerDemo {
     ; it asks for the JSON below; a host that shares a process with this demo --
     ; the Apple port paints from Swift -- should not serialise a display list
     ; only to parse it back. It is the same list either way.
+    ; Whether the display list leaves out what the scroll viewport cannot
+    ; reach — see `EVGDisplayList`'s note on culling. On by default and here
+    ; only so the two lists can be compared: `web/scroll-check.mjs` builds the
+    ; frame both ways and asserts that the text a reader can see is the same
+    ; text in the same order.
+    ; How many full layouts have been done. See `layouts`.
+    fn layoutCount:int () {
+        return layouts
+    }
+
+    fn setCulling:void (on:boolean) {
+        cullOffscreen = on
+    }
+
     fn display:EVGDisplayList () {
         def lay:EVGLayout (this.laidOut())
         def r:EVGElement (unwrap root)
         def dl (new EVGDisplayList())
         dl.setTextEngine((lay.getTextEngine()))
+        dl.setCulling(cullOffscreen)
         dl.build(r)
         this.emitCharts(dl r)
         return dl

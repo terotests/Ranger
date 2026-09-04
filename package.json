@@ -870,6 +870,7 @@
     "rt:machine": "npm run rt:machine:build --silent && node gallery/realtrainer/web/machine-check.mjs",
     "rt:machine:live": "npm run statechart:build --silent && node gallery/statechart/tests/xstate-parity.mjs --manifest gallery/realtrainer/fixtures/machines/manifest.mjs",
     "rt:machine:config": "node gallery/realtrainer/scripts/check-machine-config.mjs",
+    "rt:bench": "npm run rt:build --silent && node gallery/realtrainer/web/bench.mjs",
     "rt:scroll": "npm run rt:build --silent && node gallery/realtrainer/web/scroll-check.mjs",
     "rt:trace": "npm run rt:build --silent && node gallery/realtrainer/web/trace-check.mjs",
     "rt:trace:record": "npm run rt:build --silent && node gallery/realtrainer/web/trace-check.mjs --record",
