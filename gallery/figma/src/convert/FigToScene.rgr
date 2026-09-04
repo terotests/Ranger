@@ -1,0 +1,396 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; Figma-specific node tree → format-agnostic SceneNode.
+; All Figma field names and type strings live here, not in EVG.
+
+Import "../scene/SceneNode.rgr"
+Import "../scene/SceneMatrix.rgr"
+Import "../FigModel.rgr"
+Import "../FigPath.rgr"
+Import "../KiwiValue.rgr"
+
+class FigToScene {
+    def doc:FigDoc (new FigDoc())
+    def outDoc:SceneDocument (new SceneDocument())
+
+    Constructor () {
+    }
+
+    fn convertDoc:SceneDocument (src:FigDoc) {
+        doc = src
+        outDoc = (new SceneDocument())
+        outDoc.name = src.fileName
+        outDoc.source = "figma"
+        def i:int 0
+        while (i < (array_length src.pages)) {
+            def page:FigNode (itemAt src.pages i)
+            def sn:SceneNode (this.convertNode(page))
+            push outDoc.pages sn
+            outDoc.collectWarns(sn)
+            i = (i + 1)
+        }
+        return outDoc
+    }
+
+    fn convertNode:SceneNode (nd:FigNode) {
+        def t:string nd.typeName
+        def sn (new SceneNode())
+        sn.id = nd.id
+        sn.name = nd.name
+        sn.kind = (FigToScene.kindOf(t))
+        sn.sourceType = t
+        sn.visible = nd.visible
+        sn.opacity = nd.opacity
+        sn.w = nd.w
+        sn.h = nd.h
+        sn.xf = (SceneMatrix.fromFigma(nd.m00 nd.m01 nd.m02 nd.m10 nd.m11 nd.m12))
+        sn.x = nd.m02
+        sn.y = nd.m12
+        if (sn.xf.isTranslate()) {
+            sn.hasXf = false
+        } {
+            sn.hasXf = true
+        }
+        this.copyFills(nd sn)
+        this.copyStrokes(nd sn)
+        this.copyRadius(nd sn)
+        this.copyLayout(nd sn)
+        this.copyText(nd sn)
+        this.copyClip(nd sn)
+        this.copyEffects(nd sn)
+        this.copyPath(nd sn)
+        if (t == "LINE") {
+            sn.kind = "line"
+            sn.pathData = ("M0 0L" + (to_string nd.w) + " 0")
+        }
+        if (t == "ELLIPSE") {
+            sn.kind = "ellipse"
+            sn.pathData = (FigToScene.ellipsePath(nd.w nd.h))
+        }
+        if ((t == "IMAGE") || ((array_length sn.fills) > 0)) {
+            def imgFill:SceneFill (sn.firstFill())
+            if ((t == "IMAGE") || ((imgFill.kind == "image") && (sn.kind == "rect"))) {
+                if ((strlen imgFill.imageRef) > 0) {
+                    sn.kind = "image"
+                    sn.imageRef = imgFill.imageRef
+                    sn.imageFit = imgFill.imageFit
+                }
+            }
+        }
+        if ((t == "BOOLEAN_OPERATION") || (t == "BOOLEAN_GROUP")) {
+            sn.warn("boolean operation")
+        }
+        def i:int 0
+        while (i < (array_length nd.children)) {
+            def ch:FigNode (itemAt nd.children i)
+            if ch.removed {
+            } {
+                if ch.visible {
+                    push sn.children (this.convertNode(ch))
+                }
+            }
+            i = (i + 1)
+        }
+        if ((t == "INSTANCE") && ((array_length sn.children) == 0)) {
+            sn.warn("instance without resolved children")
+        }
+        return sn
+    }
+
+    sfn kindOf:string (t:string) {
+        if ((t == "RECTANGLE") || (t == "ROUNDED_RECTANGLE") || (t == "SHAPE_WITH_TEXT")) {
+            return "rect"
+        }
+        if (t == "ELLIPSE") {
+            return "ellipse"
+        }
+        if ((t == "VECTOR") || (t == "STAR") || (t == "POLYGON") || (t == "BOOLEAN_OPERATION") || (t == "BOOLEAN_GROUP")) {
+            return "path"
+        }
+        if (t == "LINE") {
+            return "line"
+        }
+        if (t == "TEXT") {
+            return "text"
+        }
+        if (t == "IMAGE") {
+            return "image"
+        }
+        return "container"
+    }
+
+    fn copyFills:void (nd:FigNode sn:SceneNode) {
+        def i:int 0
+        while (i < (array_length nd.fills)) {
+            def p:FigPaint (itemAt nd.fills i)
+            def f (new SceneFill())
+            f.r = p.r
+            f.g = p.g
+            f.b = p.b
+            f.a = p.a
+            f.opacity = p.opacity
+            f.visible = p.visible
+            f.kind = "solid"
+            if (p.kind == "IMAGE") {
+                f.kind = "image"
+                f.imageRef = p.imageHash
+                f.imageFit = (FigToScene.scaleFit((nd.raw.childString("scaleMode" "FILL"))))
+            }
+            if (p.kind == "GRADIENT_LINEAR") {
+                f.kind = "gradient"
+                f.gradDir = 1
+                this.copyGradient(nd.raw f)
+            }
+            push sn.fills f
+            i = (i + 1)
+        }
+    }
+
+    fn copyGradient:void (raw:KiwiValue f:SceneFill) {
+        def paints:KiwiValue (raw.child("fillPaints"))
+        if ((paints.itemCount()) == 0) {
+            return
+        }
+        def p0:KiwiValue (paints.item(0))
+        def stops:KiwiValue (p0.child("stops"))
+        if ((stops.itemCount()) >= 2) {
+            def a:KiwiValue ((stops.item(0)).child("color"))
+            def b:KiwiValue ((stops.item(1)).child("color"))
+            f.r = (a.childDouble("r" f.r))
+            f.g = (a.childDouble("g" f.g))
+            f.b = (a.childDouble("b" f.b))
+            f.gradR = (b.childDouble("r" f.r))
+            f.gradG = (b.childDouble("g" f.g))
+            f.gradB = (b.childDouble("b" f.b))
+            f.gradA = (b.childDouble("a" 1.0))
+        }
+    }
+
+    fn copyStrokes:void (nd:FigNode sn:SceneNode) {
+        def i:int 0
+        while (i < (array_length nd.strokes)) {
+            def p:FigPaint (itemAt nd.strokes i)
+            def s (new SceneStroke())
+            s.r = p.r
+            s.g = p.g
+            s.b = p.b
+            s.a = p.a
+            s.opacity = p.opacity
+            s.visible = p.visible
+            s.weight = nd.strokeWeight
+            s.align = (nd.raw.childString("strokeAlign" "CENTER"))
+            if (s.align == "INSIDE") {
+                s.align = "inside"
+            } {
+                if (s.align == "OUTSIDE") {
+                    s.align = "outside"
+                    sn.warn("strokeAlign OUTSIDE (drawn as center)")
+                } {
+                    s.align = "center"
+                }
+            }
+            push sn.strokes s
+            i = (i + 1)
+        }
+    }
+
+    fn copyRadius:void (nd:FigNode sn:SceneNode) {
+        def raw:KiwiValue nd.raw
+        def tl:double (raw.childDouble("rectangleTopLeftCornerRadius" nd.corner))
+        def tr:double (raw.childDouble("rectangleTopRightCornerRadius" nd.corner))
+        def br:double (raw.childDouble("rectangleBottomRightCornerRadius" nd.corner))
+        def bl:double (raw.childDouble("rectangleBottomLeftCornerRadius" nd.corner))
+        sn.radius.tl = tl
+        sn.radius.tr = tr
+        sn.radius.br = br
+        sn.radius.bl = bl
+        if ((tl == tr) && (tr == br) && (br == bl)) {
+            sn.radius.uniform = true
+        } {
+            sn.radius.uniform = false
+        }
+    }
+
+    fn copyLayout:void (nd:FigNode sn:SceneNode) {
+        def raw:KiwiValue nd.raw
+        def mode:string (raw.childString("stackMode" ""))
+        if (mode == "HORIZONTAL") {
+            sn.layout.mode = "row"
+        }
+        if (mode == "VERTICAL") {
+            sn.layout.mode = "column"
+        }
+        sn.layout.gap = (raw.childDouble("stackSpacing" 0.0))
+        sn.layout.padL = (raw.childDouble("paddingLeft" 0.0))
+        sn.layout.padR = (raw.childDouble("paddingRight" 0.0))
+        sn.layout.padT = (raw.childDouble("paddingTop" 0.0))
+        sn.layout.padB = (raw.childDouble("paddingBottom" 0.0))
+        sn.layout.justify = (FigToScene.axisAlign((raw.childString("stackPrimarySizing" (raw.childString("primaryAxisAlignItems" "MIN"))))))
+        sn.layout.alignItems = (FigToScene.axisAlign((raw.childString("counterAxisAlignItems" "MIN"))))
+        def hug:string (raw.childString("primaryAxisSizingMode" ""))
+        if (hug == "HUG") {
+            if (sn.layout.mode == "row") {
+                sn.layout.hugW = true
+            }
+            if (sn.layout.mode == "column") {
+                sn.layout.hugH = true
+            }
+        }
+        if (hug == "FILL") {
+            if (sn.layout.mode == "row") {
+                sn.layout.fillW = true
+            }
+            if (sn.layout.mode == "column") {
+                sn.layout.fillH = true
+            }
+        }
+    }
+
+    sfn scaleFit:string (mode:string) {
+        if (mode == "FIT") {
+            return "contain"
+        }
+        if (mode == "CROP") {
+            return "cover"
+        }
+        if (mode == "TILE") {
+            return "tile"
+        }
+        return "cover"
+    }
+
+    sfn axisAlign:string (v:string) {
+        if ((v == "CENTER") || (v == "center")) {
+            return "center"
+        }
+        if ((v == "MAX") || (v == "max")) {
+            return "end"
+        }
+        if ((v == "SPACE_BETWEEN") || (v == "space-between")) {
+            return "space-between"
+        }
+        return "start"
+    }
+
+    fn copyText:void (nd:FigNode sn:SceneNode) {
+        if (sn.kind != "text") {
+            if ((strlen nd.characters) > 0) {
+                sn.text.characters = nd.characters
+                sn.text.fontSize = nd.fontSize
+                sn.text.fontFamily = nd.fontFamily
+            }
+            return
+        }
+        sn.text.characters = nd.characters
+        sn.text.fontSize = nd.fontSize
+        sn.text.fontFamily = nd.fontFamily
+        def raw:KiwiValue nd.raw
+        def align:string (raw.childString("textAlignHorizontal" "LEFT"))
+        if (align == "CENTER") {
+            sn.text.align = "center"
+        } {
+            if (align == "RIGHT") {
+                sn.text.align = "right"
+            } {
+                if (align == "JUSTIFIED") {
+                    sn.text.align = "justify"
+                } {
+                    sn.text.align = "left"
+                }
+            }
+        }
+        def weight:string (raw.childString("fontWeight" ""))
+        if ((strlen weight) > 0) {
+            sn.text.fontWeight = weight
+        }
+        def fontNm:KiwiValue (raw.child("fontName"))
+        if (fontNm.isObject()) {
+            def style:string (fontNm.childString("style" ""))
+            if ((style == "Bold") || (style == "Bold Italic")) {
+                sn.text.fontWeight = "700"
+            }
+            if ((style == "Italic") || (style == "Bold Italic")) {
+                sn.text.fontStyle = "italic"
+            }
+        }
+        sn.text.lineHeight = (raw.childDouble("lineHeight" 0.0))
+        sn.text.letterSpacing = (raw.childDouble("letterSpacing" 0.0))
+        if (sn.text.letterSpacing != 0.0) {
+            sn.warn("letterSpacing (EVG has no letter-spacing)")
+        }
+    }
+
+    fn copyClip:void (nd:FigNode sn:SceneNode) {
+        def t:string nd.typeName
+        if ((t == "FRAME") || (t == "SLIDE") || (t == "COMPONENT") || (t == "SYMBOL") || (t == "SECTION")) {
+            def disabled:boolean (nd.raw.childBool("frameMaskDisabled" false))
+            def clips:boolean (nd.raw.childBool("clipsContent" true))
+            if disabled {
+                sn.clip = false
+            } {
+                sn.clip = clips
+            }
+        }
+    }
+
+    fn copyEffects:void (nd:FigNode sn:SceneNode) {
+        def fx:KiwiValue (nd.raw.child("effects"))
+        def i:int 0
+        while (i < (fx.itemCount())) {
+            def e:KiwiValue (fx.item(i))
+            def kind:string (e.childString("type" ""))
+            if ((kind == "DROP_SHADOW") || (kind == "drop-shadow")) {
+                def s (new SceneEffect())
+                s.kind = "drop-shadow"
+                s.x = (e.childDouble("offset.x" (e.child("offset").childDouble("x" 0.0))))
+                s.y = (e.childDouble("offset.y" (e.child("offset").childDouble("y" 0.0))))
+                s.blur = (e.childDouble("radius" 0.0))
+                s.spread = (e.childDouble("spread" 0.0))
+                def col:KiwiValue (e.child("color"))
+                if (col.isObject()) {
+                    s.r = (col.childDouble("r" 0.0))
+                    s.g = (col.childDouble("g" 0.0))
+                    s.b = (col.childDouble("b" 0.0))
+                    s.a = (col.childDouble("a" 0.35))
+                }
+                push sn.effects s
+            } {
+                if ((kind == "INNER_SHADOW") || (kind == "LAYER_BLUR") || (kind == "BACKGROUND_BLUR")) {
+                    sn.warn(kind)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn copyPath:void (nd:FigNode sn:SceneNode) {
+        if ((array_length nd.fillBlobs) == 0) {
+            return
+        }
+        def d:string ""
+        def i:int 0
+        while (i < (array_length nd.fillBlobs)) {
+            def idx:int (itemAt nd.fillBlobs i)
+            if ((idx >= 0) && (idx < (array_length doc.blobs))) {
+                d = (d + (FigPath.toSvg((itemAt doc.blobs idx))))
+            }
+            i = (i + 1)
+        }
+        if ((strlen d) > 0) {
+            sn.pathData = d
+            if (sn.kind == "rect") {
+                sn.kind = "path"
+            }
+        }
+        sn.evenOdd = nd.evenOdd
+    }
+
+    sfn ellipsePath:string (w:double h:double) {
+        def rx:double (w / 2.0)
+        def ry:double (h / 2.0)
+        def cx:double rx
+        def cy:double ry
+        def w2:double w
+        return ("M0 " + (to_string cy) + "A" + (to_string rx) + " " + (to_string ry) + " 0 1 0 " + (to_string w2) + " " + (to_string cy) + "A" + (to_string rx) + " " + (to_string ry) + " 0 1 0 0 " + (to_string cy) + "Z")
+    }
+}

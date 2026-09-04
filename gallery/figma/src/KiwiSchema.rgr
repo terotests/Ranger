@@ -1,0 +1,341 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; Kiwi binary schema. Built-in types occupy the negative type ids
+; (~0 bool … ~7 uint64). Non-negative ids are definition indices.
+
+Import "KiwiBuffer.rgr"
+
+class KiwiField {
+    def name:string ""
+    def typeName:string ""
+    def typeId:int 0
+    def isArray:boolean false
+    def value:int 0
+    def isBuiltin:boolean false
+    def isEnum:boolean false
+
+    Constructor () {
+    }
+}
+
+class KiwiDef {
+    def name:string ""
+    def kind:int 0
+    def fields:[KiwiField]
+    def enumNames:[string]
+    def enumValues:[int]
+
+    Constructor () {
+    }
+
+    fn isEnum:boolean () {
+        return (kind == 0)
+    }
+
+    fn isStruct:boolean () {
+        return (kind == 1)
+    }
+
+    fn isMessage:boolean () {
+        return (kind == 2)
+    }
+
+    fn enumName:string (v:int) {
+        def n:int (array_length enumValues)
+        def i:int 0
+        while (i < n) {
+            if ((itemAt enumValues i) == v) {
+                return (itemAt enumNames i)
+            }
+            i = (i + 1)
+        }
+        return (to_string v)
+    }
+
+    fn enumValue:int (name:string) {
+        def n:int (array_length enumNames)
+        def i:int 0
+        while (i < n) {
+            if ((itemAt enumNames i) == name) {
+                return (itemAt enumValues i)
+            }
+            i = (i + 1)
+        }
+        return 0
+    }
+
+    fn fieldById:KiwiField (id:int) {
+        def n:int (array_length fields)
+        def i:int 0
+        while (i < n) {
+            def f:KiwiField (itemAt fields i)
+            if (f.value == id) {
+                return f
+            }
+            i = (i + 1)
+        }
+        def miss (new KiwiField())
+        miss.name = ""
+        return miss
+    }
+}
+
+class KiwiSchema {
+    def defs:[KiwiDef]
+    def defIndex:[string:int]
+    def ok:boolean true
+    def err:string ""
+
+    Constructor () {
+    }
+
+    sfn builtinName:string (idx:int) {
+        if (idx == 0) {
+            return "bool"
+        }
+        if (idx == 1) {
+            return "byte"
+        }
+        if (idx == 2) {
+            return "int"
+        }
+        if (idx == 3) {
+            return "uint"
+        }
+        if (idx == 4) {
+            return "float"
+        }
+        if (idx == 5) {
+            return "string"
+        }
+        if (idx == 6) {
+            return "int64"
+        }
+        if (idx == 7) {
+            return "uint64"
+        }
+        return "?"
+    }
+
+    sfn builtinId:int (name:string) {
+        if (name == "bool") {
+            return 0
+        }
+        if (name == "byte") {
+            return 1
+        }
+        if (name == "int") {
+            return 2
+        }
+        if (name == "uint") {
+            return 3
+        }
+        if (name == "float") {
+            return 4
+        }
+        if (name == "string") {
+            return 5
+        }
+        if (name == "int64") {
+            return 6
+        }
+        if (name == "uint64") {
+            return 7
+        }
+        return (0 - 1)
+    }
+
+    fn findDef:int (name:string) {
+        def n:int (array_length defs)
+        def i:int 0
+        while (i < n) {
+            def d:KiwiDef (itemAt defs i)
+            if (d.name == name) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    fn getDef:KiwiDef (name:string) {
+        def i:int (this.findDef(name))
+        if (i < 0) {
+            return (new KiwiDef())
+        }
+        return (itemAt defs i)
+    }
+
+    fn defCount:int () {
+        return (array_length defs)
+    }
+
+    fn decode:boolean (buf:buffer) {
+        def bb (new KiwiBuffer())
+        bb.init(buf)
+        def n:int (bb.readVarUint())
+        if (bb.ok == false) {
+            ok = false
+            err = bb.err
+            return false
+        }
+        def i:int 0
+        while (i < n) {
+            def d (new KiwiDef())
+            d.name = (bb.readString())
+            d.kind = (bb.readByte())
+            def fc:int (bb.readVarUint())
+            def j:int 0
+            while (j < fc) {
+                def f (new KiwiField())
+                f.name = (bb.readString())
+                f.typeId = (bb.readVarInt())
+                def flags:int (bb.readByte())
+                f.isArray = ((bit_and flags 1) == 1)
+                f.value = (bb.readVarUint())
+                push d.fields f
+                if (d.kind == 0) {
+                    push d.enumNames f.name
+                    push d.enumValues f.value
+                }
+                j = (j + 1)
+            }
+            push defs d
+            i = (i + 1)
+        }
+        if (bb.ok == false) {
+            ok = false
+            err = bb.err
+            return false
+        }
+        this.bindTypes()
+        return true
+    }
+
+    fn bindTypes:void () {
+        def n:int (array_length defs)
+        def i:int 0
+        while (i < n) {
+            def d:KiwiDef (itemAt defs i)
+            def fc:int (array_length d.fields)
+            def j:int 0
+            while (j < fc) {
+                def f:KiwiField (itemAt d.fields j)
+                if (d.kind == 0) {
+                    f.isEnum = true
+                    f.typeName = ""
+                } {
+                    if ((strlen f.typeName) > 0) {
+                        def named:int (this.findDef(f.typeName))
+                        if (named >= 0) {
+                            def td0:KiwiDef (itemAt defs named)
+                            f.isEnum = (td0.kind == 0)
+                        }
+                    } {
+                        if (f.typeId < 0) {
+                            def bi:int ((0 - f.typeId) - 1)
+                            f.isBuiltin = true
+                            f.typeName = (KiwiSchema.builtinName(bi))
+                        } {
+                            if (f.typeId < n) {
+                                def td:KiwiDef (itemAt defs f.typeId)
+                                f.typeName = td.name
+                                f.isEnum = (td.kind == 0)
+                            }
+                        }
+                    }
+                }
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn encode:buffer () {
+        def bb (new KiwiBuffer())
+        bb.init((buffer_alloc 256))
+        def n:int (array_length defs)
+        bb.writeVarUint(n)
+        def i:int 0
+        while (i < n) {
+            def d:KiwiDef (itemAt defs i)
+            bb.writeString(d.name)
+            bb.writeByte(d.kind)
+            bb.writeVarUint((array_length d.fields))
+            def j:int 0
+            while (j < (array_length d.fields)) {
+                def f:KiwiField (itemAt d.fields j)
+                bb.writeString(f.name)
+                def wire:int 0
+                if (d.kind == 0) {
+                    wire = (0 - 1)
+                } {
+                    def bi:int (KiwiSchema.builtinId(f.typeName))
+                    if (bi >= 0) {
+                        wire = ((0 - bi) - 1)
+                    } {
+                        wire = (this.findDef(f.typeName))
+                    }
+                }
+                bb.writeVarInt(wire)
+                if f.isArray {
+                    bb.writeByte(1)
+                } {
+                    bb.writeByte(0)
+                }
+                bb.writeVarUint(f.value)
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+        return (bb.toBuffer())
+    }
+
+    fn addEnum:KiwiDef (name:string) {
+        def d (new KiwiDef())
+        d.name = name
+        d.kind = 0
+        push defs d
+        return d
+    }
+
+    fn addStruct:KiwiDef (name:string) {
+        def d (new KiwiDef())
+        d.name = name
+        d.kind = 1
+        push defs d
+        return d
+    }
+
+    fn addMessage:KiwiDef (name:string) {
+        def d (new KiwiDef())
+        d.name = name
+        d.kind = 2
+        push defs d
+        return d
+    }
+
+    fn addEnumMember:void (d:KiwiDef name:string value:int) {
+        def f (new KiwiField())
+        f.name = name
+        f.value = value
+        f.isEnum = true
+        push d.fields f
+        push d.enumNames name
+        push d.enumValues value
+    }
+
+    fn addField:void (d:KiwiDef name:string typeName:string id:int isArray:boolean) {
+        def f (new KiwiField())
+        f.name = name
+        f.typeName = typeName
+        f.value = id
+        f.isArray = isArray
+        def bi:int (KiwiSchema.builtinId(typeName))
+        if (bi >= 0) {
+            f.isBuiltin = true
+            f.typeId = ((0 - bi) - 1)
+        }
+        push d.fields f
+    }
+}

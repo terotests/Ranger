@@ -31,6 +31,10 @@
 #                PowerPoint, charts, Word, Excel, diagrams, and the generated
 #                API pages). It is built HERE rather than into /docs/ because
 #                it quotes AGPL comments and the language documentation is MIT.
+#   /figma/   -> the Figma .fig / .deck reader: upload a file in the tab,
+#                parse it (ZIP → kiwi → node tree) and draw it with EVG.
+#                Timed against OpenFig on the same bytes when that library
+#                is present; the sample deck is built from Ranger.
 #   /docs/    -> the language documentation. The operator reference is generated
 #                from compiler/Lang.rgr and lib/*.rgr by docs/tools, and the
 #                examples on it are compiled by the compiler built in this job,
@@ -80,6 +84,8 @@ on:
       - "gallery/odf/**"
       - "gallery/xml/**"
       - "gallery/pdf_writer/src/**"
+      - "gallery/figma/**"
+      - "gallery/zip/**"
       - ".github/workflows/deploy-pages.yml"
   # A published release republishes the site, so the documentation on
   # /docs/ always describes the released compiler.
@@ -310,6 +316,20 @@ jobs:
           # pressed — which is the failure mode this whole step exists for.
           test -s "$GITHUB_WORKSPACE/_site/pptx/sample.odp"
           grep -q "PptxWeb" "$GITHUB_WORKSPACE/_site/pptx/pptx_web.js"
+
+      # ---- Fig reader at /figma/ ------------------------------------------
+      # Upload a .fig / .deck in the tab. ZIP + kiwi + EVG, no server.
+      - name: Build the Fig reader
+        run: bash gallery/figma/web/standalone/build.sh --out "$GITHUB_WORKSPACE/_site/figma"
+
+      - name: Check the Fig reader has an engine
+        run: |
+          test -s "$GITHUB_WORKSPACE/_site/figma/fig_web.js"
+          test -s "$GITHUB_WORKSPACE/_site/figma/standalone.mjs"
+          test -s "$GITHUB_WORKSPACE/_site/figma/gl/evg-webgl.js"
+          test -s "$GITHUB_WORKSPACE/_site/figma/vendor/fzstd.mjs"
+          grep -q "FigWeb" "$GITHUB_WORKSPACE/_site/figma/fig_web.js"
+          grep -q "installZstd" "$GITHUB_WORKSPACE/_site/figma/standalone.mjs"
 
       # Does the engine agree with ITSELF? The frame is published twice — as
       # JSON, where every field arrives with its name, and as packed

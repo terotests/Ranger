@@ -1,0 +1,438 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; Format-agnostic scene graph. Figma, and later anything else, converts
+; into this. EVG reads only this.
+
+Import "SceneMatrix.rgr"
+
+class SceneFill {
+    def kind:string "solid"
+    def r:double 0.0
+    def g:double 0.0
+    def b:double 0.0
+    def a:double 1.0
+    def opacity:double 1.0
+    def visible:boolean true
+    def imageRef:string ""
+    def imageFit:string "fill"
+    def gradR:double 0.0
+    def gradG:double 0.0
+    def gradB:double 0.0
+    def gradA:double 1.0
+    def gradDir:int 0
+
+    Constructor () {
+    }
+
+    fn hex:string () {
+        return (SceneFill.rgbHex(r g b))
+    }
+
+    sfn rgbHex:string (cr:double cg:double cb:double) {
+        def ri:int (to_int ((cr * 255.0) + 0.5))
+        def gi:int (to_int ((cg * 255.0) + 0.5))
+        def bi:int (to_int ((cb * 255.0) + 0.5))
+        if (ri < 0) {
+            ri = 0
+        }
+        if (ri > 255) {
+            ri = 255
+        }
+        if (gi < 0) {
+            gi = 0
+        }
+        if (gi > 255) {
+            gi = 255
+        }
+        if (bi < 0) {
+            bi = 0
+        }
+        if (bi > 255) {
+            bi = 255
+        }
+        return ("#" + (SceneFill.hex2(ri)) + (SceneFill.hex2(gi)) + (SceneFill.hex2(bi)))
+    }
+
+    sfn hex2:string (n:int) {
+        def d:string "0123456789abcdef"
+        def hi:int (idiv n 16)
+        def lo:int (n - (hi * 16))
+        return ((strfromcode (charAt d hi)) + (strfromcode (charAt d lo)))
+    }
+
+    fn finalAlpha:double (nodeOpacity:double) {
+        return ((a * opacity) * nodeOpacity)
+    }
+}
+
+class SceneStroke {
+    def r:double 0.0
+    def g:double 0.0
+    def b:double 0.0
+    def a:double 1.0
+    def opacity:double 1.0
+    def weight:double 1.0
+    def align:string "center"
+    def visible:boolean true
+
+    Constructor () {
+    }
+
+    fn hex:string () {
+        return (SceneFill.rgbHex(r g b))
+    }
+}
+
+class SceneRadius {
+    def tl:double 0.0
+    def tr:double 0.0
+    def br:double 0.0
+    def bl:double 0.0
+    def uniform:boolean true
+
+    Constructor () {
+    }
+
+    fn setAll:void (v:double) {
+        tl = v
+        tr = v
+        br = v
+        bl = v
+        uniform = true
+    }
+
+    fn any:boolean () {
+        if (tl > 0.0) {
+            return true
+        }
+        if (tr > 0.0) {
+            return true
+        }
+        if (br > 0.0) {
+            return true
+        }
+        if (bl > 0.0) {
+            return true
+        }
+        return false
+    }
+}
+
+class SceneLayout {
+    def mode:string "none"
+    def gap:double 0.0
+    def padL:double 0.0
+    def padR:double 0.0
+    def padT:double 0.0
+    def padB:double 0.0
+    def justify:string "start"
+    def alignItems:string "start"
+    def hugW:boolean false
+    def hugH:boolean false
+    def fillW:boolean false
+    def fillH:boolean false
+
+    Constructor () {
+    }
+
+    fn isFlex:boolean () {
+        if (mode == "row") {
+            return true
+        }
+        if (mode == "column") {
+            return true
+        }
+        return false
+    }
+}
+
+class SceneText {
+    def characters:string ""
+    def fontFamily:string "Open Sans"
+    def fontSize:double 16.0
+    def fontWeight:string "400"
+    def fontStyle:string "normal"
+    def lineHeight:double 0.0
+    def letterSpacing:double 0.0
+    def align:string "left"
+
+    Constructor () {
+    }
+}
+
+class SceneEffect {
+    def kind:string "drop-shadow"
+    def x:double 0.0
+    def y:double 0.0
+    def blur:double 0.0
+    def spread:double 0.0
+    def r:double 0.0
+    def g:double 0.0
+    def b:double 0.0
+    def a:double 0.35
+
+    Constructor () {
+    }
+}
+
+class SceneWarn {
+    def nodeId:string ""
+    def nodeName:string ""
+    def feature:string ""
+
+    Constructor () {
+    }
+}
+
+class SceneNode {
+    def id:string ""
+    def name:string ""
+    def kind:string "container"
+    def sourceType:string ""
+    def x:double 0.0
+    def y:double 0.0
+    def w:double 0.0
+    def h:double 0.0
+    def xf:SceneMatrix (new SceneMatrix())
+    def hasXf:boolean false
+    def opacity:double 1.0
+    def visible:boolean true
+    def clip:boolean false
+    def fills:[SceneFill]
+    def strokes:[SceneStroke]
+    def radius:SceneRadius (new SceneRadius())
+    def layout:SceneLayout (new SceneLayout())
+    def text:SceneText (new SceneText())
+    def pathData:string ""
+    def evenOdd:boolean false
+    def imageRef:string ""
+    def imageFit:string "cover"
+    def effects:[SceneEffect]
+    def children:[SceneNode]
+    def warnings:[SceneWarn]
+
+    Constructor () {
+    }
+
+    sfn make:SceneNode (id:string name:string kind:string) {
+        def n (new SceneNode())
+        n.id = id
+        n.name = name
+        n.kind = kind
+        return n
+    }
+
+    fn firstFill:SceneFill () {
+        def i:int 0
+        while (i < (array_length fills)) {
+            def f:SceneFill (itemAt fills i)
+            if f.visible {
+                return f
+            }
+            i = (i + 1)
+        }
+        return (new SceneFill())
+    }
+
+    fn firstStroke:SceneStroke () {
+        def i:int 0
+        while (i < (array_length strokes)) {
+            def s:SceneStroke (itemAt strokes i)
+            if s.visible {
+                return s
+            }
+            i = (i + 1)
+        }
+        return (new SceneStroke())
+    }
+
+    fn firstShadow:SceneEffect () {
+        def i:int 0
+        while (i < (array_length effects)) {
+            def e:SceneEffect (itemAt effects i)
+            if (e.kind == "drop-shadow") {
+                return e
+            }
+            i = (i + 1)
+        }
+        return (new SceneEffect())
+    }
+
+    fn hasShadow:boolean () {
+        def i:int 0
+        while (i < (array_length effects)) {
+            def e:SceneEffect (itemAt effects i)
+            if (e.kind == "drop-shadow") {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn childCount:int () {
+        return (array_length children)
+    }
+
+    fn isFrameLike:boolean () {
+        if (sourceType == "FRAME") {
+            return true
+        }
+        if (sourceType == "GROUP") {
+            return true
+        }
+        if (sourceType == "SECTION") {
+            return true
+        }
+        if (sourceType == "COMPONENT") {
+            return true
+        }
+        if (sourceType == "COMPONENT_SET") {
+            return true
+        }
+        if (sourceType == "SYMBOL") {
+            return true
+        }
+        return false
+    }
+
+    fn childNamed:SceneNode (want:string) {
+        def i:int 0
+        while (i < (array_length children)) {
+            def ch:SceneNode (itemAt children i)
+            if (ch.name == want) {
+                return ch
+            }
+            i = (i + 1)
+        }
+        return (new SceneNode())
+    }
+
+    fn warn:void (feature:string) {
+        def w (new SceneWarn())
+        w.nodeId = id
+        w.nodeName = name
+        w.feature = feature
+        push warnings w
+    }
+
+    fn toJson:string () {
+        return (this.toJsonDepth(0))
+    }
+
+    fn toJsonDepth:string (depth:int) {
+        if (depth > 24) {
+            return "{}"
+        }
+        def o:string "{"
+        o = (o + "\"id\":\"" + id + "\"")
+        o = (o + ",\"name\":\"" + name + "\"")
+        o = (o + ",\"type\":\"" + kind + "\"")
+        o = (o + ",\"source\":\"" + sourceType + "\"")
+        o = (o + ",\"x\":" + (to_string x) + ",\"y\":" + (to_string y))
+        o = (o + ",\"width\":" + (to_string w) + ",\"height\":" + (to_string h))
+        o = (o + ",\"opacity\":" + (to_string opacity))
+        o = (o + ",\"visible\":")
+        if visible {
+            o = (o + "true")
+        } {
+            o = (o + "false")
+        }
+        o = (o + ",\"clip\":")
+        if clip {
+            o = (o + "true")
+        } {
+            o = (o + "false")
+        }
+        if ((array_length fills) > 0) {
+            def f:SceneFill (this.firstFill())
+            o = (o + ",\"fill\":\"" + (f.hex()) + "\"")
+        }
+        if ((strlen pathData) > 0) {
+            o = (o + ",\"path\":\"" + pathData + "\"")
+        }
+        if ((strlen text.characters) > 0) {
+            o = (o + ",\"text\":\"" + text.characters + "\"")
+        }
+        o = (o + ",\"children\":[")
+        def i:int 0
+        while (i < (array_length children)) {
+            if (i > 0) {
+                o = (o + ",")
+            }
+            def ch:SceneNode (itemAt children i)
+            o = (o + (ch.toJsonDepth((depth + 1))))
+            i = (i + 1)
+        }
+        return (o + "]}")
+    }
+}
+
+class SceneDocument {
+    def name:string ""
+    def pages:[SceneNode]
+    def assets:[string]
+    def warnings:[SceneWarn]
+    def source:string "figma"
+
+    Constructor () {
+    }
+
+    fn addWarn:void (id:string name:string feature:string) {
+        def w (new SceneWarn())
+        w.nodeId = id
+        w.nodeName = name
+        w.feature = feature
+        push warnings w
+        print ("[figma-viewer] Unsupported " + feature + " node: " + id + " \"" + name + "\"")
+    }
+
+    fn collectWarns:void (n:SceneNode) {
+        def i:int 0
+        while (i < (array_length n.warnings)) {
+            def w:SceneWarn (itemAt n.warnings i)
+            push warnings w
+            print ("[figma-viewer] Unsupported " + w.feature + " node: " + w.nodeId + " \"" + w.nodeName + "\"")
+            i = (i + 1)
+        }
+        def c:int 0
+        while (c < (array_length n.children)) {
+            this.collectWarns((itemAt n.children c))
+            c = (c + 1)
+        }
+    }
+
+    fn toJson:string () {
+        def o:string "{\"name\":\""
+        o = (o + name + "\",\"source\":\"" + source + "\",\"pages\":[")
+        def i:int 0
+        while (i < (array_length pages)) {
+            if (i > 0) {
+                o = (o + ",")
+            }
+            def p:SceneNode (itemAt pages i)
+            o = (o + (p.toJson()))
+            i = (i + 1)
+        }
+        return (o + "]}")
+    }
+
+    fn pageAt:SceneNode (i:int) {
+        if ((i < 0) || (i >= (array_length pages))) {
+            return (new SceneNode())
+        }
+        return (itemAt pages i)
+    }
+
+    fn pageNamed:SceneNode (want:string) {
+        def i:int 0
+        while (i < (array_length pages)) {
+            def p:SceneNode (itemAt pages i)
+            if (p.name == want) {
+                return p
+            }
+            i = (i + 1)
+        }
+        return (new SceneNode())
+    }
+}
