@@ -328,6 +328,7 @@ treefactory Rt {
     tag FieldText EVGElement (props (className "rt-field-text") (elementType 1))
     tag FieldGhost EVGElement (props (className "rt-field-ghost") (elementType 1))
     tag FieldCaret EVGElement (props (className "rt-field-caret") (a11yHidden true))
+    tag FieldSel EVGElement (props (className "rt-field-sel") (a11yHidden true))
     tag Overlay  EVGElement (props (className "rt-overlay"))
     tag Modal    EVGElement (props (className "rt-modal"))
     tag ModalHead EVGElement (props (className "rt-modal-head"))
@@ -2205,6 +2206,19 @@ class RealTrainerDemo {
         return b
     }
 
+    ; `CALENDAR_EMOJIS` — the calendar's type, as the selector shows it.
+    sfn calendarEmoji:string (kind:string) {
+        if (kind == "training") { return "💪" }
+        if (kind == "plan") { return "📋" }
+        if (kind == "nutrition") { return "🍎" }
+        if (kind == "sleep") { return "😴" }
+        if (kind == "competition") { return "🏆" }
+        if (kind == "camp") { return "⛺" }
+        if (kind == "group-training") { return "👥" }
+        if (kind == "expenses") { return "💰" }
+        return "📝"
+    }
+
     fn phoneHeader:EVGElement () {
         def head (tree Rt (PhHead))
         def credits (tree Rt (PhCredits))
@@ -2214,8 +2228,9 @@ class RealTrainerDemo {
         credits.addChild((tree Rt (PhCreditsTx "100k credits")))
         head.addChild(credits)
         def sel (tree Rt (PhCalSel))
-        sel.a11yLabel = ("📋 " + seed.calendarName)
-        sel.addChild((tree Rt (PhCalEmoji "📋")))
+        def emoji:string (RealTrainerDemo.calendarEmoji(seed.calendarType))
+        sel.a11yLabel = ((emoji + " ") + seed.calendarName)
+        sel.addChild((tree Rt (PhCalEmoji emoji)))
         sel.addChild((tree Rt (PhCalTx seed.calendarName)))
         def down (tree Rt (PhIcon (props (className "rt-ph-icon rt-ph-icon-sm"))))
         down.svgSource = (RtIcons.chevronDown("#999999"))
@@ -3320,13 +3335,19 @@ class RealTrainerDemo {
         col.addChild(name)
         def label@(mutable):string (((to_string (RtWeek.dayOfMonth(iso))) + " ") + (RtWeek.dayShort(i)))
         if ((array_length entries) > 0) {
-            def firstSeed:RtSeedEntry (itemAt entries 0)
+            ; Several workouts on a day: the titles joined, the first one's
+            ; tags, and how many — as `MobileWeekView` lists them. Workouts
+            ; with no time keep the store's order, which is the newest first.
+            def n:int (array_length entries)
+            def firstSeed:RtSeedEntry (itemAt entries (n - 1))
             def first:RtEntry (RtEntry.of(firstSeed.compact))
             def title@(mutable):string first.title
-            if ((array_length entries) > 1) {
-                def secondSeed:RtSeedEntry (itemAt entries 1)
-                def second:RtEntry (RtEntry.of(secondSeed.compact))
-                title = ((title + " & ") + second.title)
+            def k@(mutable):int (n - 2)
+            while (k >= 0) {
+                def moreSeed:RtSeedEntry (itemAt entries k)
+                def more:RtEntry (RtEntry.of(moreSeed.compact))
+                title = ((title + " & ") + more.title)
+                k = (k - 1)
             }
             col.addChild((tree Rt (DayTitle title)))
             label = ((label + " ") + title)
@@ -3334,6 +3355,11 @@ class RealTrainerDemo {
             if ((strlen tags) > 0) {
                 col.addChild((tree Rt (DayTags tags)))
                 label = ((label + " ") + tags)
+            }
+            if (n > 1) {
+                def countText:string (to_string n)
+                col.addChild((tree Rt (DayTags (props (className "rt-day-tags rt-day-count")) countText)))
+                label = ((label + " ") + countText)
             }
         } {
             col.addChild((tree Rt (DayDash "–")))
@@ -3464,17 +3490,17 @@ class RealTrainerDemo {
         }
         ; The log: a message and, as `DiaryChatMessageItem` has them, "copy"
         ; after each, and "save to notes" before the assistant's.
-        def log (tree Rt (ChatLog))
+        def log (tree Rt (ChatLog (props (className "rt-chat-log rt-fill-w"))))
         for chat.sentTexts sent:string i {
             def mine (tree Rt (MsgRow (props (className "rt-msg-row rt-msg-row-end"))))
-            mine.addChild((tree Rt (ChatUser (ChatTx sent))))
+            mine.addChild((tree Rt (ChatUser (props (className "rt-chat-user rt-bubble-phone")) (ChatTx sent))))
             mine.addChild((this.iconBtn(("rt-chat-copy-u" + (to_string i)) "Kopioi viesti" (RtIcons.bookOpen("#999999")))))
             log.addChild(mine)
             if (i < (array_length chat.replies)) {
                 def reply:string (itemAt chat.replies i)
                 def theirs (tree Rt (MsgRow))
                 theirs.addChild((this.iconBtn(("rt-chat-note-" + (to_string i)) "Tallenna muistiin" (RtIcons.penLine("#999999")))))
-                theirs.addChild((tree Rt (ChatBot (ChatTx reply))))
+                theirs.addChild((tree Rt (ChatBot (props (className "rt-chat-bot rt-bubble-phone")) (ChatTx reply))))
                 theirs.addChild((this.iconBtn(("rt-chat-copy-a" + (to_string i)) "Kopioi viesti" (RtIcons.bookOpen("#999999")))))
                 log.addChild(theirs)
             }
@@ -3488,7 +3514,7 @@ class RealTrainerDemo {
         }
         col.addChild(log)
         if (chat.inside("reviewing")) {
-            def box (tree Rt (ChatBox))
+            def box (tree Rt (ChatBox (props (className "rt-sheet rt-chat-box rt-fill-w"))))
             this.chatReviewRows(box (st == "reviewing.multiAction"))
             col.addChild(box)
         }
@@ -3703,6 +3729,18 @@ class RealTrainerDemo {
         if (focused == c.tid) {
             box.className = "rt-field rt-field-focused"
             def eng:EVGTextEngine (this.engine())
+            ; The selection, as a band under the text: the platform decided
+            ; where it starts and ends — a drag, a double-click, Ctrl+A — and
+            ; this side draws it where those characters are.
+            if (c.hasSelection()) {
+                def sx:double (c.caretXAt(eng (c.selStart())))
+                def ex:double (c.caretXAt(eng (c.selEnd())))
+                def band (tree Rt (FieldSel))
+                band.id = (c.tid + "-sel")
+                band.left = (EVGUnit.px((sx - c.scrollX)))
+                band.setAttribute("width" ((to_string (to_int (ex - sx))) + "px"))
+                box.addChild(band)
+            }
             def cx:double (c.caretXAt(eng c.caret))
             def car (tree Rt (FieldCaret))
             car.id = (c.tid + "-caret")

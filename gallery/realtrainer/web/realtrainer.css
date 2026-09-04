@@ -1783,7 +1783,12 @@
   flex-direction: column;
   flex-wrap: nowrap;
   position: relative;
-  flex-grow: 1;
+  /* `flex: 1`, not `flex-grow: 1`: the shorthand sets the basis to zero, so
+     the column is the page less the rail whatever is in it. With grow alone
+     the basis was the content's own width, and a chat bubble that did not
+     wrap made the column 884px wide on a 390px page. */
+  flex: 1;
+  min-width: 0px;
   height: 100%;
 }
 
@@ -2148,6 +2153,7 @@
 .rt-field-text { color: #f2f2f2; font-family: Arial; font-size: 13px; height: 18px; }
 .rt-field-ghost { color: #7a7a7a; font-family: Arial; font-size: 13px; height: 18px; }
 .rt-field-caret { position: absolute; top: 11px; width: 2px; height: 18px; background-color: #f97316; }
+.rt-field-sel { position: absolute; top: 8px; left: 12px; height: 24px; border-radius: 3px; background-color: #f9731655; }
 
 .rt-overlay {
   display: flex;
@@ -2423,3 +2429,9 @@
   .rt-wiz-btn { height: 44px; }
   .rt-more-item { height: 52px; }
 }
+
+/* The phone's chat: the desktop scene's log and box are 868px wide, and the
+   phone's are the column's. Later in the file than those, so these win. */
+.rt-fill-w { width: 100%; }
+.rt-bubble-phone { max-width: 290px; }
+.rt-day-count { color: #f97316; }

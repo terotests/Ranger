@@ -578,8 +578,13 @@ class RtIcons {
     Constructor () {
     }
 
+    ; The viewBox is a unit wider than lucide's on every side. A stroke two
+    ; wide on a path at x=2 reaches x=1, and the round joins reach past that;
+    ; mapped edge to edge onto a 20px box the outermost pixel of the roof
+    ; and the doorframe was cut off. The unit of room costs a twelfth of
+    ; the size and keeps every stroke inside its box.
     sfn svgOf:string (body:string color:string) {
-        return ((((("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='" + color) + "' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'>") + body) + "</svg>"))
+        return ((((("<svg xmlns='http://www.w3.org/2000/svg' viewBox='-1 -1 26 26' fill='none' stroke='" + color) + "' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'>") + body) + "</svg>"))
     }
 
     sfn pathOf:string (d:string) {

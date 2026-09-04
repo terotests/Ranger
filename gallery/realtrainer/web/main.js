@@ -110,9 +110,29 @@ let focus = "";
 const mirror = createA11yMirror(stage, {
   canvas,
   label: "RealTrainer demo",
+  // A page, not a grid: every button and field is a tab stop in tree order,
+  // so Tab walks from a field to the send button beside it.
+  tabbable: "all",
   // A reader activating a node is answered by pressing the app in the middle
   // of the rectangle the reader was given — the same path the mouse takes.
   onActivate: (node) => pressAtCentre(node, (x, y) => press(x, y)),
+  // Focus that moved by Tab or by a reader's cursor: a field takes the text
+  // session, anything else ends it; the app draws the focused field and the
+  // mirror's own outline marks the rest.
+  onFocus: (node) => {
+    focus = node.id;
+    if (app.hasField(node.id)) {
+      if (app.focusedField() !== node.id) {
+        app.setFocus(node.id);
+        app.rebuild();
+      }
+    } else if (app.focusedField()) {
+      app.setFocus("");
+      app.rebuild();
+    }
+    syncTextSession();
+    paint();
+  },
 });
 
 function paint() {
@@ -160,7 +180,17 @@ const textInput = createTextInputBridge({
     if (after && after.value !== value) textInput.sync(after);
   },
   onKey: (k) => {
-    if (k.key !== "Tab" && k.key !== "Escape" && k.key !== "Enter") return false;
+    // Tab leaves the field: the session ends, the app forgets the focus, and
+    // the browser moves it to the next control — which is the mirror's next
+    // tab stop, because the field IS a mirror element.
+    if (k.key === "Tab") {
+      textInput.release();
+      app.setFocus("");
+      app.rebuild();
+      paint();
+      return false;
+    }
+    if (k.key !== "Escape" && k.key !== "Enter") return false;
     const took = app.keyWith(k.key, k.shiftKey, k.ctrlKey || k.metaKey);
     syncTextSession();
     if (took) paint();
@@ -180,11 +210,13 @@ function syncTextSession() {
     textInput.blurField();
     return;
   }
+  focus = tid;
   if (textInput.activeTid() === tid) {
     textInput.sync(st);
     return;
   }
-  textInput.focusField(tid, st);
+  // The mirror's input for the field, once the mirror has drawn it.
+  textInput.focusField(tid, st, mirror.elementOf(tid));
 }
 
 // A finger has no wheel: a drag on the canvas scrolls what the wheel would,

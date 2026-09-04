@@ -1,5 +1,5 @@
 {
-  "_": "What the reference recorder seeds into the Firestore emulator before every scenario, and what the Ranger side draws the same week from. One plan calendar, the week of 2026-02-09, one entry on the Tuesday — the shape of the screenshot the port is measured against.",
+  "_": "What the reference recorder seeds into the Firestore emulator before every scenario, and what the Ranger side draws the same week from. One plan calendar with one entry on the Tuesday of the week of 2026-02-09 — the shape of the screenshot the port is measured against — and one training calendar with realtrainer-compact's sample.compact in it, ninety-nine workouts over four months, put there by scripts/seed-from-compact.mjs.",
   "week": "2026-02-09",
   "calendars": [
     {
@@ -7,6 +7,12 @@
       "name": "Harjoitussuunnitelma",
       "type": "plan",
       "color": "#3B82F6"
+    },
+    {
+      "id": "cal-train",
+      "name": "Harjoituspäiväkirja",
+      "type": "training",
+      "color": "#22c55e"
     }
   ],
   "entries": [
@@ -15,6 +21,600 @@
       "calendarId": "cal-plan",
       "date": "2026-02-10",
       "compact": "[2026-02-10]\n## Kevyt salitreeni\nTags kuntosali, voima, kevyt\nDuration 45min"
+    },
+    {
+      "id": "cal-train-2026-01-06-1",
+      "calendarId": "cal-train",
+      "date": "2026-01-06",
+      "compact": "[2026-01-06]\n## HRV\nTags hrv, palautuminen\nEmojis 📈\nCustom HRV 45|ms"
+    },
+    {
+      "id": "cal-train-2026-01-07-1",
+      "calendarId": "cal-train",
+      "date": "2026-01-07",
+      "compact": "[2026-01-07]\n## HRV\nTags hrv, palautuminen\nEmojis 📈\nCustom HRV 38|ms"
+    },
+    {
+      "id": "cal-train-2026-01-08-1",
+      "calendarId": "cal-train",
+      "date": "2026-01-08",
+      "compact": "[2026-01-08]\n## HRV\nTags hrv, palautuminen\nEmojis 📈\nCustom HRV 32|ms"
+    },
+    {
+      "id": "cal-train-2026-01-09-1",
+      "calendarId": "cal-train",
+      "date": "2026-01-09",
+      "compact": "[2026-01-09]\n## HRV\nTags hrv, palautuminen\nEmojis 📈\nCustom HRV 55|ms"
+    },
+    {
+      "id": "cal-train-2026-01-10-1",
+      "calendarId": "cal-train",
+      "date": "2026-01-10",
+      "compact": "[2026-01-10]\n## HRV\nTags hrv, palautuminen\nEmojis 📈\nCustom HRV 42|ms"
+    },
+    {
+      "id": "cal-train-2026-01-11-1",
+      "calendarId": "cal-train",
+      "date": "2026-01-11",
+      "compact": "[2026-01-11]\n## HRV\nTags hrv, palautuminen\nEmojis 📈\nCustom HRV 48|ms"
+    },
+    {
+      "id": "cal-train-2026-01-12-1",
+      "calendarId": "cal-train",
+      "date": "2026-01-12",
+      "compact": "[2026-01-12]\n## HRV\nTags hrv, palautuminen\nEmojis 📈\nCustom HRV 40|ms"
+    },
+    {
+      "id": "cal-train-2026-01-15-1",
+      "calendarId": "cal-train",
+      "date": "2026-01-15",
+      "compact": "[2026-01-15]\n## HRV\nTags hrv, palautuminen\nEmojis 📈\nCustom HRV 28|ms"
+    },
+    {
+      "id": "cal-train-2026-01-16-1",
+      "calendarId": "cal-train",
+      "date": "2026-01-16",
+      "compact": "[2026-01-16]\n## HRV\nTags hrv, palautuminen\nEmojis 📈\nCustom HRV 32|ms"
+    },
+    {
+      "id": "cal-train-2026-01-16-2",
+      "calendarId": "cal-train",
+      "date": "2026-01-16",
+      "compact": "[2026-01-16]\n## Aktiivisuus\nTags kestävyys, palautuminen, juoksu\nText Laskettu arviolla 1000 askelta = 0.75 km\nCustom askeleet 2000\nCustom matka 1.5|km"
+    },
+    {
+      "id": "cal-train-2026-01-17-1",
+      "calendarId": "cal-train",
+      "date": "2026-01-17",
+      "compact": "[2026-01-17]\n## HRV\nTags hrv, palautuminen\nEmojis 📈\nCustom HRV 28|ms"
+    },
+    {
+      "id": "cal-train-2026-01-17-2",
+      "calendarId": "cal-train",
+      "date": "2026-01-17",
+      "compact": "[2026-01-17]\n## Aktiivisuus\nTags kestävyys, palautuminen, juoksu\nText Laskettu arviolla 1000 askelta = 0.75 km\nCustom askeleet 2100\nCustom matka 1.6|km"
+    },
+    {
+      "id": "cal-train-2026-01-18-1",
+      "calendarId": "cal-train",
+      "date": "2026-01-18",
+      "compact": "[2026-01-18]\n## HRV\nTags hrv, palautuminen\nEmojis 📈\nCustom HRV 52|ms"
+    },
+    {
+      "id": "cal-train-2026-01-18-2",
+      "calendarId": "cal-train",
+      "date": "2026-01-18",
+      "compact": "[2026-01-18]\n## Aktiivisuus\nTags kestävyys, palautuminen, juoksu\nText Laskettu arviolla 1000 askelta = 0.75 km\nCustom askeleet 2700\nCustom matka 2|km"
+    },
+    {
+      "id": "cal-train-2026-01-19-1",
+      "calendarId": "cal-train",
+      "date": "2026-01-19",
+      "compact": "[2026-01-19]\n## HRV\nTags hrv, palautuminen\nEmojis 📈\nCustom HRV 38|ms"
+    },
+    {
+      "id": "cal-train-2026-01-19-2",
+      "calendarId": "cal-train",
+      "date": "2026-01-19",
+      "compact": "[2026-01-19]\n## Aktiivisuus\nTags kestävyys, palautuminen, juoksu\nText Laskettu arviolla 1000 askelta = 0.75 km\nCustom askeleet 7600\nCustom matka 5.7|km"
+    },
+    {
+      "id": "cal-train-2026-01-20-1",
+      "calendarId": "cal-train",
+      "date": "2026-01-20",
+      "compact": "[2026-01-20]\n## HRV\nTags hrv, palautuminen\nEmojis 📈\nCustom HRV 32|ms"
+    },
+    {
+      "id": "cal-train-2026-01-20-2",
+      "calendarId": "cal-train",
+      "date": "2026-01-20",
+      "compact": "[2026-01-20]\n## Aktiivisuus\nTags kestävyys, palautuminen, juoksu\nText Laskettu arviolla 1000 askelta = 0.75 km\nCustom askeleet 6700\nCustom matka 5|km"
+    },
+    {
+      "id": "cal-train-2026-01-21-1",
+      "calendarId": "cal-train",
+      "date": "2026-01-21",
+      "compact": "[2026-01-21]\n## HRV\nTags hrv, palautuminen\nEmojis 📈\nCustom HRV 35|ms"
+    },
+    {
+      "id": "cal-train-2026-01-21-2",
+      "calendarId": "cal-train",
+      "date": "2026-01-21",
+      "compact": "[2026-01-21]\n## Aktiivisuus\nTags kestävyys, palautuminen, juoksu\nText Laskettu arviolla 1000 askelta = 0.75 km\nCustom askeleet 6300\nCustom matka 4.7|km"
+    },
+    {
+      "id": "cal-train-2026-01-22-1",
+      "calendarId": "cal-train",
+      "date": "2026-01-22",
+      "compact": "[2026-01-22]\n## HRV\nTags hrv, palautuminen\nEmojis 📈\nCustom HRV 20|ms"
+    },
+    {
+      "id": "cal-train-2026-01-22-2",
+      "calendarId": "cal-train",
+      "date": "2026-01-22",
+      "compact": "[2026-01-22]\n## Aktiivisuus\nTags kestävyys, palautuminen, juoksu\nText Laskettu arviolla 1000 askelta = 0.75 km\nCustom askeleet 2200\nCustom matka 1.7|km"
+    },
+    {
+      "id": "cal-train-2026-01-23-1",
+      "calendarId": "cal-train",
+      "date": "2026-01-23",
+      "compact": "[2026-01-23]\n## HRV\nTags hrv, palautuminen\nEmojis 📈\nCustom HRV 30|ms"
+    },
+    {
+      "id": "cal-train-2026-01-24-1",
+      "calendarId": "cal-train",
+      "date": "2026-01-24",
+      "compact": "[2026-01-24]\n## HRV\nTags hrv, palautuminen\nEmojis 📈\nCustom HRV 38|ms"
+    },
+    {
+      "id": "cal-train-2026-01-25-1",
+      "calendarId": "cal-train",
+      "date": "2026-01-25",
+      "compact": "[2026-01-25]\n## HRV\nTags hrv, palautuminen\nEmojis 📈\nCustom HRV 52|ms"
+    },
+    {
+      "id": "cal-train-2026-01-26-1",
+      "calendarId": "cal-train",
+      "date": "2026-01-26",
+      "compact": "[2026-01-26]\n## HRV\nTags hrv, palautuminen\nEmojis 📈\nCustom HRV 35|ms"
+    },
+    {
+      "id": "cal-train-2026-01-27-1",
+      "calendarId": "cal-train",
+      "date": "2026-01-27",
+      "compact": "[2026-01-27]\n## HRV\nTags hrv, palautuminen\nEmojis 📈\nCustom HRV 38|ms"
+    },
+    {
+      "id": "cal-train-2026-01-27-2",
+      "calendarId": "cal-train",
+      "date": "2026-01-27",
+      "compact": "[2026-01-27]\n## Kävely\nTags kestävyys, aktiivisuus, palautuminen\nEmojis 🏃👟\nDerived endurance.zone1_minutes 90|min basis:entity confidence:70% source:steps+distance goodness:3\nRun 8km 10000steps | Kävely"
+    },
+    {
+      "id": "cal-train-2026-01-27-3",
+      "calendarId": "cal-train",
+      "date": "2026-01-27",
+      "compact": "[2026-01-27]\n## Päivän aktiivisuus\nTags aktiivisuus, kestävyys, kävely\nEmojis 🚶👟\nRun 8km\nCustom 10000kpl | Askeleet"
+    },
+    {
+      "id": "cal-train-2026-01-28-1",
+      "calendarId": "cal-train",
+      "date": "2026-01-28",
+      "compact": "[2026-01-28]\n## HRV\nTags hrv, palautuminen\nEmojis 📈\nCustom HRV 40|ms"
+    },
+    {
+      "id": "cal-train-2026-01-29-1",
+      "calendarId": "cal-train",
+      "date": "2026-01-29",
+      "compact": "[2026-01-29]\n## HRV\nTags hrv, palautuminen\nEmojis 📈\nCustom HRV 38|ms"
+    },
+    {
+      "id": "cal-train-2026-01-29-2",
+      "calendarId": "cal-train",
+      "date": "2026-01-29",
+      "compact": "[2026-01-29]\n## Kuntosali\nTags kuntosali, voima\nEmojis 🏋️💪\nSection Lämmittely\nTime 10min | Alkulämmittely\nExercise keppijumppa|nullx\nSection Pääosa\nExercise rv|4x5@50kg\nExercise etukyykky|3x5@70kg\nPyramid niskan takaa työntö penkillä istuen|7x40,6x40,5x40kg"
+    },
+    {
+      "id": "cal-train-2026-01-30-1",
+      "calendarId": "cal-train",
+      "date": "2026-01-30",
+      "compact": "[2026-01-30]\n## HRV\nTags hrv, palautuminen\nEmojis 📈\nCustom HRV 42|ms"
+    },
+    {
+      "id": "cal-train-2026-01-31-1",
+      "calendarId": "cal-train",
+      "date": "2026-01-31",
+      "compact": "[2026-01-31]\n## HRV\nTags hrv, palautuminen\nEmojis 📈\nCustom HRV 62|ms"
+    },
+    {
+      "id": "cal-train-2026-02-01-1",
+      "calendarId": "cal-train",
+      "date": "2026-02-01",
+      "compact": "[2026-02-01]\n## Painon seuranta\nTags paino\nEmojis ⚖️\nWeight 95.5kg"
+    },
+    {
+      "id": "cal-train-2026-02-01-2",
+      "calendarId": "cal-train",
+      "date": "2026-02-01",
+      "compact": "[2026-02-01]\n## HRV\nTags hrv, palautuminen\nEmojis 📈\nCustom HRV 40|ms"
+    },
+    {
+      "id": "cal-train-2026-02-01-3",
+      "calendarId": "cal-train",
+      "date": "2026-02-01",
+      "compact": "[2026-02-01]\n## Kuntosaliharjoitus\nTags kuntosali, voima, yläkroppa, alakroppa, core\nEmojis 🏋️💪\nSection Lämmittely\nExercise Lonkan kierrot|2x15+15@bw\nExercise Dynaaminen takareisivenytys|2x15+15@bw\nExercise Penkkipunnerrus|1x4@50kg\nSection Pääosa\nExercise Penkkipunnerrus|3x7@70kg\nExercise Askelkyykky|2x10+10@12.5kg\nExercise Vauhditon pituus|4x4@bw|1.80-2m\nSection Core\nExercise Lankku|3x10s@bw\nExercise Kuollut ötökkä|3x10+10@bw"
+    },
+    {
+      "id": "cal-train-2026-02-02-1",
+      "calendarId": "cal-train",
+      "date": "2026-02-02",
+      "compact": "[2026-02-02]\n## HRV\nTags hrv, palautuminen\nEmojis 📈\nCustom HRV 42|ms"
+    },
+    {
+      "id": "cal-train-2026-02-02-2",
+      "calendarId": "cal-train",
+      "date": "2026-02-02",
+      "compact": "[2026-02-02]\n## Voima (Ylävartalo) & Polven huolto\nTags Voimaharjoittelu, Polven kuntoutus (Isometriset)\nEmojis 🏋️💪🦵\nSection Voima\nExercise Penkkipunnerrus|3x10@55kg\nSection Polvi & Core\nExercise Isometrinen kyykkypito seinää vasten|4x30s\nExercise Lankku|5x15s"
+    },
+    {
+      "id": "cal-train-2026-02-03-1",
+      "calendarId": "cal-train",
+      "date": "2026-02-03",
+      "compact": "[2026-02-03]\n## Rintauinti\nTags uinti, rintauinti, tampere\nEmojis 🏊‍♂️🏊\nCustom Effort 4|Moderate\nCustom Kalorit 332|kcal\nCustom Syke-keski 124|bpm\nText Tampere.\nRun \"rintauinti\" 27.15min 800m\n> 150m 3'39\"/100m\n> 450m 2'55\"/100m\n> 100m 3'31\"/100m\n> 100m 3'12\"/100m"
+    },
+    {
+      "id": "cal-train-2026-02-03-2",
+      "calendarId": "cal-train",
+      "date": "2026-02-03",
+      "compact": "[2026-02-03]\n## HRV\nTags hrv, palautuminen\nEmojis 📈\nCustom HRV 30|ms"
+    },
+    {
+      "id": "cal-train-2026-02-04-1",
+      "calendarId": "cal-train",
+      "date": "2026-02-04",
+      "compact": "[2026-02-04]\n## HRV\nTags hrv, palautuminen\nEmojis 📈\nCustom HRV 45|ms"
+    },
+    {
+      "id": "cal-train-2026-02-05-1",
+      "calendarId": "cal-train",
+      "date": "2026-02-05",
+      "compact": "[2026-02-05]\n## HRV\nTags hrv, palautuminen\nEmojis 📈\nCustom HRV 48|ms"
+    },
+    {
+      "id": "cal-train-2026-02-05-2",
+      "calendarId": "cal-train",
+      "date": "2026-02-05",
+      "compact": "[2026-02-05]\n## Päivän aktiivisuus\nTags askeleet, aktiivisuus\nEmojis 👟\nRun 8591steps | Arjen aktiivisuus"
+    },
+    {
+      "id": "cal-train-2026-02-05-3",
+      "calendarId": "cal-train",
+      "date": "2026-02-05",
+      "compact": "[2026-02-05]\n## Painon seuranta\nTags paino, seuranta\nEmojis ⚖️\nWeight 96kg"
+    },
+    {
+      "id": "cal-train-2026-02-05-4",
+      "calendarId": "cal-train",
+      "date": "2026-02-05",
+      "compact": "[2026-02-05]\n## Kontrastivoima (Sali)\nTags kuntosali, voima, kontrastivoima, polven huolto\nEmojis 💪🏋️💥\nSection Lämmittely\nTime 10min | Alkulämmittely ja dynaamiset venyttelyt\nExercise Keppijumppa|1x\nSection Kontrastivoima (Alakroppa)\nExercise Takakyykky|3x5@85kg\nExercise Vauhditon pituus|3x4@bw\nSection Kontrastivoima (Yläkroppa)\nExercise Penkkipunnerrus|3x5@80kg\nExercise Räjähtävä punnerrus (penkiltä tai maasta)|3x5@bw\nSection Core & Polvi\nExercise Isometrinen kyykkypito seinää vasten|3x45s\nExercise Lankku|2x30s\nExercise Kuollut ötökkä|2x10+10"
+    },
+    {
+      "id": "cal-train-2026-02-06-1",
+      "calendarId": "cal-train",
+      "date": "2026-02-06",
+      "compact": "[2026-02-06]\n## Uintiharjoitus (Rintauinti)\nTags uinti, rintauinti, pk\nEmojis 🏊‍♂️💧\nRun \"rintauinti\" 1x600m@135bpm | 251 kcal, 12 pituutta\n> 100m 3'14\"/100m\n> 100m 2'57\"/100m\n> 100m 2'59\"/100m\n> 100m 2'54\"/100m\n> 100m 2'44\"/100m\nText Effort: 5 Moderate. Altaan pituus 50m."
+    },
+    {
+      "id": "cal-train-2026-02-08-1",
+      "calendarId": "cal-train",
+      "date": "2026-02-08",
+      "compact": "[2026-02-08]\n## Kävelylenkki\nTags kävely, ulkoilu, Tampere\nEmojis 🚶🌳\nCustom Syke-keski 99|bpm\nCustom Kalorit 240|kcal\nCustom Nousu 30|m\nRun 41min 2.42km | Outdoor Walk\n> 1km 17'21\"/1km 100bpm"
+    },
+    {
+      "id": "cal-train-2026-02-08-2",
+      "calendarId": "cal-train",
+      "date": "2026-02-08",
+      "compact": "[2026-02-08]\n## Lajitekniikka (Kuivaharjoittelu)\nTags tekniikka, kuivaharjoittelu\nEmojis 🎯🧘\nCustom Tonnage 480|kg\nExercise Romanialainen maastaveto|2x10+10@12kg\nExercise Kuuladrillit|1x20@bw"
+    },
+    {
+      "id": "cal-train-2026-02-09-1",
+      "calendarId": "cal-train",
+      "date": "2026-02-09",
+      "compact": "[2026-02-09]\n## Kontrastivoima (Sali) & Kierto\nTags voima, kontrasti, sali, kuntosali\nEmojis 🏋️💥\nExercise Takakyykky|3x5@90kg\nExercise Vauhditon pituus|3x4\nExercise Penkkipunnerrus|3x5@80kg\nExercise Räjähtävä punnerrus|3x5\nExercise Vatsakiertokone|3x20\nExercise Isometrinen kyykkypito seinää vasten|3x45s,45s,0s\nExercise Lankku|2x25s,24s"
+    },
+    {
+      "id": "cal-train-2026-02-10-1",
+      "calendarId": "cal-train",
+      "date": "2026-02-10",
+      "compact": "[2026-02-10]\n## Uintiharjoitus\nTags uinti, kestävyys\nEmojis 🏊\nRun \"uinti\" 780m | 24min"
+    },
+    {
+      "id": "cal-train-2026-02-11-1",
+      "calendarId": "cal-train",
+      "date": "2026-02-11",
+      "compact": "[2026-02-11]\n## Voimaharjoitus (Rinnalleveto & Core)\nTags voima, rinnalleveto, core, räjähtävyys\nEmojis 🏋️💥💪\nCustom Tonnage 1800|kg\nCustom RM1 66|kg\nSection Voima\nExercise Rinnalleveto|5x3@60kg\nSection Core\nExercise Lankku|3x42s,29s,28s\nExercise Vatsapyörä|3x12\nExercise Venäläinen kierto|3x15+15@10kg"
+    },
+    {
+      "id": "cal-train-2026-02-12-1",
+      "calendarId": "cal-train",
+      "date": "2026-02-12",
+      "compact": "[2026-02-12]\n## Kuulantyöntö\nTags yleisurheilu, kuulantyöntö, tekniikka\nEmojis ☄️💪\nExercise Kuulantyöntö (vauhditon)|1x5\nExercise Kuulantyöntö (vauhdilla)|1x10\nExercise Tekniikkadrillit|1x20"
+    },
+    {
+      "id": "cal-train-2026-02-12-2",
+      "calendarId": "cal-train",
+      "date": "2026-02-12",
+      "compact": "[2026-02-12]\n## Lajitekniikka (Kuula)\nTags kuula, lajitekniikka, yleisurheilu\nEmojis ☄️💪\nExercise Yhden käden työntö|3x5\nExercise Polvityöntö|3x15\nExercise Seisontatyöntö|1x15\nExercise Kuntopallon heitto taakse|3x5"
+    },
+    {
+      "id": "cal-train-2026-02-13-1",
+      "calendarId": "cal-train",
+      "date": "2026-02-13",
+      "compact": "[2026-02-13]\n## Lepopäivä\nTags lepo, hyötyliikunta\nEmojis 🛌📦\nText Täysi lepo, tavaroiden siirtelyä varastosta toiseen"
+    },
+    {
+      "id": "cal-train-2026-02-14-1",
+      "calendarId": "cal-train",
+      "date": "2026-02-14",
+      "compact": "[2026-02-14]\n## Muuttohommia\nTags hyötyliikunta, muutto\nEmojis 📦💪\nTime 3h | Muuttohommia"
+    },
+    {
+      "id": "cal-train-2026-02-15-1",
+      "calendarId": "cal-train",
+      "date": "2026-02-15",
+      "compact": "[2026-02-15]\n## Aktivoiva iltatreeni (kotona)\nTags koti, aktivoiva, kehonhuolto\nEmojis 🏠💪✨\nExercise Kissalehmä|1x10\nExercise Lonkan avaajat|1x\nExercise Olkapäiden pyörittely|1x15\nExercise Lantionnosto|2x15\nExercise Lankku|2x30s\nExercise Kuollut ötökkä|2x10\nExercise Nopeat jalat sukkasillaan|3x10s"
+    },
+    {
+      "id": "cal-train-2026-02-16-1",
+      "calendarId": "cal-train",
+      "date": "2026-02-16",
+      "compact": "[2026-02-16]\n## Maanantai - Voimaharjoitus (Perusvoima)\nTags voima, kuntosali, perusvoima\nEmojis 🏋️💪\nExercise Takakyykky|3x8@85kg\nExercise Penkkipunnerrus|3x8@72.5kg\nExercise Kulmasoutu|3x10@60kg\nExercise Pystypunnerrus kp|3x10@17.5kg\nExercise Lankku|2x29s,31s\nExercise Venäläinen kierto|3x20"
+    },
+    {
+      "id": "cal-train-2026-02-17-1",
+      "calendarId": "cal-train",
+      "date": "2026-02-17",
+      "compact": "[2026-02-17]\n## Muuttohommat\nTags hyötyliikunta, muutto\nEmojis 📦💪\nTime 36min | Aktiivista muuttohommaa ja kantamista"
+    },
+    {
+      "id": "cal-train-2026-02-18-1",
+      "calendarId": "cal-train",
+      "date": "2026-02-18",
+      "compact": "[2026-02-18]\n## Keskiviikko - Kuntosali (Perusvoima)\nTags kuntosali, voima\nEmojis 🏋️‍♂️💪\nExercise Takakyykky|3x8@80kg\nExercise Penkkipunnerrus|3x8@65kg\nExercise Kulmasoutu käsipainolla|3x10@22.5kg\nExercise Lankku|3x1min\nExercise Venäläinen kierto|3x20@10kg"
+    },
+    {
+      "id": "cal-train-2026-02-19-1",
+      "calendarId": "cal-train",
+      "date": "2026-02-19",
+      "compact": "[2026-02-19]\n## Kuulantyöntöharjoitus\nTags kuula, yleisurheilu, voima, heitot\nEmojis ☄️💪\nCustom Kuulan-paino 6|kg\nCustom Työntö-vauhdilla 11|m\nCustom Työntö-paikaltaan 10|m\nExercise Kuulantyöntö (vauhdilla)|11m@6kg\nExercise Kuulantyöntö (paikaltaan)|10m@6kg\nText 19.2. treenissä kuula 6kg meni noin 11m vauhdilla, vauhditon työntö paikaltaan noin 10m"
+    },
+    {
+      "id": "cal-train-2026-02-19-2",
+      "calendarId": "cal-train",
+      "date": "2026-02-19",
+      "compact": "[2026-02-19]\n## Torstai - Lajitekniikka (Kuula)\nTags kuulantyöntö, tekniikka, voima\nEmojis ☄️💪\nCustom Tonnage 156|kg\nCustom RM1-arvio 8.4|kg\nExercise Työntö paikalta|1x8@6kg\nExercise Työntö vauhdilla (lyhyt)|1x12@6kg\nExercise Työntö täydellä vauhdilla|1x6@6kg"
+    },
+    {
+      "id": "cal-train-2026-02-20-1",
+      "calendarId": "cal-train",
+      "date": "2026-02-20",
+      "compact": "[2026-02-20]\n## Uintiharjoitus\nTags uinti, rintauinti\nEmojis 🏊‍♂️\nCustom Effort 5|Moderate\nCustom Altaan-pituus 50|m\nCustom Syke-keski 137|bpm\nCustom Kalorit 189|kcal\nCustom Pituudet 9\nRun \"rintauinti\" 1x450m@3:11/100m\n> 100m 3'12\"/100m\n> 100m 2'51\"/100m\n> 100m 2'55\"/100m\n> 100m 2'56\"/100m"
+    },
+    {
+      "id": "cal-train-2026-02-21-1",
+      "calendarId": "cal-train",
+      "date": "2026-02-21",
+      "compact": "[2026-02-21]\n## Core- ja ylävartalohuolto\nTags core, voima, huolto, polven-huolto\nEmojis 🧩💪🦵\nCustom Kokonaistonnage 1800|kg\nCustom RM1 Kulmasoutu 26.7|kg\nCustom RM1 Venäläinen-kierto 16.7|kg\nSection Keskivartalo\nExercise Lankku|3x60s\nExercise Venäläinen kierto|3x20@10kg\nSection Ylävartalo\nExercise Kulmasoutu käsipainolla|3x10+10@20kg\nSection Polven huolto\nExercise Isometrinen kyykkypito seinää vasten|3x45s"
+    },
+    {
+      "id": "cal-train-2026-02-21-2",
+      "calendarId": "cal-train",
+      "date": "2026-02-21",
+      "compact": "[2026-02-21]\n## Juoksulenkki\nTags juoksu, kestävyys\nEmojis 🏃\nRun 10km"
+    },
+    {
+      "id": "cal-train-2026-02-22-1",
+      "calendarId": "cal-train",
+      "date": "2026-02-22",
+      "compact": "[2026-02-22]\n## Uinti lasten kanssa\nTags uinti, palauttava\nEmojis 🏊‍♂️\nRun \"uinti\" 1x | kevyt polskuttelu lasten kanssa"
+    },
+    {
+      "id": "cal-train-2026-02-23-1",
+      "calendarId": "cal-train",
+      "date": "2026-02-23",
+      "compact": "[2026-02-23]\n## Kevyt ylläpitävä voima ja polven huolto\nTags voima, huolto, polvi, kuntoutus\nEmojis 🏋️🦵\nExercise Isometrinen seinäkyykky|3x45s\nExercise Penkkipunnerrus|3x10@50kg\nExercise Kulmasoutu käsipainolla|3x10@20kg\nExercise Lankku|3x45s,45s,33s\nExercise Selänojennus|2x15"
+    },
+    {
+      "id": "cal-train-2026-02-23-2",
+      "calendarId": "cal-train",
+      "date": "2026-02-23",
+      "compact": "[2026-02-23]\n## Valmistava huolto & Polvi-isometria\nTags huolto, liikkuvuus, isometria\nEmojis 🧘🦵\nExercise Dynaamiset venyttelyt (lonkka, nilkka, rintaranka)|9min11s"
+    },
+    {
+      "id": "cal-train-2026-02-24-1",
+      "calendarId": "cal-train",
+      "date": "2026-02-24",
+      "compact": "[2026-02-24]\n## Tiistai - Lajitekniikka (Kuula)\nTags lajiharjoittelu, kuula, tekniikka\nEmojis ☄️💪\nSection Tekniikka\nExercise Dynaamiset venyttelyt ja kuuladrillit|15min\nExercise Seisontatyöntö|3x7\nExercise Vauhtityöntö (lyhyt)|3x7\nExercise Täysi vauhti|1x10"
+    },
+    {
+      "id": "cal-train-2026-02-25-1",
+      "calendarId": "cal-train",
+      "date": "2026-02-25",
+      "compact": "[2026-02-25]\n## Keskiviikko - Voima (Räjähtävyys)\nTags voima, räjähtävyys, kuula, hiihto, loikat\nEmojis 🏋️⚡🎿\nDerived strength.total_volume_load 3737.5|kg basis:entity confidence:100% source:exercise+load goodness:5\nDerived strength.neural_stress 78|score basis:entity confidence:85% source:intensity+explosiveness goodness:4\nSection Alkuverryttely\nRun \"hiihto\" 1.5km\nSection Pääosa\nExercise Rinnalleveto|5x3@62.5kg\nExercise Takakyykky|3x5@85kg\nExercise Penkkipunnerrus|3x5@75kg\nExercise Räjähtävä punnerrus|2x5\nExercise Venäläinen kierto|2x20@10kg\nSection Loppuun\nExercise Tasatassuloikka|3x4x2m\nCustom Pisin-loikka 210|cm"
+    },
+    {
+      "id": "cal-train-2026-02-26-1",
+      "calendarId": "cal-train",
+      "date": "2026-02-26",
+      "compact": "[2026-02-26]\n## Palauttava uinti\nDerived endurance.duration_total 60|min basis:entity confidence:100% source:user goodness:5\nDerived endurance.zone1_minutes 60|min basis:entity confidence:85% source:estimated goodness:5\nDerived strength.neural_stress 5|score basis:entity confidence:95% source:intensity goodness:5\nTags uinti, palauttava, perhe\nEmojis 🏊‍♂️🌊🧒\nRun \"uinti\" 60min | Polskimista uima-altaassa lasten kanssa\nText Palauttava treeni, kevyttä liikkumista lasten ehdoilla."
+    },
+    {
+      "id": "cal-train-2026-02-27-1",
+      "calendarId": "cal-train",
+      "date": "2026-02-27",
+      "compact": "[2026-02-27]\n## Lajiharjoitus ja Voima\nTags laji, kuula, voima, penkki\nEmojis ☄️🏋️\nDerived strength.neural_stress 35|score basis:entity confidence:80% source:exercise goodness:3\nDerived strength.total_volume_load 300|kg basis:entity confidence:95% source:sets*reps*load goodness:4\nSection Lajiosuus\nTime 20min | Kevyet lajidrillit ja aitadrillit ilman aitaa\nExercise Työntöjä ilman välinettä|nullx\nExercise Hyppytyöntöjä|nullx\nSection Voima\nPyramid Penkkipunnerrus|2x60,2x90kg"
+    },
+    {
+      "id": "cal-train-2026-02-28-1",
+      "calendarId": "cal-train",
+      "date": "2026-02-28",
+      "compact": "[2026-02-28]\n## Lajiharjoittelu ja hyötyliikunta\nDerived endurance.duration_total 30|min basis:entity confidence:100% source:user goodness:4\nDerived strength.power_emphasis 40|score basis:entity confidence:75% source:rotation-drills goodness:4\nDerived strength.neural_stress 35|score basis:entity confidence:70% source:rotation-drills goodness:3\nDerived endurance.zone1_minutes 30|min basis:entity confidence:80% source:user-activity goodness:4\nTags lajiharjoittelu, tekniikka, hyötyliikunta\nEmojis ☄️❄️💪\nSection Lajitekniikka\nTime 20min | Pyörähdysharjoittelu\nSection Hyötyliikunta\nTime 10min | Lumen pudottaminen räystäiltä\nText Kuulantyönnön pyörähdysharjoittelua 20min, lumen pudottamista räystäiltä 10min"
+    },
+    {
+      "id": "cal-train-2026-03-01-1",
+      "calendarId": "cal-train",
+      "date": "2026-03-01",
+      "compact": "[2026-03-01]\n## Voimaharjoittelu\nTags kuntosali, voima, kuulantyöntö, räjähtävyys\nEmojis 🏋️🦵☄️\nDerived strength.neural_stress 72|score basis:entity confidence:90% source:exercise+load goodness:4\nDerived strength.total_volume_load 3550|kg basis:entity confidence:95% source:sets*reps*load goodness:5\nDerived strength.power_emphasis 85|score basis:entity confidence:90% source:exercises goodness:5\nDerived strength.strength_endurance_emphasis 22|score basis:entity confidence:85% source:reps goodness:3\nSection Lämmittely\nTime 7min | Tasapaino ja tekniikkadrillit\nSection Pääosa\nExercise Boksikyykky|1x4@40kg\nExercise Boksikyykky hypyllä|1x4@40kg\nExercise Boksikyykky hypyllä|2x4@60kg\nPyramid Takakyykky|10x90,10x100kg\nPyramid Rinnalleveto|5x40,5x60,5x70kg\nText Viimeinen boksikyykyn hyppy 4x60kg tuntui vähän polvessa"
+    },
+    {
+      "id": "cal-train-2026-03-02-1",
+      "calendarId": "cal-train",
+      "date": "2026-03-02",
+      "compact": "[2026-03-02]\n## Voima ja polven huolto (Kovennettu)\nTags voimaharjoittelu, polven huolto, ylävartalo\nEmojis 🏋️🦵💪\nDerived strength.neural_stress 65|score basis:entity confidence:85% source:exercise+load goodness:4\nDerived strength.strength_endurance_emphasis 75|score basis:entity confidence:85% source:reps goodness:4\nTime 10min | Kuntopyörä kevyesti\nText RPM 60-110\nExercise Isometrinen seinäkyykky|4x1\nExercise Penkkipunnerrus|5x8@80kg\nText Todella maksimissa oltiin!\nExercise Kulmasoutu tangolla|4x10@65kg\nText Tuntui kohtalaisen pahalta, mutta OK\nExercise Pystypunnerrus käsipainoilla|3x10@20kg\nExercise Vatsarutistus lisäpainolla|3x10\nText Vatsalihaksissa oli selvästi vähän probleemaa.\nTime 1min | Venyttely ja rullaus"
+    },
+    {
+      "id": "cal-train-2026-03-03-1",
+      "calendarId": "cal-train",
+      "date": "2026-03-03",
+      "compact": "[2026-03-03]\n## Uinti (palauttava)\nDerived endurance.zone1_minutes 30|min basis:entity confidence:80% source:estimated goodness:5\nTime 30min | Altaassa polskimista\nTags uinti, palautuminen\nEmojis 🏊‍♂️"
+    },
+    {
+      "id": "cal-train-2026-03-04-1",
+      "calendarId": "cal-train",
+      "date": "2026-03-04",
+      "compact": "[2026-03-04]\n## Alavartalon voima & Box-kyykky (Muokattu polven ehdoilla)\nTags voima, jalat, kuntoutus\nEmojis 🏋️🦵💪\nDerived strength.neural_stress 62|score basis:entity confidence:85% source:exercise+load goodness:4\nDerived strength.hypertrophy_emphasis 45|score basis:entity confidence:80% source:reps+sets goodness:4\nDerived strength.power_emphasis 35|score basis:entity confidence:75% source:cleans goodness:3\nText Poistettu hypyt polvituntemusten vuoksi. Keskitytty hallittuun tekemiseen.\nTime 11'54\" | Dynaamiset venyttelyt ja lonkan avaukset\nExercise Isometrinen seinäkyykky|4x1min,46s,1min,1min\nPyramid Box-kyykky (hallittu lasku)|6x60,6x60,6x60,6x60kg\nPyramid Rinnalleveto riipusta (tekniikka)|3x50,3x50,3x50,3x50kg\nPyramid Pohjenousu seisten|15,15,15\nExercise Lankku|3x1min,46s,46s"
+    },
+    {
+      "id": "cal-train-2026-03-05-1",
+      "calendarId": "cal-train",
+      "date": "2026-03-05",
+      "compact": "[2026-03-05]\n## Lajitekniikka (Täysi vauhti) & Akilleshuolto\nTags lajiharjoittelu, kuula, kiekko, huolto, akilles\nEmojis ☄️🦶🩹\nDerived strength.neural_stress 65|score basis:entity confidence:85% source:load+intensity goodness:4\nDerived strength.power_emphasis 85|score basis:entity confidence:90% source:full-speed-throws goodness:5\nExercise Kuulatyöntö (täysi vauhti)|10x1@6kg\nText aavistuksen tuntui polvessa, mutta ei paha - kohtalaisen hyvä fiilis\nExercise Kuulanheitto eteenpäin|4x1@4kg\nText ei mennyt kovin hyvin teknisesti, 4kg kuula joku 12m paikkeille alhaalta eteen\nExercise Kiekonheitto (täysi vauhti)|10x1\nText tuntui aika hyvältä 1,5kg kiekolla\nExercise Työntö pakitustekniikalla (tekniikka)|5x1@6kg\nText aika kivalta tuntui pitkästä aikaa kokeilla \"glidea\"\nExercise Pyörähdyksen osaharjoitteet (tasapaino)|10x1\nExercise Isometrinen seinäkyykky|3x45"
+    },
+    {
+      "id": "cal-train-2026-03-08-1",
+      "calendarId": "cal-train",
+      "date": "2026-03-08",
+      "compact": "[2026-03-08]\n## polskuttelua\nDerived endurance.zone1_minutes 120|min basis:entity confidence:80% source:duration goodness:5\nDerived strength.neural_stress 5|score basis:entity confidence:90% source:intensity goodness:5\nTags uinti, palautuminen, perhe\nEmojis 🏊‍♂️👨‍👩‍👧‍👦\nText Polskuttelua altaalla lasten kanssa 2 tuntia\nTime 120min | Allasleikit"
+    },
+    {
+      "id": "cal-train-2026-03-08-2",
+      "calendarId": "cal-train",
+      "date": "2026-03-08",
+      "compact": "[2026-03-08]\n## Huolto ja stabilointi\nTags huolto, stabilointi, keskivartalo, isometrinen\nEmojis 🧘💪\nDerived strength.neural_stress 25|score basis:entity confidence:80% source:isometrics goodness:4\nDerived strength.strength_endurance_emphasis 82|score basis:entity confidence:85% source:timed-holds goodness:5\nExercise Isometrinen seinäkyykky|3x30s\nExercise lankku|3x46s,28s,24s\nText Yllättävän raskas ton yläkroppa voiman jälkeen\nExercise kylkilankku|2x20s/37s,23s/21s"
+    },
+    {
+      "id": "cal-train-2026-03-08-3",
+      "calendarId": "cal-train",
+      "date": "2026-03-08",
+      "compact": "[2026-03-08]\n## Voima - Yläkroppa\nTags kuntosali, voima, ylävartalo\nEmojis 🏋️💪\nDerived strength.neural_stress 68|score basis:entity confidence:85% source:exercise+load goodness:4\nDerived strength.hypertrophy_emphasis 82|score basis:entity confidence:90% source:reps goodness:5\nPyramid Penkkipunnerrus|10x60,10x60,10x60,10x60kg\nText Ei paha, mutta hieman alkoi lopussa tuntua, melko räjähtävää liikettä\nPyramid Pystypunnerrus käsipainoilla|9x16.5,7x16.5,5x16.5kg\nText Tämä otti koville\nPyramid Kulmasoutu tangolla|10x50,10x50,10x50,10x50kg\nText Kohtalaisen helppo, tuntui kyllä vika sarja jo jossain\nPyramid Vipunostot sivuille|8x8,8x8,8x8kg\nText Raskas, en oo tehnyt tätä aiemmin\nPyramid Ranskalainen punnerrus|6x22.5,6x22.5,6x22.5kg\nText Tuntui OK, mutta pitkä aika kun oon tehnyt joten otin varovasti, ei kovin paljoa enempää ois uskaltanut"
+    },
+    {
+      "id": "cal-train-2026-03-09-1",
+      "calendarId": "cal-train",
+      "date": "2026-03-09",
+      "compact": "[2026-03-09]\n## Voima (Alavartalo ja Polvet)\nTags voima, jalat, polvet, SM-projekti\nEmojis 🏋️🦵\nDerived strength.neural_stress 69|score basis:entity confidence:85% source:exercise+load goodness:4\nDerived strength.hypertrophy_emphasis 79|score basis:entity confidence:80% source:reps goodness:4\nDerived strength.strength_endurance_emphasis 46|score basis:entity confidence:70% source:reps goodness:3\nDerived endurance.zone1_minutes 10|min basis:entity confidence:90% source:time goodness:5\nSection Lämmittely\nTime 10min | Kuntopyörä\nSection Pääosa\nExercise Boksikyykky|4x10@70kg\nPyramid Suorin jaloin maastaveto|10x60,7x60,7x60kg\nExercise Romanialainen yhden jalan mave|2x5@15kg\nExercise loikka paikaltaan|4x2m"
+    },
+    {
+      "id": "cal-train-2026-03-10-1",
+      "calendarId": "cal-train",
+      "date": "2026-03-10",
+      "compact": "[2026-03-10]\n## Rintauinti (750m)\nTags uinti, rintauinti, Tampere\nEmojis 🏊‍♂️🏊\nDerived endurance.zone2_minutes 25|min basis:entity confidence:85% source:heart-rate goodness:4\nCustom Effort 6|Moderate\nCustom Altaan-pituus 50|m\nCustom Pituudet 15\nCustom Kalorit 310|kcal\nCustom Syke-keski 126|bpm\nRun \"rintauinti\" 24.95min 750m\n> 50m 1'50\"/100m\n> 700m 3'06\"/100m\nText Vauhti kasvoi loppua kohden, viimeinen 100m oli hyvin vauhdikas - jalkojen potku tuntui tehokkaalta"
+    },
+    {
+      "id": "cal-train-2026-03-11-1",
+      "calendarId": "cal-train",
+      "date": "2026-03-11",
+      "compact": "[2026-03-11]\n## Voimaharjoittelu\nTags voima, räjähtävyys, rive, hypyt\nEmojis 🏋️⚡\nDerived strength.neural_stress 75|score basis:entity confidence:90% source:exercises goodness:4\nDerived strength.power_emphasis 85|score basis:entity confidence:95% source:cleans+jumps goodness:5\nDerived strength.total_volume_load 4850|kg basis:entity confidence:85% source:sets*reps*load goodness:4\nPyramid Rinnallevedon veto|4x50,4x60,3x70kg\nText Hermosto ei tuntunut olevan ihan hereillä joten en tehnyt nostoa 80kg lla\nExercise Vauhditon pituushyppy|5x4\nText Hyppiminen oli todella hauskaa\nCustom Pisin-hyppy 210|cm\nExercise Askelkyykky|3x10+10\nExercise Kiertovatsalihaskone|2x10+10@60kg\nTime 5min | venyttely"
+    },
+    {
+      "id": "cal-train-2026-03-12-1",
+      "calendarId": "cal-train",
+      "date": "2026-03-12",
+      "compact": "[2026-03-12]\n## Lajiharjoitus (kuula)\nDerived strength.neural_stress 45|score basis:entity confidence:80% source:exercises goodness:4\nDerived strength.speed_strength_emphasis 85|score basis:entity confidence:90% source:exercises goodness:5\nDerived strength.power_emphasis 70|score basis:entity confidence:80% source:exercises goodness:4\nTags kuulantyöntö, lajitekniikka, nopeusvoima\nEmojis ☄️⚡\nSection Lämmittely\nExercise Kuntopallon heitto pään yli taakse|1x5@2kg\nExercise Lajidrillit ilman kuulaa|1x5@0kg\nSection Lajiosa\nExercise Työntö seisaaltaan|1x5@6kg\nExercise Työntö paikaltaan|1x5@6kg\nExercise Glide & Rotation (täysi vauhti)|10x1@6kg"
+    },
+    {
+      "id": "cal-train-2026-03-13-1",
+      "calendarId": "cal-train",
+      "date": "2026-03-13",
+      "compact": "[2026-03-13]\n## Uintitreeni (Rintauinti)\nDerived endurance.zone1_minutes 18|min basis:entity confidence:95% source:heart-rate goodness:5\nRun \"rintauinti\" 18.05min 250m\nCustom Syke-keski 117|bpm\nCustom Kalorit 45|kcal\nCustom Altaan-pituus 50|m\nCustom Pituudet 5\nTags uinti, rintauinti, Tampere\nEmojis 🏊‍♂️"
+    },
+    {
+      "id": "cal-train-2026-03-16-1",
+      "calendarId": "cal-train",
+      "date": "2026-03-16",
+      "compact": "[2026-03-16]\n## Voima ja polven huolto\nDerived strength.neural_stress 82|score basis:entity confidence:85% source:exercises goodness:4\nDerived strength.max_strength_emphasis 65|score basis:entity confidence:80% source:intensity goodness:4\nDerived strength.hypertrophy_emphasis 58|score basis:entity confidence:80% source:volume goodness:4\nEmojis 🏋️🦵\nTags voima, polven-huolto, kuntosali\nExercise Isometrinen seinäkyykky|4x45s\nPyramid Penkkipunnerrus|8x60kg\nPyramid Vatsarutistus|10,10,10\nPyramid Rinnalleveto|5x40,5x60,7x70kg\nText Aika hullu toi 7x70 mutta menköön\nExercise Rinnalleveto|1x6@60kg\nExercise Penkkipunnerrus|1x6@80kg\nExercise Penkkipunnerrus|1x5@90kg\nExercise hyppy paikaltaan|2x4|2m\nExercise vatsalihas kiertolaitteella|2x10+10@60kg\nExercise Syväkyykky Smith|3x10@50kg\nText 10 liikettä suoritettu."
+    },
+    {
+      "id": "cal-train-2026-03-17-1",
+      "calendarId": "cal-train",
+      "date": "2026-03-17",
+      "compact": "[2026-03-17]\n## Uintitreeni\nTags uinti, kestävyys, rintauinti\nEmojis 🏊‍♂️⌚\nDerived endurance.zone2_minutes 27|min basis:entity confidence:85% source:heart-rate goodness:4\nDerived strength.neural_stress 12|score basis:entity confidence:90% source:duration goodness:5\nCustom Effort 5|Moderate\nCustom Altaan-pituus 50|m\nCustom Kalorit 366|kcal\nCustom Syke-keski 133|bpm\nRun \"rintauinti\" 26.783333333333335min 900m\n> 300m 2'50\"/100m | sarja 1\n> 500m 2'58\"/100m | sarja 2\n> 100m 2'37\"/100m | sarja 3"
+    },
+    {
+      "id": "cal-train-2026-03-18-1",
+      "calendarId": "cal-train",
+      "date": "2026-03-18",
+      "compact": "[2026-03-18]\n## Voima - Jalat ja Polvet\nTags voimaharjoittelu, jalat, polvet\nEmojis 🏋️🦵\nDerived strength.neural_stress 68|score basis:entity confidence:85% source:exercise+load goodness:4\nDerived strength.hypertrophy_emphasis 85|score basis:entity confidence:90% source:reps+sets goodness:5\nSection Lämmittely\nExercise Kuntopyörä|10min\nExercise Dynaaminen venyttely|4min44s\nSection Pääosa\nPyramid Boksikyykky|10x70,10x75,10x75,10x75kg\nText Tuntui hyvältä\nPyramid Suorin jaloin maastaveto|12x65,10x65,10x65kg\nText Kiva liike mutta raskas toistaa, lihaskunnossa puutteita\nPyramid Polven ojennus (vakaus)|24x25,30x25,30x25kg\nText Tyhjällä jalkaprässillä"
+    },
+    {
+      "id": "cal-train-2026-03-20-1",
+      "calendarId": "cal-train",
+      "date": "2026-03-20",
+      "compact": "[2026-03-20]\n## Uinti\nTags uinti, kestävyys\nEmojis 🏊‍♂️\nDerived endurance.zone2_minutes 16|min basis:entity confidence:80% source:duration goodness:4\nRun \"uinti\" 16min 500m"
+    },
+    {
+      "id": "cal-train-2026-03-24-1",
+      "calendarId": "cal-train",
+      "date": "2026-03-24",
+      "compact": "[2026-03-24]\n## Uintiharjoitus (Rintauinti)\nTags uinti, kuntoutus, Tampere\nEmojis 🏊‍♂️🌊🩹\nDerived endurance.zone1_minutes 21|min basis:entity confidence:90% source:heart-rate goodness:5\nDerived strength.neural_stress 12|score basis:entity confidence:85% source:duration+type goodness:5\nCustom Effort 5|Moderate\nCustom Kalorit 266|kcal\nCustom Syke-keskiarvo 128|bpm\nCustom Altaan-pituus 50|m\nCustom Pituudet 12\nRun \"rintauinti\" 21.083333333333332min 600m | Tampere\n> 200m 06:58 | set 1\n> 250m 07:45 | set 2\n> 150m 04:33 | set 3"
+    },
+    {
+      "id": "cal-train-2026-03-27-1",
+      "calendarId": "cal-train",
+      "date": "2026-03-27",
+      "compact": "[2026-03-27]\n## Rintauinti\nTags uinti, kestävyys, kuntoutus, Tampere\nEmojis 🏊‍♂️🌊\nDerived endurance.zone2_minutes 19|min basis:entity confidence:85% source:heart-rate goodness:4\nCustom Effort 5|Moderate\nCustom Altaan-pituus 50|m\nCustom Pituudet 12\nCustom Kalorit 257|kcal\nRun \"rintauinti\" 19.083333333333332min 600m | 3'10\"/100m\n> 400m 3'06\"/100m\n> 100m 2'44\"/100m\n> 100m 2'29\"/100m"
+    },
+    {
+      "id": "cal-train-2026-03-28-1",
+      "calendarId": "cal-train",
+      "date": "2026-03-28",
+      "compact": "[2026-03-28]\n## Ulkojuoksu\nTags juoksu, Tampere\nEmojis 🏃\nDerived endurance.zone2_minutes 8|min basis:entity confidence:90% source:heart-rate goodness:4\nCustom Kalorit 77|kcal\nCustom Teho 200|W\nCustom Kadenssi 136|spm\nRun 8.45min 1.03km\nText Reppu selässä, paras vauhti lopussa vähän alle 6min/km, polville ihan OK\n> 1km 8'11\"@140bpm\n> 0.03km 0'13\"@156bpm"
+    },
+    {
+      "id": "cal-train-2026-03-30-1",
+      "calendarId": "cal-train",
+      "date": "2026-03-30",
+      "compact": "[2026-03-30]\n## Palauttava ylävartalotreeni\nTags ylävartalo, palauttava, kuntosali\nEmojis 💪🏋️🚲\nDerived strength.neural_stress 22|score basis:entity confidence:90% source:load+intensity goodness:5\nDerived strength.hypertrophy_emphasis 60|score basis:entity confidence:85% source:reps goodness:4\nDerived endurance.zone1_minutes 10|min basis:entity confidence:95% source:bike goodness:5\nSection Lämmittely\nTime 10min | Kuntopyörä (erittäin kevyt vastus)\nSection Pääosa\nPyramid Penkkipunnerrus käsipainoilla|15x15,15x15,15x15kg\nExercise Ylätalja leveä ote|3x15@40kg\nPyramid Vipunostot sivulle|13x6,13x6,10x6kg\nPyramid Hauiskääntö käsipainoilla|10x10,12x10,10x10kg\nPyramid Ojentajapunnerrus taljassa|15x15,15x25,15x25kg\nSection Huolto\nTime 10min | Putkirullaus ja ylävartalon kevyet avaukset"
+    },
+    {
+      "id": "cal-train-2026-03-31-1",
+      "calendarId": "cal-train",
+      "date": "2026-03-31",
+      "compact": "[2026-03-31]\n## Rintauinti\nDerived endurance.zone2_minutes 24|min basis:entity confidence:85% source:HR goodness:5\nDerived strength.neural_stress 12|score basis:entity confidence:90% source:intensity goodness:4\nTags uinti, kestävyys, kuntoutus\nEmojis 🏊‍♂️\nCustom Effort 6|Moderate\nCustom Kalorit 317|kcal\nCustom Altaan-pituus 50|m\nCustom Pituudet 16\nRun \"rintauinti\" 23.95min 800m | Avg pace 2'59\"/100m\n> 300m 2'50\"/100m\n> 100m 2'43\"/100m\n> 100m 2'38\"/100m\n> 100m 2'47\"/100m\n> 200m 2'47\"/100m"
+    },
+    {
+      "id": "cal-train-2026-04-01-1",
+      "calendarId": "cal-train",
+      "date": "2026-04-01",
+      "compact": "[2026-04-01]\n## Kevyt juoksu\nDerived endurance.zone2_minutes 18|min basis:entity confidence:85% source:estimated goodness:4\nRun 2x1.5km@kevyt | Juoksu\nEmojis 🏃‍♂️✨"
+    },
+    {
+      "id": "cal-train-2026-04-02-1",
+      "calendarId": "cal-train",
+      "date": "2026-04-02",
+      "compact": "[2026-04-02]\n## Ylä- ja alavartalon ylläpito ja tuki\nDerived strength.neural_stress 65|score basis:entity confidence:85% source:exercise+load goodness:4\nDerived strength.hypertrophy_emphasis 75|score basis:entity confidence:80% source:rep-range goodness:4\nDerived strength.power_emphasis 45|score basis:entity confidence:85% source:cleans goodness:3\nTags kuntosali, voima, kuntoutus\nEmojis 💪🏋️‍♂️🩹\nPyramid Jalkaprässi|10x132.5,10x132.5,10x132.5kg\nPyramid Pystypunnerrus istuen kp|10x15,10x15,10x15kg\nPyramid Alatalja kapea ote|12x60,12x60,12x60kg\nPyramid Hammer-kääntö|12x12,12x12,12x12kg\nExercise Kiertäjäkalvosimet ulkokierto|3x10@2kg\nPyramid Rinnalleveto riipusta|7x40,7x40,7x40kg\nExercise Lankku|2x42s,18s\nExercise Kevyt rullaus ja venyttely|4min16s"
+    },
+    {
+      "id": "cal-train-2026-04-08-1",
+      "calendarId": "cal-train",
+      "date": "2026-04-08",
+      "compact": "[2026-04-08]\n## Voima- ja kestävyysharjoitus\nTags kuntosali, voima, kestävyys\nEmojis 💪🏃‍♂️🏋️\nDerived strength.neural_stress 42|score basis:entity confidence:85% source:exercise+load goodness:4\nDerived strength.hypertrophy_emphasis 65|score basis:entity confidence:80% source:reps+sets goodness:4\nDerived endurance.zone2_minutes 20|min basis:entity confidence:75% source:crosstrainer goodness:5\nSection Kestävyys\nTime 20min | Crosstrainer\nSection Voima\nPyramid Penkkipunnerrus käsipainoin|12x15,10x15,10x15kg\nPyramid Alataljasoutu|12x52.5,12x52.5,12x52.5kg\nExercise Pystypunnerrus käsipainoin|3x10@10kg\nSection Hallinta ja huolto\nExercise Isometrinen polven pito|3x45s\nExercise Kuollut ötökkä|2x5"
+    },
+    {
+      "id": "cal-train-2026-04-10-1",
+      "calendarId": "cal-train",
+      "date": "2026-04-10",
+      "compact": "[2026-04-10]\n## Uintiharjoitus (Rintauinti)\nTags uinti, kestävyys, kuntoutus\nEmojis 🏊‍♂️🌊\nDerived endurance.zone2_minutes 15|min basis:entity confidence:90% source:heart-rate goodness:5\nDerived strength.neural_stress 5|score basis:entity confidence:95% source:duration+type goodness:5\nCustom Effort 5|Moderate\nCustom Altaan-pituus 50|m\nCustom Kalorit 239|kcal\nCustom Syke-keski 131|bpm\nCustom Syke-max 147|bpm\nCustom Pituudet 10\nRun \"rintauinti\" 14.7min 500m | Tampere\n> 100m 2'58\"/100m\n> 100m 2'54\"/100m\n> 100m 2'53\"/100m\n> 100m 3'06\"/100m\n> 100m 2'49\"/100m"
     }
   ],
   "yearsheets": [
