@@ -2737,11 +2737,20 @@ class RealTrainerDemo {
             this.ysDetail(body)
         }
         main.addChild(body)
-        page.addChild(main)
         if (this.isPortrait()) {
+            page.addChild(main)
             this.overlays(page)
             page.addChild((this.bottomNav()))
+            page.addChild((this.toasts()))
+            return page
         }
+        ; On its side the shell is the rail and a column beside it, here too.
+        page.className = "rt-phone rt-phone-wide"
+        page.addChild((this.iconRail()))
+        def side (tree Rt (PhSide))
+        side.addChild(main)
+        page.addChild(side)
+        this.overlays(page)
         page.addChild((this.toasts()))
         return page
     }

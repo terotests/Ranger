@@ -173,8 +173,57 @@ class EVGTextMeasurer {
         ))
     }
 
-    ; The euro, which the invoice demo puts in front of an amount and which is
-    ; the one character outside printable ASCII the gallery asks for.
+    ; Latin-1 Supplement, U+00A0 … U+00FF, measured the same way at the same
+    ; reference: the umlauts every Finnish string has, the degree, the
+    ; multiplication sign, and the soft hyphen at zero. Before this table
+    ; an a-umlaut was the half-em guess below — 0.5 where the face has
+    ; 0.55615 — and a caret after "Päiväkirja" was two pixels short.
+    sfn latin1Em:[double] () {
+        return ([] _:double (
+            0.27783 0.33301 0.55615 0.55615 0.55615 0.55615 0.25977 0.55615
+            0.33301 0.73682 0.37012 0.55615 0.58398 0.00000 0.73682 0.55225
+            0.39990 0.54883 0.33301 0.33301 0.33301 0.57617 0.53711 0.33301
+            0.33301 0.33301 0.36523 0.55615 0.83398 0.83398 0.83398 0.61084
+            0.66699 0.66699 0.66699 0.66699 0.66699 0.66699 1.00000 0.72217
+            0.66699 0.66699 0.66699 0.66699 0.27783 0.27783 0.27783 0.27783
+            0.72217 0.72217 0.77783 0.77783 0.77783 0.77783 0.77783 0.58398
+            0.77783 0.72217 0.72217 0.72217 0.72217 0.66699 0.66699 0.61084
+            0.55615 0.55615 0.55615 0.55615 0.55615 0.55615 0.88916 0.50000
+            0.55615 0.55615 0.55615 0.55615 0.27783 0.27783 0.27783 0.27783
+            0.55615 0.55615 0.55615 0.55615 0.55615 0.55615 0.55615 0.54883
+            0.61084 0.55615 0.55615 0.55615 0.55615 0.50000 0.55615 0.50000
+        ))
+    }
+
+    ; General Punctuation, U+2010 … U+2026: the dashes, the curly quotes,
+    ; the daggers, the bullet and the ellipsis. The bullet is the one that
+    ; was seen wrong: a password field draws one per character and the caret
+    ; sat at the guessed 0.5 em each where the face draws 0.3501 — nine
+    ; characters in, the caret was fifteen pixels past the last bullet.
+    sfn punctEm:[double] () {
+        return ([] _:double (
+            0.33301 0.33301 0.55615 0.55615 1.00000 1.00000 0.41309 0.55225
+            0.22217 0.22217 0.22217 0.22217 0.33301 0.33301 0.33301 0.33301
+            0.55615 0.55615 0.35010 0.59000 0.33000 0.67000 1.00000
+        ))
+    }
+
+    ; A few beyond those ranges the gallery draws: the single guillemets,
+    ; the trade mark, the check mark.
+    sfn extraEm:double (ch:int) {
+        if (ch == 8249) { return 0.33301 }
+        if (ch == 8250) { return 0.33301 }
+        if (ch == 8482) { return 1.0 }
+        if (ch == 10003) { return 0.84 }
+        if (ch == 10004) { return 0.84 }
+        if (ch == 8242) { return 0.1875 }
+        if (ch == 8243) { return 0.354 }
+        return -1.0
+    }
+
+    ; The euro, which the invoice demo puts in front of an amount and which
+    ; was, before the two tables above, the one character outside printable
+    ; ASCII the gallery asked for.
     sfn euroEm:double () {
         return 0.55615
     }
@@ -229,6 +278,30 @@ class EVGTextMeasurer {
             }
             return ((itemAt t (ch - 32)) * fontSize)
         }
+        ; The soft hyphen takes no space in either kind of face.
+        if (ch == 173) {
+            return 0.0
+        }
+        ; A monospace face has one advance for everything it holds, and it
+        ; holds all of these — measured: every code below came back 0.60205.
+        if mono {
+            if (((ch >= 160) && (ch <= 255)) || ((ch >= 8208) && (ch <= 8230))) {
+                return ((EVGTextMeasurer.monoEuroEm()) * fontSize)
+            }
+            if ((EVGTextMeasurer.extraEm(ch)) >= 0.0) {
+                return ((EVGTextMeasurer.monoEuroEm()) * fontSize)
+            }
+        }
+        if ((ch >= 160) && (ch <= 255)) {
+            return ((itemAt (EVGTextMeasurer.latin1Em()) (ch - 160)) * fontSize)
+        }
+        if ((ch >= 8208) && (ch <= 8230)) {
+            return ((itemAt (EVGTextMeasurer.punctEm()) (ch - 8208)) * fontSize)
+        }
+        def extra:double (EVGTextMeasurer.extraEm(ch))
+        if (extra >= 0.0) {
+            return (extra * fontSize)
+        }
         ; --- surrogate pairs, which is to say emoji -------------------------
         ;
         ; A code point above the BMP arrives as TWO code units, and half an em
@@ -275,11 +348,11 @@ class EVGTextMeasurer {
         ; character this table does not hold is to measure with the face that
         ; will draw it, through `EVGTextEngine.setMeasurer`.
         ;
-        ; Measured, for the record, so the size of the guess is known rather
-        ; than assumed: a left chevron is 0.3999 em, an a-umlaut 0.6128, a
-        ; bullet 0.5898 and the euro 0.6362. Half an em is within about a
-        ; fifth of all of them, which is fine for a glyph alone in a box and
-        ; is not fine for a sentence.
+        ; Latin-1 and the general punctuation block are in the tables above
+        ; now; this is what is left — other scripts, symbols, arrows. A left
+        ; arrow measured 1.0 em and an up arrow 0.5, so half an em is the
+        ; middle of the range rather than a number picked by feel, and it is
+        ; a GUESS: fine for a glyph alone in a box, not for a sentence.
         return (fontSize * 0.5)
     }
 

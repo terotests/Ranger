@@ -53,6 +53,10 @@ const STRINGS = [
   "iiiiiiiiii", "WWWWWWWWWW", "lllllllll", "MMMMMMMMM",
   "The quick brown fox", "0123456789", "AVATAR", "To Wave",
   "Search customers", "At least 8 characters.", "€1250.00",
+  // the strings the RealTrainer port draws: umlauts, dashes, bullets, quotes
+  "•••••••••", "Päiväkirja \"Kilpailukausi 2026\" luotu", "9. – 15.2.",
+  "Nykyinen on hyvä — pidä samana", "Salasanat eivät täsmää", "Esimerkkiviikot ✓",
+  "Luodaan harjoituksia…", "10 Ti Kevyt salitreeni",
 ];
 
 const { chromium } = requireDom("playwright-core");
@@ -72,6 +76,15 @@ const out = await page.evaluate(({ ref, families, strings }) => {
       adv[code] = Math.round(ctx.measureText(ch).width * 1000) / 1000;
     }
     adv[8364] = Math.round(ctx.measureText("€").width * 1000) / 1000;
+    // Latin-1 Supplement and General Punctuation — the umlauts, the dashes,
+    // the curly quotes, the bullet — and the few beyond them the gallery draws.
+    const more = [];
+    for (let code = 160; code <= 255; code++) more.push(code);
+    for (let code = 8208; code <= 8230; code++) more.push(code);
+    for (const code of [8249, 8250, 8482, 10003, 10004, 8242, 8243]) more.push(code);
+    for (const code of more) {
+      adv[code] = Math.round(ctx.measureText(String.fromCharCode(code)).width * 1000) / 1000;
+    }
     const whole = strings.map((s) => ({
       s, w: Math.round(ctx.measureText(s).width * 1000) / 1000,
     }));
