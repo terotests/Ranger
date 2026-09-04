@@ -45,8 +45,12 @@ file the compiler wrote.
 * [`gallery/ui/android`](../../ui/android/README.md) — the dashboard demo. Adds
   a viewport facade and a `DashboardView`, and draws with the platform's own
   sans because that is what the page was laid out against.
+* [`gallery/realtrainer/android`](../../realtrainer/android/README.md) — the
+  RealTrainer demo. The page is the view rather than a fitted document, and
+  the host adds the soft keyboard through an `InputConnection`; the stubs
+  under `androidstubs/InputMethod.kt` are its.
 
-Both are a facade in Ranger plus a `View`. That is the claim this directory
+All three are a facade in Ranger plus a `View`. That is the claim this directory
 exists to make good on: the seam is the display list, so a new host is a page of
 delegation rather than a second renderer.
 

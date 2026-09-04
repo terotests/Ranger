@@ -897,6 +897,7 @@
     "rt:android:ranger": "bash gallery/realtrainer/android/scripts/build-ranger.sh",
     "rt:android:assets": "bash gallery/realtrainer/android/scripts/prepare-assets.sh",
     "rt:android:verify": "bash gallery/realtrainer/android/scripts/verify.sh",
+    "rt:android:desktop": "bash gallery/realtrainer/android/scripts/verify-desktop.sh",
     "rt:android:typecheck": "bash gallery/realtrainer/android/scripts/typecheck-host.sh"
   },
   "repository": {

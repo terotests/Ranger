@@ -5626,6 +5626,20 @@ func r_substring(_ s: String, _ from: Int, _ to: Int) -> String {
     var b = to > n ? n : to
     if a > n { a = n }
     if b < a { b = a }
+    // A Swift String cannot hold half of a surrogate pair: a slice that cuts
+    // one decodes to U+FFFD. Round the slice out to scalar boundaries instead,
+    // so a walk that copies one UTF-16 unit at a time carries an emoji over
+    // whole -- the unit that starts the pair takes both, the one that ends it
+    // takes nothing.
+    if a < n && a > 0 {
+        let ua = u[u.index(u.startIndex, offsetBy: a)]
+        if ua >= 0xDC00 && ua <= 0xDFFF { a += 1 }
+    }
+    if b > a && b < n {
+        let ub = u[u.index(u.startIndex, offsetBy: b - 1)]
+        if ub >= 0xD800 && ub <= 0xDBFF { b += 1 }
+    }
+    if b < a { b = a }
     let lo = u.index(u.startIndex, offsetBy: a)
     let hi = u.index(u.startIndex, offsetBy: b)
     return String(decoding: Array(u[lo..<hi]), as: UTF16.self)
@@ -6573,6 +6587,20 @@ func r_substring(_ s: String, _ from: Int, _ to: Int) -> String {
     var b = to > n ? n : to
     if a > n { a = n }
     if b < a { b = a }
+    // A Swift String cannot hold half of a surrogate pair: a slice that cuts
+    // one decodes to U+FFFD. Round the slice out to scalar boundaries instead,
+    // so a walk that copies one UTF-16 unit at a time carries an emoji over
+    // whole -- the unit that starts the pair takes both, the one that ends it
+    // takes nothing.
+    if a < n && a > 0 {
+        let ua = u[u.index(u.startIndex, offsetBy: a)]
+        if ua >= 0xDC00 && ua <= 0xDFFF { a += 1 }
+    }
+    if b > a && b < n {
+        let ub = u[u.index(u.startIndex, offsetBy: b - 1)]
+        if ub >= 0xD800 && ub <= 0xDBFF { b += 1 }
+    }
+    if b < a { b = a }
     let lo = u.index(u.startIndex, offsetBy: a)
     let hi = u.index(u.startIndex, offsetBy: b)
     return String(decoding: Array(u[lo..<hi]), as: UTF16.self)
@@ -6680,6 +6708,20 @@ func r_substring(_ s: String, _ from: Int, _ to: Int) -> String {
     var a = from < 0 ? 0 : from
     var b = to > n ? n : to
     if a > n { a = n }
+    if b < a { b = a }
+    // A Swift String cannot hold half of a surrogate pair: a slice that cuts
+    // one decodes to U+FFFD. Round the slice out to scalar boundaries instead,
+    // so a walk that copies one UTF-16 unit at a time carries an emoji over
+    // whole -- the unit that starts the pair takes both, the one that ends it
+    // takes nothing.
+    if a < n && a > 0 {
+        let ua = u[u.index(u.startIndex, offsetBy: a)]
+        if ua >= 0xDC00 && ua <= 0xDFFF { a += 1 }
+    }
+    if b > a && b < n {
+        let ub = u[u.index(u.startIndex, offsetBy: b - 1)]
+        if ub >= 0xD800 && ub <= 0xDBFF { b += 1 }
+    }
     if b < a { b = a }
     let lo = u.index(u.startIndex, offsetBy: a)
     let hi = u.index(u.startIndex, offsetBy: b)
@@ -6858,6 +6900,20 @@ func r_substring(_ s: String, _ from: Int, _ to: Int) -> String {
     var b = to > n ? n : to
     if a > n { a = n }
     if b < a { b = a }
+    // A Swift String cannot hold half of a surrogate pair: a slice that cuts
+    // one decodes to U+FFFD. Round the slice out to scalar boundaries instead,
+    // so a walk that copies one UTF-16 unit at a time carries an emoji over
+    // whole -- the unit that starts the pair takes both, the one that ends it
+    // takes nothing.
+    if a < n && a > 0 {
+        let ua = u[u.index(u.startIndex, offsetBy: a)]
+        if ua >= 0xDC00 && ua <= 0xDFFF { a += 1 }
+    }
+    if b > a && b < n {
+        let ub = u[u.index(u.startIndex, offsetBy: b - 1)]
+        if ub >= 0xD800 && ub <= 0xDBFF { b += 1 }
+    }
+    if b < a { b = a }
     let lo = u.index(u.startIndex, offsetBy: a)
     let hi = u.index(u.startIndex, offsetBy: b)
     return String(decoding: Array(u[lo..<hi]), as: UTF16.self)
@@ -7023,6 +7079,20 @@ func r_substring(_ s: String, _ from: Int, _ to: Int) -> String {
     var b = to > n ? n : to
     if a > n { a = n }
     if b < a { b = a }
+    // A Swift String cannot hold half of a surrogate pair: a slice that cuts
+    // one decodes to U+FFFD. Round the slice out to scalar boundaries instead,
+    // so a walk that copies one UTF-16 unit at a time carries an emoji over
+    // whole -- the unit that starts the pair takes both, the one that ends it
+    // takes nothing.
+    if a < n && a > 0 {
+        let ua = u[u.index(u.startIndex, offsetBy: a)]
+        if ua >= 0xDC00 && ua <= 0xDFFF { a += 1 }
+    }
+    if b > a && b < n {
+        let ub = u[u.index(u.startIndex, offsetBy: b - 1)]
+        if ub >= 0xD800 && ub <= 0xDBFF { b += 1 }
+    }
+    if b < a { b = a }
     let lo = u.index(u.startIndex, offsetBy: a)
     let hi = u.index(u.startIndex, offsetBy: b)
     return String(decoding: Array(u[lo..<hi]), as: UTF16.self)
@@ -7117,6 +7187,20 @@ func r_substring(_ s: String, _ from: Int, _ to: Int) -> String {
     var a = from < 0 ? 0 : from
     var b = to > n ? n : to
     if a > n { a = n }
+    if b < a { b = a }
+    // A Swift String cannot hold half of a surrogate pair: a slice that cuts
+    // one decodes to U+FFFD. Round the slice out to scalar boundaries instead,
+    // so a walk that copies one UTF-16 unit at a time carries an emoji over
+    // whole -- the unit that starts the pair takes both, the one that ends it
+    // takes nothing.
+    if a < n && a > 0 {
+        let ua = u[u.index(u.startIndex, offsetBy: a)]
+        if ua >= 0xDC00 && ua <= 0xDFFF { a += 1 }
+    }
+    if b > a && b < n {
+        let ub = u[u.index(u.startIndex, offsetBy: b - 1)]
+        if ub >= 0xD800 && ub <= 0xDBFF { b += 1 }
+    }
     if b < a { b = a }
     let lo = u.index(u.startIndex, offsetBy: a)
     let hi = u.index(u.startIndex, offsetBy: b)
@@ -8154,6 +8238,20 @@ func r_substring(_ s: String, _ from: Int, _ to: Int) -> String {
     var b = to > n ? n : to
     if a > n { a = n }
     if b < a { b = a }
+    // A Swift String cannot hold half of a surrogate pair: a slice that cuts
+    // one decodes to U+FFFD. Round the slice out to scalar boundaries instead,
+    // so a walk that copies one UTF-16 unit at a time carries an emoji over
+    // whole -- the unit that starts the pair takes both, the one that ends it
+    // takes nothing.
+    if a < n && a > 0 {
+        let ua = u[u.index(u.startIndex, offsetBy: a)]
+        if ua >= 0xDC00 && ua <= 0xDFFF { a += 1 }
+    }
+    if b > a && b < n {
+        let ub = u[u.index(u.startIndex, offsetBy: b - 1)]
+        if ub >= 0xD800 && ub <= 0xDBFF { b += 1 }
+    }
+    if b < a { b = a }
     let lo = u.index(u.startIndex, offsetBy: a)
     let hi = u.index(u.startIndex, offsetBy: b)
     return String(decoding: Array(u[lo..<hi]), as: UTF16.self)
@@ -8259,6 +8357,20 @@ func r_substring(_ s: String, _ from: Int, _ to: Int) -> String {
     var a = from < 0 ? 0 : from
     var b = to > n ? n : to
     if a > n { a = n }
+    if b < a { b = a }
+    // A Swift String cannot hold half of a surrogate pair: a slice that cuts
+    // one decodes to U+FFFD. Round the slice out to scalar boundaries instead,
+    // so a walk that copies one UTF-16 unit at a time carries an emoji over
+    // whole -- the unit that starts the pair takes both, the one that ends it
+    // takes nothing.
+    if a < n && a > 0 {
+        let ua = u[u.index(u.startIndex, offsetBy: a)]
+        if ua >= 0xDC00 && ua <= 0xDFFF { a += 1 }
+    }
+    if b > a && b < n {
+        let ub = u[u.index(u.startIndex, offsetBy: b - 1)]
+        if ub >= 0xD800 && ub <= 0xDBFF { b += 1 }
+    }
     if b < a { b = a }
     let lo = u.index(u.startIndex, offsetBy: a)
     let hi = u.index(u.startIndex, offsetBy: b)
@@ -8367,6 +8479,20 @@ func r_substring(_ s: String, _ from: Int, _ to: Int) -> String {
     var a = from < 0 ? 0 : from
     var b = to > n ? n : to
     if a > n { a = n }
+    if b < a { b = a }
+    // A Swift String cannot hold half of a surrogate pair: a slice that cuts
+    // one decodes to U+FFFD. Round the slice out to scalar boundaries instead,
+    // so a walk that copies one UTF-16 unit at a time carries an emoji over
+    // whole -- the unit that starts the pair takes both, the one that ends it
+    // takes nothing.
+    if a < n && a > 0 {
+        let ua = u[u.index(u.startIndex, offsetBy: a)]
+        if ua >= 0xDC00 && ua <= 0xDFFF { a += 1 }
+    }
+    if b > a && b < n {
+        let ub = u[u.index(u.startIndex, offsetBy: b - 1)]
+        if ub >= 0xD800 && ub <= 0xDBFF { b += 1 }
+    }
     if b < a { b = a }
     let lo = u.index(u.startIndex, offsetBy: a)
     let hi = u.index(u.startIndex, offsetBy: b)

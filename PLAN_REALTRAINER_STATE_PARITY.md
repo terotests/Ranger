@@ -335,8 +335,11 @@ alue viivan alla, viimeinen piste merkittynä, ilman akseleita, liitettynä
 display-listaan kortin laatikkoon layoutin jälkeen. iOS-portti (`ios/`,
 masterista) on päivitetty responsiiviselle shellille: sivu on ikkuna miinus
 safe area, veto vierittää, näppäimistö kulkee tekstisillan kautta, viisi
-tekstiä resursseina; 42 Node-tarkistusta. Kotlin kääntyy virheittä; Android-
-isäntää ei vielä ole. Seedissä on nyt myös
+tekstiä resursseina; 42 Node-tarkistusta. Android-portti (`android/`) on
+samaa muotoa `gallery/ui/android`in kanssa: fasadi dp-yksiköissä, Kotlin-
+isäntä (kosketus, veto, pehmonäppäimistö `InputConnection`in kautta),
+40 Node-tarkistusta, Java2D-maalaus ja isännän tyyppitarkistus `kotlinc`illa,
+`npm run rt:android:run` emulaattoriin. Seedissä on nyt myös
 oikea päiväkirja (630 merkintää, 8 kalenteria, `scripts/seed-from-backup.mjs`
 — tunnisteet, sähköposti, kuvalinkit, chatit ja lakanat jätetty pois), ja
 kortti näyttää merkinnän pisteet ja AI-valmentajan palautteen.

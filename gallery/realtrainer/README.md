@@ -334,9 +334,16 @@ viewport facade over the demo, the texts the browser bundle embeds packaged as
 resources, a touch that presses and a drag that scrolls, and the keyboard
 through the same text bridge the browser uses. `npm run rt:ios:verify` drives
 it on Node, 42 checks; `npm run rt:ios:run` needs a Mac with Xcode and puts it
-on a simulator, `rt:ios:device` on the iPad on the cable. An Android port
-would be the same shape over `gallery/evg/android`'s painter, as
-`gallery/ui/android` is for the dashboard.
+on a simulator, `rt:ios:device` on the iPad on the cable.
+[`android/`](android/README.md) is the same shape over
+`gallery/evg/android`'s painter, as `gallery/ui/android` is for the dashboard:
+the page is the view in dp, a `GestureDetector` drag scrolls, the soft
+keyboard commits through an `InputConnection` into the same text bridge.
+`npm run rt:android:verify` drives it on Node, 40 checks;
+`rt:android:desktop` paints seven frames with Java2D through the shared
+painter and `rt:android:typecheck` checks the two Android-only files, both
+with `kotlinc`; `npm run rt:android:run` needs an SDK and puts it on an
+emulator.
 
 ## Traces: the app itself as the oracle
 
