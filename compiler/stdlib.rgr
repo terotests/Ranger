@@ -305,6 +305,7 @@ operators {
             swift6 (
                 (forkctx _ ) (def 2) "if type(of: " (e 1) ") == " (typeof 2) ".self  {" nl I
                         "let " (e 2) " = " (e 1) " as! " (typeof 2)";" nl
+                        "_ = " (e 2) nl
                         (block 3)
                         
                         nl i "}"
@@ -414,6 +415,7 @@ operators {
             swift6 (
                 (forkctx _ ) (def 2) "if type(of: " (e 1) ") == " (typeof 2) ".self  {" nl I
                         "let " (e 2) " = " (e 1) " as! " (typeof 2)";" nl
+                        "_ = " (e 2) nl
                         (block 3)
                         
                         nl i "}"
@@ -509,13 +511,18 @@ operators {
                         (block 3)
                         nl i "}"
             ) 
+            ; `_ = name` right after the binding: an arm that does not read
+            ; its payload — a `match` that covers every case has many — would
+            ; otherwise draw a "never used" warning per arm from swiftc.
             swift3 (
                 (forkctx _ ) (def 2) "if case let ." (rawtype 2) "(" (e 2) ") = " (e 1) " { /* union case */" nl I
+                        "_ = " (e 2) nl
                         (block 3)
                         nl i "}"
             ) 
             swift6 (
                 (forkctx _ ) (def 2) "if case let ." (rawtype 2) "(" (e 2) ") = " (e 1) " { /* union case */" nl I
+                        "_ = " (e 2) nl
                         (block 3)
                         nl i "}"
             ) 

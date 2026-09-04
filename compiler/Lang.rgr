@@ -764,8 +764,10 @@ final Random rg_random = Random();
                 dart ( (e 1) " as " (typeof 2) )
                 es6 ( (e 1) )
                 java7 ( "((" (typeof 2) ")" (e 1) ")" )
-                swift3 ( (e 1) " as " (typeof 2) "" )
-                swift6 ( (e 1) " as " (typeof 2) "" )
+                ; A cast in Ranger is a downcast, and Swift spells a downcast
+                ; `as!` — a plain `as` is refused for a class it cannot prove.
+                swift3 ( (e 1) " as! " (typeof 2) "" )
+                swift6 ( (e 1) " as! " (typeof 2) "" )
                 cpp ( "rg_cast<" (typeof 2) ">(" (e 1) ")"
                     (create_polyfill "
 #include <memory>
@@ -8701,7 +8703,10 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                 ranger ( nl "push " (e 1) " " (e 2) "" nl)
                  cpp ( (e 1) ".push_back( "(e 2)"  );")
                  swift3 ( (e 1) ".append(" (e 2)")")
-                 swift6 ( (e 1) ".append(" (e 2)")")
+                 ; Custom, so an item pushed into an array of a sealable
+                 ; union is wrapped in its enum case, as an assignment or a
+                 ; return of one is.
+                 swift6 ( (custom _) )
                  php ( "array_push(" (e 1) ", " (e 2 )");")
                  python ( (e 1) ".append(" (e 2) ")")
                  java7 ( (e 1) ".add(" (e 2) ");" )

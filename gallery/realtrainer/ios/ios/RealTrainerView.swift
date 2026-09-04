@@ -352,7 +352,4 @@ extension RealTrainerView: UIKeyInput {
     func deleteBackward() {
         if app.key(name: "Backspace", shift: false, ctrl: false) { invalidate() }
     }
-
-    var keyboardType: UIKeyboardType { .default }
-    var autocorrectionType: UITextAutocorrectionType { .no }
 }

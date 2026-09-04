@@ -1236,6 +1236,46 @@ class RangerSwift6ClassWriter {
       return
     }
 
+    ; `push arr item`: `arr.append(item)`, the item wrapped in its enum case
+    ; when the array holds a sealable union — the same wrap an assignment
+    ; into a union slot gets. The element type is what the analysis found
+    ; for the array, or what its declaration says.
+    if (cmd == "push") {
+      def arr:CodeNode (node.getSecond())
+      def item:CodeNode (node.getThird())
+      def elemType:string arr.eval_array_type
+      if ((strlen elemType) == 0) {
+        elemType = arr.array_type
+      }
+      if (((strlen elemType) == 0) && arr.hasParamDesc) {
+        def arrNN@(optional):CodeNode arr.paramDesc.nameNode
+        if (!null? arrNN) {
+          def arrNode:CodeNode (unwrap arrNN)
+          elemType = arrNode.array_type
+          if ((strlen elemType) == 0) {
+            def tn:string arrNode.type_name
+            if (((strlen tn) > 2) && ((charAt tn 0) == (ccode "["))) {
+              elemType = (substring tn 1 ((strlen tn) - 1))
+            }
+          }
+        }
+      }
+      wr.newline()
+      ctx.setInExpr()
+      this.WalkNode(arr ctx wr)
+      wr.out(".append(" false)
+      def wrotePush:boolean false
+      if ((strlen elemType) > 0) {
+        wrotePush = (this.swiftWriteUnionValue(elemType item ctx wr))
+      }
+      if (wrotePush == false) {
+        this.WalkNode(item ctx wr)
+      }
+      ctx.unsetInExpr()
+      wr.out(")" true)
+      return
+    }
+
     if( cmd == "switch" ) {
       def condition:CodeNode (node.getSecond())
       def case_nodes:CodeNode (node.getThird())
