@@ -332,7 +332,11 @@ kategoriaa ja lajittelu, rivin nimi sanasta sanaan; Tilastot näyttää
 viimeiset seitsemän päivää ja `StatsMiniCard`-kortit (volyymi, matka,
 kesto, yhteiset custom-kentät, piirteet Derived-riveistä) Vela-chartteina:
 alue viivan alla, viimeinen piste merkittynä, ilman akseleita, liitettynä
-display-listaan kortin laatikkoon layoutin jälkeen. Seedissä on nyt myös
+display-listaan kortin laatikkoon layoutin jälkeen. iOS-portti (`ios/`,
+masterista) on päivitetty responsiiviselle shellille: sivu on ikkuna miinus
+safe area, veto vierittää, näppäimistö kulkee tekstisillan kautta, viisi
+tekstiä resursseina; 42 Node-tarkistusta. Kotlin kääntyy virheittä; Android-
+isäntää ei vielä ole. Seedissä on nyt myös
 oikea päiväkirja (630 merkintää, 8 kalenteria, `scripts/seed-from-backup.mjs`
 — tunnisteet, sähköposti, kuvalinkit, chatit ja lakanat jätetty pois), ja
 kortti näyttää merkinnän pisteet ja AI-valmentajan palautteen.

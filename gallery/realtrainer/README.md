@@ -325,6 +325,19 @@ block's time as an orange chip; a custom value behind a band with its
 each row; and the Derived lines last, as `DerivedTable` shows them — the
 value, its unit, its short label and its goodness as a coloured word.
 
+## On a phone or a tablet, for real
+
+The same source compiles to Kotlin and Swift as it is — `-l=kotlin` without
+an error, `-l=swift6` the same once one control stopped overriding a method
+with a different arity — and [`ios/`](ios/README.md) is the Apple port: a
+viewport facade over the demo, the texts the browser bundle embeds packaged as
+resources, a touch that presses and a drag that scrolls, and the keyboard
+through the same text bridge the browser uses. `npm run rt:ios:verify` drives
+it on Node, 42 checks; `npm run rt:ios:run` needs a Mac with Xcode and puts it
+on a simulator, `rt:ios:device` on the iPad on the cable. An Android port
+would be the same shape over `gallery/evg/android`'s painter, as
+`gallery/ui/android` is for the dashboard.
+
 ## Traces: the app itself as the oracle
 
 A machine that passes its transition table can still be wired to the wrong

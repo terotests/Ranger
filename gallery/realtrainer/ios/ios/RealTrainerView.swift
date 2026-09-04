@@ -101,9 +101,12 @@ final class RealTrainerView: UIView {
 
     /// The demo's own `realtrainer.css`, out of the bundle — the same file the
     /// browser page styles the same tree from.
-    func start(css: String) {
+    func start(css: String, compact: String, plan: String, chat: String, seed: String) {
         if started { return }
-        app.start(w: Double(bounds.width), h: Double(bounds.height), css: css)
+        app.start(
+            w: Double(bounds.width), h: Double(bounds.height),
+            css: css, compact: compact, planMachine: plan, chatMachine: chat, seed: seed
+        )
         applySafeArea()
         started = true
         startClock()
@@ -251,6 +254,17 @@ final class RealTrainerView: UIView {
         if app.releasePress() {
             invalidate()
         }
+        syncKeyboard()
+    }
+
+    /// The keyboard follows the focus: a tap on a field takes it and the
+    /// keyboard rises; a tap anywhere else drops it and the keyboard goes.
+    private func syncKeyboard() {
+        if app.focusedField().isEmpty {
+            if isFirstResponder { resignFirstResponder() }
+        } else if !isFirstResponder {
+            becomeFirstResponder()
+        }
     }
 
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -315,4 +329,30 @@ final class RealTrainerView: UIView {
             }
         }
     }
+}
+
+// MARK: - The keyboard
+
+/// What the keyboard types goes to the focused field, as the browser's
+/// text-input bridge sends it: the text as typed, a Backspace as the key it
+/// is. The page draws its own field and its own caret.
+extension RealTrainerView: UIKeyInput {
+    override var canBecomeFirstResponder: Bool { started && !app.focusedField().isEmpty }
+
+    var hasText: Bool { true }
+
+    func insertText(_ text: String) {
+        if text == "\n" {
+            if app.key(name: "Enter", shift: false, ctrl: false) { invalidate() }
+            return
+        }
+        if app.typeText(text: text) { invalidate() }
+    }
+
+    func deleteBackward() {
+        if app.key(name: "Backspace", shift: false, ctrl: false) { invalidate() }
+    }
+
+    var keyboardType: UIKeyboardType { .default }
+    var autocorrectionType: UITextAutocorrectionType { .no }
 }

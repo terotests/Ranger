@@ -5989,6 +5989,12 @@ class RealTrainerDemo {
         return scene
     }
 
+    ; The phone shell's section — home, calendar, dashboard, chat — which is
+    ; what a host on a phone asks about, the scene being the shell itself.
+    fn sectionName:string () {
+        return section
+    }
+
     ; The scene, as a THEME. `EVGStyleSheet` matches one class token per
     ; selector, so two `ProgressCtl`s in one app cannot be told apart by where
     ; they sit — `.a .b` is not a selector it has. A theme is: the session
