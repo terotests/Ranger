@@ -563,17 +563,36 @@ class RealTrainerDemo {
     def root@(optional):EVGElement
     def sheet@(optional):EVGStyleSheet
     def layout@(optional):EVGLayout
-    ; THIS FRAME IS A SCROLL and nothing else, so the boxes it is about to
-    ; paint are the boxes the last layout produced, moved — see `scrolled`.
+    ; IS THE LAYOUT STILL CURRENT. False means the boxes the last layout
+    ; produced are the boxes on the screen, and a frame that asks for them
+    ; gets them back without laying anything out — see `laidOut`.
     ;
-    ; Set in one place and CONSUMED by `laidOut`, used or not, so it can never
-    ; make a second frame skip a layout it needed. That is the whole of the
-    ; safety here and it is deliberately not cleverer: a flag that meant "the
-    ; layout is still current" would have to be cleared by every path that
-    ; touches the tree, and a controller that rebuilds its own subtree inside
-    ; `press` is exactly the path that would be forgotten. Asked for, once,
-    ; by the one caller that knows.
-    def scrollFrame:boolean false
+    ; This replaced a one-shot flag that said "the frame in front of you is a
+    ; scroll", consumed by whoever asked first. The trouble with a flag that
+    ; is spent is that TWO callers ask per frame: the pointer asks `hitId` to
+    ; know what it is over, and the paint asks `display`. The first consumed
+    ; the flag and the second laid the whole page out again — and the mirror's
+    ; `a11yJson` after a scroll settled was a third, which is why every scroll
+    ; ended with a full layout it did not need. Measured on a forty-workout
+    ; diary at 390x844 that layout is 13 ms, and it ran twice per pointer
+    ; move.
+    ;
+    ; The cost of a flag that persists is that every path that writes on the
+    ; tree has to raise it, and the one that is forgotten is a frame drawn
+    ; stale. So it is raised at the ENTRY of every public call that can
+    ; change what is drawn — `press`, `keyWith`, `setHover`, `rebuild`,
+    ; the per-frame writers, and a transition in flight — rather than beside
+    ; the write itself, and a controller that rebuilds its own subtree inside
+    ; `press` is covered by `press`. A spurious layout after a press costs
+    ; nothing anyone can see; a missed one is a bug, so the raise is coarse.
+    def layoutDirty:boolean true
+    ; A scroll since the last frame that `laidOut` has not yet applied. The
+    ; offset was written on the container and clamped straight away, so the
+    ; caller already knows whether the page moved; the WALK that moves the
+    ; boxes — `EVGLayout.scrollOnly`, the whole subtree — waits for the next
+    ; frame to ask, so a finger that reports six moves between two frames
+    ; moves the document once, not six times.
+    def scrollPending:boolean false
     ; The page's own momentum, so a finger that leaves the glass moving keeps
     ; the document moving. It lives HERE and not in a host because both hosts
     ; want it and neither should have to get the physics right on its own —
@@ -5686,6 +5705,7 @@ class RealTrainerDemo {
     }
 
     fn keyWith:boolean (k:string shift:boolean ctrl:boolean) {
+        layoutDirty = true
         if ((this.hasField(focused)) == false) {
             return false
         }
@@ -5706,6 +5726,7 @@ class RealTrainerDemo {
     }
 
     fn setFocus:void (id:string) {
+        layoutDirty = true
         focused = id
     }
 
@@ -5786,11 +5807,21 @@ class RealTrainerDemo {
     ; leaves the measurements alone. The sheet is not re-applied, so a hover
     ; the wheel scrolled out from under the pointer is corrected by the next
     ; move rather than by the scroll, which is what a browser does too.
-    fn scrolled:void () {
+    ;
+    ; And the move itself is DEFERRED to the frame. What happens here is the
+    ; clamp — so the caller's "did it move" and the offset it reads back are
+    ; right now — and a note that a scroll is owed. `laidOut` pays it once,
+    ; however many wheel or finger events arrived since the last frame:
+    ; `translateSubtree` over a long diary was the single largest self-time
+    ; in a profile of a drag, because a finger reports at a hundred and
+    ; twenty hertz and each report walked the whole document.
+    fn scrolled:void (el:EVGElement) {
         if layout {
-            def lay:EVGLayout (unwrap layout)
-            lay.scrollOnly((unwrap root))
-            scrollFrame = true
+            if (layoutDirty == false) {
+                def lay:EVGLayout (unwrap layout)
+                lay.clampScroll(el)
+            }
+            scrollPending = true
             return
         }
         this.laidOut()
@@ -5837,7 +5868,7 @@ class RealTrainerDemo {
                 def wb:EVGElement (unwrap foundW)
                 def beforeW:double wb.scrollTop
                 wb.scrollTop = (wb.scrollTop + delta)
-                this.scrolled()
+                this.scrolled(wb)
                 wizScroll = wb.scrollTop
                 return (wb.scrollTop != beforeW)
             }
@@ -5853,7 +5884,7 @@ class RealTrainerDemo {
                     def mb:EVGElement (unwrap foundM)
                     def beforeM:double mb.scrollTop
                     mb.scrollTop = (mb.scrollTop + delta)
-                    this.scrolled()
+                    this.scrolled(mb)
                     modalScroll = mb.scrollTop
                     return (mb.scrollTop != beforeM)
                 }
@@ -5864,7 +5895,7 @@ class RealTrainerDemo {
                 def body:EVGElement (unwrap found0)
                 def before0:double body.scrollTop
                 body.scrollTop = (body.scrollTop + delta)
-                this.scrolled()
+                this.scrolled(body)
                 docScroll = body.scrollTop
                 return (body.scrollTop != before0)
             }
@@ -5883,7 +5914,7 @@ class RealTrainerDemo {
         if found {
             def v:EVGElement (unwrap found)
             v.scrollTop = next
-            this.scrolled()
+            this.scrolled(v)
             docScroll = v.scrollTop
         }
         return (docScroll != before)
@@ -5911,7 +5942,7 @@ class RealTrainerDemo {
     }
 
     fn rebuild:void () {
-        scrollFrame = false
+        layoutDirty = true
         this.syncFields()
         if (scene == "signin") {
             root = (this.signin())
@@ -5964,28 +5995,16 @@ class RealTrainerDemo {
         return turns
     }
 
-    ; One frame of time. Always true on the loader: a loading screen that idles
-    ; is a frozen one, and this one stops by changing scene rather than by
-    ; running out of things to move.
-    ; A frame of the clock. The host calls it on EVERY frame, which is what
-    ; makes the wrapper matter: `tickWork` clears the scroll shortcut because
-    ; anything it does invalidates one, but MOST FRAMES IT DOES NOTHING — no
-    ; toast, no job, no transition in flight — and clearing the flag on those
-    ; frames forced a full layout out of every scroll the loop was driving.
-    ; Measured on a forty-workout diary: 0.74ms a frame without this call in
-    ; front of the paint, 13.72 with it. Nothing changed, so nothing was
-    ; invalidated: the flag goes back.
+    ; The clock. Nothing here about the layout: `tickWork` raises
+    ; `layoutDirty` on the paths that write on the tree, and a frame in which
+    ; the clock ran and nothing moved leaves the last layout standing — on a
+    ; forty-workout diary that is the difference between 0.74 ms a frame and
+    ; 13.72.
     fn tick:boolean (dtMs:double) {
-        def wasScroll:boolean scrollFrame
-        def changed:boolean (this.tickWork(dtMs))
-        if (changed == false) {
-            scrollFrame = wasScroll
-        }
-        return changed
+        return (this.tickWork(dtMs))
     }
 
     fn tickWork:boolean (dtMs:double) {
-        scrollFrame = false
         ; The glide, before anything else this frame: it is the one thing that
         ; moves without anybody having touched the screen. `scrollDocument`
         ; leaves the scroll shortcut armed, and reaching the end of the
@@ -6080,12 +6099,12 @@ class RealTrainerDemo {
                 this.writeDial()
                 return true
             }
-            return (t.busy(r))
+            return (this.inFlight(t r))
         }
         if (scene != "loading") {
             ; Nothing on the later scenes moves by itself; a hover does, and
             ; the transition engine is what says whether one is in flight.
-            return (t.busy(r))
+            return (this.inFlight(t r))
         }
         elapsedMs = (elapsedMs + dtMs)
         if (elapsedMs >= (fillMs + holdMs)) {
@@ -6094,6 +6113,16 @@ class RealTrainerDemo {
         }
         this.writeFrame()
         return true
+    }
+
+    ; A flight in progress wrote this frame's values onto the tree, so the
+    ; page is laid out again for it; one that is over wrote nothing.
+    fn inFlight:boolean (t:EVGTransition r:EVGElement) {
+        if (t.busy(r)) {
+            layoutDirty = true
+            return true
+        }
+        return false
     }
 
     fn setScene:void (name:string) {
@@ -6142,7 +6171,7 @@ class RealTrainerDemo {
     ; colours. Skipping `laidOut` after one of these left the ring lit the
     ; way it was lit a second ago.
     fn writeFrame:void () {
-        scrollFrame = false
+        layoutDirty = true
         if (scene != "loading") {
             return
         }
@@ -6186,7 +6215,7 @@ class RealTrainerDemo {
     ; colours. Skipping `laidOut` after one of these left the ring lit the
     ; way it was lit a second ago.
     fn writeDial:void () {
-        scrollFrame = false
+        layoutDirty = true
         def r:EVGElement (unwrap root)
         def left:double 0.0
         if (timerFullMs > 0.0) {
@@ -6277,13 +6306,22 @@ class RealTrainerDemo {
 
     ; --- the pointer ----------------------------------------------------------
 
+    ; A hover or a press that is already the case is not a change: a finger
+    ; that lifts after a drag which unpressed the row at its first move
+    ; starts its glide without a layout in front of it.
     fn setHover:void (id:string) {
-        scrollFrame = false
+        if (hovered == id) {
+            return
+        }
+        layoutDirty = true
         hovered = id
     }
 
     fn setPressed:void (id:string) {
-        scrollFrame = false
+        if (pressed == id) {
+            return
+        }
+        layoutDirty = true
         pressed = id
     }
 
@@ -6298,6 +6336,7 @@ class RealTrainerDemo {
         if (id == "") {
             return false
         }
+        layoutDirty = true
         ; A field takes focus, and that is all a press on it does.
         if (this.hasField(id)) {
             def c:InputCtl (this.fieldFor(id))
@@ -6649,18 +6688,23 @@ class RealTrainerDemo {
     ; --- the three questions a host asks --------------------------------------
 
     fn laidOut:EVGLayout () {
-        ; The scroll shortcut. `scrolled` has already moved the subtree and
-        ; nothing since then has changed a style, a size or the tree, so there
-        ; is nothing to lay out — see `EVGLayout.scrollOnly`. Consumed here
-        ; whether or not it is used, so it can never make a second frame skip
-        ; a layout it needed.
-        def wasScroll:boolean scrollFrame
-        scrollFrame = false
-        if wasScroll {
+        ; The scroll shortcut. Nothing since the last layout has changed a
+        ; style, a size or the tree, so there is nothing to lay out; if the
+        ; page scrolled, the subtree is moved by the difference — see
+        ; `EVGLayout.scrollOnly` — once, for every scroll event since the
+        ; last frame.
+        if (layoutDirty == false) {
             if layout {
-                return (unwrap layout)
+                def kept:EVGLayout (unwrap layout)
+                if scrollPending {
+                    scrollPending = false
+                    kept.scrollOnly((unwrap root))
+                }
+                return kept
             }
         }
+        ; The full layout reads the containers' offsets itself.
+        scrollPending = false
         def r:EVGElement (unwrap root)
         def s:EVGStyleSheet (unwrap sheet)
         s.setViewport(pageW pageH coarsePointer)
@@ -6676,12 +6720,14 @@ class RealTrainerDemo {
         if layout {
             def lay:EVGLayout (unwrap layout)
             lay.layout(r)
+            layoutDirty = false
             return lay
         }
         def fresh (new EVGLayout())
         fresh.setPageSize(pageW pageH)
         layout = fresh
         fresh.layout(r)
+        layoutDirty = false
         return fresh
     }
 

@@ -515,6 +515,30 @@ class EVGDisplayList {
     }
 
 
+    ; The element's imported document, parsed once and kept on the element
+    ; — see `EVGElement.svgDoc`. Every frame that draws the element asked
+    ; for a fresh parse of the same markup before this.
+    fn svgDocumentOf:SvgDocument (el:EVGElement) {
+        def key@(mutable):string el.svgSource
+        if el.fillColor.isSet {
+            def fill:EVGColor el.fillColor
+            key = (key + ("|" + ((to_string fill.r) + ("," + ((to_string fill.g) + ("," + ((to_string fill.b) + ("," + (to_string fill.a)))))))))
+        }
+        if el.svgDoc {
+            if (el.svgDocKey == key) {
+                return (unwrap el.svgDoc)
+            }
+        }
+        def sp (new SvgParser())
+        if el.fillColor.isSet {
+            sp.setInitialFill((unwrap el.fillColor))
+        }
+        def doc:SvgDocument (sp.parse(el.svgSource))
+        el.svgDoc = doc
+        el.svgDocKey = key
+        return doc
+    }
+
     ; A `<path>` element, flattened into rings and pushed as a fill and/or a
     ; stroke. The transform is the one the raster and PDF targets build: the
     ; viewBox mapping, then the element's position — so the points come out in
@@ -528,11 +552,7 @@ class EVGDisplayList {
     ; this is the single-path walk with the per-shape paint coming from the item
     ; rather than from the element.
     fn walkSvgDocument:void (el:EVGElement x:double y:double w:double h:double) {
-        def sp (new SvgParser())
-        if el.fillColor.isSet {
-            sp.setInitialFill((unwrap el.fillColor))
-        }
-        def doc:SvgDocument (sp.parse(el.svgSource))
+        def doc:SvgDocument (this.svgDocumentOf(el))
         if ((doc.itemCount()) == 0) {
             return
         }

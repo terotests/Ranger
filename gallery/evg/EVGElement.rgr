@@ -7,6 +7,7 @@ Import "EVGColor.rgr"
 Import "EVGEasing.rgr"
 Import "EVGBox.rgr"
 Import "EVGGradient.rgr"
+Import "SvgParser.rgr"
 
 ; Element type constants
 ; 0 = CONTAINER (div)
@@ -552,6 +553,17 @@ class EVGElement {
     ; is, so a separate type would mean a second copy of that in the layout
     ; engine and in all three renderers for no behavioural difference.
     def svgSource:string ""
+    ; `svgSource`, parsed — by the display list, the first time it draws this
+    ; element, and kept for every frame after. The markup is the same string
+    ; on every frame and parsing it again per frame was a sixth of the
+    ; display-list build on a scrolled page with an icon per row. The key is
+    ; what the parse depends on: the source and the fill the element gives it
+    ; (`SvgParser.setInitialFill`), so a changed icon or a recoloured one is
+    ; parsed again and a cached document can never be the wrong drawing. A
+    ; rebuilt tree has fresh elements and parses once more; that is a press,
+    ; not a frame.
+    def svgDoc@(optional):SvgDocument
+    def svgDocKey:string ""
     def viewBox:string ""
     def fillColor:EVGColor
     def strokeColor:EVGColor
