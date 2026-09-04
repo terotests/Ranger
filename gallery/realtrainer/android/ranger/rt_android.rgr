@@ -45,6 +45,14 @@ class RtAndroid {
     def lastPageX:double 0.0
     def lastPageY:double 0.0
     def pressedId:string ""
+    ; The frame clock, so a pan is timed against it and a lift can throw the
+    ; page — see `RealTrainerDemo.scrollDrag`.
+    def nowMs:double 0.0
+    def lastPanMs:double 0.0
+    ; A finger that landed on the scrollbar's thumb drags the thumb, not the
+    ; page, until it lifts. `barY` follows it in page units.
+    def barDrag:boolean false
+    def barY:double 0.0
     def dragged:double 0.0
 
     Constructor () {
@@ -182,7 +190,15 @@ class RtAndroid {
             pressedId = ""
             app.setPressed("")
         }
-        return (app.scrollDocument((0.0 - dy)))
+        def dt:double (nowMs - lastPanMs)
+        lastPanMs = nowMs
+        if barDrag {
+            barY = (barY + dy)
+            return (app.scrollbarDrag(barY))
+        }
+        ; HOW LONG the move took as well as how far: that is what decides
+        ; where the lift throws the page.
+        return (app.scrollDrag((0.0 - dy) dt))
     }
 
     ; --- the frame ------------------------------------------------------------
@@ -198,6 +214,7 @@ class RtAndroid {
         if (started == false) {
             return false
         }
+        nowMs = (nowMs + dtMs)
         return (app.tick(dtMs))
     }
 
@@ -217,6 +234,15 @@ class RtAndroid {
         lastPageX = x
         lastPageY = y
         dragged = 0.0
+        ; A finger down catches a glide where it is.
+        app.scrollHalt()
+        lastPanMs = nowMs
+        if (app.scrollbarGrab(x y)) {
+            barDrag = true
+            barY = y
+            pressedId = ""
+            return true
+        }
         def id:string (this.hitAt(x y))
         pressedId = id
         app.setPressed(id)
@@ -227,9 +253,21 @@ class RtAndroid {
     ; what that means -- and the pressed mark comes off either way. A field
     ; takes the focus, so the host knows to raise the keyboard.
     fn releasePress:boolean () {
+        if barDrag {
+            barDrag = false
+            app.scrollbarRelease()
+            return true
+        }
+        ; If the finger was moving, the page carries on: the app decides from
+        ; the speed it tracked whether that was a throw, and `tick` does the
+        ; rest.
+        def threw:boolean (app.scrollRelease())
         def id:string pressedId
         pressedId = ""
         app.setPressed("")
+        if threw {
+            return true
+        }
         if ((strlen id) == 0) {
             return true
         }
@@ -248,8 +286,14 @@ class RtAndroid {
     }
 
     fn cancelPress:boolean () {
+        if barDrag {
+            barDrag = false
+            app.scrollbarRelease()
+            return true
+        }
+        def threw:boolean (app.scrollRelease())
         if ((strlen pressedId) == 0) {
-            return false
+            return threw
         }
         pressedId = ""
         app.setPressed("")
@@ -260,9 +304,17 @@ class RtAndroid {
     ; emulator's. Answers whether the hover actually changed, so a host does
     ; not repaint on every move.
     fn hoverAt:boolean (x:double y:double) {
+        def barChanged:boolean (app.scrollbarHover(x y))
+        if (app.overScrollbar()) {
+            if ((strlen (app.hovered)) > 0) {
+                app.setHover("")
+                return true
+            }
+            return barChanged
+        }
         def id:string (this.hitAt(x y))
         if (id == (app.hovered)) {
-            return false
+            return barChanged
         }
         app.setHover(id)
         return true

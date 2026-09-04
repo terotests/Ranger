@@ -207,11 +207,14 @@ function paint() {
   try {
     errEl.textContent = "";
     const dl = app.display();
-    if (!frame || dl !== frameList || dl.buildSeq !== frameSeq) {
+    // A new build, or a kept list whose text changed under the frame — the
+    // scrollbar's label — is a new frame; a kept list that only moved is not.
+    const seq = dl.buildSeq * 100000 + dl.frameSeq;
+    if (!frame || dl !== frameList || seq !== frameSeq) {
       dropFrame();
       frame = prepareDisplayList(gl, { width: W, height: H, list: listOf(dl) }, { dpr });
       frameList = dl;
-      frameSeq = dl.buildSeq;
+      frameSeq = seq;
     }
     window.__lastStats = frame.draw(shiftsOf(dl));
     sceneEl.textContent = app.sceneName();
@@ -238,7 +241,17 @@ function syncMirror(now) {
 // state wants, as `paint` used to mean.
 function paintAll() {
   paint();
-  syncMirror();
+  // The mirror after the frame is on the screen, not before: rebuilding it
+  // is a walk of the whole tree and a DOM update to match, and a press that
+  // opens a menu should show the menu first. The loop rebuilds it on its
+  // next frame — `mirrorDue` is cleared so that frame does not wait — unless
+  // a field has the keyboard, whose <input> IS a mirror element and has to
+  // exist for the text session that is about to be started.
+  if (app.focusedField()) {
+    syncMirror();
+    return;
+  }
+  mirrorDue = 0;
 }
 
 function at(ev) {
@@ -320,6 +333,14 @@ function syncTextSession() {
 let drag = null;
 canvas.addEventListener("pointerdown", (ev) => {
   const [x, y] = at(ev);
+  // The scrollbar's thumb takes the press: the moves that follow drag the
+  // page by the thumb, not by the finger, and nothing under it is pressed.
+  if (app.scrollbarGrab(x, y)) {
+    drag = { bar: true };
+    canvas.setPointerCapture(ev.pointerId);
+    dirty = true;
+    return;
+  }
   // Putting a finger down stops the page where it is, the way it does on a
   // phone: a glide is caught, not ridden out.
   app.scrollHalt();
@@ -330,6 +351,12 @@ canvas.addEventListener("pointerdown", (ev) => {
 });
 canvas.addEventListener("pointerup", (ev) => {
   const [x, y] = at(ev);
+  if (drag?.bar) {
+    drag = null;
+    app.scrollbarRelease();
+    dirty = true;
+    return;
+  }
   const scrolled = drag?.moved;
   drag = null;
   if (scrolled) {
@@ -343,6 +370,7 @@ canvas.addEventListener("pointerup", (ev) => {
   press(x, y);
 });
 canvas.addEventListener("pointercancel", () => {
+  if (drag?.bar) app.scrollbarRelease();
   drag = null;
   app.scrollHalt();
   app.setPressed("");
@@ -350,6 +378,13 @@ canvas.addEventListener("pointercancel", () => {
 });
 canvas.addEventListener("pointermove", (ev) => {
   const [x, y] = at(ev);
+  if (drag && drag.bar) {
+    if (app.scrollbarDrag(y)) {
+      dirty = true;
+      scrolledAt = ev.timeStamp || performance.now();
+    }
+    return;
+  }
   if (drag) {
     const dy = drag.y - y;
     if (drag.moved || Math.abs(dy) > 6) {
@@ -375,7 +410,11 @@ canvas.addEventListener("pointermove", (ev) => {
     }
     return;
   }
-  const id = app.hitId(x, y);
+  // The scrollbar first: the pointer on its thumb lights it, and hovers
+  // nothing under it.
+  if (app.scrollbarHover(x, y)) dirty = true;
+  const id = app.overScrollbar() ? "" : app.hitId(x, y);
+  canvas.style.cursor = app.overScrollbar() ? "default" : "";
   if (id === hovered) return;
   hovered = id;
   app.setHover(id);
@@ -416,6 +455,7 @@ if (fit) {
 canvas.addEventListener("pointerleave", () => {
   hovered = "";
   app.setHover("");
+  app.scrollbarHover(-1, -1);
   dirty = true;
 });
 let hovered = "";

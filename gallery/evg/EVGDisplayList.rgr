@@ -795,6 +795,11 @@ class EVGDisplayList {
     ;
     ; A layer is recorded only while culling is on: an uncut list is asked for
     ; by a check that wants every command, and it should not be kept.
+    ;
+    ; `buildSeq` names the build, for a host that keeps what it made from a
+    ; list and has to know whether the list it was handed is the one it
+    ; built from. The app writes it: the list cannot number its own builds
+    ; across lists, and it is lists the host is telling apart.
     def buildSeq:int 0
     def layerEls:[EVGElement]
     def layerTop:[double]
@@ -809,6 +814,540 @@ class EVGDisplayList {
     def layerFirst:[int]
     def layerLast:[int]
     def layerStack:[int]
+    ; What a layer is: 0 the content of a scroll container, 1 the THUMB of
+    ; its scrollbar — a layer of its own, so a kept list moves it the way it
+    ; moves the content, by the scroll and `layerScale`, the thumb's pixels
+    ; per pixel of content.
+    def layerKind:[int]
+    def layerScale:[double]
+
+    ; --- SCROLLBARS ----------------------------------------------------------
+    ;
+    ; A scroll container draws its own bar: a track along its right edge
+    ; and a thumb whose length is the container's share of its content and
+    ; whose place is the offset. It is drawn by the list rather than by a
+    ; host, so every host has the same one, and it is drawn in three states
+    ; a host reports through `setScrollbarState`: 0, at rest — a thin,
+    ; faint thumb and no track, so it says where the page is without
+    ; asking to be looked at; 1, scrolling — wider and brighter, with the
+    ; track, which is what makes a fling readable; 2, the pointer on it or
+    ; dragging it — wider still. A container the pointer is over is named
+    ; through `setScrollbarHover` and drawn in state 2 whatever the rest are.
+    ;
+    ; The thumb is a layer (`layerKind` 1): a kept list moves it per frame
+    ; with the content, and a host that keeps its frame moves it with a
+    ; uniform. The bar's states are not per-frame — they change when a
+    ; scroll starts and ends and when the pointer arrives and leaves — and
+    ; each change is one build.
+    ;
+    ; Off unless an app asks: a list is also what the PDF and PNG targets and
+    ; the conformance oracles draw from, and a bar in those is a difference
+    ; nobody asked for.
+    ; --- FRAGMENTS -------------------------------------------------------------
+    ;
+    ; A subtree an app keeps (`EVGElement.keepLayout`) draws the same
+    ; commands each time it is walked: the text broken into the same lines,
+    ; the same icons flattened. So the first walk of it keeps the commands
+    ; it emitted, and the walks after emit THE SAME COMMANDS again — not
+    ; copies: the list that held them is the list being replaced. They are
+    ; where the subtree is, or are moved to it first: a kept list moves its
+    ; commands with the scroll exactly as the layout moves the elements, so
+    ; after a scroll they agree already, and after a rebuild that moved the
+    ; subtree by the flow they are moved by the difference, in place. The
+    ; difference is read off the first command's distance from the element,
+    ; which a move of both leaves alone.
+    ;
+    ; They hold while the sheet has written no paint in the subtree and the
+    ; layout has not laid it out for real since (`EVGElement.paintStamp`),
+    ; and while nothing is in flight anywhere, because a flight writes paint
+    ; between the sheet's passes. The recording walks the whole subtree,
+    ; culling off, so a card half over the edge is recorded whole and shown
+    ; whole when it arrives; a subtree that opened a scroll layer is not
+    ; kept, its layer would not be the new list's. On a diary of a hundred
+    ; workouts this is the difference between a list built by walking
+    ; twelve thousand commands' worth of elements and one built by walking
+    ; the shell.
+    def fragments:boolean true
+    ; How many kept subtrees this build drew from what they had, and how
+    ; many it walked — for a check, and for a bench.
+    def fragHits:int 0
+    def fragMisses:int 0
+    def fragEls:[EVGElement]
+    def fragLists:[[EVGDrawCmd]]
+    def fragStamps:[int]
+    def fragOffX:[double]
+    def fragOffY:[double]
+
+    fn setFragments:void (on:boolean) {
+        fragments = on
+    }
+
+    ; The fragments the last list kept, handed to this one by the app.
+    fn takeFragments:void (from:EVGDisplayList) {
+        fragEls = from.fragEls
+        fragLists = from.fragLists
+        fragStamps = from.fragStamps
+        fragOffX = from.fragOffX
+        fragOffY = from.fragOffY
+    }
+
+    fn forgetFragments:void () {
+        clear fragEls
+        clear fragLists
+        clear fragStamps
+        clear fragOffX
+        clear fragOffY
+    }
+
+    fn fragmentOf:int (el:EVGElement) {
+        def i:int 0
+        while (i < (array_length fragEls)) {
+            if ((itemAt fragEls i) == el) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    ; Emit a kept subtree's commands again, moved to where it is now.
+    ; False when there is nothing kept that holds.
+    fn emitFragment:boolean (el:EVGElement) {
+        def fi:int (this.fragmentOf(el))
+        if (fi < 0) {
+            return false
+        }
+        if ((itemAt fragStamps fi) != el.paintStamp) {
+            return false
+        }
+        def kept:[EVGDrawCmd] (itemAt fragLists fi)
+        if ((array_length kept) == 0) {
+            return false
+        }
+        def first:EVGDrawCmd (itemAt kept 0)
+        def dx:double (el.calculatedX - (first.x + (itemAt fragOffX fi)))
+        def dy:double (el.calculatedY - (first.y + (itemAt fragOffY fi)))
+        for kept c:EVGDrawCmd ci {
+            if ((dx != 0.0) || (dy != 0.0)) {
+                c.x = (c.x + dx)
+                c.y = (c.y + dy)
+                if c.hasRotOrigin {
+                    c.rotOriginX = (c.rotOriginX + dx)
+                    c.rotOriginY = (c.rotOriginY + dy)
+                }
+                def n:int (array_length c.pts)
+                def p:int 0
+                while (p < n) {
+                    set c.pts p ((itemAt c.pts p) + dx)
+                    set c.pts (p + 1) ((itemAt c.pts (p + 1)) + dy)
+                    p = (p + 2)
+                }
+            }
+            this.addCmd(c)
+        }
+        return true
+    }
+
+    ; Keep what the walk just emitted for a subtree — or not, when it
+    ; opened a scroll layer, or emitted nothing to be placed by.
+    fn recordFragment:void (el:EVGElement start:int) {
+        def kept:[EVGDrawCmd]
+        def i:int start
+        def n:int (array_length cmds)
+        while (i < n) {
+            def c:EVGDrawCmd (itemAt cmds i)
+            if (c.layer > 0) {
+                return
+            }
+            push kept c
+            i = (i + 1)
+        }
+        if ((array_length kept) == 0) {
+            return
+        }
+        def first:EVGDrawCmd (itemAt kept 0)
+        def offX:double (el.calculatedX - first.x)
+        def offY:double (el.calculatedY - first.y)
+        def fi:int (this.fragmentOf(el))
+        if (fi < 0) {
+            push fragEls el
+            push fragLists kept
+            push fragStamps el.paintStamp
+            push fragOffX offX
+            push fragOffY offY
+            return
+        }
+        set fragLists fi kept
+        set fragStamps fi el.paintStamp
+        set fragOffX fi offX
+        set fragOffY fi offY
+    }
+
+    def scrollbars:boolean false
+    def barState:int 0
+    def barHover@(optional):EVGElement
+    ; The container the pointer is NEAR — within `barNearPx` of its right
+    ; edge — whose bar is up for it, so it can be found and taken. Near is
+    ; not on: nothing under the pointer is kept from a press by it.
+    def barNear@(optional):EVGElement
+    ; The thumb's label — "34 %" — and the percent it was written for: a
+    ; scroll that changes the number rewrites the text in place, which a
+    ; painter reads as it draws and a host that keeps its frame is told
+    ; about through `frameSeq`.
+    def layerPct:[int]
+    def layerLabel:[int]
+    ; Bumped whenever a command in a KEPT list changed in a way a frame
+    ; built from it cannot follow with a shift — a label's text. A host that
+    ; keeps its frame rebuilds it when this moves; the list is kept.
+    def frameSeq:int 0
+    ; What is painted under the element being walked: the nearest set
+    ; background up the tree, kept as the walk descends. The bar is ink on
+    ; it — light ink on a dark page, dark on a light one — because the
+    ; container's own text colour is not inherited onto it and a black thumb
+    ; on a black page was reported as no thumb at all.
+    def backdropR:int 255
+    def backdropG:int 255
+    def backdropB:int 255
+
+    fn setScrollbars:void (on:boolean) {
+        scrollbars = on
+    }
+
+    fn setScrollbarState:void (state:int) {
+        barState = state
+    }
+
+    fn setScrollbarHover:void (el@(optional):EVGElement) {
+        barHover = el
+    }
+
+    fn setScrollbarNear:void (el@(optional):EVGElement) {
+        barNear = el
+    }
+
+    ; How far from a container's right edge the pointer brings its bar up.
+    sfn barNearPx:double () {
+        return 36.0
+    }
+
+    sfn pctLabel:string (pct:int) {
+        return ((to_string pct) + " %")
+    }
+
+    ; How wide the thumb is in a state, in page pixels; `thin` is CSS's
+    ; `scrollbar-width: thin`.
+    sfn barWidth:double (state:int thin:boolean) {
+        if thin {
+            if (state >= 2) {
+                return 7.0
+            }
+            if (state == 1) {
+                return 5.0
+            }
+            return 3.0
+        }
+        if (state >= 2) {
+            return 11.0
+        }
+        if (state == 1) {
+            return 8.0
+        }
+        return 4.0
+    }
+
+    ; The bar for a container whose clip was just popped: the track when the
+    ; bar is up, and the thumb as a layer of its own, clipped to the track.
+    fn addScrollbar:void (el:EVGElement x:double y:double w:double h:double) {
+        def maxY:double (el.maxScrollTop())
+        if (maxY <= 0.0) {
+            return
+        }
+        def state@(mutable):int barState
+        if barNear {
+            if ((unwrap barNear) == el) {
+                if (state < 1) {
+                    state = 1
+                }
+            }
+        }
+        if barHover {
+            if ((unwrap barHover) == el) {
+                state = 2
+            }
+        }
+        if (el.scrollbarWidth == "none") {
+            return
+        }
+        def width:double (EVGDisplayList.barWidth(state (el.scrollbarWidth == "thin")))
+        def margin:double 3.0
+        def trackX:double ((x + w) - (width + margin))
+        def trackY:double (y + margin)
+        def trackH:double (h - (margin * 2.0))
+        if (trackH <= (width * 2.0)) {
+            return
+        }
+        ; The thumb's length is the container's share of its content, and
+        ; never so short a finger could not find it.
+        def thumbH@(mutable):double ((trackH * h) / (h + maxY))
+        if (thumbH < 24.0) {
+            thumbH = 24.0
+        }
+        if (thumbH > trackH) {
+            thumbH = trackH
+        }
+        def travel:double (trackH - thumbH)
+        def scale:double (travel / maxY)
+        def thumbY:double (trackY + (scale * el.scrollTop))
+        ; The container's own text colour, thinned: a bar that is the page's
+        ; ink at a fraction reads as part of the page on any theme.
+        def lum:int (idiv ((backdropR * 299) + ((backdropG * 587) + (backdropB * 114))) 1000)
+        ; The thumb's colour: the sheet's `scrollbar-color`, else ink on the
+        ; backdrop. Its alpha is the colour's own, thinned at rest and full
+        ; when lit — so a sheet that asks for a translucent thumb gets one
+        ; in every state.
+        def base@(mutable):EVGColor (EVGColor.rgba(30 30 30 1.0))
+        if (lum < 128) {
+            base = (EVGColor.rgba(235 235 235 1.0))
+        }
+        if el.scrollbarThumb.isSet {
+            base = (unwrap el.scrollbarThumb)
+        }
+        def cr:int (base.red())
+        def cg:int (base.green())
+        def cb:int (base.blue())
+        def own:double (base.alpha())
+        def thumbA@(mutable):double (own * 0.5)
+        if (state == 1) {
+            thumbA = (own * 0.72)
+        }
+        if (state >= 2) {
+            thumbA = (own * 0.92)
+        }
+        ; Lit from the left: the thumb is a gradient across itself, from the
+        ; colour lightened to the colour, which is what makes a flat bar
+        ; read as a rounded one.
+        def lit:EVGColor (base.lighten(0.38))
+        ; The ink of the label is what the pill is NOT: dark on a light
+        ; pill, light on a dark one.
+        def pillLum:int (idiv ((cr * 299) + ((cg * 587) + (cb * 114))) 1000)
+        def tr@(mutable):int 20
+        def tg@(mutable):int 20
+        def tb@(mutable):int 24
+        if (pillLum < 140) {
+            tr = 250
+            tg = 250
+            tb = 250
+        }
+        if (state > 0) {
+            def track (new EVGDrawCmd())
+            track.kind = 0
+            track.x = trackX
+            track.y = trackY
+            track.w = width
+            track.h = trackH
+            track.radius = (width / 2.0)
+            if el.scrollbarTrack.isSet {
+                track.r = (el.scrollbarTrack.red())
+                track.g = (el.scrollbarTrack.green())
+                track.b = (el.scrollbarTrack.blue())
+                track.a = (el.scrollbarTrack.alpha())
+            } {
+                track.r = cr
+                track.g = cg
+                track.b = cb
+                track.a = 0.12
+            }
+            this.addCmd(track)
+        }
+        ; The clip reaches left of the track to hold the label; the thumb
+        ; never leaves the track on its own, the offset is clamped.
+        def cp (new EVGDrawCmd())
+        cp.kind = 4
+        cp.x = (trackX - 64.0)
+        cp.y = trackY
+        cp.w = (width + 64.0)
+        cp.h = trackH
+        cp.layer = ((array_length layerEls) + 1)
+        push layerEls el
+        push layerTop el.scrollTop
+        push layerLeft el.scrollLeft
+        push layerShiftX 0.0
+        push layerShiftY 0.0
+        push layerClip (array_length cmds)
+        push layerFirst ((array_length cmds) + 1)
+        push layerLast ((array_length cmds) + 2)
+        push layerCullL 0.0
+        push layerCullT 0.0
+        push layerCullR 0.0
+        push layerCullB 0.0
+        push layerKind 1
+        push layerScale scale
+        def pct:int (to_int (((el.scrollTop * 100.0) / maxY) + 0.5))
+        push layerPct pct
+        push layerLabel (0 - 1)
+        this.addCmd(cp)
+        def thumb (new EVGDrawCmd())
+        thumb.kind = 0
+        thumb.x = trackX
+        thumb.y = thumbY
+        thumb.w = width
+        thumb.h = thumbH
+        thumb.radius = (width / 2.0)
+        thumb.hasGrad = true
+        thumb.gradDir = 1
+        thumb.r = (lit.red())
+        thumb.g = (lit.green())
+        thumb.b = (lit.blue())
+        thumb.a = thumbA
+        thumb.r2 = cr
+        thumb.g2 = cg
+        thumb.b2 = cb
+        thumb.a2 = thumbA
+        this.addCmd(thumb)
+        if ((state >= 1) && (el.scrollbarLabel != "none")) {
+            ; Where the page is, as a number beside the thumb: a pill in the
+            ; bar's ink with the text in the backdrop's, so it reads on any
+            ; page. It moves with the thumb — it is in the thumb's layer —
+            ; and its text is rewritten in place as the number changes.
+            def pillW:double 42.0
+            def pillH:double 18.0
+            def pillX:double ((trackX - pillW) - 6.0)
+            def pillY:double ((thumbY + (thumbH / 2.0)) - (pillH / 2.0))
+            def pill (new EVGDrawCmd())
+            pill.kind = 0
+            pill.x = pillX
+            pill.y = pillY
+            pill.w = pillW
+            pill.h = pillH
+            pill.radius = (pillH / 2.0)
+            pill.hasGrad = true
+            pill.gradDir = 0
+            pill.r = (lit.red())
+            pill.g = (lit.green())
+            pill.b = (lit.blue())
+            pill.a = (own * 0.94)
+            pill.r2 = cr
+            pill.g2 = cg
+            pill.b2 = cb
+            pill.a2 = (own * 0.94)
+            this.addCmd(pill)
+            def label (new EVGDrawCmd())
+            label.kind = 3
+            label.x = (pillX + 7.0)
+            label.y = (pillY + 2.0)
+            label.w = (pillW - 10.0)
+            label.h = (pillH - 4.0)
+            label.text = (EVGDisplayList.pctLabel(pct))
+            label.fontFamily = "sans-serif"
+            label.fontSize = 11.0
+            label.fontWeight = "600"
+            label.r = tr
+            label.g = tg
+            label.b = tb
+            label.a = 1.0
+            set layerLabel ((array_length layerEls) - 1) (array_length cmds)
+            this.addCmd(label)
+            set layerLast ((array_length layerEls) - 1) (array_length cmds)
+        }
+        def pp (new EVGDrawCmd())
+        pp.kind = 5
+        this.addCmd(pp)
+    }
+
+    ; The track column of a bar that is up, under a point: the layer index
+    ; of its thumb, or -1. A press here jumps the page to the point.
+    fn trackAt:int (px:double py:double) {
+        def i:int 0
+        while (i < (array_length layerEls)) {
+            if ((itemAt layerKind i) == 1) {
+                def cp:EVGDrawCmd (itemAt cmds (itemAt layerClip i))
+                def t:EVGDrawCmd (itemAt cmds (itemAt layerFirst i))
+                if ((px >= (t.x - 4.0)) && (px <= ((t.x + t.w) + 3.0))) {
+                    if ((py >= cp.y) && (py <= (cp.y + cp.h))) {
+                        return i
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    ; The offset that puts a thumb's middle at `py`.
+    fn trackScrollFor:double (i:int py:double) {
+        def cp:EVGDrawCmd (itemAt cmds (itemAt layerClip i))
+        def t:EVGDrawCmd (itemAt cmds (itemAt layerFirst i))
+        def scale:double (itemAt layerScale i)
+        if (scale <= 0.0) {
+            return 0.0
+        }
+        return (((py - cp.y) - (t.h / 2.0)) / scale)
+    }
+
+    ; The scroll container whose right edge the point is near, as the index
+    ; of its CONTENT layer, or -1.
+    fn nearBarAt:int (px:double py:double) {
+        def i:int 0
+        while (i < (array_length layerEls)) {
+            if ((itemAt layerKind i) == 0) {
+                def cp:EVGDrawCmd (itemAt cmds (itemAt layerClip i))
+                if ((px >= ((cp.x + cp.w) - (EVGDisplayList.barNearPx()))) && (px <= (cp.x + cp.w))) {
+                    if ((py >= cp.y) && (py <= (cp.y + cp.h))) {
+                        return i
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    ; The thumb under a point, as a layer index, or -1. A finger's width of
+    ; slack to the left of a thumb at rest, which is four pixels wide.
+    fn thumbAt:int (px:double py:double) {
+        def i:int 0
+        while (i < (array_length layerEls)) {
+            if ((itemAt layerKind i) == 1) {
+                def t:EVGDrawCmd (itemAt cmds (itemAt layerFirst i))
+                if ((px >= (t.x - 8.0)) && (px <= ((t.x + t.w) + 3.0))) {
+                    if ((py >= t.y) && (py <= (t.y + t.h))) {
+                        return i
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    fn layerElement:EVGElement (i:int) {
+        return (itemAt layerEls i)
+    }
+
+    fn thumbScale:double (i:int) {
+        return (itemAt layerScale i)
+    }
+
+    ; The thumbs, as JSON, for a check to look at.
+    fn thumbsJson:string () {
+        def out@(mutable):string "["
+        def n@(mutable):int 0
+        def i:int 0
+        while (i < (array_length layerEls)) {
+            if ((itemAt layerKind i) == 1) {
+                def t:EVGDrawCmd (itemAt cmds (itemAt layerFirst i))
+                if (n > 0) {
+                    out = (out + ",")
+                }
+                out = (out + "{\"x\":" + (EVGDisplayList.num(t.x)) + ",\"y\":" + (EVGDisplayList.num(t.y)))
+                out = (out + ",\"w\":" + (EVGDisplayList.num(t.w)) + ",\"h\":" + (EVGDisplayList.num(t.h)) + ",\"a\":" + (EVGDisplayList.num(t.a)))
+                out = (out + ",\"c\":[" + (to_string t.r2) + "," + (to_string t.g2) + "," + (to_string t.b2) + "]}")
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return (out + "]")
+    }
 
     fn layerCount:int () {
         return (array_length layerEls)
@@ -860,6 +1399,28 @@ class EVGDisplayList {
         def i:int 0
         while (i < (array_length layerEls)) {
             def el:EVGElement (itemAt layerEls i)
+            if ((itemAt layerKind i) == 1) {
+                def ty:double ((el.scrollTop - (itemAt layerTop i)) * (itemAt layerScale i))
+                def dsy:double (ty - (itemAt layerShiftY i))
+                if (dsy != 0.0) {
+                    this.shiftRange((itemAt layerFirst i) (itemAt layerLast i) 0.0 dsy)
+                    set layerShiftY i ty
+                }
+                if ((itemAt layerLabel i) >= 0) {
+                    def maxY:double (el.maxScrollTop())
+                    if (maxY > 0.0) {
+                        def pct:int (to_int (((el.scrollTop * 100.0) / maxY) + 0.5))
+                        if (pct != (itemAt layerPct i)) {
+                            set layerPct i pct
+                            def label:EVGDrawCmd (itemAt cmds (itemAt layerLabel i))
+                            label.text = (EVGDisplayList.pctLabel(pct))
+                            frameSeq = (frameSeq + 1)
+                        }
+                    }
+                }
+                i = (i + 1)
+                continue
+            }
             def dy:double ((itemAt layerTop i) - el.scrollTop)
             def dx:double ((itemAt layerLeft i) - el.scrollLeft)
             ; The container's clip as it stands — an outer layer may have
@@ -967,7 +1528,12 @@ class EVGDisplayList {
         clear layerFirst
         clear layerLast
         clear layerStack
-        buildSeq = (buildSeq + 1)
+        clear layerKind
+        clear layerScale
+        clear layerPct
+        clear layerLabel
+        fragHits = 0
+        fragMisses = 0
         cullOn = false
         effectKind = ""
         def noX:[double]
@@ -1253,14 +1819,31 @@ class EVGDisplayList {
         ; back rather than cleared, because `walkOpaque` recurses through here
         ; and a child must not leave its own slot behind for the commands its
         ; parent emits afterwards.
+        ; A kept subtree, from what it emitted last time when that holds.
+        def keeping:boolean ((fragments && el.keepLayout) && (attribute == false))
+        if keeping {
+            if (this.emitFragment(el)) {
+                fragHits = (fragHits + 1)
+                return
+            }
+            fragMisses = (fragMisses + 1)
+        }
         def prevNode:int curNode
         if attribute {
             curNode = el.inspectSlot
         }
+        def hadCull:boolean cullOn
+        if keeping {
+            cullOn = false
+        }
         this.walkOpaque(el)
+        cullOn = hadCull
         curNode = prevNode
         this.fadeFrom(emitStart el.opacity)
         this.transformFrom(emitStart el)
+        if keeping {
+            this.recordFragment(el emitStart)
+        }
     }
 
     fn walkOpaque:void (el:EVGElement) {
@@ -1549,10 +2132,23 @@ class EVGDisplayList {
         ; `visible` clips — this used to name `hidden` alone, which meant a
         ; scroll container drew its content straight over whatever was beside
         ; it, and the one thing a scrolling box has to do is stay inside itself.
+        ; The backdrop under this element's children, and under its own
+        ; scrollbar: its background when it paints one, else what was there.
+        def hadBdR:int backdropR
+        def hadBdG:int backdropG
+        def hadBdB:int backdropB
+        def ownBg:EVGColor el.backgroundColor
+        if ownBg.isSet {
+            if ((ownBg.alpha()) > 0.5) {
+                backdropR = (ownBg.red())
+                backdropG = (ownBg.green())
+                backdropB = (ownBg.blue())
+            }
+        }
         def clips:boolean (el.clipsContent())
         ; A clip that can scroll is a layer — see `refreshLayers`.
         def scrolls:boolean false
-        if (clips && culling) {
+        if ((clips && culling) && ((w > 0.0) && (h > 0.0))) {
             if (((el.maxScrollTop()) > 0.0) || ((el.maxScrollLeft()) > 0.0)) {
                 scrolls = true
             }
@@ -1579,6 +2175,10 @@ class EVGDisplayList {
                 push layerCullT 0.0
                 push layerCullR 0.0
                 push layerCullB 0.0
+                push layerKind 0
+                push layerScale 1.0
+                push layerPct 0
+                push layerLabel (0 - 1)
             }
             this.addCmd(cp)
         }
@@ -1644,7 +2244,13 @@ class EVGDisplayList {
             def pp (new EVGDrawCmd())
             pp.kind = 5
             this.addCmd(pp)
+            if (scrolls && scrollbars) {
+                this.addScrollbar(el x y w h)
+            }
         }
+        backdropR = hadBdR
+        backdropG = hadBdG
+        backdropB = hadBdB
     }
 
     ; Serialize to JSON — the wire format between the engine and a backend.
@@ -1933,16 +2539,7 @@ class EVGDisplayList {
                 (EVGDisplayList.num(effectLightZ)) + "]")
             out = (out + "},")
         }
-        out = (out + "\"seq\":" + (to_string buildSeq) + ",\"shifts\":[")
-        def si:int 0
-        while (si < (array_length layerEls)) {
-            if (si > 0) {
-                out = (out + ",")
-            }
-            out = (out + "[" + (EVGDisplayList.num((itemAt layerShiftX si))) + "," + (EVGDisplayList.num((itemAt layerShiftY si))) + "]")
-            si = (si + 1)
-        }
-        out = (out + "],\"cmds\":[")
+        out = (out + "\"cmds\":[")
         def i:int 0
         while (i < (array_length cmds)) {
             def c:EVGDrawCmd (itemAt cmds i)
@@ -2054,7 +2651,19 @@ class EVGDisplayList {
             out = out + "}"
             i = (i + 1)
         }
-        out = out + "]}"
+        ; The build's number and the layers' shifts, AFTER the commands: a
+        ; reader that wants only the commands takes the document from its
+        ; first byte, and one did.
+        out = (out + "],\"seq\":" + (to_string buildSeq) + ",\"shifts\":[")
+        def si:int 0
+        while (si < (array_length layerEls)) {
+            if (si > 0) {
+                out = (out + ",")
+            }
+            out = (out + "[" + (EVGDisplayList.num((itemAt layerShiftX si))) + "," + (EVGDisplayList.num((itemAt layerShiftY si))) + "]")
+            si = (si + 1)
+        }
+        out = (out + "]}")
         return out
     }
 

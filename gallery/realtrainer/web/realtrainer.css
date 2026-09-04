@@ -1238,6 +1238,7 @@
   flex-wrap: nowrap;
   width: 868px;
   height: 620px;
+  scrollbar-color: rgba(203, 213, 225, 0.85) rgba(148, 163, 184, 0.1);
 }
 
 .rt-doc-list {
@@ -1860,6 +1861,7 @@
   flex-wrap: nowrap;
   flex-grow: 1;
   width: 100%;
+  scrollbar-color: rgba(203, 213, 225, 0.85) rgba(148, 163, 184, 0.1);
 }
 .rt-ph-body {
   display: flex;

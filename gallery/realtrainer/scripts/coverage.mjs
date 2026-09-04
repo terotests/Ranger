@@ -173,6 +173,7 @@ if (checkOnly) {
     process.exit(1);
   }
   console.log(`COVERAGE.md up to date (${total} families)`);
+  console.log("ALL PASS");
 } else {
   fs.writeFileSync(OUT, body);
   console.log(

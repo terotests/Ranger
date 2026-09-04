@@ -302,7 +302,7 @@ export function createA11yMirror(host, { canvas, onActivate, onFocus, scale = 1,
     setAttr(el, "aria-live", node.live === 2 ? "assertive" : node.live === 1 ? "polite" : null);
 
     const b = node.b || [0, 0, 0, 0];
-    const parent = node.p ? byId.get(node.p) : null;
+    const parent = hostNode(node, byId);
     const pb = parent ? parent.b || [0, 0, 0, 0] : [0, 0, 0, 0];
     // Relative to the parent, because an absolutely positioned ancestor is the
     // containing block for everything under it.
@@ -342,6 +342,19 @@ export function createA11yMirror(host, { canvas, onActivate, onFocus, scale = 1,
     }
   }
 
+  // The node whose element holds this one's. Usually the parent; but a
+  // textbox is a native <input>, which can hold no children, so a node under
+  // one — a password field's show/hide button, drawn inside the field's box —
+  // goes under the nearest ancestor that can hold it, and is placed relative
+  // to that one's box. Appended into the <input> it had no box at all: the
+  // reader was told of a button that was nowhere, and a pointer aimed at its
+  // rectangle landed at the page's corner.
+  function hostNode(node, byId) {
+    let at = node.p ? byId.get(node.p) : null;
+    while (at && at.role === "textbox") at = at.p ? byId.get(at.p) : null;
+    return at;
+  }
+
   function update(tree) {
     if (!tree || !tree.nodes) return { skipped: true };
     if (tree.gen === lastGen && tree.focus === lastFocus) return { skipped: true };
@@ -358,7 +371,8 @@ export function createA11yMirror(host, { canvas, onActivate, onFocus, scale = 1,
       applyAria(entry.el, node, byId);
       // Re-parent only when it actually changed: moving an element the reader
       // is sitting on drops its cursor.
-      const parentEl = node.p ? (els.get(node.p) || {}).el : root;
+      const host = hostNode(node, byId);
+      const parentEl = host ? (els.get(host.id) || {}).el : root;
       const want = parentEl || root;
       if (entry.el.parentNode !== want) want.appendChild(entry.el);
     }

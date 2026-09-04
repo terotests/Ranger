@@ -211,6 +211,8 @@ drifting apart, because the sheet hands its declarations to the same function.
 | `gradient-from` `gradient-to` `gradient-dir` | the long form |
 | `background-image` | a source the host can decode |
 | `backdrop-filter` | `blur(Npx)` — softens what is already behind the box |
+| `scrollbar-width` `scrollbar-color` | `auto`/`thin`/`none`; the thumb's colour then the track's, `auto` for ink on whatever the bar is over. The list draws the bar when an app asks it to (`EVGDisplayList.setScrollbars`); it is up while the container scrolls, lit under the pointer |
+| `evg-scrollbar-label` | `percent` (default) or `none` — the "34 %" beside the thumb while the page moves |
 | `fill` `stroke` `stroke-width` `stroke-dasharray` `stroke-dashoffset` `fill-rule` | vector paint |
 | `clip-path` | |
 | `transform` `transform-origin` `rotate` `scale` `translate-x` `translate-y` | |

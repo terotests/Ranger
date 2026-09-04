@@ -603,6 +603,7 @@ class RealTrainerDemo {
     ; wrote a frame, a scene was rebuilt.
     def retained@(optional):EVGDisplayList
     def listDirty:boolean true
+    def listBuilds:int 0
     ; IS ANYTHING IN FLIGHT. `EVGTransition.advanceTree` and `busy` walk the
     ; whole tree, and `tick` asked both on every frame of a long document
     ; with nothing moving in it — two walks of ten thousand elements to find
@@ -610,6 +611,38 @@ class RealTrainerDemo {
     ; where this is asked once; after that a frame walks the tree only while
     ; the answer was yes, and stops asking when the last flight lands.
     def flights:boolean false
+    ; --- ENTRY CARDS, KEPT ACROSS REBUILDS --------------------------------------
+    ;
+    ; A rebuild makes the scene's tree again from the state, and on Home
+    ; that tree is every workout of the calendar as a card: the compact
+    ; text parsed, a subtree of a hundred elements built, for every entry,
+    ; on every press — opening the calendar menu measured at a second on a
+    ; phone, and in a browser profile the cards were half of it and the
+    ; elements' constructors a third. A card depends on the entry and where
+    ; it is drawn, and on nothing else in the app, so the subtree is kept
+    ; and handed back while its key — the entry's id and content, its
+    ; place and its index, which its children's ids carry — is the same.
+    ; A tree has no parent pointers, so an element is moved into the new
+    ; tree by being added to it; the layout resets what the last one
+    ; wrote. Emptied when the calendar changes.
+    def cardEls:[string:EVGElement]
+    def cardKeys:[string:string]
+    def cardsCalendar:string ""
+    def cardsBuilt:int 0
+    ; --- THE SCROLLBAR --------------------------------------------------------
+    ;
+    ; Drawn by the list (`EVGDisplayList.addScrollbar`), so every host has
+    ; it; what is decided here is its STATE. It is up for a while after any
+    ; scroll and settles when the page has been still, the pointer over it
+    ; lights it, and a press on it drags the page by the thumb's scale.
+    def barActiveMs:double 0.0
+    def barHoverEl@(optional):EVGElement
+    def barNearEl@(optional):EVGElement
+    def barDragEl@(optional):EVGElement
+    def barDragScale:double 1.0
+    def barDragY:double 0.0
+    def barDragTop:double 0.0
+    def barDragging:boolean false
     ; A scroll since the last frame that `laidOut` has not yet applied. The
     ; offset was written on the container and clamped straight away, so the
     ; caller already knows whether the page moved; the WALK that moves the
@@ -2545,7 +2578,7 @@ class RealTrainerDemo {
         def feed (tree Rt (Col (props (className "rt-home-feed"))))
         def sorted:[RtSeedEntry] (RealTrainerDemo.sortByDateDesc((seed.selectedEntries())))
         for sorted e:RtSeedEntry i {
-            def card:EVGElement (this.entryCard(e i))
+            def card:EVGElement (this.cardFor(e i "home"))
             card.className = "rt-entry rt-entry-home"
             feed.addChild(card)
         }
@@ -4501,9 +4534,56 @@ class RealTrainerDemo {
         def n:int (array_length entries)
         def k@(mutable):int (n - 1)
         while (k >= 0) {
-            body.addChild((this.entryCard((itemAt entries k) ((n - 1) - k))))
+            body.addChild((this.cardFor((itemAt entries k) ((n - 1) - k) "day")))
             k = (k - 1)
         }
+    }
+
+    ; The card for an entry, kept — see `cardEls`. `place` names where it
+    ; is drawn, because the two views that draw cards dress them
+    ; differently and count them differently.
+    fn cardFor:EVGElement (e:RtSeedEntry i:int place:string) {
+        def slot:string ((e.id + "|") + place)
+        if ((strlen e.id) == 0) {
+            slot = (((e.date + "#") + (to_string i)) + ("|" + place))
+        }
+        def key:string ((((((e.id + "|") + (to_string i)) + ("|" + e.date)) + ("|" + (to_string e.points))) + ("|" + e.feedback)) + ("|" + e.compact))
+        if (has cardKeys slot) {
+            def kept:string (unwrap (get cardKeys slot))
+            if (kept == key) {
+                def had@(optional):EVGElement (get cardEls slot)
+                if had {
+                    return (unwrap had)
+                }
+            }
+        }
+        def card:EVGElement (this.entryCard(e i))
+        ; The card's layout is kept with the card — see
+        ; `EVGElement.keepLayout`: a rebuild for a menu opening lays out the
+        ; shell and moves the cards.
+        card.keepLayout = true
+        set cardEls slot card
+        set cardKeys slot key
+        cardsBuilt = (cardsBuilt + 1)
+        return card
+    }
+
+    fn forgetCards:void () {
+        def freshEls:[string:EVGElement]
+        def freshKeys:[string:string]
+        cardEls = freshEls
+        cardKeys = freshKeys
+        ; …and the commands kept for them.
+        if retained {
+            def last:EVGDisplayList (unwrap retained)
+            last.forgetFragments()
+        }
+    }
+
+    ; How many cards have been built from their entries, for a check that
+    ; wants to know a rebuild built none.
+    fn cardsBuiltCount:int () {
+        return cardsBuilt
     }
 
     fn entryCard:EVGElement (e:RtSeedEntry i:int) {
@@ -5855,6 +5935,7 @@ class RealTrainerDemo {
                 clear scrolledEls
             }
             scrollPending = true
+            this.barWake()
             ; A container the kept list has no layer for cannot be moved in
             ; it: the next frame builds.
             if retained {
@@ -5994,6 +6075,10 @@ class RealTrainerDemo {
     fn rebuild:void () {
         layoutDirty = true
         boxesDirty = true
+        if (seed.calendarId != cardsCalendar) {
+            this.forgetCards()
+            cardsCalendar = seed.calendarId
+        }
         this.syncFields()
         if (scene == "signin") {
             root = (this.signin())
@@ -6052,7 +6137,196 @@ class RealTrainerDemo {
     ; forty-workout diary that is the difference between 0.74 ms a frame and
     ; 13.72.
     fn tick:boolean (dtMs:double) {
-        return (this.tickWork(dtMs))
+        def settled:boolean (this.barTick(dtMs))
+        def changed:boolean (this.tickWork(dtMs))
+        return (changed || settled)
+    }
+
+    ; --- the scrollbar's state -------------------------------------------------
+
+    ; A scroll happened: the bar comes up, if it was down.
+    fn barWake:void () {
+        if (barActiveMs <= 0.0) {
+            listDirty = true
+        }
+        barActiveMs = 800.0
+    }
+
+    ; The bar goes down when the page has been still; true on the frame it
+    ; does, which is a frame to draw.
+    fn barTick:boolean (dtMs:double) {
+        if (barActiveMs <= 0.0) {
+            return false
+        }
+        barActiveMs = (barActiveMs - dtMs)
+        if (barActiveMs > 0.0) {
+            return false
+        }
+        barActiveMs = 0.0
+        listDirty = true
+        return true
+    }
+
+    fn barState:int () {
+        if barDragging {
+            return 2
+        }
+        if (barActiveMs > 0.0) {
+            return 1
+        }
+        return 0
+    }
+
+    ; The pointer moved: is it on a thumb now, and did that change? Returns
+    ; whether the picture changed, so a host draws once; `overScrollbar`
+    ; says where the pointer is.
+    fn scrollbarHover:boolean (px:double py:double) {
+        def dl:EVGDisplayList (this.display())
+        def changed@(mutable):boolean false
+        ; Near the edge: the bar comes up so it can be seen and taken.
+        def n:int (dl.nearBarAt(px py))
+        def none@(optional):EVGElement
+        if (n < 0) {
+            if barNearEl {
+                barNearEl = none
+                changed = true
+            }
+        } {
+            def nearEl:EVGElement (dl.layerElement(n))
+            def same@(mutable):boolean false
+            if barNearEl {
+                if ((unwrap barNearEl) == nearEl) {
+                    same = true
+                }
+            }
+            if (same == false) {
+                barNearEl = nearEl
+                changed = true
+            }
+        }
+        ; On the thumb: lit.
+        def i:int (dl.thumbAt(px py))
+        if (i < 0) {
+            if barHoverEl {
+                barHoverEl = none
+                changed = true
+            }
+        } {
+            def el:EVGElement (dl.layerElement(i))
+            def sameHover@(mutable):boolean false
+            if barHoverEl {
+                if ((unwrap barHoverEl) == el) {
+                    sameHover = true
+                }
+            }
+            if (sameHover == false) {
+                barHoverEl = el
+                changed = true
+            }
+        }
+        if changed {
+            listDirty = true
+        }
+        return changed
+    }
+
+    fn overScrollbar:boolean () {
+        if barHoverEl {
+            return true
+        }
+        return false
+    }
+
+    ; A press on a thumb takes it: true when it did, and the moves that
+    ; follow go to `scrollbarDrag`.
+    fn scrollbarGrab:boolean (px:double py:double) {
+        def dl:EVGDisplayList (this.display())
+        def i@(mutable):int (dl.thumbAt(px py))
+        if (i < 0) {
+            ; Not the thumb: the track, if the bar is up — a press there
+            ; jumps the page to the point and holds the thumb from there.
+            def t:int (dl.trackAt(px py))
+            if (t < 0) {
+                return false
+            }
+            def tel:EVGElement (dl.layerElement(t))
+            def up@(mutable):boolean (barActiveMs > 0.0)
+            if barNearEl {
+                if ((unwrap barNearEl) == tel) {
+                    up = true
+                }
+            }
+            if (up == false) {
+                return false
+            }
+            tel.scrollTop = (dl.trackScrollFor(t py))
+            this.scrolled(tel)
+            this.rememberScroll(tel)
+            i = t
+        }
+        def el:EVGElement (dl.layerElement(i))
+        fling.halt()
+        barDragEl = el
+        barDragScale = (dl.thumbScale(i))
+        barDragY = py
+        barDragTop = el.scrollTop
+        barDragging = true
+        listDirty = true
+        barActiveMs = 800.0
+        return true
+    }
+
+    ; The pointer, dragging the thumb: the page moves by the thumb's scale.
+    fn scrollbarDrag:boolean (py:double) {
+        if (barDragging == false) {
+            return false
+        }
+        def el:EVGElement (unwrap barDragEl)
+        def before:double el.scrollTop
+        def next@(mutable):double barDragTop
+        if (barDragScale > 0.0) {
+            next = (barDragTop + ((py - barDragY) / barDragScale))
+        }
+        el.scrollTop = next
+        this.scrolled(el)
+        this.rememberScroll(el)
+        return (el.scrollTop != before)
+    }
+
+    fn scrollbarRelease:boolean () {
+        if (barDragging == false) {
+            return false
+        }
+        barDragging = false
+        def none@(optional):EVGElement
+        barDragEl = none
+        listDirty = true
+        barActiveMs = 800.0
+        return true
+    }
+
+    ; The offsets this app keeps for its rebuilt trees, written back from
+    ; the container that was just scrolled by something other than
+    ; `scrollDocument`.
+    fn rememberScroll:void (el:EVGElement) {
+        if (el.id == "rt-doc-view") {
+            docScroll = el.scrollTop
+        }
+        if (el.id == "rt-ph-main") {
+            docScroll = el.scrollTop
+        }
+        if (el.id == "rt-wiz-body") {
+            wizScroll = el.scrollTop
+        }
+        if (el.id == "rt-plan-body") {
+            modalScroll = el.scrollTop
+        }
+    }
+
+    ; The thumbs the current list draws, for a check.
+    fn scrollbarThumbsJson:string () {
+        def dl:EVGDisplayList (this.display())
+        return (dl.thumbsJson())
     }
 
     fn tickWork:boolean (dtMs:double) {
@@ -6140,7 +6414,7 @@ class RealTrainerDemo {
         def r:EVGElement (unwrap root)
         def t:EVGTransition transitions
         if flights {
-            t.advanceTree(r dtMs)
+            def moving:boolean (t.advanceTree(r dtMs))
         }
         if (scene == "session") {
             if timerRunning {
@@ -6857,6 +7131,17 @@ class RealTrainerDemo {
         def dl (new EVGDisplayList())
         dl.setTextEngine((lay.getTextEngine()))
         dl.setCulling(cullOffscreen)
+        ; The fragments the last list kept, carried over — see
+        ; `EVGDisplayList.fragments`. A flight inside a kept subtree moves
+        ; its stamp on every frame (`EVGTransition.advanceTree`), so the
+        ; subtrees a fade is running in are drawn afresh and the rest kept.
+        if retained {
+            dl.takeFragments((unwrap retained))
+        }
+        dl.setScrollbars(true)
+        dl.setScrollbarState((this.barState()))
+        dl.setScrollbarHover(barHoverEl)
+        dl.setScrollbarNear(barNearEl)
         ; A list that leaves nothing out reads every box, so every box is
         ; put where it belongs first; the charts are read off their boxes
         ; by hand, outside the walk, and want the same.
@@ -6878,6 +7163,8 @@ class RealTrainerDemo {
         }
         dl.build(r)
         this.emitCharts(dl r)
+        listBuilds = (listBuilds + 1)
+        dl.buildSeq = listBuilds
         retained = dl
         listDirty = false
         return dl

@@ -235,6 +235,16 @@ class EVGElement {
     ; Empty means nobody has said anything, which is what makes inheriting
     ; distinguishable from an author writing `default` on purpose.
     def cursor:string ""
+    ; The scroll container's bar, as CSS styles it: `scrollbar-width` (auto,
+    ; thin, none), `scrollbar-color` (the thumb's colour, then the track's;
+    ; `auto` for either is ink on whatever the bar is over), and the EVG
+    ; extension `evg-scrollbar-label` (percent, none). Read by
+    ; `EVGDisplayList.addScrollbar`, which draws the bar when an app asks
+    ; the list to.
+    def scrollbarWidth:string ""
+    def scrollbarThumb:EVGColor
+    def scrollbarTrack:EVGColor
+    def scrollbarLabel:string ""
 
     ; --- A SURFACE EFFECT ------------------------------------------------------
     ;
@@ -393,6 +403,49 @@ class EVGElement {
     ; with the rest of the layout state.
     def shiftDx:double 0.0
     def shiftDy:double 0.0
+    ; A LAYOUT KEPT. An app that knows a subtree has not changed — a card
+    ; built from an entry and kept across rebuilds — says so with
+    ; `keepLayout`, and the layout then answers for that subtree with what
+    ; it computed last time, moved to where the flow puts it now, when
+    ; three things hold: it was laid out before (`hasLayout`), the sheet's
+    ; last pass wrote no layout property anywhere in it (`layoutClean`,
+    ; which the sheet computes bottom-up for every element), and the flow
+    ; hands it the same inputs — the width and height it is laid out in,
+    ; and the flex width its parent gave it. The flow has already put the
+    ; element's own box where it goes; what is under it follows by the
+    ; difference, read off where the first child sat relative to the box
+    ; when the subtree was last measured (`kidOffX`, `kidOffY`). A subtree
+    ; skipped this way is `layoutSkipped`, so the paint-bounds pass leaves
+    ; its bounds, which moved with it, alone. Anything else lays it out as
+    ; before.
+    def keepLayout:boolean false
+    def hasLayout:boolean false
+    def layoutClean:boolean false
+    def layoutSkipped:boolean false
+    def kidOffX:double 0.0
+    def kidOffY:double 0.0
+    ; Whether `paintTop` and the rest were measured since the subtree was
+    ; last laid out for real: a subtree skipped in a later pass of the same
+    ; layout — a parent's second pass — moved bounds that were never
+    ; measured, and the measuring pass must not take a skipped subtree's
+    ; word for it until they were.
+    def boundsFresh:boolean false
+    def lastParentW:double 0.0
+    def lastParentH:double 0.0
+    def lastFlex:boolean false
+    def lastFlexW:double 0.0
+    def hasIntrinsicMin:boolean false
+    def hasIntrinsicMax:boolean false
+    def intrinsicMin:double 0.0
+    def intrinsicMax:double 0.0
+    ; THE COMMANDS KEPT. A kept subtree draws the same commands each time,
+    ; so the display list keeps what it emitted for it and emits it again.
+    ; `paintStamp` says whether they still hold: the sheet bumps it when a
+    ; pass wrote paint anywhere in the subtree (`paintClean` is that pass's
+    ; answer), and the layout bumps it when it lays the subtree out for
+    ; real. `EVGDisplayList.walk` has the rest.
+    def paintClean:boolean false
+    def paintStamp:int 0
     ; Does anything in this subtree carry a `surfaceEffect`? Written by the
     ; same pass, and read by `EVGDisplayList.readEffect` — which used to walk
     ; the WHOLE document on every frame looking for the one element that
@@ -965,6 +1018,8 @@ class EVGElement {
         imageOffsetY = (EVGUnit.unset())
         
         fillColor = (EVGColor.noColor())
+        scrollbarThumb = (EVGColor.noColor())
+        scrollbarTrack = (EVGColor.noColor())
         strokeColor = (EVGColor.noColor())
     }
     
@@ -1004,11 +1059,24 @@ class EVGElement {
         push children child
     }
     
+    ; A subtree whose layout is being kept — see `keepLayout` — is left as
+    ; it is: the layout decides, when the flow reaches it, whether it can
+    ; be answered from what it holds, and resets it itself when not.
     fn resetLayoutState:void () {
-        ; Reset layout state for re-layout
+        if (keepLayout && (hasLayout && layoutClean)) {
+            return
+        }
+        this.resetLayoutNow()
+    }
+
+    fn resetLayoutNow:void () {
         unitsResolved = false
         shiftDx = 0.0
         shiftDy = 0.0
+        hasIntrinsicMin = false
+        hasIntrinsicMax = false
+        layoutSkipped = false
+        boundsFresh = false
         calculatedX = 0.0
         calculatedY = 0.0
         calculatedWidth = 0.0
@@ -2426,6 +2494,43 @@ class EVGElement {
         sourceHeight = other.sourceHeight
         svgPath = other.svgPath
         svgSource = other.svgSource
+        svgDoc = other.svgDoc
+        svgDocKey = other.svgDocKey
+        ; What the layout wrote and what it keeps — see `keepLayout` — come
+        ; from the fresh element, which is to say they are reset: a reconciled
+        ; element is laid out, measured and drawn again. `paintStamp` is this
+        ; element's own count of paint changes, and adopting is one.
+        appliedScrollTop = other.appliedScrollTop
+        appliedScrollLeft = other.appliedScrollLeft
+        paintLeft = other.paintLeft
+        paintTop = other.paintTop
+        paintRight = other.paintRight
+        paintBottom = other.paintBottom
+        paintUnbounded = other.paintUnbounded
+        paintHasEffect = other.paintHasEffect
+        shiftDx = other.shiftDx
+        shiftDy = other.shiftDy
+        keepLayout = other.keepLayout
+        hasLayout = other.hasLayout
+        layoutClean = other.layoutClean
+        layoutSkipped = other.layoutSkipped
+        kidOffX = other.kidOffX
+        kidOffY = other.kidOffY
+        boundsFresh = other.boundsFresh
+        lastParentW = other.lastParentW
+        lastParentH = other.lastParentH
+        lastFlex = other.lastFlex
+        lastFlexW = other.lastFlexW
+        hasIntrinsicMin = other.hasIntrinsicMin
+        hasIntrinsicMax = other.hasIntrinsicMax
+        intrinsicMin = other.intrinsicMin
+        intrinsicMax = other.intrinsicMax
+        paintClean = other.paintClean
+        paintStamp = (paintStamp + 1)
+        scrollbarWidth = other.scrollbarWidth
+        scrollbarThumb = other.scrollbarThumb
+        scrollbarTrack = other.scrollbarTrack
+        scrollbarLabel = other.scrollbarLabel
         viewBox = other.viewBox
         fillColor = other.fillColor
         strokeColor = other.strokeColor
@@ -2533,6 +2638,52 @@ class EVGElement {
         hasBreak = other.hasBreak
         hasContinue = other.hasContinue
         inheritedFontSize = other.inheritedFontSize
+    }
+
+    ; `scrollbar-color: <thumb> <track>` — two colours, split on the space
+    ; between them and not on the spaces inside an `rgba( )`. One colour
+    ; is the thumb alone; `auto` for either is no colour of its own.
+    fn setScrollbarColor:void (value:string) {
+        def parts:[string]
+        def cur@(mutable):string ""
+        def depth@(mutable):int 0
+        def i:int 0
+        def n:int (strlen value)
+        while (i < n) {
+            def ch:string (substring value i (i + 1))
+            if (ch == "(") {
+                depth = (depth + 1)
+            }
+            if (ch == ")") {
+                depth = (depth - 1)
+            }
+            if (((ch == " ") || (ch == "\t")) && (depth == 0)) {
+                if ((strlen cur) > 0) {
+                    push parts cur
+                    cur = ""
+                }
+            } {
+                cur = (cur + ch)
+            }
+            i = (i + 1)
+        }
+        if ((strlen cur) > 0) {
+            push parts cur
+        }
+        scrollbarThumb = (EVGColor.noColor())
+        scrollbarTrack = (EVGColor.noColor())
+        if ((array_length parts) > 0) {
+            def t:string (itemAt parts 0)
+            if (t != "auto") {
+                scrollbarThumb = (EVGColor.parse(t))
+            }
+        }
+        if ((array_length parts) > 1) {
+            def tr:string (itemAt parts 1)
+            if (tr != "auto") {
+                scrollbarTrack = (EVGColor.parse(tr))
+            }
+        }
     }
 
     fn setAttribute:void (name:string value:string) {
@@ -3012,6 +3163,18 @@ class EVGElement {
         }
         if (name == "cursor") {
             cursor = value
+            return
+        }
+        if ((name == "scrollbar-width") || (name == "scrollbarWidth")) {
+            scrollbarWidth = value
+            return
+        }
+        if ((name == "scrollbar-color") || (name == "scrollbarColor")) {
+            this.setScrollbarColor(value)
+            return
+        }
+        if (name == "evg-scrollbar-label") {
+            scrollbarLabel = value
             return
         }
         ; The EVG effect family. Prefixed, because these are EXTENSIONS and not

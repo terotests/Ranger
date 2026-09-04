@@ -149,3 +149,4 @@ if (failed) {
   process.exit(1);
 }
 console.log(`${matched} case(s) match the reference part for part`);
+console.log("ALL PASS");

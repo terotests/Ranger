@@ -366,3 +366,4 @@ console.log(
   `all ${table.cells.length} cells match the machine in ${IMPLEMENTATIONS.length} implementations ` +
     `— ${ignores} of them events it ignores`,
 );
+console.log("ALL PASS");
