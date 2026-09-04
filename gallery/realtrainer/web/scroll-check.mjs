@@ -114,6 +114,13 @@ let failed = 0;
 let frames = 0;
 let culled = 0;
 let relaidOut = 0;
+const ok = (name, cond, detail) => {
+  if (cond) console.log("  PASS " + name);
+  else {
+    failed += 1;
+    console.log("  FAIL " + name + (detail === undefined ? "" : " — " + detail));
+  }
+};
 for (const [w, h] of PAGES) {
   for (const route of ROUTES) {
     const long = route === "#document" ? LONG : undefined;
@@ -187,9 +194,71 @@ for (const [w, h] of PAGES) {
   }
 }
 
+// --- the throw ---------------------------------------------------------------
+//
+// A swipe that leaves the glass moving keeps the page moving, and a faster
+// swipe carries it further. `EVGFling` makes the distance PROPORTIONAL to the
+// speed of the throw — which is a claim worth checking rather than feeling,
+// because it is the difference between a page that reads like a phone and one
+// that stops dead under your finger.
+//
+// The swipe is six samples of the same distance, a frame apart, and the glide
+// afterwards is driven by `tick` exactly as a host drives it.
+console.log("");
+console.log("--- the throw ---");
+const swipe = (perFrame) => {
+  const app = open("#document", 390, 844, LONG);
+  app.scrollHalt();
+  for (let i = 0; i < 6; i += 1) app.scrollDrag(perFrame, 16);
+  const threw = app.scrollRelease();
+  let glided = 0;
+  let frames = 0;
+  while (app.scrollVelocity() !== 0 && frames < 600) {
+    glided += app.scrollVelocity() * 16.7;
+    app.tick(16.7);
+    frames += 1;
+  }
+  return { threw, glided: Math.round(glided), ms: Math.round(frames * 16.7) };
+};
+
+const crawl = swipe(0.5);
+ok("a finger creeping along does not throw the page", crawl.threw === false,
+   JSON.stringify(crawl));
+
+// 8, 16, 32 and 64 pixels a frame is 0.5, 1, 2 and 4 pixels a millisecond —
+// an idle drag, a push, a swipe and a hard flick, in the sizes a finger on a
+// phone actually produces.
+const slow = swipe(8);
+const fast = swipe(16);
+const hard = swipe(32);
+const flick = swipe(64);
+ok("a swipe throws it", slow.threw && slow.glided > 100, JSON.stringify(slow));
+// Proportional, so twice the speed is twice the distance. The window is wide
+// because the glide stops at a minimum speed rather than at zero, which costs
+// the slower throw proportionally more of its tail.
+const ratio = fast.glided / slow.glided;
+ok("twice as fast goes about twice as far", ratio > 1.8 && ratio < 2.3,
+   `${slow.glided}px then ${fast.glided}px — ${ratio.toFixed(2)}x`);
+const ratio2 = hard.glided / fast.glided;
+ok("and twice again", ratio2 > 1.8 && ratio2 < 2.3,
+   `${fast.glided}px then ${hard.glided}px — ${ratio2.toFixed(2)}x`);
+ok("a swipe clears more than a screen", hard.glided > 844, hard.glided + "px");
+ok("a hard flick clears more than two", flick.glided > 1688, flick.glided + "px");
+ok("and it stops", flick.ms > 0 && flick.ms < 4000, flick.ms + "ms");
+
+// A finger going down catches it, the way it does on a phone.
+{
+  const app = open("#document", 390, 844, LONG);
+  for (let i = 0; i < 6; i += 1) app.scrollDrag(32, 16);
+  app.scrollRelease();
+  ok("a throw is in flight", app.scrollVelocity() !== 0, String(app.scrollVelocity()));
+  app.scrollHalt();
+  ok("and a finger down catches it", app.scrollVelocity() === 0, String(app.scrollVelocity()));
+}
+
 console.log("");
 if (failed > 0) {
-  console.log(`  ${failed} route(s) diverged — the scroll shortcut is not the layout`);
+  console.log(`  ${failed} check(s) failed`);
   process.exit(1);
 }
 console.log(`  ${frames} scroll frames, every one identical to a full re-layout`);

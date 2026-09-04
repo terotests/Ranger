@@ -85,6 +85,7 @@ Import "../../evg/EVGTransition.rgr"
 Import "../../evg/EVGA11yTree.rgr"
 Import "../../evg/EVGA11yFromTree.rgr"
 Import "../../evg/EVGHitTest.rgr"
+Import "../../evg/EVGFling.rgr"
 Import "CompactRows.rgr"
 Import "AddWorkoutDialog.rgr"
 Import "PlanDialogHost.rgr"
@@ -573,6 +574,12 @@ class RealTrainerDemo {
     ; `press` is exactly the path that would be forgotten. Asked for, once,
     ; by the one caller that knows.
     def scrollFrame:boolean false
+    ; The page's own momentum, so a finger that leaves the glass moving keeps
+    ; the document moving. It lives HERE and not in a host because both hosts
+    ; want it and neither should have to get the physics right on its own —
+    ; the browser page had its own copy and the iOS one had none, which is why
+    ; a swipe on the phone stopped dead. See `EVGFling`.
+    def fling:EVGFling (new EVGFling())
     ; How many times the tree has actually been laid out. Only `layoutCount`
     ; below reads it, and only `web/scroll-check.mjs` calls that: a scroll
     ; frame that lays out is the regression this counts, and it is not
@@ -5789,6 +5796,39 @@ class RealTrainerDemo {
         this.laidOut()
     }
 
+    ; --- A FINGER, WITH ITS SPEED ---------------------------------------------
+    ;
+    ; `scrollDocument` is the wheel and the keyboard: a distance, and nothing
+    ; about how fast it arrived. A DRAG is different — it has a speed, and
+    ; what it does when it ends depends on it — so a host that is dragging
+    ; says so with these three, and gets a fling for free.
+    ;
+    ;   scrollDrag(dy dtMs)   the finger moved this far in this long
+    ;   scrollRelease()       it lifted; returns whether that threw the page
+    ;   scrollHalt()          it went down again, or a wheel took over
+    ;
+    ; The glide itself is advanced by `tick`, which every host already calls
+    ; on every frame with the real elapsed milliseconds. There is nothing else
+    ; for a host to do.
+    fn scrollDrag:boolean (dy:double dtMs:double) {
+        fling.track(dy dtMs)
+        return (this.scrollDocument(dy))
+    }
+
+    fn scrollRelease:boolean () {
+        return (fling.release())
+    }
+
+    fn scrollHalt:void () {
+        fling.halt()
+    }
+
+    ; The speed the page is gliding at, in pixels per millisecond. Zero when
+    ; it is not, which is what a host asks to know whether it may rest.
+    fn scrollVelocity:double () {
+        return fling.velocity
+    }
+
     fn scrollDocument:boolean (delta:double) {
         if (scene == "wizard") {
             def rw:EVGElement (unwrap root)
@@ -5946,6 +5986,20 @@ class RealTrainerDemo {
 
     fn tickWork:boolean (dtMs:double) {
         scrollFrame = false
+        ; The glide, before anything else this frame: it is the one thing that
+        ; moves without anybody having touched the screen. `scrollDocument`
+        ; leaves the scroll shortcut armed, and reaching the end of the
+        ; document stops it — there is nowhere left to go and a fling that
+        ; keeps ticking against the end is a frame spent on nothing.
+        if (fling.running()) {
+            def glide:double (fling.step(dtMs))
+            if (glide != 0.0) {
+                if ((this.scrollDocument(glide)) == false) {
+                    fling.halt()
+                }
+                return true
+            }
+        }
         ; A toast stays for a while and goes.
         if (toastMs > 0.0) {
             toastMs = (toastMs - dtMs)
