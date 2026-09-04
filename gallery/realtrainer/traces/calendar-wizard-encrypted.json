@@ -1174,13 +1174,18 @@
      "state": ""
     },
     {
-     "role": "paragraph",
-     "name": "Ei tulevia tapahtumia",
+     "role": "button",
+     "name": "Päiväkirja",
      "state": ""
     },
     {
-     "role": "paragraph",
-     "name": "Kirjoita yllä olevaan kenttään lisätäksesi ensimmäisen merkinnän",
+     "role": "button",
+     "name": "Harjoitteet",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Tilastot",
      "state": ""
     },
     {

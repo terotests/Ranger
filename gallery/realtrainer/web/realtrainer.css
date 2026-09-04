@@ -2463,3 +2463,14 @@
 .rt-ph-calitem-on { background-color: #2a1a0f; }
 .rt-ph-calitem-text { color: #f2f2f2; font-family: Arial; font-size: 14px; height: 20px; }
 .rt-ph-calitem-new { color: #f97316; }
+
+/* --- a training calendar's Home: the tabs and the diary feed ------------------ */
+.rt-home-tabs { padding: 0px 4px; }
+.rt-home-tab-on { background-color: #f97316; }
+.rt-muted-text { color: #999999; font-family: Arial; font-weight: bold; font-size: 12px; height: 16px; }
+.rt-home-feed { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 12px; }
+.rt-entry-home { margin: 0px; }
+.rt-meas-hd { color: #f2f2f2; font-family: Arial; font-weight: bold; font-size: 15px; height: 20px; }
+.rt-meas-vals { display: flex; flex-direction: row; flex-wrap: wrap; gap: 8px; }
+.rt-meas-box { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 2px; padding: 10px 12px; border-radius: 8px; border-width: 1px; border-color: #3a2a1a; background-color: #1f1712; }
+.rt-meas-val { color: #f97316; font-family: Arial; font-weight: bold; font-size: 18px; height: 24px; }

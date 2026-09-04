@@ -256,6 +256,24 @@ already says "3x5x90kg" and "25s, 24s" the way the original's row does.
 card answer nothing yet — the notes, the stats, the comments, the exports and
 the delete are the next asks.
 
+### Home on a training calendar — the diary feed
+
+Home reads the selected calendar's type. A plan calendar gets the coming
+events and the past ones behind a counting button; a training calendar gets
+what `HomeView` gives it — the quick entry with the diary's own placeholder
+("treeni 60min"), the Päiväkirja / Harjoitteet / Tilastot tabs, and on
+Päiväkirja every workout as a card, newest first. The cards are the day
+view's, with `WorkoutBlogView`'s row rules: an exercise, a pyramid or a run
+gets the stats and comment buttons; a custom value or a timed block gets the
+comment button alone; a line of text is a paragraph with its edit and comment
+buttons; splits right under a run fold into it, numbered, and splits after a
+text line stand alone. An entry tagged as a reading — `hrv`, `paino`,
+`mittaus`, `leposyke`, `weight` — is the measurement card instead: the date
+over a level-3 title, the menu, the tags, and a box per value.
+
+`home-diary` matches the reference 100 % — 1032 compared nodes per frame,
+in order. Harjoitteet and Tilastot are tabs only; their pages are ahead.
+
 ## Traces: the app itself as the oracle
 
 A machine that passes its transition table can still be wired to the wrong

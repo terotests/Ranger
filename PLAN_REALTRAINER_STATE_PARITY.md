@@ -317,6 +317,14 @@ Päivänäkymä on tehty (`calendar-diary`, 100 %): viikkolistan päivä avaa
 kommentti, Compact, JSON, Poista — vastaavat vielä tyhjää; niistä seuraavat
 ovat muistiinpanojen muokkaus ja poisto, jotka koskevat storea (S6).
 
+Harjoituskalenterin Koti on tehty (`home-diary`, 100 %, 1032 vertailtua
+solmua): pikamerkintä päiväkirjan omalla placeholderilla, kolme välilehteä ja
+päiväkirjasyöte kortteina uusin ensin, `WorkoutBlogView`n rivisäännöillä
+(liike: tilastot + kommentti; custom/kesto: kommentti; tekstirivi: kappale +
+muokkaus + kommentti; välit taittuvat juoksuun, tekstin jälkeiset omiksi
+riveiksi) ja mittauskortilla tagien `hrv`/`paino`/`mittaus`/`leposyke`/
+`weight` mukaan. Harjoitteet- ja Tilastot-välilehtien sivut puuttuvat.
+
 ### 5.3b S3:n loput, S6
 
 S3:n näkymä on tehty (taulukko yllä). Jäljellä lakanalla: "Lisää kausi" -modaali

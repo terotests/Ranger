@@ -326,6 +326,9 @@ treefactory Rt {
     tag EntryRowTx EVGElement (props (className "rt-entry-row-text") (elementType 1))
     tag EntrySection EVGElement (props (className "rt-entry-section") (elementType 1))
     tag EntryNote EVGElement (props (className "rt-entry-note") (elementType 1))
+    tag EntryPara EVGElement (props (className "rt-entry-note") (elementType 1) (role "paragraph"))
+    tag MeasHd  EVGElement (props (className "rt-meas-hd") (elementType 1) (role "heading") (a11yLevel 3))
+    tag MeasVal EVGElement (props (className "rt-meas-val") (elementType 1))
     tag EntryFoot EVGElement (props (className "rt-entry-foot"))
     tag EntryFootTx EVGElement (props (className "rt-entry-foot-text") (elementType 1))
     tag EntryDot EVGElement (props (className "rt-entry-dot") (elementType 1))
@@ -562,6 +565,8 @@ class RealTrainerDemo {
     ; The day opened from the week list, or none — `editingDate`, and the
     ; single workout `selectedWorkout` when the day has one.
     def dayIso@(mutable):string ""
+    ; A training calendar's Home tab — `activeTab`: diary, drills or stats.
+    def homeTab@(mutable):string "diary"
     ; The calendar menu is down — `showDropdown`.
     def calMenuOpen@(mutable):boolean false
     def addedSeq@(mutable):int 0
@@ -2349,12 +2354,21 @@ class RealTrainerDemo {
         def entry (tree Rt (ModalRow))
         entry.addChild((this.iconBtn("rt-home-image" "Lisää kuva" (RtIcons.penLine("#999999")))))
         def box (tree Rt (HomeBox))
-        box.addChild((tree Rt (FieldGhost "Kirjoita merkintä... esim. \"maanantai: juoksu 45min\"")))
+        def ghost@(mutable):string "Kirjoita merkintä... esim. \"maanantai: juoksu 45min\""
+        if (seed.calendarType != "plan") {
+            ghost = "Kirjoita merkintä... esim. \"treeni 60min\""
+        }
+        box.addChild((tree Rt (FieldGhost ghost)))
         entry.addChild(box)
         def send (this.iconBtn("rt-home-send" "" (RtIcons.chevronRight("#ffffff"))))
         send.className = "rt-icon-btn rt-send-btn"
         entry.addChild(send)
         home.addChild(entry)
+        if (seed.calendarType != "plan") {
+            this.diaryFeed(home)
+            body.addChild(home)
+            return
+        }
         def empty (tree Rt (Row (props (className "rt-home-center"))))
         empty.addChild((tree Rt (ChatPara (props (id "rt-home-empty") (className "rt-home-empty")) "Ei tulevia tapahtumia")))
         home.addChild(empty)
@@ -2380,6 +2394,66 @@ class RealTrainerDemo {
             home.addChild(hint)
         }
         body.addChild(home)
+    }
+
+    ; A training calendar's Home, as `HomeView` has it: the three tabs and,
+    ; on Päiväkirja, every workout of the calendar as a card, newest first.
+    fn diaryFeed:void (home:EVGElement) {
+        def tabs (tree Rt (Row (props (className "rt-ex-btns rt-home-tabs"))))
+        tabs.addChild((this.homeTabBtn("rt-home-tab-diary" "Päiväkirja" (homeTab == "diary"))))
+        tabs.addChild((this.homeTabBtn("rt-home-tab-drills" "Harjoitteet" (homeTab == "drills"))))
+        tabs.addChild((this.homeTabBtn("rt-home-tab-stats" "Tilastot" (homeTab == "stats"))))
+        home.addChild(tabs)
+        if (homeTab != "diary") {
+            def soon (tree Rt (Row (props (className "rt-home-center"))))
+            soon.addChild((tree Rt (ChatPara (props (id "rt-home-tab-empty") (className "rt-home-empty")) "Ei vielä sisältöä")))
+            home.addChild(soon)
+            return
+        }
+        def feed (tree Rt (Col (props (className "rt-home-feed"))))
+        def sorted:[RtSeedEntry] (RealTrainerDemo.sortByDateDesc((seed.selectedEntries())))
+        for sorted e:RtSeedEntry i {
+            def card:EVGElement (this.entryCard(e i))
+            card.className = "rt-entry rt-entry-home"
+            feed.addChild(card)
+        }
+        home.addChild(feed)
+    }
+
+    fn homeTabBtn:EVGElement (id:string label:string active:boolean) {
+        def b (this.exButton(id label label))
+        if active {
+            b.className = "rt-ex-btn rt-home-tab-on"
+        } {
+            b.className = "rt-ex-btn rt-outline-btn"
+            RealTrainerDemo.tintText(b "rt-ex-btn-text rt-muted-text")
+        }
+        return b
+    }
+
+    ; Newest first; two on the same day keep the reverse of the file's order,
+    ; as the day view lists them.
+    sfn sortByDateDesc:[RtSeedEntry] (entries:[RtSeedEntry]) {
+        def out@(mutable):[RtSeedEntry]
+        def n:int (array_length entries)
+        for entries e:RtSeedEntry i {
+            def item:RtSeedEntry (itemAt entries ((n - 1) - i))
+            def days:int (RtWeek.daysOf(item.date))
+            def placed:[RtSeedEntry]
+            def done@(mutable):boolean false
+            for out o:RtSeedEntry j {
+                if ((done == false) && ((RtWeek.daysOf(o.date)) < days)) {
+                    push placed item
+                    done = true
+                }
+                push placed o
+            }
+            if (done == false) {
+                push placed item
+            }
+            out = placed
+        }
+        return out
     }
 
     ; The dashboard, as `DashboardView` has it on the phone: the heading and
@@ -3328,6 +3402,10 @@ class RealTrainerDemo {
         def card (tree Rt (EntryCard))
         card.id = ("rt-entry-" + (to_string i))
         def entry:RtEntry (RtEntry.of(e.compact))
+        if (RealTrainerDemo.isMeasurement(entry)) {
+            this.measurementCard(card entry e i)
+            return card
+        }
         def addRow (tree Rt (ModalRow))
         addRow.addChild((tree Rt (Spacer)))
         addRow.addChild((this.exButton(("rt-entry-add-" + (to_string i)) "Lisää" "Lisää")))
@@ -3347,10 +3425,45 @@ class RealTrainerDemo {
         def doc:CompactDocument (CompactRowMapper.parseDocument(e.compact))
         def moves@(mutable):int 0
         def tonnage@(mutable):int 0
+        def folding@(mutable):boolean false
         for doc.rows row:CompactRow ri {
             def kind:string (CompactStatBuilder.kind(row))
             def label:string (CompactStatBuilder.label(row))
-            def isMove:boolean ((((kind == "exercise") || (kind == "move")) || ((kind == "pyramid") || (kind == "split"))) || (kind == "circuitItem"))
+            def isMove:boolean (((kind == "exercise") || (kind == "move")) || ((kind == "pyramid") || (kind == "circuitItem")))
+            def commentOnly@(mutable):boolean ((kind == "custom") || (kind == "duration"))
+            if (kind == "split") {
+                ; A split right under its run reads as part of it — the
+                ; original folds it into that row's text, with no buttons of
+                ; its own. One after a line of text stands alone, with the
+                ; comment button a value row gets.
+                if folding { continue }
+                commentOnly = true
+            }
+            if (kind != "split") {
+                folding = isMove
+            }
+            if commentOnly {
+                def cline (tree Rt (EntryRow))
+                def ctext@(mutable):string (CompactStatBuilder.text(row))
+                if ((strlen ctext) == 0) { ctext = label }
+                if ((kind == "duration") && ((strlen label) > 0)) { ctext = ((label + " ") + ctext) }
+                cline.addChild((tree Rt (EntryRowTx ctext)))
+                cline.addChild((tree Rt (Spacer)))
+                cline.addChild((this.iconBtn((("rt-entry-comment-" + (to_string i)) + ("-" + (to_string ri))) "Lisää kommentti" (RtIcons.messageSquare("#999999")))))
+                card.addChild(cline)
+                continue
+            }
+            if (kind == "text") {
+                def tline (tree Rt (EntryRow))
+                def tcol (tree Rt (EntryRowCol))
+                tcol.addChild((tree Rt (EntryPara (props (id (("rt-entry-text-" + (to_string i)) + ("-" + (to_string ri))))) (CompactStatBuilder.text(row)))))
+                tline.addChild(tcol)
+                tline.addChild((tree Rt (Spacer)))
+                tline.addChild((this.iconBtn((("rt-entry-edit-" + (to_string i)) + ("-" + (to_string ri))) "Muokkaa tekstiä" (RtIcons.penLine("#999999")))))
+                tline.addChild((this.iconBtn((("rt-entry-comment-" + (to_string i)) + ("-" + (to_string ri))) "Lisää kommentti" (RtIcons.messageSquare("#999999")))))
+                card.addChild(tline)
+                continue
+            }
             if isMove {
                 moves = (moves + 1)
                 tonnage = (tonnage + (RealTrainerDemo.tonnageOf(row)))
@@ -3363,6 +3476,19 @@ class RealTrainerDemo {
                 col.addChild((tree Rt (EntryRowTx label)))
                 if ((strlen spec) > 0) {
                     col.addChild((tree Rt (EntrySpec spec)))
+                }
+                ; The splits right under the run, numbered, as `Move.tsx`
+                ; lists them.
+                def nSplit@(mutable):int 0
+                def si@(mutable):int (ri + 1)
+                def total:int (array_length doc.rows)
+                while (si < total) {
+                    def next:CompactRow (itemAt doc.rows si)
+                    if ((CompactStatBuilder.kind(next)) != "split") { si = total } {
+                        nSplit = (nSplit + 1)
+                        col.addChild((tree Rt (EntrySpec (((to_string nSplit) + ". ") + (CompactStatBuilder.text(next))))))
+                        si = (si + 1)
+                    }
                 }
                 line.addChild(col)
                 line.addChild((tree Rt (Spacer)))
@@ -3405,6 +3531,86 @@ class RealTrainerDemo {
         acts.addChild(del)
         card.addChild(acts)
         return card
+    }
+
+    ; `isMeasurementEntry`: a tag says the entry is a reading, not a workout.
+    sfn isMeasurement:boolean (entry:RtEntry) {
+        for entry.tags t:string i {
+            if (t == "hrv") { return true }
+            if (t == "paino") { return true }
+            if (t == "mittaus") { return true }
+            if (t == "mittaukset") { return true }
+            if (t == "leposyke") { return true }
+            if (t == "weight") { return true }
+            if (t == "measurement") { return true }
+        }
+        return false
+    }
+
+    ; The reading's card, as `WorkoutBlogView` draws a measurement: the date
+    ; over the title, the menu, the tags, a box per value and the notes.
+    fn measurementCard:void (card:EVGElement entry:RtEntry e:RtSeedEntry i:int) {
+        def head (tree Rt (ModalRow))
+        def hcol (tree Rt (EntryRowCol))
+        hcol.addChild((tree Rt (EntryTime (RealTrainerDemo.fiDatePadded(e.date)))))
+        hcol.addChild((tree Rt (MeasHd (props (id ("rt-entry-hd-" + (to_string i)))) entry.title)))
+        head.addChild(hcol)
+        head.addChild((tree Rt (Spacer)))
+        head.addChild((this.exButton(("rt-entry-add-" + (to_string i)) "Lisää" "Lisää")))
+        card.addChild(head)
+        if ((array_length entry.tags) > 0) {
+            def chips (tree Rt (EntryTags))
+            for entry.tags t:string ti {
+                chips.addChild((tree Rt (EntryTag t)))
+            }
+            card.addChild(chips)
+        }
+        def doc:CompactDocument (CompactRowMapper.parseDocument(e.compact))
+        def vals (tree Rt (Row (props (className "rt-meas-vals"))))
+        def nVals@(mutable):int 0
+        for doc.rows row:CompactRow ri {
+            def kind:string (CompactStatBuilder.kind(row))
+            if (kind == "custom") {
+                def box (tree Rt (Col (props (className "rt-meas-box"))))
+                box.addChild((tree Rt (EntryNote (CompactStatBuilder.label(row)))))
+                box.addChild((tree Rt (MeasVal (RealTrainerDemo.valueOf(row)))))
+                vals.addChild(box)
+                nVals = (nVals + 1)
+            }
+        }
+        if (nVals > 0) { card.addChild(vals) }
+        for doc.rows row:CompactRow ri {
+            def kind:string (CompactStatBuilder.kind(row))
+            if (kind == "text") {
+                card.addChild((tree Rt (EntryPara (props (id (("rt-entry-text-" + (to_string i)) + ("-" + (to_string ri))))) (CompactStatBuilder.text(row)))))
+            }
+        }
+    }
+
+    ; The custom row's value with its unit — "48 ms" from "HRV: ~48ms".
+    sfn valueOf:string (row:CompactRow) {
+        match row {
+            Custom cu {
+                def c:CustomSpec (unwrap cu.spec)
+                if ((strlen c.unit) > 0) {
+                    return ((c.value + " ") + c.unit)
+                }
+                return c.value
+            }
+            Exercise ex { }
+            Move mv { }
+            Pyramid py { }
+            Split sp { }
+            Section s { }
+            Text t { }
+            Summary sm { }
+            Phase ph { }
+            Duration du { }
+            Unknown un { }
+            Circuit ci { }
+            CircuitItem it { }
+        }
+        return (CompactStatBuilder.text(row))
     }
 
     ; sets × reps × kg, for the exercises that state all three — `totalTonnage`.
@@ -3856,6 +4062,13 @@ class RealTrainerDemo {
         if (id == "rt-nav-chat") { return (this.goSection("chat")) }
         if (id == "rt-nav-more") {
             moreOpen = true
+            return true
+        }
+        if (RtEntry.hasPrefix(id "rt-home-tab-")) {
+            def tab:string (substring id 12 (strlen id))
+            if (tab == homeTab) { return false }
+            homeTab = tab
+            docScroll = 0.0
             return true
         }
         if ((id == "rt-plan-update") || (id == "rt-plan-create")) {
