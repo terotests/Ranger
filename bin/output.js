@@ -12481,7 +12481,8 @@ class RangerSerializeClass  {
     }
   };
   createJSONSerializerFn2 (cl, ctx, wr) {
-    const use_exceptions = operatorsOfRangerAppWriterContext_23.getTargetLang_24(ctx) != "swift3";
+    const lang = operatorsOfRangerAppWriterContext_23.getTargetLang_24(ctx);
+    const use_exceptions = lang != "swift3" && lang != "swift6";
     let declaredVariable = {};
     wr.out(("extension " + cl.name) + " {", true);
     wr.indent(1);
@@ -26241,6 +26242,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               wr.out("   **/ ", true);
             } else {
               wr.newline();
+              if ( ((((p.set_cnt > 0 && p.ref_cnt <= 2 * p.set_cnt) && p.is_class_variable == false) && p.is_static == false) && nn.value_type != 6) && nn.value_type != 7 ) {
+                wr.out("_ = " + p.compiledName, true);
+              }
             }
           }
         };

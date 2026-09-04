@@ -11,12 +11,14 @@
     "build:ranger": "bash scripts/build-ranger.sh",
     "assets": "bash scripts/prepare-assets.sh",
     "verify": "bash scripts/verify.sh",
+    "desktop": "bash scripts/verify-desktop.sh",
     "typecheck": "bash scripts/typecheck-host.sh",
     "rt:android:run": "bash scripts/run-emulator.sh",
     "rt:android": "bash scripts/build-app.sh debug",
     "rt:android:ranger": "bash scripts/build-ranger.sh",
     "rt:android:assets": "bash scripts/prepare-assets.sh",
     "rt:android:verify": "bash scripts/verify.sh",
+    "rt:android:desktop": "bash scripts/verify-desktop.sh",
     "rt:android:typecheck": "bash scripts/typecheck-host.sh"
   }
 }

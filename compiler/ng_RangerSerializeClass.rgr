@@ -497,7 +497,11 @@ class RangerSerializeClass {
     fn createJSONSerializerFn2:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext wr:CodeWriter) {
 
 
-        def use_exceptions ( (ctx.getTargetLang()) != "swift3")        
+        ; Swift's `as?` reads cannot throw, and a `do` block that throws
+        ; nothing makes swiftc warn about its unreachable `catch` -- once per
+        ; serialisable class, on both Swift targets.
+        def lang:string (ctx.getTargetLang())
+        def use_exceptions:boolean ((lang != "swift3") && (lang != "swift6"))
 
         def declaredVariable:[string:boolean]        
         wr.out("extension " + cl.name + " {" , true)

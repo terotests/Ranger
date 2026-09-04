@@ -8,6 +8,7 @@ import android.graphics.Canvas
 import android.util.AttributeSet
 
 open class View(context: Context, attrs: AttributeSet? = null) {
+    val context: Context = context
     companion object {
         const val LAYER_TYPE_NONE = 0
         const val LAYER_TYPE_SOFTWARE = 1

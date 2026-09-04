@@ -115,7 +115,7 @@ class VlRuntime {
     ; whole render. The trees are read and never written by the evaluator, so
     ; one tree can serve every datum.
     def exprCache:[string:VlExprNode]
-    def dataSets:[string:VlDataSet]
+    def dataSets:[string:VlRowSet]
     def dataOrder:[string]
     def scaleOrder:[string]
     def errors:[string]
@@ -702,13 +702,13 @@ class VlRuntime {
 
     fn runDataSet:void (def0:VlJson) {
         def name:string (def0.stringOr("name" ""))
-        def ds (new VlDataSet())
+        def ds (new VlRowSet())
         ds.name = name
 
         def source:string (def0.stringOr("source" ""))
         if ((strlen source) > 0) {
             if (has dataSets source) {
-                def src:VlDataSet (unwrap (get dataSets source))
+                def src:VlRowSet (unwrap (get dataSets source))
                 for src.rows row:VlJson ri {
                     push ds.rows row
                 }
@@ -799,7 +799,7 @@ class VlRuntime {
             def tableName:string (tdef.stringOr("from" ""))
             def table:[VlJson]
             if (has dataSets tableName) {
-                def other:VlDataSet (unwrap (get dataSets tableName))
+                def other:VlRowSet (unwrap (get dataSets tableName))
                 for other.rows one:VlJson oi {
                     push table one
                 }
@@ -1375,7 +1375,7 @@ class VlRuntime {
 
     fn dataRows:[VlJson] (name:string) {
         if (has dataSets name) {
-            def ds:VlDataSet (unwrap (get dataSets name))
+            def ds:VlRowSet (unwrap (get dataSets name))
             return ds.rows
         }
         def empty:[VlJson]
@@ -3101,21 +3101,21 @@ class VlRuntime {
         def rows:[VlJson] (this.sortedFacetRows(sourceName (mdef.get("sort"))))
 
         def keys:[string]
-        def partitions:[string:VlDataSet]
+        def partitions:[string:VlRowSet]
         for rows row:VlJson idx {
             def key:string (VlTransform.groupKey(row groupby))
             if (! (has partitions key)) {
                 push keys key
-                def fresh:VlDataSet (new VlDataSet())
+                def fresh:VlRowSet (new VlRowSet())
                 fresh.name = facetName
                 set partitions key fresh
             }
-            def part:VlDataSet (unwrap (get partitions key))
+            def part:VlRowSet (unwrap (get partitions key))
             push part.rows row
         }
 
         for keys key:string ki {
-            def part:VlDataSet (unwrap (get partitions key))
+            def part:VlRowSet (unwrap (get partitions key))
             ; The facet's rows are published under its own name for the duration
             ; of this group, which is how the marks inside it find their data.
             set dataSets facetName part

@@ -695,6 +695,19 @@ class RangerSwift6ClassWriter {
         wr.out("   **/ " true)
       } {
         wr.newline()
+        ; A local the body assigns to but never reads. The flow pass counts
+        ; every assignment target twice in ref_cnt (once as the walked name,
+        ; once at the assignment) and once in set_cnt, so a variable whose
+        ; references are all assignments has ref_cnt == 2 * set_cnt. Swift
+        ; warns "written to, but never read" on it; one read after the
+        ; declaration is the smallest thing that answers the warning, and it
+        ; is a no-op when the count was pessimistic.
+        ; Collections are left out: a `push` bumps set_cnt without the
+        ; double ref, so the count reads as "never read" on an array that
+        ; is returned.
+        if ((p.set_cnt > 0) && (p.ref_cnt <= (2 * p.set_cnt)) && (p.is_class_variable == false) && (p.is_static == false) && (nn.value_type != RangerNodeType.Array) && (nn.value_type != RangerNodeType.Hash)) {
+          wr.out(("_ = " + p.compiledName) true)
+        }
       }
     }
   }
