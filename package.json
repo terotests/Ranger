@@ -891,7 +891,13 @@
     "rt:ios:check": "bash gallery/realtrainer/ios/scripts/build-app.sh --check",
     "rt:ios:plan": "bash gallery/realtrainer/ios/scripts/build-app.sh --dry-run",
     "rt:ios:verify": "bash gallery/realtrainer/ios/scripts/verify.sh",
-    "rt:ios:swift": "bash gallery/realtrainer/ios/scripts/build-ranger.sh"
+    "rt:ios:swift": "bash gallery/realtrainer/ios/scripts/build-ranger.sh",
+    "rt:android": "bash gallery/realtrainer/android/scripts/build-app.sh debug",
+    "rt:android:run": "bash gallery/realtrainer/android/scripts/run-emulator.sh",
+    "rt:android:ranger": "bash gallery/realtrainer/android/scripts/build-ranger.sh",
+    "rt:android:assets": "bash gallery/realtrainer/android/scripts/prepare-assets.sh",
+    "rt:android:verify": "bash gallery/realtrainer/android/scripts/verify.sh",
+    "rt:android:typecheck": "bash gallery/realtrainer/android/scripts/typecheck-host.sh"
   },
   "repository": {
     "type": "git",

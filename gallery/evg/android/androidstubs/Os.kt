@@ -3,6 +3,8 @@ package android.os
 
 class Bundle
 
+interface IBinder
+
 /**
  * Enough of `Build` for an API check. The hosts gate on `SDK_INT` where a
  * platform feature is newer than `minSdk`, and a stub that did not have it
