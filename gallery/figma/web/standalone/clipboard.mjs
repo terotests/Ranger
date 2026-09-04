@@ -13,8 +13,11 @@
  * nodes inside. The Ranger parser reads those bytes as they are.
  */
 
-const BUFFER_RE = /data-buffer="<!--\(figma\)([A-Za-z0-9+/=\s]*)-->"/;
-const META_RE = /data-metadata="<!--\(figmeta\)([A-Za-z0-9+/=\s]*)-->"/;
+// Tolerant on purpose: a browser hands pasted HTML over sanitised and
+// re-serialised, so the quotes may change and the `<` / `>` around the
+// comment may arrive as entities.
+const BUFFER_RE = /data-buffer=["']?\s*(?:&lt;|<)!--\(figma\)([A-Za-z0-9+/=\s]*)--(?:&gt;|>)/;
+const META_RE = /data-metadata=["']?\s*(?:&lt;|<)!--\(figmeta\)([A-Za-z0-9+/=\s]*)--(?:&gt;|>)/;
 
 function fromBase64(b64) {
   const bin = atob(b64.replace(/\s+/g, ""));
@@ -32,19 +35,47 @@ function toBase64(bytes) {
   return btoa(bin);
 }
 
-/** Decode a text/html clipboard payload. `buffer` is null when it is not Figma's. */
+/** Decode a text/html clipboard payload. `buffer` is null when it is not
+ *  Figma's; `reason` then says what was seen, for the status line. */
 export function figmaClipboard(html) {
-  if (typeof html !== "string") return { buffer: null, meta: null };
+  if (typeof html !== "string" || !html) return { buffer: null, meta: null, reason: "no text/html on the clipboard" };
   const m = BUFFER_RE.exec(html);
-  if (!m) return { buffer: null, meta: null };
+  if (!m) {
+    const hint = html.includes("(figma)") ? "has (figma) but the buffer did not parse" : "text/html is not from Figma";
+    return { buffer: null, meta: null, reason: hint + " (" + html.length + " chars)" };
+  }
   let meta = null;
   const mm = META_RE.exec(html);
   if (mm) {
     try { meta = JSON.parse(new TextDecoder().decode(fromBase64(mm[1]))); } catch { meta = null; }
   }
-  const u8 = fromBase64(m[1]);
+  let u8;
+  try {
+    u8 = fromBase64(m[1]);
+  } catch (e) {
+    return { buffer: null, meta, reason: "figma buffer is not base64: " + (e.message || e) };
+  }
   const buffer = u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
-  return { buffer, meta };
+  return { buffer, meta, reason: "" };
+}
+
+/** Read the clipboard through the async API (a click on Paste): the
+ *  text/html item when there is one, else a .fig file. */
+export async function readFigmaClipboard() {
+  if (!navigator.clipboard || !navigator.clipboard.read) {
+    return { buffer: null, meta: null, reason: "this browser has no clipboard.read(); use ⌘V / Ctrl+V" };
+  }
+  const items = await navigator.clipboard.read();
+  const types = [];
+  for (const item of items) {
+    types.push(...item.types);
+    if (item.types.includes("text/html")) {
+      const html = await (await item.getType("text/html")).text();
+      const clip = figmaClipboard(html);
+      if (clip.buffer) return clip;
+    }
+  }
+  return { buffer: null, meta: null, reason: "clipboard types: " + (types.join(", ") || "none") };
 }
 
 /** Wrap fig-kiwi bytes the way Figma does — the inverse of figmaClipboard. */
