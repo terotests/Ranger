@@ -9,6 +9,9 @@ parsed document behind all of it.
 
 ```bash
 npm run rt:web      # build, serve, print the URL
+# on a phone: the bare URL fits the viewport and opens the shell on Home;
+# ?page=fit&route=/calendar/cal-plan?week=2026-02-09 opens it on a route,
+# ?page=390x844 draws a phone inside a desktop browser
 npm run rt:check    # the app driven with a made-up clock, no browser  (CI)
 npm run rt:frame    # the same app in Chromium, checked at the pixels
 ```

@@ -32,15 +32,22 @@ app.loadChatMachine(REALTRAINER_CHAT_MACHINE);
 app.loadReference(REALTRAINER_SEED);
 // `?page=390x844&route=/calendar/cal-plan?week=2026-02-09` opens the app the
 // way the reference recorder opens the original: a phone, on a route.
+// `page=fit` is the phone itself: the page is the viewport, and so is any
+// viewport too narrow for the desktop demo when nothing was asked — a phone
+// opening the bare URL gets the shell, on its route or on Home.
 {
   const params = new URLSearchParams(location.search);
   const page = params.get("page");
-  if (page) {
+  const fit = page === "fit" || (!page && window.innerWidth < 600);
+  if (fit) {
+    app.setPageSize(window.innerWidth, window.innerHeight);
+  } else if (page) {
     const [w, h] = page.split("x").map(Number);
     if (w > 0 && h > 0) app.setPageSize(w, h);
   }
   const route = params.get("route");
   if (route) app.openRoute(route);
+  else if (fit) app.openRoute("/");
 }
 
 // For anything driving this page from outside — the browser check reads the
@@ -162,17 +169,44 @@ function syncTextSession() {
   textInput.focusField(tid, st);
 }
 
+// A finger has no wheel: a drag on the canvas scrolls what the wheel would,
+// and a drag that scrolled is not a press when it lifts. Six pixels is the
+// slack a tap gets before it becomes a drag.
+let drag = null;
 canvas.addEventListener("pointerdown", (ev) => {
   const [x, y] = at(ev);
+  drag = { y, moved: false };
+  canvas.setPointerCapture(ev.pointerId);
   app.setPressed(app.hitId(x, y));
   paint();
 });
 canvas.addEventListener("pointerup", (ev) => {
   const [x, y] = at(ev);
+  const scrolled = drag?.moved;
+  drag = null;
+  if (scrolled) {
+    app.setPressed("");
+    paint();
+    return;
+  }
   press(x, y);
+});
+canvas.addEventListener("pointercancel", () => {
+  drag = null;
+  app.setPressed("");
+  paint();
 });
 canvas.addEventListener("pointermove", (ev) => {
   const [x, y] = at(ev);
+  if (drag) {
+    const dy = drag.y - y;
+    if (drag.moved || Math.abs(dy) > 6) {
+      drag.moved = true;
+      drag.y = y;
+      if (app.scrollDocument(dy)) paint();
+    }
+    return;
+  }
   const id = app.hitId(x, y);
   if (id === hovered) return;
   hovered = id;
