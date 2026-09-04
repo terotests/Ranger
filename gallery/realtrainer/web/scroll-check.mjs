@@ -61,9 +61,9 @@ const longDiary = (times) => {
   return out;
 };
 
-const open = (route, w, h, compact) => {
+const open = (route, w, h, compact, css) => {
   const app = new RealTrainerDemo();
-  app.init(CSS, compact ?? COMPACT);
+  app.init(css ?? CSS, compact ?? COMPACT);
   app.loadPlanMachine(PLAN);
   app.loadChatMachine(CHAT);
   app.loadReference(SEED);
@@ -346,7 +346,7 @@ console.log("--- the scrollbar ---");
   const rest = thumbs();
   ok("the document draws one thumb", rest.length === 1, JSON.stringify(rest));
   const t0 = rest[0];
-  ok("thin and faint at rest", t0.w === 4 && t0.a <= 0.3, JSON.stringify(t0));
+  ok("thin and faint at rest", t0.w === 4 && t0.a <= 0.45, JSON.stringify(t0));
   // The container is the content layer's element; its track is inset 3px.
   const box = app.display().layerElement(0);
   const trackTop = box.calculatedY + 3;
@@ -428,6 +428,20 @@ console.log("--- the scrollbar ---");
      visibleText(app, 390, 844) === visibleText(full, 390, 844));
   ok("released, the thumb stays lit while the page settles", app.scrollbarRelease() && thumbs()[0].w === 8 && lit.w === 11);
   ok("no layout in any of it", app.layoutCount() === 1, `${app.layoutCount()} layouts`);
+
+  // The sheet styles it: the app's `.rt-doc-view` names the thumb's colour,
+  // `thin` narrows it, `none` removes it, and the label can be turned off.
+  ok("the thumb wears the sheet's scrollbar-color", JSON.stringify(thumbs()[0].c) === "[203,213,225]",
+     JSON.stringify(thumbs()[0]));
+  const thin = open("#document", 390, 844, LONG, CSS + "\n.rt-doc-view { scrollbar-width: thin; }");
+  ok("scrollbar-width: thin narrows it", JSON.parse(thin.scrollbarThumbsJson())[0].w === 3,
+     thin.scrollbarThumbsJson());
+  const none = open("#document", 390, 844, LONG, CSS + "\n.rt-doc-view { scrollbar-width: none; }");
+  ok("and none removes it", JSON.parse(none.scrollbarThumbsJson()).length === 0, none.scrollbarThumbsJson());
+  const quiet = open("#document", 390, 844, LONG, CSS + "\n.rt-doc-view { evg-scrollbar-label: none; }");
+  quiet.scrollDocument(600);
+  ok("evg-scrollbar-label: none keeps the number off",
+     !JSON.parse(quiet.displayListJson()).cmds.some((c) => c.k === 3 && /^\d+ %$/.test(c.text)));
 }
 
 // --- the throw ---------------------------------------------------------------

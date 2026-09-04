@@ -894,8 +894,18 @@ class EVGDisplayList {
         return ((to_string pct) + " %")
     }
 
-    ; How wide the thumb is in a state, in page pixels.
-    sfn barWidth:double (state:int) {
+    ; How wide the thumb is in a state, in page pixels; `thin` is CSS's
+    ; `scrollbar-width: thin`.
+    sfn barWidth:double (state:int thin:boolean) {
+        if thin {
+            if (state >= 2) {
+                return 7.0
+            }
+            if (state == 1) {
+                return 5.0
+            }
+            return 3.0
+        }
         if (state >= 2) {
             return 11.0
         }
@@ -925,7 +935,10 @@ class EVGDisplayList {
                 state = 2
             }
         }
-        def width:double (EVGDisplayList.barWidth(state))
+        if (el.scrollbarWidth == "none") {
+            return
+        }
+        def width:double (EVGDisplayList.barWidth(state (el.scrollbarWidth == "thin")))
         def margin:double 3.0
         def trackX:double ((x + w) - (width + margin))
         def trackY:double (y + margin)
@@ -948,13 +961,42 @@ class EVGDisplayList {
         ; The container's own text colour, thinned: a bar that is the page's
         ; ink at a fraction reads as part of the page on any theme.
         def lum:int (idiv ((backdropR * 299) + ((backdropG * 587) + (backdropB * 114))) 1000)
-        def cr@(mutable):int 30
-        def cg@(mutable):int 30
-        def cb@(mutable):int 30
+        ; The thumb's colour: the sheet's `scrollbar-color`, else ink on the
+        ; backdrop. Its alpha is the colour's own, thinned at rest and full
+        ; when lit — so a sheet that asks for a translucent thumb gets one
+        ; in every state.
+        def base@(mutable):EVGColor (EVGColor.rgba(30 30 30 1.0))
         if (lum < 128) {
-            cr = 235
-            cg = 235
-            cb = 235
+            base = (EVGColor.rgba(235 235 235 1.0))
+        }
+        if el.scrollbarThumb.isSet {
+            base = (unwrap el.scrollbarThumb)
+        }
+        def cr:int (base.red())
+        def cg:int (base.green())
+        def cb:int (base.blue())
+        def own:double (base.alpha())
+        def thumbA@(mutable):double (own * 0.5)
+        if (state == 1) {
+            thumbA = (own * 0.72)
+        }
+        if (state >= 2) {
+            thumbA = (own * 0.92)
+        }
+        ; Lit from the left: the thumb is a gradient across itself, from the
+        ; colour lightened to the colour, which is what makes a flat bar
+        ; read as a rounded one.
+        def lit:EVGColor (base.lighten(0.38))
+        ; The ink of the label is what the pill is NOT: dark on a light
+        ; pill, light on a dark one.
+        def pillLum:int (idiv ((cr * 299) + ((cg * 587) + (cb * 114))) 1000)
+        def tr@(mutable):int 20
+        def tg@(mutable):int 20
+        def tb@(mutable):int 24
+        if (pillLum < 140) {
+            tr = 250
+            tg = 250
+            tb = 250
         }
         if (state > 0) {
             def track (new EVGDrawCmd())
@@ -964,10 +1006,17 @@ class EVGDisplayList {
             track.w = width
             track.h = trackH
             track.radius = (width / 2.0)
-            track.r = cr
-            track.g = cg
-            track.b = cb
-            track.a = 0.14
+            if el.scrollbarTrack.isSet {
+                track.r = (el.scrollbarTrack.red())
+                track.g = (el.scrollbarTrack.green())
+                track.b = (el.scrollbarTrack.blue())
+                track.a = (el.scrollbarTrack.alpha())
+            } {
+                track.r = cr
+                track.g = cg
+                track.b = cb
+                track.a = 0.12
+            }
             this.addCmd(track)
         }
         ; The clip reaches left of the track to hold the label; the thumb
@@ -1004,18 +1053,18 @@ class EVGDisplayList {
         thumb.w = width
         thumb.h = thumbH
         thumb.radius = (width / 2.0)
-        thumb.r = cr
-        thumb.g = cg
-        thumb.b = cb
-        thumb.a = 0.3
-        if (state == 1) {
-            thumb.a = 0.62
-        }
-        if (state >= 2) {
-            thumb.a = 0.85
-        }
+        thumb.hasGrad = true
+        thumb.gradDir = 1
+        thumb.r = (lit.red())
+        thumb.g = (lit.green())
+        thumb.b = (lit.blue())
+        thumb.a = thumbA
+        thumb.r2 = cr
+        thumb.g2 = cg
+        thumb.b2 = cb
+        thumb.a2 = thumbA
         this.addCmd(thumb)
-        if (state >= 1) {
+        if ((state >= 1) && (el.scrollbarLabel != "none")) {
             ; Where the page is, as a number beside the thumb: a pill in the
             ; bar's ink with the text in the backdrop's, so it reads on any
             ; page. It moves with the thumb — it is in the thumb's layer —
@@ -1031,10 +1080,16 @@ class EVGDisplayList {
             pill.w = pillW
             pill.h = pillH
             pill.radius = (pillH / 2.0)
-            pill.r = cr
-            pill.g = cg
-            pill.b = cb
-            pill.a = 0.92
+            pill.hasGrad = true
+            pill.gradDir = 0
+            pill.r = (lit.red())
+            pill.g = (lit.green())
+            pill.b = (lit.blue())
+            pill.a = (own * 0.94)
+            pill.r2 = cr
+            pill.g2 = cg
+            pill.b2 = cb
+            pill.a2 = (own * 0.94)
             this.addCmd(pill)
             def label (new EVGDrawCmd())
             label.kind = 3
@@ -1046,9 +1101,9 @@ class EVGDisplayList {
             label.fontFamily = "sans-serif"
             label.fontSize = 11.0
             label.fontWeight = "600"
-            label.r = backdropR
-            label.g = backdropG
-            label.b = backdropB
+            label.r = tr
+            label.g = tg
+            label.b = tb
             label.a = 1.0
             set layerLabel ((array_length layerEls) - 1) (array_length cmds)
             this.addCmd(label)
@@ -1145,7 +1200,8 @@ class EVGDisplayList {
                     out = (out + ",")
                 }
                 out = (out + "{\"x\":" + (EVGDisplayList.num(t.x)) + ",\"y\":" + (EVGDisplayList.num(t.y)))
-                out = (out + ",\"w\":" + (EVGDisplayList.num(t.w)) + ",\"h\":" + (EVGDisplayList.num(t.h)) + ",\"a\":" + (EVGDisplayList.num(t.a)) + "}")
+                out = (out + ",\"w\":" + (EVGDisplayList.num(t.w)) + ",\"h\":" + (EVGDisplayList.num(t.h)) + ",\"a\":" + (EVGDisplayList.num(t.a)))
+                out = (out + ",\"c\":[" + (to_string t.r2) + "," + (to_string t.g2) + "," + (to_string t.b2) + "]}")
                 n = (n + 1)
             }
             i = (i + 1)

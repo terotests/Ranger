@@ -235,6 +235,16 @@ class EVGElement {
     ; Empty means nobody has said anything, which is what makes inheriting
     ; distinguishable from an author writing `default` on purpose.
     def cursor:string ""
+    ; The scroll container's bar, as CSS styles it: `scrollbar-width` (auto,
+    ; thin, none), `scrollbar-color` (the thumb's colour, then the track's;
+    ; `auto` for either is ink on whatever the bar is over), and the EVG
+    ; extension `evg-scrollbar-label` (percent, none). Read by
+    ; `EVGDisplayList.addScrollbar`, which draws the bar when an app asks
+    ; the list to.
+    def scrollbarWidth:string ""
+    def scrollbarThumb:EVGColor
+    def scrollbarTrack:EVGColor
+    def scrollbarLabel:string ""
 
     ; --- A SURFACE EFFECT ------------------------------------------------------
     ;
@@ -965,6 +975,8 @@ class EVGElement {
         imageOffsetY = (EVGUnit.unset())
         
         fillColor = (EVGColor.noColor())
+        scrollbarThumb = (EVGColor.noColor())
+        scrollbarTrack = (EVGColor.noColor())
         strokeColor = (EVGColor.noColor())
     }
     
@@ -2426,6 +2438,10 @@ class EVGElement {
         sourceHeight = other.sourceHeight
         svgPath = other.svgPath
         svgSource = other.svgSource
+        scrollbarWidth = other.scrollbarWidth
+        scrollbarThumb = other.scrollbarThumb
+        scrollbarTrack = other.scrollbarTrack
+        scrollbarLabel = other.scrollbarLabel
         viewBox = other.viewBox
         fillColor = other.fillColor
         strokeColor = other.strokeColor
@@ -2533,6 +2549,52 @@ class EVGElement {
         hasBreak = other.hasBreak
         hasContinue = other.hasContinue
         inheritedFontSize = other.inheritedFontSize
+    }
+
+    ; `scrollbar-color: <thumb> <track>` — two colours, split on the space
+    ; between them and not on the spaces inside an `rgba( )`. One colour
+    ; is the thumb alone; `auto` for either is no colour of its own.
+    fn setScrollbarColor:void (value:string) {
+        def parts:[string]
+        def cur@(mutable):string ""
+        def depth@(mutable):int 0
+        def i:int 0
+        def n:int (strlen value)
+        while (i < n) {
+            def ch:string (substring value i (i + 1))
+            if (ch == "(") {
+                depth = (depth + 1)
+            }
+            if (ch == ")") {
+                depth = (depth - 1)
+            }
+            if (((ch == " ") || (ch == "\t")) && (depth == 0)) {
+                if ((strlen cur) > 0) {
+                    push parts cur
+                    cur = ""
+                }
+            } {
+                cur = (cur + ch)
+            }
+            i = (i + 1)
+        }
+        if ((strlen cur) > 0) {
+            push parts cur
+        }
+        scrollbarThumb = (EVGColor.noColor())
+        scrollbarTrack = (EVGColor.noColor())
+        if ((array_length parts) > 0) {
+            def t:string (itemAt parts 0)
+            if (t != "auto") {
+                scrollbarThumb = (EVGColor.parse(t))
+            }
+        }
+        if ((array_length parts) > 1) {
+            def tr:string (itemAt parts 1)
+            if (tr != "auto") {
+                scrollbarTrack = (EVGColor.parse(tr))
+            }
+        }
     }
 
     fn setAttribute:void (name:string value:string) {
@@ -3012,6 +3074,18 @@ class EVGElement {
         }
         if (name == "cursor") {
             cursor = value
+            return
+        }
+        if ((name == "scrollbar-width") || (name == "scrollbarWidth")) {
+            scrollbarWidth = value
+            return
+        }
+        if ((name == "scrollbar-color") || (name == "scrollbarColor")) {
+            this.setScrollbarColor(value)
+            return
+        }
+        if (name == "evg-scrollbar-label") {
+            scrollbarLabel = value
             return
         }
         ; The EVG effect family. Prefixed, because these are EXTENSIONS and not

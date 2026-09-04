@@ -1746,6 +1746,9 @@ class EVGStyleSheet {
         if (name == "backdrop-filter")    { return false }
         if (name == "cursor")             { return false }
         if (name == "transition")         { return false }
+        if (name == "scrollbar-width")    { return false }
+        if (name == "scrollbar-color")    { return false }
+        if (name == "evg-scrollbar-label") { return false }
         return true
     }
 
