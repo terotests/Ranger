@@ -12,15 +12,24 @@ class FigCli {
     sfn main:void () {
         def n:int (shell_arg_cnt)
         if (n < 1) {
-            print "usage: fig_cli inspect <file.fig|.deck>"
+            print "usage: fig_cli inspect <file.fig|.deck|.html>"
             print "       fig_cli sample"
             print "       fig_cli write-sample <out.fig>"
+            print "       fig_cli clipboard"
             return
         }
         def cmd:string (shell_arg 0)
         if (cmd == "sample") {
             def p (new FigParser())
             def doc:FigDoc (p.parseBytes((FigSample.buildFig()) "sample.fig"))
+            FigCli.dump(doc)
+            return
+        }
+        if (cmd == "clipboard") {
+            def html:string (FigSample.buildClipboardHtml())
+            print html
+            def p (new FigParser())
+            def doc:FigDoc (p.parseHtml(html "clipboard"))
             FigCli.dump(doc)
             return
         }

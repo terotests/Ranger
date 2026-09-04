@@ -186,6 +186,9 @@ class FigDoc {
     def usedZstd:boolean false
     def ok:boolean true
     def err:string ""
+    def canvasBytes:buffer (buffer_alloc 0)
+    def fromClipboard:boolean false
+    def pasteFileKey:string ""
 
     Constructor () {
     }
@@ -459,6 +462,9 @@ class FigModel {
         }
         FigModel.sortChildren(doc.pages)
         if ((array_length doc.pages) == 0) {
+            FigModel.collectOrphans(doc)
+        }
+        if ((array_length doc.pages) == 0) {
             def nl:int 0
             while (nl < (array_length doc.nodes)) {
                 def nd5:FigNode (itemAt doc.nodes nl)
@@ -477,5 +483,48 @@ class FigModel {
             }
         }
         doc.treeMs = ((wall_clock_ms) - t0)
+    }
+
+    sfn collectOrphans:void (doc:FigDoc) {
+        def map:[string:FigNode]
+        def i:int 0
+        while (i < (array_length doc.nodes)) {
+            def nd:FigNode (itemAt doc.nodes i)
+            set map nd.id nd
+            i = (i + 1)
+        }
+        def page (new FigNode())
+        page.id = "paste:0"
+        page.typeName = "CANVAS"
+        page.name = "Paste"
+        page.w = 1440.0
+        page.h = 900.0
+        page.visible = true
+        page.opacity = 1.0
+        def j:int 0
+        while (j < (array_length doc.nodes)) {
+            def n:FigNode (itemAt doc.nodes j)
+            if (n.typeName == "DOCUMENT") {
+            } {
+                def missing:boolean true
+                if ((strlen n.parentId) > 0) {
+                    def p@(optional):FigNode (get map n.parentId)
+                    if (null? p) {
+                        missing = true
+                    } {
+                        missing = false
+                    }
+                }
+                if missing {
+                    push page.children n
+                }
+            }
+            j = (j + 1)
+        }
+        FigModel.sortChildren(page.children)
+        if ((array_length page.children) > 0) {
+            push doc.pages page
+            push doc.nodes page
+        }
     }
 }

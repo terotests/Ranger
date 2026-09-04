@@ -19,6 +19,18 @@ class FigWeb {
         return (app.openSample())
     }
 
+    fn openHtml:boolean (html:string name:string) {
+        return (app.openHtml(html name))
+    }
+
+    fn clipboardHtml:string () {
+        return (app.clipboardHtml())
+    }
+
+    fn fromClipboard:boolean () {
+        return app.doc.fromClipboard
+    }
+
     fn ok:boolean () {
         return app.ok
     }

@@ -70,6 +70,12 @@ npm run figma:inspect       # dump the bundled sample
 npm run figma:bench         # Ranger vs openfig-core (if installed)
 ```
 
+Paste a Figma selection (`Ctrl/Cmd+V` or **Paste**). Figma writes `text/html`
+with `<!--(figma)…(/figma)-->` — that payload is a `fig-kiwi` canvas, the
+same bytes as `canvas.fig` inside a `.fig` ZIP. **Copy** writes that format
+back (Ranger's own schema, so Figma may not accept every paste; the viewer
+round-trips it).
+
 Drop a real `.fig` on the page, or:
 
 ```bash
@@ -126,7 +132,8 @@ zstd + a ~550-type schema on both.
 
 ```text
 gallery/figma/
-  src/FigParser.rgr          ZIP → canvas → kiwi → FigDoc
+  src/FigClipboard.rgr       Figma text/html paste (figmeta + fig-kiwi)
+  src/FigParser.rgr          ZIP / canvas.fig / clipboard HTML → FigDoc
   src/FigModel.rgr           typed Figma nodes
   src/convert/FigToScene.rgr Figma → SceneNode
   src/scene/                 format-agnostic IR + matrices + assets

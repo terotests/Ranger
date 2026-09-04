@@ -59,11 +59,13 @@
     <header>
       <div>
         <h1>Ranger Fig</h1>
-        <p>Read a Figma <code>.fig</code> / <code>.deck</code> in this tab. ZIP → kiwi → scene graph → EVG. Nothing is uploaded.</p>
+        <p>Read a Figma <code>.fig</code> / <code>.deck</code> in this tab, or paste a Figma copy. ZIP / clipboard → kiwi → scene graph → EVG. Nothing is uploaded.</p>
       </div>
       <div class="row">
-        <input id="file" type="file" accept=".fig,.deck,.jam,application/zip" />
+        <input id="file" type="file" accept=".fig,.deck,.jam,.html,application/zip,text/html" />
         <button id="sample" class="primary" type="button">Open sample</button>
+        <button id="paste" type="button">Paste</button>
+        <button id="copy" type="button">Copy</button>
         <label>Page <select id="page"></select></label>
         <label>Frame <select id="frame"></select></label>
         <button id="fit" type="button">Fit</button>

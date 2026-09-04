@@ -8,6 +8,7 @@ Import "FigCanvas.rgr"
 Import "KiwiSchema.rgr"
 Import "KiwiDecode.rgr"
 Import "FigModel.rgr"
+Import "FigClipboard.rgr"
 
 class FigParser {
     def schema:KiwiSchema (new KiwiSchema())
@@ -16,6 +17,12 @@ class FigParser {
     }
 
     fn parseBytes:FigDoc (bytes:buffer name:string) {
+        if (FigCanvas.startsFig((FigCanvas.asciiAt(bytes 0 8)))) {
+            return (this.parseCanvasBytes(bytes name))
+        }
+        if (FigClipboard.looksLikeBytes(bytes)) {
+            return (this.parseHtml((FigParser.asciiBuffer(bytes)) name))
+        }
         def doc (new FigDoc())
         def tAll:double (wall_clock_ms)
         def t0:double (wall_clock_ms)
@@ -51,6 +58,39 @@ class FigParser {
         }
         def cEntry:ZipEntry (unwrap canvas)
         def cbytes:buffer (zip.extract(cEntry))
+        doc = (this.parseCanvasBytes(cbytes name))
+        if doc.ok {
+            this.readSidecars(zip doc)
+            if ((strlen doc.fileName) == 0) {
+                doc.fileName = name
+            }
+            doc.zipMs = ((wall_clock_ms) - t0)
+            doc.totalMs = ((wall_clock_ms) - tAll)
+        }
+        return doc
+    }
+
+    fn parseHtml:FigDoc (html:string name:string) {
+        def clip:FigClip (FigClipboard.parse(html))
+        if (clip.ok == false) {
+            def bad (new FigDoc())
+            bad.ok = false
+            bad.err = clip.err
+            return bad
+        }
+        def doc:FigDoc (this.parseCanvasBytes(clip.canvas name))
+        doc.fromClipboard = true
+        doc.pasteFileKey = clip.fileKey
+        if ((strlen clip.fileKey) > 0) {
+            doc.fileName = clip.fileKey
+        }
+        return doc
+    }
+
+    fn parseCanvasBytes:FigDoc (cbytes:buffer name:string) {
+        def doc (new FigDoc())
+        def tAll:double (wall_clock_ms)
+        doc.canvasBytes = cbytes
         def fig (new FigCanvas())
         if ((fig.parse(cbytes)) == false) {
             doc.ok = false
@@ -95,7 +135,6 @@ class FigParser {
         }
         doc.root = msg
         FigModel.buildTree(doc msg)
-        this.readSidecars(zip doc)
         if ((strlen doc.fileName) == 0) {
             doc.fileName = name
         }

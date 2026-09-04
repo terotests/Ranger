@@ -1,0 +1,131 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; Base64 for the Figma clipboard (browser has no Node Buffer).
+
+class FigBase64 {
+    Constructor () {
+    }
+
+    sfn alphabet:string () {
+        return "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    }
+
+    sfn encode:string (src:buffer) {
+        def abc:string (FigBase64.alphabet())
+        def n:int (buffer_length src)
+        def out:string ""
+        def i:int 0
+        while (i < n) {
+            def b0:int (buffer_get src i)
+            def b1:int 0
+            def b2:int 0
+            def rem:int (n - i)
+            if (rem > 1) {
+                b1 = (buffer_get src (i + 1))
+            }
+            if (rem > 2) {
+                b2 = (buffer_get src (i + 2))
+            }
+            def n0:int (bit_and (bit_ushr b0 2) 63)
+            def n1:int (bit_and ((bit_shl (bit_and b0 3) 4) + (bit_ushr b1 4)) 63)
+            def n2:int (bit_and ((bit_shl (bit_and b1 15) 2) + (bit_ushr b2 6)) 63)
+            def n3:int (bit_and b2 63)
+            out = (out + (strfromcode (charAt abc n0)))
+            out = (out + (strfromcode (charAt abc n1)))
+            if (rem == 1) {
+                out = (out + "==")
+            } {
+                if (rem == 2) {
+                    out = (out + (strfromcode (charAt abc n2)))
+                    out = (out + "=")
+                } {
+                    out = (out + (strfromcode (charAt abc n2)))
+                    out = (out + (strfromcode (charAt abc n3)))
+                }
+            }
+            i = (i + 3)
+        }
+        return out
+    }
+
+    sfn decode:buffer (s:string) {
+        def n:int (strlen s)
+        def raw:[int]
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt s i)
+            def v:int (FigBase64.digit(c))
+            if (v >= 0) {
+                push raw v
+            }
+            i = (i + 1)
+        }
+        def m:int (array_length raw)
+        def groups:int (idiv (m + 3) 4)
+        def out:buffer (buffer_alloc (groups * 3))
+        def o:int 0
+        def g:int 0
+        while (g < m) {
+            def a:int (itemAt raw g)
+            def b:int 0
+            def c:int 0
+            def d:int 0
+            if ((g + 1) < m) {
+                b = (itemAt raw (g + 1))
+            }
+            if ((g + 2) < m) {
+                c = (itemAt raw (g + 2))
+            }
+            if ((g + 3) < m) {
+                d = (itemAt raw (g + 3))
+            }
+            buffer_set out o (bit_and ((bit_shl a 2) + (bit_ushr b 4)) 255)
+            o = (o + 1)
+            if ((g + 2) < m) {
+                buffer_set out o (bit_and ((bit_shl (bit_and b 15) 4) + (bit_ushr c 2)) 255)
+                o = (o + 1)
+            }
+            if ((g + 3) < m) {
+                buffer_set out o (bit_and ((bit_shl (bit_and c 3) 6) + d) 255)
+                o = (o + 1)
+            }
+            g = (g + 4)
+        }
+        return (FigBase64.trimTo(out o))
+    }
+
+    sfn trimTo:buffer (src:buffer n:int) {
+        def out:buffer (buffer_alloc n)
+        def i:int 0
+        while (i < n) {
+            buffer_set out i (buffer_get src i)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn digit:int (c:int) {
+        if ((c >= 65) && (c <= 90)) {
+            return (c - 65)
+        }
+        if ((c >= 97) && (c <= 122)) {
+            return (c - 71)
+        }
+        if ((c >= 48) && (c <= 57)) {
+            return (c + 4)
+        }
+        if (c == 43) {
+            return 62
+        }
+        if (c == 47) {
+            return 63
+        }
+        if (c == 45) {
+            return 62
+        }
+        if (c == 95) {
+            return 63
+        }
+        return (0 - 1)
+    }
+}

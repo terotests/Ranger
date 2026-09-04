@@ -1,0 +1,198 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; Figma's OS clipboard is text/html with two markers:
+;   <!--(figmeta)base64-json(/figmeta)-->
+;   <!--(figma)base64-fig-kiwi(/figma)-->
+; The figma payload is a canvas.fig (prelude + schema chunk + message chunk),
+; not a ZIP. Same kiwi path as a .fig file.
+
+Import "FigBase64.rgr"
+
+class FigClip {
+    def html:string ""
+    def metaJson:string ""
+    def fileKey:string ""
+    def pasteId:string ""
+    def dataType:string ""
+    def canvas:buffer (buffer_alloc 0)
+    def ok:boolean false
+    def err:string ""
+
+    Constructor () {
+    }
+}
+
+class FigClipboard {
+    Constructor () {
+    }
+
+    sfn findSubFrom:int (s:string needle:string from:int) {
+        def n:int (strlen s)
+        def m:int (strlen needle)
+        if ((m == 0) || (m > n)) {
+            return (0 - 1)
+        }
+        def i:int from
+        while (i <= (n - m)) {
+            def ok:boolean true
+            def j:int 0
+            while (j < m) {
+                if ((charAt s (i + j)) != (charAt needle j)) {
+                    ok = false
+                    j = m
+                }
+                j = (j + 1)
+            }
+            if ok {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    sfn findSub:int (s:string needle:string) {
+        return (FigClipboard.findSubFrom(s needle 0))
+    }
+
+    sfn looksLike:boolean (html:string) {
+        return ((FigClipboard.findSub(html "(figma)")) >= 0)
+    }
+
+    sfn looksLikeBytes:boolean (b:buffer) {
+        def n:int (buffer_length b)
+        if (n > 8192) {
+            n = 8192
+        }
+        def i:int 0
+        while (i <= (n - 7)) {
+            if (((((buffer_get b i) == 40) && ((buffer_get b (i + 1)) == 102)) && ((buffer_get b (i + 2)) == 105)) && ((buffer_get b (i + 3)) == 103)) {
+                if (((buffer_get b (i + 4)) == 109) && ((buffer_get b (i + 5)) == 97) && ((buffer_get b (i + 6)) == 41)) {
+                    return true
+                }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn parse:FigClip (html:string) {
+        def c (new FigClip())
+        c.html = html
+        def metaB64:string (FigClipboard.marker(html "(figmeta)" "(/figmeta)"))
+        if ((strlen metaB64) > 0) {
+            def mb:buffer (FigBase64.decode(metaB64))
+            c.metaJson = (FigClipboard.asciiOf(mb))
+            c.fileKey = (FigClipboard.jsonField(c.metaJson "fileKey"))
+            c.pasteId = (FigClipboard.jsonField(c.metaJson "pasteID"))
+            c.dataType = (FigClipboard.jsonField(c.metaJson "dataType"))
+        }
+        def figB64:string (FigClipboard.marker(html "(figma)" "(/figma)"))
+        if ((strlen figB64) == 0) {
+            c.err = "no (figma) clipboard marker"
+            return c
+        }
+        c.canvas = (FigBase64.decode(figB64))
+        if ((buffer_length c.canvas) < 16) {
+            c.err = "clipboard figma buffer too small"
+            return c
+        }
+        c.ok = true
+        return c
+    }
+
+    sfn asHtml:string (canvas:buffer fileKey:string) {
+        def meta:string ("{\"fileKey\":\"" + fileKey + "\",\"pasteID\":1,\"dataType\":\"scene\"}")
+        def metaBuf:buffer (FigClipboard.bytesOf(meta))
+        def html:string "<meta charset=\"utf-8\"><div>"
+        html = (html + "<span data-metadata=\"<!--(figmeta)" + (FigBase64.encode(metaBuf)) + "(/figmeta)-->\"></span>")
+        html = (html + "<span data-buffer=\"<!--(figma)" + (FigBase64.encode(canvas)) + "(/figma)-->\"></span>")
+        html = (html + "</div>")
+        return html
+    }
+
+    sfn marker:string (html:string open:string close:string) {
+        def a:int (FigClipboard.findSub(html open))
+        if (a < 0) {
+            return ""
+        }
+        def start:int (a + (strlen open))
+        def b:int (FigClipboard.findSubFrom(html close start))
+        if (b < 0) {
+            return ""
+        }
+        return (FigClipboard.sliceStr(html start b))
+    }
+
+    sfn sliceStr:string (s:string a:int b:int) {
+        def out:string ""
+        def i:int a
+        while (i < b) {
+            out = (out + (strfromcode (charAt s i)))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn asciiOf:string (b:buffer) {
+        def n:int (buffer_length b)
+        def s:string ""
+        def i:int 0
+        while (i < n) {
+            def c:int (buffer_get b i)
+            if ((c >= 32) && (c < 127)) {
+                s = (s + (strfromcode c))
+            }
+            i = (i + 1)
+        }
+        return s
+    }
+
+    sfn bytesOf:buffer (s:string) {
+        def n:int (strlen s)
+        def out:buffer (buffer_alloc n)
+        def i:int 0
+        while (i < n) {
+            buffer_set out i (charAt s i)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn jsonField:string (text:string key:string) {
+        def needle:string ("\"" + key + "\"")
+        def a:int (FigClipboard.findSub(text needle))
+        if (a < 0) {
+            return ""
+        }
+        def i:int (a + (strlen needle))
+        def n:int (strlen text)
+        while ((i < n) && ((charAt text i) != 34) && ((charAt text i) != 48) && ((charAt text i) != 49) && ((charAt text i) != 50) && ((charAt text i) != 51) && ((charAt text i) != 52) && ((charAt text i) != 53) && ((charAt text i) != 54) && ((charAt text i) != 55) && ((charAt text i) != 56) && ((charAt text i) != 57) && ((charAt text i) != 45)) {
+            i = (i + 1)
+        }
+        if (i >= n) {
+            return ""
+        }
+        if ((charAt text i) == 34) {
+            i = (i + 1)
+            def out:string ""
+            while ((i < n) && ((charAt text i) != 34)) {
+                out = (out + (strfromcode (charAt text i)))
+                i = (i + 1)
+            }
+            return out
+        }
+        def out2:string ""
+        while (i < n) {
+            def ch:int (charAt text i)
+            if ((ch < 48) || (ch > 57)) {
+                if (ch != 45) {
+                    return out2
+                }
+            }
+            out2 = (out2 + (strfromcode ch))
+            i = (i + 1)
+        }
+        return out2
+    }
+}

@@ -8,6 +8,8 @@ Import "../src/FigParser.rgr"
 Import "../src/FigSample.rgr"
 Import "../src/FigApp.rgr"
 Import "../src/FigDeflate.rgr"
+Import "../src/FigClipboard.rgr"
+Import "../src/FigBase64.rgr"
 Import "../src/convert/FigToScene.rgr"
 Import "../src/evg/SceneToEVG.rgr"
 Import "../src/scene/SceneNode.rgr"
@@ -59,6 +61,7 @@ class FigTest {
         this.testViewer()
         this.testSceneIr()
         this.testFixtures()
+        this.testClipboard()
         print ""
         print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
         if (failed == 0) {
@@ -269,6 +272,43 @@ class FigTest {
         def dump:string (app.evgText())
         this.check("fixture evg abs" (FigTest.hasSub(dump "position=\"absolute\"")))
         this.check("fixture evg left" (FigTest.hasSub(dump "left=\"")))
+    }
+
+    fn testClipboard:void () {
+        print "--- clipboard ---"
+        def hello:buffer (buffer_alloc 5)
+        buffer_set hello 0 104
+        buffer_set hello 1 101
+        buffer_set hello 2 108
+        buffer_set hello 3 108
+        buffer_set hello 4 111
+        def b64:string (FigBase64.encode(hello))
+        this.eqStr("b64 hello" b64 "aGVsbG8=")
+        def back:buffer (FigBase64.decode(b64))
+        this.eqInt("b64 len" (buffer_length back) 5)
+        this.eqInt("b64 h" (buffer_get back 0) 104)
+        this.check("looks like" (FigClipboard.looksLike("x<!--(figma)QQ==(/figma)-->")))
+        def html:string (FigSample.buildClipboardHtml())
+        this.check("sample html marker" (FigClipboard.looksLike(html)))
+        def clip:FigClip (FigClipboard.parse(html))
+        this.check(("clip parse " + clip.err) clip.ok)
+        this.eqStr("fileKey" clip.fileKey "ranger-sample")
+        this.eqStr("dataType" clip.dataType "scene")
+        this.check("canvas bytes" ((buffer_length clip.canvas) > 16))
+        def p (new FigParser())
+        def doc:FigDoc (p.parseHtml(html "clip"))
+        this.check(("html doc " + doc.err) doc.ok)
+        this.check("from clipboard" doc.fromClipboard)
+        this.eqInt("clip pages" (array_length doc.pages) 3)
+        def app (new FigApp())
+        this.check("open html" (app.openHtml(html "paste")))
+        this.eqInt("app pages" (app.pageCount()) 3)
+        def out:string (app.clipboardHtml())
+        this.check("copy has marker" (FigClipboard.looksLike(out)))
+        def app2 (new FigApp())
+        this.check("roundtrip copy" (app2.openHtml(out "copy")))
+        this.eqInt("roundtrip pages" (app2.pageCount()) 3)
+        this.check("roundtrip cmds" (app2.cmdCount > 0))
     }
 
     sfn hasSub:boolean (s:string needle:string) {

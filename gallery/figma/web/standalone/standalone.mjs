@@ -19,6 +19,8 @@ const pageEl = document.getElementById("page");
 const frameEl = document.getElementById("frame");
 const fileEl = document.getElementById("file");
 const sampleEl = document.getElementById("sample");
+const pasteEl = document.getElementById("paste");
+const copyEl = document.getElementById("copy");
 const fitEl = document.getElementById("fit");
 const zoom100El = document.getElementById("zoom100");
 const debugEl = document.getElementById("debug");
@@ -222,7 +224,67 @@ fileEl.addEventListener("change", async () => {
   await openBuffer(await f.arrayBuffer(), f.name);
 });
 
+async function openClipboardHtml(html, name) {
+  statusEl.textContent = "parsing clipboard…";
+  const t0 = performance.now();
+  const ok = web.openHtml(html, name || "clipboard");
+  if (!ok) {
+    statusEl.textContent = web.error() || "clipboard parse failed";
+    return;
+  }
+  collectImages();
+  refreshChrome();
+  msEl.textContent = (performance.now() - t0).toFixed(1);
+  await draw();
+  ofmsEl.textContent = "–";
+}
+
 sampleEl.addEventListener("click", () => openSample());
+if (pasteEl) {
+  pasteEl.addEventListener("click", async () => {
+    try {
+      const items = await navigator.clipboard.read();
+      for (const item of items) {
+        if (!item.types.includes("text/html")) continue;
+        const html = await (await item.getType("text/html")).text();
+        if (html.includes("(figma)")) {
+          await openClipboardHtml(html, "paste");
+          return;
+        }
+      }
+      statusEl.textContent = "clipboard has no Figma copy — copy in Figma, then Paste";
+    } catch (err) {
+      statusEl.textContent = "use Ctrl/Cmd+V (clipboard permission denied)";
+    }
+  });
+}
+if (copyEl) {
+  copyEl.addEventListener("click", async () => {
+    const html = web.clipboardHtml();
+    if (!html) {
+      statusEl.textContent = "nothing to copy";
+      return;
+    }
+    try {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          "text/html": new Blob([html], { type: "text/html" }),
+          "text/plain": new Blob([web.fileName() || "Ranger Fig"], { type: "text/plain" }),
+        }),
+      ]);
+      statusEl.textContent = "copied as Figma clipboard HTML";
+    } catch (err) {
+      statusEl.textContent = "copy failed: " + (err && err.message ? err.message : err);
+    }
+  });
+}
+
+window.addEventListener("paste", (e) => {
+  const html = e.clipboardData?.getData("text/html") || "";
+  if (!html.includes("(figma)")) return;
+  e.preventDefault();
+  openClipboardHtml(html, "paste");
+});
 fitEl.addEventListener("click", () => { web.fit(); refreshChrome(); draw(); });
 if (zoom100El) zoom100El.addEventListener("click", () => { web.zoom100(); refreshChrome(); draw(); });
 if (debugEl) debugEl.addEventListener("change", () => { web.setDebug(debugEl.checked); refreshChrome(); draw(); });
@@ -281,6 +343,11 @@ window.addEventListener("dragleave", () => mainEl.classList.remove("drop"));
 window.addEventListener("drop", async (e) => {
   e.preventDefault();
   mainEl.classList.remove("drop");
+  const html = e.dataTransfer?.getData("text/html") || "";
+  if (html.includes("(figma)")) {
+    await openClipboardHtml(html, "drop");
+    return;
+  }
   const f = e.dataTransfer?.files?.[0];
   if (f) await openBuffer(await f.arrayBuffer(), f.name);
 });

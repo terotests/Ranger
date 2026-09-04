@@ -5,6 +5,7 @@
 
 Import "FigParser.rgr"
 Import "FigSample.rgr"
+Import "FigClipboard.rgr"
 Import "KiwiValue.rgr"
 Import "convert/FigToScene.rgr"
 Import "evg/SceneToEVG.rgr"
@@ -61,6 +62,33 @@ class FigApp {
 
     fn openSample:boolean () {
         return (this.openBytes((FigSample.buildFig()) "sample.fig"))
+    }
+
+    fn openHtml:boolean (html:string fileName:string) {
+        name = fileName
+        doc = (parser.parseHtml(html fileName))
+        ok = doc.ok
+        err = doc.err
+        pageIndex = 0
+        frameIndex = (0 - 1)
+        selected = ""
+        if ok {
+            this.convert()
+            this.fit()
+            this.rebuild()
+        }
+        return ok
+    }
+
+    fn clipboardHtml:string () {
+        if ((buffer_length doc.canvasBytes) == 0) {
+            return ""
+        }
+        def key:string doc.fileName
+        if ((strlen key) == 0) {
+            key = "ranger-fig"
+        }
+        return (FigClipboard.asHtml(doc.canvasBytes key))
     }
 
     fn convert:void () {

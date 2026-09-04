@@ -49,4 +49,17 @@ if (!tree.children || tree.children.length < 1) {
   console.error("tree has no children");
   process.exit(1);
 }
+const html = web.clipboardHtml();
+if (!html || !html.includes("(figma)")) {
+  console.error("clipboardHtml missing (figma) marker");
+  process.exit(1);
+}
+if (!web.openHtml(html, "smoke-clip")) {
+  console.error("openHtml failed:", web.error());
+  process.exit(1);
+}
+if ((web.pageCount() | 0) < 2) {
+  console.error("clipboard roundtrip lost pages", web.pageCount());
+  process.exit(1);
+}
 console.log("fig smoke ok — pages", web.pageCount(), "cmds", cmds.length, "nodes", stats.nodes);

@@ -10,6 +10,7 @@ Import "KiwiDecode.rgr"
 Import "KiwiValue.rgr"
 Import "FigDeflate.rgr"
 Import "FigCanvas.rgr"
+Import "FigClipboard.rgr"
 
 class FigSample {
     Constructor () {
@@ -618,7 +619,7 @@ class FigSample {
         return out
     }
 
-    sfn buildFig:buffer () {
+    sfn buildCanvas:buffer () {
         def s:KiwiSchema (FigSample.schema())
         def enc (new KiwiEncode())
         enc.init(s)
@@ -626,7 +627,11 @@ class FigSample {
         def schemaRaw:buffer (s.encode())
         def schemaComp:buffer (FigDeflate.wrapStored(schemaRaw))
         def msgComp:buffer (FigDeflate.wrapStored(msg))
-        def canvas:buffer (FigCanvas.assemble("fig-kiwi" 101 schemaComp msgComp))
+        return (FigCanvas.assemble("fig-kiwi" 101 schemaComp msgComp))
+    }
+
+    sfn buildFig:buffer () {
+        def canvas:buffer (FigSample.buildCanvas())
         def zip (new ZipWriter())
         zip.create()
         zip.addFile("canvas.fig" canvas)
@@ -634,5 +639,9 @@ class FigSample {
         zip.addFile("thumbnail.png" (FigSample.png1x1()))
         zip.addFile("images/sample.png" (FigSample.png1x1()))
         return (zip.toBuffer())
+    }
+
+    sfn buildClipboardHtml:string () {
+        return (FigClipboard.asHtml((FigSample.buildCanvas()) "ranger-sample"))
     }
 }
