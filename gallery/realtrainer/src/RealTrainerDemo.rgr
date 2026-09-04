@@ -330,12 +330,30 @@ treefactory Rt {
     tag EntryPara EVGElement (props (className "rt-entry-para") (elementType 1) (role "paragraph"))
     tag EntryMono EVGElement (props (className "rt-entry-mono") (elementType 1))
     tag EntrySplitNo EVGElement (props (className "rt-entry-split-no") (elementType 1))
+    tag EntryScore EVGElement (props (className "rt-entry-score-text") (elementType 1))
+    tag EntryScoreOf EVGElement (props (className "rt-entry-score-of") (elementType 1))
     tag EntryRule EVGElement (props (className "rt-entry-hr-rule"))
     tag EntryChip EVGElement (props (className "rt-entry-chip") (elementType 1))
     tag EntryKind EVGElement (props (className "rt-entry-kind") (elementType 1))
     tag CommentBtn EVGElement (props (className "rt-comment-btn") (role "button") (a11yFocusable true))
     tag CommentBtnTx EVGElement (props (className "rt-comment-btn-text") (elementType 1))
     tag DerivedVal EVGElement (props (className "rt-derived-val") (elementType 1))
+    tag DrillTab EVGElement (props (className "rt-drill-tab") (role "button") (a11yFocusable true))
+    tag DrillTabTx EVGElement (props (className "rt-drill-tab-text") (elementType 1))
+    tag DrillTabCount EVGElement (props (className "rt-drill-tab-count") (elementType 1))
+    tag DrillSortBtn EVGElement (props (className "rt-drill-sort") (role "button") (a11yFocusable true))
+    tag DrillSortTx EVGElement (props (className "rt-drill-sort-text") (elementType 1))
+    tag DrillMenuItem EVGElement (props (className "rt-drill-menu-item") (role "button") (a11yFocusable true))
+    tag DrillMenuTx EVGElement (props (className "rt-drill-menu-text") (elementType 1))
+    tag DrillBtn EVGElement (props (className "rt-drill-row") (role "button") (a11yFocusable true))
+    tag DrillName EVGElement (props (className "rt-drill-name") (elementType 1))
+    tag DrillMetaTx EVGElement (props (className "rt-drill-meta-text") (elementType 1))
+    tag DrillWeekTx EVGElement (props (className "rt-drill-week") (elementType 1))
+    tag StatsH4 EVGElement (props (className "rt-stats-h4") (elementType 1) (role "heading") (a11yLevel 4))
+    tag StatsBig EVGElement (props (className "rt-stats-big") (elementType 1))
+    tag StatsSmall EVGElement (props (className "rt-stats-small") (elementType 1))
+    tag FeatTitle EVGElement (props (className "rt-feat-title") (elementType 1))
+    tag FeatPara EVGElement (props (className "rt-feat-para") (elementType 1) (role "paragraph"))
     tag DerivedPill EVGElement (props (className "rt-derived-pill") (elementType 1))
     tag MeasHd  EVGElement (props (className "rt-meas-hd") (elementType 1) (role "heading") (a11yLevel 3))
     tag MeasVal EVGElement (props (className "rt-meas-val") (elementType 1))
@@ -577,6 +595,13 @@ class RealTrainerDemo {
     def dayIso@(mutable):string ""
     ; A training calendar's Home tab — `activeTab`: diary, drills or stats.
     def homeTab@(mutable):string "diary"
+    ; Harjoitteet: the category and the sort — `activeTab`, `sortBy`,
+    ; `showSortDropdown` of `ExerciseListPanel`.
+    def drillCat@(mutable):string "strength"
+    def drillSort@(mutable):string "frequent"
+    def drillSortOpen@(mutable):boolean false
+    def drillCache@(mutable):[ExerciseSummary]
+    def drillCacheKey@(mutable):string ""
     ; The calendar menu is down — `showDropdown`.
     def calMenuOpen@(mutable):boolean false
     def addedSeq@(mutable):int 0
@@ -2256,16 +2281,15 @@ class RealTrainerDemo {
     ; uusi kalenteri" — each a button named by its emoji and its name.
     fn calMenu:EVGElement () {
         def menu (tree Rt (PhCalMenu))
+        ; Above the page, as the app's dropdown floats: drawn after the rest,
+        ; out of the header's box, however many calendars it lists.
+        menu.isOverlay = true
         menu.setAttribute("width" ((to_string (to_int (pageW - 32.0))) + "px"))
-        for seed.calendars c:RtSeedCalendar i {
-            if (c.id == seed.calendarId) {
-                menu.addChild((this.calItem(c true)))
-            }
-        }
-        for seed.calendars c2:RtSeedCalendar i2 {
-            if (c2.id != seed.calendarId) {
-                menu.addChild((this.calItem(c2 false)))
-            }
+        ; Every calendar, in the store's order — the selected one marked,
+        ; not moved: the selector above the menu already names it.
+        def listed:[RtSeedCalendar] (seed.storeOrder())
+        for listed c:RtSeedCalendar i {
+            menu.addChild((this.calItem(c (c.id == seed.calendarId))))
         }
         def make (tree Rt (PhCalItem (props (id "rt-cal-new"))))
         make.a11yLabel = "Luo uusi kalenteri"
@@ -2414,10 +2438,12 @@ class RealTrainerDemo {
         tabs.addChild((this.homeTabBtn("rt-home-tab-drills" "Harjoitteet" (homeTab == "drills"))))
         tabs.addChild((this.homeTabBtn("rt-home-tab-stats" "Tilastot" (homeTab == "stats"))))
         home.addChild(tabs)
-        if (homeTab != "diary") {
-            def soon (tree Rt (Row (props (className "rt-home-center"))))
-            soon.addChild((tree Rt (ChatPara (props (id "rt-home-tab-empty") (className "rt-home-empty")) "Ei vielä sisältöä")))
-            home.addChild(soon)
+        if (homeTab == "drills") {
+            this.homeDrills(home)
+            return
+        }
+        if (homeTab == "stats") {
+            this.statsPanel(home)
             return
         }
         def feed (tree Rt (Col (props (className "rt-home-feed"))))
@@ -2428,6 +2454,587 @@ class RealTrainerDemo {
             feed.addChild(card)
         }
         home.addChild(feed)
+    }
+
+    ; --- Home: Harjoitteet ----------------------------------------------------
+    ; `ExerciseListPanel`: the diary's exercises, summarised by the app's
+    ; own statistics (src/stats), in three categories with a sort.
+    fn drillSummaries:[ExerciseSummary] () {
+        ; Once per seed: the diary does not change under the tab, and the
+        ; parse of every entry is not cheap.
+        def key:string ((to_string (array_length seed.entries)) + ("/" + (to_string (array_length seed.calendars))))
+        if (key == drillCacheKey) { return drillCache }
+        def cals:[ExerciseStatsCalendar]
+        for seed.calendars c:RtSeedCalendar i {
+            def sc (new ExerciseStatsCalendar())
+            sc.id = c.id
+            sc.name = c.name
+            sc.type = c.kind
+            push cals sc
+        }
+        ; The items come from the parsed rows, as the app's bridge builds
+        ; them — an exercise, a pyramid as one exercise with its totals, a
+        ; timed block, a move — not from the line walker, which reads more
+        ; lines as moves than the parser does.
+        ; Calendar by calendar, each one's entries newest first — the order
+        ; the app's store hands them over in, which is the order ties keep.
+        def batches:[ExerciseStatsParsedItem]
+        def inOrder:[RtSeedCalendar] (seed.storeOrder())
+        for inOrder c:RtSeedCalendar ci {
+            def own:[RtSeedEntry]
+            for seed.entries e:RtSeedEntry j {
+                if (e.calendarId == c.id) { push own e }
+            }
+            def ordered:[RtSeedEntry] (RealTrainerDemo.sortByDateDesc(own))
+            for ordered e:RtSeedEntry j {
+                if ((strlen e.compact) == 0) { continue }
+                def doc:CompactDocument (CompactRowMapper.parseDocument(e.compact))
+                for doc.rows row:CompactRow ri {
+                    def items:[CompactWalkItem] (RealTrainerDemo.walkItemsOf(row e.date))
+                    for items item:CompactWalkItem k {
+                        def batch (new ExerciseStatsParsedItem())
+                        batch.calendarId = e.calendarId
+                        batch.item = item
+                        push batches batch
+                    }
+                }
+            }
+        }
+        def opts (new CollectExercisesOptions())
+        opts.excludePlans = true
+        drillCache = (ExerciseStats.collectFromItems(cals batches opts))
+        drillCacheKey = key
+        return drillCache
+    }
+
+    ; `contentToWalkItems`, over the port's rows.
+    sfn walkItemsOf:[CompactWalkItem] (row:CompactRow date:string) {
+        def out:[CompactWalkItem]
+        match row {
+            Exercise ex {
+                def e:ExerciseSpec (unwrap ex.spec)
+                def item (new CompactWalkItem())
+                item.kind = "exercise"
+                item.name = e.name
+                item.date = date
+                item.sets = 1
+                if e.hasSets { item.sets = e.sets }
+                if e.hasReps { item.reps = e.reps }
+                item.weight = -1.0
+                if (e.hasWeight && (e.weightKg > 0)) { item.weight = (int2double e.weightKg) }
+                item.unit = e.unit
+                if ((e.unit == "min") && (item.reps > 0)) { item.durationSeconds = (item.reps * 60) }
+                if ((e.unit == "s") && (item.reps > 0)) { item.durationSeconds = item.reps }
+                push out item
+            }
+            Pyramid py {
+                def pd:PyramidSpec (unwrap py.spec)
+                def item (new CompactWalkItem())
+                item.kind = "exercise"
+                item.name = pd.name
+                item.date = date
+                def totalSets@(mutable):int 0
+                def maxWeight@(mutable):double -1.0
+                def bestRm1@(mutable):double -1.0
+                def bestReps@(mutable):int 0
+                def tonnage@(mutable):double 0.0
+                for pd.sets set:PyramidSet si {
+                    totalSets = (totalSets + 1)
+                    def w@(mutable):double -1.0
+                    if (set.hasWeight && (set.weightKg > 0.0)) { w = set.weightKg }
+                    if (w > maxWeight) { maxWeight = w }
+                    def wPos@(mutable):double 0.0
+                    if (w > 0.0) { wPos = w }
+                    def rm1:double (StatsMath.calculateRM1(wPos set.reps))
+                    if ((rm1 > 0.0) && (rm1 > bestRm1)) {
+                        bestRm1 = rm1
+                        bestReps = set.reps
+                    }
+                    def st:double (StatsMath.calculateTonnage(1 set.reps wPos))
+                    if (st > 0.0) { tonnage = (tonnage + st) }
+                }
+                item.sets = 1
+                if (totalSets > 0) { item.sets = totalSets }
+                item.reps = bestReps
+                item.weight = maxWeight
+                if (tonnage > 0.0) { item.tonnage = tonnage }
+                push out item
+            }
+            Duration du {
+                def d:DurationSpec (unwrap du.spec)
+                def item (new CompactWalkItem())
+                item.kind = "duration"
+                item.name = d.description
+                item.date = date
+                item.sets = 1
+                if (d.unit == "min") {
+                    item.durationSeconds = (to_int ((d.value * 60.0) + 0.5))
+                    item.unit = "min"
+                } {
+                    item.durationSeconds = (to_int (d.value + 0.5))
+                    item.unit = "s"
+                }
+                push out item
+            }
+            Move mv {
+                def m:MoveSpec (unwrap mv.spec)
+                def item (new CompactWalkItem())
+                item.kind = "move"
+                item.name = m.sport
+                if ((strlen item.name) == 0) { item.name = m.note }
+                item.date = date
+                item.sets = 1
+                if (m.sets > 0) { item.sets = m.sets }
+                if m.hasDuration {
+                    if (m.durationUnit == "min") {
+                        item.durationSeconds = (to_int ((m.durationValue * 60.0) + 0.5))
+                    } {
+                        item.durationSeconds = (to_int (m.durationValue + 0.5))
+                    }
+                }
+                if m.hasDistance { item.distanceMeters = m.distanceValue }
+                push out item
+            }
+            Split sp { }
+            Section s { }
+            Text t { }
+            Summary sm { }
+            Phase ph { }
+            Custom cu { }
+            Unknown un { }
+            Circuit ci { }
+            CircuitItem it { }
+        }
+        return out
+    }
+
+    ; The sort the panel offers, stable as the original's `sort` is.
+    sfn sortDrills:[ExerciseSummary] (list:[ExerciseSummary] by:string) {
+        def out:[ExerciseSummary]
+        for list ex:ExerciseSummary i {
+            def placed:[ExerciseSummary]
+            def done@(mutable):boolean false
+            for out o:ExerciseSummary j {
+                if ((done == false) && (RealTrainerDemo.drillBefore(ex o by))) {
+                    push placed ex
+                    done = true
+                }
+                push placed o
+            }
+            if (done == false) { push placed ex }
+            out = placed
+        }
+        return out
+    }
+
+    sfn drillBefore:boolean (a:ExerciseSummary b:ExerciseSummary by:string) {
+        if (by == "latest") { return (RealTrainerDemo.strAfter(a.lastDate b.lastDate)) }
+        if (by == "improving") { return (a.trend > b.trend) }
+        if (by == "declining") { return (a.trend < b.trend) }
+        return (a.occurrences > b.occurrences)
+    }
+
+    ; a after b, as the ISO dates and week keys the sorts compare read —
+    ; character by character.
+    sfn strAfter:boolean (a:string b:string) {
+        def n@(mutable):int (strlen a)
+        if ((strlen b) < n) { n = (strlen b) }
+        def i@(mutable):int 0
+        while (i < n) {
+            def ca:int (charAt a i)
+            def cb:int (charAt b i)
+            if (ca > cb) { return true }
+            if (ca < cb) { return false }
+            i = (i + 1)
+        }
+        return ((strlen a) > (strlen b))
+    }
+
+    sfn sortLabel:string (by:string) {
+        if (by == "latest") { return "Viimeisimmät" }
+        if (by == "improving") { return "Kehittyvät ↑" }
+        if (by == "declining") { return "Laskevat ↓" }
+        return "Eniten"
+    }
+
+    ; `(d / 1000).toFixed(1)` + "km".
+    sfn kmText:string (meters:double) {
+        def tenths:int (to_int ((meters / 100.0) + 0.5))
+        def whole:int (to_int ((int2double tenths) / 10.0))
+        return ((((to_string whole) + ".") + (to_string (tenths - (whole * 10)))) + "km")
+    }
+
+    ; The last ISO week's tonnage, when there are two weeks to draw a line
+    ; through — the label the sparkline carries.
+    sfn lastWeekTonnage:string (ex:ExerciseSummary) {
+        def weeks:[string]
+        def sums:[double]
+        for ex.tonnageDates d:string i {
+            def v:double (itemAt ex.tonnageValues i)
+            if (v <= 0.0) { continue }
+            def wk:string (DateExtras.isoWeekKey(d))
+            if ((strlen wk) == 0) { continue }
+            def at@(mutable):int -1
+            for weeks w:string k {
+                if (w == wk) { at = k }
+            }
+            if (at < 0) {
+                push weeks wk
+                push sums v
+            } {
+                set sums at ((itemAt sums at) + v)
+            }
+        }
+        if ((array_length weeks) < 2) { return "" }
+        def best@(mutable):string ""
+        def bestV@(mutable):double 0.0
+        for weeks w:string k {
+            if (RealTrainerDemo.strAfter(w best)) {
+                best = w
+                bestV = (itemAt sums k)
+            }
+        }
+        return (StatsMath.formatTonnage(bestV))
+    }
+
+    fn homeDrills:void (home:EVGElement) {
+        def all:[ExerciseSummary] (this.drillSummaries())
+        def cats:CategorizedExercises (ExerciseStats.categorizeSummaries(all))
+        def total:int (((array_length cats.strength) + (array_length cats.endurance)) + (array_length cats.bodyweight))
+        if (total == 0) {
+            def none (tree Rt (Row (props (className "rt-home-center"))))
+            none.addChild((tree Rt (ChatPara (props (id "rt-drills-none") (className "rt-home-empty")) "Ei harjoitteita")))
+            home.addChild(none)
+            return
+        }
+        def panel (tree Rt (Col (props (className "rt-drills"))))
+        def tabs (tree Rt (Row (props (className "rt-drill-tabs"))))
+        tabs.addChild((this.drillTab("strength" "Voima" (array_length cats.strength) (RtIcons.dumbbell((this.drillTabColor("strength")))))))
+        tabs.addChild((this.drillTab("endurance" "Kestävyys" (array_length cats.endurance) (RtIcons.heart((this.drillTabColor("endurance")))))))
+        tabs.addChild((this.drillTab("bodyweight" "Muu" (array_length cats.bodyweight) (RtIcons.users((this.drillTabColor("bodyweight")))))))
+        panel.addChild(tabs)
+        def sortRow (tree Rt (Col (props (className "rt-drill-sort-wrap"))))
+        def sortBtn (tree Rt (DrillSortBtn))
+        sortBtn.id = "rt-drill-sort"
+        sortBtn.a11yLabel = (RealTrainerDemo.sortLabel(drillSort))
+        sortBtn.addChild((tree Rt (DrillSortTx (RealTrainerDemo.sortLabel(drillSort)))))
+        def chev (tree Rt (PhIcon))
+        chev.svgSource = (RtIcons.chevronDown("#999999"))
+        chev.className = "rt-ph-icon rt-drill-chev"
+        sortBtn.addChild(chev)
+        sortRow.addChild(sortBtn)
+        if drillSortOpen {
+            def menu (tree Rt (Col (props (className "rt-drill-menu"))))
+            menu.addChild((this.drillSortItem("frequent")))
+            menu.addChild((this.drillSortItem("latest")))
+            menu.addChild((this.drillSortItem("improving")))
+            menu.addChild((this.drillSortItem("declining")))
+            sortRow.addChild(menu)
+        }
+        panel.addChild(sortRow)
+        def list@(mutable):[ExerciseSummary] cats.strength
+        if (drillCat == "endurance") { list = cats.endurance }
+        if (drillCat == "bodyweight") { list = cats.bodyweight }
+        def sorted:[ExerciseSummary] (RealTrainerDemo.sortDrills(list drillSort))
+        def rows (tree Rt (Col (props (className "rt-drill-rows"))))
+        for sorted ex:ExerciseSummary i {
+            rows.addChild((this.drillRow(ex i)))
+        }
+        panel.addChild(rows)
+        home.addChild(panel)
+    }
+
+    fn drillTabColor:string (cat:string) {
+        if (cat == "strength") { return "#f97316" }
+        if (cat == "endurance") { return "#22c55e" }
+        return "#60a5fa"
+    }
+
+    ; A category tab: the icon, the label from `sm` up, the count always.
+    fn drillTab:EVGElement (cat:string label:string count:int icon:string) {
+        def b (tree Rt (DrillTab))
+        b.id = ("rt-drill-cat-" + cat)
+        def wide:boolean (pageW >= 640.0)
+        def name@(mutable):string (("(" + (to_string count)) + ")")
+        if wide { name = ((label + " ") + name) }
+        b.a11yLabel = name
+        def active:boolean (cat == drillCat)
+        if active { b.className = ("rt-drill-tab rt-drill-tab-on-" + cat) }
+        def glyph (tree Rt (PhIcon))
+        glyph.svgSource = icon
+        if (active == false) { glyph.svgSource = (RtIcons.svgOf((RtIcons.pathOf("M0 0")) "#999999")) }
+        glyph.svgSource = icon
+        b.addChild(glyph)
+        if wide {
+            def tx (tree Rt (DrillTabTx label))
+            if active { tx.className = ("rt-drill-tab-text rt-drill-text-" + cat) }
+            b.addChild(tx)
+        }
+        def cnt (tree Rt (DrillTabCount (("(" + (to_string count)) + ")")))
+        if active { cnt.className = ("rt-drill-tab-count rt-drill-text-" + cat) }
+        b.addChild(cnt)
+        return b
+    }
+
+    fn drillSortItem:EVGElement (by:string) {
+        def b (tree Rt (DrillMenuItem))
+        b.id = ("rt-drill-sort-" + by)
+        b.a11yLabel = (RealTrainerDemo.sortLabel(by))
+        if (by == drillSort) { b.className = "rt-drill-menu-item rt-drill-menu-on" }
+        b.addChild((tree Rt (DrillMenuTx (RealTrainerDemo.sortLabel(by)))))
+        return b
+    }
+
+    ; One exercise, as the row reads: the name, the count, and by category
+    ; the best weight, the RM1 and the tonnage, the best pace and the
+    ; distance, or the longest hold — with last week's tonnage at the end
+    ; where the sparkline labels it.
+    fn drillRow:EVGElement (ex:ExerciseSummary i:int) {
+        def b (tree Rt (DrillBtn))
+        b.id = ("rt-drill-" + (to_string i))
+        def col (tree Rt (Col (props (className "rt-drill-col"))))
+        col.addChild((tree Rt (DrillName ex.displayName)))
+        def meta (tree Rt (Row (props (className "rt-drill-meta"))))
+        def cal (tree Rt (PhIcon))
+        cal.svgSource = (RtIcons.calendarDays("#999999"))
+        cal.className = "rt-ph-icon rt-drill-cal"
+        meta.addChild(cal)
+        def name@(mutable):string ((ex.displayName + " ") + ((to_string ex.occurrences) + "×"))
+        meta.addChild((tree Rt (DrillMetaTx ((to_string ex.occurrences) + "×"))))
+        if (ex.category == "strength") {
+            if (ex.maxWeight > 0.0) {
+                def w:string ((to_string ex.maxWeight) + "kg")
+                meta.addChild((tree Rt (DrillMetaTx (props (className "rt-drill-meta-text rt-drill-text-strength")) w)))
+                name = ((name + " ") + w)
+            }
+            if (ex.maxRm1 > 0.0) {
+                def rm:string ("RM1 " + (to_string ex.maxRm1))
+                meta.addChild((tree Rt (DrillMetaTx rm)))
+                name = ((name + " ") + rm)
+            }
+            if (ex.totalTonnage > 0.0) {
+                def tn:string ("Σ" + (StatsMath.formatTonnage(ex.totalTonnage)))
+                meta.addChild((tree Rt (DrillMetaTx (props (className "rt-drill-meta-text rt-drill-tonnage")) tn)))
+                name = ((name + " ") + tn)
+            }
+        }
+        if (ex.category == "endurance") {
+            if ex.hasBestPace {
+                def pc (new Pace())
+                pc.minutes = ex.bestPaceMinutes
+                pc.seconds = ex.bestPaceSeconds
+                def pt:string (StatsMath.formatPace(pc))
+                meta.addChild((tree Rt (DrillMetaTx (props (className "rt-drill-meta-text rt-drill-text-endurance")) pt)))
+                name = ((name + " ") + pt)
+            }
+            if (ex.totalDistance >= 1000.0) {
+                def km:string (RealTrainerDemo.kmText(ex.totalDistance))
+                meta.addChild((tree Rt (DrillMetaTx km)))
+                name = ((name + " ") + km)
+            }
+        }
+        if ((ex.category != "strength") && (ex.category != "endurance")) {
+            if (ex.maxDuration > 0) {
+                def du:string (StatsMath.formatDuration(ex.maxDuration))
+                meta.addChild((tree Rt (DrillMetaTx (props (className "rt-drill-meta-text rt-drill-text-bodyweight")) du)))
+                name = ((name + " ") + du)
+            }
+        }
+        col.addChild(meta)
+        b.addChild(col)
+        b.addChild((tree Rt (Spacer)))
+        if (ex.category == "strength") {
+            def wk:string (RealTrainerDemo.lastWeekTonnage(ex))
+            if ((strlen wk) > 0) {
+                b.addChild((tree Rt (DrillWeekTx wk)))
+                name = ((name + " ") + wk)
+            }
+        }
+        b.a11yLabel = name
+        return b
+    }
+
+    ; --- Home: Tilastot -------------------------------------------------------
+    ; `TrainingStatsPanel` and `FeatureVectorsPanel`: the last seven days
+    ; with data, and the estimates — none stored here, so every feature
+    ; says it lacks data, as the original does before its vectors run.
+    fn statsPanel:void (home:EVGElement) {
+        def panel (tree Rt (Col (props (className "rt-stats"))))
+        def mine:[RtSeedEntry] (seed.selectedEntries())
+        def days:[string]
+        def vol:[double]
+        def dist:[double]
+        def mins:[double]
+        def count:[int]
+        for mine e:RtSeedEntry i {
+            def doc:CompactDocument (CompactRowMapper.parseDocument(e.compact))
+            def v@(mutable):double 0.0
+            def d@(mutable):double 0.0
+            def m@(mutable):double 0.0
+            for doc.rows row:CompactRow ri {
+                match row {
+                    Exercise ex {
+                        v = (v + (int2double (RealTrainerDemo.tonnageOf(row))))
+                    }
+                    Move mv {
+                        def ms:MoveSpec (unwrap mv.spec)
+                        if ms.hasDistance {
+                            if (ms.distanceUnit == "km") { d = (d + ms.distanceValue) }
+                            if (ms.distanceUnit == "m") { d = (d + (ms.distanceValue / 1000.0)) }
+                        }
+                        if ms.hasDuration {
+                            if (ms.durationUnit == "min") { m = (m + (ms.durationValue * (int2double ms.sets))) }
+                        }
+                    }
+                    Pyramid py { }
+                    Split sp { }
+                    Section s { }
+                    Text t { }
+                    Summary sm { }
+                    Phase ph { }
+                    Custom cu { }
+                    Duration du { }
+                    Unknown un { }
+                    Circuit ci { }
+                    CircuitItem it { }
+                }
+            }
+            def at@(mutable):int -1
+            for days dd:string k {
+                if (dd == e.date) { at = k }
+            }
+            if (at < 0) {
+                push days e.date
+                push vol v
+                push dist d
+                push mins m
+                push count 1
+            } {
+                set vol at ((itemAt vol at) + v)
+                set dist at ((itemAt dist at) + d)
+                set mins at ((itemAt mins at) + m)
+                set count at ((itemAt count at) + 1)
+            }
+        }
+        ; The last seven dated days, by date.
+        def order:[int]
+        for days dd:string k {
+            def placed:[int]
+            def done@(mutable):boolean false
+            for order o:int j {
+                if ((done == false) && (RealTrainerDemo.strAfter((itemAt days o) dd))) {
+                    push placed k
+                    done = true
+                }
+                push placed o
+            }
+            if (done == false) { push placed k }
+            order = placed
+        }
+        def n:int (array_length order)
+        def from@(mutable):int (n - 7)
+        if (from < 0) { from = 0 }
+        def tv@(mutable):double 0.0
+        def td@(mutable):double 0.0
+        def tm@(mutable):double 0.0
+        def tc@(mutable):int 0
+        def k@(mutable):int from
+        while (k < n) {
+            def idx:int (itemAt order k)
+            tv = (tv + (itemAt vol idx))
+            td = (td + (itemAt dist idx))
+            tm = (tm + (itemAt mins idx))
+            tc = (tc + (itemAt count idx))
+            k = (k + 1)
+        }
+        if (tc > 0) {
+            def week (tree Rt (Col (props (className "rt-stats-card"))))
+            week.addChild((tree Rt (StatsH4 (props (id "rt-stats-week")) (("Viimeiset 7 päivää (" + (to_string tc)) + " treeniä)"))))
+            def nums (tree Rt (Row (props (className "rt-stats-nums"))))
+            if (tv > 0.0) {
+                def tons:int (to_int ((tv / 1000.0) + 0.5))
+                nums.addChild((this.statsNum(((to_string tons) + "t") "yht." "rt-stats-purple")))
+            }
+            if (td > 0.0) {
+                def tenths:int (to_int ((td * 10.0) + 0.5))
+                def whole:int (to_int ((int2double tenths) / 10.0))
+                def rest:int (tenths - (whole * 10))
+                def kmTx@(mutable):string (to_string whole)
+                if (rest > 0) { kmTx = ((kmTx + ".") + (to_string rest)) }
+                nums.addChild((this.statsNum((kmTx + " km") "yht." "rt-stats-green")))
+            }
+            if (tm > 0.0) {
+                def hrs:int (to_int ((tm / 60.0) + 0.5))
+                nums.addChild((this.statsNum(((to_string hrs) + "h") "yht." "rt-stats-blue")))
+            }
+            week.addChild(nums)
+            panel.addChild(week)
+        }
+        def head (tree Rt (ModalRow))
+        head.addChild((tree Rt (StatsH4 (props (id "rt-stats-recent")) "Viimeisimmät arviot")))
+        head.addChild((tree Rt (Spacer)))
+        head.addChild((this.iconBtn("rt-stats-calc" "Laske vektorit" (RtIcons.sparkles("#f97316")))))
+        panel.addChild(head)
+        def feats (tree Rt (Row (props (className "rt-feat-grid"))))
+        def keys:[string]
+        push keys "Hermostokuorma"
+        push keys "Maksimivoima"
+        push keys "Räjähtävyys"
+        push keys "Nopeusvoima"
+        push keys "Voimakestävyys"
+        push keys "Zone 1"
+        push keys "Zone 2"
+        push keys "Zone 3"
+        push keys "Zone 4"
+        push keys "Zone 5"
+        push keys "Hyvät rasvat"
+        push keys "Huonot rasvat"
+        ; The features the diary's Derived lines name beyond the known
+        ; ones, as their bare keys, in the order they are met.
+        def known:[string]
+        push known "strength.neural_stress"
+        push known "strength.max_strength_emphasis"
+        push known "strength.power_emphasis"
+        push known "strength.speed_strength_emphasis"
+        push known "strength.strength_endurance_emphasis"
+        push known "endurance.zone1_minutes"
+        push known "endurance.zone2_minutes"
+        push known "endurance.zone3_minutes"
+        push known "endurance.zone4_minutes"
+        push known "endurance.zone5_minutes"
+        push known "nutrition.fat_good_total"
+        push known "nutrition.fat_bad_total"
+        def extra:[string]
+        for mine e:RtSeedEntry i {
+            def ds:[RtDerived] (RtDerived.of(e.compact))
+            for ds d:RtDerived di {
+                def seen@(mutable):boolean false
+                for known kk:string kj { if (kk == d.key) { seen = true } }
+                for extra xk:string xj { if (xk == d.key) { seen = true } }
+                if (seen == false) { push extra d.key }
+            }
+        }
+        for extra xk:string xi {
+            def dot:int (RtEntry.findIn(xk "."))
+            if (dot >= 0) { push keys (substring xk (dot + 1) (strlen xk)) } { push keys xk }
+        }
+        for keys label:string i {
+            def card (tree Rt (Col (props (className "rt-feat-card"))))
+            card.addChild((tree Rt (FeatTitle label)))
+            card.addChild((tree Rt (FeatPara (props (id ("rt-feat-" + (to_string i)))) "Ei tarpeeksi dataa")))
+            feats.addChild(card)
+        }
+        panel.addChild(feats)
+        home.addChild(panel)
+    }
+
+    fn statsNum:EVGElement (big:string small:string tint:string) {
+        def col (tree Rt (Col (props (className "rt-stats-num"))))
+        def b (tree Rt (StatsBig big))
+        b.className = ("rt-stats-big " + tint)
+        col.addChild(b)
+        col.addChild((tree Rt (StatsSmall small)))
+        return col
     }
 
     fn homeTabBtn:EVGElement (id:string label:string active:boolean) {
@@ -2942,7 +3549,7 @@ class RealTrainerDemo {
             return
         }
         def card (tree Rt (YsCard))
-        def meta:string ((((RtWeek.fiDate(seed.sheetStart)) + " • ") + (to_string (array_length seed.periods))) + (" kautta Luotu: " + (RtWeek.fiDate(today))))
+        def meta:string ((((RtWeek.fiDate(seed.sheetStart)) + " • ") + (to_string (array_length seed.periods))) + (" kautta Luotu: " + (RtWeek.fiDate((this.sheetCreatedDay())))))
         def open (tree Rt (YsCardBtn))
         open.id = ("rt-ys-open-" + seed.sheetId)
         open.a11yLabel = ((((seed.sheetName + " ") + seed.sheetDescription) + " ") + meta)
@@ -3433,6 +4040,19 @@ class RealTrainerDemo {
         if ((strlen entry.time) > 0) { when = ((when + " klo ") + entry.time) }
         timeRow.addChild((tree Rt (EntryTime when)))
         card.addChild(timeRow)
+        if (e.points >= 0) {
+            ; The score, as the blog view badges it: the star, the points in
+            ; amber, "/100" muted.
+            def scoreRow (tree Rt (Row (props (className "rt-entry-center rt-entry-score"))))
+            def star (tree Rt (PhIcon))
+            star.svgSource = (RtIcons.star("#d97706"))
+            star.className = "rt-ph-icon rt-entry-star"
+            scoreRow.addChild(star)
+            def pts:string (to_string e.points)
+            scoreRow.addChild((tree Rt (EntryScore (props (id ("rt-entry-score-" + (to_string i)))) pts)))
+            scoreRow.addChild((tree Rt (EntryScoreOf "/100")))
+            card.addChild(scoreRow)
+        }
         def notesRow (tree Rt (Row (props (className "rt-entry-center"))))
         def notes (this.exButton(("rt-entry-notes-" + (to_string i)) "Muistiinpanot" "Muistiinpanot"))
         notes.className = "rt-ex-btn rt-outline-btn"
@@ -3531,7 +4151,9 @@ class RealTrainerDemo {
                 moves = (moves + 1)
                 tonnage = (tonnage + (RealTrainerDemo.tonnageOf(row)))
                 def line (tree Rt (EntryRow))
-                line.addChild((this.iconBtn(("rt-entry-stats-" + rowId) "Näytä tilastot" (RtIcons.barChart("#999999")))))
+                def statsBtn (this.iconBtn(("rt-entry-stats-" + rowId) "Näytä tilastot" (RtIcons.barChart("#999999"))))
+                statsBtn.className = "rt-icon-btn rt-entry-stats-btn"
+                line.addChild(statsBtn)
                 def col (tree Rt (EntryRowCol))
                 def nameRow (tree Rt (Row (props (className "rt-entry-name-row"))))
                 def shown@(mutable):string label
@@ -3546,7 +4168,15 @@ class RealTrainerDemo {
                 ; loads in orange, a gap between a pyramid's sets — and on a
                 ; narrow page under the name, on a wide one on the same row,
                 ; as `PyramidRow` stacks them below `sm`.
-                def parts:[StatPart] (CompactStatBuilder.parts(row))
+                def allParts:[StatPart] (CompactStatBuilder.parts(row))
+                ; A pace per 100 m is a pool's measure: the blog view shows it
+                ; under a swim given in metres and not under a run given in
+                ; kilometres, where the document screen still derives one.
+                def parts:[StatPart]
+                for allParts ap:StatPart api {
+                    if ((kind == "move") && (RealTrainerDemo.isKmRun(row)) && (RtEntry.hasPrefix(ap.text "@"))) { continue }
+                    push parts ap
+                }
                 def scheme (tree Rt (Row (props (className "rt-entry-scheme"))))
                 def below:boolean (pageW < 768.0)
                 if below {
@@ -3665,6 +4295,15 @@ class RealTrainerDemo {
             table.addChild(items)
             card.addChild(table)
         }
+        if ((strlen e.feedback) > 0) {
+            ; The AI coach's feedback at the end, as the blog view sets it:
+            ; the small label and the text — its bold marks dropped, as a
+            ; plain paragraph reads it.
+            def fb (tree Rt (Col (props (className "rt-entry-feedback"))))
+            fb.addChild((tree Rt (EntryNote "AI-valmentajan palaute")))
+            fb.addChild((tree Rt (EntryPara (props (id ("rt-entry-feedback-" + (to_string i))) (className "rt-entry-para rt-entry-feedback-text")) (RealTrainerDemo.plainMarkdown(e.feedback)))))
+            card.addChild(fb)
+        }
         card.addChild((tree Rt (EntryRule)))
         def foot (tree Rt (EntryFoot))
         if (moves > 0) {
@@ -3710,6 +4349,28 @@ class RealTrainerDemo {
         return line
     }
 
+    ; The sheet's creation day from the seed, or today for one made here.
+    fn sheetCreatedDay:string () {
+        if ((strlen seed.sheetCreated) == 10) { return seed.sheetCreated }
+        return today
+    }
+
+    ; Markdown's emphasis marks taken out, and its line breaks kept as
+    ; spaces — enough for a coach's paragraph.
+    sfn plainMarkdown:string (text:string) {
+        def out@(mutable):string ""
+        def i@(mutable):int 0
+        def n:int (strlen text)
+        while (i < n) {
+            def ch:int (charAt text i)
+            if (ch == 42) { i = (i + 1) } {
+                if (ch == 10) { out = (out + " ") } { out = (out + (substring text i (i + 1))) }
+                i = (i + 1)
+            }
+        }
+        return out
+    }
+
     ; The first letter up — "rintauinti" reads "Rintauinti" over its row.
     sfn capitalised:string (text:string) {
         if ((strlen text) == 0) { return text }
@@ -3748,6 +4409,28 @@ class RealTrainerDemo {
         b.a11yLabel = "Lisää kommentti"
         b.addChild((tree Rt (CommentBtnTx "Lisää kommentti")))
         return b
+    }
+
+    sfn isKmRun:boolean (row:CompactRow) {
+        match row {
+            Move mv {
+                def m:MoveSpec (unwrap mv.spec)
+                return (m.hasDistance && (m.distanceUnit == "km"))
+            }
+            Exercise ex { }
+            Pyramid py { }
+            Split sp { }
+            Section s { }
+            Text t { }
+            Summary sm { }
+            Phase ph { }
+            Custom cu { }
+            Duration du { }
+            Unknown un { }
+            Circuit ci { }
+            CircuitItem it { }
+        }
+        return false
     }
 
     ; `Custom.tsx`: `~value` with the unit, or `~a-b` for a range.
@@ -4304,6 +4987,20 @@ class RealTrainerDemo {
         if (id == "rt-nav-chat") { return (this.goSection("chat")) }
         if (id == "rt-nav-more") {
             moreOpen = true
+            return true
+        }
+        if (RtEntry.hasPrefix(id "rt-drill-cat-")) {
+            drillCat = (substring id 13 (strlen id))
+            drillSortOpen = false
+            return true
+        }
+        if (id == "rt-drill-sort") {
+            drillSortOpen = (drillSortOpen == false)
+            return true
+        }
+        if (RtEntry.hasPrefix(id "rt-drill-sort-")) {
+            drillSort = (substring id 14 (strlen id))
+            drillSortOpen = false
             return true
         }
         if (RtEntry.hasPrefix(id "rt-home-tab-")) {

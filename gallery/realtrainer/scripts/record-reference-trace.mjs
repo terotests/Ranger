@@ -151,7 +151,9 @@ async function seed(uid) {
   // The year plan the example week and the plan buttons hang off — without
   // one the calendar shows "Sinulla ei ole vielä vuosisuunnitelmaa" instead.
   for (const ys of seedFile.yearsheets ?? []) {
-    await writeDocument("yearsheets", ys.id, { ...ys, userId: uid, createdAt: now, updatedAt: now });
+    // A sheet that states when it was made keeps that date: the list shows
+    // "Luotu", and a date that changed with every recording would too.
+    await writeDocument("yearsheets", ys.id, { ...ys, userId: uid, createdAt: ys.createdAt ?? now, updatedAt: now });
   }
   return seedFile;
 }

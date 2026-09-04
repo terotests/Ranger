@@ -172,6 +172,46 @@
     },
     {
      "role": "button",
+     "name": "😴 Unipäiväkirja",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "🍎 Ravintopäiväkirja",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "💪 Harjoituspäiväkirja",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "📝 Mittaukset",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "💰 Kulupäiväkirja",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "🏆 Kilpailut",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "📋 Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "📝 Fiilispäiväkirja",
+     "state": ""
+    },
+    {
+     "role": "button",
      "name": "💪 Harjoituspäiväkirja",
      "state": ""
     },

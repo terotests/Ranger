@@ -530,8 +530,12 @@ class MoveParserV1 {
         if (n.hasDuration == false) {
         def minPos (V1SharedHelpers.findToken(specPart "min"))
         if (minPos > 0) {
+            ; `8.45min` is eight minutes and forty-five hundredths of one —
+            ; the walk back takes the digits and one point, so the value is
+            ; not read as the 45 after the point.
             def durStart3@(mutable):int minPos
             def walking3@(mutable):boolean true
+            def sawDot@(mutable):boolean false
             while (walking3) {
                 if (durStart3 == 0) {
                     walking3 = false
@@ -540,16 +544,30 @@ class MoveParserV1 {
                     if ((chD3 >= (ccode "0")) && (chD3 <= (ccode "9"))) {
                         durStart3 = durStart3 - 1
                     } {
-                        walking3 = false
+                        if ((chD3 == (ccode ".")) && (sawDot == false)) {
+                            sawDot = true
+                            durStart3 = durStart3 - 1
+                        } {
+                            walking3 = false
+                        }
                     }
                 }
             }
             if (durStart3 < minPos) {
                 def durRaw (substring specPart durStart3 minPos)
-                def durVal (V1SharedHelpers.parseStrictInt(durRaw))
-                if (durVal >= 0) {
-                    n.hasDuration = true
-                    n.durationValueRaw = (to_string durVal)
+                if sawDot {
+                    def durDbl (str2double durRaw)
+                    if (!null? durDbl) {
+                        n.hasDuration = true
+                        n.hasDurationFloat = true
+                        n.durationValueRaw = (double2str (unwrap durDbl))
+                    }
+                } {
+                    def durVal (V1SharedHelpers.parseStrictInt(durRaw))
+                    if (durVal >= 0) {
+                        n.hasDuration = true
+                        n.durationValueRaw = (to_string durVal)
+                    }
                 }
             }
         }
@@ -587,16 +605,29 @@ class MoveParserV1 {
                 }
             }
         } {
-            def mPos (V1SharedHelpers.findToken(specPart "m"))
+            ; The metres: an "m" after a digit that is not the "m" of
+            ; "min" — `14.7min 500m` has both, and the first one found is
+            ; the minute's.
+            def mPos@(mutable):int -1
             def mValid@(mutable):boolean false
-            if (mPos > 0) {
-                mValid = true
-                if ((mPos + 1) < (strlen specPart)) {
-                    def nextCh (charAt specPart (mPos + 1))
-                    if (nextCh == (ccode "i")) {
-                        mValid = false
+            def mScan@(mutable):int 1
+            def mLenAll:int (strlen specPart)
+            while ((mScan < mLenAll) && (mValid == false)) {
+                def chM (charAt specPart mScan)
+                if (chM == (ccode "m")) {
+                    def prevM (charAt specPart (mScan - 1))
+                    def prevDigit:boolean ((prevM >= (ccode "0")) && (prevM <= (ccode "9")))
+                    def nextOk@(mutable):boolean true
+                    if ((mScan + 1) < mLenAll) {
+                        def nextM (charAt specPart (mScan + 1))
+                        if (nextM == (ccode "i")) { nextOk = false }
+                    }
+                    if (prevDigit && nextOk) {
+                        mValid = true
+                        mPos = mScan
                     }
                 }
+                mScan = mScan + 1
             }
             if (mValid) {
                 def beforeM (trim (substring specPart 0 mPos))

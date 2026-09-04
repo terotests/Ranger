@@ -272,7 +272,27 @@ text line stand alone. An entry tagged as a reading — `hrv`, `paino`,
 over a level-3 title, the menu, the tags, and a box per value.
 
 `home-diary` matches the reference 100 % — 1032 compared nodes per frame,
-in order. Harjoitteet and Tilastot are tabs only; their pages are ahead.
+in order.
+
+**Harjoitteet** is `ExerciseListPanel`: every exercise the diaries hold,
+summarised by the app's own statistics — its Ranger modules `ExerciseStats`,
+`StatsMath` and the date helpers came across as they are, under `src/stats`
+— in three categories with a sort. The items the statistics count come from
+the parsed rows, as the app's bridge builds them (an exercise, a pyramid as
+one exercise with its totals, a timed block, a move), not from the line
+walker the modules also carry, which reads more lines as moves than the
+parser does. A row reads as the app's does: the name, the count, and by
+category the best weight, the RM1 and the tonnage, the best pace and the
+distance, or the longest hold, with last week's tonnage at the end where
+the sparkline labels it. Ties in the sort keep the order the app's store
+hands the calendars over in — by id, descending — and the category an
+exercise lands in is decided by its newest occurrence, so that order is
+what the port walks too. `home-tabs` matches the reference 100 %.
+
+**Tilastot** is `TrainingStatsPanel` over `FeatureVectorsPanel`: the last
+seven dated days (the tonnage of the exercises, the distance and time of
+the moves), the estimates heading with its button, and a card per feature
+saying it lacks data — as the original does before its vectors run.
 
 The card is styled after `WorkoutBlogView` and the row components of
 `realtrainer-compact/ui`: the title centred over its short rule, the date
@@ -306,10 +326,21 @@ repository for every node measured. Roles and names are already there, and they
 are what the EVG side publishes through `UiCtl.rows()` anyway — the same key
 `gallery/ui` diffs against Radix.
 
-The recorder seeds the emulator from `fixtures/reference/seed.json` — one plan
-calendar, one week, one entry, one yearsheet with a period and its two example
-weeks — and the Ranger side draws from the same file, so the two are looking at
-the same data. A frame is the accessibility tree: every button, heading,
+The recorder seeds the emulator from `fixtures/reference/seed.json` and the
+Ranger side draws from the same file, so the two are looking at the same
+data. In it: the plan calendar with its week and its yearsheet, the training
+calendar with realtrainer-compact's `sample.compact`
+(`scripts/seed-from-compact.mjs`), the app's own three fixture calendars, and
+a real diary — eight calendars and 630 entries exported from RealTrainer,
+converted by `scripts/seed-from-backup.mjs`. The converter writes every
+workout as COMPACT text through the compact package's own serializer
+(bundled from that repository on the fly, since it is GPL and this one is
+not), keeps each entry's score and the coach's feedback, and leaves out the
+account (ids, e-mail), the signed image links, the chats and the year sheets.
+The export carries no calendar on a workout; it lists them calendar by
+calendar, newest first, so a calendar boundary is where the dates start over.
+An entry with a score shows it under its date, and one with feedback shows
+"AI-valmentajan palaute" at the end, as the blog view does. A frame is the accessibility tree: every button, heading,
 textbox, checkbox and landmark, in order, with `disabled` and `checked`. The
 diff is a longest common subsequence over that order, per frame, and the gate is
 the worst frame against `RT_TRACE_FLOOR` (0.9).

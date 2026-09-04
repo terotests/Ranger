@@ -2457,7 +2457,7 @@
 .rt-entry-spec { color: #999999; font-family: Arial; font-size: 12px; height: 16px; }
 
 /* --- the calendar menu under the header's selector --------------------------- */
-.rt-ph-calmenu { position: absolute; left: 16px; top: 52px; display: flex; flex-direction: column; flex-wrap: nowrap; gap: 2px; padding: 6px; border-radius: 12px; border-width: 1px; border-color: #2e2e2e; background-color: #171717; }
+.rt-ph-calmenu { position: absolute; left: 16px; top: 52px; display: flex; flex-direction: column; flex-wrap: nowrap; gap: 2px; padding: 6px; max-height: 70vh; overflow: hidden; border-radius: 12px; border-width: 1px; border-color: #2e2e2e; background-color: #171717; }
 .rt-ph-calitem { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 10px; height: 40px; padding: 0px 10px; border-radius: 8px; cursor: pointer; }
 .rt-ph-calitem:hover { background-color: #262626; }
 .rt-ph-calitem-on { background-color: #2a1a0f; }
@@ -2493,6 +2493,7 @@
 .rt-entry-scheme { display: flex; flex-direction: row; flex-wrap: wrap; justify-content: flex-end; align-items: center; }
 .rt-entry-row-col-fill { flex: 1; min-width: 0px; }
 .rt-entry-row-top { align-items: flex-start; }
+.rt-entry-stats-btn { width: 30px; height: 20px; }
 .rt-entry-scheme-below { justify-content: flex-start; padding: 2px 0px 0px 0px; }
 .rt-entry-section-row { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 10px; padding: 8px 0px 2px 0px; }
 .rt-entry-section-bar { width: 4px; height: 16px; border-radius: 2px; background-color: #c2410c; }
@@ -2544,3 +2545,60 @@
 .rt-band-8 { height: 200px; }
 .rt-band-9 { height: 226px; }
 .rt-band-10 { height: 252px; }
+
+/* --- Home: Harjoitteet ------------------------------------------------------ */
+.rt-drills { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 12px; }
+.rt-drill-tabs { display: flex; flex-direction: row; flex-wrap: nowrap; gap: 4px; padding: 4px; border-radius: 8px; background-color: #1c1c1c; }
+.rt-drill-tab { flex: 1; display: flex; flex-direction: row; flex-wrap: nowrap; justify-content: center; align-items: center; gap: 4px; height: 30px; border-radius: 6px; cursor: pointer; }
+.rt-drill-tab-on-strength { background-color: #3a2312; }
+.rt-drill-tab-on-endurance { background-color: #14351f; }
+.rt-drill-tab-on-bodyweight { background-color: #172a4a; }
+.rt-drill-tab-text { color: #999999; font-family: Arial; font-weight: bold; font-size: 12px; height: 16px; }
+.rt-drill-tab-count { color: #999999; font-family: Arial; font-size: 10px; height: 14px; }
+.rt-drill-text-strength { color: #f97316; }
+.rt-drill-text-endurance { color: #22c55e; }
+.rt-drill-text-bodyweight { color: #60a5fa; }
+.rt-drill-sort-wrap { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 4px; }
+.rt-drill-sort { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 2px; height: 22px; cursor: pointer; }
+.rt-drill-sort-text { color: #999999; font-family: Arial; font-size: 12px; height: 16px; }
+.rt-drill-chev { width: 12px; height: 12px; }
+.rt-drill-menu { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 2px; padding: 4px; border-radius: 8px; border-width: 1px; border-color: #2e2e2e; background-color: #171717; }
+.rt-drill-menu-item { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; height: 30px; padding: 0px 10px; border-radius: 6px; cursor: pointer; }
+.rt-drill-menu-item:hover { background-color: #262626; }
+.rt-drill-menu-on { background-color: #2a1a0f; }
+.rt-drill-menu-text { color: #f2f2f2; font-family: Arial; font-size: 13px; height: 18px; }
+.rt-drill-rows { display: flex; flex-direction: column; flex-wrap: nowrap; }
+.rt-drill-row { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer; }
+.rt-drill-row:hover { background-color: #1c1c1c; }
+.rt-drill-col { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 2px; flex: 1; min-width: 0px; }
+.rt-drill-name { color: #f2f2f2; font-family: Arial; font-weight: bold; font-size: 13px; height: 18px; }
+.rt-drill-meta { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; }
+.rt-drill-cal { width: 12px; height: 12px; }
+.rt-drill-meta-text { color: #999999; font-family: Arial; font-size: 12px; height: 16px; }
+.rt-drill-tonnage { color: #a78bfa; }
+.rt-drill-week { color: #999999; font-family: Arial; font-size: 9px; height: 12px; }
+
+/* --- Home: Tilastot --------------------------------------------------------- */
+.rt-stats { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 16px; padding: 4px; }
+.rt-stats-card { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 8px; padding: 16px; border-radius: 8px; border-width: 1px; border-color: #3a2312; background-color: #1a1512; }
+.rt-stats-h4 { color: #999999; font-family: Arial; font-weight: bold; font-size: 13px; height: 18px; }
+.rt-stats-nums { display: flex; flex-direction: row; flex-wrap: nowrap; gap: 12px; }
+.rt-stats-num { flex: 1; display: flex; flex-direction: column; flex-wrap: nowrap; align-items: center; gap: 2px; }
+.rt-stats-big { font-family: Arial; font-weight: bold; font-size: 20px; height: 26px; }
+.rt-stats-purple { color: #a855f7; }
+.rt-stats-green { color: #22c55e; }
+.rt-stats-blue { color: #3b82f6; }
+.rt-stats-small { color: #999999; font-family: Arial; font-size: 12px; height: 16px; }
+.rt-feat-grid { display: flex; flex-direction: row; flex-wrap: wrap; gap: 12px; }
+.rt-feat-card { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 6px; width: 100%; padding: 12px; border-radius: 8px; border-width: 1px; border-color: #2e2e2e; background-color: #171717; }
+.rt-feat-title { color: #f2f2f2; font-family: Arial; font-weight: bold; font-size: 13px; height: 18px; }
+.rt-feat-para { color: #999999; font-family: Arial; font-size: 12px; height: 16px; }
+@media (min-width: 768px) {
+  .rt-feat-card { width: 48%; }
+}
+.rt-entry-score { gap: 4px; }
+.rt-entry-star { width: 14px; height: 14px; }
+.rt-entry-score-text { color: #d97706; font-family: Arial; font-weight: bold; font-size: 12px; height: 16px; }
+.rt-entry-score-of { color: #999999; font-family: Arial; font-weight: bold; font-size: 12px; height: 16px; }
+.rt-entry-feedback { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 4px; padding-top: 8px; }
+.rt-entry-feedback-text { color: #f2f2f2; padding: 0px; }

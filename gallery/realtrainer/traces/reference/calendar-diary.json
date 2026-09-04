@@ -675,7 +675,7 @@
    ]
   },
   {
-   "step": "rt-entry-back",
+   "step": "rt-day-back",
    "handled": true,
    "state": "",
    "nodes": [

@@ -323,7 +323,20 @@ päiväkirjasyöte kortteina uusin ensin, `WorkoutBlogView`n rivisäännöillä
 (liike: tilastot + kommentti; custom/kesto: kommentti; tekstirivi: kappale +
 muokkaus + kommentti; välit taittuvat juoksuun, tekstin jälkeiset omiksi
 riveiksi) ja mittauskortilla tagien `hrv`/`paino`/`mittaus`/`leposyke`/
-`weight` mukaan. Harjoitteet- ja Tilastot-välilehtien sivut puuttuvat.
+`weight` mukaan.
+
+Harjoitteet ja Tilastot on tehty (`home-tabs`, 100 %): Harjoitteet ajaa
+sovelluksen omat Ranger-tilastomoduulit (`src/stats`, kopiot app-rangerista)
+parserin riveistä rakennetuilla itemeillä kuten sovelluksen silta, kolme
+kategoriaa ja lajittelu, rivin nimi sanasta sanaan; Tilastot näyttää
+viimeiset seitsemän päivää ja arviot ilman dataa. Seedissä on nyt myös
+oikea päiväkirja (630 merkintää, 8 kalenteria, `scripts/seed-from-backup.mjs`
+— tunnisteet, sähköposti, kuvalinkit, chatit ja lakanat jätetty pois), ja
+kortti näyttää merkinnän pisteet ja AI-valmentajan palautteen.
+Kalenterivalikko listaa kalenterit storen järjestyksessä (id laskevasti)
+overlayna. EVG: tekstiatlas rajautuu sivulle kun koko lista ei mahdu yhteen
+tekstuuriin (pitkä syöte piirtyi laatikoina), ja suljettu polku (`z`) saa
+viivana sulkevan reunansa.
 
 ### 5.3b S3:n loput, S6
 
