@@ -8,10 +8,15 @@ import android.content.res.Resources
 import android.net.Uri
 
 open class Context {
+    companion object {
+        const val INPUT_METHOD_SERVICE = "input_method"
+    }
+
     val assets: AssetManager = AssetManager()
     val cacheDir: java.io.File = java.io.File(".")
     val contentResolver: ContentResolver = ContentResolver()
     open val resources: Resources = Resources()
+    open fun getSystemService(name: String): Any? = null
 }
 
 class ContentResolver {

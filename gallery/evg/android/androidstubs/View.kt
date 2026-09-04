@@ -31,6 +31,9 @@ open class View(context: Context, attrs: AttributeSet? = null) {
     protected open fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {}
     protected open fun onDraw(canvas: Canvas) {}
     open fun onTouchEvent(event: MotionEvent): Boolean = false
+    val windowToken: android.os.IBinder? = null
+    open fun onCheckIsTextEditor(): Boolean = false
+    open fun onCreateInputConnection(outAttrs: android.view.inputmethod.EditorInfo): android.view.inputmethod.InputConnection? = null
 }
 
 class MotionEvent {
@@ -58,9 +61,16 @@ class KeyEvent {
         const val KEYCODE_MOVE_END = 123
         const val KEYCODE_ENTER = 66
         const val KEYCODE_SPACE = 62
+        const val KEYCODE_DEL = 67
+        const val KEYCODE_FORWARD_DEL = 112
+        const val KEYCODE_TAB = 61
+        const val KEYCODE_ESCAPE = 111
     }
 
     val keyCode: Int = 0
+    val unicodeChar: Int = 0
+    val isShiftPressed: Boolean = false
+    val isCtrlPressed: Boolean = false
 }
 
 class GestureDetector(context: Context, listener: OnGestureListener) {

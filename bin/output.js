@@ -26731,6 +26731,46 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             wr.out(";", true);
             return;
           }
+          if ( cmd == "push" ) {
+            const arr = node.getSecond();
+            const item = node.getThird();
+            let elemType = arr.eval_array_type;
+            if ( elemType.length == 0 ) {
+              elemType = arr.array_type;
+            }
+            if ( elemType.length == 0 && arr.hasParamDesc ) {
+              const arrNN = arr.paramDesc.nameNode;
+              if ( (typeof(arrNN) !== "undefined" && arrNN != null )  ) {
+                const arrNode = arrNN;
+                elemType = arrNode.array_type;
+                if ( elemType.length == 0 ) {
+                  const tn = arrNode.type_name;
+                  if ( tn.length > 2 && tn.charCodeAt(0 ) == (91) ) {
+                    elemType = tn.substring(1, (tn.length - 1) );
+                  }
+                }
+              }
+            }
+            wr.newline();
+            ctx.setInExpr();
+            await this.WalkNode(arr, ctx, wr);
+            wr.out(".append(", false);
+            let wrotePush = false;
+            if ( elemType.length > 0 ) {
+              wrotePush = await this.swiftWriteUnionValue(
+                elemType,
+                item,
+                ctx,
+                wr
+              );
+            }
+            if ( wrotePush == false ) {
+              await this.WalkNode(item, ctx, wr);
+            }
+            ctx.unsetInExpr();
+            wr.out(")", true);
+            return;
+          }
           if ( cmd == "switch" ) {
             const condition = node.getSecond();
             const case_nodes = node.getThird();

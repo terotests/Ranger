@@ -458,7 +458,6 @@ class NumberCtl extends UiCtl {
                 if (last == 48) {
                     fs = (substring fs 0 ((strlen fs) - 1))
                 } {
-                    fs = fs
                     break
                 }
             }

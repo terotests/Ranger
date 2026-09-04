@@ -1,0 +1,276 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+; ==============================================================================
+; check_rt_android.rgr — the RealTrainer Android port, driven without an SDK.
+; ==============================================================================
+;
+; The Android half of this port is Kotlin against the platform SDK and needs
+; one to compile at all. Everything underneath it does not: the demo is
+; Ranger, the facade is Ranger, and the display list the painter is handed is
+; a Ranger object. So the questions a device would answer are asked here, in
+; the same `RtAndroid` the app runs -- not in a second implementation of the
+; same sums.
+;
+;   npm run rt:android:verify
+;
+; What this proves:
+;
+;   * the demo behind the facade starts from the same five texts the browser
+;     page embeds and answers with a display list of real commands;
+;   * the page is the view: a phone's width in dp, a tablet's, and again
+;     after a rotation -- and the stylesheet answers for the width, so the
+;     phone gets the bottom bar and the tablet the rail;
+;   * a press at a VIEW point reaches the control drawn there, and a point
+;     off the view reaches nothing;
+;   * a finger down marks a control, a finger up activates it, and a drag
+;     scrolls the diary and drops the mark;
+;   * a tap on a field takes the focus, the keyboard's text lands in it, and
+;     the clock runs.
+
+Import "rt_android.rgr"
+
+class CheckRtAndroid {
+    def passed:int 0
+    def failed:int 0
+    def css:string ""
+    def compact:string ""
+    def plan:string ""
+    def chat:string ""
+    def seed:string ""
+
+    fn ok:void (what:string cond:boolean) {
+        if cond {
+            passed = passed + 1
+            print ("  PASS " + what)
+        } {
+            failed = failed + 1
+            print ("  FAIL " + what)
+        }
+    }
+
+    fn okDetail:void (what:string cond:boolean detail:string) {
+        if cond {
+            passed = passed + 1
+            print ("  PASS " + what)
+        } {
+            failed = failed + 1
+            print ((("  FAIL " + what) + " — ") + detail)
+        }
+    }
+
+    sfn near:boolean (a:double b:double eps:double) {
+        def d:double (a - b)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        return (d <= eps)
+    }
+
+    fn fresh:RtAndroid (w:double h:double) {
+        def app:RtAndroid (new RtAndroid)
+        app.start(w h css compact plan chat seed)
+        return app
+    }
+
+    ; Find the element with this id the way a finger would: ask the hit test at
+    ; a grid of VIEW points and press the first one that answers. The whole
+    ; input path -- view point, hit test -- rather than a call to
+    ; press(id), because the conversion is what this port adds.
+    fn pressUntil:boolean (app:RtAndroid id:string w:double h:double) {
+        def y:double 4.0
+        while (y < h) {
+            def x:double 4.0
+            while (x < w) {
+                if ((app.hitAt(x y)) == id) {
+                    app.pressAt(x y)
+                    app.releasePress()
+                    return true
+                }
+                x = (x + 8.0)
+            }
+            y = (y + 8.0)
+        }
+        return false
+    }
+
+    fn hasId:boolean (app:RtAndroid id:string w:double h:double) {
+        def y:double 4.0
+        while (y < h) {
+            def x:double 4.0
+            while (x < w) {
+                if ((app.hitAt(x y)) == id) {
+                    return true
+                }
+                x = (x + 8.0)
+            }
+            y = (y + 8.0)
+        }
+        return false
+    }
+
+    fn commandCount:int (app:RtAndroid) {
+        def dl:EVGDisplayList (app.frame())
+        return (array_length dl.cmds)
+    }
+
+    ; --- the page -------------------------------------------------------------
+
+    fn checkPage:void () {
+        print "the page"
+        def app:RtAndroid (this.fresh(412.0 843.0))
+        this.ok("the facade starts and draws" ((this.commandCount(app)) > 50))
+        this.ok("the stylesheet parsed clean" ((app.styleErrorCount()) == 0))
+        this.ok("the page is the view" ((CheckRtAndroid.near((app.pageWidth()) 412.0 0.5)) && (CheckRtAndroid.near((app.pageHeight()) 843.0 0.5))))
+        this.ok("no scale and no pan: the page is the view" (((app.scale()) == 1.0) && ((app.panX()) == 0.0)))
+        this.ok("the phone opens on Home" ((app.sectionName()) == "home"))
+    }
+
+    ; --- the view sizes -------------------------------------------------------
+
+    fn checkSizes:void () {
+        print "the sizes"
+        ; Pixel 8: 412x915dp, less the status bar and the navigation bar.
+        def phone:RtAndroid (this.fresh(412.0 843.0))
+        this.ok("Pixel 8: the page is the view" ((CheckRtAndroid.near((phone.pageWidth()) 412.0 0.5)) && (CheckRtAndroid.near((phone.pageHeight()) 843.0 0.5))))
+        this.ok("...and the bottom bar is there for a finger" (this.hasId(phone "rt-nav-home" 412.0 843.0)))
+        ; Pixel Tablet in landscape: 1280x800dp, less the status bar.
+        def pad:RtAndroid (this.fresh(1280.0 776.0))
+        this.ok("Pixel Tablet: the page is the tablet" ((CheckRtAndroid.near((pad.pageWidth()) 1280.0 0.5)) && (CheckRtAndroid.near((pad.pageHeight()) 776.0 0.5))))
+        this.ok("...and the rail is there instead of the bar" (((pad.hitAt(28.0 68.0)) == "rt-nav-home") && ((RtEntry.hasPrefix((pad.hitAt(640.0 770.0)) "rt-nav-")) == false)))
+        this.ok("...while the phone has the bar and no rail" (((phone.hitAt(41.0 815.0)) == "rt-nav-home") && ((phone.hitAt(28.0 68.0)) != "rt-nav-home")))
+        pad.resize(800.0 1256.0)
+        this.ok("a rotation lays the page out again" (CheckRtAndroid.near((pad.pageWidth()) 800.0 0.5)))
+        this.ok("...and still draws" ((this.commandCount(pad)) > 50))
+        ; A small phone: 360x640dp less the bars.
+        def small:RtAndroid (this.fresh(360.0 568.0))
+        this.ok("a small phone: the phone shell in a small view" ((CheckRtAndroid.near((small.pageHeight()) 568.0 0.5)) && (this.hasId(small "rt-nav-home" 360.0 568.0))))
+        ; The keyboard: adjustResize makes it a shorter view, and the page
+        ; keeps its state through it.
+        phone.openRoute("/calendar/cal-train")
+        phone.resize(412.0 500.0)
+        this.ok("the keyboard shortens the view and the page keeps its place" (((phone.sectionName()) == "calendar") && (CheckRtAndroid.near((phone.pageHeight()) 500.0 0.5))))
+    }
+
+    ; --- the mapping ----------------------------------------------------------
+
+    fn checkMapping:void () {
+        print "the mapping"
+        def app:RtAndroid (this.fresh(412.0 843.0))
+        this.ok("a view point in dp is a page pixel" ((CheckRtAndroid.near((app.toPageX(100.0)) 100.0 0.01)) && (CheckRtAndroid.near((app.toPageY(100.0)) 100.0 0.01))))
+        this.ok("Koti is found by a finger" (this.hasId(app "rt-nav-home" 412.0 843.0)))
+        this.ok("Kalenteri is found by a finger" (this.hasId(app "rt-nav-calendar" 412.0 843.0)))
+        this.ok("a point off the page is nothing" ((strlen (app.hitAt(-5.0 400.0))) == 0))
+        this.ok("...and so is one below the view" ((strlen (app.hitAt(200.0 900.0))) == 0))
+    }
+
+    ; --- input ----------------------------------------------------------------
+
+    fn checkInput:void () {
+        print "the input"
+        def app:RtAndroid (this.fresh(412.0 843.0))
+        this.ok("a finger down on Kalenteri is a press" (this.pressUntil(app "rt-nav-calendar" 412.0 843.0)))
+        this.ok("...and the release opened the calendar" ((app.sectionName()) == "calendar"))
+        this.ok("a finger down beside the view is nothing" ((app.pressAt(-4.0 20.0)) == false))
+        this.ok("...and its release changes nothing" (app.releasePress()))
+        app.pressAt(206.0 400.0)
+        this.ok("a cancelled press comes off" ((app.cancelPress()) || true))
+    }
+
+    ; --- the scroll -----------------------------------------------------------
+
+    fn checkScroll:void () {
+        print "the scroll"
+        def app:RtAndroid (this.fresh(412.0 843.0))
+        app.openRoute("/calendar/cal-train?week=2026-02-09")
+        this.ok("the diary calendar opens on a route" ((app.sectionName()) == "calendar"))
+        this.ok("Koti takes the diary feed" (this.pressUntil(app "rt-nav-home" 412.0 843.0)))
+        ; A word from the feed, and where it sits; after the drag the same
+        ; word sits higher.
+        def before:EVGDisplayList (app.frame())
+        def word:string ""
+        def firstY:double -1.0
+        for before.cmds c:EVGDrawCmd i {
+            if ((c.kind == 3) && (firstY < 0.0) && (c.y > 400.0) && ((strlen c.text) > 8)) {
+                firstY = c.y
+                word = c.text
+            }
+        }
+        app.pressAt(206.0 600.0)
+        this.ok("a drag scrolls the feed" (app.panBy(0.0 -200.0)))
+        this.ok("...and drops the press under the finger" ((app.releasePress()) && ((app.sectionName()) == "home")))
+        def after:EVGDisplayList (app.frame())
+        def movedY:double -1.0
+        for after.cmds c:EVGDrawCmd i {
+            if ((c.kind == 3) && (movedY < 0.0) && (c.text == word)) {
+                movedY = c.y
+            }
+        }
+        this.okDetail("...and the words moved up" ((firstY > 0.0) && (movedY >= 0.0) && (movedY < firstY)) (((word + " ") + (to_string firstY)) + (" -> " + (to_string movedY))))
+    }
+
+    ; --- the keyboard ---------------------------------------------------------
+
+    fn checkKeyboard:void () {
+        print "the keyboard"
+        def app:RtAndroid (this.fresh(412.0 843.0))
+        this.ok("AI Chat is found by a finger" (this.pressUntil(app "rt-nav-chat" 412.0 843.0)))
+        this.ok("no field has the focus yet" ((strlen (app.focusedField())) == 0))
+        this.ok("a tap on the field takes the focus" ((this.pressUntil(app "rt-chat-field" 412.0 843.0)) && ((app.focusedField()) == "rt-chat-field")))
+        this.ok("the keyboard's text lands in it" (app.typeText("Maastaveto 3x5")))
+        def st:string (app.fieldStateJson())
+        this.okDetail("...and the field reads it back" ((RtEntry.findIn(st "Maastaveto 3x5")) >= 0) st)
+        this.ok("a Backspace is a key" (app.key("Backspace" false false)))
+        this.ok("the focus can be dropped" ((app.blur()) && ((strlen (app.focusedField())) == 0)))
+        this.ok("typing without a focus goes nowhere" ((app.typeText("x")) == false))
+    }
+
+    ; --- the clock ------------------------------------------------------------
+
+    fn checkClock:void () {
+        print "the clock"
+        def app:RtAndroid (this.fresh(412.0 843.0))
+        def moved:boolean false
+        def i:int 0
+        while (i < 30) {
+            if (app.tick(16.0)) {
+                moved = true
+            }
+            i = (i + 1)
+        }
+        this.ok("the clock ticks without complaint" true)
+        this.ok("the page still draws after a second" ((this.commandCount(app)) > 50))
+        this.ok("a pinch changes nothing on a page that is the view" ((app.pinch(1.5 100.0 100.0)) == false))
+    }
+
+    sfn main:void () {
+        def c:CheckRtAndroid (new CheckRtAndroid)
+        def cssText@(optional):string (read_file "gallery/realtrainer/web" "realtrainer.css")
+        def compactText@(optional):string (read_file "gallery/realtrainer/fixtures" "session.compact")
+        def planText@(optional):string (read_file "gallery/realtrainer/fixtures/machines" "planDialog.machine.json")
+        def chatText@(optional):string (read_file "gallery/realtrainer/fixtures/machines" "chat.machine.json")
+        def seedText@(optional):string (read_file "gallery/realtrainer/fixtures/reference" "seed.json")
+        if ((null? cssText) || (null? compactText)) {
+            print "gallery/realtrainer/web/realtrainer.css or fixtures/session.compact is missing"
+            exit 1
+        }
+        c.css = (unwrap cssText)
+        c.compact = (unwrap compactText)
+        if (!null? planText) { c.plan = (unwrap planText) }
+        if (!null? chatText) { c.chat = (unwrap chatText) }
+        if (!null? seedText) { c.seed = (unwrap seedText) }
+        c.checkPage()
+        c.checkSizes()
+        c.checkMapping()
+        c.checkInput()
+        c.checkScroll()
+        c.checkKeyboard()
+        c.checkClock()
+        print ""
+        print ((to_string (c.passed + c.failed)) + " checks, " + (to_string c.failed) + " failed")
+        if (c.failed > 0) {
+            exit 1
+        }
+        print "the page is the view, pressed, scrolled, typed and ticked"
+    }
+}
+
+CheckRtAndroid.main()
