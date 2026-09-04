@@ -440,6 +440,53 @@ ok("and the save answers back to idle",
    (await page.evaluate("window.__app.chat.state()")) === "idle",
    await page.evaluate("window.__app.chat.state()"));
 
+// The caret is drawn at the measured width of the text before it, and the
+// text is drawn by the browser's own glyphs — two measurements of one string.
+// A password field is where they came apart: the measurer guessed the bullet
+// at half an em where the face draws 0.35, and nine characters in the caret
+// sat fifteen pixels past the last one. So: type into three fields — Latin,
+// umlauts, bullets — and check the caret sits on the run's right edge in the
+// same picture.
+const caretAfter = async (tid, text) => {
+  await page.evaluate((t) => { window.__app.press(t); }, tid);
+  await page.evaluate((t) => { window.__app.typeText(t); }, text);
+  await page.waitForTimeout(200);
+  const list = await listNow();
+  const box = JSON.parse(await page.evaluate((t) => window.__app.fieldStateJson(t), tid)).box;
+  const inBox = (c) => c.x >= box.x && c.x <= box.x + box.w && c.y >= box.y && c.y <= box.y + box.h;
+  const run = list.find((c) => c.k === 3 && inBox(c));
+  const caret = list.find((c) => c.k === 0 && c.w === 2 && c.h === 18 && inBox(c));
+  if (!run || !caret) return { err: `no ${run ? "caret" : "text run"} in the field's box` };
+  // NOT the run's own `w`: that is the layout's measurement, the same number
+  // the caret was placed from, and the two agree even when both are wrong.
+  // The glyph atlas is built with the browser's `measureText`, so that is
+  // the width the text is DRAWN at, and the only one worth comparing against.
+  const drawn = await page.evaluate(({ text, font, size }) => {
+    const ctx = document.createElement("canvas").getContext("2d");
+    ctx.font = `${size}px ${font.replace(/-Bold$/, "")}`;
+    return ctx.measureText(text).width;
+  }, { text: run.text, font: run.font, size: run.size });
+  return { err: null, drift: caret.x - (run.x + drawn), text: run.text };
+};
+await page.evaluate("window.__app.openRoute('/new-calendar')");
+await page.waitForTimeout(200);
+await page.evaluate("window.__app.press('rt-wiz-next')");
+const latin = await caretAfter("rt-wiz-name", "Kilpailukausi 2026");
+ok("the caret sits on the end of Latin text",
+   !latin.err && Math.abs(latin.drift) < 0.5, latin.err ?? `${latin.drift.toFixed(2)}px past "${latin.text}"`);
+const umlauts = await caretAfter("rt-wiz-desc", "Päiväkirja — ääkkösiä");
+ok("and on the end of text with umlauts and a dash",
+   !umlauts.err && Math.abs(umlauts.drift) < 0.5, umlauts.err ?? `${umlauts.drift.toFixed(2)}px past "${umlauts.text}"`);
+await page.evaluate("window.__app.press('rt-wiz-next')");
+await page.evaluate("window.__app.press('rt-wiz-encrypt')");
+const bullets = await caretAfter("rt-wiz-pass", "Kissa2026");
+ok("and on the end of a password's bullets",
+   !bullets.err && Math.abs(bullets.drift) < 0.5, bullets.err ?? `${bullets.drift.toFixed(2)}px past "${bullets.text}"`);
+if (pngOut) {
+  await page.locator("#stage canvas").screenshot({ path: stem + "-wizard-password.png" });
+  console.log("  wrote " + stem + "-wizard-password.png (the caret after the bullets)");
+}
+
 ok("nothing errored along the way", problems.length === 0, [...new Set(problems)].join("; "));
 
 await browser.close();
