@@ -17,6 +17,7 @@ npm run rt:web      # build, serve, print the URL
 # a route, ?page=390x844 pins a phone's size inside any browser, and
 # ?page=980x760 is the desktop demo the checks measure
 npm run rt:check    # the app driven with a made-up clock, no browser  (CI)
+npm run rt:scroll   # the scroll shortcut against a full re-layout, frame for frame
 npm run rt:frame    # the same app in Chromium, checked at the pixels
 ```
 

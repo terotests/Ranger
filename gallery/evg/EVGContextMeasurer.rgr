@@ -83,6 +83,17 @@ class EVGContextMeasurer {
         return hasCtx
     }
 
+    ; What this measurer reads that its arguments do not carry: the host's
+    ; family, and the weight `setWeight` last put it in. Both change the width
+    ; of the same string, so both belong in the engine's cache key.
+    fn measureKey:string () {
+        def out@(mutable):string ("ctx:" + family)
+        if hasCtx { out = (out + ":c") }
+        if bold { out = (out + ":b") }
+        if italic { out = (out + ":i") }
+        return out
+    }
+
     ; The host has exactly one family loaded, and paints everything in it.
     ; Claiming otherwise would let a document name a face nobody has and get no
     ; warning for it.
