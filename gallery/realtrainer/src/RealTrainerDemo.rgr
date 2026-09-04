@@ -93,6 +93,12 @@ Import "RtCalendar.rgr"
 Import "CalendarWizard.rgr"
 Import "RtYearSheet.rgr"
 Import "stats/ExerciseStats.rgr"
+Import "../../vela/src/VlChart.rgr"
+Import "../../vela/src/VlCompile.rgr"
+Import "../../vela/src/VlRuntime.rgr"
+Import "../../vela/src/VlCommand.rgr"
+Import "../../vela/src/VlEvgList.rgr"
+Import "../../game_engine/ui/UITextRenderer.rgr"
 Import "../../ui/src/SelectCtl.rgr"
 Import "../../ui/src/NumberCtl.rgr"
 Import "../../ui/src/InputCtl.rgr"
@@ -354,6 +360,12 @@ treefactory Rt {
     tag StatsSmall EVGElement (props (className "rt-stats-small") (elementType 1))
     tag FeatTitle EVGElement (props (className "rt-feat-title") (elementType 1))
     tag FeatPara EVGElement (props (className "rt-feat-para") (elementType 1) (role "paragraph"))
+    tag ChartBox EVGElement (props (className "rt-chart-box"))
+    tag StatTrendTx EVGElement (props (className "rt-stat-trend") (elementType 1))
+    tag StatBig EVGElement (props (className "rt-stat-big") (elementType 1))
+    tag StatUnit EVGElement (props (className "rt-stat-unit") (elementType 1))
+    tag StatDate EVGElement (props (className "rt-stat-date") (elementType 1))
+    tag StatFootTx EVGElement (props (className "rt-stat-foot-text") (elementType 1))
     tag DerivedPill EVGElement (props (className "rt-derived-pill") (elementType 1))
     tag MeasHd  EVGElement (props (className "rt-meas-hd") (elementType 1) (role "heading") (a11yLevel 3))
     tag MeasVal EVGElement (props (className "rt-meas-val") (elementType 1))
@@ -528,6 +540,14 @@ treefactory Rt {
     tag RoundTx  EVGElement (props (className "rt-round-text") (elementType 1) (a11yHidden true))
 }
 
+; One curve on the Tilastot tab: the values, the colour, and the id of the
+; box the layout places for it.
+class RtChartDef {
+    def id@(mutable):string ""
+    def color@(mutable):string ""
+    def values:[double]
+}
+
 class RealTrainerDemo {
 
     ; --- the timings, in one place -------------------------------------------
@@ -602,6 +622,11 @@ class RealTrainerDemo {
     def drillSortOpen@(mutable):boolean false
     def drillCache@(mutable):[ExerciseSummary]
     def drillCacheKey@(mutable):string ""
+    ; The Tilastot curves of the current tree, and their commands kept by
+    ; data and size.
+    def charts:[RtChartDef]
+    def chartKeys:[string]
+    def chartLists:[VlCommandList]
     ; The calendar menu is down — `showDropdown`.
     def calMenuOpen@(mutable):boolean false
     def addedSeq@(mutable):int 0
@@ -2855,17 +2880,28 @@ class RealTrainerDemo {
     }
 
     ; --- Home: Tilastot -------------------------------------------------------
-    ; `TrainingStatsPanel` and `FeatureVectorsPanel`: the last seven days
-    ; with data, and the estimates — none stored here, so every feature
-    ; says it lacks data, as the original does before its vectors run.
+    ; `TrainingStatsPanel` and `FeatureVectorsPanel`: the last seven dated
+    ; days, then a card per series — the daily volume, distance and time,
+    ; the custom fields two days share, and the features the diary's Derived
+    ; lines give over the last fourteen days. A card is `StatsMiniCard`: the
+    ; title and the trend, the latest value, the curve, the date, and the
+    ; average, the least and the most. The curve is a Vela chart — an area
+    ; under a line, the latest point marked — drawn into the display list at
+    ; the card's box once the layout has placed it (`emitCharts`).
     fn statsPanel:void (home:EVGElement) {
+        clear charts
         def panel (tree Rt (Col (props (className "rt-stats"))))
         def mine:[RtSeedEntry] (seed.selectedEntries())
+        ; The daily totals, by date.
         def days:[string]
         def vol:[double]
         def dist:[double]
         def mins:[double]
         def count:[int]
+        def fieldNames:[string]
+        def fieldUnits:[string]
+        def fieldDays:[string]
+        def fieldVals:[double]
         for mine e:RtSeedEntry i {
             def doc:CompactDocument (CompactRowMapper.parseDocument(e.compact))
             def v@(mutable):double 0.0
@@ -2886,13 +2922,33 @@ class RealTrainerDemo {
                             if (ms.durationUnit == "min") { m = (m + (ms.durationValue * (int2double ms.sets))) }
                         }
                     }
+                    Custom cu {
+                        ; `customFields`: a numeric value with a unit, summed
+                        ; per day under its lower-cased name.
+                        def cs:CustomSpec (unwrap cu.spec)
+                        def cv (str2double cs.value)
+                        if ((!null? cv) && ((strlen cs.unit) > 0)) {
+                            def fname:string (RealTrainerDemo.lower(cs.name))
+                            def fat@(mutable):int -1
+                            for fieldNames fn:string fi {
+                                if ((fn == fname) && ((itemAt fieldDays fi) == e.date)) { fat = fi }
+                            }
+                            if (fat < 0) {
+                                push fieldNames fname
+                                push fieldUnits cs.unit
+                                push fieldDays e.date
+                                push fieldVals (unwrap cv)
+                            } {
+                                set fieldVals fat ((itemAt fieldVals fat) + (unwrap cv))
+                            }
+                        }
+                    }
                     Pyramid py { }
                     Split sp { }
                     Section s { }
                     Text t { }
                     Summary sm { }
                     Phase ph { }
-                    Custom cu { }
                     Duration du { }
                     Unknown un { }
                     Circuit ci { }
@@ -2916,7 +2972,7 @@ class RealTrainerDemo {
                 set count at ((itemAt count at) + 1)
             }
         }
-        ; The last seven dated days, by date.
+        ; The dated days in order, and the last twenty-one of them.
         def order:[int]
         for days dd:string k {
             def placed:[int]
@@ -2932,13 +2988,15 @@ class RealTrainerDemo {
             order = placed
         }
         def n:int (array_length order)
-        def from@(mutable):int (n - 7)
-        if (from < 0) { from = 0 }
+        def from21@(mutable):int (n - 21)
+        if (from21 < 0) { from21 = 0 }
+        def from7@(mutable):int (n - 7)
+        if (from7 < 0) { from7 = 0 }
         def tv@(mutable):double 0.0
         def td@(mutable):double 0.0
         def tm@(mutable):double 0.0
         def tc@(mutable):int 0
-        def k@(mutable):int from
+        def k@(mutable):int from7
         while (k < n) {
             def idx:int (itemAt order k)
             tv = (tv + (itemAt vol idx))
@@ -2956,12 +3014,7 @@ class RealTrainerDemo {
                 nums.addChild((this.statsNum(((to_string tons) + "t") "yht." "rt-stats-purple")))
             }
             if (td > 0.0) {
-                def tenths:int (to_int ((td * 10.0) + 0.5))
-                def whole:int (to_int ((int2double tenths) / 10.0))
-                def rest:int (tenths - (whole * 10))
-                def kmTx@(mutable):string (to_string whole)
-                if (rest > 0) { kmTx = ((kmTx + ".") + (to_string rest)) }
-                nums.addChild((this.statsNum((kmTx + " km") "yht." "rt-stats-green")))
+                nums.addChild((this.statsNum(((RealTrainerDemo.fixed(td 1)) + " km") "yht." "rt-stats-green")))
             }
             if (tm > 0.0) {
                 def hrs:int (to_int ((tm / 60.0) + 0.5))
@@ -2970,62 +3023,418 @@ class RealTrainerDemo {
             week.addChild(nums)
             panel.addChild(week)
         }
+        ; The series over the last twenty-one dated days: a day without the
+        ; measure is left out, as `volumeData` leaves it.
+        def volDates:[string]
+        def volVals:[double]
+        def distDates:[string]
+        def distVals:[double]
+        def minDates:[string]
+        def minVals:[double]
+        def k2@(mutable):int from21
+        while (k2 < n) {
+            def idx:int (itemAt order k2)
+            if ((itemAt vol idx) > 0.0) {
+                push volDates (itemAt days idx)
+                push volVals ((itemAt vol idx) / 1000.0)
+            }
+            if ((itemAt dist idx) > 0.0) {
+                push distDates (itemAt days idx)
+                push distVals (itemAt dist idx)
+            }
+            if ((itemAt mins idx) > 0.0) {
+                push minDates (itemAt days idx)
+                push minVals (itemAt mins idx)
+            }
+            k2 = (k2 + 1)
+        }
+        def grid (tree Rt (Row (props (className "rt-feat-grid"))))
+        grid.addChild((this.statsCard("volume" "Volyymi (kg×toistot)" "t" "#a855f7" (RtIcons.dumbbell("#a855f7")) volDates volVals 1)))
+        grid.addChild((this.statsCard("distance" "Matka" "km" "#22c55e" (RtIcons.activity("#22c55e")) distDates distVals 1)))
+        grid.addChild((this.statsCard("duration" "Kesto" "min" "#3b82f6" (RtIcons.clock("#3b82f6")) minDates minVals 0)))
+        ; The custom fields two days or more share, each as its own card.
+        def shown:[string]
+        for fieldNames fname:string fi {
+            def seen@(mutable):boolean false
+            for shown sn:string si { if (sn == fname) { seen = true } }
+            if seen { continue }
+            def fdates:[string]
+            def fvals:[double]
+            for fieldNames f2:string fj {
+                if (f2 == fname) {
+                    push fdates (itemAt fieldDays fj)
+                    push fvals (itemAt fieldVals fj)
+                }
+            }
+            if ((array_length fdates) < 2) { continue }
+            push shown fname
+            def fdOrder:[int]
+            for fdates fd:string fk {
+                def placed:[int]
+                def done@(mutable):boolean false
+                for fdOrder o:int j {
+                    if ((done == false) && (RealTrainerDemo.strAfter((itemAt fdates o) fd))) {
+                        push placed fk
+                        done = true
+                    }
+                    push placed o
+                }
+                if (done == false) { push placed fk }
+                fdOrder = placed
+            }
+            def sdates:[string]
+            def svals:[double]
+            def fromF@(mutable):int ((array_length fdOrder) - 21)
+            if (fromF < 0) { fromF = 0 }
+            def fk2@(mutable):int fromF
+            while (fk2 < (array_length fdOrder)) {
+                def oi:int (itemAt fdOrder fk2)
+                push sdates (itemAt fdates oi)
+                push svals (itemAt fvals oi)
+                fk2 = (fk2 + 1)
+            }
+            def fcolor:string (RealTrainerDemo.customFieldColor(fname))
+            grid.addChild((this.statsCard(("field-" + fname) (RealTrainerDemo.capitalised(fname)) (itemAt fieldUnits fi) fcolor (RtIcons.activity(fcolor)) sdates svals 0)))
+        }
+        panel.addChild(grid)
         def head (tree Rt (ModalRow))
         head.addChild((tree Rt (StatsH4 (props (id "rt-stats-recent")) "Viimeisimmät arviot")))
         head.addChild((tree Rt (Spacer)))
         head.addChild((this.iconBtn("rt-stats-calc" "Laske vektorit" (RtIcons.sparkles("#f97316")))))
         panel.addChild(head)
-        def feats (tree Rt (Row (props (className "rt-feat-grid"))))
+        ; The features: the known ones in their order, then what the diary
+        ; names beyond them; the values from every calendar's Derived lines
+        ; over the last fourteen days, by date.
         def keys:[string]
-        push keys "Hermostokuorma"
-        push keys "Maksimivoima"
-        push keys "Räjähtävyys"
-        push keys "Nopeusvoima"
-        push keys "Voimakestävyys"
-        push keys "Zone 1"
-        push keys "Zone 2"
-        push keys "Zone 3"
-        push keys "Zone 4"
-        push keys "Zone 5"
-        push keys "Hyvät rasvat"
-        push keys "Huonot rasvat"
-        ; The features the diary's Derived lines name beyond the known
-        ; ones, as their bare keys, in the order they are met.
-        def known:[string]
-        push known "strength.neural_stress"
-        push known "strength.max_strength_emphasis"
-        push known "strength.power_emphasis"
-        push known "strength.speed_strength_emphasis"
-        push known "strength.strength_endurance_emphasis"
-        push known "endurance.zone1_minutes"
-        push known "endurance.zone2_minutes"
-        push known "endurance.zone3_minutes"
-        push known "endurance.zone4_minutes"
-        push known "endurance.zone5_minutes"
-        push known "nutrition.fat_good_total"
-        push known "nutrition.fat_bad_total"
-        def extra:[string]
-        for mine e:RtSeedEntry i {
+        def labels:[string]
+        def units:[string]
+        def colors:[string]
+        RealTrainerDemo.featureRow(keys labels units colors "strength.neural_stress" "Hermostokuorma" "score" "#f97316")
+        RealTrainerDemo.featureRow(keys labels units colors "strength.max_strength_emphasis" "Maksimivoima" "score" "#ef4444")
+        RealTrainerDemo.featureRow(keys labels units colors "strength.power_emphasis" "Räjähtävyys" "score" "#eab308")
+        RealTrainerDemo.featureRow(keys labels units colors "strength.speed_strength_emphasis" "Nopeusvoima" "score" "#a855f7")
+        RealTrainerDemo.featureRow(keys labels units colors "strength.strength_endurance_emphasis" "Voimakestävyys" "score" "#ec4899")
+        RealTrainerDemo.featureRow(keys labels units colors "endurance.zone1_minutes" "Zone 1" "min" "#94a3b8")
+        RealTrainerDemo.featureRow(keys labels units colors "endurance.zone2_minutes" "Zone 2" "min" "#22c55e")
+        RealTrainerDemo.featureRow(keys labels units colors "endurance.zone3_minutes" "Zone 3" "min" "#3b82f6")
+        RealTrainerDemo.featureRow(keys labels units colors "endurance.zone4_minutes" "Zone 4" "min" "#f97316")
+        RealTrainerDemo.featureRow(keys labels units colors "endurance.zone5_minutes" "Zone 5" "min" "#ef4444")
+        RealTrainerDemo.featureRow(keys labels units colors "nutrition.fat_good_total" "Hyvät rasvat" "g/day" "#22c55e")
+        RealTrainerDemo.featureRow(keys labels units colors "nutrition.fat_bad_total" "Huonot rasvat" "g/day" "#ef4444")
+        def since:int ((RtWeek.daysOf(today)) - 14)
+        def fKeys:[string]
+        def fDates:[string]
+        def fVals:[double]
+        def fUnitOf:[string]
+        for seed.entries e:RtSeedEntry ei {
+            if ((RtWeek.daysOf(e.date)) < since) { continue }
+            if ((RtWeek.daysOf(e.date)) > (RtWeek.daysOf(today))) { continue }
+            if (seed.calendarKindOf(e.calendarId) == "plan") { continue }
             def ds:[RtDerived] (RtDerived.of(e.compact))
-            for ds d:RtDerived di {
-                def seen@(mutable):boolean false
-                for known kk:string kj { if (kk == d.key) { seen = true } }
-                for extra xk:string xj { if (xk == d.key) { seen = true } }
-                if (seen == false) { push extra d.key }
+            for ds dv:RtDerived di {
+                def val (str2double dv.value)
+                if (null? val) { continue }
+                push fKeys dv.key
+                push fDates e.date
+                push fVals (unwrap val)
+                push fUnitOf dv.unit
+                def known@(mutable):boolean false
+                for keys kk:string kj { if (kk == dv.key) { known = true } }
+                if (known == false) {
+                    def dot:int (RtEntry.findIn(dv.key "."))
+                    def bare@(mutable):string dv.key
+                    if (dot >= 0) { bare = (substring dv.key (dot + 1) (strlen dv.key)) }
+                    RealTrainerDemo.featureRow(keys labels units colors dv.key bare dv.unit "#f97316")
+                }
             }
         }
-        for extra xk:string xi {
-            def dot:int (RtEntry.findIn(xk "."))
-            if (dot >= 0) { push keys (substring xk (dot + 1) (strlen xk)) } { push keys xk }
-        }
-        for keys label:string i {
-            def card (tree Rt (Col (props (className "rt-feat-card"))))
-            card.addChild((tree Rt (FeatTitle label)))
-            card.addChild((tree Rt (FeatPara (props (id ("rt-feat-" + (to_string i)))) "Ei tarpeeksi dataa")))
-            feats.addChild(card)
+        def feats (tree Rt (Row (props (className "rt-feat-grid"))))
+        for keys key:string i {
+            ; This feature's points, summed per day, by date.
+            def pd:[string]
+            def pv:[double]
+            for fKeys fk:string fi {
+                if (fk != key) { continue }
+                def at@(mutable):int -1
+                for pd d0:string dj { if (d0 == (itemAt fDates fi)) { at = dj } }
+                if (at < 0) {
+                    push pd (itemAt fDates fi)
+                    push pv (itemAt fVals fi)
+                } {
+                    set pv at ((itemAt pv at) + (itemAt fVals fi))
+                }
+            }
+            def po:[int]
+            for pd d1:string dk {
+                def placed:[int]
+                def done@(mutable):boolean false
+                for po o:int j {
+                    if ((done == false) && (RealTrainerDemo.strAfter((itemAt pd o) d1))) {
+                        push placed dk
+                        done = true
+                    }
+                    push placed o
+                }
+                if (done == false) { push placed dk }
+                po = placed
+            }
+            def sd:[string]
+            def sv:[double]
+            for po oi:int oj {
+                push sd (itemAt pd oi)
+                push sv (itemAt pv oi)
+            }
+            def unit:string (itemAt units i)
+            def decimals@(mutable):int 0
+            if ((unit == "kg") || (unit == "km")) { decimals = 1 }
+            feats.addChild((this.statsCard(("feature-" + (to_string i)) (itemAt labels i) unit (itemAt colors i) "" sd sv decimals)))
         }
         panel.addChild(feats)
         home.addChild(panel)
+    }
+
+    sfn featureRow:void (keys:[string] labels:[string] units:[string] colors:[string] key:string label:string unit:string color:string) {
+        push keys key
+        push labels label
+        push units unit
+        push colors color
+    }
+
+    ; `getCustomFieldColor`.
+    sfn customFieldColor:string (name:string) {
+        if ((RtEntry.findIn(name "nousu")) >= 0) { return "#22c55e" }
+        if ((RtEntry.findIn(name "elevation")) >= 0) { return "#22c55e" }
+        if ((RtEntry.findIn(name "askel")) >= 0) { return "#8b5cf6" }
+        if ((RtEntry.findIn(name "step")) >= 0) { return "#8b5cf6" }
+        if ((RtEntry.findIn(name "syke")) >= 0) { return "#ef4444" }
+        if ((RtEntry.findIn(name "hr")) >= 0) { return "#ef4444" }
+        return "#6366f1"
+    }
+
+    sfn lower:string (text:string) {
+        def out@(mutable):string ""
+        def i@(mutable):int 0
+        def n:int (strlen text)
+        while (i < n) {
+            def ch:int (charAt text i)
+            def piece@(mutable):string (substring text i (i + 1))
+            if ((ch >= 65) && (ch <= 90)) { piece = (substring "abcdefghijklmnopqrstuvwxyz" (ch - 65) (ch - 64)) }
+            if (ch == 196) { piece = "ä" }
+            if (ch == 214) { piece = "ö" }
+            if (ch == 197) { piece = "å" }
+            out = (out + piece)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; `v.toFixed(decimals)`, and the rounded whole for none.
+    sfn fixed:string (v:double decimals:int) {
+        if (decimals <= 0) { return (to_string (to_int (v + 0.5))) }
+        def scaled:int (to_int ((v * 10.0) + 0.5))
+        def whole:int (to_int ((int2double scaled) / 10.0))
+        return (((to_string whole) + ".") + (to_string (scaled - (whole * 10))))
+    }
+
+    ; One `StatsMiniCard`, or the note that there is not enough data for one.
+    fn statsCard:EVGElement (key:string title:string unit:string color:string icon:string dates:[string] values:[double] decimals:int) {
+        def card (tree Rt (Col (props (className "rt-feat-card"))))
+        def head (tree Rt (Row (props (className "rt-stat-head"))))
+        if ((strlen icon) > 0) {
+            def glyph (tree Rt (PhIcon))
+            glyph.svgSource = icon
+            glyph.className = "rt-ph-icon rt-stat-icon"
+            head.addChild(glyph)
+        }
+        head.addChild((tree Rt (FeatTitle title)))
+        def n:int (array_length values)
+        if (n < 2) {
+            card.addChild(head)
+            card.addChild((tree Rt (FeatPara (props (id ("rt-feat-" + key))) "Ei tarpeeksi dataa")))
+            return card
+        }
+        def current:double (itemAt values (n - 1))
+        def previous:double (itemAt values (n - 2))
+        def sum@(mutable):double 0.0
+        def lo@(mutable):double current
+        def hi@(mutable):double current
+        for values v:double i {
+            sum = (sum + v)
+            if (v < lo) { lo = v }
+            if (v > hi) { hi = v }
+        }
+        def avg:double (sum / (int2double n))
+        def trend:double (current - previous)
+        def pct@(mutable):int 0
+        if (previous > 0.0) { pct = (to_int ((((current - previous) / previous) * 100.0) + 0.5)) }
+        if ((previous > 0.0) && (trend < 0.0)) { pct = (0 - (to_int ((((previous - current) / previous) * 100.0) + 0.5))) }
+        head.addChild((tree Rt (Spacer)))
+        def tglyph (tree Rt (PhIcon))
+        def ttone@(mutable):string "#999999"
+        if (trend > 0.0) { ttone = "#22c55e" }
+        if (trend < 0.0) { ttone = "#ef4444" }
+        if (trend > 0.0) { tglyph.svgSource = (RtIcons.trendingUp(ttone)) } {
+            if (trend < 0.0) { tglyph.svgSource = (RtIcons.trendingDown(ttone)) } { tglyph.svgSource = (RtIcons.minus(ttone)) }
+        }
+        tglyph.className = "rt-ph-icon rt-stat-trend-icon"
+        head.addChild(tglyph)
+        def sign@(mutable):string ""
+        if (trend > 0.0) { sign = "+" }
+        def ttx (tree Rt (StatTrendTx ((sign + (to_string pct)) + "%")))
+        ttx.setAttribute("color" ttone)
+        head.addChild(ttx)
+        card.addChild(head)
+        def valueRow (tree Rt (Row (props (className "rt-stat-value-row"))))
+        def big (tree Rt (StatBig (RealTrainerDemo.fixed(current decimals))))
+        big.setAttribute("color" color)
+        valueRow.addChild(big)
+        valueRow.addChild((tree Rt (StatUnit unit)))
+        card.addChild(valueRow)
+        ; The curve's place: the chart is drawn here once the layout has
+        ; placed the card — see `emitCharts`.
+        def box (tree Rt (ChartBox (props (id ("rt-chart-" + key)))))
+        card.addChild(box)
+        def def0 (new RtChartDef())
+        def0.id = ("rt-chart-" + key)
+        def0.color = color
+        def0.values = values
+        push charts def0
+        card.addChild((tree Rt (StatDate (RealTrainerDemo.fiDatePadded((itemAt dates (n - 1)))))))
+        def foot (tree Rt (Row (props (className "rt-stat-foot"))))
+        foot.addChild((tree Rt (StatFootTx ("Ka: " + (RealTrainerDemo.fixed(avg decimals))))))
+        foot.addChild((tree Rt (Spacer)))
+        foot.addChild((tree Rt (StatFootTx ("Min: " + (RealTrainerDemo.fixed(lo decimals))))))
+        foot.addChild((tree Rt (Spacer)))
+        foot.addChild((tree Rt (StatFootTx ("Max: " + (RealTrainerDemo.fixed(hi decimals))))))
+        card.addChild(foot)
+        return card
+    }
+
+    ; The charts, into the display list at their boxes. Each is a Vela chart
+    ; called rather than written: the points as a dataset, an area under a
+    ; monotone line, and the latest point marked, with no axes — the card
+    ; carries the numbers. Both layers share one explicit domain so the
+    ; point sits on the line. Clipped to the main area by hand, as a thing
+    ; appended after the walk is outside every clip the walk pushed.
+    fn emitCharts:void (dl:EVGDisplayList r:EVGElement) {
+        if ((array_length charts) == 0) { return }
+        def main:EVGElement (RealTrainerDemo.findEl(r "rt-ph-main"))
+        if ((strlen main.id) == 0) { return }
+        def tr (new UITextRenderer())
+        for charts def0:RtChartDef i {
+            def box:EVGElement (RealTrainerDemo.findEl(r def0.id))
+            if ((strlen box.id) == 0) { continue }
+            def w:int (to_int box.calculatedWidth)
+            def h:int (to_int box.calculatedHeight)
+            if ((w < 10) || (h < 10)) { continue }
+            ; Out of the main area entirely: nothing to draw.
+            if ((box.calculatedY + box.calculatedHeight) < main.calculatedY) { continue }
+            if (box.calculatedY > (main.calculatedY + main.calculatedHeight)) { continue }
+            def list:VlCommandList (this.chartCommands(def0 w h))
+            dl.addClip(main.calculatedX main.calculatedY main.calculatedWidth main.calculatedHeight)
+            def bridge (new VlEvgList())
+            bridge.emit(dl list tr box.calculatedX box.calculatedY 1.0)
+            dl.addClipEnd()
+        }
+    }
+
+    ; The commands for one chart at one size, kept: a paint that changed
+    ; nothing about the data draws the same picture.
+    fn chartCommands:VlCommandList (def0:RtChartDef w:int h:int) {
+        def key@(mutable):string ((def0.id + ":") + ((to_string w) + ("x" + (to_string h))))
+        for def0.values v:double i { key = ((key + ",") + (to_string v)) }
+        for chartKeys ck:string i {
+            if (ck == key) { return (itemAt chartLists i) }
+        }
+        def list:VlCommandList (RealTrainerDemo.buildChart(def0 w h))
+        push chartKeys key
+        push chartLists list
+        return list
+    }
+
+    sfn buildChart:VlCommandList (def0:RtChartDef w:int h:int) {
+        def n:int (array_length def0.values)
+        def lo@(mutable):double (itemAt def0.values 0)
+        def hi@(mutable):double lo
+        for def0.values v:double i {
+            if (v < lo) { lo = v }
+            if (v > hi) { hi = v }
+        }
+        if (hi <= lo) { hi = (lo + 1.0) }
+        ; A hair of room over and under, so the line's width is not clipped
+        ; at the top and the bottom of the plot.
+        def pad:double ((hi - lo) * 0.06)
+        lo = (lo - pad)
+        hi = (hi + pad)
+        def xs:[double]
+        for def0.values v:double i { push xs (int2double i) }
+        def data:VlDataset (VlDataset.create())
+        data.numbers("i" xs)
+        data.numbers("v" def0.values)
+        def last:VlDataset (VlDataset.create())
+        def lastX:[double]
+        def lastV:[double]
+        push lastX (int2double (n - 1))
+        push lastV (itemAt def0.values (n - 1))
+        last.numbers("i" lastX)
+        last.numbers("v" lastV)
+        def xScale:VlJson (RealTrainerDemo.domainJson(0.0 (int2double (n - 1))))
+        def yScale:VlJson (RealTrainerDemo.domainJson(lo hi))
+        def chart (VlChart.create(data))
+        chart.size(w h)
+        chart.background("#171717")
+        chart.configJson((RealTrainerDemo.plainConfig()))
+        chart.area().interpolate("monotone").markColor(def0.color).markOpacity(0.18).x("i").scaleJson(xScale).noAxis().y("v").scaleJson(yScale).noAxis()
+        chart.line().interpolate("monotone").markColor(def0.color).strokeWidth(2.0).x("i").scaleJson(xScale).noAxis().y("v").scaleJson(yScale).noAxis()
+        def dot (VlChart.create(last))
+        dot.size(w h)
+        dot.background("#171717")
+        dot.configJson((RealTrainerDemo.plainConfig()))
+        dot.point().filled(true).markColor(def0.color).markSize(36.0).x("i").scaleJson(xScale).noAxis().y("v").scaleJson(yScale).noAxis()
+        def list:VlCommandList (RealTrainerDemo.runChart(chart))
+        def dots:VlCommandList (RealTrainerDemo.runChart(dot))
+        ; The point's commands after the curve's, so it is drawn over it —
+        ; its background dropped, as it would cover the curve.
+        for dots.commands c:VlDrawCommand i {
+            if ((c.op == "rect") && (i == 0)) { continue }
+            push list.commands c
+        }
+        return list
+    }
+
+    ; No padding, no frame around the plot: the card is the frame.
+    sfn plainConfig:VlJson () {
+        def p (new VlJsonParser())
+        return (p.parse("{\"padding\":0,\"view\":{\"stroke\":null}}"))
+    }
+
+    sfn domainJson:VlJson (lo:double hi:double) {
+        def p (new VlJsonParser())
+        return (p.parse((((("{\"domain\":[" + (to_string lo)) + ",") + (to_string hi)) + "],\"nice\":false,\"zero\":false}")))
+    }
+
+    ; Vega-Lite → Vega → scene → commands, and an empty list for a chart
+    ; that refused somewhere on the way.
+    sfn runChart:VlCommandList (chart:VlChart) {
+        def empty (new VlCommandList())
+        if ((array_length chart.errors) > 0) { return empty }
+        def spec:VlJson (chart.toSpec())
+        def compiler (new VlCompile())
+        def vg:VlJson (compiler.compileSpec(spec))
+        if ((array_length compiler.errors) > 0) { return empty }
+        def rt (new VlRuntime())
+        def scene:VlSceneMark (rt.run(vg))
+        if ((array_length rt.errors) > 0) { return empty }
+        return (VlSceneCommands.build(scene))
+    }
+
+    sfn findEl:EVGElement (el:EVGElement id:string) {
+        if (el.id == id) { return el }
+        for el.children kid:EVGElement i {
+            def found:EVGElement (RealTrainerDemo.findEl(kid id))
+            if ((strlen found.id) > 0) { return found }
+        }
+        return (new EVGElement())
     }
 
     fn statsNum:EVGElement (big:string small:string tint:string) {
@@ -6119,6 +6528,7 @@ class RealTrainerDemo {
         def dl (new EVGDisplayList())
         dl.setTextEngine((lay.getTextEngine()))
         dl.build(r)
+        this.emitCharts(dl r)
         return (dl.toJson())
     }
 

@@ -291,8 +291,28 @@ what the port walks too. `home-tabs` matches the reference 100 %.
 
 **Tilastot** is `TrainingStatsPanel` over `FeatureVectorsPanel`: the last
 seven dated days (the tonnage of the exercises, the distance and time of
-the moves), the estimates heading with its button, and a card per feature
-saying it lacks data — as the original does before its vectors run.
+the moves), then a `StatsMiniCard` per series — the daily volume, distance
+and time over the last twenty-one dated days, the custom fields two days
+share, and the features the diary's Derived lines give over the last
+fourteen days, in the app's order with the app's labels. A card is the
+title and the trend against the day before, the latest value, the curve,
+its date, and the average, the least and the most; a series with fewer
+than two points says it lacks data, as the original does before its
+vectors run.
+
+The curve is a **Vela chart, called rather than written**
+(`gallery/vela`, `src/VlChart.rgr`): the points as a dataset, an area under
+a monotone line, and the latest point marked — two views over one explicit
+domain so the point sits on the line — with no axes, since the card
+carries the numbers. The tree holds a placeholder box per card; once the
+layout has placed it, `emitCharts` runs the chart through `VlCompile`,
+`VlRuntime` and `VlSceneCommands` and appends its commands to the display
+list at the box, clipped to the main area by hand, as the dashboard demo
+does. The commands are kept by data and size, so a paint that changed
+nothing about the data draws the same picture. Building this found that a
+module compiled without `-keep-examples` still exported its example-only
+classes by name and failed to load; the compiler leaves the export out
+with the class now.
 
 The card is styled after `WorkoutBlogView` and the row components of
 `realtrainer-compact/ui`: the title centred over its short rule, the date

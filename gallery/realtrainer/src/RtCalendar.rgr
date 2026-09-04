@@ -317,6 +317,13 @@ class RtSeed {
         return ((strlen a) > (strlen b))
     }
 
+    fn calendarKindOf:string (id:string) {
+        for calendars c:RtSeedCalendar i {
+            if (c.id == id) { return c.kind }
+        }
+        return ""
+    }
+
     fn selectedEntries:[RtSeedEntry] () {
         def out:[RtSeedEntry]
         for entries e:RtSeedEntry i {
@@ -916,6 +923,22 @@ class RtIcons {
 
     sfn clipboardPaste:string (color:string) {
         return (RtIcons.svgOf(((((RtIcons.pathOf("M15 2H9a1 1 0 0 0-1 1v2c0 .6.4 1 1 1h6c.6 0 1-.4 1-1V3c0-.6-.4-1-1-1Z")) + (RtIcons.pathOf("M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"))) + ((RtIcons.pathOf("M16 4h2a2 2 0 0 1 2 2v2")) + (RtIcons.pathOf("M11 14h10")))) + (RtIcons.pathOf("m17 10 4 4-4 4"))) color))
+    }
+
+    sfn clock:string (color:string) {
+        return (RtIcons.svgOf(((RtIcons.pathOf("M12 6v6l4 2")) + (RtIcons.pathOf("M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0"))) color))
+    }
+
+    sfn trendingUp:string (color:string) {
+        return (RtIcons.svgOf(((RtIcons.pathOf("M22 7 13.5 15.5 8.5 10.5 2 17")) + (RtIcons.pathOf("M16 7h6v6"))) color))
+    }
+
+    sfn trendingDown:string (color:string) {
+        return (RtIcons.svgOf(((RtIcons.pathOf("M22 17 13.5 8.5 8.5 13.5 2 7")) + (RtIcons.pathOf("M16 17h6v-6"))) color))
+    }
+
+    sfn minus:string (color:string) {
+        return (RtIcons.svgOf((RtIcons.pathOf("M5 12h14")) color))
     }
 
     sfn star:string (color:string) {

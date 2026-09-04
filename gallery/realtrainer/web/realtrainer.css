@@ -2602,3 +2602,16 @@
 .rt-entry-score-of { color: #999999; font-family: Arial; font-weight: bold; font-size: 12px; height: 16px; }
 .rt-entry-feedback { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 4px; padding-top: 8px; }
 .rt-entry-feedback-text { color: #f2f2f2; padding: 0px; }
+
+/* --- Tilastot: the mini cards and their curves ------------------------------ */
+.rt-stat-head { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 6px; }
+.rt-stat-icon { width: 16px; height: 16px; }
+.rt-stat-trend-icon { width: 12px; height: 12px; }
+.rt-stat-trend { font-family: Arial; font-size: 12px; height: 16px; }
+.rt-stat-value-row { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: baseline; gap: 6px; }
+.rt-stat-big { font-family: Arial; font-weight: bold; font-size: 24px; height: 30px; }
+.rt-stat-unit { color: #999999; font-family: Arial; font-size: 12px; height: 16px; }
+.rt-chart-box { width: 100%; height: 40px; }
+.rt-stat-date { color: #999999; font-family: Arial; font-size: 11px; height: 14px; }
+.rt-stat-foot { display: flex; flex-direction: row; flex-wrap: nowrap; }
+.rt-stat-foot-text { color: #999999; font-family: Arial; font-size: 12px; height: 16px; }
