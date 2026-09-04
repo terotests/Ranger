@@ -30,6 +30,39 @@ class EVGTextMetrics {
 ; Abstract interface - implementations must override
 class EVGTextMeasurer {
 
+    ; --- WHAT `measureChar` IS NOT ALLOWED TO DO AGAIN PER CHARACTER ----------
+    ;
+    ; `measureChar` is called once per character of every string the layout
+    ; measures, and a wrap measures the same string many times over, so
+    ; anything it does is done millions of times in a frame. It used to do two
+    ; things there that had no business being in that loop:
+    ;
+    ;   `isMono(fontFamily)` — six substring searches over the family name,
+    ;   for an answer that is the same for every character of the run. It was
+    ;   38% of the whole profile of a scroll in `gallery/realtrainer`: the
+    ;   single most expensive function in the frame, computing one boolean
+    ;   over and over.
+    ;
+    ;   `advanceEm()` — a NINETY-FIVE ELEMENT ARRAY LITERAL, freshly allocated
+    ;   for each character, to read one slot out of it. That is what put minor
+    ;   GC and the collector's `drop` next in the same profile.
+    ;
+    ; Both are constants of the run, so they are held here instead: the tables
+    ; materialised once per measurer, and the family's monospace-ness
+    ; remembered for the last family asked about — which, inside a run, is
+    ; every character after the first.
+    def advTable:[double]
+    def monoTable:[double]
+    def latinTable:[double]
+    def punctTable:[double]
+    def tablesReady:boolean false
+    ; The last family `monoFor` was asked about and the answer it gave.
+    ; `monoKnown` is what distinguishes "not asked yet" from "asked about the
+    ; empty family", which `monoFamily` alone cannot.
+    def monoFamily:string ""
+    def monoKnown:boolean false
+    def monoCached:boolean false
+
     ; --- THE FACE'S VERTICAL METRICS, MEASURED ---------------------------------
     ;
     ; These used to be 0.80 and 0.20, which sum to exactly 1.00em — and no real
@@ -75,6 +108,23 @@ class EVGTextMeasurer {
     ; files has none, whatever the family is called.
     fn hasFace:boolean (fontFamily:string) {
         return false
+    }
+
+    ; --- WHAT WOULD MAKE THIS MEASURER ANSWER DIFFERENTLY --------------------
+    ;
+    ; `EVGTextEngine` caches wraps and metrics, and this string goes in the
+    ; key. A measurer whose answers depend on nothing but its arguments — this
+    ; one, whose tables are constants — has nothing to report and returns the
+    ; empty string.
+    ;
+    ; A measurer that can CHANGE ITS MIND must override it: one that loads
+    ; faces answers differently once a face is loaded, and one that is told a
+    ; weight before each run answers differently for bold. Without the change
+    ; showing up here, the engine would hand back a width measured before it.
+    ; The rule is simply that anything read by `measureText` and not passed to
+    ; it belongs in this string.
+    fn measureKey:string () {
+        return ""
     }
 
     fn measureText:EVGTextMetrics (text:string fontFamily:string fontSize:double) {
@@ -263,8 +313,38 @@ class EVGTextMeasurer {
         return false
     }
 
+    ; `isMono` for a family, asked once and remembered. A run is measured one
+    ; character at a time and every one of them names the same family, so the
+    ; answer after the first is a pointer comparison rather than six searches.
+    fn monoFor:boolean (fontFamily:string) {
+        if monoKnown {
+            if (monoFamily == fontFamily) {
+                return monoCached
+            }
+        }
+        monoFamily = fontFamily
+        monoCached = (EVGTextMeasurer.isMono(fontFamily))
+        monoKnown = true
+        return monoCached
+    }
+
+    ; The advance tables, built once per measurer rather than once per
+    ; character. Lazily, because a measurer that overrides `measureText` and
+    ; never reaches `measureChar` should not pay for four arrays it will not
+    ; read.
+    fn prepareTables:void () {
+        advTable = (EVGTextMeasurer.advanceEm())
+        monoTable = (EVGTextMeasurer.monoAdvanceEm())
+        latinTable = (EVGTextMeasurer.latin1Em())
+        punctTable = (EVGTextMeasurer.punctEm())
+        tablesReady = true
+    }
+
     fn measureChar:double (ch:int fontFamily:string fontSize:double) {
-        def mono:boolean (EVGTextMeasurer.isMono(fontFamily))
+        if (tablesReady == false) {
+            this.prepareTables()
+        }
+        def mono:boolean (this.monoFor(fontFamily))
         if (ch == 8364) {
             if mono {
                 return ((EVGTextMeasurer.monoEuroEm()) * fontSize)
@@ -272,9 +352,9 @@ class EVGTextMeasurer {
             return ((EVGTextMeasurer.euroEm()) * fontSize)
         }
         if ((ch >= 32) && (ch <= 126)) {
-            def t:[double] (EVGTextMeasurer.advanceEm())
+            def t:[double] advTable
             if mono {
-                t = (EVGTextMeasurer.monoAdvanceEm())
+                t = monoTable
             }
             return ((itemAt t (ch - 32)) * fontSize)
         }
@@ -293,10 +373,10 @@ class EVGTextMeasurer {
             }
         }
         if ((ch >= 160) && (ch <= 255)) {
-            return ((itemAt (EVGTextMeasurer.latin1Em()) (ch - 160)) * fontSize)
+            return ((itemAt latinTable (ch - 160)) * fontSize)
         }
         if ((ch >= 8208) && (ch <= 8230)) {
-            return ((itemAt (EVGTextMeasurer.punctEm()) (ch - 8208)) * fontSize)
+            return ((itemAt punctTable (ch - 8208)) * fontSize)
         }
         def extra:double (EVGTextMeasurer.extraEm(ch))
         if (extra >= 0.0) {

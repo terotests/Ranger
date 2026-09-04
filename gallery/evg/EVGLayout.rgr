@@ -596,6 +596,13 @@ class EVGLayout {
             el.scrollLeft = 0.0
         }
 
+        ; Where the boxes now are, which is what `scrollOnly` moves FROM.
+        ; Written whether or not anything is translated: an unscrolled
+        ; container has applied zero, and that is a fact about it, not the
+        ; absence of one.
+        el.appliedScrollTop = el.scrollTop
+        el.appliedScrollLeft = el.scrollLeft
+
         if ((el.scrollTop == 0.0) && (el.scrollLeft == 0.0)) {
             return
         }
@@ -603,6 +610,68 @@ class EVGLayout {
         while (j < (el.getChildCount())) {
             this.translateSubtree((el.getChild(j)) (0.0 - el.scrollLeft) (0.0 - el.scrollTop))
             j = (j + 1)
+        }
+    }
+
+    ; --- SCROLLING WITHOUT LAYING OUT -----------------------------------------
+    ;
+    ; A SCROLL DOES NOT CHANGE A LAYOUT. `applyScroll` above lays the content
+    ; out as if nothing were scrolled and then TRANSLATES the subtree by
+    ; -scrollTop, so two scroll positions of the same document differ by
+    ; exactly that translate: every width, every line break, every box is the
+    ; same at the top of the page as at the bottom.
+    ;
+    ; Running the whole layout again to arrive at that translate is what made
+    ; scrolling `gallery/realtrainer` with a real training diary in it slow
+    ; enough to see. Every wheel event measured every string in the document
+    ; and broke every paragraph into lines again — seconds of `measureText` and
+    ; `breakLines` per frame in the profile — to compute, character for
+    ; character, what it had computed on the frame before. On a phone the page
+    ; simply stopped moving.
+    ;
+    ; This moves each scrolled subtree by the DIFFERENCE between where it is
+    ; and where the new offset puts it, and touches nothing else. Call it when
+    ; NOTHING BUT `scrollTop`/`scrollLeft` HAS CHANGED; anything that changes
+    ; content, styles, fonts or the viewport needs the real `layout` again,
+    ; because the extents this clamps against were measured by it.
+    fn scrollOnly:void (root:EVGElement) {
+        this.scrollOnlyWalk(root)
+    }
+
+    fn scrollOnlyWalk:void (el:EVGElement) {
+        if (el.clipsContent()) {
+            ; The same clamp `applyScroll` does, against the extents it
+            ; measured. They are still right: the content did not move.
+            def maxY:double (el.maxScrollTop())
+            if (el.scrollTop > maxY) {
+                el.scrollTop = maxY
+            }
+            if (el.scrollTop < 0.0) {
+                el.scrollTop = 0.0
+            }
+            def maxX:double (el.maxScrollLeft())
+            if (el.scrollLeft > maxX) {
+                el.scrollLeft = maxX
+            }
+            if (el.scrollLeft < 0.0) {
+                el.scrollLeft = 0.0
+            }
+            def dy:double (el.appliedScrollTop - el.scrollTop)
+            def dx:double (el.appliedScrollLeft - el.scrollLeft)
+            if ((dx != 0.0) || (dy != 0.0)) {
+                def j:int 0
+                while (j < (el.getChildCount())) {
+                    this.translateSubtree((el.getChild(j)) dx dy)
+                    j = (j + 1)
+                }
+                el.appliedScrollTop = el.scrollTop
+                el.appliedScrollLeft = el.scrollLeft
+            }
+        }
+        def i:int 0
+        while (i < (el.getChildCount())) {
+            this.scrollOnlyWalk((el.getChild(i)))
+            i = (i + 1)
         }
     }
 

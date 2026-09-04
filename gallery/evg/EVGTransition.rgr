@@ -519,7 +519,27 @@ class EVGTransition {
         }
     }
 
+    ; Remove the flight for one property, if there is one.
+    ;
+    ; The EARLY RETURN is the whole of this. `reconcileTree` calls `drop` for
+    ; every animatable property of every element on the way past, and almost
+    ; none of them has a flight in progress: the list is empty or holds
+    ; something else. Rebuilding it regardless allocated one array per call,
+    ; which put this among the most expensive functions in a scroll frame of
+    ; `gallery/realtrainer` — 5.8% of it, to remove nothing from nothing.
     fn drop:void (el:EVGElement property:string) {
+        def found:boolean false
+        def n:int 0
+        while (n < (array_length el.transitions)) {
+            def fn0:EVGFlight (itemAt el.transitions n)
+            if (fn0.property == property) {
+                found = true
+            }
+            n = (n + 1)
+        }
+        if (found == false) {
+            return
+        }
         def kept:[EVGFlight]
         def i:int 0
         while (i < (array_length el.transitions)) {

@@ -278,6 +278,13 @@ class TTFTextMeasurer {
         fontManager = fm
     }
     
+    ; A face loaded after a string was measured changes what that string
+    ; measures, so the number of loaded faces is what the engine's cache is
+    ; keyed on: load one and every cached wrap is a miss again.
+    fn measureKey:string () {
+        return ("ttf:" + (to_string (fontManager.getFontCount())))
+    }
+
     fn measureText:EVGTextMetrics (text:string fontFamily:string fontSize:double) {
         def width:double (fontManager.measureText(text fontFamily fontSize))
         def lineHeight:double (fontManager.getLineHeight(fontFamily fontSize))

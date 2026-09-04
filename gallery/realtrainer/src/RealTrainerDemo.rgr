@@ -562,6 +562,12 @@ class RealTrainerDemo {
     def root@(optional):EVGElement
     def sheet@(optional):EVGStyleSheet
     def layout@(optional):EVGLayout
+    ; Set by `scrolled` and consumed by `laidOut`: this frame is a SCROLL and
+    ; nothing else, so the boxes it is about to paint are the boxes the last
+    ; layout produced, moved. Everything that changes anything else clears it
+    ; — `rebuild`, `tick`, the page size, the pointer state — so the default is
+    ; always the full layout and the shortcut has to be asked for.
+    def scrollFrame:boolean false
     def transitions:EVGTransition (new EVGTransition())
 
     ; --- the library's controls ----------------------------------------------
@@ -3428,11 +3434,22 @@ class RealTrainerDemo {
         return (VlSceneCommands.build(scene))
     }
 
+    ; An element by id, or one with an empty id when there is none — which is
+    ; how the two callers below ask, and why this exists next to `byId`.
+    ;
+    ; It used to RECURSE ITSELF, and so built a fresh `EVGElement` at every
+    ; node it walked past without matching. An `EVGElement` is not cheap — its
+    ; constructor fills a box and a dozen unset units — and `emitCharts` calls
+    ; this once per chart on every frame, over the whole tree. Element
+    ; construction and `EVGUnit.unset` together were a fifth of a cold frame in
+    ; the profile, and nearly all of it was this function throwing away
+    ; elements it had just made. `byId` already answers the same question with
+    ; an optional and allocates nothing, so the miss costs one element per
+    ; LOOKUP rather than one per node.
     sfn findEl:EVGElement (el:EVGElement id:string) {
-        if (el.id == id) { return el }
-        for el.children kid:EVGElement i {
-            def found:EVGElement (RealTrainerDemo.findEl(kid id))
-            if ((strlen found.id) > 0) { return found }
+        def found@(optional):EVGElement (RealTrainerDemo.byId(el id))
+        if found {
+            return (unwrap found)
         }
         return (new EVGElement())
     }
@@ -5739,6 +5756,27 @@ class RealTrainerDemo {
     ; A wheel, a key, a drag — the host says how far and this says whether
     ; anything moved. Nothing is rebuilt: the tree is the same tree, and only
     ; the offset on its viewport changed.
+    ;
+    ; …and nothing is LAID OUT either, which is the difference between a page
+    ; that scrolls and one that does not. `laidOut` applies the whole
+    ; stylesheet and lays the whole tree out again: with a real diary in it
+    ; that is every string in the document measured and every paragraph broken
+    ; into lines, on every wheel event, to compute the same boxes it computed
+    ; on the frame before. `EVGLayout.scrollOnly` does the only thing a scroll
+    ; actually changes — it moves the scrolled subtree by the difference — and
+    ; leaves the measurements alone. The sheet is not re-applied, so a hover
+    ; the wheel scrolled out from under the pointer is corrected by the next
+    ; move rather than by the scroll, which is what a browser does too.
+    fn scrolled:void () {
+        if layout {
+            def lay:EVGLayout (unwrap layout)
+            lay.scrollOnly((unwrap root))
+            scrollFrame = true
+            return
+        }
+        this.laidOut()
+    }
+
     fn scrollDocument:boolean (delta:double) {
         if (scene == "wizard") {
             def rw:EVGElement (unwrap root)
@@ -5747,7 +5785,7 @@ class RealTrainerDemo {
                 def wb:EVGElement (unwrap foundW)
                 def beforeW:double wb.scrollTop
                 wb.scrollTop = (wb.scrollTop + delta)
-                this.laidOut()
+                this.scrolled()
                 wizScroll = wb.scrollTop
                 return (wb.scrollTop != beforeW)
             }
@@ -5763,7 +5801,7 @@ class RealTrainerDemo {
                     def mb:EVGElement (unwrap foundM)
                     def beforeM:double mb.scrollTop
                     mb.scrollTop = (mb.scrollTop + delta)
-                    this.laidOut()
+                    this.scrolled()
                     modalScroll = mb.scrollTop
                     return (mb.scrollTop != beforeM)
                 }
@@ -5774,7 +5812,7 @@ class RealTrainerDemo {
                 def body:EVGElement (unwrap found0)
                 def before0:double body.scrollTop
                 body.scrollTop = (body.scrollTop + delta)
-                this.laidOut()
+                this.scrolled()
                 docScroll = body.scrollTop
                 return (body.scrollTop != before0)
             }
@@ -5793,7 +5831,7 @@ class RealTrainerDemo {
         if found {
             def v:EVGElement (unwrap found)
             v.scrollTop = next
-            this.laidOut()
+            this.scrolled()
             docScroll = v.scrollTop
         }
         return (docScroll != before)
@@ -5821,6 +5859,7 @@ class RealTrainerDemo {
     }
 
     fn rebuild:void () {
+        scrollFrame = false
         this.syncFields()
         if (scene == "signin") {
             root = (this.signin())
@@ -5877,6 +5916,7 @@ class RealTrainerDemo {
     ; is a frozen one, and this one stops by changing scene rather than by
     ; running out of things to move.
     fn tick:boolean (dtMs:double) {
+        scrollFrame = false
         ; A toast stays for a while and goes.
         if (toastMs > 0.0) {
             toastMs = (toastMs - dtMs)
@@ -6145,10 +6185,12 @@ class RealTrainerDemo {
     ; --- the pointer ----------------------------------------------------------
 
     fn setHover:void (id:string) {
+        scrollFrame = false
         hovered = id
     }
 
     fn setPressed:void (id:string) {
+        scrollFrame = false
         pressed = id
     }
 
@@ -6514,6 +6556,18 @@ class RealTrainerDemo {
     ; --- the three questions a host asks --------------------------------------
 
     fn laidOut:EVGLayout () {
+        ; The scroll shortcut. `scrolled` has already moved the subtree and
+        ; nothing since then has changed a style, a size or the tree, so there
+        ; is nothing to lay out — see `EVGLayout.scrollOnly`. The flag is
+        ; consumed here whether or not it is used, so it can never make a
+        ; second frame skip a layout it needed.
+        def wasScroll:boolean scrollFrame
+        scrollFrame = false
+        if wasScroll {
+            if layout {
+                return (unwrap layout)
+            }
+        }
         def r:EVGElement (unwrap root)
         def s:EVGStyleSheet (unwrap sheet)
         s.setViewport(pageW pageH coarsePointer)

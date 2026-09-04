@@ -349,6 +349,13 @@ class EVGElement {
     ; will forget to subtract.
     def scrollWidth:double 0.0
     def scrollHeight:double 0.0
+    ; The offset the LAYOUT has actually translated this subtree by, which is
+    ; not the same thing as the offset the application asked for. A wheel event
+    ; moves `scrollTop` and nothing else; these say where the boxes are now, so
+    ; `EVGLayout.scrollOnly` can move them by the difference instead of laying
+    ; the document out again to arrive at the same widths.
+    def appliedScrollTop:double 0.0
+    def appliedScrollLeft:double 0.0
 
     ; Typography (inherited)
     def fontSize:EVGUnit
