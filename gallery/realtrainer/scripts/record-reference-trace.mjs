@@ -133,7 +133,9 @@ async function seed(uid) {
     createdAt: now,
     updatedAt: now,
   });
-  for (const cal of seedFile.calendars) {
+  // What the app seeds for itself on sign-in (lib/seed-emulator-fixtures.ts)
+  // is in the seed for the Ranger side's sake and is not written here.
+  for (const cal of seedFile.calendars.filter((c) => !c.appSeeded)) {
     await writeDocument("calendars", cal.id, {
       ...cal,
       userId: uid,
@@ -143,7 +145,7 @@ async function seed(uid) {
       updatedAt: now,
     });
   }
-  for (const entry of seedFile.entries) {
+  for (const entry of seedFile.entries.filter((e) => !e.appSeeded)) {
     await writeDocument("entries", entry.id, { ...entry, userId: uid, createdAt: now, updatedAt: now });
   }
   // The year plan the example week and the plan buttons hang off — without

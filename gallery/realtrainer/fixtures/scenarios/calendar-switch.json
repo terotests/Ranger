@@ -1,0 +1,36 @@
+{
+  "_": "The header's calendar selector: the menu it drops — the selected calendar first, the rest, then Luo uusi kalenteri — and picking one, which goes Home with it. The three extra calendars are the app's own test fixtures.",
+  "id": "calendar-switch",
+  "area": "kalenteri",
+  "machine": "",
+  "reference": {
+    "route": "/calendar/cal-train?week=2026-02-09"
+  },
+  "setup": [
+    {
+      "page": "390x844"
+    },
+    {
+      "route": "/calendar/cal-train?week=2026-02-09"
+    }
+  ],
+  "steps": [
+    {
+      "tick": 500
+    },
+    {
+      "id": "rt-calsel",
+      "role": "button",
+      "name": "💪 Harjoituspäiväkirja",
+      "why": "the selector; the menu lists it again"
+    },
+    {
+      "id": "rt-cal-cal-plan",
+      "role": "button",
+      "name": "📋 Harjoitussuunnitelma"
+    },
+    {
+      "tick": 500
+    }
+  ]
+}

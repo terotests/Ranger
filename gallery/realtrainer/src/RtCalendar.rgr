@@ -29,6 +29,10 @@ class RtSeedEntry {
     def id@(mutable):string ""
     def calendarId@(mutable):string ""
     def date@(mutable):string ""
+    ; A date relative to today rather than stated — the app's own fixtures
+    ; sit four days back and three days on from whenever it is opened.
+    def hasOffset@(mutable):boolean false
+    def dateOffset@(mutable):int 0
     def compact@(mutable):string ""
 
     Constructor () {
@@ -153,6 +157,10 @@ class RtSeed {
             entry.id = (e.stringOr("id" ""))
             entry.calendarId = (e.stringOr("calendarId" ""))
             entry.date = (e.stringOr("date" ""))
+            if (e.has("dateOffset")) {
+                entry.hasOffset = true
+                entry.dateOffset = (e.intOr("dateOffset" 0))
+            }
             entry.compact = (e.stringOr("compact" ""))
             push entries entry
             i = (i + 1)
@@ -205,6 +213,33 @@ class RtSeed {
             s = (s + 1)
         }
         loaded = true
+    }
+
+    ; The relative dates, anchored: the entry's date, and the date in the
+    ; first line of its COMPACT, which is what `replaceCompactDate` does in
+    ; the app before it writes the fixture.
+    fn anchor:void (todayIso:string) {
+        for entries e:RtSeedEntry i {
+            if e.hasOffset {
+                e.date = (RtWeek.shifted(todayIso e.dateOffset))
+                if ((strlen e.compact) > 11) {
+                    if ((substring e.compact 0 1) == "[") {
+                        e.compact = (("[" + e.date) + (substring e.compact 11 (strlen e.compact)))
+                    }
+                }
+            }
+        }
+    }
+
+    ; An entry the app wrote: the add sheet's, on its day, in the calendar
+    ; that was open.
+    fn addEntry:void (id:string calendarId:string date:string compact:string) {
+        def e (new RtSeedEntry)
+        e.id = id
+        e.calendarId = calendarId
+        e.date = date
+        e.compact = compact
+        push entries e
     }
 
     fn addCalendar:void (id:string name:string kind:string color:string) {

@@ -261,6 +261,10 @@ treefactory Rt {
     tag PhCalSel EVGElement (props (className "rt-ph-calsel") (id "rt-calsel") (role "button") (a11yFocusable true))
     tag PhCalTx  EVGElement (props (className "rt-ph-calsel-text") (elementType 1))
     tag PhCalEmoji EVGElement (props (className "rt-ph-calsel-emoji") (elementType 1))
+    ; The calendar menu under the selector — `MobileHeader`'s dropdown.
+    tag PhCalMenu EVGElement (props (className "rt-ph-calmenu") (id "rt-calmenu"))
+    tag PhCalItem EVGElement (props (className "rt-ph-calitem") (role "button") (a11yFocusable true))
+    tag PhCalItemTx EVGElement (props (className "rt-ph-calitem-text") (elementType 1))
     tag PhAvatar EVGElement (props (className "rt-ph-avatar"))
     tag PhAvatarTx EVGElement (props (className "rt-ph-avatar-text") (elementType 1))
     tag PhMain   EVGElement (props (className "rt-ph-main") (id "rt-ph-main") (role "main"))
@@ -558,6 +562,9 @@ class RealTrainerDemo {
     ; The day opened from the week list, or none — `editingDate`, and the
     ; single workout `selectedWorkout` when the day has one.
     def dayIso@(mutable):string ""
+    ; The calendar menu is down — `showDropdown`.
+    def calMenuOpen@(mutable):boolean false
+    def addedSeq@(mutable):int 0
     def today:string "2026-09-03"
     ; The text fields: one per dialog that has one in the original, each a
     ; `InputCtl` named by its placeholder as the original's textareas are.
@@ -854,6 +861,7 @@ class RealTrainerDemo {
     ; The same file the reference recorder seeds from.
     fn loadReference:void (text:string) {
         seed.load(text)
+        seed.anchor(today)
         if ((strlen seed.week) > 0) {
             weekStart = seed.week
         }
@@ -2229,6 +2237,44 @@ class RealTrainerDemo {
         return b
     }
 
+    ; The dropdown: the selected calendar first, then the rest, then "Luo
+    ; uusi kalenteri" — each a button named by its emoji and its name.
+    fn calMenu:EVGElement () {
+        def menu (tree Rt (PhCalMenu))
+        menu.setAttribute("width" ((to_string (to_int (pageW - 32.0))) + "px"))
+        for seed.calendars c:RtSeedCalendar i {
+            if (c.id == seed.calendarId) {
+                menu.addChild((this.calItem(c true)))
+            }
+        }
+        for seed.calendars c2:RtSeedCalendar i2 {
+            if (c2.id != seed.calendarId) {
+                menu.addChild((this.calItem(c2 false)))
+            }
+        }
+        def make (tree Rt (PhCalItem (props (id "rt-cal-new"))))
+        make.a11yLabel = "Luo uusi kalenteri"
+        def plus (tree Rt (PhIcon (props (className "rt-ph-icon rt-ph-icon-sm"))))
+        plus.svgSource = (RtIcons.plus("#f97316"))
+        make.addChild(plus)
+        make.addChild((tree Rt (PhCalItemTx (props (className "rt-ph-calitem-text rt-ph-calitem-new")) "Luo uusi kalenteri")))
+        menu.addChild(make)
+        return menu
+    }
+
+    fn calItem:EVGElement (c:RtSeedCalendar on:boolean) {
+        def item (tree Rt (PhCalItem))
+        item.id = ("rt-cal-" + c.id)
+        def emoji:string (RealTrainerDemo.calendarEmoji(c.kind))
+        item.a11yLabel = ((emoji + " ") + c.name)
+        if on {
+            item.className = "rt-ph-calitem rt-ph-calitem-on"
+        }
+        item.addChild((tree Rt (PhCalEmoji emoji)))
+        item.addChild((tree Rt (PhCalItemTx c.name)))
+        return item
+    }
+
     ; `CALENDAR_EMOJIS` — the calendar's type, as the selector shows it.
     sfn calendarEmoji:string (kind:string) {
         if (kind == "training") { return "💪" }
@@ -2259,6 +2305,9 @@ class RealTrainerDemo {
         down.svgSource = (RtIcons.chevronDown("#999999"))
         sel.addChild(down)
         head.addChild(sel)
+        if calMenuOpen {
+            head.addChild((this.calMenu()))
+        }
         ; Folded away below 768px by the sheet.
         head.addChild((tree Rt (PhPct "50%")))
         head.addChild((tree Rt (PhAvatar (PhAvatarTx "T"))))
@@ -3733,6 +3782,28 @@ class RealTrainerDemo {
     }
 
     fn pressApp:boolean (id:string) {
+        ; The calendar menu: the selector opens and closes it, an item picks
+        ; a calendar and goes Home with it, "Luo uusi kalenteri" opens the
+        ; wizard, and anything else closes it on the way.
+        if (id == "rt-calsel") {
+            calMenuOpen = (calMenuOpen == false)
+            return true
+        }
+        if calMenuOpen {
+            calMenuOpen = false
+            if (id == "rt-cal-new") {
+                this.openRoute("/new-calendar")
+                return true
+            }
+            if (RtEntry.hasPrefix(id "rt-cal-")) {
+                if (seed.selectCalendar((substring id 7 (strlen id)))) {
+                    dayIso = ""
+                    this.goSection("home")
+                    section = "home"
+                }
+                return true
+            }
+        }
         ; The sheet the bar opened is answered first: it is over everything.
         ; The bar stays reachable under it, and a press there closes it on
         ; the way.
@@ -4296,6 +4367,14 @@ class RealTrainerDemo {
             ; The save that the dialog started is the save that answers it.
             if (addDialog.state == "saving") {
                 if (backend.state == "saved") {
+                    ; The entry the sheet was for, on its day, in the
+                    ; calendar that was open — what the store's addEntry
+                    ; does when the request comes back.
+                    if (scene == "app") {
+                        addedSeq = (addedSeq + 1)
+                        def onDay:string addDialog.targetDate
+                        seed.addEntry(("added-" + (to_string addedSeq)) seed.calendarId onDay (("[" + onDay) + ("]\n" + addDialog.inputText)))
+                    }
                     addDialog.send("SAVE_COMPLETE" "")
                 } {
                     addDialog.send("ERROR" backend.message)
@@ -4661,8 +4740,11 @@ class RealTrainerDemo {
     ; The dialog answers before the screen under it, which is what a modal is.
     fn pressSheet:boolean (id:string) {
         if (id == "rt-add") {
-            addDialog.today = "2026-02-09"
-            return (addDialog.open("2026-02-09" "cal-1"))
+            def forDay@(mutable):string today
+            if ((strlen dayIso) > 0) { forDay = dayIso }
+            if (scene != "app") { forDay = "2026-02-09" }
+            addDialog.today = forDay
+            return (addDialog.open(forDay seed.calendarId))
         }
         if (addDialog.isOpen() == false) {
             return false
