@@ -86,6 +86,9 @@ function resize() {
     canvas.width = w;
     canvas.height = h;
   }
+  // The display list is laid out at the canvas's CSS size, so one scene
+  // pixel is one CSS pixel and the GL side only applies the dpr.
+  web.setViewport(Math.max(1, Math.floor(r.width)), Math.max(1, Math.floor(r.height)));
   return dpr;
 }
 
@@ -189,6 +192,7 @@ async function compareOpenFig(bytes) {
 
 async function openBuffer(ab, name) {
   statusEl.textContent = "parsing…";
+  resize();
   const t0 = performance.now();
   const ok = web.openBytes(asRangerBuffer(ab), name);
   const rangerMs = performance.now() - t0;
@@ -205,6 +209,7 @@ async function openBuffer(ab, name) {
 
 async function openSample() {
   statusEl.textContent = "building sample…";
+  resize();
   const ok = web.openSample();
   if (!ok) {
     statusEl.textContent = web.error() || "sample failed";
@@ -287,6 +292,29 @@ window.addEventListener("drop", async (e) => {
 
 window.addEventListener("resize", () => draw());
 
-openSample().catch((e) => {
+/** Open a file the page can fetch: `?file=fixtures/health.fig`, with an
+ *  optional `&page=N` and `&frame=N` to start on one page or frame.
+ *  Relative to the page; no `file` opens the bundled sample. */
+async function openUrl(url, page, frame) {
+  if (url) {
+    statusEl.textContent = "fetching " + url + "…";
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(url + ": " + res.status);
+    await openBuffer(await res.arrayBuffer(), url.split("/").pop());
+  } else {
+    await openSample();
+  }
+  if (Number.isFinite(page)) web.setPage(page);
+  if (Number.isFinite(frame)) web.setFrame(frame);
+  if (Number.isFinite(page) || Number.isFinite(frame)) {
+    refreshChrome();
+    await draw();
+  }
+}
+window.__openUrl = openUrl;
+
+const params = new URL(location.href).searchParams;
+const intParam = (k) => (params.has(k) ? parseInt(params.get(k), 10) : NaN);
+openUrl(params.get("file"), intParam("page"), intParam("frame")).catch((e) => {
   statusEl.textContent = String(e.message || e);
 });

@@ -2,6 +2,13 @@
 
 ; SceneNode → EVGElement. Reads only the format-agnostic IR.
 ; Viewport pan/zoom is one root transform, not per-node geometry.
+;
+; Every node is placed at the x/y its source stored, Auto Layout children
+; included. A design file carries the positions its own layout engine
+; settled on, and those are the truth: re-running the layout here with a
+; different text engine and whatever fonts the page has would only drift
+; from them. The layout itself (mode, gap, padding, alignment) stays on the
+; SceneNode for anything that wants to re-flow.
 
 Import "../../../evg/EVGElement.rgr"
 Import "../scene/SceneNode.rgr"
@@ -22,60 +29,81 @@ class SceneToEVG {
         assets = a
     }
 
-    fn buildPage:EVGElement (page:SceneNode panX:double panY:double zoom:double) {
+    ; `page` is the node being viewed — a whole page, or one frame on it.
+    ; `canvas` is the page it belongs to, whose background colour fills the
+    ; viewport behind either, as it does in the editor.
+    fn buildPage:EVGElement (page:SceneNode canvas:SceneNode panX:double panY:double zoom:double) {
         def root (EVGElement.createDiv())
         root.setAttribute("position" "relative")
         root.setAttribute("width" "100%")
         root.setAttribute("height" "100%")
         root.setAttribute("overflow" "hidden")
-        root.setAttribute("transform-origin" "0 0")
+        def paper:string "#f5f5f5"
+        if ((array_length canvas.fills) > 0) {
+            def bg:SceneFill (canvas.firstFill())
+            if ((bg.kind == "solid") && bg.visible) {
+                paper = (bg.hexA())
+            }
+        }
+        root.setAttribute("background-color" paper)
+        ; The pan/zoom lives on a child, not on the clipping root: a
+        ; transform scales the element's own clip rectangle along with its
+        ; content, so at 65% the page showed only the top-left 65% of the
+        ; viewport and cut every frame off at the same line.
+        def world (EVGElement.createDiv())
+        world.setAttribute("position" "absolute")
+        world.setAttribute("left" "0px")
+        world.setAttribute("top" "0px")
+        world.setAttribute("width" "100%")
+        world.setAttribute("height" "100%")
+        world.setAttribute("transform-origin" "0 0")
         def t:string ("translate(" + (to_string panX) + "px, " + (to_string panY) + "px) scale(" + (to_string zoom) + ")")
-        root.setAttribute("transform" t)
+        world.setAttribute("transform" t)
         def kids:[EVGElement]
         if (page.sourceType == "CANVAS") {
-            kids = (this.emitKids(page false))
+            kids = (this.emitKids(page))
         } {
-            def only:EVGElement (this.emit(page false))
+            def only:EVGElement (this.emit(page))
             push kids only
         }
         def i:int 0
         while (i < (array_length kids)) {
             def kid:EVGElement (itemAt kids i)
-            root.addChild(kid)
+            world.addChild(kid)
             i = (i + 1)
         }
+        root.addChild(world)
         return root
     }
 
-    fn emitKids:[EVGElement] (n:SceneNode parentFlex:boolean) {
+    fn emitKids:[EVGElement] (n:SceneNode) {
         def out:[EVGElement]
         def i:int 0
         while (i < (array_length n.children)) {
             def ch:SceneNode (itemAt n.children i)
-            push out (this.emit(ch parentFlex))
+            push out (this.emit(ch))
             i = (i + 1)
         }
         return out
     }
 
-    fn emit:EVGElement (n:SceneNode parentFlex:boolean) {
+    fn emit:EVGElement (n:SceneNode) {
         def el:EVGElement (this.createEl(n))
         el.id = n.id
-        this.applyBox(el n parentFlex)
+        this.applyBox(el n)
         this.applyFill(el n)
         this.applyStroke(el n)
         this.applyRadius(el n)
         this.applyOpacity(el n)
         this.applyClip(el n)
         this.applyShadow(el n)
+        this.applyBackdrop(el n)
         this.applyXf(el n)
         this.applyText(el n)
         this.applyImage(el n)
         this.applyPath(el n)
-        this.applyLayout(el n)
         this.applyDebug(el n)
-        def childFlex:boolean (n.layout.isFlex())
-        def kids:[EVGElement] (this.emitKids(n childFlex))
+        def kids:[EVGElement] (this.emitKids(n))
         def i:int 0
         while (i < (array_length kids)) {
             def kid:EVGElement (itemAt kids i)
@@ -87,45 +115,66 @@ class SceneToEVG {
 
     fn createEl:EVGElement (n:SceneNode) {
         if (n.kind == "text") {
+            if (n.text.hasOutline()) {
+                return (EVGElement.createPath())
+            }
             return (EVGElement.createSpan())
         }
         if (n.kind == "image") {
             return (EVGElement.createImg())
         }
-        if (n.kind == "path") {
-            return (EVGElement.createPath())
-        }
-        if (n.kind == "ellipse") {
-            return (EVGElement.createPath())
-        }
-        if (n.kind == "line") {
+        if (this.isPathKind(n.kind)) {
             return (EVGElement.createPath())
         }
         return (EVGElement.createDiv())
     }
 
-    fn applyBox:void (el:EVGElement n:SceneNode parentFlex:boolean) {
-        if parentFlex {
-            if n.layout.fillW {
-                el.setAttribute("flex-grow" "1")
-            }
-            if n.layout.fillH {
-                el.setAttribute("flex-grow" "1")
-            }
-        } {
-            el.setAttribute("position" "absolute")
-            el.setAttribute("left" ((to_string n.x) + "px"))
-            el.setAttribute("top" ((to_string n.y) + "px"))
+    ; Painted as a path: vectors, and text that brought its own outlines.
+    fn paintsAsPath:boolean (n:SceneNode) {
+        if (this.isPathKind(n.kind)) {
+            return true
         }
-        if ((n.layout.hugW == false) && (n.w > 0.0)) {
-            el.setAttribute("width" ((to_string n.w) + "px"))
+        if (n.kind == "text") {
+            return (n.text.hasOutline())
         }
-        if ((n.layout.hugH == false) && (n.h > 0.0)) {
-            el.setAttribute("height" ((to_string n.h) + "px"))
+        return false
+    }
+
+    fn applyBox:void (el:EVGElement n:SceneNode) {
+        el.setAttribute("position" "absolute")
+        el.setAttribute("left" ((to_string n.x) + "px"))
+        el.setAttribute("top" ((to_string n.y) + "px"))
+        def w:double n.w
+        def h:double n.h
+        if (this.paintsAsPath(n)) {
+            ; A path is fitted into its box through a viewBox. With none
+            ; declared, EVG synthesises one from the path's own bounds, which
+            ; stretches an icon to the node and centres a zero-height line
+            ; into nothing. The node's own size as the viewBox makes the
+            ; path's user units the node's pixels, one to one.
+            if (w < 1.0) {
+                w = 1.0
+            }
+            if (h < 1.0) {
+                h = 1.0
+            }
+            el.setAttribute("viewBox" ("0 0 " + (to_string w) + " " + (to_string h)))
+        }
+        if (w > 0.0) {
+            el.setAttribute("width" ((to_string w) + "px"))
+        }
+        if (h > 0.0) {
+            el.setAttribute("height" ((to_string h) + "px"))
         }
     }
 
     fn applyFill:void (el:EVGElement n:SceneNode) {
+        if (n.kind == "text") {
+            ; A text fill is the ink colour, set by applyText. As a background
+            ; it painted a box the size of the node in the text's own colour,
+            ; with the glyphs invisible on top of it.
+            return
+        }
         if ((array_length n.fills) == 0) {
             return
         }
@@ -135,9 +184,9 @@ class SceneToEVG {
         }
         if (f.kind == "solid") {
             if (this.isPathKind(n.kind)) {
-                el.setAttribute("fill" (f.hex()))
+                el.setAttribute("fill" (f.hexA()))
             } {
-                el.setAttribute("background-color" (f.hex()))
+                el.setAttribute("background-color" (f.hexA()))
             }
             return
         }
@@ -148,9 +197,8 @@ class SceneToEVG {
             return
         }
         if (f.kind == "image") {
-            def url:string (assets.resolveImage(f.imageRef))
             if (n.kind == "image") {
-                el.src = url
+                el.src = (assets.resolveImage(f.imageRef))
                 el.setAttribute("object-fit" (this.fitOf(f.imageFit)))
             } {
                 el.setAttribute("background-color" "#cccccc")
@@ -197,6 +245,9 @@ class SceneToEVG {
             el.setAttribute("stroke-width" (to_string s.weight))
             return
         }
+        if (n.kind == "text") {
+            return
+        }
         el.setAttribute("border-width" ((to_string s.weight) + "px"))
         el.setAttribute("border-color" (s.hex()))
         el.setAttribute("border-style" "solid")
@@ -214,14 +265,11 @@ class SceneToEVG {
         el.setAttribute("border-radius" v)
     }
 
+    ; Only the node's own opacity fades the element (and so its children).
+    ; A translucent PAINT is folded into its colour by applyFill instead.
     fn applyOpacity:void (el:EVGElement n:SceneNode) {
-        def a:double n.opacity
-        if ((array_length n.fills) > 0) {
-            def f:SceneFill (n.firstFill())
-            a = (f.finalAlpha(n.opacity))
-        }
-        if (a < 0.999) {
-            el.setAttribute("opacity" (to_string a))
+        if (n.opacity < 0.999) {
+            el.setAttribute("opacity" (to_string n.opacity))
         }
         if (n.visible == false) {
             el.setAttribute("display" "none")
@@ -245,18 +293,45 @@ class SceneToEVG {
         el.setAttribute("shadow-offset-y" (to_string e.y))
     }
 
+    fn applyBackdrop:void (el:EVGElement n:SceneNode) {
+        def r:double (n.backdropBlur())
+        if (r > 0.0) {
+            el.setAttribute("backdrop-filter" ("blur(" + (to_string r) + "px)"))
+        }
+    }
+
     fn applyXf:void (el:EVGElement n:SceneNode) {
         if (n.hasXf == false) {
             return
         }
         def deg:double (n.xf.rotationDeg())
         if ((deg > 0.05) || (deg < (0.0 - 0.05))) {
+            ; Figma rotates about the node's own origin, and the translation
+            ; it stored is where that origin landed.
+            el.setAttribute("transform-origin" "0 0")
             el.setAttribute("transform" ("rotate(" + (to_string deg) + "deg)"))
         }
     }
 
     fn applyText:void (el:EVGElement n:SceneNode) {
         if (n.kind != "text") {
+            return
+        }
+        def ink:string ""
+        if ((array_length n.fills) > 0) {
+            def f:SceneFill (n.firstFill())
+            if (f.kind == "solid") {
+                ink = (f.hexA())
+            }
+        }
+        if (n.text.hasOutline()) {
+            ; The glyphs the editor shaped, as one path. No font lookup, no
+            ; line breaking, no letter-spacing gap: the outlines already sit
+            ; where the designer saw them.
+            el.setAttribute("d" n.text.outline)
+            if ((strlen ink) > 0) {
+                el.setAttribute("fill" ink)
+            }
             return
         }
         el.textContent = n.text.characters
@@ -270,17 +345,17 @@ class SceneToEVG {
         if ((strlen n.text.fontWeight) > 0) {
             el.setAttribute("font-weight" n.text.fontWeight)
         }
+        if (n.text.fontStyle == "italic") {
+            el.setAttribute("font-style" "italic")
+        }
         if (n.text.lineHeight > 0.0) {
             el.setAttribute("line-height" (to_string n.text.lineHeight))
         }
         if ((strlen n.text.align) > 0) {
             el.setAttribute("text-align" n.text.align)
         }
-        if ((array_length n.fills) > 0) {
-            def f:SceneFill (n.firstFill())
-            if (f.kind == "solid") {
-                el.setAttribute("color" (f.hex()))
-            }
+        if ((strlen ink) > 0) {
+            el.setAttribute("color" ink)
         }
     }
 
@@ -302,6 +377,9 @@ class SceneToEVG {
     }
 
     fn applyPath:void (el:EVGElement n:SceneNode) {
+        if (n.kind == "text") {
+            return
+        }
         if ((strlen n.pathData) == 0) {
             return
         }
@@ -312,52 +390,6 @@ class SceneToEVG {
         if n.evenOdd {
             el.setAttribute("fill-rule" "evenodd")
         }
-    }
-
-    fn applyLayout:void (el:EVGElement n:SceneNode) {
-        if ((n.layout.isFlex()) == false) {
-            return
-        }
-        el.setAttribute("display" "flex")
-        if (n.layout.mode == "row") {
-            el.setAttribute("flex-direction" "row")
-        }
-        if (n.layout.mode == "column") {
-            el.setAttribute("flex-direction" "column")
-        }
-        if (n.layout.gap > 0.0) {
-            el.setAttribute("gap" ((to_string n.layout.gap) + "px"))
-        }
-        if ((((n.layout.padL > 0.0) || (n.layout.padR > 0.0)) || (n.layout.padT > 0.0)) || (n.layout.padB > 0.0)) {
-            def p:string ((to_string n.layout.padT) + "px " + (to_string n.layout.padR) + "px " + (to_string n.layout.padB) + "px " + (to_string n.layout.padL) + "px")
-            el.setAttribute("padding" p)
-        }
-        if ((strlen n.layout.justify) > 0) {
-            el.setAttribute("justify-content" (this.justifyCss(n.layout.justify)))
-        }
-        if ((strlen n.layout.alignItems) > 0) {
-            el.setAttribute("align-items" (this.alignCss(n.layout.alignItems)))
-        }
-    }
-
-    fn justifyCss:string (v:string) {
-        if (v == "start") {
-            return "flex-start"
-        }
-        if (v == "end") {
-            return "flex-end"
-        }
-        return v
-    }
-
-    fn alignCss:string (v:string) {
-        if (v == "start") {
-            return "flex-start"
-        }
-        if (v == "end") {
-            return "flex-end"
-        }
-        return v
     }
 
     fn applyDebug:void (el:EVGElement n:SceneNode) {
@@ -401,6 +433,9 @@ class SceneToEVG {
         if el.backgroundColor.isSet {
             def hex:string (el.backgroundColor.toHexString())
             s = (s + " background=\"" + hex + "\"")
+        }
+        if el.fillColor.isSet {
+            s = (s + " fill=\"" + (el.fillColor.toHexString()) + "\"")
         }
         if ((strlen el.svgPath) > 0) {
             s = (s + " d=\"" + el.svgPath + "\"")

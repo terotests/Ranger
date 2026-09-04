@@ -66,6 +66,8 @@ cp "$WEB/zstd.mjs" "$OUT/zstd.mjs"
 cp "$WEB/openfig-compare.mjs" "$OUT/openfig-compare.mjs"
 mkdir -p "$OUT/vendor" "$OUT/gl" "$OUT/fonts"
 cp gallery/figma/web/vendor/fzstd.mjs "$OUT/vendor/fzstd.mjs"
+mkdir -p "$OUT/fixtures"
+cp gallery/figma/fixtures/*.fig "$OUT/fixtures/"
 cp gallery/figma/web/vendor/LICENSE-fzstd "$OUT/vendor/LICENSE-fzstd"
 cp gallery/evg/gl/evg-webgl.js "$OUT/gl/evg-webgl.js"
 for face in OpenSans-Regular OpenSans-Bold OpenSans-Italic OpenSans-BoldItalic; do

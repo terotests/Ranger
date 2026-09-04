@@ -54,11 +54,24 @@ JavaScript target is [fzstd](https://github.com/101arrowz/fzstd) (MIT).
 | padding | yes |
 | align-items | yes |
 | justify-content | yes |
-| letter-spacing | **no** — warning, dominant style still paints |
+| backdrop blur | yes — `backdrop-filter: blur()` |
+| letter-spacing | baked into the glyph outlines; a warning only when text falls back to a span |
 | dedicated ellipse tag | **no** — emit an SVG path |
 
-Normal frames emit absolute boxes. Auto Layout frames emit flex. Viewport
-pan/zoom is one root `translate * scale`, not a rewrite of node geometry.
+Every node is placed at the x/y its file stores, Auto Layout children
+included: a Figma export carries the positions its own layout engine
+settled on, and re-running the layout with other fonts would only drift
+from them. The Auto Layout itself (mode, gap, padding, alignment, hug,
+grow, absolute) is read into the scene graph for anything that wants to
+re-flow. Viewport pan/zoom is one `translate * scale` on a world element
+under the clipping root, not a rewrite of node geometry.
+
+Text paints as the glyph outlines the editor shaped (`derivedTextData`),
+so a file set in Space Grotesk or Inter looks right on a machine without
+either font. Strokes paint from `strokeGeometry`, which already carries
+alignment, per-side weights, caps and dashes; a CSS border is the fallback
+for a file without it. A translucent paint goes into its colour, not into
+the element's opacity, so a bar inside a 15% track stays solid.
 
 ## Try it
 
@@ -70,7 +83,8 @@ npm run figma:inspect       # dump the bundled sample
 npm run figma:bench         # Ranger vs openfig-core (if installed)
 ```
 
-Drop a real `.fig` on the page, or:
+Drop a real `.fig` on the page, open one the page can fetch —
+`?file=fixtures/health.fig&page=0&frame=1` — or:
 
 ```bash
 node gallery/figma/bin/fig_cli.js inspect path/to/file.fig
@@ -80,15 +94,16 @@ node gallery/figma/bin/fig_cli.js inspect path/to/file.fig
 
 | Figma | SceneNode | EVG |
 | --- | --- | --- |
-| `CANVAS` / `PAGE` | container (page) | viewport children |
+| `CANVAS` / `PAGE` | container (page), `backgroundColor` | viewport background + children |
 | `FRAME` / `GROUP` / `SECTION` | container | `div` |
 | `COMPONENT` / `INSTANCE` | container (resolved children) | `div` |
 | `RECTANGLE` | rect | `div` + background |
 | `ELLIPSE` | ellipse | `path` |
 | `LINE` | line | `path` |
 | `VECTOR` / `STAR` / `POLYGON` | path | `path` `d="…"` |
-| `TEXT` | text | `span` |
+| `TEXT` | text (+ glyph outlines) | `path`, or `span` without outlines |
 | image fill | image | `img` |
+| stroke with `strokeGeometry` | child path in the stroke colour | `path` |
 
 Also: local coordinates, opacity, visibility, solid / linear-gradient /
 image fills, strokes, corner radius, clipping, drop shadow, basic text
@@ -111,6 +126,11 @@ The bundled sample has three pages: **Welcome**, **Palette**, and
 **Fixtures**. Fixtures are one named frame per feature:
 
 `01-basic-rect` … `15-gradient`, plus a line, a component and an instance.
+
+`fixtures/health.fig` is a real Figma export: three phone screens built
+with Auto Layout, text in Space Grotesk and Inter, an image, stroke-only
+chart vectors and a background blur on the tab bars. `figma:test` and
+`figma:web:test` both open it.
 
 Same Figma bytes → same Scene JSON → same EVG dump.
 
@@ -136,7 +156,7 @@ gallery/figma/
   tests/                     FigTest
   web/                       FigWeb + github.io page
   bench/                     Ranger vs openfig-core
-  fixtures/                  sample.fig (generated)
+  fixtures/                  sample.fig (generated), health.fig (Figma export)
 ```
 
 **License: AGPL-3.0-or-later** (this directory is under `gallery/`).

@@ -99,6 +99,10 @@ class FigWeb {
         app.setView(x y sc)
     }
 
+    fn setViewport:void (w:double h:double) {
+        app.setViewport(w h)
+    }
+
     fn fit:void () {
         app.fit()
         app.rebuild()

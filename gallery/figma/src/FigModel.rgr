@@ -14,6 +14,7 @@ class FigPaint {
     def opacity:double 1.0
     def visible:boolean true
     def imageHash:string ""
+    def scaleMode:string "FILL"
 
     Constructor () {
     }
@@ -57,6 +58,8 @@ class FigNode {
     def strokes:[FigPaint]
     def fillBlobs:[int]
     def evenOdd:boolean false
+    def strokeBlobs:[int]
+    def strokeEvenOdd:boolean false
     def children:[FigNode]
     def raw:KiwiValue (new KiwiValue())
     def removed:boolean false
@@ -255,7 +258,15 @@ class FigModel {
         }
         def img:KiwiValue (v.child("image"))
         if (img.isObject()) {
-            p.imageHash = (img.childString("hash" ""))
+            ; A Figma export stores the hash as 20 raw bytes, and the file in
+            ; the ZIP's images/ folder is named by their hex. Read as a
+            ; string it came back empty, so no image ever resolved.
+            def hv:KiwiValue (img.child("hash"))
+            if (hv.kind == 7) {
+                p.imageHash = (FigModel.hexOf(hv.bytesVal))
+            } {
+                p.imageHash = (hv.asString(""))
+            }
             if ((strlen p.imageHash) == 0) {
                 p.imageHash = (img.childString("name" ""))
             }
@@ -263,7 +274,23 @@ class FigModel {
         if ((strlen p.imageHash) == 0) {
             p.imageHash = (v.childString("imageHash" ""))
         }
+        p.scaleMode = (v.childString("imageScaleMode" (v.childString("scaleMode" "FILL"))))
         return p
+    }
+
+    sfn hexOf:string (b:buffer) {
+        def digits:string "0123456789abcdef"
+        def out:string ""
+        def n:int (buffer_length b)
+        def i:int 0
+        while (i < n) {
+            def v:int (buffer_get b i)
+            def hi:int (idiv v 16)
+            def lo:int (v - (hi * 16))
+            out = (out + (strfromcode (charAt digits hi)) + (strfromcode (charAt digits lo)))
+            i = (i + 1)
+        }
+        return out
     }
 
     sfn paintsFrom:void (arr:KiwiValue dest:[FigPaint]) {
@@ -348,6 +375,19 @@ class FigModel {
                 nd.evenOdd = true
             }
             gi = (gi + 1)
+        }
+        def sgeom:KiwiValue (v.child("strokeGeometry"))
+        def si:int 0
+        while (si < (sgeom.itemCount())) {
+            def sitem:KiwiValue (sgeom.item(si))
+            def sbid:int (sitem.childInt("commandsBlob" (0 - 1)))
+            if (sbid >= 0) {
+                push nd.strokeBlobs sbid
+            }
+            if ((sitem.childString("windingRule" "")) == "EVENODD") {
+                nd.strokeEvenOdd = true
+            }
+            si = (si + 1)
         }
         return nd
     }

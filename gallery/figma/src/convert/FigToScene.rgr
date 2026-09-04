@@ -2,6 +2,13 @@
 
 ; Figma-specific node tree → format-agnostic SceneNode.
 ; All Figma field names and type strings live here, not in EVG.
+;
+; Two vocabularies show up in the raw kiwi. A Figma export writes the
+; editor's own names (`stackHorizontalPadding`, `stackPrimaryAlignItems`,
+; `imageScaleMode`, `lineHeight: {value, units}`); the bundled sample and
+; a JSON import use the REST API's (`paddingLeft`, `primaryAxisAlignItems`,
+; `scaleMode`, a bare number). Each reader below tries the kiwi name and
+; falls back to the REST one.
 
 Import "../scene/SceneNode.rgr"
 Import "../scene/SceneMatrix.rgr"
@@ -52,21 +59,19 @@ class FigToScene {
             sn.hasXf = true
         }
         this.copyFills(nd sn)
+        if (t == "CANVAS") {
+            this.copyCanvasBackground(nd sn)
+        }
         this.copyStrokes(nd sn)
         this.copyRadius(nd sn)
         this.copyLayout(nd sn)
         this.copyText(nd sn)
         this.copyClip(nd sn)
         this.copyEffects(nd sn)
-        this.copyPath(nd sn)
-        if (t == "LINE") {
-            sn.kind = "line"
-            sn.pathData = ("M0 0L" + (to_string nd.w) + " 0")
-        }
-        if (t == "ELLIPSE") {
-            sn.kind = "ellipse"
-            sn.pathData = (FigToScene.ellipsePath(nd.w nd.h))
-        }
+        ; An image fill on a rectangle IS the image. Decided before the
+        ; geometry is read: the rounded avatar in a Figma export carries a
+        ; fillGeometry like every other node, and reading that first turned
+        ; it into a path, which then dropped the picture for a grey box.
         if ((t == "IMAGE") || ((array_length sn.fills) > 0)) {
             def imgFill:SceneFill (sn.firstFill())
             if ((t == "IMAGE") || ((imgFill.kind == "image") && (sn.kind == "rect"))) {
@@ -77,8 +82,17 @@ class FigToScene {
                 }
             }
         }
+        this.copyPath(nd sn)
+        if ((t == "LINE") && ((strlen sn.pathData) == 0)) {
+            sn.pathData = ("M0 0L" + (to_string nd.w) + " 0")
+        }
+        if ((t == "ELLIPSE") && ((strlen sn.pathData) == 0)) {
+            sn.pathData = (FigToScene.ellipsePath(nd.w nd.h))
+        }
         if ((t == "BOOLEAN_OPERATION") || (t == "BOOLEAN_GROUP")) {
-            sn.warn("boolean operation")
+            if ((strlen sn.pathData) == 0) {
+                sn.warn("boolean operation without geometry")
+            }
         }
         def i:int 0
         while (i < (array_length nd.children)) {
@@ -94,7 +108,76 @@ class FigToScene {
         if ((t == "INSTANCE") && ((array_length sn.children) == 0)) {
             sn.warn("instance without resolved children")
         }
+        this.strokeFromGeometry(nd sn)
         return sn
+    }
+
+    ; The stroke as Figma drew it. A file carries `strokeGeometry`: the
+    ; outline of the stroke itself, with its alignment, caps, joins, dashes
+    ; and per-side weights already applied. Filled in the stroke colour it
+    ; is exact, where a CSS border is a guess — and a stroke-only vector (a
+    ; chart line, a ring) has no fill geometry at all, so without this it
+    ; did not paint. Emitted as the LAST child, the way Figma paints a
+    ; frame's stroke over its content.
+    fn strokeFromGeometry:void (nd:FigNode sn:SceneNode) {
+        if ((array_length nd.strokeBlobs) == 0) {
+            return
+        }
+        if ((array_length sn.strokes) == 0) {
+            return
+        }
+        def st:SceneStroke (sn.firstStroke())
+        if (st.visible == false) {
+            return
+        }
+        def d:string ""
+        def i:int 0
+        while (i < (array_length nd.strokeBlobs)) {
+            def idx:int (itemAt nd.strokeBlobs i)
+            if ((idx >= 0) && (idx < (array_length doc.blobs))) {
+                d = (d + (FigPath.toSvg((itemAt doc.blobs idx))))
+            }
+            i = (i + 1)
+        }
+        if ((strlen d) == 0) {
+            return
+        }
+        def outline (new SceneNode())
+        outline.id = (nd.id + ":stroke")
+        outline.name = "stroke"
+        outline.kind = "path"
+        outline.sourceType = "STROKE_GEOMETRY"
+        outline.w = nd.w
+        outline.h = nd.h
+        outline.pathData = d
+        outline.evenOdd = nd.strokeEvenOdd
+        def f (new SceneFill())
+        f.kind = "solid"
+        f.r = st.r
+        f.g = st.g
+        f.b = st.b
+        f.a = st.a
+        f.opacity = st.opacity
+        push outline.fills f
+        push sn.children outline
+        ; The geometry replaces the stroke; keeping both would paint it twice.
+        def none:[SceneStroke]
+        sn.strokes = none
+        sn.warnings = (this.dropStrokeWarnings(sn.warnings))
+    }
+
+    fn dropStrokeWarnings:[SceneWarn] (list:[SceneWarn]) {
+        def keep:[SceneWarn]
+        def i:int 0
+        while (i < (array_length list)) {
+            def w:SceneWarn (itemAt list i)
+            if ((w.feature == "strokeAlign OUTSIDE (drawn as center)") || (w.feature == "per-side stroke weights (drawn as one)")) {
+            } {
+                push keep w
+            }
+            i = (i + 1)
+        }
+        return keep
     }
 
     sfn kindOf:string (t:string) {
@@ -104,11 +187,11 @@ class FigToScene {
         if (t == "ELLIPSE") {
             return "ellipse"
         }
-        if ((t == "VECTOR") || (t == "STAR") || (t == "POLYGON") || (t == "BOOLEAN_OPERATION") || (t == "BOOLEAN_GROUP")) {
-            return "path"
-        }
         if (t == "LINE") {
             return "line"
+        }
+        if (FigToScene.isVectorType(t)) {
+            return "path"
         }
         if (t == "TEXT") {
             return "text"
@@ -117,6 +200,23 @@ class FigToScene {
             return "image"
         }
         return "container"
+    }
+
+    ; Types whose look IS their fillGeometry. Frames and rectangles carry a
+    ; fillGeometry too, but theirs is the box plus corner radius, which the
+    ; rect painter already draws — emitting it as well painted every card
+    ; twice and turned image-filled rectangles into paths.
+    sfn isVectorType:boolean (t:string) {
+        if ((t == "VECTOR") || (t == "STAR") || (t == "POLYGON") || (t == "REGULAR_POLYGON")) {
+            return true
+        }
+        if ((t == "BOOLEAN_OPERATION") || (t == "BOOLEAN_GROUP")) {
+            return true
+        }
+        if ((t == "ELLIPSE") || (t == "LINE")) {
+            return true
+        }
+        return false
     }
 
     fn copyFills:void (nd:FigNode sn:SceneNode) {
@@ -134,7 +234,7 @@ class FigToScene {
             if (p.kind == "IMAGE") {
                 f.kind = "image"
                 f.imageRef = p.imageHash
-                f.imageFit = (FigToScene.scaleFit((nd.raw.childString("scaleMode" "FILL"))))
+                f.imageFit = (FigToScene.scaleFit(p.scaleMode))
             }
             if (p.kind == "GRADIENT_LINEAR") {
                 f.kind = "gradient"
@@ -144,6 +244,30 @@ class FigToScene {
             push sn.fills f
             i = (i + 1)
         }
+    }
+
+    ; The canvas behind the frames. Figma paints every page on
+    ; `backgroundColor` (its default is the light #F5F5F5), which is what
+    ; makes a dark screen read as a screen and not as the page itself.
+    fn copyCanvasBackground:void (nd:FigNode sn:SceneNode) {
+        if ((array_length sn.fills) > 0) {
+            return
+        }
+        def f (new SceneFill())
+        f.kind = "solid"
+        f.r = 0.96
+        f.g = 0.96
+        f.b = 0.96
+        def col:KiwiValue (nd.raw.child("backgroundColor"))
+        if (col.isObject()) {
+            f.r = (col.childDouble("r" f.r))
+            f.g = (col.childDouble("g" f.g))
+            f.b = (col.childDouble("b" f.b))
+            f.a = (col.childDouble("a" 1.0))
+        }
+        f.opacity = (nd.raw.childDouble("backgroundOpacity" 1.0))
+        f.visible = (nd.raw.childBool("backgroundEnabled" true))
+        push sn.fills f
     }
 
     fn copyGradient:void (raw:KiwiValue f:SceneFill) {
@@ -192,6 +316,11 @@ class FigToScene {
             push sn.strokes s
             i = (i + 1)
         }
+        if ((array_length sn.strokes) > 0) {
+            if (nd.raw.childBool("borderStrokeWeightsIndependent" false)) {
+                sn.warn("per-side stroke weights (drawn as one)")
+            }
+        }
     }
 
     fn copyRadius:void (nd:FigNode sn:SceneNode) {
@@ -221,29 +350,48 @@ class FigToScene {
             sn.layout.mode = "column"
         }
         sn.layout.gap = (raw.childDouble("stackSpacing" 0.0))
-        sn.layout.padL = (raw.childDouble("paddingLeft" 0.0))
-        sn.layout.padR = (raw.childDouble("paddingRight" 0.0))
-        sn.layout.padT = (raw.childDouble("paddingTop" 0.0))
-        sn.layout.padB = (raw.childDouble("paddingBottom" 0.0))
-        sn.layout.justify = (FigToScene.axisAlign((raw.childString("stackPrimarySizing" (raw.childString("primaryAxisAlignItems" "MIN"))))))
-        sn.layout.alignItems = (FigToScene.axisAlign((raw.childString("counterAxisAlignItems" "MIN"))))
-        def hug:string (raw.childString("primaryAxisSizingMode" ""))
-        if (hug == "HUG") {
-            if (sn.layout.mode == "row") {
-                sn.layout.hugW = true
-            }
-            if (sn.layout.mode == "column") {
-                sn.layout.hugH = true
-            }
+        ; Kiwi: horizontal/vertical padding name the left and top sides, and
+        ; the right/bottom fields are only written when they differ.
+        sn.layout.padL = (raw.childDouble("stackHorizontalPadding" (raw.childDouble("paddingLeft" 0.0))))
+        sn.layout.padT = (raw.childDouble("stackVerticalPadding" (raw.childDouble("paddingTop" 0.0))))
+        sn.layout.padR = (raw.childDouble("stackPaddingRight" (raw.childDouble("paddingRight" sn.layout.padL))))
+        sn.layout.padB = (raw.childDouble("stackPaddingBottom" (raw.childDouble("paddingBottom" sn.layout.padT))))
+        sn.layout.justify = (FigToScene.axisAlign((raw.childString("stackPrimaryAlignItems" (raw.childString("primaryAxisAlignItems" "MIN"))))))
+        sn.layout.alignItems = (FigToScene.axisAlign((raw.childString("stackCounterAlignItems" (raw.childString("counterAxisAlignItems" "MIN"))))))
+        def primary:string (raw.childString("stackPrimarySizing" (raw.childString("primaryAxisSizingMode" ""))))
+        def counter:string (raw.childString("stackCounterSizing" (raw.childString("counterAxisSizingMode" ""))))
+        def hugP:boolean (FigToScene.isHug(primary))
+        def hugC:boolean (FigToScene.isHug(counter))
+        if (sn.layout.mode == "row") {
+            sn.layout.hugW = hugP
+            sn.layout.hugH = hugC
         }
-        if (hug == "FILL") {
-            if (sn.layout.mode == "row") {
-                sn.layout.fillW = true
-            }
-            if (sn.layout.mode == "column") {
-                sn.layout.fillH = true
-            }
+        if (sn.layout.mode == "column") {
+            sn.layout.hugH = hugP
+            sn.layout.hugW = hugC
         }
+        sn.layout.grow = (raw.childDouble("stackChildPrimaryGrow" (raw.childDouble("layoutGrow" 0.0))))
+        def alignSelf:string (raw.childString("stackChildAlignSelf" (raw.childString("layoutAlign" ""))))
+        if (alignSelf == "STRETCH") {
+            sn.layout.stretch = true
+        }
+        def positioning:string (raw.childString("stackPositioning" (raw.childString("layoutPositioning" "AUTO"))))
+        if (positioning == "ABSOLUTE") {
+            sn.layout.absolute = true
+        }
+    }
+
+    sfn isHug:boolean (sizing:string) {
+        if (sizing == "RESIZE_TO_FIT") {
+            return true
+        }
+        if (sizing == "RESIZE_TO_FIT_WITH_IMPLICIT_SIZE") {
+            return true
+        }
+        if (sizing == "HUG") {
+            return true
+        }
+        return false
     }
 
     sfn scaleFit:string (mode:string) {
@@ -266,25 +414,31 @@ class FigToScene {
         if ((v == "MAX") || (v == "max")) {
             return "end"
         }
-        if ((v == "SPACE_BETWEEN") || (v == "space-between")) {
+        if ((v == "SPACE_BETWEEN") || (v == "SPACE_EVENLY") || (v == "space-between")) {
             return "space-between"
         }
         return "start"
     }
 
     fn copyText:void (nd:FigNode sn:SceneNode) {
-        if (sn.kind != "text") {
-            if ((strlen nd.characters) > 0) {
-                sn.text.characters = nd.characters
-                sn.text.fontSize = nd.fontSize
-                sn.text.fontFamily = nd.fontFamily
-            }
-            return
+        if ((strlen nd.characters) > 0) {
+            sn.text.characters = nd.characters
         }
-        sn.text.characters = nd.characters
         sn.text.fontSize = nd.fontSize
         sn.text.fontFamily = nd.fontFamily
+        if (sn.kind != "text") {
+            return
+        }
         def raw:KiwiValue nd.raw
+        def tcase:string (raw.childString("textCase" "ORIGINAL"))
+        if (tcase == "UPPER") {
+            sn.text.textCase = "upper"
+            sn.text.characters = (to_uppercase sn.text.characters)
+        }
+        if (tcase == "LOWER") {
+            sn.text.textCase = "lower"
+            sn.text.characters = (to_lowercase sn.text.characters)
+        }
         def align:string (raw.childString("textAlignHorizontal" "LEFT"))
         if (align == "CENTER") {
             sn.text.align = "center"
@@ -299,6 +453,20 @@ class FigToScene {
                 }
             }
         }
+        def valign:string (raw.childString("textAlignVertical" "TOP"))
+        if (valign == "CENTER") {
+            sn.text.valign = "center"
+        }
+        if (valign == "BOTTOM") {
+            sn.text.valign = "bottom"
+        }
+        def resize:string (raw.childString("textAutoResize" "NONE"))
+        if (resize == "WIDTH_AND_HEIGHT") {
+            sn.text.autoResize = "both"
+        }
+        if (resize == "HEIGHT") {
+            sn.text.autoResize = "height"
+        }
         def weight:string (raw.childString("fontWeight" ""))
         if ((strlen weight) > 0) {
             sn.text.fontWeight = weight
@@ -306,18 +474,148 @@ class FigToScene {
         def fontNm:KiwiValue (raw.child("fontName"))
         if (fontNm.isObject()) {
             def style:string (fontNm.childString("style" ""))
-            if ((style == "Bold") || (style == "Bold Italic")) {
-                sn.text.fontWeight = "700"
+            if ((strlen style) > 0) {
+                sn.text.fontWeight = (FigToScene.weightOf(style))
+                if (FigToScene.hasWord(style "italic")) {
+                    sn.text.fontStyle = "italic"
+                }
             }
-            if ((style == "Italic") || (style == "Bold Italic")) {
+        }
+        ; The shaped result, when the file has one. Its font table names the
+        ; weight as a number, which beats guessing from the style string.
+        def derived:KiwiValue (raw.child("derivedTextData"))
+        def meta:KiwiValue (derived.child("fontMetaData"))
+        if ((meta.itemCount()) > 0) {
+            def m0:KiwiValue (meta.item(0))
+            def fw:int (m0.childInt("fontWeight" 0))
+            if (fw > 0) {
+                sn.text.fontWeight = (to_string fw)
+            }
+            if ((m0.childString("fontStyle" "NORMAL")) == "ITALIC") {
                 sn.text.fontStyle = "italic"
             }
         }
-        sn.text.lineHeight = (raw.childDouble("lineHeight" 0.0))
-        sn.text.letterSpacing = (raw.childDouble("letterSpacing" 0.0))
+        def lh:KiwiValue (raw.child("lineHeight"))
+        if (lh.isObject()) {
+            def units:string (lh.childString("units" "RAW"))
+            def val:double (lh.childDouble("value" 0.0))
+            if (units == "PIXELS") {
+                if (nd.fontSize > 0.0) {
+                    sn.text.lineHeight = (val / nd.fontSize)
+                }
+            } {
+                if (units == "PERCENT") {
+                    sn.text.lineHeight = (val / 100.0)
+                } {
+                    sn.text.lineHeight = val
+                }
+            }
+        } {
+            sn.text.lineHeight = (raw.childDouble("lineHeight" 0.0))
+        }
+        def ls:KiwiValue (raw.child("letterSpacing"))
+        if (ls.isObject()) {
+            def lunits:string (ls.childString("units" "PIXELS"))
+            def lval:double (ls.childDouble("value" 0.0))
+            if (lunits == "PERCENT") {
+                sn.text.letterSpacing = ((lval / 100.0) * nd.fontSize)
+            } {
+                sn.text.letterSpacing = lval
+            }
+        } {
+            sn.text.letterSpacing = (raw.childDouble("letterSpacing" 0.0))
+        }
+        sn.text.outline = (this.glyphOutline(nd))
+        if (sn.text.hasOutline()) {
+            return
+        }
         if (sn.text.letterSpacing != 0.0) {
             sn.warn("letterSpacing (EVG has no letter-spacing)")
         }
+    }
+
+    ; One SVG path for every glyph the editor laid out, in node pixels.
+    ; `derivedTextData.glyphs` carries each glyph's outline blob, its font
+    ; size and its baseline origin; the blob is in em units with y up.
+    fn glyphOutline:string (nd:FigNode) {
+        def derived:KiwiValue (nd.raw.child("derivedTextData"))
+        def glyphs:KiwiValue (derived.child("glyphs"))
+        def n:int (glyphs.itemCount())
+        if (n == 0) {
+            return ""
+        }
+        def d:string ""
+        def i:int 0
+        while (i < n) {
+            def g:KiwiValue (glyphs.item(i))
+            def idx:int (g.childInt("commandsBlob" (0 - 1)))
+            def fs:double (g.childDouble("fontSize" nd.fontSize))
+            def pos:KiwiValue (g.child("position"))
+            def px:double (pos.childDouble("x" 0.0))
+            def py:double (pos.childDouble("y" 0.0))
+            if ((idx >= 0) && (idx < (array_length doc.blobs))) {
+                d = (d + (FigPath.toSvgXf((itemAt doc.blobs idx) fs (0.0 - fs) px py)))
+            }
+            i = (i + 1)
+        }
+        return d
+    }
+
+    ; CSS weight from a Figma style name: "Bold", "Semi Bold", "ExtraLight
+    ; Italic"… Case and spaces do not matter.
+    sfn weightOf:string (style:string) {
+        def s:string (to_lowercase style)
+        if ((FigToScene.hasWord(s "hairline")) || (FigToScene.hasWord(s "thin"))) {
+            return "100"
+        }
+        if ((FigToScene.hasWord(s "extralight")) || (FigToScene.hasWord(s "extra light")) || (FigToScene.hasWord(s "ultralight")) || (FigToScene.hasWord(s "ultra light"))) {
+            return "200"
+        }
+        if (FigToScene.hasWord(s "light")) {
+            return "300"
+        }
+        if (FigToScene.hasWord(s "medium")) {
+            return "500"
+        }
+        if ((FigToScene.hasWord(s "semibold")) || (FigToScene.hasWord(s "semi bold")) || (FigToScene.hasWord(s "demibold")) || (FigToScene.hasWord(s "demi bold"))) {
+            return "600"
+        }
+        if ((FigToScene.hasWord(s "extrabold")) || (FigToScene.hasWord(s "extra bold")) || (FigToScene.hasWord(s "ultrabold")) || (FigToScene.hasWord(s "ultra bold"))) {
+            return "800"
+        }
+        if ((FigToScene.hasWord(s "black")) || (FigToScene.hasWord(s "heavy"))) {
+            return "900"
+        }
+        if (FigToScene.hasWord(s "bold")) {
+            return "700"
+        }
+        return "400"
+    }
+
+    sfn hasWord:boolean (s:string needle:string) {
+        def hay:string (to_lowercase s)
+        def n:int (strlen hay)
+        def m:int (strlen needle)
+        if (m > n) {
+            return false
+        }
+        def i:int 0
+        while (i <= (n - m)) {
+            def ok:boolean true
+            def j:int 0
+            while (j < m) {
+                if ((charAt hay (i + j)) != (charAt needle j)) {
+                    ok = false
+                    j = m
+                }
+                j = (j + 1)
+            }
+            if ok {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
     }
 
     fn copyClip:void (nd:FigNode sn:SceneNode) {
@@ -339,6 +637,10 @@ class FigToScene {
         while (i < (fx.itemCount())) {
             def e:KiwiValue (fx.item(i))
             def kind:string (e.childString("type" ""))
+            def on:boolean (e.childBool("visible" true))
+            if (on == false) {
+                kind = ""
+            }
             if ((kind == "DROP_SHADOW") || (kind == "drop-shadow")) {
                 def s (new SceneEffect())
                 s.kind = "drop-shadow"
@@ -355,8 +657,15 @@ class FigToScene {
                 }
                 push sn.effects s
             } {
-                if ((kind == "INNER_SHADOW") || (kind == "LAYER_BLUR") || (kind == "BACKGROUND_BLUR")) {
-                    sn.warn(kind)
+                if (kind == "BACKGROUND_BLUR") {
+                    def bb (new SceneEffect())
+                    bb.kind = "backdrop-blur"
+                    bb.blur = (e.childDouble("radius" 0.0))
+                    push sn.effects bb
+                } {
+                    if ((kind == "INNER_SHADOW") || (kind == "LAYER_BLUR")) {
+                        sn.warn(kind)
+                    }
                 }
             }
             i = (i + 1)
@@ -364,6 +673,9 @@ class FigToScene {
     }
 
     fn copyPath:void (nd:FigNode sn:SceneNode) {
+        if ((FigToScene.isVectorType(nd.typeName)) == false) {
+            return
+        }
         if ((array_length nd.fillBlobs) == 0) {
             return
         }

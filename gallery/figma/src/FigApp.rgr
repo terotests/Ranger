@@ -151,8 +151,69 @@ class FigApp {
         return (itemAt frames frameIndex)
     }
 
+    ; What the view root covers. A page has no size of its own — its
+    ; frames sit wherever they were drawn — so a page is measured as the
+    ; union of its children, and fit/100% pan to that rather than to 0,0.
+    fn contentBox:SceneNode (target:SceneNode) {
+        def box (new SceneNode())
+        box.x = target.x
+        box.y = target.y
+        box.w = target.w
+        box.h = target.h
+        if ((target.sourceType != "CANVAS") && (target.w >= 1.0)) {
+            return box
+        }
+        def n:int (array_length target.children)
+        if (n == 0) {
+            box.w = 800.0
+            box.h = 600.0
+            return box
+        }
+        def minX:double 0.0
+        def minY:double 0.0
+        def maxX:double 0.0
+        def maxY:double 0.0
+        def i:int 0
+        while (i < n) {
+            def ch:SceneNode (itemAt target.children i)
+            if ((i == 0) || (ch.x < minX)) {
+                minX = ch.x
+            }
+            if ((i == 0) || (ch.y < minY)) {
+                minY = ch.y
+            }
+            if ((i == 0) || ((ch.x + ch.w) > maxX)) {
+                maxX = (ch.x + ch.w)
+            }
+            if ((i == 0) || ((ch.y + ch.h) > maxY)) {
+                maxY = (ch.y + ch.h)
+            }
+            i = (i + 1)
+        }
+        box.x = minX
+        box.y = minY
+        box.w = (maxX - minX)
+        box.h = (maxY - minY)
+        return box
+    }
+
+    ; The canvas size in CSS pixels. The display list is built at this size,
+    ; so the host paints it one to one; before this it was always 1200x800
+    ; and stretched to whatever the canvas was, which squashed every frame.
+    fn setViewport:void (w:double h:double) {
+        if ((w < 1.0) || (h < 1.0)) {
+            return
+        }
+        if ((w == pageW) && (h == pageH)) {
+            return
+        }
+        pageW = w
+        pageH = h
+        this.rebuild()
+    }
+
     fn fit:void () {
-        def target:SceneNode (this.viewRoot())
+        def target:SceneNode (this.contentBox((this.viewRoot())))
         def w:double target.w
         def h:double target.h
         def ox:double target.x
@@ -163,8 +224,8 @@ class FigApp {
         if (h < 1.0) {
             h = 600.0
         }
-        def sx:double (1100.0 / w)
-        def sy:double (720.0 / h)
+        def sx:double ((pageW - 80.0) / w)
+        def sy:double ((pageH - 80.0) / h)
         def sc:double sx
         if (sy < sc) {
             sc = sy
@@ -181,7 +242,7 @@ class FigApp {
     }
 
     fn zoom100:void () {
-        def target:SceneNode (this.viewRoot())
+        def target:SceneNode (this.contentBox((this.viewRoot())))
         zoom = 1.0
         panX = (40.0 - target.x)
         panY = (40.0 - target.y)
@@ -208,7 +269,7 @@ class FigApp {
         emitter.setDebug(debug)
         emitter.setAssets(assets)
         def root:SceneNode (this.viewRoot())
-        evgRoot = (emitter.buildPage(root panX panY zoom))
+        evgRoot = (emitter.buildPage(root (this.currentPage()) panX panY zoom))
         evgDump = (emitter.dump(evgRoot))
         def lay (new EVGLayout())
         lay.setPageSize(pageW pageH)
