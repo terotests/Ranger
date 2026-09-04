@@ -42,10 +42,14 @@ app.loadReference(REALTRAINER_SEED);
 const params = new URLSearchParams(location.search);
 const pageParam = params.get("page");
 const fit = !pageParam || pageParam === "fit";
+// A finger rather than a mouse, as the browser reports it: the sheet's
+// `@media (pointer: coarse)` block makes the targets bigger for it.
+const coarseQuery = window.matchMedia ? window.matchMedia("(pointer: coarse)") : null;
+app.setPointerCoarse(!!(coarseQuery && coarseQuery.matches));
 {
   if (fit) {
     document.body.classList.add("fit");
-    app.setPageSize(window.innerWidth, window.innerHeight);
+    app.setPageSize(stage.clientWidth, stage.clientHeight);
   } else {
     const [w, h] = pageParam.split("x").map(Number);
     if (w > 0 && h > 0) app.setPageSize(w, h);
@@ -81,8 +85,12 @@ function sizeCanvas() {
   canvas.style.height = H + "px";
   canvas.width = Math.round(W * dpr);
   canvas.height = Math.round(H * dpr);
-  stage.style.width = W + "px";
-  stage.style.height = H + "px";
+  // The stage is sized by the page when a size was pinned; when the page is
+  // the window the stage is the window (index.html) and the page follows it.
+  if (!fit) {
+    stage.style.width = W + "px";
+    stage.style.height = H + "px";
+  }
 }
 sizeCanvas();
 
@@ -224,20 +232,30 @@ canvas.addEventListener("pointermove", (ev) => {
   // Hover starts a transition, and a transition needs frames — the loop is
   // already running, so there is nothing to start here beyond the flag.
 });
-// The window changed size: the page is laid out again at the new size — the
-// sheet is told the viewport inside `setPageSize`'s rebuild — and drawn.
+// The resize path, as gallery/evg/web/responsive has it: a ResizeObserver on
+// the stage rather than only a window listener, because the two differ where
+// it matters — a scrollbar takes ~15px off the width and only the element
+// knows — and a key of what the page was last laid out for, so nothing is
+// laid out twice for the same surface. The page is laid out again at the
+// new size (the sheet is told the viewport inside `setPageSize`'s rebuild)
+// and drawn.
 if (fit) {
-  let pending = false;
-  window.addEventListener("resize", () => {
-    if (pending) return;
-    pending = true;
-    requestAnimationFrame(() => {
-      pending = false;
-      app.setPageSize(window.innerWidth, window.innerHeight);
-      sizeCanvas();
-      paint();
-    });
-  });
+  let lastKey = "";
+  const refit = () => {
+    const w = Math.max(240, Math.round(stage.clientWidth));
+    const h = Math.max(240, Math.round(stage.clientHeight));
+    const coarse = !!(coarseQuery && coarseQuery.matches);
+    const key = `${w}x${h}:${coarse}`;
+    if (key === lastKey) return;
+    lastKey = key;
+    app.setPointerCoarse(coarse);
+    app.setPageSize(w, h);
+    sizeCanvas();
+    paint();
+  };
+  new ResizeObserver(refit).observe(stage);
+  window.addEventListener("resize", refit);
+  if (coarseQuery && coarseQuery.addEventListener) coarseQuery.addEventListener("change", refit);
 }
 
 canvas.addEventListener("pointerleave", () => {

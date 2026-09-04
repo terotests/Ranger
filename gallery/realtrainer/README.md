@@ -9,9 +9,11 @@ parsed document behind all of it.
 
 ```bash
 npm run rt:web      # build, serve, print the URL
-# the bare URL is the window: laid out again on every resize, the rail or
-# the bottom bar folded by the stylesheet's @media blocks at 768px, and the
-# shell opens on Home; ?route=/calendar/cal-plan?week=2026-02-09 opens it on
+# the bare URL is the window: laid out again on every resize (a
+# ResizeObserver on the stage, as gallery/evg/web/responsive does it), the
+# rail or the bottom bar folded by the stylesheet's @media blocks at 768px,
+# the targets grown under @media (pointer: coarse) when the browser reports
+# a finger, and the shell opens on Home; ?route=/calendar/cal-plan?week=2026-02-09 opens it on
 # a route, ?page=390x844 pins a phone's size inside any browser, and
 # ?page=980x760 is the desktop demo the checks measure
 npm run rt:check    # the app driven with a made-up clock, no browser  (CI)

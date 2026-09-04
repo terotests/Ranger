@@ -108,6 +108,11 @@ function runScenario(file) {
       return true;
     }
     if (step.route !== undefined) return app.openRoute(step.route);
+    // `pointer: coarse` — what a phone's browser reports; the sheet's targets grow.
+    if (step.pointer !== undefined) {
+      app.setPointerCoarse(step.pointer === "coarse");
+      return true;
+    }
     // The next request fails — what the reference does with no AI behind it.
     if (step.fail !== undefined) {
       app.armFailure();

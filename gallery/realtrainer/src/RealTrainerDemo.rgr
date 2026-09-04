@@ -595,6 +595,10 @@ class RealTrainerDemo {
     def focused:string ""
     def pageW:double 980.0
     def pageH:double 760.0
+    ; A finger rather than a mouse — what the host's `(pointer: coarse)`
+    ; says. Stated to the sheet with the viewport, so `@media (pointer:
+    ; coarse)` can make the targets bigger. See gallery/evg/web/responsive.
+    def coarsePointer:boolean false
 
     Constructor () {
     }
@@ -870,6 +874,14 @@ class RealTrainerDemo {
         def fresh (new EVGLayout())
         fresh.setPageSize(pageW pageH)
         layout = fresh
+        this.rebuild()
+    }
+
+    fn setPointerCoarse:void (c:boolean) {
+        if (coarsePointer == c) {
+            return
+        }
+        coarsePointer = c
         this.rebuild()
     }
 
@@ -4623,7 +4635,7 @@ class RealTrainerDemo {
     fn laidOut:EVGLayout () {
         def r:EVGElement (unwrap root)
         def s:EVGStyleSheet (unwrap sheet)
-        s.setViewport(pageW pageH false)
+        s.setViewport(pageW pageH coarsePointer)
         this.markStates(r)
         s.applyTree(r (this.themeName()))
         def t:EVGTransition transitions

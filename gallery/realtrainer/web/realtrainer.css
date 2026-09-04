@@ -2408,3 +2408,18 @@
   .rt-ph-nav { display: none; }
   .rt-overlay-bottom { padding: 0px; }
 }
+
+/* A finger needs a bigger target than a mouse does — the third thing a media
+   query can ask about, and the host reports it from `(pointer: coarse)`. The
+   icon buttons and the small tool chips grow to the 44px a finger wants; the
+   layout around them gives the room. */
+@media (pointer: coarse) {
+  .rt-icon-btn { width: 44px; height: 44px; }
+  .rt-ph-rail-btn { width: 44px; height: 44px; }
+  .rt-week-nav { width: 44px; height: 44px; }
+  .rt-ys-tool { height: 40px; }
+  .rt-ex-btn { height: 40px; }
+  .rt-chat-tool { height: 40px; }
+  .rt-wiz-btn { height: 44px; }
+  .rt-more-item { height: 52px; }
+}

@@ -259,6 +259,8 @@ async function apply(step) {
   // The Ranger side arms a failure with this; here there is no AI behind the
   // app and every request fails on its own.
   if (step.fail !== undefined) return true;
+  // The pointer is what the recorder's browser has; the step is this side's.
+  if (step.pointer !== undefined) return true;
   // The LAST match unless the step says which: a dialog's button comes after
   // the page's button of the same name in the DOM, and it is the one on top.
   // `nth` picks another — the first unnamed button is a dialog's close.
