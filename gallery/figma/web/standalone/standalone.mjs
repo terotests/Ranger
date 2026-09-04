@@ -4,6 +4,7 @@
  */
 import { renderDisplayList, loadImages } from "./gl/evg-webgl.js";
 import { installZstd } from "./zstd.mjs";
+import { figmaClipboard, figmaClipboardName } from "./clipboard.mjs";
 
 window.__pageStarted = true;
 
@@ -291,6 +292,23 @@ window.addEventListener("drop", async (e) => {
 });
 
 window.addEventListener("resize", () => draw());
+
+// ⌘V / Ctrl+V straight from Figma: the copied nodes arrive as fig-kiwi bytes
+// inside text/html, and a .fig file copied from the desktop comes as a file.
+window.addEventListener("paste", async (e) => {
+  const dt = e.clipboardData;
+  if (!dt) return;
+  const file = Array.from(dt.files || []).find((f) => /\.(fig|deck|jam)$/i.test(f.name));
+  if (file) {
+    e.preventDefault();
+    await openBuffer(await file.arrayBuffer(), file.name);
+    return;
+  }
+  const clip = figmaClipboard(dt.getData("text/html"));
+  if (!clip.buffer) return;
+  e.preventDefault();
+  await openBuffer(clip.buffer, figmaClipboardName(clip.meta));
+});
 
 /** Open a file the page can fetch: `?file=fixtures/health.fig`, with an
  *  optional `&page=N` and `&frame=N` to start on one page or frame.

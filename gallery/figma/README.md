@@ -84,11 +84,23 @@ npm run figma:bench         # Ranger vs openfig-core (if installed)
 ```
 
 Drop a real `.fig` on the page, open one the page can fetch —
-`?file=fixtures/health.fig&page=0&frame=1` — or:
+`?file=fixtures/health.fig&page=0&frame=1` — copy layers in Figma and
+paste them onto the page (⌘V), or:
 
 ```bash
 node gallery/figma/bin/fig_cli.js inspect path/to/file.fig
 ```
+
+## Paste from Figma
+
+A copy in Figma lands on the clipboard as `text/html` carrying two
+base64 spans: `(figmeta)`, a little JSON (`fileKey`, `pasteID`), and
+`(figma)`, the same fig-kiwi bytes a `.fig` keeps in `canvas.fig` — no
+ZIP, and only the copied nodes. `web/standalone/clipboard.mjs` unwraps
+the HTML; the parser reads the bytes as they are. The pasted nodes still
+name the page they came from, which is not in the payload, so the tree
+builder gives them a page called **Pasted**. Images referenced by hash
+are not in the payload and paint as grey boxes.
 
 ## What it draws
 
@@ -154,7 +166,7 @@ gallery/figma/
   src/FigApp.rgr             viewer: pages, frames, pan/zoom, debug
   src/FigToEvg.rgr           leftover direct painter (unused by the viewer)
   tests/                     FigTest
-  web/                       FigWeb + github.io page
+  web/                       FigWeb + github.io page (+ clipboard.mjs)
   bench/                     Ranger vs openfig-core
   fixtures/                  sample.fig (generated), health.fig (Figma export)
 ```

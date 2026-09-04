@@ -5,6 +5,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { installZstd } from "./zstd.mjs";
+import { figmaClipboard, figmaClipboardHtml, figmaClipboardName } from "./clipboard.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dist = join(here, "dist");
@@ -102,3 +103,56 @@ if (warns.length) {
   process.exit(1);
 }
 console.log("health.fig ok — frames", frames.join(", "), "cmds", hc.length, "paths", paths);
+
+// A paste: the same fig-kiwi bytes wrapped the way Figma's clipboard wraps
+// them, decoded back and opened with no ZIP around them.
+const canvas = web.canvasBytes();
+if (!canvas || canvas.byteLength < 1000) {
+  console.error("canvasBytes did not come back", canvas && canvas.byteLength);
+  process.exit(1);
+}
+const html = figmaClipboardHtml(canvas, { fileKey: "abc123", pasteID: 7, dataType: "scene" });
+const clip = figmaClipboard(html);
+if (!clip.buffer || clip.buffer.byteLength !== canvas.byteLength) {
+  console.error("clipboard html did not round-trip", clip.buffer && clip.buffer.byteLength, canvas.byteLength);
+  process.exit(1);
+}
+if (clip.meta?.fileKey !== "abc123" || figmaClipboardName(clip.meta) !== "paste from abc123") {
+  console.error("figmeta did not round-trip", clip.meta);
+  process.exit(1);
+}
+if (figmaClipboard("<p>plain html</p>").buffer !== null) {
+  console.error("plain html was taken for a Figma paste");
+  process.exit(1);
+}
+clip.buffer._view = new DataView(clip.buffer);
+if (!web.openBytes(clip.buffer, figmaClipboardName(clip.meta))) {
+  console.error("pasted bytes failed:", web.error());
+  process.exit(1);
+}
+const pasteStats = JSON.parse(web.stats());
+if (pasteStats.pasted !== true) {
+  console.error("paste not flagged as a paste", pasteStats);
+  process.exit(1);
+}
+const pasteFrames = JSON.parse(web.frames()).map((f) => f.name);
+if (!pasteFrames.includes("Dashboard")) {
+  console.error("pasted bytes lost the frames", pasteFrames);
+  process.exit(1);
+}
+// Copied layers alone, no page with them: they get one.
+if (!web.openClipboardSample()) {
+  console.error("clipboard sample failed:", web.error());
+  process.exit(1);
+}
+const pages = JSON.parse(web.pages());
+if (pages.length !== 1 || pages[0].name !== "Pasted") {
+  console.error("orphan layers did not get a page", pages);
+  process.exit(1);
+}
+const pasted = JSON.parse(web.frames()).map((f) => f.name);
+if (!pasted.includes("Card")) {
+  console.error("pasted frame missing", pasted);
+  process.exit(1);
+}
+console.log("paste ok — frames", pasteFrames.join(", "), "· loose layers →", pages[0].name);

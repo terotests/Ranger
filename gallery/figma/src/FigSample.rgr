@@ -620,15 +620,39 @@ class FigSample {
         return out
     }
 
-    sfn buildFig:buffer () {
-        def s:KiwiSchema (FigSample.schema())
+    ; fig-kiwi bytes for one message: what canvas.fig holds, and what a
+    ; Figma copy puts on the clipboard.
+    sfn canvasFrom:buffer (s:KiwiSchema root:KiwiValue) {
         def enc (new KiwiEncode())
         enc.init(s)
-        def msg:buffer (enc.encodeNamed("Message" (FigSample.message())))
+        def msg:buffer (enc.encodeNamed("Message" root))
         def schemaRaw:buffer (s.encode())
         def schemaComp:buffer (FigDeflate.wrapStored(schemaRaw))
         def msgComp:buffer (FigDeflate.wrapStored(msg))
-        def canvas:buffer (FigCanvas.assemble("fig-kiwi" 101 schemaComp msgComp))
+        return (FigCanvas.assemble("fig-kiwi" 101 schemaComp msgComp))
+    }
+
+    ; A copy from Figma: only the copied nodes, no document and no page,
+    ; each top-level one still naming the page it came from as its parent.
+    sfn buildClipboard:buffer () {
+        def nodes:KiwiValue (KiwiValue.fromArray())
+        def card:KiwiValue (FigSample.node(5 1 "FRAME" "Card" 0 99 "!" 200.0 120.0 640.0 300.0))
+        card.put("fillPaints" (FigSample.paints(1.0 1.0 1.0)))
+        card.put("cornerRadius" (KiwiValue.fromDouble(12.0)))
+        nodes.pushItem(card)
+        def swatch:KiwiValue (FigSample.node(5 2 "RECTANGLE" "Swatch" 5 1 "!" 80.0 40.0 16.0 16.0))
+        swatch.put("fillPaints" (FigSample.paints(0.145 0.388 0.922)))
+        nodes.pushItem(swatch)
+        def dot:KiwiValue (FigSample.node(5 3 "ELLIPSE" "Dot" 0 99 "#" 40.0 40.0 900.0 300.0))
+        dot.put("fillPaints" (FigSample.paints(0.9 0.3 0.3)))
+        nodes.pushItem(dot)
+        def root:KiwiValue (KiwiValue.fromObject())
+        root.put("nodeChanges" nodes)
+        return (FigSample.canvasFrom((FigSample.schema()) root))
+    }
+
+    sfn buildFig:buffer () {
+        def canvas:buffer (FigSample.canvasFrom((FigSample.schema()) (FigSample.message())))
         def zip (new ZipWriter())
         zip.create()
         zip.addFile("canvas.fig" canvas)

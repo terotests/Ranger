@@ -187,6 +187,10 @@ class FigDoc {
     def treeMs:double 0.0
     def totalMs:double 0.0
     def usedZstd:boolean false
+    ; The fig-kiwi bytes the tree was read from (canvas.fig, or a paste).
+    def canvasBytes:buffer (buffer_alloc 0)
+    ; True when the bytes came without a ZIP — a clipboard paste.
+    def pasted:boolean false
     def ok:boolean true
     def err:string ""
 
@@ -472,12 +476,19 @@ class FigModel {
             set map nd2.id nd2
             ni = (ni + 1)
         }
+        ; A node whose parent is not in the message. A copy from Figma is
+        ; exactly that: the copied nodes, still pointing at the page they
+        ; were copied from, which did not come along.
+        def orphans:[FigNode]
         def nj:int 0
         while (nj < (array_length doc.nodes)) {
             def nd3:FigNode (itemAt doc.nodes nj)
             if ((strlen nd3.parentId) > 0) {
                 def parent@(optional):FigNode (get map nd3.parentId)
                 if (null? parent) {
+                    if ((nd3.isPage()) == false) {
+                        push orphans nd3
+                    }
                 } {
                     def p:FigNode (unwrap parent)
                     push p.children nd3
@@ -515,6 +526,23 @@ class FigModel {
                 }
                 nl = (nl + 1)
             }
+        }
+        if (((array_length doc.pages) == 0) && ((array_length orphans) > 0)) {
+            ; No page came with the nodes: give them one, so the viewer has
+            ; a canvas to fit and the scene graph a root.
+            def page (new FigNode())
+            page.id = "paste:0"
+            page.typeName = "CANVAS"
+            page.name = "Pasted"
+            FigModel.sortChildren(orphans)
+            def oi:int 0
+            while (oi < (array_length orphans)) {
+                def orphan:FigNode (itemAt orphans oi)
+                push page.children orphan
+                oi = (oi + 1)
+            }
+            push doc.nodes page
+            push doc.pages page
         }
         doc.treeMs = ((wall_clock_ms) - t0)
     }

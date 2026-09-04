@@ -15,14 +15,26 @@ class FigParser {
     Constructor () {
     }
 
+    ; A .fig / .deck is a ZIP around canvas.fig. What Figma puts on the
+    ; clipboard is canvas.fig's own bytes with no ZIP around them, so the
+    ; prelude is checked first and either shape lands in the same FigDoc.
     fn parseBytes:FigDoc (bytes:buffer name:string) {
         def doc (new FigDoc())
         def tAll:double (wall_clock_ms)
+        if ((buffer_length bytes) >= 16) {
+            if (FigCanvas.startsFig((FigCanvas.asciiAt(bytes 0 8)))) {
+                doc.pasted = true
+                doc.fileName = name
+                this.parseCanvas(bytes doc)
+                doc.totalMs = ((wall_clock_ms) - tAll)
+                return doc
+            }
+        }
         def t0:double (wall_clock_ms)
         def zip (new ZipReader())
         if ((zip.openBytes(bytes)) == false) {
             doc.ok = false
-            doc.err = "not a ZIP (.fig / .deck is a ZIP of canvas.fig)"
+            doc.err = "not a ZIP (.fig / .deck is a ZIP of canvas.fig) and not fig-kiwi bytes"
             return doc
         }
         doc.zipMs = ((wall_clock_ms) - t0)
@@ -51,11 +63,25 @@ class FigParser {
         }
         def cEntry:ZipEntry (unwrap canvas)
         def cbytes:buffer (zip.extract(cEntry))
+        if ((this.parseCanvas(cbytes doc)) == false) {
+            return doc
+        }
+        this.readSidecars(zip doc)
+        if ((strlen doc.fileName) == 0) {
+            doc.fileName = name
+        }
+        doc.totalMs = ((wall_clock_ms) - tAll)
+        return doc
+    }
+
+    ; fig-kiwi bytes → schema → message → node tree, into `doc`.
+    fn parseCanvas:boolean (cbytes:buffer doc:FigDoc) {
+        doc.canvasBytes = cbytes
         def fig (new FigCanvas())
         if ((fig.parse(cbytes)) == false) {
             doc.ok = false
             doc.err = fig.err
-            return doc
+            return false
         }
         doc.prelude = fig.prelude
         doc.version = fig.version
@@ -67,7 +93,7 @@ class FigParser {
         if ((schema.decode(fig.schemaRaw)) == false) {
             doc.ok = false
             doc.err = ("schema: " + schema.err)
-            return doc
+            return false
         }
         doc.schemaMs = ((wall_clock_ms) - t1)
         doc.schemaCount = (schema.defCount())
@@ -91,16 +117,11 @@ class FigParser {
         if (dec.ok == false) {
             doc.ok = false
             doc.err = ("message: " + dec.err)
-            return doc
+            return false
         }
         doc.root = msg
         FigModel.buildTree(doc msg)
-        this.readSidecars(zip doc)
-        if ((strlen doc.fileName) == 0) {
-            doc.fileName = name
-        }
-        doc.totalMs = ((wall_clock_ms) - tAll)
-        return doc
+        return true
     }
 
     fn readSidecars:void (zip:ZipReader doc:FigDoc) {
