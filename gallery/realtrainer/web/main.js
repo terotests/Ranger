@@ -67,26 +67,22 @@ window.__app = app;
 // a scroll, mostly. The loop below draws once for it, however many events
 // produced it.
 let dirty = true;
-// When the page last moved under a wheel, a finger or a fling. A wheel has
+// When the page last moved under a wheel, a finger or a glide. A wheel has
 // no gesture to be in the middle of, so this is what tells the loop the page
 // is still going and the accessibility tree can wait.
 let scrolledAt = 0;
 const STILL_SCROLLING_MS = 200;
-// The page's own speed, in pixels per millisecond, after the finger has gone.
-let fling = 0;
-// Below this a lift is a stop, not a throw: about a third of a pixel a frame.
-const FLING_MIN = 0.05;
-// What is left of the speed after a millisecond. 0.9975 is a glide of about a
-// second and a half, which is roughly what a phone does; higher slides
-// further, lower stops sooner.
-const FLING_DECAY = 0.9975;
+// The momentum lives in the app — `EVGFling`, reached through scrollDrag /
+// scrollRelease / scrollHalt — so this page and the iOS one throw a document
+// exactly the same distance, and neither has its own copy of the physics.
+// `app.tick` advances the glide, so there is nothing to do here per frame.
 
 // The wheel, and nothing else about scrolling: how far the document may move
 // is the layout's answer, because it is the half that measured the content.
 stage.addEventListener(
   "wheel",
   (e) => {
-    fling = 0;
+    app.scrollHalt();
     if (app.scrollDocument(e.deltaY)) {
       dirty = true;
       scrolledAt = performance.now();
@@ -284,15 +280,17 @@ function syncTextSession() {
 // and a drag that scrolled is not a press when it lifts. Six pixels is the
 // slack a tap gets before it becomes a drag.
 //
-// …and it keeps a VELOCITY, because a finger that leaves the glass moving is
-// still scrolling. See `coast` in the frame loop.
+// …and it hands the app the TIME as well as the distance, because a finger
+// that leaves the glass moving is still scrolling and the speed is what says
+// how far. The physics is `EVGFling`, in the app, so this page and the iOS
+// one throw a document the same distance.
 let drag = null;
 canvas.addEventListener("pointerdown", (ev) => {
   const [x, y] = at(ev);
   // Putting a finger down stops the page where it is, the way it does on a
-  // phone: a fling is caught, not ridden out.
-  fling = 0;
-  drag = { y, moved: false, at: ev.timeStamp || performance.now(), v: 0 };
+  // phone: a glide is caught, not ridden out.
+  app.scrollHalt();
+  drag = { y, moved: false, at: ev.timeStamp || performance.now() };
   canvas.setPointerCapture(ev.pointerId);
   app.setPressed(app.hitId(x, y));
   paint();
@@ -300,12 +298,11 @@ canvas.addEventListener("pointerdown", (ev) => {
 canvas.addEventListener("pointerup", (ev) => {
   const [x, y] = at(ev);
   const scrolled = drag?.moved;
-  const v = drag?.v ?? 0;
   drag = null;
   if (scrolled) {
-    // Let go while still moving and the page carries on — FLING_MIN is the
-    // speed below which a lift is a stop rather than a throw.
-    if (Math.abs(v) > FLING_MIN) fling = v;
+    // Let go while still moving and the page carries on. The app decides
+    // whether that was a throw or a stop, from the speed it tracked.
+    app.scrollRelease();
     app.setPressed("");
     dirty = true;
     return;
@@ -314,6 +311,7 @@ canvas.addEventListener("pointerup", (ev) => {
 });
 canvas.addEventListener("pointercancel", () => {
   drag = null;
+  app.scrollHalt();
   app.setPressed("");
   paint();
 });
@@ -324,17 +322,15 @@ canvas.addEventListener("pointermove", (ev) => {
     if (drag.moved || Math.abs(dy) > 6) {
       const now = ev.timeStamp || performance.now();
       const dt = now - drag.at;
-      // Smoothed, because one sample of a finger is mostly noise and the
-      // last sample before a lift is often a near-stationary one.
-      if (dt > 0) drag.v = drag.v * 0.6 + (dy / dt) * 0.4;
       drag.at = now;
       drag.moved = true;
       drag.y = y;
       // NOT painted from here. The frame loop draws once per frame however
       // many moves the browser delivers — a finger reports faster than the
       // screen refreshes, and painting per event is painting frames nobody
-      // ever sees.
-      if (app.scrollDocument(dy)) {
+      // ever sees. The app is told how long the move took as well as how far,
+      // because that is what decides where a lift throws it.
+      if (app.scrollDrag(dy, dt)) {
         dirty = true;
         scrolledAt = now;
       }
@@ -388,27 +384,19 @@ let hovered = "";
 let last = performance.now();
 let frames = 0;
 let fpsAt = last;
-// Carry the fling forward by one frame. Returns whether anything moved, so
-// the loop knows to draw.
-function coast(dt) {
-  if (fling === 0) return false;
-  const moved = app.scrollDocument(fling * dt);
-  fling = fling * Math.pow(FLING_DECAY, dt);
-  // Hitting the top or the bottom ends it — there is nowhere left to go, and
-  // a fling that keeps ticking against the end is a frame spent on nothing.
-  if (moved === false || Math.abs(fling) < FLING_MIN) fling = 0;
-  return moved;
-}
-
 function step(now) {
   const dt = now - last;
   last = now;
-  const coasted = coast(dt);
+  // `tick` carries the glide forward as well as the clock, and says whether
+  // anything moved.
+  const gliding = app.scrollVelocity() !== 0;
   const ticked = app.tick(dt);
-  if (coasted) scrolledAt = now;
+  if (gliding) scrolledAt = now;
   const moving =
-    drag !== null || fling !== 0 || now - scrolledAt < STILL_SCROLLING_MS;
-  if (ticked || coasted || dirty) {
+    drag !== null ||
+    app.scrollVelocity() !== 0 ||
+    now - scrolledAt < STILL_SCROLLING_MS;
+  if (ticked || dirty) {
     dirty = false;
     paint();
   }
