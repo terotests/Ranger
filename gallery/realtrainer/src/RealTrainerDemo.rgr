@@ -568,6 +568,7 @@ class RealTrainerDemo {
     ; — `rebuild`, `tick`, the page size, the pointer state — so the default is
     ; always the full layout and the shortcut has to be asked for.
     def scrollFrame:boolean false
+    def cullOffscreen:boolean true
     def transitions:EVGTransition (new EVGTransition())
 
     ; --- the library's controls ----------------------------------------------
@@ -6595,11 +6596,21 @@ class RealTrainerDemo {
     ; it asks for the JSON below; a host that shares a process with this demo --
     ; the Apple port paints from Swift -- should not serialise a display list
     ; only to parse it back. It is the same list either way.
+    ; Whether the display list leaves out what the scroll viewport cannot
+    ; reach — see `EVGDisplayList`'s note on culling. On by default and here
+    ; only so the two lists can be compared: `web/scroll-check.mjs` builds the
+    ; frame both ways and asserts that the text a reader can see is the same
+    ; text in the same order.
+    fn setCulling:void (on:boolean) {
+        cullOffscreen = on
+    }
+
     fn display:EVGDisplayList () {
         def lay:EVGLayout (this.laidOut())
         def r:EVGElement (unwrap root)
         def dl (new EVGDisplayList())
         dl.setTextEngine((lay.getTextEngine()))
+        dl.setCulling(cullOffscreen)
         dl.build(r)
         this.emitCharts(dl r)
         return dl

@@ -63,12 +63,27 @@ app.setPointerCoarse(!!(coarseQuery && coarseQuery.matches));
 // last frame's list rather than guessing at pixels.
 window.__app = app;
 
+// Set by anything that changed what is on the screen without drawing it —
+// a scroll, mostly. The loop below draws once for it, however many events
+// produced it.
+let dirty = true;
+// The page's own speed, in pixels per millisecond, after the finger has gone.
+let fling = 0;
+// Below this a lift is a stop, not a throw: about a third of a pixel a frame.
+const FLING_MIN = 0.05;
+// What is left of the speed after a millisecond. 0.9975 is a glide of about a
+// second and a half, which is roughly what a phone does; higher slides
+// further, lower stops sooner.
+const FLING_DECAY = 0.9975;
+
 // The wheel, and nothing else about scrolling: how far the document may move
 // is the layout's answer, because it is the half that measured the content.
 stage.addEventListener(
   "wheel",
   (e) => {
+    fling = 0;
     if (app.scrollDocument(e.deltaY)) {
+      dirty = true;
       e.preventDefault();
     }
   },
@@ -131,9 +146,30 @@ const mirror = createA11yMirror(stage, {
       app.rebuild();
     }
     syncTextSession();
-    paint();
+    paintAll();
   },
 });
+
+// --- what a frame costs, and what it therefore does ---------------------------
+//
+// Measured on a diary of forty workouts, per frame, at 390x844:
+//
+//   app.scrollDocument            0.33 ms
+//   app.display                  +1.78 ms   build the display list
+//   displayListJson + JSON.parse +4.0  ms   serialise it and read it back
+//   a11yJson + parse            +15.6  ms   THE ACCESSIBILITY MIRROR
+//
+// The mirror was rebuilt on EVERY frame, scrolling or not, and it is five
+// times the cost of everything else together. It does not need to be: its
+// tree changes when the app's tree changes — a press, an edit, a route — and
+// during a fling nothing in it does but the rectangles, which a reader is not
+// consulting mid-swipe anyway. So it is rebuilt when the app has settled and
+// at most a few times a second, and immediately whenever something asks for
+// it by name.
+//
+// `paint` is therefore the DRAWING, and nothing else.
+const MIRROR_MIN_GAP_MS = 250;
+let mirrorDue = 0;
 
 function paint() {
   if (!gl) return;
@@ -143,12 +179,31 @@ function paint() {
     window.__lastList = listJson;
     const doc = { width: W, height: H, list: JSON.parse(listJson) };
     window.__lastStats = renderDisplayList(gl, doc, { dpr });
-    generation += 1;
-    mirror.update(JSON.parse(app.a11yJson(generation, focus)));
     sceneEl.textContent = app.sceneName();
   } catch (e) {
     errEl.textContent = String((e && e.stack) || e);
   }
+}
+
+// The accessibility tree. `now` is the frame's clock; pass nothing to mean
+// "this one matters, do it" — a press, a focus, an edit.
+function syncMirror(now) {
+  if (!gl) return;
+  if (now !== undefined && now < mirrorDue) return;
+  mirrorDue = (now === undefined ? performance.now() : now) + MIRROR_MIN_GAP_MS;
+  try {
+    generation += 1;
+    mirror.update(JSON.parse(app.a11yJson(generation, focus)));
+  } catch (e) {
+    errEl.textContent = String((e && e.stack) || e);
+  }
+}
+
+// Draw now AND rebuild the mirror: what every path that changes the app's
+// state wants, as `paint` used to mean.
+function paintAll() {
+  paint();
+  syncMirror();
 }
 
 function at(ev) {
@@ -159,7 +214,7 @@ function at(ev) {
 function press(x, y) {
   const id = app.hitId(x, y);
   app.setPressed("");
-  if (app.press(id)) paint();
+  if (app.press(id)) paintAll();
   syncTextSession();
 }
 
@@ -175,7 +230,7 @@ const textInput = createTextInputBridge({
     const tid = textInput.activeTid();
     if (!tid) return;
     if (!app.applyEdit(tid, value, selStart, selEnd)) return;
-    paint();
+    paintAll();
     const after = JSON.parse(app.fieldStateJson(tid));
     if (after && after.value !== value) textInput.sync(after);
   },
@@ -187,13 +242,13 @@ const textInput = createTextInputBridge({
       textInput.release();
       app.setFocus("");
       app.rebuild();
-      paint();
+      paintAll();
       return false;
     }
     if (k.key !== "Escape" && k.key !== "Enter") return false;
     const took = app.keyWith(k.key, k.shiftKey, k.ctrlKey || k.metaKey);
     syncTextSession();
-    if (took) paint();
+    if (took) paintAll();
     return took;
   },
 });
@@ -222,10 +277,16 @@ function syncTextSession() {
 // A finger has no wheel: a drag on the canvas scrolls what the wheel would,
 // and a drag that scrolled is not a press when it lifts. Six pixels is the
 // slack a tap gets before it becomes a drag.
+//
+// …and it keeps a VELOCITY, because a finger that leaves the glass moving is
+// still scrolling. See `coast` in the frame loop.
 let drag = null;
 canvas.addEventListener("pointerdown", (ev) => {
   const [x, y] = at(ev);
-  drag = { y, moved: false };
+  // Putting a finger down stops the page where it is, the way it does on a
+  // phone: a fling is caught, not ridden out.
+  fling = 0;
+  drag = { y, moved: false, at: ev.timeStamp || performance.now(), v: 0 };
   canvas.setPointerCapture(ev.pointerId);
   app.setPressed(app.hitId(x, y));
   paint();
@@ -233,10 +294,14 @@ canvas.addEventListener("pointerdown", (ev) => {
 canvas.addEventListener("pointerup", (ev) => {
   const [x, y] = at(ev);
   const scrolled = drag?.moved;
+  const v = drag?.v ?? 0;
   drag = null;
   if (scrolled) {
+    // Let go while still moving and the page carries on — FLING_MIN is the
+    // speed below which a lift is a stop rather than a throw.
+    if (Math.abs(v) > FLING_MIN) fling = v;
     app.setPressed("");
-    paint();
+    dirty = true;
     return;
   }
   press(x, y);
@@ -251,9 +316,19 @@ canvas.addEventListener("pointermove", (ev) => {
   if (drag) {
     const dy = drag.y - y;
     if (drag.moved || Math.abs(dy) > 6) {
+      const now = ev.timeStamp || performance.now();
+      const dt = now - drag.at;
+      // Smoothed, because one sample of a finger is mostly noise and the
+      // last sample before a lift is often a near-stationary one.
+      if (dt > 0) drag.v = drag.v * 0.6 + (dy / dt) * 0.4;
+      drag.at = now;
       drag.moved = true;
       drag.y = y;
-      if (app.scrollDocument(dy)) paint();
+      // NOT painted from here. The frame loop draws once per frame however
+      // many moves the browser delivers — a finger reports faster than the
+      // screen refreshes, and painting per event is painting frames nobody
+      // ever sees.
+      if (app.scrollDocument(dy)) dirty = true;
     }
     return;
   }
@@ -283,7 +358,7 @@ if (fit) {
     app.setPointerCoarse(coarse);
     app.setPageSize(w, h);
     sizeCanvas();
-    paint();
+    paintAll();
   };
   new ResizeObserver(refit).observe(stage);
   window.addEventListener("resize", refit);
@@ -304,12 +379,33 @@ let hovered = "";
 let last = performance.now();
 let frames = 0;
 let fpsAt = last;
+// Carry the fling forward by one frame. Returns whether anything moved, so
+// the loop knows to draw.
+function coast(dt) {
+  if (fling === 0) return false;
+  const moved = app.scrollDocument(fling * dt);
+  fling = fling * Math.pow(FLING_DECAY, dt);
+  // Hitting the top or the bottom ends it — there is nowhere left to go, and
+  // a fling that keeps ticking against the end is a frame spent on nothing.
+  if (moved === false || Math.abs(fling) < FLING_MIN) fling = 0;
+  return moved;
+}
 
 function step(now) {
   const dt = now - last;
   last = now;
-  app.tick(dt);
-  paint();
+  const coasted = coast(dt);
+  const ticked = app.tick(dt);
+  const moving = drag !== null || fling !== 0;
+  if (ticked || coasted || dirty) {
+    dirty = false;
+    paint();
+  }
+  // The accessibility tree, when the page is not being thrown around. Its
+  // rectangles follow the scroll, so there is no point rebuilding them
+  // mid-fling — and at 15ms a rebuild it is the difference between a frame
+  // that fits in the budget and one that does not.
+  if (moving === false) syncMirror(now);
   frames += 1;
   if (now - fpsAt >= 500) {
     fpsEl.textContent = Math.round((frames * 1000) / (now - fpsAt)) + " fps";
@@ -322,6 +418,6 @@ function step(now) {
 // The first frame waits for the faces the list names, so the wordmark is not
 // measured in one font and drawn in another.
 document.fonts.ready.then(() => {
-  paint();
+  paintAll();
   requestAnimationFrame(step);
 });

@@ -154,7 +154,71 @@ class EVGLayout {
         clear overlayErrors
         this.placeOverlaysIn(root)
 
+        ; And where each subtree DRAWS, which is not where its box is: see
+        ; `EVGElement.paintTop`. Last, because it is a union over final
+        ; positions and the overlay pass above is the last thing that moves
+        ; one.
+        this.measurePaintBounds(root)
+
         this.log("EVGLayout: Layout complete")
+    }
+
+    ; The union of an element's own box and every box beneath it, bottom-up.
+    ;
+    ; This is what `EVGDisplayList` culls against, and the reason it can cull
+    ; a subtree WITHOUT DESCENDING INTO IT — which is the whole saving. An
+    ; element's own rectangle would not do: a zero-height wrapper sits at the
+    ; top of the document while its rows are ten thousand pixels below it, and
+    ; culling on the wrapper would take the rows with it.
+    fn measurePaintBounds:void (el:EVGElement) {
+        ; A degenerate box draws nothing of its own — a wrapper with no size
+        ; is a place in the tree, not a place on the page — so it does not
+        ; drag the union back to wherever it happens to sit.
+        def has:boolean ((el.calculatedWidth > 0.0) && (el.calculatedHeight > 0.0))
+        def minX:double el.calculatedX
+        def minY:double el.calculatedY
+        def maxX:double (el.calculatedX + el.calculatedWidth)
+        def maxY:double (el.calculatedY + el.calculatedHeight)
+        def started:boolean has
+        def unbounded:boolean (el.hasTransform())
+        def effect:boolean ((strlen el.surfaceEffect) > 0)
+
+        def i:int 0
+        while (i < (el.getChildCount())) {
+            def kid:EVGElement (el.getChild(i))
+            this.measurePaintBounds(kid)
+            ; `display: none` paints nothing and nothing under it, so its
+            ; rectangle — usually a stale one, or the origin — is not part of
+            ; where this subtree draws.
+            if ((kid.isHidden()) == false) {
+                if kid.paintUnbounded {
+                    unbounded = true
+                }
+                if kid.paintHasEffect {
+                    effect = true
+                }
+                if (started == false) {
+                    minX = kid.paintLeft
+                    minY = kid.paintTop
+                    maxX = kid.paintRight
+                    maxY = kid.paintBottom
+                    started = true
+                } {
+                    if (kid.paintLeft < minX) { minX = kid.paintLeft }
+                    if (kid.paintTop < minY) { minY = kid.paintTop }
+                    if (kid.paintRight > maxX) { maxX = kid.paintRight }
+                    if (kid.paintBottom > maxY) { maxY = kid.paintBottom }
+                }
+            }
+            i = (i + 1)
+        }
+
+        el.paintLeft = minX
+        el.paintTop = minY
+        el.paintRight = maxX
+        el.paintBottom = maxY
+        el.paintUnbounded = unbounded
+        el.paintHasEffect = effect
     }
     
     ; Whether the element about to be laid out sits along a ROW.
@@ -1822,6 +1886,13 @@ class EVGLayout {
     fn translateSubtree:void (element:EVGElement dx:double dy:double) {
         element.calculatedX = (element.calculatedX + dx)
         element.calculatedY = (element.calculatedY + dy)
+        ; The paint bounds move with the boxes they are the union of. Missing
+        ; this would leave `scrollOnly` culling against where the content used
+        ; to be, which is a row that scrolls into view and stays blank.
+        element.paintLeft = (element.paintLeft + dx)
+        element.paintRight = (element.paintRight + dx)
+        element.paintTop = (element.paintTop + dy)
+        element.paintBottom = (element.paintBottom + dy)
         def count:int (element.getChildCount())
         def i:int 0
         while (i < count) {
