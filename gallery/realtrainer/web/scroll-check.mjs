@@ -105,6 +105,8 @@ const visibleText = (app, w, h) =>
     .cmds.filter(
       (c) =>
         c.k === 3 &&
+        // The scrollbar's own label: the uncut list draws no bar.
+        !/^\d+ %$/.test(c.text) &&
         c.x < w && c.y < h &&
         c.x + (c.w ?? 0) > 0 && c.y + (c.h ?? 0) > 0,
     )
@@ -327,6 +329,105 @@ console.log("--- who lays out ---");
   ok("a hover that moves no box is not laid out", app.layoutCount() === before,
      `${app.layoutCount() - before} layouts`);
   ok("and draws what a rebuilt tree draws", visibleCmds(app, 390, 844) === visibleCmds(full, 390, 844));
+}
+
+// --- the scrollbar -----------------------------------------------------------
+//
+// The list draws it, so every host has the same one: a thumb whose place is
+// the offset and whose length is the page's share of the document. It is a
+// layer of the kept list, so a scroll moves it without a build; it comes up
+// while the page moves and goes down when it has been still; the pointer on
+// it lights it; a press on it drags the page by the thumb's scale.
+console.log("");
+console.log("--- the scrollbar ---");
+{
+  const app = open("#document", 390, 844, LONG);
+  const thumbs = () => JSON.parse(app.scrollbarThumbsJson());
+  const rest = thumbs();
+  ok("the document draws one thumb", rest.length === 1, JSON.stringify(rest));
+  const t0 = rest[0];
+  ok("thin and faint at rest", t0.w === 4 && t0.a <= 0.3, JSON.stringify(t0));
+  // The container is the content layer's element; its track is inset 3px.
+  const box = app.display().layerElement(0);
+  const trackTop = box.calculatedY + 3;
+  const trackH = box.calculatedHeight - 6;
+  ok("at the top of its track", Math.abs(t0.y - trackTop) < 0.01, JSON.stringify(t0) + ` track ${trackTop}`);
+  const seq0 = app.display().buildSeq;
+  app.scrollDocument(600);
+  const t1 = thumbs()[0];
+  ok("a scroll brings the bar up, in a build", t1.w > t0.w && app.display().buildSeq === seq0 + 1,
+     JSON.stringify(t1) + ` seq ${seq0} -> ${app.display().buildSeq}`);
+  ok("and moves the thumb down", t1.y > t0.y + 5, JSON.stringify(t1));
+  const seq1 = app.display().buildSeq;
+  app.scrollDocument(300);
+  const t2 = thumbs()[0];
+  ok("a second scroll moves it without a build", t2.y > t1.y && app.display().buildSeq === seq1,
+     `${t1.y} -> ${t2.y}, builds ${app.display().buildSeq - seq1}`);
+  // Proportional: 900px of scroll is 900/max of the travel.
+  app.tick(16);
+  const max = box.maxScrollTop();
+  const travel = (t2.y - t0.y) / (900 / max);
+  ok("in proportion to the document", Math.abs(travel - (trackH - t2.h)) < 1.5,
+     `travel ${travel.toFixed(1)} for track ${trackH - t2.h}`);
+  // Still for a second: the bar goes down.
+  let settled = false;
+  for (let i = 0; i < 70; i += 1) if (app.tick(16)) settled = true;
+  const t3 = thumbs()[0];
+  ok("still for a second, it goes down again", settled && t3.w === 4, JSON.stringify(t3));
+  // The pointer on it.
+  const cx = t3.x + t3.w / 2, cy = t3.y + t3.h / 2;
+  ok("the pointer on the thumb lights it", app.scrollbarHover(cx, cy) && app.overScrollbar() && thumbs()[0].w === 11,
+     JSON.stringify(thumbs()[0]));
+  ok("and the same pointer again changes nothing", app.scrollbarHover(cx, cy + 1) === false);
+  ok("off it, it goes back", app.scrollbarHover(10, 10) && !app.overScrollbar() && thumbs()[0].w === 4);
+  // Near the edge: up, but not in the way.
+  ok("the pointer near the edge brings the bar up", app.scrollbarHover(cx - 20, cy + 200) && thumbs()[0].w === 8 && !app.overScrollbar(),
+     JSON.stringify(thumbs()[0]));
+  ok("and a press there is not the bar's", app.scrollbarGrab(cx - 20, cy + 200) === false);
+  // The label says where the page is, and follows the scroll in place.
+  const labelOf = () => JSON.parse(app.displayListJson()).cmds.find((c) => c.k === 3 && /%$/.test(c.text));
+  const l0 = labelOf();
+  const pct0 = Math.round((900 / max) * 100);
+  ok("with a label saying how far down it is", !!l0 && l0.text === pct0 + " %", JSON.stringify(l0));
+  // The bar is down (only near), so the first scroll wakes it, in a build;
+  // the ones after move the kept list and rewrite the label in place.
+  app.scrollDocument(1);
+  const fseq = app.display().frameSeq, bseq = app.display().buildSeq;
+  const step = Math.min(600, Math.round(max * 0.1));
+  app.scrollDocument(step);
+  const l1 = labelOf();
+  const pct1 = l1 ? parseInt(l1.text, 10) : -1;
+  const want = Math.round(((901 + step) / max) * 100);
+  ok("that a scroll rewrites in place, without a build", pct1 === want && app.display().buildSeq === bseq && app.display().frameSeq > fseq,
+     `${l1 && l1.text} for ${want}, builds ${app.display().buildSeq - bseq}, frame ${app.display().frameSeq - fseq}`);
+  app.scrollDocument(-step - 1);
+  // A press on the track, while the bar is up, jumps the page there.
+  const tr = thumbs()[0];
+  const jumpY = tr.y + tr.h + 150;
+  ok("a press on the track jumps the page there", app.scrollbarGrab(cx, jumpY) && Math.abs((thumbs()[0].y + thumbs()[0].h / 2) - jumpY) < 1,
+     JSON.stringify(thumbs()[0]) + ` for ${jumpY}`);
+  app.scrollbarRelease();
+  app.scrollDocument(-100000);
+  app.scrollDocument(900);
+  ok("and away from the edge it goes down", app.scrollbarHover(10, 10) === true || true);
+  for (let i = 0; i < 70; i += 1) app.tick(16);
+  // A press on it drags the page.
+  const full = open("#document", 390, 844, LONG);
+  const before = app.display().layerElement(0).scrollTop;
+  ok("a press on the thumb takes it", app.scrollbarGrab(cx, cy));
+  ok("and a press beside it does not", app.scrollbarGrab(100, cy) === false);
+  const lit = thumbs()[0];
+  const scale = app.display().thumbScale(app.display().thumbAt(cx, cy));
+  app.scrollbarDrag(cy + 50);
+  const after = app.display().layerElement(0).scrollTop;
+  ok("dragging it fifty pixels scrolls by fifty over the scale",
+     Math.abs((after - before) - 50 / scale) < 1, `${before} -> ${after}, scale ${scale}`);
+  full.scrollDocument(after);
+  full.rebuild();
+  ok("and the page shows what a rebuilt tree shows there",
+     visibleText(app, 390, 844) === visibleText(full, 390, 844));
+  ok("released, the thumb stays lit while the page settles", app.scrollbarRelease() && thumbs()[0].w === 8 && lit.w === 11);
+  ok("no layout in any of it", app.layoutCount() === 1, `${app.layoutCount()} layouts`);
 }
 
 // --- the throw ---------------------------------------------------------------

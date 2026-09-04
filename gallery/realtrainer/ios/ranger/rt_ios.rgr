@@ -52,6 +52,10 @@ class RtIos {
     ; frame's time, which is what `EVGFling.track` is written to expect.
     def nowMs:double 0.0
     def lastPanMs:double 0.0
+    ; A finger that landed on the scrollbar's thumb drags the thumb, not the
+    ; page, until it lifts. `barY` follows it in page units.
+    def barDrag:boolean false
+    def barY:double 0.0
 
     Constructor () {
     }
@@ -209,6 +213,10 @@ class RtIos {
         ; scroll does.
         def dt:double (nowMs - lastPanMs)
         lastPanMs = nowMs
+        if barDrag {
+            barY = (barY + dy)
+            return (app.scrollbarDrag(barY))
+        }
         return (app.scrollDrag((0.0 - dy) dt))
     }
 
@@ -252,6 +260,12 @@ class RtIos {
         ; everywhere else on the phone.
         app.scrollHalt()
         lastPanMs = nowMs
+        if (app.scrollbarGrab(lastPageX lastPageY)) {
+            barDrag = true
+            barY = lastPageY
+            pressedId = ""
+            return true
+        }
         def id:string (this.hitAt(x y))
         pressedId = id
         app.setPressed(id)
@@ -262,6 +276,11 @@ class RtIos {
     ; what that means -- and the pressed mark comes off either way. A field
     ; takes the focus, so the host knows to raise the keyboard.
     fn releasePress:boolean () {
+        if barDrag {
+            barDrag = false
+            app.scrollbarRelease()
+            return true
+        }
         ; The finger left. If it was moving, the page carries on — the app
         ; decides from the speed it tracked whether that was a throw or a
         ; stop, and `tick` does the rest.
@@ -290,6 +309,11 @@ class RtIos {
     }
 
     fn cancelPress:boolean () {
+        if barDrag {
+            barDrag = false
+            app.scrollbarRelease()
+            return true
+        }
         def threw:boolean (app.scrollRelease())
         if ((strlen pressedId) == 0) {
             return threw
@@ -303,9 +327,17 @@ class RtIos {
     ; mouse. Answers whether the hover actually changed, so a host does not
     ; repaint on every move.
     fn hoverAt:boolean (x:double y:double) {
+        def barChanged:boolean (app.scrollbarHover((this.toPageX(x)) (this.toPageY(y))))
+        if (app.overScrollbar()) {
+            if ((strlen (app.hovered)) > 0) {
+                app.setHover("")
+                return true
+            }
+            return barChanged
+        }
         def id:string (this.hitAt(x y))
         if (id == (app.hovered)) {
-            return false
+            return barChanged
         }
         app.setHover(id)
         return true

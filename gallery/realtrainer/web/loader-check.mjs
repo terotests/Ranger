@@ -370,7 +370,9 @@ ok("and its exercises are rows of their own",
 // The document scrolls. How far is the LAYOUT's answer — it measured the
 // content — so the app asks for a distance and is told what it got.
 const lastText = () => {
-  const t = listOf().filter((c) => c.k === 3);
+  // The last text of the DOCUMENT: the scrollbar's own label ("34 %") is
+  // drawn after it and is not a row.
+  const t = listOf().filter((c) => c.k === 3 && !/^\d+ %$/.test(c.text));
   return t[t.length - 1];
 };
 const bottomBefore = lastText().y;

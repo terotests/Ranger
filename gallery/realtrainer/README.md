@@ -19,7 +19,7 @@ npm run rt:web      # build, serve, print the URL
 # the drawn frame readable for a pixel check (a page pays a copy per frame
 # for it, so it is off unless asked), ?gl=noaa turns multisampling off
 npm run rt:check    # the app driven with a made-up clock, no browser  (CI)
-npm run rt:scroll   # the scroll shortcut, the culling, who lays out, and how far a swipe throws
+npm run rt:scroll   # the scroll shortcut, the culling, who lays out, the scrollbar, and how far a swipe throws
 npm run rt:bench 40 # what a scroll frame costs, stage by stage, on a long diary
 npm run rt:frame    # the same app in Chromium, checked at the pixels
 ```
