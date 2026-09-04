@@ -31,6 +31,9 @@ class PathCommand {
 ; out solid — the hole and the outline were welded into one ring.
 class PathRing {
     def pts:[double]
+    ; Z ended this ring. A fill closes every ring by itself; a stroke draws
+    ; the closing edge only when told the ring has one.
+    def closed:boolean false
 
     Constructor () {
         def p:[double]
@@ -1029,8 +1032,10 @@ class SVGPathParser {
 
             if (cmd.type == "Z") {
                 ; The fill closes the ring itself, so Z adds no point — it ends
-                ; the ring and returns the pen to the subpath start.
+                ; the ring and returns the pen to the subpath start. The ring
+                ; remembers it was closed, for the stroke.
                 if started {
+                    current.closed = true
                     if ((current.pointCount()) >= 2) {
                         push rings current
                     }

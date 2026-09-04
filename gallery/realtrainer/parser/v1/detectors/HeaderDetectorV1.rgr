@@ -1,0 +1,27 @@
+Import "TokenDetectorV1.rgr"
+
+class HeaderDetectorV1 {
+    Extends(TokenDetectorV1)
+
+    fn detect:LineKindValue (line:string) {
+        def out (new LineKindValue)
+        out.raw = line
+        if (this.startsWith(line "## ")) {
+            out.tag = "header"
+            return out
+        }
+        if (this.startsWith(line "[")) {
+            def marker (this.findToken(line "] ##"))
+            def markerTight (this.findToken(line "]##"))
+            if (marker >= 0) {
+                out.tag = "header"
+                return out
+            }
+            if (markerTight >= 0) {
+                out.tag = "header"
+                return out
+            }
+        }
+        return out
+    }
+}

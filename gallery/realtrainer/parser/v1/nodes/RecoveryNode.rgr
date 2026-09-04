@@ -1,0 +1,45 @@
+Import "../V1Json.rgr"
+Import "AstNode.rgr"
+
+class RecoveryNode {
+    Extends(AstNode)
+
+    def hasRecognized:boolean false
+    def hasRecoveryValue:boolean false
+    def recoveryValue:int 0
+    def hasRecoveryMax:boolean false
+    def recoveryMax:int 0
+    def recoveryUnit:string "sec"
+    def hasNote:boolean false
+    def note:string ""
+
+    Constructor () {
+        type = "recovery"
+    }
+
+    fn toJSONString@(override):string () {
+        def fields:[string]
+        CompactV1Json.addStringField(fields "type" type)
+
+        def recFields:[string]
+        if (hasRecoveryValue) {
+            CompactV1Json.addIntField(recFields "value" recoveryValue)
+        } {
+            CompactV1Json.addRawField(recFields "value" "null")
+        }
+        if (hasRecoveryMax) {
+            CompactV1Json.addIntField(recFields "max" recoveryMax)
+        } {
+            CompactV1Json.addRawField(recFields "max" "null")
+        }
+        CompactV1Json.addStringField(recFields "unit" recoveryUnit)
+        CompactV1Json.addRawField(fields "recovery" (CompactV1Json.jsonObject(recFields)))
+
+        if (hasNote) {
+            CompactV1Json.addStringField(fields "note" note)
+        } {
+            CompactV1Json.addRawField(fields "note" "null")
+        }
+        return (CompactV1Json.jsonObject(fields))
+    }
+}

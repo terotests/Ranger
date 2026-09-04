@@ -1,0 +1,198 @@
+diff --git a/parser-ranger-v1/src/compact_parser_v1.rgr b/parser-ranger-v1/src/compact_parser_v1.rgr
+index 7e64fe2..cc47e95 100644
+--- a/parser-ranger-v1/src/compact_parser_v1.rgr
++++ b/parser-ranger-v1/src/compact_parser_v1.rgr
+@@ -27,6 +27,14 @@ class CompactV1JsonExtra {
+         return ("[" + (join items ",") + "]")
+     }
+ 
++    static fn measuredArray:string (values:[MeasuredDurationNode]) {
++        def items:[string]
++        for values item:MeasuredDurationNode i {
++            push items (item.toJSONString())
++        }
++        return ("[" + (join items ",") + "]")
++    }
++
+     static fn workoutArray:string (values:[WorkoutNode]) {
+         def items:[string]
+         for values item:WorkoutNode i {
+@@ -543,6 +551,38 @@ class SectionNode {
+     }
+ }
+ 
++; One measured set: `45s`, or `30s+30s` when the two sides were timed apart.
++;
++; This was a JSON STRING built during the parse and pushed onto a `[string]`,
++; which meant the only way to read a measured set back was to parse the
++; parser's own output again. The JSON is unchanged — same fields, same order,
++; same nulls — but the numbers are now readable as numbers.
++;
++; A `unit` of "" marks a token that did not parse. Nothing serialises such a
++; node: the caller drops it and fails the whole spec, exactly as it did when
++; the failure was an empty string.
++class MeasuredDurationNode {
++    def left:int 0
++    def hasRight:boolean false
++    def right:int 0
++    def unit:string ""
++
++    Constructor () {
++    }
++
++    fn toJSONString:string () {
++        def mf:[string]
++        CompactV1Json.addIntField(mf "left" left)
++        if (hasRight) {
++            CompactV1Json.addIntField(mf "right" right)
++        } {
++            CompactV1Json.addRawField(mf "right" "null")
++        }
++        CompactV1Json.addStringField(mf "unit" unit)
++        return (CompactV1Json.jsonObject(mf))
++    }
++}
++
+ class ExerciseNode {
+     Extends(AstNode)
+ 
+@@ -583,7 +623,7 @@ class ExerciseNode {
+     def hasSpecType:boolean false
+     def specType:string ""
+     def partJsonList:[string]
+-    def measuredDurationJsonList:[string]
++    def measuredDurations:[MeasuredDurationNode]
+     def hasIsBilateral:boolean false
+     def isBilateral:boolean false
+     def hasRecovery:boolean false
+@@ -684,8 +724,8 @@ class ExerciseNode {
+             CompactV1Json.addRawField(fields "parts" ("[" + (join partJsonList ",") + "]"))
+         }
+ 
+-        if ((array_length measuredDurationJsonList) > 0) {
+-            CompactV1Json.addRawField(fields "measuredDurations" ("[" + (join measuredDurationJsonList ",") + "]"))
++        if ((array_length measuredDurations) > 0) {
++            CompactV1Json.addRawField(fields "measuredDurations" (CompactV1JsonExtra.measuredArray(measuredDurations)))
+         }
+ 
+         if (hasIsBilateral) {
+@@ -2999,22 +3039,24 @@ class CompactV1Parser {
+         return n
+     }
+ 
+-    fn measuredDurationJson:string (left:int right:int hasRight:boolean unit:string) {
+-        def mf:[string]
+-        CompactV1Json.addIntField(mf "left" left)
+-        if (hasRight) {
+-            CompactV1Json.addIntField(mf "right" right)
+-        } {
+-            CompactV1Json.addRawField(mf "right" "null")
+-        }
+-        CompactV1Json.addStringField(mf "unit" unit)
+-        return (CompactV1Json.jsonObject(mf))
++    fn measuredDuration:MeasuredDurationNode (left:int right:int hasRight:boolean unit:string) {
++        def m (new MeasuredDurationNode)
++        m.left = left
++        m.hasRight = hasRight
++        m.right = right
++        m.unit = unit
++        return m
++    }
++
++    ; The token did not parse. `unit` is "" and no caller keeps it.
++    fn measuredDurationNone:MeasuredDurationNode () {
++        return (new MeasuredDurationNode)
+     }
+ 
+-    fn parseMeasuredDurationItemJson:string (tok:string) {
++    fn parseMeasuredDurationItem:MeasuredDurationNode (tok:string) {
+         def t (trim tok)
+         if ((strlen t) == 0) {
+-            return ""
++            return (this.measuredDurationNone())
+         }
+ 
+         def plusPos (this.findToken(t "+"))
+@@ -3037,7 +3079,7 @@ class CompactV1Parser {
+                 }
+             }
+             if (rVal < 0) {
+-                return ""
++                return (this.measuredDurationNone())
+             }
+             def lVal@(mutable):int -1
+             def lMinPos (this.findToken(leftTok "min"))
+@@ -3052,28 +3094,28 @@ class CompactV1Parser {
+                 }
+             }
+             if (lVal < 0) {
+-                return ""
++                return (this.measuredDurationNone())
+             }
+-            return (this.measuredDurationJson(lVal rVal true rUnit))
++            return (this.measuredDuration(lVal rVal true rUnit))
+         }
+ 
+         def minPos (this.findToken(t "min"))
+         if (minPos > 0) {
+             def v (this.parseStrictInt((substring t 0 minPos)))
+             if (v >= 0) {
+-                return (this.measuredDurationJson(v 0 false "min"))
++                return (this.measuredDuration(v 0 false "min"))
+             }
+-            return ""
++            return (this.measuredDurationNone())
+         }
+ 
+         def secPos (this.findToken(t "s"))
+         if (secPos > 0) {
+             def v2 (this.parseStrictInt((substring t 0 secPos)))
+             if (v2 >= 0) {
+-                return (this.measuredDurationJson(v2 0 false "s"))
++                return (this.measuredDuration(v2 0 false "s"))
+             }
+         }
+-        return ""
++        return (this.measuredDurationNone())
+     }
+ 
+     fn tryParseMeasuredSpec:boolean (n:ExerciseNode spec:string) {
+@@ -3155,11 +3197,11 @@ class CompactV1Parser {
+             }
+         }
+ 
+-        def firstJson (this.parseMeasuredDurationItemJson(firstTok))
+-        if ((strlen firstJson) == 0) {
++        def firstMeasured (this.parseMeasuredDurationItem(firstTok))
++        if ((strlen firstMeasured.unit) == 0) {
+             return false
+         }
+-        push n.measuredDurationJsonList firstJson
++        push n.measuredDurations firstMeasured
+         if ((this.findToken(firstTok "+")) > 0) {
+             n.hasIsBilateral = true
+             n.isBilateral = true
+@@ -3172,11 +3214,11 @@ class CompactV1Parser {
+ 
+         def ti@(mutable):int 1
+         while (ti < (array_length tokens)) {
+-            def itemJson (this.parseMeasuredDurationItemJson((itemAt tokens ti)))
+-            if ((strlen itemJson) == 0) {
++            def item (this.parseMeasuredDurationItem((itemAt tokens ti)))
++            if ((strlen item.unit) == 0) {
+                 return false
+             }
+-            push n.measuredDurationJsonList itemJson
++            push n.measuredDurations item
+             if ((this.findToken((itemAt tokens ti) "+")) > 0) {
+                 n.hasIsBilateral = true
+                 n.isBilateral = true
+@@ -3187,7 +3229,7 @@ class CompactV1Parser {
+         n.hasSpecType = true
+         n.specType = "measured"
+         n.hasSets = true
+-        n.sets = (array_length n.measuredDurationJsonList)
++        n.sets = (array_length n.measuredDurations)
+         n.hasUnit = true
+         n.unit = unit0
+         n.hasIsBilateral = true

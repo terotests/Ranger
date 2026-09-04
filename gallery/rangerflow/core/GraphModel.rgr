@@ -985,6 +985,11 @@ class FlowEdge {
     ; back, all on one face). "orthogonal" is the wider-cornered step.
     def edgeType:string "default"
     def label:string ""
+    ; Where the label sits relative to the middle of the route, in model
+    ; pixels. Zero is the middle, which is right until two labels want the same
+    ; middle; a caller that can see the whole drawing moves them apart.
+    def labelDX:double 0.0
+    def labelDY:double 0.0
     ; Text on the edge besides its label — a duration above the line, a
     ; condition below it. `offsetX` is how far along the path, `away` how far
     ; off it. See FlowAnnotation.

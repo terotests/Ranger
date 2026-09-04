@@ -1,0 +1,47 @@
+Import "../V1Json.rgr"
+Import "AstNode.rgr"
+
+class AttemptNode {
+    Extends(AstNode)
+
+    def hasRecognized:boolean false
+    def reps:int 0
+    def hasLoadValue:boolean false
+    def loadValueRaw:string ""
+    def loadUnit:string "kg"
+    def hasLoadPercent:boolean false
+    def loadPercent:int 0
+    def hasNote:boolean false
+    def note:string ""
+
+    Constructor () {
+        type = "attempt"
+    }
+
+    fn toJSONString@(override):string () {
+        def fields:[string]
+        CompactV1Json.addStringField(fields "type" type)
+        CompactV1Json.addIntField(fields "reps" reps)
+
+        def loadFields:[string]
+        if (hasLoadPercent) {
+            CompactV1Json.addIntField(loadFields "percent" loadPercent)
+            CompactV1Json.addStringField(loadFields "of" "1RM")
+        } {
+            if (hasLoadValue) {
+                CompactV1Json.addRawField(loadFields "value" loadValueRaw)
+                CompactV1Json.addStringField(loadFields "unit" loadUnit)
+                CompactV1Json.addIntField(loadFields "count" 1)
+                CompactV1Json.addRawField(loadFields "valueMax" loadValueRaw)
+            }
+        }
+        CompactV1Json.addRawField(fields "load" (CompactV1Json.jsonObject(loadFields)))
+
+        if (hasNote) {
+            CompactV1Json.addStringField(fields "note" note)
+        } {
+            CompactV1Json.addRawField(fields "note" "null")
+        }
+        return (CompactV1Json.jsonObject(fields))
+    }
+}

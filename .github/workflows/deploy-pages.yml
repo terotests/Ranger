@@ -31,6 +31,11 @@
 #                PowerPoint, charts, Word, Excel, diagrams, and the generated
 #                API pages). It is built HERE rather than into /docs/ because
 #                it quotes AGPL comments and the language documentation is MIT.
+#   /realtrainer/ -> the RealTrainer port: a phone app drawn by EVG's WebGL
+#                painter, measured screen by screen against the original. The
+#                page is the window — one tree, and the stylesheet's @media
+#                blocks fold the rail or the bottom bar at 768px — so it is
+#                the phone app on a phone and the desktop app on a desktop.
 #   /figma/   -> the Figma .fig / .deck reader: upload a file in the tab,
 #                parse it (ZIP → kiwi → node tree) and draw it with EVG.
 #                Timed against OpenFig on the same bytes when that library
@@ -72,6 +77,10 @@ on:
       - "docs/**"
       - "gallery/evg/**"
       - "gallery/vela/**"
+      # The RealTrainer page at /realtrainer/ is built from these, and from
+      # the controls in gallery/ui it is drawn with.
+      - "gallery/realtrainer/**"
+      - "gallery/ui/**"
       # These carry the deck editor, the API playground, and the Office
       # reference at /office/reference/ — so a change to a facade republishes
       # the docs without docs/ (the MIT language site) being touched.
@@ -192,6 +201,20 @@ jobs:
       # this commit actually does.
       - name: Build the EVG showcase
         run: node gallery/evg/showcase/build.mjs --out "$GITHUB_WORKSPACE/_site/evg"
+
+      # ---- RealTrainer at /realtrainer/ -----------------------------------
+      # The app compiled to JavaScript and bundled with the painter; the page
+      # loads one script. `rt:build` needs the compiler built above, and the
+      # bundler comes with the conformance host's dependencies.
+      - name: Install conformance-host dependencies (esbuild)
+        run: npm run ui:conformance:install
+      - name: Build RealTrainer
+        run: |
+          npm run rt:build --silent
+          node gallery/realtrainer/web/build.mjs --out "$GITHUB_WORKSPACE/_site/realtrainer"
+          test -s "$GITHUB_WORKSPACE/_site/realtrainer/index.html"
+          test -s "$GITHUB_WORKSPACE/_site/realtrainer/bundle.js"
+          grep -q "RealTrainerDemo" "$GITHUB_WORKSPACE/_site/realtrainer/bundle.js"
 
       # ---- .pptx API playground at /office/ -------------------------------
       # The published API and the slide editor in one page: the code writes a

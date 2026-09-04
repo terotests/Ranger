@@ -38,34 +38,33 @@ final class RealTrainerViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        // Contain, everywhere. Fill-width was tried for phones and measured
-        // wrong: on an 874x402 landscape phone EVERY content scene overflows by
-        // the same 276pt — it is not a property of one screen — and this app
-        // has no scroll container, no scrollbar and no cut-off row, so anything
-        // past the fold is content a reader has no way to learn about. In
-        // portrait it buys nothing at all: the width binds either way and the
-        // page is 305pt tall in an 852pt window.
-        //
-        // The page is a fixed 980x760 composition, and no scale both fills a
-        // 19.5:9 phone and keeps all of it on screen. Showing all of it is the
-        // half worth keeping. `useFillWidth` stays in the facade, checked and
-        // working, for a page that does scroll.
-        page.start(css: RealTrainerViewController.loadStylesheet())
+        // The page is the window: the demo is responsive, and lays itself out
+        // at the window's size less the safe area, again on every change. So
+        // there is no fit and no letterbox here — a phone gets the phone app
+        // and an iPad the desktop one, as the browser does at `?page=fit`.
+        page.start(
+            css: RealTrainerViewController.loadText("realtrainer", "css"),
+            compact: RealTrainerViewController.loadText("session", "compact"),
+            plan: RealTrainerViewController.loadText("planDialog.machine", "json"),
+            chat: RealTrainerViewController.loadText("chat.machine", "json"),
+            seed: RealTrainerViewController.loadText("seed", "json")
+        )
     }
 
     /// This app draws its own dark background edge to edge, so the status bar's
     /// text has to be the light one or the clock disappears into it.
     override var preferredStatusBarStyle: UIStatusBarStyle { .lightContent }
 
-    /// The demo's own stylesheet, out of the bundle. The build copies
-    /// `gallery/realtrainer/web/realtrainer.css` in as a resource; if it is
-    /// missing the page still lays out, unstyled, which is a much clearer
-    /// failure than a crash.
-    private static func loadStylesheet() -> String {
-        guard let url = Bundle.main.url(forResource: "realtrainer", withExtension: "css"),
+    /// A text out of the bundle. The build copies the stylesheet, the session's
+    /// COMPACT, the two state machines and the reference seed in as resources
+    /// — the same five texts the browser bundle embeds. A missing one comes
+    /// back empty: the page still opens, unstyled or unseeded, which is a much
+    /// clearer failure than a crash.
+    private static func loadText(_ name: String, _ ext: String) -> String {
+        guard let url = Bundle.main.url(forResource: name, withExtension: ext),
               let text = try? String(contentsOf: url, encoding: .utf8)
         else {
-            NSLog("realtrainer.css is not in the bundle — the page will be unstyled")
+            NSLog("%@.%@ is not in the bundle", name, ext)
             return ""
         }
         return text

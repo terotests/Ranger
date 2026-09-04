@@ -1,0 +1,42 @@
+Import "../V1Json.rgr"
+Import "AstNode.rgr"
+
+class CustomNode {
+    Extends(AstNode)
+
+    def name:string ""
+    def valueRaw:string "0"
+    def hasValueMax:boolean false
+    def valueMaxRaw:string "0"
+    def hasUnit:boolean false
+    def unit:string ""
+    def hasNote:boolean false
+    def note:string ""
+
+    Constructor () {
+        type = "custom"
+    }
+
+    fn toJSONString@(override):string () {
+        def fields:[string]
+        CompactV1Json.addStringField(fields "type" type)
+        CompactV1Json.addStringField(fields "name" name)
+        CompactV1Json.addRawField(fields "value" valueRaw)
+        if (hasValueMax) {
+            CompactV1Json.addRawField(fields "valueMax" valueMaxRaw)
+        } {
+            CompactV1Json.addRawField(fields "valueMax" "null")
+        }
+        if (hasUnit) {
+            CompactV1Json.addStringField(fields "unit" unit)
+        } {
+            CompactV1Json.addRawField(fields "unit" "null")
+        }
+        if (hasNote) {
+            CompactV1Json.addStringField(fields "note" note)
+        } {
+            CompactV1Json.addRawField(fields "note" "null")
+        }
+        return (CompactV1Json.jsonObject(fields))
+    }
+}

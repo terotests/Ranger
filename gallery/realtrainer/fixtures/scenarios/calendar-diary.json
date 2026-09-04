@@ -1,0 +1,47 @@
+{
+  "_": "The training calendar with a real diary in it — realtrainer-compact's sample.compact, seeded into cal-train. The week of 2026-02-09 has eight workouts on seven days; a day with one opens the workout, a day with two opens both, and the header's arrow closes the day.",
+  "id": "calendar-diary-week",
+  "area": "kalenteri",
+  "machine": "",
+  "reference": {
+    "route": "/calendar/cal-train?week=2026-02-09"
+  },
+  "setup": [
+    {
+      "page": "390x844"
+    },
+    {
+      "route": "/calendar/cal-train?week=2026-02-09"
+    }
+  ],
+  "steps": [
+    {
+      "tick": 500
+    },
+    {
+      "id": "rt-day-2026-02-09",
+      "role": "button",
+      "name": "9 Ma Kontrastivoima (Sali) & Kierto #voima #kontrasti #sali",
+      "why": "one workout: the original opens it directly"
+    },
+    {
+      "tick": 800
+    },
+    {
+      "id": "rt-day-back",
+      "role": "button",
+      "name": "",
+      "nth": 0,
+      "why": "the header's first unnamed button closes the day"
+    },
+    {
+      "id": "rt-day-2026-02-12",
+      "role": "button",
+      "name": "12 To Lajitekniikka (Kuula) & Kuulantyöntö #kuula #lajitekniikka #yleisurheilu 2",
+      "why": "two workouts: both cards"
+    },
+    {
+      "tick": 800
+    }
+  ]
+}

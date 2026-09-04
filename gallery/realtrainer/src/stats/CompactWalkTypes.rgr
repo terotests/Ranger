@@ -1,0 +1,17 @@
+
+class CompactValueUnit {
+  def ok:boolean false
+  def value:string ""
+  def unit:string ""
+}
+
+class CompactTokenSplit {
+  def token:string ""
+  def rest:string ""
+}
+
+class CompactRunHeader {
+  def name:string ""
+  def durationSeconds:int 0
+  def hasDuration:boolean false
+}

@@ -1,0 +1,1189 @@
+{
+ "id": "plan-week-confirm-create",
+ "machine": "planDialog",
+ "viewport": "390x844",
+ "frames": [
+  {
+   "step": "rt-plan-update",
+   "handled": true,
+   "state": "",
+   "nodes": [
+    {
+     "role": "banner",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Credits: 100k. Click to purchase more credits.",
+     "state": ""
+    },
+    {
+     "role": "img",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "100k credits",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "📋 Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "T",
+     "state": ""
+    },
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää harjoitus",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Päivitä suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Viikot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Malliviikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Edellinen viikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "vko 7 9. – 15.2.",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Luo suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Seuraava viikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "9 Ma –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "10 Ti Kevyt salitreeni #kuntosali #voima #kevyt",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "11 Ke –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "12 To –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "13 Pe –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "14 La –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "15 Su –",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Päivitä suunnitelma",
+     "state": "level=3"
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "2026-02-09 – 2026-02-15 Viikko 7",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Anna ohjeita suunnitelman luomiseen",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "Esim. keskity kuntoutusjuoksuihin, kevyempi viikko",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Luodaan tavoiteviikon harjoitukset valitulle viikolle",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Peruuta",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Luo suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-plan-next",
+   "handled": true,
+   "state": "",
+   "nodes": [
+    {
+     "role": "banner",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Credits: 100k. Click to purchase more credits.",
+     "state": ""
+    },
+    {
+     "role": "img",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "100k credits",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "📋 Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "T",
+     "state": ""
+    },
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää harjoitus",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Päivitä suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Viikot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Malliviikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Edellinen viikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "vko 7 9. – 15.2.",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Luo suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Seuraava viikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "9 Ma –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "10 Ti Kevyt salitreeni #kuntosali #voima #kevyt",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "11 Ke –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "12 To –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "13 Pe –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "14 La –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "15 Su –",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Päivitä suunnitelma",
+     "state": "level=3"
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "2026-02-16 – 2026-02-22 Viikko 8",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Anna ohjeita suunnitelman luomiseen",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "Esim. keskity kuntoutusjuoksuihin, kevyempi viikko",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Luodaan tavoiteviikon harjoitukset valitulle viikolle",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Peruuta",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Luo suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-plan-field",
+   "handled": true,
+   "state": "",
+   "nodes": [
+    {
+     "role": "banner",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Credits: 100k. Click to purchase more credits.",
+     "state": ""
+    },
+    {
+     "role": "img",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "100k credits",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "📋 Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "T",
+     "state": ""
+    },
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää harjoitus",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Päivitä suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Viikot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Malliviikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Edellinen viikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "vko 7 9. – 15.2.",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Luo suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Seuraava viikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "9 Ma –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "10 Ti Kevyt salitreeni #kuntosali #voima #kevyt",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "11 Ke –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "12 To –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "13 Pe –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "14 La –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "15 Su –",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Päivitä suunnitelma",
+     "state": "level=3"
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "2026-02-16 – 2026-02-22 Viikko 8",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Anna ohjeita suunnitelman luomiseen",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "Esim. keskity kuntoutusjuoksuihin, kevyempi viikko",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Luodaan tavoiteviikon harjoitukset valitulle viikolle",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Peruuta",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Luo suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-plan-confirm",
+   "handled": true,
+   "state": "",
+   "nodes": [
+    {
+     "role": "banner",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Credits: 100k. Click to purchase more credits.",
+     "state": ""
+    },
+    {
+     "role": "img",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "100k credits",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "📋 Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "T",
+     "state": ""
+    },
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää harjoitus",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Päivitä suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Viikot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Malliviikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Edellinen viikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "vko 7 9. – 15.2.",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Luo suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Seuraava viikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "9 Ma –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "10 Ti Kevyt salitreeni #kuntosali #voima #kevyt",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "11 Ke –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "12 To –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "13 Pe –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "14 La –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "15 Su –",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Luo harjoitukset",
+     "state": "level=3"
+    },
+    {
+     "role": "paragraph",
+     "name": "Viikko on tyhjä",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "2026-02-16 – 2026-02-22 Viikko 8",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Luodaanko malliviikon harjoitukset tälle viikolle?",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Peruuta",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Luo",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    },
+    {
+     "role": "list",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "listitem",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "img",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Esimerkkiviikkojen uudelleengenerointi epäonnistui",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-plan-go",
+   "handled": true,
+   "state": "",
+   "nodes": [
+    {
+     "role": "banner",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Credits: 100k. Click to purchase more credits.",
+     "state": ""
+    },
+    {
+     "role": "img",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "100k credits",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "📋 Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "T",
+     "state": ""
+    },
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää harjoitus",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Päivitä suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Viikot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Malliviikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Edellinen viikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "vko 7 9. – 15.2.",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Luo suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Seuraava viikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "9 Ma –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "10 Ti Kevyt salitreeni #kuntosali #voima #kevyt",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "11 Ke –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "12 To –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "13 Pe –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "14 La –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "15 Su –",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    },
+    {
+     "role": "list",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "listitem",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "img",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Harjoitusten luonti epäonnistui",
+     "state": ""
+    },
+    {
+     "role": "listitem",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "img",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Esimerkkiviikkojen uudelleengenerointi epäonnistui",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "tick 1200",
+   "handled": true,
+   "state": "",
+   "nodes": [
+    {
+     "role": "banner",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Credits: 100k. Click to purchase more credits.",
+     "state": ""
+    },
+    {
+     "role": "img",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "100k credits",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "📋 Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "T",
+     "state": ""
+    },
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää harjoitus",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Päivitä suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Viikot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Malliviikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Edellinen viikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "vko 7 9. – 15.2.",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Luo suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Seuraava viikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "9 Ma –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "10 Ti Kevyt salitreeni #kuntosali #voima #kevyt",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "11 Ke –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "12 To –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "13 Pe –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "14 La –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "15 Su –",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    },
+    {
+     "role": "list",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "listitem",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "img",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Harjoitusten luonti epäonnistui",
+     "state": ""
+    },
+    {
+     "role": "listitem",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "img",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Esimerkkiviikkojen uudelleengenerointi epäonnistui",
+     "state": ""
+    }
+   ]
+  }
+ ]
+}

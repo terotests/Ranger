@@ -1,0 +1,40 @@
+{
+  "_": "The bottom bar: every section the phone has, in the order the bar has them.",
+  "id": "sections",
+  "area": "kehys",
+  "machine": "",
+  "reference": {
+    "route": "/calendar/cal-plan?week=2026-02-09"
+  },
+  "setup": [
+    {
+      "page": "390x844",
+      "why": "a phone, upright"
+    },
+    {
+      "route": "/calendar/cal-plan?week=2026-02-09"
+    }
+  ],
+  "steps": [
+    {
+      "id": "rt-nav-dashboard",
+      "role": "button",
+      "name": "Dashboard"
+    },
+    {
+      "id": "rt-nav-home",
+      "role": "button",
+      "name": "Koti"
+    },
+    {
+      "id": "rt-nav-more",
+      "role": "button",
+      "name": "Lisää"
+    },
+    {
+      "id": "rt-nav-calendar",
+      "role": "button",
+      "name": "Kalenteri"
+    }
+  ]
+}

@@ -1,0 +1,4713 @@
+Import "v1/V1Json.rgr"
+Import "v1/nodes/AstNode.rgr"
+Import "v1/V1SharedHelpers.rgr"
+Import "v1/V1DetectorRegistry.rgr"
+Import "v1/detectors/TokenDetectorV1.rgr"
+Import "v1/parsers/V1LineParser.rgr"
+Import "v1/parsers/RunIntensityParserV1.rgr"
+Import "v1/parsers/MoveParserV1.rgr"
+Import "v1/parsers/CircuitParserV1.rgr"
+Import "v1/parsers/SplitChildParserV1.rgr"
+Import "v1/nodes/MoveNode.rgr"
+Import "v1/nodes/CircuitNode.rgr"
+Import "v1/nodes/CircuitExerciseNode.rgr"
+Import "v1/nodes/SplitMoveNode.rgr"
+Import "v1/nodes/AttemptNode.rgr"
+Import "v1/nodes/RecoveryNode.rgr"
+Import "v1/values/DateValue.rgr"
+Import "v1/values/DistanceValue.rgr"
+Import "v1/values/DurationValue.rgr"
+
+class CompactV1JsonExtra {
+    static fn nodeArray:string (values:[AstNode]) {
+        def items:[string]
+        for values item:AstNode i {
+            push items (item.toJSONString())
+        }
+        return ("[" + (join items ",") + "]")
+    }
+
+    static fn measuredArray:string (values:[MeasuredDurationNode]) {
+        def items:[string]
+        for values item:MeasuredDurationNode i {
+            push items (item.toJSONString())
+        }
+        return ("[" + (join items ",") + "]")
+    }
+
+    static fn workoutArray:string (values:[WorkoutNode]) {
+        def items:[string]
+        for values item:WorkoutNode i {
+            push items (item.toJSONString())
+        }
+        return ("[" + (join items ",") + "]")
+    }
+}
+
+class DateValueNode {
+    def type:string "date"
+    def year:int 0
+    def month:int 0
+    def day:int 0
+    def unknown:boolean true
+    def hasHour:boolean false
+    def hour:int 0
+    def hasMinute:boolean false
+    def minute:int 0
+    def hasTimezone:boolean false
+    def timezone:string ""
+
+    fn toJSONString:string () {
+        def fields:[string]
+        CompactV1Json.addStringField(fields "type" type)
+        CompactV1Json.addIntField(fields "year" year)
+        CompactV1Json.addIntField(fields "month" month)
+        CompactV1Json.addIntField(fields "day" day)
+        if (type == "date") {
+            CompactV1Json.addBooleanField(fields "unknown" unknown)
+        }
+        if (hasHour) {
+            CompactV1Json.addIntField(fields "hour" hour)
+        }
+        if (hasMinute) {
+            CompactV1Json.addIntField(fields "minute" minute)
+        }
+        if (hasTimezone) {
+            CompactV1Json.addStringField(fields "timezone" timezone)
+        }
+        return (CompactV1Json.jsonObject(fields))
+    }
+}
+
+class TagsNode {
+    Extends(AstNode)
+
+    def tags:[string]
+
+    Constructor () {
+        type = "tags"
+    }
+
+    fn toJSONString@(override):string () {
+        def fields:[string]
+        CompactV1Json.addStringField(fields "type" type)
+        CompactV1Json.addRawField(fields "tags" (CompactV1Json.stringArray(tags)))
+        return (CompactV1Json.jsonObject(fields))
+    }
+}
+
+class SummaryNode {
+    Extends(AstNode)
+
+    def text:string ""
+
+    Constructor () {
+        type = "summary"
+    }
+
+    fn toJSONString@(override):string () {
+        def fields:[string]
+        CompactV1Json.addStringField(fields "type" type)
+        CompactV1Json.addStringField(fields "text" text)
+        return (CompactV1Json.jsonObject(fields))
+    }
+}
+
+class TextLineNode {
+    Extends(AstNode)
+
+    def value:string ""
+
+    Constructor () {
+        type = "text"
+    }
+
+    fn toJSONString@(override):string () {
+        def fields:[string]
+        CompactV1Json.addStringField(fields "type" type)
+        CompactV1Json.addStringField(fields "value" value)
+        return (CompactV1Json.jsonObject(fields))
+    }
+}
+
+class EmojisNode {
+    Extends(AstNode)
+
+    def emojis:string ""
+
+    Constructor () {
+        type = "emojis"
+    }
+
+    fn toJSONString@(override):string () {
+        def fields:[string]
+        CompactV1Json.addStringField(fields "type" type)
+        CompactV1Json.addStringField(fields "emojis" emojis)
+        return (CompactV1Json.jsonObject(fields))
+    }
+}
+
+class SportNode {
+    Extends(AstNode)
+
+    def level:int 0
+    def name:string ""
+
+    Constructor () {
+        type = "sport"
+    }
+
+    fn toJSONString@(override):string () {
+        def fields:[string]
+        CompactV1Json.addStringField(fields "type" type)
+        CompactV1Json.addIntField(fields "level" level)
+        CompactV1Json.addStringField(fields "name" name)
+        return (CompactV1Json.jsonObject(fields))
+    }
+}
+
+class DerivedNode {
+    Extends(AstNode)
+
+    def name:string ""
+    def value:int 0
+    def unit:string ""
+    def basis:string ""
+    def hasConfidence:boolean false
+    def confidence:int 0
+    def source:string ""
+    def hasGoodness:boolean false
+    def goodness:int 0
+    def hasNote:boolean false
+    def note:string ""
+
+    Constructor () {
+        type = "derived"
+    }
+
+    fn toJSONString@(override):string () {
+        def fields:[string]
+        CompactV1Json.addStringField(fields "type" type)
+        CompactV1Json.addStringField(fields "name" name)
+        CompactV1Json.addIntField(fields "value" value)
+        CompactV1Json.addStringField(fields "unit" unit)
+        CompactV1Json.addStringField(fields "basis" basis)
+        if (hasConfidence) {
+            CompactV1Json.addIntField(fields "confidence" confidence)
+        } {
+            CompactV1Json.addRawField(fields "confidence" "null")
+        }
+        CompactV1Json.addStringField(fields "source" source)
+        if (hasGoodness) {
+            CompactV1Json.addIntField(fields "goodness" goodness)
+        } {
+            CompactV1Json.addRawField(fields "goodness" "null")
+        }
+        if (hasNote) {
+            CompactV1Json.addStringField(fields "note" note)
+        } {
+            CompactV1Json.addRawField(fields "note" "null")
+        }
+        return (CompactV1Json.jsonObject(fields))
+    }
+}
+
+class PhaseNode {
+    Extends(AstNode)
+
+    def hasNumber:boolean false
+    def number:int 0
+    def name:string ""
+    def hasDetails:boolean false
+    def details:string ""
+
+    Constructor () {
+        type = "phase"
+    }
+
+    fn toJSONString@(override):string () {
+        def fields:[string]
+        CompactV1Json.addStringField(fields "type" type)
+        if (hasNumber) {
+            CompactV1Json.addIntField(fields "number" number)
+        } {
+            CompactV1Json.addRawField(fields "number" "null")
+        }
+        CompactV1Json.addStringField(fields "name" name)
+        if (hasDetails) {
+            CompactV1Json.addStringField(fields "details" details)
+        } {
+            CompactV1Json.addRawField(fields "details" "null")
+        }
+        return (CompactV1Json.jsonObject(fields))
+    }
+}
+
+class MetaNode {
+    Extends(AstNode)
+
+    def key:string ""
+    def value:string ""
+
+    Constructor () {
+        type = "meta"
+    }
+
+    fn toJSONString@(override):string () {
+        def fields:[string]
+        CompactV1Json.addStringField(fields "type" type)
+        CompactV1Json.addStringField(fields "key" key)
+        CompactV1Json.addStringField(fields "value" value)
+        return (CompactV1Json.jsonObject(fields))
+    }
+}
+
+class LocationNode {
+    Extends(AstNode)
+
+    def place:string ""
+
+    Constructor () {
+        type = "location"
+    }
+
+    fn toJSONString@(override):string () {
+        def fields:[string]
+        CompactV1Json.addStringField(fields "type" type)
+        CompactV1Json.addStringField(fields "place" place)
+        return (CompactV1Json.jsonObject(fields))
+    }
+}
+
+class UrlNode {
+    Extends(AstNode)
+
+    def url:string ""
+
+    Constructor () {
+        type = "url"
+    }
+
+    fn toJSONString@(override):string () {
+        def fields:[string]
+        CompactV1Json.addStringField(fields "type" type)
+        CompactV1Json.addStringField(fields "url" url)
+        return (CompactV1Json.jsonObject(fields))
+    }
+}
+
+class FeelingNode {
+    Extends(AstNode)
+
+    def scale:string "feeling"
+    def hasValue:boolean false
+    def value:int 0
+    def hasMax:boolean false
+    def max:int 0
+    def hasDescription:boolean false
+    def description:string ""
+
+    Constructor () {
+        type = "feeling"
+    }
+
+    fn toJSONString@(override):string () {
+        def fields:[string]
+        CompactV1Json.addStringField(fields "type" type)
+        CompactV1Json.addStringField(fields "scale" scale)
+        if (hasValue) {
+            CompactV1Json.addIntField(fields "value" value)
+        } {
+            CompactV1Json.addRawField(fields "value" "null")
+        }
+        if (hasMax) {
+            CompactV1Json.addIntField(fields "max" max)
+        }
+        if (hasDescription) {
+            CompactV1Json.addStringField(fields "description" description)
+        } {
+            CompactV1Json.addRawField(fields "description" "null")
+        }
+        return (CompactV1Json.jsonObject(fields))
+    }
+}
+
+class ReminderNode {
+    Extends(AstNode)
+
+    def year:int 0
+    def month:int 0
+    def day:int 0
+    def hasDescription:boolean false
+    def description:string ""
+
+    Constructor () {
+        type = "reminder"
+    }
+
+    fn toJSONString@(override):string () {
+        def dateFields:[string]
+        CompactV1Json.addRawField(dateFields "year" (to_string year))
+        CompactV1Json.addRawField(dateFields "month" (to_string month))
+        CompactV1Json.addRawField(dateFields "day" (to_string day))
+
+        def fields:[string]
+        CompactV1Json.addStringField(fields "type" type)
+        CompactV1Json.addRawField(fields "date" (CompactV1Json.jsonObject(dateFields)))
+        if (hasDescription) {
+            CompactV1Json.addStringField(fields "description" description)
+        } {
+            CompactV1Json.addRawField(fields "description" "null")
+        }
+        return (CompactV1Json.jsonObject(fields))
+    }
+}
+
+class PainNode {
+    Extends(AstNode)
+
+    def hasBodyPart:boolean false
+    def bodyPart:string ""
+    def hasSeverity:boolean false
+    def severity:int 0
+    def hasDescription:boolean false
+    def description:string ""
+
+    Constructor () {
+        type = "pain"
+    }
+
+    fn toJSONString@(override):string () {
+        def fields:[string]
+        CompactV1Json.addStringField(fields "type" type)
+        if (hasBodyPart) {
+            CompactV1Json.addStringField(fields "bodyPart" bodyPart)
+        } {
+            CompactV1Json.addRawField(fields "bodyPart" "null")
+        }
+        if (hasSeverity) {
+            CompactV1Json.addIntField(fields "severity" severity)
+        } {
+            CompactV1Json.addRawField(fields "severity" "null")
+        }
+        if (hasDescription) {
+            CompactV1Json.addStringField(fields "description" description)
+        } {
+            CompactV1Json.addRawField(fields "description" "null")
+        }
+        return (CompactV1Json.jsonObject(fields))
+    }
+}
+
+class DurationNode {
+    Extends(AstNode)
+
+    def unit:string "min"
+    def hasSingle:boolean false
+    def singleValue:int 0
+    def hasFloatSingle:boolean false
+    def floatValueRaw:string ""
+    def hasRange:boolean false
+    def minValue:int 0
+    def maxValue:int 0
+    def hasTimeOfDay:boolean false
+    def todHour:int 0
+    def todMinute:int 0
+    def hasDescription:boolean false
+    def description:string ""
+
+    Constructor () {
+        type = "duration"
+    }
+
+    fn toJSONString@(override):string () {
+        def fields:[string]
+        CompactV1Json.addStringField(fields "type" type)
+
+        if (hasTimeOfDay) {
+            CompactV1Json.addRawField(fields "duration" "null")
+            def todFields:[string]
+            CompactV1Json.addIntField(todFields "hour" todHour)
+            CompactV1Json.addIntField(todFields "minute" todMinute)
+            CompactV1Json.addRawField(fields "timeOfDay" (CompactV1Json.jsonObject(todFields)))
+        } {
+            def durationFields:[string]
+            if (hasRange) {
+                def rangeFields:[string]
+                CompactV1Json.addIntField(rangeFields "min" minValue)
+                CompactV1Json.addIntField(rangeFields "max" maxValue)
+                CompactV1Json.addRawField(durationFields "value" (CompactV1Json.jsonObject(rangeFields)))
+            } {
+                if (hasFloatSingle) {
+                    CompactV1Json.addRawField(durationFields "value" floatValueRaw)
+                } {
+                    if (hasSingle) {
+                        CompactV1Json.addIntField(durationFields "value" singleValue)
+                    } {
+                        CompactV1Json.addRawField(durationFields "value" "null")
+                    }
+                }
+            }
+            CompactV1Json.addStringField(durationFields "unit" unit)
+            CompactV1Json.addRawField(fields "duration" (CompactV1Json.jsonObject(durationFields)))
+        }
+
+        if (hasDescription) {
+            CompactV1Json.addStringField(fields "description" description)
+        } {
+            CompactV1Json.addRawField(fields "description" "null")
+        }
+        return (CompactV1Json.jsonObject(fields))
+    }
+}
+
+class ContactsNode {
+    Extends(AstNode)
+
+    def hasCount:boolean false
+    def count:int 0
+    def hasCountMax:boolean false
+    def countMax:int 0
+    def hasSets:boolean false
+    def sets:int 0
+    def hasReps:boolean false
+    def reps:int 0
+    def hasName:boolean false
+    def name:string ""
+
+    Constructor () {
+        type = "contacts"
+    }
+
+    fn toJSONString@(override):string () {
+        def fields:[string]
+        CompactV1Json.addStringField(fields "type" type)
+        if (hasCount) {
+            CompactV1Json.addIntField(fields "count" count)
+        } {
+            CompactV1Json.addRawField(fields "count" "null")
+        }
+        if (hasCountMax) {
+            CompactV1Json.addIntField(fields "countMax" countMax)
+        }
+        if (hasSets) {
+            CompactV1Json.addIntField(fields "sets" sets)
+        } {
+            CompactV1Json.addRawField(fields "sets" "null")
+        }
+        if (hasReps) {
+            CompactV1Json.addIntField(fields "reps" reps)
+        } {
+            CompactV1Json.addRawField(fields "reps" "null")
+        }
+        if (hasName) {
+            CompactV1Json.addStringField(fields "name" name)
+        } {
+            CompactV1Json.addRawField(fields "name" "null")
+        }
+        return (CompactV1Json.jsonObject(fields))
+    }
+}
+
+class SectionNode {
+    Extends(AstNode)
+
+    def name:string ""
+    def hasIntensity:boolean false
+    def intensity:int 0
+    def hasDuration:boolean false
+    def duration:int 0
+    def hasSegment:boolean false
+    def segmentStart:int 0
+    def segmentEnd:int 0
+    def segmentUnit:string "m"
+
+    Constructor () {
+        type = "section"
+    }
+
+    fn toJSONString@(override):string () {
+        def fields:[string]
+        CompactV1Json.addStringField(fields "type" type)
+        CompactV1Json.addStringField(fields "name" name)
+        if (hasIntensity) {
+            CompactV1Json.addIntField(fields "intensity" intensity)
+        } {
+            CompactV1Json.addRawField(fields "intensity" "null")
+        }
+        if (hasDuration) {
+            CompactV1Json.addIntField(fields "duration" duration)
+        } {
+            CompactV1Json.addRawField(fields "duration" "null")
+        }
+        if (hasSegment) {
+            def segFields:[string]
+            CompactV1Json.addIntField(segFields "start" segmentStart)
+            CompactV1Json.addIntField(segFields "end" segmentEnd)
+            CompactV1Json.addStringField(segFields "unit" segmentUnit)
+            CompactV1Json.addRawField(fields "segment" (CompactV1Json.jsonObject(segFields)))
+        }
+        return (CompactV1Json.jsonObject(fields))
+    }
+}
+
+; One measured set: `45s`, or `30s+30s` when the two sides were timed apart.
+;
+; This was a JSON STRING built during the parse and pushed onto a `[string]`,
+; which meant the only way to read a measured set back was to parse the
+; parser's own output again. The JSON is unchanged — same fields, same order,
+; same nulls — but the numbers are now readable as numbers.
+;
+; A `unit` of "" marks a token that did not parse. Nothing serialises such a
+; node: the caller drops it and fails the whole spec, exactly as it did when
+; the failure was an empty string.
+class MeasuredDurationNode {
+    def left:int 0
+    def hasRight:boolean false
+    def right:int 0
+    def unit:string ""
+
+    Constructor () {
+    }
+
+    fn toJSONString:string () {
+        def mf:[string]
+        CompactV1Json.addIntField(mf "left" left)
+        if (hasRight) {
+            CompactV1Json.addIntField(mf "right" right)
+        } {
+            CompactV1Json.addRawField(mf "right" "null")
+        }
+        CompactV1Json.addStringField(mf "unit" unit)
+        return (CompactV1Json.jsonObject(mf))
+    }
+}
+
+class ExerciseNode {
+    Extends(AstNode)
+
+    def name:string ""
+    def hasSets:boolean false
+    def sets:int 0
+    def hasSetsMax:boolean false
+    def setsMax:int 0
+    def hasReps:boolean false
+    def reps:int 0
+    def hasRepsRight:boolean false
+    def repsRight:int 0
+    def hasRepsMax:boolean false
+    def repsMax:int 0
+    def hasCount:boolean false
+    def count:int 0
+    def hasUnit:boolean false
+    def unit:string ""
+    def hasWeight:boolean false
+    def weightValue:int 0
+    def weightUnit:string ""
+    def hasWeightPercent:boolean false
+    def weightPercent:int 0
+    def hasWeightValueMax:boolean false
+    def weightValueMax:int 0
+    def hasExerciseDistance:boolean false
+    def exerciseDistance:int 0
+    def exerciseDistanceUnit:string "m"
+    def hasNote:boolean false
+    def note:string ""
+    def hasDescription:boolean false
+    def description:string ""
+    def customFieldsJson:[string]
+    def hasDistanceMin:boolean false
+    def distanceMin:int 0
+    def hasDistanceMax:boolean false
+    def distanceMax:int 0
+    def hasSpecType:boolean false
+    def specType:string ""
+    def partJsonList:[string]
+    def measuredDurations:[MeasuredDurationNode]
+    def hasIsBilateral:boolean false
+    def isBilateral:boolean false
+    def hasRecovery:boolean false
+    def recoveryValue:int 0
+    def hasRecoveryMax:boolean false
+    def recoveryMax:int 0
+    def recoveryUnit:string "min"
+
+    Constructor () {
+        type = "exercise"
+    }
+
+    fn toJSONString@(override):string () {
+        def fields:[string]
+        CompactV1Json.addStringField(fields "type" type)
+        CompactV1Json.addStringField(fields "name" name)
+
+        if (hasSets) {
+            CompactV1Json.addIntField(fields "sets" sets)
+        } {
+            CompactV1Json.addRawField(fields "sets" "null")
+        }
+
+        if (hasSetsMax) {
+            CompactV1Json.addIntField(fields "setsMax" setsMax)
+        }
+
+        if (hasReps) {
+            CompactV1Json.addIntField(fields "reps" reps)
+        } {
+            CompactV1Json.addRawField(fields "reps" "null")
+        }
+
+        if (hasRepsRight) {
+            CompactV1Json.addIntField(fields "repsRight" repsRight)
+        }
+
+        if (hasRepsMax) {
+            CompactV1Json.addIntField(fields "repsMax" repsMax)
+        } {
+            if (hasSets) {
+                CompactV1Json.addRawField(fields "repsMax" "null")
+            } {
+                if (hasSpecType) {
+                    CompactV1Json.addRawField(fields "repsMax" "null")
+                }
+            }
+        }
+
+        if (hasUnit) {
+            CompactV1Json.addStringField(fields "unit" unit)
+        } {
+            CompactV1Json.addRawField(fields "unit" "null")
+        }
+
+        if (hasWeightPercent) {
+            def weightFields:[string]
+            CompactV1Json.addIntField(weightFields "percent" weightPercent)
+            CompactV1Json.addStringField(weightFields "of" "1RM")
+            CompactV1Json.addRawField(fields "weight" (CompactV1Json.jsonObject(weightFields)))
+        } {
+            if (hasWeight) {
+                def weightFields:[string]
+                if (hasWeightValueMax) {
+                    CompactV1Json.addIntField(weightFields "value" weightValue)
+                    CompactV1Json.addIntField(weightFields "valueMax" weightValueMax)
+                } {
+                    CompactV1Json.addIntField(weightFields "value" weightValue)
+                }
+                CompactV1Json.addStringField(weightFields "unit" weightUnit)
+                CompactV1Json.addRawField(fields "weight" (CompactV1Json.jsonObject(weightFields)))
+            } {
+                CompactV1Json.addRawField(fields "weight" "null")
+            }
+        }
+
+        if (hasExerciseDistance) {
+            CompactV1Json.addIntField(fields "distance" exerciseDistance)
+            CompactV1Json.addStringField(fields "unit" exerciseDistanceUnit)
+        }
+
+        if (hasCount) {
+            CompactV1Json.addIntField(fields "count" count)
+        }
+
+        if (hasSpecType) {
+            CompactV1Json.addStringField(fields "specType" specType)
+        }
+
+        if (hasDistanceMin) {
+            CompactV1Json.addIntField(fields "distanceMin" distanceMin)
+        }
+        if (hasDistanceMax) {
+            CompactV1Json.addIntField(fields "distanceMax" distanceMax)
+        }
+
+        if ((array_length partJsonList) > 0) {
+            CompactV1Json.addRawField(fields "parts" ("[" + (join partJsonList ",") + "]"))
+        }
+
+        if ((array_length measuredDurations) > 0) {
+            CompactV1Json.addRawField(fields "measuredDurations" (CompactV1JsonExtra.measuredArray(measuredDurations)))
+        }
+
+        if (hasIsBilateral) {
+            CompactV1Json.addBooleanField(fields "isBilateral" isBilateral)
+        }
+
+        if (hasRecovery) {
+            def recFields:[string]
+            CompactV1Json.addIntField(recFields "value" recoveryValue)
+            if (hasRecoveryMax) {
+                CompactV1Json.addIntField(recFields "max" recoveryMax)
+            } {
+                CompactV1Json.addRawField(recFields "max" "null")
+            }
+            CompactV1Json.addStringField(recFields "unit" recoveryUnit)
+            CompactV1Json.addRawField(fields "recovery" (CompactV1Json.jsonObject(recFields)))
+        } {
+            CompactV1Json.addRawField(fields "recovery" "null")
+        }
+
+        if (hasNote) {
+            CompactV1Json.addStringField(fields "note" note)
+        } {
+            CompactV1Json.addRawField(fields "note" "null")
+        }
+
+        if (hasDescription) {
+            CompactV1Json.addStringField(fields "description" description)
+        } {
+            CompactV1Json.addRawField(fields "description" "null")
+        }
+
+        if ((array_length customFieldsJson) > 0) {
+            CompactV1Json.addRawField(fields "customFields" ("[" + (join customFieldsJson ",") + "]"))
+        } {
+            CompactV1Json.addRawField(fields "customFields" "null")
+        }
+
+        return (CompactV1Json.jsonObject(fields))
+    }
+}
+
+class IntervalNode {
+    Extends(AstNode)
+
+    def hasCount:boolean false
+    def count:int 0
+    def hasDistance:boolean false
+    def distanceValue:int 0
+    def distanceUnit:string "m"
+    def hasIntensity:boolean false
+    def intensityMin:int 0
+    def intensityMax:int 0
+    def hasRecovery:boolean false
+    def recoveryValue:int 0
+    def hasRecoveryMax:boolean false
+    def recoveryMax:int 0
+    def recoveryUnit:string "min"
+    def hasIntensityText:boolean false
+    def intensityText:string ""
+    def hasNote:boolean false
+    def note:string ""
+
+    Constructor () {
+        type = "interval"
+    }
+
+    fn toJSONString@(override):string () {
+        def fields:[string]
+        CompactV1Json.addStringField(fields "type" type)
+
+        if (hasCount) {
+            CompactV1Json.addIntField(fields "count" count)
+        } {
+            CompactV1Json.addRawField(fields "count" "null")
+        }
+
+        def distFields:[string]
+        if (hasDistance) {
+            CompactV1Json.addIntField(distFields "value" distanceValue)
+            CompactV1Json.addStringField(distFields "unit" distanceUnit)
+        } {
+            CompactV1Json.addRawField(distFields "value" "null")
+            CompactV1Json.addRawField(distFields "unit" "null")
+        }
+        CompactV1Json.addRawField(fields "distance" (CompactV1Json.jsonObject(distFields)))
+
+        if (hasIntensity) {
+            def intFields:[string]
+            CompactV1Json.addIntField(intFields "min" intensityMin)
+            CompactV1Json.addIntField(intFields "max" intensityMax)
+            CompactV1Json.addRawField(fields "intensity" (CompactV1Json.jsonObject(intFields)))
+        } {
+            CompactV1Json.addRawField(fields "intensity" "null")
+        }
+
+        if (hasIntensityText) {
+            CompactV1Json.addStringField(fields "intensityText" intensityText)
+        }
+
+        if (hasIntensityText) {
+            if (hasNote) {
+                CompactV1Json.addStringField(fields "note" note)
+            } {
+                CompactV1Json.addRawField(fields "note" "null")
+            }
+        } {
+            if (hasNote) {
+                CompactV1Json.addStringField(fields "note" note)
+            }
+        }
+
+        if (hasRecovery) {
+            def recFields:[string]
+            CompactV1Json.addIntField(recFields "value" recoveryValue)
+            if (hasRecoveryMax) {
+                CompactV1Json.addIntField(recFields "valueMax" recoveryMax)
+            }
+            CompactV1Json.addStringField(recFields "unit" recoveryUnit)
+            CompactV1Json.addRawField(fields "recovery" (CompactV1Json.jsonObject(recFields)))
+        } {
+            CompactV1Json.addRawField(fields "recovery" "null")
+        }
+
+        return (CompactV1Json.jsonObject(fields))
+    }
+}
+
+class VitalsNode {
+    Extends(AstNode)
+
+    def hasKey:boolean false
+    def key:string ""
+    def hasValue:boolean false
+    def value:string ""
+    def hasUnit:boolean false
+    def unit:string ""
+
+    Constructor () {
+        type = "vitals"
+    }
+
+    fn toJSONString@(override):string () {
+        def fields:[string]
+        CompactV1Json.addStringField(fields "type" type)
+        if (hasKey) {
+            CompactV1Json.addStringField(fields "key" key)
+        } {
+            CompactV1Json.addRawField(fields "key" "null")
+        }
+        if (hasValue) {
+            CompactV1Json.addRawField(fields "value" value)
+        } {
+            CompactV1Json.addRawField(fields "value" "null")
+        }
+        if (hasUnit) {
+            CompactV1Json.addStringField(fields "unit" unit)
+        } {
+            CompactV1Json.addRawField(fields "unit" "null")
+        }
+        return (CompactV1Json.jsonObject(fields))
+    }
+}
+
+class SplitNode {
+    Extends(AstNode)
+
+    def hasRecognized:boolean false
+    def hasDistance:boolean false
+    def distanceValue:int 0
+    def distanceValueRaw:string ""
+    def useDistanceRaw:boolean false
+    def distanceUnit:string "m"
+    def hasDuration:boolean false
+    def durationValue:int 0
+    def durationUnit:string "min"
+    def hasPace:boolean false
+    def paceMinutes:int 0
+    def paceSeconds:int 0
+    def pacePerDistanceValue:int 0
+    def pacePerDistanceUnit:string "m"
+    def hasHr:boolean false
+    def hr:int 0
+    def hasIntensity:boolean false
+    def intensityJson:string ""
+    def customFieldsJson:[string]
+    def nestedSplitJsonList:[string]
+    def hasNote:boolean false
+    def note:string ""
+
+    Constructor () {
+        type = "split"
+    }
+
+    fn toJSONString@(override):string () {
+        def fields:[string]
+        CompactV1Json.addStringField(fields "type" type)
+
+        if (hasDistance) {
+            def distanceFields:[string]
+            if (useDistanceRaw) {
+                CompactV1Json.addRawField(distanceFields "value" distanceValueRaw)
+            } {
+                CompactV1Json.addIntField(distanceFields "value" distanceValue)
+            }
+            CompactV1Json.addStringField(distanceFields "unit" distanceUnit)
+            CompactV1Json.addRawField(fields "distance" (CompactV1Json.jsonObject(distanceFields)))
+        } {
+            CompactV1Json.addRawField(fields "distance" "null")
+        }
+
+        if (hasDuration) {
+            def durationFields:[string]
+            CompactV1Json.addIntField(durationFields "value" durationValue)
+            CompactV1Json.addStringField(durationFields "unit" durationUnit)
+            CompactV1Json.addRawField(fields "duration" (CompactV1Json.jsonObject(durationFields)))
+        } {
+            CompactV1Json.addRawField(fields "duration" "null")
+        }
+
+        if (hasPace) {
+            def perDistanceFields:[string]
+            CompactV1Json.addIntField(perDistanceFields "value" pacePerDistanceValue)
+            CompactV1Json.addStringField(perDistanceFields "unit" pacePerDistanceUnit)
+
+            def paceFields:[string]
+            CompactV1Json.addIntField(paceFields "minutes" paceMinutes)
+            CompactV1Json.addIntField(paceFields "seconds" paceSeconds)
+            CompactV1Json.addRawField(paceFields "perDistance" (CompactV1Json.jsonObject(perDistanceFields)))
+            CompactV1Json.addRawField(fields "pace" (CompactV1Json.jsonObject(paceFields)))
+        } {
+            CompactV1Json.addRawField(fields "pace" "null")
+        }
+
+        if (hasIntensity) {
+            CompactV1Json.addRawField(fields "intensity" intensityJson)
+        } {
+            CompactV1Json.addRawField(fields "intensity" "null")
+        }
+
+        if (hasHr) {
+            CompactV1Json.addIntField(fields "hr" hr)
+        } {
+            CompactV1Json.addRawField(fields "hr" "null")
+        }
+
+        if ((array_length customFieldsJson) > 0) {
+            CompactV1Json.addRawField(fields "customFields" ("[" + (join customFieldsJson ",") + "]"))
+        } {
+            CompactV1Json.addRawField(fields "customFields" "null")
+        }
+
+        if (hasNote) {
+            CompactV1Json.addStringField(fields "note" note)
+        } {
+            CompactV1Json.addRawField(fields "note" "null")
+        }
+
+        if ((array_length nestedSplitJsonList) > 0) {
+            CompactV1Json.addRawField(fields "splits" ("[" + (join nestedSplitJsonList ",") + "]"))
+        } {
+            CompactV1Json.addRawField(fields "splits" "null")
+        }
+
+        return (CompactV1Json.jsonObject(fields))
+    }
+}
+
+class MaxNode {
+    Extends(AstNode)
+
+    def name:string ""
+    def hasReps:boolean false
+    def reps:int 0
+    def hasWeight:boolean false
+    def weight:int 0
+    def unit:string "kg"
+    def estimated:boolean false
+    def pr:boolean false
+    def hasCalc:boolean false
+    def calcReps:int 0
+    def calcWeight:int 0
+    def calcUnit:string "kg"
+
+    Constructor () {
+        type = "max"
+    }
+
+    fn toJSONString@(override):string () {
+        def fields:[string]
+        CompactV1Json.addStringField(fields "type" type)
+        CompactV1Json.addStringField(fields "name" name)
+        if (hasReps) {
+            CompactV1Json.addIntField(fields "reps" reps)
+        } {
+            CompactV1Json.addRawField(fields "reps" "null")
+        }
+        if (hasWeight) {
+            CompactV1Json.addIntField(fields "weight" weight)
+        } {
+            CompactV1Json.addRawField(fields "weight" "null")
+        }
+        CompactV1Json.addStringField(fields "unit" unit)
+        CompactV1Json.addBooleanField(fields "estimated" estimated)
+        CompactV1Json.addBooleanField(fields "pr" pr)
+        if (hasCalc) {
+            def cFields:[string]
+            CompactV1Json.addIntField(cFields "reps" calcReps)
+            CompactV1Json.addIntField(cFields "weight" calcWeight)
+            CompactV1Json.addStringField(cFields "unit" calcUnit)
+            CompactV1Json.addRawField(fields "calculation" (CompactV1Json.jsonObject(cFields)))
+        } {
+            CompactV1Json.addRawField(fields "calculation" "null")
+        }
+        return (CompactV1Json.jsonObject(fields))
+    }
+}
+
+class BestNode {
+    Extends(AstNode)
+
+    def name:string ""
+    def hasResult:boolean false
+    def resultValue:string ""
+    def resultUnit:string ""
+    def pr:boolean false
+
+    Constructor () {
+        type = "best"
+    }
+
+    fn toJSONString@(override):string () {
+        def fields:[string]
+        CompactV1Json.addStringField(fields "type" type)
+        CompactV1Json.addStringField(fields "name" name)
+        if (hasResult) {
+            def rFields:[string]
+            CompactV1Json.addRawField(rFields "value" resultValue)
+            CompactV1Json.addStringField(rFields "unit" resultUnit)
+            CompactV1Json.addRawField(fields "result" (CompactV1Json.jsonObject(rFields)))
+        } {
+            CompactV1Json.addRawField(fields "result" "null")
+        }
+        if (pr) {
+            CompactV1Json.addBooleanField(fields "pr" true)
+        } {
+            CompactV1Json.addBooleanField(fields "pr" false)
+        }
+        return (CompactV1Json.jsonObject(fields))
+    }
+}
+
+class HealthNode {
+    Extends(AstNode)
+
+    def healthType:string ""
+    def description:string ""
+
+    Constructor () {
+        type = "health"
+    }
+
+    fn toJSONString@(override):string () {
+        def fields:[string]
+        CompactV1Json.addStringField(fields "type" type)
+        CompactV1Json.addStringField(fields "healthType" healthType)
+        CompactV1Json.addStringField(fields "description" description)
+        return (CompactV1Json.jsonObject(fields))
+    }
+}
+
+class UnknownNode {
+    Extends(AstNode)
+
+    def raw:string ""
+
+    Constructor () {
+        type = "unknown"
+    }
+
+    fn toJSONString@(override):string () {
+        def fields:[string]
+        CompactV1Json.addStringField(fields "type" type)
+        CompactV1Json.addStringField(fields "raw" raw)
+        return (CompactV1Json.jsonObject(fields))
+    }
+}
+
+class MeasurementNode {
+    Extends(AstNode)
+
+    def measureType:string ""
+    def valueRaw:string "0"
+    def unit:string ""
+    def hasUnit:boolean false
+
+    Constructor () {
+        type = "measurement"
+    }
+
+    fn toJSONString@(override):string () {
+        def fields:[string]
+        CompactV1Json.addStringField(fields "type" type)
+        CompactV1Json.addStringField(fields "measureType" measureType)
+        CompactV1Json.addRawField(fields "value" valueRaw)
+        if (hasUnit) {
+            CompactV1Json.addStringField(fields "unit" unit)
+        } {
+            CompactV1Json.addRawField(fields "unit" "null")
+        }
+        return (CompactV1Json.jsonObject(fields))
+    }
+}
+
+class SleepNode {
+    Extends(AstNode)
+
+    def durationRaw:string "0"
+    def hasQuality:boolean false
+    def quality:string ""
+    def hasHrv:boolean false
+    def hrv:int 0
+    def hasRhr:boolean false
+    def rhr:int 0
+
+    Constructor () {
+        type = "sleep"
+    }
+
+    fn toJSONString@(override):string () {
+        def fields:[string]
+        CompactV1Json.addStringField(fields "type" type)
+        CompactV1Json.addRawField(fields "duration" durationRaw)
+        if (hasQuality) {
+            CompactV1Json.addStringField(fields "quality" quality)
+        } {
+            CompactV1Json.addRawField(fields "quality" "null")
+        }
+        if (hasHrv) {
+            CompactV1Json.addIntField(fields "hrv" hrv)
+        } {
+            CompactV1Json.addRawField(fields "hrv" "null")
+        }
+        if (hasRhr) {
+            CompactV1Json.addIntField(fields "rhr" rhr)
+        } {
+            CompactV1Json.addRawField(fields "rhr" "null")
+        }
+        return (CompactV1Json.jsonObject(fields))
+    }
+}
+
+class WorkoutNode {
+    def type:string "workout"
+    def title@(optional):string
+    def hasTitle@(mutable):boolean false
+    def content:[AstNode]
+    def date@(optional):DateValueNode
+    def format@(optional):string
+    def hasFormat@(mutable):boolean false
+
+    fn toJSONString:string () {
+        def fields:[string]
+        CompactV1Json.addStringField(fields "type" type)
+        if (hasTitle) {
+            if (!null? title) {
+                CompactV1Json.addStringField(fields "title" (unwrap title))
+            } {
+                CompactV1Json.addRawField(fields "title" "null")
+            }
+        } {
+            CompactV1Json.addRawField(fields "title" "null")
+        }
+        CompactV1Json.addRawField(fields "content" (CompactV1JsonExtra.nodeArray(content)))
+        if (!null? date) {
+            CompactV1Json.addRawField(fields "date" ((unwrap date).toJSONString()))
+        }
+        if (hasFormat) {
+            if (!null? format) {
+                CompactV1Json.addStringField(fields "format" (unwrap format))
+            }
+        }
+        return (CompactV1Json.jsonObject(fields))
+    }
+}
+
+class DocumentNode {
+    def workouts:[WorkoutNode]
+    def format:string "compact-v1"
+
+    fn toJSONString:string () {
+        def fields:[string]
+        CompactV1Json.addRawField(fields "workouts" (CompactV1JsonExtra.workoutArray(workouts)))
+        CompactV1Json.addStringField(fields "format" format)
+        return (CompactV1Json.jsonObject(fields))
+    }
+}
+
+class ChildParseResult {
+    def found:boolean false
+    def kind:string ""
+    def canNest:boolean false
+    def nestSplitMove@(optional):SplitMoveNode
+}
+
+class CompactV1Parser {
+
+    fn detectLineTag:string (line:string) {
+        def detectors (V1DetectorRegistry.create())
+        for detectors d:TokenDetectorV1 i {
+            def hit (d.detect(line))
+            if (hit.tag != "unknown") {
+                return hit.tag
+            }
+        }
+        return "unknown"
+    }
+
+    fn startsWith:boolean (s:string prefix:string) {
+        def sLen (strlen s)
+        def pLen (strlen prefix)
+        if (sLen < pLen) {
+            return false
+        }
+        return ((substring s 0 pLen) == prefix)
+    }
+
+    fn findToken:int (s:string token:string) {
+        def sLen (strlen s)
+        def tLen (strlen token)
+        if (tLen == 0) {
+            return 0
+        }
+        if (sLen < tLen) {
+            return -1
+        }
+
+        def i@(mutable):int 0
+        while (i <= (sLen - tLen)) {
+            if ((substring s i (i + tLen)) == token) {
+                return i
+            }
+            i = i + 1
+        }
+        return -1
+    }
+
+    fn extractCustomFields:string (n:ExerciseNode src:string) {
+        def cur@(mutable):string src
+        def safe@(mutable):int 0
+        def done@(mutable):boolean false
+        while ((done == false) && (safe < 20)) {
+            safe = (safe + 1)
+            def cfStart (this.findToken(cur "[["))
+            if (cfStart < 0) {
+                done = true
+            } {
+                def afterStart (substring cur (cfStart + 2) (strlen cur))
+                def cfEnd (this.findToken(afterStart "]]"))
+                if (cfEnd < 0) {
+                    done = true
+                } {
+                    def cfBody (trim (substring afterStart 0 cfEnd))
+                    def colonPos (this.findToken(cfBody ":"))
+                    def cfFields:[string]
+                    if (colonPos < 0) {
+                        CompactV1Json.addStringField(cfFields "name" cfBody)
+                        CompactV1Json.addRawField(cfFields "value" "true")
+                        CompactV1Json.addRawField(cfFields "unit" "null")
+                        push n.customFieldsJson (CompactV1Json.jsonObject(cfFields))
+                    } {
+                        def cfName (trim (substring cfBody 0 colonPos))
+                        def cfValueRaw (trim (substring cfBody (colonPos + 1) (strlen cfBody)))
+                        def cfValOpt (str2int cfValueRaw)
+                        def cfIsInt@(mutable):boolean false
+                        if (!null? cfValOpt) {
+                            def cfVal (unwrap cfValOpt)
+                            def cfValStr (to_string cfVal)
+                            def cfHasUnit@(mutable):boolean false
+                            def cfUnit@(mutable):string ""
+                            if ((strlen cfValueRaw) >= (strlen cfValStr)) {
+                                def prefix (substring cfValueRaw 0 (strlen cfValStr))
+                                if (prefix == cfValStr) {
+                                    cfIsInt = true
+                                    if ((strlen cfValueRaw) > (strlen cfValStr)) {
+                                        cfUnit = (substring cfValueRaw (strlen cfValStr) (strlen cfValueRaw))
+                                        cfHasUnit = true
+                                    }
+                                }
+                            }
+                            if (cfIsInt) {
+                                CompactV1Json.addStringField(cfFields "name" cfName)
+                                CompactV1Json.addIntField(cfFields "value" cfVal)
+                                if (cfHasUnit) {
+                                    CompactV1Json.addStringField(cfFields "unit" cfUnit)
+                                } {
+                                    CompactV1Json.addRawField(cfFields "unit" "null")
+                                }
+                                push n.customFieldsJson (CompactV1Json.jsonObject(cfFields))
+                            }
+                        }
+                        if (cfIsInt == false) {
+                            CompactV1Json.addStringField(cfFields "name" cfName)
+                            CompactV1Json.addStringField(cfFields "value" cfValueRaw)
+                            CompactV1Json.addRawField(cfFields "unit" "null")
+                            push n.customFieldsJson (CompactV1Json.jsonObject(cfFields))
+                        }
+                    }
+                    def before (substring cur 0 cfStart)
+                    def afterEnd (substring afterStart (cfEnd + 2) (strlen afterStart))
+                    cur = (trim (before + " " + afterEnd))
+                }
+            }
+        }
+        return cur
+    }
+
+    fn extractSplitCustomFields:string (n:SplitNode src:string) {
+        def cur@(mutable):string src
+        def safe@(mutable):int 0
+        def done@(mutable):boolean false
+        while ((done == false) && (safe < 20)) {
+            safe = (safe + 1)
+            def cfStart (this.findToken(cur "[["))
+            if (cfStart < 0) {
+                done = true
+            } {
+                def afterStart (substring cur (cfStart + 2) (strlen cur))
+                def cfEnd (this.findToken(afterStart "]]"))
+                if (cfEnd < 0) {
+                    done = true
+                } {
+                    def cfBody (trim (substring afterStart 0 cfEnd))
+                    def colonPos (this.findToken(cfBody ":"))
+                    def cfFields:[string]
+                    if (colonPos < 0) {
+                        CompactV1Json.addStringField(cfFields "name" cfBody)
+                        CompactV1Json.addRawField(cfFields "value" "true")
+                        CompactV1Json.addRawField(cfFields "unit" "null")
+                        push n.customFieldsJson (CompactV1Json.jsonObject(cfFields))
+                    } {
+                        def cfName (trim (substring cfBody 0 colonPos))
+                        def cfValueRaw (trim (substring cfBody (colonPos + 1) (strlen cfBody)))
+                        def cfValOpt (str2int cfValueRaw)
+                        def cfIsInt@(mutable):boolean false
+                        if (!null? cfValOpt) {
+                            def cfVal (unwrap cfValOpt)
+                            def cfValStr (to_string cfVal)
+                            def cfHasUnit@(mutable):boolean false
+                            def cfUnit@(mutable):string ""
+                            if ((strlen cfValueRaw) >= (strlen cfValStr)) {
+                                def prefix (substring cfValueRaw 0 (strlen cfValStr))
+                                if (prefix == cfValStr) {
+                                    cfIsInt = true
+                                    if ((strlen cfValueRaw) > (strlen cfValStr)) {
+                                        cfUnit = (substring cfValueRaw (strlen cfValStr) (strlen cfValueRaw))
+                                        cfHasUnit = true
+                                    }
+                                }
+                            }
+                            if (cfIsInt) {
+                                CompactV1Json.addStringField(cfFields "name" cfName)
+                                CompactV1Json.addIntField(cfFields "value" cfVal)
+                                if (cfHasUnit) {
+                                    CompactV1Json.addStringField(cfFields "unit" cfUnit)
+                                } {
+                                    CompactV1Json.addRawField(cfFields "unit" "null")
+                                }
+                                push n.customFieldsJson (CompactV1Json.jsonObject(cfFields))
+                            }
+                        }
+                        if (cfIsInt == false) {
+                            CompactV1Json.addStringField(cfFields "name" cfName)
+                            CompactV1Json.addStringField(cfFields "value" cfValueRaw)
+                            CompactV1Json.addRawField(cfFields "unit" "null")
+                            push n.customFieldsJson (CompactV1Json.jsonObject(cfFields))
+                        }
+                    }
+                    def before (substring cur 0 cfStart)
+                    def afterEnd (substring afterStart (cfEnd + 2) (strlen afterStart))
+                    cur = (trim (before + " " + afterEnd))
+                }
+            }
+        }
+        return cur
+    }
+
+    fn assignSplitDistance:boolean (n:SplitNode numPart:string unit:string) {
+        def dOpt (str2int numPart)
+        if (!null? dOpt) {
+            def v (unwrap dOpt)
+            if ((to_string v) == numPart) {
+                n.hasDistance = true
+                n.distanceValue = v
+                n.useDistanceRaw = false
+                n.distanceUnit = unit
+                return true
+            }
+        }
+        def dOptD (str2double numPart)
+        if (!null? dOptD) {
+            n.hasDistance = true
+            n.useDistanceRaw = true
+            n.distanceValueRaw = (double2str (unwrap dOptD))
+            n.distanceUnit = unit
+            return true
+        }
+        return false
+    }
+
+    fn tryParseTickQuoteDurationSeconds@(weak optional):int (text:string) {
+        def res@(weak lives):int
+        def apos (this.findToken(text "'"))
+        if (apos <= 0) {
+            return res
+        }
+        def minOpt (str2int (substring text 0 apos))
+        if (null? minOpt) {
+            return res
+        }
+        def quote (this.findToken(text "\""))
+        if (quote <= apos) {
+            return res
+        }
+        def slashPos (this.findToken(text "/"))
+        if (slashPos > quote) {
+            return res
+        }
+        def secOpt (str2int (substring text (apos + 1) quote))
+        if (null? secOpt) {
+            return res
+        }
+        def min (unwrap minOpt)
+        def sec (unwrap secOpt)
+        res = ((min * 60) + sec)
+        return res
+    }
+
+    fn parseSplitDurationAtHrToken:boolean (n:SplitNode tok:string) {
+        def bpmPos@(mutable):int (this.findToken(tok "bpm"))
+        if (bpmPos < 0) {
+            bpmPos = (this.findToken(tok "BPM"))
+            if (bpmPos < 0) {
+                return false
+            }
+        }
+        def atPos (this.findToken(tok "@"))
+        if (atPos < 0) {
+            return false
+        }
+        def hrPart (trim (substring tok (atPos + 1) bpmPos))
+        def hrVal (this.parseStrictInt(hrPart))
+        if (hrVal < 0) {
+            return false
+        }
+        def durPart (substring tok 0 atPos)
+        def durSec@(optional) (this.tryParseTickQuoteDurationSeconds(durPart))
+        if (null? durSec) {
+            return false
+        }
+        n.hasDuration = true
+        n.durationValue = (unwrap durSec)
+        n.durationUnit = "s"
+        n.hasHr = true
+        n.hr = hrVal
+        return true
+    }
+
+    fn parseSplitTickQuoteDurationToken:boolean (n:SplitNode tok:string) {
+        def durSec@(optional) (this.tryParseTickQuoteDurationSeconds(tok))
+        if (null? durSec) {
+            return false
+        }
+        n.hasDuration = true
+        n.durationValue = (unwrap durSec)
+        n.durationUnit = "s"
+        return true
+    }
+
+    fn parseSplitDistanceToken:boolean (n:SplitNode tok:string) {
+        def kmPos (this.findToken(tok "km"))
+        if (kmPos > 0) {
+            def numPart (substring tok 0 kmPos)
+            return (this.assignSplitDistance(n numPart "km"))
+        }
+        def mPos (this.findToken(tok "m"))
+        if (mPos > 0) {
+            if ((mPos + 1) < (strlen tok)) {
+                if ((charAt tok (mPos + 1)) == (ccode "i")) {
+                    return false
+                }
+            }
+            def numPart2 (substring tok 0 mPos)
+            def ok (this.assignSplitDistance(n numPart2 "m"))
+            if (ok) {
+                def afterM (substring tok (mPos + 1) (strlen tok))
+                if (this.startsWith(afterM "@")) {
+                    def intBody (trim (substring afterM 1 (strlen afterM)))
+                    def intJson (RunIntensityParserV1.parse(intBody))
+                    if ((strlen intJson) > 0) {
+                        n.hasIntensity = true
+                        n.intensityJson = intJson
+                    }
+                }
+            }
+            return ok
+        }
+        return false
+    }
+
+    fn parseSplitDurationToken:boolean (n:SplitNode tok:string) {
+        def minPos (this.findToken(tok "min"))
+        if (minPos > 0) {
+            def dOpt (str2int (substring tok 0 minPos))
+            if (!null? dOpt) {
+                n.hasDuration = true
+                n.durationValue = (unwrap dOpt)
+                n.durationUnit = "min"
+                return true
+            }
+        }
+        def sLen (strlen tok)
+        if (sLen > 1) {
+            if ((charAt tok (sLen - 1)) == (ccode "s")) {
+                def dOpt2 (str2int (substring tok 0 (sLen - 1)))
+                if (!null? dOpt2) {
+                    n.hasDuration = true
+                    n.durationValue = (unwrap dOpt2)
+                    n.durationUnit = "s"
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    fn parseSplitHrToken:boolean (n:SplitNode tok:string) {
+        def bpmPos (this.findToken(tok "bpm"))
+        if (bpmPos < 0) {
+            def bpmPos2 (this.findToken(tok "BPM"))
+            if (bpmPos2 < 0) {
+                return false
+            }
+            bpmPos = bpmPos2
+        }
+        def hrPart (trim (substring tok 0 bpmPos))
+        def hrBody@(mutable):string hrPart
+        if (this.startsWith(hrBody "@")) {
+            hrBody = (trim (substring hrBody 1 (strlen hrBody)))
+        }
+        def hrVal (this.parseStrictInt(hrBody))
+        if (hrVal < 0) {
+            return false
+        }
+        n.hasHr = true
+        n.hr = hrVal
+        return true
+    }
+
+    fn parseSplitColonDurationToken:boolean (n:SplitNode tok:string) {
+        def colonPos (this.findToken(tok ":"))
+        if (colonPos <= 0) {
+            return false
+        }
+        def minOpt (str2int (substring tok 0 colonPos))
+        def secOpt (str2int (substring tok (colonPos + 1) (strlen tok)))
+        if (null? minOpt) {
+            return false
+        }
+        if (null? secOpt) {
+            return false
+        }
+        def min (unwrap minOpt)
+        def sec (unwrap secOpt)
+        n.hasDuration = true
+        n.durationValue = ((min * 60) + sec)
+        n.durationUnit = "s"
+        return true
+    }
+
+    fn parseSplitIntensityToken:boolean (n:SplitNode tok:string) {
+        if ((strlen tok) == 0) {
+            return false
+        }
+        if ((charAt tok 0) != (ccode "@")) {
+            return false
+        }
+        def body (trim (substring tok 1 (strlen tok)))
+        def intJson (RunIntensityParserV1.parse(body))
+        if ((strlen intJson) == 0) {
+            return false
+        }
+        n.hasIntensity = true
+        n.intensityJson = intJson
+        return true
+    }
+
+    fn parseSplitPaceToken:boolean (n:SplitNode tok:string) {
+        def slashPos (this.findToken(tok "/"))
+        if (slashPos <= 0) {
+            return false
+        }
+        def leftP (substring tok 0 slashPos)
+        def rightP (substring tok (slashPos + 1) (strlen tok))
+        def min@(mutable):int -1
+        def sec@(mutable):int -1
+
+        def apos (this.findToken(leftP "'"))
+        def quote (this.findToken(leftP "\""))
+        if ((apos > 0) && (quote > apos)) {
+            def minOpt (str2int (substring leftP 0 apos))
+            def secOpt (str2int (substring leftP (apos + 1) quote))
+            if (!null? minOpt) {
+                if (!null? secOpt) {
+                    min = (unwrap minOpt)
+                    sec = (unwrap secOpt)
+                }
+            }
+        } {
+            def colonPos (this.findToken(leftP ":"))
+            if (colonPos > 0) {
+                def minOpt2 (str2int (substring leftP 0 colonPos))
+                def secOpt2 (str2int (substring leftP (colonPos + 1) (strlen leftP)))
+                if (!null? minOpt2) {
+                    if (!null? secOpt2) {
+                        min = (unwrap minOpt2)
+                        sec = (unwrap secOpt2)
+                    }
+                }
+            }
+        }
+
+        if (min < 0) {
+            return false
+        }
+        if (sec < 0) {
+            sec = 0
+        }
+
+        def perVal@(mutable):int 1
+        def perUnit@(mutable):string "km"
+        def mPos (this.findToken(rightP "m"))
+        def mValid@(mutable):boolean false
+        if (mPos > 0) {
+            mValid = true
+            if ((mPos + 1) < (strlen rightP)) {
+                if ((charAt rightP (mPos + 1)) == (ccode "i")) {
+                    mValid = false
+                }
+            }
+        }
+        if (mValid) {
+            def distOpt (str2int (substring rightP 0 mPos))
+            if (!null? distOpt) {
+                perVal = (unwrap distOpt)
+                perUnit = "m"
+            }
+        } {
+            def perKm (this.findToken(rightP "km"))
+            if (perKm > 0) {
+                def distOpt2 (str2int (substring rightP 0 perKm))
+                if (!null? distOpt2) {
+                    perVal = (unwrap distOpt2)
+                    perUnit = "km"
+                }
+            } {
+                if (rightP == "km") {
+                    perVal = 1
+                    perUnit = "km"
+                } {
+                    if (rightP == "m") {
+                        perVal = 1
+                        perUnit = "m"
+                    }
+                }
+            }
+        }
+
+        n.hasPace = true
+        n.paceMinutes = min
+        n.paceSeconds = sec
+        n.pacePerDistanceValue = perVal
+        n.pacePerDistanceUnit = perUnit
+        return true
+    }
+
+    fn replaceLastMoveChildJson:void (move:MoveNode child:AstNode) {
+        def cnt (array_length move.splits)
+        if (cnt == 0) {
+            return
+        }
+        def rebuilt:[AstNode]
+        def ri@(mutable):int 0
+        while (ri < cnt) {
+            if (ri == (cnt - 1)) {
+                push rebuilt child
+            } {
+                push rebuilt (at move.splits ri)
+            }
+            ri = ri + 1
+        }
+        move.splits = rebuilt
+    }
+
+    fn replaceLastMoveSplitJson:void (move:MoveNode split:SplitNode) {
+        this.replaceLastMoveChildJson(move split)
+    }
+
+    fn parseSplitRest:SplitNode (rest:string) {
+        def n (new SplitNode)
+        def body@(mutable):string (trim rest)
+
+        if (this.startsWith(body "Split ")) {
+            body = (trim (substring body 6 (strlen body)))
+        } {
+            if (body == "Split") {
+                body = ""
+            }
+        }
+
+        def barPos (this.findToken(body "|"))
+        def left@(mutable):string body
+        if (barPos >= 0) {
+            left = (trim (substring body 0 barPos))
+            def notePart (trim (substring body (barPos + 1) (strlen body)))
+            if ((strlen notePart) > 0) {
+                n.hasNote = true
+                n.note = notePart
+            }
+        }
+
+        left = (this.extractSplitCustomFields(n left))
+        left = (trim left)
+
+        if ((strlen left) == 0) {
+            if (n.hasNote) {
+                n.hasRecognized = true
+            }
+            return n
+        }
+
+        def tokens (strsplit left " ")
+        def nonEmpty:[string]
+        for tokens t:string i {
+            def tt (trim t)
+            if ((strlen tt) > 0) {
+                push nonEmpty tt
+            }
+        }
+
+        def cnt (array_length nonEmpty)
+        def ti@(mutable):int 0
+        while (ti < cnt) {
+            def tok (itemAt nonEmpty ti)
+            if (this.parseSplitDurationAtHrToken(n tok)) {
+                n.hasRecognized = true
+            } {
+                if (this.parseSplitPaceToken(n tok)) {
+                    n.hasRecognized = true
+                } {
+                    if (this.parseSplitIntensityToken(n tok)) {
+                        n.hasRecognized = true
+                    } {
+                        if (this.parseSplitHrToken(n tok)) {
+                            n.hasRecognized = true
+                        } {
+                            if (this.parseSplitTickQuoteDurationToken(n tok)) {
+                                n.hasRecognized = true
+                            } {
+                                if (this.parseSplitColonDurationToken(n tok)) {
+                                    n.hasRecognized = true
+                                } {
+                                    if (this.parseSplitDistanceToken(n tok)) {
+                                        n.hasRecognized = true
+                                    } {
+                                        if (this.parseSplitDurationToken(n tok)) {
+                                            n.hasRecognized = true
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            ti = ti + 1
+        }
+
+        return n
+    }
+
+    fn detectTrailingDistanceUnit:string (s:string) {
+        def sLen (strlen s)
+        if (sLen >= 2) {
+            def tail2 (substring s (sLen - 2) sLen)
+            if (tail2 == "km") {
+                return "km"
+            }
+        }
+        if (sLen >= 1) {
+            def tail1 (substring s (sLen - 1) sLen)
+            if (tail1 == "m") {
+                if (sLen >= 3) {
+                    def tail3 (substring s (sLen - 3) sLen)
+                    if (tail3 == "min") {
+                        return ""
+                    }
+                }
+                return "m"
+            }
+        }
+        return ""
+    }
+
+    fn stripPerSideSuffix:string (tok:string) {
+        def suffixes:[string]
+        push suffixes "/per side"
+        push suffixes "/per leg"
+        push suffixes "/per arm"
+        push suffixes "/suunta"
+        push suffixes "/puoli"
+        push suffixes "/jalka"
+        push suffixes "/käsi"
+        push suffixes "/side"
+        push suffixes "/leg"
+        push suffixes "/arm"
+        push suffixes "/each"
+        for suffixes sfx:string i {
+            def sfxLen (strlen sfx)
+            def tokLen (strlen tok)
+            if (tokLen >= sfxLen) {
+                if ((substring tok (tokLen - sfxLen) tokLen) == sfx) {
+                    return (substring tok 0 (tokLen - sfxLen))
+                }
+            }
+        }
+        return tok
+    }
+
+    fn detectTrailingUnit:string (s:string) {
+        def sLen (strlen s)
+        if (sLen >= 4) {
+            def tail3 (substring s (sLen - 3) sLen)
+            if (tail3 == "min") {
+                return "min"
+            }
+        }
+        if (sLen >= 2) {
+            def tail1 (substring s (sLen - 1) sLen)
+            if (tail1 == "s") {
+                return "s"
+            }
+        }
+        return ""
+    }
+
+    fn parseStrictInt:int (s:string) {
+        if ((strlen s) == 0) {
+            return -1
+        }
+        def vOpt (str2int s)
+        if (null? vOpt) {
+            return -1
+        }
+        def v (unwrap vOpt)
+        if ((to_string v) != s) {
+            return -1
+        }
+        return v
+    }
+
+    fn parseRepsToken:boolean (n:ExerciseNode tok:string) {
+        if ((strlen tok) == 0) {
+            return false
+        }
+        def perSideAll@(mutable):boolean false
+        def tokBase (this.stripPerSideSuffix(tok))
+        if ((strlen tokBase) < (strlen tok)) {
+            perSideAll = true
+        }
+        def plusPos (this.findToken(tokBase "+"))
+        if (plusPos > 0) {
+            def leftRaw (substring tokBase 0 plusPos)
+            def rightRaw (substring tokBase (plusPos + 1) (strlen tokBase))
+            def rUnit (this.detectTrailingUnit(rightRaw))
+            def rCore@(mutable):string rightRaw
+            if (rUnit != "") {
+                rCore = (substring rightRaw 0 ((strlen rightRaw) - (strlen rUnit)))
+            }
+            def lUnit (this.detectTrailingUnit(leftRaw))
+            def lCore@(mutable):string leftRaw
+            if (lUnit != "") {
+                lCore = (substring leftRaw 0 ((strlen leftRaw) - (strlen lUnit)))
+            }
+            if ((lUnit != "") && (rUnit != "")) {
+                if (lUnit != rUnit) {
+                    return false
+                }
+            }
+            def lVal (this.parseStrictInt(lCore))
+            if (lVal < 0) {
+                return false
+            }
+            def rVal (this.parseStrictInt(rCore))
+            if (rVal < 0) {
+                return false
+            }
+            n.hasReps = true
+            n.reps = lVal
+            n.hasRepsRight = true
+            n.repsRight = rVal
+            def chosenUnit@(mutable):string rUnit
+            if (chosenUnit == "") {
+                chosenUnit = lUnit
+            }
+            if (chosenUnit != "") {
+                if (n.hasUnit == false) {
+                    n.hasUnit = true
+                    n.unit = chosenUnit
+                }
+            }
+            return true
+        }
+        def dashPos (this.findToken(tokBase "-"))
+        if (dashPos > 0) {
+            def leftRaw (substring tokBase 0 dashPos)
+            def rightRaw (substring tokBase (dashPos + 1) (strlen tokBase))
+            def rUnit (this.detectTrailingUnit(rightRaw))
+            def rCore@(mutable):string rightRaw
+            if (rUnit != "") {
+                rCore = (substring rightRaw 0 ((strlen rightRaw) - (strlen rUnit)))
+            }
+            def lUnit (this.detectTrailingUnit(leftRaw))
+            def lCore@(mutable):string leftRaw
+            if (lUnit != "") {
+                lCore = (substring leftRaw 0 ((strlen leftRaw) - (strlen lUnit)))
+            }
+            if ((lUnit != "") && (rUnit != "")) {
+                if (lUnit != rUnit) {
+                    return false
+                }
+            }
+            def lVal (this.parseStrictInt(lCore))
+            if (lVal < 0) {
+                return false
+            }
+            def rVal (this.parseStrictInt(rCore))
+            if (rVal < 0) {
+                return false
+            }
+            n.hasReps = true
+            n.reps = lVal
+            n.hasRepsMax = true
+            n.repsMax = rVal
+            def chosenUnit@(mutable):string rUnit
+            if (chosenUnit == "") {
+                chosenUnit = lUnit
+            }
+            if (chosenUnit != "") {
+                if (n.hasUnit == false) {
+                    n.hasUnit = true
+                    n.unit = chosenUnit
+                }
+            }
+            return true
+        }
+        return (this.parseRepsSingle(n tok true))
+    }
+
+    fn parseRepsSingle:boolean (n:ExerciseNode tok:string allowUnit:boolean) {
+        if ((strlen tok) == 0) {
+            return false
+        }
+        def perSide@(mutable):boolean false
+        def stripped (this.stripPerSideSuffix(tok))
+        if ((strlen stripped) < (strlen tok)) {
+            perSide = true
+        }
+        def unit@(mutable):string ""
+        def core@(mutable):string stripped
+        if (allowUnit) {
+            def u (this.detectTrailingUnit(stripped))
+            if (u != "") {
+                unit = u
+                core = (substring stripped 0 ((strlen stripped) - (strlen u)))
+            }
+        }
+        def v (this.parseStrictInt(core))
+        if (v < 0) {
+            return false
+        }
+        n.hasReps = true
+        n.reps = v
+        if (perSide) {
+            n.hasRepsRight = true
+            n.repsRight = v
+        }
+        if (unit != "") {
+            if (n.hasUnit == false) {
+                n.hasUnit = true
+                n.unit = unit
+            }
+        }
+        return true
+    }
+
+    fn parseWeightSpec:boolean (n:ExerciseNode ws:string) {
+        if ((strlen ws) == 0) {
+            return false
+        }
+        if (ws == "bw") {
+            n.hasWeight = true
+            n.weightValue = 0
+            n.weightUnit = "bodyweight"
+            return true
+        }
+        if (ws == "bodyweight") {
+            n.hasWeight = true
+            n.weightValue = 0
+            n.weightUnit = "bodyweight"
+            return true
+        }
+        if (ws == "tanko") {
+            n.hasWeight = true
+            n.weightValue = 20
+            n.weightUnit = "bar"
+            return true
+        }
+        def pctPos (this.findToken(ws "%"))
+        if (pctPos > 0) {
+            def pctRaw (substring ws 0 pctPos)
+            def pctVal (this.parseStrictInt(pctRaw))
+            if (pctVal >= 0) {
+                n.hasWeightPercent = true
+                n.weightPercent = pctVal
+                return true
+            }
+        }
+        def kgPos (this.findToken(ws "kg"))
+        if (kgPos > 0) {
+            def vRaw (substring ws 0 kgPos)
+            def dashPos (this.findToken(vRaw "-"))
+            if (dashPos > 0) {
+                def vMinRaw (substring vRaw 0 dashPos)
+                def vMaxRaw (substring vRaw (dashPos + 1) (strlen vRaw))
+                def vMin (this.parseStrictInt(vMinRaw))
+                def vMax (this.parseStrictInt(vMaxRaw))
+                if (vMin >= 0) {
+                    if (vMax >= 0) {
+                        n.hasWeight = true
+                        n.weightValue = vMin
+                        n.hasWeightValueMax = true
+                        n.weightValueMax = vMax
+                        n.weightUnit = "kg"
+                        return true
+                    }
+                }
+            }
+            def vOpt (str2int vRaw)
+            if (!null? vOpt) {
+                if ((to_string (unwrap vOpt)) == vRaw) {
+                    n.hasWeight = true
+                    n.weightValue = (unwrap vOpt)
+                    n.weightUnit = "kg"
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    fn parseDateToken:DateValueNode (token:string) {
+        def out (new DateValueNode)
+        def t (trim token)
+        def datePart:string t
+        def timePart:string ""
+
+        def tPos (this.findToken(t "T"))
+        if (tPos > 0) {
+            datePart = (substring t 0 tPos)
+            timePart = (substring t (tPos + 1) (strlen t))
+            out.type = "datetime"
+        }
+
+        def parts (strsplit datePart "-")
+        if ((array_length parts) != 3) {
+            return out
+        }
+
+        def yOpt (str2int (trim (itemAt parts 0)))
+        def mOpt (str2int (trim (itemAt parts 1)))
+        def dOpt (str2int (trim (itemAt parts 2)))
+        if (null? yOpt) {
+            return out
+        }
+        if (null? mOpt) {
+            return out
+        }
+        if (null? dOpt) {
+            return out
+        }
+
+        out.year = (unwrap yOpt)
+        out.month = (unwrap mOpt)
+        out.day = (unwrap dOpt)
+        out.unknown = false
+
+        if ((strlen timePart) > 0) {
+            def timeCore:string timePart
+            def plusPos (this.findToken(timePart "+"))
+            def minusPos (this.findToken(timePart "-"))
+            if (plusPos >= 5) {
+                timeCore = (substring timePart 0 plusPos)
+                out.timezone = (substring timePart plusPos (strlen timePart))
+                out.hasTimezone = true
+            } {
+                if (minusPos >= 5) {
+                    timeCore = (substring timePart 0 minusPos)
+                    out.timezone = (substring timePart minusPos (strlen timePart))
+                    out.hasTimezone = true
+                } {
+                    timeCore = timePart
+                }
+            }
+            def colonPos (this.findToken(timeCore ":"))
+            if (colonPos > 0) {
+                def hOpt (str2int (substring timeCore 0 colonPos))
+                def mPart (substring timeCore (colonPos + 1) (strlen timeCore))
+                def mOpt2 (str2int mPart)
+                if (!null? hOpt) {
+                    if (!null? mOpt2) {
+                        out.hasHour = true
+                        out.hour = (unwrap hOpt)
+                        out.hasMinute = true
+                        out.minute = (unwrap mOpt2)
+                    }
+                }
+            }
+        }
+
+        return out
+    }
+
+    fn parseHeaderWorkout:WorkoutNode (line:string pendingDate@(optional):DateValueNode) {
+        def w (new WorkoutNode)
+        if (!null? pendingDate) {
+            w.date = pendingDate
+        }
+        def hashPos (this.findToken(line "##"))
+        if (hashPos > 0) {
+            def left (trim (substring line 0 hashPos))
+            def right (trim (substring line (hashPos + 2) (strlen line)))
+            if (this.startsWith(left "[")) {
+                if ((charAt left ((strlen left) - 1)) == (ccode "]")) {
+                    def d (this.parseDateToken((substring left 1 ((strlen left) - 1))))
+                    w.date = d
+                }
+            }
+            if ((strlen right) > 0) {
+                if (this.startsWith(right "[")) {
+                    def closePos@(mutable):int -1
+                    def rLen (strlen right)
+                    def ri@(mutable):int 1
+                    while (ri < rLen) {
+                        if ((charAt right ri) == (ccode "]")) {
+                            closePos = ri
+                            break
+                        }
+                        ri = ri + 1
+                    }
+                    if (closePos > 0) {
+                        def d2 (this.parseDateToken((substring right 1 closePos)))
+                        w.date = d2
+                        def titleRest (trim (substring right (closePos + 1) (strlen right)))
+                        if ((strlen titleRest) > 0) {
+                            w.title = titleRest
+                            w.hasTitle = true
+                        }
+                        return w
+                    }
+                }
+                w.title = right
+                w.hasTitle = true
+            }
+            return w
+        }
+
+        if (this.startsWith(line "## ")) {
+            def right2 (trim (substring line 3 (strlen line)))
+            if (this.startsWith(right2 "[")) {
+                def closePos2@(mutable):int -1
+                def rLen2 (strlen right2)
+                def ri2@(mutable):int 1
+                while (ri2 < rLen2) {
+                    if ((charAt right2 ri2) == (ccode "]")) {
+                        closePos2 = ri2
+                        break
+                    }
+                    ri2 = ri2 + 1
+                }
+                if (closePos2 > 0) {
+                    def d3 (this.parseDateToken((substring right2 1 closePos2)))
+                    w.date = d3
+                    def titleRest2 (trim (substring right2 (closePos2 + 1) (strlen right2)))
+                    if ((strlen titleRest2) > 0) {
+                        w.title = titleRest2
+                        w.hasTitle = true
+                    }
+                    return w
+                }
+            }
+            w.title = right2
+            w.hasTitle = true
+            return w
+        }
+
+        return w
+    }
+
+    fn parseTags:TagsNode (line:string) {
+        def n (new TagsNode)
+        def rest (trim (substring line 5 (strlen line)))
+        if ((strlen rest) == 0) {
+            return n
+        }
+
+        def parts (strsplit rest ",")
+        for parts p:string i {
+            def tag (trim p)
+            if ((strlen tag) > 0) {
+                push n.tags tag
+            }
+        }
+        return n
+    }
+
+    fn parseEmojis:EmojisNode (line:string) {
+        def n (new EmojisNode)
+        if ((strlen line) > 7) {
+            n.emojis = (trim (substring line 7 (strlen line)))
+        }
+        return n
+    }
+
+    fn parseSport:SportNode (line:string) {
+        def n (new SportNode)
+        if ((strlen line) <= 6) {
+            return n
+        }
+        def levelEnd (this.findToken(line " "))
+        if (levelEnd <= 5) {
+            return n
+        }
+        def levelStr (substring line 5 levelEnd)
+        def levelOpt (str2int levelStr)
+        if (!null? levelOpt) {
+            n.level = (unwrap levelOpt)
+        }
+        n.name = (trim (substring line (levelEnd + 1) (strlen line)))
+        return n
+    }
+
+    fn parseDerived:DerivedNode (line:string) {
+        def n (new DerivedNode)
+        if ((strlen line) <= 8) {
+            return n
+        }
+
+        def rest (trim (substring line 8 (strlen line)))
+        def firstSpace (this.findToken(rest " "))
+        if (firstSpace <= 0) {
+            return n
+        }
+        n.name = (substring rest 0 firstSpace)
+
+        def rem (trim (substring rest (firstSpace + 1) (strlen rest)))
+        def noteBar (this.findToken(rem " | "))
+        def remCore:string rem
+        if (noteBar > 0) {
+            remCore = (trim (substring rem 0 noteBar))
+            def noteText (trim (substring rem (noteBar + 3) (strlen rem)))
+            if ((strlen noteText) > 0) {
+                n.hasNote = true
+                n.note = noteText
+            }
+        } {
+            remCore = rem
+        }
+
+        def secondSpace (this.findToken(remCore " "))
+        def valueUnit:string remCore
+        def meta:string ""
+        if (secondSpace > 0) {
+            valueUnit = (substring remCore 0 secondSpace)
+            meta = (trim (substring remCore (secondSpace + 1) (strlen remCore)))
+        }
+
+        def unitSep (this.findToken(valueUnit "|"))
+        if (unitSep > 0) {
+            def valueStr (substring valueUnit 0 unitSep)
+            def valueOpt (str2int valueStr)
+            if (!null? valueOpt) {
+                n.value = (unwrap valueOpt)
+            }
+            n.unit = (substring valueUnit (unitSep + 1) (strlen valueUnit))
+        }
+
+        if ((strlen meta) > 0) {
+            def srcMarker:string "source:"
+            def srcPos (this.findToken(meta srcMarker))
+            if (srcPos >= 0) {
+                def afterSrc (trim (substring meta (srcPos + 7) (strlen meta)))
+                if ((strlen afterSrc) > 0) {
+                    if ((charAt afterSrc 0) == (ccode "\"")) {
+                        def closeQ@(mutable):int -1
+                        def aLen (strlen afterSrc)
+                        def qi@(mutable):int 1
+                        while (qi < aLen) {
+                            if ((charAt afterSrc qi) == (ccode "\"")) {
+                                closeQ = qi
+                                break
+                            }
+                            qi = qi + 1
+                        }
+                        if (closeQ > 0) {
+                            n.source = (substring afterSrc 1 closeQ)
+                        }
+                    } {
+                        def sp (this.findToken(afterSrc " "))
+                        if (sp > 0) {
+                            n.source = (substring afterSrc 0 sp)
+                        } {
+                            n.source = afterSrc
+                        }
+                    }
+                }
+            }
+
+            def parts (strsplit meta " ")
+            for parts part:string i {
+                def token (trim part)
+                if (this.startsWith(token "basis:")) {
+                    n.basis = (substring token 6 (strlen token))
+                }
+                if (this.startsWith(token "confidence:")) {
+                    def cRaw (substring token 11 (strlen token))
+                    def cVal:string cRaw
+                    if ((strlen cRaw) > 0) {
+                        if ((charAt cRaw ((strlen cRaw) - 1)) == (ccode "%")) {
+                            cVal = (substring cRaw 0 ((strlen cRaw) - 1))
+                        }
+                    }
+                    def cOpt (str2int cVal)
+                    if (!null? cOpt) {
+                        n.hasConfidence = true
+                        n.confidence = (unwrap cOpt)
+                    }
+                }
+                if (this.startsWith(token "source:")) {
+                    def sRaw (substring token 7 (strlen token))
+                    if ((strlen n.source) == 0) {
+                        if ((strlen sRaw) > 1) {
+                            if ((charAt sRaw 0) == (ccode "\"")) {
+                                if ((charAt sRaw ((strlen sRaw) - 1)) == (ccode "\"")) {
+                                    n.source = (substring sRaw 1 ((strlen sRaw) - 1))
+                                } {
+                                    n.source = sRaw
+                                }
+                            } {
+                                n.source = sRaw
+                            }
+                        } {
+                            n.source = sRaw
+                        }
+                    }
+                }
+                if (this.startsWith(token "goodness:")) {
+                    def gRaw (substring token 9 (strlen token))
+                    def gOpt (str2int gRaw)
+                    if (!null? gOpt) {
+                        n.hasGoodness = true
+                        n.goodness = (unwrap gOpt)
+                    }
+                }
+            }
+        }
+
+        return n
+    }
+
+    fn parsePhase:PhaseNode (line:string) {
+        def n (new PhaseNode)
+        if ((strlen line) <= 5) {
+            return n
+        }
+
+        def rest (trim (substring line 5 (strlen line)))
+        if ((strlen rest) == 0) {
+            return n
+        }
+
+        def barPos (this.findToken(rest "|"))
+        def left:string rest
+        if (barPos >= 0) {
+            left = (trim (substring rest 0 barPos))
+            def detailPart (trim (substring rest (barPos + 1) (strlen rest)))
+            def numOnly (this.parseStrictInt(left))
+            if (numOnly >= 0) {
+                def numStr (to_string numOnly)
+                if (numStr == left) {
+                    n.hasNumber = true
+                    n.number = numOnly
+                    n.name = detailPart
+                    return n
+                }
+            }
+            if ((strlen detailPart) > 0) {
+                n.hasDetails = true
+                n.details = detailPart
+            }
+        }
+
+        if ((strlen left) > 1) {
+            def firstCh (charAt left 0)
+            if ((firstCh >= (ccode "0")) && (firstCh <= (ccode "9"))) {
+                def sp (this.findToken(left " "))
+                if (sp > 0) {
+                    def nOpt (str2int (substring left 0 sp))
+                    if (!null? nOpt) {
+                        n.hasNumber = true
+                        n.number = (unwrap nOpt)
+                    }
+                    n.name = (trim (substring left (sp + 1) (strlen left)))
+                    return n
+                }
+            }
+        }
+
+        n.name = left
+        return n
+    }
+
+    fn parseMeta:MetaNode (line:string) {
+        def n (new MetaNode)
+        if ((strlen line) <= 1) {
+            return n
+        }
+        def rest (trim (substring line 1 (strlen line)))
+        def colPos (this.findToken(rest ":"))
+        if (colPos > 0) {
+            n.key = (trim (substring rest 0 colPos))
+            n.value = (trim (substring rest (colPos + 1) (strlen rest)))
+        }
+        return n
+    }
+
+    fn parseFeeling:FeelingNode (line:string) {
+        def n (new FeelingNode)
+        if ((strlen line) <= 7) {
+            return n
+        }
+
+        def rest (trim (substring line 8 (strlen line)))
+        if ((strlen rest) == 0) {
+            return n
+        }
+
+        if (this.startsWith(rest "RPE:")) {
+            n.scale = "rpe"
+            def vOpt (str2int (trim (substring rest 4 (strlen rest))))
+            if (!null? vOpt) {
+                n.hasValue = true
+                n.value = (unwrap vOpt)
+            }
+            return n
+        }
+
+        def barPos (this.findToken(rest "|"))
+        def left:string rest
+        if (barPos >= 0) {
+            left = (trim (substring rest 0 barPos))
+            def desc (trim (substring rest (barPos + 1) (strlen rest)))
+            if ((strlen desc) > 0) {
+                n.hasDescription = true
+                n.description = desc
+            }
+        }
+
+        if (left == "?/10") {
+            n.hasMax = true
+            n.max = 10
+            return n
+        }
+
+        def slashPos (this.findToken(left "/10"))
+        if (slashPos > 0) {
+            def vOpt2 (str2int (substring left 0 slashPos))
+            if (!null? vOpt2) {
+                n.hasValue = true
+                n.value = (unwrap vOpt2)
+            }
+            return n
+        }
+
+        def plainVal (this.parseStrictInt(left))
+        if (plainVal >= 0) {
+            n.hasValue = true
+            n.value = plainVal
+        }
+
+        return n
+    }
+
+    fn parseChildFeeling:FeelingNode (body:string) {
+        def n (new FeelingNode)
+        def rest@(mutable):string (trim body)
+        if (this.startsWith(rest "Feelings")) {
+            rest = (trim (substring rest 8 (strlen rest)))
+        } {
+            if (this.startsWith(rest "Feeling")) {
+                rest = (trim (substring rest 7 (strlen rest)))
+            }
+        }
+        if ((strlen rest) == 0) {
+            return n
+        }
+
+        def barPos (this.findToken(rest "|"))
+        def left:string rest
+        if (barPos >= 0) {
+            left = (trim (substring rest 0 barPos))
+            def desc (trim (substring rest (barPos + 1) (strlen rest)))
+            if ((strlen desc) > 0) {
+                n.hasDescription = true
+                n.description = desc
+            }
+        }
+
+        def plainVal (this.parseStrictInt(left))
+        if (plainVal >= 0) {
+            n.hasValue = true
+            n.value = plainVal
+        }
+        return n
+    }
+
+    fn parseChildComment:TextLineNode (body:string) {
+        def n (new TextLineNode)
+        if (this.startsWith(body "Comment ")) {
+            n.value = (trim (substring body 8 (strlen body)))
+            return n
+        }
+        if ((strlen body) > 1) {
+            if ((charAt body 0) == (ccode "\"")) {
+                def tail (substring body 1 (strlen body))
+                def endQuote (this.findToken(tail "\""))
+                if (endQuote >= 0) {
+                    n.value = (trim (substring body 1 (endQuote + 1)))
+                }
+            }
+        }
+        return n
+    }
+
+    fn parseChildBody:ChildParseResult (body:string) {
+        def out (new ChildParseResult)
+
+        if (SplitChildParserV1.isCommentBody(body)) {
+            out.found = true
+            out.kind = "text"
+            out.canNest = false
+            return out
+        }
+
+        if (this.startsWith(body "Derived ")) {
+            def d (this.parseDerived(body))
+            if ((strlen d.name) > 0) {
+                out.found = true
+                out.kind = "derived"
+                out.canNest = false
+            }
+            return out
+        }
+
+        if (this.startsWith(body "Feeling")) {
+            def f (this.parseChildFeeling(body))
+            if (f.hasValue) {
+                out.found = true
+                out.kind = "feeling"
+                out.canNest = false
+            } {
+                if (f.hasDescription) {
+                    out.found = true
+                    out.kind = "feeling"
+                    out.canNest = false
+                }
+            }
+            return out
+        }
+
+        def attempt (SplitChildParserV1.parseAttempt(body))
+        if (attempt.hasRecognized) {
+            out.found = true
+            out.kind = "attempt"
+            out.canNest = false
+            return out
+        }
+
+        def recovery (SplitChildParserV1.parseRecovery(body))
+        if (recovery.hasRecognized) {
+            out.found = true
+            out.kind = "recovery"
+            out.canNest = false
+            return out
+        }
+
+        def splitMove (SplitChildParserV1.parseSplitMove(body))
+        if (splitMove.hasRecognized) {
+            out.found = true
+            out.kind = "splitMove"
+            out.canNest = true
+            out.nestSplitMove = splitMove
+            return out
+        }
+
+        return out
+    }
+
+    fn childNodeFromResult:AstNode (parsed:ChildParseResult body:string) {
+        if (parsed.kind == "text") {
+            return (this.parseChildComment(body))
+        }
+        if (parsed.kind == "derived") {
+            return (this.parseDerived(body))
+        }
+        if (parsed.kind == "feeling") {
+            return (this.parseChildFeeling(body))
+        }
+        if (parsed.kind == "attempt") {
+            return (SplitChildParserV1.parseAttempt(body))
+        }
+        if (parsed.kind == "recovery") {
+            return (SplitChildParserV1.parseRecovery(body))
+        }
+        if (parsed.kind == "splitMove") {
+            return (SplitChildParserV1.parseSplitMove(body))
+        }
+        def fallback (new UnknownNode)
+        fallback.raw = body
+        return fallback
+    }
+
+    fn childJsonFromResult:string (parsed:ChildParseResult body:string) {
+        if (parsed.kind == "text") {
+            return ((this.parseChildComment(body)).toJSONString())
+        }
+        if (parsed.kind == "derived") {
+            return ((this.parseDerived(body)).toJSONString())
+        }
+        if (parsed.kind == "feeling") {
+            return ((this.parseChildFeeling(body)).toJSONString())
+        }
+        if (parsed.kind == "attempt") {
+            return ((SplitChildParserV1.parseAttempt(body)).toJSONString())
+        }
+        if (parsed.kind == "recovery") {
+            return ((SplitChildParserV1.parseRecovery(body)).toJSONString())
+        }
+        if (parsed.kind == "splitMove") {
+            return ((SplitChildParserV1.parseSplitMove(body)).toJSONString())
+        }
+        return ""
+    }
+
+    fn parseReminder:ReminderNode (line:string) {
+        def n (new ReminderNode)
+        if ((strlen line) <= 9) {
+            return n
+        }
+
+        def rest (trim (substring line 9 (strlen line)))
+        def barPos (this.findToken(rest "|"))
+        def dateStr:string rest
+        if (barPos >= 0) {
+            dateStr = (trim (substring rest 0 barPos))
+            def desc (trim (substring rest (barPos + 1) (strlen rest)))
+            if ((strlen desc) > 0) {
+                n.hasDescription = true
+                n.description = desc
+            }
+        }
+
+        def parts (strsplit dateStr "-")
+        if ((array_length parts) == 3) {
+            def yOpt (str2int (trim (itemAt parts 0)))
+            def mOpt (str2int (trim (itemAt parts 1)))
+            def dOpt (str2int (trim (itemAt parts 2)))
+            if (!null? yOpt) {
+                n.year = (unwrap yOpt)
+            }
+            if (!null? mOpt) {
+                n.month = (unwrap mOpt)
+            }
+            if (!null? dOpt) {
+                n.day = (unwrap dOpt)
+            }
+        }
+
+        return n
+    }
+
+    fn parsePain:PainNode (line:string) {
+        def n (new PainNode)
+        if ((strlen line) <= 5) {
+            return n
+        }
+
+        def rest (trim (substring line 5 (strlen line)))
+        def barPos (this.findToken(rest "|"))
+        if (barPos > 0) {
+            def left (trim (substring rest 0 barPos))
+            def right (trim (substring rest (barPos + 1) (strlen rest)))
+
+            if (left != "-") {
+                n.hasBodyPart = true
+                n.bodyPart = left
+            }
+
+            if ((strlen right) > 0) {
+                n.hasDescription = true
+                n.description = right
+            }
+
+            def sevPos (this.findToken(right "/10"))
+            if (sevPos > 0) {
+                def sevOpt (str2int (substring right 0 sevPos))
+                if (!null? sevOpt) {
+                    n.hasSeverity = true
+                    n.severity = (unwrap sevOpt)
+                    def tail (trim (substring right (sevPos + 3) (strlen right)))
+                    if ((strlen tail) > 0) {
+                        n.description = tail
+                    }
+                }
+            }
+        }
+
+        return n
+    }
+
+    fn parseDuration:DurationNode (line:string) {
+        def n (new DurationNode)
+        if ((strlen line) <= 5) {
+            return n
+        }
+
+        def rest (trim (substring line 5 (strlen line)))
+        def barPos (this.findToken(rest "|"))
+        def left@(mutable):string rest
+        if (barPos >= 0) {
+            left = (trim (substring rest 0 barPos))
+            def desc (trim (substring rest (barPos + 1) (strlen rest)))
+            if ((strlen desc) > 0) {
+                n.hasDescription = true
+                n.description = desc
+            }
+        }
+
+        if (this.startsWith(left "?")) {
+            return n
+        }
+
+        def clean@(mutable):string left
+        def cleanSpacePos (this.findToken(clean " "))
+        if (cleanSpacePos > 0) {
+            def parts (strsplit clean " ")
+            if ((array_length parts) >= 2) {
+                clean = ((itemAt parts 0) + (itemAt parts 1))
+            }
+        }
+
+        def colonClock (this.findToken(clean ":"))
+        def dotClock (this.findToken(clean "."))
+        def clockSep@(mutable):int -1
+        if (colonClock > 0) {
+            clockSep = colonClock
+        } {
+            if (dotClock > 0) {
+                clockSep = dotClock
+            }
+        }
+        if (clockSep > 0) {
+            def minPosCheck (this.findToken(clean "min"))
+            if (minPosCheck < 0) {
+                def hourRaw (substring clean 0 clockSep)
+                def minRaw (substring clean (clockSep + 1) (strlen clean))
+                def hourVal (this.parseStrictInt(hourRaw))
+                def minVal@(mutable):int (this.parseStrictInt(minRaw))
+                if (minVal < 0) {
+                    def minOpt (str2int minRaw)
+                    if (!null? minOpt) {
+                        minVal = (unwrap minOpt)
+                    }
+                }
+                if (hourVal >= 0) {
+                    if (minVal >= 0) {
+                        n.hasTimeOfDay = true
+                        n.todHour = hourVal
+                        n.todMinute = minVal
+                        return n
+                    }
+                }
+            }
+        }
+
+        def tickPos (this.findToken(clean "'"))
+        if (tickPos > 0) {
+            def quotePos (this.findToken(clean "\""))
+            if (quotePos > tickPos) {
+                def minRaw2 (substring clean 0 tickPos)
+                def secRaw2 (substring clean (tickPos + 1) quotePos)
+                def minV (this.parseStrictInt(minRaw2))
+                def secV (this.parseStrictInt(secRaw2))
+                if (minV >= 0) {
+                    if (secV >= 0) {
+                        def totalMin:double ( (to_double minV) + ( (to_double secV) / 60.0) )
+                        n.hasFloatSingle = true
+                        n.floatValueRaw = (double2str totalMin)
+                        n.unit = "min"
+                        return n
+                    }
+                }
+            }
+        }
+
+        def rangePos (this.findToken(clean "-"))
+        if (rangePos > 0) {
+            def unitPos (this.findToken(clean "min"))
+            if (unitPos > rangePos) {
+                def minOpt (str2int (substring clean 0 rangePos))
+                def maxOpt (str2int (substring clean (rangePos + 1) unitPos))
+                if (!null? minOpt) {
+                    if (!null? maxOpt) {
+                        n.hasRange = true
+                        n.minValue = (unwrap minOpt)
+                        n.maxValue = (unwrap maxOpt)
+                    }
+                }
+            }
+            return n
+        }
+
+        def unitPos2 (this.findToken(clean "min"))
+        if (unitPos2 > 0) {
+            def vOpt (str2int (substring clean 0 unitPos2))
+            if (!null? vOpt) {
+                n.hasSingle = true
+                n.singleValue = (unwrap vOpt)
+            }
+        }
+
+        return n
+    }
+
+    fn parseContacts:ContactsNode (line:string) {
+        def n (new ContactsNode)
+        if ((strlen line) <= 9) {
+            return n
+        }
+
+        def rest (trim (substring line 9 (strlen line)))
+        def barPos (this.findToken(rest "|"))
+        def left:string rest
+        if (barPos >= 0) {
+            left = (trim (substring rest 0 barPos))
+            def namePart (trim (substring rest (barPos + 1) (strlen rest)))
+            if ((strlen namePart) > 0) {
+                n.hasName = true
+                n.name = namePart
+            }
+        }
+
+        def xPos (this.findToken(left "x"))
+        if (xPos > 0) {
+            def setsOpt (str2int (substring left 0 xPos))
+            def repsOpt (str2int (substring left (xPos + 1) (strlen left)))
+            if (!null? setsOpt) {
+                if (!null? repsOpt) {
+                    n.hasSets = true
+                    n.sets = (unwrap setsOpt)
+                    n.hasReps = true
+                    n.reps = (unwrap repsOpt)
+                    n.hasCount = true
+                    n.count = ((unwrap setsOpt) * (unwrap repsOpt))
+                    return n
+                }
+            }
+        }
+
+        def rangePos (this.findToken(left "-"))
+        if (rangePos > 0) {
+            def minOpt (str2int (substring left 0 rangePos))
+            def maxOpt (str2int (substring left (rangePos + 1) (strlen left)))
+            if (!null? minOpt) {
+                n.hasCount = true
+                n.count = (unwrap minOpt)
+            }
+            if (!null? maxOpt) {
+                n.hasCountMax = true
+                n.countMax = (unwrap maxOpt)
+            }
+            return n
+        }
+
+        def cOpt (str2int left)
+        if (!null? cOpt) {
+            n.hasCount = true
+            n.count = (unwrap cOpt)
+        } {
+            if (barPos < 0) {
+                if ((strlen left) > 0) {
+                    n.hasName = true
+                    n.name = left
+                }
+            }
+        }
+
+        return n
+    }
+
+    fn parseSection:SectionNode (line:string) {
+        def n (new SectionNode)
+        if ((strlen line) <= 8) {
+            return n
+        }
+
+        def rest (trim (substring line 8 (strlen line)))
+        if (rest == "2") {
+            n.name = "Section 2"
+            return n
+        }
+
+        def parts (strsplit rest " ")
+        if ((array_length parts) > 0) {
+            def p0 (itemAt parts 0)
+            n.name = p0
+            def p0Dash (this.findToken(p0 "-"))
+            def p0mPos (this.findToken(p0 "m"))
+            if (p0Dash > 0) {
+                if (p0mPos > p0Dash) {
+                    def sOpt (str2int (substring p0 0 p0Dash))
+                    def eOpt (str2int (substring p0 (p0Dash + 1) p0mPos))
+                    if (!null? sOpt) {
+                        if (!null? eOpt) {
+                            n.hasSegment = true
+                            n.segmentStart = (unwrap sOpt)
+                            n.segmentEnd = (unwrap eOpt)
+                            n.segmentUnit = "m"
+                        }
+                    }
+                }
+            }
+        }
+        if ((array_length parts) > 1) {
+            def p1 (itemAt parts 1)
+            if ((strlen p1) > 1) {
+                if ((charAt p1 ((strlen p1) - 1)) == (ccode "%")) {
+                    def iv (substring p1 0 ((strlen p1) - 1))
+                    def iOpt (str2int iv)
+                    if (!null? iOpt) {
+                        n.hasIntensity = true
+                        n.intensity = (unwrap iOpt)
+                    }
+                }
+            }
+            def p1DashPos (this.findToken(p1 "-"))
+            if (p1DashPos > 0) {
+                def dash p1DashPos
+                def unitPos (this.findToken(p1 "m"))
+                if (unitPos > dash) {
+                    def sOpt (str2int (substring p1 0 dash))
+                    def eOpt (str2int (substring p1 (dash + 1) unitPos))
+                    if (!null? sOpt) {
+                        if (!null? eOpt) {
+                            n.hasSegment = true
+                            n.segmentStart = (unwrap sOpt)
+                            n.segmentEnd = (unwrap eOpt)
+                            n.segmentUnit = "m"
+                        }
+                    }
+                    n.name = p1
+                }
+            }
+        }
+        if ((array_length parts) > 2) {
+            def p2 (itemAt parts 2)
+            def durPos (this.findToken(p2 "min"))
+            if (durPos > 0) {
+                def dOpt (str2int (substring p2 0 durPos))
+                if (!null? dOpt) {
+                    n.hasDuration = true
+                    n.duration = (unwrap dOpt)
+                }
+            }
+        }
+
+        if ((array_length parts) == 1) {
+            n.name = rest
+        }
+
+        return n
+    }
+
+    fn measuredDuration:MeasuredDurationNode (left:int right:int hasRight:boolean unit:string) {
+        def m (new MeasuredDurationNode)
+        m.left = left
+        m.hasRight = hasRight
+        m.right = right
+        m.unit = unit
+        return m
+    }
+
+    ; The token did not parse. `unit` is "" and no caller keeps it.
+    fn measuredDurationNone:MeasuredDurationNode () {
+        return (new MeasuredDurationNode)
+    }
+
+    fn parseMeasuredDurationItem:MeasuredDurationNode (tok:string) {
+        def t (trim tok)
+        if ((strlen t) == 0) {
+            return (this.measuredDurationNone())
+        }
+
+        def plusPos (this.findToken(t "+"))
+        if (plusPos > 0) {
+            def leftTok (trim (substring t 0 plusPos))
+            def rightTok (trim (substring t (plusPos + 1) (strlen t)))
+            def rMinPos (this.findToken(rightTok "min"))
+            def rSecPos (this.findToken(rightTok "s"))
+            def rUnit@(mutable):string ""
+            def rVal@(mutable):int -1
+            if (rMinPos > 0) {
+                rUnit = "min"
+                rVal = (this.parseStrictInt((substring rightTok 0 rMinPos)))
+            } {
+                if (rSecPos > 0) {
+                    if (rMinPos < 0) {
+                        rUnit = "s"
+                        rVal = (this.parseStrictInt((substring rightTok 0 rSecPos)))
+                    }
+                }
+            }
+            if (rVal < 0) {
+                return (this.measuredDurationNone())
+            }
+            def lVal@(mutable):int -1
+            def lMinPos (this.findToken(leftTok "min"))
+            def lSecPos (this.findToken(leftTok "s"))
+            if (lMinPos > 0) {
+                lVal = (this.parseStrictInt((substring leftTok 0 lMinPos)))
+            } {
+                if (lSecPos > 0) {
+                    lVal = (this.parseStrictInt((substring leftTok 0 lSecPos)))
+                } {
+                    lVal = (this.parseStrictInt(leftTok))
+                }
+            }
+            if (lVal < 0) {
+                return (this.measuredDurationNone())
+            }
+            return (this.measuredDuration(lVal rVal true rUnit))
+        }
+
+        def minPos (this.findToken(t "min"))
+        if (minPos > 0) {
+            def v (this.parseStrictInt((substring t 0 minPos)))
+            if (v >= 0) {
+                return (this.measuredDuration(v 0 false "min"))
+            }
+            return (this.measuredDurationNone())
+        }
+
+        def secPos (this.findToken(t "s"))
+        if (secPos > 0) {
+            def v2 (this.parseStrictInt((substring t 0 secPos)))
+            if (v2 >= 0) {
+                return (this.measuredDuration(v2 0 false "s"))
+            }
+        }
+        return (this.measuredDurationNone())
+    }
+
+    fn tryParseMeasuredSpec:boolean (n:ExerciseNode spec:string) {
+        def trimmed (trim spec)
+        def slashRec (this.findToken(trimmed "/"))
+        def body@(mutable):string trimmed
+        if (slashRec > 0) {
+            def recTok (trim (substring trimmed (slashRec + 1) (strlen trimmed)))
+            body = (trim (substring trimmed 0 slashRec))
+            def secPos (this.findToken(recTok "s"))
+            def minPos (this.findToken(recTok "min"))
+            if (minPos > 0) {
+                def rMin (this.parseStrictInt((substring recTok 0 minPos)))
+                if (rMin >= 0) {
+                    n.hasRecovery = true
+                    n.recoveryValue = rMin
+                    n.recoveryUnit = "min"
+                }
+            } {
+                if (secPos > 0) {
+                    if (minPos < 0) {
+                        def rSec (this.parseStrictInt((substring recTok 0 secPos)))
+                        if (rSec >= 0) {
+                            n.hasRecovery = true
+                            n.recoveryValue = rSec
+                            n.recoveryUnit = "sec"
+                        }
+                    }
+                }
+            }
+        }
+
+        def commaPos (this.findToken(body ","))
+        def endsComma@(mutable):boolean false
+        def tLen (strlen body)
+        if (tLen > 0) {
+            if ((charAt body (tLen - 1)) == (ccode ",")) {
+                endsComma = true
+            }
+        }
+        if (commaPos < 0) {
+            if (endsComma == false) {
+                return false
+            }
+        }
+        if ((this.findToken(body "@")) >= 0) {
+            return false
+        }
+
+        def parts (strsplit body ",")
+        def tokens:[string]
+        def pi@(mutable):int 0
+        while (pi < (array_length parts)) {
+            def seg (trim (itemAt parts pi))
+            if ((strlen seg) > 0) {
+                push tokens seg
+            }
+            pi = pi + 1
+        }
+
+        if ((array_length tokens) == 0) {
+            if (endsComma) {
+                return false
+            }
+        }
+
+        if ((array_length tokens) == 0) {
+            return false
+        }
+
+        def firstTok@(mutable):string (itemAt tokens 0)
+        def xInFirst (this.findToken(firstTok "x"))
+        if (xInFirst > 0) {
+            def setsRaw (substring firstTok 0 xInFirst)
+            def afterX (substring firstTok (xInFirst + 1) (strlen firstTok))
+            def setsV (this.parseStrictInt(setsRaw))
+            if (setsV >= 0) {
+                firstTok = afterX
+            }
+        }
+
+        def firstMeasured (this.parseMeasuredDurationItem(firstTok))
+        if ((strlen firstMeasured.unit) == 0) {
+            return false
+        }
+        push n.measuredDurations firstMeasured
+        if ((this.findToken(firstTok "+")) > 0) {
+            n.hasIsBilateral = true
+            n.isBilateral = true
+        }
+
+        def unit0@(mutable):string "s"
+        if ((this.findToken(firstTok "min")) > 0) {
+            unit0 = "min"
+        }
+
+        def ti@(mutable):int 1
+        while (ti < (array_length tokens)) {
+            def item (this.parseMeasuredDurationItem((itemAt tokens ti)))
+            if ((strlen item.unit) == 0) {
+                return false
+            }
+            push n.measuredDurations item
+            if ((this.findToken((itemAt tokens ti) "+")) > 0) {
+                n.hasIsBilateral = true
+                n.isBilateral = true
+            }
+            ti = ti + 1
+        }
+
+        n.hasSpecType = true
+        n.specType = "measured"
+        n.hasSets = true
+        n.sets = (array_length n.measuredDurations)
+        n.hasUnit = true
+        n.unit = unit0
+        n.hasIsBilateral = true
+        return true
+    }
+
+    fn parseExercise:ExerciseNode (line:string) {
+        def n (new ExerciseNode)
+        if ((strlen line) <= 9) {
+            return n
+        }
+
+        def rest (trim (substring line 9 (strlen line)))
+        def firstBar (this.findToken(rest "|"))
+        if (firstBar < 0) {
+            def cleaned (this.extractCustomFields(n rest))
+            def parenPos (this.findToken(cleaned "("))
+            if (parenPos > 0) {
+                def afterParen (substring cleaned (parenPos + 1) (strlen cleaned))
+                def closeParen (this.findToken(afterParen ")"))
+                if (closeParen >= 0) {
+                    n.name = (trim (substring cleaned 0 parenPos))
+                    n.hasDescription = true
+                    n.description = (trim (substring afterParen 0 closeParen))
+                    return n
+                }
+            }
+            n.name = (trim cleaned)
+            return n
+        }
+
+        n.name = (trim (substring rest 0 firstBar))
+        def specAndTail (trim (substring rest (firstBar + 1) (strlen rest)))
+
+        def spec@(mutable):string specAndTail
+        def tailNote@(mutable):string ""
+        def pipeParts (strsplit specAndTail "|")
+        def pipeCount (array_length pipeParts)
+        if (pipeCount > 1) {
+            spec = (trim (itemAt pipeParts 0))
+            def noteParts:[string]
+            def pi@(mutable):int 1
+            while (pi < pipeCount) {
+                def seg (trim (itemAt pipeParts pi))
+                if ((strlen seg) > 0) {
+                    push noteParts seg
+                }
+                pi = pi + 1
+            }
+            if ((array_length noteParts) > 0) {
+                tailNote = (join noteParts " | ")
+            }
+        }
+
+        def noteSep (this.findToken(spec " | "))
+        if (noteSep > 0) {
+            def noteFromSpec (trim (substring spec (noteSep + 3) (strlen spec)))
+            spec = (trim (substring spec 0 noteSep))
+            if ((strlen noteFromSpec) > 0) {
+                if ((strlen tailNote) > 0) {
+                    tailNote = (noteFromSpec + " | " + tailNote)
+                } {
+                    tailNote = noteFromSpec
+                }
+            }
+        }
+
+        if ((this.findToken(spec "{{")) >= 0) {
+            n.hasDescription = true
+            if ((strlen tailNote) > 0) {
+                n.description = (spec + " | " + tailNote)
+            } {
+                n.description = spec
+            }
+            return n
+        }
+
+        spec = (this.extractCustomFields(n spec))
+
+        def parenPos (this.findToken(spec "("))
+        if (parenPos > 0) {
+            def afterParen (substring spec (parenPos + 1) (strlen spec))
+            def closeParen (this.findToken(afterParen ")"))
+            if (closeParen >= 0) {
+                n.hasDescription = true
+                n.description = (trim (substring afterParen 0 closeParen))
+                spec = (trim (substring spec 0 parenPos))
+            }
+        }
+
+        if (this.tryParseMeasuredSpec(n spec)) {
+            if ((strlen tailNote) > 0) {
+                n.hasNote = true
+                n.note = tailNote
+            }
+            return n
+        }
+
+        def slashBeforeAt (this.findToken(spec "/"))
+        def atPosEarly (this.findToken(spec "@"))
+        if ((slashBeforeAt >= 0) && (atPosEarly > slashBeforeAt)) {
+            def recBeforeWeight (substring spec slashBeforeAt (atPosEarly))
+            def minInRec (this.findToken(recBeforeWeight "min"))
+            def specBeforeAt (substring spec 0 atPosEarly)
+            def mInSpec (V1SharedHelpers.findToken(specBeforeAt "m"))
+            if (minInRec > 0) {
+                if (mInSpec < 0) {
+                    n.hasDescription = true
+                    if ((strlen tailNote) > 0) {
+                        n.description = (spec + " | " + tailNote)
+                    } {
+                        n.description = spec
+                    }
+                    return n
+                }
+            }
+        }
+
+        def atPos (this.findToken(spec "@"))
+        def hasAt:boolean (atPos >= 0)
+        def leftPart@(mutable):string spec
+        def weightSpec@(mutable):string ""
+        if (hasAt) {
+            leftPart = (trim (substring spec 0 atPos))
+            weightSpec = (trim (substring spec (atPos + 1) (strlen spec)))
+            def slashInLeft (this.findToken(leftPart "/"))
+            if (slashInLeft > 0) {
+                def distPart (trim (substring leftPart 0 slashInLeft))
+                def recPart (trim (substring leftPart (slashInLeft + 1) (strlen leftPart)))
+                leftPart = distPart
+                def minInRec2 (this.findToken(recPart "min"))
+                def secInRec2 (this.findToken(recPart "s"))
+                if (minInRec2 > 0) {
+                    def rVal (V1SharedHelpers.parseStrictInt((substring recPart 0 minInRec2)))
+                    if (rVal >= 0) {
+                        n.hasRecovery = true
+                        n.recoveryValue = rVal
+                        n.recoveryUnit = "min"
+                    }
+                } {
+                    if (secInRec2 > 0) {
+                        if (minInRec2 < 0) {
+                            def rSec2 (V1SharedHelpers.parseStrictInt((substring recPart 0 secInRec2)))
+                            if (rSec2 >= 0) {
+                                n.hasRecovery = true
+                                n.recoveryValue = rSec2
+                                n.recoveryUnit = "sec"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        def parsedSimple@(mutable):boolean false
+        def plusCount (V1SharedHelpers.countChar(leftPart (ccode "+")))
+        if (plusCount >= 2) {
+            def segments (strsplit leftPart "+")
+            if ((array_length segments) >= 3) {
+                    n.hasSpecType = true
+                    n.specType = "multiset"
+                    n.hasSets = false
+                    def si@(mutable):int 0
+                    while (si < (array_length segments)) {
+                        def seg (trim (itemAt segments si))
+                        def segx (this.findToken(seg "x"))
+                        if (segx > 0) {
+                            def ss (this.parseStrictInt((substring seg 0 segx)))
+                            def rr (this.parseStrictInt((substring seg (segx + 1) (strlen seg))))
+                            if (ss >= 0) {
+                                if (rr >= 0) {
+                                    def pfx:[string]
+                                    CompactV1Json.addIntField(pfx "sets" ss)
+                                    CompactV1Json.addIntField(pfx "reps" rr)
+                                    CompactV1Json.addRawField(pfx "repsMax" "null")
+                                    push n.partJsonList (CompactV1Json.jsonObject(pfx))
+                                }
+                            }
+                        } {
+                            def dashR (this.findToken(seg "-"))
+                            if (dashR > 0) {
+                                def rMin (this.parseStrictInt((substring seg 0 dashR)))
+                                def rMax (this.parseStrictInt((substring seg (dashR + 1) (strlen seg))))
+                                if (rMin >= 0) {
+                                    if (rMax >= 0) {
+                                        def pfy:[string]
+                                        CompactV1Json.addIntField(pfy "sets" 1)
+                                        CompactV1Json.addIntField(pfy "reps" rMin)
+                                        CompactV1Json.addIntField(pfy "repsMax" rMax)
+                                        push n.partJsonList (CompactV1Json.jsonObject(pfy))
+                                    }
+                                }
+                            } {
+                                def rOne (this.parseStrictInt(seg))
+                                if (rOne >= 0) {
+                                    def pfz:[string]
+                                    CompactV1Json.addIntField(pfz "sets" 1)
+                                    CompactV1Json.addIntField(pfz "reps" rOne)
+                                    CompactV1Json.addRawField(pfz "repsMax" "null")
+                                    push n.partJsonList (CompactV1Json.jsonObject(pfz))
+                                }
+                            }
+                        }
+                        si = si + 1
+                    }
+                    parsedSimple = true
+                    if (hasAt) {
+                        this.parseWeightSpec(n weightSpec)
+                    }
+                    if ((strlen tailNote) > 0) {
+                        n.hasNote = true
+                        n.note = tailNote
+                    }
+            }
+        }
+
+        def xPos (this.findToken(leftPart "x"))
+
+        if (parsedSimple == false) {
+        if (xPos > 0) {
+            def setsRawFull (substring leftPart 0 xPos)
+            def dashInSets (this.findToken(setsRawFull "-"))
+            def setsRaw@(mutable):string setsRawFull
+            def hasSetsRangeMax@(mutable):boolean false
+            def setsRangeMax@(mutable):int 0
+            if (dashInSets > 0) {
+                setsRaw = (substring setsRawFull 0 dashInSets)
+                def setsMaxRaw (substring setsRawFull (dashInSets + 1) (strlen setsRawFull))
+                def sMO (str2int setsMaxRaw)
+                if (!null? sMO) {
+                    if ((to_string (unwrap sMO)) == setsMaxRaw) {
+                        hasSetsRangeMax = true
+                        setsRangeMax = (unwrap sMO)
+                    }
+                }
+            }
+            def setsOpt (str2int setsRaw)
+            def setsStrict@(mutable):boolean false
+            if (!null? setsOpt) {
+                if ((to_string (unwrap setsOpt)) == setsRaw) {
+                    setsStrict = true
+                }
+            }
+            if (setsStrict) {
+                n.hasSets = true
+                n.sets = (unwrap setsOpt)
+                if (hasSetsRangeMax) {
+                    n.hasSetsMax = true
+                    n.setsMax = setsRangeMax
+                }
+                parsedSimple = true
+
+                def repsRaw (substring leftPart (xPos + 1) (strlen leftPart))
+                def shouldParseReps@(mutable):boolean true
+                if ((strlen repsRaw) == 0) {
+                    shouldParseReps = false
+                }
+                if (repsRaw == "?") {
+                    shouldParseReps = false
+                }
+                if (shouldParseReps) {
+                    def secondX (this.findToken(repsRaw "x"))
+                    if (secondX > 0) {
+                        def midRaw (substring repsRaw 0 secondX)
+                        def countRaw (substring repsRaw (secondX + 1) (strlen repsRaw))
+                        def mPosL (this.findToken(countRaw "m"))
+                        def dashL (this.findToken(countRaw "-"))
+                        if ((mPosL > 0) && (dashL > 0)) {
+                            def dMin (this.parseStrictInt((substring countRaw 0 dashL)))
+                            def dMaxTok (substring countRaw (dashL + 1) mPosL)
+                            def dMax (this.parseStrictInt(dMaxTok))
+                            def dashMid (this.findToken(midRaw "-"))
+                            if (dashMid > 0) {
+                                def rMin (this.parseStrictInt((substring midRaw 0 dashMid)))
+                                def rMax (this.parseStrictInt((substring midRaw (dashMid + 1) (strlen midRaw))))
+                                if (rMin >= 0) {
+                                    if (rMax >= 0) {
+                                        if (dMin >= 0) {
+                                            if (dMax >= 0) {
+                                                n.hasSets = true
+                                                n.sets = (unwrap setsOpt)
+                                                n.hasReps = true
+                                                n.reps = rMin
+                                                n.hasRepsMax = true
+                                                n.repsMax = rMax
+                                                n.hasDistanceMin = true
+                                                n.distanceMin = dMin
+                                                n.hasDistanceMax = true
+                                                n.distanceMax = dMax
+                                                n.hasUnit = true
+                                                n.unit = "m"
+                                                parsedSimple = true
+                                            }
+                                        }
+                                    }
+                                }
+                            } {
+                            def mOpt (this.parseStrictInt(midRaw))
+                            if (mOpt >= 0) {
+                                if (dMin >= 0) {
+                                    if (dMax >= 0) {
+                                        n.hasSets = true
+                                        n.sets = (unwrap setsOpt)
+                                        n.hasReps = true
+                                        n.reps = mOpt
+                                        n.hasDistanceMin = true
+                                        n.distanceMin = dMin
+                                        n.hasDistanceMax = true
+                                        n.distanceMax = dMax
+                                        n.hasUnit = true
+                                        n.unit = "m"
+                                        parsedSimple = true
+                                    }
+                                }
+                            }
+                            }
+                        } {
+                        def mOk (this.parseRepsToken(n midRaw))
+                        if (mOk) {
+                            def cOpt (str2int countRaw)
+                            if (!null? cOpt) {
+                                if ((to_string (unwrap cOpt)) == countRaw) {
+                                    n.hasCount = true
+                                    n.count = (unwrap cOpt)
+                                }
+                            }
+                        }
+                        }
+                    } {
+                        def repsIsWeight@(mutable):boolean false
+                        if (hasAt == false) {
+                            def kgEndPos (this.findToken(repsRaw "kg"))
+                            if (kgEndPos > 0) {
+                                if ((kgEndPos + 2) == (strlen repsRaw)) {
+                                    def wRaw (substring repsRaw 0 kgEndPos)
+                                    def wOpt (str2int wRaw)
+                                    if (!null? wOpt) {
+                                        if ((to_string (unwrap wOpt)) == wRaw) {
+                                            n.hasReps = true
+                                            n.reps = n.sets
+                                            n.sets = 1
+                                            n.hasSetsMax = false
+                                            n.hasWeight = true
+                                            n.weightValue = (unwrap wOpt)
+                                            n.weightUnit = "kg"
+                                            repsIsWeight = true
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if (repsIsWeight == false) {
+                            def distUnit (this.detectTrailingDistanceUnit(repsRaw))
+                            if (distUnit != "") {
+                                def distCore (substring repsRaw 0 ((strlen repsRaw) - (strlen distUnit)))
+                                def distVal (this.parseStrictInt(distCore))
+                                if (distVal >= 0) {
+                                    n.hasExerciseDistance = true
+                                    n.exerciseDistance = distVal
+                                    n.exerciseDistanceUnit = distUnit
+                                } {
+                                    def _rOk (this.parseRepsToken(n repsRaw))
+                                }
+                            } {
+                                def _rOk2 (this.parseRepsToken(n repsRaw))
+                            }
+                        }
+                    }
+                }
+            }
+        } {
+            if ((strlen leftPart) == 0) {
+                if (hasAt) {
+                    n.hasSets = true
+                    n.sets = 1
+                    parsedSimple = true
+                }
+            } {
+                def parsedReps (this.parseRepsToken(n leftPart))
+                if (parsedReps) {
+                    n.hasSets = true
+                    n.sets = 1
+                    parsedSimple = true
+                }
+            }
+        }
+
+        }
+
+        if (parsedSimple) {
+            if (hasAt) {
+                this.parseWeightSpec(n weightSpec)
+            }
+            if ((strlen tailNote) > 0) {
+                n.hasNote = true
+                n.note = tailNote
+            }
+        } {
+            n.hasDescription = true
+            if ((strlen tailNote) > 0) {
+                n.description = (spec + " | " + tailNote)
+            } {
+                n.description = spec
+            }
+        }
+
+        return n
+    }
+
+    fn parseMove:MoveNode (line:string) {
+        return (MoveParserV1.parse(line))
+    }
+
+    fn isDecimalToken:boolean (s:string) {
+        def sLen (strlen s)
+        if (sLen == 0) {
+            return false
+        }
+        def i@(mutable):int 0
+        def dotCount@(mutable):int 0
+        def digitCount@(mutable):int 0
+        def ok@(mutable):boolean true
+        while (i < sLen) {
+            def ch (charAt s i)
+            if ((ch >= (ccode "0")) && (ch <= (ccode "9"))) {
+                digitCount = digitCount + 1
+            } {
+                if (ch == (ccode ".")) {
+                    dotCount = dotCount + 1
+                } {
+                    ok = false
+                    i = sLen
+                }
+            }
+            i = i + 1
+        }
+        if (ok == false) {
+            return false
+        }
+        if (digitCount == 0) {
+            return false
+        }
+        if (dotCount > 1) {
+            return false
+        }
+        return true
+    }
+
+    fn splitNumAndUnit:int (s:string) {
+        def sLen (strlen s)
+        def i@(mutable):int 0
+        def lastDigit@(mutable):int -1
+        while (i < sLen) {
+            def ch (charAt s i)
+            if ((ch >= (ccode "0")) && (ch <= (ccode "9"))) {
+                lastDigit = i
+            } {
+                if (ch == (ccode ".")) {
+                    lastDigit = i
+                } {
+                    i = sLen
+                }
+            }
+            i = i + 1
+        }
+        return (lastDigit + 1)
+    }
+
+    fn parseMeasurement:MeasurementNode (line:string measureName:string measureType:string) {
+        def n (new MeasurementNode)
+        n.measureType = measureType
+        def prefixLen ((strlen measureName) + 1)
+        if ((strlen line) <= prefixLen) {
+            return n
+        }
+        def rest (trim (substring line prefixLen (strlen line)))
+        def splitAt (this.splitNumAndUnit(rest))
+        if (splitAt > 0) {
+            def numPart (substring rest 0 splitAt)
+            def unitPart (trim (substring rest splitAt (strlen rest)))
+            if (this.isDecimalToken(numPart)) {
+                n.valueRaw = numPart
+                if ((strlen unitPart) > 0) {
+                    n.hasUnit = true
+                    n.unit = unitPart
+                }
+            }
+        }
+        return n
+    }
+
+    fn parseSleep:SleepNode (line:string) {
+        def n (new SleepNode)
+        if ((strlen line) <= 6) {
+            return n
+        }
+        def rest (trim (substring line 6 (strlen line)))
+        def parts (strsplit rest " ")
+        def pLen (array_length parts)
+        def i@(mutable):int 0
+        while (i < pLen) {
+            def tok (trim (itemAt parts i))
+            def tLen (strlen tok)
+            if (tLen > 0) {
+                if ((charAt tok (tLen - 1)) == (ccode "h")) {
+                    def durStr (substring tok 0 (tLen - 1))
+                    if (this.isDecimalToken(durStr)) {
+                        n.durationRaw = durStr
+                    }
+                } {
+                    def colonPos (this.findToken(tok ":"))
+                    if (colonPos > 0) {
+                        def key (substring tok 0 colonPos)
+                        def value (substring tok (colonPos + 1) tLen)
+                        if (key == "quality") {
+                            n.hasQuality = true
+                            n.quality = value
+                        }
+                        if (key == "hrv") {
+                            def hv (this.parseStrictInt(value))
+                            if (hv >= 0) {
+                                n.hasHrv = true
+                                n.hrv = hv
+                            }
+                        }
+                        if (key == "rhr") {
+                            def rv (this.parseStrictInt(value))
+                            if (rv >= 0) {
+                                n.hasRhr = true
+                                n.rhr = rv
+                            }
+                        }
+                    }
+                }
+            }
+            i = i + 1
+        }
+        return n
+    }
+
+    fn parseInterval:IntervalNode (line:string) {
+        def n (new IntervalNode)
+        if ((strlen line) <= 9) {
+            return n
+        }
+        def rest (trim (substring line 9 (strlen line)))
+
+        def xPos (this.findToken(rest "x"))
+        if (xPos > 0) {
+            def cOpt (str2int (substring rest 0 xPos))
+            if (!null? cOpt) {
+                n.hasCount = true
+                n.count = (unwrap cOpt)
+            }
+        }
+
+        def atPos (this.findToken(rest "@"))
+        if (atPos > 0) {
+            def distText (substring rest (xPos + 1) atPos)
+            def minPos (this.findToken(distText "min"))
+            if (minPos > 0) {
+                def dOpt (str2int (substring distText 0 minPos))
+                if (!null? dOpt) {
+                    n.hasDistance = true
+                    n.distanceValue = (unwrap dOpt)
+                    n.distanceUnit = "min"
+                }
+            } {
+                def kmPos (this.findToken(distText "km"))
+                if (kmPos > 0) {
+                    def dOptKm (str2int (substring distText 0 kmPos))
+                    if (!null? dOptKm) {
+                        n.hasDistance = true
+                        n.distanceValue = (unwrap dOptKm)
+                        n.distanceUnit = "km"
+                    }
+                } {
+                    def mPos (this.findToken(distText "m"))
+                    if (mPos > 0) {
+                        def dOpt2 (str2int (substring distText 0 mPos))
+                        if (!null? dOpt2) {
+                            n.hasDistance = true
+                            n.distanceValue = (unwrap dOpt2)
+                            n.distanceUnit = "m"
+                        }
+                    }
+                }
+            }
+
+            def intAndRec (substring rest (atPos + 1) (strlen rest))
+            def slashPos (this.findToken(intAndRec "/"))
+            def intPart:string intAndRec
+            def recPart:string ""
+            if (slashPos > 0) {
+                intPart = (trim (substring intAndRec 0 slashPos))
+                recPart = (trim (substring intAndRec (slashPos + 1) (strlen intAndRec)))
+            }
+
+            def intPct (this.findToken(intPart "%"))
+            def intIsNum@(mutable):boolean false
+            if (intPct < 0) {
+                def zPos (this.findToken(intPart "Z"))
+                if (zPos < 0) {
+                    if ((strlen intPart) > 0) {
+                        n.hasIntensityText = true
+                        n.intensityText = intPart
+                    }
+                } {
+                    n.hasIntensityText = true
+                    n.intensityText = intPart
+                }
+            } {
+                intIsNum = true
+            }
+
+            if (intIsNum) {
+                def intDash (this.findToken(intPart "-"))
+                if (intDash > 0) {
+                    def i1 (str2int (substring intPart 0 intDash))
+                    def i2txt (substring intPart (intDash + 1) (strlen intPart))
+                    if ((strlen i2txt) > 0) {
+                        if ((charAt i2txt ((strlen i2txt) - 1)) == (ccode "%")) {
+                            i2txt = (substring i2txt 0 ((strlen i2txt) - 1))
+                        }
+                    }
+                    def i2 (str2int i2txt)
+                    if (!null? i1) {
+                        if (!null? i2) {
+                            n.hasIntensity = true
+                            n.intensityMin = (unwrap i1)
+                            n.intensityMax = (unwrap i2)
+                        }
+                    }
+                } {
+                    def iSingle:string intPart
+                    if ((strlen iSingle) > 0) {
+                        if ((charAt iSingle ((strlen iSingle) - 1)) == (ccode "%")) {
+                            iSingle = (substring iSingle 0 ((strlen iSingle) - 1))
+                        }
+                    }
+                    def iOne (str2int iSingle)
+                    if (!null? iOne) {
+                        n.hasIntensity = true
+                        n.intensityMin = (unwrap iOne)
+                        n.intensityMax = (unwrap iOne)
+                    }
+                }
+            }
+
+            if ((strlen recPart) > 0) {
+                def recDash (this.findToken(recPart "-"))
+                def recUnit:string "min"
+                def recMinPos (this.findToken(recPart "min"))
+                if (recMinPos > 0) {
+                    recUnit = "min"
+                } {
+                    def recMPos (this.findToken(recPart "m"))
+                    if (recMPos > 0) {
+                        recUnit = "m"
+                    }
+                }
+                n.recoveryUnit = recUnit
+                if (recDash > 0) {
+                    def r1 (str2int (substring recPart 0 recDash))
+                    def rTail (substring recPart (recDash + 1) (strlen recPart))
+                    def unitPos (this.findToken(rTail recUnit))
+                    def r2Txt:string rTail
+                    if (unitPos > 0) {
+                        r2Txt = (substring rTail 0 unitPos)
+                    }
+                    def r2 (str2int r2Txt)
+                    if (!null? r1) {
+                        n.hasRecovery = true
+                        n.recoveryValue = (unwrap r1)
+                    }
+                    if (!null? r2) {
+                        n.hasRecoveryMax = true
+                        n.recoveryMax = (unwrap r2)
+                    }
+                } {
+                    def unitPos2 (this.findToken(recPart recUnit))
+                    def rTxt:string recPart
+                    if (unitPos2 > 0) {
+                        rTxt = (substring recPart 0 unitPos2)
+                    }
+                    def rOne (str2int rTxt)
+                    if (!null? rOne) {
+                        n.hasRecovery = true
+                        n.recoveryValue = (unwrap rOne)
+                    }
+                    if (unitPos2 > 0) {
+                        def afterRec (trim (substring recPart (unitPos2 + (strlen recUnit)) (strlen recPart)))
+                        if ((strlen afterRec) > 0) {
+                            n.hasNote = true
+                            n.note = afterRec
+                        }
+                    }
+                }
+            }
+        }
+
+        return n
+    }
+
+    fn parseVitals:VitalsNode (line:string) {
+        def n (new VitalsNode)
+        if (line == "Vitals") {
+            return n
+        }
+        if ((strlen line) <= 7) {
+            return n
+        }
+
+        def rest (trim (substring line 7 (strlen line)))
+        def colPos (this.findToken(rest ":"))
+        if (colPos <= 0) {
+            return n
+        }
+
+        n.hasKey = true
+        n.key = (trim (substring rest 0 colPos))
+
+        def valueToken (trim (substring rest (colPos + 1) (strlen rest)))
+        if ((strlen valueToken) == 0) {
+            return n
+        }
+
+        def i@(mutable):int 0
+        def vLen (strlen valueToken)
+        while (i < vLen) {
+            def ch (charAt valueToken i)
+            if ((ch >= (ccode "0")) && (ch <= (ccode "9"))) {
+                i = i + 1
+                continue
+            }
+            if (ch == (ccode ".")) {
+                i = i + 1
+                continue
+            }
+            break
+        }
+
+        if (i > 0) {
+            n.hasValue = true
+            n.value = (substring valueToken 0 i)
+            if (i < vLen) {
+                n.hasUnit = true
+                n.unit = (trim (substring valueToken i vLen))
+            }
+        }
+
+        if (n.hasUnit) {
+        } {
+            if (n.key == "sleep") {
+                n.hasUnit = true
+                n.unit = "h"
+            }
+        }
+
+        return n
+    }
+
+    fn parseSplit:SplitNode (line:string) {
+        if ((strlen line) <= 2) {
+            def empty (new SplitNode)
+            return empty
+        }
+        def rest (trim (substring line 1 (strlen line)))
+        return (this.parseSplitRest(rest))
+    }
+
+    fn parseNestedSplit:SplitNode (line:string) {
+        if ((strlen line) <= 4) {
+            def empty (new SplitNode)
+            return empty
+        }
+        def rest (trim (substring line 1 (strlen line)))
+        if (this.startsWith(rest ">")) {
+            rest = (trim (substring rest 1 (strlen rest)))
+        }
+        return (this.parseSplitRest(rest))
+    }
+
+    fn parseMax:MaxNode (line:string) {
+        def n (new MaxNode)
+        if ((strlen line) <= 4) {
+            return n
+        }
+
+        def rest (trim (substring line 4 (strlen line)))
+        def barPos (this.findToken(rest "|"))
+        if (barPos < 0) {
+            return n
+        }
+
+        n.name = (trim (substring rest 0 barPos))
+        def spec (trim (substring rest (barPos + 1) (strlen rest)))
+        def maxPrPos (this.findToken(spec "PR"))
+        if (maxPrPos > 0) {
+            n.pr = true
+        }
+
+        def rmPos (this.findToken(spec "RM:"))
+        if (rmPos > 0) {
+            def repsTxt (substring spec 0 rmPos)
+            if ((strlen repsTxt) > 0) {
+                if (this.startsWith(repsTxt "e")) {
+                    n.estimated = true
+                    n.hasReps = true
+                    n.reps = 1
+                } {
+                    def rOpt (str2int repsTxt)
+                    if (!null? rOpt) {
+                        n.hasReps = true
+                        n.reps = (unwrap rOpt)
+                    }
+                }
+            }
+
+            def tail (substring spec (rmPos + 3) (strlen spec))
+            def kgPos (this.findToken(tail "kg"))
+            if (kgPos > 0) {
+                def wOpt (str2int (substring tail 0 kgPos))
+                if (!null? wOpt) {
+                    n.hasWeight = true
+                    n.weight = (unwrap wOpt)
+                }
+            }
+
+            def atPos (this.findToken(tail "@"))
+            if (atPos > 0) {
+                def calc (substring tail (atPos + 1) (strlen tail))
+                def xPos (this.findToken(calc "x"))
+                def kgPos2 (this.findToken(calc "kg"))
+                if (xPos > 0) {
+                    if (kgPos2 > xPos) {
+                        def crOpt (str2int (substring calc 0 xPos))
+                        def cwOpt (str2int (substring calc (xPos + 1) kgPos2))
+                        if (!null? crOpt) {
+                            if (!null? cwOpt) {
+                                n.hasCalc = true
+                                n.calcReps = (unwrap crOpt)
+                                n.calcWeight = (unwrap cwOpt)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return n
+    }
+
+    fn parseBest:BestNode (line:string) {
+        def n (new BestNode)
+        if ((strlen line) <= 5) {
+            return n
+        }
+
+        def rest (trim (substring line 5 (strlen line)))
+        def barPos (this.findToken(rest "|"))
+        if (barPos < 0) {
+            return n
+        }
+
+        n.name = (trim (substring rest 0 barPos))
+        def spec (trim (substring rest (barPos + 1) (strlen rest)))
+        def bestPrPos (this.findToken(spec "PR"))
+        if (bestPrPos > 0) {
+            n.pr = true
+        }
+
+        def pureSpec@(mutable):string spec
+        def prPos (this.findToken(pureSpec "PR"))
+        if (prPos > 0) {
+            pureSpec = (trim (substring pureSpec 0 prPos))
+        }
+
+        def colonPos (this.findToken(pureSpec ":"))
+        if (colonPos > 0) {
+            def mOpt (str2int (substring pureSpec 0 colonPos))
+            def sOpt (str2int (substring pureSpec (colonPos + 1) (strlen pureSpec)))
+            if (!null? mOpt) {
+                if (!null? sOpt) {
+                    n.hasResult = true
+                    n.resultValue = (to_string (((unwrap mOpt) * 60) + (unwrap sOpt)))
+                    n.resultUnit = "time"
+                    return n
+                }
+            }
+        }
+
+        def sPos (this.findToken(pureSpec "s"))
+        if (sPos > 0) {
+            n.hasResult = true
+            n.resultValue = (substring pureSpec 0 sPos)
+            n.resultUnit = "s"
+            return n
+        }
+
+        def mPos (this.findToken(pureSpec "m"))
+        if (mPos > 0) {
+            n.hasResult = true
+            n.resultValue = (substring pureSpec 0 mPos)
+            n.resultUnit = "m"
+            return n
+        }
+
+        return n
+    }
+
+    fn parseHealth:HealthNode (line:string) {
+        def n (new HealthNode)
+        if ((strlen line) <= 7) {
+            return n
+        }
+        def rest (trim (substring line 7 (strlen line)))
+        def barPos (this.findToken(rest "|"))
+        if (barPos > 0) {
+            n.healthType = (trim (substring rest 0 barPos))
+            n.description = (trim (substring rest (barPos + 1) (strlen rest)))
+        } {
+            n.healthType = rest
+        }
+        return n
+    }
+
+
+    fn ensureCurrent:WorkoutNode (current@(optional):WorkoutNode doc:DocumentNode) {
+        if (!null? current) {
+            return (unwrap current)
+        }
+        def w (new WorkoutNode)
+        push doc.workouts w
+        return w
+    }
+
+    fn parse:DocumentNode (input:string) {
+        def doc (new DocumentNode)
+        def lines (strsplit input "\n")
+        def current@(optional):WorkoutNode
+        def currentMove@(optional):MoveNode
+        def splitAttachMove@(optional):MoveNode
+        def hasSplitAttach@(mutable):boolean false
+        def lastNestSplit@(optional):SplitNode
+        def hasLastNestSplit@(mutable):boolean false
+        def lastNestSplitMove@(optional):SplitMoveNode
+        def hasLastNestSplitMove@(mutable):boolean false
+        def lastNestMoveParent@(optional):MoveNode
+        def hasLastNestMoveParent@(mutable):boolean false
+        def collectingCircuit@(mutable):boolean false
+        def currentCircuit@(optional):CircuitNode
+        def pendingDate@(optional):DateValueNode
+        def hasPendingDate@(mutable):boolean false
+
+        for lines raw:string i {
+            def line (trim raw)
+            if ((strlen line) == 0) {
+                continue
+            }
+
+            if (this.startsWith(line ">")) {
+            } {
+                if (this.startsWith(line "Run ")) {
+                } {
+                    if (this.startsWith(line "Move ")) {
+                    } {
+                        hasSplitAttach = false
+                        hasLastNestSplit = false
+                        hasLastNestSplitMove = false
+                        hasLastNestMoveParent = false
+                    }
+                }
+            }
+
+            if (this.startsWith(line "# ")) {
+                def w0 (this.ensureCurrent(current doc))
+                def t0 (new TextLineNode)
+                t0.value = (trim (substring line 2 (strlen line)))
+                push w0.content t0
+                current = w0
+                continue
+            }
+
+            def lineTag (this.detectLineTag(line))
+
+            if (this.startsWith(line "[")) {
+                if ((charAt line ((strlen line) - 1)) == (ccode "]")) {
+                    def hashInLine (this.findToken(line "##"))
+                    if (hashInLine < 0) {
+                        def pendingTok (this.parseDateToken((substring line 1 ((strlen line) - 1))))
+                        if (pendingTok.unknown == false) {
+                            pendingDate = pendingTok
+                            hasPendingDate = true
+                            continue
+                        }
+                    }
+                }
+            }
+
+            if (this.startsWith(line "Format ")) {
+                def wFmt (this.ensureCurrent(current doc))
+                def fmtVal (trim (substring line 7 (strlen line)))
+                if ((strlen fmtVal) > 0) {
+                    def metaFmt (new MetaNode)
+                    metaFmt.key = "format"
+                    metaFmt.value = fmtVal
+                    push wFmt.content metaFmt
+                }
+                current = wFmt
+                continue
+            }
+
+            if (this.startsWith(line "Meta format=")) {
+                def wMeta (this.ensureCurrent(current doc))
+                def fmtVal2 (trim (substring line 12 (strlen line)))
+                if ((strlen fmtVal2) > 0) {
+                    def metaFmt2 (new MetaNode)
+                    metaFmt2.key = "format"
+                    metaFmt2.value = fmtVal2
+                    push wMeta.content metaFmt2
+                }
+                current = wMeta
+                continue
+            }
+
+            if (lineTag == "header") {
+                def markerPos (this.findToken(line "##"))
+                if (markerPos > 0) {
+                    def pd@(optional):DateValueNode
+                    if (hasPendingDate) {
+                        pd = pendingDate
+                        hasPendingDate = false
+                    }
+                    def w (this.parseHeaderWorkout(line pd))
+                    push doc.workouts w
+                    current = w
+                    continue
+                }
+                if (this.startsWith(line "## ")) {
+                    def pd2@(optional):DateValueNode
+                    if (hasPendingDate) {
+                        pd2 = pendingDate
+                        hasPendingDate = false
+                    }
+                    def w2 (this.parseHeaderWorkout(line pd2))
+                    push doc.workouts w2
+                    current = w2
+                    continue
+                }
+            }
+
+            if (lineTag == "tags") {
+                def w3 (this.ensureCurrent(current doc))
+                push w3.content (this.parseTags(line))
+                current = w3
+                continue
+            }
+
+            if (lineTag == "summary") {
+                def w4 (this.ensureCurrent(current doc))
+                def s (new SummaryNode)
+                s.text = (trim (substring line 8 (strlen line)))
+                push w4.content s
+                current = w4
+                continue
+            }
+
+            if (lineTag == "text") {
+                def w5 (this.ensureCurrent(current doc))
+                def t (new TextLineNode)
+                t.value = (trim (substring line 5 (strlen line)))
+                push w5.content t
+                current = w5
+                continue
+            }
+
+            if (this.startsWith(line "Emojis ")) {
+                def w7 (this.ensureCurrent(current doc))
+                push w7.content (this.parseEmojis(line))
+                current = w7
+                continue
+            }
+
+            if (this.startsWith(line "Level")) {
+                def w8 (this.ensureCurrent(current doc))
+                push w8.content (this.parseSport(line))
+                current = w8
+                continue
+            }
+
+            if (this.startsWith(line "Derived ")) {
+                def w9 (this.ensureCurrent(current doc))
+                push w9.content (this.parseDerived(line))
+                current = w9
+                continue
+            }
+
+            if (this.startsWith(line "Phase")) {
+                def w10 (this.ensureCurrent(current doc))
+                push w10.content (this.parsePhase(line))
+                current = w10
+                continue
+            }
+
+            if (lineTag == "circuit") {
+                def wCirc (this.ensureCurrent(current doc))
+                def cNode (CircuitParserV1.parseHeader(line))
+                push wCirc.content cNode
+                current = wCirc
+                currentCircuit = cNode
+                collectingCircuit = true
+                continue
+            }
+
+            if (collectingCircuit) {
+                if (this.startsWith(line "> ")) {
+                    if (!null? currentCircuit) {
+                        def cc (unwrap currentCircuit)
+                        push cc.exercises (CircuitParserV1.parseItemNode(line))
+                    }
+                    continue
+                }
+                collectingCircuit = false
+            }
+
+            if (this.startsWith(line "> >")) {
+                def nestedBody (trim (substring line 2 (strlen line)))
+                if (this.startsWith(nestedBody ">")) {
+                    nestedBody = (trim (substring nestedBody 1 (strlen nestedBody)))
+                }
+                def nestedChild (this.parseChildBody(nestedBody))
+                if (nestedChild.found) {
+                    def nestedJson (this.childJsonFromResult(nestedChild nestedBody))
+                    if (hasLastNestSplit) {
+                        def parentSplit (unwrap lastNestSplit)
+                        push parentSplit.nestedSplitJsonList nestedJson
+                        if (hasLastNestMoveParent) {
+                            this.replaceLastMoveSplitJson((unwrap lastNestMoveParent) parentSplit)
+                        }
+                        lastNestSplit = parentSplit
+                    } {
+                        if (hasLastNestSplitMove) {
+                            def parentMoveChild (unwrap lastNestSplitMove)
+                            push parentMoveChild.splitJsonList nestedJson
+                            if (hasLastNestMoveParent) {
+                                this.replaceLastMoveChildJson((unwrap lastNestMoveParent) parentMoveChild)
+                            }
+                        }
+                    }
+                    continue
+                }
+
+                def nestedNode (this.parseNestedSplit(line))
+                if (nestedNode.hasRecognized) {
+                    if (hasLastNestSplit) {
+                        def parentSplit2 (unwrap lastNestSplit)
+                        push parentSplit2.nestedSplitJsonList (nestedNode.toJSONString())
+                        if (hasLastNestMoveParent) {
+                            this.replaceLastMoveSplitJson((unwrap lastNestMoveParent) parentSplit2)
+                        }
+                        lastNestSplit = parentSplit2
+                    }
+                }
+                continue
+            }
+
+            if (this.startsWith(line "> ")) {
+                def childBody (trim (substring line 2 (strlen line)))
+                def metaSep (this.findToken(childBody ":"))
+                if (metaSep > 0) {
+                    def firstSpace (this.findToken(childBody " "))
+                    if ((firstSpace < 0) || (metaSep < firstSpace)) {
+                        def w11 (this.ensureCurrent(current doc))
+                        push w11.content (this.parseMeta(line))
+                        current = w11
+                        hasSplitAttach = false
+                        hasLastNestSplit = false
+                        hasLastNestSplitMove = false
+                        hasLastNestMoveParent = false
+                        continue
+                    }
+                }
+
+                def childParsed (this.parseChildBody(childBody))
+                if (childParsed.found) {
+                    if (hasSplitAttach) {
+                        def attachMove (unwrap splitAttachMove)
+                        push attachMove.splits (this.childNodeFromResult(childParsed childBody))
+                        currentMove = attachMove
+                        hasLastNestSplit = false
+                        hasLastNestSplitMove = false
+                        hasLastNestMoveParent = false
+                        if (childParsed.canNest) {
+                            if (!null? childParsed.nestSplitMove) {
+                                lastNestSplitMove = childParsed.nestSplitMove
+                                hasLastNestSplitMove = true
+                                lastNestMoveParent = attachMove
+                                hasLastNestMoveParent = true
+                            }
+                        }
+                        continue
+                    }
+                    def wChild (this.ensureCurrent(current doc))
+                    if (childParsed.kind == "text") {
+                        push wChild.content (this.parseChildComment(childBody))
+                    } {
+                        if (childParsed.kind == "derived") {
+                            push wChild.content (this.parseDerived(childBody))
+                        } {
+                            if (childParsed.kind == "feeling") {
+                                push wChild.content (this.parseChildFeeling(childBody))
+                            } {
+                                if (childParsed.kind == "attempt") {
+                                    push wChild.content (SplitChildParserV1.parseAttempt(childBody))
+                                } {
+                                    if (childParsed.kind == "recovery") {
+                                        push wChild.content (SplitChildParserV1.parseRecovery(childBody))
+                                    } {
+                                        if (childParsed.kind == "splitMove") {
+                                            if (!null? childParsed.nestSplitMove) {
+                                                push wChild.content (unwrap childParsed.nestSplitMove)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    current = wChild
+                    hasLastNestSplit = false
+                    hasLastNestSplitMove = false
+                    hasLastNestMoveParent = false
+                    if (childParsed.canNest) {
+                        if (!null? childParsed.nestSplitMove) {
+                            lastNestSplitMove = childParsed.nestSplitMove
+                            hasLastNestSplitMove = true
+                        }
+                    }
+                    continue
+                }
+
+                def splitNode (this.parseSplit(line))
+                if (splitNode.hasRecognized) {
+                    if (hasSplitAttach) {
+                        def parentMove (unwrap splitAttachMove)
+                        push parentMove.splits splitNode
+                        currentMove = parentMove
+                        lastNestSplit = splitNode
+                        hasLastNestSplit = true
+                        hasLastNestSplitMove = false
+                        lastNestMoveParent = parentMove
+                        hasLastNestMoveParent = true
+                        continue
+                    }
+                    def w11s (this.ensureCurrent(current doc))
+                    push w11s.content splitNode
+                    current = w11s
+                    lastNestSplit = splitNode
+                    hasLastNestSplit = true
+                    hasLastNestSplitMove = false
+                    hasLastNestMoveParent = false
+                    continue
+                }
+            }
+
+            if (this.startsWith(line "Location ")) {
+                def w12 (this.ensureCurrent(current doc))
+                def loc (new LocationNode)
+                loc.place = (trim (substring line 9 (strlen line)))
+                push w12.content loc
+                current = w12
+                continue
+            }
+
+            if (this.startsWith(line "URL ")) {
+                def w13 (this.ensureCurrent(current doc))
+                def uNode (new UrlNode)
+                uNode.url = (trim (substring line 4 (strlen line)))
+                push w13.content uNode
+                current = w13
+                continue
+            }
+
+            if (this.startsWith(line "Feeling")) {
+                def w14 (this.ensureCurrent(current doc))
+                push w14.content (this.parseFeeling(line))
+                current = w14
+                continue
+            }
+
+            if (this.startsWith(line "Reminder ")) {
+                def w15 (this.ensureCurrent(current doc))
+                push w15.content (this.parseReminder(line))
+                current = w15
+                continue
+            }
+
+            if (this.startsWith(line "Pain ")) {
+                def w16 (this.ensureCurrent(current doc))
+                push w16.content (this.parsePain(line))
+                current = w16
+                continue
+            }
+
+            if (this.startsWith(line "Time ")) {
+                def w17 (this.ensureCurrent(current doc))
+                push w17.content (this.parseDuration(line))
+                current = w17
+                continue
+            }
+
+            if (this.startsWith(line "Contacts ")) {
+                def w18 (this.ensureCurrent(current doc))
+                push w18.content (this.parseContacts(line))
+                current = w18
+                continue
+            }
+
+            if (this.startsWith(line "Section ")) {
+                def w19 (this.ensureCurrent(current doc))
+                push w19.content (this.parseSection(line))
+                current = w19
+                hasSplitAttach = false
+                hasLastNestSplit = false
+                hasLastNestSplitMove = false
+                hasLastNestMoveParent = false
+                continue
+            }
+
+            if (this.startsWith(line "Exercise ")) {
+                def w20 (this.ensureCurrent(current doc))
+                push w20.content (this.parseExercise(line))
+                current = w20
+                continue
+            }
+
+            if (this.startsWith(line "Run ")) {
+                def w21 (this.ensureCurrent(current doc))
+                def mRun (this.parseMove(line))
+                push w21.content mRun
+                current = w21
+                currentMove = mRun
+                splitAttachMove = mRun
+                hasSplitAttach = true
+                hasLastNestSplit = false
+                hasLastNestSplitMove = false
+                hasLastNestMoveParent = false
+                continue
+            }
+
+            if (this.startsWith(line "Move ")) {
+                def w21b (this.ensureCurrent(current doc))
+                def mMov (this.parseMove(line))
+                push w21b.content mMov
+                current = w21b
+                currentMove = mMov
+                splitAttachMove = mMov
+                hasSplitAttach = true
+                hasLastNestSplit = false
+                hasLastNestSplitMove = false
+                hasLastNestMoveParent = false
+                continue
+            }
+
+            if (this.startsWith(line "Interval ")) {
+                def w22 (this.ensureCurrent(current doc))
+                push w22.content (this.parseInterval(line))
+                current = w22
+                continue
+            }
+
+            if (this.startsWith(line "Max ")) {
+                def w24 (this.ensureCurrent(current doc))
+                push w24.content (this.parseMax(line))
+                current = w24
+                continue
+            }
+
+            if (this.startsWith(line "Best ")) {
+                def w25 (this.ensureCurrent(current doc))
+                push w25.content (this.parseBest(line))
+                current = w25
+                continue
+            }
+
+            if (this.startsWith(line "Vitals")) {
+                def w23 (this.ensureCurrent(current doc))
+                push w23.content (this.parseVitals(line))
+                current = w23
+                continue
+            }
+
+            if (this.startsWith(line "Health ")) {
+                def w26 (this.ensureCurrent(current doc))
+                push w26.content (this.parseHealth(line))
+                current = w26
+                continue
+            }
+
+            if (this.startsWith(line "Weight ")) {
+                def w27 (this.ensureCurrent(current doc))
+                push w27.content (this.parseMeasurement(line "Weight" "weight"))
+                current = w27
+                continue
+            }
+            if (this.startsWith(line "BodyFat ")) {
+                def w28 (this.ensureCurrent(current doc))
+                push w28.content (this.parseMeasurement(line "BodyFat" "bodyFat"))
+                current = w28
+                continue
+            }
+            if (this.startsWith(line "Waist ")) {
+                def w29 (this.ensureCurrent(current doc))
+                push w29.content (this.parseMeasurement(line "Waist" "waist"))
+                current = w29
+                continue
+            }
+            if (this.startsWith(line "Hip ")) {
+                def w30 (this.ensureCurrent(current doc))
+                push w30.content (this.parseMeasurement(line "Hip" "hip"))
+                current = w30
+                continue
+            }
+            if (this.startsWith(line "Sleep ")) {
+                def w31 (this.ensureCurrent(current doc))
+                push w31.content (this.parseSleep(line))
+                current = w31
+                continue
+            }
+
+            if (lineTag == "pyramid") {
+                def wPyr (this.ensureCurrent(current doc))
+                push wPyr.content (V1LineParser.parse(lineTag line))
+                current = wPyr
+                continue
+            }
+
+            if (lineTag == "custom") {
+                def wCust (this.ensureCurrent(current doc))
+                push wCust.content (V1LineParser.parse(lineTag line))
+                current = wCust
+                continue
+            }
+
+            if (lineTag == "food") {
+                def wFood (this.ensureCurrent(current doc))
+                push wFood.content (V1LineParser.parse(lineTag line))
+                current = wFood
+                continue
+            }
+
+            if (lineTag == "drinking") {
+                def wDrink (this.ensureCurrent(current doc))
+                push wDrink.content (V1LineParser.parse(lineTag line))
+                current = wDrink
+                continue
+            }
+
+            if (lineTag == "expense") {
+                def wExp (this.ensureCurrent(current doc))
+                push wExp.content (V1LineParser.parse(lineTag line))
+                current = wExp
+                continue
+            }
+
+            def w6 (this.ensureCurrent(current doc))
+            def u (new UnknownNode)
+            u.raw = line
+            push w6.content u
+            current = w6
+        }
+
+        return doc
+    }
+
+    sfn parseText:DocumentNode (input:string) {
+        def p (new CompactV1Parser)
+        return (p.parse(input))
+    }
+}

@@ -1,0 +1,56 @@
+Import "../V1Json.rgr"
+Import "AstNode.rgr"
+
+class FoodNode {
+    Extends(AstNode)
+
+    def hasCalories:boolean false
+    def caloriesRaw:string "0"
+    def hasProtein:boolean false
+    def proteinRaw:string "0"
+    def hasCarbs:boolean false
+    def carbsRaw:string "0"
+    def hasFat:boolean false
+    def fatRaw:string "0"
+    def nutrientJsonList:[string]
+    def hasDescription:boolean false
+    def description:string ""
+
+    Constructor () {
+        type = "food"
+    }
+
+    fn toJSONString@(override):string () {
+        def fields:[string]
+        CompactV1Json.addStringField(fields "type" type)
+        if (hasCalories) {
+            CompactV1Json.addRawField(fields "calories" caloriesRaw)
+        } {
+            CompactV1Json.addRawField(fields "calories" "null")
+        }
+        if (hasProtein) {
+            CompactV1Json.addRawField(fields "protein" proteinRaw)
+        } {
+            CompactV1Json.addRawField(fields "protein" "null")
+        }
+        if (hasCarbs) {
+            CompactV1Json.addRawField(fields "carbs" carbsRaw)
+        } {
+            CompactV1Json.addRawField(fields "carbs" "null")
+        }
+        if (hasFat) {
+            CompactV1Json.addRawField(fields "fat" fatRaw)
+        } {
+            CompactV1Json.addRawField(fields "fat" "null")
+        }
+        if ((array_length nutrientJsonList) > 0) {
+            CompactV1Json.addRawField(fields "nutrients" ("[" + (join nutrientJsonList ",") + "]"))
+        } {
+            CompactV1Json.addRawField(fields "nutrients" "[]")
+        }
+        if (hasDescription) {
+            CompactV1Json.addStringField(fields "description" description)
+        }
+        return (CompactV1Json.jsonObject(fields))
+    }
+}

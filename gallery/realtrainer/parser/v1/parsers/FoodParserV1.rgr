@@ -1,0 +1,83 @@
+Import "../V1SharedHelpers.rgr"
+Import "../nodes/FoodNode.rgr"
+Import "NutrientParserV1.rgr"
+
+class FoodParserV1 {
+    static fn parse:FoodNode (line:string) {
+        def n (new FoodNode)
+        def prefixLen:int 5
+        if ((strlen line) >= 4) {
+            if ((charAt line 4) != (ccode " ")) {
+                prefixLen = 4
+            }
+        }
+        if ((strlen line) <= prefixLen) {
+            return n
+        }
+        def rest (trim (substring line prefixLen (strlen line)))
+
+        def pipeOnly (V1SharedHelpers.hasPrefix(rest "|"))
+        if (pipeOnly) {
+            def descOnly (trim (substring rest 1 (strlen rest)))
+            if ((strlen descOnly) > 0) {
+                n.hasDescription = true
+                n.description = descOnly
+            }
+            return n
+        }
+
+        def desc (V1SharedHelpers.extractPipeDescription(rest))
+        if ((strlen desc) > 0) {
+            n.hasDescription = true
+            n.description = desc
+            def barPos (V1SharedHelpers.findToken(rest "|"))
+            if (barPos >= 0) {
+                rest = (trim (substring rest 0 barPos))
+            }
+        }
+
+        def cursor@(mutable):int 0
+        def sLen (strlen rest)
+        while (cursor < sLen) {
+            def scan (NutrientParserV1.tryParseAt(rest cursor))
+            if (scan.found == false) {
+                cursor = sLen
+            } {
+                if (scan.name == "kcal") {
+                    n.hasCalories = true
+                    n.caloriesRaw = scan.value
+                } {
+                    if (scan.name == "prot") {
+                        n.hasProtein = true
+                        n.proteinRaw = scan.value
+                    } {
+                        if (scan.name == "protein") {
+                            n.hasProtein = true
+                            n.proteinRaw = scan.value
+                        } {
+                            if (scan.name == "carb") {
+                                n.hasCarbs = true
+                                n.carbsRaw = scan.value
+                            } {
+                                if (scan.name == "carbs") {
+                                    n.hasCarbs = true
+                                    n.carbsRaw = scan.value
+                                } {
+                                    if (scan.name == "fat") {
+                                        n.hasFat = true
+                                        n.fatRaw = scan.value
+                                    } {
+                                        push n.nutrientJsonList (NutrientParserV1.nutrientJson(scan.name scan.value scan.unit))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                cursor = scan.nextPos
+            }
+        }
+
+        return n
+    }
+}

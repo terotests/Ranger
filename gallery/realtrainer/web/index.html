@@ -32,6 +32,12 @@
       aside p { margin: 0 0 10px; }
       code { background: #172033; padding: 1px 5px; border-radius: 4px; color: #cbd5e1; }
       #err { color: #f87171; white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 12px; padding: 0 20px; }
+      /* The page as the window: no chrome around the stage, no rounded corners. */
+      body.fit { overflow: hidden; }
+      body.fit header, body.fit aside { display: none; }
+      body.fit main { padding: 0; gap: 0; }
+      body.fit #stage { width: 100vw; height: 100vh; }
+      body.fit canvas { border-radius: 0; }
     </style>
   </head>
   <body>

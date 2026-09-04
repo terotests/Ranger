@@ -1,0 +1,969 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; RtCalendar — what the calendar screen is made of, before it is drawn
+; =============================================================================
+; The reference recorder seeds the Firestore emulator from
+; `fixtures/reference/seed.json` — one plan calendar, its entries, a year plan
+; with an example week — and drives the React app over it. This reads the SAME
+; file, so what the EVG side draws for wk 7 is the same week from the same
+; COMPACT, and a difference in the trace is a difference in the port.
+;
+; Three things live here and none of them draws:
+;
+;   RtSeed      the file, parsed: calendars, entries by date, periods and
+;               their example weeks
+;   RtWeek      the arithmetic the original does with `Date`: the Monday of a
+;               week, the ISO week number, "9. – 15.2.", Ma…Su
+;   RtEntry     what a day row says about an entry — title, tags, emojis —
+;               read off the COMPACT lines the way `MobileWeekView` reads them
+;               off the parsed workout
+;   RtIcons     lucide's paths for the icons the shell uses, as SVG the EVG
+;               parser draws with a stroke, so the glyphs are the originals
+; =============================================================================
+
+Import "../../vela/src/VlJson.rgr"
+Import "../../ui/src/UiDate.rgr"
+
+class RtSeedEntry {
+    def id@(mutable):string ""
+    def calendarId@(mutable):string ""
+    def date@(mutable):string ""
+    ; A date relative to today rather than stated — the app's own fixtures
+    ; sit four days back and three days on from whenever it is opened.
+    def hasOffset@(mutable):boolean false
+    def dateOffset@(mutable):int 0
+    def compact@(mutable):string ""
+    ; The app's score for the entry, 0–100, or -1 without one; and the AI
+    ; coach's feedback on it, when the diary carries one.
+    def points@(mutable):int -1
+    def feedback@(mutable):string ""
+
+    Constructor () {
+    }
+}
+
+; One calendar of the seed — and one the wizard made, once it has.
+class RtSeedCalendar {
+    def id@(mutable):string ""
+    def name@(mutable):string ""
+    def kind@(mutable):string ""
+    def color@(mutable):string ""
+
+    Constructor () {
+    }
+}
+
+class RtExampleDay {
+    def dayOfWeek@(mutable):int 0
+    def compact@(mutable):string ""
+
+    Constructor () {
+    }
+}
+
+class RtExampleWeek {
+    def weekType@(mutable):string "target"
+    def description@(mutable):string ""
+    def days:[RtExampleDay]
+
+    Constructor () {
+    }
+
+    fn dayAt:string (dayOfWeek:int) {
+        for days d:RtExampleDay i {
+            if (d.dayOfWeek == dayOfWeek) {
+                return d.compact
+            }
+        }
+        return ""
+    }
+}
+
+class RtPeriod {
+    def id@(mutable):string ""
+    def name@(mutable):string ""
+    ; "weeks" or "days" — what `duration` counts.
+    def durationUnit@(mutable):string "weeks"
+    ; `type`, `duration` in weeks and `goals` — what the dashboard's period
+    ; card shows beside the name.
+    def kind@(mutable):string ""
+    def durationWeeks@(mutable):int 0
+    def goals@(mutable):string ""
+    def weeks:[RtExampleWeek]
+
+    Constructor () {
+    }
+
+    fn weekOf:RtExampleWeek (weekType:string) {
+        for weeks w:RtExampleWeek i {
+            if (w.weekType == weekType) {
+                return w
+            }
+        }
+        return (new RtExampleWeek)
+    }
+
+    fn hasWeek:boolean (weekType:string) {
+        for weeks w:RtExampleWeek i {
+            if (w.weekType == weekType) {
+                return true
+            }
+        }
+        return false
+    }
+}
+
+class RtSeed {
+    def loaded@(mutable):boolean false
+    def week@(mutable):string ""
+    ; The calendars, and the selected one's id, name and type — what the
+    ; header shows and the calendar screen draws. `selectCalendar` is the
+    ; store's `selectCalendar`: the three are set from the list.
+    def calendars:[RtSeedCalendar]
+    ; The day the sheet was made, from the seed — "Luotu" on its card.
+    def sheetCreated@(mutable):string ""
+    def calendarId@(mutable):string ""
+    def calendarName@(mutable):string ""
+    def calendarType@(mutable):string ""
+    def entries:[RtSeedEntry]
+    ; The first yearsheet: its name, description and start date are the
+    ; dashboard's "Aktiivinen suunnitelma" card.
+    def sheetId@(mutable):string ""
+    def sheetName@(mutable):string ""
+    def sheetDescription@(mutable):string ""
+    def sheetStart@(mutable):string ""
+    def periods:[RtPeriod]
+
+    Constructor () {
+    }
+
+    fn load:void (text:string) {
+        def parser (new VlJsonParser)
+        def root:VlJson (parser.parse(text))
+        week = (root.stringOr("week" ""))
+        clear calendars
+        def cals:VlJson (root.get("calendars"))
+        def ci@(mutable):int 0
+        while (ci < (cals.count())) {
+            def c:VlJson (cals.at(ci))
+            this.addCalendar((c.stringOr("id" "")) (c.stringOr("name" "")) (c.stringOr("type" "")) (c.stringOr("color" "")))
+            ci = (ci + 1)
+        }
+        if ((array_length calendars) > 0) {
+            def first:RtSeedCalendar (itemAt calendars 0)
+            this.selectCalendar(first.id)
+        }
+        clear entries
+        def es:VlJson (root.get("entries"))
+        def i@(mutable):int 0
+        while (i < (es.count())) {
+            def e:VlJson (es.at(i))
+            def entry (new RtSeedEntry)
+            entry.id = (e.stringOr("id" ""))
+            entry.calendarId = (e.stringOr("calendarId" ""))
+            entry.date = (e.stringOr("date" ""))
+            if (e.has("dateOffset")) {
+                entry.hasOffset = true
+                entry.dateOffset = (e.intOr("dateOffset" 0))
+            }
+            entry.compact = (e.stringOr("compact" ""))
+            if (e.has("points")) { entry.points = (e.intOr("points" -1)) }
+            entry.feedback = (e.stringOr("feedback" ""))
+            push entries entry
+            i = (i + 1)
+        }
+        clear periods
+        def sheets:VlJson (root.get("yearsheets"))
+        def s@(mutable):int 0
+        while (s < (sheets.count())) {
+            def sheet:VlJson (sheets.at(s))
+            if (s == 0) {
+                sheetId = (sheet.stringOr("id" ""))
+                sheetName = (sheet.stringOr("name" ""))
+                sheetDescription = (sheet.stringOr("description" ""))
+                sheetStart = (sheet.stringOr("startDate" ""))
+                sheetCreated = (substring (sheet.stringOr("createdAt" "")) 0 10)
+            }
+            def ps:VlJson (sheet.get("periods"))
+            def p@(mutable):int 0
+            while (p < (ps.count())) {
+                def pj:VlJson (ps.at(p))
+                def period (new RtPeriod)
+                period.id = (pj.stringOr("id" ""))
+                period.name = (pj.stringOr("name" ""))
+                period.durationUnit = (pj.stringOr("durationUnit" "weeks"))
+                period.kind = (pj.stringOr("type" ""))
+                period.durationWeeks = (pj.intOr("duration" 0))
+                period.goals = (pj.stringOr("goals" ""))
+                def ws:VlJson (pj.get("exampleWeeks"))
+                def w@(mutable):int 0
+                while (w < (ws.count())) {
+                    def wj:VlJson (ws.at(w))
+                    def ew (new RtExampleWeek)
+                    ew.weekType = (wj.stringOr("type" "target"))
+                    ew.description = (wj.stringOr("description" ""))
+                    def ds:VlJson (wj.get("days"))
+                    def d@(mutable):int 0
+                    while (d < (ds.count())) {
+                        def dj:VlJson (ds.at(d))
+                        def day (new RtExampleDay)
+                        day.dayOfWeek = (dj.intOr("dayOfWeek" 0))
+                        day.compact = (dj.stringOr("compact" ""))
+                        push ew.days day
+                        d = (d + 1)
+                    }
+                    push period.weeks ew
+                    w = (w + 1)
+                }
+                push periods period
+                p = (p + 1)
+            }
+            s = (s + 1)
+        }
+        loaded = true
+    }
+
+    ; The relative dates, anchored: the entry's date, and the date in the
+    ; first line of its COMPACT, which is what `replaceCompactDate` does in
+    ; the app before it writes the fixture.
+    fn anchor:void (todayIso:string) {
+        for entries e:RtSeedEntry i {
+            if e.hasOffset {
+                e.date = (RtWeek.shifted(todayIso e.dateOffset))
+                if ((strlen e.compact) > 11) {
+                    if ((substring e.compact 0 1) == "[") {
+                        e.compact = (("[" + e.date) + (substring e.compact 11 (strlen e.compact)))
+                    }
+                }
+            }
+        }
+    }
+
+    ; An entry the app wrote: the add sheet's, on its day, in the calendar
+    ; that was open.
+    fn addEntry:void (id:string calendarId:string date:string compact:string) {
+        def e (new RtSeedEntry)
+        e.id = id
+        e.calendarId = calendarId
+        e.date = date
+        e.compact = compact
+        push entries e
+    }
+
+    fn addCalendar:void (id:string name:string kind:string color:string) {
+        def c (new RtSeedCalendar)
+        c.id = id
+        c.name = name
+        c.kind = kind
+        c.color = color
+        push calendars c
+    }
+
+    ; The selected calendar; an id the list does not have selects nothing.
+    fn selectCalendar:boolean (id:string) {
+        for calendars c:RtSeedCalendar i {
+            if (c.id == id) {
+                calendarId = c.id
+                calendarName = c.name
+                calendarType = c.kind
+                return true
+            }
+        }
+        return false
+    }
+
+    ; An entry of the selected calendar — or of any, when the file did not
+    ; say whose it is.
+    fn isSelected:boolean (e:RtSeedEntry) {
+        if ((strlen e.calendarId) == 0) {
+            return true
+        }
+        return (e.calendarId == calendarId)
+    }
+
+    ; The selected calendar's entries, in the order the file has them.
+    ; The calendars as the app's store lists them: by id, descending — the
+    ; order the selector's menu and the statistics walk them in.
+    fn storeOrder:[RtSeedCalendar] () {
+        def out:[RtSeedCalendar]
+        for calendars c:RtSeedCalendar i {
+            def placed:[RtSeedCalendar]
+            def done@(mutable):boolean false
+            for out o:RtSeedCalendar j {
+                if ((done == false) && (RtSeed.idAfter(c.id o.id))) {
+                    push placed c
+                    done = true
+                }
+                push placed o
+            }
+            if (done == false) { push placed c }
+            out = placed
+        }
+        return out
+    }
+
+    sfn idAfter:boolean (a:string b:string) {
+        def n@(mutable):int (strlen a)
+        if ((strlen b) < n) { n = (strlen b) }
+        def i@(mutable):int 0
+        while (i < n) {
+            def ca:int (charAt a i)
+            def cb:int (charAt b i)
+            if (ca > cb) { return true }
+            if (ca < cb) { return false }
+            i = (i + 1)
+        }
+        return ((strlen a) > (strlen b))
+    }
+
+    fn calendarKindOf:string (id:string) {
+        for calendars c:RtSeedCalendar i {
+            if (c.id == id) { return c.kind }
+        }
+        return ""
+    }
+
+    fn selectedEntries:[RtSeedEntry] () {
+        def out:[RtSeedEntry]
+        for entries e:RtSeedEntry i {
+            if (this.isSelected(e)) {
+                push out e
+            }
+        }
+        return out
+    }
+
+    ; The entries on one date, in the order the file has them.
+    fn entriesOn:[RtSeedEntry] (iso:string) {
+        def out:[RtSeedEntry]
+        for entries e:RtSeedEntry i {
+            if ((e.date == iso) && (this.isSelected(e))) {
+                push out e
+            }
+        }
+        return out
+    }
+
+    ; The entries whose date falls in the week that starts on `mondayIso`.
+    fn entriesInWeek:[RtSeedEntry] (mondayIso:string) {
+        def out:[RtSeedEntry]
+        def first:int (RtWeek.daysOf(mondayIso))
+        for entries e:RtSeedEntry i {
+            def d:int (RtWeek.daysOf(e.date))
+            if ((d >= first) && (d < (first + 7)) && (this.isSelected(e))) {
+                push out e
+            }
+        }
+        return out
+    }
+
+    fn firstPeriod:RtPeriod () {
+        if ((array_length periods) > 0) {
+            return (itemAt periods 0)
+        }
+        return (new RtPeriod)
+    }
+}
+
+; -----------------------------------------------------------------------------
+; The week
+; -----------------------------------------------------------------------------
+class RtWeek {
+    Constructor () {
+    }
+
+    sfn daysOf:int (iso:string) {
+        def y:int (to_int (?? (to_double (substring iso 0 4)) 0.0))
+        def m:int (to_int (?? (to_double (substring iso 5 7)) 0.0))
+        def d:int (to_int (?? (to_double (substring iso 8 10)) 0.0))
+        return (UiDate.toDays(y m d))
+    }
+
+    sfn isoOf:string (days:int) {
+        return (UiDate.isoOfDays(days))
+    }
+
+    ; The Monday on or before the date — `getWeekStart` in the original.
+    sfn mondayOf:string (iso:string) {
+        def days:int (RtWeek.daysOf(iso))
+        def wd:int (UiDate.weekday(days))
+        def back:int ((wd + 6) % 7)
+        return (UiDate.isoOfDays((days - back)))
+    }
+
+    sfn shifted:string (iso:string byDays:int) {
+        return (UiDate.isoOfDays(((RtWeek.daysOf(iso)) + byDays)))
+    }
+
+    sfn dayOfMonth:int (iso:string) {
+        return (to_int (?? (to_double (substring iso 8 10)) 0.0))
+    }
+
+    sfn monthOf:int (iso:string) {
+        return (to_int (?? (to_double (substring iso 5 7)) 0.0))
+    }
+
+    ; "5.1.2026" — the date as fi-FI writes it, no padding.
+    sfn fiDate:string (iso:string) {
+        return ((((to_string (RtWeek.dayOfMonth(iso))) + ".") + (to_string (RtWeek.monthOf(iso)))) + ("." + (substring iso 0 4)))
+    }
+
+    ; ISO 8601: the week that holds the Thursday. The Thursday of the week a
+    ; Monday starts is three days on; its week number is one plus the number
+    ; of whole weeks between it and the year's first Thursday's Monday.
+    sfn isoWeekNumber:int (mondayIso:string) {
+        def thursday:int ((RtWeek.daysOf(mondayIso)) + 3)
+        def parts:[int] ([] _:int (0 0 0))
+        UiDate.fromDays(thursday parts)
+        def year:int (itemAt parts 0)
+        def jan1:int (UiDate.toDays(year 1 1))
+        ; The Monday of the week that holds January 1st's nearest Thursday.
+        def jan1wd:int (UiDate.weekday(jan1))
+        def jan1back:int ((jan1wd + 6) % 7)
+        def firstMonday@(mutable):int (jan1 - jan1back)
+        ; Week 1 is the week with the year's first Thursday: if January 1st is
+        ; a Friday, Saturday or Sunday, that week belongs to the previous year.
+        if (jan1back > 3) {
+            firstMonday = (firstMonday + 7)
+        }
+        return ((idiv (thursday - firstMonday) 7) + 1)
+    }
+
+    ; "9. – 15.2." within one month, "26.1. – 1.2." across two — the
+    ; original's `weekRange`.
+    sfn rangeText:string (mondayIso:string) {
+        def sunday:string (RtWeek.shifted(mondayIso 6))
+        def d1:int (RtWeek.dayOfMonth(mondayIso))
+        def m1:int (RtWeek.monthOf(mondayIso))
+        def d2:int (RtWeek.dayOfMonth(sunday))
+        def m2:int (RtWeek.monthOf(sunday))
+        if (m1 == m2) {
+            return (((((to_string d1) + ". – ") + (to_string d2)) + ".") + (to_string m2)) + "."
+        }
+        return (((((((to_string d1) + ".") + (to_string m1)) + ". – ") + (to_string d2)) + ".") + (to_string m2)) + "."
+    }
+
+    ; Monday first, as the rows are — `common.mondayShort` and on.
+    sfn dayShort:string (i:int) {
+        if (i == 0) { return "Ma" }
+        if (i == 1) { return "Ti" }
+        if (i == 2) { return "Ke" }
+        if (i == 3) { return "To" }
+        if (i == 4) { return "Pe" }
+        if (i == 5) { return "La" }
+        return "Su"
+    }
+}
+
+; -----------------------------------------------------------------------------
+; What a row says about an entry
+; -----------------------------------------------------------------------------
+class RtEntry {
+    def title@(mutable):string ""
+    ; "14:34" from a header with a time, or empty.
+    def time@(mutable):string ""
+    def tags:[string]
+    def emojis@(mutable):string ""
+    ; The COMPACT lines that are content rather than the header — what the
+    ; example week draws under the title.
+    def bodyLines:[string]
+
+    Constructor () {
+    }
+
+    ; `## Title`, `Tags a, b`, `Emojis 💪` — read off the lines, the way the
+    ; original reads them off the parsed workout. The date bracket on the
+    ; first line is the entry's, not the title's.
+    sfn of:RtEntry (compact:string) {
+        def e (new RtEntry)
+        def lines:[string] (RtEntry.splitLines(compact))
+        for lines raw:string i {
+            def line:string (RtEntry.trimmed(raw))
+            if ((strlen line) == 0) {
+                continue
+            }
+            if ((RtEntry.hasPrefix(line "## ")) && ((strlen e.title) == 0)) {
+                e.title = (RtEntry.trimmed((substring line 3 (strlen line))))
+                continue
+            }
+            if (RtEntry.hasPrefix(line "[")) {
+                ; "[2026-02-10] ## Title" keeps its title after the bracket;
+                ; "[2026-05-07T14:34+03]" the time of day too.
+                def close:int (RtEntry.findIn(line "]"))
+                if (close >= 17) {
+                    if ((substring line 11 12) == "T") {
+                        e.time = (substring line 12 17)
+                    }
+                }
+                if (close >= 0) {
+                    def rest:string (RtEntry.trimmed((substring line (close + 1) (strlen line))))
+                    if ((RtEntry.hasPrefix(rest "## ")) && ((strlen e.title) == 0)) {
+                        e.title = (RtEntry.trimmed((substring rest 3 (strlen rest))))
+                    }
+                }
+                continue
+            }
+            if (RtEntry.hasPrefix(line "Tags ")) {
+                def list:string (substring line 5 (strlen line))
+                def parts:[string] (RtEntry.splitOn(list 44))
+                for parts p:string j {
+                    def tag:string (RtEntry.trimmed(p))
+                    if ((strlen tag) > 0) {
+                        push e.tags tag
+                    }
+                }
+                continue
+            }
+            if (RtEntry.hasPrefix(line "Emojis ")) {
+                e.emojis = (RtEntry.trimmed((substring line 7 (strlen line))))
+                continue
+            }
+            push e.bodyLines line
+        }
+        return e
+    }
+
+    ; "#kuntosali #voima #kevyt" — the first three, as the row shows them.
+    ; The minutes an entry's `Duration` or `Time` line says: "45min",
+    ; "1h 10min", "2h". The first such line counts; none is zero.
+    sfn minutesOf:int (compact:string) {
+        def lines:[string] (RtEntry.splitLines(compact))
+        for lines line:string i {
+            def t:string (RtEntry.trimmed(line))
+            def rest@(mutable):string ""
+            if (RtEntry.hasPrefix(t "Duration ")) { rest = (substring t 9 (strlen t)) }
+            if (RtEntry.hasPrefix(t "Time ")) { rest = (substring t 5 (strlen t)) }
+            if ((strlen rest) > 0) {
+                def bar:int (RtEntry.findIn(rest "|"))
+                if (bar >= 0) { rest = (substring rest 0 bar) }
+                return (RtEntry.minutesIn(rest))
+            }
+        }
+        return 0
+    }
+
+    ; "1h 10min" → 70: every number takes the unit that follows it.
+    sfn minutesIn:int (text:string) {
+        def total@(mutable):int 0
+        def num@(mutable):int 0
+        def has@(mutable):boolean false
+        def i@(mutable):int 0
+        def n:int (strlen text)
+        while (i < n) {
+            def c:int (charAt text i)
+            if ((c >= 48) && (c <= 57)) {
+                num = ((num * 10) + (c - 48))
+                has = true
+            } {
+                if (c == 104) {
+                    if has { total = (total + (num * 60)) }
+                    num = 0
+                    has = false
+                }
+                if (c == 109) {
+                    if has { total = (total + num) }
+                    num = 0
+                    has = false
+                }
+            }
+            i = (i + 1)
+        }
+        return total
+    }
+
+    fn tagText:string () {
+        def out@(mutable):string ""
+        def n@(mutable):int 0
+        for tags t:string i {
+            if (n < 3) {
+                if (n > 0) {
+                    out = (out + " ")
+                }
+                out = ((out + "#") + t)
+                n = (n + 1)
+            }
+        }
+        return out
+    }
+
+    sfn splitLines:[string] (text:string) {
+        return (RtEntry.splitOn(text 10))
+    }
+
+    sfn splitOn:[string] (text:string sep:int) {
+        def out:[string]
+        def run@(mutable):string ""
+        def i@(mutable):int 0
+        def len:int (strlen text)
+        while (i < len) {
+            def ch:int (charAt text i)
+            if (ch == sep) {
+                push out run
+                run = ""
+            } {
+                run = (run + (substring text i (i + 1)))
+            }
+            i = (i + 1)
+        }
+        push out run
+        return out
+    }
+
+    sfn hasPrefix:boolean (text:string prefix:string) {
+        def n:int (strlen prefix)
+        if ((strlen text) < n) {
+            return false
+        }
+        return ((substring text 0 n) == prefix)
+    }
+
+    sfn findIn:int (text:string needle:string) {
+        def n:int (strlen needle)
+        def len:int (strlen text)
+        def i@(mutable):int 0
+        while ((i + n) <= len) {
+            if ((substring text i (i + n)) == needle) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    sfn trimmed:string (text:string) {
+        def s@(mutable):int 0
+        def e@(mutable):int (strlen text)
+        def leading@(mutable):boolean true
+        while (leading) {
+            if (s >= e) {
+                leading = false
+            } {
+                def c:int (charAt text s)
+                if ((c == 32) || (c == 13) || (c == 9)) {
+                    s = (s + 1)
+                } {
+                    leading = false
+                }
+            }
+        }
+        def trailing@(mutable):boolean true
+        while (trailing) {
+            if (e <= s) {
+                trailing = false
+            } {
+                def c2:int (charAt text (e - 1))
+                if ((c2 == 32) || (c2 == 13) || (c2 == 9)) {
+                    e = (e - 1)
+                } {
+                    trailing = false
+                }
+            }
+        }
+        return (substring text s e)
+    }
+}
+
+; -----------------------------------------------------------------------------
+; A Derived line — `Derived strength.neural_stress 42|score … goodness:4` —
+; as `DerivedRow` shows it: the value, its unit, the short Finnish label the
+; metric has, and the goodness as a word.
+; -----------------------------------------------------------------------------
+class RtDerived {
+    def key@(mutable):string ""
+    def value@(mutable):string ""
+    def unit@(mutable):string ""
+    def goodness@(mutable):int 0
+
+    ; `getDerivedLabel`: the map, or the key without its family and its
+    ; underscores.
+    fn label:string () {
+        if (key == "nutrition.sugar_simple") { return "sokeri" }
+        if (key == "nutrition.sugar_complex") { return "hiilari" }
+        if (key == "nutrition.fat_bad_total") { return "paha rasva" }
+        if (key == "nutrition.fat_good_total") { return "hyvä rasva" }
+        if (key == "endurance.zone1_minutes") { return "Zone1" }
+        if (key == "endurance.zone2_minutes") { return "Zone2" }
+        if (key == "endurance.zone3_minutes") { return "Zone3" }
+        if (key == "endurance.zone4_minutes") { return "Zone4" }
+        if (key == "endurance.zone5_minutes") { return "Zone5" }
+        if (key == "strength.neural_stress") { return "hermokuorma" }
+        if (key == "strength.max_strength_emphasis") { return "maksimivoima" }
+        if (key == "strength.power_emphasis") { return "räjähtävyys" }
+        if (key == "strength.speed_strength_emphasis") { return "nopeusvoima" }
+        if (key == "strength.strength_endurance_emphasis") { return "voimakestävyys" }
+        def dot:int (RtEntry.findIn(key "."))
+        def bare@(mutable):string key
+        if (dot >= 0) {
+            bare = (substring key (dot + 1) (strlen key))
+        }
+        def out@(mutable):string ""
+        def i@(mutable):int 0
+        while (i < (strlen bare)) {
+            def ch:int (charAt bare i)
+            if (ch == 95) { out = (out + " ") } { out = (out + (substring bare i (i + 1))) }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn goodnessLabel:string () {
+        if (goodness == 1) { return "huono" }
+        if (goodness == 2) { return "heikko" }
+        if (goodness == 3) { return "ok" }
+        if (goodness == 4) { return "hyvä" }
+        if (goodness == 5) { return "top" }
+        return ""
+    }
+
+    ; The Derived lines of one entry, in the order the file has them.
+    sfn of:[RtDerived] (compact:string) {
+        def out:[RtDerived]
+        def lines:[string] (RtEntry.splitLines(compact))
+        for lines raw:string i {
+            def line:string (RtEntry.trimmed(raw))
+            if (RtEntry.hasPrefix(line "Derived ")) {
+                def d (new RtDerived)
+                def words:[string] (RtEntry.splitOn(line 32))
+                for words w:string wi {
+                    if ((strlen w) == 0) { continue }
+                    if (wi == 1) { d.key = w }
+                    if (wi == 2) {
+                        def bar:int (RtEntry.findIn(w "|"))
+                        if (bar >= 0) {
+                            d.value = (substring w 0 bar)
+                            d.unit = (substring w (bar + 1) (strlen w))
+                        } {
+                            d.value = w
+                        }
+                    }
+                    if (RtEntry.hasPrefix(w "goodness:")) {
+                        d.goodness = (to_int (?? (to_double (substring w 9 (strlen w))) 0.0))
+                    }
+                }
+                if ((strlen d.key) > 0) { push out d }
+            }
+        }
+        return out
+    }
+}
+
+; -----------------------------------------------------------------------------
+; The icons — lucide, stroked, in the colour the state asks for
+; -----------------------------------------------------------------------------
+class RtIcons {
+    Constructor () {
+    }
+
+    ; The viewBox is a unit wider than lucide's on every side. A stroke two
+    ; wide on a path at x=2 reaches x=1, and the round joins reach past that;
+    ; mapped edge to edge onto a 20px box the outermost pixel of the roof
+    ; and the doorframe was cut off. The unit of room costs a twelfth of
+    ; the size and keeps every stroke inside its box.
+    sfn svgOf:string (body:string color:string) {
+        return ((((("<svg xmlns='http://www.w3.org/2000/svg' viewBox='-1 -1 26 26' fill='none' stroke='" + color) + "' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'>") + body) + "</svg>"))
+    }
+
+    sfn pathOf:string (d:string) {
+        return (("<path d='" + d) + "'/>")
+    }
+
+    sfn home:string (color:string) {
+        return (RtIcons.svgOf(((RtIcons.pathOf("M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8")) + (RtIcons.pathOf("M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"))) color))
+    }
+
+    sfn calendarDays:string (color:string) {
+        return (RtIcons.svgOf((((((RtIcons.pathOf("M8 2v4")) + (RtIcons.pathOf("M16 2v4"))) + "<rect width='18' height='18' x='3' y='4' rx='2'/>") + (RtIcons.pathOf("M3 10h18"))) + ((RtIcons.pathOf("M8 14h.01")) + ((RtIcons.pathOf("M12 14h.01")) + ((RtIcons.pathOf("M16 14h.01")) + ((RtIcons.pathOf("M8 18h.01")) + ((RtIcons.pathOf("M12 18h.01")) + (RtIcons.pathOf("M16 18h.01")))))))) color))
+    }
+
+    sfn layoutDashboard:string (color:string) {
+        return (RtIcons.svgOf("<rect width='7' height='9' x='3' y='3' rx='1'/><rect width='7' height='5' x='14' y='3' rx='1'/><rect width='7' height='9' x='14' y='12' rx='1'/><rect width='7' height='5' x='3' y='16' rx='1'/>" color))
+    }
+
+    sfn messageSquare:string (color:string) {
+        return (RtIcons.svgOf((RtIcons.pathOf("M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z")) color))
+    }
+
+    sfn ellipsis:string (color:string) {
+        return (RtIcons.svgOf("<circle cx='12' cy='12' r='1'/><circle cx='19' cy='12' r='1'/><circle cx='5' cy='12' r='1'/>" color))
+    }
+
+    sfn penLine:string (color:string) {
+        return (RtIcons.svgOf(((RtIcons.pathOf("M13 21h8")) + (RtIcons.pathOf("M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"))) color))
+    }
+
+    sfn refreshCw:string (color:string) {
+        return (RtIcons.svgOf((((RtIcons.pathOf("M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8")) + (RtIcons.pathOf("M21 3v5h-5"))) + ((RtIcons.pathOf("M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16")) + (RtIcons.pathOf("M8 16H3v5")))) color))
+    }
+
+    sfn chevronLeft:string (color:string) {
+        return (RtIcons.svgOf((RtIcons.pathOf("m15 18-6-6 6-6")) color))
+    }
+
+    sfn chevronRight:string (color:string) {
+        return (RtIcons.svgOf((RtIcons.pathOf("m9 18 6-6-6-6")) color))
+    }
+
+    sfn chevronDown:string (color:string) {
+        return (RtIcons.svgOf((RtIcons.pathOf("m6 9 6 6 6-6")) color))
+    }
+
+    sfn users:string (color:string) {
+        return (RtIcons.svgOf((((RtIcons.pathOf("M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2")) + (RtIcons.pathOf("M16 3.128a4 4 0 0 1 0 7.744"))) + ((RtIcons.pathOf("M22 21v-2a4 4 0 0 0-3-3.87")) + "<circle cx='9' cy='7' r='4'/>")) color))
+    }
+
+    sfn building:string (color:string) {
+        return (RtIcons.svgOf((((RtIcons.pathOf("M10 12h4")) + (RtIcons.pathOf("M10 8h4"))) + ((RtIcons.pathOf("M14 21v-3a2 2 0 0 0-4 0v3")) + (RtIcons.pathOf("M6 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16")))) color))
+    }
+
+    sfn bookOpen:string (color:string) {
+        return (RtIcons.svgOf(((RtIcons.pathOf("M12 7v14")) + (RtIcons.pathOf("M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"))) color))
+    }
+
+    sfn settings:string (color:string) {
+        return (RtIcons.svgOf(((RtIcons.pathOf("M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915")) + "<circle cx='12' cy='12' r='3'/>") color))
+    }
+
+    sfn database:string (color:string) {
+        return (RtIcons.svgOf((("<ellipse cx='12' cy='5' rx='9' ry='3'/>" + (RtIcons.pathOf("M3 5V19A9 3 0 0 0 21 19V5"))) + (RtIcons.pathOf("M3 12A9 3 0 0 0 21 12"))) color))
+    }
+
+    sfn logOut:string (color:string) {
+        return (RtIcons.svgOf((((RtIcons.pathOf("m16 17 5-5-5-5")) + (RtIcons.pathOf("M21 12H9"))) + (RtIcons.pathOf("M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"))) color))
+    }
+
+    sfn dumbbell:string (color:string) {
+        return (RtIcons.svgOf(((((RtIcons.pathOf("M14.4 14.4 9.6 9.6")) + (RtIcons.pathOf("M18.657 21.485a2 2 0 1 1-2.829-2.828l-1.767 1.768a2 2 0 1 1-2.829-2.829l6.364-6.364a2 2 0 1 1 2.829 2.829l-1.768 1.767a2 2 0 1 1 2.828 2.829z"))) + ((RtIcons.pathOf("m21.5 21.5-1.4-1.4")) + (RtIcons.pathOf("M3.9 3.9 2.5 2.5")))) + (RtIcons.pathOf("M6.404 12.768a2 2 0 1 1-2.829-2.829l1.768-1.767a2 2 0 1 1-2.828-2.829l2.828-2.828a2 2 0 1 1 2.829 2.828l1.767-1.768a2 2 0 1 1 2.829 2.829z"))) color))
+    }
+
+    sfn clipboardList:string (color:string) {
+        return (RtIcons.svgOf((("<rect x='8' y='2' width='8' height='4' rx='1'/>" + (RtIcons.pathOf("M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"))) + ((((RtIcons.pathOf("M12 11h4")) + (RtIcons.pathOf("M12 16h4"))) + (RtIcons.pathOf("M8 11h.01"))) + (RtIcons.pathOf("M8 16h.01")))) color))
+    }
+
+    sfn utensils:string (color:string) {
+        return (RtIcons.svgOf((((RtIcons.pathOf("M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2")) + (RtIcons.pathOf("M7 2v20"))) + (RtIcons.pathOf("M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"))) color))
+    }
+
+    sfn moon:string (color:string) {
+        return (RtIcons.svgOf((RtIcons.pathOf("M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z")) color))
+    }
+
+    sfn heart:string (color:string) {
+        return (RtIcons.svgOf((RtIcons.pathOf("M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z")) color))
+    }
+
+    sfn activity:string (color:string) {
+        return (RtIcons.svgOf((RtIcons.pathOf("M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2")) color))
+    }
+
+    sfn trophy:string (color:string) {
+        return (RtIcons.svgOf(((((RtIcons.pathOf("M6 9H4.5a2.5 2.5 0 0 1 0-5H6")) + (RtIcons.pathOf("M18 9h1.5a2.5 2.5 0 0 0 0-5H18"))) + ((RtIcons.pathOf("M4 22h16")) + (RtIcons.pathOf("M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22")))) + ((RtIcons.pathOf("M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22")) + (RtIcons.pathOf("M18 2H6v7a6 6 0 0 0 12 0V2Z")))) color))
+    }
+
+    sfn tent:string (color:string) {
+        return (RtIcons.svgOf(((((RtIcons.pathOf("M3.5 21 14 3")) + (RtIcons.pathOf("M20.5 21 10 3"))) + (RtIcons.pathOf("M15.5 21 12 15l-3.5 6"))) + (RtIcons.pathOf("M2 21h20"))) color))
+    }
+
+    sfn wallet:string (color:string) {
+        return (RtIcons.svgOf(((RtIcons.pathOf("M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1")) + (RtIcons.pathOf("M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"))) color))
+    }
+
+    sfn lock:string (color:string) {
+        return (RtIcons.svgOf(("<rect x='3' y='11' width='18' height='11' rx='2' ry='2'/>" + (RtIcons.pathOf("M7 11V7a5 5 0 0 1 10 0v4"))) color))
+    }
+
+    sfn unlock:string (color:string) {
+        return (RtIcons.svgOf(("<rect x='3' y='11' width='18' height='11' rx='2' ry='2'/>" + (RtIcons.pathOf("M7 11V7a5 5 0 0 1 9.9-1"))) color))
+    }
+
+    sfn shield:string (color:string) {
+        return (RtIcons.svgOf((RtIcons.pathOf("M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z")) color))
+    }
+
+    sfn check:string (color:string) {
+        return (RtIcons.svgOf((RtIcons.pathOf("M20 6 9 17l-5-5")) color))
+    }
+
+    sfn alertTriangle:string (color:string) {
+        return (RtIcons.svgOf((((RtIcons.pathOf("m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3")) + (RtIcons.pathOf("M12 9v4"))) + (RtIcons.pathOf("M12 17h.01"))) color))
+    }
+
+    ; The icon a calendar type has — `typeIcons` in the wizard.
+    sfn kindIcon:string (key:string color:string) {
+        if (key == "training") { return (RtIcons.dumbbell(color)) }
+        if (key == "plan") { return (RtIcons.clipboardList(color)) }
+        if (key == "sleep") { return (RtIcons.moon(color)) }
+        if (key == "nutrition") { return (RtIcons.utensils(color)) }
+        if (key == "feelings") { return (RtIcons.heart(color)) }
+        if (key == "competition") { return (RtIcons.trophy(color)) }
+        if (key == "camp") { return (RtIcons.tent(color)) }
+        if (key == "group-training") { return (RtIcons.users(color)) }
+        if (key == "expenses") { return (RtIcons.wallet(color)) }
+        if (key == "test-plan") { return (RtIcons.clipboardList(color)) }
+        if (key == "test-log") { return (RtIcons.clipboardList(color)) }
+        if (key == "measurement") { return (RtIcons.activity(color)) }
+        return (RtIcons.ellipsis(color))
+    }
+
+    sfn arrowLeft:string (color:string) {
+        return (RtIcons.svgOf(((RtIcons.pathOf("M19 12H5")) + (RtIcons.pathOf("m12 19-7-7 7-7"))) color))
+    }
+
+    sfn trash:string (color:string) {
+        return (RtIcons.svgOf((((RtIcons.pathOf("M3 6h18")) + (RtIcons.pathOf("M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"))) + (RtIcons.pathOf("M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"))) color))
+    }
+
+    sfn rotateCcw:string (color:string) {
+        return (RtIcons.svgOf(((RtIcons.pathOf("M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8")) + (RtIcons.pathOf("M3 3v5h5"))) color))
+    }
+
+    sfn copy:string (color:string) {
+        return (RtIcons.svgOf(("<rect x='8' y='8' width='14' height='14' rx='2' ry='2'/>" + (RtIcons.pathOf("M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"))) color))
+    }
+
+    sfn clipboardPaste:string (color:string) {
+        return (RtIcons.svgOf(((((RtIcons.pathOf("M15 2H9a1 1 0 0 0-1 1v2c0 .6.4 1 1 1h6c.6 0 1-.4 1-1V3c0-.6-.4-1-1-1Z")) + (RtIcons.pathOf("M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"))) + ((RtIcons.pathOf("M16 4h2a2 2 0 0 1 2 2v2")) + (RtIcons.pathOf("M11 14h10")))) + (RtIcons.pathOf("m17 10 4 4-4 4"))) color))
+    }
+
+    sfn clock:string (color:string) {
+        return (RtIcons.svgOf(((RtIcons.pathOf("M12 6v6l4 2")) + (RtIcons.pathOf("M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0"))) color))
+    }
+
+    sfn trendingUp:string (color:string) {
+        return (RtIcons.svgOf(((RtIcons.pathOf("M22 7 13.5 15.5 8.5 10.5 2 17")) + (RtIcons.pathOf("M16 7h6v6"))) color))
+    }
+
+    sfn trendingDown:string (color:string) {
+        return (RtIcons.svgOf(((RtIcons.pathOf("M22 17 13.5 8.5 8.5 13.5 2 7")) + (RtIcons.pathOf("M16 17h6v-6"))) color))
+    }
+
+    sfn minus:string (color:string) {
+        return (RtIcons.svgOf((RtIcons.pathOf("M5 12h14")) color))
+    }
+
+    sfn star:string (color:string) {
+        return (RtIcons.svgOf((RtIcons.pathOf("M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z")) color))
+    }
+
+    sfn sparkles:string (color:string) {
+        return (RtIcons.svgOf((RtIcons.pathOf("M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z")) color))
+    }
+
+    sfn barChart:string (color:string) {
+        return (RtIcons.svgOf(((((RtIcons.pathOf("M3 3v18h18")) + (RtIcons.pathOf("M18 17V9"))) + (RtIcons.pathOf("M13 17V5"))) + (RtIcons.pathOf("M8 17v-3"))) color))
+    }
+
+    sfn plus:string (color:string) {
+        return (RtIcons.svgOf(((RtIcons.pathOf("M5 12h14")) + (RtIcons.pathOf("M12 5v14"))) color))
+    }
+
+    sfn x:string (color:string) {
+        return (RtIcons.svgOf(((RtIcons.pathOf("M18 6 6 18")) + (RtIcons.pathOf("m6 6 12 12"))) color))
+    }
+
+    ; The credits gauge: a battery, filled to the fraction left.
+    sfn battery:string (color:string) {
+        def body:string ((("<rect x='4' y='2' width='16' height='20' rx='3'/><rect x='7' y='6' width='10' height='13' rx='1' fill='" + color) + "'/>") + "<path d='M10 2V1M14 2V1'/>")
+        return (RtIcons.svgOf(body color))
+    }
+}

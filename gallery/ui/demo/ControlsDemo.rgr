@@ -862,7 +862,7 @@ class ControlsDemo {
     fn typeChar:boolean (c:int) {
         if (focused == "cx-num") {
             num.focus()
-            if (num.typeChar(c)) {
+            if (num.typeCode(c)) {
                 num.blur()
                 this.syncFromField()
                 this.saveField()

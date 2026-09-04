@@ -62,6 +62,9 @@ class IosApp {
     ; browser page styles the same tree from, copied rather than referenced
     ; because an app bundle is packaged whole.
     def cssFile:string ""
+    ; What else the page reads at start, packaged beside the stylesheet: a
+    ; port whose demo embeds texts in the browser bundle lists them here.
+    def resourceFiles:[string]
 
     def appName:string ""
     def displayName:string ""
@@ -120,8 +123,14 @@ class IosApp {
         push a.hostSources "gallery/realtrainer/ios/ios/RealTrainerView.swift"
         push a.hostSources "gallery/realtrainer/ios/ios/AppDelegate.swift"
         push a.hostSources "gallery/realtrainer/ios/ios/main.swift"
-        ; No watch build: this page is a 980x760 composition and a watch is not
-        ; a window it has an honest answer for.
+        ; The five texts the browser bundle embeds: the session's COMPACT, the
+        ; two state machines and the reference seed, beside the stylesheet.
+        push a.resourceFiles "gallery/realtrainer/fixtures/session.compact"
+        push a.resourceFiles "gallery/realtrainer/fixtures/machines/planDialog.machine.json"
+        push a.resourceFiles "gallery/realtrainer/fixtures/machines/chat.machine.json"
+        push a.resourceFiles "gallery/realtrainer/fixtures/reference/seed.json"
+        ; No watch build: the phone shell folds to a bottom bar at 390 points
+        ; and has no honest answer for a watch face.
         return a
     }
 
@@ -464,6 +473,9 @@ class IosBuild {
         ; rather than referenced because an app bundle is packaged whole and a
         ; source tree five directories away is not one.
         spec.addResource(app.cssFile)
+        for app.resourceFiles rf:string ri {
+            spec.addResource(rf)
+        }
         if o.release {
             push spec.swiftFlags "-O"
         }

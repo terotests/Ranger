@@ -1,0 +1,65 @@
+Import "../V1Json.rgr"
+
+; One set of a Pyramid block.
+;
+; Typed replacement for the JSON strings PyramidParserV1 used to push into
+; PyramidNode.setJsonList. The weight value is kept as the raw numeric token so
+; fractional weights ("62.5") round-trip exactly; weightKg() gives the rounded
+; integer consumers need.
+class PyramidSetNode {
+    def reps:int 0
+    def hasRepsRight:boolean false
+    def repsRight:int 0
+    def hasWeight:boolean false
+    def weightValueRaw:string ""
+    def weightUnit:string "kg"
+
+    sfn create:PyramidSetNode (reps:int) {
+        def s (new PyramidSetNode)
+        s.reps = reps
+        return s
+    }
+
+    fn withRepsRight:PyramidSetNode (value:int) {
+        hasRepsRight = true
+        repsRight = value
+        return this
+    }
+
+    fn withWeight:PyramidSetNode (valueRaw:string unit:string) {
+        if ((strlen valueRaw) > 0) {
+            hasWeight = true
+            weightValueRaw = valueRaw
+            weightUnit = unit
+        }
+        return this
+    }
+
+    fn weightKg:int () {
+        if (hasWeight == false) {
+            return 0
+        }
+        def parsed (str2double weightValueRaw)
+        if (null? parsed) {
+            return 0
+        }
+        return (to_int (unwrap parsed))
+    }
+
+    fn toJSONString:string () {
+        def sf:[string]
+        CompactV1Json.addIntField(sf "reps" reps)
+        if (hasRepsRight) {
+            CompactV1Json.addIntField(sf "repsRight" repsRight)
+        }
+        if (hasWeight) {
+            def wf:[string]
+            CompactV1Json.addRawField(wf "value" weightValueRaw)
+            CompactV1Json.addStringField(wf "unit" weightUnit)
+            CompactV1Json.addRawField(sf "weight" (CompactV1Json.jsonObject(wf)))
+        } {
+            CompactV1Json.addRawField(sf "weight" "null")
+        }
+        return (CompactV1Json.jsonObject(sf))
+    }
+}

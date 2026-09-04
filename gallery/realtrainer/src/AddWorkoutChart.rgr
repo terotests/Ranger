@@ -1,0 +1,109 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; AddWorkoutChart — the same machine, as data
+; =============================================================================
+; `AddWorkoutDialog.rgr` is this machine hand-written. This is the same machine
+; as a `Statechart` definition, run by the generic runner. Both are checked
+; against the SAME transition table transcribed from
+; `frontend/src/machines/addWorkoutDialogMachine.ts`, and the point of having
+; both is that the table is then measuring something: two independent readings
+; of one specification either agree with it or one of them is wrong.
+;
+; It is also the argument for the runner. The hand-written port is 150 lines of
+; branching per machine; this is a description. `planDialogMachine` has six
+; states and seventeen events, and `chatMachine` has nested ones — that is
+; where writing the branches out stops being reasonable.
+;
+; `today` is a context key the host fills, for the reason given in
+; AddWorkoutDialog.rgr: the original calls `new Date()` inside its own reducer,
+; and a clock belongs outside a state machine.
+; =============================================================================
+
+Import "../../statechart/src/Statechart.rgr"
+
+class AddWorkoutChart {
+
+    Constructor () {
+    }
+
+    ; The four assignments that put the context back where it started. In the
+    ; original this is `assign(getInitialContext)`, which is also where its
+    ; `new Date()` lives.
+    sfn resetAssigns:[ScAssign] () {
+        def out:[ScAssign]
+        push out (ScAssign.of("targetDate" (ScValue.context("today"))))
+        push out (ScAssign.of("targetCalendarId" (ScValue.literal(""))))
+        push out (ScAssign.of("inputText" (ScValue.literal(""))))
+        push out (ScAssign.of("error" (ScValue.literal(""))))
+        return out
+    }
+
+    sfn define:Statechart () {
+        def chart (new Statechart)
+        chart.id = "addWorkoutDialog"
+        chart.initial = "closed"
+        chart.contextStr("today" "")
+        chart.contextStr("targetDate" "")
+        chart.contextStr("targetCalendarId" "")
+        chart.contextStr("inputText" "")
+        chart.contextStr("error" "")
+
+        def closed:ScState (chart.state("closed"))
+        def open:ScState (chart.state("open"))
+        def saving:ScState (chart.state("saving"))
+
+        ; closed --OPEN--> open. `event.targetDate || today` is the fallback,
+        ; and the rest of the context is blanked: a dialog that opened showing
+        ; the last thing someone typed would be a bug, not a convenience.
+        def opening:ScTransition (closed.on("OPEN" "open"))
+        def orToday:ScValue (ScValue.either())
+        push orToday.parts (ScValue.event("targetDate"))
+        push orToday.parts (ScValue.context("today"))
+        push opening.assigns (ScAssign.of("targetDate" orToday))
+        push opening.assigns (ScAssign.of("targetCalendarId" (ScValue.literal(""))))
+        push opening.assigns (ScAssign.of("inputText" (ScValue.literal(""))))
+        push opening.assigns (ScAssign.of("error" (ScValue.literal(""))))
+
+        def closing:ScTransition (open.on("CLOSE" "closed"))
+        for (AddWorkoutChart.resetAssigns()) a:ScAssign i {
+            push closing.assigns a
+        }
+
+        ; No target: these assign and stay, which is why typing does not
+        ; re-enter `open`.
+        def setDate:ScTransition (open.on("SET_TARGET_DATE" ""))
+        push setDate.assigns (ScAssign.of("targetDate" (ScValue.event("date"))))
+        def setText:ScTransition (open.on("SET_INPUT_TEXT" ""))
+        push setText.assigns (ScAssign.of("inputText" (ScValue.event("text"))))
+
+        open.on("START_SAVING" "saving")
+
+        def completed:ScTransition (saving.on("SAVE_COMPLETE" "closed"))
+        for (AddWorkoutChart.resetAssigns()) a2:ScAssign j {
+            push completed.assigns a2
+        }
+
+        ; Back to `open` carrying the error, and the input is NOT cleared: a
+        ; failed save that threw away what was typed would be a second failure.
+        def failed:ScTransition (saving.on("ERROR" "open"))
+        push failed.assigns (ScAssign.of("error" (ScValue.event("error"))))
+
+        def abandoned:ScTransition (saving.on("CLOSE" "closed"))
+        for (AddWorkoutChart.resetAssigns()) a3:ScAssign k {
+            push abandoned.assigns a3
+        }
+
+        return chart
+    }
+
+    ; Started and given the host's date, which is what the hand-written port's
+    ; `today = …; reset()` does.
+    sfn started:ScRunner (today:string) {
+        def r (new ScRunner)
+        r.start((AddWorkoutChart.define()))
+        r.setStr("today" today)
+        r.setStr("targetDate" today)
+        return r
+    }
+}

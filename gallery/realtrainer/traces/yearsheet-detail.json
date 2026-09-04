@@ -1,0 +1,843 @@
+{
+ "id": "yearsheet-detail",
+ "machine": "",
+ "frames": [
+  {
+   "step": "tick 4000",
+   "handled": false,
+   "state": "",
+   "nodes": [
+    {
+     "role": "group",
+     "name": "RealTrainer",
+     "state": ""
+    },
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Vuosisuunnitelma 2026",
+     "state": "level=1"
+    },
+    {
+     "role": "paragraph",
+     "name": "5.1.2026 - 2.1.2028 • Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Poista ja aloita alusta",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kopioi JSON leikepöydälle",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Liitä JSON leikepöydältä",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Muokkaa vuosisuunnitelmaa",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Featuret",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kaudet",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Rivit",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Jaksot ja esimerkkiviikot",
+     "state": "level=3"
+    },
+    {
+     "role": "button",
+     "name": "Kuntoutus & Ylläpito (104 vk) general Esimerkkiviikot ✓",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-ys-period-0",
+   "handled": true,
+   "state": "",
+   "nodes": [
+    {
+     "role": "group",
+     "name": "RealTrainer",
+     "state": ""
+    },
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Vuosisuunnitelma 2026",
+     "state": "level=1"
+    },
+    {
+     "role": "paragraph",
+     "name": "5.1.2026 - 2.1.2028 • Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Poista ja aloita alusta",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kopioi JSON leikepöydälle",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Liitä JSON leikepöydältä",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Muokkaa vuosisuunnitelmaa",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Featuret",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kaudet",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Rivit",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Jaksot ja esimerkkiviikot",
+     "state": "level=3"
+    },
+    {
+     "role": "button",
+     "name": "Kuntoutus & Ylläpito (104 vk) general Esimerkkiviikot ✓",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "🎯 Tavoiteviikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "🌊 Kevyt viikko",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Tavoiteviikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Katso täydet ohjelmat",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-ys-week-0-light",
+   "handled": true,
+   "state": "",
+   "nodes": [
+    {
+     "role": "group",
+     "name": "RealTrainer",
+     "state": ""
+    },
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Vuosisuunnitelma 2026",
+     "state": "level=1"
+    },
+    {
+     "role": "paragraph",
+     "name": "5.1.2026 - 2.1.2028 • Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Poista ja aloita alusta",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kopioi JSON leikepöydälle",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Liitä JSON leikepöydältä",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Muokkaa vuosisuunnitelmaa",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Featuret",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kaudet",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Rivit",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Jaksot ja esimerkkiviikot",
+     "state": "level=3"
+    },
+    {
+     "role": "button",
+     "name": "Kuntoutus & Ylläpito (104 vk) general Esimerkkiviikot ✓",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "🎯 Tavoiteviikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "🌊 Kevyt viikko",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Kevyt viikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Katso täydet ohjelmat",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-ys-periods",
+   "handled": true,
+   "state": "",
+   "nodes": [
+    {
+     "role": "group",
+     "name": "RealTrainer",
+     "state": ""
+    },
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Vuosisuunnitelma 2026",
+     "state": "level=1"
+    },
+    {
+     "role": "paragraph",
+     "name": "5.1.2026 - 2.1.2028 • Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Poista ja aloita alusta",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kopioi JSON leikepöydälle",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Liitä JSON leikepöydältä",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Muokkaa vuosisuunnitelmaa",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Featuret",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kaudet",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Rivit",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Kausien muokkaus",
+     "state": "level=3"
+    },
+    {
+     "role": "button",
+     "name": "Lisää kausi",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "Kesto",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Vähennä",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "combobox",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "combobox",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lukitse päivämäärät",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": "disabled"
+    },
+    {
+     "role": "heading",
+     "name": "Jaksot ja esimerkkiviikot",
+     "state": "level=3"
+    },
+    {
+     "role": "button",
+     "name": "Kuntoutus & Ylläpito (104 vk) general Esimerkkiviikot ✓",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "🎯 Tavoiteviikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "🌊 Kevyt viikko",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Kevyt viikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Katso täydet ohjelmat",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-ys-rows",
+   "handled": true,
+   "state": "",
+   "nodes": [
+    {
+     "role": "group",
+     "name": "RealTrainer",
+     "state": ""
+    },
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Vuosisuunnitelma 2026",
+     "state": "level=1"
+    },
+    {
+     "role": "paragraph",
+     "name": "5.1.2026 - 2.1.2028 • Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Poista ja aloita alusta",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kopioi JSON leikepöydälle",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Liitä JSON leikepöydältä",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Muokkaa vuosisuunnitelmaa",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Featuret",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kaudet",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Rivit",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Rivien muokkaus (Tilikartta)",
+     "state": "level=3"
+    },
+    {
+     "role": "button",
+     "name": "Lisää rivi",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää alarivi",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Jaksot ja esimerkkiviikot",
+     "state": "level=3"
+    },
+    {
+     "role": "button",
+     "name": "Kuntoutus & Ylläpito (104 vk) general Esimerkkiviikot ✓",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "🎯 Tavoiteviikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "🌊 Kevyt viikko",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Kevyt viikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Katso täydet ohjelmat",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-ys-back",
+   "handled": true,
+   "state": "",
+   "nodes": [
+    {
+     "role": "group",
+     "name": "RealTrainer",
+     "state": ""
+    },
+    {
+     "role": "banner",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Credits: 100k. Click to purchase more credits.",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "📋 Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Dashboard",
+     "state": "level=1"
+    },
+    {
+     "role": "button",
+     "name": "Muokkaa vuosisuunnitelmaa",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Aktiivinen suunnitelma",
+     "state": "level=2"
+    },
+    {
+     "role": "button",
+     "name": "Avaa suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Vuosisuunnitelma 2026",
+     "state": "level=3"
+    },
+    {
+     "role": "paragraph",
+     "name": "Referenssin vuosisuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Aloitettu: 5.1.2026",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Nykyinen jakso",
+     "state": "level=3"
+    },
+    {
+     "role": "paragraph",
+     "name": "Kuntoutus & Ylläpito",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Viikko 35 / 104",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Tavoite: Kuntoutus ja ylläpito",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Tavoitteet",
+     "state": "level=2"
+    },
+    {
+     "role": "paragraph",
+     "name": "Harjoittelu sport",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  }
+ ]
+}

@@ -63,9 +63,22 @@ const CONTENT_ROLES = new Set([
 ]);
 
 // A native <button> is better understood by every screen reader than a div with
-// role="button", and it is activatable without any extra key handling.
+// role="button", and it is activatable without any extra key handling. A
+// textbox is a native <input> for the same reason, and for one more: it is
+// the element the text-input bridge edits in. A div with role="textbox" and
+// the value as its text is a textbox a reader can read and not type into —
+// measured with the RealTrainer port: the reader found the field, Tab could
+// not leave it for the send button, and the mouse could not select in it.
 function elementFor(role) {
   if (role === "button") return document.createElement("button");
+  if (role === "textbox") {
+    const input = document.createElement("input");
+    input.type = "text";
+    input.autocapitalize = "off";
+    input.autocomplete = "off";
+    input.spellcheck = false;
+    return input;
+  }
   return document.createElement("div");
 }
 
@@ -110,7 +123,18 @@ const TRI = { 1: "false", 2: "true", 3: "mixed" };
  *             node's centre.
  *   scale     app pixels → CSS pixels, when the canvas is not drawn 1:1
  */
-export function createA11yMirror(host, { canvas, onActivate, scale = 1, label = "Application" } = {}) {
+/**
+ * @param {object} opts
+ * @param {"roving"|"all"} [opts.tabbable]  "roving" (the default, and what an
+ *        ARIA grid wants): exactly one element is tabbable, the one the app
+ *        says has focus. "all": every focusable node is a tab stop in tree
+ *        order — a page of buttons and fields, where Tab has to walk from the
+ *        field to the send button beside it.
+ * @param {(node: object) => void} [opts.onFocus]  Focus moved inside the
+ *        mirror by the reader or the keyboard — not by the app. Reported so
+ *        the app can follow; the mirror never reports the focus it set itself.
+ */
+export function createA11yMirror(host, { canvas, onActivate, onFocus, scale = 1, label = "Application", tabbable = "roving" } = {}) {
   const root = document.createElement("div");
   root.className = "evg-a11y";
   root.style.position = "absolute";
@@ -152,6 +176,12 @@ export function createA11yMirror(host, { canvas, onActivate, scale = 1, label = 
         el.type = "button";
         el.tabIndex = -1;
       }
+      if (node.role === "textbox") {
+        el.tabIndex = -1;
+        // The bridge takes the pointer while it edits here; until then the
+        // canvas keeps every hit test, as for every other element.
+        el.style.pointerEvents = "none";
+      }
       el.dataset.a11yId = node.id;
       el.addEventListener("click", (ev) => {
         ev.preventDefault();
@@ -180,11 +210,12 @@ export function createA11yMirror(host, { canvas, onActivate, scale = 1, label = 
     const content = CONTENT_ROLES.has(role);
     if (role === "textbox") {
       // A field's label and its contents are two different strings, and a
-      // reader announces both: "Formula, equals SUM open paren…".
+      // reader announces both: "Formula, equals SUM open paren…". The value
+      // is the input's own; while the input has focus the bridge is writing
+      // it and the app is mirroring it, so it is left alone.
       setAttr(el, "aria-label", node.name);
       const text = node.value || "";
-      if (el.textContent !== text) el.textContent = text;
-      setAttr(el, "aria-multiline", "false");
+      if (document.activeElement !== el && el.value !== text) el.value = text;
     } else if (role === "status") {
       const text = node.value || node.name || "";
       if (el.textContent !== text) el.textContent = text;
@@ -206,6 +237,13 @@ export function createA11yMirror(host, { canvas, onActivate, scale = 1, label = 
     // cannot tell has already been pressed.
     setAttr(el, "aria-expanded", node.expanded ? TRI[node.expanded] || null : null);
     setAttr(el, "aria-disabled", node.disabled ? "true" : null);
+    // A native button that is disabled is not a tab stop and not activatable,
+    // which is what the drawn one is.
+    if (el.tagName === "BUTTON") el.disabled = !!node.disabled;
+    if (tabbable === "all" && !(el.tagName === "BUTTON" && node.disabled)) {
+      const stop = node.focusable ? 0 : -1;
+      if (el.tabIndex !== stop) el.tabIndex = stop;
+    }
     // Three states, passed STRAIGHT THROUGH: "true", "false", or absent.
     // `node.readonly ? "true" : null` was right while the field was a boolean
     // and became a bug the moment it became a string — "false" is truthy in
@@ -335,14 +373,15 @@ export function createA11yMirror(host, { canvas, onActivate, scale = 1, label = 
     applyModal(tree, byId);
 
     // Roving tabindex: exactly one element in the whole mirror is tabbable, and
-    // it is the one the app says has focus.
-    if (tree.focus !== lastFocus) {
+    // it is the one the app says has focus. With every focusable a tab stop
+    // the app's focus is still followed, only nothing is taken away.
+    if (tabbable !== "all" && tree.focus !== lastFocus) {
       const prev = lastFocus ? els.get(lastFocus) : null;
       if (prev) prev.el.tabIndex = -1;
     }
     const focused = tree.focus ? els.get(tree.focus) : null;
     if (focused) {
-      focused.el.tabIndex = 0;
+      if (tabbable !== "all") focused.el.tabIndex = 0;
       if (document.activeElement !== focused.el) {
         settingFocus = true;
         try {
@@ -363,11 +402,28 @@ export function createA11yMirror(host, { canvas, onActivate, scale = 1, label = 
     if (canvas) canvas.removeAttribute("aria-hidden");
   }
 
+  // Focus that moved on its own — Tab, or a reader's cursor — is reported.
+  // The app's own `.focus()` above is not: `settingFocus` is what tells them
+  // apart, and a mirror that reported its own focus back would loop with the
+  // app that is setting it.
+  root.addEventListener("focusin", (ev) => {
+    if (settingFocus || !onFocus) return;
+    const el = ev.target && ev.target.closest ? ev.target.closest("[data-a11y-id]") : null;
+    if (!el) return;
+    const entry = els.get(el.dataset.a11yId);
+    if (entry) onFocus(entry.node);
+  });
+
   root.setAttribute("aria-label", label);
   return {
     root,
     update,
     destroy,
+    /** The element a node is mirrored as, or null — the bridge edits in it. */
+    elementOf(id) {
+      const entry = els.get(id);
+      return entry ? entry.el : null;
+    },
     get size() {
       return els.size;
     },

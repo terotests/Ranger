@@ -1072,6 +1072,13 @@ class EVGElement {
         return 0
     }
 
+    ; `display: none` — the element is not there: no box, no paint, no hit,
+    ; not in the accessible tree. It is the way a stylesheet folds a bar or
+    ; a rail away at a breakpoint, and what `@media` is for.
+    fn isHidden:boolean () {
+        return (display == "none")
+    }
+
     fn hasAbsolutePosition:boolean () {
         ; An overlay surface is out of flow by the same rule an absolutely
         ; positioned element is, and saying so here rather than adding a second
@@ -1079,6 +1086,11 @@ class EVGElement {
         ; whole reason the flow half of this feature is one line. The overlay
         ; pass then MOVES it; until then it sits where layoutAbsolute put it.
         if isOverlay {
+            return true
+        }
+        ; A hidden element is out of flow the same way: nothing around it
+        ; moves for it, and the gap between its neighbours is one gap.
+        if (display == "none") {
             return true
         }
         ; Check if element has absolute positioning

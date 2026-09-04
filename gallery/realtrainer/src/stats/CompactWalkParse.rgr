@@ -1,0 +1,319 @@
+
+Import "StatsMath.rgr"
+Import "CompactWalkItem.rgr"
+Import "CompactWalkTypes.rgr"
+
+; Low-level COMPACT line parsing for stats (no regex, no PEG).
+class CompactWalkParse {
+
+  sfn hasPrefix:boolean (text:string prefix:string) {
+    def tLen:int (strlen text)
+    def pLen:int (strlen prefix)
+    if (pLen > tLen) {
+      return false
+    }
+    return ((substring text 0 pLen) == prefix)
+  }
+
+  sfn parseStrictInt:int (s:string) {
+    def t:string (trim s)
+    if ((strlen t) == 0) {
+      return -1
+    }
+    def v@(optional):int (str2int t)
+    if (null? v) {
+      return -1
+    }
+    return (unwrap v)
+  }
+
+  sfn readDouble:double (s:string) {
+    def t:string (trim s)
+    if ((strlen t) == 0) {
+      return -1.0
+    }
+    def v@(optional):double (to_double t)
+    if (null? v) {
+      return -1.0
+    }
+    return (unwrap v)
+  }
+
+  sfn suffixMatches:boolean (text:string suffix:string) {
+    def tLen:int (strlen text)
+    def sLen:int (strlen suffix)
+    if (sLen > tLen) {
+      return false
+    }
+    return ((substring text (tLen - sLen) tLen) == suffix)
+  }
+
+  sfn parseWeight:double (weightPart:string) {
+    def w:string (trim weightPart)
+    if ((strlen w) == 0) {
+      return -1.0
+    }
+    if (w == "bw") {
+      return 0.0
+    }
+    def kgPos:int (indexOf w "kg")
+    if (kgPos > 0) {
+      def num:string (trim (substring w 0 kgPos))
+      return (CompactWalkParse.readDouble(num))
+    }
+    return (CompactWalkParse.readDouble(w))
+  }
+
+  sfn parseDurationSeconds:int (valueText:string unit:string) {
+    def v:double (CompactWalkParse.readDouble(valueText))
+    if (v < 0.0) {
+      return 0
+    }
+    if (unit == "min") {
+      return (StatsMath.roundToInt((v * 60.0)))
+    }
+    if (unit == "h") {
+      return (StatsMath.roundToInt((v * 3600.0)))
+    }
+    if (unit == "s") {
+      return (StatsMath.roundToInt(v))
+    }
+    return (StatsMath.roundToInt((v * 60.0)))
+  }
+
+  sfn parseDistanceMeters:double (valueText:string unit:string) {
+    def v:double (CompactWalkParse.readDouble(valueText))
+    if (v < 0.0) {
+      return 0.0
+    }
+    if (unit == "km") {
+      return (v * 1000.0)
+    }
+    return v
+  }
+
+  sfn tryParseValueUnit:CompactValueUnit (token:string) {
+    def out:CompactValueUnit (new CompactValueUnit ())
+    def t:string (trim token)
+    def len:int (strlen t)
+    if (len == 0) {
+      return out
+    }
+    if ((CompactWalkParse.suffixMatches(t "min"))) {
+      out.value = (trim (substring t 0 (len - 3)))
+      out.unit = "min"
+      out.ok = true
+      return out
+    }
+    if ((CompactWalkParse.suffixMatches(t "km"))) {
+      out.value = (trim (substring t 0 (len - 2)))
+      out.unit = "km"
+      out.ok = true
+      return out
+    }
+    if ((CompactWalkParse.suffixMatches(t "h"))) {
+      out.value = (trim (substring t 0 (len - 1)))
+      out.unit = "h"
+      out.ok = true
+      return out
+    }
+    if ((CompactWalkParse.suffixMatches(t "s"))) {
+      out.value = (trim (substring t 0 (len - 1)))
+      out.unit = "s"
+      out.ok = true
+      return out
+    }
+    if ((CompactWalkParse.suffixMatches(t "m"))) {
+      def valueCheck:string (trim (substring t 0 (len - 1)))
+      if ((strlen valueCheck) > 0) {
+        out.value = valueCheck
+        out.unit = "m"
+        out.ok = true
+      }
+      return out
+    }
+    return out
+  }
+
+  sfn splitFirstToken:CompactTokenSplit (text:string) {
+    def out:CompactTokenSplit (new CompactTokenSplit ())
+    def t:string (trim text)
+    def len:int (strlen t)
+    def i:int 0
+    while (i < len) {
+      def ch:int (charAt t i)
+      if (ch == 32 || ch == 9) {
+        break
+      }
+      i = i + 1
+    }
+    if (i == 0) {
+      return out
+    }
+    out.token = (substring t 0 i)
+    out.rest = (trim (substring t i len))
+    return out
+  }
+
+  sfn stripNoteSuffix:string (spec:string) {
+    def bar:int (indexOf spec "|")
+    if (bar < 0) {
+      return (trim spec)
+    }
+    return (trim (substring spec 0 bar))
+  }
+
+  sfn applySetsRepsSpec:void (item:CompactWalkItem spec:string) {
+    def body:string (CompactWalkParse.stripNoteSuffix(spec))
+    def atPos:int (indexOf body "@")
+    def main:string body
+    def weightPart:string ""
+    if (atPos >= 0) {
+      main = (trim (substring body 0 atPos))
+      weightPart = (trim (substring body (atPos + 1) (strlen body)))
+      item.weight = (CompactWalkParse.parseWeight(weightPart))
+    }
+    def xPos:int (indexOf main "x")
+    if (xPos < 0) {
+      def repsOnly:string (trim main)
+      def vu:CompactValueUnit (CompactWalkParse.tryParseValueUnit(repsOnly))
+      if (vu.ok) {
+        item.reps = (CompactWalkParse.parseStrictInt(vu.value))
+        item.unit = vu.unit
+      } {
+        item.reps = (CompactWalkParse.parseStrictInt(repsOnly))
+      }
+      return
+    }
+    def setsStr:string (trim (substring main 0 xPos))
+    def repsPart:string (trim (substring main (xPos + 1) (strlen main)))
+    item.sets = (CompactWalkParse.parseStrictInt(setsStr))
+    def vu2:CompactValueUnit (CompactWalkParse.tryParseValueUnit(repsPart))
+    if (vu2.ok) {
+      item.reps = (CompactWalkParse.parseStrictInt(vu2.value))
+      item.unit = vu2.unit
+    } {
+      item.reps = (CompactWalkParse.parseStrictInt(repsPart))
+    }
+  }
+
+  sfn makeItem:CompactWalkItem (kind:string name:string date:string) {
+    def item:CompactWalkItem (new CompactWalkItem ())
+    item.kind = kind
+    item.name = name
+    item.date = date
+    return item
+  }
+
+  sfn parseExerciseLine@(optional):CompactWalkItem (line:string date:string) {
+    def empty@(optional):CompactWalkItem
+    def t:string (trim line)
+    if ((CompactWalkParse.hasPrefix(t "Exercise ")) == false) {
+      return empty
+    }
+    def rest:string (trim (substring t 9 (strlen t)))
+    def bar:int (indexOf rest "|")
+    def name:string rest
+    def spec:string ""
+    if (bar >= 0) {
+      name = (trim (substring rest 0 bar))
+      spec = (trim (substring rest (bar + 1) (strlen rest)))
+    }
+    def item@(optional):CompactWalkItem (CompactWalkParse.makeItem("exercise" name date))
+    if ((strlen spec) > 0) {
+      def it:CompactWalkItem (unwrap item)
+      (CompactWalkParse.applySetsRepsSpec(it spec))
+    }
+    return item
+  }
+
+  sfn parseDurationLine@(optional):CompactWalkItem (line:string date:string description:string) {
+    def empty@(optional):CompactWalkItem
+    def t:string (trim line)
+    def prefixLen:int 0
+    if ((CompactWalkParse.hasPrefix(t "Time "))) {
+      prefixLen = 5
+    }
+    if ((CompactWalkParse.hasPrefix(t "Duration "))) {
+      prefixLen = 9
+    }
+    if (prefixLen == 0) {
+      return empty
+    }
+    def body:string (trim (substring t prefixLen (strlen t)))
+    def bar:int (indexOf body "|")
+    def token:string body
+    if (bar >= 0) {
+      token = (trim (substring body 0 bar))
+    }
+    def vu:CompactValueUnit (CompactWalkParse.tryParseValueUnit(token))
+    if (vu.ok == false) {
+      return empty
+    }
+    def name:string description
+    if ((strlen name) == 0) {
+      if (bar >= 0) {
+        name = (trim (substring body (bar + 1) (strlen body)))
+      }
+      if ((strlen name) == 0) {
+        name = "duration"
+      }
+    }
+    def item@(optional):CompactWalkItem (CompactWalkParse.makeItem("duration" name date))
+    def it:CompactWalkItem (unwrap item)
+    it.durationSeconds = (CompactWalkParse.parseDurationSeconds(vu.value vu.unit))
+    return item
+  }
+
+  sfn parseDistanceMetersFromLine:double (line:string) {
+    def t:string (trim line)
+    if ((CompactWalkParse.hasPrefix(t "Distance ")) == false) {
+      return -1.0
+    }
+    def body:string (trim (substring t 9 (strlen t)))
+    def bar:int (indexOf body "|")
+    def token:string body
+    if (bar >= 0) {
+      token = (trim (substring body 0 bar))
+    }
+    def vu:CompactValueUnit (CompactWalkParse.tryParseValueUnit(token))
+    if (vu.ok == false) {
+      return -1.0
+    }
+    return (CompactWalkParse.parseDistanceMeters(vu.value vu.unit))
+  }
+
+  sfn parseRunHeader:CompactRunHeader (line:string) {
+    def out:CompactRunHeader (new CompactRunHeader ())
+    def t:string (trim line)
+    def prefix:string ""
+    if ((CompactWalkParse.hasPrefix(t "Run "))) {
+      prefix = "Run "
+    }
+    if ((CompactWalkParse.hasPrefix(t "Move "))) {
+      prefix = "Move "
+    }
+    if ((strlen prefix) == 0) {
+      return out
+    }
+    def body:string (trim (substring t (strlen prefix) (strlen t)))
+    def bar:int (indexOf body "|")
+    def head:string body
+    if (bar >= 0) {
+      head = (trim (substring body 0 bar))
+    }
+    def split:CompactTokenSplit (CompactWalkParse.splitFirstToken(head))
+    def vu:CompactValueUnit (CompactWalkParse.tryParseValueUnit(split.token))
+    if (vu.ok) {
+      out.durationSeconds = (CompactWalkParse.parseDurationSeconds(vu.value vu.unit))
+      out.hasDuration = true
+      out.name = split.rest
+    } {
+      out.name = head
+    }
+    if ((strlen out.name) == 0) {
+      out.name = "move"
+    }
+    return out
+  }
+}

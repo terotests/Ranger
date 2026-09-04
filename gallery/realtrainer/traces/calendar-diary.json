@@ -1,0 +1,1068 @@
+{
+ "id": "calendar-diary-week",
+ "machine": "",
+ "frames": [
+  {
+   "step": "tick 500",
+   "handled": false,
+   "state": "",
+   "nodes": [
+    {
+     "role": "group",
+     "name": "RealTrainer",
+     "state": ""
+    },
+    {
+     "role": "banner",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Credits: 100k. Click to purchase more credits.",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "💪 Harjoituspäiväkirja",
+     "state": ""
+    },
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää harjoitus",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Päivitä suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Edellinen viikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "vko 7 9. – 15.2.",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Seuraava viikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "9 Ma Kontrastivoima (Sali) & Kierto #voima #kontrasti #sali",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "10 Ti Uintiharjoitus #uinti #kestävyys",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "11 Ke Voimaharjoitus (Rinnalleveto & Core) #voima #rinnalleveto #core",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "12 To Lajitekniikka (Kuula) & Kuulantyöntö #kuula #lajitekniikka #yleisurheilu 2",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "13 Pe Lepopäivä #lepo #hyötyliikunta",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "14 La Muuttohommia #hyötyliikunta #muutto",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "15 Su Aktivoiva iltatreeni (kotona) #koti #aktivoiva #kehonhuolto",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-day-2026-02-09",
+   "handled": true,
+   "state": "",
+   "nodes": [
+    {
+     "role": "group",
+     "name": "RealTrainer",
+     "state": ""
+    },
+    {
+     "role": "banner",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Credits: 100k. Click to purchase more credits.",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "💪 Harjoituspäiväkirja",
+     "state": ""
+    },
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää harjoitus",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Päivitä suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Kontrastivoima (Sali) & Kierto",
+     "state": "level=1"
+    },
+    {
+     "role": "button",
+     "name": "Muistiinpanot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Compact",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "JSON",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Poista",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "tick 800",
+   "handled": false,
+   "state": "",
+   "nodes": [
+    {
+     "role": "group",
+     "name": "RealTrainer",
+     "state": ""
+    },
+    {
+     "role": "banner",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Credits: 100k. Click to purchase more credits.",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "💪 Harjoituspäiväkirja",
+     "state": ""
+    },
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää harjoitus",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Päivitä suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Kontrastivoima (Sali) & Kierto",
+     "state": "level=1"
+    },
+    {
+     "role": "button",
+     "name": "Muistiinpanot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Compact",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "JSON",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Poista",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-day-back",
+   "handled": true,
+   "state": "",
+   "nodes": [
+    {
+     "role": "group",
+     "name": "RealTrainer",
+     "state": ""
+    },
+    {
+     "role": "banner",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Credits: 100k. Click to purchase more credits.",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "💪 Harjoituspäiväkirja",
+     "state": ""
+    },
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää harjoitus",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Päivitä suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Edellinen viikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "vko 7 9. – 15.2.",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Seuraava viikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "9 Ma Kontrastivoima (Sali) & Kierto #voima #kontrasti #sali",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "10 Ti Uintiharjoitus #uinti #kestävyys",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "11 Ke Voimaharjoitus (Rinnalleveto & Core) #voima #rinnalleveto #core",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "12 To Lajitekniikka (Kuula) & Kuulantyöntö #kuula #lajitekniikka #yleisurheilu 2",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "13 Pe Lepopäivä #lepo #hyötyliikunta",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "14 La Muuttohommia #hyötyliikunta #muutto",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "15 Su Aktivoiva iltatreeni (kotona) #koti #aktivoiva #kehonhuolto",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-day-2026-02-12",
+   "handled": true,
+   "state": "",
+   "nodes": [
+    {
+     "role": "group",
+     "name": "RealTrainer",
+     "state": ""
+    },
+    {
+     "role": "banner",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Credits: 100k. Click to purchase more credits.",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "💪 Harjoituspäiväkirja",
+     "state": ""
+    },
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää harjoitus",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Päivitä suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Lajitekniikka (Kuula)",
+     "state": "level=1"
+    },
+    {
+     "role": "button",
+     "name": "Muistiinpanot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Compact",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "JSON",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Poista",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Kuulantyöntö",
+     "state": "level=1"
+    },
+    {
+     "role": "button",
+     "name": "Muistiinpanot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Compact",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "JSON",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Poista",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "tick 800",
+   "handled": false,
+   "state": "",
+   "nodes": [
+    {
+     "role": "group",
+     "name": "RealTrainer",
+     "state": ""
+    },
+    {
+     "role": "banner",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Credits: 100k. Click to purchase more credits.",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "💪 Harjoituspäiväkirja",
+     "state": ""
+    },
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää harjoitus",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Päivitä suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Lajitekniikka (Kuula)",
+     "state": "level=1"
+    },
+    {
+     "role": "button",
+     "name": "Muistiinpanot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Compact",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "JSON",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Poista",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Kuulantyöntö",
+     "state": "level=1"
+    },
+    {
+     "role": "button",
+     "name": "Muistiinpanot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Compact",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "JSON",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Poista",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  }
+ ]
+}

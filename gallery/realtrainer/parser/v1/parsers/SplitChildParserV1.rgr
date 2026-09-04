@@ -1,0 +1,228 @@
+Import "../V1SharedHelpers.rgr"
+Import "../nodes/AttemptNode.rgr"
+Import "../nodes/RecoveryNode.rgr"
+Import "../nodes/SplitMoveNode.rgr"
+Import "MoveParserV1.rgr"
+
+class SplitChildParserV1 {
+    static fn isCommentBody:boolean (input:string) {
+        def t:string input
+        if (V1SharedHelpers.hasPrefix(t "Comment ")) {
+            return true
+        }
+        if ((strlen t) > 1) {
+            if ((charAt t 0) == (ccode "\"")) {
+                return true
+            }
+        }
+        return false
+    }
+
+    static fn parseAttempt:AttemptNode (input:string) {
+        def n (new AttemptNode)
+        def t:string input
+        if (V1SharedHelpers.hasPrefix(t "Attempt ")) {
+            def rest (trim (substring t 8 (strlen t)))
+            def barPos (V1SharedHelpers.findToken(rest "|"))
+            def core:string rest
+            if (barPos >= 0) {
+                core = (trim (substring rest 0 barPos))
+                def notePart (trim (substring rest (barPos + 1) (strlen rest)))
+                if ((strlen notePart) > 0) {
+                    n.hasNote = true
+                    n.note = notePart
+                }
+            }
+
+            def xPos (V1SharedHelpers.findToken(core "x"))
+            if (xPos > 0) {
+                def repsVal (V1SharedHelpers.parseStrictInt((substring core 0 xPos)))
+                if (repsVal >= 0) {
+                    n.reps = repsVal
+                    def loadPart (trim (substring core (xPos + 1) (strlen core)))
+                    if ((strlen loadPart) > 0) {
+                        if (V1SharedHelpers.endsWithKg(loadPart)) {
+                            def wTok (substring loadPart 0 ((strlen loadPart) - 2))
+                            if (V1SharedHelpers.isDecimalToken(wTok)) {
+                                n.hasLoadValue = true
+                                n.loadValueRaw = wTok
+                                n.loadUnit = "kg"
+                                n.hasRecognized = true
+                            }
+                        } {
+                            def pctPos (V1SharedHelpers.findToken(loadPart "%"))
+                            if (pctPos > 0) {
+                                def pVal (V1SharedHelpers.parseStrictInt((substring loadPart 0 pctPos)))
+                                if (pVal >= 0) {
+                                    n.hasLoadPercent = true
+                                    n.loadPercent = pVal
+                                    n.hasRecognized = true
+                                }
+                            } {
+                                if (loadPart == "bw") {
+                                    n.hasLoadValue = true
+                                    n.loadValueRaw = "0"
+                                    n.loadUnit = "bodyweight"
+                                    n.hasRecognized = true
+                                } {
+                                    if (loadPart == "BW") {
+                                        n.hasLoadValue = true
+                                        n.loadValueRaw = "0"
+                                        n.loadUnit = "bodyweight"
+                                        n.hasRecognized = true
+                                    } {
+                                        if (loadPart == "bodyweight") {
+                                            n.hasLoadValue = true
+                                            n.loadValueRaw = "0"
+                                            n.loadUnit = "bodyweight"
+                                            n.hasRecognized = true
+                                        } {
+                                            if (loadPart == "Bodyweight") {
+                                                n.hasLoadValue = true
+                                                n.loadValueRaw = "0"
+                                                n.loadUnit = "bodyweight"
+                                                n.hasRecognized = true
+                                            } {
+                                                if (V1SharedHelpers.isDecimalToken(loadPart)) {
+                                                    n.hasLoadValue = true
+                                                    n.loadValueRaw = loadPart
+                                                    n.loadUnit = "kg"
+                                                    n.hasRecognized = true
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return n
+    }
+
+    static fn parseRecovery:RecoveryNode (input:string) {
+        def n (new RecoveryNode)
+        def t:string input
+        if (V1SharedHelpers.hasPrefix(t "Recovery ")) {
+            def rest (trim (substring t 9 (strlen t)))
+            def barPos (V1SharedHelpers.findToken(rest "|"))
+            def core:string rest
+            if (barPos >= 0) {
+                core = (trim (substring rest 0 barPos))
+                def notePart (trim (substring rest (barPos + 1) (strlen rest)))
+                if ((strlen notePart) > 0) {
+                    n.hasNote = true
+                    n.note = notePart
+                }
+            }
+
+            if (core == "walk") {
+                n.recoveryUnit = "walk"
+                n.hasRecognized = true
+            } {
+                if (core == "Walk") {
+                    n.recoveryUnit = "walk"
+                    n.hasRecognized = true
+                } {
+                    def minPos (V1SharedHelpers.findToken(core "min"))
+                    if (minPos > 0) {
+                        def v (V1SharedHelpers.parseStrictInt((substring core 0 minPos)))
+                        if (v >= 0) {
+                            n.hasRecoveryValue = true
+                            n.recoveryValue = v
+                            n.recoveryUnit = "min"
+                            n.hasRecognized = true
+                        }
+                    } {
+                        def secPos (V1SharedHelpers.findToken(core "s"))
+                        if (secPos > 0) {
+                            def v2 (V1SharedHelpers.parseStrictInt((substring core 0 secPos)))
+                            if (v2 >= 0) {
+                                n.hasRecoveryValue = true
+                                n.recoveryValue = v2
+                                n.recoveryUnit = "sec"
+                                n.hasRecognized = true
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return n
+    }
+
+    static fn copyMoveToSplitMove:void (dst:SplitMoveNode moveSrc:MoveNode sport:string) {
+        dst.sport = sport
+        dst.hasRecognized = true
+        dst.hasSetsVal = moveSrc.hasSetsVal
+        dst.setsVal = moveSrc.setsVal
+        dst.hasCountVal = moveSrc.hasCountVal
+        dst.countVal = moveSrc.countVal
+        dst.hasCountMax = moveSrc.hasCountMax
+        dst.countMax = moveSrc.countMax
+        dst.hasDistance = moveSrc.hasDistance
+        dst.hasDistanceNumeric = moveSrc.hasDistanceNumeric
+        dst.distanceValue = moveSrc.distanceValue
+        dst.distanceUnit = moveSrc.distanceUnit
+        dst.hasDuration = moveSrc.hasDuration
+        dst.durationValueRaw = moveSrc.durationValueRaw
+        dst.hasDurationFloat = moveSrc.hasDurationFloat
+        dst.hasIntensityJson = moveSrc.hasIntensityJson
+        dst.intensityJson = moveSrc.intensityJson
+        dst.hasRecovery = moveSrc.hasRecovery
+        dst.recoveryValue = moveSrc.recoveryValue
+        dst.hasRecoveryMax = moveSrc.hasRecoveryMax
+        dst.recoveryMax = moveSrc.recoveryMax
+        dst.recoveryUnit = moveSrc.recoveryUnit
+        dst.hasRecoveryText = moveSrc.hasRecoveryText
+        dst.recoveryText = moveSrc.recoveryText
+        dst.hasNote = moveSrc.hasNote
+        dst.note = moveSrc.note
+    }
+
+    static fn parseSplitMove:SplitMoveNode (input:string) {
+        def n (new SplitMoveNode)
+        def t:string input
+        def specRest@(mutable):string t
+        def sport@(mutable):string ""
+
+        if (V1SharedHelpers.hasPrefix(t "Uphill Run ")) {
+            sport = "uphill run"
+            specRest = (trim (substring t 11 (strlen t)))
+        } {
+            if (V1SharedHelpers.hasPrefix(t "Run ")) {
+                sport = "run"
+                specRest = (trim (substring t 4 (strlen t)))
+            } {
+                if (V1SharedHelpers.hasPrefix(t "Walk ")) {
+                    sport = "walk"
+                    specRest = (trim (substring t 5 (strlen t)))
+                } {
+                    if (V1SharedHelpers.hasPrefix(t "Swim ")) {
+                        sport = "swim"
+                        specRest = (trim (substring t 5 (strlen t)))
+                    } {
+                        if (V1SharedHelpers.hasPrefix(t "Cycling ")) {
+                            sport = "cycling"
+                            specRest = (trim (substring t 8 (strlen t)))
+                        } {
+                            if (V1SharedHelpers.hasPrefix(t "Skiing ")) {
+                                sport = "skiing"
+                                specRest = (trim (substring t 7 (strlen t)))
+                            } {
+                                return n
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        def moveLine (("Run " + specRest))
+        def m (MoveParserV1.parse(moveLine))
+        SplitChildParserV1.copyMoveToSplitMove(n m sport)
+        return n
+    }
+}

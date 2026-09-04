@@ -1,0 +1,131 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; AddWorkoutDialog — a port of the "Lisää harjoitus" state machine
+; =============================================================================
+; Source of truth: `frontend/src/machines/addWorkoutDialogMachine.ts` in the
+; RealTrainer monorepo — an XState v5 machine of three states and seven events.
+; It is the smallest machine the app has, which is why it goes first: it proves
+; the porting method before six-state dialogs and nested chat states cost
+; anything.
+;
+;   closed  --OPEN-->          open
+;   open    --CLOSE-->         closed   (context reset)
+;   open    --SET_TARGET_DATE  open     (date assigned)
+;   open    --SET_INPUT_TEXT   open     (text assigned)
+;   open    --START_SAVING-->  saving
+;   saving  --SAVE_COMPLETE--> closed   (context reset)
+;   saving  --ERROR-->         open     (error assigned, INPUT KEPT)
+;   saving  --CLOSE-->         closed   (context reset)
+;
+; Every other pair is an IGNORE, and the ignores are the half a hand-port gets
+; wrong: `OPEN` while open must not re-blank the input, and `START_SAVING`
+; while already saving must not restart anything. `rt:machine` walks all
+; twenty-one cells.
+;
+; ONE DELIBERATE DIFFERENCE, and it is the reason this is testable: the machine
+; calls `new Date()` inside its own reducer, so its reset depends on when it
+; ran. Here "today" is handed in by the host — a clock belongs outside a state
+; machine for the same reason it belongs outside a workout controller.
+; =============================================================================
+
+class AddWorkoutDialog {
+    ; "closed" | "open" | "saving"
+    def state@(mutable):string "closed"
+
+    def targetDate@(mutable):string ""
+    def targetCalendarId@(mutable):string ""
+    def inputText@(mutable):string ""
+    def error@(mutable):string ""
+
+    ; The host's date, used wherever the original calls `new Date()`.
+    def today@(mutable):string ""
+
+    Constructor () {
+    }
+
+    fn reset:void () {
+        targetDate = today
+        targetCalendarId = ""
+        inputText = ""
+        error = ""
+    }
+
+    ; `true` when the event moved the machine or changed its context — the
+    ; same answer the demo's other handlers give, so a host knows whether to
+    ; redraw. An ignored event answers `false`.
+    fn send:boolean (event:string value:string) {
+        if (state == "closed") {
+            if (event == "OPEN") {
+                state = "open"
+                ; `event.targetDate || today` — an empty value falls back.
+                if ((strlen value) > 0) {
+                    targetDate = value
+                } {
+                    targetDate = today
+                }
+                targetCalendarId = ""
+                inputText = ""
+                error = ""
+                return true
+            }
+            return false
+        }
+        if (state == "open") {
+            if (event == "CLOSE") {
+                state = "closed"
+                this.reset()
+                return true
+            }
+            if (event == "SET_TARGET_DATE") {
+                targetDate = value
+                return true
+            }
+            if (event == "SET_INPUT_TEXT") {
+                inputText = value
+                return true
+            }
+            if (event == "START_SAVING") {
+                state = "saving"
+                return true
+            }
+            return false
+        }
+        if (state == "saving") {
+            if (event == "SAVE_COMPLETE") {
+                state = "closed"
+                this.reset()
+                return true
+            }
+            if (event == "ERROR") {
+                ; Back to `open` with the error, and the input is NOT cleared:
+                ; a failed save that threw away what was typed would be a
+                ; second failure.
+                state = "open"
+                error = value
+                return true
+            }
+            if (event == "CLOSE") {
+                state = "closed"
+                this.reset()
+                return true
+            }
+            return false
+        }
+        return false
+    }
+
+    ; Opening with a calendar as well as a date. The machine's OPEN carries
+    ; both; `send` takes one value, so this is the two-argument door.
+    fn open:boolean (date:string calendarId:string) {
+        def moved:boolean (this.send("OPEN" date))
+        if (moved) {
+            targetCalendarId = calendarId
+        }
+        return moved
+    }
+
+    fn isOpen:boolean () {
+        return (state != "closed")
+    }
+}

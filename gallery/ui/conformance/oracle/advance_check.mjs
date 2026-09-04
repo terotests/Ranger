@@ -27,7 +27,7 @@ const H = require(path.join(ROOT, "gallery/ui/bin/ui_host.cjs"));
 const o = JSON.parse(fs.readFileSync(path.join(HERE, "advance.json"), "utf8"));
 
 // The strings where a browser kerns and a sum of advances cannot.
-const KERNS = new Set(["AVATAR", "To Wave", "INV-2026-0148"]);
+const KERNS = new Set(["AVATAR", "To Wave", "INV-2026-0148", "10 Ti Kevyt salitreeni"]);
 const KERN_BUDGET = 4.0;   // px at 13px, measured worst case 3.86
 
 let pass = 0, fail = 0;

@@ -237,6 +237,49 @@ SUITES=(
   # where the automatic minimum is what decides the cell, and the
   # `min-width: 0` shape the showcase's chart columns actually ask for.
   evg:pctflex:check
+  # The RealTrainer app, which had no CI gate at all — which is how it came to
+  # be red on main: `ProgressCtl.value` is a double and the demo assigned int
+  # literals to it, so `rt:build` failed twelve times over and nothing said so.
+  rt:check
+  # Its COMPACT layer, with no app around it: text in, rows out, and the spec
+  # line each row draws. The spec line is checked as PARTS — `3x5` and `x90kg`
+  # are two runs with two tones — because that is the structure the TypeScript
+  # library this is ported from produces, and a builder that returned one
+  # string would pass a text assertion while losing what the theme draws.
+  rt:compact
+  # And the same rows against the TypeScript library this is a port OF. Every
+  # case in the corpus goes through both sides and the PARTS are diffed —
+  # `3x5` and `x80kg` print as one string either way, so comparing the string
+  # would pass a port that had lost the distinction the theme draws. The
+  # recording is committed, which is what lets this run here at all.
+  rt:l0
+  # And the report that says what this demo does with each COMPACT family. It
+  # is generated, so it is checked: a coverage table nobody regenerates is a
+  # coverage table that says what was true once.
+  rt:coverage:check
+  # The ported XState machine against the machine it was ported from: every
+  # state crossed with every event, and the thirteen cells of twenty-one that
+  # are IGNORES — the half a hand-port gets wrong while its happy path passes.
+  rt:machine
+  # The statechart runtime on its own account: its own two machines against
+  # xstate — one that is the smallest thing still a machine, one that uses
+  # everything the runner has — and the drawing it makes of them. Conformance
+  # used to live only in gallery/realtrainer, which meant the module could not
+  # be checked without that app's fixtures.
+  statechart:test
+  # And the machines too big to transcribe: planDialog's six states and
+  # eighteen events, chat's six-it-can-rest-in and sixteen, run cell by cell
+  # and then fuzzed against xstate itself. It found the one thing reading could
+  # not — that `a || b` yields its last operand when everything is falsy, so a
+  # context held null where the machine holds false — and, on the run that
+  # added chat, that the fuzz had never been random: `seed * 1103515245` runs
+  # past 2^53 and every "random sequence" was one event repeated.
+  rt:machine:live
+  # And the machine wired to a view: the scenario replayed on the Ranger side,
+  # against the trace recorded from it. The other half of that benchmark — the
+  # same scenario against the React app on the Firebase emulators — is
+  # scripts/record-reference-trace.mjs, which cannot run here and says so.
+  rt:trace
 )
 
 failed=()

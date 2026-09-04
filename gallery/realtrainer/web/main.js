@@ -15,8 +15,9 @@
 
 import { renderDisplayList } from "../../evg/gl/evg-webgl.js";
 import { createA11yMirror, pressAtCentre } from "../../evg/gl/evg-a11y.js";
+import { createTextInputBridge } from "../../evg/gl/evg-textinput.js";
 import { RealTrainerDemo } from "./generated-host.js";
-import { REALTRAINER_CSS } from "./generated.js";
+import { REALTRAINER_CSS, REALTRAINER_COMPACT, REALTRAINER_PLAN_MACHINE, REALTRAINER_CHAT_MACHINE, REALTRAINER_SEED } from "./generated.js";
 
 const stage = document.getElementById("stage");
 const canvas = document.getElementById("c");
@@ -25,21 +26,73 @@ const fpsEl = document.getElementById("fps");
 const sceneEl = document.getElementById("scene");
 
 const app = new RealTrainerDemo();
-app.init(REALTRAINER_CSS);
+app.init(REALTRAINER_CSS, REALTRAINER_COMPACT);
+app.loadPlanMachine(REALTRAINER_PLAN_MACHINE);
+app.loadChatMachine(REALTRAINER_CHAT_MACHINE);
+app.loadReference(REALTRAINER_SEED);
+// `?page=390x844&route=/calendar/cal-plan?week=2026-02-09` opens the app the
+// way the reference recorder opens the original: a phone, on a route.
+// `page=fit` is the phone itself: the page is the viewport, and so is any
+// viewport too narrow for the desktop demo when nothing was asked — a phone
+// opening the bare URL gets the shell, on its route or on Home.
+// `page=fit` — or no `page` at all — makes the page the window: it is laid
+// out at the window's size and again on every resize, and the stylesheet's
+// `@media` blocks answer for the width. `page=390x844` pins a size, which is
+// what the checks want.
+const params = new URLSearchParams(location.search);
+const pageParam = params.get("page");
+const fit = !pageParam || pageParam === "fit";
+// A finger rather than a mouse, as the browser reports it: the sheet's
+// `@media (pointer: coarse)` block makes the targets bigger for it.
+const coarseQuery = window.matchMedia ? window.matchMedia("(pointer: coarse)") : null;
+app.setPointerCoarse(!!(coarseQuery && coarseQuery.matches));
+{
+  if (fit) {
+    document.body.classList.add("fit");
+    app.setPageSize(stage.clientWidth, stage.clientHeight);
+  } else {
+    const [w, h] = pageParam.split("x").map(Number);
+    if (w > 0 && h > 0) app.setPageSize(w, h);
+  }
+  const route = params.get("route");
+  if (route) app.openRoute(route);
+  else if (fit) app.openRoute("/");
+}
 
 // For anything driving this page from outside — the browser check reads the
 // last frame's list rather than guessing at pixels.
 window.__app = app;
 
-const W = app.widthPx();
-const H = app.heightPx();
+// The wheel, and nothing else about scrolling: how far the document may move
+// is the layout's answer, because it is the half that measured the content.
+stage.addEventListener(
+  "wheel",
+  (e) => {
+    if (app.scrollDocument(e.deltaY)) {
+      e.preventDefault();
+    }
+  },
+  { passive: false },
+);
+
+let W = app.widthPx();
+let H = app.heightPx();
 const dpr = Math.min(2, window.devicePixelRatio || 1);
-canvas.style.width = W + "px";
-canvas.style.height = H + "px";
-canvas.width = Math.round(W * dpr);
-canvas.height = Math.round(H * dpr);
-stage.style.width = W + "px";
-stage.style.height = H + "px";
+function sizeCanvas() {
+  W = app.widthPx();
+  H = app.heightPx();
+  canvas.style.width = W + "px";
+  canvas.style.height = H + "px";
+  canvas.width = Math.round(W * dpr);
+  canvas.height = Math.round(H * dpr);
+  // The stage is sized by the page when a size was pinned; when the page is
+  // the window the stage is the window (index.html) and the page follows it.
+  if (!fit) {
+    stage.style.width = W + "px";
+    stage.style.height = H + "px";
+  }
+}
+sizeCanvas();
 
 const gl = canvas.getContext("webgl2", {
   antialias: true,
@@ -57,9 +110,29 @@ let focus = "";
 const mirror = createA11yMirror(stage, {
   canvas,
   label: "RealTrainer demo",
+  // A page, not a grid: every button and field is a tab stop in tree order,
+  // so Tab walks from a field to the send button beside it.
+  tabbable: "all",
   // A reader activating a node is answered by pressing the app in the middle
   // of the rectangle the reader was given — the same path the mouse takes.
   onActivate: (node) => pressAtCentre(node, (x, y) => press(x, y)),
+  // Focus that moved by Tab or by a reader's cursor: a field takes the text
+  // session, anything else ends it; the app draws the focused field and the
+  // mirror's own outline marks the rest.
+  onFocus: (node) => {
+    focus = node.id;
+    if (app.hasField(node.id)) {
+      if (app.focusedField() !== node.id) {
+        app.setFocus(node.id);
+        app.rebuild();
+      }
+    } else if (app.focusedField()) {
+      app.setFocus("");
+      app.rebuild();
+    }
+    syncTextSession();
+    paint();
+  },
 });
 
 function paint() {
@@ -87,19 +160,103 @@ function press(x, y) {
   const id = app.hitId(x, y);
   app.setPressed("");
   if (app.press(id)) paint();
+  syncTextSession();
 }
 
+// --- the text fields ---------------------------------------------------------
+//
+// The platform owns the editing session: a real <input> sits over the drawn
+// field and Ranger mirrors its value and selection. See evg-textinput.js for
+// what was measured first and why a keydown-driven editor was a dead end.
+const textInput = createTextInputBridge({
+  host: stage,
+  canvas,
+  onEdit: ({ value, selStart, selEnd }) => {
+    const tid = textInput.activeTid();
+    if (!tid) return;
+    if (!app.applyEdit(tid, value, selStart, selEnd)) return;
+    paint();
+    const after = JSON.parse(app.fieldStateJson(tid));
+    if (after && after.value !== value) textInput.sync(after);
+  },
+  onKey: (k) => {
+    // Tab leaves the field: the session ends, the app forgets the focus, and
+    // the browser moves it to the next control — which is the mirror's next
+    // tab stop, because the field IS a mirror element.
+    if (k.key === "Tab") {
+      textInput.release();
+      app.setFocus("");
+      app.rebuild();
+      paint();
+      return false;
+    }
+    if (k.key !== "Escape" && k.key !== "Enter") return false;
+    const took = app.keyWith(k.key, k.shiftKey, k.ctrlKey || k.metaKey);
+    syncTextSession();
+    if (took) paint();
+    return took;
+  },
+});
+
+/** Hand the keyboard to the field the app says is focused, or take it back. */
+function syncTextSession() {
+  const tid = app.focusedField();
+  if (!tid) {
+    textInput.blurField();
+    return;
+  }
+  const st = JSON.parse(app.fieldStateJson(tid));
+  if (!st) {
+    textInput.blurField();
+    return;
+  }
+  focus = tid;
+  if (textInput.activeTid() === tid) {
+    textInput.sync(st);
+    return;
+  }
+  // The mirror's input for the field, once the mirror has drawn it.
+  textInput.focusField(tid, st, mirror.elementOf(tid));
+}
+
+// A finger has no wheel: a drag on the canvas scrolls what the wheel would,
+// and a drag that scrolled is not a press when it lifts. Six pixels is the
+// slack a tap gets before it becomes a drag.
+let drag = null;
 canvas.addEventListener("pointerdown", (ev) => {
   const [x, y] = at(ev);
+  drag = { y, moved: false };
+  canvas.setPointerCapture(ev.pointerId);
   app.setPressed(app.hitId(x, y));
   paint();
 });
 canvas.addEventListener("pointerup", (ev) => {
   const [x, y] = at(ev);
+  const scrolled = drag?.moved;
+  drag = null;
+  if (scrolled) {
+    app.setPressed("");
+    paint();
+    return;
+  }
   press(x, y);
+});
+canvas.addEventListener("pointercancel", () => {
+  drag = null;
+  app.setPressed("");
+  paint();
 });
 canvas.addEventListener("pointermove", (ev) => {
   const [x, y] = at(ev);
+  if (drag) {
+    const dy = drag.y - y;
+    if (drag.moved || Math.abs(dy) > 6) {
+      drag.moved = true;
+      drag.y = y;
+      if (app.scrollDocument(dy)) paint();
+    }
+    return;
+  }
   const id = app.hitId(x, y);
   if (id === hovered) return;
   hovered = id;
@@ -107,6 +264,32 @@ canvas.addEventListener("pointermove", (ev) => {
   // Hover starts a transition, and a transition needs frames — the loop is
   // already running, so there is nothing to start here beyond the flag.
 });
+// The resize path, as gallery/evg/web/responsive has it: a ResizeObserver on
+// the stage rather than only a window listener, because the two differ where
+// it matters — a scrollbar takes ~15px off the width and only the element
+// knows — and a key of what the page was last laid out for, so nothing is
+// laid out twice for the same surface. The page is laid out again at the
+// new size (the sheet is told the viewport inside `setPageSize`'s rebuild)
+// and drawn.
+if (fit) {
+  let lastKey = "";
+  const refit = () => {
+    const w = Math.max(240, Math.round(stage.clientWidth));
+    const h = Math.max(240, Math.round(stage.clientHeight));
+    const coarse = !!(coarseQuery && coarseQuery.matches);
+    const key = `${w}x${h}:${coarse}`;
+    if (key === lastKey) return;
+    lastKey = key;
+    app.setPointerCoarse(coarse);
+    app.setPageSize(w, h);
+    sizeCanvas();
+    paint();
+  };
+  new ResizeObserver(refit).observe(stage);
+  window.addEventListener("resize", refit);
+  if (coarseQuery && coarseQuery.addEventListener) coarseQuery.addEventListener("change", refit);
+}
+
 canvas.addEventListener("pointerleave", () => {
   hovered = "";
   app.setHover("");

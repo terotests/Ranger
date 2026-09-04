@@ -1,0 +1,34 @@
+Import "detectors/TokenDetectorV1.rgr"
+Import "detectors/HeaderDetectorV1.rgr"
+Import "detectors/TagsDetectorV1.rgr"
+Import "detectors/SummaryDetectorV1.rgr"
+Import "detectors/TextDetectorV1.rgr"
+Import "detectors/PyramidDetectorV1.rgr"
+Import "detectors/CircuitDetectorV1.rgr"
+Import "detectors/CustomDetectorV1.rgr"
+Import "detectors/FoodDetectorV1.rgr"
+Import "detectors/DrinkingDetectorV1.rgr"
+Import "detectors/ExpenseDetectorV1.rgr"
+Import "detectors/MoveDetectorV1.rgr"
+Import "detectors/SplitDetectorV1.rgr"
+Import "detectors/SectionDetectorV1.rgr"
+
+class V1DetectorRegistry {
+    sfn create:[TokenDetectorV1] () {
+        def out:[TokenDetectorV1]
+        push out (new HeaderDetectorV1)
+        push out (new TagsDetectorV1)
+        push out (new SummaryDetectorV1)
+        push out (new TextDetectorV1)
+        push out (new PyramidDetectorV1)
+        push out (new CircuitDetectorV1)
+        push out (new CustomDetectorV1)
+        push out (new FoodDetectorV1)
+        push out (new DrinkingDetectorV1)
+        push out (new ExpenseDetectorV1)
+        push out (new MoveDetectorV1)
+        push out (new SplitDetectorV1)
+        push out (new SectionDetectorV1)
+        return out
+    }
+}

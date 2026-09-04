@@ -1,0 +1,513 @@
+{
+ "id": "add-workout-open-type-save",
+ "machine": "addWorkoutDialog",
+ "viewport": "390x844",
+ "frames": [
+  {
+   "step": "rt-add",
+   "handled": true,
+   "state": "",
+   "nodes": [
+    {
+     "role": "banner",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Credits: 100k. Click to purchase more credits.",
+     "state": ""
+    },
+    {
+     "role": "img",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "100k credits",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "📋 Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "T",
+     "state": ""
+    },
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää harjoitus",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Päivitä suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Viikot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Malliviikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Edellinen viikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "vko 7 9. – 15.2.",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Luo suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Seuraava viikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "9 Ma –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "10 Ti Kevyt salitreeni #kuntosali #voima #kevyt",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "11 Ke –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "12 To –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "13 Pe –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "14 La –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "15 Su –",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Lisää harjoitus",
+     "state": "level=2"
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kuva",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "Luo harjoitusohjelma, esim. \"viikon peruskuntojakso\"",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": "disabled"
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-add-field",
+   "handled": true,
+   "state": "",
+   "nodes": [
+    {
+     "role": "banner",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Credits: 100k. Click to purchase more credits.",
+     "state": ""
+    },
+    {
+     "role": "img",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "100k credits",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "📋 Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "T",
+     "state": ""
+    },
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää harjoitus",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Päivitä suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Viikot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Malliviikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Edellinen viikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "vko 7 9. – 15.2.",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Luo suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Seuraava viikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "9 Ma –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "10 Ti Kevyt salitreeni #kuntosali #voima #kevyt",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "11 Ke –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "12 To –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "13 Pe –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "14 La –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "15 Su –",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Lisää harjoitus",
+     "state": "level=2"
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kuva",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "Luo harjoitusohjelma, esim. \"viikon peruskuntojakso\"",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-sheet-cancel",
+   "handled": true,
+   "state": "",
+   "nodes": [
+    {
+     "role": "banner",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Credits: 100k. Click to purchase more credits.",
+     "state": ""
+    },
+    {
+     "role": "img",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "100k credits",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "📋 Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "T",
+     "state": ""
+    },
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää harjoitus",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Päivitä suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Viikot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Malliviikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Edellinen viikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "vko 7 9. – 15.2.",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Luo suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Seuraava viikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "9 Ma –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "10 Ti Kevyt salitreeni #kuntosali #voima #kevyt",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "11 Ke –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "12 To –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "13 Pe –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "14 La –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "15 Su –",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  }
+ ]
+}

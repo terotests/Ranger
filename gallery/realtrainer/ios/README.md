@@ -31,26 +31,38 @@ every Apple port in the gallery, told `--app=realtrainer`.
 ## The one thing this port does differently
 
 The dashboard is a **document**: a fixed width that scrolls, so it is scaled by
-a ratio of widths and its height is set to whatever the viewport is worth.
+a ratio of widths. RealTrainer is now a **responsive page**: one tree, and the
+stylesheet's `@media` blocks fold the rail or the bottom bar at 768px — the
+same page is the phone app on a phone and the desktop app on a desktop, as the
+browser shows it at `?page=fit`. So there is no fit, no letterbox and no pinch
+here: the page is laid out at the window's size less the safe area, and again
+whenever that changes — a rotation, Split View, the keyboard — and the host
+paints the display list at the safe area's corner, scale one.
 
-RealTrainer is a **composition**: 980×760, designed whole, with nothing to
-scroll. Scaling it that way would re-lay it out into a shape its author never
-drew. So the fit is `min(w-ratio, h-ratio)` — the page is *contained*, whole and
-centred, with a letterbox where the aspect ratios disagree, and the page keeps
-its own size on every screen.
+What the facade adds on top of the demo is the finger and the keyboard: a
+touch down marks the control under it and a touch up activates it; a drag
+scrolls the document as the browser's pointer drag does, and past a few points
+of travel drops the press it started on; a tap on a field takes the focus and
+the view becomes the first responder, so the keyboard rises, and what it types
+lands in the field through the same `typeText` and `keyWith` the browser's
+text-input bridge uses. The page draws its own field and caret.
 
-That is the entire difference between the two facades, and it is why there are
-two rather than a flag on one.
+The five texts the browser bundle embeds — the stylesheet, the session's
+COMPACT, the two state machines and the reference seed — travel as resources,
+listed in `build_ios.rgr` beside the stylesheet, and `AppDelegate` hands them
+to the page at start. A missing one comes back empty and the page still opens.
 
 ## What the checks prove without a Mac
 
-The whole page, on every screen this is for — iPad Pro 11″, iPad 10.9″, iPad
-mini, iPhone 15 Pro Max, iPhone SE — plus: the safe area comes off before the
-fit, so nothing lands under the clock or the home indicator; a press at a
-*window* coordinate reaches the control drawn there and a press in the
-letterbox reaches nothing; a pinch holds the point under the fingers still; a
-drag stops at the page's edge, and does nothing at all while the page fits; and
-the clock runs the loading scene through to the sign-in page.
+`npm run rt:ios:verify` drives `RtIos` on Node from the same five texts —
+42 checks: the page is the usable window on an iPhone 15 Pro, an iPad Pro and
+an iPhone SE, and again after a rotation; the phone gets the bottom bar and the
+tablet the rail; a press under the clock or the home indicator reaches
+nothing, and a press at a window point reaches the control drawn there; a
+finger down marks, a finger up activates, a drag scrolls the diary feed (one
+word followed from before to after) and drops the mark; a tap on the chat
+field takes the focus, the keyboard's text lands in it and reads back, a
+Backspace is a key, and the clock runs.
 
 What they cannot prove is the platform delegation — `CoreGraphicsEvgSurface`
 calling `CGContext`, and `RealTrainerView` unpacking a `UITouch`. Those need a

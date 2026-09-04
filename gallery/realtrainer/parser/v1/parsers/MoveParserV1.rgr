@@ -1,0 +1,728 @@
+Import "../V1SharedHelpers.rgr"
+Import "../nodes/MoveNode.rgr"
+Import "RunIntensityParserV1.rgr"
+
+class MoveParserV1 {
+    static fn applyRecovery:void (n:MoveNode recPart:string) {
+        def rp (trim recPart)
+        if ((strlen rp) == 0) {
+            return
+        }
+
+        def slashMid (V1SharedHelpers.findToken(rp "/"))
+        def tick1 (V1SharedHelpers.findToken(rp "'"))
+        if ((slashMid > 0) && (tick1 > 0)) {
+            if (tick1 < slashMid) {
+                def v1 (V1SharedHelpers.parseStrictInt((substring rp 0 tick1)))
+                def afterSlash (substring rp (slashMid + 1) (strlen rp))
+                def tick2 (V1SharedHelpers.findToken(afterSlash "'"))
+                if (tick2 > 0) {
+                    def v2 (V1SharedHelpers.parseStrictInt((substring afterSlash 0 tick2)))
+                    if (v1 >= 0) {
+                        if (v2 >= 0) {
+                            n.hasRecovery = true
+                            n.recoveryValue = v1
+                            n.hasRecoveryMax = true
+                            n.recoveryMax = v2
+                            n.recoveryUnit = "min"
+                            return
+                        }
+                    }
+                }
+            }
+        }
+
+        def dashPos (V1SharedHelpers.findToken(rp "-"))
+        def minPos (V1SharedHelpers.findToken(rp "min"))
+        if ((dashPos > 0) && (minPos > dashPos)) {
+            def rA (V1SharedHelpers.parseStrictInt((substring rp 0 dashPos)))
+            def rB (V1SharedHelpers.parseStrictInt((substring rp (dashPos + 1) minPos)))
+            if (rA >= 0) {
+                if (rB >= 0) {
+                    n.hasRecovery = true
+                    n.recoveryValue = rA
+                    n.hasRecoveryMax = true
+                    n.recoveryMax = rB
+                    n.recoveryUnit = "min"
+                    return
+                }
+            }
+        }
+
+        def sekPos (V1SharedHelpers.findToken(rp "sek"))
+        if (sekPos > 0) {
+            def rVal (V1SharedHelpers.parseStrictInt((substring rp 0 sekPos)))
+            if (rVal >= 0) {
+                n.hasRecovery = true
+                n.recoveryValue = rVal
+                n.recoveryUnit = "sec"
+                return
+            }
+        }
+
+        def secPos (V1SharedHelpers.findToken(rp "s"))
+        if (secPos > 0) {
+            if (sekPos < 0) {
+                def rVal2 (V1SharedHelpers.parseStrictInt((substring rp 0 secPos)))
+                if (rVal2 >= 0) {
+                    n.hasRecovery = true
+                    n.recoveryValue = rVal2
+                    n.recoveryUnit = "sec"
+                    return
+                }
+            }
+        }
+
+        if (minPos > 0) {
+            def rVal3 (V1SharedHelpers.parseStrictInt((substring rp 0 minPos)))
+            if (rVal3 >= 0) {
+                n.hasRecovery = true
+                n.recoveryValue = rVal3
+                n.recoveryUnit = "min"
+                return
+            }
+        }
+
+        def mPos (V1SharedHelpers.findToken(rp "m"))
+        if (mPos > 0) {
+            if (minPos < 0) {
+                def tailRp:string (substring rp (mPos + 1) (strlen rp))
+                def slashAfterM (V1SharedHelpers.findToken(tailRp "/"))
+                if (slashAfterM >= 0) {
+                    def v1 (V1SharedHelpers.parseStrictInt((substring rp 0 mPos)))
+                    def afterFirstM:string (substring rp (mPos + 1) (strlen rp))
+                    def slashPos (V1SharedHelpers.findToken(afterFirstM "/"))
+                    if (slashPos >= 0) {
+                        def afterSlash:string (substring afterFirstM (slashPos + 1) (strlen afterFirstM))
+                        def mPos2 (V1SharedHelpers.findToken(afterSlash "m"))
+                        if (mPos2 > 0) {
+                            def v2 (V1SharedHelpers.parseStrictInt((substring afterSlash 0 mPos2)))
+                            if (v1 >= 0) {
+                                if (v2 >= 0) {
+                                    n.hasRecovery = true
+                                    n.recoveryValue = v1
+                                    n.hasRecoveryMax = true
+                                    n.recoveryMax = v2
+                                    n.recoveryUnit = "m"
+                                    return
+                                }
+                            }
+                        }
+                    }
+                } {
+                def rVal4 (V1SharedHelpers.parseStrictInt((substring rp 0 mPos)))
+                if (rVal4 >= 0) {
+                    n.hasRecovery = true
+                    n.recoveryValue = rVal4
+                    n.recoveryUnit = "m"
+                    return
+                }
+                }
+            }
+        }
+
+        if (tick1 >= 0) {
+            def rVal5 (V1SharedHelpers.parseStrictInt((substring rp 0 tick1)))
+            if (rVal5 >= 0) {
+                n.hasRecovery = true
+                n.recoveryValue = rVal5
+                n.recoveryUnit = "min"
+                return
+            }
+        }
+
+        n.hasRecoveryText = true
+        n.recoveryText = rp
+    }
+
+    static fn parseRunSpec:void (n:MoveNode core:string) {
+        def xCount (V1SharedHelpers.countChar(core (ccode "x")))
+        if (xCount == 2) {
+            def x1 (V1SharedHelpers.findToken(core "x"))
+            if (x1 > 0) {
+                def setsRaw (substring core 0 x1)
+                def after1 (substring core (x1 + 1) (strlen core))
+                def x2 (V1SharedHelpers.findToken(after1 "x"))
+                if (x2 > 0) {
+                    def countRaw (substring after1 0 x2)
+                    def distRaw (trim (substring after1 (x2 + 1) (strlen after1)))
+                    def sOpt (V1SharedHelpers.parseStrictInt(setsRaw))
+                    def cOpt (V1SharedHelpers.parseStrictInt(countRaw))
+                    if (sOpt >= 0) {
+                        if (cOpt >= 0) {
+                            n.hasSetsVal = true
+                            n.setsVal = sOpt
+                            n.hasCountVal = true
+                            n.countVal = cOpt
+                        }
+                    }
+                    if (distRaw == "?") {
+                        n.hasCountVal = true
+                        n.countVal = cOpt
+                    } {
+                        def dashDist (V1SharedHelpers.findToken(distRaw "-"))
+                        def kmPosD (V1SharedHelpers.findToken(distRaw "km"))
+                        def mPosD (V1SharedHelpers.findToken(distRaw "m"))
+                        def mValidD@(mutable):boolean false
+                        if (mPosD > 0) {
+                            mValidD = true
+                            if ((mPosD + 1) < (strlen distRaw)) {
+                                if ((charAt distRaw (mPosD + 1)) == (ccode "i")) {
+                                    mValidD = false
+                                }
+                            }
+                        }
+                        if (dashDist > 0) {
+                            if (mValidD) {
+                                def d1 (V1SharedHelpers.parseStrictInt((substring distRaw 0 dashDist)))
+                                def d2Tok (substring distRaw (dashDist + 1) mPosD)
+                                def d2 (V1SharedHelpers.parseStrictInt(d2Tok))
+                                if (d1 >= 0) {
+                                    if (d2 >= 0) {
+                                        n.hasDistance = true
+                                        n.hasDistanceNumeric = true
+                                        n.distanceValue = (to_string d1)
+                                        n.hasDistanceMax = true
+                                        n.distanceValueMax = (to_string d2)
+                                        n.distanceUnit = "m"
+                                    }
+                                }
+                            }
+                        } {
+                            if (kmPosD > 0) {
+                                def dTok (substring distRaw 0 kmPosD)
+                                if (dTok == "?") {
+                                    n.hasDistance = true
+                                    n.distanceUnit = "km"
+                                } {
+                                    def dOpt (str2int dTok)
+                                    if (!null? dOpt) {
+                                        n.hasDistance = true
+                                        n.hasDistanceNumeric = true
+                                        n.distanceValue = dTok
+                                        n.distanceUnit = "km"
+                                    }
+                                }
+                            } {
+                                if (mValidD) {
+                                    def dTok4 (substring distRaw 0 mPosD)
+                                    def dVal4 (V1SharedHelpers.parseStrictInt(dTok4))
+                                    if (dVal4 >= 0) {
+                                        n.hasDistance = true
+                                        n.hasDistanceNumeric = true
+                                        n.distanceValue = (to_string dVal4)
+                                        n.distanceUnit = "m"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (xCount == 1) {
+            def x1b (V1SharedHelpers.findToken(core "x"))
+            if (x1b > 0) {
+                def leftRaw (trim (substring core 0 x1b))
+                def rightRaw (trim (substring core (x1b + 1) (strlen core)))
+                def dashInCount (V1SharedHelpers.findToken(leftRaw "-"))
+                def cVal@(mutable):int -1
+                if (dashInCount > 0) {
+                    def cMin (V1SharedHelpers.parseStrictInt((substring leftRaw 0 dashInCount)))
+                    def cMax (V1SharedHelpers.parseStrictInt((substring leftRaw (dashInCount + 1) (strlen leftRaw))))
+                    if (cMin >= 0) {
+                        if (cMax >= 0) {
+                            n.hasCountVal = true
+                            n.countVal = cMin
+                            n.hasCountMax = true
+                            n.countMax = cMax
+                            cVal = cMin
+                        }
+                    }
+                } {
+                    cVal = (V1SharedHelpers.parseStrictInt(leftRaw))
+                    if (cVal >= 0) {
+                        n.hasCountVal = true
+                        n.countVal = cVal
+                    }
+                }
+                if (cVal >= 0) {
+                    def plusPos (V1SharedHelpers.findToken(rightRaw "+"))
+                    if (plusPos > 0) {
+                        def d1 (V1SharedHelpers.parseStrictInt((substring rightRaw 0 plusPos)))
+                        def afterPlus (substring rightRaw (plusPos + 1) (strlen rightRaw))
+                        def kmPos (V1SharedHelpers.findToken(afterPlus "km"))
+                        def mPos (V1SharedHelpers.findToken(afterPlus "m"))
+                        if (kmPos > 0) {
+                            def dTok (substring afterPlus 0 kmPos)
+                            if (d1 >= 0) {
+                                n.hasDistance = true
+                                n.hasDistanceNumeric = true
+                                n.distanceValue = (to_string d1)
+                                n.distanceUnit = "km"
+                            }
+                        } {
+                            if (mPos > 0) {
+                                def dTok2 (substring afterPlus 0 mPos)
+                                def d2 (V1SharedHelpers.parseStrictInt(dTok2))
+                                if (d1 >= 0) {
+                                    if (d2 >= 0) {
+                                        n.hasDistance = true
+                                        n.hasDistanceNumeric = true
+                                        n.distanceValue = (to_string d1)
+                                        n.hasDistanceRight = true
+                                        n.distanceRightVal = (to_string d2)
+                                        n.distanceUnit = "m"
+                                    }
+                                }
+                            }
+                        }
+                    } {
+                        def kmPos2 (V1SharedHelpers.findToken(rightRaw "km"))
+                        if (kmPos2 > 0) {
+                            def dTok3 (substring rightRaw 0 kmPos2)
+                            if (dTok3 == "?") {
+                                n.hasDistance = true
+                                n.distanceUnit = "km"
+                            } {
+                                def dOpt (str2int dTok3)
+                                if (!null? dOpt) {
+                                    n.hasDistance = true
+                                    n.hasDistanceNumeric = true
+                                    n.distanceValue = dTok3
+                                    n.distanceUnit = "km"
+                                }
+                            }
+                        } {
+                            def mPos2 (V1SharedHelpers.findToken(rightRaw "m"))
+                            def mValid@(mutable):boolean false
+                            if (mPos2 > 0) {
+                                mValid = true
+                                if ((mPos2 + 1) < (strlen rightRaw)) {
+                                    def nextCh (charAt rightRaw (mPos2 + 1))
+                                    if (nextCh == (ccode "i")) {
+                                        mValid = false
+                                    }
+                                }
+                            }
+                            if (mValid) {
+                                def dTok4 (substring rightRaw 0 mPos2)
+                                def dVal4 (V1SharedHelpers.parseStrictInt(dTok4))
+                                if (dVal4 >= 0) {
+                                    n.hasDistance = true
+                                    n.hasDistanceNumeric = true
+                                    n.distanceValue = (to_string dVal4)
+                                    n.distanceUnit = "m"
+                                }
+                            } {
+                                def unitParts (strsplit rightRaw " ")
+                                if ((array_length unitParts) > 0) {
+                                    def unitTok (itemAt unitParts 0)
+                                    if ((strlen unitTok) > 0) {
+                                        n.hasDistance = true
+                                        n.hasDistanceNumeric = true
+                                        n.distanceValue = leftRaw
+                                        n.distanceUnit = unitTok
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        def xAny (V1SharedHelpers.findToken(core "x"))
+        if (xAny < 0) {
+            def plusPos0 (V1SharedHelpers.findToken(core "+"))
+            if (plusPos0 > 0) {
+                def afterPlus0 (substring core (plusPos0 + 1) (strlen core))
+                def kmPos0 (V1SharedHelpers.findToken(afterPlus0 "km"))
+                def mPos0 (V1SharedHelpers.findToken(afterPlus0 "m"))
+                def mValid0@(mutable):boolean false
+                if (mPos0 > 0) {
+                    mValid0 = true
+                    if ((mPos0 + 1) < (strlen afterPlus0)) {
+                        if ((charAt afterPlus0 (mPos0 + 1)) == (ccode "i")) {
+                            mValid0 = false
+                        }
+                    }
+                }
+                if (kmPos0 > 0) {
+                    def leftD (V1SharedHelpers.parseStrictInt((substring core 0 plusPos0)))
+                    def rightTok (substring afterPlus0 0 kmPos0)
+                    def rightD (V1SharedHelpers.parseStrictInt(rightTok))
+                    if (leftD >= 0) {
+                        if (rightD >= 0) {
+                            n.hasDistance = true
+                            n.hasDistanceNumeric = true
+                            n.distanceValue = (to_string leftD)
+                            n.hasDistanceRight = true
+                            n.distanceRightVal = (to_string rightD)
+                            n.distanceUnit = "km"
+                        }
+                    }
+                } {
+                    if (mValid0) {
+                        def leftD2 (V1SharedHelpers.parseStrictInt((substring core 0 plusPos0)))
+                        def rightTok2 (substring afterPlus0 0 mPos0)
+                        def rightD2 (V1SharedHelpers.parseStrictInt(rightTok2))
+                        if (leftD2 >= 0) {
+                            if (rightD2 >= 0) {
+                                n.hasDistance = true
+                                n.hasDistanceNumeric = true
+                                n.distanceValue = (to_string leftD2)
+                                n.hasDistanceRight = true
+                                n.distanceRightVal = (to_string rightD2)
+                                n.distanceUnit = "m"
+                            }
+                        }
+                    } {
+                        def leftC (V1SharedHelpers.parseStrictInt((substring core 0 plusPos0)))
+                        def rightC (V1SharedHelpers.parseStrictInt(afterPlus0))
+                        if (leftC >= 0) {
+                            if (rightC >= 0) {
+                                n.hasCountVal = true
+                                n.countVal = leftC
+                                n.hasCountRight = true
+                                n.countRightVal = rightC
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    static fn parse:MoveNode (line:string) {
+        def n (new MoveNode)
+        def rest:string ""
+        if (V1SharedHelpers.hasPrefix(line "Run ")) {
+            n.sport = "juoksu"
+            rest = (trim (substring line 4 (strlen line)))
+            def runQuote1 (V1SharedHelpers.findToken(rest "\""))
+            if (runQuote1 >= 0) {
+                def runTail (substring rest (runQuote1 + 1) (strlen rest))
+                def runQuote2 (V1SharedHelpers.findToken(runTail "\""))
+                if (runQuote2 >= 0) {
+                    n.sport = (substring runTail 0 runQuote2)
+                    rest = (trim (substring runTail (runQuote2 + 1) (strlen runTail)))
+                }
+            }
+        } {
+            if (V1SharedHelpers.hasPrefix(line "Move ")) {
+                rest = (trim (substring line 5 (strlen line)))
+                def quote1 (V1SharedHelpers.findToken(rest "\""))
+                if (quote1 >= 0) {
+                    def tail (substring rest (quote1 + 1) (strlen rest))
+                    def quote2 (V1SharedHelpers.findToken(tail "\""))
+                    if (quote2 >= 0) {
+                        n.sport = (substring tail 0 quote2)
+                        rest = (trim (substring tail (quote2 + 1) (strlen tail)))
+                    }
+                }
+            }
+        }
+
+        def barPos (V1SharedHelpers.findToken(rest "|"))
+        def core:string rest
+        if (barPos >= 0) {
+            core = (trim (substring rest 0 barPos))
+            def notePart (trim (substring rest (barPos + 1) (strlen rest)))
+            if ((strlen notePart) > 0) {
+                n.hasNote = true
+                n.note = notePart
+            }
+        }
+
+        def atPosCore (V1SharedHelpers.findToken(core "@"))
+        def specPart@(mutable):string core
+        def recWithoutAt@(mutable):string ""
+        if (atPosCore > 0) {
+            specPart = (trim (substring core 0 atPosCore))
+        } {
+            def slashPosCore (V1SharedHelpers.findToken(core "/"))
+            if (slashPosCore > 0) {
+                specPart = (trim (substring core 0 slashPosCore))
+                recWithoutAt = (trim (substring core (slashPosCore + 1) (strlen core)))
+            }
+        }
+
+        MoveParserV1.parseRunSpec(n specPart)
+
+        def tickPos (V1SharedHelpers.findToken(specPart "'"))
+        if (tickPos > 0) {
+            def durStart@(mutable):int tickPos
+            def walking@(mutable):boolean true
+            while (walking) {
+                if (durStart == 0) {
+                    walking = false
+                } {
+                    def chD (charAt specPart (durStart - 1))
+                    if ((chD >= (ccode "0")) && (chD <= (ccode "9"))) {
+                        durStart = durStart - 1
+                    } {
+                        walking = false
+                    }
+                }
+            }
+            def afterTick (substring specPart (tickPos + 1) (strlen specPart))
+            def quotePos (V1SharedHelpers.findToken(afterTick "\""))
+            if (quotePos >= 0) {
+                def minRaw (substring specPart durStart tickPos)
+                def secRaw (substring afterTick 0 quotePos)
+                def minV (V1SharedHelpers.parseStrictInt(minRaw))
+                def secV (V1SharedHelpers.parseStrictInt(secRaw))
+                if (minV >= 0) {
+                    if (secV >= 0) {
+                        n.hasDuration = true
+                        n.hasDurationFloat = true
+                        def totalMin:double ( (to_double minV) + ( (to_double secV) / 60.0) )
+                        n.durationValueRaw = (double2str totalMin)
+                    }
+                }
+            }
+        }
+
+        if (n.hasDuration == false) {
+            def stepPosEarly (V1SharedHelpers.findToken(specPart "steps"))
+            if (stepPosEarly < 0) {
+            def minSecPos (V1SharedHelpers.findToken(specPart "min"))
+            if (minSecPos > 0) {
+                def afterMin (substring specPart (minSecPos + 3) (strlen specPart))
+                def secPos (V1SharedHelpers.findToken(afterMin "s"))
+                if (secPos >= 0) {
+                    def stepsSuffix:string "teps"
+                    def afterSec (substring afterMin secPos (strlen afterMin))
+                    if (V1SharedHelpers.hasPrefix(afterSec stepsSuffix)) {
+                    } {
+                    def minStart@(mutable):int minSecPos
+                    def walking2@(mutable):boolean true
+                    while (walking2) {
+                        if (minStart == 0) {
+                            walking2 = false
+                        } {
+                            def chM (charAt specPart (minStart - 1))
+                            if ((chM >= (ccode "0")) && (chM <= (ccode "9"))) {
+                                minStart = minStart - 1
+                            } {
+                                walking2 = false
+                            }
+                        }
+                    }
+                    def minRaw2 (substring specPart minStart minSecPos)
+                    def secRaw2 (trim (substring afterMin 0 secPos))
+                    def minV2 (V1SharedHelpers.parseStrictInt(minRaw2))
+                    def secV2 (V1SharedHelpers.parseStrictInt(secRaw2))
+                    if (minV2 >= 0) {
+                        if (secV2 >= 0) {
+                            n.hasDuration = true
+                            n.hasDurationFloat = true
+                            def totalMin2:double ( (to_double minV2) + ( (to_double secV2) / 60.0) )
+                            n.durationValueRaw = (double2str totalMin2)
+                        }
+                    }
+                    }
+                }
+            }
+            }
+        }
+
+        if (n.hasDuration == false) {
+        def minPos (V1SharedHelpers.findToken(specPart "min"))
+        if (minPos > 0) {
+            ; `8.45min` is eight minutes and forty-five hundredths of one —
+            ; the walk back takes the digits and one point, so the value is
+            ; not read as the 45 after the point.
+            def durStart3@(mutable):int minPos
+            def walking3@(mutable):boolean true
+            def sawDot@(mutable):boolean false
+            while (walking3) {
+                if (durStart3 == 0) {
+                    walking3 = false
+                } {
+                    def chD3 (charAt specPart (durStart3 - 1))
+                    if ((chD3 >= (ccode "0")) && (chD3 <= (ccode "9"))) {
+                        durStart3 = durStart3 - 1
+                    } {
+                        if ((chD3 == (ccode ".")) && (sawDot == false)) {
+                            sawDot = true
+                            durStart3 = durStart3 - 1
+                        } {
+                            walking3 = false
+                        }
+                    }
+                }
+            }
+            if (durStart3 < minPos) {
+                def durRaw (substring specPart durStart3 minPos)
+                if sawDot {
+                    def durDbl (str2double durRaw)
+                    if (!null? durDbl) {
+                        n.hasDuration = true
+                        n.hasDurationFloat = true
+                        n.durationValueRaw = (double2str (unwrap durDbl))
+                    }
+                } {
+                    def durVal (V1SharedHelpers.parseStrictInt(durRaw))
+                    if (durVal >= 0) {
+                        n.hasDuration = true
+                        n.durationValueRaw = (to_string durVal)
+                    }
+                }
+            }
+        }
+        }
+
+        def kmPos (V1SharedHelpers.findToken(specPart "km"))
+        if (n.hasDistance == false) {
+        if (kmPos > 0) {
+            def beforeKm (trim (substring specPart 0 kmPos))
+            def kmParts (strsplit beforeKm " ")
+            def kmLen (array_length kmParts)
+            if (kmLen > 0) {
+                def dTok (trim (itemAt kmParts (kmLen - 1)))
+                def dTokLen (strlen dTok)
+                if (dTokLen > 0) {
+                    def ok@(mutable):boolean true
+                    def i@(mutable):int 0
+                    while (i < dTokLen) {
+                        def ch (charAt dTok i)
+                        if ((ch >= (ccode "0")) && (ch <= (ccode "9"))) {
+                        } {
+                            if (ch == (ccode ".")) {
+                            } {
+                                ok = false
+                            }
+                        }
+                        i = i + 1
+                    }
+                    if (ok) {
+                        n.hasDistance = true
+                        n.hasDistanceNumeric = true
+                        n.distanceValue = dTok
+                        n.distanceUnit = "km"
+                    }
+                }
+            }
+        } {
+            ; The metres: an "m" after a digit that is not the "m" of
+            ; "min" — `14.7min 500m` has both, and the first one found is
+            ; the minute's.
+            def mPos@(mutable):int -1
+            def mValid@(mutable):boolean false
+            def mScan@(mutable):int 1
+            def mLenAll:int (strlen specPart)
+            while ((mScan < mLenAll) && (mValid == false)) {
+                def chM (charAt specPart mScan)
+                if (chM == (ccode "m")) {
+                    def prevM (charAt specPart (mScan - 1))
+                    def prevDigit:boolean ((prevM >= (ccode "0")) && (prevM <= (ccode "9")))
+                    def nextOk@(mutable):boolean true
+                    if ((mScan + 1) < mLenAll) {
+                        def nextM (charAt specPart (mScan + 1))
+                        if (nextM == (ccode "i")) { nextOk = false }
+                    }
+                    if (prevDigit && nextOk) {
+                        mValid = true
+                        mPos = mScan
+                    }
+                }
+                mScan = mScan + 1
+            }
+            if (mValid) {
+                def beforeM (trim (substring specPart 0 mPos))
+                def mParts (strsplit beforeM " ")
+                def mLen (array_length mParts)
+                if (mLen > 0) {
+                    def dTok2 (trim (itemAt mParts (mLen - 1)))
+                    def dVal2 (V1SharedHelpers.parseStrictInt(dTok2))
+                    if (dVal2 >= 0) {
+                        n.hasDistance = true
+                        n.hasDistanceNumeric = true
+                        n.distanceValue = (to_string dVal2)
+                        n.distanceUnit = "m"
+                    }
+                }
+            }
+        }
+        }
+
+        def stepPos (V1SharedHelpers.findToken(specPart "steps"))
+        if (stepPos > 0) {
+            def before (trim (substring specPart 0 stepPos))
+            def beforeParts (strsplit before " ")
+            def bLen (array_length beforeParts)
+            def numPart:string before
+            if (bLen > 0) {
+                numPart = (trim (itemAt beforeParts (bLen - 1)))
+            }
+            def sOpt (str2int numPart)
+            if (!null? sOpt) {
+                n.hasSteps = true
+                n.steps = (unwrap sOpt)
+            }
+        }
+
+        def atPos (V1SharedHelpers.findToken(core "@"))
+        if (atPos >= 0) {
+            def afterAt (trim (substring core (atPos + 1) (strlen core)))
+            def intSource:string afterAt
+            def swimRec:string ""
+            def swimRecPos (V1SharedHelpers.findToken(afterAt " T:"))
+            if (swimRecPos < 0) {
+                swimRecPos = (V1SharedHelpers.findToken(afterAt " t:"))
+            }
+            if (swimRecPos >= 0) {
+                intSource = (trim (substring afterAt 0 swimRecPos))
+                swimRec = (trim (substring afterAt (swimRecPos + 1) (strlen afterAt)))
+            } {
+                intSource = afterAt
+            }
+            def intPart (V1SharedHelpers.splitIntensityRecovery(intSource))
+            def recPart (V1SharedHelpers.splitRecoveryPart(intSource))
+            def intJson (RunIntensityParserV1.parse(intPart))
+            if ((strlen intJson) > 0) {
+                n.hasIntensityJson = true
+                n.intensityJson = intJson
+            }
+            if ((strlen recPart) > 0) {
+                MoveParserV1.applyRecovery(n recPart)
+            }
+            if ((strlen swimRec) > 0) {
+                def swimColon (V1SharedHelpers.findToken(swimRec ":"))
+                if (swimColon > 0) {
+                    def swimValTok (substring swimRec (swimColon + 1) (strlen swimRec))
+                    def swimSecPos (V1SharedHelpers.findToken(swimValTok "s"))
+                    if (swimSecPos > 0) {
+                        def swimVal (V1SharedHelpers.parseStrictInt((substring swimValTok 0 swimSecPos)))
+                        if (swimVal >= 0) {
+                            n.hasRecovery = true
+                            n.recoveryValue = swimVal
+                            n.recoveryUnit = "sec"
+                            n.hasRecoveryText = false
+                            n.recoveryText = ""
+                        }
+                    } {
+                        def swimMinPos (V1SharedHelpers.findToken(swimValTok "min"))
+                        if (swimMinPos > 0) {
+                            def swimVal2 (V1SharedHelpers.parseStrictInt((substring swimValTok 0 swimMinPos)))
+                            if (swimVal2 >= 0) {
+                                n.hasRecovery = true
+                                n.recoveryValue = swimVal2
+                                n.recoveryUnit = "min"
+                                n.hasRecoveryText = false
+                                n.recoveryText = ""
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if ((strlen recWithoutAt) > 0) {
+            MoveParserV1.applyRecovery(n recWithoutAt)
+        }
+
+        return n
+    }
+}

@@ -233,23 +233,47 @@ class EdgePath {
         return total
     }
 
-    ; The point half way along, where an edge label goes.
+    ; The point half way along, where an edge label goes. Half way by LENGTH:
+    ; the middle point of the flattened list moved with the number of steps a
+    ; corner was flattened into, so a label sat in one place at one zoom and
+    ; somewhere else at another.
     fn midX:double () {
-        def n:int (this.pointCount())
-        if (n == 0) {
-            return 0.0
-        }
-        def half:int (idiv n 2)
-        return (this.px(half))
+        return (this.atHalf(true))
     }
 
     fn midY:double () {
+        return (this.atHalf(false))
+    }
+
+    fn atHalf:double (wantX:boolean) {
         def n:int (this.pointCount())
         if (n == 0) {
             return 0.0
         }
-        def half:int (idiv n 2)
-        return (this.py(half))
+        def half:double ((this.totalLength()) * 0.5)
+        def walked:double 0.0
+        def i:int 1
+        while (i < n) {
+            def dx:double ((this.px(i)) - (this.px((i - 1))))
+            def dy:double ((this.py(i)) - (this.py((i - 1))))
+            def len:double (sqrt ((dx * dx) + (dy * dy)))
+            if ((walked + len) >= half) {
+                def t:double 0.0
+                if (len > 0.0001) {
+                    t = ((half - walked) / len)
+                }
+                if wantX {
+                    return ((this.px((i - 1))) + (dx * t))
+                }
+                return ((this.py((i - 1))) + (dy * t))
+            }
+            walked = (walked + len)
+            i = (i + 1)
+        }
+        if wantX {
+            return (this.px((n - 1)))
+        }
+        return (this.py((n - 1)))
     }
 
     ; Distance from a point to the polyline — edge hit testing, which React

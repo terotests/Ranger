@@ -403,21 +403,33 @@ function runKey(c, dpr) {
   return `${dpr}|${c.font || ""}|${c.size}|${c.weight || ""}|${c.italic ? 1 : 0}|${c.text}`;
 }
 
-function buildTextAtlas(cmds, dpr) {
+/** The runs an atlas holds: every distinct run, or — `onlyVisible` — only
+ *  those that touch the page, when the whole list would not fit a texture. */
+function atlasRuns(cmds, dpr, view, onlyVisible) {
   const seen = new Set();
   const runs = [];
   for (const c of cmds) {
     if (c.k !== KIND.TEXT || !c.text) continue;
+    if (onlyVisible && view) {
+      const w = c.w || 0, h = c.h || (c.size || 0) * 1.5;
+      if (c.x > view.w || c.y > view.h || c.x + w < 0 || c.y + h < 0) continue;
+    }
     const key = runKey(c, dpr);
     if (seen.has(key)) continue;
     seen.add(key);
     runs.push(c);
   }
-  if (!runs.length) return { canvas: null, slots: new Map() };
+  return runs;
+}
+
+function buildTextAtlas(cmds, dpr, view, maxTex) {
+  let runs = atlasRuns(cmds, dpr, view, false);
+  let culled = false;
+  if (!runs.length) return { canvas: null, slots: new Map(), culled };
   const pad = 2;
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
-  const measured = runs.map((c) => {
+  const measure = (c) => {
     ctx.font = fontSpec(c, dpr);
     const m = ctx.measureText(verbatim(c.text));
     // Two different ascents, and the difference between them is the whole of
@@ -437,18 +449,45 @@ function buildTextAtlas(cmds, dpr) {
     // whole face, not just the part above the baseline.
     const faceDesc = m.fontBoundingBoxDescent || c.size * dpr * 0.212;
     return { c, w: Math.ceil(m.width) + pad * 2, h: Math.ceil(asc + desc) + pad * 2, asc, faceAsc, faceDesc };
-  });
-  const maxW = Math.max(512, ...measured.map((m) => m.w));
-  let x = 0, y = 0, rowH = 0, atlasW = Math.min(2048, nextPow2(maxW)), atlasH = 0;
-  for (const m of measured) {
-    if (x + m.w > atlasW) { x = 0; y += rowH; rowH = 0; }
-    m.x = x; m.y = y;
-    x += m.w;
-    rowH = Math.max(rowH, m.h);
-    atlasH = Math.max(atlasH, y + rowH);
+  };
+  // Pack the slots in rows. A list with more text than one texture holds —
+  // a long feed of cards, most of it scrolled away — used to ask for a
+  // texture taller than the card allows and get nothing back, so every run
+  // drew as a solid box. Now the atlas widens up to the card's limit, then
+  // keeps only the runs that touch the page (the rest are not drawn anyway),
+  // and as a last resort drops what still does not fit.
+  const limit = Math.max(2048, maxTex || 2048);
+  const pack = (list, atlasW) => {
+    let x = 0, y = 0, rowH = 0, atlasH = 0;
+    for (const m of list) {
+      if (x + m.w > atlasW) { x = 0; y += rowH; rowH = 0; }
+      m.x = x; m.y = y;
+      x += m.w;
+      rowH = Math.max(rowH, m.h);
+      atlasH = Math.max(atlasH, y + rowH);
+    }
+    return nextPow2(atlasH);
+  };
+  let measured = runs.map(measure);
+  let atlasW = Math.min(2048, nextPow2(Math.max(512, ...measured.map((m) => m.w))));
+  let atlasH = pack(measured, atlasW);
+  while (atlasH > limit && atlasW < limit) {
+    atlasW = Math.min(limit, atlasW * 2);
+    atlasH = pack(measured, atlasW);
+  }
+  if (atlasH > limit && view) {
+    runs = atlasRuns(cmds, dpr, view, true);
+    culled = true;
+    measured = runs.map(measure);
+    atlasH = pack(measured, atlasW);
+  }
+  while (atlasH > limit && measured.length > 1) {
+    measured = measured.slice(0, Math.max(1, Math.floor(measured.length / 2)));
+    culled = true;
+    atlasH = pack(measured, atlasW);
   }
   canvas.width = atlasW;
-  canvas.height = nextPow2(atlasH);
+  canvas.height = Math.min(limit, atlasH);
   const c2 = canvas.getContext("2d");
   c2.clearRect(0, 0, canvas.width, canvas.height);
   c2.textBaseline = "alphabetic";
@@ -467,7 +506,7 @@ function buildTextAtlas(cmds, dpr) {
     });
   }
   markColoredSlots(c2, slots);
-  return { canvas, slots };
+  return { canvas, slots, culled };
 }
 
 
@@ -576,23 +615,20 @@ const IMAGE_TEXTURES = new WeakMap();
  * card. What it does NOT include is where the runs are or what colour they
  * are, because neither changes a glyph.
  */
-function atlasFor(gl, cmds, dpr) {
-  const keys = [];
-  const seen = new Set();
-  for (const c of cmds) {
-    if (c.k !== KIND.TEXT || !c.text) continue;
-    const k = runKey(c, dpr);
-    if (seen.has(k)) continue;
-    seen.add(k);
-    keys.push(k);
-  }
-  const key = keys.join("\u0001");
+function atlasFor(gl, cmds, dpr, view) {
+  const keyOf = (onlyVisible) => atlasRuns(cmds, dpr, view, onlyVisible).map((c) => runKey(c, dpr)).join("\u0001");
+  const key = keyOf(false);
   const have = ATLASES.get(gl);
-  if (have && have.key === key) { have.rebuilt = false; return have; }
+  // A culled atlas holds only the runs on the page, so it is the runs on the
+  // page that say whether it still serves — the full list changes with
+  // every scroll while the visible runs may not, and the other way round.
+  if (have && have.key === (have.culled ? keyOf(true) : key)) { have.rebuilt = false; return have; }
   if (have && have.canvas) gl.deleteTexture(have.canvas);
-  const { canvas, slots } = buildTextAtlas(cmds, dpr);
+  const maxTex = gl.getParameter(gl.MAX_TEXTURE_SIZE) || 2048;
+  const { canvas, slots, culled } = buildTextAtlas(cmds, dpr, view, maxTex);
   const made = {
-    key,
+    key: culled ? keyOf(true) : key,
+    culled,
     slots,
     // Reported in the stats: rebuilding the atlas means rasterising every run
     // on a 2-D canvas and uploading it, and doing that on a frame where
@@ -1155,7 +1191,7 @@ export function renderDisplayList(gl, doc, opts = {}) {
   // out every run on a 2-D canvas and uploading the result — and the runs are
   // the same from one frame to the next almost always, because a frame that
   // differs by a moved shape has not changed a single letter.
-  const { canvas: atlasCanvas, slots, rebuilt: atlasRebuilt } = atlasFor(gl, cmds, dpr);
+  const { canvas: atlasCanvas, slots, rebuilt: atlasRebuilt } = atlasFor(gl, cmds, dpr, { w: doc.width, h: doc.height });
   const atlas = atlasCanvas;
 
   // One texture per distinct source, uploaded ONCE — not once per frame. This

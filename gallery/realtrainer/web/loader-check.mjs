@@ -30,6 +30,10 @@ if (!fs.existsSync(BIN)) {
 const require = createRequire(import.meta.url);
 const { RealTrainerDemo } = require(BIN);
 const CSS = fs.readFileSync(path.join(HERE, "realtrainer.css"), "utf8");
+const COMPACT = fs.readFileSync(
+  path.join(HERE, "..", "fixtures", "session.compact"),
+  "utf8",
+);
 
 let failed = 0;
 const ok = (name, cond, detail) => {
@@ -41,7 +45,7 @@ const ok = (name, cond, detail) => {
 };
 
 const app = new RealTrainerDemo();
-app.init(CSS);
+app.init(CSS, COMPACT);
 
 console.log("--- the stylesheet ---");
 const errs = [];
@@ -220,17 +224,61 @@ console.log("\n--- the training session ---");
 app.press("rt-tabs-tab-dash");
 ok("the rail opens a session",
    app.press("rt-rail-train") === true && app.sceneName() === "session", app.sceneName());
+// The session's content is PARSED. `Exercise Takakyykky|3x5@90kg` in
+// fixtures/session.compact is what the screen names and what it counts, and
+// the spec line arrives as two runs — `3x5` and `x90kg` — because that is
+// what CompactStatBuilder returns and the card draws one element per part.
 let t4 = textsOf(listOf());
-ok("the plan line reads 3 x 5 @ 40kg", t4.includes("3 × 5 @ 40kg"), t4.join("|"));
-// The steppers, and the clamps that are the reason a stepper exists.
+ok("the workout is named by the document", t4.includes("Kontrastivoima"), t4.join("|"));
+ok("the first move is the first exercise row", t4.includes("1. Takakyykky"), t4.join("|"));
+ok("its spec is two parts, not one string",
+   t4.includes("3x5") && t4.includes("x90kg"), t4.join("|"));
+ok("and the section above it is shown", t4.includes("Pääosa"), t4.join("|"));
+ok("the plan's length is counted, not assumed",
+   t4.includes("0 / 5 liikettä tehty"), t4.join("|"));
+
+// The steppers, and the clamps that are the reason a stepper exists. They
+// write into the ROW, so the spec line is rebuilt from the plan rather than
+// from numbers the screen keeps beside it.
 app.press("rt-reps-up");
 app.press("rt-reps-up");
 app.press("rt-weight-up");
 t4 = textsOf(listOf());
-ok("the steppers write the numbers", t4.includes("3 × 7 @ 45kg"), t4.join("|"));
+ok("the steppers write into the row",
+   t4.includes("3x7") && t4.includes("x95kg"), t4.join("|"));
 for (let i = 0; i < 6; i += 1) app.press("rt-sets-down");
-ok("and clamp at one set", textsOf(listOf()).includes("1 × 7 @ 45kg"),
+ok("and clamp at one set", textsOf(listOf()).includes("1x7"),
    textsOf(listOf()).join("|"));
+
+// --- saving, which is simulated and has to look like it ---------------------
+//
+// No network and no cloud. What the screen still needs is the SHAPE of one:
+// a wait with a state on it, and a failure that can be reached on purpose.
+// The backend runs off the app's clock, so this takes no real time.
+ok("saving starts a wait", app.press("rt-save") === true, "no change");
+ok("and says so", textsOf(listOf()).some((t) => t.startsWith("Tallennetaan")),
+   textsOf(listOf()).join("|"));
+app.tick(400);
+ok("still waiting halfway",
+   textsOf(listOf()).some((t) => t.startsWith("Tallennetaan")),
+   textsOf(listOf()).join("|"));
+app.tick(400);
+ok("then it is saved, with a version",
+   textsOf(listOf()).some((t) => t.startsWith("Tallennettu — versio 1")),
+   textsOf(listOf()).join("|"));
+
+// A demo that cannot be made to fail on purpose is a demo whose error state
+// nobody has looked at.
+ok("the failure can be armed", app.press("rt-fail") === true, "no change");
+app.press("rt-save");
+app.tick(800);
+ok("and then the save fails",
+   textsOf(listOf()).some((t) => t.startsWith("Tallennus epäonnistui")),
+   textsOf(listOf()).join("|"));
+const saveState = JSON.parse(app.a11yJson(1, "")).nodes.find((n) => n.id === "rt-save-state");
+ok("the state is announced as one", saveState?.role === "status", JSON.stringify(saveState));
+app.press("rt-fail");
+
 
 // The rest picker is a RadioGroupCtl, so the timer's length is the
 // controller's value and not a number this screen keeps beside it.
@@ -261,10 +309,132 @@ ok("and says the rest is over",
    textsOf(listOf()).some((t) => t.startsWith("Tauko ohi")), textsOf(listOf()).join("|"));
 ok("done goes back to the exercise",
    app.press("rt-timer-done") === true &&
-     textsOf(listOf()).includes("1 × 7 @ 45kg"), textsOf(listOf()).join("|"));
+     textsOf(listOf()).includes("1x7"), textsOf(listOf()).join("|"));
+// Done counts one off the plan AND moves to the next exercise row, which is
+// the second one in the document rather than the second thing in it: the
+// section heading between them is a row too, and it is not a move.
 ok("and the session's own bar counts exercises",
    app.press("rt-done") === true &&
-     textsOf(listOf()).includes("1 / 2 liikettä tehty"), textsOf(listOf()).join("|"));
+     textsOf(listOf()).includes("1 / 5 liikettä tehty"), textsOf(listOf()).join("|"));
+ok("done moves on to the next exercise",
+   textsOf(listOf()).includes("2. Vauhditon pituus"), textsOf(listOf()).join("|"));
+
+// The fourth exercise is measured — `3x45s,45s,0s`, what was done rather than
+// what was planned. There is nothing on it for a stepper to write, and the
+// card says so instead of offering three that would edit the past.
+app.press("rt-done");
+app.press("rt-done");
+const measured = textsOf(listOf());
+ok("a measured row prints its times", measured.includes("45s, 45s"), measured.join("|"));
+ok("a measured row refuses to be saved",
+   app.press("rt-save") === true &&
+     textsOf(listOf()).some((t) => t.startsWith("Tätä riviä ei voi")),
+   textsOf(listOf()).join("|"));
+ok("and carries no steppers",
+   !measured.includes("Sarjat") && measured.some((t) => t.startsWith("Mitattu sarja")),
+   measured.join("|"));
+
+console.log("\n--- the document ---");
+// The session screen shows one move at a time, which hides everything else the
+// parser did. This screen is the other half: every row, drawn by its family.
+app.press("rt-rail-log");
+ok("the rail opens the document", app.sceneName() === "document", app.sceneName());
+const doc = textsOf(listOf());
+ok("the whole document is drawn", doc.includes("21 riviä"), doc.join("|"));
+ok("a summary is drawn", doc.includes("Kova mutta hallittu treeni"), doc.join("|"));
+ok("a phase carries its number", doc.includes("Phase1"), doc.join("|"));
+ok("a duration is drawn", doc.includes("10min") && doc.includes("Alkulämmittely"), doc.join("|"));
+ok("a run derives its pace", doc.includes(" @0:36/100m"), doc.join("|"));
+ok("a custom row is name and value", doc.includes("~4"), doc.join("|"));
+// The life line's number is its own element, which is the whole point of
+// splitting it out: a reader can be pointed at it.
+ok("a life line's number is its own run", doc.includes("78.5kg"), doc.join("|"));
+ok("and its label is too", doc.includes("Weight"), doc.join("|"));
+ok("both sections are headings",
+   doc.includes("Pääosa") && doc.includes("Loppuverryttely"), doc.join("|"));
+// Tags and emojis belong to the workout, not to the list.
+ok("tags are not a row", !doc.some((t) => t.includes("kontrasti")), doc.join("|"));
+const docTree = JSON.parse(app.a11yJson(1, "")).nodes;
+ok("the list is a list", docTree.some((n) => n.id === "rt-doc-list" && n.role === "list"),
+   JSON.stringify(docTree.find((n) => n.id === "rt-doc-list")));
+ok("with an item per row",
+   docTree.filter((n) => n.role === "listitem").length === 21,
+   docTree.filter((n) => n.role === "listitem").length + " items");
+
+// A circuit is a header and its exercises, flattened into the list under it.
+ok("a circuit draws its rounds and its variant",
+   doc.includes("3x") && doc.includes("circuit"), doc.join("|"));
+ok("and its exercises are rows of their own",
+   doc.includes("8@80kg") && doc.includes("12@60kg"), doc.join("|"));
+
+// The document scrolls. How far is the LAYOUT's answer — it measured the
+// content — so the app asks for a distance and is told what it got.
+const lastText = () => {
+  const t = listOf().filter((c) => c.k === 3);
+  return t[t.length - 1];
+};
+const bottomBefore = lastText().y;
+ok("the wheel moves the document", app.scrollDocument(200) === true);
+ok("and the rows move with it", lastText().y < bottomBefore,
+   `${bottomBefore} -> ${lastText().y}`);
+ok("it stops at the end", app.scrollDocument(2000) === false, "kept scrolling");
+ok("and comes back to the top",
+   app.scrollDocument(-9999) === true && lastText().y === bottomBefore,
+   `${bottomBefore} -> ${lastText().y}`);
+ok("and stops there too", app.scrollDocument(-100) === false, "kept scrolling");
+
+// --- the ported state machine, on a screen ---------------------------------
+//
+// The dialog is drawn from `addWorkoutDialog`'s state and nothing else: there
+// is no local "is it open" flag and no second copy of the text. Which states
+// it has and what each event does is checked exhaustively by `rt:machine`
+// against the XState machine it was ported from; this is that machine wired to
+// a view.
+ok("the dialog opens", app.press("rt-add") === true, "no change");
+let sheet = textsOf(listOf());
+ok("with its heading", sheet.includes("Lisää harjoitus"), sheet.join("|"));
+ok("and the field's placeholder while nothing is typed",
+   sheet.includes('Luo harjoitusohjelma, esim. "viikon peruskuntojakso"'), sheet.join("|"));
+app.press("rt-add-field");
+app.typeText("Exercise Maastaveto|3x5@100kg");
+ok("typing reaches the machine",
+   textsOf(listOf()).includes("Exercise Maastaveto|3x5@100kg"),
+   textsOf(listOf()).join("|"));
+ok("saving waits", app.press("rt-sheet-save") === true && textsOf(listOf()).includes("Tallennetaan…"),
+   textsOf(listOf()).join("|"));
+app.tick(800);
+ok("and a finished save closes it",
+   !textsOf(listOf()).includes("Tallennetaan…") &&
+     !textsOf(listOf()).includes("Exercise Maastaveto|3x5@100kg"),
+   textsOf(listOf()).join("|"));
+
+// ERROR takes `saving` back to `open` and does NOT clear the input — a failed
+// save that threw away what was typed would be a second failure. That arm is
+// one of the twenty-one cells rt:machine checks; this is it on screen.
+app.press("rt-add");
+app.press("rt-add-field");
+app.typeText("Exercise Maastaveto|3x5@100kg");
+app.press("rt-fail");
+app.press("rt-sheet-save");
+app.tick(800);
+sheet = textsOf(listOf());
+ok("a failed save says so", sheet.some((t) => t.startsWith("Tallennus epäonnistui")), sheet.join("|"));
+ok("and keeps what was typed",
+   sheet.includes("Exercise Maastaveto|3x5@100kg"), sheet.join("|"));
+ok("the dialog is still there", sheet.includes("Lisää harjoitus"), sheet.join("|"));
+app.press("rt-sheet-cancel");
+app.press("rt-fail");
+ok("cancel closes it",
+   !textsOf(listOf()).includes("Päivä"), textsOf(listOf()).join("|"));
+
+// An id nothing handled is not handled. This was a real hole: the loader's
+// "a press skips the wait" was the fall-through for every scene.
+ok("an unknown id is not claimed", app.press("rt-nothing-here") === false, "claimed it");
+
+// And back, because the rail is a navigation and not a one-way door.
+ok("the rail goes home again",
+   app.press("rt-rail-home") === true && app.sceneName() === "dashboard",
+   app.sceneName());
 
 console.log("\n--- what a reader is told ---");
 app.press("rt-quit");

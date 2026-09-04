@@ -1,0 +1,362 @@
+class V1SharedHelpers {
+    static fn findLastToken:int (s:string token:string) {
+        def sLen (strlen s)
+        def tLen (strlen token)
+        if (tLen == 0) {
+            return 0
+        }
+        if (sLen < tLen) {
+            return -1
+        }
+
+        def i@(mutable):int (sLen - tLen)
+        while (i >= 0) {
+            if ((substring s i (i + tLen)) == token) {
+                return i
+            }
+            i = i - 1
+        }
+        return -1
+    }
+
+    static fn hasPrefix:boolean (s:string prefix:string) {
+        def sLen (strlen s)
+        def pLen (strlen prefix)
+        if (sLen < pLen) {
+            return false
+        }
+        return ((substring s 0 pLen) == prefix)
+    }
+
+    static fn containsChar:boolean (s:string ch:int) {
+        def sLen (strlen s)
+        def i@(mutable):int 0
+        while (i < sLen) {
+            if ((charAt s i) == ch) {
+                return true
+            }
+            i = i + 1
+        }
+        return false
+    }
+
+    static fn findToken:int (s:string token:string) {
+        def sLen (strlen s)
+        def tLen (strlen token)
+        if (tLen == 0) {
+            return 0
+        }
+        if (sLen < tLen) {
+            return -1
+        }
+
+        def i@(mutable):int 0
+        while (i <= (sLen - tLen)) {
+            if ((substring s i (i + tLen)) == token) {
+                return i
+            }
+            i = i + 1
+        }
+        return -1
+    }
+
+    static fn parseStrictInt:int (s:string) {
+        if ((strlen s) == 0) {
+            return -1
+        }
+        def vOpt (str2int s)
+        if (null? vOpt) {
+            return -1
+        }
+        def v (unwrap vOpt)
+        if ((to_string v) != s) {
+            return -1
+        }
+        return v
+    }
+
+    static fn isDecimalToken:boolean (s:string) {
+        def sLen (strlen s)
+        if (sLen == 0) {
+            return false
+        }
+        def i@(mutable):int 0
+        def dotCount@(mutable):int 0
+        def digitCount@(mutable):int 0
+        def ok@(mutable):boolean true
+        while (i < sLen) {
+            def ch (charAt s i)
+            if ((ch >= (ccode "0")) && (ch <= (ccode "9"))) {
+                digitCount = digitCount + 1
+            } {
+                if (ch == (ccode ".")) {
+                    dotCount = dotCount + 1
+                } {
+                    ok = false
+                    i = sLen
+                }
+            }
+            i = i + 1
+        }
+        if (ok == false) {
+            return false
+        }
+        if (digitCount == 0) {
+            return false
+        }
+        if (dotCount > 1) {
+            return false
+        }
+        return true
+    }
+
+    static fn splitNumAndUnit:int (s:string) {
+        def sLen (strlen s)
+        def i@(mutable):int 0
+        def lastDigit@(mutable):int -1
+        while (i < sLen) {
+            def ch (charAt s i)
+            if ((ch >= (ccode "0")) && (ch <= (ccode "9"))) {
+                lastDigit = i
+            } {
+                if (ch == (ccode ".")) {
+                    lastDigit = i
+                } {
+                    i = sLen
+                }
+            }
+            i = i + 1
+        }
+        return (lastDigit + 1)
+    }
+
+    static fn detectTrailingUnit:string (s:string) {
+        def sLen (strlen s)
+        if (sLen >= 4) {
+            def tail3 (substring s (sLen - 3) sLen)
+            if (tail3 == "min") {
+                return "min"
+            }
+        }
+        if (sLen >= 2) {
+            def tail1 (substring s (sLen - 1) sLen)
+            if (tail1 == "s") {
+                return "s"
+            }
+        }
+        return ""
+    }
+
+    static fn extractPipeNote:string (s:string) {
+        def noteSep (V1SharedHelpers.findToken(s " | "))
+        if (noteSep >= 0) {
+            return (trim (substring s (noteSep + 3) (strlen s)))
+        }
+        return ""
+    }
+
+    static fn extractPipeDescription:string (s:string) {
+        def barPos (V1SharedHelpers.findToken(s "|"))
+        if (barPos >= 0) {
+            def before (substring s 0 barPos)
+            def after (substring s (barPos + 1) (strlen s))
+            if ((strlen (trim before)) > 0) {
+                if ((strlen (trim after)) > 0) {
+                    return (trim after)
+                }
+            }
+        }
+        return ""
+    }
+
+    static fn isWhitespace:boolean (ch:int) {
+        if (ch == 32) {
+            return true
+        }
+        if (ch == 9) {
+            return true
+        }
+        return false
+    }
+
+    static fn skipWhitespace:int (s:string start:int) {
+        def sLen (strlen s)
+        def i@(mutable):int start
+        while (i < sLen) {
+            def ch (charAt s i)
+            if (V1SharedHelpers.isWhitespace(ch)) {
+                i = i + 1
+            } {
+                return i
+            }
+        }
+        return i
+    }
+
+    static fn endsWithKg:boolean (s:string) {
+        def sLen (strlen s)
+        if (sLen < 2) {
+            return false
+        }
+        def tail (substring s (sLen - 2) sLen)
+        return (tail == "kg")
+    }
+
+    static fn countChar:int (s:string ch:int) {
+        def sLen (strlen s)
+        def count@(mutable):int 0
+        def i@(mutable):int 0
+        while (i < sLen) {
+            if ((charAt s i) == ch) {
+                count = count + 1
+            }
+            i = i + 1
+        }
+        return count
+    }
+
+    static fn parseNumberToken:string (s:string) {
+        def sLen (strlen s)
+        def numEnd (V1SharedHelpers.splitNumAndUnit(s))
+        if (numEnd <= 0) {
+            return ""
+        }
+        def numPart (substring s 0 numEnd)
+        if (V1SharedHelpers.isDecimalToken(numPart)) {
+            return numPart
+        }
+        return ""
+    }
+
+    static fn isPacePerDistanceSuffix:boolean (suffix:string) {
+        def t (trim suffix)
+        if (t == "km") {
+            return true
+        }
+        def mPos (V1SharedHelpers.findToken(t "m"))
+        if (mPos > 0) {
+            def numPart (substring t 0 mPos)
+            def numVal (V1SharedHelpers.parseStrictInt(numPart))
+            if (numVal >= 0) {
+                return true
+            }
+        }
+        return false
+    }
+
+    static fn splitIntensityRecovery:string (afterAt:string) {
+        def t (trim afterAt)
+        if ((strlen t) == 0) {
+            return ""
+        }
+
+        def openBrace (V1SharedHelpers.findToken(t "{{"))
+        if (openBrace == 0) {
+            def closeBrace (V1SharedHelpers.findToken(t "}}"))
+            if (closeBrace > 0) {
+                def endTemplate (closeBrace + 2)
+                if (endTemplate < (strlen t)) {
+                    def tail (trim (substring t endTemplate (strlen t)))
+                    if (V1SharedHelpers.hasPrefix(tail "/")) {
+                        return (trim (substring t 0 endTemplate))
+                    }
+                }
+            }
+            return t
+        }
+
+        def slashPos (V1SharedHelpers.findToken(t "/"))
+        if (slashPos < 0) {
+            return t
+        }
+
+        def left (trim (substring t 0 slashPos))
+        def right (trim (substring t (slashPos + 1) (strlen t)))
+
+        def colonPos (V1SharedHelpers.findToken(left ":"))
+        def tickPos (V1SharedHelpers.findToken(left "'"))
+        def quotePos (V1SharedHelpers.findToken(left "\""))
+        if ((colonPos > 0) || (tickPos > 0) || (quotePos > 0)) {
+            if (V1SharedHelpers.isPacePerDistanceSuffix(right)) {
+                return t
+            }
+        }
+
+        def pctPos (V1SharedHelpers.findToken(left "%"))
+        def bpmPos (V1SharedHelpers.findToken(left "bpm"))
+        if ((pctPos > 0) || (bpmPos > 0)) {
+            return left
+        }
+
+        if (left == "?") {
+            return left
+        }
+
+        if ((strlen right) > 0) {
+            def first (charAt right 0)
+            if ((first >= (ccode "0")) && (first <= (ccode "9"))) {
+                return left
+            }
+        }
+
+        return t
+    }
+
+    static fn splitRecoveryPart:string (afterAt:string) {
+        def t (trim afterAt)
+        if ((strlen t) == 0) {
+            return ""
+        }
+
+        def openBrace (V1SharedHelpers.findToken(t "{{"))
+        if (openBrace == 0) {
+            def closeBrace (V1SharedHelpers.findToken(t "}}"))
+            if (closeBrace > 0) {
+                def endTemplate (closeBrace + 2)
+                if (endTemplate < (strlen t)) {
+                    def tail (trim (substring t endTemplate (strlen t)))
+                    if (V1SharedHelpers.hasPrefix(tail "/")) {
+                        return (trim (substring tail 1 (strlen tail)))
+                    }
+                }
+            }
+            return ""
+        }
+
+        def slashPos (V1SharedHelpers.findToken(t "/"))
+        if (slashPos < 0) {
+            return ""
+        }
+
+        def left (trim (substring t 0 slashPos))
+        def right (trim (substring t (slashPos + 1) (strlen t)))
+
+        def colonPos (V1SharedHelpers.findToken(left ":"))
+        def tickPos (V1SharedHelpers.findToken(left "'"))
+        def quotePos (V1SharedHelpers.findToken(left "\""))
+        if ((colonPos > 0) || (tickPos > 0) || (quotePos > 0)) {
+            if (V1SharedHelpers.isPacePerDistanceSuffix(right)) {
+                return ""
+            }
+        }
+
+        def pctPos (V1SharedHelpers.findToken(left "%"))
+        def bpmPos (V1SharedHelpers.findToken(left "bpm"))
+        if ((pctPos > 0) || (bpmPos > 0)) {
+            return right
+        }
+
+        if (left == "?") {
+            return right
+        }
+
+        if ((strlen right) > 0) {
+            def first (charAt right 0)
+            if ((first >= (ccode "0")) && (first <= (ccode "9"))) {
+                return right
+            }
+        }
+
+        return ""
+    }
+}

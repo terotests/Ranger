@@ -48034,6 +48034,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                       return;
                                     }
                                   }
+                                  if ( item.isDocExampleOnly() ) {
+                                    if ( ctx.hasCompilerFlag("keep-examples") == false ) {
+                                      return;
+                                    }
+                                  }
                                   if ( item.isNormalClass() ) {
                                     const theEnd = wr.getTag("file_end");
                                     theEnd.out(((("module.exports." + item.name) + " = ") + item.name) + ";", true);

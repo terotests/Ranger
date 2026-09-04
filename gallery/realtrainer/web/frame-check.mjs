@@ -81,7 +81,9 @@ const ok = (name, cond, detail) => {
 };
 
 console.log("--- the page loads ---");
-await page.goto(`http://127.0.0.1:${port}/gallery/realtrainer/web/index.html`, { waitUntil: "networkidle" });
+// The desktop demo at its own size: without `page` the page is the window,
+// and this check measures the loader's card at 470px.
+await page.goto(`http://127.0.0.1:${port}/gallery/realtrainer/web/index.html?page=980x760`, { waitUntil: "networkidle" });
 await page.waitForFunction("window.__lastStats !== undefined", null, { timeout: 20000 }).catch(() => {});
 ok("no error on first paint", problems.length === 0, [...new Set(problems)].join("; "));
 const size = await page.evaluate(() => {
@@ -239,6 +241,7 @@ if (pngOut) {
   console.log("  wrote " + stem + "-dashboard.png (the dashboard)");
 }
 
+
 console.log("\n--- the tab that is on, and the one that was ---");
 // A class that goes away does not undo what it wrote — the cascade writes what
 // the CURRENT classes ask for — so a state rule may only override a property
@@ -300,8 +303,11 @@ ok("and the session is the scene",
    await page.evaluate("window.__app.sceneName()"));
 await clickId("rt-reps-up");
 await clickId("rt-weight-up");
+// The spec line is rebuilt from the ROW the steppers wrote into, and it
+// arrives as parts: `3x6` and `x95kg` are two runs with two tones.
 const planLine = (await listNow()).filter((c) => c.k === 3).map((c) => c.text);
-ok("the steppers wrote the numbers", planLine.includes("3 × 6 @ 45kg"), planLine.join("|"));
+ok("the steppers wrote into the row",
+   planLine.includes("3x6") && planLine.includes("x95kg"), planLine.join("|"));
 if (pngOut) {
   await page.locator("#stage canvas").screenshot({ path: stem + "-session.png" });
   console.log("  wrote " + stem + "-session.png (the session)");
@@ -322,6 +328,42 @@ ok("all turning about one point", pivots.size === 1, [...pivots].join(" / "));
 await page.waitForTimeout(1600);
 const litLater = await litTicks();
 ok("and the ring empties as the clock runs", litLater < litAt, `${litAt} -> ${litLater}`);
+// --- and the document -------------------------------------------------------
+//
+// The session shows one move at a time. This is every row the parser produced,
+// drawn by its family — the row library with nothing on top of it.
+ok("the rail opens the document", await clickId("rt-rail-log"), "no rt-rail-log node");
+await page.waitForTimeout(200);
+const docTexts = (await listNow()).filter((c) => c.k === 3).map((c) => c.text);
+ok("the document scene is on",
+   (await page.evaluate("window.__app.sceneName()")) === "document",
+   await page.evaluate("window.__app.sceneName()"));
+ok("every family is drawn",
+   ["Kova mutta hallittu treeni", "Phase1", "Alkulämmittely", " @0:36/100m", "~4", "78.5kg"]
+     .every((t) => docTexts.includes(t)),
+   docTexts.join("|"));
+if (pngOut) {
+  await page.locator("#stage canvas").screenshot({ path: stem + "-document.png" });
+  console.log("  wrote " + stem + "-document.png (the document)");
+}
+
+// The ported XState machine, on a screen. Which states it has and what each
+// event does is checked exhaustively by `npm run rt:machine`; this is that
+// machine wired to a view and drawn.
+ok("the dialog opens", await clickId("rt-add"), "no rt-add node");
+await page.waitForTimeout(150);
+await clickId("rt-add-field");
+await page.evaluate("window.__app.typeText('Exercise Maastaveto|3x5@100kg')");
+await page.waitForTimeout(150);
+const sheetTexts = (await listNow()).filter((c) => c.k === 3).map((c) => c.text);
+ok("and shows what was typed",
+   sheetTexts.includes("Exercise Maastaveto|3x5@100kg"), sheetTexts.join("|"));
+if (pngOut) {
+  await page.locator("#stage canvas").screenshot({ path: stem + "-dialog.png" });
+  console.log("  wrote " + stem + "-dialog.png (the ported dialog)");
+}
+await clickId("rt-sheet-cancel");
+
 if (pngOut) {
   await page.locator("#stage canvas").screenshot({ path: stem + "-timer.png" });
   console.log("  wrote " + stem + "-timer.png (the dial)");
@@ -330,6 +372,122 @@ await clickId("rt-pause");
 const paused = await litTicks();
 await page.waitForTimeout(700);
 ok("pausing stops it", (await litTicks()) === paused, `${paused} -> ${await litTicks()}`);
+
+// The plan-week dialog: a six-state machine run from its own definition, drawn
+// on the dashboard. `rt:trace` walks it step by step; this is the same view in
+// a real browser, one step in and one step out.
+await clickId("rt-rail-home");
+await page.waitForTimeout(150);
+ok("the plan dialog opens", await clickId("rt-plan"), "no rt-plan node");
+await page.waitForTimeout(150);
+ok("into the week selection",
+   (await page.evaluate("window.__app.plan.state()")) === "weekSelection",
+   await page.evaluate("window.__app.plan.state()"));
+await clickId("rt-plan-confirm");
+await page.waitForTimeout(150);
+ok("confirming the week runs the machine's named action and lands in confirmation",
+   (await page.evaluate("window.__app.plan.state()")) === "confirmation",
+   await page.evaluate("window.__app.plan.state()"));
+const planTexts = (await listNow()).filter((c) => c.k === 3).map((c) => c.text);
+ok("and the week's entries are on it, a checkbox each",
+   planTexts.includes("Korvaa tiistai"), planTexts.join("|"));
+if (pngOut) {
+  await page.locator("#stage canvas").screenshot({ path: stem + "-plan.png" });
+  console.log("  wrote " + stem + "-plan.png (the plan-week dialog)");
+}
+await clickId("rt-plan-close");
+await page.waitForTimeout(150);
+ok("cancelling closes it",
+   (await page.evaluate("window.__app.plan.state()")) === "closed",
+   await page.evaluate("window.__app.plan.state()"));
+// …and the other branch, the edit sheet, for the picture's sake.
+await clickId("rt-plan");
+await page.waitForTimeout(150);
+// The edit sheet opens from the example week's "Muokkaa" on the phone; the
+// dashboard has no such button, and the event is sent by id.
+await page.evaluate("window.__app.press('rt-plan-edit')");
+await page.waitForTimeout(150);
+ok("the edit sheet is the other way in",
+   (await page.evaluate("window.__app.plan.state()")) === "editInstructions",
+   await page.evaluate("window.__app.plan.state()"));
+if (pngOut) {
+  await page.locator("#stage canvas").screenshot({ path: stem + "-plan-edit.png" });
+  console.log("  wrote " + stem + "-plan-edit.png (the plan-week dialog, editing)");
+}
+await clickId("rt-plan-cancel");
+
+// The conversation: the nested machine, its reply streamed in on the app's
+// clock, and the fork that reads how many actions the reply proposed.
+ok("the rail opens the conversation", await clickId("rt-rail-chat"), "no rt-rail-chat node");
+await page.waitForTimeout(150);
+await clickId("rt-chat-type2");
+await clickId("rt-chat-send");
+ok("sending streams",
+   (await page.evaluate("window.__app.chat.state()")) === "sending.streaming",
+   await page.evaluate("window.__app.chat.state()"));
+await page.waitForTimeout(3200);
+ok("two proposed actions land in multiAction",
+   (await page.evaluate("window.__app.chat.state()")) === "reviewing.multiAction",
+   await page.evaluate("window.__app.chat.state()"));
+if (pngOut) {
+  await page.locator("#stage canvas").screenshot({ path: stem + "-chat.png" });
+  console.log("  wrote " + stem + "-chat.png (the conversation, reviewing)");
+}
+await clickId("rt-chat-accept-all");
+ok("accepting all saves",
+   (await page.evaluate("window.__app.chat.state()")) === "processing.saving",
+   await page.evaluate("window.__app.chat.state()"));
+await page.waitForTimeout(900);
+ok("and the save answers back to idle",
+   (await page.evaluate("window.__app.chat.state()")) === "idle",
+   await page.evaluate("window.__app.chat.state()"));
+
+// The caret is drawn at the measured width of the text before it, and the
+// text is drawn by the browser's own glyphs — two measurements of one string.
+// A password field is where they came apart: the measurer guessed the bullet
+// at half an em where the face draws 0.35, and nine characters in the caret
+// sat fifteen pixels past the last one. So: type into three fields — Latin,
+// umlauts, bullets — and check the caret sits on the run's right edge in the
+// same picture.
+const caretAfter = async (tid, text) => {
+  await page.evaluate((t) => { window.__app.press(t); }, tid);
+  await page.evaluate((t) => { window.__app.typeText(t); }, text);
+  await page.waitForTimeout(200);
+  const list = await listNow();
+  const box = JSON.parse(await page.evaluate((t) => window.__app.fieldStateJson(t), tid)).box;
+  const inBox = (c) => c.x >= box.x && c.x <= box.x + box.w && c.y >= box.y && c.y <= box.y + box.h;
+  const run = list.find((c) => c.k === 3 && inBox(c));
+  const caret = list.find((c) => c.k === 0 && c.w === 2 && c.h === 18 && inBox(c));
+  if (!run || !caret) return { err: `no ${run ? "caret" : "text run"} in the field's box` };
+  // NOT the run's own `w`: that is the layout's measurement, the same number
+  // the caret was placed from, and the two agree even when both are wrong.
+  // The glyph atlas is built with the browser's `measureText`, so that is
+  // the width the text is DRAWN at, and the only one worth comparing against.
+  const drawn = await page.evaluate(({ text, font, size }) => {
+    const ctx = document.createElement("canvas").getContext("2d");
+    ctx.font = `${size}px ${font.replace(/-Bold$/, "")}`;
+    return ctx.measureText(text).width;
+  }, { text: run.text, font: run.font, size: run.size });
+  return { err: null, drift: caret.x - (run.x + drawn), text: run.text };
+};
+await page.evaluate("window.__app.openRoute('/new-calendar')");
+await page.waitForTimeout(200);
+await page.evaluate("window.__app.press('rt-wiz-next')");
+const latin = await caretAfter("rt-wiz-name", "Kilpailukausi 2026");
+ok("the caret sits on the end of Latin text",
+   !latin.err && Math.abs(latin.drift) < 0.5, latin.err ?? `${latin.drift.toFixed(2)}px past "${latin.text}"`);
+const umlauts = await caretAfter("rt-wiz-desc", "Päiväkirja — ääkkösiä");
+ok("and on the end of text with umlauts and a dash",
+   !umlauts.err && Math.abs(umlauts.drift) < 0.5, umlauts.err ?? `${umlauts.drift.toFixed(2)}px past "${umlauts.text}"`);
+await page.evaluate("window.__app.press('rt-wiz-next')");
+await page.evaluate("window.__app.press('rt-wiz-encrypt')");
+const bullets = await caretAfter("rt-wiz-pass", "Kissa2026");
+ok("and on the end of a password's bullets",
+   !bullets.err && Math.abs(bullets.drift) < 0.5, bullets.err ?? `${bullets.drift.toFixed(2)}px past "${bullets.text}"`);
+if (pngOut) {
+  await page.locator("#stage canvas").screenshot({ path: stem + "-wizard-password.png" });
+  console.log("  wrote " + stem + "-wizard-password.png (the caret after the bullets)");
+}
 
 ok("nothing errored along the way", problems.length === 0, [...new Set(problems)].join("; "));
 

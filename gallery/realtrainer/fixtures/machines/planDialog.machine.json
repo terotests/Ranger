@@ -1,0 +1,694 @@
+{
+ "_": "The machine itself, in the shape createMachine() takes. Structure, state names, event names and targets are those of frontend/src/machines/planDialogMachine.ts. Assignments are value expressions because XState assign is a function; `setKey` is its `{ ...map, [event.day]: value }`. Two things come from the host rather than from the machine: `defaultWeekStart`, because the original computes it with `new Date()` inside its reducer, and the named action on CONFIRM_WEEK_SELECTION, which reduces fetched entries to a day map and needs a calendar.",
+ "id": "planDialog",
+ "initial": "closed",
+ "context": {
+  "defaultWeekStart": "",
+  "targetWeekStart": "",
+  "weekType": "target",
+  "createInstructions": "",
+  "showInstructionsField": false,
+  "editGeneralFeedback": "",
+  "editDayOrder": [
+   0,
+   1,
+   2,
+   3,
+   4,
+   5,
+   6
+  ],
+  "editDayInstructions": {},
+  "keepSameByDay": {},
+  "showPreviousByDay": {},
+  "replaceSelectedByDay": {},
+  "fetchedEntriesInWeek": [],
+  "targetCalendarId": null,
+  "error": null
+ },
+ "states": {
+  "closed": {
+   "on": {
+    "OPEN_WEEK_SELECTION": {
+     "target": "weekSelection",
+     "actions": [
+      {
+       "assign": {
+        "targetWeekStart": {
+         "or": [
+          {
+           "event": "weekStart"
+          },
+          {
+           "context": "defaultWeekStart"
+          }
+         ]
+        },
+        "weekType": {
+         "or": [
+          {
+           "event": "weekType"
+          },
+          {
+           "value": "target"
+          }
+         ]
+        },
+        "showInstructionsField": {
+         "or": [
+          {
+           "event": "showInstructions"
+          },
+          {
+           "value": false
+          }
+         ]
+        },
+        "createInstructions": {
+         "value": ""
+        },
+        "targetCalendarId": {
+         "or": [
+          {
+           "event": "targetCalendarId"
+          },
+          {
+           "value": null
+          }
+         ]
+        },
+        "error": {
+         "value": null
+        }
+       }
+      }
+     ]
+    },
+    "OPEN_EDIT_INSTRUCTIONS": {
+     "target": "editInstructions",
+     "actions": [
+      {
+       "assign": {
+        "editGeneralFeedback": {
+         "value": ""
+        },
+        "editDayOrder": {
+         "value": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+         ]
+        },
+        "editDayInstructions": {
+         "value": {}
+        },
+        "keepSameByDay": {
+         "value": {}
+        },
+        "showPreviousByDay": {
+         "value": {}
+        },
+        "error": {
+         "value": null
+        }
+       }
+      }
+     ]
+    }
+   }
+  },
+  "weekSelection": {
+   "on": {
+    "CLOSE": {
+     "target": "closed",
+     "actions": [
+      {
+       "assign": {
+        "targetWeekStart": {
+         "context": "defaultWeekStart"
+        },
+        "weekType": {
+         "value": "target"
+        },
+        "createInstructions": {
+         "value": ""
+        },
+        "showInstructionsField": {
+         "value": false
+        },
+        "editGeneralFeedback": {
+         "value": ""
+        },
+        "editDayOrder": {
+         "value": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+         ]
+        },
+        "editDayInstructions": {
+         "value": {}
+        },
+        "keepSameByDay": {
+         "value": {}
+        },
+        "showPreviousByDay": {
+         "value": {}
+        },
+        "replaceSelectedByDay": {
+         "value": {}
+        },
+        "fetchedEntriesInWeek": {
+         "value": []
+        },
+        "targetCalendarId": {
+         "value": null
+        },
+        "error": {
+         "value": null
+        }
+       }
+      }
+     ]
+    },
+    "SET_WEEK_START": {
+     "actions": [
+      {
+       "assign": {
+        "targetWeekStart": {
+         "event": "weekStart"
+        }
+       }
+      }
+     ]
+    },
+    "SET_WEEK_TYPE": {
+     "actions": [
+      {
+       "assign": {
+        "weekType": {
+         "event": "weekType"
+        }
+       }
+      }
+     ]
+    },
+    "SET_CREATE_INSTRUCTIONS": {
+     "actions": [
+      {
+       "assign": {
+        "createInstructions": {
+         "event": "instructions"
+        }
+       }
+      }
+     ]
+    },
+    "CONFIRM_WEEK_SELECTION": {
+     "target": "confirmation",
+     "actions": [
+      {
+       "assign": {
+        "fetchedEntriesInWeek": {
+         "event": "fetchedEntries"
+        }
+       }
+      },
+      {
+       "action": "selectFetchedDaysForReplacement"
+      }
+     ]
+    },
+    "OPEN_EDIT_INSTRUCTIONS": {
+     "target": "editInstructions",
+     "actions": [
+      {
+       "assign": {
+        "editGeneralFeedback": {
+         "value": ""
+        },
+        "editDayOrder": {
+         "value": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+         ]
+        },
+        "editDayInstructions": {
+         "value": {}
+        },
+        "keepSameByDay": {
+         "value": {}
+        },
+        "showPreviousByDay": {
+         "value": {}
+        }
+       }
+      }
+     ]
+    }
+   }
+  },
+  "confirmation": {
+   "on": {
+    "CLOSE": {
+     "target": "closed",
+     "actions": [
+      {
+       "assign": {
+        "targetWeekStart": {
+         "context": "defaultWeekStart"
+        },
+        "weekType": {
+         "value": "target"
+        },
+        "createInstructions": {
+         "value": ""
+        },
+        "showInstructionsField": {
+         "value": false
+        },
+        "editGeneralFeedback": {
+         "value": ""
+        },
+        "editDayOrder": {
+         "value": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+         ]
+        },
+        "editDayInstructions": {
+         "value": {}
+        },
+        "keepSameByDay": {
+         "value": {}
+        },
+        "showPreviousByDay": {
+         "value": {}
+        },
+        "replaceSelectedByDay": {
+         "value": {}
+        },
+        "fetchedEntriesInWeek": {
+         "value": []
+        },
+        "targetCalendarId": {
+         "value": null
+        },
+        "error": {
+         "value": null
+        }
+       }
+      }
+     ]
+    },
+    "SET_REPLACE_SELECTED_BY_DAY": {
+     "actions": [
+      {
+       "assign": {
+        "replaceSelectedByDay": {
+         "setKey": {
+          "map": {
+           "context": "replaceSelectedByDay"
+          },
+          "key": {
+           "event": "day"
+          },
+          "value": {
+           "event": "selected"
+          }
+         }
+        }
+       }
+      }
+     ]
+    },
+    "CONFIRM_REPLACEMENT": "creating"
+   }
+  },
+  "editInstructions": {
+   "on": {
+    "CLOSE": {
+     "target": "closed",
+     "actions": [
+      {
+       "assign": {
+        "targetWeekStart": {
+         "context": "defaultWeekStart"
+        },
+        "weekType": {
+         "value": "target"
+        },
+        "createInstructions": {
+         "value": ""
+        },
+        "showInstructionsField": {
+         "value": false
+        },
+        "editGeneralFeedback": {
+         "value": ""
+        },
+        "editDayOrder": {
+         "value": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+         ]
+        },
+        "editDayInstructions": {
+         "value": {}
+        },
+        "keepSameByDay": {
+         "value": {}
+        },
+        "showPreviousByDay": {
+         "value": {}
+        },
+        "replaceSelectedByDay": {
+         "value": {}
+        },
+        "fetchedEntriesInWeek": {
+         "value": []
+        },
+        "targetCalendarId": {
+         "value": null
+        },
+        "error": {
+         "value": null
+        }
+       }
+      }
+     ]
+    },
+    "SET_EDIT_GENERAL_FEEDBACK": {
+     "actions": [
+      {
+       "assign": {
+        "editGeneralFeedback": {
+         "event": "feedback"
+        }
+       }
+      }
+     ]
+    },
+    "SET_EDIT_DAY_INSTRUCTIONS": {
+     "actions": [
+      {
+       "assign": {
+        "editDayInstructions": {
+         "setKey": {
+          "map": {
+           "context": "editDayInstructions"
+          },
+          "key": {
+           "event": "dayIndex"
+          },
+          "value": {
+           "event": "instructions"
+          }
+         }
+        }
+       }
+      }
+     ]
+    },
+    "SET_KEEP_SAME_BY_DAY": {
+     "actions": [
+      {
+       "assign": {
+        "keepSameByDay": {
+         "setKey": {
+          "map": {
+           "context": "keepSameByDay"
+          },
+          "key": {
+           "event": "day"
+          },
+          "value": {
+           "event": "keep"
+          }
+         }
+        }
+       }
+      }
+     ]
+    },
+    "SET_SHOW_PREVIOUS_BY_DAY": {
+     "actions": [
+      {
+       "assign": {
+        "showPreviousByDay": {
+         "setKey": {
+          "map": {
+           "context": "showPreviousByDay"
+          },
+          "key": {
+           "event": "day"
+          },
+          "value": {
+           "event": "show"
+          }
+         }
+        }
+       }
+      }
+     ]
+    },
+    "REORDER_DAYS": {
+     "actions": [
+      {
+       "assign": {
+        "editDayOrder": {
+         "event": "newOrder"
+        }
+       }
+      }
+     ]
+    },
+    "START_REGENERATING": "regenerating"
+   }
+  },
+  "regenerating": {
+   "on": {
+    "REGENERATION_COMPLETE": "confirmation",
+    "ERROR": {
+     "target": "editInstructions",
+     "actions": [
+      {
+       "assign": {
+        "error": {
+         "event": "error"
+        }
+       }
+      }
+     ]
+    },
+    "CLOSE": {
+     "target": "closed",
+     "actions": [
+      {
+       "assign": {
+        "targetWeekStart": {
+         "context": "defaultWeekStart"
+        },
+        "weekType": {
+         "value": "target"
+        },
+        "createInstructions": {
+         "value": ""
+        },
+        "showInstructionsField": {
+         "value": false
+        },
+        "editGeneralFeedback": {
+         "value": ""
+        },
+        "editDayOrder": {
+         "value": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+         ]
+        },
+        "editDayInstructions": {
+         "value": {}
+        },
+        "keepSameByDay": {
+         "value": {}
+        },
+        "showPreviousByDay": {
+         "value": {}
+        },
+        "replaceSelectedByDay": {
+         "value": {}
+        },
+        "fetchedEntriesInWeek": {
+         "value": []
+        },
+        "targetCalendarId": {
+         "value": null
+        },
+        "error": {
+         "value": null
+        }
+       }
+      }
+     ]
+    }
+   }
+  },
+  "creating": {
+   "on": {
+    "CREATION_COMPLETE": {
+     "target": "closed",
+     "actions": [
+      {
+       "assign": {
+        "targetWeekStart": {
+         "context": "defaultWeekStart"
+        },
+        "weekType": {
+         "value": "target"
+        },
+        "createInstructions": {
+         "value": ""
+        },
+        "showInstructionsField": {
+         "value": false
+        },
+        "editGeneralFeedback": {
+         "value": ""
+        },
+        "editDayOrder": {
+         "value": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+         ]
+        },
+        "editDayInstructions": {
+         "value": {}
+        },
+        "keepSameByDay": {
+         "value": {}
+        },
+        "showPreviousByDay": {
+         "value": {}
+        },
+        "replaceSelectedByDay": {
+         "value": {}
+        },
+        "fetchedEntriesInWeek": {
+         "value": []
+        },
+        "targetCalendarId": {
+         "value": null
+        },
+        "error": {
+         "value": null
+        }
+       }
+      }
+     ]
+    },
+    "ERROR": {
+     "target": "confirmation",
+     "actions": [
+      {
+       "assign": {
+        "error": {
+         "event": "error"
+        }
+       }
+      }
+     ]
+    },
+    "CLOSE": {
+     "target": "closed",
+     "actions": [
+      {
+       "assign": {
+        "targetWeekStart": {
+         "context": "defaultWeekStart"
+        },
+        "weekType": {
+         "value": "target"
+        },
+        "createInstructions": {
+         "value": ""
+        },
+        "showInstructionsField": {
+         "value": false
+        },
+        "editGeneralFeedback": {
+         "value": ""
+        },
+        "editDayOrder": {
+         "value": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+         ]
+        },
+        "editDayInstructions": {
+         "value": {}
+        },
+        "keepSameByDay": {
+         "value": {}
+        },
+        "showPreviousByDay": {
+         "value": {}
+        },
+        "replaceSelectedByDay": {
+         "value": {}
+        },
+        "fetchedEntriesInWeek": {
+         "value": []
+        },
+        "targetCalendarId": {
+         "value": null
+        },
+        "error": {
+         "value": null
+        }
+       }
+      }
+     ]
+    }
+   }
+  }
+ }
+}

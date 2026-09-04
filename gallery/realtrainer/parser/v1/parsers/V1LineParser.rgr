@@ -1,0 +1,61 @@
+Import "../V1Json.rgr"
+Import "../V1SharedHelpers.rgr"
+Import "../nodes/AstNode.rgr"
+Import "PyramidParserV1.rgr"
+Import "MoveParserV1.rgr"
+Import "CustomParserV1.rgr"
+Import "FoodParserV1.rgr"
+Import "DrinkingParserV1.rgr"
+Import "ExpenseParserV1.rgr"
+
+class V1LineParser {
+    static fn parse:AstNode (tag:string line:string) {
+        if (tag == "pyramid") {
+            def parsed (PyramidParserV1.parse(line))
+            if ((array_length parsed.sets) == 0) {
+                def rest (trim (substring line 8 (strlen line)))
+                def barPos (V1SharedHelpers.findToken(rest "|"))
+                if (barPos > 0) {
+                    def left (trim (substring rest 0 barPos))
+                    def right (trim (substring rest (barPos + 1) (strlen rest)))
+                    def moveLine (("Move " + left + "x" + right))
+                    return (MoveParserV1.parse(moveLine))
+                }
+                return (MoveParserV1.parse(("Move " + rest)))
+            }
+            return parsed
+        }
+        if (tag == "custom") {
+            return (CustomParserV1.parse(line))
+        }
+        if (tag == "food") {
+            return (FoodParserV1.parse(line))
+        }
+        if (tag == "drinking") {
+            return (DrinkingParserV1.parse(line))
+        }
+        if (tag == "expense") {
+            return (ExpenseParserV1.parse(line))
+        }
+        def u (new UnknownFallbackNode)
+        u.raw = line
+        return u
+    }
+}
+
+class UnknownFallbackNode {
+    Extends(AstNode)
+
+    def raw:string ""
+
+    Constructor () {
+        type = "unknown"
+    }
+
+    fn toJSONString@(override):string () {
+        def fields:[string]
+        CompactV1Json.addStringField(fields "type" type)
+        CompactV1Json.addStringField(fields "raw" raw)
+        return (CompactV1Json.jsonObject(fields))
+    }
+}

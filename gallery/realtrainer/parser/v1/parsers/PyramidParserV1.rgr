@@ -1,0 +1,348 @@
+Import "../V1Json.rgr"
+Import "../V1SharedHelpers.rgr"
+Import "../nodes/PyramidNode.rgr"
+Import "../nodes/PyramidSetNode.rgr"
+
+class PyramidParserV1 {
+    static fn makeSet:PyramidSetNode (reps:int weightValueRaw:string weightUnit:string repsRight:int hasRepsRight:boolean) {
+        def s (PyramidSetNode.create(reps))
+        if (hasRepsRight) {
+            s.withRepsRight(repsRight)
+        }
+        s.withWeight(weightValueRaw weightUnit)
+        return s
+    }
+
+    static fn addExpanded:void (n:PyramidNode reps:int weightValueRaw:string weightUnit:string setCount:int repsRight:int hasRepsRight:boolean) {
+        def c@(mutable):int 0
+        while (c < setCount) {
+            push n.sets (PyramidParserV1.makeSet(reps weightValueRaw weightUnit repsRight hasRepsRight))
+            c = c + 1
+        }
+    }
+
+    static fn parseWeightedSegment:void (n:PyramidNode seg:string defaultUnit:string) {
+        def s (trim seg)
+        if ((strlen s) == 0) {
+            return
+        }
+
+        def unit@(mutable):string defaultUnit
+        if (V1SharedHelpers.endsWithKg(s)) {
+            unit = "kg"
+            s = (trim (substring s 0 ((strlen s) - 2)))
+        }
+
+        def plusPos (V1SharedHelpers.findToken(s "+"))
+        def xCount (V1SharedHelpers.countChar(s (ccode "x")))
+        def x1Only (V1SharedHelpers.findToken(s "x"))
+        if (x1Only > 0) {
+            def setCountTry (V1SharedHelpers.parseStrictInt((substring s 0 x1Only)))
+            if (setCountTry > 0) {
+                def afterX1 (trim (substring s (x1Only + 1) (strlen s)))
+                def plusAfter (V1SharedHelpers.findToken(afterX1 "+"))
+                def atAfter (V1SharedHelpers.findToken(afterX1 "@"))
+                if ((plusAfter > 0) && (atAfter > plusAfter)) {
+                    def wRaw (trim (substring afterX1 (atAfter + 1) (strlen afterX1)))
+                    def wUnit3:string defaultUnit
+                    if (V1SharedHelpers.endsWithKg(wRaw)) {
+                        wUnit3 = "kg"
+                        wRaw = (trim (substring wRaw 0 ((strlen wRaw) - 2)))
+                    }
+                    if (V1SharedHelpers.isDecimalToken(wRaw)) {
+                        def rLeft (V1SharedHelpers.parseStrictInt((substring afterX1 0 plusAfter)))
+                        def rRight (V1SharedHelpers.parseStrictInt((substring afterX1 (plusAfter + 1) atAfter)))
+                        if (rLeft >= 0) {
+                            if (rRight >= 0) {
+                                PyramidParserV1.addExpanded(n rLeft wRaw wUnit3 setCountTry rRight true)
+                                return
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (plusPos > 0) {
+            def xPos (V1SharedHelpers.findToken(s "x"))
+            def atPos (V1SharedHelpers.findToken(s "@"))
+            if (xCount == 2) {
+                def x1 (V1SharedHelpers.findToken(s "x"))
+                def after1 (substring s (x1 + 1) (strlen s))
+                def x2 (V1SharedHelpers.findToken(after1 "x"))
+                if (x2 >= 0) {
+                    def setCountStr (substring s 0 x1)
+                    def repsPart (substring after1 0 x2)
+                    def weightPart (substring after1 (x2 + 1) (strlen after1))
+                    def setCount (V1SharedHelpers.parseStrictInt(setCountStr))
+                    def plusInReps (V1SharedHelpers.findToken(repsPart "+"))
+                    if (plusInReps > 0) {
+                        def rL (V1SharedHelpers.parseStrictInt((substring repsPart 0 plusInReps)))
+                        def rR (V1SharedHelpers.parseStrictInt((substring repsPart (plusInReps + 1) (strlen repsPart))))
+                        if (setCount > 0) {
+                            if (rL >= 0) {
+                                if (rR >= 0) {
+                                    if (V1SharedHelpers.isDecimalToken(weightPart)) {
+                                        PyramidParserV1.addExpanded(n rL weightPart unit setCount rR true)
+                                        return
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if ((xPos > plusPos) && (atPos < 0)) {
+                def rL2 (V1SharedHelpers.parseStrictInt((substring s 0 plusPos)))
+                def afterPlus (substring s (plusPos + 1) (strlen s))
+                def xInAfter (V1SharedHelpers.findToken(afterPlus "x"))
+                if (xInAfter > 0) {
+                    def rR2 (V1SharedHelpers.parseStrictInt((substring afterPlus 0 xInAfter)))
+                    def weightStrB (substring afterPlus (xInAfter + 1) (strlen afterPlus))
+                    if (rL2 >= 0) {
+                        if (rR2 >= 0) {
+                            if (V1SharedHelpers.isDecimalToken(weightStrB)) {
+                                push n.sets (PyramidParserV1.makeSet(rL2 weightStrB unit rR2 true))
+                                return
+                            }
+                        }
+                    }
+                }
+            }
+            if (atPos > plusPos) {
+                def rL3 (V1SharedHelpers.parseStrictInt((substring s 0 plusPos)))
+                def rR3 (V1SharedHelpers.parseStrictInt((substring s (plusPos + 1) atPos)))
+                def weightPart3 (trim (substring s (atPos + 1) (strlen s)))
+                if (rL3 >= 0) {
+                    if (rR3 >= 0) {
+                        if (V1SharedHelpers.isDecimalToken(weightPart3)) {
+                            push n.sets (PyramidParserV1.makeSet(rL3 weightPart3 unit rR3 true))
+                            return
+                        }
+                    }
+                }
+            }
+        }
+
+        if (xCount == 2) {
+            def x1 (V1SharedHelpers.findToken(s "x"))
+            def x2 (V1SharedHelpers.findToken((substring s (x1 + 1) (strlen s)) "x"))
+            if (x2 >= 0) {
+                def setCountStr (substring s 0 x1)
+                def repsStr (substring s (x1 + 1) (x1 + 1 + x2))
+                def weightStr (substring s (x1 + 1 + x2 + 1) (strlen s))
+                def setCount (V1SharedHelpers.parseStrictInt(setCountStr))
+                def reps (V1SharedHelpers.parseStrictInt(repsStr))
+                if (setCount > 0) {
+                    if (reps >= 0) {
+                        if (V1SharedHelpers.isDecimalToken(weightStr)) {
+                            PyramidParserV1.addExpanded(n reps weightStr unit setCount 0 false)
+                            return
+                        }
+                    }
+                }
+            }
+        }
+
+        if (xCount == 1) {
+            def x1b (V1SharedHelpers.findToken(s "x"))
+            if (x1b > 0) {
+                def repsStr2 (substring s 0 x1b)
+                def weightStr2 (substring s (x1b + 1) (strlen s))
+                def reps2 (V1SharedHelpers.parseStrictInt(repsStr2))
+                if (reps2 >= 0) {
+                    if (V1SharedHelpers.isDecimalToken(weightStr2)) {
+                        push n.sets (PyramidParserV1.makeSet(reps2 weightStr2 unit 0 false))
+                        return
+                    }
+                }
+            }
+        }
+
+        def repsOnly (V1SharedHelpers.parseStrictInt(s))
+        if (repsOnly >= 0) {
+            push n.sets (PyramidParserV1.makeSet(repsOnly "" "kg" 0 false))
+        }
+    }
+
+    static fn parseRepsSegment:void (n:PyramidNode seg:string) {
+        def s (trim seg)
+        def repsOnly (V1SharedHelpers.parseStrictInt(s))
+        if (repsOnly >= 0) {
+            push n.sets (PyramidParserV1.makeSet(repsOnly "" "kg" 0 false))
+        }
+    }
+
+    static fn splitDashReps:[string] (s:string) {
+        def out:[string]
+        def sLen (strlen s)
+        def start@(mutable):int 0
+        def i@(mutable):int 0
+        while (i <= sLen) {
+            if (i == sLen) {
+                if (i > start) {
+                    push out (trim (substring s start i))
+                }
+            } {
+                def ch (charAt s i)
+                if (ch == (ccode "-")) {
+                    push out (trim (substring s start i))
+                    start = i + 1
+                } {
+                    if (ch == (ccode ",")) {
+                        push out (trim (substring s start i))
+                        start = i + 1
+                    }
+                }
+            }
+            i = i + 1
+        }
+        return out
+    }
+
+    static fn splitCommas:[string] (s:string) {
+        def out:[string]
+        def sLen (strlen s)
+        def start@(mutable):int 0
+        def i@(mutable):int 0
+        while (i <= sLen) {
+            if (i == sLen) {
+                if (i > start) {
+                    push out (trim (substring s start i))
+                }
+            } {
+                if ((charAt s i) == (ccode ",")) {
+                    push out (trim (substring s start i))
+                    start = i + 1
+                }
+            }
+            i = i + 1
+        }
+        return out
+    }
+
+    static fn parse:PyramidNode (line:string) {
+        def n (new PyramidNode)
+        if ((strlen line) <= 8) {
+            return n
+        }
+        def rest (trim (substring line 8 (strlen line)))
+        def barPos (V1SharedHelpers.findToken(rest "|"))
+        if (barPos < 0) {
+            return n
+        }
+
+        n.name = (trim (substring rest 0 barPos))
+        def afterName (trim (substring rest (barPos + 1) (strlen rest)))
+
+        def setsPart@(mutable):string afterName
+        def lastBar (V1SharedHelpers.findLastToken(afterName "|"))
+        if (lastBar >= 0) {
+            def maybeNote (trim (substring afterName (lastBar + 1) (strlen afterName)))
+            def maybeSets (trim (substring afterName 0 lastBar))
+            def noteSep (V1SharedHelpers.findToken(afterName " | "))
+            if (noteSep >= 0) {
+                setsPart = (trim (substring afterName 0 noteSep))
+                def noteText2 (trim (substring afterName (noteSep + 3) (strlen afterName)))
+                if ((strlen noteText2) > 0) {
+                    n.hasNote = true
+                    n.note = noteText2
+                }
+            } {
+                if ((strlen maybeNote) > 0) {
+                    def setsHasX (V1SharedHelpers.findToken(maybeSets "x"))
+                    if (setsHasX >= 0) {
+                        setsPart = maybeSets
+                        n.hasNote = true
+                        n.note = maybeNote
+                    }
+                }
+            }
+        }
+
+        def defaultUnit@(mutable):string "kg"
+        if (V1SharedHelpers.endsWithKg(setsPart)) {
+            defaultUnit = "kg"
+            setsPart = (trim (substring setsPart 0 ((strlen setsPart) - 2)))
+        }
+
+        def commaInSets (V1SharedHelpers.findToken(setsPart ","))
+        if (commaInSets >= 0) {
+            def segmentsComma (PyramidParserV1.splitCommas(setsPart))
+            for segmentsComma segC:string i {
+                if ((V1SharedHelpers.countChar(segC (ccode "x"))) >= 1) {
+                    PyramidParserV1.parseWeightedSegment(n segC defaultUnit)
+                } {
+                    if (V1SharedHelpers.containsChar(segC 64)) {
+                        PyramidParserV1.parseWeightedSegment(n segC defaultUnit)
+                    } {
+                        if (V1SharedHelpers.containsChar(segC 43)) {
+                            PyramidParserV1.parseWeightedSegment(n segC defaultUnit)
+                        } {
+                            PyramidParserV1.parseRepsSegment(n segC)
+                        }
+                    }
+                }
+            }
+            return n
+        }
+
+        def atPos (V1SharedHelpers.findToken(setsPart "@"))
+        if (atPos >= 0) {
+            def repsPart (trim (substring setsPart 0 atPos))
+            def weightPart (trim (substring setsPart (atPos + 1) (strlen setsPart)))
+            def wUnit@(mutable):string defaultUnit
+            if (V1SharedHelpers.endsWithKg(weightPart)) {
+                wUnit = "kg"
+                weightPart = (trim (substring weightPart 0 ((strlen weightPart) - 2)))
+            }
+            if ((V1SharedHelpers.countChar(setsPart (ccode "x"))) >= 1) {
+                PyramidParserV1.parseWeightedSegment(n setsPart defaultUnit)
+                return n
+            }
+            
+            def plusCount (V1SharedHelpers.countChar(repsPart (ccode "+")))
+            if (plusCount >= 1) {
+                def segmentsPlus (strsplit repsPart "+")
+                for segmentsPlus segP:string k {
+                    def repVal (V1SharedHelpers.parseStrictInt((trim segP)))
+                    if (repVal >= 0) {
+                        push n.sets (PyramidParserV1.makeSet(repVal weightPart wUnit 0 false))
+                    }
+                }
+                return n
+            }
+        }
+
+        def hasX (V1SharedHelpers.findToken(setsPart "x"))
+        if (hasX >= 0) {
+            def segments (PyramidParserV1.splitCommas(setsPart))
+            for segments seg:string i {
+                PyramidParserV1.parseWeightedSegment(n seg defaultUnit)
+            }
+        } {
+            def setsForDash:string setsPart
+            def dashInSetsPart (V1SharedHelpers.findToken(setsForDash "-"))
+            if (dashInSetsPart >= 0) {
+                def segmentsDash (PyramidParserV1.splitDashReps(setsPart))
+                for segmentsDash segD:string k2 {
+                    PyramidParserV1.parseRepsSegment(n segD)
+                }
+            } {
+                def segments2 (PyramidParserV1.splitCommas(setsPart))
+                for segments2 seg2:string j {
+                    if (V1SharedHelpers.containsChar(seg2 64)) {
+                        PyramidParserV1.parseWeightedSegment(n seg2 defaultUnit)
+                    } {
+                        if (V1SharedHelpers.containsChar(seg2 43)) {
+                            PyramidParserV1.parseWeightedSegment(n seg2 defaultUnit)
+                        } {
+                            PyramidParserV1.parseRepsSegment(n seg2)
+                        }
+                    }
+                }
+            }
+        }
+
+        return n
+    }
+}

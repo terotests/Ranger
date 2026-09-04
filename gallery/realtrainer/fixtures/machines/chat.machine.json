@@ -1,0 +1,509 @@
+{
+ "_": "The machine itself, in the shape createMachine() takes. Structure, state names, nesting, event names, targets, guards and `always` are those of frontend/src/machines/chatMachine.ts. Its guards are functions there and predicates here — see ScGuard for why they cannot be host functions. Assignments that are computation (a random request id, appending a chunk, mapping actions to accepted) are NAMED and provided by the host, which is XState setup({actions}); the ones that are static objects stay declarative.",
+ "id": "chat",
+ "initial": "idle",
+ "context": {
+  "inputText": "",
+  "image": null,
+  "streamingContent": "",
+  "result": null,
+  "pendingActions": [],
+  "currentActionIndex": 0,
+  "error": null,
+  "requestId": null
+ },
+ "states": {
+  "idle": {
+   "on": {
+    "SET_INPUT": {
+     "actions": [
+      {
+       "assign": {
+        "inputText": {
+         "event": "text"
+        }
+       }
+      }
+     ]
+    },
+    "SET_IMAGE": {
+     "actions": [
+      {
+       "assign": {
+        "image": {
+         "event": "image"
+        }
+       }
+      }
+     ]
+    },
+    "CLEAR_IMAGE": {
+     "actions": [
+      {
+       "assign": {
+        "image": {
+         "value": null
+        }
+       }
+      }
+     ]
+    },
+    "SEND": {
+     "guard": {
+      "named": "hasContent",
+     "or": [
+       {
+        "nonBlank": {
+         "context": "inputText"
+        }
+       },
+       {
+        "present": {
+         "context": "image"
+        }
+       }
+      ]
+     },
+     "target": "sending",
+     "actions": [
+      {
+       "action": "newRequestId"
+      },
+      {
+       "assign": {
+        "streamingContent": {
+         "value": ""
+        },
+        "error": {
+         "value": null
+        }
+       }
+      }
+     ]
+    }
+   }
+  },
+  "sending": {
+   "initial": "streaming",
+   "states": {
+    "streaming": {
+     "on": {
+      "STREAM_CHUNK": {
+       "actions": [
+        {
+         "action": "appendChunk"
+        }
+       ]
+      },
+      "STREAM_COMPLETE": {
+       "target": "#chat.reviewing",
+       "actions": [
+        {
+         "action": "takeResponse"
+        },
+        {
+         "assign": {
+          "streamingContent": {
+           "value": ""
+          }
+         }
+        }
+       ]
+      },
+      "STREAM_ERROR": {
+       "target": "#chat.error",
+       "actions": [
+        {
+         "assign": {
+          "error": {
+           "event": "error"
+          }
+         }
+        }
+       ]
+      },
+      "CANCEL": {
+       "target": "#chat.idle",
+       "actions": [
+        {
+         "assign": {
+          "streamingContent": {
+           "value": ""
+          },
+          "requestId": {
+           "value": null
+          }
+         }
+        }
+       ]
+      }
+     }
+    }
+   }
+  },
+  "reviewing": {
+   "initial": "deciding",
+   "states": {
+    "deciding": {
+     "always": [
+      {
+       "guard": {
+        "named": "hasMultipleActions",
+        "countGt": {
+         "of": {
+          "context": "pendingActions"
+         },
+         "n": 1
+        }
+       },
+       "target": "multiAction"
+      },
+      {
+       "guard": {
+        "named": "hasSingleAction",
+        "countEq": {
+         "of": {
+          "context": "pendingActions"
+         },
+         "n": 1
+        }
+       },
+       "target": "singleAction"
+      },
+      {
+       "target": "#chat.idle",
+       "actions": [
+        {
+         "assign": {
+          "inputText": {
+           "value": ""
+          },
+          "image": {
+           "value": null
+          }
+         }
+        }
+       ]
+      }
+     ]
+    },
+    "singleAction": {
+     "on": {
+      "ACCEPT_ACTION": {
+       "target": "#chat.processing",
+       "actions": [
+        {
+         "action": "acceptAll"
+        }
+       ]
+      },
+      "REJECT_ACTION": {
+       "target": "#chat.idle",
+       "actions": [
+        {
+         "assign": {
+          "inputText": {
+           "value": ""
+          },
+          "image": {
+           "value": null
+          },
+          "streamingContent": {
+           "value": ""
+          },
+          "result": {
+           "value": null
+          },
+          "pendingActions": {
+           "value": []
+          },
+          "currentActionIndex": {
+           "value": 0
+          },
+          "error": {
+           "value": null
+          },
+          "requestId": {
+           "value": null
+          }
+         }
+        }
+       ]
+      },
+      "CLOSE_REVIEW": {
+       "target": "#chat.idle",
+       "actions": [
+        {
+         "assign": {
+          "inputText": {
+           "value": ""
+          },
+          "image": {
+           "value": null
+          },
+          "streamingContent": {
+           "value": ""
+          },
+          "result": {
+           "value": null
+          },
+          "pendingActions": {
+           "value": []
+          },
+          "currentActionIndex": {
+           "value": 0
+          },
+          "error": {
+           "value": null
+          },
+          "requestId": {
+           "value": null
+          }
+         }
+        }
+       ]
+      }
+     }
+    },
+    "multiAction": {
+     "on": {
+      "ACCEPT_ACTION": {
+       "actions": [
+        {
+         "action": "acceptAt"
+        }
+       ]
+      },
+      "REJECT_ACTION": {
+       "actions": [
+        {
+         "action": "rejectAt"
+        }
+       ]
+      },
+      "ACCEPT_ALL": {
+       "target": "#chat.processing",
+       "actions": [
+        {
+         "action": "acceptAll"
+        }
+       ]
+      },
+      "REJECT_ALL": {
+       "target": "#chat.idle",
+       "actions": [
+        {
+         "assign": {
+          "inputText": {
+           "value": ""
+          },
+          "image": {
+           "value": null
+          },
+          "streamingContent": {
+           "value": ""
+          },
+          "result": {
+           "value": null
+          },
+          "pendingActions": {
+           "value": []
+          },
+          "currentActionIndex": {
+           "value": 0
+          },
+          "error": {
+           "value": null
+          },
+          "requestId": {
+           "value": null
+          }
+         }
+        }
+       ]
+      },
+      "CLOSE_REVIEW": [
+       {
+        "guard": {
+         "named": "hasAcceptedActions",
+         "some": {
+          "of": {
+           "context": "pendingActions"
+          },
+          "field": "processedAs",
+          "eq": "accepted"
+         }
+        },
+        "target": "#chat.processing"
+       },
+       {
+        "target": "#chat.idle",
+        "actions": [
+         {
+          "assign": {
+           "inputText": {
+            "value": ""
+           },
+           "image": {
+            "value": null
+           },
+           "streamingContent": {
+            "value": ""
+           },
+           "result": {
+            "value": null
+           },
+           "pendingActions": {
+            "value": []
+           },
+           "currentActionIndex": {
+            "value": 0
+           },
+           "error": {
+            "value": null
+           },
+           "requestId": {
+            "value": null
+           }
+          }
+         }
+        ]
+       }
+      ]
+     }
+    }
+   }
+  },
+  "processing": {
+   "initial": "saving",
+   "states": {
+    "saving": {
+     "on": {
+      "SAVE_COMPLETE": "done"
+     }
+    },
+    "done": {
+     "type": "final"
+    }
+   },
+   "onDone": {
+    "target": "idle",
+    "actions": [
+     {
+      "assign": {
+       "inputText": {
+        "value": ""
+       },
+       "image": {
+        "value": null
+       },
+       "streamingContent": {
+        "value": ""
+       },
+       "result": {
+        "value": null
+       },
+       "pendingActions": {
+        "value": []
+       },
+       "currentActionIndex": {
+        "value": 0
+       },
+       "error": {
+        "value": null
+       },
+       "requestId": {
+        "value": null
+       }
+      }
+     }
+    ]
+   }
+  },
+  "error": {
+   "on": {
+    "RETRY": "sending",
+    "CANCEL": {
+     "target": "idle",
+     "actions": [
+      {
+       "assign": {
+        "error": {
+         "value": null
+        }
+       }
+      }
+     ]
+    },
+    "RESET": {
+     "target": "idle",
+     "actions": [
+      {
+       "assign": {
+        "inputText": {
+         "value": ""
+        },
+        "image": {
+         "value": null
+        },
+        "streamingContent": {
+         "value": ""
+        },
+        "result": {
+         "value": null
+        },
+        "pendingActions": {
+         "value": []
+        },
+        "currentActionIndex": {
+         "value": 0
+        },
+        "error": {
+         "value": null
+        },
+        "requestId": {
+         "value": null
+        }
+       }
+      }
+     ]
+    }
+   }
+  }
+ },
+ "on": {
+  "RESET": {
+   "target": ".idle",
+   "actions": [
+    {
+     "assign": {
+      "inputText": {
+       "value": ""
+      },
+      "image": {
+       "value": null
+      },
+      "streamingContent": {
+       "value": ""
+      },
+      "result": {
+       "value": null
+      },
+      "pendingActions": {
+       "value": []
+      },
+      "currentActionIndex": {
+       "value": 0
+      },
+      "error": {
+       "value": null
+      },
+      "requestId": {
+       "value": null
+      }
+     }
+    }
+   ]
+  }
+ }
+}

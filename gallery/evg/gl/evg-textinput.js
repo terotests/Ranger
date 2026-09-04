@@ -61,22 +61,23 @@
  *        anything that opens a menu. Returning true consumes the key.
  */
 export function createTextInputBridge({ host, canvas, onEdit, onComposition, onKey }) {
-  const el = document.createElement("input");
-  el.type = "text";
+  const own = document.createElement("input");
+  own.type = "text";
+  let el = own;
   // Off the accessibility tree: the drawn field already has a `textbox` node
   // with a name and a value, and two text boxes for one control is one too
   // many for a reader. The proxy is a keyboard fixture, not a control.
-  el.setAttribute("aria-hidden", "true");
-  el.tabIndex = -1;
-  el.autocapitalize = "off";
-  el.autocomplete = "off";
-  el.spellcheck = false;
+  own.setAttribute("aria-hidden", "true");
+  own.tabIndex = -1;
+  own.autocapitalize = "off";
+  own.autocomplete = "off";
+  own.spellcheck = false;
   // Positioned over the field rather than off-screen. An off-screen input is
   // the usual trick and it is wrong on a phone: the browser scrolls to the
   // focused element and to the composition popup, so an input at -9999px
   // takes the page with it. Transparent and in place costs nothing and keeps
   // the IME candidate window next to the text it is composing.
-  Object.assign(el.style, {
+  Object.assign(own.style, {
     position: "absolute",
     opacity: "0",
     padding: "0",
@@ -95,12 +96,15 @@ export function createTextInputBridge({ host, canvas, onEdit, onComposition, onK
     // the pointer again.
     pointerEvents: "none",
   });
-  el.style.display = "none";
-  host.appendChild(el);
+  own.style.display = "none";
+  host.appendChild(own);
 
   let active = null;      // the tid of the field the session belongs to
   let composing = false;
   let echo = false;       // set while WE are writing to the proxy
+  // The elements the listeners below have been put on: the own proxy once,
+  // and every mirror input the session has been handed.
+  const wired = new WeakSet();
 
   const report = (inputType, isComposing) => {
     if (echo) return;
@@ -113,48 +117,69 @@ export function createTextInputBridge({ host, canvas, onEdit, onComposition, onK
     });
   };
 
-  el.addEventListener("input", (ev) => report(ev.inputType, ev.isComposing));
+  function wire(target) {
+    if (wired.has(target)) return;
+    wired.add(target);
+    // Only the element the session is on reports: a mirror input the session
+    // left keeps its listeners and must stay quiet.
+    const mine = () => target === el && active !== null;
+    target.addEventListener("input", (ev) => { if (mine()) report(ev.inputType, ev.isComposing); });
 
-  // The composing range, for the underline. Taken at `beforeinput`, where the
-  // selection is still the range about to be replaced — after `input` it has
-  // collapsed to the caret and the range is gone.
-  el.addEventListener("beforeinput", (ev) => {
-    if (!onComposition) return;
-    if (ev.inputType !== "insertCompositionText") return;
-    const start = el.selectionStart ?? 0;
-    const text = ev.data || "";
-    onComposition({ active: true, start, end: start + text.length, text });
-  });
-  el.addEventListener("compositionend", () => {
-    composing = false;
-    if (onComposition) onComposition({ active: false, start: 0, end: 0, text: "" });
-  });
-  el.addEventListener("compositionstart", () => {
-    composing = true;
-  });
-
-  // The selection can move without an edit: an arrow key, Ctrl+A, a
-  // double-click inside the proxy. Those are the platform's word and grapheme
-  // rules doing exactly what the bridge exists to borrow, so they are mirrored
-  // like any other change.
-  el.addEventListener("keyup", () => report("", composing));
-  el.addEventListener("select", () => report("", composing));
-
-  // Keys the application owns. A field must not swallow Tab or Escape, and
-  // the page's own shortcuts have to keep working while a field has focus.
-  el.addEventListener("keydown", (ev) => {
-    if (!onKey) return;
-    if (ev.isComposing) return;   // an IME is using this key; it is not ours
-    const taken = onKey({
-      key: ev.key,
-      shiftKey: ev.shiftKey,
-      ctrlKey: ev.ctrlKey,
-      metaKey: ev.metaKey,
-      altKey: ev.altKey,
-      preventDefault: () => ev.preventDefault(),
+    // The composing range, for the underline. Taken at `beforeinput`, where
+    // the selection is still the range about to be replaced — after `input`
+    // it has collapsed to the caret and the range is gone.
+    target.addEventListener("beforeinput", (ev) => {
+      if (!mine() || !onComposition) return;
+      if (ev.inputType !== "insertCompositionText") return;
+      const start = target.selectionStart ?? 0;
+      const text = ev.data || "";
+      onComposition({ active: true, start, end: start + text.length, text });
     });
-    if (taken) ev.preventDefault();
-  });
+    target.addEventListener("compositionend", () => {
+      if (!mine()) return;
+      composing = false;
+      if (onComposition) onComposition({ active: false, start: 0, end: 0, text: "" });
+    });
+    target.addEventListener("compositionstart", () => {
+      if (mine()) composing = true;
+    });
+
+    // The selection can move without an edit: an arrow key, Ctrl+A, a
+    // double-click, a drag with the mouse. Those are the platform's word and
+    // grapheme rules doing exactly what the bridge exists to borrow, so they
+    // are mirrored like any other change.
+    target.addEventListener("keyup", () => { if (mine()) report("", composing); });
+    target.addEventListener("select", () => { if (mine()) report("", composing); });
+    target.addEventListener("mouseup", () => { if (mine()) report("", composing); });
+
+    // Keys the application owns. A field must not swallow Tab or Escape, and
+    // the page's own shortcuts have to keep working while a field has focus.
+    target.addEventListener("keydown", (ev) => {
+      if (!mine() || !onKey) return;
+      if (ev.isComposing) return;   // an IME is using this key; it is not ours
+      const taken = onKey({
+        key: ev.key,
+        shiftKey: ev.shiftKey,
+        ctrlKey: ev.ctrlKey,
+        metaKey: ev.metaKey,
+        altKey: ev.altKey,
+        preventDefault: () => ev.preventDefault(),
+      });
+      if (taken) ev.preventDefault();
+    });
+  }
+  wire(own);
+
+  // A mirror's input, while the session is in it, takes the pointer: a click
+  // puts the caret where the platform says, a drag selects, a double-click
+  // takes the word — and every one of those comes back through `select` and
+  // `mouseup` for the app to draw. The canvas keeps everything outside it.
+  function takePointer(target, yes) {
+    if (target === own) return;
+    target.style.pointerEvents = yes ? "auto" : "none";
+    target.style.cursor = yes ? "text" : "";
+    target.style.caretColor = "transparent";
+  }
 
   return {
     /** True while a field owns the keyboard. */
@@ -166,7 +191,19 @@ export function createTextInputBridge({ host, canvas, onEdit, onComposition, onK
      * Hand the session to a field. `box` is where the field is drawn, in
      * canvas coordinates, so the proxy can sit on top of it.
      */
-    focusField(tid, { value, selStart, selEnd, kind, maxLength, readOnly, box }) {
+    focusField(tid, { value, selStart, selEnd, kind, maxLength, readOnly, box }, element) {
+      // The element the session edits in: the accessibility mirror's own
+      // input for this field when the host has one — then the reader, the
+      // keyboard and the pointer all meet in one element and Tab walks on
+      // from it to the next control — and the hidden proxy otherwise.
+      const next = element || own;
+      if (next !== el) {
+        takePointer(el, false);
+        if (el === own) own.style.display = "none";
+        el = next;
+        wire(el);
+      }
+      takePointer(el, true);
       active = tid;
       echo = true;
       // `type` is the platform's, not ours. A password proxy gives the right
@@ -180,14 +217,14 @@ export function createTextInputBridge({ host, canvas, onEdit, onComposition, onK
       else el.removeAttribute("maxlength");
       el.value = value;
       el.setSelectionRange(selStart, selEnd);
-      if (box) {
+      if (box && el === own) {
         el.style.display = "block";
         el.style.left = box.x + "px";
         el.style.top = box.y + "px";
         el.style.width = box.w + "px";
         el.style.height = box.h + "px";
       }
-      el.focus({ preventScroll: true });
+      if (document.activeElement !== el) el.focus({ preventScroll: true });
       echo = false;
     },
 
@@ -213,11 +250,24 @@ export function createTextInputBridge({ host, canvas, onEdit, onComposition, onK
 
     blurField() {
       if (active === null) return;
+      this.release();
+      if (canvas) canvas.focus({ preventScroll: true });
+    },
+
+    /**
+     * End the session and leave the focus where it is going. Tab out of a
+     * field is this: the browser moves the focus to the next control, and
+     * the canvas must not take it back on the way.
+     */
+    release() {
+      if (active === null) return;
       active = null;
       composing = false;
-      el.style.display = "none";
-      el.value = "";
-      if (canvas) canvas.focus({ preventScroll: true });
+      takePointer(el, false);
+      if (el === own) {
+        own.style.display = "none";
+        own.value = "";
+      }
     },
 
     /** For tests and for anything that needs to see the real element. */

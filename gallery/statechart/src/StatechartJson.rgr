@@ -1,0 +1,299 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; StatechartJson — the machine, read from the shape XState writes
+; =============================================================================
+; `createMachine({ id, initial, context, states: { … on: { EVENT: { target,
+; actions } } } })` is the shape every machine in the app is already written
+; in. This reads it. A machine is then ONE FILE that both sides can hold: the
+; TypeScript app runs it through XState, and this runs it through
+; `gallery/statechart`, and neither is a transcription of the other.
+;
+; What cannot come across as-is is `assign`. In XState it is a FUNCTION —
+; `assign(({event}) => ({ targetDate: event.targetDate || today }))` — and a
+; function is not data. So an assignment is a VALUE EXPRESSION, and the forms
+; are the general ones rather than one per machine:
+;
+;   { "value": … }                       a literal — the JSON value itself, so
+;                                        a string, a number, a boolean, a list
+;                                        or an object all say what they are
+;   { "event": "targetDate" }            a named field of the event
+;   { "context": "today" }               a context key
+;   { "or": [ … ] }                      the first part that carries anything
+;   { "setKey": { "map": …, "key": …, "value": … } }
+;                                        a map with one key set, which is
+;                                        `{ ...map, [key]: value }`
+;
+; `{ "or": [ {"event":"targetDate"}, {"context":"today"} ] }` is
+; `event.targetDate || today` written down instead of run — and `or` is what
+; `||` is, not a special case for the machine that happened to need it first.
+;
+; `"on": { "EVENT": "stateName" }` is accepted as XState accepts it — the
+; shorthand for a target with no actions.
+; =============================================================================
+
+Import "Statechart.rgr"
+Import "../../vela/src/VlJson.rgr"
+
+class StatechartJson {
+
+    Constructor () {
+    }
+
+    ; One value expression, read recursively — `or` holds expressions and one
+    ; of them may be an `or` in turn.
+    ; A JSON node → a context value. This is the bridge in one direction;
+    ; `ScValOps.toJson` is the other, and the two have to agree or a
+    ; comparison against the library means nothing.
+    sfn valOf:ScVal (node:VlJson) {
+        if (node.isString()) {
+            return (ScValOps.str((node.asString())))
+        }
+        if (node.isBool()) {
+            return (ScValOps.bool((node.asBool())))
+        }
+        if (node.isNumber()) {
+            return (ScValOps.num((node.asDouble())))
+        }
+        if (node.isArray()) {
+            def items:[ScVal]
+            def count:int (node.count())
+            def i@(mutable):int 0
+            while (i < count) {
+                push items (StatechartJson.valOf((node.at(i))))
+                i = (i + 1)
+            }
+            return (new ScVal.List(items))
+        }
+        if (node.isObject()) {
+            def keys:[string]
+            def entries:[ScVal]
+            for node.keys key:string j {
+                push keys key
+                push entries (StatechartJson.valOf((node.get(key))))
+            }
+            return (new ScVal.Map(keys entries))
+        }
+        return (ScValOps.nothing())
+    }
+
+    sfn valueOf:ScValue (spec:VlJson) {
+        if (spec.has("append")) {
+            def ap:VlJson (spec.get("append"))
+            return (ScValue.append(
+                (StatechartJson.valueOf((ap.get("list"))))
+                (StatechartJson.valueOf((ap.get("item"))))))
+        }
+        if (spec.has("setKey")) {
+            def parts:VlJson (spec.get("setKey"))
+            return (ScValue.setKey(
+                (StatechartJson.valueOf((parts.get("map"))))
+                (StatechartJson.valueOf((parts.get("key"))))
+                (StatechartJson.valueOf((parts.get("value"))))))
+        }
+        if (spec.has("or")) {
+            def either:ScValue (ScValue.either())
+            def parts:VlJson (spec.get("or"))
+            def count:int (parts.count())
+            def i@(mutable):int 0
+            while (i < count) {
+                push either.parts (StatechartJson.valueOf((parts.at(i))))
+                i = (i + 1)
+            }
+            return either
+        }
+        if (spec.has("event")) {
+            return (ScValue.event((spec.stringOr("event" ""))))
+        }
+        if (spec.has("context")) {
+            return (ScValue.context((spec.stringOr("context" ""))))
+        }
+        return (ScValue.value((StatechartJson.valOf((spec.get("value"))))))
+    }
+
+    sfn readActions:void (t:ScTransition actions:VlJson) {
+        def count:int (actions.count())
+        def i@(mutable):int 0
+        while (i < count) {
+            def action:VlJson (actions.at(i))
+            if (action.has("assign")) {
+                def assigns:VlJson (action.get("assign"))
+                for assigns.keys key:string k {
+                    push t.assigns (ScAssign.of(key (StatechartJson.valueOf((assigns.get(key))))))
+                }
+            }
+            ; A NAMED action, which the host provides — XState's
+            ; `setup({ actions })`. The runner reports it and runs nothing.
+            if (action.has("action")) {
+                push t.actions (action.stringOr("action" ""))
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; A guard is a predicate over the context. See ScGuard for why they are
+    ; not host functions: `always` runs inside a transition, after its
+    ; assignments, so a guard answered before the send answers about the
+    ; context that was.
+    sfn guardOf:ScGuard (spec:VlJson) {
+        def g (new ScGuard)
+        ; The name the ORIGINAL gives this guard. The predicate says what the
+        ; guard does; the name says which guard it is — which is what the
+        ; config check compares against a TypeScript function, and what a
+        ; drawing puts on the arrow. `[hasContent]` on an edge is worth
+        ; reading; `[or]` is not.
+        g.name = (spec.stringOr("named" ""))
+        if (spec.has("present")) {
+            g.kind = "present"
+            g.source = (StatechartJson.valueOf((spec.get("present"))))
+            return g
+        }
+        if (spec.has("nonBlank")) {
+            g.kind = "nonBlank"
+            g.source = (StatechartJson.valueOf((spec.get("nonBlank"))))
+            return g
+        }
+        if (spec.has("not")) {
+            g.kind = "not"
+            push g.parts (StatechartJson.guardOf((spec.get("not"))))
+            return g
+        }
+        if (spec.has("or")) {
+            g.kind = "or"
+            def parts:VlJson (spec.get("or"))
+            def count:int (parts.count())
+            def i@(mutable):int 0
+            while (i < count) {
+                push g.parts (StatechartJson.guardOf((parts.at(i))))
+                i = (i + 1)
+            }
+            return g
+        }
+        if (spec.has("and")) {
+            g.kind = "and"
+            def parts2:VlJson (spec.get("and"))
+            def count2:int (parts2.count())
+            def j@(mutable):int 0
+            while (j < count2) {
+                push g.parts (StatechartJson.guardOf((parts2.at(j))))
+                j = (j + 1)
+            }
+            return g
+        }
+        if (spec.has("countEq")) {
+            def c:VlJson (spec.get("countEq"))
+            g.kind = "countEq"
+            g.source = (StatechartJson.valueOf((c.get("of"))))
+            g.number = (c.doubleOr("n" 0.0))
+            return g
+        }
+        if (spec.has("countGt")) {
+            def c2:VlJson (spec.get("countGt"))
+            g.kind = "countGt"
+            g.source = (StatechartJson.valueOf((c2.get("of"))))
+            g.number = (c2.doubleOr("n" 0.0))
+            return g
+        }
+        if (spec.has("some")) {
+            def sm:VlJson (spec.get("some"))
+            g.kind = "some"
+            g.source = (StatechartJson.valueOf((sm.get("of"))))
+            g.field = (sm.stringOr("field" ""))
+            g.operand = (StatechartJson.valOf((sm.get("eq"))))
+            return g
+        }
+        return g
+    }
+
+    ; One transition spec → one transition. XState writes three shapes:
+    ; a bare target string, an object, or an ARRAY of guarded alternatives
+    ; where the first whose guard passes wins.
+    sfn readOne:ScTransition (event:string spec:VlJson) {
+        def t (new ScTransition)
+        t.event = event
+        if (spec.isString()) {
+            t.target = (spec.asString())
+            return t
+        }
+        t.target = (spec.stringOr("target" ""))
+        if (spec.has("guard")) {
+            t.guard = (StatechartJson.guardOf((spec.get("guard"))))
+        }
+        if (spec.has("actions")) {
+            StatechartJson.readActions(t (spec.get("actions")))
+        }
+        return t
+    }
+
+    sfn readInto:void (out:[ScTransition] event:string spec:VlJson) {
+        if (spec.isArray()) {
+            def count:int (spec.count())
+            def i@(mutable):int 0
+            while (i < count) {
+                push out (StatechartJson.readOne(event (spec.at(i))))
+                i = (i + 1)
+            }
+            return
+        }
+        push out (StatechartJson.readOne(event spec))
+    }
+
+    ; A state and everything under it.
+    sfn readState:void (chart:Statechart parentPath:string name:string node:VlJson) {
+        def state:ScState (chart.child(parentPath name))
+        state.initial = (node.stringOr("initial" ""))
+        if ((node.stringOr("type" "")) == "final") {
+            state.isFinal = true
+        }
+        if (node.has("on")) {
+            def on:VlJson (node.get("on"))
+            for on.keys event:string e {
+                StatechartJson.readInto(state.transitions event (on.get(event)))
+            }
+        }
+        if (node.has("always")) {
+            StatechartJson.readInto(state.always "" (node.get("always")))
+        }
+        if (node.has("onDone")) {
+            state.onDone = (StatechartJson.readOne("" (node.get("onDone"))))
+        }
+        if (node.has("states")) {
+            def kids:VlJson (node.get("states"))
+            for kids.keys childName:string c {
+                StatechartJson.readState(chart state.path childName (kids.get(childName)))
+            }
+        }
+    }
+
+    sfn load:Statechart (text:string) {
+        def parser (new VlJsonParser)
+        def root:VlJson (parser.parse(text))
+        def chart (new Statechart)
+        chart.id = (root.stringOr("id" ""))
+        chart.initial = (root.stringOr("initial" ""))
+
+        if (root.has("context")) {
+            def context:VlJson (root.get("context"))
+            for context.keys key:string i {
+                chart.context(key (StatechartJson.valOf((context.get(key)))))
+            }
+        }
+
+        ; The machine's own transitions, available from every state.
+        if (root.has("on")) {
+            def rootOn:VlJson (root.get("on"))
+            for rootOn.keys event:string r {
+                StatechartJson.readInto(chart.transitions event (rootOn.get(event)))
+            }
+        }
+
+        if (root.has("states") == false) {
+            return chart
+        }
+        def states:VlJson (root.get("states"))
+        for states.keys name:string s {
+            StatechartJson.readState(chart "" name (states.get(name)))
+        }
+        return chart
+    }
+}

@@ -989,6 +989,15 @@ class RangerJavaScriptClassWriter {
               return
             }
           }          
+          ; A class that holds nothing but doc examples is left out of the
+          ; output unless `-keep-examples` asks for it — so its export line
+          ; has to be left out with it, or the module names a class that
+          ; does not exist and fails to load.
+          if(item.isDocExampleOnly()) {
+            if((ctx.hasCompilerFlag("keep-examples")) == false) {
+              return
+            }
+          }
           if(item.isNormalClass()) {
               def theEnd (wr.getTag("file_end"))
               theEnd.out( ("module.exports." + item.name + " = " + item.name + ";") true )

@@ -1,0 +1,5 @@
+class LineKindValue @serialize(true) {
+    def kind:string "line-kind"
+    def tag:string "unknown"
+    def raw:string ""
+}

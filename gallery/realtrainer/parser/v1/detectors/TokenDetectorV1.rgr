@@ -1,0 +1,38 @@
+Import "../values/LineKindValue.rgr"
+
+class TokenDetectorV1 {
+    fn startsWith:boolean (text:string prefix:string) {
+        def tLen (strlen text)
+        def pLen (strlen prefix)
+        if (pLen > tLen) {
+            return false
+        }
+        return ((substring text 0 pLen) == prefix)
+    }
+
+    fn findToken:int (text:string token:string) {
+        def sLen (strlen text)
+        def tLen (strlen token)
+        if (tLen == 0) {
+            return 0
+        }
+        if (sLen < tLen) {
+            return -1
+        }
+
+        def i@(mutable):int 0
+        while (i <= (sLen - tLen)) {
+            if ((substring text i (i + tLen)) == token) {
+                return i
+            }
+            i = i + 1
+        }
+        return -1
+    }
+
+    fn detect:LineKindValue (line:string) {
+        def out (new LineKindValue)
+        out.raw = line
+        return out
+    }
+}

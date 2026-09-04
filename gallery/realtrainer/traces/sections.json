@@ -1,0 +1,509 @@
+{
+ "id": "sections",
+ "machine": "",
+ "frames": [
+  {
+   "step": "rt-nav-dashboard",
+   "handled": true,
+   "state": "",
+   "nodes": [
+    {
+     "role": "group",
+     "name": "RealTrainer",
+     "state": ""
+    },
+    {
+     "role": "banner",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Credits: 100k. Click to purchase more credits.",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "📋 Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Dashboard",
+     "state": "level=1"
+    },
+    {
+     "role": "button",
+     "name": "Muokkaa vuosisuunnitelmaa",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Aktiivinen suunnitelma",
+     "state": "level=2"
+    },
+    {
+     "role": "button",
+     "name": "Avaa suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Vuosisuunnitelma 2026",
+     "state": "level=3"
+    },
+    {
+     "role": "paragraph",
+     "name": "Referenssin vuosisuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Aloitettu: 5.1.2026",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Nykyinen jakso",
+     "state": "level=3"
+    },
+    {
+     "role": "paragraph",
+     "name": "Kuntoutus & Ylläpito",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Viikko 35 / 104",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Tavoite: Kuntoutus ja ylläpito",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-nav-home",
+   "handled": true,
+   "state": "",
+   "nodes": [
+    {
+     "role": "group",
+     "name": "RealTrainer",
+     "state": ""
+    },
+    {
+     "role": "banner",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Credits: 100k. Click to purchase more credits.",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "📋 Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää harjoitus",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Päivitä suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kuva",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Ei tulevia tapahtumia",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä menneet (1)",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-nav-more",
+   "handled": true,
+   "state": "",
+   "nodes": [
+    {
+     "role": "group",
+     "name": "RealTrainer",
+     "state": ""
+    },
+    {
+     "role": "banner",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Credits: 100k. Click to purchase more credits.",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "📋 Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää harjoitus",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Päivitä suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kuva",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Ei tulevia tapahtumia",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä menneet (1)",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Vuosilakana",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Harjoituspaikat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Tietopankki",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Jaetut kalenterit",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Asetukset",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Vie tietokanta",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Toggle theme",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kirjaudu ulos",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-nav-calendar",
+   "handled": true,
+   "state": "",
+   "nodes": [
+    {
+     "role": "group",
+     "name": "RealTrainer",
+     "state": ""
+    },
+    {
+     "role": "banner",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Credits: 100k. Click to purchase more credits.",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "📋 Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää harjoitus",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Päivitä suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Viikot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Malliviikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Edellinen viikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "vko 36 31.8. – 6.9.",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Luo suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Seuraava viikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "31 Ma –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "1 Ti –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "2 Ke –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "3 To –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "4 Pe –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "5 La –",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "6 Su –",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  }
+ ]
+}

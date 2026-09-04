@@ -94,6 +94,9 @@ class EVGA11yFromTree {
         if (name == "tooltip")          { return (EVGA11yRole.tooltip()) }
         if (name == "status")           { return (EVGA11yRole.status()) }
         if (name == "region")           { return (EVGA11yRole.region()) }
+        if (name == "banner")           { return (EVGA11yRole.banner()) }
+        if (name == "main")             { return (EVGA11yRole.mainContent()) }
+        if (name == "paragraph")        { return (EVGA11yRole.paragraph()) }
         if (name == "list")             { return (EVGA11yRole.list()) }
         if (name == "listitem")         { return (EVGA11yRole.listItem()) }
         if (name == "table")            { return (EVGA11yRole.table()) }
@@ -144,11 +147,36 @@ class EVGA11yFromTree {
         if ((strlen el.a11yLabel) > 0) {
             return el.a11yLabel
         }
+        ; Name from content is for the things a reader stops ON — a button, a
+        ; heading, a cell. A landmark or a container is named only by what it
+        ; was given: a header named after every word inside it, or a main
+        ; region named after the whole page, is a name that says nothing, and
+        ; the browser's tree leaves them empty for the same reason.
+        if (EVGA11yFromTree.namedOnlyByLabel(el.role)) {
+            return ""
+        }
         def own:string (trim el.textContent)
         if ((strlen own) > 0) {
             return own
         }
         return (this.contentText(el))
+    }
+
+    sfn namedOnlyByLabel:boolean (role:string) {
+        ; A combobox is not named from its content either: what is inside
+        ; it is its VALUE, and a value read out as the name is a select that
+        ; introduces itself as "vk". Its name is a label, or nothing.
+        if (role == "combobox")   { return true }
+        if (role == "banner")     { return true }
+        if (role == "main")       { return true }
+        if (role == "navigation") { return true }
+        if (role == "region")     { return true }
+        if (role == "dialog")     { return true }
+        if (role == "group")      { return true }
+        if (role == "list")       { return true }
+        if (role == "form")       { return true }
+        if (role == "log")        { return true }
+        return false
     }
 
     ; An id is required — a reader keeps its cursor on one, and a tree whose ids
@@ -171,6 +199,12 @@ class EVGA11yFromTree {
         ; children": `aria-hidden` prunes the whole branch, and a chevron with
         ; a label inside it would otherwise put the label back.
         if el.a11yHidden {
+            return
+        }
+        ; `display: none` is not in the accessible tree either — a bar the
+        ; stylesheet folded away at a breakpoint is not a bar a reader can
+        ; still press.
+        if (el.isHidden()) {
             return
         }
         def nextParent:string parentId

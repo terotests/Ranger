@@ -1,0 +1,1469 @@
+{
+ "id": "calendar-diary-week",
+ "machine": "",
+ "viewport": "390x844",
+ "frames": [
+  {
+   "step": "tick 500",
+   "handled": true,
+   "state": "",
+   "nodes": [
+    {
+     "role": "banner",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Credits: 100k. Click to purchase more credits.",
+     "state": ""
+    },
+    {
+     "role": "img",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "100k credits",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "💪 Harjoituspäiväkirja",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "T",
+     "state": ""
+    },
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää harjoitus",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Päivitä suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Edellinen viikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "vko 7 9. – 15.2.",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Seuraava viikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "9 Ma Kontrastivoima (Sali) & Kierto #voima #kontrasti #sali",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "10 Ti Uintiharjoitus #uinti #kestävyys",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "11 Ke Voimaharjoitus (Rinnalleveto & Core) #voima #rinnalleveto #core",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "12 To Lajitekniikka (Kuula) & Kuulantyöntö #kuula #lajitekniikka #yleisurheilu 2",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "13 Pe Lepopäivä #lepo #hyötyliikunta",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "14 La Muuttohommia #hyötyliikunta #muutto",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "15 Su Aktivoiva iltatreeni (kotona) #koti #aktivoiva #kehonhuolto",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-day-2026-02-09",
+   "handled": true,
+   "state": "",
+   "nodes": [
+    {
+     "role": "banner",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Credits: 100k. Click to purchase more credits.",
+     "state": ""
+    },
+    {
+     "role": "img",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "100k credits",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "💪 Harjoituspäiväkirja",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "T",
+     "state": ""
+    },
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää harjoitus",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Päivitä suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Maanantai 9.2.",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "article",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "article",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Kontrastivoima (Sali) & Kierto",
+     "state": "level=1"
+    },
+    {
+     "role": "time",
+     "name": "09.02.2026",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Muistiinpanot",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "voima kontrasti sali kuntosali",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Takakyykky 3x5x90kg",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Vauhditon pituus 3x4",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Penkkipunnerrus 3x5x80kg",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Räjähtävä punnerrus 3x5",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Vatsakiertokone 3x20",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Isometrinen kyykkypito seinää vasten 45s, 45s, 0s",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Lankku 25s, 24s",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "7 liikettä • Yht. 2.5 t",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Compact",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "JSON",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "•",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Poista",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "tick 800",
+   "handled": true,
+   "state": "",
+   "nodes": [
+    {
+     "role": "banner",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Credits: 100k. Click to purchase more credits.",
+     "state": ""
+    },
+    {
+     "role": "img",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "100k credits",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "💪 Harjoituspäiväkirja",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "T",
+     "state": ""
+    },
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää harjoitus",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Päivitä suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Maanantai 9.2.",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "article",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "article",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Kontrastivoima (Sali) & Kierto",
+     "state": "level=1"
+    },
+    {
+     "role": "time",
+     "name": "09.02.2026",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Muistiinpanot",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "voima kontrasti sali kuntosali",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Takakyykky 3x5x90kg",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Vauhditon pituus 3x4",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Penkkipunnerrus 3x5x80kg",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Räjähtävä punnerrus 3x5",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Vatsakiertokone 3x20",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Isometrinen kyykkypito seinää vasten 45s, 45s, 0s",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Lankku 25s, 24s",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "7 liikettä • Yht. 2.5 t",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Compact",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "JSON",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "•",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Poista",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-day-back",
+   "handled": true,
+   "state": "",
+   "nodes": [
+    {
+     "role": "banner",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Credits: 100k. Click to purchase more credits.",
+     "state": ""
+    },
+    {
+     "role": "img",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "100k credits",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "💪 Harjoituspäiväkirja",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "T",
+     "state": ""
+    },
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää harjoitus",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Päivitä suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Edellinen viikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "vko 7 9. – 15.2.",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Seuraava viikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "9 Ma Kontrastivoima (Sali) & Kierto #voima #kontrasti #sali",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "10 Ti Uintiharjoitus #uinti #kestävyys",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "11 Ke Voimaharjoitus (Rinnalleveto & Core) #voima #rinnalleveto #core",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "12 To Lajitekniikka (Kuula) & Kuulantyöntö #kuula #lajitekniikka #yleisurheilu 2",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "13 Pe Lepopäivä #lepo #hyötyliikunta",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "14 La Muuttohommia #hyötyliikunta #muutto",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "15 Su Aktivoiva iltatreeni (kotona) #koti #aktivoiva #kehonhuolto",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-day-2026-02-12",
+   "handled": true,
+   "state": "",
+   "nodes": [
+    {
+     "role": "banner",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Credits: 100k. Click to purchase more credits.",
+     "state": ""
+    },
+    {
+     "role": "img",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "100k credits",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "💪 Harjoituspäiväkirja",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "T",
+     "state": ""
+    },
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää harjoitus",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Päivitä suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Torstai 12.2.",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "article",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "article",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Lajitekniikka (Kuula)",
+     "state": "level=1"
+    },
+    {
+     "role": "time",
+     "name": "12.02.2026",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Muistiinpanot",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "kuula lajitekniikka yleisurheilu",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Yhden käden työntö 3x5",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Polvityöntö 3x15",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Seisontatyöntö 1x15",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Kuntopallon heitto taakse 3x5",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "4 liikettä • Yht. 0 kg",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Compact",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "JSON",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "•",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Poista",
+     "state": ""
+    },
+    {
+     "role": "article",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "article",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Kuulantyöntö",
+     "state": "level=1"
+    },
+    {
+     "role": "time",
+     "name": "12.02.2026",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Muistiinpanot",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "yleisurheilu kuulantyöntö tekniikka",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Kuulantyöntö (vauhditon) 1x5",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Kuulantyöntö (vauhdilla) 1x10",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Tekniikkadrillit 1x20",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "3 liikettä • Yht. 0 kg",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Compact",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "JSON",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "•",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Poista",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "tick 800",
+   "handled": true,
+   "state": "",
+   "nodes": [
+    {
+     "role": "banner",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Credits: 100k. Click to purchase more credits.",
+     "state": ""
+    },
+    {
+     "role": "img",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "100k credits",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "💪 Harjoituspäiväkirja",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "T",
+     "state": ""
+    },
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää harjoitus",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Päivitä suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Torstai 12.2.",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "article",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "article",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Lajitekniikka (Kuula)",
+     "state": "level=1"
+    },
+    {
+     "role": "time",
+     "name": "12.02.2026",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Muistiinpanot",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "kuula lajitekniikka yleisurheilu",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Yhden käden työntö 3x5",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Polvityöntö 3x15",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Seisontatyöntö 1x15",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Kuntopallon heitto taakse 3x5",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "4 liikettä • Yht. 0 kg",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Compact",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "JSON",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "•",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Poista",
+     "state": ""
+    },
+    {
+     "role": "article",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "article",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Kuulantyöntö",
+     "state": "level=1"
+    },
+    {
+     "role": "time",
+     "name": "12.02.2026",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Muistiinpanot",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "yleisurheilu kuulantyöntö tekniikka",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Kuulantyöntö (vauhditon) 1x5",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Kuulantyöntö (vauhdilla) 1x10",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä tilastot",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Tekniikkadrillit 1x20",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kommentti",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "3 liikettä • Yht. 0 kg",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Compact",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "JSON",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "•",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Poista",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  }
+ ]
+}

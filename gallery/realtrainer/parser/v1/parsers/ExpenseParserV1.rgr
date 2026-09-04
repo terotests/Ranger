@@ -1,0 +1,131 @@
+Import "../V1SharedHelpers.rgr"
+Import "../nodes/ExpenseNode.rgr"
+
+class ExpenseAmountResult {
+    def found:boolean false
+    def amount:string ""
+    def currency:string ""
+}
+
+class ExpenseParserV1 {
+    static fn parseCurrencyAmount:ExpenseAmountResult (tok:string) {
+        def out (new ExpenseAmountResult)
+        def sLen (strlen tok)
+        if (sLen < 3) {
+            return out
+        }
+        def numEnd (V1SharedHelpers.splitNumAndUnit(tok))
+        if (numEnd <= 0) {
+            return out
+        }
+        def numPart (substring tok 0 numEnd)
+        def isDec (V1SharedHelpers.isDecimalToken(numPart))
+        if (isDec == false) {
+            return out
+        }
+        def curPart (substring tok numEnd sLen)
+        if ((strlen curPart) < 3) {
+            return out
+        }
+        out.found = true
+        out.amount = numPart
+        out.currency = curPart
+        return out
+    }
+
+    static fn parse:ExpenseNode (line:string) {
+        def n (new ExpenseNode)
+        if ((strlen line) <= 8) {
+            return n
+        }
+        def rest (trim (substring line 8 (strlen line)))
+
+        def noteSep (V1SharedHelpers.findToken(rest " | "))
+        def core@(mutable):string rest
+        if (noteSep >= 0) {
+            core = (trim (substring rest 0 noteSep))
+            def noteText (trim (substring rest (noteSep + 3) (strlen rest)))
+            if ((strlen noteText) > 0) {
+                n.hasDescription = true
+                n.description = noteText
+            }
+        }
+
+        if (V1SharedHelpers.hasPrefix(core "entry ")) {
+            def afterEntry (trim (substring core 6 (strlen core)))
+            def parts (strsplit afterEntry " ")
+            def pLen (array_length parts)
+            def nameParts:[string]
+            def i@(mutable):int 0
+            while (i < pLen) {
+                def tok (itemAt parts i)
+                def amt (ExpenseParserV1.parseCurrencyAmount(tok))
+                if (amt.found) {
+                    n.hasNamedEntry = true
+                    n.namedEntryName = (trim (join nameParts " "))
+                    n.amountRaw = amt.amount
+                    n.currency = amt.currency
+                    def j@(mutable):int (i + 1)
+                    while (j < pLen) {
+                        def tok2 (itemAt parts j)
+                        def amt2 (ExpenseParserV1.parseCurrencyAmount(tok2))
+                        if (amt2.found) {
+                            n.hasVatAmount = true
+                            n.vatAmountRaw = amt2.amount
+                        } {
+                            def isAlv (V1SharedHelpers.hasPrefix(tok2 "ALV"))
+                            if (isAlv) {
+                                def pctStart (V1SharedHelpers.findToken(tok2 "%"))
+                                if (pctStart > 3) {
+                                    def pctStr (substring tok2 3 pctStart)
+                                    if (V1SharedHelpers.isDecimalToken(pctStr)) {
+                                        n.hasVatPercent = true
+                                        n.vatPercentRaw = pctStr
+                                    }
+                                }
+                            }
+                        }
+                        j = j + 1
+                    }
+                    return n
+                }
+                push nameParts tok
+                i = i + 1
+            }
+            return n
+        }
+
+        def parts (strsplit core " ")
+        def pLen (array_length parts)
+        def i@(mutable):int 0
+        while (i < pLen) {
+            def tok (itemAt parts i)
+            def amt (ExpenseParserV1.parseCurrencyAmount(tok))
+            if (amt.found) {
+                if ((strlen n.amountRaw) == 0) {
+                    n.amountRaw = amt.amount
+                    n.currency = amt.currency
+                } {
+                    n.hasVatAmount = true
+                    n.vatAmountRaw = amt.amount
+                }
+            } {
+                def isAlv (V1SharedHelpers.hasPrefix(tok "ALV"))
+                if (isAlv) {
+                    def pctStart (V1SharedHelpers.findToken(tok "%"))
+                    if (pctStart > 3) {
+                        def pctStr (substring tok 3 pctStart)
+                        def isPct (V1SharedHelpers.isDecimalToken(pctStr))
+                        if (isPct) {
+                            n.hasVatPercent = true
+                            n.vatPercentRaw = pctStr
+                        }
+                    }
+                }
+            }
+            i = i + 1
+        }
+
+        return n
+    }
+}

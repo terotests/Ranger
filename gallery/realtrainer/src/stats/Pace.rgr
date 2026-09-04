@@ -1,0 +1,6 @@
+
+; Pace per 100m (mirrors exercise-stats Pace).
+class Pace {
+  def minutes:int 0
+  def seconds:int 0
+}
