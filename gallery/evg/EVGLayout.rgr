@@ -186,6 +186,14 @@ class EVGLayout {
     fn layoutElement:void (element:EVGElement parentX:double parentY:double parentWidth:double parentHeight:double) {
         ; Resolve units for this element (will be skipped if already resolved in layoutChildren)
         element.resolveUnits(parentWidth parentHeight)
+        ; `display: none` has no box and lays out nothing under it.
+        if (element.isHidden()) {
+            element.calculatedX = parentX
+            element.calculatedY = parentY
+            element.calculatedWidth = 0.0
+            element.calculatedHeight = 0.0
+            return
+        }
         
         ; Calculate element dimensions. Same order as `layoutChildren`: a width
         ; the flex pass decided wins over the declared one, because it IS the
@@ -661,11 +669,13 @@ class EVGLayout {
                 def c:EVGElement (parent.getChild(j))
                 c.inheritProperties(parent)
                 c.resolveUnits(innerWidth innerHeight)
-                ; A flex item's starting size is its flex-basis when set,
-                ; otherwise its width. `flex: 1` sets basis 0, which is what
-                ; lets an item share the line even though it also has a width —
-                ; previously any width made `flex` a no-op.
+                ; Out of flow takes no share of the line: an absolute child,
+                ; or one the sheet has set `display: none`. This sum counted
+                ; every child's width, so a rail folded away at a breakpoint
+                ; still left a rail-wide hole beside the column that grew.
                 def hasBasis:boolean c.flexBasis.isSet
+                if c.isAbsolute {
+                } {
                 if ((c.flex > 0.0) && hasBasis) {
                     totalFlex = totalFlex + c.flex
                     fixedWidth = ((fixedWidth + c.flexBasis.pixels) + c.box.marginLeftPx) + c.box.marginRightPx
@@ -684,6 +694,7 @@ class EVGLayout {
                             fixedWidth = fixedWidth + estW + c.box.marginLeftPx + c.box.marginRightPx
                         }
                     }
+                }
                 }
                 j = j + 1
             }
@@ -2209,7 +2220,12 @@ class EVGLayout {
         def i:int 0
         while (i < n) {
             def kid:EVGElement (el.getChild(i))
-            if (kid.position == "absolute") {
+            ; Out of flow — absolute, or `display: none` — takes no share of
+            ; the intrinsic size. This asked the position string rather than
+            ; `isAbsolute`, so a rail the sheet had folded away still claimed
+            ; its icons' width from the row and the page beside it came up
+            ; 32px short.
+            if ((kid.position == "absolute") || (kid.isHidden())) {
             } {
                 ; RESOLVE THE KID FIRST. Its padding and border live in
                 ; `kid.box` as pixels, and `resolveUnits` is what puts them

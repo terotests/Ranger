@@ -35,6 +35,10 @@ class EVGHitTest {
     ; Depth-first, minus the surfaces: those are put aside and painted after
     ; the whole normal tree.
     fn collect:void (el:EVGElement) {
+        ; `display: none` cannot be hit, nor anything under it.
+        if (el.isHidden()) {
+            return
+        }
         push order el
         def i:int 0
         while (i < (array_length el.children)) {

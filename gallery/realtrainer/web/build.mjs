@@ -16,6 +16,12 @@ import { createRequire } from "node:module";
 import { assertDomInstalled, MissingDomDeps } from "../../ui/conformance/dom-adapter.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+// `--out DIR` writes the page for the site: index.html and the bundle beside
+// it, and nothing else — the page loads one script. Without it the bundle
+// lands here, where `rt:web` serves it.
+const argv = process.argv.slice(2);
+const outFlag = argv.indexOf("--out");
+const OUT = outFlag >= 0 ? path.resolve(argv[outFlag + 1]) : null;
 const DOM_DIR = path.join(HERE, "..", "..", "ui", "conformance", "dom");
 const domRequire = createRequire(path.join(DOM_DIR, "package.json"));
 
@@ -99,3 +105,10 @@ await esbuild.build({
   plugins: [noFilesystem],
   logLevel: "info",
 });
+
+if (OUT) {
+  fs.mkdirSync(OUT, { recursive: true });
+  fs.copyFileSync(path.join(HERE, "bundle.js"), path.join(OUT, "bundle.js"));
+  fs.copyFileSync(path.join(HERE, "index.html"), path.join(OUT, "index.html"));
+  console.log(`  wrote ${path.relative(process.cwd(), OUT)}/index.html and bundle.js`);
+}

@@ -973,6 +973,10 @@ class EVGDisplayList {
     }
 
     fn walk:void (el:EVGElement) {
+        ; `display: none` paints nothing, and nothing under it.
+        if (el.isHidden()) {
+            return
+        }
         ; Where this element's own output begins, so `opacity` can scale
         ; exactly what it and its children add — nested fades then multiply as
         ; the recursion unwinds. A transform uses the same range.

@@ -2113,25 +2113,21 @@ class RealTrainerDemo {
     ; --- the shell ----------------------------------------------------------------
     ; Portrait: header, section, bottom bar. Landscape: the icon rail, then a
     ; column of header and section. Same sections either way.
+    ; ONE tree at every width. The rail and the bottom bar are both in it,
+    ; and the stylesheet's `@media` blocks fold one of them away — `display:
+    ; none` below 768px for the rail, above it for the bar — the way the
+    ; original's `md:hidden` does. Nothing here asks how wide the page is;
+    ; the sheet was told the viewport and answers.
     fn appScreen:EVGElement () {
         def page (tree Rt (Phone))
-        if (this.isPortrait()) {
-            page.addChild((this.phoneHeader()))
-            page.addChild((this.phoneMain()))
-            this.overlays(page)
-            page.addChild((this.bottomNav()))
-            this.addOverlay(page)
-            page.addChild((this.toasts()))
-            return page
-        }
-        page.className = "rt-phone rt-phone-wide"
         page.addChild((this.iconRail()))
         def side (tree Rt (PhSide))
         side.addChild((this.phoneHeader()))
         side.addChild((this.phoneMain()))
+        this.overlays(side)
+        side.addChild((this.bottomNav()))
+        this.addOverlay(side)
         page.addChild(side)
-        this.overlays(page)
-        this.addOverlay(page)
         page.addChild((this.toasts()))
         return page
     }
@@ -2213,9 +2209,8 @@ class RealTrainerDemo {
         down.svgSource = (RtIcons.chevronDown("#999999"))
         sel.addChild(down)
         head.addChild(sel)
-        if ((this.isPortrait()) == false) {
-            head.addChild((tree Rt (PhPct "50%")))
-        }
+        ; Folded away below 768px by the sheet.
+        head.addChild((tree Rt (PhPct "50%")))
         head.addChild((tree Rt (PhAvatar (PhAvatarTx "T"))))
         return head
     }
@@ -2737,20 +2732,13 @@ class RealTrainerDemo {
             this.ysDetail(body)
         }
         main.addChild(body)
-        if (this.isPortrait()) {
-            page.addChild(main)
-            this.overlays(page)
-            page.addChild((this.bottomNav()))
-            page.addChild((this.toasts()))
-            return page
-        }
-        ; On its side the shell is the rail and a column beside it, here too.
-        page.className = "rt-phone rt-phone-wide"
+        ; The same shell as `appScreen`, without the header.
         page.addChild((this.iconRail()))
         def side (tree Rt (PhSide))
         side.addChild(main)
+        this.overlays(side)
+        side.addChild((this.bottomNav()))
         page.addChild(side)
-        this.overlays(page)
         page.addChild((this.toasts()))
         return page
     }

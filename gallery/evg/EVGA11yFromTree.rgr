@@ -201,6 +201,12 @@ class EVGA11yFromTree {
         if el.a11yHidden {
             return
         }
+        ; `display: none` is not in the accessible tree either — a bar the
+        ; stylesheet folded away at a breakpoint is not a bar a reader can
+        ; still press.
+        if (el.isHidden()) {
+            return
+        }
         def nextParent:string parentId
         def code:int (EVGA11yFromTree.roleCode(el.role))
         ; A role this builder does not know is REPORTED, not dropped. Dropping

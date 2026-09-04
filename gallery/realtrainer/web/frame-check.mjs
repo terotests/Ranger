@@ -81,7 +81,9 @@ const ok = (name, cond, detail) => {
 };
 
 console.log("--- the page loads ---");
-await page.goto(`http://127.0.0.1:${port}/gallery/realtrainer/web/index.html`, { waitUntil: "networkidle" });
+// The desktop demo at its own size: without `page` the page is the window,
+// and this check measures the loader's card at 470px.
+await page.goto(`http://127.0.0.1:${port}/gallery/realtrainer/web/index.html?page=980x760`, { waitUntil: "networkidle" });
 await page.waitForFunction("window.__lastStats !== undefined", null, { timeout: 20000 }).catch(() => {});
 ok("no error on first paint", problems.length === 0, [...new Set(problems)].join("; "));
 const size = await page.evaluate(() => {

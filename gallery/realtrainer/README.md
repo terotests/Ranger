@@ -9,9 +9,11 @@ parsed document behind all of it.
 
 ```bash
 npm run rt:web      # build, serve, print the URL
-# on a phone: the bare URL fits the viewport and opens the shell on Home;
-# ?page=fit&route=/calendar/cal-plan?week=2026-02-09 opens it on a route,
-# ?page=390x844 draws a phone inside a desktop browser
+# the bare URL is the window: laid out again on every resize, the rail or
+# the bottom bar folded by the stylesheet's @media blocks at 768px, and the
+# shell opens on Home; ?route=/calendar/cal-plan?week=2026-02-09 opens it on
+# a route, ?page=390x844 pins a phone's size inside any browser, and
+# ?page=980x760 is the desktop demo the checks measure
 npm run rt:check    # the app driven with a made-up clock, no browser  (CI)
 npm run rt:frame    # the same app in Chromium, checked at the pixels
 ```

@@ -35,14 +35,19 @@ app.loadReference(REALTRAINER_SEED);
 // `page=fit` is the phone itself: the page is the viewport, and so is any
 // viewport too narrow for the desktop demo when nothing was asked — a phone
 // opening the bare URL gets the shell, on its route or on Home.
+// `page=fit` — or no `page` at all — makes the page the window: it is laid
+// out at the window's size and again on every resize, and the stylesheet's
+// `@media` blocks answer for the width. `page=390x844` pins a size, which is
+// what the checks want.
+const params = new URLSearchParams(location.search);
+const pageParam = params.get("page");
+const fit = !pageParam || pageParam === "fit";
 {
-  const params = new URLSearchParams(location.search);
-  const page = params.get("page");
-  const fit = page === "fit" || (!page && window.innerWidth < 600);
   if (fit) {
+    document.body.classList.add("fit");
     app.setPageSize(window.innerWidth, window.innerHeight);
-  } else if (page) {
-    const [w, h] = page.split("x").map(Number);
+  } else {
+    const [w, h] = pageParam.split("x").map(Number);
     if (w > 0 && h > 0) app.setPageSize(w, h);
   }
   const route = params.get("route");
@@ -66,15 +71,20 @@ stage.addEventListener(
   { passive: false },
 );
 
-const W = app.widthPx();
-const H = app.heightPx();
+let W = app.widthPx();
+let H = app.heightPx();
 const dpr = Math.min(2, window.devicePixelRatio || 1);
-canvas.style.width = W + "px";
-canvas.style.height = H + "px";
-canvas.width = Math.round(W * dpr);
-canvas.height = Math.round(H * dpr);
-stage.style.width = W + "px";
-stage.style.height = H + "px";
+function sizeCanvas() {
+  W = app.widthPx();
+  H = app.heightPx();
+  canvas.style.width = W + "px";
+  canvas.style.height = H + "px";
+  canvas.width = Math.round(W * dpr);
+  canvas.height = Math.round(H * dpr);
+  stage.style.width = W + "px";
+  stage.style.height = H + "px";
+}
+sizeCanvas();
 
 const gl = canvas.getContext("webgl2", {
   antialias: true,
@@ -214,6 +224,22 @@ canvas.addEventListener("pointermove", (ev) => {
   // Hover starts a transition, and a transition needs frames — the loop is
   // already running, so there is nothing to start here beyond the flag.
 });
+// The window changed size: the page is laid out again at the new size — the
+// sheet is told the viewport inside `setPageSize`'s rebuild — and drawn.
+if (fit) {
+  let pending = false;
+  window.addEventListener("resize", () => {
+    if (pending) return;
+    pending = true;
+    requestAnimationFrame(() => {
+      pending = false;
+      app.setPageSize(window.innerWidth, window.innerHeight);
+      sizeCanvas();
+      paint();
+    });
+  });
+}
+
 canvas.addEventListener("pointerleave", () => {
   hovered = "";
   app.setHover("");
