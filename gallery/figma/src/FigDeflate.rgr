@@ -1,0 +1,53 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; A stored (BTYPE=00) raw-deflate wrapper. The reader always inflates
+; chunk 0; tests and the bundled sample use this instead of a compressor.
+
+class FigDeflate {
+    Constructor () {
+    }
+
+    sfn wrapStored:buffer (src:buffer) {
+        def n:int (buffer_length src)
+        def blocks:int 1
+        if (n > 0) {
+            blocks = (idiv (n + 65534) 65535)
+        }
+        def outLen:int ((blocks * 5) + n)
+        def out:buffer (buffer_alloc outLen)
+        def o:int 0
+        def off:int 0
+        def b:int 0
+        while (b < blocks) {
+            def left:int (n - off)
+            def take:int left
+            if (take > 65535) {
+                take = 65535
+            }
+            def final:int 0
+            if (b == (blocks - 1)) {
+                final = 1
+            }
+            buffer_set out o final
+            o = (o + 1)
+            buffer_set out o (bit_and take 255)
+            o = (o + 1)
+            buffer_set out o (bit_and (bit_ushr take 8) 255)
+            o = (o + 1)
+            def nlen:int (bit_and (bit_not take) 65535)
+            buffer_set out o (bit_and nlen 255)
+            o = (o + 1)
+            buffer_set out o (bit_and (bit_ushr nlen 8) 255)
+            o = (o + 1)
+            def i:int 0
+            while (i < take) {
+                buffer_set out o (buffer_get src (off + i))
+                o = (o + 1)
+                i = (i + 1)
+            }
+            off = (off + take)
+            b = (b + 1)
+        }
+        return out
+    }
+}

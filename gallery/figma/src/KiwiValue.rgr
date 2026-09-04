@@ -1,0 +1,306 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; KiwiValue — a decoded kiwi field. Kind tags:
+;   0 null  1 bool  2 int  3 double  4 string  5 array  6 object  7 bytes
+
+class KiwiValue {
+    def kind:int 0
+    def boolVal:boolean false
+    def intVal:int 0
+    def doubleVal:double 0.0
+    def stringVal:string ""
+    def items:[KiwiValue]
+    def fieldNames:[string]
+    def fieldVals:[KiwiValue]
+    def bytesVal:buffer (buffer_alloc 0)
+
+    Constructor () {
+    }
+
+    sfn nilVal:KiwiValue () {
+        return (new KiwiValue())
+    }
+
+    sfn fromBool:KiwiValue (v:boolean) {
+        def x (new KiwiValue())
+        x.kind = 1
+        x.boolVal = v
+        return x
+    }
+
+    sfn fromInt:KiwiValue (v:int) {
+        def x (new KiwiValue())
+        x.kind = 2
+        x.intVal = v
+        x.doubleVal = (to_double v)
+        return x
+    }
+
+    sfn fromDouble:KiwiValue (v:double) {
+        def x (new KiwiValue())
+        x.kind = 3
+        x.doubleVal = v
+        x.intVal = (to_int v)
+        return x
+    }
+
+    sfn fromString:KiwiValue (v:string) {
+        def x (new KiwiValue())
+        x.kind = 4
+        x.stringVal = v
+        return x
+    }
+
+    sfn fromArray:KiwiValue () {
+        def x (new KiwiValue())
+        x.kind = 5
+        return x
+    }
+
+    sfn fromObject:KiwiValue () {
+        def x (new KiwiValue())
+        x.kind = 6
+        return x
+    }
+
+    sfn fromBytes:KiwiValue (b:buffer) {
+        def x (new KiwiValue())
+        x.kind = 7
+        x.bytesVal = b
+        return x
+    }
+
+    fn isNull:boolean () {
+        return (kind == 0)
+    }
+
+    fn isObject:boolean () {
+        return (kind == 6)
+    }
+
+    fn isArray:boolean () {
+        return (kind == 5)
+    }
+
+    fn put:void (name:string v:KiwiValue) {
+        def i:int (this.findField(name))
+        if (i >= 0) {
+            set fieldVals i v
+            return
+        }
+        push fieldNames name
+        push fieldVals v
+    }
+
+    fn findField:int (name:string) {
+        def n:int (array_length fieldNames)
+        def i:int 0
+        while (i < n) {
+            if ((itemAt fieldNames i) == name) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    fn hasField:boolean (name:string) {
+        return ((this.findField(name)) >= 0)
+    }
+
+    fn field:KiwiValue (name:string) {
+        def i:int (this.findField(name))
+        if (i < 0) {
+            return (KiwiValue.nilVal())
+        }
+        return (itemAt fieldVals i)
+    }
+
+    fn asBool:boolean (fallback:boolean) {
+        if (kind == 1) {
+            return boolVal
+        }
+        return fallback
+    }
+
+    fn asInt:int (fallback:int) {
+        if (kind == 2) {
+            return intVal
+        }
+        if (kind == 3) {
+            return (to_int doubleVal)
+        }
+        return fallback
+    }
+
+    fn asDouble:double (fallback:double) {
+        if (kind == 3) {
+            return doubleVal
+        }
+        if (kind == 2) {
+            return (to_double intVal)
+        }
+        return fallback
+    }
+
+    fn asString:string (fallback:string) {
+        if (kind == 4) {
+            return stringVal
+        }
+        if (kind == 2) {
+            return (to_string intVal)
+        }
+        return fallback
+    }
+
+    fn childString:string (name:string fallback:string) {
+        def v:KiwiValue (this.field(name))
+        return (v.asString(fallback))
+    }
+
+    fn childInt:int (name:string fallback:int) {
+        def v:KiwiValue (this.field(name))
+        return (v.asInt(fallback))
+    }
+
+    fn childDouble:double (name:string fallback:double) {
+        def v:KiwiValue (this.field(name))
+        return (v.asDouble(fallback))
+    }
+
+    fn childBool:boolean (name:string fallback:boolean) {
+        def v:KiwiValue (this.field(name))
+        return (v.asBool(fallback))
+    }
+
+    fn child:KiwiValue (name:string) {
+        return (this.field(name))
+    }
+
+    fn itemCount:int () {
+        return (array_length items)
+    }
+
+    fn item:KiwiValue (i:int) {
+        if ((i < 0) || (i >= (array_length items))) {
+            return (KiwiValue.nilVal())
+        }
+        return (itemAt items i)
+    }
+
+    fn pushItem:void (v:KiwiValue) {
+        push items v
+    }
+
+    fn fieldCount:int () {
+        return (array_length fieldNames)
+    }
+
+    fn fieldNameAt:string (i:int) {
+        if ((i < 0) || (i >= (array_length fieldNames))) {
+            return ""
+        }
+        return (itemAt fieldNames i)
+    }
+
+    fn fieldAt:KiwiValue (i:int) {
+        if ((i < 0) || (i >= (array_length fieldVals))) {
+            return (KiwiValue.nilVal())
+        }
+        return (itemAt fieldVals i)
+    }
+
+    fn jsonEscape:string (s:string) {
+        def out:string ""
+        def n:int (strlen s)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt s i)
+            if (c == 34) {
+                out = (out + "\\\"")
+            } {
+                if (c == 92) {
+                    out = (out + "\\\\")
+                } {
+                    if (c == 10) {
+                        out = (out + "\\n")
+                    } {
+                        if (c == 13) {
+                            out = (out + "\\r")
+                        } {
+                            if (c == 9) {
+                                out = (out + "\\t")
+                            } {
+                                if (c < 32) {
+                                    out = (out + " ")
+                                } {
+                                    out = (out + (strfromcode c))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn toJson:string () {
+        return (this.toJsonDepth(0))
+    }
+
+    fn toJsonDepth:string (depth:int) {
+        if (depth > 8) {
+            return "\"…\""
+        }
+        if (kind == 0) {
+            return "null"
+        }
+        if (kind == 1) {
+            if boolVal {
+                return "true"
+            }
+            return "false"
+        }
+        if (kind == 2) {
+            return (to_string intVal)
+        }
+        if (kind == 3) {
+            return (to_string doubleVal)
+        }
+        if (kind == 4) {
+            return ("\"" + (this.jsonEscape(stringVal)) + "\"")
+        }
+        if (kind == 7) {
+            return ("{\"bytes\":" + (to_string (buffer_length bytesVal)) + "}")
+        }
+        if (kind == 5) {
+            def out:string "["
+            def n:int (array_length items)
+            def i:int 0
+            while (i < n) {
+                if (i > 0) {
+                    out = (out + ",")
+                }
+                def it:KiwiValue (itemAt items i)
+                out = (out + (it.toJsonDepth((depth + 1))))
+                i = (i + 1)
+            }
+            return (out + "]")
+        }
+        def o:string "{"
+        def fn:int (array_length fieldNames)
+        def j:int 0
+        while (j < fn) {
+            if (j > 0) {
+                o = (o + ",")
+            }
+            def name:string (itemAt fieldNames j)
+            def val:KiwiValue (itemAt fieldVals j)
+            o = (o + "\"" + (this.jsonEscape(name)) + "\":" + (val.toJsonDepth((depth + 1))))
+            j = (j + 1)
+        }
+        return (o + "}")
+    }
+}

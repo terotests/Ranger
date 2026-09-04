@@ -1,0 +1,504 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; rt_ios.rgr — the RealTrainer demo on iPad and iPhone.
+; ==============================================================================
+;
+; `gallery/realtrainer/src/RealTrainerDemo.rgr` is a four-scene app built out of
+; gallery/ui's controllers and painted from an `EVGDisplayList`: a loading
+; screen with a spinning ring, the sign-in page it hands over to, a dashboard,
+; and a training session with a countdown dial. The browser host asks it for
+; `displayListJson()` because a page has to parse something anyway. Swift does
+; not — the demo and the host are objects in one process — so this facade hands
+; the painter `display()` itself.
+;
+; This is the sibling of `gallery/ui/ios/ranger/ui_ios.rgr` and DELIBERATELY not
+; a copy of it, because the two pages are not the same shape:
+;
+;   THE DASHBOARD IS A DOCUMENT. It is a fixed WIDTH and scrolls; the fit is a
+;   ratio of widths, and the page's height is set to whatever the viewport is
+;   worth at that scale so the demo's own scroll clamp is against a viewport
+;   somebody actually has.
+;
+;   REALTRAINER IS A COMPOSITION. 980x760, designed as a whole, with nothing to
+;   scroll. Stretching its height to the viewport would re-lay it out into a
+;   shape its author never drew. So the fit is `min(w-ratio, h-ratio)` -- the
+;   page is CONTAINED, whole, and centred in what is left of the window, with a
+;   letterbox where the aspect ratios disagree.
+;
+; That is the entire difference, and it is the reason there is a second facade
+; rather than a flag on the first. Everything else here is the same set of
+; questions the dashboard's answers -- safe area, screen point to page point,
+; pinch about a focus, what a frame costs -- because those are the questions
+; any fixed-size page on Apple hardware has.
+;
+; The rules live here rather than in the Swift host for the reason the whole
+; port exists: a rule that lives in a `UIView` is a rule nothing without a Mac
+; can check, and `check_rt_ios.rgr` drives every one of these on Node.
+; ==============================================================================
+
+Import "../../src/RealTrainerDemo.rgr"
+
+class RtIos {
+
+    def app:RealTrainerDemo (new RealTrainerDemo)
+    def started:boolean false
+
+    ; The window, in points, and the part of it the system will not cover.
+    def screenW:double 0.0
+    def screenH:double 0.0
+    def insetTop:double 0.0
+    def insetBottom:double 0.0
+    def insetLeft:double 0.0
+    def insetRight:double 0.0
+
+    ; What the page is scaled by to fit, and what the reader has pinched in by
+    ; on top of that.
+    def fitScale:double 1.0
+    def zoomValue:double 1.0
+
+    ; Where the page's top-left corner sits in the window, in points. At rest
+    ; this centres the page; a pinch moves it and `clampOffset` keeps the page
+    ; from being dragged off the screen.
+    def offXValue:double 0.0
+    def offYValue:double 0.0
+
+    ; The content height the current fit was computed against.
+    def fittedBottom:double 0.0
+
+    ; The last point a finger was seen at, in page pixels. A press is two
+    ; events -- down marks the control, up activates it -- and the demo's
+    ; `press` takes the id, so the id has to survive between them.
+    def lastPageX:double 0.0
+    def lastPageY:double 0.0
+    def pressedId:string ""
+
+    Constructor () {
+    }
+
+    ; --- lifecycle ------------------------------------------------------------
+
+    fn start:void (w:double h:double css:string) {
+        screenW = w
+        screenH = h
+        app.init(css)
+        started = true
+        this.refit()
+    }
+
+    ; A rotation, Split View, Stage Manager, the keyboard. The page keeps every
+    ; bit of its state; only where it sits and what it is scaled by change.
+    fn resize:void (w:double h:double) {
+        screenW = w
+        screenH = h
+        this.refit()
+    }
+
+    fn setSafeArea:void (top:double bottom:double left:double right:double) {
+        insetTop = top
+        insetBottom = bottom
+        insetLeft = left
+        insetRight = right
+        this.refit()
+    }
+
+    ; --- the viewport ---------------------------------------------------------
+
+    fn usableWidth:double () {
+        def w:double (screenW - insetLeft - insetRight)
+        if (w < 1.0) {
+            return 1.0
+        }
+        return w
+    }
+
+    fn usableHeight:double () {
+        def h:double (screenH - insetTop - insetBottom)
+        if (h < 1.0) {
+            return 1.0
+        }
+        return h
+    }
+
+    ; Contain, not cover: the SMALLER of the two ratios, so the whole page is on
+    ; screen and the leftover is a letterbox. Cover would fill the window and
+    ; cut the composition off at one edge, which for a page with a sign-in
+    ; button near the bottom means a button nobody can reach.
+    ; How far down the canvas this scene actually writes, plus the margin the
+    ; page keeps below it. Recomputed from the display list, which is in PAGE
+    ; coordinates and so does not depend on the scale -- there is no circle
+    ; here, the box is measured once and the fit follows from it.
+    ;
+    ; TEXT only, deliberately. The left rail and the panel behind it are one
+    ; box each running the full height of the canvas, so an ink extent that
+    ; counted them would always answer 760 and the page would keep being fitted
+    ; to a canvas it does not fill: the dashboard writes nothing below y=586 and
+    ; the session nothing below y=346, and that unused fifth-to-half of the
+    ; canvas is what made the page small on a phone.
+    ;
+    ; Decoration that continues past the last words is allowed to run off the
+    ; bottom of the screen, which is what a full-height rail should do anyway --
+    ; ending partway up with a gap beneath it is the thing that looks wrong.
+    fn contentBottom:double () {
+        def dl:EVGDisplayList (app.display())
+        def bottom:double 0.0
+        for dl.cmds c:EVGDrawCmd i {
+            if ((strlen c.text) > 0) {
+                def b:double (c.y + c.h)
+                if (b > bottom) {
+                    bottom = b
+                }
+            }
+        }
+        if (bottom <= 0.0) {
+            return (app.heightPx())
+        }
+        ; The page's own breathing room under its last line, and never more of
+        ; the canvas than there is.
+        bottom = (bottom + 24.0)
+        if (bottom > (app.heightPx())) {
+            return (app.heightPx())
+        }
+        return bottom
+    }
+
+    ; CONTAIN what the scene DRAWS: the smaller of the two ratios, where the
+    ; height ratio is measured against the content rather than the canvas.
+    ;
+    ; Filling the width instead and letting the reader move down was tried, and
+    ; measured wrong for this app. On an 874x402 landscape phone it pushes 276pt
+    ; off the bottom of EVERY content scene -- the sign-in button, the table's
+    ; last rows, the session's controls -- and there is no scroll container, no
+    ; scrollbar and no cut-off row anywhere on the page, so nothing announces
+    ; that the content continues. In portrait it buys nothing at all: the width
+    ; binds either way. The page is a fixed 980x760 composition and no scale
+    ; both fills a 19.5:9 phone and keeps all of it on screen; keeping all of it
+    ; is the half worth having.
+    fn refit:void () {
+        def pw:double (app.widthPx())
+        if (pw > 0.0) {
+            def ph:double (app.heightPx())
+            if (started) {
+                ph = (this.contentBottom())
+            }
+            if (ph > 0.0) {
+                def byWidth:double ((this.usableWidth()) / pw)
+                def byHeight:double ((this.usableHeight()) / ph)
+                fitScale = byWidth
+                if (byHeight < byWidth) {
+                    fitScale = byHeight
+                }
+            }
+            fittedBottom = ph
+        }
+        this.centre()
+    }
+
+    ; The content box the current scale was computed for. A tab change inside a
+    ; scene moves it -- the calendar is taller than the dashboard panel -- so it
+    ; is watched rather than assumed, and only a real move refits: the box is in
+    ; page coordinates and the scale does not feed back into it, but refitting
+    ; on rounding noise would still make the page twitch.
+    fn syncFit:void () {
+        if (started == false) {
+            return
+        }
+        def now:double (this.contentBottom())
+        def d:double (now - fittedBottom)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        if (d > 8.0) {
+            this.refit()
+        }
+    }
+
+    ; Put the page in the middle of the usable area at the current scale. This
+    ; is the resting position; a pinch moves off it and a reset comes back.
+    fn centre:void () {
+        def s:double (this.scale())
+        def shownW:double ((app.widthPx()) * s)
+        def shownH:double ((app.heightPx()) * s)
+        offXValue = (insetLeft + (((this.usableWidth()) - shownW) / 2.0))
+        ; A page taller than the viewport starts at its TOP. Centring it would
+        ; open the app with the first row already scrolled off, which reads as
+        ; a page that has lost its heading.
+        def contentH:double (fittedBottom * s)
+        if (contentH > (this.usableHeight())) {
+            offYValue = insetTop
+        } {
+            ; The CONTENT is centred, not the canvas: what hangs below the last
+            ; line is a rail or a panel back, and it running to the screen's
+            ; edge is right.
+            offYValue = (insetTop + (((this.usableHeight()) - contentH) / 2.0))
+        }
+        this.clampOffset()
+    }
+
+    ; Once the page is bigger than the viewport in an axis, that axis may be
+    ; dragged -- but only within the page, so an edge cannot be pulled into the
+    ; middle of the screen. While it still fits, the axis stays centred.
+    fn clampOffset:void () {
+        def s:double (this.scale())
+        def shownW:double ((app.widthPx()) * s)
+        def shownH:double ((app.heightPx()) * s)
+        def uw:double (this.usableWidth())
+        def uh:double (this.usableHeight())
+        if (shownW <= uw) {
+            offXValue = (insetLeft + ((uw - shownW) / 2.0))
+        } {
+            def minX:double ((insetLeft + uw) - shownW)
+            if (offXValue > insetLeft) {
+                offXValue = insetLeft
+            }
+            if (offXValue < minX) {
+                offXValue = minX
+            }
+        }
+        if (shownH <= uh) {
+            offYValue = (insetTop + ((uh - shownH) / 2.0))
+        } {
+            def minY:double ((insetTop + uh) - shownH)
+            if (offYValue > insetTop) {
+                offYValue = insetTop
+            }
+            if (offYValue < minY) {
+                offYValue = minY
+            }
+        }
+    }
+
+    fn scale:double () {
+        return (fitScale * zoomValue)
+    }
+
+    fn zoom:double () {
+        return zoomValue
+    }
+
+    fn offsetX:double () {
+        return offXValue
+    }
+
+    fn offsetY:double () {
+        return offYValue
+    }
+
+    fn pageWidth:double () {
+        return (app.widthPx())
+    }
+
+    fn pageHeight:double () {
+        return (app.heightPx())
+    }
+
+    ; --- screen to page -------------------------------------------------------
+    ;
+    ; A touch arrives in WINDOW coordinates. The page's corner is `offsetX/Y`,
+    ; which already has the safe area in it, so one subtraction and one divide
+    ; is the whole conversion -- and it is the exact inverse of the two
+    ; transforms the host applies when it paints. They have to agree or a
+    ; finger lands somewhere the page is not.
+
+    fn toPageX:double (x:double) {
+        def s:double (this.scale())
+        if (s <= 0.0) {
+            return x
+        }
+        return ((x - offXValue) / s)
+    }
+
+    fn toPageY:double (y:double) {
+        def s:double (this.scale())
+        if (s <= 0.0) {
+            return y
+        }
+        return ((y - offYValue) / s)
+    }
+
+    ; True when the window point is on the page at all rather than in the
+    ; letterbox beside it. The demo's hit test answers "" off the page anyway;
+    ; this says so without laying the page out to find out.
+    fn onPage:boolean (x:double y:double) {
+        def px:double (this.toPageX(x))
+        def py:double (this.toPageY(y))
+        if (px < 0.0) {
+            return false
+        }
+        if (py < 0.0) {
+            return false
+        }
+        if (px > (app.widthPx())) {
+            return false
+        }
+        if (py > (app.heightPx())) {
+            return false
+        }
+        return true
+    }
+
+    ; --- zoom and pan ---------------------------------------------------------
+
+    ; A pinch, holding the point under the fingers still. The factor is
+    ; RELATIVE -- what the fingers did since the last report -- which is what
+    ; UIKit hands over once `scale` is reset each time.
+    fn pinch:boolean (factor:double focusX:double focusY:double) {
+        def before:double zoomValue
+        def next:double (zoomValue * factor)
+        if (next < 1.0) {
+            next = 1.0
+        }
+        if (next > 4.0) {
+            next = 4.0
+        }
+        if (next == before) {
+            return false
+        }
+        def pageX:double (this.toPageX(focusX))
+        def pageY:double (this.toPageY(focusY))
+        zoomValue = next
+        def s:double (this.scale())
+        ; Put the same page point back under the same finger.
+        offXValue = (focusX - (pageX * s))
+        offYValue = (focusY - (pageY * s))
+        this.clampOffset()
+        return true
+    }
+
+    fn resetZoom:boolean () {
+        if (zoomValue == 1.0) {
+            return false
+        }
+        zoomValue = 1.0
+        this.centre()
+        return true
+    }
+
+    ; Drag, in screen points, and only while there is page off the edge to drag
+    ; to. `clampOffset` puts a centred axis straight back, so a sideways drag on
+    ; a page that fits does nothing rather than sliding it away.
+    fn panBy:boolean (dx:double dy:double) {
+        def beforeX:double offXValue
+        def beforeY:double offYValue
+        offXValue = (offXValue + dx)
+        offYValue = (offYValue + dy)
+        this.clampOffset()
+        if (offXValue != beforeX) {
+            return true
+        }
+        return (offYValue != beforeY)
+    }
+
+    fn canPan:boolean () {
+        def s:double (this.scale())
+        if (((app.widthPx()) * s) > (this.usableWidth())) {
+            return true
+        }
+        return (((app.heightPx()) * s) > (this.usableHeight()))
+    }
+
+    ; --- the frame ------------------------------------------------------------
+
+    fn frame:EVGDisplayList () {
+        return (app.display())
+    }
+
+    ; The clock. `dtMs` is the REAL milliseconds since the last frame, which is
+    ; what makes a dropped frame shorten the animation rather than stretch it.
+    ; The host clamps a long gap; this answers whether anything moved.
+    fn tick:boolean (dtMs:double) {
+        if (started == false) {
+            return false
+        }
+        def moved:boolean (app.tick(dtMs))
+        this.syncFit()
+        return moved
+    }
+
+    ; --- input ----------------------------------------------------------------
+
+    fn hitAt:string (x:double y:double) {
+        return (app.hitId((this.toPageX(x)) (this.toPageY(y))))
+    }
+
+    ; A finger lands: mark whatever is under it as pressed, and remember the id
+    ; so the release can activate the same control even if the finger moved a
+    ; little first.
+    fn pressAt:boolean (x:double y:double) {
+        lastPageX = (this.toPageX(x))
+        lastPageY = (this.toPageY(y))
+        def id:string (app.hitId(lastPageX lastPageY))
+        pressedId = id
+        app.setPressed(id)
+        return ((strlen id) > 0)
+    }
+
+    ; The finger lifts. The control under it is activated -- the demo decides
+    ; what that means -- and the pressed mark comes off either way.
+    fn releasePress:boolean () {
+        def id:string pressedId
+        pressedId = ""
+        app.setPressed("")
+        if ((strlen id) == 0) {
+            return true
+        }
+        def changed:boolean (app.press(id))
+        this.syncFit()
+        return changed
+    }
+
+    fn cancelPress:boolean () {
+        if ((strlen pressedId) == 0) {
+            return false
+        }
+        pressedId = ""
+        app.setPressed("")
+        return true
+    }
+
+    ; A pointer that is not pressing: a trackpad on an iPad, or the Simulator's
+    ; mouse. Answers whether the hover actually changed, so a host does not
+    ; repaint on every move.
+    fn hoverAt:boolean (x:double y:double) {
+        def id:string (this.hitAt(x y))
+        if (id == (app.hovered)) {
+            return false
+        }
+        app.setHover(id)
+        return true
+    }
+
+    fn clearHover:boolean () {
+        if ((strlen (app.hovered)) == 0) {
+            return false
+        }
+        app.setHover("")
+        return true
+    }
+
+    ; --- what the app is doing ------------------------------------------------
+
+    fn sceneName:string () {
+        return (app.sceneName())
+    }
+
+    fn setScene:void (name:string) {
+        app.setScene(name)
+        this.syncFit()
+    }
+
+    fn styleErrorCount:int () {
+        return (app.styleErrorCount())
+    }
+
+    fn styleErrorAt:string (i:int) {
+        return (app.styleErrorAt(i))
+    }
+
+    ; No `main` here, deliberately. This facade is a LIBRARY: the app's entry
+    ; point is the hand-written `ios/main.swift`, which calls
+    ; `UIApplicationMain`. A static method named `main` -- with or without the
+    ; @(main) annotation -- makes the compiler emit `__main__swift()` as a
+    ; top-level statement, and Swift allows those only in a file actually
+    ; called main.swift. `check_rt_ios.rgr` is the program that drives this.
+}

@@ -1,0 +1,517 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; Viewer: Figma bytes → SceneDocument → EVGElement → display list.
+; Viewport pan/zoom is a root EVG transform. Painting never reads FigNode.
+
+Import "FigParser.rgr"
+Import "FigSample.rgr"
+Import "KiwiValue.rgr"
+Import "convert/FigToScene.rgr"
+Import "evg/SceneToEVG.rgr"
+Import "scene/SceneNode.rgr"
+Import "scene/SceneAssets.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGColor.rgr"
+
+class FigApp {
+    def parser:FigParser (new FigParser())
+    def converter:FigToScene (new FigToScene())
+    def emitter:SceneToEVG (new SceneToEVG())
+    def assets:SceneAssets (new SceneAssets())
+    def doc:FigDoc (new FigDoc())
+    def sceneDoc:SceneDocument (new SceneDocument())
+    def evgRoot:EVGElement (EVGElement.createDiv())
+    def list:EVGDisplayList (new EVGDisplayList())
+    def evgDump:string ""
+    def pageIndex:int 0
+    def frameIndex:int (0 - 1)
+    def selected:string ""
+    def name:string ""
+    def ok:boolean false
+    def err:string ""
+    def panX:double 40.0
+    def panY:double 40.0
+    def zoom:double 1.0
+    def debug:boolean false
+    def cmdCount:int 0
+    def pageW:double 1200.0
+    def pageH:double 800.0
+
+    Constructor () {
+        evgRoot = (EVGElement.createDiv())
+    }
+
+    fn openBytes:boolean (bytes:buffer fileName:string) {
+        name = fileName
+        doc = (parser.parseBytes(bytes fileName))
+        ok = doc.ok
+        err = doc.err
+        pageIndex = 0
+        frameIndex = (0 - 1)
+        selected = ""
+        if ok {
+            this.convert()
+            this.fit()
+            this.rebuild()
+        }
+        return ok
+    }
+
+    fn openSample:boolean () {
+        return (this.openBytes((FigSample.buildFig()) "sample.fig"))
+    }
+
+    fn convert:void () {
+        sceneDoc = (converter.convertDoc(doc))
+        assets = (new SceneAssets())
+        def i:int 0
+        while (i < (array_length doc.images)) {
+            def im:FigImage (itemAt doc.images i)
+            assets.setImage(im.name im.name)
+            i = (i + 1)
+        }
+        emitter.setAssets(assets)
+    }
+
+    fn pageCount:int () {
+        return (array_length sceneDoc.pages)
+    }
+
+    fn currentPage:SceneNode () {
+        return (sceneDoc.pageAt(pageIndex))
+    }
+
+    fn framesOnPage:[SceneNode] () {
+        def page:SceneNode (this.currentPage())
+        def out:[SceneNode]
+        def i:int 0
+        while (i < (array_length page.children)) {
+            def ch:SceneNode (itemAt page.children i)
+            if (ch.isFrameLike()) {
+                push out ch
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn setPage:void (i:int) {
+        def n:int (this.pageCount())
+        if (n <= 0) {
+            return
+        }
+        if (i < 0) {
+            i = 0
+        }
+        if (i >= n) {
+            i = (n - 1)
+        }
+        pageIndex = i
+        frameIndex = (0 - 1)
+        selected = ""
+        this.fit()
+        this.rebuild()
+    }
+
+    fn setFrame:void (i:int) {
+        frameIndex = i
+        selected = ""
+        this.fit()
+        this.rebuild()
+    }
+
+    fn select:void (id:string) {
+        selected = id
+        this.rebuild()
+    }
+
+    fn setDebug:void (on:boolean) {
+        debug = on
+        emitter.setDebug(on)
+        this.rebuild()
+    }
+
+    fn setImageUrl:void (ref:string url:string) {
+        assets.setImage(ref url)
+        emitter.setAssets(assets)
+        this.rebuild()
+    }
+
+    fn viewRoot:SceneNode () {
+        def page:SceneNode (this.currentPage())
+        if (frameIndex < 0) {
+            return page
+        }
+        def frames:[SceneNode] (this.framesOnPage())
+        if (frameIndex >= (array_length frames)) {
+            return page
+        }
+        return (itemAt frames frameIndex)
+    }
+
+    ; What the view root covers. A page has no size of its own — its
+    ; frames sit wherever they were drawn — so a page is measured as the
+    ; union of its children, and fit/100% pan to that rather than to 0,0.
+    fn contentBox:SceneNode (target:SceneNode) {
+        def box (new SceneNode())
+        box.x = target.x
+        box.y = target.y
+        box.w = target.w
+        box.h = target.h
+        if ((target.sourceType != "CANVAS") && (target.w >= 1.0)) {
+            return box
+        }
+        def n:int (array_length target.children)
+        if (n == 0) {
+            box.w = 800.0
+            box.h = 600.0
+            return box
+        }
+        def minX:double 0.0
+        def minY:double 0.0
+        def maxX:double 0.0
+        def maxY:double 0.0
+        def i:int 0
+        while (i < n) {
+            def ch:SceneNode (itemAt target.children i)
+            if ((i == 0) || (ch.x < minX)) {
+                minX = ch.x
+            }
+            if ((i == 0) || (ch.y < minY)) {
+                minY = ch.y
+            }
+            if ((i == 0) || ((ch.x + ch.w) > maxX)) {
+                maxX = (ch.x + ch.w)
+            }
+            if ((i == 0) || ((ch.y + ch.h) > maxY)) {
+                maxY = (ch.y + ch.h)
+            }
+            i = (i + 1)
+        }
+        box.x = minX
+        box.y = minY
+        box.w = (maxX - minX)
+        box.h = (maxY - minY)
+        return box
+    }
+
+    ; The canvas size in CSS pixels. The display list is built at this size,
+    ; so the host paints it one to one; before this it was always 1200x800
+    ; and stretched to whatever the canvas was, which squashed every frame.
+    fn setViewport:void (w:double h:double) {
+        if ((w < 1.0) || (h < 1.0)) {
+            return
+        }
+        if ((w == pageW) && (h == pageH)) {
+            return
+        }
+        pageW = w
+        pageH = h
+        this.rebuild()
+    }
+
+    fn fit:void () {
+        def target:SceneNode (this.contentBox((this.viewRoot())))
+        def w:double target.w
+        def h:double target.h
+        def ox:double target.x
+        def oy:double target.y
+        if (w < 1.0) {
+            w = 800.0
+        }
+        if (h < 1.0) {
+            h = 600.0
+        }
+        def sx:double ((pageW - 80.0) / w)
+        def sy:double ((pageH - 80.0) / h)
+        def sc:double sx
+        if (sy < sc) {
+            sc = sy
+        }
+        if (sc > 1.5) {
+            sc = 1.5
+        }
+        if (sc < 0.1) {
+            sc = 0.1
+        }
+        zoom = sc
+        panX = (40.0 - (ox * zoom))
+        panY = (40.0 - (oy * zoom))
+    }
+
+    fn zoom100:void () {
+        def target:SceneNode (this.contentBox((this.viewRoot())))
+        zoom = 1.0
+        panX = (40.0 - target.x)
+        panY = (40.0 - target.y)
+        this.rebuild()
+    }
+
+    fn setView:void (x:double y:double sc:double) {
+        panX = x
+        panY = y
+        zoom = sc
+        if (zoom < 0.05) {
+            zoom = 0.05
+        }
+        if (zoom > 16.0) {
+            zoom = 16.0
+        }
+        this.rebuild()
+    }
+
+    fn rebuild:void () {
+        if (ok == false) {
+            return
+        }
+        emitter.setDebug(debug)
+        emitter.setAssets(assets)
+        def root:SceneNode (this.viewRoot())
+        evgRoot = (emitter.buildPage(root (this.currentPage()) panX panY zoom))
+        evgDump = (emitter.dump(evgRoot))
+        def lay (new EVGLayout())
+        lay.setPageSize(pageW pageH)
+        lay.layout(evgRoot)
+        list = (new EVGDisplayList())
+        list.setTextEngine((lay.getTextEngine()))
+        list.build(evgRoot)
+        cmdCount = (array_length list.cmds)
+        if ((strlen selected) > 0) {
+            this.paintSelect()
+        }
+    }
+
+    fn paintSelect:void () {
+        def n:SceneNode (this.findScene(selected))
+        if ((strlen n.id) == 0) {
+            return
+        }
+        def x:double ((n.x * zoom) + panX)
+        def y:double ((n.y * zoom) + panY)
+        def w:double (n.w * zoom)
+        def h:double (n.h * zoom)
+        list.addFrame(x y w h 2.0 (EVGColor.rgb(59 130 246)))
+        cmdCount = (array_length list.cmds)
+    }
+
+    fn findScene:SceneNode (id:string) {
+        return (this.findWalk((this.currentPage()) id))
+    }
+
+    fn findWalk:SceneNode (n:SceneNode id:string) {
+        if (n.id == id) {
+            return n
+        }
+        def i:int 0
+        while (i < (array_length n.children)) {
+            def ch:SceneNode (itemAt n.children i)
+            def hit:SceneNode (this.findWalk(ch id))
+            if ((strlen hit.id) > 0) {
+                return hit
+            }
+            i = (i + 1)
+        }
+        return (new SceneNode())
+    }
+
+    fn sceneJson:string () {
+        def body:string (list.toJson())
+        return ("{\"width\":" + (to_string (to_int pageW)) + ",\"height\":" + (to_string (to_int pageH)) + ",\"list\":" + body + "}")
+    }
+
+    fn sceneGraphJson:string () {
+        return (sceneDoc.toJson())
+    }
+
+    fn evgText:string () {
+        return evgDump
+    }
+
+    fn hit:string (x:double y:double) {
+        def sx:double ((x - panX) / zoom)
+        def sy:double ((y - panY) / zoom)
+        def root:SceneNode (this.viewRoot())
+        if (root.sourceType == "CANVAS") {
+            return (this.hitWalk(root 0.0 0.0 sx sy ""))
+        }
+        return (this.hitWalk(root 0.0 0.0 sx sy ""))
+    }
+
+    fn hitWalk:string (n:SceneNode ox:double oy:double x:double y:double best:string) {
+        def nx:double (ox + n.x)
+        def ny:double (oy + n.y)
+        def inside:boolean false
+        if ((((x >= nx) && (x <= (nx + n.w))) && (y >= ny)) && (y <= (ny + n.h))) {
+            inside = true
+        }
+        if (n.sourceType == "CANVAS") {
+            inside = true
+        }
+        if inside {
+            if ((n.sourceType != "CANVAS") && ((strlen n.id) > 0)) {
+                best = n.id
+            }
+            def i:int 0
+            while (i < (array_length n.children)) {
+                def ch:SceneNode (itemAt n.children i)
+                best = (this.hitWalk(ch nx ny x y best))
+                i = (i + 1)
+            }
+        }
+        return best
+    }
+
+    fn statsJson:string () {
+        def o:string "{"
+        o = (o + "\"ok\":")
+        if ok {
+            o = (o + "true")
+        } {
+            o = (o + "false")
+        }
+        o = (o + ",\"error\":\"" + (this.esc(err)) + "\"")
+        o = (o + ",\"file\":\"" + (this.esc(doc.fileName)) + "\"")
+        o = (o + ",\"prelude\":\"" + (this.esc(doc.prelude)) + "\"")
+        o = (o + ",\"version\":" + (to_string doc.version))
+        o = (o + ",\"nodes\":" + (to_string (array_length doc.nodes)))
+        o = (o + ",\"pages\":" + (to_string (array_length doc.pages)))
+        o = (o + ",\"blobs\":" + (to_string (array_length doc.blobs)))
+        o = (o + ",\"images\":" + (to_string (array_length doc.images)))
+        o = (o + ",\"schemaTypes\":" + (to_string doc.schemaCount))
+        o = (o + ",\"cmds\":" + (to_string cmdCount))
+        o = (o + ",\"debug\":")
+        if debug {
+            o = (o + "true")
+        } {
+            o = (o + "false")
+        }
+        o = (o + ",\"zstd\":")
+        if doc.usedZstd {
+            o = (o + "true")
+        } {
+            o = (o + "false")
+        }
+        o = (o + ",\"ms\":{")
+        o = (o + "\"zip\":" + (to_string doc.zipMs))
+        o = (o + ",\"inflate\":" + (to_string doc.inflateMs))
+        o = (o + ",\"zstd\":" + (to_string doc.zstdMs))
+        o = (o + ",\"schema\":" + (to_string doc.schemaMs))
+        o = (o + ",\"decode\":" + (to_string doc.decodeMs))
+        o = (o + ",\"tree\":" + (to_string doc.treeMs))
+        o = (o + ",\"total\":" + (to_string doc.totalMs))
+        o = (o + "}}")
+        return o
+    }
+
+    fn pagesJson:string () {
+        def o:string "["
+        def i:int 0
+        while (i < (array_length sceneDoc.pages)) {
+            if (i > 0) {
+                o = (o + ",")
+            }
+            def p:SceneNode (itemAt sceneDoc.pages i)
+            o = (o + "{\"id\":\"" + (this.esc(p.id)) + "\",\"name\":\"" + (this.esc(p.name)) + "\",\"type\":\"" + (this.esc(p.sourceType)) + "\"}")
+            i = (i + 1)
+        }
+        return (o + "]")
+    }
+
+    fn framesJson:string () {
+        def frames:[SceneNode] (this.framesOnPage())
+        def o:string "["
+        def i:int 0
+        while (i < (array_length frames)) {
+            if (i > 0) {
+                o = (o + ",")
+            }
+            def f:SceneNode (itemAt frames i)
+            o = (o + "{\"id\":\"" + (this.esc(f.id)) + "\",\"name\":\"" + (this.esc(f.name)) + "\",\"w\":" + (to_string f.w) + ",\"h\":" + (to_string f.h) + "}")
+            i = (i + 1)
+        }
+        return (o + "]")
+    }
+
+    fn treeJson:string () {
+        def root:SceneNode (this.currentPage())
+        return (this.nodeTree(root 0))
+    }
+
+    fn nodeTree:string (nd:SceneNode depth:int) {
+        if (depth > 24) {
+            return "{}"
+        }
+        def o:string "{\"id\":\""
+        o = (o + (this.esc(nd.id)) + "\",\"name\":\"" + (this.esc(nd.name)))
+        o = (o + "\",\"type\":\"" + (this.esc(nd.sourceType)) + "\"")
+        o = (o + ",\"kind\":\"" + (this.esc(nd.kind)) + "\"")
+        o = (o + ",\"w\":" + (to_string nd.w) + ",\"h\":" + (to_string nd.h))
+        o = (o + ",\"children\":[")
+        def i:int 0
+        while (i < (array_length nd.children)) {
+            if (i > 0) {
+                o = (o + ",")
+            }
+            o = (o + (this.nodeTree((itemAt nd.children i) (depth + 1))))
+            i = (i + 1)
+        }
+        return (o + "]}")
+    }
+
+    fn propsJson:string () {
+        if ((strlen selected) == 0) {
+            return "{}"
+        }
+        def nd:FigNode (doc.nodeById(selected))
+        def sn:SceneNode (this.findScene(selected))
+        def o:string "{"
+        o = (o + "\"id\":\"" + (this.esc(selected)) + "\"")
+        o = (o + ",\"figma\":{")
+        o = (o + "\"name\":\"" + (this.esc(nd.name)) + "\"")
+        o = (o + ",\"type\":\"" + (this.esc(nd.typeName)) + "\"")
+        o = (o + ",\"x\":" + (to_string nd.m02) + ",\"y\":" + (to_string nd.m12))
+        o = (o + ",\"w\":" + (to_string nd.w) + ",\"h\":" + (to_string nd.h))
+        o = (o + "}")
+        o = (o + ",\"scene\":" + (sn.toJson()))
+        o = (o + ",\"evg\":\"" + (this.esc(evgDump)) + "\"")
+        return (o + "}")
+    }
+
+    fn warningsJson:string () {
+        def o:string "["
+        def i:int 0
+        while (i < (array_length sceneDoc.warnings)) {
+            if (i > 0) {
+                o = (o + ",")
+            }
+            def w:SceneWarn (itemAt sceneDoc.warnings i)
+            o = (o + "{\"id\":\"" + (this.esc(w.nodeId)) + "\",\"name\":\"" + (this.esc(w.nodeName)) + "\",\"feature\":\"" + (this.esc(w.feature)) + "\"}")
+            i = (i + 1)
+        }
+        return (o + "]")
+    }
+
+    fn imageCount:int () {
+        return (array_length doc.images)
+    }
+
+    fn imageName:string (i:int) {
+        if ((i < 0) || (i >= (array_length doc.images))) {
+            return ""
+        }
+        def im:FigImage (itemAt doc.images i)
+        return im.name
+    }
+
+    fn imageBytes:buffer (name:string) {
+        def im:FigImage (doc.imageByName(name))
+        return im.bytes
+    }
+
+    fn esc:string (s:string) {
+        def v (new KiwiValue())
+        return (v.jsonEscape(s))
+    }
+}

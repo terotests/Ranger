@@ -263,7 +263,9 @@ class NumberCtl extends UiCtl {
         return false
     }
 
-    fn typeChar:boolean (c:int) {
+    ; `typeCode`, not `typeChar`: the base class has a `typeChar` with two
+    ; parameters, and Swift refuses an override that changes the arity.
+    fn typeCode:boolean (c:int) {
         if (this.acceptsChar(c)) {
             text = text + (strfromcode c)
             return true
@@ -274,7 +276,7 @@ class NumberCtl extends UiCtl {
     fn typeText:void (s:string) {
         def i:int 0
         while (i < (strlen s)) {
-            this.typeChar((charAt s i))
+            this.typeCode((charAt s i))
             i = (i + 1)
         }
     }

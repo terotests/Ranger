@@ -930,6 +930,46 @@ console.log("--- the title bar is rounded only at the top ---");
     rc && rc[0] > 0 && rc[1] > 0 && rc[2] === 0 && rc[3] === 0, JSON.stringify(rc));
 }
 
+console.log("--- the dashboard has three palettes ---");
+{
+  // The theme radio, in a real page. What the node-level check cannot say is
+  // that the control is wired to the demo at all: `dashboard-check.mjs` calls
+  // `setTheme` itself.
+  await page.click('#demos input[value="dashboard"]');
+  await page.waitForTimeout(200);
+  const shot = () => page.evaluate(() => {
+    const l = JSON.parse(window.__lastList || "{}");
+    return {
+      bg: (l.cmds[0] || {}).c,
+      speed: l.effect ? l.effect.speed : null,
+      geom: (l.cmds || []).map((c) => [c.k, c.x, c.y, c.w, c.h, c.text || ""].join(",")).join("|"),
+    };
+  });
+  const light = await shot();
+  await page.click('#dashthemes input[value="marine"]');
+  await page.waitForTimeout(200);
+  const marine = await shot();
+  ok("the page is repainted", JSON.stringify(marine.bg) === "[212,234,242,1]",
+    JSON.stringify(marine.bg));
+  ok("the theme reaches the surface effect", marine.speed === 320, String(marine.speed));
+  // The whole claim of a theme in this engine: colours change, boxes do not.
+  ok("and not one box moved", marine.geom === light.geom);
+  // The third palette, through the same one control.
+  await page.click('#dashthemes input[value="sunrise"]');
+  await page.waitForTimeout(200);
+  const sunrise = await shot();
+  ok("a third palette is the same mechanism",
+    JSON.stringify(sunrise.bg) === "[255,243,230,1]" && sunrise.speed === 260,
+    JSON.stringify(sunrise.bg) + " " + sunrise.speed);
+  ok("and it moves nothing either", sunrise.geom === light.geom);
+  await page.click('#dashthemes input[value="default"]');
+  await page.waitForTimeout(200);
+  const back = await shot();
+  ok("and going back puts it all back",
+    JSON.stringify(back.bg) === JSON.stringify(light.bg) && back.speed === light.speed &&
+      back.geom === light.geom, JSON.stringify(back.bg));
+}
+
 console.log("--- the surface ripples where it was touched ---");
 {
   // `evg-surface-effect: ripple` is an EVG EXTENSION, not CSS: there is no

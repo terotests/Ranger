@@ -1,0 +1,504 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; FigNode tree → EVGDisplayList. Transforms are 2×3 and accumulate down
+; the tree. A page/frame is the clip; shapes paint in page space.
+
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGColor.rgr"
+Import "FigModel.rgr"
+Import "FigPath.rgr"
+
+class FigXform {
+    def a:double 1.0
+    def b:double 0.0
+    def c:double 0.0
+    def d:double 1.0
+    def e:double 0.0
+    def f:double 0.0
+
+    Constructor () {
+    }
+
+    sfn ident:FigXform () {
+        return (new FigXform())
+    }
+
+    fn mul:FigXform (n:FigNode) {
+        ; [a c e] [m00 m01 m02]
+        ; [b d f] [m10 m11 m12]
+        def o (new FigXform())
+        o.a = ((a * n.m00) + (c * n.m10))
+        o.c = ((a * n.m01) + (c * n.m11))
+        o.e = (((a * n.m02) + (c * n.m12)) + e)
+        o.b = ((b * n.m00) + (d * n.m10))
+        o.d = ((b * n.m01) + (d * n.m11))
+        o.f = (((b * n.m02) + (d * n.m12)) + f)
+        return o
+    }
+
+    fn applyX:double (x:double y:double) {
+        return (((a * x) + (c * y)) + e)
+    }
+
+    fn applyY:double (x:double y:double) {
+        return (((b * x) + (d * y)) + f)
+    }
+}
+
+class FigToEvg {
+    def list:EVGDisplayList (new EVGDisplayList())
+    def doc:FigDoc (new FigDoc())
+    def selected:string ""
+    def pageW:double 800.0
+    def pageH:double 600.0
+    def originX:double 0.0
+    def originY:double 0.0
+    def scale:double 1.0
+    def cmdCount:int 0
+
+    Constructor () {
+    }
+
+    fn reset:void () {
+        list = (new EVGDisplayList())
+        cmdCount = 0
+    }
+
+    fn setView:void (ox:double oy:double sc:double) {
+        originX = ox
+        originY = oy
+        scale = sc
+        if (scale < 0.05) {
+            scale = 0.05
+        }
+        if (scale > 16.0) {
+            scale = 16.0
+        }
+    }
+
+    fn paint:EVGColor (p:FigPaint opacity:double) {
+        def a:double ((p.a * p.opacity) * opacity)
+        def r:int (to_int ((p.r * 255.0) + 0.5))
+        def g:int (to_int ((p.g * 255.0) + 0.5))
+        def b:int (to_int ((p.b * 255.0) + 0.5))
+        if (r < 0) {
+            r = 0
+        }
+        if (r > 255) {
+            r = 255
+        }
+        if (g < 0) {
+            g = 0
+        }
+        if (g > 255) {
+            g = 255
+        }
+        if (b < 0) {
+            b = 0
+        }
+        if (b > 255) {
+            b = 255
+        }
+        return (EVGColor.rgba(r g b a))
+    }
+
+    fn drawNode:void (nd:FigNode xf:FigXform) {
+        if (nd.visible == false) {
+            return
+        }
+        if nd.removed {
+            return
+        }
+        def local:FigXform (xf.mul(nd))
+        def t:string nd.typeName
+        if ((t == "DOCUMENT") || (t == "CANVAS") || (t == "SLIDE_GRID") || (t == "SLIDE_ROW") || (t == "MODULE")) {
+            this.drawChildren(nd local)
+            return
+        }
+        if ((t == "SLIDE") || (t == "FRAME") || (t == "GROUP") || (t == "SECTION") || (t == "SYMBOL") || (t == "COMPONENT") || (t == "COMPONENT_SET") || (t == "BOOLEAN_GROUP") || (t == "INSTANCE")) {
+            this.drawFrame(nd local)
+            return
+        }
+        if ((t == "RECTANGLE") || (t == "ROUNDED_RECTANGLE") || (t == "SHAPE_WITH_TEXT")) {
+            this.drawRect(nd local)
+            this.drawTextIfAny(nd local)
+            return
+        }
+        if (t == "ELLIPSE") {
+            this.drawEllipse(nd local)
+            return
+        }
+        if (t == "TEXT") {
+            this.drawText(nd local)
+            return
+        }
+        if (t == "LINE") {
+            this.drawLine(nd local)
+            return
+        }
+        if ((t == "VECTOR") || (t == "STAR") || (t == "POLYGON") || (t == "BOOLEAN_OPERATION")) {
+            this.drawVector(nd local)
+            return
+        }
+        this.drawRect(nd local)
+        this.drawChildren(nd local)
+    }
+
+    fn drawChildren:void (nd:FigNode xf:FigXform) {
+        def n:int (array_length nd.children)
+        def i:int 0
+        while (i < n) {
+            this.drawNode((itemAt nd.children i) xf)
+            i = (i + 1)
+        }
+    }
+
+    fn drawFrame:void (nd:FigNode xf:FigXform) {
+        def x0:double (this.sx((xf.applyX(0.0 0.0))))
+        def y0:double (this.sy((xf.applyY(0.0 0.0))))
+        def x1:double (this.sx((xf.applyX(nd.w 0.0))))
+        def y1:double (this.sy((xf.applyY(nd.w 0.0))))
+        def x2:double (this.sx((xf.applyX(nd.w nd.h))))
+        def y2:double (this.sy((xf.applyY(nd.w nd.h))))
+        def x3:double (this.sx((xf.applyX(0.0 nd.h))))
+        def y3:double (this.sy((xf.applyY(0.0 nd.h))))
+        def minx:double (this.min4(x0 x1 x2 x3))
+        def miny:double (this.min4(y0 y1 y2 y3))
+        def maxx:double (this.max4(x0 x1 x2 x3))
+        def maxy:double (this.max4(y0 y1 y2 y3))
+        def fills:int (array_length nd.fills)
+        if (fills > 0) {
+            def p:FigPaint (nd.firstFill())
+            if ((p.kind == "IMAGE") && ((strlen p.imageHash) > 0)) {
+                list.addImage(p.imageHash minx miny (maxx - minx) (maxy - miny) false false 0.0)
+            } {
+                if p.visible {
+                    list.addRect(minx miny (maxx - minx) (maxy - miny) (this.paint(p nd.opacity)))
+                }
+            }
+        }
+        def clip:boolean false
+        if (nd.typeName == "FRAME") {
+            clip = true
+        }
+        if (nd.typeName == "SLIDE") {
+            clip = true
+        }
+        if clip {
+            list.addClip(minx miny (maxx - minx) (maxy - miny))
+        }
+        this.drawChildren(nd xf)
+        if clip {
+            def pop (new EVGDrawCmd())
+            pop.kind = 5
+            list.addCmd(pop)
+        }
+        if (nd.id == selected) {
+            this.drawSelect(minx miny (maxx - minx) (maxy - miny))
+        }
+    }
+
+    fn drawRect:void (nd:FigNode xf:FigXform) {
+        def pts:[double]
+        push pts (this.sx((xf.applyX(0.0 0.0))))
+        push pts (this.sy((xf.applyY(0.0 0.0))))
+        push pts (this.sx((xf.applyX(nd.w 0.0))))
+        push pts (this.sy((xf.applyY(nd.w 0.0))))
+        push pts (this.sx((xf.applyX(nd.w nd.h))))
+        push pts (this.sy((xf.applyY(nd.w nd.h))))
+        push pts (this.sx((xf.applyX(0.0 nd.h))))
+        push pts (this.sy((xf.applyY(0.0 nd.h))))
+        def p:FigPaint (nd.firstFill())
+        if ((array_length nd.fills) > 0) {
+            if ((p.kind == "IMAGE") && ((strlen p.imageHash) > 0)) {
+                def minx:double (this.min4((itemAt pts 0) (itemAt pts 2) (itemAt pts 4) (itemAt pts 6)))
+                def miny:double (this.min4((itemAt pts 1) (itemAt pts 3) (itemAt pts 5) (itemAt pts 7)))
+                def maxx:double (this.max4((itemAt pts 0) (itemAt pts 2) (itemAt pts 4) (itemAt pts 6)))
+                def maxy:double (this.max4((itemAt pts 1) (itemAt pts 3) (itemAt pts 5) (itemAt pts 7)))
+                list.addImage(p.imageHash minx miny (maxx - minx) (maxy - miny) false false 0.0)
+            } {
+                if p.visible {
+                    if (nd.corner > 0.5) {
+                        def minx2:double (this.min4((itemAt pts 0) (itemAt pts 2) (itemAt pts 4) (itemAt pts 6)))
+                        def miny2:double (this.min4((itemAt pts 1) (itemAt pts 3) (itemAt pts 5) (itemAt pts 7)))
+                        def maxx2:double (this.max4((itemAt pts 0) (itemAt pts 2) (itemAt pts 4) (itemAt pts 6)))
+                        def maxy2:double (this.max4((itemAt pts 1) (itemAt pts 3) (itemAt pts 5) (itemAt pts 7)))
+                        def c (new EVGDrawCmd())
+                        c.kind = 0
+                        c.x = minx2
+                        c.y = miny2
+                        c.w = (maxx2 - minx2)
+                        c.h = (maxy2 - miny2)
+                        c.radius = (nd.corner * scale)
+                        def col:EVGColor (this.paint(p nd.opacity))
+                        c.r = (col.red())
+                        c.g = (col.green())
+                        c.b = (col.blue())
+                        c.a = (col.alpha())
+                        list.addCmd(c)
+                    } {
+                        list.addPolygon(pts (this.paint(p nd.opacity)))
+                    }
+                }
+            }
+        }
+        if ((nd.strokeWeight > 0.0) && ((array_length nd.strokes) > 0)) {
+            def s:FigPaint (nd.firstStroke())
+            if s.visible {
+                list.addPolyline(pts (nd.strokeWeight * scale) (this.paint(s nd.opacity)))
+            }
+        }
+        if (nd.id == selected) {
+            def minx3:double (this.min4((itemAt pts 0) (itemAt pts 2) (itemAt pts 4) (itemAt pts 6)))
+            def miny3:double (this.min4((itemAt pts 1) (itemAt pts 3) (itemAt pts 5) (itemAt pts 7)))
+            def maxx3:double (this.max4((itemAt pts 0) (itemAt pts 2) (itemAt pts 4) (itemAt pts 6)))
+            def maxy3:double (this.max4((itemAt pts 1) (itemAt pts 3) (itemAt pts 5) (itemAt pts 7)))
+            this.drawSelect(minx3 miny3 (maxx3 - minx3) (maxy3 - miny3))
+        }
+    }
+
+    fn drawEllipse:void (nd:FigNode xf:FigXform) {
+        def pts:[double]
+        def i:int 0
+        while (i < 32) {
+            def ang:double (((to_double i) * 6.28318530718) / 32.0)
+            def lx:double ((nd.w * 0.5) + ((nd.w * 0.5) * (FigToEvg.cosApprox(ang))))
+            def ly:double ((nd.h * 0.5) + ((nd.h * 0.5) * (FigToEvg.sinApprox(ang))))
+            push pts (this.sx((xf.applyX(lx ly))))
+            push pts (this.sy((xf.applyY(lx ly))))
+            i = (i + 1)
+        }
+        def p:FigPaint (nd.firstFill())
+        if ((array_length nd.fills) > 0) {
+            if p.visible {
+                list.addPolygon(pts (this.paint(p nd.opacity)))
+            }
+        }
+        if ((nd.strokeWeight > 0.0) && ((array_length nd.strokes) > 0)) {
+            def s:FigPaint (nd.firstStroke())
+            if s.visible {
+                list.addPolyline(pts (nd.strokeWeight * scale) (this.paint(s nd.opacity)))
+            }
+        }
+    }
+
+    fn drawLine:void (nd:FigNode xf:FigXform) {
+        def pts:[double]
+        push pts (this.sx((xf.applyX(0.0 0.0))))
+        push pts (this.sy((xf.applyY(0.0 0.0))))
+        push pts (this.sx((xf.applyX(nd.w 0.0))))
+        push pts (this.sy((xf.applyY(nd.w 0.0))))
+        def s:FigPaint (nd.firstStroke())
+        def w:double nd.strokeWeight
+        if (w < 1.0) {
+            w = 1.0
+        }
+        list.addPolyline(pts (w * scale) (this.paint(s nd.opacity)))
+    }
+
+    fn drawVector:void (nd:FigNode xf:FigXform) {
+        def bi:int 0
+        def drew:boolean false
+        while (bi < (array_length nd.fillBlobs)) {
+            def idx:int (itemAt nd.fillBlobs bi)
+            if ((idx >= 0) && (idx < (array_length doc.blobs))) {
+                def rings:[FigPathRing]
+                FigPath.decode((itemAt doc.blobs idx) rings)
+                def ri:int 0
+                while (ri < (array_length rings)) {
+                    def ring:FigPathRing (itemAt rings ri)
+                    def pts:[double]
+                    def k:int 0
+                    while (k < (array_length ring.pts)) {
+                        def lx:double (itemAt ring.pts k)
+                        def ly:double (itemAt ring.pts (k + 1))
+                        push pts (this.sx((xf.applyX(lx ly))))
+                        push pts (this.sy((xf.applyY(lx ly))))
+                        k = (k + 2)
+                    }
+                    def p:FigPaint (nd.firstFill())
+                    if ((array_length pts) >= 6) {
+                        list.addPolygon(pts (this.paint(p nd.opacity)))
+                        drew = true
+                    }
+                    ri = (ri + 1)
+                }
+            }
+            bi = (bi + 1)
+        }
+        if (drew == false) {
+            this.drawRect(nd xf)
+        }
+    }
+
+    fn drawText:void (nd:FigNode xf:FigXform) {
+        def x:double (this.sx((xf.applyX(0.0 0.0))))
+        def y:double (this.sy((xf.applyY(0.0 0.0))))
+        def w:double (nd.w * scale)
+        def h:double (nd.h * scale)
+        def p:FigPaint (nd.firstFill())
+        def col:EVGColor (this.paint(p nd.opacity))
+        if ((array_length nd.fills) == 0) {
+            col = (EVGColor.rgb(30 30 30))
+        }
+        def size:double (nd.fontSize * scale)
+        if (size < 8.0) {
+            size = 8.0
+        }
+        def text:string nd.characters
+        if ((strlen text) == 0) {
+            text = nd.name
+        }
+        list.addText(text x (y + size) size col nd.fontFamily false false w h)
+        if (nd.id == selected) {
+            this.drawSelect(x y w h)
+        }
+    }
+
+    fn drawTextIfAny:void (nd:FigNode xf:FigXform) {
+        if ((strlen nd.characters) > 0) {
+            this.drawText(nd xf)
+        }
+    }
+
+    fn drawSelect:void (x:double y:double w:double h:double) {
+        list.addFrame(x y w h 2.0 (EVGColor.rgb(59 130 246)))
+    }
+
+    fn sx:double (x:double) {
+        return ((x * scale) + originX)
+    }
+
+    fn sy:double (y:double) {
+        return ((y * scale) + originY)
+    }
+
+    fn min4:double (a:double b:double c:double d:double) {
+        def m:double a
+        if (b < m) {
+            m = b
+        }
+        if (c < m) {
+            m = c
+        }
+        if (d < m) {
+            m = d
+        }
+        return m
+    }
+
+    fn max4:double (a:double b:double c:double d:double) {
+        def m:double a
+        if (b > m) {
+            m = b
+        }
+        if (c > m) {
+            m = c
+        }
+        if (d > m) {
+            m = d
+        }
+        return m
+    }
+
+    sfn sinApprox:double (x:double) {
+        def t:double x
+        while (t > 3.14159265359) {
+            t = (t - 6.28318530718)
+        }
+        while (t < (0.0 - 3.14159265359)) {
+            t = (t + 6.28318530718)
+        }
+        def t2:double (t * t)
+        return (((t * (1.0 - (t2 / 6.0))) + (((t * t2) * t2) / 120.0)))
+    }
+
+    sfn cosApprox:double (x:double) {
+        return (FigToEvg.sinApprox((x + 1.57079632679)))
+    }
+
+    fn renderPage:void (page:FigNode) {
+        this.reset()
+        pageW = page.w
+        pageH = page.h
+        if (pageW < 1.0) {
+            pageW = 800.0
+        }
+        if (pageH < 1.0) {
+            pageH = 600.0
+        }
+        list.addRect(0.0 0.0 4000.0 4000.0 (EVGColor.rgb(32 35 42)))
+        def boardX:double originX
+        def boardY:double originY
+        def bw:double (pageW * scale)
+        def bh:double (pageH * scale)
+        list.addRect(boardX boardY bw bh (EVGColor.rgb(248 249 251)))
+        def xf:FigXform (FigXform.ident())
+        this.drawChildren(page xf)
+        cmdCount = (list.count())
+    }
+
+    fn renderFrame:void (frame:FigNode) {
+        this.reset()
+        pageW = frame.w
+        pageH = frame.h
+        if (pageW < 1.0) {
+            pageW = 400.0
+        }
+        if (pageH < 1.0) {
+            pageH = 300.0
+        }
+        list.addRect(0.0 0.0 4000.0 4000.0 (EVGColor.rgb(32 35 42)))
+        list.addRect(originX originY (pageW * scale) (pageH * scale) (EVGColor.rgb(248 249 251)))
+        def xf:FigXform (FigXform.ident())
+        this.drawNode(frame xf)
+        cmdCount = (list.count())
+    }
+
+    fn hitWalk:string (nd:FigNode xf:FigXform px:double py:double best:string) {
+        if (nd.visible == false) {
+            return best
+        }
+        def local:FigXform (xf.mul(nd))
+        def t:string nd.typeName
+        if ((t == "DOCUMENT") || (t == "CANVAS") || (t == "SLIDE_GRID") || (t == "SLIDE_ROW") || (t == "MODULE")) {
+            def i:int 0
+            while (i < (array_length nd.children)) {
+                best = (this.hitWalk((itemAt nd.children i) local px py best))
+                i = (i + 1)
+            }
+            return best
+        }
+        def x0:double (this.sx((local.applyX(0.0 0.0))))
+        def y0:double (this.sy((local.applyY(0.0 0.0))))
+        def x2:double (this.sx((local.applyX(nd.w nd.h))))
+        def y2:double (this.sy((local.applyY(nd.w nd.h))))
+        def minx:double x0
+        def maxx:double x2
+        if (x2 < x0) {
+            minx = x2
+            maxx = x0
+        }
+        def miny:double y0
+        def maxy:double y2
+        if (y2 < y0) {
+            miny = y2
+            maxy = y0
+        }
+        def inside:boolean false
+        if ((px >= minx) && (px <= maxx) && (py >= miny) && (py <= maxy)) {
+            inside = true
+        }
+        def i2:int 0
+        while (i2 < (array_length nd.children)) {
+            best = (this.hitWalk((itemAt nd.children i2) local px py best))
+            i2 = (i2 + 1)
+        }
+        if inside {
+            if ((t != "SLIDE") && (t != "CANVAS")) {
+                return nd.id
+            }
+        }
+        return best
+    }
+}

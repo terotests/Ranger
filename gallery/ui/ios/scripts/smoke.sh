@@ -105,6 +105,43 @@ out8="$(drive --target=watchos-simulator --run --no-ranger)"
 expect "a watch simulator is found"          "Apple Watch Series 9"             "$out8"
 expect "and the watch app is launched"       "fi.ranger.dashboard.watch"        "$out8"
 
+# The driver is the gallery's, not the dashboard's: `--app` picks which demo is
+# built, and everything above happens for whichever one is named. This is the
+# same path end to end for the second port, so a change that breaks it for
+# RealTrainer cannot pass by only being tested on the dashboard.
+echo "-- a second app through the same driver --"
+rm -rf tmp/rt-ios/build
+out9="$(drive --app=realtrainer --run --no-ranger)"
+expect "it builds the other bundle"          "RangerRealTrainer.app"            "$out9"
+expect "under its own build root"            "tmp/rt-ios/build"                 "$out9"
+expect "installed"                           "* installed"                      "$out9"
+expect "and launched"                        "fi.ranger.realtrainer"            "$out9"
+
+# The bundle on disk, not the log: the stylesheet the app reads at launch is
+# either in there or the page comes up unstyled.
+if [ -f "tmp/rt-ios/build/ios-simulator/RangerRealTrainer.app/realtrainer.css" ]; then
+  say "ok   its own stylesheet is in the bundle"
+else
+  say "FAIL its own stylesheet is in the bundle"
+  fail=1
+fi
+
+# Which sources swiftc is handed only appears on the plan, so the plan is where
+# it is checked.
+out9b="$(drive --app=realtrainer --dry-run)"
+expect "its own host is compiled"            "RealTrainerView.swift"            "$out9b"
+expect "and its own Ranger entry point"      "gallery/realtrainer/ios/ranger/rt_ios.rgr" "$out9b"
+refute "the dashboard is not dragged in"     "DashboardView.swift"              "$out9b"
+refute "nor is its page"                     "ui_ios.swift"                     "$out9b"
+
+out10="$(drive --app=realtrainer --target=watchos-simulator --run --no-ranger || true)"
+expect "a port with no watch says so"        "has no watch build"               "$out10"
+refute "rather than building one"            "pretend swiftc"                   "$out10"
+
+out11="$(drive --app=nosuchdemo --dry-run || true)"
+expect "an unknown app is named"             "unknown app: nosuchdemo"          "$out11"
+expect "with the ones there are"             "dashboard, realtrainer"           "$out11"
+
 echo
 if [ "$fail" = "0" ]; then
   echo "the driver builds, signs, installs and launches -- twice, and without a Mac"

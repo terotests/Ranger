@@ -1,0 +1,154 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; Browser facade. The page fetches bytes (or the user picks a file) and
+; this class parses them and answers an EVG display list.
+
+Import "../src/FigApp.rgr"
+
+class FigWeb {
+    def app:FigApp (new FigApp())
+
+    Constructor () {
+    }
+
+    fn openBytes:boolean (data:buffer name:string) {
+        return (app.openBytes(data name))
+    }
+
+    fn openSample:boolean () {
+        return (app.openSample())
+    }
+
+    fn ok:boolean () {
+        return app.ok
+    }
+
+    fn error:string () {
+        return app.err
+    }
+
+    fn scene:string () {
+        return (app.sceneJson())
+    }
+
+    fn sceneGraph:string () {
+        return (app.sceneGraphJson())
+    }
+
+    fn evgDump:string () {
+        return (app.evgText())
+    }
+
+    fn stats:string () {
+        return (app.statsJson())
+    }
+
+    fn pages:string () {
+        return (app.pagesJson())
+    }
+
+    fn frames:string () {
+        return (app.framesJson())
+    }
+
+    fn tree:string () {
+        return (app.treeJson())
+    }
+
+    fn props:string () {
+        return (app.propsJson())
+    }
+
+    fn warnings:string () {
+        return (app.warningsJson())
+    }
+
+    fn pageCount:int () {
+        return (app.pageCount())
+    }
+
+    fn pageIndex:int () {
+        return app.pageIndex
+    }
+
+    fn setPage:void (i:int) {
+        app.setPage(i)
+    }
+
+    fn setFrame:void (i:int) {
+        app.setFrame(i)
+    }
+
+    fn frameIndex:int () {
+        return app.frameIndex
+    }
+
+    fn select:void (id:string) {
+        app.select(id)
+    }
+
+    fn selected:string () {
+        return app.selected
+    }
+
+    fn hit:string (x:double y:double) {
+        return (app.hit(x y))
+    }
+
+    fn setView:void (x:double y:double sc:double) {
+        app.setView(x y sc)
+    }
+
+    fn setViewport:void (w:double h:double) {
+        app.setViewport(w h)
+    }
+
+    fn fit:void () {
+        app.fit()
+        app.rebuild()
+    }
+
+    fn zoom100:void () {
+        app.zoom100()
+    }
+
+    fn setDebug:void (on:boolean) {
+        app.setDebug(on)
+    }
+
+    fn debug:boolean () {
+        return app.debug
+    }
+
+    fn viewX:double () {
+        return app.panX
+    }
+
+    fn viewY:double () {
+        return app.panY
+    }
+
+    fn viewScale:double () {
+        return app.zoom
+    }
+
+    fn imageCount:int () {
+        return (app.imageCount())
+    }
+
+    fn imageName:string (i:int) {
+        return (app.imageName(i))
+    }
+
+    fn imageBytes:buffer (name:string) {
+        return (app.imageBytes(name))
+    }
+
+    fn setImageUrl:void (ref:string url:string) {
+        app.setImageUrl(ref url)
+    }
+
+    fn fileName:string () {
+        return app.doc.fileName
+    }
+}

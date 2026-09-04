@@ -1,10 +1,196 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later
  *
- * shadcn's dashboard-01: a row of four figures, then a chart card. Pale, thin
+ * shadcn's dashboard-01: a row of four figures, then a chart card. Thin
  * borders, generous radius — and NO size on the chart's placeholder, because
  * the demo sets that inline from the same two numbers the Vega specification
  * is built with.
+ *
+ * THREE PALETTES: the shadcn light one, marine, and sunrise. They are `@vars`
+ * blocks below and nothing else — no rule in this file states a colour.
  */
+
+/* --- the palettes -------------------------------------------------------------
+ *
+ * A THEME IS A LIST OF COLOURS, not a second copy of the sheet. `@vars` is the
+ * palette and `@vars <name>` is what a theme makes of it; every rule below
+ * names a role — `var(--surface)`, `var(--muted)` — and no rule anywhere in
+ * this file states a colour twice.
+ *
+ * The names are ROLES and not shades, which is what makes a second theme
+ * possible at all: `--accent` and `--accent-hover` are the same zinc in the
+ * default theme and different colours in marine, so a palette keyed on what a
+ * colour LOOKED like would have merged them and then had nothing to say when
+ * they parted. Forty-one roles came out of asking, for every colour on the
+ * page, whether any theme wanted it to differ from the one beside it.
+ *
+ * This replaced ninety-three `.theme-marine .db-*` rules, and with them the
+ * rule those rules needed — that every themed declaration have an unscoped one
+ * to fall back to, or it would survive the switch home. There is one
+ * declaration now and it is resolved per theme, so leaving a theme cannot
+ * leave anything behind.
+ *
+ * `var()` is resolved when a plan is built — once per (class, theme, state) —
+ * so this costs nothing per element or per frame. See EVGStyleSheet.rgr.
+ */
+
+@vars {
+  /* the page and its surfaces */
+  --page      : #fafafa;
+  --surface   : #ffffff;
+  --row-alt   : #fafafa;
+  --subtle    : #f4f4f5;
+  --chip-fill : #ffffff;
+  --line      : #e4e4e7;
+  --rule      : #e4e4e7;
+  --row-line  : #f4f4f5;
+  --check-line: #d4d4d8;
+  /* text */
+  --ink        : #09090b;
+  --ink-strong : #18181b;
+  --control-ink: #3f3f46;
+  --cell-ink   : #3f3f46;
+  --pill-ink   : #52525b;
+  --muted      : #71717a;
+  --status-ink : #52525b;
+  --faint      : #a1a1aa;
+  /* the marks that are not text */
+  --accent      : #18181b;
+  --accent-hover: #27272a;
+  --on-accent   : #ffffff;
+  --mark        : #52525b;
+  --trend       : #18181b;
+  --good        : #16a34a;
+  --bar         : #18181b;
+  /* the sidebar, which is its own surface */
+  --side         : #ffffff;
+  --side-edge    : #e4e4e7;
+  --side-ink     : #09090b;
+  --side-text    : #27272a;
+  --side-text-on : #09090b;
+  --side-muted   : #71717a;
+  --side-icon    : #52525b;
+  --side-hover   : #f4f4f5;
+  --side-active  : #f4f4f5;
+  --side-btn     : #ffffff;
+  --side-btn-line: #e4e4e7;
+  --avatar       : #e4e4e7;
+  --avatar-ink   : #3f3f46;
+  /* what is painted outside the element tree */
+  --chart-area: #d4d4d8;
+  --chart-line: #3f3f46;
+  --thumb     : #d4d4d8;
+  /* and the water */
+  --ripple-speed: 220;
+}
+
+/* MARINE: harbour-navy sidebar, mist page, foam cards, teal marks. And slower
+ * water — 320 against the default's 220 — because a page this colour reads as
+ * something the rings travel ACROSS rather than a white sheet being disturbed.
+ */
+@vars marine {
+  /* the page and its surfaces */
+  --page      : #d4eaf2;
+  --surface   : #f7fcfe;
+  --row-alt   : #e8f4f8;
+  --subtle    : #d4eaf2;
+  --chip-fill : #e8f6f8;
+  --line      : #b6d4e0;
+  --rule      : #b6d4e0;
+  --row-line  : #d4eaf2;
+  --check-line: #b6d4e0;
+  /* text */
+  --ink        : #0a3344;
+  --ink-strong : #0a3344;
+  --control-ink: #0a3344;
+  --cell-ink   : #2a5a6a;
+  --pill-ink   : #0a3344;
+  --muted      : #4a7d8c;
+  --status-ink : #4a7d8c;
+  --faint      : #7eb8c9;
+  /* the marks that are not text */
+  --accent      : #14b8a6;
+  --accent-hover: #0d9488;
+  --on-accent   : #f0fafc;
+  --mark        : #0e7490;
+  --trend       : #0d9488;
+  --good        : #0d9488;
+  --bar         : #0e7490;
+  /* the sidebar, which is its own surface */
+  --side         : #0a3344;
+  --side-edge    : #164556;
+  --side-ink     : #e8f6f8;
+  --side-text    : #c5e8f0;
+  --side-text-on : #f0fafc;
+  --side-muted   : #7eb8c9;
+  --side-icon    : #8ecad6;
+  --side-hover   : #134556;
+  --side-active  : #165566;
+  --side-btn     : #0e4458;
+  --side-btn-line: #1a6a80;
+  --avatar       : #165566;
+  --avatar-ink   : #c5e8f0;
+  /* what is painted outside the element tree */
+  --chart-area: #7ec8dd;
+  --chart-line: #0e7490;
+  --thumb     : #8ecad6;
+  /* and the water */
+  --ripple-speed: 320;
+}
+
+/* SUNRISE: the sky a few minutes before the sun clears the horizon. A plum
+ * sidebar for the part of the sky still holding the night, cream and amber for
+ * the part that is not, and burnt orange for the marks — the chart included,
+ * which is why `--chart-line` is a role and not a literal in the demo.
+ */
+@vars sunrise {
+  /* the page and its surfaces */
+  --page      : #fff3e6;
+  --surface   : #fffaf5;
+  --row-alt   : #fdf0e2;
+  --subtle    : #fce7d2;
+  --chip-fill : #fdeee0;
+  --line      : #f0d5bb;
+  --rule      : #f0d5bb;
+  --row-line  : #f6dfc9;
+  --check-line: #e8c7a8;
+  /* text */
+  --ink        : #3b1f14;
+  --ink-strong : #3b1f14;
+  --control-ink: #3b1f14;
+  --cell-ink   : #5b3a2b;
+  --pill-ink   : #3b1f14;
+  --muted      : #8a6552;
+  --status-ink : #8a6552;
+  --faint      : #c4a08a;
+  /* the marks that are not text */
+  --accent      : #f59e0b;
+  --accent-hover: #d97706;
+  --on-accent   : #fff8ee;
+  --mark        : #c2410c;
+  --trend       : #b45309;
+  --good        : #4d7c0f;
+  --bar         : #ea580c;
+  /* the sidebar, which is its own surface */
+  --side         : #45203c;
+  --side-edge    : #5c2f4d;
+  --side-ink     : #fdf0f7;
+  --side-text    : #f0dce8;
+  --side-text-on : #fff8ee;
+  --side-muted   : #c79ab4;
+  --side-icon    : #dda9c3;
+  --side-hover   : #55284a;
+  --side-active  : #653058;
+  --side-btn     : #4e2544;
+  --side-btn-line: #6d3a5f;
+  --avatar       : #653058;
+  --avatar-ink   : #f0dce8;
+  /* what is painted outside the element tree */
+  --chart-area: #fcd9a8;
+  --chart-line: #ea580c;
+  --thumb     : #e8b98a;
+  /* and the water */
+  --ripple-speed: 260;
+}
 
 /* The page is a ROW now: the sidebar, the hairline that separates it, and
  * everything that was the page before. Widening rather than narrowing is
@@ -30,7 +216,7 @@
    * Strength past about ten pixels and highlight past about a tenth stop
    * looking like water and start looking like a filter on a video. */
   evg-surface-effect: ripple;
-  evg-ripple-speed: 220;
+  evg-ripple-speed: var(--ripple-speed);
   evg-ripple-width: 24px;
   evg-ripple-strength: 11px;
   evg-ripple-decay: 1.6;
@@ -55,7 +241,7 @@
   display: flex;
   flex-direction: row;
   flex-wrap: nowrap;
-  background-color: #fafafa;
+  background-color: var(--page);
   width: 1336px;
   /* THE VIEWPORT. Not a constant: a host is free to be any height, and 1420 —
    * what this said until an Android tablet in portrait was 2137 page pixels
@@ -85,7 +271,7 @@
   display: flex;
   flex-direction: column;
   flex-wrap: nowrap;
-  background-color: #ffffff;
+  background-color: var(--side);
   padding: 8px;
   width: 255px;
   height: 100vh;
@@ -98,7 +284,7 @@
  * not a workaround for a missing feature so much as an honest statement that
  * the feature is missing; see the note in the demo. */
 .db-side-edge {
-  background-color: #e4e4e7;
+  background-color: var(--side-edge);
   width: 1px;
   height: 100vh;
 }
@@ -128,7 +314,7 @@
   height: 48px;
 }
 
-.db-brand:hover { background-color: #f4f4f5; }
+.db-brand:hover { background-color: var(--side-hover); }
 
 .db-brand-mark {
   display: flex;
@@ -137,7 +323,7 @@
   align-items: center;
   justify-content: center;
   border-radius: 12px;
-  background-color: #18181b;
+  background-color: var(--accent);
   width: 24px;
   height: 24px;
 }
@@ -148,8 +334,8 @@
  * 2.7 pixels above the centre of its circle. Letting it size to its line is
  * the whole fix, and it is the same hand-rounded height the engine already
  * computes that task #63 is about. */
-.db-brand-mark-text { color: #ffffff; font-size: 12px; font-weight: 600; }
-.db-brand-text { color: #09090b; font-size: 14px; font-weight: 600; }
+.db-brand-mark-text { color: var(--on-accent); font-size: 12px; font-weight: 600; }
+.db-brand-text { color: var(--side-ink); font-size: 14px; font-weight: 600; }
 
 /* Header, content, footer — and the CONTENT is what grows, which is both what
  * the reference does and the only shape that lands the account row on the
@@ -180,7 +366,7 @@
  * landmark would put a rung in the document outline that the page does not
  * have. */
 .db-group-label {
-  color: #71717a;
+  color: var(--side-muted);
   font-size: 12px;
   font-weight: 500;
   padding: 0 8px;
@@ -222,15 +408,15 @@
   align-items: center;
   gap: 8px;
   border-radius: 8px;
-  background-color: #18181b;
+  background-color: var(--accent);
   padding: 0 10px;
   height: 32px;
   flex: 1;
 }
 
-.db-quick:hover { background-color: #27272a; }
-.db-quick-icon { width: 16px; height: 16px; fill: #ffffff; }
-.db-quick-text { color: #ffffff; font-size: 13px; font-weight: 500; }
+.db-quick:hover { background-color: var(--accent-hover); }
+.db-quick-icon { width: 16px; height: 16px; fill: var(--on-accent); }
+.db-quick-text { color: var(--on-accent); font-size: 13px; font-weight: 500; }
 
 .db-iconbtn {
   display: flex;
@@ -239,14 +425,14 @@
   align-items: center;
   justify-content: center;
   border-radius: 8px;
-  border: 1px solid #e4e4e7;
-  background-color: #ffffff;
+  border: 1px solid var(--side-btn-line);
+  background-color: var(--side-btn);
   width: 32px;
   height: 32px;
 }
 
-.db-iconbtn:hover { background-color: #f4f4f5; }
-.db-iconbtn-icon { width: 15px; height: 15px; fill: #52525b; }
+.db-iconbtn:hover { background-color: var(--side-active); }
+.db-iconbtn-icon { width: 15px; height: 15px; fill: var(--side-icon); }
 
 .db-nav {
   display: flex;
@@ -259,12 +445,12 @@
   height: 32px;
 }
 
-.db-nav:hover { background-color: #f4f4f5; }
+.db-nav:hover { background-color: var(--side-hover); }
 
 /* The page you are on. The fill is the only thing on screen that says so, and
  * `aria-current="page"` is the only thing that says it to a reader — neither
  * one stands in for the other. */
-.db-nav-on { background-color: #f4f4f5; }
+.db-nav-on { background-color: var(--side-active); }
 
 /* A 16x16 BOX of artwork, and a box is all it is: `align-items: center` on the
  * row centres it and there is no baseline anywhere in the arrangement. That is
@@ -274,11 +460,11 @@
  *
  * `stroke="currentColor"` in the imported file resolves to the element's
  * `fill`, so this one declaration is the whole of the icon's theming. */
-.db-nav-icon { width: 16px; height: 16px; fill: #52525b; }
-.db-nav-text { color: #27272a; font-size: 13px; }
-.db-nav-text-on { color: #09090b; font-size: 13px; font-weight: 500; }
+.db-nav-icon { width: 16px; height: 16px; fill: var(--side-icon); }
+.db-nav-text { color: var(--side-text); font-size: 13px; }
+.db-nav-text-on { color: var(--side-text-on); font-size: 13px; font-weight: 500; }
 /* The last row of the Documents group is a dimmer "More", like the reference. */
-.db-nav-text-dim { color: #71717a; font-size: 13px; }
+.db-nav-text-dim { color: var(--side-muted); font-size: 13px; }
 
 .db-user {
   display: flex;
@@ -291,7 +477,7 @@
   height: 48px;
 }
 
-.db-user:hover { background-color: #f4f4f5; }
+.db-user:hover { background-color: var(--side-hover); }
 
 .db-avatar {
   display: flex;
@@ -300,12 +486,12 @@
   align-items: center;
   justify-content: center;
   border-radius: 8px;
-  background-color: #e4e4e7;
+  background-color: var(--avatar);
   width: 32px;
   height: 32px;
 }
 
-.db-avatar-text { color: #3f3f46; font-size: 12px; font-weight: 600; }
+.db-avatar-text { color: var(--avatar-ink); font-size: 12px; font-weight: 600; }
 
 .db-user-text {
   display: flex;
@@ -313,8 +499,8 @@
   flex-wrap: nowrap;
 }
 
-.db-user-name { color: #09090b; font-size: 13px; font-weight: 500; }
-.db-user-mail { color: #71717a; font-size: 11px; }
+.db-user-name { color: var(--side-ink); font-size: 13px; font-weight: 500; }
+.db-user-mail { color: var(--side-muted); font-size: 11px; }
 
 .db-main {
   display: flex;
@@ -340,8 +526,8 @@
   flex-direction: column;
   flex-wrap: nowrap;
   border-radius: 14px;
-  border: 1px solid #e4e4e7;
-  background-color: #ffffff;
+  border: 1px solid var(--line);
+  background-color: var(--surface);
   padding: 18px;
 }
 
@@ -353,7 +539,7 @@
   height: 24px;
 }
 
-.db-card-label { color: #71717a; font-size: 13px; }
+.db-card-label { color: var(--muted); font-size: 13px; }
 
 /* Eats the slack so the badge sits at the far end. `justify-content:
  * space-between` would also shove the label away from the leading edge on a
@@ -367,17 +553,17 @@
   align-items: center;
   gap: 3px;
   border-radius: 7px;
-  border: 1px solid #e4e4e7;
-  background-color: #ffffff;
+  border: 1px solid var(--line);
+  background-color: var(--chip-fill);
   padding: 3px 7px;
 }
 
 .db-badge-up { }
-.db-badge-text { color: #18181b; font-size: 11px; font-weight: 500; }
-.db-arrow { color: #52525b; font-family: Arial; font-size: 11px; }
+.db-badge-text { color: var(--ink-strong); font-size: 11px; font-weight: 500; }
+.db-arrow { color: var(--mark); font-family: Arial; font-size: 11px; }
 
 .db-big {
-  color: #09090b;
+  color: var(--ink);
   font-size: 28px;
   font-weight: 600;
   padding: 10px 0 0 0;
@@ -399,16 +585,16 @@
   gap: 5px;
 }
 
-.db-trend { color: #18181b; font-size: 13px; font-weight: 500; }
-.db-card-sub { color: #71717a; font-size: 12px; }
+.db-trend { color: var(--trend); font-size: 13px; font-weight: 500; }
+.db-card-sub { color: var(--muted); font-size: 12px; }
 
 .db-chart-card {
   display: flex;
   flex-direction: column;
   flex-wrap: nowrap;
   border-radius: 14px;
-  border: 1px solid #e4e4e7;
-  background-color: #ffffff;
+  border: 1px solid var(--line);
+  background-color: var(--surface);
   padding: 18px;
 }
 
@@ -426,8 +612,8 @@
   flex-wrap: nowrap;
 }
 
-.db-chart-title { color: #09090b; font-size: 16px; font-weight: 600; }
-.db-chart-sub { color: #71717a; font-size: 13px; }
+.db-chart-title { color: var(--ink); font-size: 16px; font-weight: 600; }
+.db-chart-sub { color: var(--muted); font-size: 13px; }
 
 /* The segmented control: one bordered strip with the chosen cell filled. */
 .db-segs {
@@ -436,8 +622,8 @@
   flex-wrap: nowrap;
   align-items: center;
   border-radius: 9px;
-  border: 1px solid #e4e4e7;
-  background-color: #ffffff;
+  border: 1px solid var(--line);
+  background-color: var(--surface);
   padding: 3px;
   gap: 2px;
 }
@@ -451,8 +637,8 @@
   padding: 6px 12px;
 }
 
-.db-seg-on { background-color: #f4f4f5; }
-.db-seg-text { color: #3f3f46; font-size: 12px; font-weight: 500; }
+.db-seg-on { background-color: var(--subtle); }
+.db-seg-text { color: var(--control-ink); font-size: 12px; font-weight: 500; }
 
 /* NO width or height. The demo sets both inline from the two numbers the
  * specification is built with — the box the layout reserves and the picture
@@ -460,7 +646,28 @@
  * true. */
 .db-chart-box { }
 
-.db-note { color: #71717a; font-size: 12px; padding: 14px 0 0 0; width: 1032px; }
+/* --- the ink that is NOT on an element ------------------------------------
+ *
+ * The chart and the scroll indicator are painted straight into the display
+ * list — the chart because Vela draws it, the indicator because its size is
+ * not known until after the layout has run. Neither is an element, so neither
+ * can carry a class, and both used to have their colours typed into the demo.
+ *
+ * A theme that cannot reach the biggest picture on the page is not a theme, so
+ * the colours live here anyway, on classes nothing wears: the demo asks the
+ * sheet what `.db-ink-line` resolves to UNDER THE CURRENT THEME and hands the
+ * answer to Vela's specification and to `addRect`. One place for a colour,
+ * whether or not there is an element to hang it on.
+ */
+.db-ink-area  { color: var(--chart-area); }
+.db-ink-line  { color: var(--chart-line); }
+.db-ink-label { color: var(--muted); }
+.db-ink-rule  { color: var(--rule); }
+.db-ink-grid  { color: var(--subtle); }
+.db-ink-track { color: var(--subtle); }
+.db-ink-thumb { color: var(--thumb); }
+
+.db-note { color: var(--muted); font-size: 12px; padding: 14px 0 0 0; width: 1032px; }
 
 /* --- the data table ----------------------------------------------------------
  *
@@ -476,7 +683,7 @@
   flex-wrap: nowrap;
   align-items: center;
   border-radius: 9px;
-  background-color: #f4f4f5;
+  background-color: var(--subtle);
   padding: 3px;
   gap: 2px;
 }
@@ -491,8 +698,8 @@
   padding: 6px 11px;
 }
 
-.db-tab-on { background-color: #ffffff; }
-.db-tab-text { color: #3f3f46; font-size: 12px; font-weight: 500; }
+.db-tab-on { background-color: var(--surface); }
+.db-tab-text { color: var(--control-ink); font-size: 12px; font-weight: 500; }
 
 .db-tab-pill {
   display: flex;
@@ -501,12 +708,12 @@
   align-items: center;
   justify-content: center;
   border-radius: 8px;
-  background-color: #e4e4e7;
+  background-color: var(--rule);
   width: 18px;
   height: 16px;
 }
 
-.db-tab-pill-text { color: #52525b; font-size: 10px; font-weight: 500; }
+.db-tab-pill-text { color: var(--pill-ink); font-size: 10px; font-weight: 500; }
 
 .db-tools {
   display: flex;
@@ -523,28 +730,28 @@
   align-items: center;
   gap: 6px;
   border-radius: 8px;
-  border: 1px solid #e4e4e7;
-  background-color: #ffffff;
+  border: 1px solid var(--line);
+  background-color: var(--surface);
   padding: 7px 11px;
 }
 
-.db-tool-text { color: #18181b; font-size: 12px; font-weight: 500; }
-.db-tool-icon { color: #52525b; font-family: Arial; font-size: 12px; }
-.db-chevron { color: #71717a; font-family: Arial; font-size: 11px; }
+.db-tool-text { color: var(--ink-strong); font-size: 12px; font-weight: 500; }
+.db-tool-icon { color: var(--mark); font-family: Arial; font-size: 12px; }
+.db-chevron { color: var(--muted); font-family: Arial; font-size: 11px; }
 
 .db-table {
   display: flex;
   flex-direction: column;
   flex-wrap: nowrap;
   border-radius: 10px;
-  border: 1px solid #e4e4e7;
+  border: 1px solid var(--line);
 }
 
 .db-thead {
   display: flex;
   flex-direction: column;
   flex-wrap: nowrap;
-  background-color: #fafafa;
+  background-color: var(--row-alt);
 }
 
 .db-tbody {
@@ -558,12 +765,12 @@
   flex-direction: row;
   flex-wrap: nowrap;
   align-items: center;
-  border-bottom: 1px solid #f4f4f5;
+  border-bottom: 1px solid var(--row-line);
   padding: 0 12px;
   height: 46px;
 }
 
-.db-tr-on { background-color: #fafafa; }
+.db-tr-on { background-color: var(--row-alt); }
 
 .db-th {
   display: flex;
@@ -589,8 +796,8 @@
 .db-col-limit { width: 80px; }
 .db-col-reviewer { width: 190px; }
 
-.db-cell-text { color: #3f3f46; font-size: 13px; }
-.db-cell-strong { color: #09090b; font-weight: 500; }
+.db-cell-text { color: var(--cell-ink); font-size: 13px; }
+.db-cell-strong { color: var(--ink); font-weight: 500; }
 
 .db-chip {
   display: flex;
@@ -598,11 +805,11 @@
   flex-wrap: nowrap;
   align-items: center;
   border-radius: 7px;
-  border: 1px solid #e4e4e7;
+  border: 1px solid var(--line);
   padding: 3px 8px;
 }
 
-.db-chip-text { color: #52525b; font-size: 11px; }
+.db-chip-text { color: var(--mark); font-size: 11px; }
 
 .db-status {
   display: flex;
@@ -611,17 +818,17 @@
   align-items: center;
   gap: 5px;
   border-radius: 7px;
-  border: 1px solid #e4e4e7;
+  border: 1px solid var(--line);
   padding: 3px 8px;
 }
 
-.db-status-icon { color: #a1a1aa; font-family: Arial; font-size: 11px; }
-.db-status-text { color: #52525b; font-size: 11px; }
+.db-status-icon { color: var(--faint); font-family: Arial; font-size: 11px; }
+.db-status-text { color: var(--status-ink); font-size: 11px; }
 /* The done tick is green. Its OWN class rather than a descendant selector:
  * this sheet supports `.theme-<name> .class` and nothing else, and it says so
  * rather than quietly ignoring the rule — which it did, and the tick stayed
  * grey while the sheet looked correct. */
-.db-status-icon-done { color: #16a34a; }
+.db-status-icon-done { color: var(--good); }
 
 .db-grip {
   display: flex;
@@ -634,7 +841,7 @@
   height: 22px;
 }
 
-.db-grip-icon { color: #a1a1aa; font-family: Arial; font-size: 13px; }
+.db-grip-icon { color: var(--faint); font-family: Arial; font-size: 13px; }
 
 .db-check {
   display: flex;
@@ -643,13 +850,13 @@
   align-items: center;
   justify-content: center;
   border-radius: 4px;
-  border: 1px solid #d4d4d8;
-  background-color: #ffffff;
+  border: 1px solid var(--check-line);
+  background-color: var(--surface);
   width: 15px;
   height: 15px;
 }
 
-.db-tick { color: #18181b; font-family: Arial; font-size: 10px; }
+.db-tick { color: var(--ink-strong); font-family: Arial; font-size: 10px; }
 
 .db-more {
   display: flex;
@@ -662,7 +869,7 @@
   height: 22px;
 }
 
-.db-more-icon { color: #71717a; font-family: Arial; font-size: 13px; }
+.db-more-icon { color: var(--muted); font-family: Arial; font-size: 13px; }
 
 .db-assign {
   display: flex;
@@ -670,19 +877,19 @@
   flex-wrap: nowrap;
   align-items: center;
   border-radius: 7px;
-  border: 1px solid #e4e4e7;
-  background-color: #ffffff;
+  border: 1px solid var(--line);
+  background-color: var(--surface);
   padding: 0 8px;
   width: 158px;
   height: 30px;
 }
 
-.db-assign-text { color: #a1a1aa; font-size: 12px; }
+.db-assign-text { color: var(--faint); font-size: 12px; }
 
 /* What dnd-kit says out loud while a row is carried. Off the page rather than
  * hidden: `aria-hidden` would take it out of the tree and a live region a
  * reader cannot reach announces nothing. */
-.db-live { color: #71717a; font-size: 11px; padding: 8px 0 0 0; }
+.db-live { color: var(--muted); font-size: 11px; padding: 8px 0 0 0; }
 
 /* The clip box. Its height is set inline from the same number the virtualiser
  * reasons about, because a viewport the layout and the range disagree about is
@@ -720,16 +927,16 @@
   padding: 0 0 4px 0;
 }
 
-.db-head-title { color: #09090b; font-size: 22px; font-weight: 600; }
-.db-head-sub { color: #71717a; font-size: 13px; }
+.db-head-title { color: var(--ink); font-size: 22px; font-weight: 600; }
+.db-head-sub { color: var(--muted); font-size: 13px; }
 
 .db-panel {
   display: flex;
   flex-direction: column;
   flex-wrap: nowrap;
   border-radius: 14px;
-  border: 1px solid #e4e4e7;
-  background-color: #ffffff;
+  border: 1px solid var(--line);
+  background-color: var(--surface);
   padding: 18px;
 }
 
@@ -740,8 +947,8 @@
   padding: 0 0 10px 0;
 }
 
-.db-panel-title { color: #09090b; font-size: 16px; font-weight: 600; }
-.db-panel-sub { color: #71717a; font-size: 13px; }
+.db-panel-title { color: var(--ink); font-size: 16px; font-weight: 600; }
+.db-panel-sub { color: var(--muted); font-size: 13px; }
 
 .db-panel-body {
   display: flex;
@@ -765,12 +972,12 @@
   align-items: center;
   justify-content: center;
   border-radius: 8px;
-  background-color: #f4f4f5;
+  background-color: var(--subtle);
   width: 32px;
   height: 32px;
 }
 
-.db-item-mark-text { color: #52525b; font-size: 12px; font-weight: 600; }
+.db-item-mark-text { color: var(--mark); font-size: 12px; font-weight: 600; }
 
 .db-item-text {
   display: flex;
@@ -778,8 +985,8 @@
   flex-wrap: nowrap;
 }
 
-.db-item-name { color: #18181b; font-size: 13px; font-weight: 500; }
-.db-item-sub { color: #71717a; font-size: 12px; }
+.db-item-name { color: var(--ink-strong); font-size: 13px; font-weight: 500; }
+.db-item-sub { color: var(--muted); font-size: 12px; }
 
 .db-item-tag {
   display: flex;
@@ -787,12 +994,12 @@
   flex-wrap: nowrap;
   align-items: center;
   border-radius: 7px;
-  border: 1px solid #e4e4e7;
-  background-color: #ffffff;
+  border: 1px solid var(--line);
+  background-color: var(--chip-fill);
   padding: 3px 8px;
 }
 
-.db-item-tag-text { color: #52525b; font-size: 11px; font-weight: 500; }
+.db-item-tag-text { color: var(--mark); font-size: 11px; font-weight: 500; }
 
 .db-grid {
   display: flex;
@@ -807,13 +1014,13 @@
   flex-direction: column;
   flex-wrap: nowrap;
   border-radius: 14px;
-  border: 1px solid #e4e4e7;
-  background-color: #ffffff;
+  border: 1px solid var(--line);
+  background-color: var(--surface);
   padding: 18px;
 }
 
-.db-tile-title { color: #09090b; font-size: 15px; font-weight: 600; }
-.db-tile-sub { color: #71717a; font-size: 12px; }
+.db-tile-title { color: var(--ink); font-size: 15px; font-weight: 600; }
+.db-tile-sub { color: var(--muted); font-size: 12px; }
 
 /* The track and the bit of it that is filled. Two elements rather than one
  * with a background, because the fill is a PERCENTAGE and a percentage needs
@@ -823,15 +1030,16 @@
   flex-direction: row;
   flex-wrap: nowrap;
   border-radius: 3px;
-  background-color: #f4f4f5;
+  background-color: var(--subtle);
   margin: 12px 0 0 0;
   height: 6px;
 }
 
 .db-bar-fill {
   border-radius: 3px;
-  background-color: #18181b;
+  background-color: var(--bar);
   height: 6px;
 }
 
-.db-bar-text { color: #71717a; font-size: 11px; padding: 6px 0 0 0; }
+.db-bar-text { color: var(--muted); font-size: 11px; padding: 6px 0 0 0; }
+

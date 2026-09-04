@@ -1,0 +1,139 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; 2×3 affine matrix. Column form:
+;   x' = a*x + c*y + tx
+;   y' = b*x + d*y + ty
+; Figma's m00,m01,m02 / m10,m11,m12 maps to a,c,tx / b,d,ty.
+
+class SceneMatrix {
+    def a:double 1.0
+    def b:double 0.0
+    def c:double 0.0
+    def d:double 1.0
+    def tx:double 0.0
+    def ty:double 0.0
+
+    Constructor () {
+    }
+
+    sfn ident:SceneMatrix () {
+        return (new SceneMatrix())
+    }
+
+    sfn translate:SceneMatrix (x:double y:double) {
+        def m (new SceneMatrix())
+        m.tx = x
+        m.ty = y
+        return m
+    }
+
+    sfn fromFigma:SceneMatrix (m00:double m01:double m02:double m10:double m11:double m12:double) {
+        def m (new SceneMatrix())
+        m.a = m00
+        m.c = m01
+        m.tx = m02
+        m.b = m10
+        m.d = m11
+        m.ty = m12
+        return m
+    }
+
+    fn isIdent:boolean () {
+        if (a != 1.0) {
+            return false
+        }
+        if (d != 1.0) {
+            return false
+        }
+        if (b != 0.0) {
+            return false
+        }
+        if (c != 0.0) {
+            return false
+        }
+        if (tx != 0.0) {
+            return false
+        }
+        if (ty != 0.0) {
+            return false
+        }
+        return true
+    }
+
+    fn isTranslate:boolean () {
+        if (a != 1.0) {
+            return false
+        }
+        if (d != 1.0) {
+            return false
+        }
+        if (b != 0.0) {
+            return false
+        }
+        if (c != 0.0) {
+            return false
+        }
+        return true
+    }
+
+    fn mul:SceneMatrix (o:SceneMatrix) {
+        def r (new SceneMatrix())
+        r.a = ((a * o.a) + (c * o.b))
+        r.c = ((a * o.c) + (c * o.d))
+        r.tx = (((a * o.tx) + (c * o.ty)) + tx)
+        r.b = ((b * o.a) + (d * o.b))
+        r.d = ((b * o.c) + (d * o.d))
+        r.ty = (((b * o.tx) + (d * o.ty)) + ty)
+        return r
+    }
+
+    fn applyX:double (x:double y:double) {
+        return (((a * x) + (c * y)) + tx)
+    }
+
+    fn applyY:double (x:double y:double) {
+        return (((b * x) + (d * y)) + ty)
+    }
+
+    fn rotationDeg:double () {
+        def ang:double (SceneMatrix.atan2Approx(b a))
+        return ((ang * 180.0) / 3.141592653589793)
+    }
+
+    sfn atan2Approx:double (y:double x:double) {
+        if ((x == 0.0) && (y == 0.0)) {
+            return 0.0
+        }
+        if (x == 0.0) {
+            if (y > 0.0) {
+                return 1.5707963267948966
+            }
+            return (0.0 - 1.5707963267948966)
+        }
+        def r:double (y / x)
+        def absR:double r
+        if (absR < 0.0) {
+            absR = (0.0 - absR)
+        }
+        def a:double 0.0
+        if (absR < 1.0) {
+            a = (r / (1.0 + (0.28 * r * r)))
+        } {
+            a = (1.5707963267948966 - (r / ((r * r) + 0.28)))
+            if (r < 0.0) {
+                a = (0.0 - a)
+            }
+        }
+        if (x < 0.0) {
+            if (y >= 0.0) {
+                return (a + 3.141592653589793)
+            }
+            return (a - 3.141592653589793)
+        }
+        return a
+    }
+
+    fn asJson:string () {
+        return ("{\"a\":" + (to_string a) + ",\"b\":" + (to_string b) + ",\"c\":" + (to_string c) + ",\"d\":" + (to_string d) + ",\"tx\":" + (to_string tx) + ",\"ty\":" + (to_string ty) + "}")
+    }
+}
