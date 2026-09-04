@@ -379,6 +379,20 @@ class EVGElement {
     def paintRight:double 0.0
     def paintBottom:double 0.0
     def paintUnbounded:boolean false
+    ; A SCROLL OWED TO THE SUBTREE. This element's own box and paint bounds
+    ; are where they should be; everything beneath it still has to move by
+    ; this much. `EVGLayout.scrollOnly` writes it on the rows a scroll moved
+    ; that are far from the viewport instead of walking their thousands of
+    ; descendants — on a long diary that walk was the largest self-time in a
+    ; profile of a fling, and it moved boxes nobody would look at. It is
+    ; paid by `settleShift` the moment anything descends into the subtree:
+    ; the display list, the hit test and the accessibility walk each settle
+    ; a node before they look at its children, so a consumer reads a stale
+    ; box only if it reaches one without going through those, and the
+    ; whole-tree readers call `settleAll` first. A full layout resets it
+    ; with the rest of the layout state.
+    def shiftDx:double 0.0
+    def shiftDy:double 0.0
     ; Does anything in this subtree carry a `surfaceEffect`? Written by the
     ; same pass, and read by `EVGDisplayList.readEffect` — which used to walk
     ; the WHOLE document on every frame looking for the one element that
@@ -993,6 +1007,8 @@ class EVGElement {
     fn resetLayoutState:void () {
         ; Reset layout state for re-layout
         unitsResolved = false
+        shiftDx = 0.0
+        shiftDy = 0.0
         calculatedX = 0.0
         calculatedY = 0.0
         calculatedWidth = 0.0
@@ -1016,6 +1032,62 @@ class EVGElement {
     
     fn getChildCount:int () {
         return (array_length children)
+    }
+
+    ; Move this box and its paint bounds, and nothing beneath it.
+    fn moveSelf:void (dx:double dy:double) {
+        calculatedX = (calculatedX + dx)
+        calculatedY = (calculatedY + dy)
+        paintLeft = (paintLeft + dx)
+        paintRight = (paintRight + dx)
+        paintTop = (paintTop + dy)
+        paintBottom = (paintBottom + dy)
+    }
+
+    ; Move this box and every box beneath it. A descendant that itself owes
+    ; a shift keeps owing it: its own shift is relative to its own box, which
+    ; has just moved with the rest.
+    fn moveSubtree:void (dx:double dy:double) {
+        this.moveSelf(dx dy)
+        def i:int 0
+        def n:int (array_length children)
+        while (i < n) {
+            def kid:EVGElement (itemAt children i)
+            kid.moveSubtree(dx dy)
+            i = (i + 1)
+        }
+    }
+
+    ; Pay the scroll this subtree is owed — see `shiftDx`. Cheap to ask on
+    ; a node that owes nothing, which is every node but the far rows.
+    fn settleShift:void () {
+        if ((shiftDx == 0.0) && (shiftDy == 0.0)) {
+            return
+        }
+        def dx:double shiftDx
+        def dy:double shiftDy
+        shiftDx = 0.0
+        shiftDy = 0.0
+        def i:int 0
+        def n:int (array_length children)
+        while (i < n) {
+            def kid:EVGElement (itemAt children i)
+            kid.moveSubtree(dx dy)
+            i = (i + 1)
+        }
+    }
+
+    ; Every box in the tree where it should be, for a reader that is about
+    ; to look at all of them.
+    fn settleAll:void () {
+        this.settleShift()
+        def i:int 0
+        def n:int (array_length children)
+        while (i < n) {
+            def kid:EVGElement (itemAt children i)
+            kid.settleAll()
+            i = (i + 1)
+        }
     }
 
     ; --- scrolling ------------------------------------------------------------

@@ -1093,6 +1093,10 @@ class EVGDisplayList {
         if (this.cullable(el)) {
             return
         }
+        ; A subtree still owed a scroll is paid it before it is drawn — see
+        ; `EVGElement.shiftDx`. Its own box, which the test above read, was
+        ; already where it should be.
+        el.settleShift()
         ; Where this element's own output begins, so `opacity` can scale
         ; exactly what it and its children add — nested fades then multiply as
         ; the recursion unwinds. A transform uses the same range.

@@ -39,6 +39,7 @@ class EVGHitTest {
         if (el.isHidden()) {
             return
         }
+        el.settleShift()
         push order el
         def i:int 0
         while (i < (array_length el.children)) {
@@ -101,6 +102,20 @@ class EVGHitTest {
                 return
             }
         }
+        ; Nor can the point be in a subtree whose paint bounds — the union
+        ; of every box beneath it, written by the layout and moved with it —
+        ; do not hold it. This is the same test the display list culls with,
+        ; and it is what keeps a pointer move over a long document from
+        ; visiting every element in it: the rows are tested at their roots
+        ; and the ones the point is not over are never entered. A subtree
+        ; drawn somewhere its boxes do not say is never pruned.
+        if ((el.paintUnbounded == false) && ((el.isHidden()) == false)) {
+            if (px < el.paintLeft) { return }
+            if (py < el.paintTop) { return }
+            if (px > el.paintRight) { return }
+            if (py > el.paintBottom) { return }
+        }
+        el.settleShift()
         push order el
         def i:int 0
         while (i < (array_length el.children)) {

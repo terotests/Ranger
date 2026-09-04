@@ -702,6 +702,86 @@ class EVGLayout {
         this.scrollOnlyWalk(root)
     }
 
+    ; The same, for ONE container the caller knows it scrolled — no walk to
+    ; find it. A container inside it that scrolls on its own is not touched:
+    ; its offset did not change, and its boxes move with the rest.
+    fn scrollOnlyFrom:void (el:EVGElement) {
+        if ((el.clipsContent()) == false) {
+            return
+        }
+        this.clampScroll(el)
+        def dy:double (el.appliedScrollTop - el.scrollTop)
+        def dx:double (el.appliedScrollLeft - el.scrollLeft)
+        if ((dx == 0.0) && (dy == 0.0)) {
+            return
+        }
+        def j:int 0
+        while (j < (el.getChildCount())) {
+            this.shiftNear((el.getChild(j)) dx dy el)
+            j = (j + 1)
+        }
+        el.appliedScrollTop = el.scrollTop
+        el.appliedScrollLeft = el.scrollLeft
+    }
+
+    ; How far from a scroll container's box, in its own heights, a row is
+    ; still moved for real by `scrollOnly`. Rows beyond it are owed the move
+    ; instead — `EVGElement.shiftDx` — and paid when they come within it or
+    ; when something descends into them. Wider than the display list's
+    ; overscan in either direction, so a row the list is about to draw has
+    ; already been moved rather than settled on the way in.
+    def nearHeights:double 3.0
+
+    ; Move a scrolled subtree the lazy way: the node's OWN box moves now —
+    ; that is what the culling and the hit test look at — and the move goes
+    ; on down only while the subtree is near the clip. A far node is left
+    ; owing the move to its children (`EVGElement.shiftDx`), and a node that
+    ; was owed one and has come near pays it together with this one. On a
+    ; document of a thousand rows a frame touches the rows near the viewport
+    ; and one node per row elsewhere, not every box in the document.
+    fn shiftNear:void (kid:EVGElement dx:double dy:double clip:EVGElement) {
+        kid.moveSelf(dx dy)
+        if (this.nearClip(kid clip)) {
+            def tx:double (kid.shiftDx + dx)
+            def ty:double (kid.shiftDy + dy)
+            kid.shiftDx = 0.0
+            kid.shiftDy = 0.0
+            def i:int 0
+            def n:int (kid.getChildCount())
+            while (i < n) {
+                this.shiftNear((kid.getChild(i)) tx ty clip)
+                i = (i + 1)
+            }
+            return
+        }
+        kid.shiftDx = (kid.shiftDx + dx)
+        kid.shiftDy = (kid.shiftDy + dy)
+    }
+
+    ; Is this subtree within reach of the clip box, grown by `nearHeights`?
+    ; A subtree whose drawn output is not its boxes is always near: nothing
+    ; here can say where it will be looked at.
+    fn nearClip:boolean (kid:EVGElement el:EVGElement) {
+        if kid.paintUnbounded {
+            return true
+        }
+        def margin:double (el.calculatedHeight * nearHeights)
+        if (kid.paintBottom < (el.calculatedY - margin)) {
+            return false
+        }
+        if (kid.paintTop > ((el.calculatedY + el.calculatedHeight) + margin)) {
+            return false
+        }
+        def marginX:double (el.calculatedWidth * nearHeights)
+        if (kid.paintRight < (el.calculatedX - marginX)) {
+            return false
+        }
+        if (kid.paintLeft > ((el.calculatedX + el.calculatedWidth) + marginX)) {
+            return false
+        }
+        return true
+    }
+
     ; The clamp alone, for a container whose offset was just written: what
     ; `scrollOnly` would do to it first, without the walk that moves the
     ; boxes. A host that gets six pointer reports between two frames clamps
@@ -732,22 +812,16 @@ class EVGLayout {
 
     fn scrollOnlyWalk:void (el:EVGElement) {
         if (el.clipsContent()) {
-            this.clampScroll(el)
-            def dy:double (el.appliedScrollTop - el.scrollTop)
-            def dx:double (el.appliedScrollLeft - el.scrollLeft)
-            if ((dx != 0.0) || (dy != 0.0)) {
-                def j:int 0
-                while (j < (el.getChildCount())) {
-                    this.translateSubtree((el.getChild(j)) dx dy)
-                    j = (j + 1)
-                }
-                el.appliedScrollTop = el.scrollTop
-                el.appliedScrollLeft = el.scrollLeft
-            }
+            this.scrollOnlyFrom(el)
         }
         def i:int 0
         while (i < (el.getChildCount())) {
-            this.scrollOnlyWalk((el.getChild(i)))
+            def kid:EVGElement (el.getChild(i))
+            ; A subtree still owed a move is far from any viewport: nothing
+            ; in it is scrolling, so there is nothing to clamp in it.
+            if ((kid.shiftDx == 0.0) && (kid.shiftDy == 0.0)) {
+                this.scrollOnlyWalk(kid)
+            }
             i = (i + 1)
         }
     }
@@ -1896,22 +1970,12 @@ class EVGLayout {
         }
     }
 
+    ; The paint bounds move with the boxes they are the union of — see
+    ; `EVGElement.moveSubtree`. Missing that would leave `scrollOnly` culling
+    ; against where the content used to be, which is a row that scrolls into
+    ; view and stays blank.
     fn translateSubtree:void (element:EVGElement dx:double dy:double) {
-        element.calculatedX = (element.calculatedX + dx)
-        element.calculatedY = (element.calculatedY + dy)
-        ; The paint bounds move with the boxes they are the union of. Missing
-        ; this would leave `scrollOnly` culling against where the content used
-        ; to be, which is a row that scrolls into view and stays blank.
-        element.paintLeft = (element.paintLeft + dx)
-        element.paintRight = (element.paintRight + dx)
-        element.paintTop = (element.paintTop + dy)
-        element.paintBottom = (element.paintBottom + dy)
-        def count:int (element.getChildCount())
-        def i:int 0
-        while (i < count) {
-            this.translateSubtree((element.getChild(i)) dx dy)
-            i = (i + 1)
-        }
+        element.moveSubtree(dx dy)
     }
 
     fn layoutAbsolute:void (element:EVGElement parentWidth:double parentHeight:double) {

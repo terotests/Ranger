@@ -586,6 +586,15 @@ class RealTrainerDemo {
     ; `press` is covered by `press`. A spurious layout after a press costs
     ; nothing anyone can see; a missed one is a bug, so the raise is coarse.
     def layoutDirty:boolean true
+    ; THE BOXES MAY HAVE MOVED. `layoutDirty` says the sheet has to be
+    ; applied again — a hover, a press — and the sheet then says whether
+    ; anything it wrote can have moved a box (`EVGStyleSheet.layoutClean`);
+    ; when nothing did, the positions stand and the layout pass is skipped.
+    ; What the sheet cannot see is a write made past it: a rebuilt tree, a
+    ; caption or a class name written straight onto an element by the
+    ; per-frame writers, a size. Those raise this, and this is never argued
+    ; with.
+    def boxesDirty:boolean true
     ; A scroll since the last frame that `laidOut` has not yet applied. The
     ; offset was written on the container and clamped straight away, so the
     ; caller already knows whether the page moved; the WALK that moves the
@@ -593,6 +602,9 @@ class RealTrainerDemo {
     ; frame to ask, so a finger that reports six moves between two frames
     ; moves the document once, not six times.
     def scrollPending:boolean false
+    ; The containers that were scrolled since, so the frame pays them by
+    ; name rather than walking the document to find them.
+    def scrolledEls:[EVGElement]
     ; The page's own momentum, so a finger that leaves the glass moving keeps
     ; the document moving. It lives HERE and not in a host because both hosts
     ; want it and neither should have to get the physics right on its own —
@@ -5706,6 +5718,7 @@ class RealTrainerDemo {
 
     fn keyWith:boolean (k:string shift:boolean ctrl:boolean) {
         layoutDirty = true
+        boxesDirty = true
         if ((this.hasField(focused)) == false) {
             return false
         }
@@ -5727,6 +5740,7 @@ class RealTrainerDemo {
 
     fn setFocus:void (id:string) {
         layoutDirty = true
+        boxesDirty = true
         focused = id
     }
 
@@ -5737,6 +5751,7 @@ class RealTrainerDemo {
         }
         this.laidOut()
         def r:EVGElement (unwrap root)
+        r.settleAll()
         def found@(optional):EVGElement (RealTrainerDemo.byId(r tid))
         def out@(mutable):string "{"
         out = (out + "\"tid\":" + (EVGA11yTree.jsonString(c.tid)))
@@ -5821,7 +5836,19 @@ class RealTrainerDemo {
                 def lay:EVGLayout (unwrap layout)
                 lay.clampScroll(el)
             }
+            if (scrollPending == false) {
+                clear scrolledEls
+            }
             scrollPending = true
+            def known@(mutable):boolean false
+            for scrolledEls e:EVGElement i {
+                if (e == el) {
+                    known = true
+                }
+            }
+            if (known == false) {
+                push scrolledEls el
+            }
             return
         }
         this.laidOut()
@@ -5943,6 +5970,7 @@ class RealTrainerDemo {
 
     fn rebuild:void () {
         layoutDirty = true
+        boxesDirty = true
         this.syncFields()
         if (scene == "signin") {
             root = (this.signin())
@@ -6115,14 +6143,16 @@ class RealTrainerDemo {
         return true
     }
 
-    ; A flight in progress wrote this frame's values onto the tree, so the
-    ; page is laid out again for it; one that is over wrote nothing.
+    ; A flight in progress wrote this frame's values onto the tree — a
+    ; colour, an opacity, a transform: the properties `EVGTransition`
+    ; animates are all paint, and the painter reads them off the element.
+    ; So the frame is drawn, and nothing is laid out for it: the flight
+    ; started when the sheet last ran, and until something changes the
+    ; page again there is nothing for the sheet to re-declare. Laying the
+    ; page out for every frame of a 160ms hover fade was ten full layouts
+    ; per hover on a long diary.
     fn inFlight:boolean (t:EVGTransition r:EVGElement) {
-        if (t.busy(r)) {
-            layoutDirty = true
-            return true
-        }
-        return false
+        return (t.busy(r))
     }
 
     fn setScene:void (name:string) {
@@ -6172,6 +6202,7 @@ class RealTrainerDemo {
     ; way it was lit a second ago.
     fn writeFrame:void () {
         layoutDirty = true
+        boxesDirty = true
         if (scene != "loading") {
             return
         }
@@ -6216,6 +6247,7 @@ class RealTrainerDemo {
     ; way it was lit a second ago.
     fn writeDial:void () {
         layoutDirty = true
+        boxesDirty = true
         def r:EVGElement (unwrap root)
         def left:double 0.0
         if (timerFullMs > 0.0) {
@@ -6337,6 +6369,7 @@ class RealTrainerDemo {
             return false
         }
         layoutDirty = true
+        boxesDirty = true
         ; A field takes focus, and that is all a press on it does.
         if (this.hasField(id)) {
             def c:InputCtl (this.fieldFor(id))
@@ -6696,15 +6729,10 @@ class RealTrainerDemo {
         if (layoutDirty == false) {
             if layout {
                 def kept:EVGLayout (unwrap layout)
-                if scrollPending {
-                    scrollPending = false
-                    kept.scrollOnly((unwrap root))
-                }
+                this.scrollKept(kept)
                 return kept
             }
         }
-        ; The full layout reads the containers' offsets itself.
-        scrollPending = false
         def r:EVGElement (unwrap root)
         def s:EVGStyleSheet (unwrap sheet)
         s.setViewport(pageW pageH coarsePointer)
@@ -6712,23 +6740,48 @@ class RealTrainerDemo {
         s.applyTree(r (this.themeName()))
         def t:EVGTransition transitions
         t.reconcileTree(r)
-        ; No `layoutClean()` shortcut, and deliberately: the ring's rotation and
-        ; the bar's width are written straight onto elements, so the sheet does
-        ; not know anything moved and would report the frame clean. The page is
-        ; a hundred elements.
+        layoutDirty = false
+        ; A pass that wrote only paint — a hover's colours, a pressed row's
+        ; background — moved no box, and the sheet says so. The positions
+        ; stand, a scroll that is owed is paid the cheap way, and the whole
+        ; layout is skipped: on a long diary that is the difference between
+        ; a hover costing a frame and costing 13ms. The sheet's word is
+        ; final only for what went through the sheet; `boxesDirty` is
+        ; everything that did not.
+        if (boxesDirty == false) {
+            if (s.layoutClean()) {
+                if layout {
+                    def kept:EVGLayout (unwrap layout)
+                    this.scrollKept(kept)
+                    return kept
+                }
+            }
+        }
+        ; The full layout reads the containers' offsets itself.
+        scrollPending = false
+        boxesDirty = false
         layouts = (layouts + 1)
         if layout {
             def lay:EVGLayout (unwrap layout)
             lay.layout(r)
-            layoutDirty = false
             return lay
         }
         def fresh (new EVGLayout())
         fresh.setPageSize(pageW pageH)
         layout = fresh
         fresh.layout(r)
-        layoutDirty = false
         return fresh
+    }
+
+    ; The scroll owed to a layout that is being kept, paid.
+    fn scrollKept:void (kept:EVGLayout) {
+        if scrollPending {
+            scrollPending = false
+            for scrolledEls e:EVGElement i {
+                kept.scrollOnlyFrom(e)
+            }
+            clear scrolledEls
+        }
     }
 
     ; The frame as an OBJECT. A browser host has to parse something anyway, so
@@ -6755,6 +6808,24 @@ class RealTrainerDemo {
         def dl (new EVGDisplayList())
         dl.setTextEngine((lay.getTextEngine()))
         dl.setCulling(cullOffscreen)
+        ; A list that leaves nothing out reads every box, so every box is
+        ; put where it belongs first; the charts are read off their boxes
+        ; by hand, outside the walk, and want the same.
+        if ((cullOffscreen == false) || ((array_length charts) > 0)) {
+            r.settleAll()
+        }
+        ; THE OVERSCAN FOLLOWS THE THROW. A page in flight is drawn further
+        ; ahead in the direction it is going and less behind, so the rows a
+        ; fast fling arrives at are already there and the ones it has left
+        ; are not paid for. At rest, or under a wheel with no speed to read,
+        ; the list's own default — one height each way — stands.
+        def v:double fling.velocity
+        if (v > 0.5) {
+            dl.setOverscan((pageH * 0.5) (pageH * 2.5))
+        }
+        if (v < (0.0 - 0.5)) {
+            dl.setOverscan((pageH * 2.5) (pageH * 0.5))
+        }
         dl.build(r)
         this.emitCharts(dl r)
         return dl
@@ -6774,6 +6845,7 @@ class RealTrainerDemo {
     fn a11yJson:string (generation:int focusId:string) {
         this.laidOut()
         def r:EVGElement (unwrap root)
+        r.settleAll()
         def b (new EVGA11yFromTree())
         def t:EVGA11yTree (b.build(r "RealTrainer" generation focusId))
         return (t.toJson())
@@ -6782,6 +6854,7 @@ class RealTrainerDemo {
     fn a11yProblems:[string] () {
         this.laidOut()
         def r:EVGElement (unwrap root)
+        r.settleAll()
         def b (new EVGA11yFromTree())
         def t:EVGA11yTree (b.build(r "RealTrainer" 1 ""))
         return (t.lint())

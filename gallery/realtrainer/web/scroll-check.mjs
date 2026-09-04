@@ -237,18 +237,18 @@ console.log("--- who lays out ---");
      app.displayListJson() === full.displayListJson() && app.layoutCount() === before,
      `${app.layoutCount() - before} layouts`);
   // A hover IS a change — the sheet's :hover rule and the transition it
-  // starts — and it costs one layout, not one per question asked after it.
+  // starts — but one that moves no box, and the sheet says so: the sheet
+  // runs, the layout does not, and the frame is the frame a rebuilt tree
+  // with the same hover lays out from scratch.
   app.setHover(after);
   app.hitId(200, 401);
   app.display();
   app.hitId(200, 402);
-  app.display();
-  ok("a hover lays out once", app.layoutCount() === before + 1,
+  full.setHover(after);
+  full.rebuild();
+  ok("a hover that moves no box is not laid out", app.layoutCount() === before,
      `${app.layoutCount() - before} layouts`);
-  app.setHover(after);
-  app.display();
-  ok("and the same hover again not at all", app.layoutCount() === before + 1,
-     `${app.layoutCount() - before} layouts`);
+  ok("and draws what a rebuilt tree draws", app.displayListJson() === full.displayListJson());
 }
 
 // --- the throw ---------------------------------------------------------------

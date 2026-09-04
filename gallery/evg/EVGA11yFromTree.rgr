@@ -195,6 +195,7 @@ class EVGA11yFromTree {
     }
 
     fn walk:void (el:EVGElement parentId:string index:int) {
+        el.settleShift()
         ; Decoration, and everything under it. Not "skip the node but keep the
         ; children": `aria-hidden` prunes the whole branch, and a chevron with
         ; a label inside it would otherwise put the label back.
