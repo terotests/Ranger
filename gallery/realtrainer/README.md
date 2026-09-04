@@ -15,7 +15,9 @@ npm run rt:web      # build, serve, print the URL
 # the targets grown under @media (pointer: coarse) when the browser reports
 # a finger, and the shell opens on Home; ?route=/calendar/cal-plan?week=2026-02-09 opens it on
 # a route, ?page=390x844 pins a phone's size inside any browser, and
-# ?page=980x760 is the desktop demo the checks measure
+# ?page=980x760 is the desktop demo the checks measure; ?gl=preserve keeps
+# the drawn frame readable for a pixel check (a page pays a copy per frame
+# for it, so it is off unless asked), ?gl=noaa turns multisampling off
 npm run rt:check    # the app driven with a made-up clock, no browser  (CI)
 npm run rt:scroll   # the scroll shortcut, the culling, who lays out, and how far a swipe throws
 npm run rt:bench 40 # what a scroll frame costs, stage by stage, on a long diary

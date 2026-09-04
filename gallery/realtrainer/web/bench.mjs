@@ -73,6 +73,9 @@ stage("scrollDocument", wheel);
 stage("+ display()", (i) => { wheel(i); app.display(); });
 stage("+ displayListJson()", (i) => { wheel(i); app.displayListJson(); });
 stage("+ JSON.parse", (i) => { wheel(i); JSON.parse(app.displayListJson()); });
+// The pointer, asking what it is over on every move: a hit test, and
+// nothing else — the layout is the one the frame already has.
+stage("hitId()  (per pointer move)", (i) => { app.hitId(200, 300 + (i % 7) * 60); });
 let gen = 0;
 stage("a11yJson() + parse  (settled only)", () => { gen += 1; JSON.parse(app.a11yJson(gen, "")); });
 console.log("");

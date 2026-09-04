@@ -29,6 +29,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
+import { listOf } from "../../evg/gl/evg-list.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, "..");
@@ -110,6 +111,72 @@ const visibleText = (app, w, h) =>
     .map((c) => `${Math.round(c.x)},${Math.round(c.y)}:${c.text}`)
     .join("\n");
 
+// Every command the viewport can see, in order, with the clips it is drawn
+// under applied. Two lists that agree on this draw the same frame — and
+// that is the only thing a kept list and a rebuilt one agree on: the kept
+// one carries the rows it was built with, two heights either way, and has
+// been moved since; the rebuilt one carries the rows around the new offset.
+const visibleCmds = (app, w, h) => {
+  const page = { x: 0, y: 0, w, h };
+  const meet = (a, b) => {
+    const x0 = Math.max(a.x, b.x), y0 = Math.max(a.y, b.y);
+    const x1 = Math.min(a.x + a.w, b.x + b.w), y1 = Math.min(a.y + a.h, b.y + b.h);
+    return { x: x0, y: y0, w: Math.max(0, x1 - x0), h: Math.max(0, y1 - y0) };
+  };
+  const boxOf = (c) => {
+    if (c.pts && c.pts.length) {
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (let i = 0; i < c.pts.length; i += 2) {
+        x0 = Math.min(x0, c.pts[i]); x1 = Math.max(x1, c.pts[i]);
+        y0 = Math.min(y0, c.pts[i + 1]); y1 = Math.max(y1, c.pts[i + 1]);
+      }
+      return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+    }
+    return { x: c.x, y: c.y, w: c.w ?? 0, h: c.h ?? 0 };
+  };
+  const stack = [];
+  let clip = page;
+  const out = [];
+  for (const c of JSON.parse(app.displayListJson()).cmds) {
+    if (c.k === 4) { stack.push(clip); clip = meet(clip, c); continue; }
+    if (c.k === 5) { clip = stack.pop() ?? page; continue; }
+    const b = boxOf(c);
+    const m = meet(clip, b);
+    if (m.w <= 0 || m.h <= 0) continue;
+    out.push(JSON.stringify(c));
+  }
+  return out.join("\n");
+};
+
+// The list read straight off the object, held against the list written as
+// JSON and read back: the browser page uses the first and every check the
+// second, and the painter must not be able to tell.
+let converted = 0;
+const sameAsJson = (app) => {
+  const a = listOf(app.display());
+  const b = JSON.parse(app.displayListJson());
+  const same = (x, y, path) => {
+    if (typeof x === "number" && typeof y === "number") {
+      if (Math.abs(x - y) > 0.0051) return path + ": " + x + " vs " + y;
+      return "";
+    }
+    if (Array.isArray(x) || Array.isArray(y)) {
+      if (!Array.isArray(x) || !Array.isArray(y) || x.length !== y.length) return path + ": length";
+      for (let i = 0; i < x.length; i += 1) { const d = same(x[i], y[i], path + "[" + i + "]"); if (d) return d; }
+      return "";
+    }
+    if (x && y && typeof x === "object" && typeof y === "object") {
+      const kx = Object.keys(x).sort(), ky = Object.keys(y).sort();
+      if (kx.join(",") !== ky.join(",")) return path + ": keys " + kx.join(",") + " vs " + ky.join(",");
+      for (const k of kx) { const d = same(x[k], y[k], path + "." + k); if (d) return d; }
+      return "";
+    }
+    return x === y ? "" : path + ": " + JSON.stringify(x) + " vs " + JSON.stringify(y);
+  };
+  converted += 1;
+  return same(a, b, "list");
+};
+
 let failed = 0;
 let frames = 0;
 let culled = 0;
@@ -174,17 +241,28 @@ for (const [w, h] of PAGES) {
         break;
       }
       if (JSON.parse(a).cmds.length < JSON.parse(uncut.displayListJson()).cmds.length) culled += 1;
-      if (movedFast !== movedFull || a !== b) {
+      const seenFast = visibleCmds(fast, w, h);
+      const seenFull = visibleCmds(full, w, h);
+      const drift = sameAsJson(fast);
+      if (drift) {
+        failed += 1;
+        bad = true;
+        console.log(`  FAIL ${w}x${h} ${route} delta=${delta} — the list read off the object differs from its JSON: ${drift}`);
+        break;
+      }
+      if (movedFast !== movedFull || seenFast !== seenFull) {
         failed += 1;
         bad = true;
         console.log(
           `  FAIL ${w}x${h} ${route} delta=${delta}` +
             ` moved=${movedFast}/${movedFull} bytes=${a.length}/${b.length}`,
         );
-        for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
-          if (a[i] !== b[i]) {
-            console.log("    shortcut: " + JSON.stringify(a.slice(Math.max(0, i - 80), i + 80)));
-            console.log("    layout:   " + JSON.stringify(b.slice(Math.max(0, i - 80), i + 80)));
+        const l = seenFast.split("\n");
+        const r = seenFull.split("\n");
+        for (let i = 0; i < Math.max(l.length, r.length); i += 1) {
+          if (l[i] !== r[i]) {
+            console.log("    shortcut: " + (l[i] ?? "<end>"));
+            console.log("    layout:   " + (r[i] ?? "<end>"));
             break;
           }
         }
@@ -234,21 +312,21 @@ console.log("--- who lays out ---");
   full.scrollDocument(42);
   full.rebuild();
   ok("six moves between frames draw the frame one layout would",
-     app.displayListJson() === full.displayListJson() && app.layoutCount() === before,
+     visibleCmds(app, 390, 844) === visibleCmds(full, 390, 844) && app.layoutCount() === before,
      `${app.layoutCount() - before} layouts`);
   // A hover IS a change — the sheet's :hover rule and the transition it
-  // starts — and it costs one layout, not one per question asked after it.
+  // starts — but one that moves no box, and the sheet says so: the sheet
+  // runs, the layout does not, and the frame is the frame a rebuilt tree
+  // with the same hover lays out from scratch.
   app.setHover(after);
   app.hitId(200, 401);
   app.display();
   app.hitId(200, 402);
-  app.display();
-  ok("a hover lays out once", app.layoutCount() === before + 1,
+  full.setHover(after);
+  full.rebuild();
+  ok("a hover that moves no box is not laid out", app.layoutCount() === before,
      `${app.layoutCount() - before} layouts`);
-  app.setHover(after);
-  app.display();
-  ok("and the same hover again not at all", app.layoutCount() === before + 1,
-     `${app.layoutCount() - before} layouts`);
+  ok("and draws what a rebuilt tree draws", visibleCmds(app, 390, 844) === visibleCmds(full, 390, 844));
 }
 
 // --- the throw ---------------------------------------------------------------
@@ -318,6 +396,7 @@ if (failed > 0) {
   console.log(`  ${failed} check(s) failed`);
   process.exit(1);
 }
-console.log(`  ${frames} scroll frames, every one identical to a full re-layout`);
+console.log(`  ${frames} scroll frames, every one drawing what a full re-layout draws`);
+console.log(`  ${converted} of them read off the object exactly as their JSON reads`);
 console.log(`  ${culled} of them drew less than the whole document, and saw all of it`);
 console.log(`  ${relaidOut} of them laid the document out again`);

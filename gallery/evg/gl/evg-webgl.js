@@ -84,6 +84,10 @@ in vec4 aUV;              // u0,v0,u1,v1 — atlas slot, or the image's cover cr
 in float aRot;            // radians
 in vec3 aOrigin;          // pivot x, y, and 1 when the list named one
 uniform vec2 uPage;
+// How far the scroll layer this instance sits in has moved since its
+// buffers were built. Zero for everything outside a layer, and for a frame
+// drawn the moment it was built; a fling is this changing, and nothing else.
+uniform vec2 uShift;
 out vec4 vColor;
 out vec4 vColor2;
 out float vGrad;
@@ -95,7 +99,7 @@ out float vThickness;
 out float vMode;
 out vec2 vUV;
 void main() {
-  vec2 p = aRect.xy + aCorner * aRect.zw;
+  vec2 p = aRect.xy + uShift + aCorner * aRect.zw;
   // A rotated element turns about its own centre, which is what the PDF matrix
   // and the raster transform both do — an axis title on its side has to land in
   // the same place in all three.
@@ -109,7 +113,7 @@ void main() {
     //
     // No backticks in here: this comment lives inside a JS template literal,
     // and one would end the shader source mid-word.
-    vec2 c = aOrigin.z > 0.5 ? aOrigin.xy : (aRect.xy + aRect.zw * 0.5);
+    vec2 c = (aOrigin.z > 0.5 ? aOrigin.xy : (aRect.xy + aRect.zw * 0.5)) + uShift;
     float s = sin(aRot), co = cos(aRot);
     vec2 d = p - c;
     p = c + vec2(d.x * co - d.y * s, d.x * s + d.y * co);
@@ -225,8 +229,10 @@ void main() {
 const PATH_VERT = `#version 300 es
 in vec2 aPos;
 uniform vec2 uPage;
+uniform vec2 uShift;
 void main() {
-  vec2 ndc = vec2((aPos.x / uPage.x) * 2.0 - 1.0, 1.0 - (aPos.y / uPage.y) * 2.0);
+  vec2 p = aPos + uShift;
+  vec2 ndc = vec2((p.x / uPage.x) * 2.0 - 1.0, 1.0 - (p.y / uPage.y) * 2.0);
   gl_Position = vec4(ndc, 0.0, 1.0);
 }`;
 
@@ -1292,10 +1298,12 @@ function programsFor(gl) {
     pathProg,
     cornerLoc: gl.getAttribLocation(prog, "aCorner"),
     uPage: gl.getUniformLocation(prog, "uPage"),
+    uShift: gl.getUniformLocation(prog, "uShift"),
     uAtlas: gl.getUniformLocation(prog, "uAtlas"),
     uImage: gl.getUniformLocation(prog, "uImage"),
     pathPosLoc: gl.getAttribLocation(pathProg, "aPos"),
     pathPageLoc: gl.getUniformLocation(pathProg, "uPage"),
+    pathShiftLoc: gl.getUniformLocation(pathProg, "uShift"),
     pathColorLoc: gl.getUniformLocation(pathProg, "uColor"),
     blurProg,
     blurCornerLoc: gl.getAttribLocation(blurProg, "aCorner"),
@@ -1333,7 +1341,40 @@ function programsFor(gl) {
   return made;
 }
 
+/**
+ * A FRAME, BUILT AND KEPT.
+ *
+ * Everything the painter makes from a display list before it can draw it —
+ * the instance arrays, the buffers on the card, the runs, the paths'
+ * geometry — is made here once and kept on the object this returns. `draw`
+ * puts it on the screen, as many times as asked; `dispose` gives the card
+ * its memory back.
+ *
+ * What that is for is a SCROLL. The app keeps its list across a fling and
+ * moves the layer inside it (`EVGDisplayList.refreshLayers`), so the frame
+ * built from that list is still the right frame, moved: `draw` takes the
+ * layers' current shifts, subtracts what was built in, and hands the
+ * difference to the shaders as a uniform, per run. A scroll frame is then
+ * the uniform, the scissors and the draw calls — no arrays, no upload —
+ * which is what the browser's own compositor does with a layer, and why a
+ * page scrolled this way stops stuttering where one rebuilt every frame
+ * did not.
+ *
+ * `renderDisplayList` below is build, draw once, dispose: what a page that
+ * does not keep its list wants, and what every caller had before.
+ */
+export function prepareDisplayList(gl, doc, opts = {}) {
+  return buildFrame(gl, doc, opts);
+}
+
 export function renderDisplayList(gl, doc, opts = {}) {
+  const frame = buildFrame(gl, doc, opts);
+  const stats = frame.draw(opts.shifts);
+  frame.dispose();
+  return stats;
+}
+
+function buildFrame(gl, doc, opts = {}) {
   const dpr = opts.dpr || 1;
   const images = opts.images || new Map();
   const cmds = doc.list.cmds;
@@ -1380,16 +1421,20 @@ export function renderDisplayList(gl, doc, opts = {}) {
   // full, across whatever its neighbour had in it and over the row numbers,
   // because the clip that said where to stop was thrown away between the
   // display list and the screen.
+  // The clip is the LIST of rectangles in force, each with the layer it was
+  // written in, and it is intersected when it is applied rather than here:
+  // a clip written inside a scroll layer moves with the layer's content,
+  // the layer's own clip does not, and which rectangle wins between them
+  // depends on how far the content has moved by the time the frame is
+  // drawn — which a kept frame does not know yet.
   const clipStack = [];
   let clip = null;
-  const intersect = (a, b) => {
-    if (!a) return b;
-    const x0 = Math.max(a.x, b.x), y0 = Math.max(a.y, b.y);
-    const x1 = Math.min(a.x + a.w, b.x + b.w), y1 = Math.min(a.y + a.h, b.y + b.h);
-    return { x: x0, y: y0, w: Math.max(0, x1 - x0), h: Math.max(0, y1 - y0) };
-  };
+  // The scroll layer the commands being gathered belong to: 0 outside any,
+  // else the id the list put on the clip that opened it.
+  const layerStack = [];
+  let layer = 0;
   const pushRun = (start, count, tex) => {
-    if (count > 0) runs.push({ kind: "quads", start, count, tex, clip });
+    if (count > 0) runs.push({ kind: "quads", start, count, tex, clip, layer });
   };
   let runStart = 0;
   const flush = () => {
@@ -1399,7 +1444,7 @@ export function renderDisplayList(gl, doc, opts = {}) {
   };
   // Path geometry is not instanced quads, so a path ends the run before it and
   // becomes a run of its own — which is what keeps the paint order intact.
-  const pushPath = (op) => { flush(); runs.push(Object.assign(op, { clip })); };
+  const pushPath = (op) => { flush(); runs.push(Object.assign(op, { clip, layer })); };
 
   for (const c of cmds) {
     // A backdrop blur reads the framebuffer as it stands, so it has to happen
@@ -1408,17 +1453,20 @@ export function renderDisplayList(gl, doc, opts = {}) {
     // below, which composites over the blur exactly as the browser does.
     if (c.k === KIND.RECT && c.bb > 0) {
       flush();
-      runs.push({ kind: "backdrop", cmd: c, clip });
+      runs.push({ kind: "backdrop", cmd: c, clip, layer });
     }
     if (c.k === KIND.PUSH_CLIP) {
       flush();
       clipStack.push(clip);
-      clip = intersect(clip, { x: c.x, y: c.y, w: c.w, h: c.h });
+      layerStack.push(layer);
+      clip = (clip || []).concat([{ x: c.x, y: c.y, w: c.w, h: c.h, layer }]);
+      if (c.layer > 0) layer = c.layer;
       continue;
     }
     if (c.k === KIND.POP_CLIP) {
       flush();
       clip = clipStack.length ? clipStack.pop() : null;
+      layer = layerStack.length ? layerStack.pop() : 0;
       continue;
     }
     if (c.k === KIND.PATH || c.k === KIND.STROKE) {
@@ -1581,7 +1629,59 @@ export function renderDisplayList(gl, doc, opts = {}) {
     }
   };
 
+  // The path pipeline: its own program (compiled with the other one, above),
+  // its own buffer, one draw per path.
+  const pathProg = built.pathProg;
+  const pathVao = gl.createVertexArray();
+  gl.bindVertexArray(pathVao);
+  const pathBuf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, pathBuf);
+  const pathPosLoc = built.pathPosLoc;
+  gl.enableVertexAttribArray(pathPosLoc);
+  gl.vertexAttribPointer(pathPosLoc, 2, gl.FLOAT, false, 0, 0);
+  const pathPageLoc = built.pathPageLoc;
+  const pathColorLoc = built.pathColorLoc;
+  gl.bindVertexArray(vao);
+
+  // What the layers had moved by when this frame was built. Those moves are
+  // in the coordinates above already; `draw` applies only what came after.
+  const baseShifts = (doc.list.shifts || []).map((s) => [s[0], s[1]]);
+
+  const frame = {
+    doc,
+    dispose() {
+      for (const a of instanced) gl.deleteBuffer(a.buf);
+      gl.deleteBuffer(cornerBuf);
+      gl.deleteBuffer(blurQuadBuf);
+      gl.deleteBuffer(backdropBuf);
+      gl.deleteBuffer(pathBuf);
+      gl.deleteVertexArray(vao);
+      gl.deleteVertexArray(blurVao);
+      gl.deleteVertexArray(backdropVao);
+      gl.deleteVertexArray(pathVao);
+    },
+  };
+
+  // What the build made, reported by the first draw and not again: a frame
+  // drawn a second time added nothing to the atlas and uploaded nothing.
+  let fresh = true;
+  frame.draw = (shiftsNow) => {
+  const madeNow = fresh;
+  fresh = false;
+  // The move a layer has made since this frame was built: what the shaders
+  // add. A frame drawn as it was built, or a run outside any layer, adds 0.
+  const shiftOf = (l) => {
+    if (!l) return ZERO_SHIFT;
+    const now = (shiftsNow && shiftsNow[l - 1]) || baseShifts[l - 1] || ZERO_SHIFT;
+    const base = baseShifts[l - 1] || ZERO_SHIFT;
+    return [now[0] - base[0], now[1] - base[1]];
+  };
+  let curShift = ZERO_SHIFT;
+
+  gl.useProgram(prog);
+  gl.bindVertexArray(vao);
   gl.uniform2f(built.uPage, doc.width, doc.height);
+  gl.uniform2f(built.uShift, 0, 0);
   gl.uniform1i(built.uAtlas, 0);
   gl.uniform1i(built.uImage, 1);
 
@@ -1623,19 +1723,6 @@ export function renderDisplayList(gl, doc, opts = {}) {
   gl.clearColor(0, 0, 0, 0);
   gl.clear(gl.COLOR_BUFFER_BIT);
 
-  // The path pipeline: its own program (compiled with the other one, above),
-  // its own buffer, one draw per path.
-  const pathProg = built.pathProg;
-  const pathVao = gl.createVertexArray();
-  gl.bindVertexArray(pathVao);
-  const pathBuf = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, pathBuf);
-  const pathPosLoc = built.pathPosLoc;
-  gl.enableVertexAttribArray(pathPosLoc);
-  gl.vertexAttribPointer(pathPosLoc, 2, gl.FLOAT, false, 0, 0);
-  const pathPageLoc = built.pathPageLoc;
-  const pathColorLoc = built.pathColorLoc;
-
   const hasStencil = gl.getContextAttributes().stencil === true;
   let paths = 0, skippedFills = 0;
 
@@ -1643,6 +1730,7 @@ export function renderDisplayList(gl, doc, opts = {}) {
     gl.bindVertexArray(pathVao);
     gl.useProgram(pathProg);
     gl.uniform2f(pathPageLoc, doc.width, doc.height);
+    gl.uniform2f(built.pathShiftLoc, curShift[0], curShift[1]);
     gl.uniform4f(pathColorLoc, color[0], color[1], color[2], color[3]);
     gl.bindBuffer(gl.ARRAY_BUFFER, pathBuf);
     gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STREAM_DRAW);
@@ -1699,12 +1787,21 @@ export function renderDisplayList(gl, doc, opts = {}) {
   const sxScale = gl.canvas.width / doc.width;
   const syScale = gl.canvas.height / doc.height;
   let scissorOn = false;
-  const applyClip = (r) => {
-    if (!r) {
+  const applyClip = (list) => {
+    if (!list) {
       if (scissorOn) { gl.disable(gl.SCISSOR_TEST); scissorOn = false; }
       return;
     }
     if (!scissorOn) { gl.enable(gl.SCISSOR_TEST); scissorOn = true; }
+    let r = null;
+    for (const c of list) {
+      const sh = shiftOf(c.layer);
+      const b = { x: c.x + sh[0], y: c.y + sh[1], w: c.w, h: c.h };
+      if (!r) { r = b; continue; }
+      const x0 = Math.max(r.x, b.x), y0 = Math.max(r.y, b.y);
+      const x1 = Math.min(r.x + r.w, b.x + b.w), y1 = Math.min(r.y + r.h, b.y + b.h);
+      r = { x: x0, y: y0, w: Math.max(0, x1 - x0), h: Math.max(0, y1 - y0) };
+    }
     const x = Math.round(r.x * sxScale);
     const y = Math.round((doc.height - (r.y + r.h)) * syScale);
     const w = Math.max(0, Math.round(r.w * sxScale));
@@ -1723,8 +1820,8 @@ export function renderDisplayList(gl, doc, opts = {}) {
     const sigma = c.bb * dpr;
     // The element's box in framebuffer pixels, measured from the bottom the
     // way GL counts.
-    const bx = Math.round(c.x * sxScale);
-    const by = Math.round((doc.height - (c.y + c.h)) * syScale);
+    const bx = Math.round((c.x + curShift[0]) * sxScale);
+    const by = Math.round((doc.height - (c.y + curShift[1] + c.h)) * syScale);
     const bw = Math.max(1, Math.round(c.w * sxScale));
     const bh = Math.max(1, Math.round(c.h * syScale));
     // EXACTLY the box, and no padding. What a browser blurs is the rectangle
@@ -1819,12 +1916,14 @@ export function renderDisplayList(gl, doc, opts = {}) {
   };
 
   for (const run of runs) {
+    curShift = shiftOf(run.layer);
     applyClip(run.clip);
     if (run.kind === "backdrop") { drawBackdrop(run.cmd); continue; }
     if (run.kind === "fill") { drawFill(run); paths += 1; continue; }
     if (run.kind === "tris") { drawTris(run.verts, run.color); paths += 1; continue; }
     gl.useProgram(prog);
     gl.bindVertexArray(vao);
+    gl.uniform2f(built.uShift, curShift[0], curShift[1]);
     if (run.tex) {
       gl.activeTexture(gl.TEXTURE1);
       gl.bindTexture(gl.TEXTURE_2D, run.tex);
@@ -1895,10 +1994,12 @@ export function renderDisplayList(gl, doc, opts = {}) {
     runs: runs.length, paths,
     // What this frame had to make rather than reuse. Both should be 0 on a
     // frame that draws what the last one drew.
-    atlasRebuilt: atlasRebuilt ? 1 : 0, texturesUploaded,
+    atlasRebuilt: (madeNow && atlasRebuilt) ? 1 : 0, texturesUploaded: madeNow ? texturesUploaded : 0,
     // The runs this frame was the first to show, rasterized and uploaded on
     // their own. A scroll frame that brought no new row in reports 0.
-    atlasAdded,
+    atlasAdded: madeNow ? atlasAdded : 0,
+    // Whether this draw built its buffers or drew the ones it had.
+    frameBuilt: madeNow ? 1 : 0,
     // A context without a stencil buffer cannot fill a path; say so rather than
     // drawing a chart with no bars in it.
     skippedFills,
@@ -1910,4 +2011,8 @@ export function renderDisplayList(gl, doc, opts = {}) {
     // every page that is not rippling, which is nearly all of them.
     rippled: target ? 1 : 0,
   };
+  };
+  return frame;
 }
+
+const ZERO_SHIFT = [0, 0];
