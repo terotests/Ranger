@@ -12,6 +12,12 @@ interface IBinder
  * directory exists to prevent.
  */
 object Build {
+    // What `DashboardView.onEmulator` reads to keep a software GPU from being
+    // asked to run a full-screen shader.
+    @JvmField val FINGERPRINT: String = "stub"
+    @JvmField val HARDWARE: String = "stub"
+    @JvmField val MODEL: String = "stub"
+
     object VERSION {
         @JvmField val SDK_INT: Int = 34
     }

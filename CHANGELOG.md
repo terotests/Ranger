@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The dashboard on Android stopped responding.** Every frame of
+  `DashboardDemo.display()` ran the whole stylesheet cascade, laid the whole
+  tree out and parsed and ran the chart's Vela spec again, and the Android host
+  asks for a frame on every pointer event — so a drag was a full layout plus a
+  chart per report, on an emulator's cold ART, until the input queue passed the
+  five seconds the platform allows and declared the app gone. The demo now keeps
+  its layout: a scroll moves the scrolled subtree by the difference
+  (`EVGLayout.scrollOnlyFrom`, the realtrainer's shortcut), a hover or a press
+  runs the sheet and lays out only if the sheet says a box could have moved, and
+  the chart's commands are kept until the spec's text changes. In Node a warm
+  frame went from 22-80ms to 5-9ms and a scroll frame from 33ms to 7ms; the
+  dashboard gate compares the shortcut's frames with a full layout's at nine
+  offsets and they are identical. On the device side the first frame is
+  computed off the main thread behind the page's own background, the ripple
+  shader is off by default on an emulator, and a fling now drops the cached
+  frame — it had been advancing the offset while the screen showed the frame
+  from before it.
+
+
 - **The page was fitted to its canvas rather than to what it draws, and came
   out a quarter smaller than it needed to be.** The demo is a 980x760
   composition, and the fit scaled that whole rectangle into the window. But the

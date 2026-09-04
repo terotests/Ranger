@@ -1055,6 +1055,60 @@ console.log("--- three palettes over the same layout ---");
   ok("the sheet parsed without complaint", d.inspectStyleErrors() === "[]", d.inspectStyleErrors());
 }
 
+console.log("--- a scroll moves the boxes and lays nothing out ---");
+{
+  // `scrollTo` with a layout in hand puts the offset on the live container and
+  // owes the move to the next frame — `EVGLayout.scrollOnlyFrom` — instead of
+  // rebuilding the tree and laying it out again. That is the claim, and this
+  // is what makes it checkable: the same offsets reached the cheap way and
+  // reached from scratch, compared as the display lists they draw. Ripple
+  // state is cleared on both so the frames differ in nothing but the scroll.
+  const strip = (d) => {
+    const l = JSON.parse(d.displayListJson());
+    return JSON.stringify(l.cmds);
+  };
+  const shortcut = fresh();
+  let identical = 0;
+  let differed = [];
+  let moved = 0;
+  const offsets = [40, 120, 333, 900, 5000, 480, 0, -50, 260];
+  for (const y of offsets) {
+    if (shortcut.scrollTo(y)) moved++;
+    const viaShortcut = strip(shortcut);
+    // From scratch: a new demo, the same offset asked for before any layout
+    // exists, so it takes the rebuild path and lays out in full.
+    const full = new M.DashboardDemo();
+    full.init(CSS);
+    full.scrollTo(y);
+    const viaLayout = strip(full);
+    if (viaShortcut === viaLayout) identical++;
+    else differed.push(y);
+  }
+  ok("the shortcut draws the frame a full layout draws, at every offset",
+    identical === offsets.length, "differed at " + differed.join(","));
+  // Not all nine: the page has a few hundred pixels of travel, so the large
+  // offsets clamp to the same end and a clamp that lands where it already
+  // was is not a move. What must be true is that the ones inside the travel
+  // did move, and that not one of the nine drew a different frame.
+  ok("and the offsets inside the travel moved", moved >= 4, "moved " + moved);
+  // The offset read back is the clamped one, from the container the layout
+  // measured — not the number asked for.
+  shortcut.scrollTo(100000);
+  ok("a scroll past the end reads back as the end",
+    Math.abs(shortcut.scrollY - shortcut.maxScroll()) < 0.5, shortcut.scrollY + " vs " + shortcut.maxScroll());
+  // The hover path is the other cheap one: the sheet runs, the layout does
+  // not unless a rule moved a box. Either way the frame must be the one a
+  // full layout gives.
+  const hovered = fresh();
+  hovered.setHover("db-range-d7");
+  const cheap = strip(hovered);
+  const again = new M.DashboardDemo();
+  again.init(CSS);
+  again.setHover("db-range-d7");
+  again.rebuild();
+  ok("a hover through the cached layout draws what a rebuilt one draws", cheap === strip(again));
+}
+
 console.log("");
 console.log("passed=" + passed + " failed=" + failed);
 if (failed > 0) { console.log("FAILURES"); process.exit(1); }
