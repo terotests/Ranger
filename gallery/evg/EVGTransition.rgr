@@ -676,13 +676,33 @@ class EVGTransition {
         }
     }
 
-    fn advanceTree:void (root:EVGElement dtMs:double) {
+    ; …and says whether anything under `root` is in flight. A subtree with
+    ; a flight in it is being painted differently every frame, and its
+    ; `paintStamp` is moved on to say so: a display list keeping what it
+    ; drew for the subtree (`EVGDisplayList.emitFragment`) then draws it
+    ; afresh, and every subtree with no flight in it keeps what it had.
+    fn advanceTree:boolean (root:EVGElement dtMs:double) {
         this.advance(root dtMs)
+        def any@(mutable):boolean false
+        def f:int 0
+        while (f < (array_length root.transitions)) {
+            def flight:EVGFlight (itemAt root.transitions f)
+            if ((flight.done()) == false) {
+                any = true
+            }
+            f = (f + 1)
+        }
         def i:int 0
         while (i < (array_length root.children)) {
-            this.advanceTree((itemAt root.children i) dtMs)
+            if (this.advanceTree((itemAt root.children i) dtMs)) {
+                any = true
+            }
             i = (i + 1)
         }
+        if any {
+            root.paintStamp = (root.paintStamp + 1)
+        }
+        return any
     }
 
     ; Is anything still moving? A host that repaints on demand asks this to

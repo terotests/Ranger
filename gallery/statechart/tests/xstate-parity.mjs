@@ -454,3 +454,4 @@ if (failed) {
   process.exit(1);
 }
 console.log(`in lockstep with xstate ${xstateVersion}`);
+console.log("ALL PASS");

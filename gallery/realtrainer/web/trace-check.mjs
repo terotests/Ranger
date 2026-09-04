@@ -185,3 +185,4 @@ if (failed) {
   process.exit(1);
 }
 console.log("the Ranger trace is the recorded one");
+console.log("ALL PASS");

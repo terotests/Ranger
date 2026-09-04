@@ -611,6 +611,24 @@ class RealTrainerDemo {
     ; where this is asked once; after that a frame walks the tree only while
     ; the answer was yes, and stops asking when the last flight lands.
     def flights:boolean false
+    ; --- ENTRY CARDS, KEPT ACROSS REBUILDS --------------------------------------
+    ;
+    ; A rebuild makes the scene's tree again from the state, and on Home
+    ; that tree is every workout of the calendar as a card: the compact
+    ; text parsed, a subtree of a hundred elements built, for every entry,
+    ; on every press — opening the calendar menu measured at a second on a
+    ; phone, and in a browser profile the cards were half of it and the
+    ; elements' constructors a third. A card depends on the entry and where
+    ; it is drawn, and on nothing else in the app, so the subtree is kept
+    ; and handed back while its key — the entry's id and content, its
+    ; place and its index, which its children's ids carry — is the same.
+    ; A tree has no parent pointers, so an element is moved into the new
+    ; tree by being added to it; the layout resets what the last one
+    ; wrote. Emptied when the calendar changes.
+    def cardEls:[string:EVGElement]
+    def cardKeys:[string:string]
+    def cardsCalendar:string ""
+    def cardsBuilt:int 0
     ; --- THE SCROLLBAR --------------------------------------------------------
     ;
     ; Drawn by the list (`EVGDisplayList.addScrollbar`), so every host has
@@ -2560,7 +2578,7 @@ class RealTrainerDemo {
         def feed (tree Rt (Col (props (className "rt-home-feed"))))
         def sorted:[RtSeedEntry] (RealTrainerDemo.sortByDateDesc((seed.selectedEntries())))
         for sorted e:RtSeedEntry i {
-            def card:EVGElement (this.entryCard(e i))
+            def card:EVGElement (this.cardFor(e i "home"))
             card.className = "rt-entry rt-entry-home"
             feed.addChild(card)
         }
@@ -4516,9 +4534,56 @@ class RealTrainerDemo {
         def n:int (array_length entries)
         def k@(mutable):int (n - 1)
         while (k >= 0) {
-            body.addChild((this.entryCard((itemAt entries k) ((n - 1) - k))))
+            body.addChild((this.cardFor((itemAt entries k) ((n - 1) - k) "day")))
             k = (k - 1)
         }
+    }
+
+    ; The card for an entry, kept — see `cardEls`. `place` names where it
+    ; is drawn, because the two views that draw cards dress them
+    ; differently and count them differently.
+    fn cardFor:EVGElement (e:RtSeedEntry i:int place:string) {
+        def slot:string ((e.id + "|") + place)
+        if ((strlen e.id) == 0) {
+            slot = (((e.date + "#") + (to_string i)) + ("|" + place))
+        }
+        def key:string ((((((e.id + "|") + (to_string i)) + ("|" + e.date)) + ("|" + (to_string e.points))) + ("|" + e.feedback)) + ("|" + e.compact))
+        if (has cardKeys slot) {
+            def kept:string (unwrap (get cardKeys slot))
+            if (kept == key) {
+                def had@(optional):EVGElement (get cardEls slot)
+                if had {
+                    return (unwrap had)
+                }
+            }
+        }
+        def card:EVGElement (this.entryCard(e i))
+        ; The card's layout is kept with the card — see
+        ; `EVGElement.keepLayout`: a rebuild for a menu opening lays out the
+        ; shell and moves the cards.
+        card.keepLayout = true
+        set cardEls slot card
+        set cardKeys slot key
+        cardsBuilt = (cardsBuilt + 1)
+        return card
+    }
+
+    fn forgetCards:void () {
+        def freshEls:[string:EVGElement]
+        def freshKeys:[string:string]
+        cardEls = freshEls
+        cardKeys = freshKeys
+        ; …and the commands kept for them.
+        if retained {
+            def last:EVGDisplayList (unwrap retained)
+            last.forgetFragments()
+        }
+    }
+
+    ; How many cards have been built from their entries, for a check that
+    ; wants to know a rebuild built none.
+    fn cardsBuiltCount:int () {
+        return cardsBuilt
     }
 
     fn entryCard:EVGElement (e:RtSeedEntry i:int) {
@@ -6010,6 +6075,10 @@ class RealTrainerDemo {
     fn rebuild:void () {
         layoutDirty = true
         boxesDirty = true
+        if (seed.calendarId != cardsCalendar) {
+            this.forgetCards()
+            cardsCalendar = seed.calendarId
+        }
         this.syncFields()
         if (scene == "signin") {
             root = (this.signin())
@@ -6345,7 +6414,7 @@ class RealTrainerDemo {
         def r:EVGElement (unwrap root)
         def t:EVGTransition transitions
         if flights {
-            t.advanceTree(r dtMs)
+            def moving:boolean (t.advanceTree(r dtMs))
         }
         if (scene == "session") {
             if timerRunning {
@@ -7062,6 +7131,13 @@ class RealTrainerDemo {
         def dl (new EVGDisplayList())
         dl.setTextEngine((lay.getTextEngine()))
         dl.setCulling(cullOffscreen)
+        ; The fragments the last list kept, carried over — see
+        ; `EVGDisplayList.fragments`. A flight inside a kept subtree moves
+        ; its stamp on every frame (`EVGTransition.advanceTree`), so the
+        ; subtrees a fade is running in are drawn afresh and the rest kept.
+        if retained {
+            dl.takeFragments((unwrap retained))
+        }
         dl.setScrollbars(true)
         dl.setScrollbarState((this.barState()))
         dl.setScrollbarHover(barHoverEl)

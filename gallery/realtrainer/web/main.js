@@ -241,7 +241,17 @@ function syncMirror(now) {
 // state wants, as `paint` used to mean.
 function paintAll() {
   paint();
-  syncMirror();
+  // The mirror after the frame is on the screen, not before: rebuilding it
+  // is a walk of the whole tree and a DOM update to match, and a press that
+  // opens a menu should show the menu first. The loop rebuilds it on its
+  // next frame — `mirrorDue` is cleared so that frame does not wait — unless
+  // a field has the keyboard, whose <input> IS a mirror element and has to
+  // exist for the text session that is about to be started.
+  if (app.focusedField()) {
+    syncMirror();
+    return;
+  }
+  mirrorDue = 0;
 }
 
 function at(ev) {

@@ -224,3 +224,4 @@ if (failed) {
   process.exit(1);
 }
 console.log("the machine is drawn, and a run is drawn on it");
+console.log("ALL PASS");

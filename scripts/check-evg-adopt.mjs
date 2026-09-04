@@ -31,6 +31,7 @@ const EXPECTED_SKIPS = {
   parent: "structure — a back-reference the reconciler owns",
   children: "structure — EVGReconcile decides the child list",
   transitions: "the in-flight animations, which are the reason the element is kept",
+  paintStamp: "this element's own count of paint changes — adopting is one, so it is moved on, not copied",
 };
 
 const src = fs.readFileSync(FILE, "utf8").split("\n");

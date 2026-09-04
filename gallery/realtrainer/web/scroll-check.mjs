@@ -444,6 +444,74 @@ console.log("--- the scrollbar ---");
      !JSON.parse(quiet.displayListJson()).cmds.some((c) => c.k === 3 && /^\d+ %$/.test(c.text)));
 }
 
+// --- what a rebuild keeps ------------------------------------------------------
+//
+// A press rebuilds the scene's tree. Home's tree is every workout as a
+// card, and a card depends on its entry and nothing else, so a rebuild for
+// a menu opening builds no card: the cards are the ones from before.
+console.log("");
+console.log("--- what a rebuild keeps ---");
+{
+  const app = open("/", 390, 844);
+  // The training diary: a hundred workouts on Home.
+  app.press("rt-calsel");
+  app.press("rt-cal-oma-paivakirja");
+  app.display();
+  const built = app.cardsBuiltCount();
+  ok("the diary's Home built its cards once", built > 100, `${built} cards`);
+  // …and laid them out down the feed, not on top of each other: the
+  // first frame is a real layout of kept cards, and a kept card's box was
+  // once reset to the origin on its way in.
+  const notesY = (a) => JSON.parse(a.displayListJson()).cmds.filter((c) => c.k === 3 && c.text === "Muistiinpanot").map((c) => c.y);
+  const ys = notesY(app);
+  ok("one under another on the first frame", ys.length >= 2 && ys.every((y, i) => i === 0 || y > ys[i - 1]),
+     ys.slice(0, 4).map((y) => Math.round(y)).join(","));
+  const t0 = process.hrtime.bigint();
+  ok("the calendar menu opens", app.press("rt-calsel"));
+  app.display();
+  const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+  ok("and building the tree for it built no card", app.cardsBuiltCount() === built,
+     `${app.cardsBuiltCount() - built} built`);
+  console.log(`  (the menu opened in ${ms.toFixed(1)} ms, tree and layout and list)`);
+  ok("and closes", app.press("rt-calsel"));
+  app.display();
+  ok("with none built either", app.cardsBuiltCount() === built,
+     `${app.cardsBuiltCount() - built} built`);
+  // An entry that changed is built again, alone.
+  app.press("rt-calsel");
+  app.press("rt-cal-cal-train");
+  app.display();
+  const other = app.cardsBuiltCount();
+  ok("another calendar builds its own", other > built, `${other - built} built`);
+  app.press("rt-calsel");
+  app.press("rt-cal-oma-paivakirja");
+  app.display();
+  ok("and coming back builds the diary's again, the cache having been emptied", app.cardsBuiltCount() > other);
+  // The kept cards' LAYOUT is kept too: a rebuild for the menu lays the
+  // shell out and moves the cards, and the frame is the frame a fresh app
+  // lays out from scratch — at the top, and scrolled into the feed.
+  const fresh = open("/", 390, 844);
+  fresh.press("rt-calsel");
+  fresh.press("rt-cal-oma-paivakirja");
+  fresh.display();
+  for (const scroll of [0, 1200]) {
+    if (scroll) { app.scrollDocument(scroll); fresh.scrollDocument(scroll); }
+    app.press("rt-calsel");
+    fresh.press("rt-calsel");
+    ok(`the menu over the feed at ${scroll} is what a fresh app lays out`,
+       visibleCmds(app, 390, 844) === visibleCmds(fresh, 390, 844));
+    app.press("rt-calsel");
+    fresh.press("rt-calsel");
+    ok(`and closed again at ${scroll}`, visibleCmds(app, 390, 844) === visibleCmds(fresh, 390, 844));
+  }
+  ok("a hover on a card moves no box and lays out none", (() => {
+    const before = app.layoutCount();
+    app.setHover("rt-entry-notes-3");
+    app.display();
+    return app.layoutCount() === before;
+  })(), `${app.layoutCount()} layouts`);
+}
+
 // --- the throw ---------------------------------------------------------------
 //
 // A swipe that leaves the glass moving keeps the page moving, and a faster

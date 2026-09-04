@@ -843,6 +843,146 @@ class EVGDisplayList {
     ; Off unless an app asks: a list is also what the PDF and PNG targets and
     ; the conformance oracles draw from, and a bar in those is a difference
     ; nobody asked for.
+    ; --- FRAGMENTS -------------------------------------------------------------
+    ;
+    ; A subtree an app keeps (`EVGElement.keepLayout`) draws the same
+    ; commands each time it is walked: the text broken into the same lines,
+    ; the same icons flattened. So the first walk of it keeps the commands
+    ; it emitted, and the walks after emit THE SAME COMMANDS again — not
+    ; copies: the list that held them is the list being replaced. They are
+    ; where the subtree is, or are moved to it first: a kept list moves its
+    ; commands with the scroll exactly as the layout moves the elements, so
+    ; after a scroll they agree already, and after a rebuild that moved the
+    ; subtree by the flow they are moved by the difference, in place. The
+    ; difference is read off the first command's distance from the element,
+    ; which a move of both leaves alone.
+    ;
+    ; They hold while the sheet has written no paint in the subtree and the
+    ; layout has not laid it out for real since (`EVGElement.paintStamp`),
+    ; and while nothing is in flight anywhere, because a flight writes paint
+    ; between the sheet's passes. The recording walks the whole subtree,
+    ; culling off, so a card half over the edge is recorded whole and shown
+    ; whole when it arrives; a subtree that opened a scroll layer is not
+    ; kept, its layer would not be the new list's. On a diary of a hundred
+    ; workouts this is the difference between a list built by walking
+    ; twelve thousand commands' worth of elements and one built by walking
+    ; the shell.
+    def fragments:boolean true
+    ; How many kept subtrees this build drew from what they had, and how
+    ; many it walked — for a check, and for a bench.
+    def fragHits:int 0
+    def fragMisses:int 0
+    def fragEls:[EVGElement]
+    def fragLists:[[EVGDrawCmd]]
+    def fragStamps:[int]
+    def fragOffX:[double]
+    def fragOffY:[double]
+
+    fn setFragments:void (on:boolean) {
+        fragments = on
+    }
+
+    ; The fragments the last list kept, handed to this one by the app.
+    fn takeFragments:void (from:EVGDisplayList) {
+        fragEls = from.fragEls
+        fragLists = from.fragLists
+        fragStamps = from.fragStamps
+        fragOffX = from.fragOffX
+        fragOffY = from.fragOffY
+    }
+
+    fn forgetFragments:void () {
+        clear fragEls
+        clear fragLists
+        clear fragStamps
+        clear fragOffX
+        clear fragOffY
+    }
+
+    fn fragmentOf:int (el:EVGElement) {
+        def i:int 0
+        while (i < (array_length fragEls)) {
+            if ((itemAt fragEls i) == el) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    ; Emit a kept subtree's commands again, moved to where it is now.
+    ; False when there is nothing kept that holds.
+    fn emitFragment:boolean (el:EVGElement) {
+        def fi:int (this.fragmentOf(el))
+        if (fi < 0) {
+            return false
+        }
+        if ((itemAt fragStamps fi) != el.paintStamp) {
+            return false
+        }
+        def kept:[EVGDrawCmd] (itemAt fragLists fi)
+        if ((array_length kept) == 0) {
+            return false
+        }
+        def first:EVGDrawCmd (itemAt kept 0)
+        def dx:double (el.calculatedX - (first.x + (itemAt fragOffX fi)))
+        def dy:double (el.calculatedY - (first.y + (itemAt fragOffY fi)))
+        for kept c:EVGDrawCmd ci {
+            if ((dx != 0.0) || (dy != 0.0)) {
+                c.x = (c.x + dx)
+                c.y = (c.y + dy)
+                if c.hasRotOrigin {
+                    c.rotOriginX = (c.rotOriginX + dx)
+                    c.rotOriginY = (c.rotOriginY + dy)
+                }
+                def n:int (array_length c.pts)
+                def p:int 0
+                while (p < n) {
+                    set c.pts p ((itemAt c.pts p) + dx)
+                    set c.pts (p + 1) ((itemAt c.pts (p + 1)) + dy)
+                    p = (p + 2)
+                }
+            }
+            this.addCmd(c)
+        }
+        return true
+    }
+
+    ; Keep what the walk just emitted for a subtree — or not, when it
+    ; opened a scroll layer, or emitted nothing to be placed by.
+    fn recordFragment:void (el:EVGElement start:int) {
+        def kept:[EVGDrawCmd]
+        def i:int start
+        def n:int (array_length cmds)
+        while (i < n) {
+            def c:EVGDrawCmd (itemAt cmds i)
+            if (c.layer > 0) {
+                return
+            }
+            push kept c
+            i = (i + 1)
+        }
+        if ((array_length kept) == 0) {
+            return
+        }
+        def first:EVGDrawCmd (itemAt kept 0)
+        def offX:double (el.calculatedX - first.x)
+        def offY:double (el.calculatedY - first.y)
+        def fi:int (this.fragmentOf(el))
+        if (fi < 0) {
+            push fragEls el
+            push fragLists kept
+            push fragStamps el.paintStamp
+            push fragOffX offX
+            push fragOffY offY
+            return
+        }
+        set fragLists fi kept
+        set fragStamps fi el.paintStamp
+        set fragOffX fi offX
+        set fragOffY fi offY
+    }
+
     def scrollbars:boolean false
     def barState:int 0
     def barHover@(optional):EVGElement
@@ -1392,6 +1532,8 @@ class EVGDisplayList {
         clear layerScale
         clear layerPct
         clear layerLabel
+        fragHits = 0
+        fragMisses = 0
         cullOn = false
         effectKind = ""
         def noX:[double]
@@ -1677,14 +1819,31 @@ class EVGDisplayList {
         ; back rather than cleared, because `walkOpaque` recurses through here
         ; and a child must not leave its own slot behind for the commands its
         ; parent emits afterwards.
+        ; A kept subtree, from what it emitted last time when that holds.
+        def keeping:boolean ((fragments && el.keepLayout) && (attribute == false))
+        if keeping {
+            if (this.emitFragment(el)) {
+                fragHits = (fragHits + 1)
+                return
+            }
+            fragMisses = (fragMisses + 1)
+        }
         def prevNode:int curNode
         if attribute {
             curNode = el.inspectSlot
         }
+        def hadCull:boolean cullOn
+        if keeping {
+            cullOn = false
+        }
         this.walkOpaque(el)
+        cullOn = hadCull
         curNode = prevNode
         this.fadeFrom(emitStart el.opacity)
         this.transformFrom(emitStart el)
+        if keeping {
+            this.recordFragment(el emitStart)
+        }
     }
 
     fn walkOpaque:void (el:EVGElement) {
@@ -1989,7 +2148,7 @@ class EVGDisplayList {
         def clips:boolean (el.clipsContent())
         ; A clip that can scroll is a layer — see `refreshLayers`.
         def scrolls:boolean false
-        if (clips && culling) {
+        if ((clips && culling) && ((w > 0.0) && (h > 0.0))) {
             if (((el.maxScrollTop()) > 0.0) || ((el.maxScrollLeft()) > 0.0)) {
                 scrolls = true
             }
@@ -2380,16 +2539,7 @@ class EVGDisplayList {
                 (EVGDisplayList.num(effectLightZ)) + "]")
             out = (out + "},")
         }
-        out = (out + "\"seq\":" + (to_string buildSeq) + ",\"shifts\":[")
-        def si:int 0
-        while (si < (array_length layerEls)) {
-            if (si > 0) {
-                out = (out + ",")
-            }
-            out = (out + "[" + (EVGDisplayList.num((itemAt layerShiftX si))) + "," + (EVGDisplayList.num((itemAt layerShiftY si))) + "]")
-            si = (si + 1)
-        }
-        out = (out + "],\"cmds\":[")
+        out = (out + "\"cmds\":[")
         def i:int 0
         while (i < (array_length cmds)) {
             def c:EVGDrawCmd (itemAt cmds i)
@@ -2501,7 +2651,19 @@ class EVGDisplayList {
             out = out + "}"
             i = (i + 1)
         }
-        out = out + "]}"
+        ; The build's number and the layers' shifts, AFTER the commands: a
+        ; reader that wants only the commands takes the document from its
+        ; first byte, and one did.
+        out = (out + "],\"seq\":" + (to_string buildSeq) + ",\"shifts\":[")
+        def si:int 0
+        while (si < (array_length layerEls)) {
+            if (si > 0) {
+                out = (out + ",")
+            }
+            out = (out + "[" + (EVGDisplayList.num((itemAt layerShiftX si))) + "," + (EVGDisplayList.num((itemAt layerShiftY si))) + "]")
+            si = (si + 1)
+        }
+        out = (out + "]}")
         return out
     }
 

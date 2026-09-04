@@ -1385,13 +1385,35 @@ class EVGStyleSheet {
         return ((passLayoutDirty + passPaintDirty) == 0)
     }
 
+    ; …and, on the way back up, whether the pass moved a box anywhere in
+    ; the subtree: `EVGElement.layoutClean`, which the layout reads for a
+    ; subtree an app asked it to keep. An element never laid out is not
+    ; clean, so a subtree with a new element in it is laid out.
     fn applyIn:void (root:EVGElement theme:string) {
+        def before:int passLayoutDirty
+        def beforePaint:int passPaintDirty
         this.applyTo(root theme)
+        def ownClean:boolean (passLayoutDirty == before)
+        def ownPaintClean:boolean ((passPaintDirty == beforePaint) && ownClean)
+        def kidsClean@(mutable):boolean true
+        def kidsPaintClean@(mutable):boolean true
         def i:int 0
         def n:int (root.getChildCount())
         while (i < n) {
-            this.applyIn((root.getChild(i)) theme)
+            def kid:EVGElement (root.getChild(i))
+            this.applyIn(kid theme)
+            if (kid.layoutClean == false) {
+                kidsClean = false
+            }
+            if (kid.paintClean == false) {
+                kidsPaintClean = false
+            }
             i = (i + 1)
+        }
+        root.layoutClean = ((ownClean && kidsClean) && root.hasLayout)
+        root.paintClean = (ownPaintClean && kidsPaintClean)
+        if (root.paintClean == false) {
+            root.paintStamp = (root.paintStamp + 1)
         }
     }
 

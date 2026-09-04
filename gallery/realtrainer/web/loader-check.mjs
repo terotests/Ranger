@@ -470,3 +470,4 @@ if (failed) {
   process.exit(1);
 }
 console.log("all checks passed");
+console.log("ALL PASS");

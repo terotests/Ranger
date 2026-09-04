@@ -320,6 +320,13 @@ jobs:
       - name: Install Chromium for the browser-driven suites
         run: npx playwright-core install --with-deps chromium
 
+      # The reference host's packages — xstate for the machine parity suites,
+      # esbuild for the pages the browser-driven suites load. Without them the
+      # parity suites skipped themselves, which the gate then counted as no
+      # pass, and the gate had been red on every merge for that alone.
+      - name: Install the conformance reference host
+        run: npm run ui:conformance:install
+
       - name: Run the gallery editor suites
         run: npm run gallery:editors:test
 

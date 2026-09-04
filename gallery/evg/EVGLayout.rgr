@@ -171,6 +171,19 @@ class EVGLayout {
     ; top of the document while its rows are ten thousand pixels below it, and
     ; culling on the wrapper would take the rows with it.
     fn measurePaintBounds:void (el:EVGElement) {
+        ; A subtree the layout kept moved with its bounds; they still hold —
+        ; when they were measured since it was last laid out for real.
+        if (el.layoutSkipped && el.boundsFresh) {
+            return
+        }
+        el.boundsFresh = true
+        ; Where the first child sits relative to the box, for a kept subtree
+        ; to be moved by — see `EVGElement.kidOffX`.
+        if ((el.getChildCount()) > 0) {
+            def k0:EVGElement (el.getChild(0))
+            el.kidOffX = (k0.calculatedX - el.calculatedX)
+            el.kidOffY = (k0.calculatedY - el.calculatedY)
+        }
         ; A degenerate box draws nothing of its own — a wrapper with no size
         ; is a place in the tree, not a place on the page — so it does not
         ; drag the union back to wherever it happens to sit.
@@ -248,7 +261,65 @@ class EVGLayout {
     def columnCrossShrinks:boolean false
 
     fn layoutElement:void (element:EVGElement parentX:double parentY:double parentWidth:double parentHeight:double) {
-        ; Resolve units for this element (will be skipped if already resolved in layoutChildren)
+        ; A subtree the app keeps — see `EVGElement.keepLayout` — with the
+        ; same inputs as last time is the same layout, moved: the flow
+        ; reads its size and baseline off it as if it had been laid out.
+        if element.keepLayout {
+            if (element.hasLayout && element.layoutClean) {
+                if ((((element.lastParentW == parentWidth) && (element.lastParentH == parentHeight))
+                     && (element.lastFlex == element.hasFlexWidth)) && (element.lastFlexW == element.calculatedFlexWidth)) {
+                    ; The box is at (parentX, parentY): the flow wrote it there
+                    ; before this call, or means it at the origin to move it
+                    ; after. What is under it follows by the difference between
+                    ; where the first child is and where it sat relative to the
+                    ; box when the subtree was measured; the bounds, which were
+                    ; measured with the children, follow by the same.
+                    element.calculatedX = parentX
+                    element.calculatedY = parentY
+                    def n:int (element.getChildCount())
+                    if (n > 0) {
+                        def k0:EVGElement (element.getChild(0))
+                        def dx:double ((parentX + element.kidOffX) - k0.calculatedX)
+                        def dy:double ((parentY + element.kidOffY) - k0.calculatedY)
+                        if ((dx != 0.0) || (dy != 0.0)) {
+                            def i:int 0
+                            while (i < n) {
+                                def kid:EVGElement (element.getChild(i))
+                                kid.moveSubtree(dx dy)
+                                i = (i + 1)
+                            }
+                            element.paintLeft = (element.paintLeft + dx)
+                            element.paintRight = (element.paintRight + dx)
+                            element.paintTop = (element.paintTop + dy)
+                            element.paintBottom = (element.paintBottom + dy)
+                        }
+                    } {
+                        element.boundsFresh = false
+                    }
+                    element.layoutSkipped = true
+                    return
+                }
+            }
+            ; Laid out for real: what the root's reset left in place goes,
+            ; but not what the parent has just handed down — the flex width,
+            ; and the box's place, which the flow wrote before this call.
+            def flex:boolean element.hasFlexWidth
+            def flexW:double element.calculatedFlexWidth
+            def bx:double element.calculatedX
+            def by:double element.calculatedY
+            element.resetLayoutNow()
+            element.hasFlexWidth = flex
+            element.calculatedFlexWidth = flexW
+            element.calculatedX = bx
+            element.calculatedY = by
+        }
+        element.hasLayout = true
+        element.layoutSkipped = false
+        element.paintStamp = (element.paintStamp + 1)
+        element.lastParentW = parentWidth
+        element.lastParentH = parentHeight
+        element.lastFlex = element.hasFlexWidth
+        element.lastFlexW = element.calculatedFlexWidth
         element.resolveUnits(parentWidth parentHeight)
         ; `display: none` has no box and lays out nothing under it.
         if (element.isHidden()) {
@@ -1914,8 +1985,15 @@ class EVGLayout {
         }
     }
     
+    ; Called right after `parent`'s own box moved by the same offset, so the
+    ; parent's paint bounds move here with everything under it: a kept
+    ; subtree's bounds are not measured again, and have to stay in step with
+    ; its boxes through every move the flow makes after laying it out.
     fn propagateOffsetToChildren:void (parent:EVGElement offsetX:double offsetY:double) {
-        ; Recursively add offset to all children's positions
+        parent.paintLeft = (parent.paintLeft + offsetX)
+        parent.paintRight = (parent.paintRight + offsetX)
+        parent.paintTop = (parent.paintTop + offsetY)
+        parent.paintBottom = (parent.paintBottom + offsetY)
         def childCount:int (parent.getChildCount())
         def i:int 0
         while (i < childCount) {
@@ -2323,7 +2401,34 @@ class EVGLayout {
         return (this.intrinsicWidth(el true))
     }
 
+    ; The intrinsic width of a kept subtree is kept with it: measuring it
+    ; is a walk of the subtree, and a subtree that is the same has the
+    ; same width.
     fn intrinsicWidth:double (el:EVGElement wantMin:boolean) {
+        if (el.keepLayout && (el.hasLayout && el.layoutClean)) {
+            if wantMin {
+                if el.hasIntrinsicMin {
+                    return el.intrinsicMin
+                }
+            } {
+                if el.hasIntrinsicMax {
+                    return el.intrinsicMax
+                }
+            }
+            def measured:double (this.intrinsicWidthNow(el wantMin))
+            if wantMin {
+                el.intrinsicMin = measured
+                el.hasIntrinsicMin = true
+            } {
+                el.intrinsicMax = measured
+                el.hasIntrinsicMax = true
+            }
+            return measured
+        }
+        return (this.intrinsicWidthNow(el wantMin))
+    }
+
+    fn intrinsicWidthNow:double (el:EVGElement wantMin:boolean) {
         def outer:double 0.0
         ; A PERCENTAGE IS NOT A DEFINITE WIDTH HERE. Intrinsic sizing is the
         ; question "how wide would this be with unlimited / with no space",
