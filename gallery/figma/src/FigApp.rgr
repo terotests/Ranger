@@ -63,6 +63,10 @@ class FigApp {
         return (this.openBytes((FigSample.buildFig()) "sample.fig"))
     }
 
+    fn openClipboardSample:boolean () {
+        return (this.openBytes((FigSample.buildClipboard()) "clipboard"))
+    }
+
     fn convert:void () {
         sceneDoc = (converter.convertDoc(doc))
         assets = (new SceneAssets())
@@ -383,6 +387,12 @@ class FigApp {
         o = (o + ",\"cmds\":" + (to_string cmdCount))
         o = (o + ",\"debug\":")
         if debug {
+            o = (o + "true")
+        } {
+            o = (o + "false")
+        }
+        o = (o + ",\"pasted\":")
+        if doc.pasted {
             o = (o + "true")
         } {
             o = (o + "false")

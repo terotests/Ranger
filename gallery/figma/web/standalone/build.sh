@@ -63,6 +63,7 @@ fi
 cp "$WEB/index.html" "$OUT/index.html"
 cp "$WEB/standalone.mjs" "$OUT/standalone.mjs"
 cp "$WEB/zstd.mjs" "$OUT/zstd.mjs"
+cp "$WEB/clipboard.mjs" "$OUT/clipboard.mjs"
 cp "$WEB/openfig-compare.mjs" "$OUT/openfig-compare.mjs"
 mkdir -p "$OUT/vendor" "$OUT/gl" "$OUT/fonts"
 cp gallery/figma/web/vendor/fzstd.mjs "$OUT/vendor/fzstd.mjs"

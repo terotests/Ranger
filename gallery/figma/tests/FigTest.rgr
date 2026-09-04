@@ -60,6 +60,7 @@ class FigTest {
         this.testSceneIr()
         this.testFixtures()
         this.testHealthFig()
+        this.testPaste()
         print ""
         print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
         if (failed == 0) {
@@ -334,6 +335,37 @@ class FigTest {
         this.check("no text spans" ((FigTest.hasSub(dump "<span")) == false))
         this.check("no text background" ((FigTest.hasSub(dump "fill=\"#F7F5F0\" d=\"M")) == true))
         this.eqInt("no warnings" (array_length app.sceneDoc.warnings) 0)
+    }
+
+    ; A paste from Figma: fig-kiwi bytes with no ZIP, and only the copied
+    ; nodes, each pointing at a page that did not come along.
+    fn testPaste:void () {
+        print "--- paste ---"
+        def app (new FigApp())
+        this.check("open loose layers" (app.openClipboardSample()))
+        this.check("flagged as a paste" app.doc.pasted)
+        this.check("canvas bytes kept" ((buffer_length app.doc.canvasBytes) > 16))
+        this.eqInt("one page" (app.pageCount()) 1)
+        def page:SceneNode (app.currentPage())
+        this.eqStr("synthetic page" page.name "Pasted")
+        this.eqStr("page type" page.sourceType "CANVAS")
+        this.eqInt("two roots" (array_length page.children) 2)
+        def card:SceneNode (page.childNamed("Card"))
+        this.eqStr("card kind" card.kind "container")
+        this.close("card x" card.x 640.0)
+        this.eqInt("card keeps its child" (array_length card.children) 1)
+        def dot:SceneNode (page.childNamed("Dot"))
+        this.eqStr("dot kind" dot.kind "ellipse")
+        this.check("frames list the card" (FigTest.hasSub((app.framesJson()) "Card")))
+        ; The same bytes a .fig keeps in canvas.fig open on their own too.
+        def whole (new FigApp())
+        this.check("open .fig" (whole.openSample()))
+        def again (new FigApp())
+        this.check("open its canvas bytes" (again.openBytes(whole.doc.canvasBytes "canvas")))
+        this.check("canvas bytes are a paste" again.doc.pasted)
+        this.eqInt("same pages" (again.pageCount()) (whole.pageCount()))
+        def bad (new FigApp())
+        this.check("garbage refused" ((bad.openBytes((buffer_alloc 40) "junk")) == false))
     }
 
     sfn hasSub:boolean (s:string needle:string) {

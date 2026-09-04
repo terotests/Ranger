@@ -19,6 +19,15 @@ class FigWeb {
         return (app.openSample())
     }
 
+    fn openClipboardSample:boolean () {
+        return (app.openClipboardSample())
+    }
+
+    ; The fig-kiwi bytes behind the open document — canvas.fig, or the paste.
+    fn canvasBytes:buffer () {
+        return app.doc.canvasBytes
+    }
+
     fn ok:boolean () {
         return app.ok
     }
