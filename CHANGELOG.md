@@ -9,6 +9,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A view of the drawing, not the picture: `Pisteet`.** A button in the SVG
+  pane draws the trace's own geometry over it — every anchor, every segment,
+  every handle — because the rendered picture cannot answer the question you
+  actually have about a tracer, which is whether the outline is any good. A
+  shape that looks clean at 100 % can be forty points long where four would do,
+  and a curve fitted through raster stairs looks smooth until its handles
+  zig-zag in front of you.
+
+  Straight segments are blue, curves amber, control handles grey; an anchor is
+  **red where the outline turns a corner** and **green where it runs smoothly
+  through** (within 15°). Shapes lying under other shapes are drawn too — it is
+  the document, not the visible surface. The panel carries its own zoom to
+  1600 %, and the marks are non-scaling strokes, so a node is the same size on
+  screen at every magnification.
+
+  The numbers beside it are the quality reading: paths, rings and anchors;
+  straights against curves; corners against smooth points; total outline length
+  and **anchors per 100 units of it**; the median segment and how many fall
+  under a pixel; crumb rings under 4 units across; and the path data in
+  kilobytes and bytes per anchor. On the beach photograph at 20 colours that is
+  13 742 points over 187 286 units of outline — 7.3 points per 100 units, 100 %
+  curves, 188 crumb rings, 45.7 bytes a point.
+
+  The overlay is a separate SVG laid over the drawing rather than nodes added
+  to it, because the wand's graph, the exporter and the shape count all walk
+  `querySelectorAll("path")` and an inspector that added paths would lie to
+  every one of them.
+
+- **Zoom actually zooms.** `#outStage.zoomed svg` had `max-width: none` but the
+  stage is a flexbox, and a flex item shrinks to fit however wide you ask it to
+  be: the picture stayed exactly the same size at 800 %. It needs `flex: none`
+  as well. This fixes the wand's zoom too, which had never magnified anything.
+
 - **Cylinder continuity: a limb is a cylinder, and now the wand can follow one.**
   The cut leaves a limb in stripes — a foot below the shadow across the shin,
   the white of a flagpole below the black band, the next stripe of a zebra's

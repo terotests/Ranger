@@ -74,8 +74,20 @@
 
   .stage {
     background: var(--stage); min-height: 280px; display: flex; align-items: center; justify-content: center;
-    padding: 16px; overflow: auto;
+    padding: 16px; overflow: auto; position: relative;
   }
+  /* The geometry inspector lies over the drawing, never in it. */
+  .geomlayer { position: absolute; pointer-events: none; overflow: visible; }
+  .geomstats {
+    position: absolute; top: 10px; right: 10px; pointer-events: auto;
+    background: rgba(16,19,24,0.88); color: #e8eaed; border: 1px solid #2a3038;
+    border-radius: 6px; padding: 8px 10px; font-size: 11.5px; line-height: 1.55;
+    white-space: pre; font-variant-numeric: tabular-nums; letter-spacing: 0;
+    text-transform: none;
+  }
+  .geomzoom { display: flex; align-items: center; gap: 6px; margin-bottom: 6px;
+              padding-bottom: 6px; border-bottom: 1px solid #2a3038; }
+  .geomzoom select { font: inherit; }
   .stage img, .stage svg { max-width: 100%; height: auto; display: block; }
   /* Transparency needs something behind it to read against; the cream stage
      looks exactly like a painted cream background. */
@@ -132,7 +144,9 @@
      allowed past the pane's width. The pointer mapping needs nothing: it reads
      the element's own bounding rect, so a bigger element is simply finer. */
   #outStage.zoomed { align-items: flex-start; justify-content: flex-start; }
-  #outStage.zoomed svg { max-width: none; }
+  /* A flex item shrinks to fit however wide you ask it to be, so zooming did
+     nothing until this: the picture has to be allowed to overflow the stage. */
+  #outStage.zoomed svg { max-width: none; flex: none; }
   #outStage.editing.wanding svg path { cursor: crosshair; }
   #outStage.editing.wanding svg path.wand-off { opacity: .12; }
   .split {
@@ -402,6 +416,7 @@
         </div>
         <div class="pane">
           <div class="head">SVG<span class="grow"></span>
+            <button type="button" class="tool" id="geomToggle" disabled title="Näytä mistä piirros on tehty: pisteet, suorat ja kaaret, ja kaarien kahvat. Punainen piste on kulma, vihreä pehmeä. Myös muiden alle jäävien muotojen reunat piirretään — se on dokumentti, ei näkyvä pinta. Luvut kertovat kuinka tiheään pisteitä on, eli jäljityksen laadun suoraan luettuna.">Pisteet</button>
             <button type="button" class="tool" id="editToggle" disabled>Muokkaa</button>
           </div>
           <div class="stage empty" id="outStage">—</div>
@@ -1271,6 +1286,294 @@
   }
 
   function outSvg() { return outStage.querySelector("svg"); }
+
+  // ------------------------------------------------------- what the SVG is
+  //
+  // Every number in the parameter column is about the picture. This one is
+  // about the *drawing*: where the points are, which segments are straight and
+  // which are curved, where the handles point, and which corners the tracer
+  // decided are corners. It is the view a draughtsman asks for before saying
+  // whether an outline is any good, and it answers the questions the rendered
+  // picture cannot — a shape that looks clean at 100 % can be forty points
+  // long where four would do, and a curve fitted through raster stairs looks
+  // smooth until you see its handles zig-zag.
+  //
+  // It is drawn into a *separate* overlay SVG rather than into the drawing,
+  // because everything else in this file — the wand's graph, the exporter, the
+  // shape count in the status line — walks `svg.querySelectorAll("path")`, and
+  // an inspector that adds paths to the document would lie to all of them.
+  var geomShown = false;
+
+  // Anchors within this many degrees of straight-through count as smooth; the
+  // rest are corners. Fifteen is where a fitted curve's own rounding stops
+  // mattering and a real corner starts.
+  var GEOM_SMOOTH_DEG = 15;
+
+  function geomNums(s) {
+    var m = s.match(/-?\d*\.?\d+(?:[eE][-+]?\d+)?/g);
+    return m ? m.map(Number) : [];
+  }
+
+  // One path's `d`, walked into segments and anchors. Handles what this tracer
+  // writes (M, L, C, Z) and what an imported or hand-edited file might bring
+  // with it; an arc is counted as a curve and drawn as itself.
+  function geomWalk(d, sink) {
+    var chunks = d.match(/[MmLlHhVvCcSsQqTtAaZz][^MmLlHhVvCcSsQqTtAaZz]*/g);
+    if (!chunks) return;
+    var x = 0, y = 0, sx = 0, sy = 0, nodes = null, lastC = null;
+    function node(nx, ny) { return { x: nx, y: ny, inD: null, outD: null }; }
+    function flush(closed) {
+      if (!nodes || !nodes.length) { nodes = null; return; }
+      if (closed && nodes.length > 1) {
+        var first = nodes[0], last = nodes[nodes.length - 1];
+        // A closed ring's first and last point are the same point.
+        if (Math.abs(first.x - last.x) < 1e-6 && Math.abs(first.y - last.y) < 1e-6) {
+          first.inD = last.inD; nodes.pop();
+        } else { first.inD = { x: first.x - last.x, y: first.y - last.y }; }
+      }
+      sink.ring(nodes, closed);
+      nodes = null;
+    }
+    for (var ci = 0; ci < chunks.length; ci++) {
+      var c = chunks[ci], op = c[0], rel = op >= "a", up = op.toUpperCase();
+      var n = geomNums(c), k = 0;
+      if (up === "Z") { flush(true); x = sx; y = sy; lastC = null; continue; }
+      do {
+        var ax = x, ay = y, nx, ny, c1, c2;
+        if (up === "M") {
+          nx = n[k++]; ny = n[k++];
+          if (rel) { nx += x; ny += y; }
+          flush(false);
+          nodes = [node(nx, ny)];
+          sx = nx; sy = ny; x = nx; y = ny; lastC = null;
+          up = "L";                                  // implicit lineto after M
+          continue;
+        }
+        if (up === "H") { nx = rel ? x + n[k++] : n[k++]; ny = y; }
+        else if (up === "V") { nx = x; ny = rel ? y + n[k++] : n[k++]; }
+        else if (up === "L") { nx = n[k++]; ny = n[k++]; if (rel) { nx += x; ny += y; } }
+        else if (up === "C" || up === "S" || up === "Q" || up === "T") {
+          if (up === "C") {
+            c1 = { x: n[k++], y: n[k++] }; c2 = { x: n[k++], y: n[k++] };
+            nx = n[k++]; ny = n[k++];
+            if (rel) { c1.x += x; c1.y += y; c2.x += x; c2.y += y; nx += x; ny += y; }
+          } else if (up === "S") {
+            c2 = { x: n[k++], y: n[k++] }; nx = n[k++]; ny = n[k++];
+            if (rel) { c2.x += x; c2.y += y; nx += x; ny += y; }
+            c1 = lastC ? { x: 2*x - lastC.x, y: 2*y - lastC.y } : { x: x, y: y };
+          } else if (up === "Q") {
+            var q = { x: n[k++], y: n[k++] }; nx = n[k++]; ny = n[k++];
+            if (rel) { q.x += x; q.y += y; nx += x; ny += y; }
+            c1 = { x: x + 2*(q.x - x)/3, y: y + 2*(q.y - y)/3 };
+            c2 = { x: nx + 2*(q.x - nx)/3, y: ny + 2*(q.y - ny)/3 };
+            lastC = q;
+          } else {                                    // T, a mirrored quadratic
+            nx = n[k++]; ny = n[k++];
+            if (rel) { nx += x; ny += y; }
+            var q2 = lastC ? { x: 2*x - lastC.x, y: 2*y - lastC.y } : { x: x, y: y };
+            c1 = { x: x + 2*(q2.x - x)/3, y: y + 2*(q2.y - y)/3 };
+            c2 = { x: nx + 2*(q2.x - nx)/3, y: ny + 2*(q2.y - ny)/3 };
+            lastC = q2;
+          }
+        } else if (up === "A") {
+          k += 5; nx = n[k++]; ny = n[k++];
+          if (rel) { nx += x; ny += y; }
+        } else { break; }
+        if (!nodes) nodes = [node(ax, ay)];
+        var to = node(nx, ny), from = nodes[nodes.length - 1];
+        if (c1) {
+          from.outD = { x: c1.x - ax, y: c1.y - ay };
+          to.inD = { x: nx - c2.x, y: ny - c2.y };
+          sink.curve(ax, ay, c1, c2, nx, ny);
+          if (up === "C" || up === "S") lastC = c2;
+        } else {
+          from.outD = { x: nx - ax, y: ny - ay };
+          to.inD = { x: nx - ax, y: ny - ay };
+          sink.line(ax, ay, nx, ny);
+          lastC = null;
+        }
+        nodes.push(to);
+        x = nx; y = ny;
+      } while (k < n.length);
+    }
+    flush(false);
+  }
+
+  // The whole drawing, measured and drawn at once.
+  function geomScan(paths) {
+    var line = [], curve = [], hand = [], corner = [], smooth = [], ctrl = [];
+    var S = { rings: 0, anchors: 0, lines: 0, curves: 0, corners: 0,
+              len: 0, short: 0, tiny: 0, lens: [], crumbs: 0, bytes: 0 };
+    var dot = function (a, px, py) { a.push("M" + px.toFixed(2) + " " + py.toFixed(2) + "l0 0"); };
+    var cosLimit = Math.cos((180 - GEOM_SMOOTH_DEG) * Math.PI / 180);
+    var sink = {
+      line: function (ax, ay, bx, by) {
+        line.push("M" + ax.toFixed(2) + " " + ay.toFixed(2) + "L" + bx.toFixed(2) + " " + by.toFixed(2));
+        var L = Math.hypot(bx - ax, by - ay);
+        S.lines++; S.len += L; S.lens.push(L);
+        if (L < 1) S.short++;
+        if (L < 0.35) S.tiny++;
+      },
+      curve: function (ax, ay, c1, c2, bx, by) {
+        curve.push("M" + ax.toFixed(2) + " " + ay.toFixed(2)
+          + "C" + c1.x.toFixed(2) + " " + c1.y.toFixed(2)
+          + " " + c2.x.toFixed(2) + " " + c2.y.toFixed(2)
+          + " " + bx.toFixed(2) + " " + by.toFixed(2));
+        hand.push("M" + ax.toFixed(2) + " " + ay.toFixed(2) + "L" + c1.x.toFixed(2) + " " + c1.y.toFixed(2));
+        hand.push("M" + bx.toFixed(2) + " " + by.toFixed(2) + "L" + c2.x.toFixed(2) + " " + c2.y.toFixed(2));
+        dot(ctrl, c1.x, c1.y); dot(ctrl, c2.x, c2.y);
+        // Chord and control polygon bracket the true length; their mean is
+        // within a percent of it for anything this shallow, and it costs no
+        // DOM at all.
+        var chord = Math.hypot(bx - ax, by - ay);
+        var poly = Math.hypot(c1.x - ax, c1.y - ay) + Math.hypot(c2.x - c1.x, c2.y - c1.y)
+                 + Math.hypot(bx - c2.x, by - c2.y);
+        var L2 = (chord + poly) / 2;
+        S.curves++; S.len += L2; S.lens.push(L2);
+        if (L2 < 1) S.short++;
+        if (L2 < 0.35) S.tiny++;
+      },
+      ring: function (nodes) {
+        S.rings++;
+        var rx0 = 1e9, ry0 = 1e9, rx1 = -1e9, ry1 = -1e9;
+        for (var q = 0; q < nodes.length; q++) {
+          if (nodes[q].x < rx0) rx0 = nodes[q].x; if (nodes[q].x > rx1) rx1 = nodes[q].x;
+          if (nodes[q].y < ry0) ry0 = nodes[q].y; if (nodes[q].y > ry1) ry1 = nodes[q].y;
+        }
+        if (Math.hypot(rx1 - rx0, ry1 - ry0) < 4) S.crumbs++;
+        for (var i = 0; i < nodes.length; i++) {
+          var nd = nodes[i];
+          S.anchors++;
+          var hard = true;
+          if (nd.inD && nd.outD) {
+            var a = Math.hypot(nd.inD.x, nd.inD.y), b = Math.hypot(nd.outD.x, nd.outD.y);
+            if (a > 1e-9 && b > 1e-9) {
+              var cos = (nd.inD.x * nd.outD.x + nd.inD.y * nd.outD.y) / (a * b);
+              hard = cos < Math.cos(GEOM_SMOOTH_DEG * Math.PI / 180);
+            }
+          }
+          if (hard) S.corners++;
+          dot(hard ? corner : smooth, nd.x, nd.y);
+        }
+      },
+    };
+    for (var i = 0; i < paths.length; i++) {
+      var dd = paths[i].getAttribute("d") || "";
+      S.bytes += dd.length;
+      geomWalk(dd, sink);
+    }
+    S.lens.sort(function (a, b) { return a - b; });
+    S.median = S.lens.length ? S.lens[S.lens.length >> 1] : 0;
+    return { line: line, curve: curve, hand: hand, corner: corner, smooth: smooth,
+             ctrl: ctrl, stats: S };
+  }
+
+  function geomClear() {
+    var old = outStage.querySelector(".geomlayer");
+    if (old) old.remove();
+    var note = outStage.querySelector(".geomstats");
+    if (note) note.remove();
+  }
+
+  function geomSync() {
+    var svg = outSvg(), ov = outStage.querySelector(".geomlayer");
+    if (!svg || !ov) return;
+    // An SVG element has no offsetLeft — that is an HTML property — so the box
+    // is measured, and the stage's own scroll is added back because the layer
+    // is positioned inside it and scrolls with the picture.
+    var r = svg.getBoundingClientRect(), b = outStage.getBoundingClientRect();
+    ov.style.left = (r.left - b.left + outStage.scrollLeft) + "px";
+    ov.style.top = (r.top - b.top + outStage.scrollTop) + "px";
+    ov.style.width = r.width + "px";
+    ov.style.height = r.height + "px";
+  }
+
+  function geomDraw() {
+    geomClear();
+    var svg = outSvg();
+    if (!svg) return;
+    // The wand has a zoom of its own and it is the same zoom; pick up whatever
+    // it left the picture at rather than showing a stale 100 %.
+    var wide = /^(\d+)%$/.exec(svg.style.width || "");
+    if (wide) geomZoom = Math.max(1, Math.round(+wide[1] / 100));
+    var paths = wandPaths(svg);
+    var t0 = performance.now();
+    var G = geomScan(paths), S = G.stats;
+    var ov = document.createElementNS(SVGNS, "svg");
+    ov.setAttribute("class", "geomlayer");
+    ov.setAttribute("viewBox", svg.getAttribute("viewBox") || "");
+    ov.setAttribute("preserveAspectRatio", svg.getAttribute("preserveAspectRatio") || "xMidYMid meet");
+    var add = function (d, stroke, w, cap, alpha) {
+      if (!d.length) return;
+      var p = document.createElementNS(SVGNS, "path");
+      p.setAttribute("d", d.join(""));
+      p.setAttribute("fill", "none");
+      p.setAttribute("stroke", stroke);
+      p.setAttribute("stroke-width", w);
+      p.setAttribute("vector-effect", "non-scaling-stroke");
+      if (cap) p.setAttribute("stroke-linecap", cap);
+      if (alpha) p.setAttribute("stroke-opacity", alpha);
+      ov.appendChild(p);
+    };
+    // Order matters: the outline underneath, the handles over it, the points
+    // on top, because the points are what you are counting.
+    add(G.line, "#4ea3ff", 1, null, 0.85);
+    add(G.curve, "#ffb454", 1, null, 0.6);
+    add(G.hand, "#8b94a2", 0.6, null, 0.45);
+    // A zero-length subpath with a round cap is a dot whose size is the stroke
+    // width — and a non-scaling stroke keeps it the same on screen at 100 % and
+    // at 800 %, which is the whole point of zooming in on a node.
+    add(G.ctrl, "#8b94a2", 2.2, "round", 0.55);
+    add(G.smooth, "#5ddc9b", 3.2, "round");
+    add(G.corner, "#ff5d5d", 3.6, "round");
+    outStage.appendChild(ov);
+    geomSync();
+
+    var per = S.len > 0 ? (100 * S.anchors / S.len) : 0;
+    var note = document.createElement("div");
+    note.className = "geomstats";
+    var row = document.createElement("div");
+    row.className = "geomzoom";
+    row.appendChild(document.createTextNode("Zoom "));
+    var sel = document.createElement("select");
+    [1, 2, 4, 8, 16].forEach(function (z) {
+      var o = document.createElement("option");
+      o.value = z; o.textContent = (z * 100) + " %";
+      if (z === geomZoom) o.selected = true;
+      sel.appendChild(o);
+    });
+    sel.addEventListener("change", function () { geomSetZoom(+sel.value); });
+    row.appendChild(sel);
+    note.appendChild(row);
+    var body = document.createElement("div");
+    note.appendChild(body);
+    body.textContent =
+      paths.length + " polkua · " + S.rings + " rengasta · " + S.anchors + " pistettä\n"
+      + S.lines + " suoraa · " + S.curves + " kaarta ("
+      + Math.round(100 * S.curves / Math.max(1, S.lines + S.curves)) + " %)\n"
+      + S.corners + " kulmaa · " + (S.anchors - S.corners) + " pehmeää pistettä\n"
+      + "reunaviivaa " + Math.round(S.len) + " yks · piste / 100 yks " + per.toFixed(1) + "\n"
+      + "mediaanijakso " + S.median.toFixed(2) + " yks · alle 1 yks " + S.short
+      + " (" + Math.round(100 * S.short / Math.max(1, S.lines + S.curves)) + " %)\n"
+      + "alle 0,35 yks " + S.tiny + " · sirpalerenkaita " + S.crumbs + "\n"
+      + "polkudataa " + (S.bytes / 1024).toFixed(1) + " kt · "
+      + (S.anchors ? (S.bytes / S.anchors).toFixed(1) : "0") + " t / piste · "
+      + Math.round(performance.now() - t0) + " ms";
+    outStage.appendChild(note);
+  }
+
+  var geomZoom = 1;
+  function geomSetZoom(z) {
+    geomZoom = z;
+    var svg = outSvg();
+    if (!svg) return;
+    outStage.classList.toggle("zoomed", z > 1);
+    svg.style.width = z > 1 ? (z * 100) + "%" : "";
+    geomSync();
+  }
+
+  function geomRefresh() { if (geomShown) geomDraw(); }
+
 
   // Every edit path already reports what it did here, so this is where the
   // status line's live half gets refreshed too. Debounced, because the smooth
@@ -3718,12 +4021,23 @@
   }
   $("wandPlus").addEventListener("click", function () { wandSetPaint("add"); });
   $("wandMinus").addEventListener("click", function () { wandSetPaint("cut"); });
+  $("geomToggle").addEventListener("click", function () {
+    geomShown = !geomShown;
+    $("geomToggle").classList.toggle("active", geomShown);
+    if (geomShown) geomDraw();
+    else { geomClear(); geomSetZoom(1); }
+  });
+  window.addEventListener("resize", function () { if (geomShown) geomSync(); });
+
   $("wandZoom").addEventListener("change", function () {
     var z = +$("wandZoom").value, svg = outSvg();
     outStage.classList.toggle("zoomed", z > 1);
     if (!svg) return;
     if (z > 1) svg.style.width = (z * 100) + "%";
     else svg.style.width = "";
+    geomZoom = z;
+    if (geomShown) { geomSync(); var gs = outStage.querySelector(".geomstats select");
+      if (gs) gs.value = String(z); }
   });
   $("wandView").addEventListener("change", function () {
     // Leaving a debug view has to put every fill back, or the picture stays
@@ -4667,6 +4981,8 @@
         outStage.innerHTML = svg;
         dlBtn.disabled = !svg;
         editToggle.disabled = !svg;
+        $("geomToggle").disabled = !svg;
+        geomRefresh();
 
         var layers = tr.getLayers ? tr.getLayers() : [];
         var layerN = tr.layerCount ? tr.layerCount() : (layers ? layers.length : 0);
@@ -4726,6 +5042,8 @@
         outStage.textContent = "—";
         dlBtn.disabled = true;
         editToggle.disabled = true;
+        $("geomToggle").disabled = true;
+        geomClear();
       } finally {
         busy = false;
         runBtn.disabled = !sourceBitmap;
