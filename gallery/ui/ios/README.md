@@ -327,6 +327,19 @@ page is scaled to — which is what makes the crown feel the same on a 40mm watc
 and a 49mm one. A host that divided it by the scale would scroll twice as far on
 a page zoomed out by half.
 
+### The watch runs the engine off the main thread
+
+Of the three Apple hosts the watch is where a layout on the main thread shows
+first: the S9's cores are a third of an iPhone's, and a crown turn is a
+layout per frame. So `WatchPageModel` reaches `UiIos` only through
+`EvgEngineQueue` (`gallery/evg/apple`): the crown, a drag and a tap are posts,
+a post that changed the page builds a frame on the queue — the list, the
+scale and the pan — and the frame's arrival on the main thread is what bumps
+`generation` and makes the `Canvas` draw. `paint` reads the app for nothing.
+CoreText measures the text (`CoreTextMeasurer`), installed above the app so
+the first layout already has it. See PLAN_NATIVE_HOSTS.md, the section on
+watches.
+
 ### No JSON in the middle
 
 The browser demo serialises the display list, because a page has to parse

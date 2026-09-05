@@ -18,6 +18,16 @@
 // `CoreGraphicsEvgSurface` the iPhone uses. SwiftUI's `Canvas` hands out a
 // `CGContext` exactly as a `UIView` does, so the watch needs no backend of its
 // own.
+//
+// THE ENGINE IS NOT ON THE MAIN THREAD, and on a watch that matters more than
+// on a phone: the S9's cores are a third of an iPhone's, a crown turn is a
+// layout per frame, and a layout on the main thread is a crown that stutters.
+// So `app` is made once and then only ever reached through `EvgEngineQueue`
+// (gallery/evg/apple): the crown, a drag and a tap are posts; a post that
+// changed the page produces a frame on the queue — the list, and the scale
+// and pan the painter needs — and the frame's arrival on the main thread is
+// what bumps `generation` and makes the `Canvas` draw. `paint` reads the app
+// for nothing. (PLAN_NATIVE_HOSTS.md S1, and its section on watches.)
 
 import SwiftUI
 import CoreGraphics
@@ -31,6 +41,13 @@ struct RangerWatchApp: App {
     }
 }
 
+/// What the painter needs, read on the engine queue beside the list.
+struct WatchFrame {
+    let list: EVGDisplayList
+    let scale: Double
+    let panX: Double
+}
+
 final class WatchPageModel: ObservableObject {
 
     /// CoreText measures the page's text before anything is laid out: a
@@ -39,13 +56,23 @@ final class WatchPageModel: ObservableObject {
     private let textMeasurer = CoreTextMeasurer.install()
     let app = UiIos()
 
-    /// Bumped whenever the page changed, which is what makes the `Canvas`
-    /// redraw. The display list itself is cached: laying the page out runs the
-    /// Vela runtime for the chart, and a crown turn must not pay for that.
+    /// The engine queue. Every call to `app` below goes through it.
+    private lazy var engine = EvgEngineQueue<UiIos, WatchFrame>(
+        app: app,
+        build: { a in WatchFrame(list: a.frame(), scale: a.scale(), panX: a.panX()) },
+        deliver: { [weak self] f in self?.frameArrived(f) }
+    )
+
+    /// Bumped whenever a frame arrives, which is what makes the `Canvas`
+    /// redraw. The frame itself is what the queue built: laying the page out
+    /// runs the Vela runtime for the chart, and that happens off this thread
+    /// and only when something changed.
     @Published var generation: Int = 0
 
+    /// The last frame the engine handed over. `paint` paints this and only this.
+    private var frame: WatchFrame?
+
     private var started = false
-    private var cached: EVGDisplayList?
     private var lastCrown: Double = 0
 
     func start(size: CGSize, css: String) {
@@ -53,21 +80,27 @@ final class WatchPageModel: ObservableObject {
             resize(size: size)
             return
         }
-        // The floor, before start, because `start` fits the page.
-        app.useWatchFit(minScale: 0.5)
-        app.start(w: Double(size.width), h: Double(size.height), css: css)
         started = true
-        invalidate()
+        let w = Double(size.width), h = Double(size.height)
+        engine.post { a in
+            // The floor, before start, because `start` fits the page.
+            a.useWatchFit(minScale: 0.5)
+            a.start(w: w, h: h, css: css)
+            return true
+        }
     }
 
     func resize(size: CGSize) {
         guard started else { return }
-        app.resize(w: Double(size.width), h: Double(size.height))
-        invalidate()
+        let w = Double(size.width), h = Double(size.height)
+        engine.post { a in
+            a.resize(w: w, h: h)
+            return true
+        }
     }
 
-    func invalidate() {
-        cached = nil
+    private func frameArrived(_ f: WatchFrame) {
+        frame = f
         generation += 1
     }
 
@@ -80,48 +113,41 @@ final class WatchPageModel: ObservableObject {
         let delta = value - lastCrown
         lastCrown = value
         if delta == 0 { return }
-        if app.scrollByCrown(turns: delta) {
-            invalidate()
-        }
+        engine.post { a in a.scrollByCrown(turns: delta) }
     }
 
     /// A drag on a watch is sideways panning: the crown already owns the
     /// vertical, and giving a finger the same axis makes both feel unreliable.
     func drag(dx: CGFloat, dy: CGFloat) {
         guard started else { return }
-        var moved = false
-        if abs(dx) > 0 {
-            moved = app.panBy(dx: Double(dx)) || moved
+        let ddx = Double(dx), ddy = Double(-dy)
+        engine.post { a in
+            var moved = false
+            if abs(ddx) > 0 { moved = a.panBy(dx: ddx) || moved }
+            if abs(ddy) > 0 { moved = a.scrollByScreen(dy: ddy) || moved }
+            return moved
         }
-        if abs(dy) > 0 {
-            moved = app.scrollByScreen(dy: Double(-dy)) || moved
-        }
-        if moved { invalidate() }
     }
 
     func tap(at p: CGPoint) {
         guard started else { return }
-        _ = app.pressAt(x: Double(p.x), y: Double(p.y))
-        _ = app.releasePress()
-        invalidate()
+        let x = Double(p.x), y = Double(p.y)
+        engine.post { a in
+            _ = a.pressAt(x: x, y: y)
+            _ = a.releasePress()
+            return true
+        }
     }
 
     func paint(into ctx: CGContext) {
-        guard started else { return }
-        let list: EVGDisplayList
-        if let c = cached {
-            list = c
-        } else {
-            list = app.frame()
-            cached = list
-        }
-        let scale = CGFloat(app.scale())
+        guard started, let f = frame else { return }
         ctx.saveGState()
         // No safe area here: a watch app is full bleed, and the facade's
-        // insets stay at zero.
-        ctx.scaleBy(x: scale, y: scale)
-        ctx.translateBy(x: -CGFloat(app.panX()), y: 0)
-        EvgPainter.paint(list, into: CoreGraphicsEvgSurface(context: ctx))
+        // insets stay at zero. Both numbers came with the frame, read on the
+        // queue.
+        ctx.scaleBy(x: CGFloat(f.scale), y: CGFloat(f.scale))
+        ctx.translateBy(x: -CGFloat(f.panX), y: 0)
+        EvgPainter.paint(f.list, into: CoreGraphicsEvgSurface(context: ctx))
         ctx.restoreGState()
     }
 

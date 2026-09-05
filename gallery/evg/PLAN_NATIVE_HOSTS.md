@@ -75,7 +75,7 @@ The three platforms in question are all painters:
 | Platform | Host | Painter | Per frame |
 | --- | --- | --- | --- |
 | Browser | `<canvas>` + WebGL 2 (`gl/evg-webgl.js`) or `<svg>` (`html/evg-html.js`) | instanced quads / SVG nodes rebuilt | list → GPU buffers, or list → new SVG tree |
-| Apple | `UIView` (`ui/ios`, `realtrainer/ios`), SwiftUI `Canvas` (watch) | `EvgPainter.swift` over `CGContext` | every command re-rasterised |
+| Apple | `UIView` (`ui/ios`, `realtrainer/ios`), SwiftUI `Canvas` (watch — SwiftUI is the only toolkit there, §7.5) | `EvgPainter.swift` over `CGContext` | every command re-rasterised |
 | Android | `View` (`ui/android`, `realtrainer/android`) | `EvgPainter.kt` over `android.graphics.Canvas` | every command re-rasterised |
 
 What the engine already does that an L1 host would lean on:
@@ -557,6 +557,61 @@ The split is the one `PLAN_ACCESSIBILITY.md` §4 already draws between
 declarative and immediate-mode EVG: a host tree needs a tree.
 
 ---
+
+## 7.5 Watches
+
+Apple Watch and Wear OS are not small phones, and the levels above land on
+them differently. `gallery/watch_evg/WATCH_PERFORMANCE.md` has the numbers
+this section leans on: on the slowest Wear parts a full declarative rebuild
+of a watch face is 9–14 ms of a 16.7 ms frame, a retained frame is 1.2 ms,
+and on watchOS (AOT) the same face rebuilds in about 2.6 ms.
+
+**What the platforms allow.**
+
+| | Apple Watch | Wear OS |
+| --- | --- | --- |
+| UI toolkit | **SwiftUI only** — no `UIView`, no `CALayer` of your own. The painter host is SwiftUI `Canvas` (`ui/ios/watch`), and the L1 host can only be the SwiftUI `Layout` protocol (watchOS 9+); the UIKit route of §4.2 does not exist here | Views or Compose for Wear OS; Compose is where the platform is going, and the L1 host of §5.2 is the same `Layout` composable, with `ScalingLazyColumn` and `TimeText` around it |
+| Input | the digital crown (a rotation, not a distance — `scrollByCrown` in the facade), a tap, a drag; no hover, no keyboard | the rotary bezel as `MotionEvent.AXIS_SCROLL` through `onGenericMotionEvent`, a tap, a swipe; the soft keyboard exists but is rarely the answer |
+| Screen | 40–49mm, round-cornered rectangle, 198–224 pt across | 454² typical, usually round: content is inset to the circle, and a page laid out for a rectangle loses its corners |
+| Always-on | the app's scene is dimmed and updated about once a minute; a `TimelineView` drives it | ambient mode through `AmbientLifecycleObserver`: one update a minute, no animation, a greyscale-friendly picture |
+| Cold start | AOT: the first frame is single-digit ms | a JIT: the first frame is tens of ms on the bench and hundreds on a watch core; `dex2oat` helps, class loading does not go away |
+
+**What this changes in the stages.**
+
+* **S0 holds as it is.** `CoreTextMeasurer` is installed in the watch model
+  above the app, and `AndroidTextMeasurer` is not phone-specific. The watch
+  bench measures with `AwtTextMeasurer`, so its `layout` column now includes
+  a real face.
+* **S1 matters more, not less.** A 9 ms rebuild on the main thread is a
+  crown that stutters; on the queue it is a frame that arrives a moment
+  later while the crown keeps its feel. `WatchPageModel` is on
+  `EvgEngineQueue` now; a Wear host would be `RealTrainerView.kt` with the
+  rotary event posted where the drag is. Two watch rules for the queue:
+  in ambient mode nothing drives the clock, so the engine thread must be
+  idle between the once-a-minute ticks (the coalescing already makes an
+  idle engine cost nothing); and a watch app is killed often, so the
+  queue's first build should be the cheap screen (`WATCH_PERFORMANCE.md`,
+  condition 3).
+* **S4 (Compose) is the Wear path, and S5 (SwiftUI `Layout`) is the only
+  Apple Watch path** — there is no UIKit fallback there, which makes the
+  watch the place SwiftUI's view-count ceiling is least of a problem: a
+  watch screen is 20–80 elements, not 5 000.
+* **Accessibility is the one place the watch is easier.** VoiceOver and
+  TalkBack both run on the wrist, and an L1 host's nodes are the tree, as
+  on the phone. At L0 the mirror of §3 has no equivalent on watchOS, so
+  today's `Canvas` host is a picture to VoiceOver — the same wall as a
+  `<canvas>`, without the DOM to mirror into. That is an argument for L1 on
+  the watch before the phone, not after.
+* **The screen is round.** EVG has no notion of a non-rectangular viewport;
+  a Wear host insets the page to the inscribed square or lays it out with
+  `padding` from the sheet's `@media`, and a curved list (`ScalingLazyColumn`)
+  is a platform effect an L1 host gets and a painter has to fake.
+
+**Not built here.** No Wear OS host exists in the repository; the pieces a
+port would use — the measurer, the engine thread, the painter, the surface —
+are the phone's, and the bench is the evidence they fit. Nothing on the
+watch side is compiled by CI, as `apple/README.md` says of the whole
+directory.
 
 ## 8. Stages, each with its gate
 
