@@ -445,6 +445,7 @@ class IosBuild {
         spec.addSource("gallery/evg/apple/Sources/CoreGraphicsEvgSurface.swift")
         spec.addSource("gallery/evg/apple/Sources/RecordingSurface.swift")
         spec.addSource("gallery/evg/apple/Sources/CoreTextMeasurer.swift")
+        spec.addSource("gallery/evg/apple/Sources/EvgEngineQueue.swift")
     }
 
     fn makeSpec:AppleAppSpec (o:IosBuildOptions target:AppleTarget) {
