@@ -172,23 +172,32 @@ class InputCtl extends UiCtl {
         ; Focus alone does not give a readonly field a caret, so there is
         ; nothing for a key to move.
         ;
-        ; Scoped to what was measured: the spec focuses rather than clicks, so
-        ; this says nothing about a readonly field a pointer has selected
-        ; inside — and neither side measures that yet, because click-to-caret
-        ; needs the two boxes to be the same width in the same font.
+        ; Scoped to what was measured, which is the KEYBOARD. The pointer is
+        ; the other half and it is measured now, in `input-bench.mjs` against
+        ; a readonly <input readonly> on the page: a click at 44px puts the
+        ; caret at 7, a drag selects [4,10], Ctrl+A selects everything, and
+        ; Home afterwards leaves the caret at 7. So a readonly field HAS a
+        ; caret once a pointer has given it one; what it has not got is a key
+        ; that moves it. `placeCaret` is the pointer's door and does not ask.
         if readOnly {
             return
         }
+        this.placeCaret(i extend)
+    }
+
+    ; The pointer's caret. A press, a drag and a Shift+click come through here
+    ; and land whether or not the field is readonly — see `moveTo`.
+    fn placeCaret:void (i:int extend:boolean) {
         caret = (this.clamp(i))
         if (extend == false) {
             anchor = caret
         }
     }
 
+    ; Readonly included: Chromium selects all of a readonly field on Ctrl+A,
+    ; measured on the invoice number — the selection is the reader's, only the
+    ; text is not theirs to change.
     fn selectAll:void () {
-        if readOnly {
-            return
-        }
         anchor = 0
         caret = (strlen value)
     }
@@ -230,6 +239,17 @@ class InputCtl extends UiCtl {
     ; round `insertText`, where the filter lives, so "Amount" took letters
     ; again.
     fn applyEdit:void (v:string selStart:int selEnd:int) {
+        ; A readonly field takes the SELECTION and not the value. A readonly
+        ; <input readonly> still selects — Ctrl+A, a drag, a double-click —
+        ; and the session reports each one through here; refusing the whole
+        ; report because the field is readonly left Ctrl+A drawn as nothing
+        ; while the browser had the field selected end to end. Measured on the
+        ; invoice number: Ctrl+A reads [0,13] there and read [7,7] here.
+        if readOnly {
+            anchor = (this.clamp(selStart))
+            caret = (this.clamp(selEnd))
+            return
+        }
         def kept:string (this.filterText(v))
         def a:int (this.clamp(selStart))
         def b:int (this.clamp(selEnd))
@@ -298,6 +318,40 @@ class InputCtl extends UiCtl {
         return false
     }
 
+    ; Whether `ch` may follow `sofar` in a number being assembled from scratch.
+    ;
+    ; The same three rules as `acceptsChar`, asked of the string BEING BUILT
+    ; rather than of the field's current value. That distinction is the
+    ; whole of `filterText`: a session hands over the entire new value, and
+    ; "does the value already hold a separator" is the wrong question when
+    ; the value being examined IS the one that holds it. Measured on the
+    ; invoice's Amount: the moment the field was focused the session echoed
+    ; "1250.00" back, the filter saw a dot in the current value and refused
+    ; the dot in the new one, and the amount read "125000" without a key
+    ; having been pressed.
+    fn acceptsCharIn:boolean (ch:string sofar:string) {
+        if (kind != "number") {
+            return true
+        }
+        if ((strlen ch) != 1) {
+            return true
+        }
+        def c:int (charAt ch 0)
+        if ((c >= 48) && (c <= 57)) {
+            return true
+        }
+        if (c == 45) {
+            return ((strlen sofar) == 0)
+        }
+        if ((c == 46) || (c == 44)) {
+            if ((indexOf sofar ".") >= 0) {
+                return false
+            }
+            return ((indexOf sofar ",") < 0)
+        }
+        return false
+    }
+
     ; The part of a string this field will take, character by character.
     fn filterText:string (t:string) {
         if (kind != "number") {
@@ -307,7 +361,7 @@ class InputCtl extends UiCtl {
         def i:int 0
         while (i < (strlen t)) {
             def ch:string (substring t i (i + 1))
-            if (this.acceptsChar(ch)) {
+            if (this.acceptsCharIn(ch out)) {
                 out = (out + ch)
             }
             i = (i + 1)
@@ -551,6 +605,77 @@ class InputCtl extends UiCtl {
         return b
     }
 
+    ; A number with a point in it is ONE run to a double-click — and not to
+    ; Ctrl+Arrow. Measured on the invoice's Amount, "1250.00", and the profile's
+    ; "17.30": double-clicking either half selects the whole number, [0,7] and
+    ; [0,5], while Ctrl+ArrowRight still stops at the point. Chromium's two
+    ; iterators disagree about MidNum (UAX #29's WB11/WB12: a "." or "," BETWEEN
+    ; digits does not break a word) and the double-click is the one that
+    ; follows the rule, so the join lives here and not in `classAt`. Letters
+    ; are not joined: "ada.example.com" double-clicks as "ada", measured too.
+    fn isDigitAt:boolean (i:int) {
+        if ((i < 0) || (i >= (strlen value))) {
+            return false
+        }
+        def c:int (charAt value i)
+        return ((c >= 48) && (c <= 57))
+    }
+
+    fn isMidNumAt:boolean (i:int) {
+        if ((i < 0) || (i >= (strlen value))) {
+            return false
+        }
+        def c:int (charAt value i)
+        if ((c != 46) && (c != 44)) {
+            return false
+        }
+        if ((this.isDigitAt((i - 1))) == false) {
+            return false
+        }
+        return (this.isDigitAt((i + 1)))
+    }
+
+    ; [start, end) of the number run containing `i`, joining digit runs across
+    ; a mid-number separator in both directions; or the plain class run when
+    ; the character at `i` is not part of a number.
+    fn numberRunStart:int (i:int) {
+        def a:int i
+        while (a > 0) {
+            if (this.isDigitAt((a - 1))) {
+                a = (a - 1)
+            } {
+                if ((this.isMidNumAt((a - 1))) == false) {
+                    break
+                }
+                a = (a - 1)
+            }
+        }
+        return a
+    }
+
+    fn numberRunEnd:int (i:int) {
+        def n:int (strlen value)
+        def b:int i
+        while (b < n) {
+            if (this.isDigitAt(b)) {
+                b = (b + 1)
+            } {
+                if ((this.isMidNumAt(b)) == false) {
+                    break
+                }
+                b = (b + 1)
+            }
+        }
+        return b
+    }
+
+    fn inNumberAt:boolean (i:int) {
+        if (this.isDigitAt(i)) {
+            return true
+        }
+        return (this.isMidNumAt(i))
+    }
+
     ; Double-click. The anchor goes to the run's start and the caret to its
     ; end, so a following Shift+Arrow extends from the far end the way it does
     ; in a browser.
@@ -559,6 +684,16 @@ class InputCtl extends UiCtl {
     ; question about indices. The caller scrolls, because the caller is the
     ; one that already has the engine in its hand.
     fn selectWordAt:void (i:int) {
+        def at:int (this.clamp(i))
+        def n:int (strlen value)
+        if (at >= n) {
+            at = (n - 1)
+        }
+        if ((at >= 0) && (this.inNumberAt(at))) {
+            anchor = (this.numberRunStart(at))
+            caret = (this.numberRunEnd((at + 1)))
+            return
+        }
         anchor = (this.wordStartAt(i))
         caret = (this.wordEndAt(i))
     }
@@ -624,9 +759,29 @@ class InputCtl extends UiCtl {
     ; padding change in CSS would have moved the caret away from the pointer
     ; and nothing would have said so. The resolved border and padding are on
     ; the element after layout, so they are read rather than remembered.
+    ;
+    ; And the text does not always start at the inset. A prefix ("€") or a
+    ; leading icon ("◷") is a sibling laid out before the run, so the run
+    ; begins after it — the demos already position the caret and the band
+    ; from that `lead`, and the click did not: on Amount a press three
+    ; characters in landed six characters in, and on Dismissal Time the
+    ; caret sat a clock's width to the right of the pointer. The run the
+    ; painter drew carries the answer, so when the box holds one it is read
+    ; from there rather than re-derived from the stylesheet plus whatever
+    ; happens to sit in front.
     sfn indexAtPageX:int (eng:EVGTextEngine c:InputCtl box:EVGElement px:double) {
         def inset:double (box.box.borderWidthPx + box.box.paddingLeftPx)
-        def inner:double ((px - (box.calculatedX)) - inset)
+        def origin:double ((box.calculatedX) + inset)
+        def runId:string (c.tid + "-text")
+        def i:int 0
+        while (i < (box.getChildCount())) {
+            def ch:EVGElement (box.getChild(i))
+            if (ch.id == runId) {
+                origin = ch.calculatedX
+            }
+            i = (i + 1)
+        }
+        def inner:double (px - origin)
         return (c.indexAtX(eng (inner + c.scrollX)))
     }
 
@@ -792,7 +947,7 @@ class InputCtl extends UiCtl {
         if disabled {
             return
         }
-        this.moveTo((this.indexAtX(eng (x + scrollX))) extend)
+        this.placeCaret((this.indexAtX(eng (x + scrollX))) extend)
         this.ensureCaretVisible(eng)
         this.build()
     }

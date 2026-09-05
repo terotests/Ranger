@@ -228,6 +228,27 @@ already there — and `rebuild()` now marks that layout stale, which it always
 should have: it builds new elements, so the rectangles in the cached layout
 belong to a tree that no longer exists.
 
+### What a frame costs, and why it no longer costs a layout
+
+`UiAndroid.frame()` is `DashboardDemo.display()`, and the view asks for one on
+every touch event. That used to be the whole page laid out again — cascade,
+flex, and the chart's Vela spec parsed and run — per pointer report, which on
+an emulator's cold ART is seconds per drag and is exactly what the platform's
+"isn't responding" dialog measures. The demo now keeps its layout between
+frames: a scroll moves the scrolled subtree by the difference
+(`EVGLayout.scrollOnlyFrom`), a hover or a press runs the sheet and lays out
+only if the sheet says a box could have moved, and the chart's commands are
+kept until a range button changes the spec. `ui:dashboard:check` compares the
+frames the shortcut draws with the frames a full layout draws, at nine offsets.
+
+Two things on the device side follow the same rule. The **first frame** —
+`start` and the first `frame()`, the one that is cold — is computed on a
+thread of its own while the view shows the page's background, so a tap during
+it is not an unanswered input event. And on an **emulator** the ripple shader
+starts off: SwiftShader running a full-screen `RuntimeShader` was the other
+half of the stall, and the six-slow-frames guard below cannot fire before the
+platform does when each of the six takes a second. The menu turns it on.
+
 ### The ripple is a shader, so it is not in the painter
 
 `evg-surface-effect: ripple` is the one thing on this page that is not a draw

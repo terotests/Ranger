@@ -239,6 +239,23 @@ number like the above:
   catalogued as disputed with its evidence rather than scored either way —
   see [`conformance/SPEC.md`](conformance/SPEC.md).
 
+## Every text field, against the browser
+
+```bash
+npm run ui:input:bench          # sixteen fields on five pages, twenty scenarios each
+npm run ui:input:bench:record   # rewrite the baseline after a fix
+```
+
+The scorecard above measures controllers by id, headless; `ui:demo:page`
+clicks one field on one form. Between the two sat every other field on every
+other page, and that is where the fields were reported as not behaving like a
+shadcn page's. The bench discovers each `textbox` from the pages' own
+accessibility trees, drives it with a real pointer and keyboard, and runs the
+same gestures against a native `<input>` given the same value, attributes and
+font — the matrix, the catalogue of shadcn/reui variants it covers and does
+not, and what its first run found are in
+[`demo/INPUT_BENCH.md`](demo/INPUT_BENCH.md).
+
 ## Class-first styling, inline still allowed
 
 A controller never names a colour. It writes class names, and an

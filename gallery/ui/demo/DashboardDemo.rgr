@@ -360,6 +360,13 @@ class DashboardDemo {
     ; Whether that layout is of the tree that is there NOW. Set by every
     ; rebuild, cleared by the layout that answers it.
     def layoutStale:boolean true
+    ; Two cheaper kinds of stale, for a layout that is otherwise good. See
+    ; `laidOut`: a hover or a press changes which rules match and nothing else,
+    ; and a scroll changes an offset and nothing else. Neither needs the tree
+    ; laid out again, and on Android the tree laid out again on every touch
+    ; event was the whole of "the UI stopped responding".
+    def stateDirty:boolean false
+    def scrollPending:boolean false
 
     def hovered:string ""
     def pressed:string ""
@@ -402,6 +409,16 @@ class DashboardDemo {
     ; of the gate guessing, because the demo is the only thing that knows.
     def chartFrom:int 0
     def chartTo:int 0
+    ; The chart's commands, kept between frames. The Vela spec is parsed and
+    ; its runtime run only when the spec's TEXT changes — a range button —
+    ; because nothing else about the page changes what the chart is: a scroll
+    ; moves the card and the commands are emitted at the card's new corner.
+    ; Parsing JSON and running a scene graph on every touch event, for
+    ; geometry identical to the frame before, was the second half of the
+    ; Android host's stall.
+    def chartKey:string ""
+    def chartOk:boolean false
+    def chartCmds@(optional):VlCommandList
 
     ; --- the surface's ripple --------------------------------------------------
     ;
@@ -1683,13 +1700,69 @@ class DashboardDemo {
 
     ; --- layout ---------------------------------------------------------------
 
+    ; The layout that answers for the tree as it is now — paid for at the
+    ; cheapest rate that is still right.
+    ;
+    ;   the tree changed (`rebuild`, `setTheme`)   → `laidOutOnce`, everything
+    ;   a state changed (hover, press, focus)      → the sheet runs again; the
+    ;                                                 layout only if the sheet
+    ;                                                 says a box could have moved
+    ;   only the scroll offset changed             → `EVGLayout.scrollOnlyFrom`
+    ;                                                 moves the subtree by the
+    ;                                                 difference
+    ;   nothing                                    → the layout that is there
+    ;
+    ; This is realtrainer's `laidOut`, and the reason is the same: Android's
+    ; host asks for a frame on every pointer event, and a full cascade plus a
+    ; full flex layout plus the chart's runtime per event — in generated Kotlin
+    ; on an emulator's cold ART — added up to more than the five seconds the
+    ; input queue is allowed before the platform declares the app gone.
     fn laidOut:EVGLayout () {
         if layout {
             if (layoutStale == false) {
-                return (unwrap layout)
+                def lay:EVGLayout (unwrap layout)
+                def r:EVGElement (unwrap root)
+                if stateDirty {
+                    stateDirty = false
+                    def s:EVGStyleSheet (unwrap sheet)
+                    this.markStates(r)
+                    EVGInspect.applyForced(r)
+                    s.applyTree(r theme)
+                    if ((s.layoutClean()) == false) {
+                        ; A rule that moved a box: lay out again. The layout
+                        ; reads every container's offset itself, so the scroll
+                        ; that was owed is paid by it.
+                        scrollPending = false
+                        lay.layout(r)
+                        this.readScrollBack(r)
+                        return lay
+                    }
+                }
+                if scrollPending {
+                    scrollPending = false
+                    def sc:EVGElement (this.findEl(r "db-scroll"))
+                    if ((strlen sc.id) > 0) {
+                        lay.scrollOnlyFrom(sc)
+                        scrollY = sc.scrollTop
+                    }
+                }
+                return lay
             }
         }
         return (this.laidOutOnce())
+    }
+
+    ; READ THE OFFSET BACK. The layout clamps `scrollTop` to what there
+    ; actually is to scroll, and it is the only thing that knows: the
+    ; content's height is its answer. A demo that kept what it ASKED for
+    ; would go on believing it was scrolled to 4000 on a page with 300 to
+    ; go, and the next scroll-by would do nothing visible for thirteen
+    ; presses.
+    fn readScrollBack:void (r:EVGElement) {
+        def sc:EVGElement (this.findEl(r "db-scroll"))
+        if ((strlen sc.id) > 0) {
+            scrollY = sc.scrollTop
+        }
     }
 
     fn laidOutOnce:EVGLayout () {
@@ -1705,18 +1778,13 @@ class DashboardDemo {
         def lay (new EVGLayout())
         lay.setPageSize(pageW pageH)
         lay.layout(r)
-        ; READ THE OFFSET BACK. The layout clamps `scrollTop` to what there
-        ; actually is to scroll, and it is the only thing that knows: the
-        ; content's height is its answer. A demo that kept what it ASKED for
-        ; would go on believing it was scrolled to 4000 on a page with 300 to
-        ; go, and the next scroll-by would do nothing visible for thirteen
-        ; presses.
-        def sc:EVGElement (this.findEl(r "db-scroll"))
-        if ((strlen sc.id) > 0) {
-            scrollY = sc.scrollTop
-        }
+        this.readScrollBack(r)
         layout = lay
         layoutStale = false
+        ; A full layout has read the states and the offsets; nothing cheaper
+        ; is owed on top of it.
+        stateDirty = false
+        scrollPending = false
         return lay
     }
 
@@ -1736,14 +1804,37 @@ class DashboardDemo {
 
     fn scrollTo:boolean (y:double) {
         def before:double scrollY
-        scrollY = y
-        if (scrollY < 0.0) {
-            scrollY = 0.0
+        def want:double y
+        if (want < 0.0) {
+            want = 0.0
         }
+        ; A SCROLL DOES NOT CHANGE THE TREE. The virtualised table windows its
+        ; rows from its own 414px viewport, not from the page's offset, so the
+        ; page scrolled by a hundred pixels is the same elements at the same
+        ; sizes, moved. With a layout in hand the offset goes onto the live
+        ; container, the layout clamps it against the extents it measured,
+        ; and the move itself is owed to the next `laidOut` — once, however
+        ; many pointer reports arrive between two frames.
+        if layout {
+            if (layoutStale == false) {
+                def r:EVGElement (unwrap root)
+                def sc:EVGElement (this.findEl(r "db-scroll"))
+                if ((strlen sc.id) > 0) {
+                    def lay:EVGLayout (unwrap layout)
+                    sc.scrollTop = want
+                    lay.clampScroll(sc)
+                    scrollY = sc.scrollTop
+                    if (scrollY != before) {
+                        scrollPending = true
+                    }
+                    return (scrollY != before)
+                }
+            }
+        }
+        ; No layout yet, or a tree that has to be built anyway: the offset
+        ; goes on at the build and the clamp happens in the layout it needs.
+        scrollY = want
         this.rebuild()
-        ; The rebuild throws the layout away, so the clamp happens on the next
-        ; one — ask for it here rather than leaving a number nobody has checked
-        ; sitting in the field.
         this.laidOutOnce()
         return (scrollY != before)
     }
@@ -2090,9 +2181,28 @@ class DashboardDemo {
         return false
     }
 
-    fn setHover:void (id:string) { hovered = id }
-    fn setPressed:void (id:string) { pressed = id }
-    fn setFocus:void (id:string) { focused = id }
+    ; Each marks the layout's STATES stale and nothing more: the sheet has to
+    ; run again for `:hover` and `:active`, and `laidOut` decides whether the
+    ; boxes moved. Unchanged is not a change — a host that reports the hover
+    ; on every pointer move must not cost a cascade per move.
+    fn setHover:void (id:string) {
+        if (id != hovered) {
+            hovered = id
+            stateDirty = true
+        }
+    }
+    fn setPressed:void (id:string) {
+        if (id != pressed) {
+            pressed = id
+            stateDirty = true
+        }
+    }
+    fn setFocus:void (id:string) {
+        if (id != focused) {
+            focused = id
+            stateDirty = true
+        }
+    }
 
     ; --- the theme ------------------------------------------------------------
 
@@ -2124,7 +2234,7 @@ class DashboardDemo {
     ; is serialised and nothing is parsed back. The browser gets the JSON
     ; because a page has to parse something anyway.
     fn display:EVGDisplayList () {
-        def lay:EVGLayout (this.laidOutOnce())
+        def lay:EVGLayout (this.laidOut())
         def r:EVGElement (unwrap root)
         ; The ripple's state, stamped on at paint time. It is not part of the
         ; tree's shape — nothing about the page depends on it — so it does not
@@ -2141,13 +2251,27 @@ class DashboardDemo {
         def scroll:EVGElement (this.findEl(r "db-scroll"))
         def box:EVGElement (this.findEl(r "db-chart-box"))
         if ((strlen box.id) > 0) {
-            def parser (new VlJsonParser())
-            def specJson:VlJson (parser.parse((this.specText())))
-            if parser.ok {
-                def rt (new VlRuntime())
-                def scene:VlSceneMark (rt.run(specJson))
-                if ((array_length rt.errors) == 0) {
-                    def list:VlCommandList (VlSceneCommands.build(scene))
+            ; Parsed and run once per SPEC, not once per frame — see
+            ; `chartCmds`. The key is the spec's own text, so a range button
+            ; changes the chart and a scroll or a hover does not.
+            def spec:string (this.specText())
+            if (spec != chartKey) {
+                chartKey = spec
+                chartOk = false
+                def parser (new VlJsonParser())
+                def specJson:VlJson (parser.parse(spec))
+                if parser.ok {
+                    def rt (new VlRuntime())
+                    def scene:VlSceneMark (rt.run(specJson))
+                    if ((array_length rt.errors) == 0) {
+                        chartCmds = (VlSceneCommands.build(scene))
+                        chartOk = true
+                    }
+                }
+            }
+            if chartOk {
+                if chartCmds {
+                    def list:VlCommandList (unwrap chartCmds)
                     def tr (new UITextRenderer())
                     def bridge (new VlEvgList())
                     ; CLIPPED BY HAND, and it has to be. The chart is appended

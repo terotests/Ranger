@@ -293,7 +293,7 @@ let lastDropdownHover = "";
  * Both windows start open, because a page whose demo is two closed triggers
  * shows nothing.
  */
-const dialog = new DialogDemo();
+let dialog = new DialogDemo();
 dialog.init(DIALOG_CSS);
 dialog.openWindow();
 dialog.openModal();
@@ -319,10 +319,10 @@ timeline.init(TIMELINE_CSS);
 // the panel narrows. The one demo here whose CONTENT depends on its own size.
 const resize = new ResizeDemo();
 resize.init(RESIZE_CSS);
-const form = new FormDemo();
+let form = new FormDemo();
 form.init(FORM_CSS);
 let lastFormHover = "";
-const profile = new ProfileDemo();
+let profile = new ProfileDemo();
 profile.init(PROFILE_CSS);
 let lastProfileHover = "";
 // The calendar. `CalendarCtl` answers every key and every click here — the
@@ -357,7 +357,7 @@ let lastMessageHover = "";
 // A stepper, a progress bar and a number field on one panel. They are together
 // because the INTERACTION is the thing worth showing: filling the field
 // completes the step, which moves the bar and enables Next.
-const controls = new ControlsDemo();
+let controls = new ControlsDemo();
 controls.init(CONTROLS_CSS);
 let lastControlsHover = "";
 let lastCalendarHover = "";
@@ -1034,6 +1034,19 @@ window.__ddState = () => ({
   status: dropdown.status,
   theme: dropdown.theme,
 });
+// The text fields, for `input-bench.mjs`. A field's value and selection live
+// in the demo's `InputCtl`, and the bench compares them step by step with a
+// real <input> given the same clicks and keys — so it needs the model's own
+// answer, not the pixels and not the proxy's. `null` for a field the current
+// demo has no editing session for, which the bench reports as exactly that.
+window.__fieldState = (tid) => {
+  const d = demo();
+  return d.textSession ? d.textSession.state(tid) : null;
+};
+window.__focusedField = () => {
+  const d = demo();
+  return d.textSession ? d.textSession.focused() : "";
+};
 
 // --- the sortable's gesture ---------------------------------------------------
 // Reordering is `arrayMove`, not a swap: the item is taken out and put back at
@@ -2057,6 +2070,27 @@ function syncTextSession() {
   }
   textInput.focusField(tid, st);
 }
+
+// A demo rebuilt from scratch, for `input-bench.mjs`. The bench runs twenty
+// scenarios against every field and each has to start from the page as loaded
+// — the objects above live for the life of the page, so after one scenario has
+// typed into a field the next would read "Ada ZXLovelace". Reloading works and
+// costs a 10 MB bundle per scenario; this costs a constructor. Only the pages
+// with text fields, and those four are `let` for exactly this reason.
+window.__resetDemo = (name) => {
+  if (name === "form") { form = new FormDemo(); form.init(FORM_CSS); lastFormHover = ""; }
+  else if (name === "profile") { profile = new ProfileDemo(); profile.init(PROFILE_CSS); lastProfileHover = ""; }
+  else if (name === "controls") { controls = new ControlsDemo(); controls.init(CONTROLS_CSS); lastControlsHover = ""; }
+  else if (name === "dialog") {
+    dialog = new DialogDemo(); dialog.init(DIALOG_CSS); dialog.openWindow(); dialog.openModal();
+    lastDialogHover = ""; dialogDragAt = null;
+  } else return false;
+  held = false;
+  textInput.blurField();
+  canvas.focus({ preventScroll: true });
+  paint();
+  return true;
+};
 
 mirror = createA11yMirror(stage, {
   canvas,

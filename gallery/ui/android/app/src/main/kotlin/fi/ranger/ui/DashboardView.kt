@@ -5,6 +5,7 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Typeface
+import android.os.Build
 import android.util.AttributeSet
 import android.util.Log
 import android.view.GestureDetector
@@ -105,8 +106,32 @@ class DashboardView @JvmOverloads constructor(
     /**
      * Off once this device has shown it cannot keep up, and off when a person
      * says so from the menu. The page is what matters; the ring is what is nice.
+     *
+     * And off from the start on an emulator. A `RuntimeShader` over every pixel
+     * is run by SwiftShader there — a GPU in software — and the six slow frames
+     * the guard below waits for can each take a second, which together is
+     * longer than the platform waits before it declares the app unresponsive.
+     * The menu turns it on for anyone who wants to see the ring regardless.
      */
-    var rippleAffordable = true
+    var rippleAffordable = !onEmulator()
+
+    private fun onEmulator(): Boolean {
+        val fp = Build.FINGERPRINT.lowercase()
+        val hw = Build.HARDWARE.lowercase()
+        val model = Build.MODEL.lowercase()
+        return fp.contains("generic") || fp.contains("emulator") ||
+            hw.contains("goldfish") || hw.contains("ranchu") ||
+            model.contains("emulator") || model.contains("sdk_gphone")
+    }
+
+    /**
+     * The first frame is being computed on another thread — see
+     * [onSizeChanged]. Touches and keys are refused until it lands, and the
+     * screen shows the page's background rather than nothing.
+     */
+    private var starting = false
+    private var pendingW = 0.0
+    private var pendingH = 0.0
 
     // --- the fling ------------------------------------------------------------
     // Android's `OverScroller` would do this, and would also mean an AndroidX
@@ -196,18 +221,50 @@ class DashboardView @JvmOverloads constructor(
         super.onSizeChanged(w, h, oldw, oldh)
         val dw = (w / density).toDouble().coerceAtLeast(1.0)
         val dh = (h / density).toDouble().coerceAtLeast(1.0)
-        if (!started) {
-            app.start(dw, dh, css)
-            started = true
-        } else {
+        if (started) {
             app.resize(dw, dh)
+            changed()
+            return
         }
-        changed()
+        // THE FIRST FRAME, OFF THE MAIN THREAD. `start` parses the stylesheet
+        // and builds the page; the first `frame` lays it out and runs the
+        // chart's runtime. In generated Kotlin on an emulator's cold ART that
+        // is seconds, and a tap landing on the window during those seconds is
+        // an input event the main thread cannot answer — which is exactly what
+        // the platform's "isn't responding" dialog measures. So the work runs
+        // on a thread of its own and the result is handed to the main thread
+        // with `post`, which is also what makes it safe to read there: nothing
+        // touches `app` from here until that post has run.
+        pendingW = dw
+        pendingH = dh
+        if (starting) return
+        starting = true
+        val cssNow = css
+        Thread({
+            app.start(dw, dh, cssNow)
+            val first = app.frame()
+            post {
+                started = true
+                starting = false
+                frame = first
+                // A second size arrived while the first frame was being built
+                // — a rotation, the action bar settling. The page keeps its
+                // state and gets the viewport it should have had.
+                if (pendingW != dw || pendingH != dh) {
+                    app.resize(pendingW, pendingH)
+                    frame = null
+                }
+                invalidate()
+            }
+        }, "evg-first-frame").start()
     }
 
     override fun onDraw(canvas: Canvas) {
-        if (!started) return
+        // The page's own ground while the first frame is still being computed:
+        // a window that is the page's colour and then fills in reads as a page
+        // loading, where a black one reads as an app that has hung.
         canvas.drawColor(Color.rgb(250, 250, 250))
+        if (!started) return
         val saved = canvas.save()
         val s = (density * app.scale()).toFloat()
         canvas.scale(s, s)
@@ -238,6 +295,11 @@ class DashboardView @JvmOverloads constructor(
         lastFrameNanos = now
         if (dt > 0f && dt < 1f) {
             val moved = app.scrollByScreen((flingDpPerSec * dt).toDouble())
+            // The page moved, so the frame it was drawn from is not the page.
+            // Without this the fling advanced the offset and the screen kept
+            // showing the frame from before it, until the next touch jumped
+            // the page to wherever the fling had ended.
+            if (moved) frame = null
             flingDpPerSec *= Math.pow(0.15, dt.toDouble()).toFloat()
             // Under 40dp/s is a page that has stopped, and a page that has hit
             // the end of its travel has stopped whatever the number says.
