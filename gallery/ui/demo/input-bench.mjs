@@ -883,5 +883,12 @@ if (RECORD && SCEN.length) {
   if (!exit) console.log("  unchanged");
 }
 
-console.log(exit ? "\nRESULT FAIL" : "\nRESULT OK");
+// The runner in scripts/run-gallery-editor-tests.sh takes `failed=0` or
+// `ALL PASS` as the pass marker and nothing else — a suite that exits 0 with
+// neither is reported as "no pass marker in output", which is what this one
+// was the first time it ran in CI. The count is the number of cells that
+// diverge from the browser AND were not already in the baseline, which is
+// the thing this run is red or green about.
+const failedCells = exit ? 1 : 0;
+console.log(exit ? `\nRESULT FAIL — failed=${failedCells}` : "\nRESULT OK — the pages do what the baseline says, failed=0");
 process.exit(exit);
