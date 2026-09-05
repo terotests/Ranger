@@ -252,6 +252,7 @@ class EVGA11yFromTree {
                 n.selected = true
             }
             n.focusable = el.a11yFocusable
+            n.modal = el.a11yModal
             if el.a11yFocusable {
                 n.actActivate = true
             }

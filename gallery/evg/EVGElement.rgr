@@ -879,6 +879,11 @@ class EVGElement {
     ; greater-than" — the glyph read aloud as if it were part of the name, when
     ; `aria-haspopup` has already said the same thing properly.
     def a11yHidden:boolean false
+    ; `aria-modal`: while this surface is up, the rest of the page is not
+    ; there — a reader does not walk it and the host hides it. A menu that
+    ; takes the wheel and the arrow keys says so here, so the tree the
+    ; hosts read agrees with what the app does with the keys.
+    def a11yModal:boolean false
     ; `aria-sort` on a column header: 0 none, 1 ascending, 2 descending.
     def a11ySorted:int 0
     ; `aria-orientation`. Its own field for the reason `aria-sort` is one: on a
@@ -2598,6 +2603,7 @@ class EVGElement {
         a11yRowCount = other.a11yRowCount
         a11yRowIndex = other.a11yRowIndex
         a11yHidden = other.a11yHidden
+        a11yModal = other.a11yModal
         a11ySorted = other.a11ySorted
         a11yOrientation = other.a11yOrientation
         a11yCurrent = other.a11yCurrent

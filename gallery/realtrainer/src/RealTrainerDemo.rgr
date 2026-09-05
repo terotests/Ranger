@@ -270,8 +270,8 @@ treefactory Rt {
     tag PhCalTx  EVGElement (props (className "rt-ph-calsel-text") (elementType 1))
     tag PhCalEmoji EVGElement (props (className "rt-ph-calsel-emoji") (elementType 1))
     ; The calendar menu under the selector — `MobileHeader`'s dropdown.
-    tag PhCalMenu EVGElement (props (className "rt-ph-calmenu") (id "rt-calmenu"))
-    tag PhCalItem EVGElement (props (className "rt-ph-calitem") (role "button") (a11yFocusable true))
+    tag PhCalMenu EVGElement (props (className "rt-ph-calmenu") (id "rt-calmenu") (role "menu"))
+    tag PhCalItem EVGElement (props (className "rt-ph-calitem") (role "menuitem") (a11yFocusable true))
     tag PhCalItemTx EVGElement (props (className "rt-ph-calitem-text") (elementType 1))
     tag PhAvatar EVGElement (props (className "rt-ph-avatar"))
     tag PhAvatarTx EVGElement (props (className "rt-ph-avatar-text") (elementType 1))
@@ -628,7 +628,25 @@ class RealTrainerDemo {
     def cardEls:[string:EVGElement]
     def cardKeys:[string:string]
     def cardsCalendar:string ""
+    ; …and the page width they were built for: a card's rows are laid
+    ; differently under 768px, so a card kept across a rotation would keep
+    ; the phone's rows on the tablet's page.
+    def cardsPageW:double 0.0
     def cardsBuilt:int 0
+    ; THE FEED ARRIVES IN CHUNKS. A diary's Home is a card per workout, and
+    ; a diary has a hundred or two: building every card before the first
+    ; frame was most of the second between the press and the page. The
+    ; first build takes the first `feedFirst` cards — a screen and some —
+    ; and every tick after builds `feedChunk` more, kept as they come (see
+    ; `cardFor`), until `feedShown` covers the feed. `feedMore` says the
+    ; feed is still arriving: the ticks keep coming while it is, and the
+    ; page's accessibility mirror waits for the end of it. A card beyond
+    ; `feedShown` that is already kept is built into the tree anyway —
+    ; adding an entry at the top does not drop the one at the bottom.
+    def feedFirst:int 12
+    def feedChunk:int 16
+    def feedShown:int 12
+    def feedMore:boolean false
     ; --- THE SCROLLBAR --------------------------------------------------------
     ;
     ; Drawn by the list (`EVGDisplayList.addScrollbar`), so every host has
@@ -733,6 +751,18 @@ class RealTrainerDemo {
     def chartLists:[VlCommandList]
     ; The calendar menu is down — `showDropdown`.
     def calMenuOpen@(mutable):boolean false
+    ; THE MENU, OPEN. It scrolls on its own when it is taller than the page
+    ; allows — `calMenuScroll` — and while it is up it has the wheel, the
+    ; finger and the keys: the page under it does not move, Escape closes
+    ; it, the arrows walk `calMenuIds` (its items in order, `calMenuFocus`
+    ; the one that has the keyboard), Enter picks. The host's accessibility
+    ; tree is told the menu is modal and where its focus is: `a11yFocus`
+    ; overrides the focus the host reports while it is set — an item when
+    ; the menu opens or moves, the selector once when it closes.
+    def calMenuScroll:double 0.0
+    def calMenuFocus:int (0 - 1)
+    def calMenuIds:[string]
+    def a11yFocus:string ""
     def addedSeq@(mutable):int 0
     def today:string "2026-09-03"
     ; The text fields: one per dialog that has one in the original, each a
@@ -2411,23 +2441,156 @@ class RealTrainerDemo {
     fn calMenu:EVGElement () {
         def menu (tree Rt (PhCalMenu))
         ; Above the page, as the app's dropdown floats: drawn after the rest,
-        ; out of the header's box, however many calendars it lists.
+        ; out of the header's box, however many calendars it lists. Under
+        ; the selector and centred on it — the selector is the header's
+        ; middle, and on a wide page a menu at the header's left edge was
+        ; nowhere near the button that opened it. A phone gets the menu as
+        ; wide as the page less its margins, hung under the header itself
+        ; (`phoneHeader` hands it over) so its margins are even; anything
+        ; wider gets a menu as wide as its names.
         menu.isOverlay = true
-        menu.setAttribute("width" ((to_string (to_int (pageW - 32.0))) + "px"))
+        menu.overlaySide = "bottom"
+        menu.overlayAlign = "center"
+        def menuW:double 360.0
+        if (pageW < 768.0) {
+            menuW = (pageW - 32.0)
+        }
+        menu.setAttribute("width" ((to_string (to_int menuW)) + "px"))
+        ; Its own scroll, and the rest of the page not there while it is up.
+        menu.scrollTop = calMenuScroll
+        menu.a11yModal = true
         ; Every calendar, in the store's order — the selected one marked,
         ; not moved: the selector above the menu already names it.
+        clear calMenuIds
         def listed:[RtSeedCalendar] (seed.storeOrder())
         for listed c:RtSeedCalendar i {
-            menu.addChild((this.calItem(c (c.id == seed.calendarId))))
+            def item:EVGElement (this.calItem(c (c.id == seed.calendarId)))
+            push calMenuIds item.id
+            if (i == calMenuFocus) {
+                item.className = (item.className + " rt-ph-calitem-focus")
+            }
+            menu.addChild(item)
         }
         def make (tree Rt (PhCalItem (props (id "rt-cal-new"))))
         make.a11yLabel = "Luo uusi kalenteri"
+        push calMenuIds "rt-cal-new"
+        if (calMenuFocus == (array_length listed)) {
+            make.className = "rt-ph-calitem rt-ph-calitem-focus"
+        }
+        ; The keyboard is on an item: the tree says which.
+        if ((calMenuFocus >= 0) && (calMenuFocus < (array_length calMenuIds))) {
+            a11yFocus = (itemAt calMenuIds calMenuFocus)
+        }
         def plus (tree Rt (PhIcon (props (className "rt-ph-icon rt-ph-icon-sm"))))
         plus.svgSource = (RtIcons.plus("#f97316"))
         make.addChild(plus)
         make.addChild((tree Rt (PhCalItemTx (props (className "rt-ph-calitem-text rt-ph-calitem-new")) "Luo uusi kalenteri")))
         menu.addChild(make)
         return menu
+    }
+
+    ; Opened: from the top, the keyboard on the first item — a menu button
+    ; opens its menu with the focus inside it. Closed: the keyboard goes
+    ; back to the selector, once.
+    fn openCalMenu:void () {
+        calMenuOpen = true
+        calMenuScroll = 0.0
+        calMenuFocus = 0
+        a11yFocus = ""
+    }
+
+    fn closeCalMenu:void () {
+        calMenuOpen = false
+        calMenuFocus = (0 - 1)
+        a11yFocus = "rt-calsel"
+    }
+
+    fn menuOpen:boolean () {
+        return calMenuOpen
+    }
+
+    ; A key while the menu is up. True when it was the menu's.
+    fn calMenuKey:boolean (k:string shift:boolean) {
+        if (k == "Escape") {
+            this.closeCalMenu()
+            this.rebuild()
+            return true
+        }
+        def n:int (array_length calMenuIds)
+        if (n == 0) {
+            return false
+        }
+        def was:int calMenuFocus
+        if ((k == "ArrowDown") || ((k == "Tab") && (shift == false))) {
+            calMenuFocus = (calMenuFocus + 1)
+            if (calMenuFocus >= n) {
+                ; Tab wraps — it is the trap's edge — and the arrow stays,
+                ; as a menu's arrows do.
+                if (k == "Tab") {
+                    calMenuFocus = 0
+                } {
+                    calMenuFocus = (n - 1)
+                }
+            }
+        }
+        if ((k == "ArrowUp") || ((k == "Tab") && shift)) {
+            calMenuFocus = (calMenuFocus - 1)
+            if (calMenuFocus < 0) {
+                if (k == "Tab") {
+                    calMenuFocus = (n - 1)
+                } {
+                    calMenuFocus = 0
+                }
+            }
+        }
+        if (k == "Home") {
+            calMenuFocus = 0
+        }
+        if (k == "End") {
+            calMenuFocus = (n - 1)
+        }
+        if ((k == "Enter") || (k == " ")) {
+            if ((calMenuFocus >= 0) && (calMenuFocus < n)) {
+                return (this.press((itemAt calMenuIds calMenuFocus)))
+            }
+            return false
+        }
+        if (calMenuFocus == was) {
+            ; A key the menu does not use, or an edge it stays at: the
+            ; trap still holds the key, so the page under it does not act.
+            return ((k == "ArrowDown") || ((k == "ArrowUp") || ((k == "Tab") || ((k == "Home") || (k == "End")))))
+        }
+        a11yFocus = (itemAt calMenuIds calMenuFocus)
+        this.rebuild()
+        this.laidOut()
+        this.showCalMenuItem()
+        return true
+    }
+
+    ; The item with the keyboard, scrolled into the menu's view.
+    fn showCalMenuItem:void () {
+        def r:EVGElement (unwrap root)
+        def foundMenu@(optional):EVGElement (RealTrainerDemo.byId(r "rt-calmenu"))
+        def foundItem@(optional):EVGElement (RealTrainerDemo.byId(r a11yFocus))
+        if ((null? foundMenu) || (null? foundItem)) {
+            return
+        }
+        def menu:EVGElement (unwrap foundMenu)
+        def item:EVGElement (unwrap foundItem)
+        def top:double (item.calculatedY - menu.calculatedY)
+        def bottom:double (top + item.calculatedHeight)
+        def viewH:double menu.calculatedHeight
+        def before:double menu.scrollTop
+        if (top < 0.0) {
+            menu.scrollTop = (menu.scrollTop + top)
+        }
+        if (bottom > viewH) {
+            menu.scrollTop = (menu.scrollTop + (bottom - viewH))
+        }
+        if (menu.scrollTop != before) {
+            this.scrolled(menu)
+            calMenuScroll = menu.scrollTop
+        }
     }
 
     fn calItem:EVGElement (c:RtSeedCalendar on:boolean) {
@@ -2472,9 +2635,15 @@ class RealTrainerDemo {
         def down (tree Rt (PhIcon (props (className "rt-ph-icon rt-ph-icon-sm"))))
         down.svgSource = (RtIcons.chevronDown("#999999"))
         sel.addChild(down)
+        ; What the menu hangs under — see `calMenu`.
+        sel.isOverlayAnchor = true
         head.addChild(sel)
         if calMenuOpen {
-            head.addChild((this.calMenu()))
+            def menu:EVGElement (this.calMenu())
+            if (pageW < 768.0) {
+                menu.overlayAnchor = head
+            }
+            head.addChild(menu)
         }
         ; Folded away below 768px by the sheet.
         head.addChild((tree Rt (PhPct "50%")))
@@ -2577,12 +2746,24 @@ class RealTrainerDemo {
         }
         def feed (tree Rt (Col (props (className "rt-home-feed"))))
         def sorted:[RtSeedEntry] (RealTrainerDemo.sortByDateDesc((seed.selectedEntries())))
+        feedMore = false
         for sorted e:RtSeedEntry i {
+            if (i >= feedShown) {
+                if ((this.hasCard(e i "home")) == false) {
+                    feedMore = true
+                    break
+                }
+            }
             def card:EVGElement (this.cardFor(e i "home"))
             card.className = "rt-entry rt-entry-home"
             feed.addChild(card)
         }
         home.addChild(feed)
+    }
+
+    ; Is the feed still arriving — see `feedShown`.
+    fn building:boolean () {
+        return feedMore
     }
 
     ; --- Home: Harjoitteet ----------------------------------------------------
@@ -4542,12 +4723,30 @@ class RealTrainerDemo {
     ; The card for an entry, kept — see `cardEls`. `place` names where it
     ; is drawn, because the two views that draw cards dress them
     ; differently and count them differently.
-    fn cardFor:EVGElement (e:RtSeedEntry i:int place:string) {
-        def slot:string ((e.id + "|") + place)
+    fn cardSlot:string (e:RtSeedEntry i:int place:string) {
         if ((strlen e.id) == 0) {
-            slot = (((e.date + "#") + (to_string i)) + ("|" + place))
+            return (((e.date + "#") + (to_string i)) + ("|" + place))
         }
-        def key:string ((((((e.id + "|") + (to_string i)) + ("|" + e.date)) + ("|" + (to_string e.points))) + ("|" + e.feedback)) + ("|" + e.compact))
+        return ((e.id + "|") + place)
+    }
+
+    fn cardKey:string (e:RtSeedEntry i:int) {
+        return ((((((e.id + "|") + (to_string i)) + ("|" + e.date)) + ("|" + (to_string e.points))) + ("|" + e.feedback)) + ("|" + e.compact))
+    }
+
+    ; Is the card for this entry, as it is now, kept?
+    fn hasCard:boolean (e:RtSeedEntry i:int place:string) {
+        def slot:string (this.cardSlot(e i place))
+        if (has cardKeys slot) {
+            def kept:string (unwrap (get cardKeys slot))
+            return (kept == (this.cardKey(e i)))
+        }
+        return false
+    }
+
+    fn cardFor:EVGElement (e:RtSeedEntry i:int place:string) {
+        def slot:string (this.cardSlot(e i place))
+        def key:string (this.cardKey(e i))
         if (has cardKeys slot) {
             def kept:string (unwrap (get cardKeys slot))
             if (kept == key) {
@@ -4573,6 +4772,7 @@ class RealTrainerDemo {
         def freshKeys:[string:string]
         cardEls = freshEls
         cardKeys = freshKeys
+        feedShown = feedFirst
         ; …and the commands kept for them.
         if retained {
             def last:EVGDisplayList (unwrap retained)
@@ -5488,11 +5688,15 @@ class RealTrainerDemo {
         ; a calendar and goes Home with it, "Luo uusi kalenteri" opens the
         ; wizard, and anything else closes it on the way.
         if (id == "rt-calsel") {
-            calMenuOpen = (calMenuOpen == false)
+            if calMenuOpen {
+                this.closeCalMenu()
+            } {
+                this.openCalMenu()
+            }
             return true
         }
         if calMenuOpen {
-            calMenuOpen = false
+            this.closeCalMenu()
             if (id == "rt-cal-new") {
                 this.openRoute("/new-calendar")
                 return true
@@ -5814,6 +6018,9 @@ class RealTrainerDemo {
     fn keyWith:boolean (k:string shift:boolean ctrl:boolean) {
         layoutDirty = true
         boxesDirty = true
+        if calMenuOpen {
+            return (this.calMenuKey(k shift))
+        }
         if ((this.hasField(focused)) == false) {
             return false
         }
@@ -6007,6 +6214,20 @@ class RealTrainerDemo {
         }
         if ((scene == "app") || (scene == "yearsheet")) {
             def r0:EVGElement (unwrap root)
+            ; The calendar menu, while it is up, takes the wheel and the
+            ; finger the same way: the page under it does not move.
+            if calMenuOpen {
+                def foundC@(optional):EVGElement (RealTrainerDemo.byId(r0 "rt-calmenu"))
+                if foundC {
+                    def cm:EVGElement (unwrap foundC)
+                    def beforeC:double cm.scrollTop
+                    cm.scrollTop = (cm.scrollTop + delta)
+                    this.scrolled(cm)
+                    calMenuScroll = cm.scrollTop
+                    return (cm.scrollTop != beforeC)
+                }
+                return false
+            }
             ; A dialog that is open takes the wheel: its body scrolls, the
             ; page under it does not.
             if (plan.isOpen()) {
@@ -6075,9 +6296,10 @@ class RealTrainerDemo {
     fn rebuild:void () {
         layoutDirty = true
         boxesDirty = true
-        if (seed.calendarId != cardsCalendar) {
+        if ((seed.calendarId != cardsCalendar) || (pageW != cardsPageW)) {
             this.forgetCards()
             cardsCalendar = seed.calendarId
+            cardsPageW = pageW
         }
         this.syncFields()
         if (scene == "signin") {
@@ -6343,6 +6565,20 @@ class RealTrainerDemo {
                 }
                 return true
             }
+        }
+        ; The next chunk of a feed still arriving — see `feedShown` — on a
+        ; frame the glide is not using.
+        if feedMore {
+            ; A chunk per frame's worth of time: a host that ticks once for
+            ; half a second — a scenario's replay, a tab coming back — gets
+            ; the thirty frames of building it stands for.
+            def framesWorth:int (to_int (dtMs / 16.0))
+            if (framesWorth < 1) {
+                framesWorth = 1
+            }
+            feedShown = (feedShown + (feedChunk * framesWorth))
+            this.rebuild()
+            return true
         }
         ; A toast stays for a while and goes.
         if (toastMs > 0.0) {
@@ -7185,8 +7421,17 @@ class RealTrainerDemo {
         this.laidOut()
         def r:EVGElement (unwrap root)
         r.settleAll()
+        ; The focus the app moved, over the one the host reports — see
+        ; `a11yFocus`. The move back to the selector is handed over once.
+        def f:string focusId
+        if ((strlen a11yFocus) > 0) {
+            f = a11yFocus
+            if (calMenuOpen == false) {
+                a11yFocus = ""
+            }
+        }
         def b (new EVGA11yFromTree())
-        def t:EVGA11yTree (b.build(r "RealTrainer" generation focusId))
+        def t:EVGA11yTree (b.build(r "RealTrainer" generation f))
         return (t.toJson())
     }
 

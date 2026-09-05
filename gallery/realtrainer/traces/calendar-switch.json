@@ -155,72 +155,77 @@
      "state": ""
     },
     {
-     "role": "button",
+     "role": "menu",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "menuitem",
      "name": "😴 Unipäiväkirja",
      "state": ""
     },
     {
-     "role": "button",
+     "role": "menuitem",
      "name": "🍎 Ravintopäiväkirja",
      "state": ""
     },
     {
-     "role": "button",
+     "role": "menuitem",
      "name": "💪 Harjoituspäiväkirja",
      "state": ""
     },
     {
-     "role": "button",
+     "role": "menuitem",
      "name": "📝 Mittaukset",
      "state": ""
     },
     {
-     "role": "button",
+     "role": "menuitem",
      "name": "💰 Kulupäiväkirja",
      "state": ""
     },
     {
-     "role": "button",
+     "role": "menuitem",
      "name": "🏆 Kilpailut",
      "state": ""
     },
     {
-     "role": "button",
+     "role": "menuitem",
      "name": "📋 Harjoitussuunnitelma",
      "state": ""
     },
     {
-     "role": "button",
+     "role": "menuitem",
      "name": "📝 Fiilispäiväkirja",
      "state": ""
     },
     {
-     "role": "button",
+     "role": "menuitem",
      "name": "💪 Harjoituspäiväkirja",
      "state": ""
     },
     {
-     "role": "button",
+     "role": "menuitem",
      "name": "📋 Harjoitussuunnitelma",
      "state": ""
     },
     {
-     "role": "button",
+     "role": "menuitem",
      "name": "📋 Training Plan",
      "state": ""
     },
     {
-     "role": "button",
+     "role": "menuitem",
      "name": "💪 MINIMONSTER Training",
      "state": ""
     },
     {
-     "role": "button",
+     "role": "menuitem",
      "name": "📋 MINIMONSTER Plan",
      "state": ""
     },
     {
-     "role": "button",
+     "role": "menuitem",
      "name": "Luo uusi kalenteri",
      "state": ""
     },
