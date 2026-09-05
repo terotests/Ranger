@@ -93,6 +93,18 @@
 .fm-box-bad { border-color: #dc2626; }
 .fm-box-off { background-color: #fafafa; border-color: #f4f4f5; }
 
+/* --- FOCUS ----------------------------------------------------------------
+ *
+ * This sheet had no `:focus` rule at all, so Tab moved the focus and the page
+ * showed nothing: on a readonly field, which draws no caret, a Tab into it
+ * looked like a Tab that did nothing, and the radios and the buttons after it
+ * looked the same. ReUI's ring is a box-shadow, which EVG does not draw; the
+ * border carries it instead — the 1px grey turns dark. A field in error stays
+ * red under focus, as `aria-invalid:ring-destructive` does — a darker red, so
+ * that the focus is still a visible change there too. */
+.fm-box:focus { border-color: #18181b; }
+.fm-box-bad:focus { border-color: #991b1b; }
+
 .fm-prefix { color: #a1a1aa; font-family: Arial; font-size: 13px; height: 18px; }
 .fm-text { color: #18181b; font-family: Arial; font-size: 13px; height: 18px; }
 .fm-ghost { color: #a1a1aa; font-family: Arial; font-size: 13px; height: 18px; }
@@ -248,6 +260,18 @@
 }
 .fm-submit:hover  { background-color: #27272a; border-color: #27272a; }
 .fm-submit:active { background-color: #3f3f46; border-color: #3f3f46; }
+
+/* Keyboard focus on the things that are not boxes. The check and Cancel get
+ * the dark border; Submit is already dark, so its ring is the grey the page
+ * uses for secondary ink; the eye — a glyph, not a box — gets the hover tint
+ * behind it; a radio's ring or dot carries a class the demo writes, because
+ * the focused element is the row and a rule here cannot reach its child. */
+.fm-check:focus  { border-color: #18181b; }
+.fm-cancel:focus { border-color: #18181b; }
+.fm-submit:focus { border-color: #a1a1aa; }
+.fm-eye:focus    { background-color: #e4e4e7; border-radius: 4px; }
+.fm-ring-focus   { border-color: #18181b; border-width: 2px; }
+.fm-dot-focus    { border-color: #18181b; }
 
 /* The radio that cannot be chosen. Paler ring, paler label, and the arrow
  * stays an arrow — three signals rather than one, because a single grey is
