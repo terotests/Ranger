@@ -6,9 +6,10 @@ that have a painter today: the browser, Apple (UIKit / SwiftUI) and Android
 (View / Compose). What the platform can genuinely do better than a canvas,
 where the wall is, and what to try first.
 
-Status: **design only.** Nothing in this file is built. The numbers in it are
-measured from the repository as it is (`npm run rt:bench 40`, the stylesheet
-tallies in §3.3), not projected.
+Status: **S0 built** (§8) — `EVGHostTextMeasurer`, the default registry, and
+the canvas, CoreText, Skia and Java2D hosts; the rest is design. The numbers
+in it are measured from the repository as it is (`npm run rt:bench 40`, the
+stylesheet tallies in §3.3), not projected.
 
 Related: [`README.md`](README.md) (the pipeline and the seam),
 [`gl/README.md`](gl/README.md) (the display list as a GPU input),
@@ -563,7 +564,7 @@ expensive decision (D2) is made after the cheap ones have paid.
 
 | | What | Where | Gate |
 | --- | --- | --- | --- |
-| **S0** | Platform text measurers: canvas `measureText` (web), CoreText (Apple), Compose `TextMeasurer` (Android), each behind `EVGTextMeasurer` | `EVGContextMeasurer.rgr` is the pattern | the existing painters draw runs that fit their boxes; `ui:ios:verify` / `ui:android:verify` gain a "run width vs box" check |
+| **S0** ✅ | Platform text measurers behind one Ranger class, `EVGHostTextMeasurer`, that takes ONE host function and keeps the face cache, the weight convention and the cache key; `EVGDefaultMeasurer` makes it every layout's default. Hosts: canvas `measureText` (`gl/evg-measure.js`), CoreText (`apple/Sources/CoreTextMeasurer.swift`), Skia `Paint` and Java2D (`android/src/…/AndroidTextMeasurer.kt`, `AwtTextMeasurer.kt`) | `EVGContextMeasurer.rgr` was the pattern | `evg:hostmeasurer:test` (42 checks); the responsive smoke and the RealTrainer checks in Chromium; the native hosts type-check only where a Mac or `kotlinc` is |
 | **S1** | Engine off the UI thread with the **existing** painters: Worker + `EVGSceneBinary` (web), background queue (Apple), `Dispatchers.Default` (Android) | hosts only; the engine is untouched | `rt:frame`, `rt:bench` unchanged on the engine side; input-to-paint latency measured in `rt:frame` |
 | **S2** | `EVGHostTree` — the diff channel, in Ranger, with its binary form | beside `EVGDisplayList.rgr` | a test that holds it against the display list: every `CREATE`/`UPDATE` rectangle is a rectangle the list drew; a rebuild that changes nothing emits nothing |
 | **S3** | `html/evg-dom.js` — the retained DOM painter, fields as `<input>`, a11y on the nodes | web | `parity.mjs` against `evg-html.js` (beat 0.022 %); `ui:demo:page`; the a11y gates with the mirror off |

@@ -16,6 +16,7 @@ import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
 import fi.ranger.evg.AndroidEvgSurface
+import fi.ranger.evg.AndroidTextMeasurer
 import fi.ranger.evg.EvgPainter
 import fi.ranger.evg.FaceSet
 import fi.ranger.evg.ImageStore
@@ -53,6 +54,21 @@ class RealTrainerView @JvmOverloads constructor(
     attrs: AttributeSet? = null,
 ) : View(context, attrs) {
 
+    private val faces = FaceSet(
+        Typeface.DEFAULT,
+        Typeface.DEFAULT_BOLD,
+        Typeface.create(Typeface.DEFAULT, Typeface.ITALIC),
+        Typeface.create(Typeface.DEFAULT, Typeface.BOLD_ITALIC),
+    )
+
+    /**
+     * Skia measures the page's text before anything is laid out: declared
+     * above `app`, because Kotlin initialises properties in order and the
+     * app makes its first layout when it is made. The same [FaceSet] the
+     * surface paints with, so the width measured is the width drawn.
+     */
+    private val textMeasurer = AndroidTextMeasurer.install(faces)
+
     val app = RtAndroid()
 
     /** The five texts, read out of the assets by the activity. */
@@ -83,12 +99,7 @@ class RealTrainerView @JvmOverloads constructor(
      * would make the estimate truer — so the platform's face is the honest
      * choice, as it is on the AWT surface the desktop check paints with.
      */
-    private val faces = FaceSet(
-        Typeface.DEFAULT,
-        Typeface.DEFAULT_BOLD,
-        Typeface.create(Typeface.DEFAULT, Typeface.ITALIC),
-        Typeface.create(Typeface.DEFAULT, Typeface.BOLD_ITALIC),
-    )
+    // `faces` is declared above `app` — see there.
 
     /**
      * The last frame, kept until something changes it. `RtAndroid.frame()`

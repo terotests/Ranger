@@ -32,7 +32,9 @@ class EVGLayout {
     def warnings:[string]
     
     Constructor () {
-        def m (new SimpleTextMeasurer())
+        ; The process-wide default (`EVGDefaultMeasurer`): a host's own
+        ; measurer when one is installed, the table otherwise.
+        def m:EVGTextMeasurer (EVGDefaultMeasurer.measurer())
         measurer = m
         textEngine.setMeasurer(m)
         def im (new SimpleImageMeasurer())

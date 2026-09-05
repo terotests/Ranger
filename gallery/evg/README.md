@@ -528,10 +528,40 @@ decides how honest the answer is:
 | `SimpleTextMeasurer` | a measured advance table, one entry per printable character, taken from a browser's sans fallback | headless work, and the browser demos |
 | `TTFTextMeasurer` | the TTF the output will embed, kerned from the face's own GPOS pairs | print |
 | `EVGContextMeasurer` | the host renderer's own loaded faces | an interactive app that paints through `UIContext` |
+| `EVGHostTextMeasurer` | **the platform that will paint** — canvas `measureText`, CoreText, Skia's `Paint`, Java2D — through one function the host hands over | every screen app; see below |
 
 `isFontAccurate()` is how the engine knows the difference: a measurer that never
 opens a font must not silently drive print layout, and `EVGTextEngine` asks
 before letting a document that names custom faces through.
+
+**The platform measures, EVG breaks the lines.** A screen app draws with a face
+the platform chose, and the table is a snapshot of one browser's sans; where
+the two differ a caret lands beside its glyphs and a label clips its box.
+[`EVGHostTextMeasurer`](EVGHostTextMeasurer.rgr) closes that with **one
+function** a host provides — `metric(kind text family size bold italic)`: a
+run's width, or a face's ascent, descent and line gap — and keeps everything
+else in Ranger: the per-face cache, the `-Bold` convention
+`effectiveFontFamily` writes the weight in, the cache key, and the fallback to
+the table until the platform attaches. The lines are still broken here, one
+run per line, so a PDF and a screen that share a face still break in the same
+place. The hosts are a page each:
+
+| Platform | File | Installed by |
+| --- | --- | --- |
+| browser | [`gl/evg-measure.js`](gl/evg-measure.js) — canvas `measureText`, the painters' own `fontSpec`, the gap off a `line-height: normal` probe; works in a Worker | `gallery/ui/demo`, `gallery/realtrainer/web`, `gallery/ui/web`, `web/responsive` |
+| Apple | [`apple/Sources/CoreTextMeasurer.swift`](apple/Sources/CoreTextMeasurer.swift) — the `CTFont` the surface draws with, `CTLineGetTypographicBounds` | `ui/ios`, its watch app, `realtrainer/ios` |
+| Android | [`android/src/android/…/AndroidTextMeasurer.kt`](android/src/android/kotlin/fi/ranger/evg/AndroidTextMeasurer.kt) — the `FaceSet`'s `Typeface` through a `Paint`; [`AwtTextMeasurer.kt`](android/src/awt/kotlin/fi/ranger/evg/AwtTextMeasurer.kt) is the Java2D twin the desktop checks use | `ui/android`, `realtrainer/android`, both `CheckDashboard`-style checks |
+
+They reach every layout through **`EVGDefaultMeasurer`** (in
+`EVGTextMeasurer.rgr`): a process-wide default that `EVGLayout` and
+`EVGTextEngine` read in their constructors, so the twenty-five `new
+EVGLayout()`s in the gallery pick it up without being told. A host installs
+before the app is constructed — the demos keep a layout from the moment they
+exist — and `setMeasurer` still overrides it, which is how print keeps the TTF
+one. `npm run evg:hostmeasurer:test` drives the Ranger half with a made-up
+platform, and `npm run evg:measure:web` opens two built pages in Chromium and
+asks whether a run measured through EVG is the width the painter's canvas
+gives the same font shorthand; PLAN_NATIVE_HOSTS.md S0 is where it came from.
 
 The vertical metrics are measured, not rounded: the sans fallback's ascent is
 `0.905em` and its descent `0.212em`, summing to `1.117em` — no real face sums to
@@ -702,6 +732,7 @@ and the difference is what these are for.
 | `EVGTextEngine.rgr` | line breaking, the engine layout and painting share |
 | `EVGTextMeasurer.rgr` | the measurer interface and the measured advance table |
 | `EVGContextMeasurer.rgr` | measurement through a host's own renderer |
+| `EVGHostTextMeasurer.rgr` | measurement through the platform that will paint, from one host function |
 | `EVGTextFit.rgr` | text that stays inside its box |
 | `EVGGrapheme.rgr` `EVGCodepoint.rgr` | what "one character" means |
 
@@ -747,6 +778,8 @@ npm run evg:component:test      # instances that outlive the tree
 npm run evg:timing:test         # easing and transition timing
 npm run evg:a11y:test           # the accessibility tree
 npm run evg:json:test           # the display list's JSON
+npm run evg:hostmeasurer:test   # a platform's one function reaches every layout
+npm run evg:measure:web         # ...and in Chromium the browser is the one measuring
 npm run evg:responsive:check    # the responsive page at four widths
 
 # oracles — the same question, asked of a browser

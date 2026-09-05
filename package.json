@@ -700,6 +700,8 @@
     "icons:sheet": "mkdir -p tmp/icons && RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/datagrid/src/dump_icons.rgr -d=./gallery/datagrid/bin -o=dump_icons.js -nodecli && node ./gallery/datagrid/bin/dump_icons.js",
     "evg:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/evg/evg_test.rgr -d=./gallery/evg/bin -o=evg_test.js -nodecli",
     "evg:run": "node ./gallery/evg/bin/evg_test.js",
+    "evg:hostmeasurer:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/EVGHostMeasurerTest.rgr -d=./gallery/evg/bin -o=EVGHostMeasurerTest.js -nodecli && node ./gallery/evg/bin/EVGHostMeasurerTest.js",
+    "evg:measure:web": "node gallery/evg/gl/measure-check.mjs",
     "evg:json:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/EVGJsonTest.rgr -d=./gallery/evg/bin -o=EVGJsonTest.js -nodecli && node ./gallery/evg/bin/EVGJsonTest.js",
     "evg:trace:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/EvgBitmapTracerTest.rgr -d=./gallery/evg/bin -o=EvgBitmapTracerTest.js -nodecli && node ./gallery/evg/bin/EvgBitmapTracerTest.js",
     "evg:trace:bench": "bash gallery/evg/tools/run_trace_bench.sh",

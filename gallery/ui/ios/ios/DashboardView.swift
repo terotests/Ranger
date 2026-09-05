@@ -22,6 +22,10 @@ import UIKit
 
 final class DashboardView: UIView {
 
+    /// CoreText measures the page's text before anything is laid out: a
+    /// stored property, declared above `app`, because Swift initialises
+    /// them in order and the app makes its first layout when it is made.
+    private let textMeasurer = CoreTextMeasurer.install()
     let app = UiIos()
 
     /// The frame, cached. `UiIos.frame()` lays the page out and runs the Vela

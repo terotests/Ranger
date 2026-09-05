@@ -140,6 +140,7 @@ class Paint() {
     class FontMetrics {
         @JvmField var ascent: Float = 0f
         @JvmField var descent: Float = 0f
+        @JvmField var leading: Float = 0f
     }
 
     var color: Int = 0
@@ -152,6 +153,7 @@ class Paint() {
     var typeface: Typeface? = null
     var textSize: Float = 0f
     val fontMetrics: FontMetrics = FontMetrics()
+    fun measureText(text: String): Float = 0f
 }
 
 open class Canvas {

@@ -17,7 +17,11 @@ import { prepareDisplayList } from "../../evg/gl/evg-webgl.js";
 import { listOf, shiftsOf } from "../../evg/gl/evg-list.js";
 import { createA11yMirror, pressAtCentre } from "../../evg/gl/evg-a11y.js";
 import { createTextInputBridge } from "../../evg/gl/evg-textinput.js";
-import { RealTrainerDemo } from "./generated-host.js";
+import { RealTrainerDemo, RealTrainerModule } from "./generated-host.js";
+// The browser measures the text: every layout the app builds asks canvas
+// `measureText` in the face the painter draws with, instead of the advance
+// table. Installed before the app is constructed — the app keeps a layout.
+import { installCanvasMeasurer } from "../../evg/gl/evg-measure.js";
 import { REALTRAINER_CSS, REALTRAINER_COMPACT, REALTRAINER_PLAN_MACHINE, REALTRAINER_CHAT_MACHINE, REALTRAINER_SEED } from "./generated.js";
 
 const stage = document.getElementById("stage");
@@ -25,6 +29,9 @@ const canvas = document.getElementById("c");
 const errEl = document.getElementById("err");
 const fpsEl = document.getElementById("fps");
 const sceneEl = document.getElementById("scene");
+
+const fontMeasure = installCanvasMeasurer(RealTrainerModule);
+window.__fontMeasure = fontMeasure;
 
 const app = new RealTrainerDemo();
 app.init(REALTRAINER_CSS, REALTRAINER_COMPACT);
@@ -501,6 +508,10 @@ function step(now) {
 // The first frame waits for the faces the list names, so the wordmark is not
 // measured in one font and drawn in another.
 document.fonts.ready.then(() => {
+  // The faces are in: forget what was measured with the fallback and lay
+  // the page out again with the real ones.
+  fontMeasure.refresh();
+  app.rebuild();
   paintAll();
   requestAnimationFrame(step);
 });

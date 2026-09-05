@@ -23,6 +23,9 @@
 ; measurer can back the families a document asks for.
 
 Import "EVGTextMeasurer.rgr"
+; So that every compiled module a host can attach to has the host measurer
+; and the default registry, without the program importing them itself.
+Import "EVGHostTextMeasurer.rgr"
 
 ; One laid-out line. ascent/descent are carried from day one so baseline
 ; alignment (§4.1 rule 4) can be added without re-measuring.
@@ -97,7 +100,7 @@ class EVGTextEngine {
     ; that care about print correctness install a real one via setMeasurer and
     ; turn on strict mode.
     Constructor () {
-        def m (new SimpleTextMeasurer())
+        def m:EVGTextMeasurer (EVGDefaultMeasurer.measurer())
         measurer = m
         strict = false
         hadFatal = false

@@ -1,6 +1,8 @@
 package fi.ranger.ui.desktop
 
 import fi.ranger.evg.AwtEvgSurface
+import fi.ranger.evg.AwtFaces
+import fi.ranger.evg.AwtTextMeasurer
 import fi.ranger.evg.EvgPainter
 import fi.ranger.evg.RecordingSurface
 import fi.ranger.rgr.EVGElement
@@ -45,6 +47,13 @@ object CheckDashboard {
 
     private var passed = 0
     private var failed = 0
+
+    /**
+     * The JDK's own sans, measured AND painted: `AwtTextMeasurer` is installed
+     * from this before any page is made, and every surface below paints with
+     * it, so the check asserts about one face rather than two.
+     */
+    private val faces = AwtFaces(emptyMap())
 
     private fun ok(what: String, cond: Boolean, detail: String = "") {
         if (cond) {
@@ -101,6 +110,7 @@ object CheckDashboard {
         // A tablet in landscape, in density-independent pixels. The page is
         // 1336 wide, so this is very nearly 1:1 — which is the size this demo
         // was drawn for and the profile the run-emulator script prefers.
+        AwtTextMeasurer.install(faces)
         val app = UiAndroid()
         app.start(1280.0, 800.0, css.readText())
 
@@ -398,7 +408,7 @@ object CheckDashboard {
         // surface a real TrueType file here would make the picture *less* like
         // the one the demo is checked against. The platform's sans is the
         // honest choice on both surfaces.
-        val rec = RecordingSurface(AwtEvgSurface(g, emptyMap(), emptyMap()))
+        val rec = RecordingSurface(AwtEvgSurface(g, emptyMap(), faces))
         EvgPainter.paint(list, rec)
         g.dispose()
         ImageIO.write(img, "png", File(dir, name))

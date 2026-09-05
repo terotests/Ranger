@@ -62,9 +62,9 @@ const bundle = fs.readFileSync(rawPath, "utf8").replace(/^#![^\n]*\n/, "");
 {
   const previous = globalThis.require;
   globalThis.require = undefined;
-  const found = (0, eval)(bundle + "; typeof EvgResponsiveDemo + '|' + typeof EVGLayout");
+  const found = (0, eval)(bundle + "; typeof EvgResponsiveDemo + '|' + typeof EVGLayout + '|' + typeof EVGHostTextMeasurer");
   globalThis.require = previous;
-  if (found !== "function|function") {
+  if (found !== "function|function|function") {
     throw new Error("evg_responsive_demo.js missing browser exports (got " + found + ")");
   }
 }
@@ -74,6 +74,8 @@ const scoped =
   "(function () {\n" +
   bundle +
   "\n;globalThis.EvgResponsiveDemo = EvgResponsiveDemo;" +
+  // What the browser's text measurer needs off the module (evg-measure.js).
+  "\n;globalThis.EvgResponsiveModule = { EVGHostTextMeasurer: EVGHostTextMeasurer, EVGDefaultMeasurer: EVGDefaultMeasurer };" +
   "\n})();\n";
 
 fs.writeFileSync(path.join(OUT, "evg_responsive_demo.js"), scoped);
@@ -81,6 +83,7 @@ fs.copyFileSync(path.join(HERE, "index.html"), path.join(OUT, "index.html"));
 // The painter, copied rather than imported across directories, so the built
 // page is a directory of four files that can be served from anywhere.
 fs.copyFileSync(path.join(ROOT, "gallery/evg/html/evg-html.js"), path.join(OUT, "evg-html.js"));
+fs.copyFileSync(path.join(ROOT, "gallery/evg/gl/evg-measure.js"), path.join(OUT, "evg-measure.js"));
 
 fs.rmSync(STAGE, { recursive: true, force: true });
 process.stdout.write("Wrote responsive page to " + path.relative(ROOT, OUT) + "\n");

@@ -401,8 +401,14 @@ export function setFontFallback(families) {
  *  written twice, once for measuring and once for rasterizing, and the two
  *  had to stay identical or a run was drawn at a size it was not measured at.
  */
+// The family less the `-Bold` suffix `effectiveFontFamily` writes for a bold
+// element — a convention for the TTF measurers, and to a browser a family
+// nobody has. The weight is given separately. `evg-measure.js` strips the
+// same suffix, so the layout measured with the face this draws with.
+const familyOf = (c) => (c.font && c.font.endsWith("-Bold") ? c.font.slice(0, -5) : c.font || "");
+
 function fontSpec(c, dpr) {
-  return `${c.italic ? "italic " : ""}${c.weight ? c.weight + " " : ""}${c.size * dpr}px "${c.font}", ${fallbackStack}`;
+  return `${c.italic ? "italic " : ""}${c.weight ? c.weight + " " : ""}${c.size * dpr}px "${familyOf(c)}", ${fallbackStack}`;
 }
 
 function runKey(c, dpr) {

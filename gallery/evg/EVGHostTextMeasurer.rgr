@@ -1,0 +1,331 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EVGHostTextMeasurer — the platform measures, EVG breaks the lines
+; ==============================================================================
+;
+; PLAN_NATIVE_HOSTS.md, decision D3 and stage S0. Every painter below the
+; display list draws text with a face the PLATFORM chose — a browser's font
+; stack, CoreText on Apple, a `Typeface` on Android — while the layout above
+; it measured the run with `SimpleTextMeasurer`'s advance table, a snapshot of
+; one browser's sans fallback taken once. Where the two faces differ, a run
+; is drawn wider or narrower than the box that was sized for it: a label
+; clips, a caret lands beside its glyphs, a line wraps that paint would not
+; have wrapped.
+;
+; This measurer closes that gap the way `EVGContextMeasurer` closes it for
+; the software canvas: the host that will paint is the host that measures.
+; It is GENERIC on purpose — one measurer, every platform, every app — and
+; the whole of what a platform has to provide is ONE FUNCTION:
+;
+;     metric(kind text family size bold italic) -> double
+;
+;       kind 0  the advance width of `text` set in that face at that size
+;       kind 1  the face's ascent, in pixels, at that size   (text ignored)
+;       kind 2  the face's descent                            (text ignored)
+;       kind 3  the face's line gap, or a negative number for "unknown"
+;
+; The host writes it in its own language against its own text API — canvas
+; `measureText`, `CTLineGetTypographicBounds`, `Paint.measureText` — and
+; hands it over with `attach`. Everything else is here, written once:
+; the per-face cache of the vertical metrics (three host calls per face,
+; not three per run), the `-Bold` convention `EVGElement.effectiveFontFamily`
+; encodes the weight in, the cache key the text engine needs, and the
+; fallback to the table when no host has attached yet, so an app can install
+; this at start-up and attach the platform later — a browser after
+; `document.fonts.ready` — without ever measuring nothing.
+;
+; WHY A FUNCTION AND NOT A SUBCLASS. A host could extend this class in its own
+; language and override `measureText`; JavaScript, Swift and Kotlin all
+; allow it. But then each of the three hosts owns a copy of the face cache,
+; the weight convention and the key — the three things that were wrong in
+; three different ways when five painters each walked the tree. A closure
+; keeps the platform's contribution to the one thing only the platform
+; knows, and Ranger's lambda fields compile to a settable property of
+; function type on every target (`(Int, String, …) -> Double` in Kotlin, an
+; `@escaping` closure in Swift, a plain property in ES6).
+;
+; WHAT IT MEANS FOR PRINT PARITY. Nothing. The lines are still broken here,
+; by `EVGTextEngine`, one run per line; a PDF laid out with the TTF measurer
+; and a screen laid out with this one agree wherever they share a face, and
+; where they do not, the screen is now honest about its own face rather
+; than pretending to be the table.
+;
+; See `EVGHostMeasurerTest.rgr` (`npm run evg:hostmeasurer:test`) and the
+; three hosts: `gl/evg-measure.js`, `apple/Sources/CoreTextMeasurer.swift`,
+; `android/src/…/AndroidTextMeasurer.kt` (with its Java2D twin).
+; ==============================================================================
+
+Import "EVGTextMeasurer.rgr"
+
+class EVGHostTextMeasurer {
+    Extends(EVGTextMeasurer)
+
+    ; The one function. Unset until the host attaches; every question is then
+    ; answered by `fallback` below, so a measurer that was installed before
+    ; its platform arrived measures like the table did, not like nothing.
+    def metricFn@(optional):(fn:double (kind:int text:string family:string size:double bold:boolean italic:boolean))
+    def attached:boolean false
+    ; Which platform is on the other end — "canvas", "coretext", "android",
+    ; "awt", or whatever the host calls itself. It goes into `measureKey`, so
+    ; a text engine that outlives a host swap cannot hand back the old host's
+    ; widths.
+    def hostName:string ""
+    ; Bumped by `attach`, `detach` and `invalidate`. Same reason: the engine
+    ; caches by `measureKey`, and a face that finished loading is a different
+    ; answer to the same question.
+    def generation:int 0
+
+    ; Does the platform draw SOMETHING for every family it is asked for? A
+    ; browser's font stack and CoreText both substitute, so every family
+    ; "has a face" — the face the painter will use — and warning about it
+    ; would warn about every label on the page. A host that bundles exact
+    ; TTFs and wants a missing one reported sets this false and names what
+    ; it has through `addKnownFamily`.
+    def resolvesAll:boolean true
+    def known:[string]
+
+    ; The face cache: key -> ascent, descent, line gap, in pixels. A face is
+    ; a family, a size, a weight and a slant; a page asks for a handful of
+    ; them and thousands of runs in each, so the three vertical questions
+    ; are asked once per face and never per run.
+    def faceKeys:[string]
+    def faceAsc:[double]
+    def faceDesc:[double]
+    def faceGap:[double]
+    ; The last face looked up, because a wrap asks the same face for every
+    ; candidate line and a linear search over a dozen keys per call adds up.
+    def lastKey:string ""
+    def lastIdx:int (0 - 1)
+
+    ; How many times the host has been called, by kind. For the test and for
+    ; a bench: a measurer that calls the platform per character instead of
+    ; per run would pass every width check and cost a frame.
+    def widthCalls:int 0
+    def faceCalls:int 0
+
+    ; Answers everything while no host is attached.
+    def fallback:SimpleTextMeasurer (new SimpleTextMeasurer())
+
+    Constructor () {
+    }
+
+    ; --- the kinds, by name -------------------------------------------------
+
+    sfn KIND_WIDTH:int () {
+        return 0
+    }
+
+    sfn KIND_ASCENT:int () {
+        return 1
+    }
+
+    sfn KIND_DESCENT:int () {
+        return 2
+    }
+
+    sfn KIND_GAP:int () {
+        return 3
+    }
+
+    ; --- attaching the platform ---------------------------------------------
+
+    fn attach:void (f:(fn:double (kind:int text:string family:string size:double bold:boolean italic:boolean)) name:string) {
+        metricFn = f
+        hostName = name
+        attached = true
+        this.invalidate()
+    }
+
+    fn detach:void () {
+        attached = false
+        this.invalidate()
+    }
+
+    ; The host's answers changed — a face finished loading, the device's
+    ; font settings moved. The cache is dropped and the key moves on, so
+    ; every engine holding this measurer measures again.
+    fn invalidate:void () {
+        generation = (generation + 1)
+        def fk:[string]
+        faceKeys = fk
+        def fa:[double]
+        faceAsc = fa
+        def fd:[double]
+        faceDesc = fd
+        def fg:[double]
+        faceGap = fg
+        lastKey = ""
+        lastIdx = (0 - 1)
+    }
+
+    fn setResolvesAll:void (b:boolean) {
+        resolvesAll = b
+    }
+
+    fn addKnownFamily:void (name:string) {
+        if ((strlen name) == 0) {
+            return
+        }
+        def i:int 0
+        while (i < (array_length known)) {
+            if ((itemAt known i) == name) {
+                return
+            }
+            i = (i + 1)
+        }
+        push known name
+    }
+
+    fn isAttached:boolean () {
+        return attached
+    }
+
+    ; --- the EVGTextMeasurer contract ---------------------------------------
+
+    fn isFontAccurate:boolean () {
+        return attached
+    }
+
+    fn hasFace:boolean (fontFamily:string) {
+        if (attached == false) {
+            return false
+        }
+        if resolvesAll {
+            return true
+        }
+        def base:string (EVGHostTextMeasurer.baseFamily(fontFamily))
+        def i:int 0
+        while (i < (array_length known)) {
+            if ((itemAt known i) == base) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn measureKey:string () {
+        def out@(mutable):string ("host:" + hostName + ":" + (to_string generation))
+        if (attached == false) {
+            out = (out + ":table")
+        }
+        return out
+    }
+
+    ; --- the family convention ------------------------------------------------
+    ;
+    ; `EVGElement.effectiveFontFamily` hands the layout `Family-Bold` for a
+    ; bold element and `Family` otherwise; that suffix is the only way the
+    ; weight reaches a measurer, and `FontManager.getFont` reads the same
+    ; convention for print. Italic has no such suffix today, so a slanted run
+    ; is measured upright — the same thing the table did, recorded here
+    ; rather than hidden.
+
+    sfn isBoldFace:boolean (face:string) {
+        def n:int (strlen face)
+        if (n < 6) {
+            return false
+        }
+        def tail:string (substring face (n - 5) n)
+        return (tail == "-Bold")
+    }
+
+    sfn baseFamily:string (face:string) {
+        if (EVGHostTextMeasurer.isBoldFace(face)) {
+            def n:int (strlen face)
+            return (substring face 0 (n - 5))
+        }
+        return face
+    }
+
+    ; --- the face cache -------------------------------------------------------
+
+    fn faceIndex:int (family:string size:double bold:boolean) {
+        def key:string (family + "|" + (to_string size) + "|" + (to_string bold))
+        if (key == lastKey) {
+            return lastIdx
+        }
+        def i:int 0
+        while (i < (array_length faceKeys)) {
+            if ((itemAt faceKeys i) == key) {
+                lastKey = key
+                lastIdx = i
+                return i
+            }
+            i = (i + 1)
+        }
+        def f:(fn:double (kind:int text:string family:string size:double bold:boolean italic:boolean)) (unwrap metricFn)
+        def asc:double (f(1 "" family size bold false))
+        def desc:double (f(2 "" family size bold false))
+        def gap:double (f(3 "" family size bold false))
+        faceCalls = (faceCalls + 3)
+        ; A host that cannot say what the gap is says so with a negative
+        ; number; the line box is then the face's ascent and descent alone.
+        if (gap < 0.0) {
+            gap = 0.0
+        }
+        ; A host that answers nothing for the vertical — a canvas without
+        ; `fontBoundingBox*`, say — gets the table's proportions, which are
+        ; measured off a real face rather than made up.
+        if ((asc + desc) <= 0.0) {
+            asc = (size * (EVGTextMeasurer.fallbackAscentEm()))
+            desc = (size * (EVGTextMeasurer.fallbackDescentEm()))
+        }
+        push faceKeys key
+        push faceAsc asc
+        push faceDesc desc
+        push faceGap gap
+        lastKey = key
+        lastIdx = ((array_length faceKeys) - 1)
+        return lastIdx
+    }
+
+    ; --- measurement ------------------------------------------------------------
+
+    fn measureText:EVGTextMetrics (text:string fontFamily:string fontSize:double) {
+        if (attached == false) {
+            return (fallback.measureText(text fontFamily fontSize))
+        }
+        def bold:boolean (EVGHostTextMeasurer.isBoldFace(fontFamily))
+        def family:string (EVGHostTextMeasurer.baseFamily(fontFamily))
+        def fi:int (this.faceIndex(family fontSize bold))
+        def w:double 0.0
+        if ((strlen text) > 0) {
+            def f:(fn:double (kind:int text:string family:string size:double bold:boolean italic:boolean)) (unwrap metricFn)
+            w = (f(0 text family fontSize bold false))
+            widthCalls = (widthCalls + 1)
+        }
+        def asc:double (itemAt faceAsc fi)
+        def desc:double (itemAt faceDesc fi)
+        def gap:double (itemAt faceGap fi)
+        def m (new EVGTextMetrics())
+        m.width = w
+        m.ascent = asc
+        m.descent = desc
+        m.lineHeight = (asc + desc + gap)
+        m.height = m.lineHeight
+        return m
+    }
+
+    fn measureTextWidth:double (text:string fontFamily:string fontSize:double) {
+        def m:EVGTextMetrics (this.measureText(text fontFamily fontSize))
+        return m.width
+    }
+
+    ; `line-height: normal` is the face's own line box — ascent, descent and
+    ; the gap the face asks for between lines. The table says 1.15em for its
+    ; sans; a host says what its face says.
+    fn getLineHeight:double (fontFamily:string fontSize:double) {
+        if (attached == false) {
+            return (fallback.getLineHeight(fontFamily fontSize))
+        }
+        def bold:boolean (EVGHostTextMeasurer.isBoldFace(fontFamily))
+        def family:string (EVGHostTextMeasurer.baseFamily(fontFamily))
+        def fi:int (this.faceIndex(family fontSize bold))
+        def asc:double (itemAt faceAsc fi)
+        def desc:double (itemAt faceDesc fi)
+        def gap:double (itemAt faceGap fi)
+        return (asc + desc + gap)
+    }
+}

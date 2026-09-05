@@ -30,13 +30,20 @@ import { createTextInputBridge } from "../../evg/gl/evg-textinput.js";
 // asked for it with `?inspect=1`, so a demo that nobody is inspecting pays
 // one import and no work at all.
 import { attach as attachInspector } from "../../evg/inspect/evg-inspect.js";
-import { MenubarDemo, ToolbarDemo, SortableDemo, MotionDemo, TableDemo, DropdownDemo, DialogDemo, TreeDemo, TimelineDemo, ResizeDemo, FormDemo, ProfileDemo, DashboardDemo, CalendarDemo, FilterDemo, EventCalDemo, MessageDemo, ControlsDemo } from "./generated-host.js";
+import { MenubarDemo, ToolbarDemo, SortableDemo, MotionDemo, TableDemo, DropdownDemo, DialogDemo, TreeDemo, TimelineDemo, ResizeDemo, FormDemo, ProfileDemo, DashboardDemo, CalendarDemo, FilterDemo, EventCalDemo, MessageDemo, ControlsDemo, MODULES } from "./generated-host.js";
+// The browser measures text for every layout the demos build: the same face
+// the painter draws with, through canvas `measureText`, in place of the
+// advance table. Installed before any demo is constructed, because a demo
+// that keeps a layout makes it when it is made.
+import { installCanvasMeasurer } from "../../evg/gl/evg-measure.js";
 // The whole modules too: `keptTree` needs EVGStyleSheet, EVGLayout and the
 // rest out of the same bundle the tree was built by. Two copies of a class
 // are two classes.
 import * as MenubarModule from "../bin/MenubarDemo.cjs";
 import * as ToolbarModule from "../bin/ToolbarDemo.cjs";
 import * as SortableModule from "../bin/SortableDemo.cjs";
+const fontMeasure = installCanvasMeasurer(MODULES);
+window.__fontMeasure = fontMeasure;
 import { MENUBAR_CSS, TOOLBAR_CSS, SORTABLE_CSS, MOTION_CSS, TABLE_CSS, DROPDOWN_CSS, DIALOG_CSS, TREE_CSS, TIMELINE_CSS, RESIZE_CSS, FORM_CSS, PROFILE_CSS, DASHBOARD_CSS, CALENDAR_CSS, FILTERS_CSS, EVENTCAL_CSS, MESSAGE_CSS, CONTROLS_CSS } from "./generated.js";
 
 // The default stage width. A demo wider than this says so — the dashboard

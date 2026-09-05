@@ -33,6 +33,10 @@ struct RangerWatchApp: App {
 
 final class WatchPageModel: ObservableObject {
 
+    /// CoreText measures the page's text before anything is laid out: a
+    /// stored property, declared above `app`, because Swift initialises
+    /// them in order and the app makes its first layout when it is made.
+    private let textMeasurer = CoreTextMeasurer.install()
     let app = UiIos()
 
     /// Bumped whenever the page changed, which is what makes the `Canvas`

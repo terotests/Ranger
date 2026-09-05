@@ -64,6 +64,12 @@
 <script src="./evg_responsive_demo.js"></script>
 <script type="module">
 import { renderDisplayList } from "./evg-html.js";
+import { installCanvasMeasurer } from "./evg-measure.js";
+
+// The browser measures the text the page is laid out with — the same face
+// `evg-html.js` sets on its <text> nodes — rather than the advance table.
+const fontMeasure = installCanvasMeasurer(globalThis.EvgResponsiveModule);
+window.__fontMeasure = fontMeasure;
 
 const stage = document.getElementById("stage");
 const errBox = document.getElementById("err");
