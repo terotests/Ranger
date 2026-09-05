@@ -43,7 +43,9 @@ export function createDomPainter(target) {
   const nodes = new Map();
   let build = 0;
 
-  target.style.position = "relative";
+  // The target is the containing block of every node. A host that placed it
+  // itself (`position: absolute` under a canvas, say) keeps its placement.
+  if (!target.style.position) target.style.position = "relative";
   target.style.overflow = "hidden";
 
   function reset() {
@@ -132,7 +134,16 @@ export function createDomPainter(target) {
     s.opacity = op.opacity !== undefined ? String(op.opacity) : "";
     s.cursor = op.cursor || "";
     s.backdropFilter = op.bb ? `blur(${op.bb}px)` : "";
-    s.transform = op.rot ? `rotate(${op.rot}deg)` : "";
+    // CSS applies the functions right to left: scale, then turn, then shift
+    // — the order the display list maps its points in, about the same
+    // origin.
+    const parts = [];
+    if (op.tx || op.ty) parts.push(`translate(${op.tx || 0}px, ${op.ty || 0}px)`);
+    if (op.rot) parts.push(`rotate(${op.rot}deg)`);
+    if (op.scale !== undefined && op.scale !== 1) parts.push(`scale(${op.scale})`);
+    s.transform = parts.join(" ");
+    s.transformOrigin = op.origin ? `${op.origin[0]}px ${op.origin[1]}px` : "";
+    n.transformed = parts.length > 0;
     s.zIndex = op.overlay ? "10" : "";
     if (op.src) {
       let img = n.el.querySelector(":scope > img.evg-img");
@@ -150,7 +161,7 @@ export function createDomPainter(target) {
       if (img.getAttribute("src") !== op.src) img.setAttribute("src", op.src);
       img.style.objectFit = op.fit || "cover";
     }
-    if (op.path) {
+    if (op.shape) {
       let svg = n.el.querySelector(":scope > svg.evg-path");
       if (!svg) {
         svg = document.createElementNS(SVG_NS, "svg");
@@ -163,23 +174,23 @@ export function createDomPainter(target) {
       }
       svg.setAttribute("width", String(op.w));
       svg.setAttribute("height", String(op.h));
-      if (op.path.viewBox) svg.setAttribute("viewBox", op.path.viewBox); else svg.removeAttribute("viewBox");
+      if (op.shape.viewBox) svg.setAttribute("viewBox", op.shape.viewBox); else svg.removeAttribute("viewBox");
       svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
-      if (op.path.svg && !op.path.d) {
-        svg.innerHTML = op.path.svg;
+      if (op.shape.svg && !op.shape.d) {
+        svg.innerHTML = op.shape.svg;
       } else {
         let p = svg.querySelector("path");
         if (!p) {
           p = document.createElementNS(SVG_NS, "path");
           svg.appendChild(p);
         }
-        p.setAttribute("d", op.path.d || "");
-        p.setAttribute("fill", op.path.fill ? rgba(op.path.fill) : "none");
-        p.setAttribute("fill-rule", op.path.rule || "nonzero");
-        if (op.path.stroke) {
-          p.setAttribute("stroke", rgba(op.path.stroke));
-          p.setAttribute("stroke-width", String(op.path.sw || 1));
-          if (op.path.dash) p.setAttribute("stroke-dasharray", op.path.dash);
+        p.setAttribute("d", op.shape.d || "");
+        p.setAttribute("fill", op.shape.fill ? rgba(op.shape.fill) : "none");
+        p.setAttribute("fill-rule", op.shape.rule || "nonzero");
+        if (op.shape.stroke) {
+          p.setAttribute("stroke", rgba(op.shape.stroke));
+          p.setAttribute("stroke-width", String(op.shape.sw || 1));
+          if (op.shape.dash) p.setAttribute("stroke-dasharray", op.shape.dash);
         } else {
           p.removeAttribute("stroke");
         }
@@ -267,8 +278,13 @@ export function createDomPainter(target) {
         case "remove": {
           const n = nodes.get(op.path);
           if (!n) break;
+          // The subtree goes with the node: a REMOVE of a parent is never
+          // followed by ops for the children it took, only, at times, by
+          // their own REMOVEs, which find nothing.
           n.el.remove();
           nodes.delete(op.path);
+          const under = op.path + "/";
+          for (const k of [...nodes.keys()]) if (k.startsWith(under)) nodes.delete(k);
           break;
         }
         default:
@@ -287,13 +303,16 @@ export function createDomPainter(target) {
      *  no op of its own — and the build it was made in. For a check that
      *  asks the DOM where it put them. */
     nodes: () => [...nodes.entries()].map(([path, n]) => {
-      let px = 0, py = 0;
+      // `transformed` is the node or any ancestor: a child of a turned box
+      // is turned with it, and its bounding rect is the turned one.
+      let px = 0, py = 0, transformed = false;
       for (let c = n; c; c = c.parent ? nodes.get(c.parent) : null) {
         px += c.x; py += c.y;
+        if (c.transformed) transformed = true;
         const p = c.parent ? nodes.get(c.parent) : null;
         if (p) { px -= p.sx; py -= p.sy; }
       }
-      return { path, el: n.el, px, py, w: n.w, h: n.h, born: n.born };
+      return { path, el: n.el, px, py, w: n.w, h: n.h, born: n.born, transformed };
     }),
   };
 }

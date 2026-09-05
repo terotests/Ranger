@@ -14,6 +14,7 @@
 // same picture.
 
 import { prepareDisplayList } from "../../evg/gl/evg-webgl.js";
+import { createDomPainter } from "../../evg/html/evg-dom.js";
 import { listOf, shiftsOf } from "../../evg/gl/evg-list.js";
 import { createA11yMirror, pressAtCentre } from "../../evg/gl/evg-a11y.js";
 import { createTextInputBridge } from "../../evg/gl/evg-textinput.js";
@@ -129,14 +130,40 @@ sizeCanvas();
 // hand the frame to the compositor and has to copy it instead, every frame.
 // `?gl=noaa` turns multisampling off, for measuring what it costs on a GPU
 // that minds it; the paths' edges are what it smooths.
+// `?painter=dom` paints the page as DOM nodes that survive a frame —
+// `gallery/evg/html/evg-dom.js` on the host tree (`app.hostJson()`) — under a
+// transparent canvas that still takes the pointer, so every handler below
+// is the same one the WebGL page uses. The default is the WebGL painter.
+const painterMode = params.get("painter") || "gl";
+let domPainter = null;
+if (painterMode === "dom") {
+  const domRoot = document.createElement("div");
+  domRoot.id = "dom";
+  domRoot.style.position = "absolute";
+  domRoot.style.left = "0";
+  domRoot.style.top = "0";
+  domRoot.style.width = "100%";
+  domRoot.style.background = "#ffffff";
+  // The nodes are a picture: the canvas above them takes the pointer, as it
+  // always did, and an overlay's z-index stays inside this root's own
+  // stacking context rather than climbing over the canvas.
+  domRoot.style.zIndex = "0";
+  domRoot.style.pointerEvents = "none";
+  stage.insertBefore(domRoot, canvas);
+  canvas.style.position = "relative";
+  canvas.style.zIndex = "1";
+  canvas.style.background = "transparent";
+  domPainter = createDomPainter(domRoot);
+  window.__evgDom = domPainter;
+}
 const glMode = params.get("gl") || "";
-const gl = canvas.getContext("webgl2", {
+const gl = painterMode === "dom" ? null : canvas.getContext("webgl2", {
   antialias: glMode !== "noaa",
   premultipliedAlpha: false,
   stencil: true,
   preserveDrawingBuffer: glMode === "preserve",
 });
-if (!gl) {
+if (!gl && !domPainter) {
   errEl.textContent = "WebGL 2 is not available in this browser.";
 }
 
@@ -216,6 +243,21 @@ let inputAt = 0;
 window.__latency = 0;
 
 function paint() {
+  if (domPainter) {
+    try {
+      errEl.textContent = "";
+      const host = JSON.parse(app.hostJson());
+      window.__lastHost = domPainter.apply({ width: app.widthPx(), height: app.heightPx(), host });
+      if (inputAt) {
+        window.__latency = performance.now() - inputAt;
+        inputAt = 0;
+      }
+      sceneEl.textContent = app.sceneName();
+    } catch (e) {
+      errEl.textContent = String((e && e.stack) || e);
+    }
+    return;
+  }
   if (!gl) return;
   try {
     errEl.textContent = "";
@@ -243,7 +285,7 @@ function paint() {
 // The accessibility tree. `now` is the frame's clock; pass nothing to mean
 // "this one matters, do it" — a press, a focus, an edit.
 function syncMirror(now) {
-  if (!gl) return;
+  if (!gl && !domPainter) return;
   if (now !== undefined && now < mirrorDue) return;
   mirrorDue = (now === undefined ? performance.now() : now) + MIRROR_MIN_GAP_MS;
   try {

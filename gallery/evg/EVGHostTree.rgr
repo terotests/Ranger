@@ -26,6 +26,12 @@
 ;                                      or at another index
 ;     REMOVE  path                     gone
 ;
+; The path is the address, not the identity: an element of another type,
+; tag, id, or clipping at an address the last build described is a REMOVE
+; of the old node and a CREATE of the new one, its subtree with it — a host
+; that kept a node per address would otherwise be asked to turn a box into
+; a scroller in place.
+;
 ; `bits` say which of five things moved, so a host writes only those:
 ;
 ;     GEOMETRY 1   the rectangle       PAINT 2   colours, radii, opacity, …
@@ -82,6 +88,9 @@ class EVGHostShadow {
     def text:string ""
     def a11y:string ""
     def scroll:string ""
+    ; What kind of element sat at this address: type, tag, id, clipping.
+    ; Another one there is another node, not an update of this one.
+    def identity:string ""
     def seen:boolean false
 
     Constructor () {
@@ -138,6 +147,14 @@ class EVGHostOp {
     def clips:boolean false
     def rotate:double 0.0
     def transformSpec:string ""
+    ; The transform's origin inside the box, and its scale and shift — what
+    ; the display list turns the commands about. A host writes them as one
+    ; `transform` and one `transform-origin`.
+    def originX:double 0.0
+    def originY:double 0.0
+    def scale:double 1.0
+    def translateX:double 0.0
+    def translateY:double 0.0
     def cursor:string ""
     def backdropBlur:double 0.0
     def hasShadow:boolean false
@@ -282,7 +299,7 @@ class EVGHostTree {
             i = (i + 1)
         }
         def none@(optional):EVGElement
-        this.visit(root none "0" "" 0)
+        this.visit(root none "0" "" 0 false)
         ; Whatever the walk did not reach is gone. Deepest first, so a host
         ; that removes a parent before its children is never asked for a
         ; child of a node it dropped.
@@ -304,7 +321,10 @@ class EVGHostTree {
         builds = (builds + 1)
     }
 
-    fn visit:void (el:EVGElement parent@(optional):EVGElement path:string parentPath:string index:int) {
+    ; `fresh`: the parent was just made, so this node is made too whatever
+    ; the last build said at its address — the old subtree went with the
+    ; old parent.
+    fn visit:void (el:EVGElement parent@(optional):EVGElement path:string parentPath:string index:int fresh:boolean) {
         if (el.isHidden()) {
             return
         }
@@ -315,16 +335,39 @@ class EVGHostTree {
         def text:string (EVGHostTree.textKey(op))
         def a11y:string (EVGHostTree.a11yKey(op))
         def scroll:string (EVGHostTree.scrollKey(op))
+        def identity:string (EVGHostTree.identityKey(op))
         def hit@(optional):int (get shadowIndex path)
         def shadow (new EVGHostShadow())
+        def make:boolean fresh
         if (null? hit) {
+            make = true
+        } {
+            def old:EVGHostShadow (itemAt shadows (unwrap hit))
+            old.seen = true
+            if (old.identity != identity) {
+                ; Another element at this address: the old node goes, with
+                ; its subtree, before the new one is made. What the old
+                ; subtree had that the new one does not is unseen and is
+                ; removed at the end — a no-op for a host that dropped it
+                ; with the parent.
+                if (fresh == false) {
+                    def rm (new EVGHostOp())
+                    rm.kind = 3
+                    rm.path = path
+                    rm.parentPath = old.parentPath
+                    push ops rm
+                    removed = (removed + 1)
+                }
+                make = true
+            }
+        }
+        if make {
             op.kind = 0
             op.bits = 31
             push ops op
             created = (created + 1)
         } {
             def old:EVGHostShadow (itemAt shadows (unwrap hit))
-            old.seen = true
             if ((old.parentPath != parentPath) || (old.index != index)) {
                 def mv (new EVGHostOp())
                 mv.kind = 2
@@ -355,6 +398,7 @@ class EVGHostTree {
         shadow.text = text
         shadow.a11y = a11y
         shadow.scroll = scroll
+        shadow.identity = identity
         shadow.seen = true
         push nextShadows shadow
         set nextIndex path ((array_length nextShadows) - 1)
@@ -369,7 +413,7 @@ class EVGHostTree {
             }
             def kidPath:string ((path + "/") + seg)
             def me@(optional):EVGElement el
-            this.visit(kid me kidPath path i)
+            this.visit(kid me kidPath path i make)
             i = (i + 1)
         }
     }
@@ -478,6 +522,11 @@ class EVGHostTree {
         op.clips = (el.clipsContent())
         op.rotate = el.rotate
         op.transformSpec = el.transformSpec
+        op.originX = (EVGElement.resolveOrigin(el.transformOriginX w))
+        op.originY = (EVGElement.resolveOrigin(el.transformOriginY h))
+        op.scale = el.scale
+        op.translateX = el.translateX
+        op.translateY = el.translateY
         op.cursor = el.cursor
         op.backdropBlur = el.backdropBlur
         op.isOverlay = el.isOverlay
@@ -637,6 +686,9 @@ class EVGHostTree {
         if op.clips { s = (s + "c") }
         if op.isOverlay { s = (s + "O") }
         if (op.rotate != 0.0) { s = (s + "rot" + (EVGDisplayList.num(op.rotate))) }
+        if (op.scale != 1.0) { s = (s + "sc" + (EVGDisplayList.num(op.scale))) }
+        if ((op.translateX != 0.0) || (op.translateY != 0.0)) { s = (s + "tr" + (EVGDisplayList.num(op.translateX)) + "," + (EVGDisplayList.num(op.translateY))) }
+        s = (s + "o" + (EVGDisplayList.num(op.originX)) + "," + (EVGDisplayList.num(op.originY)))
         s = (s + op.transformSpec + "|" + op.cursor)
         if (op.backdropBlur > 0.0) { s = (s + "bb" + (EVGDisplayList.num(op.backdropBlur))) }
         if op.hasShadow { s = (s + "sh" + (EVGDisplayList.num(op.shX)) + "," + (EVGDisplayList.num(op.shY)) + "," + (EVGDisplayList.num(op.shBlur)) + (EVGHostTree.colorKey(op.shR op.shG op.shB op.shA))) }
@@ -666,6 +718,14 @@ class EVGHostTree {
 
     sfn a11yKey:string (op:EVGHostOp) {
         return (op.id + "|" + op.role + "|" + op.label + "|" + op.a11yState)
+    }
+
+    ; What makes a node the node it is at its address. The path says where;
+    ; this says what, and a change of it is a remake, not an update.
+    sfn identityKey:string (op:EVGHostOp) {
+        def s:string ((to_string op.elementType) + "|" + op.tagName + "|" + op.id)
+        if op.clips { s = (s + "|c") }
+        return s
     }
 
     sfn scrollKey:string (op:EVGHostOp) {
@@ -732,6 +792,9 @@ class EVGHostTree {
         if op.clips { s = (s + ",\"clip\":true") }
         if op.isOverlay { s = (s + ",\"overlay\":true") }
         if (op.rotate != 0.0) { s = (s + ",\"rot\":" + (EVGDisplayList.num(op.rotate))) }
+        if (op.scale != 1.0) { s = (s + ",\"scale\":" + (EVGDisplayList.num(op.scale))) }
+        if ((op.translateX != 0.0) || (op.translateY != 0.0)) { s = (s + ",\"tx\":" + (EVGDisplayList.num(op.translateX)) + ",\"ty\":" + (EVGDisplayList.num(op.translateY))) }
+        if (((op.rotate != 0.0) || (op.scale != 1.0)) || ((op.translateX != 0.0) || (op.translateY != 0.0))) { s = (s + ",\"origin\":[" + (EVGDisplayList.num(op.originX)) + "," + (EVGDisplayList.num(op.originY)) + "]") }
         if ((strlen op.transformSpec) > 0) { s = (s + ",\"transform\":" + (EVGHostTree.q(op.transformSpec))) }
         if ((strlen op.cursor) > 0) { s = (s + ",\"cursor\":" + (EVGHostTree.q(op.cursor))) }
         if (op.backdropBlur > 0.0) { s = (s + ",\"bb\":" + (EVGDisplayList.num(op.backdropBlur))) }
@@ -752,7 +815,7 @@ class EVGHostTree {
         }
         if ((strlen op.src) > 0) { s = (s + ",\"src\":" + (EVGHostTree.q(op.src)) + ",\"fit\":" + (EVGHostTree.q(op.objectFit))) }
         if (op.tagName == "path") {
-            s = (s + ",\"path\":{\"d\":" + (EVGHostTree.q(op.d)) + ",\"viewBox\":" + (EVGHostTree.q(op.viewBox)) + ",\"rule\":" + (EVGHostTree.q(op.fillRule)))
+            s = (s + ",\"shape\":{\"d\":" + (EVGHostTree.q(op.d)) + ",\"viewBox\":" + (EVGHostTree.q(op.viewBox)) + ",\"rule\":" + (EVGHostTree.q(op.fillRule)))
             if ((strlen op.svgSource) > 0) { s = (s + ",\"svg\":" + (EVGHostTree.q(op.svgSource))) }
             if op.hasFill { s = (s + ",\"fill\":" + (EVGHostTree.color(op.fillR op.fillG op.fillB op.fillA))) }
             if op.hasStroke { s = (s + ",\"stroke\":" + (EVGHostTree.color(op.stR op.stG op.stB op.stA)) + ",\"sw\":" + (EVGDisplayList.num(op.strokeWidth))) }

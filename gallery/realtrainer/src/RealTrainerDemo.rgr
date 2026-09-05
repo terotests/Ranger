@@ -80,6 +80,7 @@ Import "../../evg/EVGElement.rgr"
 Import "../../evg/EVGUnit.rgr"
 Import "../../evg/EVGLayout.rgr"
 Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGHostTree.rgr"
 Import "../../evg/EVGStyleSheet.rgr"
 Import "../../evg/EVGTransition.rgr"
 Import "../../evg/EVGA11yTree.rgr"
@@ -7110,6 +7111,21 @@ class RealTrainerDemo {
     fn setCulling:void (on:boolean) {
         cullOffscreen = on
         listDirty = true
+    }
+
+    ; The host tree (`EVGHostTree`), kept across frames: what changed since
+    ; the last time a host that keeps nodes asked. The retained DOM painter
+    ; (`gallery/evg/html/evg-dom.js`, `?painter=dom` on the page) reads it in
+    ; place of the display list; the layout is the same `laidOut()`, so the
+    ; hit test, the fields and the scroll are exactly what the WebGL page has.
+    def hostTree:EVGHostTree (new EVGHostTree())
+
+    fn hostJson:string () {
+        def lay:EVGLayout (this.laidOut())
+        def r:EVGElement (unwrap root)
+        hostTree.setTextEngine((lay.getTextEngine()))
+        hostTree.build(r)
+        return (hostTree.toJson())
     }
 
     fn display:EVGDisplayList () {

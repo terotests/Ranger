@@ -24,7 +24,13 @@ npm run rt:bench 40 # what a scroll frame costs, stage by stage, on a long diary
 npm run rt:frame    # the same app in Chromium, checked at the pixels — twice: the engine on
                     # the main thread, then in a Worker (?engine=worker); each prints what a
                     # press costs, pointer-down to the frame that showed it
+npm run rt:dom      # the app as retained DOM (?painter=dom): every node where the engine put
+                    # it, a scene change as creates and removes, a scroll as one transform
 ```
+
+Live, from the same sources: [the WebGL page](https://terotests.github.io/Ranger/realtrainer/),
+[as DOM nodes](https://terotests.github.io/Ranger/realtrainer/?painter=dom),
+[with the engine in a Worker](https://terotests.github.io/Ranger/realtrainer/?engine=worker).
 
 ![the loader](web/shots/realtrainer.png)
 

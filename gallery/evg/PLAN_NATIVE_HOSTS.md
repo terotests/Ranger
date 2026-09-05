@@ -8,7 +8,11 @@ where the wall is, and what to try first.
 
 Status: **S0–S3 built** (§8) — the platform measurers; the engine off the UI
 thread on all three platforms; `EVGHostTree`, the diff channel; and the
-retained DOM painter on it, on the responsive page. S4–S6 are design. The numbers
+retained DOM painter on it, on the responsive page and on RealTrainer — both
+live as `?painter=dom` at
+[/evg/responsive/](https://terotests.github.io/Ranger/evg/responsive/?painter=dom)
+and [/realtrainer/](https://terotests.github.io/Ranger/realtrainer/?painter=dom).
+S4–S6 are design. The numbers
 in it are measured from the repository as it is (`npm run rt:bench 40`, the
 stylesheet tallies in §3.3), not projected.
 
@@ -508,6 +512,10 @@ REMOVE  path
 * The key is `EVGInspect`'s path — `0/3/k:share` — so a keyed child keeps its
   node across a reorder, and an unkeyed one is what it is today: structural.
   `EVGReconcile` decides what "the same element" means; this reads the answer.
+  The path is an address, not an identity: an element of another type, tag,
+  id or clipping at a described address (a scene change that puts a scroller
+  where a card was) is a `REMOVE` and a `CREATE`, its subtree made with it,
+  so a host never has to turn one kind of node into another in place.
 * The `UPDATE` bits come from what the engine already tracks: the style
   cache's `layoutClean()` / `nothingChanged()`, `paintStamp` on the element,
   the layer's `layerShiftX/Y`, and a text-lines stamp from `EVGTextEngine`.
@@ -623,7 +631,7 @@ expensive decision (D2) is made after the cheap ones have paid.
 | **S0** ✅ | Platform text measurers behind one Ranger class, `EVGHostTextMeasurer`, that takes ONE host function and keeps the face cache, the weight convention and the cache key; `EVGDefaultMeasurer` makes it every layout's default. Hosts: canvas `measureText` (`gl/evg-measure.js`), CoreText (`apple/Sources/CoreTextMeasurer.swift`), Skia `Paint` and Java2D (`android/src/…/AndroidTextMeasurer.kt`, `AwtTextMeasurer.kt`) | `EVGContextMeasurer.rgr` was the pattern | `evg:hostmeasurer:test` (42 checks); the responsive smoke and the RealTrainer checks in Chromium; the native hosts type-check only where a Mac or `kotlinc` is |
 | **S1** ✅ | Engine off the UI thread with the **existing** painters. Web: `gl/evg-engine.js` (Worker; frames as transferred `EVGSceneBinary`, now 36 fields with corners, layer and shadow; `gl/evg-binary.js` reads them; input batched into the frame request; hooks for the hit test beside the tree) and `realtrainer/web/main-worker.js` on it. Apple: `apple/Sources/EvgEngineQueue.swift`. Android/JVM: `android/src/main/…/EvgEngineThread.kt`. Both RealTrainer native views rewritten on the queues: `draw` paints the last delivered frame and reads the app for nothing | the engine untouched but for the wider record | `evg:binary:check` (27); `rt:frame` runs both browser hosts through one check and prints pointer-down-to-frame — 1.2 ms on the main thread, 11.2 ms through the Worker, in a headless Chromium without a GPU; the native views type-check only where a Mac or `kotlinc` is |
 | **S2** ✅ | `EVGHostTree.rgr` — CREATE/UPDATE/MOVE/REMOVE by the inspector's path, with GEOMETRY/PAINT/TEXT/A11Y/SCROLL bits; geometry parent-relative at scroll 0; the engine's lines; JSON. No binary form yet — the DOM host reads JSON on the same thread | beside `EVGDisplayList.rgr` | `evg:hosttree:test` (61): every CREATE rectangle is one the list drew; an unchanged tree emits nothing; a colour is PAINT alone; a keyed reorder moves and remakes nothing; a scroll is one bit on the container |
-| **S3** ◐ | `html/evg-dom.js` — one node per element, patched from the ops; text as a `<div>` per line with `white-space: pre`; borders as inset shadows so children are not shifted; scroll layers as one transform; role and label on the node. On the responsive page as `?painter=dom` | web | `evg:dom:check` (14): every node is where the engine put it, within half a pixel, before and after a resize, and the resize updated the nodes rather than remaking them. **Still open:** a pixel parity against `evg-html.js`, fields as real `<input>`s, and the mirror switched off in favour of the nodes — the RealTrainer page is where those land |
+| **S3** ◐ | `html/evg-dom.js` — one node per element, patched from the ops; text as a `<div>` per line with `white-space: pre`; borders as inset shadows so children are not shifted; scroll layers as one transform; role and label on the node; transforms with the element's origin. On the responsive page and on RealTrainer as `?painter=dom`, under the canvas that takes the pointer | web | `evg:dom:check` (14): every node is where the engine put it, within half a pixel, before and after a resize, and the resize updated the nodes rather than remaking them. `rt:dom` (14): the same of RealTrainer's loader, sign-in, dashboard and document; a scene change is creates and removes; a press through the canvas opens the dashboard; a scroll is one transform on the layer and remakes nothing. **Still open:** a pixel parity against `evg-html.js`, fields as real `<input>`s, and the mirror switched off in favour of the nodes |
 | **S4** | The Compose host for `realtrainer/android`: `Layout` + `EVGHostTree`, `BasicTextField`, semantics | Android | `rt:android:verify` with a recording host that counts composables the way `RecordingSurface` counts draws |
 | **S5** | The SwiftUI host for `realtrainer/ios` through the `Layout` protocol | Apple | `rt:ios:verify`; a view-count ceiling asserted per scene |
 | **S6** (optional) | L2 web mode: the cascade resolved by EVG, layout by the browser | web | the Chromium box-model and grid oracles, extended with the demo pages; the mode is named in the URL, never the default |

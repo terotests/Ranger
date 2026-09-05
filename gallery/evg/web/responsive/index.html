@@ -59,6 +59,9 @@
   <button data-w="420">420</button>
   <span class="sep">|</span>
   <button id="btnCoarse" aria-pressed="false">pointer: coarse</button>
+  <span class="sep">|</span>
+  <button id="btnSvg" data-painter="svg" title="evg-html.js: the display list as <svg>, rebuilt every frame">svg</button>
+  <button id="btnDom" data-painter="dom" title="evg-dom.js: a DOM node per element, kept and patched from the host tree">dom</button>
 </div>
 
 <script src="./evg_responsive_demo.js"></script>
@@ -83,6 +86,14 @@ const demo = new EvgResponsiveDemo();
 const painterMode = new URLSearchParams(location.search).get("painter") || "svg";
 const domPainter = painterMode === "dom" ? createDomPainter(stage) : null;
 window.__evgDom = domPainter;
+for (const b of document.querySelectorAll("#hud button[data-painter]")) {
+  b.setAttribute("aria-pressed", String(b.dataset.painter === painterMode));
+  b.addEventListener("click", (e) => {
+    const u = new URL(location.href);
+    u.searchParams.set("painter", e.currentTarget.dataset.painter);
+    location.href = u.toString();
+  });
+}
 
 /** null = follow the window; a number = pretend the window is that wide. */
 let forcedWidth = null;

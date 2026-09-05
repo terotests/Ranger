@@ -738,7 +738,13 @@ display list's offsets, so the host breaks nothing itself and print parity
 holds. [`html/evg-dom.js`](html/evg-dom.js) is the first host on it: a DOM
 node per element, patched; `npm run evg:dom:check` asks Chromium whether
 every node is where the engine put it and whether a resize updated the
-nodes rather than remaking them. PLAN_NATIVE_HOSTS.md S2 and S3.
+nodes rather than remaking them, and `npm run rt:dom` asks the same of
+RealTrainer, scene change and scroll included. Both are live on the site:
+[the responsive page](https://terotests.github.io/Ranger/evg/responsive/?painter=dom)
+and [RealTrainer](https://terotests.github.io/Ranger/realtrainer/?painter=dom)
+as `?painter=dom` (the SVG painter is the responsive page's default, and
+`?engine=worker` on RealTrainer runs the engine in a Worker).
+PLAN_NATIVE_HOSTS.md S2 and S3.
 
 ## Retained trees
 

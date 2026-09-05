@@ -145,6 +145,7 @@ class EVGHostTreeTest {
         this.testGeometryBelow()
         this.testKeyedReorder()
         this.testRemoveAndAdd()
+        this.testAnotherElementAtTheAddress()
         this.testScrollIsOneBit()
         this.testText()
         this.testJson()
@@ -312,6 +313,59 @@ class EVGHostTreeTest {
         this.eq("none removed" t.removed 0)
         def made@(optional):EVGHostOp (this.opFor(t "0/k:d"))
         this.ok("and it is d" (!null? made))
+    }
+
+    fn testAnotherElementAtTheAddress:void () {
+        print "-- another element at an address is a REMOVE and a CREATE, its children made with it"
+        ; Two pages whose first child sits at the same unkeyed address, `0/0`,
+        ; and is a different thing on each: a row on one, a scroller with a
+        ; child on the other. The way an app's scenes share a page.
+        def one:EVGElement (EVGElement.createDiv())
+        one.className = "page"
+        one.id = "page"
+        def r:EVGElement (EVGHostTreeTest.row("a"))
+        r.key = ""
+        one.addChild(r)
+        def lay:EVGLayout (this.layout(one))
+        def t (new EVGHostTree())
+        t.setTextEngine((lay.getTextEngine()))
+        t.build(one)
+        this.eq("the row page: two created" t.created 2)
+
+        def two:EVGElement (EVGElement.createDiv())
+        two.className = "page"
+        two.id = "page"
+        def sc (EVGElement.createDiv())
+        sc.className = "scroller"
+        sc.id = "scroller"
+        def tall (EVGElement.createDiv())
+        tall.className = "tall"
+        tall.id = "tall"
+        sc.addChild(tall)
+        two.addChild(sc)
+        this.layout(two)
+        t.build(two)
+        this.eq("the scroller page: one removed" t.removed 1)
+        this.eq("two created" t.created 2)
+        this.eq("none updated" t.updated 0)
+        ; The order a host needs: the old node gone before the new one is put
+        ; at its address, and the child after its parent.
+        def kinds:string ""
+        def i:int 0
+        while (i < (t.opCount())) {
+            def op:EVGHostOp (t.opAt(i))
+            if (op.path == "0/0") { kinds = (kinds + (to_string op.kind)) }
+            if (op.path == "0/0/0") { kinds = (kinds + "k" + (to_string op.kind)) }
+            i = (i + 1)
+        }
+        this.ok(("REMOVE 0/0, CREATE 0/0, CREATE 0/0/0, in that order (" + kinds + ")") (kinds == "30k0"))
+        def made@(optional):EVGHostOp (this.opFor(t "0/0/0"))
+        if made {
+            this.ok("and the child is the tall one" (((unwrap made).id) == "tall"))
+        }
+        ; And the same tree again says nothing.
+        t.build(two)
+        this.eq("built again: nothing" (t.opCount()) 0)
     }
 
     fn testScrollIsOneBit:void () {
