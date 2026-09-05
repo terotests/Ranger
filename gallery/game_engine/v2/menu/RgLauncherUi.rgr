@@ -57,8 +57,14 @@ class RgLauncherUi {
     def categoryNames:[string]
     def catCards:[UIBox]
     def games:[RgLauncherGame]
+    def title:UILabel (new UILabel)
     def sub:UILabel (new UILabel)
     def footer:UILabel (new UILabel)
+    ; fixed vertical band for chrome so title/subtitle never overlap cards
+    def titleY:int 14
+    def subY:int 0
+    def footerY:int 0
+    def cardY:int 0
 
     ; override the scan root before init() (tests / alternate game trees)
     fn setGamesDir:void (dir:string) { this.gamesDir = dir }
@@ -68,6 +74,18 @@ class RgLauncherUi {
         def cx:int (idiv this.w 2)
         def totalW:int ((cardW * n) + (gap * (n - 1)))
         return (cx - (idiv totalW 2))
+    }
+
+    ; Place a label centred on x=cx at top y, sized to its measured text so
+    ; left-aligned UILabel drawing still reads as centred (v1 flex parity).
+    fn layoutCenteredLabel:void (lbl:UILabel cx:int y:int) {
+        def tw:int (to_int (this.layer.ctx.measureWidth(lbl.text lbl.fontSize)))
+        def lh:int (to_int (this.layer.ctx.lineHeight(lbl.fontSize)))
+        if (tw < 20) { tw = 20 }
+        if (lh < 12) { lh = 12 }
+        ; pad the box slightly so TTF glyphs aren't clipped at the edges
+        def pad:int 8
+        lbl.setBounds(((cx - (idiv tw 2)) - pad) y (tw + (pad * 2)) lh)
     }
 
     ; decode a game's game.info icon (relative to its folder) to an RGBA image
@@ -147,26 +165,43 @@ class RgLauncherUi {
 
         def cx:int (idiv width 2)
 
-        def title:UILabel (new UILabel)
-        title.text = "Ranger"
-        title.fontSize = 40.0
-        title.setBounds((cx - 90) (idiv height 12) 180 48)
-        this.layer.add(title)
+        ; Title + subtitle stacked with measured line heights (at 480×270 the old
+        ; h/12 + h/5 boxes overlapped: title glyphs ran past the subtitle baseline).
+        this.title.text = "Ranger"
+        this.title.fontSize = 34.0
+        this.layoutCenteredLabel(this.title cx this.titleY)
+        this.layer.add(this.title)
 
+        def titleLh:int (to_int (this.layer.ctx.lineHeight(this.title.fontSize)))
+        this.subY = ((this.titleY + titleLh) + 6)
         this.sub.text = "valitse kategoria"
-        this.sub.fontSize = 16.0
-        this.sub.setBounds((cx - 100) (idiv height 5) 200 20)
+        this.sub.fontSize = 15.0
+        this.layoutCenteredLabel(this.sub cx this.subY)
         this.layer.add(this.sub)
+
+        def subLh:int (to_int (this.layer.ctx.lineHeight(this.sub.fontSize)))
+        this.footer.fontSize = 13.0
+        def footLh:int (to_int (this.layer.ctx.lineHeight(this.footer.fontSize)))
+        this.footerY = ((height - footLh) - 12)
+        this.footer.text = "A avaa, nuolet liikkuvat"
+        this.layoutCenteredLabel(this.footer cx this.footerY)
+        this.layer.add(this.footer)
+
+        ; Cards sit below the subtitle band and above the footer.
+        this.cardY = ((this.subY + subLh) + 14)
+        def cardBottom:int (this.footerY - 10)
+        def cardMaxH:int (cardBottom - this.cardY)
+        def cardW:int (idiv width 4)
+        def cardH:int cardW
+        if (cardH > cardMaxH) { cardH = cardMaxH }
+        if (cardH < 64) { cardH = 64 }
 
         ; ---- DISCOVER the catalog from the filesystem (v1 model) -------------
         this.catalog.setGamesDir(this.gamesDir)
         this.catalog.scan()
         this.categoryNames = (this.catalog.categories())
 
-        def cardW:int (idiv width 4)
-        def cardH:int cardW
         def gap:int 24
-        def cardY:int (idiv height 3)
         def nCats:int (array_length this.categoryNames)
         def startX:int (this.rowStartX(nCats cardW gap))
         def ci:int 0
@@ -176,7 +211,7 @@ class RgLauncherUi {
             def ccard:UIBox (new UIBox)
             ccard.text = cname
             ccard.fontSize = 20.0
-            ccard.setBounds(cxi cardY cardW cardH)
+            ccard.setBounds(cxi this.cardY cardW cardH)
             this.layer.add(ccard)
             push this.catCards ccard
 
@@ -202,7 +237,7 @@ class RgLauncherUi {
                 ; one without falls back to a centered title on the plain card.
                 if (g.hasImg) { g.card.text = "" } { g.card.text = e.title }
                 def exj:int (eStartX + (ei * (eCardW + eGap)))
-                g.card.setBounds(exj cardY eCardW cardH)
+                g.card.setBounds(exj this.cardY eCardW cardH)
                 g.card.visible = false
                 this.layer.add(g.card)
                 push this.games g
@@ -213,11 +248,6 @@ class RgLauncherUi {
             if ((this.catFirstImageIndex(ci)) >= 0) { ccard.text = "" }
             ci = (ci + 1)
         }
-
-        this.footer.text = "A avaa, nuolet liikkuvat"
-        this.footer.fontSize = 13.0
-        this.footer.setBounds((cx - 110) (height - (idiv height 10)) 220 16)
-        this.layer.add(this.footer)
 
         this.selected = 0
         this.applyPage()
@@ -278,8 +308,14 @@ class RgLauncherUi {
             this.footer.text = "A avaa, nuolet liikkuvat"
         } {
             this.sub.text = (itemAt this.categoryNames this.activeCat)
-            this.footer.text = "A pelaa, B takaisin"
+            this.footer.text = "A pelaa, Q/B takaisin"
         }
+        ; Re-centre chrome labels whenever the copy changes (category name lengths
+        ; differ; a fixed 200px box left the shorter Finnish strings off-centre).
+        def cx:int (idiv this.w 2)
+        this.layoutCenteredLabel(this.title cx this.titleY)
+        this.layoutCenteredLabel(this.sub cx this.subY)
+        this.layoutCenteredLabel(this.footer cx this.footerY)
         this.highlight()
     }
 
