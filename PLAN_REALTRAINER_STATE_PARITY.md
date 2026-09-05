@@ -313,9 +313,11 @@ silmukka; katso myös `gallery/statechart/README.md`.
 
 Päivänäkymä on tehty (`calendar-diary`, 100 %): viikkolistan päivä avaa
 `WorkoutBlogView`n kortin per harjoitus seedin harjoituspäiväkirjasta
-(`sample.compact`). Kortin napit — Muistiinpanot, Näytä tilastot, Lisää
-kommentti, Compact, JSON, Poista — vastaavat vielä tyhjää; niistä seuraavat
-ovat muistiinpanojen muokkaus ja poisto, jotka koskevat storea (S6).
+(`sample.compact`). Kortin Poista kysyy ("Poistetaanko?", Ei/Kyllä) ja
+poistaa merkinnän storesta ja syötteestä; Compact ja JSON näyttävät vihreän
+merkin kaksi sekuntia (`entry-delete`, 100 %). Muistiinpanot, Näytä tilastot
+ja Lisää kommentti vastaavat vielä tyhjää; seuraavat ovat muistiinpanosivu
+(`TrainingNotesPage`) ja kommentin lisäys.
 
 Harjoituskalenterin Koti on tehty (`home-diary`, 100 %, 1032 vertailtua
 solmua): pikamerkintä päiväkirjan omalla placeholderilla, kolme välilehteä ja

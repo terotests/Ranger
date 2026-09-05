@@ -2462,6 +2462,15 @@
 .rt-entry-foot-text { color: #999999; font-family: Arial; font-size: 12px; height: 16px; }
 .rt-entry-dot { color: #999999; font-family: Arial; font-size: 12px; height: 16px; }
 .rt-danger-text { color: #ef4444; font-family: Arial; font-weight: bold; font-size: 12px; height: 16px; }
+.rt-entry-acts { flex-wrap: wrap; gap: 4px; }
+.rt-ph-icon-xs { width: 14px; height: 14px; }
+.rt-copied-text { color: #22c55e; font-family: Arial; font-weight: bold; font-size: 12px; height: 16px; }
+.rt-del-ask { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; padding: 4px 8px; border-radius: 6px; background-color: #2a1a1a; }
+.rt-del-ask-text { color: #f2f2f2; font-family: Arial; font-size: 12px; height: 16px; }
+.rt-del-no { height: 22px; padding: 0px 8px; border-radius: 4px; background-color: transparent; }
+.rt-del-no:hover { background-color: #333333; }
+.rt-del-yes { height: 22px; padding: 0px 8px; border-radius: 4px; background-color: #ef4444; }
+.rt-del-yes:hover { background-color: #dc2626; }
 .rt-entry-tags { display: flex; flex-direction: row; flex-wrap: wrap; gap: 6px; }
 .rt-entry-tag { color: #f2f2f2; font-family: Arial; font-size: 11px; height: 20px; padding: 2px 8px; border-radius: 10px; background-color: #1e3a5f; }
 .rt-entry-row-col { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 2px; }

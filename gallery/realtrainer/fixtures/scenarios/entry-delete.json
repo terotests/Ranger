@@ -1,0 +1,69 @@
+{
+  "_": "A card's Poista on the diary feed: the question with Ei and Kyllä takes the button's place, Ei puts the button back, and Kyllä removes the entry from the feed.",
+  "id": "entry-delete",
+  "area": "koti",
+  "machine": "",
+  "reference": {
+    "route": "/calendar/cal-train?week=2026-02-09"
+  },
+  "setup": [
+    {
+      "page": "390x844"
+    },
+    {
+      "route": "/calendar/cal-train?week=2026-02-09"
+    }
+  ],
+  "steps": [
+    {
+      "tick": 500
+    },
+    {
+      "id": "rt-nav-home",
+      "role": "button",
+      "name": "Koti",
+      "why": "the bottom bar's Koti; the feed builds from the selected calendar"
+    },
+    {
+      "tick": 1500
+    },
+    {
+      "id": "rt-entry-delete-cal-train-2026-04-10-1",
+      "role": "button",
+      "name": "Poista",
+      "nth": 0,
+      "why": "the newest card's Poista asks before it deletes"
+    },
+    {
+      "tick": 300
+    },
+    {
+      "id": "rt-entry-del-no-cal-train-2026-04-10-1",
+      "role": "button",
+      "name": "Ei",
+      "why": "Ei puts the button back"
+    },
+    {
+      "tick": 300
+    },
+    {
+      "id": "rt-entry-delete-cal-train-2026-04-10-1",
+      "role": "button",
+      "name": "Poista",
+      "nth": 0,
+      "why": "asked again"
+    },
+    {
+      "tick": 300
+    },
+    {
+      "id": "rt-entry-del-yes-cal-train-2026-04-10-1",
+      "role": "button",
+      "name": "Kyllä",
+      "why": "Kyllä deletes: the card is gone from the feed"
+    },
+    {
+      "tick": 1500
+    }
+  ]
+}

@@ -274,6 +274,15 @@ over a level-3 title, the menu, the tags, and a box per value.
 `home-diary` matches the reference 100 % — 1032 compared nodes per frame,
 in order.
 
+The card's tools answer as the blog view's do. **Poista** asks first:
+"Poistetaanko?" with Ei and Kyllä in the button's place, Ei puts the button
+back, Kyllä removes the entry from the store and the feed. **Compact** and
+**JSON** show the check in green for two seconds, the app's copy hook's
+reset; the clipboard itself is the host's. The summary line under the rows
+counts exercises, pyramids and circuit items — not moves, so a swim alone
+has no line. `entry-delete` walks all of that against the reference at
+100 %.
+
 **Harjoitteet** is `ExerciseListPanel`: every exercise the diaries hold,
 summarised by the app's own statistics — its Ranger modules `ExerciseStats`,
 `StatsMath` and the date helpers came across as they are, under `src/stats`

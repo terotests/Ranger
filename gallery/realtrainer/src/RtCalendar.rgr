@@ -251,6 +251,23 @@ class RtSeed {
         push entries e
     }
 
+    ; The store's delete: the entry goes, and the feed no longer has it.
+    fn removeEntry:boolean (id:string) {
+        def kept:[RtSeedEntry]
+        def found@(mutable):boolean false
+        for entries e:RtSeedEntry i {
+            if (e.id == id) {
+                found = true
+            } {
+                push kept e
+            }
+        }
+        if found {
+            entries = kept
+        }
+        return found
+    }
+
     fn addCalendar:void (id:string name:string kind:string color:string) {
         def c (new RtSeedCalendar)
         c.id = id

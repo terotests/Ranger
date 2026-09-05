@@ -615,6 +615,11 @@ class RealTrainerDemo {
     def dayIso@(mutable):string ""
     ; A training calendar's Home tab — `activeTab`: diary, drills or stats.
     def homeTab@(mutable):string "diary"
+    ; The card whose "Poista" is asking, by entry id; and the copy button
+    ; showing its check, for the two seconds the app's hook keeps it.
+    def deleteAsk@(mutable):string ""
+    def copiedId@(mutable):string ""
+    def copiedMs:double 0.0
     ; Harjoitteet: the category and the sort — `activeTab`, `sortBy`,
     ; `showSortDropdown` of `ExerciseListPanel`.
     def drillCat@(mutable):string "strength"
@@ -4557,8 +4562,13 @@ class RealTrainerDemo {
                 continue
             }
             if isMove {
-                moves = (moves + 1)
-                tonnage = (tonnage + (RealTrainerDemo.tonnageOf(row)))
+                ; The summary counts exercises, pyramids and circuit items,
+                ; as the blog view's `exerciseCount` does — a move is not one,
+                ; so a swim alone leaves the card without the line.
+                if (kind != "move") {
+                    moves = (moves + 1)
+                    tonnage = (tonnage + (RealTrainerDemo.tonnageOf(row)))
+                }
                 def line (tree Rt (EntryRow))
                 def statsBtn (this.iconBtn(("rt-entry-stats-" + rowId) "Näytä tilastot" (RtIcons.barChart("#999999"))))
                 statsBtn.className = "rt-icon-btn rt-entry-stats-btn"
@@ -4727,15 +4737,57 @@ class RealTrainerDemo {
             foot.addChild((tree Rt (EntryFootTx ((((to_string moves) + " liikettä") + " • Yht. ") + tons))))
         }
         card.addChild(foot)
-        def acts (tree Rt (ModalRow))
-        acts.addChild((this.exButton(("rt-entry-compact-" + (to_string i)) "Compact" "Compact")))
-        acts.addChild((this.exButton(("rt-entry-json-" + (to_string i)) "JSON" "JSON")))
+        ; The tools, keyed by the entry rather than its place in the feed:
+        ; the same card sits in the day view under another index, and a
+        ; delete has to name the entry it deletes.
+        def acts (tree Rt (Row (props (className "rt-modal-row rt-entry-acts"))))
+        acts.addChild((this.copyButton(("rt-entry-compact-" + e.id) "Compact")))
+        acts.addChild((this.copyButton(("rt-entry-json-" + e.id) "JSON")))
         acts.addChild((tree Rt (EntryDot "•")))
-        def del (this.exButton(("rt-entry-delete-" + (to_string i)) "Poista" "Poista"))
-        RealTrainerDemo.tintText(del "rt-ex-btn-text rt-danger-text")
-        acts.addChild(del)
+        if (deleteAsk == e.id) {
+            ; "Poista" asked: the question, Ei and Kyllä on a red ground, as
+            ; the blog view puts them in the button's place.
+            def ask (tree Rt (Row (props (className "rt-del-ask"))))
+            ask.addChild((tree Rt (EntryFootTx (props (className "rt-del-ask-text")) "Poistetaanko?")))
+            def no (this.exButton(("rt-entry-del-no-" + e.id) "Ei" "Ei"))
+            no.className = "rt-ex-btn rt-del-no"
+            ask.addChild(no)
+            def yes (this.exButton(("rt-entry-del-yes-" + e.id) "Kyllä" "Kyllä"))
+            yes.className = "rt-ex-btn rt-del-yes"
+            ask.addChild(yes)
+            acts.addChild(ask)
+        } {
+            def del (this.exButton(("rt-entry-delete-" + e.id) "Poista" "Poista"))
+            RealTrainerDemo.tintText(del "rt-ex-btn-text rt-danger-text")
+            acts.addChild(del)
+        }
         card.addChild(acts)
         return card
+    }
+
+    ; A copy button as the blog view has it: the copy glyph and the word,
+    ; and for two seconds after a press a check in green — the clipboard is
+    ; the host's; the page shows that it was asked.
+    fn copyButton:EVGElement (id:string label:string) {
+        def b (tree Rt (ExBtn))
+        b.id = id
+        b.a11yLabel = label
+        def copied:boolean (copiedId == id)
+        def glyph (tree Rt (PhIcon (props (className "rt-ph-icon rt-ph-icon-xs"))))
+        if copied {
+            glyph.svgSource = (RtIcons.check("#22c55e"))
+        } {
+            glyph.svgSource = (RtIcons.copy("#999999"))
+        }
+        b.addChild(glyph)
+        def tx (tree Rt (ExBtnTx label))
+        if copied {
+            tx.className = "rt-ex-btn-text rt-copied-text"
+        } {
+            tx.className = "rt-ex-btn-text rt-muted-text"
+        }
+        b.addChild(tx)
+        return b
     }
 
     ; A split as `SplitRow` draws it, behind its band: the distance, the
@@ -5429,6 +5481,24 @@ class RealTrainerDemo {
             }
             return opened
         }
+        ; The card's tools, on Home and in the day view alike.
+        if (RtEntry.hasPrefix(id "rt-entry-delete-")) {
+            deleteAsk = (substring id 16 (strlen id))
+            return true
+        }
+        if (RtEntry.hasPrefix(id "rt-entry-del-no-")) {
+            deleteAsk = ""
+            return true
+        }
+        if (RtEntry.hasPrefix(id "rt-entry-del-yes-")) {
+            deleteAsk = ""
+            return (seed.removeEntry((substring id 17 (strlen id))))
+        }
+        if ((RtEntry.hasPrefix(id "rt-entry-compact-")) || (RtEntry.hasPrefix(id "rt-entry-json-"))) {
+            copiedId = id
+            copiedMs = 2000.0
+            return true
+        }
         if (section != "calendar") {
             return false
         }
@@ -5877,6 +5947,16 @@ class RealTrainerDemo {
     ; is a frozen one, and this one stops by changing scene rather than by
     ; running out of things to move.
     fn tick:boolean (dtMs:double) {
+        ; The copy button's check goes back to the copy glyph.
+        if (copiedMs > 0.0) {
+            copiedMs = (copiedMs - dtMs)
+            if (copiedMs <= 0.0) {
+                copiedMs = 0.0
+                copiedId = ""
+                this.rebuild()
+                return true
+            }
+        }
         ; A toast stays for a while and goes.
         if (toastMs > 0.0) {
             toastMs = (toastMs - dtMs)
