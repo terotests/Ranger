@@ -21,7 +21,9 @@ npm run rt:web      # build, serve, print the URL
 npm run rt:check    # the app driven with a made-up clock, no browser  (CI)
 npm run rt:scroll   # the scroll shortcut, the culling, who lays out, the scrollbar, and how far a swipe throws
 npm run rt:bench 40 # what a scroll frame costs, stage by stage, on a long diary
-npm run rt:frame    # the same app in Chromium, checked at the pixels
+npm run rt:frame    # the same app in Chromium, checked at the pixels — twice: the engine on
+                    # the main thread, then in a Worker (?engine=worker); each prints what a
+                    # press costs, pointer-down to the frame that showed it
 ```
 
 ![the loader](web/shots/realtrainer.png)

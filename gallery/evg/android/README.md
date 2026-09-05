@@ -19,6 +19,7 @@ or Java2D out. No app lives here, and neither does any knowledge of one.
 | `src/main/kotlin/…/EvgSurface.kt` | The eight things a backend has to draw |
 | `src/main/kotlin/…/EvgPainter.kt` | Display list → surface calls |
 | `src/main/kotlin/…/RecordingSurface.kt` | Counts what the painter dispatched, so coverage is a number |
+| `src/main/kotlin/…/EvgEngineThread.kt` | The engine on its own thread: `post`, `ask`, `sync`, and frames coalesced and delivered through `View.post` — platform-free, so a JVM check can use it too |
 | `src/android/kotlin/…/AndroidEvgSurface.kt` | `android.graphics` implementation, plus `FaceSet` and `ImageStore` |
 | `src/android/kotlin/…/RippleEffect.kt` | `evg-surface-effect: ripple` as an AGSL post-process (API 33+) |
 | `src/android/kotlin/…/AndroidTextMeasurer.kt` | Skia measures the text the layout is made with, through the `FaceSet` the surface paints with — installed above the app, so the first layout already has it |

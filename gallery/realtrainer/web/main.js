@@ -209,6 +209,12 @@ function dropFrame() {
   frameList = null;
 }
 
+// Input-to-paint latency: the time from the last pointer down to the frame
+// that showed it, published for the check that compares this host to the
+// one whose engine is in a Worker.
+let inputAt = 0;
+window.__latency = 0;
+
 function paint() {
   if (!gl) return;
   try {
@@ -224,6 +230,10 @@ function paint() {
       frameSeq = seq;
     }
     window.__lastStats = frame.draw(shiftsOf(dl));
+    if (inputAt) {
+      window.__latency = performance.now() - inputAt;
+      inputAt = 0;
+    }
     sceneEl.textContent = app.sceneName();
   } catch (e) {
     errEl.textContent = String((e && e.stack) || e);
@@ -340,6 +350,7 @@ function syncTextSession() {
 let drag = null;
 canvas.addEventListener("pointerdown", (ev) => {
   const [x, y] = at(ev);
+  inputAt = performance.now();
   // The scrollbar's thumb takes the press: the moves that follow drag the
   // page by the thumb, not by the finger, and nothing under it is pressed.
   if (app.scrollbarGrab(x, y)) {

@@ -117,6 +117,21 @@ The honest gap: none of that is compiled or run here, because this container
 has neither SDL2 nor a GPU. Treat the C++ compile as evidence that the
 portable half holds, not that the app runs.
 
+## The engine in a Worker
+
+Everything above the seam is pure Ranger, so it can run in a Worker; only the
+painter needs the page. [`evg-engine.js`](evg-engine.js) is the harness —
+`serveEngine` in the worker, `connectEngine` on the page — and what crosses
+back per frame is one of three replies: a new build as `toBinary()`'s typed
+arrays, transferred, and read by [`evg-binary.js`](evg-binary.js) into the
+same commands `evg-list.js` reads off the object; a kept list that only moved,
+as the layers' shifts; or nothing. Input crosses the other way as the calls
+the host already made, batched into the frame request, and the hit test runs
+where the tree is. `gallery/realtrainer/web/main-worker.js` is a host written
+that way; `?engine=worker` on the RealTrainer page runs it, and `rt:frame`
+drives both hosts through one check. `npm run evg:binary:check` holds the two
+readers against each other on real frames. PLAN_NATIVE_HOSTS.md S1.
+
 ## Nobody can read it — so there is a second list
 
 A GPU frame is invisible to a screen reader: NVDA asks the platform for a tree

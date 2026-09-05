@@ -108,10 +108,31 @@ await esbuild.build({
   plugins: [noFilesystem],
   logLevel: "info",
 });
+// The same page with the engine in a Worker (`?engine=worker`): the host that
+// paints, and the worker that holds the app. Two bundles, because a Worker is
+// its own script; the generated module is in the worker's and not the host's.
+await esbuild.build({
+  entryPoints: [path.join(HERE, "main-worker.js")],
+  bundle: true,
+  format: "esm",
+  outfile: path.join(HERE, "bundle-worker.js"),
+  plugins: [noFilesystem],
+  logLevel: "info",
+});
+await esbuild.build({
+  entryPoints: [path.join(HERE, "engine-worker.js")],
+  bundle: true,
+  format: "esm",
+  outfile: path.join(HERE, "worker-bundle.js"),
+  plugins: [noFilesystem],
+  logLevel: "info",
+});
 
 if (OUT) {
   fs.mkdirSync(OUT, { recursive: true });
   fs.copyFileSync(path.join(HERE, "bundle.js"), path.join(OUT, "bundle.js"));
+  fs.copyFileSync(path.join(HERE, "bundle-worker.js"), path.join(OUT, "bundle-worker.js"));
+  fs.copyFileSync(path.join(HERE, "worker-bundle.js"), path.join(OUT, "worker-bundle.js"));
   fs.copyFileSync(path.join(HERE, "index.html"), path.join(OUT, "index.html"));
   console.log(`  wrote ${path.relative(process.cwd(), OUT)}/index.html and bundle.js`);
 }

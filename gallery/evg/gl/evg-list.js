@@ -54,6 +54,12 @@ export function cmdsOf(dl) {
       }
     }
     if (c.backdropBlur > 0) o.bb = c.backdropBlur;
+    // The shadow, which the JSON never carried and the binary now does
+    // (`evg-binary.js`): written here too so the two readers agree key for
+    // key, and so a painter that wants it has it whichever way the list came.
+    if (c.hasShadow) {
+      o.sh = { x: c.shadowX, y: c.shadowY, blur: c.shadowBlur, c: [c.shadowR, c.shadowG, c.shadowB, c.shadowA] };
+    }
     if (c.pts.length > 0) {
       o.pts = c.pts.slice();
       o.ends = c.ringEnds.length === 0 ? [c.pts.length] : c.ringEnds.slice();

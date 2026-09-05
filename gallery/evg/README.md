@@ -595,8 +595,13 @@ Three ways out:
 * **`toJson()`** — what a browser gets. Gradients and shadows do not survive it,
   so a JSON-fed backend cannot draw them.
 * **`toBinary()`** — an `EVGSceneBinary` with an interned string pool, for a
-  native host. Its record width is published in the format rather than agreed in
-  advance; see ISSUES #4 for why that sentence is there.
+  native host, and for a browser host whose engine is in a Worker. Its record
+  width is published in the format rather than agreed in advance; see ISSUES
+  #4 for why that sentence is there. The record is 36 ints: since the list
+  started crossing a thread it also carries the other three corners, the
+  scroll layer a clip opens, and the shadow — which no JSON ever did.
+  [`gl/evg-binary.js`](gl/evg-binary.js) reads it back into the JSON's shape,
+  and `npm run evg:binary:check` holds it to the object reader.
 * **the objects** — which is what a Kotlin or Swift host does, and why those
   painters can draw gradients, shadows and multi-ring paths that a JSON one
   cannot.
@@ -684,6 +689,30 @@ mixed, because an absent `aria-sort` and a present `aria-sort="none"` are
 different things and the DOM makes the distinction.
 
 ---
+
+## The engine off the UI thread
+
+Nothing above the display list needs a window, so on every platform the app
+can run on a thread of its own and hand the UI thread frames to paint
+(PLAN_NATIVE_HOSTS.md S1). The shape is the same three times: the host makes
+the app, then never touches it directly again — every call is posted to the
+engine in order, a call that changed the page produces a frame there, and the
+UI thread keeps the last frame and paints it. Three verbs: `post` (no
+answer), `ask` (an answer, later, on the UI thread), and `sync` for the one
+read a platform insists on at once (`canBecomeFirstResponder`,
+`onCheckIsTextEditor`).
+
+| Platform | The harness | A host on it |
+| --- | --- | --- |
+| browser | [`gl/evg-engine.js`](gl/evg-engine.js): a Worker, frames as transferred `EVGSceneBinary`, input batched into the frame request | `gallery/realtrainer/web/main-worker.js` (`?engine=worker`) |
+| Apple | [`apple/Sources/EvgEngineQueue.swift`](apple/Sources/EvgEngineQueue.swift): a serial `DispatchQueue`, frames delivered to the main thread | `gallery/realtrainer/ios` |
+| Android / JVM | [`android/src/main/…/EvgEngineThread.kt`](android/src/main/kotlin/fi/ranger/evg/EvgEngineThread.kt): a single-thread executor, `onMain` is `View.post` | `gallery/realtrainer/android` |
+
+Frames are coalesced — a burst of posts makes one build after the last — and
+a kept list that only scrolled crosses as its layers' shifts, not as a list.
+The cost is that a host cannot read the app synchronously; the RealTrainer
+check measures what that costs a press (pointer-down to the frame that showed
+it) on both browser hosts, and prints it.
 
 ## Retained trees
 
@@ -780,6 +809,7 @@ npm run evg:a11y:test           # the accessibility tree
 npm run evg:json:test           # the display list's JSON
 npm run evg:hostmeasurer:test   # a platform's one function reaches every layout
 npm run evg:measure:web         # ...and in Chromium the browser is the one measuring
+npm run evg:binary:check        # the list reads the same off the object and off toBinary()
 npm run evg:responsive:check    # the responsive page at four widths
 
 # oracles — the same question, asked of a browser

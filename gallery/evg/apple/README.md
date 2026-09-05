@@ -32,6 +32,7 @@ be kept in step.
 | `Sources/CoreGraphicsEvgSurface.swift` | 291 | Boxes, borders, paths, images and CoreText, on a `CGContext` |
 | `Sources/RecordingSurface.swift` | 110 | Draws nothing, counts everything |
 | `Sources/CoreTextMeasurer.swift` | 70 | CoreText measures the text the layout is made with — the same `CTFont` the surface draws with |
+| `Sources/EvgEngineQueue.swift` | 110 | The engine on its own serial queue: `post`, `ask`, `sync`, and frames coalesced and delivered to the main thread |
 
 ## What the painter is careful about
 
