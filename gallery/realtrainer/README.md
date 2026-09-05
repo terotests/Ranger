@@ -278,6 +278,24 @@ over a level-3 title, the menu, the tags, and a box per value.
 `home-diary` matches the reference 100 % — 1032 compared nodes per frame,
 in order.
 
+A diary has a hundred or two of those cards, and building every one before
+the first frame was most of the second between the press and the page. So
+the feed ARRIVES: the first build takes the first dozen cards — a screen and
+some — and every tick after it builds sixteen more, kept as they come, until
+the feed is whole (`RealTrainerDemo.feedShown`; `building()` says it is
+still arriving, and the page's accessibility mirror waits for the end of
+it). A tick that stands for many frames — a scenario's half-second — builds
+that many chunks, so the traces see the whole feed on the tick after the
+press, and the first frame after it with the dozen.
+
+The calendar menu under the header's selector hangs from the selector as an
+anchored overlay — centred on it, or on a phone on the page — and while it
+is up it has the wheel, the finger and the keys: it scrolls on its own when
+it is taller than the page allows, the page under it does not move, the
+arrows and Home and End walk it, Tab stays inside it, Enter picks, Escape
+closes and hands the keyboard back to the selector. A reader is told the
+menu is modal (`a11yModal`) and where its focus is.
+
 **Harjoitteet** is `ExerciseListPanel`: every exercise the diaries hold,
 summarised by the app's own statistics — its Ranger modules `ExerciseStats`,
 `StatsMath` and the date helpers came across as they are, under `src/stats`

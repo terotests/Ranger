@@ -2470,9 +2470,10 @@
 .rt-entry-spec { color: #999999; font-family: Arial; font-size: 12px; height: 16px; }
 
 /* --- the calendar menu under the header's selector --------------------------- */
-.rt-ph-calmenu { position: absolute; left: 16px; top: 52px; display: flex; flex-direction: column; flex-wrap: nowrap; gap: 2px; padding: 6px; max-height: 70vh; overflow: hidden; border-radius: 12px; border-width: 1px; border-color: #2e2e2e; background-color: #171717; }
+.rt-ph-calmenu { position: absolute; display: flex; flex-direction: column; flex-wrap: nowrap; gap: 2px; padding: 6px; max-height: 70vh; overflow: hidden; border-radius: 12px; border-width: 1px; border-color: #2e2e2e; background-color: #171717; scrollbar-width: thin; scrollbar-color: rgba(203, 213, 225, 0.7) auto; evg-scrollbar-label: none; }
 .rt-ph-calitem { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 10px; height: 40px; padding: 0px 10px; border-radius: 8px; cursor: pointer; }
 .rt-ph-calitem:hover { background-color: #262626; }
+.rt-ph-calitem-focus { background-color: #333333; }
 .rt-ph-calitem-on { background-color: #2a1a0f; }
 .rt-ph-calitem-text { color: #f2f2f2; font-family: Arial; font-size: 14px; height: 20px; }
 .rt-ph-calitem-new { color: #f97316; }

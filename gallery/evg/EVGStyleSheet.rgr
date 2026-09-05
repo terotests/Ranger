@@ -1483,9 +1483,15 @@ class EVGStyleSheet {
         ; differs — a `:hover` rule that only sets a colour is the case this
         ; exists for. An element with inline attributes is counted as
         ; layout-dirty regardless, because the plan does not know what they say.
+        ;
+        ; Only a slot from THIS generation's plans is compared: `dropPlans`
+        ; empties the tables, and an element that outlives that — a kept
+        ; card, styled before the viewport changed — still names a slot in
+        ; the old ones. Reading the new table at it is past its end, which
+        ; JavaScript answers with undefined and Swift with a trap.
         passStyled = (passStyled + 1)
         def layoutMoved:boolean true
-        if ((el.styleSlot >= 0) && (el.styleKids == (array_length el.children))) {
+        if (((el.styleSlot >= 0) && (el.styleGen == generation)) && (el.styleKids == (array_length el.children))) {
             if ((array_length el.inlineProps) == 0) {
                 if ((itemAt planLayoutSig el.styleSlot) == (itemAt planLayoutSig slot)) {
                     layoutMoved = false

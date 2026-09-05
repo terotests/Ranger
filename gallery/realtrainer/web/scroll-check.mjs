@@ -61,6 +61,15 @@ const longDiary = (times) => {
   return out;
 };
 
+// A long feed arrives in chunks over the ticks after the first frame — see
+// `RealTrainerDemo.feedShown` — and most of what follows wants the whole of
+// it: the ticks, until the app says it is all there.
+const settle = (app) => {
+  let spun = 0;
+  while (app.building() && spun < 100) { app.tick(16.7); spun += 1; }
+  app.display();
+};
+
 const open = (route, w, h, compact, css) => {
   const app = new RealTrainerDemo();
   app.init(css ?? CSS, compact ?? COMPACT);
@@ -73,6 +82,7 @@ const open = (route, w, h, compact, css) => {
   if (route === "#document") app.setScene("document");
   else app.openRoute(route);
   app.display();
+  settle(app);
   return app;
 };
 
@@ -453,12 +463,25 @@ console.log("");
 console.log("--- what a rebuild keeps ---");
 {
   const app = open("/", 390, 844);
-  // The training diary: a hundred workouts on Home.
+  // The training diary: a hundred workouts on Home. The first frame builds
+  // the first dozen — a screen and some — and the ticks after it the rest,
+  // a chunk a frame, so the press shows the page before the whole diary is
+  // built.
   app.press("rt-calsel");
   app.press("rt-cal-oma-paivakirja");
   app.display();
+  const first = app.cardsBuiltCount();
+  ok("the diary's first frame builds a dozen cards, not the diary", first <= 12, `${first} cards`);
+  ok("and says the feed is still arriving", app.building());
+  const firstBottom = JSON.parse(app.displayListJson()).cmds.reduce((m, c) => Math.max(m, c.y + (c.h || 0)), 0);
+  ok("with the first screen full", firstBottom > 844, `${Math.round(firstBottom)}px of page`);
+  let ticks = 0;
+  while (app.building() && ticks < 50) { app.tick(16.7); ticks += 1; }
+  app.display();
   const built = app.cardsBuiltCount();
-  ok("the diary's Home built its cards once", built > 100, `${built} cards`);
+  ok("the ticks build the rest, a chunk a frame", built > 100 && ticks >= 3 && ticks < 20, `${built} cards in ${ticks} ticks`);
+  ok("and then say so", !app.building());
+  ok("and a tick after that builds nothing", (() => { const b = app.cardsBuiltCount(); app.tick(16.7); return app.cardsBuiltCount() === b && !app.tick(16.7); })());
   // …and laid them out down the feed, not on top of each other: the
   // first frame is a real layout of kept cards, and a kept card's box was
   // once reset to the origin on its way in.
@@ -480,12 +503,12 @@ console.log("--- what a rebuild keeps ---");
   // An entry that changed is built again, alone.
   app.press("rt-calsel");
   app.press("rt-cal-cal-train");
-  app.display();
+  settle(app);
   const other = app.cardsBuiltCount();
   ok("another calendar builds its own", other > built, `${other - built} built`);
   app.press("rt-calsel");
   app.press("rt-cal-oma-paivakirja");
-  app.display();
+  settle(app);
   ok("and coming back builds the diary's again, the cache having been emptied", app.cardsBuiltCount() > other);
   // The kept cards' LAYOUT is kept too: a rebuild for the menu lays the
   // shell out and moves the cards, and the frame is the frame a fresh app
@@ -493,7 +516,7 @@ console.log("--- what a rebuild keeps ---");
   const fresh = open("/", 390, 844);
   fresh.press("rt-calsel");
   fresh.press("rt-cal-oma-paivakirja");
-  fresh.display();
+  settle(fresh);
   for (const scroll of [0, 1200]) {
     if (scroll) { app.scrollDocument(scroll); fresh.scrollDocument(scroll); }
     app.press("rt-calsel");
@@ -504,12 +527,97 @@ console.log("--- what a rebuild keeps ---");
     fresh.press("rt-calsel");
     ok(`and closed again at ${scroll}`, visibleCmds(app, 390, 844) === visibleCmds(fresh, 390, 844));
   }
+  // The viewport changes under the kept cards — a rotation, the keyboard —
+  // and the sheet drops every plan it built. A kept card still names a slot
+  // in the old plans; the pass must not read the new ones at it (Swift
+  // traps on the read), and what it lays out is what a fresh app does.
+  app.setPageSize(844, 390);
+  app.scrollDocument(-100000);
+  // …and the scrollbar that scroll woke goes down again before the frames
+  // are held against each other.
+  for (let i = 0; i < 70; i += 1) app.tick(16.7);
+  settle(app);
+  const turned = open("/", 844, 390);
+  turned.press("rt-calsel");
+  turned.press("rt-cal-oma-paivakirja");
+  settle(turned);
+  ok("kept cards restyled after the viewport changed are what a fresh app lays out",
+     visibleCmds(app, 844, 390) === visibleCmds(turned, 844, 390));
+  app.setPageSize(390, 844);
+  settle(app);
   ok("a hover on a card moves no box and lays out none", (() => {
     const before = app.layoutCount();
     app.setHover("rt-entry-notes-3");
     app.display();
     return app.layoutCount() === before;
   })(), `${app.layoutCount()} layouts`);
+}
+
+// --- the calendar menu's place -----------------------------------------------
+//
+// The menu hangs under the selector that opened it, centred on it. On a wide
+// page it used to sit at the header's left edge, the page's width, with its
+// names a screen away from the button.
+{
+  for (const [w, h] of [[1500, 900], [980, 760], [390, 844]]) {
+    const app = open("/", w, h);
+    app.press("rt-calsel");
+    app.display();
+    const tree = JSON.parse(app.a11yJson(1, ""));
+    const box = (id) => { const n = tree.nodes.find((x) => x.id === id); return n ? n.b : null; };
+    const sel = box("rt-calsel");
+    const item = box("rt-cal-new");
+    ok(`at ${w}x${h} the menu hangs under the selector`, sel && item && item[1] > sel[1] + sel[3], JSON.stringify({ sel, item }));
+    // …centred on the selector, or on a phone on the page: the header's
+    // selector sits right of its middle, and a menu the page's width
+    // centred on it hung off the edge.
+    const mid = w < 768 ? w / 2 : sel[0] + sel[2] / 2;
+    const itemMid = item[0] + item[2] / 2;
+    ok(`and is centred on ${w < 768 ? "the page" : "it"}`, Math.abs(mid - itemMid) < 2, `${mid} vs ${itemMid}`);
+    ok(`and is ${w < 768 ? "the page's width less its margins" : "as wide as its names"}`,
+       w < 768 ? item[2] > w - 60 : item[2] < 400, `${item[2]}px`);
+  }
+}
+
+// --- the menu, open: its own scroll, and the keys ------------------------------
+//
+// A menu taller than the page allows scrolls on its own, and while it is up
+// it has the wheel and the keys: the page under it does not move, the arrows
+// walk it, Tab stays inside it, Escape closes it and hands the keyboard back
+// to the selector. A reader is told the menu is modal and where its focus is.
+{
+  const app = open("/", 390, 844);
+  app.press("rt-calsel");
+  app.display();
+  const tree = () => JSON.parse(app.a11yJson(1, ""));
+  const node = (id) => tree().nodes.find((x) => x.id === id);
+  const menu = node("rt-calmenu");
+  ok("the open menu is a modal menu to a reader", !!menu && menu.role === "menu" && menu.modal === true, JSON.stringify(menu));
+  ok("of menu items", node("rt-cal-new").role === "menuitem");
+  ok("with the keyboard on its first item", tree().focus === "rt-cal-unipaivakirja", tree().focus);
+  const pageY = () => node("rt-add").b[1];
+  const py = pageY();
+  const before = node("rt-cal-new").b[1];
+  ok("the wheel over the open menu scrolls the menu", app.scrollDocument(30) && node("rt-cal-new").b[1] < before,
+     `${before} -> ${node("rt-cal-new").b[1]}`);
+  ok("and not the page under it", pageY() === py);
+  ok("End takes the last item", app.keyWith("End", false, false) && tree().focus === "rt-cal-new");
+  const last = node("rt-cal-new").b;
+  ok("scrolled into the menu's view", last[1] + last[3] <= menu.b[1] + menu.b[3], `${last[1] + last[3]} vs ${menu.b[1] + menu.b[3]}`);
+  ok("ArrowUp the one before", app.keyWith("ArrowUp", false, false) && tree().focus === "rt-cal-app-minimonster-plan", tree().focus);
+  ok("Home the first", app.keyWith("Home", false, false) && tree().focus === "rt-cal-unipaivakirja");
+  ok("ArrowUp at the top stays, and is still the menu's key", app.keyWith("ArrowUp", false, false) && tree().focus === "rt-cal-unipaivakirja");
+  ok("Shift+Tab wraps to the last", app.keyWith("Tab", true, false) && tree().focus === "rt-cal-new");
+  ok("and Tab back to the first", app.keyWith("Tab", false, false) && tree().focus === "rt-cal-unipaivakirja");
+  ok("Escape closes", app.keyWith("Escape", false, false) && !app.menuOpen());
+  ok("and hands the keyboard to the selector", tree().focus === "rt-calsel");
+  ok("once", tree().focus === "");
+  ok("Enter on an item picks it", (() => {
+    app.press("rt-calsel");
+    app.keyWith("ArrowDown", false, false);
+    app.keyWith("Enter", false, false);
+    return !app.menuOpen() && app.seed.calendarName === "Ravintopäiväkirja";
+  })(), app.seed.calendarName);
 }
 
 // --- the throw ---------------------------------------------------------------

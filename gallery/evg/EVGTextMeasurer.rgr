@@ -62,6 +62,13 @@ class EVGTextMeasurer {
     def monoFamily:string ""
     def monoKnown:boolean false
     def monoCached:boolean false
+    ; …and whether it is the bold cut, remembered with it. The layout asks
+    ; for `Arial-Bold` when the element is bold (`EVGElement.effectiveFontFamily`),
+    ; and a bold face is measured with the bold tables below.
+    def boldCached:boolean false
+    def boldTable:[double]
+    def boldLatinTable:[double]
+    def boldPunctTable:[double]
 
     ; --- THE FACE'S VERTICAL METRICS, MEASURED ---------------------------------
     ;
@@ -187,6 +194,54 @@ class EVGTextMeasurer {
     ; with a different Arial will differ slightly. The honest fix for that is
     ; to measure with the face actually in use, which the browser can do
     ; through `setMeasurer` — this table is what every target can carry.
+    ; The same, for the BOLD cut. Bold Arial is not the regular face drawn
+    ; thicker: `i`, `l`, `r`, `t` and `s` are a twentieth of an em wider each,
+    ; and "Päivitä suunnitelma" at 14px is 131px bold against 121px regular.
+    ; A button whose label was measured regular and drawn bold had its text
+    ; against its right edge — the padding the sheet gave it went to the
+    ; ten pixels the measurement was short. Measured as `advanceEm` was.
+    sfn boldAdvanceEm:[double] () {
+        return ([] _:double (
+            0.27783 0.33301 0.47412 0.55615 0.55615 0.88916 0.72217 0.23779
+            0.33301 0.33301 0.38916 0.58398 0.27783 0.33301 0.27783 0.27783
+            0.55615 0.55615 0.55615 0.55615 0.55615 0.55615 0.55615 0.55615
+            0.55615 0.55615 0.33301 0.33301 0.58398 0.58398 0.58398 0.61084
+            0.97510 0.72217 0.72217 0.72217 0.72217 0.66699 0.61084 0.77783
+            0.72217 0.27783 0.55615 0.72217 0.61084 0.83301 0.72217 0.77783
+            0.66699 0.77783 0.72217 0.66699 0.61084 0.72217 0.66699 0.94385
+            0.66699 0.66699 0.61084 0.33301 0.27783 0.33301 0.58398 0.55615
+            0.33301 0.55615 0.61084 0.55615 0.61084 0.55615 0.33301 0.61084
+            0.61084 0.27783 0.27783 0.55615 0.27783 0.88916 0.61084 0.61084
+            0.61084 0.61084 0.38916 0.55615 0.33301 0.61084 0.55615 0.77783
+            0.55615 0.55615 0.50000 0.38916 0.27979 0.38916 0.58398
+        ))
+    }
+
+    sfn boldLatin1Em:[double] () {
+        return ([] _:double (
+            0.27783 0.33301 0.55615 0.55615 0.55615 0.55615 0.27979 0.55615
+            0.33301 0.73682 0.37012 0.55615 0.58398 0.00000 0.73682 0.55225
+            0.39990 0.54883 0.33301 0.33301 0.33301 0.57617 0.55615 0.33301
+            0.33301 0.33301 0.36523 0.55615 0.83398 0.83398 0.83398 0.61084
+            0.72217 0.72217 0.72217 0.72217 0.72217 0.72217 1.00000 0.72217
+            0.66699 0.66699 0.66699 0.66699 0.27783 0.27783 0.27783 0.27783
+            0.72217 0.72217 0.77783 0.77783 0.77783 0.77783 0.77783 0.58398
+            0.77783 0.72217 0.72217 0.72217 0.72217 0.66699 0.66699 0.61084
+            0.55615 0.55615 0.55615 0.55615 0.55615 0.55615 0.88916 0.55615
+            0.55615 0.55615 0.55615 0.55615 0.27783 0.27783 0.27783 0.27783
+            0.61084 0.61084 0.61084 0.61084 0.61084 0.61084 0.61084 0.54883
+            0.61084 0.61084 0.61084 0.61084 0.61084 0.55615 0.61084 0.55615
+        ))
+    }
+
+    sfn boldPunctEm:[double] () {
+        return ([] _:double (
+            0.33301 0.33301 0.55615 0.55615 1.00000 1.00000 0.49756 0.55225
+            0.27783 0.27783 0.27783 0.27783 0.50000 0.50000 0.50000 0.50000
+            0.55615 0.55615 0.35010 0.58984 0.33447 0.66748 1.00000
+        ))
+    }
+
     sfn advanceEm:[double] () {
         return ([] _:double (
             0.27783 0.27783 0.35498 0.55615 0.55615 0.88916 0.66699 0.19092
@@ -324,8 +379,14 @@ class EVGTextMeasurer {
         }
         monoFamily = fontFamily
         monoCached = (EVGTextMeasurer.isMono(fontFamily))
+        boldCached = (EVGTextMeasurer.isBold(fontFamily))
         monoKnown = true
         return monoCached
+    }
+
+    ; The bold cut, as the layout names it: the family with `-Bold` on it.
+    sfn isBold:boolean (fontFamily:string) {
+        return ((indexOf fontFamily "-Bold") >= 0)
     }
 
     ; The advance tables, built once per measurer rather than once per
@@ -337,6 +398,9 @@ class EVGTextMeasurer {
         monoTable = (EVGTextMeasurer.monoAdvanceEm())
         latinTable = (EVGTextMeasurer.latin1Em())
         punctTable = (EVGTextMeasurer.punctEm())
+        boldTable = (EVGTextMeasurer.boldAdvanceEm())
+        boldLatinTable = (EVGTextMeasurer.boldLatin1Em())
+        boldPunctTable = (EVGTextMeasurer.boldPunctEm())
         tablesReady = true
     }
 
@@ -345,6 +409,7 @@ class EVGTextMeasurer {
             this.prepareTables()
         }
         def mono:boolean (this.monoFor(fontFamily))
+        def bold:boolean boldCached
         if (ch == 8364) {
             if mono {
                 return ((EVGTextMeasurer.monoEuroEm()) * fontSize)
@@ -355,6 +420,10 @@ class EVGTextMeasurer {
             def t:[double] advTable
             if mono {
                 t = monoTable
+            } {
+                if bold {
+                    t = boldTable
+                }
             }
             return ((itemAt t (ch - 32)) * fontSize)
         }
@@ -373,9 +442,15 @@ class EVGTextMeasurer {
             }
         }
         if ((ch >= 160) && (ch <= 255)) {
+            if bold {
+                return ((itemAt boldLatinTable (ch - 160)) * fontSize)
+            }
             return ((itemAt latinTable (ch - 160)) * fontSize)
         }
         if ((ch >= 8208) && (ch <= 8230)) {
+            if bold {
+                return ((itemAt boldPunctTable (ch - 8208)) * fontSize)
+            }
             return ((itemAt punctTable (ch - 8208)) * fontSize)
         }
         def extra:double (EVGTextMeasurer.extraEm(ch))

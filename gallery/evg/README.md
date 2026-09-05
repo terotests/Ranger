@@ -644,7 +644,7 @@ focus.
 The properties are the ARIA ones, in both spellings: `aria-label` / `a11yLabel`,
 `role` / `a11yRole`, and `a11yChecked`, `a11yCurrent`, `a11yDescription`,
 `a11yDisabled`, `a11yExpanded`, `a11yFocusable`, `a11yHasPopup`, `a11yHidden`,
-`a11yInvalid`, `a11yOrientation`, `a11yPressed`, `a11yReadOnly`, `a11yRequired`,
+`a11yInvalid`, `a11yModal`, `a11yOrientation`, `a11yPressed`, `a11yReadOnly`, `a11yRequired`,
 `a11yRoleDescription`, `a11yRowCount`, `a11yRowIndex`, `a11ySelected`,
 `a11ySorted`, `a11yValue`.
 

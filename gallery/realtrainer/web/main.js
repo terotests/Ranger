@@ -266,6 +266,22 @@ function press(x, y) {
   syncTextSession();
 }
 
+// The keys of an open menu: the arrows, Home, End, Tab and Escape go to the
+// app, which walks the menu with them and keeps the focus inside it — a
+// focus trap, held by the app rather than by the DOM. Enter and Space go
+// too: a menu item is a div with a role, not a button, and no key clicks
+// it on its own. The listener is on the document because the key lands on
+// whichever mirror element has the focus.
+const MENU_KEYS = new Set(["ArrowDown", "ArrowUp", "Home", "End", "Tab", "Escape", "Enter", " "]);
+document.addEventListener("keydown", (ev) => {
+  if (!app.menuOpen() || !MENU_KEYS.has(ev.key)) return;
+  if (app.keyWith(ev.key, ev.shiftKey, ev.ctrlKey || ev.metaKey)) {
+    ev.preventDefault();
+    paintAll();
+    syncMirror();
+  }
+});
+
 // --- the text fields ---------------------------------------------------------
 //
 // The platform owns the editing session: a real <input> sits over the drawn
@@ -488,7 +504,9 @@ function step(now) {
   // rectangles follow the scroll, so there is no point rebuilding them
   // mid-fling — and at 15ms a rebuild it is the difference between a frame
   // that fits in the budget and one that does not.
-  if (moving === false) syncMirror(now);
+  // …nor while a long feed is still arriving in chunks: each chunk is a new
+  // tree, and the mirror of a hundred cards is built once, from the last.
+  if (moving === false && !app.building()) syncMirror(now);
   frames += 1;
   if (now - fpsAt >= 500) {
     fpsEl.textContent = Math.round((frames * 1000) / (now - fpsAt)) + " fps";
