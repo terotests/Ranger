@@ -468,8 +468,17 @@ function shelfOf(w, limit) {
   return { w, limit, x: 0, y: 0, rowH: 0 };
 }
 
-/** Place one measured run on the shelf. False when it would pass the limit. */
+/** Place one measured run on the shelf. False when it would pass the limit,
+ *  and false for a run WIDER THAN THE SHELF: placed at x=0 and uploaded up to
+ *  the texture's edge, such a run kept a slot whose u1 ran past 1.0, and
+ *  CLAMP_TO_EDGE answered every sample beyond the edge with the last column
+ *  of ink — a horizontal streak, in the text's colour, running on from where
+ *  the glyphs stopped. Seen on the timeline's descriptions on a Retina Mac,
+ *  whose face was wider than the 512px atlas the first frame's short runs had
+ *  sized. Refusing here makes `appendRuns` hand back false, and the atlas is
+ *  rebuilt at the width its widest run needs. */
 function placeRun(shelf, m) {
+  if (m.w > shelf.w) return false;
   if (shelf.x + m.w > shelf.w) { shelf.x = 0; shelf.y += shelf.rowH; shelf.rowH = 0; }
   if (shelf.y + m.h > shelf.limit) return false;
   m.x = shelf.x;
@@ -524,7 +533,15 @@ function buildTextAtlas(cmds, dpr, view, maxTex) {
   // after, against the limit.
   const pack = (list, atlasW) => {
     const shelf = shelfOf(atlasW, Infinity);
-    for (const m of list) placeRun(shelf, m);
+    for (const m of list) {
+      // A run wider than the widest texture the card allows is CUT, and cut
+      // honestly: the slot's width is what will be rasterised, so the quad
+      // ends where the glyphs end instead of sampling past the texture's
+      // edge. `fullW` keeps the measured width across the repacks below.
+      if (m.fullW === undefined) m.fullW = m.w;
+      m.w = Math.min(m.fullW, atlasW);
+      placeRun(shelf, m);
+    }
     shelf.limit = limit;
     return shelf;
   };

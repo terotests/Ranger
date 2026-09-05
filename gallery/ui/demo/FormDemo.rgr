@@ -611,7 +611,8 @@ class FormDemo {
         def i:int 0
         while (i < (array_length delivery.items)) {
             def it:UiItem (itemAt delivery.items i)
-            def r (tree Fm (Radio (props (id ("fm-delivery-" + it.value)) (a11yLabel it.name))))
+            def rid:string ("fm-delivery-" + it.value)
+            def r (tree Fm (Radio (props (id rid) (a11yLabel it.name))))
             r.a11yDisabled = it.disabled
             r.a11yFocusable = (it.disabled == false)
             ; AND A CLASS, so the disabled one LOOKS disabled.
@@ -634,7 +635,14 @@ class FormDemo {
             ; not mention — the drawn dot is not a claim a reader can hear.
             if (delivery.value == it.value) {
                 r.a11yChecked = (EVGA11yTri.yes())
-                r.addChild((tree Fm (Dot)))
+                ; The focus ring is on the CIRCLE, not the row, and the circle
+                ; has no id: the sheet cannot say "the dot inside a focused
+                ; radio", so the demo writes the class where the dot is drawn.
+                def dot (tree Fm (Dot))
+                if (focused == rid) {
+                    UiTree.addClass(dot "fm-dot-focus")
+                }
+                r.addChild(dot)
             } {
                 r.a11yChecked = (EVGA11yTri.no())
                 def ring (tree Fm (Ring))
@@ -645,6 +653,9 @@ class FormDemo {
                 ; and each part carries its own class.
                 if it.disabled {
                     UiTree.addClass(ring "fm-ring-off")
+                }
+                if (focused == rid) {
+                    UiTree.addClass(ring "fm-ring-focus")
                 }
                 r.addChild(ring)
             }
@@ -891,6 +902,26 @@ class FormDemo {
                 secretShown = (secretShown == false)
                 this.rebuild()
                 return true
+            }
+        }
+        ; THE RADIO GROUP. Nothing routed a key to it, so a Tab that reached
+        ; the radios was where the keyboard stopped: the arrows did nothing,
+        ; and Space did nothing. `RadioGroupCtl.keyDown` owns the rule — the
+        ; next and previous keys move the roving focus, skipping the disabled
+        ; item and wrapping at the ends, and Space or Enter chooses the item
+        ; under focus — and hands back the tid the focus lands on.
+        if ((strlen focused) > 12) {
+            if (((substring focused 0 12)) == "fm-delivery-") {
+                def land:string (delivery.keyDown(focused k))
+                if ((strlen land) > 0) {
+                    focused = land
+                    this.rebuild()
+                    return true
+                }
+                if (UiCtl.activatesOn(k)) {
+                    this.rebuild()
+                    return true
+                }
             }
         }
         return false

@@ -201,6 +201,14 @@
 
 .cd-day:hover { background-color: #f4f4f5; }
 
+/* The day the keyboard is on. The arrows move it — the hint under the grid
+ * says so — and nothing on the page showed where it had gone, so the arrows
+ * read as dead until Enter revealed the day they had reached. A 2px ring, one
+ * shade darker than today's, visible on a white day and on the chosen day's
+ * black alike. Inside the box: an explicit size is border-box here, so the
+ * grid does not move. */
+.cd-day:focus { border: 2px solid #52525b; }
+
 /* The number's own variants. It cannot inherit them: EVGStyleSheet matches one
  * class token per selector and has no descendant selectors, so "the number
  * inside a selected day" is not something a rule here can say. The demo writes
@@ -224,6 +232,12 @@
 .cd-day-selected {
   background-color: #18181b;
 }
+/* …and it has to be said again under the pointer. A pseudo-class outranks a
+ * plain class in this sheet as in CSS, so `.cd-day:hover` above beat the
+ * selected fill however the two were ordered: the day you had just clicked
+ * turned hover-grey with white digits on it, and read as not chosen until the
+ * pointer left. */
+.cd-day-selected:hover { background-color: #18181b; }
 
 /* A day you cannot pick. No pointer cursor either — a cursor that says
  * "clickable" over something that is not is a lie the user acts on. */

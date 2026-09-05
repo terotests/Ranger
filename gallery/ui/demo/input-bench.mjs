@@ -462,6 +462,32 @@ const CHECKED = [
     },
   },
   {
+    key: "ring", label: "a focused field is drawn as one",
+    // The invoice form had no `:focus` rule at all: Tab moved the focus, the
+    // caret was the only sign of it, and a readonly field draws no caret. The
+    // BORDER command of the box is what a person sees change, so that is what
+    // is compared — its colour before the click and after.
+    applies: (f) => !(f.state && f.state.disabled) && !f.node.disabled,
+    check: async (f, d) => {
+      const borderOf = async () => {
+        const all = await cmds();
+        const b = all.find((c) => c.k === 1 && Math.abs(c.x - f.box.x) < 1 && Math.abs(c.y - f.box.y) < 1 && Math.abs(c.w - f.box.w) < 1);
+        return b ? JSON.stringify(b.c) : null;
+      };
+      // Focused first, then not: a page may open with this very field focused
+      // — the invoice form starts on Amount, the profile on Full Name — so
+      // "before the click" is not reliably the unfocused picture. Tab moves the
+      // focus on; the border must differ between the two states.
+      await d.click(f.mid);
+      const focused = await borderOf();
+      await d.key("Tab");
+      const unfocused = await borderOf();
+      if (!focused) return ["no border command found on the box"];
+      if (focused === unfocused) return [`the box is drawn the same focused and not: border ${focused}`];
+      return [];
+    },
+  },
+  {
     key: "placeholder", label: "the placeholder shows when empty and is never the value",
     applies: (f) => !!(f.state && f.state.placeholder && !f.state.readOnly && !f.state.disabled),
     check: async (f, d) => {

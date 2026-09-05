@@ -9,6 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Keyboard focus was invisible on the demo forms and the calendar.** Not one
+  of `form.css`, `profile.css` and `calendar.css` had a `:focus` rule, so Tab
+  moved the focus and drew nothing: a Tab into the readonly invoice number,
+  which draws no caret, looked like a Tab that did nothing, and so did every
+  Tab after it through the radios and the buttons; on the calendar the arrows
+  moved the focused day, as the hint says, and no rule drew the day they had
+  reached. Focus is drawn now — the border turns dark on a box, a button and
+  the select's trigger, the radio's ring and the switch's knob carry a class
+  the demo writes, the calendar's day gets a 2px ring — and the invoice form
+  routes the arrows and Space to `RadioGroupCtl`, which had the rule all along
+  and was never asked. `input-bench` gained a `ring` column that fails a field
+  whose border does not change when it takes focus.
+- **Text ran on as a flat line where the glyphs stopped.** The WebGL painter's
+  text atlas is sized on the first frame from the widest run it holds; a later
+  run wider than that whole texture was placed at x=0, uploaded up to the
+  edge, and kept a slot whose u1 ran past 1.0 — and CLAMP_TO_EDGE answered
+  every sample beyond the edge with the last column of ink, a streak in the
+  text's colour. Seen on the timeline's descriptions on a Retina display,
+  whose wider face outgrew the 512px atlas a menubar's short runs had sized.
+  A run wider than the shelf is refused and the atlas rebuilt at the width it
+  needs; a run wider than the card's largest texture is cut where the texture
+  ends, with the quad cut to match.
+- **A chosen calendar day turned hover-grey under the pointer.** A pseudo-class
+  outranks a plain class in `EVGStyleSheet` as in CSS, so `.cd-day:hover` beat
+  `.cd-day-selected` however the two were ordered; the day just clicked read as
+  not chosen until the pointer left it.
+
+
 - **The dashboard on Android stopped responding.** Every frame of
   `DashboardDemo.display()` ran the whole stylesheet cascade, laid the whole
   tree out and parsed and ran the chart's Vela spec again, and the Android host
