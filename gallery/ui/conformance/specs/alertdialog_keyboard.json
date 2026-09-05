@@ -1,0 +1,5 @@
+{ "name":"alertdialog_keyboard","component":"alert-dialog",
+  "behaviours":["escape-closes","focus-restore","action-closes"],
+  "fixture":{"controls":[
+    {"type":"alertdialog","tid":"ad","name":"Delete","title":"Sure?","body":"No undo."}]},
+  "steps":[{"focus":"ad-trigger"},{"key":"Enter"},{"key":"Escape"},{"click":"ad-trigger"},{"click":"ad-action"}] }

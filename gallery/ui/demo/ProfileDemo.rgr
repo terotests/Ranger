@@ -1,0 +1,1051 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; ProfileDemo — the label-left form
+; =============================================================================
+; A second form reference, and deliberately a second FILE rather than more
+; fields in the first one, because the two make different layout claims and
+; each is worth being able to break on its own.
+;
+; The invoice form is a COLUMN: label above control, one field to a row. This
+; one is a ROW — the label sits to the left and every control's left edge lines
+; up down a single column, whatever is in it. That is the whole finding: a
+; label and a control of different heights have to be centred against each
+; other, and the rows here are deliberately different heights (a text box is
+; 40, the avatar row is 48, the switch row is 24) so a layout that only works
+; when everything matches has nowhere to hide.
+;
+; --- WHAT IS REAL HERE, AND WHAT IS DRAWN ------------------------------------
+;
+; Real, backed by a controller with a measured contract: the four text fields
+; (`InputCtl`, nine conformance specs), the switch (`SwitchCtl`) and the select
+; (`SelectCtl`).
+;
+; DRAWN, and said so rather than implied: the Birth Date and Dismissal Time
+; boxes are text fields with an icon beside them. The reference's are date and
+; time pickers, and segmented editing — where ArrowUp on the month changes the
+; month and not the caret — is its own contract that the plan declines until it
+; has been measured. An icon that opens nothing would be a lie about what is
+; here; an icon that says "this field holds a date" is what the reference's
+; own affordance is when the picker is closed, so it stays and the header says
+; what it is.
+;
+; The select is a CLOSED trigger. Opening it needs the overlay layer the
+; dropdown demo has, which is real work rather than a line of CSS, so the
+; closed state is what this page draws and the open state is where it stops.
+;
+; Not here at all: the Specialties tag input, which is genuinely new — a list
+; of removable tokens sharing a line with a text field, whose whole character
+; is what Backspace does at position 0. That needs an oracle before it needs a
+; rule, and inventing the boundary cases is exactly what this gallery does not
+; do.
+; =============================================================================
+
+Import "../src/InputCtl.rgr"
+Import "../src/CheckboxCtl.rgr"
+Import "../src/SelectCtl.rgr"
+Import "../src/UiCtl.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGUnit.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGStyleSheet.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+Import "../../evg/EVGA11yFromTree.rgr"
+Import "../../evg/EVGHitTest.rgr"
+Import "../../evg/EVGTextEngine.rgr"
+
+treefactory Pf {
+    child addChild
+    text  textContent
+
+    tag Page    EVGElement (props (className "pf-page"))
+    tag Card    EVGElement (props (className "pf-card"))
+    tag Head    EVGElement (props (className "pf-head"))
+    tag HeadTx  EVGElement (props (className "pf-head-text"))
+    tag Title   EVGElement (props (className "pf-title") (elementType 1) (role "heading") (a11yLevel 1))
+    tag Sub     EVGElement (props (className "pf-sub") (elementType 1))
+    tag Badge   EVGElement (props (className "pf-badge") (role "status"))
+    tag BadgeTx EVGElement (props (className "pf-badge-text") (elementType 1))
+    tag Body    EVGElement (props (className "pf-body") (role "form") (a11yLabel "Profile settings"))
+
+    ; A ROW: the label column and the control column. `align-items: center` is
+    ; the claim — the two are centred against each other, and the rows are
+    ; different heights on purpose.
+    tag Row     EVGElement (props (className "pf-row"))
+    tag Label   EVGElement (props (className "pf-label"))
+    tag LabelTx EVGElement (props (className "pf-label-text") (elementType 1))
+    ; The little "?" beside three of the labels. Decoration: whatever it would
+    ; say lives in the field's description, and a question mark read aloud
+    ; between a label and a control is noise.
+    tag Help    EVGElement (props (className "pf-help") (elementType 1) (a11yHidden true))
+    tag Ctl     EVGElement (props (className "pf-ctl"))
+
+    tag Box     EVGElement (props (className "pf-box") (role "textbox"))
+    tag BoxOff  EVGElement (props (className "pf-box pf-box-off") (role "textbox"))
+    tag Text    EVGElement (props (className "pf-text") (elementType 1))
+    tag Ghost   EVGElement (props (className "pf-text pf-ghost") (elementType 1))
+    tag Caret   EVGElement (props (className "pf-caret") (a11yHidden true))
+    tag Band    EVGElement (props (className "pf-band") (a11yHidden true))
+    ; The icon inside a box. Hidden from a reader: the field's NAME says what
+    ; it holds, and a calendar glyph announced beside it says it twice.
+    tag Icon    EVGElement (props (className "pf-icon") (elementType 1) (a11yHidden true))
+    tag Spacer  EVGElement (props (className "pf-spacer"))
+
+    tag Avatar  EVGElement (props (className "pf-avatar") (role "img") (a11yLabel "Noa Brooks"))
+    tag Btn     EVGElement (props (className "pf-btn") (role "button"))
+    tag BtnTx   EVGElement (props (className "pf-btn-text") (elementType 1))
+    tag BtnIcon EVGElement (props (className "pf-btn-icon") (elementType 1) (a11yHidden true))
+
+    ; The select's closed trigger. `aria-haspopup` says it opens a list, which
+    ; is the one thing a reader cannot see about it.
+    tag Trigger EVGElement (props (className "pf-trigger") (role "combobox"))
+    tag Chevron EVGElement (props (className "pf-chevron") (elementType 1) (a11yHidden true))
+    ; THE OPEN LIST. A sibling of the trigger carrying `isOverlay`, which is
+    ; the arrangement the overlay pass's anchor search expects and the only one
+    ; that does not put a listbox inside a combobox. The dropdown demo proved
+    ; the shape; nothing here is new except that the select finally uses it.
+    tag SelWrap EVGElement (props (className "pf-selwrap"))
+    tag Listbox EVGElement (props (className "pf-listbox") (isOverlay true) (overlaySide "bottom") (overlayAlign "start") (role "listbox"))
+    tag Option  EVGElement (props (className "pf-option") (role "option") (a11yFocusable true))
+    tag OptionOn EVGElement (props (className "pf-option pf-option-active") (role "option") (a11yFocusable true))
+    tag OptTxt  EVGElement (props (className "pf-opttxt") (elementType 1) (a11yHidden true))
+    tag OptMark EVGElement (props (className "pf-optmark") (elementType 1) (a11yHidden true))
+
+    ; The switch, whose state is a POSITION rather than a mark — the only
+    ; control here whose picture is where a thing is rather than whether it is
+    ; drawn at all.
+    tag Switch  EVGElement (props (className "pf-switch") (role "switch"))
+    tag SwOn    EVGElement (props (className "pf-switch pf-switch-on") (role "switch"))
+    tag Knob    EVGElement (props (className "pf-knob") (a11yHidden true))
+    tag SwLabel EVGElement (props (className "pf-switch-label") (elementType 1))
+    tag SwRow   EVGElement (props (className "pf-switch-row"))
+
+    tag Foot    EVGElement (props (className "pf-foot"))
+    tag FootTx  EVGElement (props (className "pf-foot-text") (elementType 1))
+    tag FootBtn EVGElement (props (className "pf-foot-btns"))
+    tag Ghost2  EVGElement (props (className "pf-btn pf-btn-ghost") (role "button"))
+    tag Solid   EVGElement (props (className "pf-btn pf-btn-solid") (role "button"))
+    tag SolidTx EVGElement (props (className "pf-btn-text pf-btn-text-solid") (elementType 1))
+    tag Note    EVGElement (props (className "pf-note") (elementType 1))
+}
+
+; One row of the form: a label, an optional help glyph, and the tid of the
+; control it labels. The same shape the invoice's `UiField` has, and for the
+; same reason — the strings are written once and handed to the control.
+class PfRow {
+    def tid:string ""
+    def label:string ""
+    def hint:string ""
+    def help:boolean false
+
+    Constructor () {
+    }
+}
+
+class ProfileDemo {
+
+    def rows:[PfRow]
+    def fullName:InputCtl (new InputCtl())
+    def birth:InputCtl (new InputCtl())
+    def available:InputCtl (new InputCtl())
+    def company:InputCtl (new InputCtl())
+    def dismissal:InputCtl (new InputCtl())
+    def phone:InputCtl (new InputCtl())
+    def visibility:SelectCtl (new SelectCtl())
+    def hire:SwitchCtl (new SwitchCtl())
+
+    def root@(optional):EVGElement
+    def sheet@(optional):EVGStyleSheet
+    def layout@(optional):EVGLayout
+    def measurer:EVGLayout (new EVGLayout())
+
+    def hovered:string ""
+    def pressed:string ""
+    def focused:string ""
+
+    def pageW:double 780.0
+    def pageH:double 800.0
+    ; The text run's width inside a control box, after its padding. The
+    ; controller needs it to decide where to scroll.
+    def ctlTextW:double 300.0
+    ; The font the SHEET draws a control's text in. Handed to every controller,
+    ; because a caret measured in one size and drawn in another is four pixels
+    ; wrong and the invoice form found that out the hard way.
+    def boxFont:string "Arial"
+    def boxFontSize:double 13.0
+
+    Constructor () {
+    }
+
+    ; --- setup ----------------------------------------------------------------
+
+    fn addRow:PfRow (tid:string label:string help:boolean) {
+        def r (new PfRow())
+        r.tid = tid
+        r.label = label
+        r.help = help
+        push rows r
+        return r
+    }
+
+    fn rowFor:PfRow (tid:string) {
+        def i:int 0
+        while (i < (array_length rows)) {
+            def r:PfRow (itemAt rows i)
+            if (r.tid == tid) {
+                return r
+            }
+            i = (i + 1)
+        }
+        return (new PfRow())
+    }
+
+    fn dress:void (c:InputCtl label:string value:string) {
+        c.fontFamily = boxFont
+        c.fontSize = boxFontSize
+        c.boxWidth = ctlTextW
+        c.name = label
+        c.value = value
+        c.caret = (strlen value)
+        c.anchor = c.caret
+    }
+
+    fn init:void (css:string) {
+        def s (new EVGStyleSheet())
+        s.parse(css)
+        sheet = s
+
+        this.addRow("pf-photo" "Photo" false)
+
+        this.addRow("pf-name" "Full Name" false)
+        fullName.tid = "pf-name"
+        this.dress(fullName "Full Name" "Noa Brooks")
+
+        def rBirth:PfRow (this.addRow("pf-birth" "Birth Date" true))
+        ; A DATE, drawn as a text field with a calendar beside it. The
+        ; description says so, because a reader is entitled to know what shape
+        ; the answer takes and the glyph is hidden from them.
+        rBirth.hint = "A date, written out."
+        birth.tid = "pf-birth"
+        this.dress(birth "Birth Date" "Sep 18, 1991")
+        birth.description = rBirth.hint
+
+        def rAvail:PfRow (this.addRow("pf-available" "Availability Date" true))
+        rAvail.hint = "A date and a time."
+        available.tid = "pf-available"
+        this.dress(available "Availability Date" "April 24th, 2026 - 10:30")
+        available.description = rAvail.hint
+
+        this.addRow("pf-company" "Company" false)
+        company.tid = "pf-company"
+        this.dress(company "Company" "Harborline Systems")
+
+        def rTime:PfRow (this.addRow("pf-dismissal" "Dismissal Time" true))
+        rTime.hint = "A time of day, 24 hour."
+        dismissal.tid = "pf-dismissal"
+        this.dress(dismissal "Dismissal Time" "17.30")
+        dismissal.description = rTime.hint
+
+        this.addRow("pf-phone" "Phone Number" false)
+        phone.tid = "pf-phone"
+        this.dress(phone "Phone Number" "+1 (312) 847-1928")
+
+        this.addRow("pf-visibility" "Visibility" false)
+        visibility.tid = "pf-visibility"
+        visibility.name = "Visibility"
+        visibility.addItem("everyone" "Everyone" false)
+        visibility.addItem("team" "Team only" false)
+        visibility.addItem("nobody" "Nobody" false)
+        visibility.value = "team"
+
+        this.addRow("pf-hire" "Availability" false)
+        hire.tid = "pf-hire"
+        hire.name = "Available to hire"
+        hire.checkState = 1
+
+        ; The caret opens in the name, which is where a settings page puts it.
+        focused = "pf-name"
+        this.rebuild()
+    }
+
+    ; --- geometry -------------------------------------------------------------
+
+    fn engine:EVGTextEngine () {
+        return (measurer.getTextEngine())
+    }
+
+    fn inputs:[InputCtl] () {
+        def a:[InputCtl]
+        push a fullName
+        push a birth
+        push a available
+        push a company
+        push a dismissal
+        push a phone
+        return a
+    }
+
+    fn inputFor:InputCtl (tid:string) {
+        def all:[InputCtl] (this.inputs())
+        def i:int 0
+        while (i < (array_length all)) {
+            def c:InputCtl (itemAt all i)
+            if (c.tid == tid) {
+                return c
+            }
+            i = (i + 1)
+        }
+        return (new InputCtl())
+    }
+
+    fn hasInput:boolean (tid:string) {
+        def all:[InputCtl] (this.inputs())
+        def i:int 0
+        while (i < (array_length all)) {
+            def c:InputCtl (itemAt all i)
+            if (c.tid == tid) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; --- the tree -------------------------------------------------------------
+
+    ; A control box with its text, its caret, and an icon on whichever side the
+    ; reference puts it. `leading` decides which: the clock goes in front of a
+    ; time and the calendar behind a date, and the caret has to know, because a
+    ; leading icon moves where the text run starts.
+    fn boxFor:EVGElement (c:InputCtl icon:string leading:boolean) {
+        def box (tree Pf (Box (props (id c.tid) (a11yLabel c.name))))
+        if c.readOnly {
+            box = (tree Pf (BoxOff (props (id c.tid) (a11yLabel c.name))))
+        }
+        box.a11yDescription = c.description
+        ; What the field contains — see the note in `FormDemo.boxFor`. Empty
+        ; for a password, which this form has none of but which the rule
+        ; covers anyway rather than waiting for one to arrive.
+        if (c.kind != "password") {
+            box.a11yValue = c.value
+        }
+        box.a11yFocusable = (c.disabled == false)
+
+        def eng:EVGTextEngine (this.engine())
+        def lead:double 0.0
+        if leading {
+            if ((strlen icon) > 0) {
+                def m:EVGTextMetrics (eng.measureRun(icon boxFont boxFontSize))
+                lead = m.width
+            }
+        }
+
+        ; The band goes in FIRST, behind everything it is behind — the icon
+        ; included. The invoice form learned that twice.
+        if (focused == c.tid) {
+            if (c.hasSelection()) {
+                def s:double (c.caretXAt(eng (c.selStart())))
+                def e:double (c.caretXAt(eng (c.selEnd())))
+                def band (tree Pf (Band (props (id (c.tid + "-band")))))
+                band.left = (EVGUnit.px(((lead + s) - c.scrollX)))
+                band.width = (EVGUnit.px((e - s)))
+                box.addChild(band)
+            }
+        }
+
+        if leading {
+            if ((strlen icon) > 0) {
+                box.addChild((tree Pf (Icon icon)))
+            }
+        }
+
+        if ((strlen c.value) == 0) {
+            box.addChild((tree Pf (Ghost c.placeholder)))
+        } {
+            box.addChild((tree Pf (Text (props (id (c.tid + "-text"))) (c.glyphText()))))
+        }
+
+        if ((focused == c.tid) && (c.readOnly == false)) {
+            def cx:double (c.caretXAt(eng c.caret))
+            def car (tree Pf (Caret (props (id (c.tid + "-caret")))))
+            car.left = (EVGUnit.px(((lead + cx) - c.scrollX)))
+            box.addChild(car)
+        }
+
+        ; A TRAILING icon is pushed to the far end by a spacer that eats the
+        ; slack. Not `justify-content: space-between` on the box, which would
+        ; also push the text away from the leading edge on the rows that have
+        ; no icon at all.
+        if (leading == false) {
+            if ((strlen icon) > 0) {
+                box.addChild((tree Pf (Spacer)))
+                box.addChild((tree Pf (Icon icon)))
+            }
+        }
+        return box
+    }
+
+    ; A whole row: the label column, then whatever control the caller built.
+    fn rowFor2:EVGElement (r:PfRow control:EVGElement) {
+        def row (tree Pf (Row (props (id (r.tid + "-row")))))
+        def lb (tree Pf (Label))
+        lb.addChild((tree Pf (LabelTx r.label)))
+        if r.help {
+            lb.addChild((tree Pf (Help "?")))
+        }
+        row.addChild(lb)
+        def cell (tree Pf (Ctl))
+        cell.addChild(control)
+        row.addChild(cell)
+        return row
+    }
+
+    fn photoRow:EVGElement () {
+        def wrap (tree Pf (SwRow))
+        wrap.addChild((tree Pf (Avatar (props (id "pf-avatar")))))
+        def change (tree Pf (Btn (props (id "pf-photo-change") (a11yLabel "Change photo"))))
+        change.addChild((tree Pf (BtnIcon "↥")))
+        change.addChild((tree Pf (BtnTx "Change")))
+        wrap.addChild(change)
+        def remove (tree Pf (Btn (props (id "pf-photo-remove") (a11yLabel "Remove photo"))))
+        remove.addChild((tree Pf (BtnIcon "✕")))
+        remove.addChild((tree Pf (BtnTx "Remove")))
+        wrap.addChild(remove)
+        return wrap
+    }
+
+    ; The select, OPEN AS WELL AS CLOSED. The header used to say this page drew
+    ; the closed trigger and stopped, because opening it needs the overlay
+    ; layer — but the overlay layer exists, `DropdownDemo` uses it, and
+    ; `SelectCtl` already had `openList`, `closeList`, `activate` and `keyDown`
+    ; measured against Radix. The only thing missing was a demo that drew the
+    ; state the controller was already keeping.
+    ;
+    ; Wrapped, because the trigger and the surface have to be SIBLINGS for the
+    ; overlay pass to find the anchor.
+    fn selectRow:EVGElement () {
+        def wrap (tree Pf (SelWrap))
+        def t (tree Pf (Trigger (props (id "pf-visibility") (a11yLabel visibility.name))))
+        t.a11yFocusable = true
+        t.a11yHasPopup = "listbox"
+        t.isOverlayAnchor = true
+        t.addChild((tree Pf (Text (visibility.labelOf(visibility.value)))))
+        t.addChild((tree Pf (Spacer)))
+        t.addChild((tree Pf (Chevron "⌄")))
+        wrap.addChild(t)
+        if visibility.open {
+            t.a11yExpanded = (EVGA11yTri.yes())
+            wrap.addChild((this.optionList()))
+        } {
+            t.a11yExpanded = (EVGA11yTri.no())
+        }
+        return wrap
+    }
+
+    ; One row per item. The ACTIVE one is the controller's `activeValue` — the
+    ; keyboard's cursor — and the tick marks the CHOSEN one; Radix keeps those
+    ; two separate and so does this, because arrowing through a list without
+    ; choosing must not look like choosing.
+    fn optionList:EVGElement () {
+        def list (tree Pf (Listbox (props (id (visibility.contentTid())))))
+        def i:int 0
+        while (i < (array_length visibility.items)) {
+            def it:UiItem (itemAt visibility.items i)
+            def row (tree Pf (Option (props (id (visibility.itemTid(it.value))))))
+            if (it.value == visibility.activeValue) {
+                row = (tree Pf (OptionOn (props (id (visibility.itemTid(it.value))))))
+            }
+            row.a11yLabel = it.name
+            if (it.value == visibility.value) {
+                row.a11ySelected = 2
+            }
+            row.addChild((tree Pf (OptTxt it.name)))
+            row.addChild((tree Pf (Spacer)))
+            def mark:string " "
+            if (it.value == visibility.value) {
+                mark = "✓"
+            }
+            row.addChild((tree Pf (OptMark mark)))
+            list.addChild(row)
+            i = (i + 1)
+        }
+        return list
+    }
+
+    fn switchRow:EVGElement () {
+        def wrap (tree Pf (SwRow))
+        def sw (tree Pf (Switch (props (id "pf-hire") (a11yLabel hire.name))))
+        if (hire.checkState == 1) {
+            sw = (tree Pf (SwOn (props (id "pf-hire") (a11yLabel hire.name))))
+        }
+        sw.a11yFocusable = true
+        if (hire.checkState == 1) {
+            sw.a11yChecked = (EVGA11yTri.yes())
+        } {
+            sw.a11yChecked = (EVGA11yTri.no())
+        }
+        sw.addChild((tree Pf (Knob)))
+        wrap.addChild(sw)
+        wrap.addChild((tree Pf (SwLabel hire.name)))
+        return wrap
+    }
+
+    fn pageBody:EVGElement () {
+        def page (tree Pf (Page (props (id "page"))))
+        def card (tree Pf (Card (props (id "card"))))
+
+        def head (tree Pf (Head))
+        def ht (tree Pf (HeadTx))
+        ht.addChild((tree Pf (Title "Profile Settings")))
+        ht.addChild((tree Pf (Sub "Identity and availability.")))
+        head.addChild(ht)
+        head.addChild((tree Pf (Spacer)))
+        def badge (tree Pf (Badge (props (id "pf-progress") (a11yLabel "Profile 84 percent complete"))))
+        badge.addChild((tree Pf (BadgeTx "84% complete")))
+        head.addChild(badge)
+        card.addChild(head)
+
+        def body (tree Pf (Body (props (id "pf"))))
+        body.addChild((this.rowFor2((this.rowFor("pf-photo")) (this.photoRow()))))
+        body.addChild((this.rowFor2((this.rowFor("pf-name")) (this.boxFor(fullName "" false)))))
+        body.addChild((this.rowFor2((this.rowFor("pf-birth")) (this.boxFor(birth "🗓" false)))))
+        body.addChild((this.rowFor2((this.rowFor("pf-available")) (this.boxFor(available "🗓" false)))))
+        body.addChild((this.rowFor2((this.rowFor("pf-company")) (this.boxFor(company "" false)))))
+        body.addChild((this.rowFor2((this.rowFor("pf-dismissal")) (this.boxFor(dismissal "◷  " true)))))
+        body.addChild((this.rowFor2((this.rowFor("pf-phone")) (this.boxFor(phone "" false)))))
+        body.addChild((this.rowFor2((this.rowFor("pf-visibility")) (this.selectRow()))))
+        body.addChild((this.rowFor2((this.rowFor("pf-hire")) (this.switchRow()))))
+        card.addChild(body)
+
+        def foot (tree Pf (Foot))
+        foot.addChild((tree Pf (FootTx "Changes stay private until saved.")))
+        foot.addChild((tree Pf (Spacer)))
+        def btns (tree Pf (FootBtn))
+        def cancel (tree Pf (Ghost2 (props (id "pf-cancel") (a11yLabel "Cancel"))))
+        cancel.addChild((tree Pf (BtnIcon "↺")))
+        cancel.addChild((tree Pf (BtnTx "Cancel")))
+        btns.addChild(cancel)
+        def save (tree Pf (Solid (props (id "pf-save") (a11yLabel "Save changes"))))
+        save.addChild((tree Pf (BtnIcon "🖫")))
+        save.addChild((tree Pf (SolidTx "Save changes")))
+        btns.addChild(save)
+        foot.addChild(btns)
+        card.addChild(foot)
+
+        page.addChild(card)
+        page.addChild((tree Pf (Note "Every control's left edge is on one column. The date and time boxes are text fields with an icon — segmented editing is not built here.")))
+        return page
+    }
+
+    fn rebuild:void () {
+        root = (this.pageBody())
+    }
+
+    ; --- layout ---------------------------------------------------------------
+
+    fn laidOut:EVGLayout () {
+        if layout {
+            return (unwrap layout)
+        }
+        return (this.laidOutOnce())
+    }
+
+    fn laidOutOnce:EVGLayout () {
+        def r:EVGElement (unwrap root)
+        def s:EVGStyleSheet (unwrap sheet)
+        this.markStates(r)
+        s.applyTree(r "")
+        def lay (new EVGLayout())
+        lay.setPageSize(pageW pageH)
+        lay.layout(r)
+        layout = lay
+        return lay
+    }
+
+    fn markStates:void (el:EVGElement) {
+        el.isHovered = ((strlen hovered) > 0) && (el.id == hovered)
+        el.isFocused = ((strlen focused) > 0) && (el.id == focused)
+        el.isPressed = ((strlen pressed) > 0) && (el.id == pressed)
+        def i:int 0
+        while (i < (array_length el.children)) {
+            this.markStates((itemAt el.children i))
+            i = (i + 1)
+        }
+    }
+
+    ; --- input ----------------------------------------------------------------
+
+    fn ring:[string] () {
+        def a:[string]
+        push a "pf-photo-change"
+        push a "pf-photo-remove"
+        push a "pf-name"
+        push a "pf-birth"
+        push a "pf-available"
+        push a "pf-company"
+        push a "pf-dismissal"
+        push a "pf-phone"
+        push a "pf-visibility"
+        push a "pf-hire"
+        push a "pf-cancel"
+        push a "pf-save"
+        return a
+    }
+
+    fn tab:boolean (back:boolean) {
+        def r:[string] (this.ring())
+        def n:int (array_length r)
+        def at:int (0 - 1)
+        def i:int 0
+        while (i < n) {
+            if ((itemAt r i) == focused) {
+                at = i
+            }
+            i = (i + 1)
+        }
+        def next:int (at + 1)
+        if back {
+            next = (at - 1)
+        }
+        if (next < 0) {
+            next = (n - 1)
+        }
+        if (next >= n) {
+            next = 0
+        }
+        focused = (itemAt r next)
+        this.rebuild()
+        return true
+    }
+
+    fn key:boolean (k:string) {
+        return (this.keyWith(k false false))
+    }
+
+    fn keyWith:boolean (k:string shift:boolean ctrl:boolean) {
+        ; THE OPEN LIST TAKES THE KEYBOARD FIRST, including Tab. A select whose
+        ; list is open and whose Tab moves to the next field is a select you
+        ; cannot close without the mouse, and Radix does not do that.
+        ;
+        ; `SelectCtl.keyDown` owns every rule here — which key moves the cursor,
+        ; where Home and End land, that Enter chooses and Escape does not — and
+        ; it was measured against the reference. This asks it and draws what it
+        ; returns.
+        if visibility.open {
+            def land:string (visibility.keyDown(focused k))
+            if ((strlen land) > 0) {
+                focused = land
+            }
+            this.rebuild()
+            return true
+        }
+        ; Closed: the keys that OPEN it. Enter and Space on the trigger, and
+        ; either arrow, which is the pattern for a collapsed combobox.
+        if (focused == "pf-visibility") {
+            if (((k == "Enter") || (k == " ")) || ((k == "ArrowDown") || (k == "ArrowUp"))) {
+                visibility.openList()
+                this.rebuild()
+                return true
+            }
+        }
+        if (k == "Tab") {
+            return (this.tab(shift))
+        }
+        if (this.hasInput(focused)) {
+            def c:InputCtl (this.inputFor(focused))
+            c.keyDownWith(focused k shift ctrl)
+            c.ensureCaretVisible((this.engine()))
+            this.rebuild()
+            return true
+        }
+        if (focused == "pf-hire") {
+            if (k == " ") {
+                hire.checkState = (1 - hire.checkState)
+                this.rebuild()
+                return true
+            }
+        }
+        return false
+    }
+
+    fn type:boolean (ch:string) {
+        if ((this.hasInput(focused)) == false) {
+            return false
+        }
+        def c:InputCtl (this.inputFor(focused))
+        def took:boolean (c.typeChar(focused ch))
+        if took {
+            c.ensureCaretVisible((this.engine()))
+            this.rebuild()
+        }
+        return took
+    }
+
+    fn press:boolean (target:string) {
+        ; THE SELECT, BEFORE THE FOCUS RING. Every decision goes through the
+        ; controller: this asks it what a press on that target means and draws
+        ; whatever it says afterwards. Nothing here decides whether the list is
+        ; open.
+        if (target == "pf-visibility") {
+            focused = target
+            if visibility.open {
+                visibility.closeList()
+            } {
+                visibility.openList()
+            }
+            this.rebuild()
+            return true
+        }
+        if visibility.open {
+            ; A press on an option chooses it and closes; `activate` does both
+            ; and returns the tid the focus lands on.
+            def act:string (visibility.activate(target))
+            if ((strlen act) > 0) {
+                focused = (visibility.triggerTid())
+                this.rebuild()
+                return true
+            }
+            ; Anywhere else with the list open dismisses it, which is what a
+            ; click outside does in the reference.
+            visibility.closeList()
+            this.rebuild()
+            return true
+        }
+        if (target == "pf-hire") {
+            focused = target
+            hire.checkState = (1 - hire.checkState)
+            this.rebuild()
+            return true
+        }
+        def r:[string] (this.ring())
+        def i:int 0
+        while (i < (array_length r)) {
+            if ((itemAt r i) == target) {
+                focused = target
+                this.rebuild()
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; --- the pointer ---------------------------------------------------------
+    ;
+    ; The same three methods the invoice form has, over the same shared
+    ; `InputCtl.indexAtPageX`. Written here rather than shared with FormDemo
+    ; because the two demos own different trees and different id schemes; the
+    ; part that is easy to get wrong — where in the box the text starts — is
+    ; the part that IS shared, and neither demo spells it out any more.
+
+    def dragField:string ""
+
+    sfn byId:EVGElement (el:EVGElement id:string) {
+        if (el.id == id) {
+            return el
+        }
+        def i:int 0
+        while (i < (el.getChildCount())) {
+            def found:EVGElement (ProfileDemo.byId((el.getChild(i)) id))
+            if (found.id == id) {
+                return found
+            }
+            i = (i + 1)
+        }
+        return el
+    }
+
+
+    ; Which field an element BELONGS to.
+    ;
+    ; A click on the letters themselves hits `fm-name-text`, not `fm-name`:
+    ; the glyph run is a child of the box and it is what is under the pointer
+    ; wherever there is text. So `press("fm-name-text")` found no field, and
+    ; clicking a field's own characters did nothing at all — only the empty
+    ; part of the box to the right of the text focused it. Which is precisely
+    ; backwards, and invisible in a screenshot.
+    ;
+    ; Resolved by containment rather than by name: an id prefix test would
+    ; also match a second field called `fm-name-2`, and this is the sort of
+    ; rule that is only ever wrong once someone adds one.
+    fn fieldOwning:string (target:string) {
+        this.laidOutOnce()
+        def r:EVGElement (unwrap root)
+        def all:[InputCtl] (this.inputs())
+        def i:int 0
+        while (i < (array_length all)) {
+            def c:InputCtl (itemAt all i)
+            if (c.tid == target) {
+                return target
+            }
+            def box:EVGElement (ProfileDemo.byId(r c.tid))
+            if (box.id == c.tid) {
+                def inner:EVGElement (ProfileDemo.byId(box target))
+                if (inner.id == target) {
+                    ; A CONTROL of its own is not part of the field, even
+                    ; though it sits inside its box. The password's eye is a
+                    ; button living in the password's box: mapping every
+                    ; descendant to the field made clicking the eye focus the
+                    ; field instead of toggling it, which is the bug this rule
+                    ; introduced and the reason a role check belongs here.
+                    ; A glyph run and a caret have no role; a button does.
+                    if ((strlen inner.role) > 0) {
+                        return target
+                    }
+                    return c.tid
+                }
+            }
+            i = (i + 1)
+        }
+        return target
+    }
+
+    fn fieldBoxOf:EVGElement (target:string) {
+        this.laidOutOnce()
+        def r:EVGElement (unwrap root)
+        return (ProfileDemo.byId(r target))
+    }
+
+    fn indexAt:int (target:string px:double) {
+        def c:InputCtl (this.inputFor(target))
+        if (c.tid != target) {
+            return -1
+        }
+        this.laidOutOnce()
+        def r:EVGElement (unwrap root)
+        def box:EVGElement (ProfileDemo.byId(r target))
+        if (box.id != target) {
+            return -1
+        }
+        return (InputCtl.indexAtPageX((this.engine()) c box px))
+    }
+
+    fn beginSelection:boolean (rawTarget:string px:double extend:boolean) {
+        def target:string (this.fieldOwning(rawTarget))
+        def took:boolean (this.press(target))
+        if (took == false) {
+            return false
+        }
+        def c:InputCtl (this.inputFor(target))
+        if (c.tid != target) {
+            dragField = ""
+            return true
+        }
+        def idx:int (this.indexAt(target px))
+        if (idx < 0) {
+            dragField = ""
+            return true
+        }
+        c.placeCaret(idx extend)
+        dragField = target
+        this.rebuild()
+        return true
+    }
+
+    fn extendSelection:boolean (px:double) {
+        if (dragField == "") {
+            return false
+        }
+        def c:InputCtl (this.inputFor(dragField))
+        if (c.tid != dragField) {
+            return false
+        }
+        def idx:int (this.indexAt(dragField px))
+        if (idx < 0) {
+            return false
+        }
+        if (idx == c.caret) {
+            return false
+        }
+        c.placeCaret(idx true)
+        this.rebuild()
+        return true
+    }
+
+    fn endSelection:boolean () {
+        dragField = ""
+        return false
+    }
+
+    fn selectWordAt:boolean (rawTarget:string px:double) {
+        def target:string (this.fieldOwning(rawTarget))
+        def c:InputCtl (this.inputFor(target))
+        if (c.tid != target) {
+            return false
+        }
+        def idx:int (this.indexAt(target px))
+        if (idx < 0) {
+            return false
+        }
+        def at:int idx
+        if (at >= (strlen c.value)) {
+            at = ((strlen c.value) - 1)
+        }
+        c.selectWordAt(at)
+        this.rebuild()
+        return true
+    }
+
+
+    ; What the pointer should look like. A canvas UI has no `cursor: text` for
+    ; free — the page picks the cursor from the accessible tree, where a field
+    ; and a button are both "activatable" and would both say `pointer`. So the
+    ; field boxes are tested directly.
+    ;
+    ; It matters more than it sounds: an I-beam is how a person knows a
+    ; rectangle is text they can put a caret in, and without one a drawn form
+    ; reads as a picture of a form.
+    fn cursorAt:string (px:double py:double) {
+        this.laidOutOnce()
+        def r:EVGElement (unwrap root)
+        def all:[InputCtl] (this.inputs())
+        def i:int 0
+        while (i < (array_length all)) {
+            def c:InputCtl (itemAt all i)
+            def box:EVGElement (ProfileDemo.byId(r c.tid))
+            if (box.id == c.tid) {
+                def x0:double (box.calculatedX)
+                def y0:double (box.calculatedY)
+                if ((px >= x0) && (px <= (x0 + (box.calculatedWidth)))) {
+                    if ((py >= y0) && (py <= (y0 + (box.calculatedHeight)))) {
+                        if (c.disabled) {
+                            return "default"
+                        }
+                        return "text"
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+
+    ; --- the platform text-input session --------------------------------------
+    ;
+    ; The web host puts a real, transparent `<input>` over the focused field
+    ; and lets the browser do the editing; these two methods are the seam.
+    ; JSON across it, the way the display list and the accessible tree already
+    ; cross it — one method rather than nine accessors that can drift.
+
+    fn focusedField:string () {
+        def all:[InputCtl] (this.inputs())
+        def i:int 0
+        while (i < (array_length all)) {
+            def c:InputCtl (itemAt all i)
+            if (c.tid == focused) {
+                return c.tid
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    ; Everything the proxy needs to become this field: what it holds, where
+    ; the selection is, what KIND it is — which decides the proxy's `type` and
+    ; `inputmode`, so a password proxy reveals correctly and a number proxy
+    ; brings up a numeric keypad on a phone — and where it is drawn, so the
+    ; IME's candidate window appears next to the text it is composing rather
+    ; than in a corner.
+    fn fieldStateJson:string (tid:string) {
+        def c:InputCtl (this.inputFor(tid))
+        if (c.tid != tid) {
+            return "null"
+        }
+        def box:EVGElement (this.fieldBoxOf(tid))
+        def out:string "{"
+        out = (out + "\"tid\":" + (EVGA11yTree.jsonString(c.tid)))
+        out = (out + ",\"value\":" + (EVGA11yTree.jsonString(c.value)))
+        out = (out + ",\"selStart\":" + (to_string (c.selStart())))
+        out = (out + ",\"selEnd\":" + (to_string (c.selEnd())))
+        out = (out + ",\"kind\":" + (EVGA11yTree.jsonString(c.kind)))
+        out = (out + ",\"maxLength\":" + (to_string c.maxLength))
+        ; The placeholder and the disabled flag, for the same reader as the
+        ; rest: a bench that has to know what a field SHOWS when empty, and
+        ; whether a click on it is meant to do anything at all.
+        out = (out + ",\"placeholder\":" + (EVGA11yTree.jsonString(c.placeholder)))
+        if c.disabled {
+            out = (out + ",\"disabled\":true")
+        }
+        if c.readOnly {
+            out = (out + ",\"readOnly\":true")
+        }
+        if (box.id == tid) {
+            out = (out + ",\"box\":{\"x\":" + (to_string (to_int (box.calculatedX))))
+            out = (out + ",\"y\":" + (to_string (to_int (box.calculatedY))))
+            out = (out + ",\"w\":" + (to_string (to_int (box.calculatedWidth))))
+            out = (out + ",\"h\":" + (to_string (to_int (box.calculatedHeight))) + "}")
+        }
+        return (out + "}")
+    }
+
+    ; The session reported an edit. Wholesale — see `InputCtl.applyEdit`: the
+    ; browser has already done the work, and there is nothing here to replay.
+    fn applyEdit:boolean (tid:string v:string selStart:int selEnd:int) {
+        def c:InputCtl (this.inputFor(tid))
+        if (c.tid != tid) {
+            return false
+        }
+        ; Readonly is NOT refused here: `InputCtl.applyEdit` keeps the
+        ; selection and drops the value, which is what the platform's own
+        ; readonly field does.
+        if (c.disabled) {
+            return false
+        }
+        c.applyEdit(v selStart selEnd)
+        c.ensureCaretVisible((this.engine()))
+        this.rebuild()
+        return true
+    }
+
+    fn setHover:void (id:string) { hovered = id }
+    fn setPressed:void (id:string) { pressed = id }
+    fn setFocus:void (id:string) { focused = id }
+
+    ; --- what the page asks for -----------------------------------------------
+
+    fn displayListJson:string () {
+        def lay:EVGLayout (this.laidOutOnce())
+        def r:EVGElement (unwrap root)
+        def dl (new EVGDisplayList())
+        dl.build(r)
+        return (dl.toJson())
+    }
+
+    fn hitId:string (px:double py:double) {
+        this.displayListJson()
+        def r:EVGElement (unwrap root)
+        def hit (new EVGHitTest())
+        return (hit.idAt(r px py))
+    }
+
+    fn a11yJson:string (generation:int focusId:string) {
+        this.displayListJson()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "Profile settings demo" generation focusId))
+        return (t.toJson())
+    }
+
+    fn a11yProblems:[string] () {
+        this.displayListJson()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "Profile settings demo" 1 ""))
+        return (t.lint())
+    }
+
+    fn styleErrorCount:int () {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (array_length s.errors)
+    }
+
+    fn styleErrorAt:string (i:int) {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (itemAt s.errors i)
+    }
+
+    fn widthPx:double () { return pageW }
+    fn heightPx:double () { return pageH }
+}

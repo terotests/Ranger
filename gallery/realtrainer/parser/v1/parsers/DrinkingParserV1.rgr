@@ -1,0 +1,102 @@
+Import "../V1SharedHelpers.rgr"
+Import "../nodes/DrinkingNode.rgr"
+Import "NutrientParserV1.rgr"
+
+class DrinkVolumeResult {
+    def found:boolean false
+    def volume:string ""
+    def unit:string ""
+}
+
+class DrinkingParserV1 {
+    static fn tryParseVolume:DrinkVolumeResult (tok:string) {
+        def out (new DrinkVolumeResult)
+        def numEnd (V1SharedHelpers.splitNumAndUnit(tok))
+        if (numEnd <= 0) {
+            return out
+        }
+        def numPart (substring tok 0 numEnd)
+        def isDec (V1SharedHelpers.isDecimalToken(numPart))
+        if (isDec == false) {
+            return out
+        }
+        def unitPart (substring tok numEnd (strlen tok))
+        if (unitPart == "l") {
+            out.found = true
+            out.volume = numPart
+            out.unit = "l"
+            return out
+        }
+        if (unitPart == "dl") {
+            out.found = true
+            out.volume = numPart
+            out.unit = "dl"
+            return out
+        }
+        if (unitPart == "ml") {
+            out.found = true
+            out.volume = numPart
+            out.unit = "ml"
+            return out
+        }
+        return out
+    }
+
+    static fn parse:DrinkingNode (line:string) {
+        def n (new DrinkingNode)
+        if ((strlen line) <= 9) {
+            return n
+        }
+        def rest (trim (substring line 9 (strlen line)))
+
+        def desc (V1SharedHelpers.extractPipeDescription(rest))
+        if ((strlen desc) > 0) {
+            n.hasDescription = true
+            n.description = desc
+            def barPos (V1SharedHelpers.findToken(rest "|"))
+            if (barPos >= 0) {
+                rest = (trim (substring rest 0 barPos))
+            }
+        }
+
+        def parts (strsplit rest " ")
+        def pLen (array_length parts)
+        def liquidParts:[string]
+        def i@(mutable):int 0
+        while (i < pLen) {
+            def tok (itemAt parts i)
+            def vol (DrinkingParserV1.tryParseVolume(tok))
+            if (vol.found) {
+                n.hasVolume = true
+                n.volumeRaw = vol.volume
+                n.volumeUnit = vol.unit
+            } {
+                def scan (NutrientParserV1.tryParseAt((tok + " ") 0))
+                if (scan.found) {
+                    if (scan.name == "kcal") {
+                        n.hasCalories = true
+                        n.caloriesRaw = scan.value
+                    } {
+                        if ((scan.name == "prot") || (scan.name == "protein")) {
+                            n.hasProtein = true
+                            n.proteinRaw = scan.value
+                        } {
+                            n.hasNutrients = true
+                            push n.nutrientJsonList (NutrientParserV1.nutrientJson(scan.name scan.value scan.unit))
+                        }
+                    }
+                } {
+                    push liquidParts tok
+                }
+            }
+            i = i + 1
+        }
+
+        if ((array_length liquidParts) > 0) {
+            n.hasLiquid = true
+            n.liquid = (trim (join liquidParts " "))
+        }
+
+        return n
+    }
+}

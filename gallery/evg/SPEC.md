@@ -356,7 +356,22 @@ Radial gradients radiate from the center outward.
 | Attribute | Type | Description |
 |-----------|------|-------------|
 | `id` | string | Unique identifier for element lookup |
+| `key` | string | Reconciliation identity, scoped to the parent (see below) |
 | `cname` | string | Component name for registration |
+
+**`id` and `key` are not the same thing.** `id` is global and outward-facing:
+the hit test reports it, the accessibility tree carries it, and an application
+addresses a control by it, so no two elements may share one. `key` is
+sibling-scoped and inward-facing: it tells `EVGReconcile` that a newly built
+child is the same *logical* child as one already in the live tree, so a rebuild
+can keep the element — and with it, anything the element remembers, a
+transition in flight most of all. Two lists on one page may both key a row
+`"video"`.
+
+A child with no key is matched by **position among its unkeyed siblings**, and
+a match also requires the same element type. Reordering an unkeyed list
+therefore keeps the elements but moves the data under them, which is exactly
+what makes a reordered unkeyed list animate wrongly.
 
 ---
 
@@ -1022,7 +1037,7 @@ When implementing an EVG renderer in a new language, ensure support for:
 
 ### Required
 - [ ] XML parsing with attribute extraction
-- [ ] Unit value parsing (px, %, em, hp, fill)
+- [ ] Unit value parsing (px, %, em, rem, vw, vh, hp, fill)
 - [ ] Box model calculations (margin, padding, border)
 - [ ] Flow layout algorithm with wrapping
 - [ ] Absolute positioning

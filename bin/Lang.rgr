@@ -75,6 +75,54 @@ language {
             self _self
             func _func
         }
+        ; JavaScript had NO block here, and 41 of its 46 keywords came back
+        ; from `scripts/reserved_probe.py` as parse errors -- `def new:int 1`
+        ; emitted `const new = 1`. `null` cannot be listed: the Ranger parser
+        ; reads it as a literal rather than a name, so the pair does not parse;
+        ; it is renamed for this target in `transformWord` instead, beside the
+        ; C# and Dart cases that are there for the same reason.
+        es6 {
+            break _break
+            case _case
+            catch _catch
+            class _class
+            const _const
+            continue _continue
+            debugger _debugger
+            default _default
+            delete _delete
+            do _do
+            else _else
+            enum _enum
+            export _export
+            extends _extends
+            finally _finally
+            for _for
+            function _function
+            if _if
+            implements _implements
+            import _import
+            in _in
+            instanceof _instanceof
+            interface _interface
+            let _let
+            new _new
+            package _package
+            private _private
+            protected _protected
+            public _public
+            static _static
+            super _super
+            switch _switch
+            throw _throw
+            try _try
+            typeof _typeof
+            var _var
+            void _void
+            while _while
+            with _with
+            yield _yield
+        }
         cpp {
             operator _operator
             static _static
@@ -132,10 +180,62 @@ language {
             catch _catch
             this _this
             operator_new _operator_new
+            alignas _alignas
+            alignof _alignof
+            asm _asm
+            break _break
+            const_cast _const_cast
+            constexpr _constexpr
+            continue _continue
+            decltype _decltype
+            do _do
+            dynamic_cast _dynamic_cast
+            else _else
+            export _export
+            for _for
+            if _if
+            noexcept _noexcept
+            nullptr _nullptr
+            reinterpret_cast _reinterpret_cast
+            sizeof _sizeof
+            static_assert _static_assert
+            static_cast _static_cast
+            thread_local _thread_local
+            typeid _typeid
+            using _using
+            wchar_t _wchar_t
+            while _while
         }
+        ; Go's 25 keywords, less `func` and `map` (in `*`) and `return`,
+        ; which Ranger itself will not accept as a name. This block held 2 of
+        ; them until `scripts/reserved_probe.py` asked gofmt about each one in
+        ; turn and 20 came back as parse errors -- `def go:boolean true` had
+        ; been emitting `var go bool = true` for as long as it existed, and
+        ; nothing noticed because the compiler reports success and the file
+        ; that does not parse is one nobody compiles (ISSUES.md #76).
         go {
             type _type
             range _range
+            break _break
+            case _case
+            chan _chan
+            const _const
+            continue _continue
+            default _default
+            defer _defer
+            else _else
+            fallthrough _fallthrough
+            for _for
+            go _go
+            goto _goto
+            if _if
+            import _import
+            interface _interface
+            package _package
+            select _select
+            struct _struct
+            switch _switch
+            var _var
         }
         kotlin {
             object _object
@@ -238,6 +338,11 @@ language {
             with _with
             yield _yield
         }
+        ; The Rust writer spells any keyword as a raw identifier, so most of
+        ; the language's keywords need no entry here. Four cannot be raw ones
+        ; at all -- `r#crate`, `r#super`, `r#self` and `r#Self` are rejected by
+        ; rustc -- so those are the ones that have to be renamed instead.
+        ; `self` is already renamed for every target further up.
         rust {
             type r#type
             static r#static
@@ -245,6 +350,9 @@ language {
             union r#union
             bool r#bool
             impl r#impl
+            crate _crate
+            super _super
+            Self _Self
         }
         swift3 {
             operator _operator
@@ -252,13 +360,74 @@ language {
             init _init
             guard _guard
         }
+        ; Swift's keyword list, taken from the one scripts/reserved_probe.py
+        ; already carries rather than filled in as errors were hit -- which is
+        ; how this block came to hold four entries and miss `where`. A
+        ; parameter named `where` is legal Ranger and is where Swift starts a
+        ; generic constraint, so `bootstrapCI(values : values, where : where)`
+        ; did not parse, in the declaration, at the call, and at every use.
+        ; Renaming happens once, in assignParamCompiledName /
+        ; defineVariable, so all three move together.
+        ;
+        ; A word Ranger itself cannot spell as a name (`class`, `return`, `if`)
+        ; is listed anyway: the entry is simply never matched, and a list that
+        ; mirrors the language's own is one nobody has to guess about later.
+        ; `true`, `false` and `nil` are the exception -- the Ranger parser
+        ; reads them as literals, so the `word transform` pair does not parse.
         swift6 {
-            operator _operator
-            static _static
+            associatedtype _associatedtype
+            borrowing _borrowing
+            class _class
+            consuming _consuming
+            deinit _deinit
+            enum _enum
+            extension _extension
+            fileprivate _fileprivate
+            import _import
             init _init
-            ; `guard` is a statement keyword; a loop counter named `guard`
-            ; must be renamed or the generated file does not parse.
+            inout _inout
+            internal _internal
+            let _let
+            nonisolated _nonisolated
+            open _open
+            operator _operator
+            private _private
+            precedencegroup _precedencegroup
+            protocol _protocol
+            public _public
+            rethrows _rethrows
+            static _static
+            struct _struct
+            subscript _subscript
+            typealias _typealias
+            var _var
+            where _where
+            while _while
             guard _guard
+            defer _defer
+            do _do
+            else _else
+            fallthrough _fallthrough
+            for _for
+            in _in
+            repeat _repeat
+            return _return
+            switch _switch
+            case _case
+            break _break
+            continue _continue
+            default _default
+            throw _throw
+            catch _catch
+            throws _throws
+            try _try
+            as _as
+            is _is
+            any _any
+            some _some
+            await _await
+            async _async
+            super _super
         }
         ; A name that is a keyword of the target has to be renamed, or the
         ; generated file does not parse. `def double (fn:int (n:int) ...)`
@@ -595,8 +764,10 @@ final Random rg_random = Random();
                 dart ( (e 1) " as " (typeof 2) )
                 es6 ( (e 1) )
                 java7 ( "((" (typeof 2) ")" (e 1) ")" )
-                swift3 ( (e 1) " as " (typeof 2) "" )
-                swift6 ( (e 1) " as " (typeof 2) "" )
+                ; A cast in Ranger is a downcast, and Swift spells a downcast
+                ; `as!` — a plain `as` is refused for a class it cannot prove.
+                swift3 ( (e 1) " as! " (typeof 2) "" )
+                swift6 ( (e 1) " as! " (typeof 2) "" )
                 cpp ( "rg_cast<" (typeof 2) ">(" (e 1) ")"
                     (create_polyfill "
 #include <memory>
@@ -1246,6 +1417,12 @@ func r_io_get_env( name string) *GoNullable {
                 es6 ("process.env[" (e 1) "]")
                 rust ( "std::env::var(&" (e 1) ").ok()" )
                 kotlin ( "System.getenv(" (e 1) ")" )
+                ; java7 spells it exactly as Kotlin does, and answers null for a
+                ; name that is not set -- which is the optional this operator
+                ; returns.
+                java7 ( "System.getenv(" (e 1) ")" )
+                swift3 ( "ProcessInfo.processInfo.environment[" (e 1) "]" (imp "Foundation") )
+                swift6 ( "ProcessInfo.processInfo.environment[" (e 1) "]" (imp "Foundation") )
                 csharp ( "System.Environment.GetEnvironmentVariable(" (e 1) ")" )
                 ; .get answers None for a name that is not set, which is the
                 ; optional this operator returns
@@ -1300,6 +1477,645 @@ func r_io_get_env( name string) *GoNullable {
                 ranger ("( shell_arg_cnt )")
             }
         }        
+
+        ; ---------------------------------------------------------------------
+        ; Running another command line program.
+        ;
+        ; One primitive, because everything a driver needs from a child process
+        ; fits in one answer: ([exit code, stdout, stderr]) as three strings.
+        ; An array of strings is a shape every target already has, so nothing
+        ; here needs a systemclass or a type mapping per language.
+        ;
+        ;   program   the program to run. Looked up on PATH when it contains no
+        ;             "/", the way a shell would.
+        ;   args      the arguments, as a VECTOR. There is no shell in the
+        ;             middle, so nothing inside an argument is ever re-read as
+        ;             a redirection, a glob or a second command. C++ is the one
+        ;             exception: it has no portable spawn, so it quotes the
+        ;             vector back into one shell word list.
+        ;   cwd       the directory to run in; "" means "the one we are in".
+        ;   capture   true  -> stdout and stderr come back in the answer.
+        ;             false -> they land on THIS program stdout and stderr as
+        ;                      they happen, which is what a compiler or a
+        ;                      linker wants, and the answer carries the exit
+        ;                      code with two empty strings.
+        ;   env       extra environment entries as "NAME=VALUE", MERGED over
+        ;             the ones this program was started with rather than
+        ;             replacing them -- a child that lost PATH could not find
+        ;             anything. A flat list rather than a map because that is
+        ;             the shape execve takes and the one shape every target
+        ;             already carries; an empty list changes nothing.
+        ;
+        ; lib/Shell.rgr is the friendlier face of this -- Shell.run, Shell.text,
+        ; Shell.which, a command log and a dry run. Prefer it to calling the
+        ; operator directly.
+        ; ---------------------------------------------------------------------
+        run_process_result    cmdRunProcess:[string] (program:string args:[string] cwd:string capture:boolean env:[string]) @doc("run a command line program and answer ([exit code, stdout, stderr]); capture=false streams its output to this program instead") {
+            templates {
+                ranger ( "(run_process_result " (e 1) " " (e 2) " " (e 3) " " (e 4) " " (e 5) ")" )
+                ts ( "r_process_result(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")"
+(create_polyfill '
+// Running another command line program.  spawnSync resolves a bare name on
+// PATH and passes the arguments as a vector, so nothing inside an argument is
+// re-read as a redirection or a glob.
+function r_process_env(pairs: string[]): any {
+  const e: any = {};
+  const src: any = process.env;
+  for (const k in src) { e[k] = src[k]; }
+  for (let i = 0; i < pairs.length; i++) {
+    const at = pairs[i].indexOf("=");
+    if (at > 0) { e[pairs[i].substring(0, at)] = pairs[i].substring(at + 1); }
+  }
+  return e;
+}
+function r_process_result(program: string, args: string[], cwd: string, capture: boolean, env: string[]): string[] {
+  const opt: any = { maxBuffer: 268435456 };
+  opt.stdio = capture ? "pipe" : "inherit";
+  if (capture) { opt.encoding = "utf8"; }
+  if (cwd && cwd.length > 0) { opt.cwd = cwd; }
+  if (env && env.length > 0) { opt.env = r_process_env(env); }
+  const res: any = require("child_process").spawnSync(program, args, opt);
+  if (res.error) { return ["-1", "", String(res.error.message)]; }
+  const code: number = (typeof res.status === "number") ? res.status : -1;
+  if (!capture) { return [String(code), "", ""]; }
+  return [String(code), res.stdout || "", res.stderr || ""];
+}
+')
+                )
+                es6 ( "r_process_result(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")"
+(create_polyfill '
+// Running another command line program.  spawnSync resolves a bare name on
+// PATH and passes the arguments as a vector, so nothing inside an argument is
+// re-read as a redirection or a glob.
+function r_process_env(pairs) {
+  var e = {};
+  for (var k in process.env) { e[k] = process.env[k]; }
+  for (var i = 0; i < pairs.length; i++) {
+    var at = pairs[i].indexOf("=");
+    if (at > 0) { e[pairs[i].substring(0, at)] = pairs[i].substring(at + 1); }
+  }
+  return e;
+}
+function r_process_result(program, args, cwd, capture, env) {
+  var opt = { maxBuffer: 268435456 };
+  opt.stdio = capture ? "pipe" : "inherit";
+  if (capture) { opt.encoding = "utf8"; }
+  if (cwd && cwd.length > 0) { opt.cwd = cwd; }
+  if (env && env.length > 0) { opt.env = r_process_env(env); }
+  var res = require("child_process").spawnSync(program, args, opt);
+  if (res.error) { return ["-1", "", String(res.error.message)]; }
+  var code = (typeof res.status === "number") ? res.status : -1;
+  if (!capture) { return [String(code), "", ""]; }
+  return [String(code), res.stdout || "", res.stderr || ""];
+}
+')
+                )
+                python ( "r_process_result(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")" (imp "subprocess") (imp "shutil") (imp "os")
+(create_polyfill '
+# Running another command line program.  The argument vector goes straight to
+# execve, so no argument is ever re-parsed by a shell.
+def r_process_env(pairs):
+    if len(pairs) == 0:
+        return None
+    e = dict(os.environ)
+    for p in pairs:
+        at = p.find("=")
+        if at > 0:
+            e[p[:at]] = p[at + 1:]
+    return e
+
+def r_process_result(program, args, cwd, capture, env):
+    where = cwd if len(cwd) > 0 else None
+    childEnv = r_process_env(env)
+    try:
+        if not capture:
+            return [str(subprocess.call([program] + list(args), cwd=where, env=childEnv)), "", ""]
+        p = subprocess.Popen([program] + list(args), cwd=where, env=childEnv,
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        out, err = p.communicate()
+        return [str(p.returncode),
+                out.decode("utf-8", "replace"),
+                err.decode("utf-8", "replace")]
+    except Exception as ex:
+        return ["-1", "", str(ex)]
+')
+                )
+                go ( "r_process_result(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")" (imp "os") (imp "os/exec") (imp "bytes") (imp "strconv")
+(create_polyfill '
+// Running another command line program.  exec.Command resolves a bare name on
+// PATH and passes the arguments as a vector -- there is no shell in between.
+func r_process_result(program string, args []string, cwd string, capture bool, env []string) []string {
+	cmd := exec.Command(program, args...)
+	if len(cwd) > 0 {
+		cmd.Dir = cwd
+	}
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
+	var so bytes.Buffer
+	var se bytes.Buffer
+	if capture {
+		cmd.Stdout = &so
+		cmd.Stderr = &se
+	} else {
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
+	code := 0
+	if err := cmd.Run(); err != nil {
+		if ee, ok := err.(*exec.ExitError); ok {
+			code = ee.ExitCode()
+		} else {
+			code = -1
+			se.WriteString(err.Error())
+		}
+	}
+	return []string{strconv.Itoa(code), so.String(), se.String()}
+}
+')
+                )
+                kotlin ( "r_process_result(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")"
+(create_polyfill '
+// Running another command line program.  When output is captured the child
+// stderr is drained on its own thread: reading stdout to the end first would
+// deadlock the moment a compiler filled the error pipe.
+fun r_process_result(program: String, args: MutableList<String>, cwd: String, capture: Boolean, env: MutableList<String>): MutableList<String> {
+  try {
+    val cmd = ArrayList<String>()
+    cmd.add(program)
+    cmd.addAll(args)
+    val pb = ProcessBuilder(cmd)
+    if (cwd.isNotEmpty()) { pb.directory(java.io.File(cwd)) }
+    if (env.size > 0) {
+      val vars = pb.environment()
+      for (pair in env) {
+        val at = pair.indexOf("=")
+        if (at > 0) { vars.put(pair.substring(0, at), pair.substring(at + 1)) }
+      }
+    }
+    if (!capture) {
+      pb.inheritIO()
+      return mutableListOf(pb.start().waitFor().toString(), "", "")
+    }
+    val p = pb.start()
+    var err = ""
+    val t = Thread({ err = p.errorStream.readBytes().toString(Charsets.UTF_8) })
+    t.start()
+    val out = p.inputStream.readBytes().toString(Charsets.UTF_8)
+    val code = p.waitFor()
+    t.join()
+    return mutableListOf(code.toString(), out, err)
+  } catch (e: Exception) {
+    return mutableListOf("-1", "", e.toString())
+  }
+}
+')
+                )
+                java7 ( "r_process_result(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")" (imp "java.io.File") (imp "java.io.InputStream") (imp "java.io.ByteArrayOutputStream") (imp "java.util.ArrayList")
+(create_polyfill '
+static String r_process_drain(InputStream in) 
+{
+  try {
+    ByteArrayOutputStream buf = new ByteArrayOutputStream();
+    byte[] chunk = new byte[8192];
+    int n = in.read(chunk);
+    while (n > 0) {
+      buf.write(chunk, 0, n);
+      n = in.read(chunk);
+    }
+    return new String(buf.toByteArray(), "UTF-8");
+  } catch (Exception e) {
+    return "";
+  }
+}
+
+// Running another command line program.  When output is captured the child
+// stderr is drained on its own thread: reading stdout to the end first would
+// deadlock the moment a compiler filled the error pipe.
+static ArrayList<String> r_process_result(String program, ArrayList<String> args, String cwd, boolean capture, ArrayList<String> env) 
+{
+  ArrayList<String> res = new ArrayList<String>();
+  try {
+    ArrayList<String> cmd = new ArrayList<String>();
+    cmd.add(program);
+    cmd.addAll(args);
+    ProcessBuilder pb = new ProcessBuilder(cmd);
+    if (cwd.length() > 0) { pb.directory(new File(cwd)); }
+    for (int ei = 0; ei < env.size(); ei++) {
+      String pair = env.get(ei);
+      int at = pair.indexOf("=");
+      if (at > 0) { pb.environment().put(pair.substring(0, at), pair.substring(at + 1)); }
+    }
+    if (!capture) {
+      pb.inheritIO();
+      res.add(Integer.toString(pb.start().waitFor()));
+      res.add("");
+      res.add("");
+      return res;
+    }
+    final Process p = pb.start();
+    final StringBuilder errBuf = new StringBuilder();
+    Thread t = new Thread(new Runnable() {
+      public void run() { errBuf.append(r_process_drain(p.getErrorStream())); }
+    });
+    t.start();
+    String out = r_process_drain(p.getInputStream());
+    int code = p.waitFor();
+    t.join();
+    res.add(Integer.toString(code));
+    res.add(out);
+    res.add(errBuf.toString());
+  } catch (Exception e) {
+    res.clear();
+    res.add("-1");
+    res.add("");
+    res.add(e.toString());
+  }
+  return res;
+}
+')
+                )
+                csharp ( "RgProcess.Result(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")"
+(polyfill "after_imports" '
+// Running another command line program on the C# target.  The arguments are
+// joined into one command line because ProcessStartInfo.ArgumentList is not on
+// every runtime this target is built with (Mono included); the quoting is the
+// CommandLineToArgvW rule, which is what the runtimes parse back. The quote and
+// backslash are spelled by code point so this text can live in a Ranger string.
+static class RgProcess {
+  static readonly string DQ = ((char)34).ToString();
+  static readonly string BS = ((char)92).ToString();
+
+  static bool IsPlain(string a) {
+    if (a.Length == 0) { return false; }
+    foreach (char c in a) {
+      bool ok = (c >= (char)97 && c <= (char)122) || (c >= (char)65 && c <= (char)90)
+             || (c >= (char)48 && c <= (char)57)
+             || c == (char)47 || c == (char)46 || c == (char)95 || c == (char)45
+             || c == (char)61 || c == (char)58 || c == (char)43 || c == (char)44 || c == (char)64;
+      if (!ok) { return false; }
+    }
+    return true;
+  }
+
+  static string Quote(string a) {
+    if (IsPlain(a)) { return a; }
+    return DQ + a.Replace(BS, BS + BS).Replace(DQ, BS + DQ) + DQ;
+  }
+
+  // stderr is drained on its own thread: reading stdout to the end first would
+  // deadlock as soon as a compiler filled the error pipe.
+  public static System.Collections.Generic.List<string> Result(string program, System.Collections.Generic.List<string> args, string cwd, bool capture, System.Collections.Generic.List<string> env) {
+    var res = new System.Collections.Generic.List<string>();
+    try {
+      var parts = new System.Collections.Generic.List<string>();
+      foreach (var a in args) { parts.Add(Quote(a)); }
+      var psi = new System.Diagnostics.ProcessStartInfo(program, string.Join(" ", parts));
+      psi.UseShellExecute = false;
+      if (cwd.Length > 0) { psi.WorkingDirectory = cwd; }
+      foreach (var pair in env) {
+        int at = pair.IndexOf((char)61);
+        if (at > 0) { psi.EnvironmentVariables[pair.Substring(0, at)] = pair.Substring(at + 1); }
+      }
+      psi.RedirectStandardOutput = capture;
+      psi.RedirectStandardError = capture;
+      var p = System.Diagnostics.Process.Start(psi);
+      if (!capture) {
+        p.WaitForExit();
+        res.Add(p.ExitCode.ToString());
+        res.Add("");
+        res.Add("");
+        return res;
+      }
+      string err = "";
+      var t = new System.Threading.Thread(delegate() { err = p.StandardError.ReadToEnd(); });
+      t.Start();
+      string outText = p.StandardOutput.ReadToEnd();
+      t.Join();
+      p.WaitForExit();
+      res.Add(p.ExitCode.ToString());
+      res.Add(outText);
+      res.Add(err);
+    } catch (System.Exception ex) {
+      res.Clear();
+      res.Add("-1");
+      res.Add("");
+      res.Add(ex.Message);
+    }
+    return res;
+  }
+}
+')
+                )
+                rust ( "r_process_result(&" (e 1) ", &" (e 2) ", &" (e 3) ", " (e 4) ", &" (e 5) ")"
+(create_polyfill '
+fn r_process_result(program: &str, args: &[String], cwd: &str, capture: bool, env: &[String]) -> Vec<String> {
+    let mut cmd = std::process::Command::new(program);
+    cmd.args(args.iter());
+    if cwd.len() > 0 { cmd.current_dir(cwd); }
+    for pair in env.iter() {
+        if let Some(at) = pair.find("=") {
+            if at > 0 { cmd.env(&pair[..at], &pair[(at + 1)..]); }
+        }
+    }
+    if !capture {
+        return match cmd.status() {
+            Ok(st) => vec![
+                match st.code() { Some(c) => c.to_string(), None => String::from("-1") },
+                String::new(),
+                String::new(),
+            ],
+            Err(e) => vec![String::from("-1"), String::new(), e.to_string()],
+        };
+    }
+    match cmd.output() {
+        Ok(o) => vec![
+            match o.status.code() { Some(c) => c.to_string(), None => String::from("-1") },
+            String::from_utf8_lossy(&o.stdout).to_string(),
+            String::from_utf8_lossy(&o.stderr).to_string(),
+        ],
+        Err(e) => vec![String::from("-1"), String::new(), e.to_string()],
+    }
+}
+')
+                )
+                swift3 ( "r_process_result(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")" (imp "Foundation")
+(create_polyfill '
+// Running another command line program on the Swift 3 target, which predates
+// executableURL / run() and spells the same thing launchPath / launch().
+func r_process_lookup(_ program: String) -> String? {
+    if program.contains("/") {
+        return FileManager.default.isExecutableFile(atPath: program) ? program : nil
+    }
+    guard let path = ProcessInfo.processInfo.environment["PATH"] else { return nil }
+    for dir in path.components(separatedBy: ":") {
+        let full = dir + "/" + program
+        if FileManager.default.isExecutableFile(atPath: full) { return full }
+    }
+    return nil
+}
+
+func r_process_environment(_ pairs: [String]) -> [String: String] {
+    var e = ProcessInfo.processInfo.environment
+    for pair in pairs {
+        if let at = pair.range(of: "=") {
+            let k = String(pair[pair.startIndex..<at.lowerBound])
+            if !k.isEmpty { e[k] = String(pair[at.upperBound...]) }
+        }
+    }
+    return e
+}
+
+func r_process_result(_ program: String, _ args: [String], _ cwd: String, _ capture: Bool, _ env: [String]) -> [String] {
+    guard let exe = r_process_lookup(program) else {
+        return ["-1", "", "program not found on PATH: " + program]
+    }
+    let p = Process()
+    p.launchPath = exe
+    p.arguments = args
+    if !cwd.isEmpty { p.currentDirectoryPath = cwd }
+    if !env.isEmpty { p.environment = r_process_environment(env) }
+    if !capture {
+        p.launch()
+        p.waitUntilExit()
+        return [String(p.terminationStatus), "", ""]
+    }
+    let outPipe = Pipe()
+    let errPipe = Pipe()
+    p.standardOutput = outPipe
+    p.standardError = errPipe
+    p.launch()
+    let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
+    let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
+    p.waitUntilExit()
+    let out = String(data: outData, encoding: String.Encoding.utf8) ?? ""
+    let err = String(data: errData, encoding: String.Encoding.utf8) ?? ""
+    return [String(p.terminationStatus), out, err]
+}
+')
+                )
+                swift6 ( "r_process_result(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")" (imp "Foundation") (imp "Dispatch")
+(create_polyfill '
+// Running another command line program.  Foundation.Process is a macOS/Linux
+// facility and is emitted only into programs that actually call this operator,
+// so a Ranger app compiled for iOS or watchOS never sees it.
+//
+// Process wants a path, not a name, so PATH is walked here the way a shell
+// walks it. When output is captured, stderr is drained on a second queue:
+// reading stdout to the end first would deadlock once a compiler filled the
+// error pipe.
+func r_process_lookup(_ program: String) -> String? {
+    if program.contains("/") {
+        return FileManager.default.isExecutableFile(atPath: program) ? program : nil
+    }
+    guard let path = ProcessInfo.processInfo.environment["PATH"] else { return nil }
+    for dir in path.split(separator: ":") {
+        let full = String(dir) + "/" + program
+        if FileManager.default.isExecutableFile(atPath: full) { return full }
+    }
+    return nil
+}
+
+func r_process_environment(_ pairs: [String]) -> [String: String] {
+    var e = ProcessInfo.processInfo.environment
+    for pair in pairs {
+        if let at = pair.firstIndex(of: "=") {
+            let k = String(pair[pair.startIndex..<at])
+            if !k.isEmpty { e[k] = String(pair[pair.index(after: at)...]) }
+        }
+    }
+    return e
+}
+
+func r_process_result(_ program: String, _ args: [String], _ cwd: String, _ capture: Bool, _ env: [String]) -> [String] {
+    guard let exe = r_process_lookup(program) else {
+        return ["-1", "", "program not found on PATH: " + program]
+    }
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: exe)
+    p.arguments = args
+    if !cwd.isEmpty { p.currentDirectoryURL = URL(fileURLWithPath: cwd) }
+    if !env.isEmpty { p.environment = r_process_environment(env) }
+    var outPipe: Pipe? = nil
+    var errPipe: Pipe? = nil
+    if capture {
+        outPipe = Pipe()
+        errPipe = Pipe()
+        p.standardOutput = outPipe
+        p.standardError = errPipe
+    }
+    do { try p.run() } catch { return ["-1", "", "could not start: " + exe] }
+    guard let op = outPipe, let ep = errPipe else {
+        p.waitUntilExit()
+        return [String(p.terminationStatus), "", ""]
+    }
+    var errData = Data()
+    let group = DispatchGroup()
+    group.enter()
+    DispatchQueue.global().async {
+        errData = ep.fileHandleForReading.readDataToEndOfFile()
+        group.leave()
+    }
+    let outData = op.fileHandleForReading.readDataToEndOfFile()
+    group.wait()
+    p.waitUntilExit()
+    let out = String(data: outData, encoding: .utf8) ?? ""
+    let err = String(data: errData, encoding: .utf8) ?? ""
+    return [String(p.terminationStatus), out, err]
+}
+')
+                )
+                dart ( "r_process_result(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")" (imp "dart:io")
+(create_polyfill '
+// Running another command line program.  runSync always captures, so the
+// streaming form replays what it captured: dart:io has no synchronous
+// inherit-stdio.
+List<String> r_process_result(String program, List<String> args, String cwd, bool capture, List<String> env) {
+  try {
+    Map<String, String>? extra;
+    if (env.isNotEmpty) {
+      extra = <String, String>{};
+      for (final pair in env) {
+        final at = pair.indexOf("=");
+        if (at > 0) { extra[pair.substring(0, at)] = pair.substring(at + 1); }
+      }
+    }
+    final r = Process.runSync(program, args,
+        workingDirectory: cwd.length > 0 ? cwd : null,
+        environment: extra, includeParentEnvironment: true);
+    if (!capture) {
+      stdout.write(r.stdout.toString());
+      stderr.write(r.stderr.toString());
+      return <String>[r.exitCode.toString(), "", ""];
+    }
+    return <String>[r.exitCode.toString(), r.stdout.toString(), r.stderr.toString()];
+  } catch (e) {
+    return <String>["-1", "", e.toString()];
+  }
+}
+')
+                )
+                cpp ( "r_process_result(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")" (imp "<string>") (imp "<vector>") (imp "<cstdio>") (imp "<cstdlib>") (imp "<fstream>") (imp "<iterator>") (imp "<unistd.h>") (imp "<sys/wait.h>")
+(create_polyfill '
+// Running another command line program.  There is no portable C++ spawn, so
+// the argument vector is quoted back into one shell word list: every argument
+// is wrapped in single quotes, which a POSIX shell never re-parses. The quote
+// and backslash are spelled by code point so this text can live in a Ranger
+// string.
+static std::string r_process_quote(const std::string& a) {
+  const char q = (char)39;
+  std::string out;
+  out += q;
+  for (size_t i = 0; i < a.size(); i++) {
+    if (a[i] == q) {
+      out += q;
+      out += (char)92;
+      out += q;
+      out += q;
+    } else {
+      out += a[i];
+    }
+  }
+  out += q;
+  return out;
+}
+
+std::vector<std::string> r_process_result(const std::string& program, const std::vector<std::string>& args, const std::string& cwd, bool capture, const std::vector<std::string>& env) {
+  std::vector<std::string> res;
+  std::string cmd;
+  if (cwd.size() > 0) {
+    cmd += "cd ";
+    cmd += r_process_quote(cwd);
+    cmd += " && ";
+  }
+  for (size_t i = 0; i < env.size(); i++) {
+    size_t at = env[i].find("=");
+    if (at != std::string::npos && at > 0) {
+      cmd += env[i].substr(0, at);
+      cmd += "=";
+      cmd += r_process_quote(env[i].substr(at + 1));
+      cmd += " ";
+    }
+  }
+  cmd += r_process_quote(program);
+  for (size_t i = 0; i < args.size(); i++) {
+    cmd += " ";
+    cmd += r_process_quote(args[i]);
+  }
+  if (!capture) {
+    int rc = std::system(cmd.c_str());
+    res.push_back(std::to_string(rc == -1 ? -1 : WEXITSTATUS(rc)));
+    res.push_back("");
+    res.push_back("");
+    return res;
+  }
+  char tmpl[] = "/tmp/rgr_process_XXXXXX";
+  int fd = mkstemp(tmpl);
+  std::string errPath(tmpl);
+  if (fd >= 0) { close(fd); }
+  cmd += " 2>";
+  cmd += r_process_quote(errPath);
+  FILE* pipe = popen(cmd.c_str(), "r");
+  if (pipe == NULL) {
+    res.push_back("-1");
+    res.push_back("");
+    res.push_back("popen failed");
+    return res;
+  }
+  std::string out;
+  char buf[4096];
+  while (fgets(buf, sizeof(buf), pipe) != NULL) { out += buf; }
+  int rc = pclose(pipe);
+  std::string err;
+  {
+    std::ifstream ifs(errPath.c_str());
+    std::string content((std::istreambuf_iterator<char>(ifs)), (std::istreambuf_iterator<char>()));
+    err = content;
+  }
+  std::remove(errPath.c_str());
+  res.push_back(std::to_string(rc == -1 ? -1 : WEXITSTATUS(rc)));
+  res.push_back(out);
+  res.push_back(err);
+  return res;
+}
+')
+                )
+                php ( "r_process_result(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ")"
+(create_polyfill '
+function r_process_result($program, $args, $cwd, $capture, $env) {
+  $cmd = escapeshellarg($program);
+  foreach ($args as $a) { $cmd = $cmd . " " . escapeshellarg($a); }
+  $dir = ($cwd !== "") ? $cwd : null;
+  $pipes = array();
+  $vars = null;
+  if (count($env) > 0) {
+    $vars = getenv();
+    foreach ($env as $pair) {
+      $at = strpos($pair, "=");
+      if ($at !== false && $at > 0) { $vars[substr($pair, 0, $at)] = substr($pair, $at + 1); }
+    }
+  }
+  if (!$capture) {
+    $spec = array(1 => STDOUT, 2 => STDERR);
+    $p = proc_open($cmd, $spec, $pipes, $dir, $vars);
+    if (!is_resource($p)) { return array("-1", "", "proc_open failed"); }
+    return array(strval(proc_close($p)), "", "");
+  }
+  $spec = array(1 => array("pipe", "w"), 2 => array("pipe", "w"));
+  $p = proc_open($cmd, $spec, $pipes, $dir, $vars);
+  if (!is_resource($p)) { return array("-1", "", "proc_open failed"); }
+  $out = stream_get_contents($pipes[1]);
+  fclose($pipes[1]);
+  $err = stream_get_contents($pipes[2]);
+  fclose($pipes[2]);
+  $code = proc_close($p);
+  return array(strval($code), $out, $err);
+}
+')
+                )
+            }
+        }
 
         ; I/O
         normalize cmdArg:string ( arg:string ) {
@@ -2640,15 +3456,47 @@ static class RgFiles {
 (create_polyfill "
 void  r_cpp_create_dir(const std::string& name) 
 {
-  mkdir( name.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH );
+  // mkdir(2) makes one directory and fails on a parent that is not there, so
+  // the path is walked and each segment made in turn. An EEXIST is the answer
+  // we wanted, not a failure.
+  if (name.empty()) { return; }
+  std::string sofar;
+  size_t at = 0;
+  while (at <= name.size()) {
+    size_t slash = name.find('/', at);
+    size_t end = (slash == std::string::npos) ? name.size() : slash;
+    sofar = name.substr(0, end);
+    if (!sofar.empty()) {
+      mkdir( sofar.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH );
+    }
+    if (slash == std::string::npos) { break; }
+    at = slash + 1;
+  }
 }    
     ") )
                 swift3 ( nl )
                 swift6 ( nl "try? FileManager.default.createDirectory(atPath: " (e 1) ", withIntermediateDirectories: true)" nl (imp "Foundation") )        
-                php (  nl "mkdir(" (e 1) ");" nl )
-                es6 ("require(\"fs\").mkdirSync( " (e 1) ")")
+                php (  nl "r_create_dir(" (e 1) ");" nl
+(create_polyfill "
+function r_create_dir($path) {
+  // Recursive and quiet about a directory that is already there, which is what
+  // this operator means on every other target.
+  if (!is_dir($path)) {
+    @mkdir($path, 0777, true);
+  }
+}
+")
+                )
+                ; `recursive` does both halves of what every other target here
+                ; already does: it makes the parents, and it does NOT throw when
+                ; the directory is already there. Without it the second run of
+                ; any program that creates its own output directory dies with an
+                ; EEXIST stack trace.
+                es6 ("require(\"fs\").mkdirSync( " (e 1) ", { recursive: true })")
                 python ( nl "os.makedirs(" (e 1) ", exist_ok=True)" nl (imp "os") )
-                go ( nl "_ = os.Mkdir( " (e 1 ) " , os.ModePerm)" nl (imp "os") )
+                ; MkdirAll, not Mkdir: it makes the parents and answers nil for
+                ; a directory that already exists.
+                go ( nl "_ = os.MkdirAll( " (e 1 ) " , os.ModePerm)" nl (imp "os") )
 
                 ranger ( nl "create_dir " (e 1) nl)
                 java7 ( nl "createDir(" (e 1) ");" nl  
@@ -2659,7 +3507,9 @@ static void createDir(String path)
     try{
         File theDir = new File(path);
         if (!theDir.exists()) {
-            theDir.mkdir();
+            // mkdirs, not mkdir: this operator makes the parents too, which is
+            // what it does on every other target.
+            theDir.mkdirs();
         }
     } catch(SecurityException se) {
 
@@ -2782,6 +3632,10 @@ void  r_cpp_write_file(const std::string& path, const std::string& filename, con
 
                 java7 ( nl "writeFile(" (e 1) " + \"/\" + " (e 2) " , " (e 3)" );" nl  
                     (imp "java.io.PrintWriter")
+                    ; The polyfill catches it, so the file has to import it.
+                    ; Without this, any Ranger program that writes a file fails
+                    ; to compile on the Java target with "cannot find symbol".
+                    (imp "java.io.FileNotFoundException")
 (create_polyfill "
 static void writeFile(String path, String text) 
 {
@@ -4503,7 +5357,12 @@ case class customException(smth:String)  extends Exception
             templates {
                 ranger ( nl "for " (e 1) " " (e 2) ":" (typeof 2) " " (e 3)" {" nl I (block 4) nl i "}" )
                 swift3 ( (forkctx _ ) (def 2) (def 3) nl "for ( " (swift_rc 3) " , " (e 2) " ) in " (e 1) ".enumerated() {" nl I (block 4) nl i "}" )
-                swift6 ( (forkctx _ ) (def 2) (def 3) nl "for (" (e 3) ", " (e 2) ") in " (e 1) ".enumerated() {" nl I (block 4) nl i "}" )
+                ; swift_rc, not e: Swift warns on a bound name the body never
+                ; reads, and `for x in list` binds an index whether or not the
+                ; body wants one. swift_rc writes `_` for either name when its
+                ; ref_cnt is 0 -- the swift3 template already did this for the
+                ; index, and the item needs it just as much.
+                swift6 ( (forkctx _ ) (def 2) (def 3) nl "for (" (swift_rc 3) ", " (swift_rc 2) ") in " (e 1) ".enumerated() {" nl I (block 4) nl i "}" )
                 kotlin ( (forkctx _ ) (def 2) (def 3) "for ( " (e 3) " in " (e 1) ".indices ) {" nl I "val " (e 2) " = " (e 1) "[" (e 3) "]" nl (block 4) nl i "}" )
                 dart ( (forkctx _ ) (def 2) (def 3) "for ( int " (e 3) " = 0; " (e 3) " < " (e 1) ".length; " (e 3) "++) {" nl I "var " (e 2) " = " (e 1) "[" (e 3) "];" nl (block 4) nl i "}" )
 
@@ -4733,7 +5592,97 @@ std::vector<std::string> r_str_split(const std::string& data, const std::string&
                 java7 ( (e 1) ".length()") 
                 scala ( (e 1) ".length()")  
                 swift3 ( (e 1) ".characters.count")  
-                swift6 ( (e 1) ".count")  
+                swift6 ( "r_strlen(" (e 1) ")"
+(create_polyfill "
+// Ranger's string is a sequence of UTF-16 CODE UNITS, indexed in O(1). That is
+// what `charAt`, `strlen` and `substring` mean on JavaScript, Kotlin, Java and
+// C#, and every scan EVG writes -- `while (i < (strlen s)) { charAt s i }` --
+// assumes it.
+//
+// Swift's String indexes by GRAPHEME CLUSTER instead, and every such operation
+// walks from startIndex, so those linear scans became quadratic: parsing a
+// 28 KB stylesheet walked 1.25 BILLION characters where Kotlin read 84 000,
+// and one frame of the page walked 4.6 million where Kotlin read 68 000.
+//
+// The UTF-16 view is both the model the other targets use and the one the
+// standard library keeps breadcrumbs for -- it exists so NSString bridging can
+// offset in amortised constant time -- so this is the faster answer AND the
+// more consistent one.
+func r_utf16(_ s: String) -> String.UTF16View { s.utf16 }
+
+func r_strlen(_ s: String) -> Int { s.utf16.count }
+
+func r_char_at(_ s: String, _ at: Int) -> Int {
+    if at < 0 { return 0 }
+    let u = s.utf16
+    if at >= u.count { return 0 }
+    return Int(u[u.index(u.startIndex, offsetBy: at)])
+}
+
+func r_substring(_ s: String, _ from: Int, _ to: Int) -> String {
+    let u = s.utf16
+    let n = u.count
+    var a = from < 0 ? 0 : from
+    var b = to > n ? n : to
+    if a > n { a = n }
+    if b < a { b = a }
+    // A Swift String cannot hold half of a surrogate pair: a slice that cuts
+    // one decodes to U+FFFD. Round the slice out to scalar boundaries instead,
+    // so a walk that copies one UTF-16 unit at a time carries an emoji over
+    // whole -- the unit that starts the pair takes both, the one that ends it
+    // takes nothing.
+    if a < n && a > 0 {
+        let ua = u[u.index(u.startIndex, offsetBy: a)]
+        if ua >= 0xDC00 && ua <= 0xDFFF { a += 1 }
+    }
+    if b > a && b < n {
+        let ub = u[u.index(u.startIndex, offsetBy: b - 1)]
+        if ub >= 0xD800 && ub <= 0xDBFF { b += 1 }
+    }
+    if b < a { b = a }
+    let lo = u.index(u.startIndex, offsetBy: a)
+    let hi = u.index(u.startIndex, offsetBy: b)
+    return String(decoding: Array(u[lo..<hi]), as: UTF16.self)
+}
+
+// An index answered in UTF-16 units, so it can be fed straight back to
+// r_char_at and r_substring.
+func r_index_of(_ s: String, _ needle: String, _ from: Int) -> Int {
+    let u = s.utf16
+    let n = u.count
+    let m = needle.utf16.count
+    if m == 0 { return from <= n ? max(from, 0) : -1 }
+    if m > n { return -1 }
+    let hay = Array(u)
+    let pin = Array(needle.utf16)
+    var i = from < 0 ? 0 : from
+    while i + m <= n {
+        var k = 0
+        while k < m && hay[i + k] == pin[k] { k += 1 }
+        if k == m { return i }
+        i += 1
+    }
+    return -1
+}
+
+func r_last_index_of(_ s: String, _ needle: String) -> Int {
+    let hay = Array(s.utf16)
+    let pin = Array(needle.utf16)
+    let n = hay.count
+    let m = pin.count
+    if m == 0 { return n }
+    if m > n { return -1 }
+    var i = n - m
+    while i >= 0 {
+        var k = 0
+        while k < m && hay[i + k] == pin[k] { k += 1 }
+        if k == m { return i }
+        i -= 1
+    }
+    return -1
+}
+")
+                )
                 csharp ( (e 1) ".Length")
                 php ( "strlen(" (e 1) ")") 
                 go ( "int64(len([]rune(" (e 1) ")))")
@@ -5604,7 +6553,97 @@ std::string r_utf8_char_at(const std::string& str, int pos_i)
                 go ( "string([]rune(" (e 1) ")[" (e 2) "])")  
 
                 swift3 ( (imp 'Foundation') (e 1) "[" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 2) ")..<" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 2) " + 1)]" )
-                swift6 ( "String(" (e 1) "[" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 2) ")])" )
+                swift6 ( "r_substring(" (e 1) ", " (e 2) ", (" (e 2) ") + 1)"
+(create_polyfill "
+// Ranger's string is a sequence of UTF-16 CODE UNITS, indexed in O(1). That is
+// what `charAt`, `strlen` and `substring` mean on JavaScript, Kotlin, Java and
+// C#, and every scan EVG writes -- `while (i < (strlen s)) { charAt s i }` --
+// assumes it.
+//
+// Swift's String indexes by GRAPHEME CLUSTER instead, and every such operation
+// walks from startIndex, so those linear scans became quadratic: parsing a
+// 28 KB stylesheet walked 1.25 BILLION characters where Kotlin read 84 000,
+// and one frame of the page walked 4.6 million where Kotlin read 68 000.
+//
+// The UTF-16 view is both the model the other targets use and the one the
+// standard library keeps breadcrumbs for -- it exists so NSString bridging can
+// offset in amortised constant time -- so this is the faster answer AND the
+// more consistent one.
+func r_utf16(_ s: String) -> String.UTF16View { s.utf16 }
+
+func r_strlen(_ s: String) -> Int { s.utf16.count }
+
+func r_char_at(_ s: String, _ at: Int) -> Int {
+    if at < 0 { return 0 }
+    let u = s.utf16
+    if at >= u.count { return 0 }
+    return Int(u[u.index(u.startIndex, offsetBy: at)])
+}
+
+func r_substring(_ s: String, _ from: Int, _ to: Int) -> String {
+    let u = s.utf16
+    let n = u.count
+    var a = from < 0 ? 0 : from
+    var b = to > n ? n : to
+    if a > n { a = n }
+    if b < a { b = a }
+    // A Swift String cannot hold half of a surrogate pair: a slice that cuts
+    // one decodes to U+FFFD. Round the slice out to scalar boundaries instead,
+    // so a walk that copies one UTF-16 unit at a time carries an emoji over
+    // whole -- the unit that starts the pair takes both, the one that ends it
+    // takes nothing.
+    if a < n && a > 0 {
+        let ua = u[u.index(u.startIndex, offsetBy: a)]
+        if ua >= 0xDC00 && ua <= 0xDFFF { a += 1 }
+    }
+    if b > a && b < n {
+        let ub = u[u.index(u.startIndex, offsetBy: b - 1)]
+        if ub >= 0xD800 && ub <= 0xDBFF { b += 1 }
+    }
+    if b < a { b = a }
+    let lo = u.index(u.startIndex, offsetBy: a)
+    let hi = u.index(u.startIndex, offsetBy: b)
+    return String(decoding: Array(u[lo..<hi]), as: UTF16.self)
+}
+
+// An index answered in UTF-16 units, so it can be fed straight back to
+// r_char_at and r_substring.
+func r_index_of(_ s: String, _ needle: String, _ from: Int) -> Int {
+    let u = s.utf16
+    let n = u.count
+    let m = needle.utf16.count
+    if m == 0 { return from <= n ? max(from, 0) : -1 }
+    if m > n { return -1 }
+    let hay = Array(u)
+    let pin = Array(needle.utf16)
+    var i = from < 0 ? 0 : from
+    while i + m <= n {
+        var k = 0
+        while k < m && hay[i + k] == pin[k] { k += 1 }
+        if k == m { return i }
+        i += 1
+    }
+    return -1
+}
+
+func r_last_index_of(_ s: String, _ needle: String) -> Int {
+    let hay = Array(s.utf16)
+    let pin = Array(needle.utf16)
+    let n = hay.count
+    let m = pin.count
+    if m == 0 { return n }
+    if m > n { return -1 }
+    var i = n - m
+    while i >= 0 {
+        var k = 0
+        while k < m && hay[i + k] == pin[k] { k += 1 }
+        if k == m { return i }
+        i -= 1
+    }
+    return -1
+}
+")
+                )
                 
                 ; swift3 ( 'Int( ( NSString(string: ' (e 1) ' ) ).character( at: ' (e 2) ' ) )')
                 ; swift3 ( (imp 'Foundation')  (e 1) '.substring(from: ' (e 1) '.index(' (e 1) '.startIndex, offsetBy: ' (e 2) ' + 1), to: ' (e 1) '.index(' (e 1) '.startIndex, offsetBy: ' (e 2) ' + 1))')    
@@ -5632,7 +6671,101 @@ std::string r_utf8_char_at(const std::string& str, int pos_i)
                 go ( "int64([]rune(" (e 1) ")[" (e 2) "])")  
                 swift3 ( "Int( ( NSString(string: " (e 1) " ) ).character( at: " (e 2) " ) )")
                 swift3 ( "Int( String( " (e 1) ".characters[" (e 1) ".index(" (e 1) ".startIndex, offsetBy: " (e 2) ")]))!")
-                swift6 ( "Int(" (e 1) "[" (e 1) ".index(" (e 1) ".startIndex, offsetBy: " (e 2) ")].asciiValue ?? 0)")
+                ; Also a named helper, and for the same reason: the inline form
+                ; names the string three times and nests four calls, so a
+                ; handful of them in one expression is what pushed swiftc's
+                ; type checker over its budget.
+                swift6 ( "r_char_at(" (e 1) ", " (e 2) ")"
+(create_polyfill "
+// Ranger's string is a sequence of UTF-16 CODE UNITS, indexed in O(1). That is
+// what `charAt`, `strlen` and `substring` mean on JavaScript, Kotlin, Java and
+// C#, and every scan EVG writes -- `while (i < (strlen s)) { charAt s i }` --
+// assumes it.
+//
+// Swift's String indexes by GRAPHEME CLUSTER instead, and every such operation
+// walks from startIndex, so those linear scans became quadratic: parsing a
+// 28 KB stylesheet walked 1.25 BILLION characters where Kotlin read 84 000,
+// and one frame of the page walked 4.6 million where Kotlin read 68 000.
+//
+// The UTF-16 view is both the model the other targets use and the one the
+// standard library keeps breadcrumbs for -- it exists so NSString bridging can
+// offset in amortised constant time -- so this is the faster answer AND the
+// more consistent one.
+func r_utf16(_ s: String) -> String.UTF16View { s.utf16 }
+
+func r_strlen(_ s: String) -> Int { s.utf16.count }
+
+func r_char_at(_ s: String, _ at: Int) -> Int {
+    if at < 0 { return 0 }
+    let u = s.utf16
+    if at >= u.count { return 0 }
+    return Int(u[u.index(u.startIndex, offsetBy: at)])
+}
+
+func r_substring(_ s: String, _ from: Int, _ to: Int) -> String {
+    let u = s.utf16
+    let n = u.count
+    var a = from < 0 ? 0 : from
+    var b = to > n ? n : to
+    if a > n { a = n }
+    if b < a { b = a }
+    // A Swift String cannot hold half of a surrogate pair: a slice that cuts
+    // one decodes to U+FFFD. Round the slice out to scalar boundaries instead,
+    // so a walk that copies one UTF-16 unit at a time carries an emoji over
+    // whole -- the unit that starts the pair takes both, the one that ends it
+    // takes nothing.
+    if a < n && a > 0 {
+        let ua = u[u.index(u.startIndex, offsetBy: a)]
+        if ua >= 0xDC00 && ua <= 0xDFFF { a += 1 }
+    }
+    if b > a && b < n {
+        let ub = u[u.index(u.startIndex, offsetBy: b - 1)]
+        if ub >= 0xD800 && ub <= 0xDBFF { b += 1 }
+    }
+    if b < a { b = a }
+    let lo = u.index(u.startIndex, offsetBy: a)
+    let hi = u.index(u.startIndex, offsetBy: b)
+    return String(decoding: Array(u[lo..<hi]), as: UTF16.self)
+}
+
+// An index answered in UTF-16 units, so it can be fed straight back to
+// r_char_at and r_substring.
+func r_index_of(_ s: String, _ needle: String, _ from: Int) -> Int {
+    let u = s.utf16
+    let n = u.count
+    let m = needle.utf16.count
+    if m == 0 { return from <= n ? max(from, 0) : -1 }
+    if m > n { return -1 }
+    let hay = Array(u)
+    let pin = Array(needle.utf16)
+    var i = from < 0 ? 0 : from
+    while i + m <= n {
+        var k = 0
+        while k < m && hay[i + k] == pin[k] { k += 1 }
+        if k == m { return i }
+        i += 1
+    }
+    return -1
+}
+
+func r_last_index_of(_ s: String, _ needle: String) -> Int {
+    let hay = Array(s.utf16)
+    let pin = Array(needle.utf16)
+    let n = hay.count
+    let m = pin.count
+    if m == 0 { return n }
+    if m > n { return -1 }
+    var i = n - m
+    while i >= 0 {
+        var k = 0
+        while k < m && hay[i + k] == pin[k] { k += 1 }
+        if k == m { return i }
+        i -= 1
+    }
+    return -1
+}
+")
+                )
                 python ( "ord(" (e 1) "[" (e 2) "])")
                 rust ( (e 1) ".chars().nth(" (idx 2) ").unwrap_or('\\0') as i64")
                 * ( (e 1) ".charCodeAt(" (e 2) " )")
@@ -5703,6 +6836,10 @@ std::vector<std::string> r_get_keys_of_map( const M & orig_map )  {
                 ; Vec<u8> on Rust, so index the byte; `char` is an integer
                 ; code unit here as on every other target
                 rust ( (e 1) "[(" (e 2) ") as usize] as i64" )
+                ; a charbuffer is [UInt8] on Swift 6 and `char` is an Int, so
+                ; the byte is widened; without this the JavaScript fallback
+                ; below emitted `.charCodeAt(...)` into Swift
+                swift6 ( "Int(" (e 1) "[Int(" (e 2) ")])" )
                 * ( (e 1) ".charCodeAt(" (e 2) " )")
             }
         }
@@ -5729,7 +6866,97 @@ std::vector<std::string> r_get_keys_of_map( const M & orig_map )  {
                 php ( "substr(" (e 1) ", " (e 2) ", " (e 3) " - " (e 2) ")")    
                 go ( "string([]rune(" (e 1) ")[" (e 2) ":" (e 3) "])")               
                 swift3 ( (e 1) "[" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 2) ")..<" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 3) ")]" )
-                swift6 ( "String(" (e 1) "[" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 2) ")..<" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 3) ")])" )
+                swift6 ( "r_substring(" (e 1) ", " (e 2) ", " (e 3) ")"
+(create_polyfill "
+// Ranger's string is a sequence of UTF-16 CODE UNITS, indexed in O(1). That is
+// what `charAt`, `strlen` and `substring` mean on JavaScript, Kotlin, Java and
+// C#, and every scan EVG writes -- `while (i < (strlen s)) { charAt s i }` --
+// assumes it.
+//
+// Swift's String indexes by GRAPHEME CLUSTER instead, and every such operation
+// walks from startIndex, so those linear scans became quadratic: parsing a
+// 28 KB stylesheet walked 1.25 BILLION characters where Kotlin read 84 000,
+// and one frame of the page walked 4.6 million where Kotlin read 68 000.
+//
+// The UTF-16 view is both the model the other targets use and the one the
+// standard library keeps breadcrumbs for -- it exists so NSString bridging can
+// offset in amortised constant time -- so this is the faster answer AND the
+// more consistent one.
+func r_utf16(_ s: String) -> String.UTF16View { s.utf16 }
+
+func r_strlen(_ s: String) -> Int { s.utf16.count }
+
+func r_char_at(_ s: String, _ at: Int) -> Int {
+    if at < 0 { return 0 }
+    let u = s.utf16
+    if at >= u.count { return 0 }
+    return Int(u[u.index(u.startIndex, offsetBy: at)])
+}
+
+func r_substring(_ s: String, _ from: Int, _ to: Int) -> String {
+    let u = s.utf16
+    let n = u.count
+    var a = from < 0 ? 0 : from
+    var b = to > n ? n : to
+    if a > n { a = n }
+    if b < a { b = a }
+    // A Swift String cannot hold half of a surrogate pair: a slice that cuts
+    // one decodes to U+FFFD. Round the slice out to scalar boundaries instead,
+    // so a walk that copies one UTF-16 unit at a time carries an emoji over
+    // whole -- the unit that starts the pair takes both, the one that ends it
+    // takes nothing.
+    if a < n && a > 0 {
+        let ua = u[u.index(u.startIndex, offsetBy: a)]
+        if ua >= 0xDC00 && ua <= 0xDFFF { a += 1 }
+    }
+    if b > a && b < n {
+        let ub = u[u.index(u.startIndex, offsetBy: b - 1)]
+        if ub >= 0xD800 && ub <= 0xDBFF { b += 1 }
+    }
+    if b < a { b = a }
+    let lo = u.index(u.startIndex, offsetBy: a)
+    let hi = u.index(u.startIndex, offsetBy: b)
+    return String(decoding: Array(u[lo..<hi]), as: UTF16.self)
+}
+
+// An index answered in UTF-16 units, so it can be fed straight back to
+// r_char_at and r_substring.
+func r_index_of(_ s: String, _ needle: String, _ from: Int) -> Int {
+    let u = s.utf16
+    let n = u.count
+    let m = needle.utf16.count
+    if m == 0 { return from <= n ? max(from, 0) : -1 }
+    if m > n { return -1 }
+    let hay = Array(u)
+    let pin = Array(needle.utf16)
+    var i = from < 0 ? 0 : from
+    while i + m <= n {
+        var k = 0
+        while k < m && hay[i + k] == pin[k] { k += 1 }
+        if k == m { return i }
+        i += 1
+    }
+    return -1
+}
+
+func r_last_index_of(_ s: String, _ needle: String) -> Int {
+    let hay = Array(s.utf16)
+    let pin = Array(needle.utf16)
+    let n = hay.count
+    let m = pin.count
+    if m == 0 { return n }
+    if m > n { return -1 }
+    var i = n - m
+    while i >= 0 {
+        var k = 0
+        while k < m && hay[i + k] == pin[k] { k += 1 }
+        if k == m { return i }
+        i -= 1
+    }
+    return -1
+}
+")
+                )
                 python ( (e 1) "[" (e 2) ":" (e 3) "]" )
                 rust ( (custom _) )
                 * ( (e 1) ".substring(" (e 2) ", " (e 3) " )")
@@ -5818,7 +7045,97 @@ public static class RgUtf8 {
                 ; a Swift Character is a grapheme cluster, which is the closest
                 ; thing the language offers and matches its own substring
                 swift3 ( (e 1) "[" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 2) ")..<" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 3) ")]" )
-                swift6 ( "String(" (e 1) "[" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 2) ")..<" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 3) ")])" )
+                swift6 ( "r_substring(" (e 1) ", " (e 2) ", " (e 3) ")"
+(create_polyfill "
+// Ranger's string is a sequence of UTF-16 CODE UNITS, indexed in O(1). That is
+// what `charAt`, `strlen` and `substring` mean on JavaScript, Kotlin, Java and
+// C#, and every scan EVG writes -- `while (i < (strlen s)) { charAt s i }` --
+// assumes it.
+//
+// Swift's String indexes by GRAPHEME CLUSTER instead, and every such operation
+// walks from startIndex, so those linear scans became quadratic: parsing a
+// 28 KB stylesheet walked 1.25 BILLION characters where Kotlin read 84 000,
+// and one frame of the page walked 4.6 million where Kotlin read 68 000.
+//
+// The UTF-16 view is both the model the other targets use and the one the
+// standard library keeps breadcrumbs for -- it exists so NSString bridging can
+// offset in amortised constant time -- so this is the faster answer AND the
+// more consistent one.
+func r_utf16(_ s: String) -> String.UTF16View { s.utf16 }
+
+func r_strlen(_ s: String) -> Int { s.utf16.count }
+
+func r_char_at(_ s: String, _ at: Int) -> Int {
+    if at < 0 { return 0 }
+    let u = s.utf16
+    if at >= u.count { return 0 }
+    return Int(u[u.index(u.startIndex, offsetBy: at)])
+}
+
+func r_substring(_ s: String, _ from: Int, _ to: Int) -> String {
+    let u = s.utf16
+    let n = u.count
+    var a = from < 0 ? 0 : from
+    var b = to > n ? n : to
+    if a > n { a = n }
+    if b < a { b = a }
+    // A Swift String cannot hold half of a surrogate pair: a slice that cuts
+    // one decodes to U+FFFD. Round the slice out to scalar boundaries instead,
+    // so a walk that copies one UTF-16 unit at a time carries an emoji over
+    // whole -- the unit that starts the pair takes both, the one that ends it
+    // takes nothing.
+    if a < n && a > 0 {
+        let ua = u[u.index(u.startIndex, offsetBy: a)]
+        if ua >= 0xDC00 && ua <= 0xDFFF { a += 1 }
+    }
+    if b > a && b < n {
+        let ub = u[u.index(u.startIndex, offsetBy: b - 1)]
+        if ub >= 0xD800 && ub <= 0xDBFF { b += 1 }
+    }
+    if b < a { b = a }
+    let lo = u.index(u.startIndex, offsetBy: a)
+    let hi = u.index(u.startIndex, offsetBy: b)
+    return String(decoding: Array(u[lo..<hi]), as: UTF16.self)
+}
+
+// An index answered in UTF-16 units, so it can be fed straight back to
+// r_char_at and r_substring.
+func r_index_of(_ s: String, _ needle: String, _ from: Int) -> Int {
+    let u = s.utf16
+    let n = u.count
+    let m = needle.utf16.count
+    if m == 0 { return from <= n ? max(from, 0) : -1 }
+    if m > n { return -1 }
+    let hay = Array(u)
+    let pin = Array(needle.utf16)
+    var i = from < 0 ? 0 : from
+    while i + m <= n {
+        var k = 0
+        while k < m && hay[i + k] == pin[k] { k += 1 }
+        if k == m { return i }
+        i += 1
+    }
+    return -1
+}
+
+func r_last_index_of(_ s: String, _ needle: String) -> Int {
+    let hay = Array(s.utf16)
+    let pin = Array(needle.utf16)
+    let n = hay.count
+    let m = pin.count
+    if m == 0 { return n }
+    if m > n { return -1 }
+    var i = n - m
+    while i >= 0 {
+        var k = 0
+        while k < m && hay[i + k] == pin[k] { k += 1 }
+        if k == m { return i }
+        i -= 1
+    }
+    return -1
+}
+")
+                )
                 ; Array.from splits on code points, not on UTF-16 units
                 * ( "Array.from(" (e 1) ").slice(" (e 2) ", " (e 3) ").join('')" )
             }
@@ -5837,7 +7154,97 @@ public static class RgUtf8 {
                 java7 ( "((" (e 1) ".getBytes())[0])") 
                 swift3 ( "UInt8( (  NSString(string: " (e 1) " )     ).character( at: 0 ) )" (imp "Foundation"))
                 swift3 ( "UInt8( String( " (e 1) ".characters[" (e 1) ".startIndex]))! ")
-                swift6 ( "UInt8(" (e 1) ".utf8.first ?? 0)" )
+                swift6 ( "r_char_at(" (e 1) ", 0)"
+(create_polyfill "
+// Ranger's string is a sequence of UTF-16 CODE UNITS, indexed in O(1). That is
+// what `charAt`, `strlen` and `substring` mean on JavaScript, Kotlin, Java and
+// C#, and every scan EVG writes -- `while (i < (strlen s)) { charAt s i }` --
+// assumes it.
+//
+// Swift's String indexes by GRAPHEME CLUSTER instead, and every such operation
+// walks from startIndex, so those linear scans became quadratic: parsing a
+// 28 KB stylesheet walked 1.25 BILLION characters where Kotlin read 84 000,
+// and one frame of the page walked 4.6 million where Kotlin read 68 000.
+//
+// The UTF-16 view is both the model the other targets use and the one the
+// standard library keeps breadcrumbs for -- it exists so NSString bridging can
+// offset in amortised constant time -- so this is the faster answer AND the
+// more consistent one.
+func r_utf16(_ s: String) -> String.UTF16View { s.utf16 }
+
+func r_strlen(_ s: String) -> Int { s.utf16.count }
+
+func r_char_at(_ s: String, _ at: Int) -> Int {
+    if at < 0 { return 0 }
+    let u = s.utf16
+    if at >= u.count { return 0 }
+    return Int(u[u.index(u.startIndex, offsetBy: at)])
+}
+
+func r_substring(_ s: String, _ from: Int, _ to: Int) -> String {
+    let u = s.utf16
+    let n = u.count
+    var a = from < 0 ? 0 : from
+    var b = to > n ? n : to
+    if a > n { a = n }
+    if b < a { b = a }
+    // A Swift String cannot hold half of a surrogate pair: a slice that cuts
+    // one decodes to U+FFFD. Round the slice out to scalar boundaries instead,
+    // so a walk that copies one UTF-16 unit at a time carries an emoji over
+    // whole -- the unit that starts the pair takes both, the one that ends it
+    // takes nothing.
+    if a < n && a > 0 {
+        let ua = u[u.index(u.startIndex, offsetBy: a)]
+        if ua >= 0xDC00 && ua <= 0xDFFF { a += 1 }
+    }
+    if b > a && b < n {
+        let ub = u[u.index(u.startIndex, offsetBy: b - 1)]
+        if ub >= 0xD800 && ub <= 0xDBFF { b += 1 }
+    }
+    if b < a { b = a }
+    let lo = u.index(u.startIndex, offsetBy: a)
+    let hi = u.index(u.startIndex, offsetBy: b)
+    return String(decoding: Array(u[lo..<hi]), as: UTF16.self)
+}
+
+// An index answered in UTF-16 units, so it can be fed straight back to
+// r_char_at and r_substring.
+func r_index_of(_ s: String, _ needle: String, _ from: Int) -> Int {
+    let u = s.utf16
+    let n = u.count
+    let m = needle.utf16.count
+    if m == 0 { return from <= n ? max(from, 0) : -1 }
+    if m > n { return -1 }
+    let hay = Array(u)
+    let pin = Array(needle.utf16)
+    var i = from < 0 ? 0 : from
+    while i + m <= n {
+        var k = 0
+        while k < m && hay[i + k] == pin[k] { k += 1 }
+        if k == m { return i }
+        i += 1
+    }
+    return -1
+}
+
+func r_last_index_of(_ s: String, _ needle: String) -> Int {
+    let hay = Array(s.utf16)
+    let pin = Array(needle.utf16)
+    let n = hay.count
+    let m = pin.count
+    if m == 0 { return n }
+    if m > n { return -1 }
+    var i = n - m
+    while i >= 0 {
+        var k = 0
+        while k < m && hay[i + k] == pin[k] { k += 1 }
+        if k == m { return i }
+        i -= 1
+    }
+    return -1
+}
+")
+                )
                 python ( "ord(" (e 1) "[0])" )
                 kotlin ( (e 1) "[0].code" )
                 csharp ( "(byte)(" (e 1) "[0])" )
@@ -5860,7 +7267,22 @@ public static class RgUtf8 {
                 java7 ( "(new String( new char[] {" (e 1) " }))") 
                 kotlin ( (e 1) ".toChar().toString()")
                 swift3 ( "(String( Character( UnicodeScalar(" (e 1) " ) )))") 
-                swift6 ( "String(UnicodeScalar(" (e 1) ")!)")
+                ; A named helper, not an inline expression. UnicodeScalar has
+                ; no Int initialiser and its UInt8 one is not failable, so the
+                ; inline form needed a UInt32 conversion and a `??` fallback --
+                ; six of those concatenated in one `return` and swiftc gave up
+                ; with "unable to type-check this expression in reasonable
+                ; time". One monomorphic function takes the overload resolution
+                ; out of the expression entirely.
+                swift6 ( "r_str_from_code(" (e 1) ")"
+(create_polyfill "
+func r_str_from_code(_ cp: Int) -> String {
+    if cp < 0 { return \" \" }
+    if let scalar = UnicodeScalar(UInt32(cp)) { return String(scalar) }
+    return \" \"
+}
+")
+                )
                 php ( "chr(" (e 1) ")") 
                 scala ( "(" (e 1) ".toChar)")      
                 go ("string([]rune{rune(" (e 1) ")})")      
@@ -5904,7 +7326,22 @@ std::string r_str_from_code(int cp) {
                 java7 ( "(new String( Character.toChars(" (e 1) ")))") 
                 kotlin ( (e 1) ".toChar().toString()")
                 swift3 ( "(String( Character( UnicodeScalar(" (e 1) " )! )))") 
-                swift6 ( "String(UnicodeScalar(" (e 1) ")!)")
+                ; A named helper, not an inline expression. UnicodeScalar has
+                ; no Int initialiser and its UInt8 one is not failable, so the
+                ; inline form needed a UInt32 conversion and a `??` fallback --
+                ; six of those concatenated in one `return` and swiftc gave up
+                ; with "unable to type-check this expression in reasonable
+                ; time". One monomorphic function takes the overload resolution
+                ; out of the expression entirely.
+                swift6 ( "r_str_from_code(" (e 1) ")"
+(create_polyfill "
+func r_str_from_code(_ cp: Int) -> String {
+    if cp < 0 { return \" \" }
+    if let scalar = UnicodeScalar(UInt32(cp)) { return String(scalar) }
+    return \" \"
+}
+")
+                )
                 php ( "chr(" (e 1) ")") 
                 scala ( "(" (e 1) ".toChar)")      
                 go ("string([]rune{rune(" (e 1) ")})")        
@@ -6767,7 +8204,97 @@ i "}" nl ))
                 dart ( (e 1) ".indexOf(" (e 2) ")" )
                 python ( (e 1) ".find(" (e 2) ")" )
                 swift3 ( (e 1) ".range(of:" (e 2) ")?.lowerBound.encodedOffset ?? -1" )
-                swift6 ( "(" (e 1) ".range(of:" (e 2) ").map { " (e 1) ".distance(from: " (e 1) ".startIndex, to: $0.lowerBound) } ?? -1)" )
+                swift6 ( "r_index_of(" (e 1) ", " (e 2) ", 0)"
+(create_polyfill "
+// Ranger's string is a sequence of UTF-16 CODE UNITS, indexed in O(1). That is
+// what `charAt`, `strlen` and `substring` mean on JavaScript, Kotlin, Java and
+// C#, and every scan EVG writes -- `while (i < (strlen s)) { charAt s i }` --
+// assumes it.
+//
+// Swift's String indexes by GRAPHEME CLUSTER instead, and every such operation
+// walks from startIndex, so those linear scans became quadratic: parsing a
+// 28 KB stylesheet walked 1.25 BILLION characters where Kotlin read 84 000,
+// and one frame of the page walked 4.6 million where Kotlin read 68 000.
+//
+// The UTF-16 view is both the model the other targets use and the one the
+// standard library keeps breadcrumbs for -- it exists so NSString bridging can
+// offset in amortised constant time -- so this is the faster answer AND the
+// more consistent one.
+func r_utf16(_ s: String) -> String.UTF16View { s.utf16 }
+
+func r_strlen(_ s: String) -> Int { s.utf16.count }
+
+func r_char_at(_ s: String, _ at: Int) -> Int {
+    if at < 0 { return 0 }
+    let u = s.utf16
+    if at >= u.count { return 0 }
+    return Int(u[u.index(u.startIndex, offsetBy: at)])
+}
+
+func r_substring(_ s: String, _ from: Int, _ to: Int) -> String {
+    let u = s.utf16
+    let n = u.count
+    var a = from < 0 ? 0 : from
+    var b = to > n ? n : to
+    if a > n { a = n }
+    if b < a { b = a }
+    // A Swift String cannot hold half of a surrogate pair: a slice that cuts
+    // one decodes to U+FFFD. Round the slice out to scalar boundaries instead,
+    // so a walk that copies one UTF-16 unit at a time carries an emoji over
+    // whole -- the unit that starts the pair takes both, the one that ends it
+    // takes nothing.
+    if a < n && a > 0 {
+        let ua = u[u.index(u.startIndex, offsetBy: a)]
+        if ua >= 0xDC00 && ua <= 0xDFFF { a += 1 }
+    }
+    if b > a && b < n {
+        let ub = u[u.index(u.startIndex, offsetBy: b - 1)]
+        if ub >= 0xD800 && ub <= 0xDBFF { b += 1 }
+    }
+    if b < a { b = a }
+    let lo = u.index(u.startIndex, offsetBy: a)
+    let hi = u.index(u.startIndex, offsetBy: b)
+    return String(decoding: Array(u[lo..<hi]), as: UTF16.self)
+}
+
+// An index answered in UTF-16 units, so it can be fed straight back to
+// r_char_at and r_substring.
+func r_index_of(_ s: String, _ needle: String, _ from: Int) -> Int {
+    let u = s.utf16
+    let n = u.count
+    let m = needle.utf16.count
+    if m == 0 { return from <= n ? max(from, 0) : -1 }
+    if m > n { return -1 }
+    let hay = Array(u)
+    let pin = Array(needle.utf16)
+    var i = from < 0 ? 0 : from
+    while i + m <= n {
+        var k = 0
+        while k < m && hay[i + k] == pin[k] { k += 1 }
+        if k == m { return i }
+        i += 1
+    }
+    return -1
+}
+
+func r_last_index_of(_ s: String, _ needle: String) -> Int {
+    let hay = Array(s.utf16)
+    let pin = Array(needle.utf16)
+    let n = hay.count
+    let m = pin.count
+    if m == 0 { return n }
+    if m > n { return -1 }
+    var i = n - m
+    while i >= 0 {
+        var k = 0
+        while k < m && hay[i + k] == pin[k] { k += 1 }
+        if k == m { return i }
+        i -= 1
+    }
+    return -1
+}
+")
+                )
                 cpp (
                     "r_string_index_of(" (e 1) " , " (e 2) ")"
 (create_polyfill
@@ -6797,7 +8324,97 @@ int r_string_index_of( const std::string& str, const std::string& key )  {
                 java7 ( (e 1) ".indexOf(" (e 2 ) ", (int)" (e 3) ")" )
                 python ( (e 1) ".find(" (e 2) ", " (e 3) ")" )
                 swift3 ( "(" (e 1) ".range(of:" (e 2) ", range: " (e 1) ".index(" (e 1) ".startIndex, offsetBy: " (e 3) ")..<" (e 1) ".endIndex).map { " (e 1) ".distance(from: " (e 1) ".startIndex, to: $0.lowerBound) } ?? -1)" )
-                swift6 ( "(" (e 1) ".range(of:" (e 2) ", range: " (e 1) ".index(" (e 1) ".startIndex, offsetBy: " (e 3) ")..<" (e 1) ".endIndex).map { " (e 1) ".distance(from: " (e 1) ".startIndex, to: $0.lowerBound) } ?? -1)" )
+                swift6 ( "r_index_of(" (e 1) ", " (e 2) ", " (e 3) ")"
+(create_polyfill "
+// Ranger's string is a sequence of UTF-16 CODE UNITS, indexed in O(1). That is
+// what `charAt`, `strlen` and `substring` mean on JavaScript, Kotlin, Java and
+// C#, and every scan EVG writes -- `while (i < (strlen s)) { charAt s i }` --
+// assumes it.
+//
+// Swift's String indexes by GRAPHEME CLUSTER instead, and every such operation
+// walks from startIndex, so those linear scans became quadratic: parsing a
+// 28 KB stylesheet walked 1.25 BILLION characters where Kotlin read 84 000,
+// and one frame of the page walked 4.6 million where Kotlin read 68 000.
+//
+// The UTF-16 view is both the model the other targets use and the one the
+// standard library keeps breadcrumbs for -- it exists so NSString bridging can
+// offset in amortised constant time -- so this is the faster answer AND the
+// more consistent one.
+func r_utf16(_ s: String) -> String.UTF16View { s.utf16 }
+
+func r_strlen(_ s: String) -> Int { s.utf16.count }
+
+func r_char_at(_ s: String, _ at: Int) -> Int {
+    if at < 0 { return 0 }
+    let u = s.utf16
+    if at >= u.count { return 0 }
+    return Int(u[u.index(u.startIndex, offsetBy: at)])
+}
+
+func r_substring(_ s: String, _ from: Int, _ to: Int) -> String {
+    let u = s.utf16
+    let n = u.count
+    var a = from < 0 ? 0 : from
+    var b = to > n ? n : to
+    if a > n { a = n }
+    if b < a { b = a }
+    // A Swift String cannot hold half of a surrogate pair: a slice that cuts
+    // one decodes to U+FFFD. Round the slice out to scalar boundaries instead,
+    // so a walk that copies one UTF-16 unit at a time carries an emoji over
+    // whole -- the unit that starts the pair takes both, the one that ends it
+    // takes nothing.
+    if a < n && a > 0 {
+        let ua = u[u.index(u.startIndex, offsetBy: a)]
+        if ua >= 0xDC00 && ua <= 0xDFFF { a += 1 }
+    }
+    if b > a && b < n {
+        let ub = u[u.index(u.startIndex, offsetBy: b - 1)]
+        if ub >= 0xD800 && ub <= 0xDBFF { b += 1 }
+    }
+    if b < a { b = a }
+    let lo = u.index(u.startIndex, offsetBy: a)
+    let hi = u.index(u.startIndex, offsetBy: b)
+    return String(decoding: Array(u[lo..<hi]), as: UTF16.self)
+}
+
+// An index answered in UTF-16 units, so it can be fed straight back to
+// r_char_at and r_substring.
+func r_index_of(_ s: String, _ needle: String, _ from: Int) -> Int {
+    let u = s.utf16
+    let n = u.count
+    let m = needle.utf16.count
+    if m == 0 { return from <= n ? max(from, 0) : -1 }
+    if m > n { return -1 }
+    let hay = Array(u)
+    let pin = Array(needle.utf16)
+    var i = from < 0 ? 0 : from
+    while i + m <= n {
+        var k = 0
+        while k < m && hay[i + k] == pin[k] { k += 1 }
+        if k == m { return i }
+        i += 1
+    }
+    return -1
+}
+
+func r_last_index_of(_ s: String, _ needle: String) -> Int {
+    let hay = Array(s.utf16)
+    let pin = Array(needle.utf16)
+    let n = hay.count
+    let m = pin.count
+    if m == 0 { return n }
+    if m > n { return -1 }
+    var i = n - m
+    while i >= 0 {
+        var k = 0
+        while k < m && hay[i + k] == pin[k] { k += 1 }
+        if k == m { return i }
+        i -= 1
+    }
+    return -1
+}
+")
+                )
                 cpp (
                     "r_string_index_of_from(" (e 1) " , " (e 2) ", " (e 3) ")"
 (create_polyfill
@@ -6829,7 +8446,97 @@ int r_string_index_of_from( const std::string& str, const std::string& key, int 
                 python ( (e 1) ".rfind(" (e 2) ")" )
                 go ( "int64(strings.LastIndex(" (e 1) ", " (e 2) "))" (imp "strings"))
                 swift3 ( "(" (e 1) ".range(of:" (e 2) ", options: .backwards).map { " (e 1) ".distance(from: " (e 1) ".startIndex, to: $0.lowerBound) } ?? -1)" )
-                swift6 ( "(" (e 1) ".range(of:" (e 2) ", options: .backwards).map { " (e 1) ".distance(from: " (e 1) ".startIndex, to: $0.lowerBound) } ?? -1)" )
+                swift6 ( "r_last_index_of(" (e 1) ", " (e 2) ")"
+(create_polyfill "
+// Ranger's string is a sequence of UTF-16 CODE UNITS, indexed in O(1). That is
+// what `charAt`, `strlen` and `substring` mean on JavaScript, Kotlin, Java and
+// C#, and every scan EVG writes -- `while (i < (strlen s)) { charAt s i }` --
+// assumes it.
+//
+// Swift's String indexes by GRAPHEME CLUSTER instead, and every such operation
+// walks from startIndex, so those linear scans became quadratic: parsing a
+// 28 KB stylesheet walked 1.25 BILLION characters where Kotlin read 84 000,
+// and one frame of the page walked 4.6 million where Kotlin read 68 000.
+//
+// The UTF-16 view is both the model the other targets use and the one the
+// standard library keeps breadcrumbs for -- it exists so NSString bridging can
+// offset in amortised constant time -- so this is the faster answer AND the
+// more consistent one.
+func r_utf16(_ s: String) -> String.UTF16View { s.utf16 }
+
+func r_strlen(_ s: String) -> Int { s.utf16.count }
+
+func r_char_at(_ s: String, _ at: Int) -> Int {
+    if at < 0 { return 0 }
+    let u = s.utf16
+    if at >= u.count { return 0 }
+    return Int(u[u.index(u.startIndex, offsetBy: at)])
+}
+
+func r_substring(_ s: String, _ from: Int, _ to: Int) -> String {
+    let u = s.utf16
+    let n = u.count
+    var a = from < 0 ? 0 : from
+    var b = to > n ? n : to
+    if a > n { a = n }
+    if b < a { b = a }
+    // A Swift String cannot hold half of a surrogate pair: a slice that cuts
+    // one decodes to U+FFFD. Round the slice out to scalar boundaries instead,
+    // so a walk that copies one UTF-16 unit at a time carries an emoji over
+    // whole -- the unit that starts the pair takes both, the one that ends it
+    // takes nothing.
+    if a < n && a > 0 {
+        let ua = u[u.index(u.startIndex, offsetBy: a)]
+        if ua >= 0xDC00 && ua <= 0xDFFF { a += 1 }
+    }
+    if b > a && b < n {
+        let ub = u[u.index(u.startIndex, offsetBy: b - 1)]
+        if ub >= 0xD800 && ub <= 0xDBFF { b += 1 }
+    }
+    if b < a { b = a }
+    let lo = u.index(u.startIndex, offsetBy: a)
+    let hi = u.index(u.startIndex, offsetBy: b)
+    return String(decoding: Array(u[lo..<hi]), as: UTF16.self)
+}
+
+// An index answered in UTF-16 units, so it can be fed straight back to
+// r_char_at and r_substring.
+func r_index_of(_ s: String, _ needle: String, _ from: Int) -> Int {
+    let u = s.utf16
+    let n = u.count
+    let m = needle.utf16.count
+    if m == 0 { return from <= n ? max(from, 0) : -1 }
+    if m > n { return -1 }
+    let hay = Array(u)
+    let pin = Array(needle.utf16)
+    var i = from < 0 ? 0 : from
+    while i + m <= n {
+        var k = 0
+        while k < m && hay[i + k] == pin[k] { k += 1 }
+        if k == m { return i }
+        i += 1
+    }
+    return -1
+}
+
+func r_last_index_of(_ s: String, _ needle: String) -> Int {
+    let hay = Array(s.utf16)
+    let pin = Array(needle.utf16)
+    let n = hay.count
+    let m = pin.count
+    if m == 0 { return n }
+    if m > n { return -1 }
+    var i = n - m
+    while i >= 0 {
+        var k = 0
+        while k < m && hay[i + k] == pin[k] { k += 1 }
+        if k == m { return i }
+        i -= 1
+    }
+    return -1
+}
+")
+                )
                 php( "strrpos(" (e 1) ", " (e 2) ") !== false ? strrpos(" (e 1) ", " (e 2) ") : -1")
                 cpp (
                     "r_string_last_index_of(" (e 1) " , " (e 2) ")"
@@ -7122,7 +8829,10 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                 ranger ( nl "push " (e 1) " " (e 2) "" nl)
                  cpp ( (e 1) ".push_back( "(e 2)"  );")
                  swift3 ( (e 1) ".append(" (e 2)")")
-                 swift6 ( (e 1) ".append(" (e 2)")")
+                 ; Custom, so an item pushed into an array of a sealable
+                 ; union is wrapped in its enum case, as an assignment or a
+                 ; return of one is.
+                 swift6 ( (custom _) )
                  php ( "array_push(" (e 1) ", " (e 2 )");")
                  python ( (e 1) ".append(" (e 2) ")")
                  java7 ( (e 1) ".add(" (e 2) ");" )
@@ -8340,13 +10050,21 @@ fun r_read_key(): String {
                  cpp ( nl "exit(" (e 1) ");" nl (imp "<cstdlib>"))
                  kotlin ( nl "System.exit(" (e 1) ")" nl )
                  scala ( nl "System.exit(" (e 1) ")" nl )
-                 go ( nl "os.Exit(" (e 1) ")" nl (imp "os"))
-                 rust ( nl "std::process::exit(" (e 1) ");" nl )
+                 ; The int these targets spell an exit code with is not the
+                 ; one Ranger's `int` maps to -- go wants a plain `int` where
+                 ; Ranger has int64, and rust and swift want an i32/Int32 --
+                 ; so each one is narrowed here rather than failing to compile
+                 ; at every call site.
+                 go ( nl "os.Exit(int(" (e 1) "))" nl (imp "os"))
+                 rust ( nl "std::process::exit((" (e 1) ") as i32);" nl )
                  java7 ( nl "System.exit(" (e 1) ");" nl )
                  php ( nl "exit(" (e 1) ");" nl )
                  python ( nl "sys.exit(" (e 1) ")" nl (imp "sys"))
                  csharp ( nl "Environment.Exit(" (e 1) ");" nl (imp "System"))
                  swift3 ( nl "exit(Int32(" (e 1) "))" nl (imp "Foundation"))
+                 ; Without this, swift6 fell through to the `*` template, which
+                 ; is JavaScript.
+                 swift6 ( nl "exit(Int32(" (e 1) "))" nl (imp "Foundation"))
                  * ( nl "process.exit(" (e 1) ");" nl)
             }
         }

@@ -117,6 +117,40 @@ Extends(ParentClass)
 def p (new Point(3 4))      ; record: positional
 ```
 
+## API documentation (`doc` tail)
+
+```ranger
+fn find:Node ( id:string ) {
+    ...
+} doc {
+    public                       ; -> part of the exported API
+    description "Finds a node."
+    param id "The identifier."   ; NEVER `param id string "…"` -- the
+    returns "The matching node." ; compiler already knows the type
+    since "1.2"
+    see Node
+    example findExample          ; a FUNCTION, compiled and type checked,
+                                 ; rendered per target, then left out of the
+                                 ; output (-keep-examples puts it back)
+    deprecated { since "2.0" use "find" description "Use find instead." }
+}
+```
+
+Goes after the body, on the same line as the closing `}`. Valid on `fn`, `sfn`,
+`Constructor`, `class`, `record`, `shape`, `enum`, `module` and a class-level
+`def`. A `doc` block on its own line binds to nothing and is an error.
+
+```text
+no doc block        -> internal, undocumented
+doc { … }           -> documented, internal
+doc { public … }    -> exported public API
+```
+
+`-apidoc=<dir>` writes `api.json` / `api.md`; `-apipackage` writes the packaging.
+JavaScript gets JSDoc (documentation.js), C# XML docs (DocFX), Kotlin KDoc
+(Dokka), Swift DocC, Python Google docstrings (pdoc), Dart dartdoc. On Dart and
+Python `public` also generates the export list (`export … show`, `__all__`).
+
 ## Generic classes
 
 ```ranger

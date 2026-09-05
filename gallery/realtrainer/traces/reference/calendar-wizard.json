@@ -1,0 +1,895 @@
+{
+ "id": "calendar-wizard-create",
+ "machine": "calendarWizard",
+ "viewport": "390x844",
+ "frames": [
+  {
+   "step": "rt-wiz-type-plan",
+   "handled": true,
+   "state": "",
+   "nodes": [
+    {
+     "role": "button",
+     "name": "Sulje",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Luo kalenteri",
+     "state": "level=1"
+    },
+    {
+     "role": "paragraph",
+     "name": "Vaihe 1/4",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Valitse tyyppi",
+     "state": "level=2"
+    },
+    {
+     "role": "paragraph",
+     "name": "Millaista sisältöä haluat kirjata?",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Harjoituspäiväkirja Kirjaa toteutuneet harjoitukset",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Harjoitussuunnitelma Suunnittele tulevia harjoituksia",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Ravintopäiväkirja Seuraa ruokailua ja ravintoa",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Unipäiväkirja Seuraa unta ja palautumista",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Fiilispäiväkirja Kirjaa psyykkiset ja fyysiset tuntemukset",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Mittaukset HRV, paino, leposyke, kehonkoostumus",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kilpailut Kirjaa kilpailut ja tulokset",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Leirit Leirien ja tapahtumien seuranta",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Ryhmäliikunta Ryhmätreenit ja ohjatut tunnit",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kulut Harrastukseen liittyvät kulut",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Testaussuunnitelma Suunnittele testit ja kontrollit",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Testauspöytäkirja Kirjaa testien tulokset",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Muu päiväkirja Seuraa mitä tahansa omilla mittareilla",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Peruuta",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Seuraava",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-wiz-next",
+   "handled": true,
+   "state": "",
+   "nodes": [
+    {
+     "role": "button",
+     "name": "Sulje",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Luo kalenteri",
+     "state": "level=1"
+    },
+    {
+     "role": "paragraph",
+     "name": "Vaihe 2/4",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Kalenterin tiedot",
+     "state": "level=2"
+    },
+    {
+     "role": "paragraph",
+     "name": "Suunnittele tulevia harjoituksia",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Nimi * *",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "esim. Juoksuharjoittelu 2026",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Kuvaus",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "Lyhyt kuvaus kalenterista...",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Tavoitteet",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "esim. Juosta maraton alle 4 tunnissa",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Nykyinen taso",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "esim. Puolimaraton 2h, juoksen 3x viikossa",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Takaisin",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Seuraava",
+     "state": "disabled"
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-wiz-name",
+   "handled": true,
+   "state": "",
+   "nodes": [
+    {
+     "role": "button",
+     "name": "Sulje",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Luo kalenteri",
+     "state": "level=1"
+    },
+    {
+     "role": "paragraph",
+     "name": "Vaihe 2/4",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Kalenterin tiedot",
+     "state": "level=2"
+    },
+    {
+     "role": "paragraph",
+     "name": "Suunnittele tulevia harjoituksia",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Nimi * *",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "esim. Juoksuharjoittelu 2026",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Kuvaus",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "Lyhyt kuvaus kalenterista...",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Tavoitteet",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "esim. Juosta maraton alle 4 tunnissa",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Nykyinen taso",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "esim. Puolimaraton 2h, juoksen 3x viikossa",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Takaisin",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Seuraava",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-wiz-next",
+   "handled": true,
+   "state": "",
+   "nodes": [
+    {
+     "role": "button",
+     "name": "Sulje",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Luo kalenteri",
+     "state": "level=1"
+    },
+    {
+     "role": "paragraph",
+     "name": "Vaihe 3/4",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Suojaa tietosi",
+     "state": "level=2"
+    },
+    {
+     "role": "paragraph",
+     "name": "Salaus suojaa tietosi niin, ettei kukaan muu voi lukea niitä - edes me.",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Salaa tämä kalenteri",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Vain sinä voit nähdä sisällön salasanallasi",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Ilman salausta tiedot tallennetaan palvelimelle suojaamattomina. Ne ovat edelleen yksityisiä, mutta ylläpito voi teknisesti nähdä ne.",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Takaisin",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Seuraava",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-wiz-next",
+   "handled": true,
+   "state": "",
+   "nodes": [
+    {
+     "role": "button",
+     "name": "Sulje",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Luo kalenteri",
+     "state": "level=1"
+    },
+    {
+     "role": "paragraph",
+     "name": "Vaihe 4/4",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Ulkoasu",
+     "state": "level=2"
+    },
+    {
+     "role": "paragraph",
+     "name": "Valitse väri ja näkyvyysasetukset",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Kilpailukausi 2026 Harjoitussuunnitelma Väri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Näkyvyys",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Yksityinen",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Ryhmälle",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Julkinen",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Takaisin",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Luo kalenteri",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-wiz-color-2",
+   "handled": true,
+   "state": "",
+   "nodes": [
+    {
+     "role": "button",
+     "name": "Sulje",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Luo kalenteri",
+     "state": "level=1"
+    },
+    {
+     "role": "paragraph",
+     "name": "Vaihe 4/4",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Ulkoasu",
+     "state": "level=2"
+    },
+    {
+     "role": "paragraph",
+     "name": "Valitse väri ja näkyvyysasetukset",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Kilpailukausi 2026 Harjoitussuunnitelma Väri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Näkyvyys",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Yksityinen",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Ryhmälle",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Julkinen",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Takaisin",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Luo kalenteri",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-wiz-vis-public",
+   "handled": true,
+   "state": "",
+   "nodes": [
+    {
+     "role": "button",
+     "name": "Sulje",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Luo kalenteri",
+     "state": "level=1"
+    },
+    {
+     "role": "paragraph",
+     "name": "Vaihe 4/4",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Ulkoasu",
+     "state": "level=2"
+    },
+    {
+     "role": "paragraph",
+     "name": "Valitse väri ja näkyvyysasetukset",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Kilpailukausi 2026 Harjoitussuunnitelma Väri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Näkyvyys",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Yksityinen",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Ryhmälle",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Julkinen",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Takaisin",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Luo kalenteri",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-wiz-create",
+   "handled": true,
+   "state": "",
+   "nodes": [
+    {
+     "role": "img",
+     "name": "RealTrainer",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Ladataan...",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    },
+    {
+     "role": "list",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "listitem",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "img",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Päiväkirja \"Kilpailukausi 2026\" luotu",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "tick 600",
+   "handled": true,
+   "state": "",
+   "nodes": [
+    {
+     "role": "banner",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Credits: 100k. Click to purchase more credits.",
+     "state": ""
+    },
+    {
+     "role": "img",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "100k credits",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "📋 Kilpailukausi 2026",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "T",
+     "state": ""
+    },
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää harjoitus",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Päivitä suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kuva",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "\"Kirjoita merkintä... esim. \\\"maanantai: juoksu 45min\\\"\"",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Ei tulevia tapahtumia",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Kirjoita yllä olevaan kenttään lisätäksesi ensimmäisen merkinnän",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    },
+    {
+     "role": "list",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "listitem",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "img",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Päiväkirja \"Kilpailukausi 2026\" luotu",
+     "state": ""
+    }
+   ]
+  }
+ ]
+}

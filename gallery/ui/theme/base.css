@@ -73,6 +73,31 @@
 
 /* --- checkbox and switch -------------------------------------------------- */
 
+/* A text field. It has a stated HEIGHT and a minimum width, because an empty
+ * one has neither otherwise — and axe called that what it is: a focusable node
+ * with no height is a node a pointer cannot land on and a magnifier cannot
+ * find. Three of the nine input specs start with an empty box, and those were
+ * exactly the three that went red. */
+.ui-input {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background-color: #ffffff;
+  color: #0f172a;
+  padding: 0 10px;
+  width: 220px;
+  height: 34px;
+}
+
+.ui-input-disabled { opacity: 0.45; }
+.ui-input-invalid { border-color: #dc2626; }
+.ui-input-text { color: #0f172a; font-size: 13px; height: 18px; }
+.ui-input-placeholder { color: #64748b; }
+.ui-input-caret { width: 2px; height: 18px; background-color: #2563eb; }
+
 .ui-checkbox {
   border: 1px solid #cbd5e1;
   padding: 8px 14px;
@@ -177,3 +202,708 @@
 .theme-dark .ui-collapsible-body { color: #cbd5e1; }
 .theme-dark .ui-tabpanel-body { color: #cbd5e1; }
 .theme-dark .ui-accordion-body { color: #cbd5e1; }
+
+/* --- toolbar, toggle group, dialog and the presentational set -------------- */
+
+.ui-togglegroup { display: flex; flex-direction: row; align-items: center; gap: 4px; }
+.ui-togglegroup-item {
+  border: 1px solid #cbd5e1;
+  padding: 7px 12px;
+  border-radius: 6px;
+  background-color: #f1f5f9;
+  color: #0f172a;
+}
+.ui-togglegroup-item-state-on { background-color: #2563eb; color: #ffffff; border-color: #2563eb; }
+.ui-togglegroup-item-disabled { opacity: 0.45; }
+
+.ui-toolbar { display: flex; flex-direction: row; align-items: center; gap: 4px; }
+.ui-toolbar-button {
+  border: 1px solid #cbd5e1;
+  padding: 7px 12px;
+  border-radius: 6px;
+  background-color: #f8fafc;
+  color: #0f172a;
+}
+.ui-toolbar-button-disabled { opacity: 0.45; }
+
+.ui-dialog { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.ui-dialog-trigger {
+  border: 1px solid #cbd5e1;
+  padding: 8px 14px;
+  border-radius: 6px;
+  background-color: #e2e8f0;
+  color: #0f172a;
+}
+/* The backdrop is sized by the overlay pass, not here: `overlay-side: cover`
+   means the page, and a percentage would resolve against whatever part of the
+   page declared the dialog. The 120px this used to carry was the height of a
+   backdrop that sat in the flow and pushed the page down. */
+.ui-dialog-overlay { background-color: rgba(15, 23, 42, 0.45); }
+.ui-dialog-content {
+  /* A width-less box in EVG is as wide as its parent, and a centred modal's
+     parent is the page — so without this the dialog is a full-width band
+     rather than a panel. */
+  width: fit-content;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 16px;
+  background-color: #ffffff;
+}
+.ui-dialog-title { color: #0f172a; font-size: 16px; }
+.ui-dialog-close {
+  border: 1px solid #2563eb;
+  padding: 7px 12px;
+  border-radius: 6px;
+  background-color: #2563eb;
+  color: #ffffff;
+}
+
+.ui-label { color: #334155; }
+.ui-separator { background-color: #cbd5e1; height: 1px; width: 200px; }
+.ui-separator-vertical { width: 1px; height: 24px; }
+
+.ui-progress {
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background-color: #e2e8f0;
+  width: 200px;
+  height: 10px;
+}
+.ui-progress-indicator { background-color: #2563eb; height: 10px; border-radius: 999px; }
+.ui-progress-indicator-state-indeterminate { background-color: #94a3b8; }
+
+.ui-aspectratio-outer { display: flex; flex-direction: column; }
+.ui-aspectratio { border: 1px solid #cbd5e1; border-radius: 6px; background-color: #f1f5f9; }
+.ui-aspectratio-content { color: #334155; padding: 6px; }
+
+.ui-iconbutton {
+  border: 1px solid #cbd5e1;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background-color: #f1f5f9;
+}
+.ui-iconbutton-glyph { color: #0f172a; }
+.ui-iconbutton-disabled { opacity: 0.45; }
+
+.ui-avatar {
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background-color: #e2e8f0;
+  width: 40px;
+  height: 40px;
+}
+.ui-avatar-fallback { color: #334155; padding: 10px; }
+
+/* --- the overlay family ---------------------------------------------------
+   Popover, alert dialog and the two menus all paint the same surface: a card
+   over the page. One set of rules, differing only where the semantics do —
+   the alert dialog is the only one that dims what is behind it. */
+
+.ui-popover-trigger,
+.ui-alertdialog-trigger,
+.ui-dropdownmenu-trigger,
+.ui-toast-trigger,
+.ui-tooltip-trigger {
+  border: 1px solid #cbd5e1;
+  padding: 8px 14px;
+  border-radius: 6px;
+  background-color: #e2e8f0;
+  color: #0f172a;
+}
+.ui-popover-trigger-disabled,
+.ui-alertdialog-trigger-disabled,
+.ui-dropdownmenu-trigger-disabled,
+.ui-toast-trigger-disabled,
+.ui-tooltip-trigger-disabled { opacity: 0.45; }
+
+/* Every floating surface: as wide as what it holds, because out of the flow
+   there is no row to divide up and a width-less box would take the whole page.
+   The panels used to sit IN the flow, where their parent's width was the
+   sensible answer. */
+.ui-popover-content,
+.ui-alertdialog-content,
+.ui-dropdownmenu-content,
+.ui-contextmenu-content,
+.ui-hovercard-content {
+  width: fit-content;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 12px;
+  background-color: #ffffff;
+}
+.ui-popover-body, .ui-hovercard-content { color: #334155; }
+.ui-popover-inner, .ui-popover-close {
+  border: 1px solid #cbd5e1;
+  padding: 6px 12px;
+  border-radius: 6px;
+  background-color: #f1f5f9;
+  color: #0f172a;
+}
+
+/* Sized by the overlay pass — see .ui-dialog-overlay above. */
+.ui-alertdialog-overlay { background-color: rgba(15, 23, 42, 0.45); }
+.ui-alertdialog-title { color: #0f172a; font-size: 16px; }
+.ui-alertdialog-description { color: #475569; }
+.ui-alertdialog-cancel {
+  border: 1px solid #cbd5e1;
+  padding: 7px 12px;
+  border-radius: 6px;
+  background-color: #f1f5f9;
+  color: #0f172a;
+}
+.ui-alertdialog-action {
+  border: 1px solid #b91c1c;
+  padding: 7px 12px;
+  border-radius: 6px;
+  background-color: #b91c1c;
+  color: #ffffff;
+}
+
+.ui-dropdownmenu-item, .ui-contextmenu-item {
+  padding: 6px 12px;
+  border-radius: 4px;
+  color: #0f172a;
+  width: 160px;
+}
+.ui-dropdownmenu-item-disabled, .ui-contextmenu-item-disabled { opacity: 0.45; }
+/* The border colour has to clear contrast against the label too: the display
+   list check samples whatever rect is painted under each glyph, and a dashed
+   frame drawn round the text is one of them. #94a3b8 here read 4.04:1. */
+.ui-contextmenu-trigger {
+  border: 1px dashed #cbd5e1;
+  border-radius: 6px;
+  padding: 14px;
+  background-color: #f8fafc;
+  color: #0f172a;
+}
+
+/* --- tooltip and hover card ---------------------------------------------- */
+
+.ui-tooltip-content {
+  width: fit-content;
+  border-radius: 6px;
+  padding: 6px 10px;
+  background-color: #0f172a;
+  color: #ffffff;
+}
+.ui-hovercard-trigger { color: #1d4ed8; padding: 4px 0; }
+
+/* --- slider ---------------------------------------------------------------
+   The thumb needs a rectangle of its own: it is the focusable node, and a
+   focusable node with no height is a lint failure — you cannot click what has
+   no area, however correct its ARIA is. */
+
+.ui-slider { width: 200px; height: 18px; }
+.ui-slider-track {
+  background-color: #e2e8f0;
+  border-radius: 999px;
+  width: 200px;
+  height: 6px;
+  margin-top: 6px;
+}
+.ui-slider-range { background-color: #2563eb; height: 6px; border-radius: 999px; }
+/* The thumb sits ON the track, not under it: absolute, with `left` written as
+   a percentage by the controller and a negative margin pulling it back by half
+   its own width — the pre-transform way to centre something on a point, and
+   EVG adds marginLeft to an absolute element's x. */
+.ui-slider-thumb {
+  border: 1px solid #2563eb;
+  border-radius: 999px;
+  background-color: #ffffff;
+  width: 18px;
+  height: 18px;
+  top: 0;
+  margin-left: -9px;
+}
+.ui-slider-thumb-disabled { opacity: 0.45; }
+
+/* --- toast ----------------------------------------------------------------
+   The region is the named landmark a reader finds; the viewport is the list
+   inside it. Both are real in the reference, and both are here. */
+
+.ui-toast-region { display: flex; flex-direction: column; width: 260px; }
+.ui-toast-viewport { display: flex; flex-direction: column; gap: 8px; width: 260px; }
+.ui-toast-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 12px;
+  background-color: #ffffff;
+}
+.ui-toast-title { color: #0f172a; font-size: 15px; }
+.ui-toast-description { color: #475569; }
+.ui-toast-action, .ui-toast-close {
+  border: 1px solid #cbd5e1;
+  padding: 6px 12px;
+  border-radius: 6px;
+  background-color: #f1f5f9;
+  color: #0f172a;
+}
+
+/* --- sortable ---------------------------------------------------------------
+   A list you can pick items up in. The dragged row is lifted rather than
+   hidden: the reference keeps it in place and moves it with a transform, and
+   what the eye should follow is the row, not a hole where it was. */
+
+.ui-sortable {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 220px;
+}
+.ui-sortable-item {
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 8px 12px;
+  background-color: #f8fafc;
+  color: #0f172a;
+}
+.ui-sortable-item-dragging {
+  border: 1px solid #2563eb;
+  background-color: #dbeafe;
+}
+.ui-sortable-item-disabled { opacity: 0.45; }
+
+/* --- menubar, navigation menu, select, scroll area ---------------------------
+   The four the overlay layer unblocked. Their panels are floating surfaces, so
+   they get `fit-content` for the same reason the rest do: out of the flow there
+   is no row to divide up, and a width-less box takes the whole page. */
+
+.ui-menubar {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 4px;
+  background-color: #ffffff;
+  border-radius: 8px;
+  padding: 4px;
+  width: fit-content;
+}
+.ui-menubar-trigger {
+  border-radius: 6px;
+  padding: 6px 12px;
+  color: #0f172a;
+}
+.ui-menubar-trigger-state-open { background-color: #e0e7ff; }
+.ui-menubar-trigger-disabled { opacity: 0.45; }
+.ui-menubar-content {
+  display: flex;
+  flex-direction: column;
+  width: fit-content;
+  gap: 2px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 6px;
+  background-color: #ffffff;
+}
+.ui-menubar-item { padding: 6px 14px; border-radius: 5px; color: #0f172a; }
+.ui-menubar-item-disabled { opacity: 0.45; }
+
+.ui-navmenu { display: flex; flex-direction: column; gap: 6px; width: fit-content; }
+.ui-navmenu-list { display: flex; flex-direction: row; flex-wrap: nowrap; gap: 6px; width: fit-content; }
+.ui-navmenu-trigger { border-radius: 6px; padding: 6px 12px; color: #0f172a; background-color: #f1f5f9; }
+.ui-navmenu-trigger-state-open { background-color: #e0e7ff; }
+.ui-navmenu-content {
+  display: flex;
+  flex-direction: column;
+  width: fit-content;
+  gap: 4px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 10px;
+  background-color: #ffffff;
+}
+.ui-navmenu-link { color: #1d4ed8; padding: 4px 6px; }
+.ui-navmenu-viewport { height: 1px; }
+
+.ui-select { display: flex; flex-direction: column; width: fit-content; }
+.ui-select-trigger {
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 7px 12px;
+  background-color: #ffffff;
+  color: #0f172a;
+  width: fit-content;
+}
+.ui-select-trigger-disabled { opacity: 0.45; }
+.ui-select-value { color: #0f172a; }
+.ui-select-content {
+  display: flex;
+  flex-direction: column;
+  width: fit-content;
+  gap: 2px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 6px;
+  background-color: #ffffff;
+}
+.ui-select-item { padding: 6px 14px; border-radius: 5px; color: #0f172a; }
+.ui-select-item-state-checked { background-color: #e0e7ff; }
+.ui-select-item-disabled { opacity: 0.45; }
+
+/* The scroll area had NO rules at all, and the audit caught it: black text on
+   a box with no background is black on black, which axe measures as 1:1. A
+   control with no theme is not a neutral control. */
+.ui-scrollarea {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background-color: #ffffff;
+  width: 200px;
+}
+.ui-scrollarea-viewport { background-color: #ffffff; }
+.ui-scrollarea-content { display: flex; flex-direction: column; }
+.ui-scrollarea-item { color: #0f172a; padding: 8px 12px; }
+
+/* --- states ------------------------------------------------------------------
+   What a control looks like while it is being used, said by the STYLESHEET.
+   Before `:hover` existed here a controller had to write a second class for
+   this, which meant every controller knew something about presentation; these
+   rules are the whole of that knowledge now, and no .rgr file mentions hover.
+
+   The transitions are on the base rules, not the hover ones, because a
+   transition describes the PROPERTY and not the direction — declaring it only
+   under `:hover` gives a control that fades in and snaps out. */
+
+.ui-menubar-trigger,
+.ui-navmenu-trigger,
+.ui-select-trigger,
+.ui-select-item,
+.ui-menubar-item,
+.ui-sortable-item,
+.ui-dropdownmenu-item,
+.ui-contextmenu-item,
+.ui-toolbar-button,
+.ui-toggle,
+.ui-dialog-trigger,
+.ui-popover-trigger { transition: background-color 140ms ease-out, color 140ms ease-out; }
+
+.ui-menubar-trigger:hover,
+.ui-navmenu-trigger:hover,
+.ui-menubar-item:hover,
+.ui-select-item:hover,
+.ui-dropdownmenu-item:hover,
+.ui-contextmenu-item:hover { background-color: #eef2ff; }
+
+.ui-select-trigger:hover,
+.ui-dialog-trigger:hover,
+.ui-popover-trigger:hover,
+.ui-toolbar-button:hover,
+.ui-toggle:hover { background-color: #e2e8f0; }
+
+/* A sortable row lifts very slightly under the pointer, which is the one
+   affordance that says "this can be picked up" before anything is picked up.
+   `ease-out` because a lift should leave quickly and settle slowly, and
+   `translate` rather than a margin because a margin would reflow every row
+   below it. */
+.ui-sortable-item { transition: background-color 140ms ease-out, transform 140ms ease-out; }
+.ui-sortable-item:hover { background-color: #eef2ff; transform: translate(0, -1px) scale(1.01); }
+
+/* Pressed is darker than hovered, and instant on the way in: a button that
+   eases into its pressed colour feels unresponsive, which is why the
+   transition above is short and why nothing here fights it. */
+.ui-menubar-trigger:active,
+.ui-navmenu-trigger:active,
+.ui-select-trigger:active,
+.ui-toolbar-button:active,
+.ui-toggle:active,
+.ui-sortable-item:active { background-color: #c7d2fe; }
+
+/* Focus is not hover. A keyboard user gets the same affordance a pointer user
+   does, and it has to be visible on top of either. */
+.ui-menubar-trigger:focus,
+.ui-navmenu-trigger:focus,
+.ui-select-trigger:focus,
+.ui-select-item:focus,
+.ui-menubar-item:focus,
+.ui-sortable-item:focus,
+.ui-dropdownmenu-item:focus,
+.ui-contextmenu-item:focus { background-color: #e0e7ff; }
+
+/* --- motion ------------------------------------------------------------------
+   Everything above says what a control LOOKS like. This says what it looks
+   like while it is changing, which is the difference between a kit that reads
+   as a picture of a UI and one that reads as a UI.
+
+   Three rules held to throughout, and they are the ones that separate motion
+   from fidgeting:
+
+   THE TRANSITION GOES ON THE BASE RULE. A transition describes the property,
+   not the direction. Declared only under `:hover` or only under a state class,
+   a control eases in and snaps out — which looks broken without looking
+   obviously wrong, and is the single most common way this is got wrong.
+
+   IN IS FASTER THAN OUT, AND PRESS IS FASTEST. A control has to feel attached
+   to the finger. Anything over about 200ms on a press reads as lag; anything
+   under about 80ms on a settle reads as a flicker.
+
+   NOTHING MOVES THAT WOULD REFLOW. Every bit of movement here is `transform`,
+   which is painted rather than laid out, so a control that grows under the
+   pointer does not shove its neighbours sideways. That is also why a lift is
+   `translate` and not a margin.
+
+   What is NOT here: an entrance for the overlays. A dialog, a popover and a
+   tooltip are CREATED when they open, and a transition needs a value to leave
+   from — a brand-new element has none, so it establishes at its destination
+   and does not travel. A browser behaves exactly the same way, which is why
+   Radix animates its entrances with `@keyframes` rather than `transition`.
+   EVG has no `@keyframes` yet; when it does, the overlays are the first thing
+   to reach for it. */
+
+/* The two-state controls. Colour AND border move together — a checkbox whose
+   fill arrives before its border reads as two things happening. */
+.ui-checkbox,
+.ui-radio,
+.ui-switch,
+.ui-tab,
+.ui-togglegroup-item,
+.ui-accordion-trigger,
+.ui-collapsible-trigger,
+.ui-slider-thumb,
+.ui-progress-indicator,
+.ui-toast-item {
+  transition: background-color 150ms ease-out, color 150ms ease-out,
+              border-color 150ms ease-out, transform 150ms ease-out;
+}
+
+/* Hover on the things that had none. One step of the same grey the rest of the
+   kit uses, rather than a new colour per component.
+ 
+   TWO groups, because a hover has to be a step from where the control ALREADY
+   is. The checkbox and the switch rest at #e2e8f0, which was the first hover
+   colour written here — so hovering them did precisely nothing, and it looked
+   like the transition was broken rather than the palette. Measured before it
+   was believed: the row came back 226,232,240 at rest, at 60ms and settled. */
+.ui-radio:hover,
+.ui-tab:hover,
+.ui-togglegroup-item:hover,
+.ui-accordion-trigger:hover,
+.ui-collapsible-trigger:hover { background-color: #e2e8f0; }
+
+.ui-checkbox:hover,
+.ui-switch:hover { background-color: #cbd5e1; }
+
+/* A press is a small squeeze, and it is on the transform rather than the
+   colour so it works on the controls whose colour is already carrying their
+   state. `scale` and not `translate`: a button that moves down under the
+   finger looks like it was nudged, one that shrinks looks pushed. */
+.ui-checkbox:active,
+.ui-radio:active,
+.ui-switch:active,
+.ui-tab:active,
+.ui-togglegroup-item:active,
+.ui-accordion-trigger:active,
+.ui-collapsible-trigger:active,
+.ui-toolbar-button:active,
+.ui-toggle:active { transform: scale(0.96); }
+
+/* Checking something is the one moment worth a flourish, so the indicator
+   overshoots very slightly and settles. The control's own centre is the pivot,
+   which is what keeps a row of checkboxes on their baseline. */
+.ui-checkbox-state-checked,
+.ui-radio-state-checked,
+.ui-switch-state-checked {
+  transition: background-color 180ms cubic-bezier(0.34, 1.4, 0.64, 1),
+              border-color 180ms ease-out,
+              transform 180ms cubic-bezier(0.34, 1.4, 0.64, 1);
+  transform: scale(1.06);
+}
+
+/* The slider's thumb answers the pointer by growing, which is the affordance
+   that says it can be taken hold of. Bigger again while it is actually held. */
+.ui-slider-thumb:hover  { transform: scale(1.18); }
+.ui-slider-thumb:active { transform: scale(1.28); }
+
+/* The open half of a disclosure leans on its background rather than moving:
+   the panel below it is about to change height, and two things moving at once
+   is one too many. */
+.ui-accordion-trigger-state-open,
+.ui-collapsible-trigger-state-open { transition: background-color 200ms ease-out; }
+
+/* A tab that becomes active arrives from the resting colour rather than
+   appearing in the new one, and its neighbour leaves the same way. */
+.ui-tab-state-active,
+.ui-togglegroup-item-state-on,
+.ui-toggle-state-on { transition: background-color 200ms ease-out, color 200ms ease-out, border-color 200ms ease-out; }
+
+/* Progress is the one thing here that should NOT be quick. The bar is
+   reporting a real quantity, and a fast interpolation invites reading it as
+   further along than it is. */
+.ui-progress-indicator { transition: background-color 300ms linear; }
+
+/* Disabled: no hover, no press, no motion. A control that animates while
+   refusing to do anything is worse than one that sits still — it promises
+   something and then declines. Repeating the resting values under the state
+   pseudo-classes is how that is said with the selectors this engine has. */
+.ui-checkbox:disabled,
+.ui-radio:disabled,
+.ui-switch:disabled,
+.ui-tab:disabled,
+.ui-togglegroup-item:disabled,
+.ui-accordion-trigger:disabled,
+.ui-collapsible-trigger:disabled,
+.ui-toolbar-button:disabled,
+.ui-toggle:disabled,
+.ui-slider-thumb:disabled { transform: none; }
+
+/* --- table ---------------------------------------------------------------------
+   Enough geometry for the thing to be real: the accessibility audit measures
+   contrast off the display list and lints a focusable node with no rectangle,
+   so a control with no size here fails for reasons that have nothing to do
+   with the control. */
+
+.ui-table-wrap {
+  display: flex;
+  flex-direction: column;
+  width: 380px;
+}
+
+.ui-table {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background-color: #ffffff;
+  width: 380px;
+}
+
+.ui-table-headrow,
+.ui-table-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  height: 34px;
+  padding: 0 10px;
+  gap: 8px;
+}
+
+.ui-table-headrow {
+  background-color: #f8fafc;
+  color: #0f172a;
+}
+
+.ui-table-row { color: #1e293b; }
+
+/* A selected row is tinted, and the tint is the only thing that says so to
+   someone not using a reader — `aria-selected` says it to everyone else. */
+.ui-table-row-state-selected { background-color: #eef2ff; }
+
+.ui-table-col,
+.ui-table-cell {
+  width: 96px;
+  height: 22px;
+  font-size: 13px;
+}
+
+.ui-table-col { color: #334155; font-weight: 600; }
+
+.ui-table-col-select,
+.ui-table-cell-select { width: 26px; }
+
+.ui-table-col-label { width: 74px; height: 20px; }
+.ui-table-col-arrow { width: 12px; height: 20px; color: #6366f1; }
+
+.ui-table-selectall,
+.ui-table-check {
+  width: 18px;
+  height: 18px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  background-color: #ffffff;
+  color: #ffffff;
+  text-align: center;
+}
+
+.ui-table-selectall-state-checked,
+.ui-table-check-state-checked,
+.ui-table-selectall-state-indeterminate {
+  background-color: #2563eb;
+  border-color: #2563eb;
+}
+
+.ui-table-selectall-mark,
+.ui-table-check-mark { width: 16px; height: 16px; font-size: 12px; }
+
+.ui-table-foot {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 10px;
+}
+
+.ui-table-prev,
+.ui-table-next {
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background-color: #f8fafc;
+  color: #0f172a;
+  width: 76px;
+  height: 24px;
+  font-size: 12px;
+  text-align: center;
+  transition: background-color 140ms ease-out;
+}
+
+.ui-table-prev:hover,
+.ui-table-next:hover { background-color: #e2e8f0; }
+/* Greyed, but still READABLE. WCAG exempts text in a disabled control from
+   the contrast minimum, and taking the exemption is how a kit ends up with
+   controls nobody can read the labels of — the state is carried by
+   `aria-disabled` and by the tone, not by making the words vanish. */
+.ui-table-prev:disabled,
+.ui-table-next:disabled { color: #64748b; background-color: #f1f5f9; }
+
+.ui-table-col:hover { color: #1e293b; }
+
+/* --- resizable ---------------------------------------------------------------
+ * The separator needs a SIZE. Without one the a11y lint said "focusable with
+ * no height", which is not pedantry: a focusable control with no box is one a
+ * pointer cannot reach and a focus ring cannot be drawn around. */
+.ui-resizable {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  width: 400px;
+  height: 300px;
+}
+
+.ui-resizable-vertical { flex-direction: column; }
+
+.ui-resizable-panel {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  width: 199px;
+  height: 300px;
+}
+
+.ui-resizable-sep {
+  width: 2px;
+  height: 300px;
+  background-color: #e4e4e7;
+}
+
+.ui-resizable-body { width: 199px; height: 40px; }
+
+/* --- breadcrumb --------------------------------------------------------------- */
+.ui-breadcrumb { display: flex; flex-direction: row; flex-wrap: nowrap; height: 20px; }
+.ui-breadcrumb-list { display: flex; flex-direction: row; flex-wrap: nowrap; height: 20px; }
+.ui-breadcrumb-li { display: flex; flex-direction: row; flex-wrap: nowrap; height: 20px; }
+.ui-breadcrumb-item { height: 20px; width: 70px; color: #71717a; }
+.ui-breadcrumb-page { color: #18181b; }
+.ui-breadcrumb-sep { height: 20px; width: 12px; color: #a1a1aa; }
+.ui-breadcrumb-ellipsis { height: 20px; width: 20px; color: #71717a; }
+.ui-navmenu-item { display: flex; flex-direction: row; flex-wrap: nowrap; height: 32px; }

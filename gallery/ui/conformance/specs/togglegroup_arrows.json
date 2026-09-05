@@ -1,0 +1,5 @@
+{ "name":"togglegroup_arrows","component":"toggle-group",
+  "behaviours":["arrow-next","arrow-wraps","disabled-skipped"],
+  "fixture":{"controls":[{"type":"togglegroup","tid":"tg","name":"Align","value":"left","items":[
+    {"value":"left","name":"Left"},{"value":"mid","name":"Middle","disabled":true},{"value":"right","name":"Right"}]}]},
+  "steps":[{"click":"tg-left"},{"key":"ArrowRight"},{"key":"ArrowRight"}] }

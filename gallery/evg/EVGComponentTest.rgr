@@ -1,0 +1,387 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EVGComponentTest — the instance comes back, and the one that left is told
+; ==============================================================================
+;
+; Two claims, and they are separate:
+;
+;   1. Asking for the same key twice returns the SAME instance, so a field on
+;      it survives a rebuild. That is the whole feature; everything else is
+;      bookkeeping around it.
+;
+;   2. An instance nobody asked for is unmounted and forgotten. This is the
+;      half that has no equivalent in the reconciler — a dropped element takes
+;      its subtree out of the tree and nothing is told, which is fine for a box
+;      and wrong for anything holding a timer.
+;
+; Both are checked by watching what a component REMEMBERS rather than by
+; comparing references, because "is it the same object" is not a question this
+; language answers directly and a counter that carries across a rebuild is a
+; stronger claim anyway: it is the thing the feature is for.
+;
+; The last section runs the whole loop — build, reconcile, transition — because
+; the component host and `EVGReconcile` are two mechanisms keyed the same way
+; and "they agree" is a property of the pair, not of either one.
+; ==============================================================================
+
+Import "EVGElement.rgr"
+Import "EVGUnit.rgr"
+Import "EVGStyleSheet.rgr"
+Import "EVGLayout.rgr"
+Import "EVGTransition.rgr"
+Import "EVGComponent.rgr"
+Import "EVGReconcile.rgr"
+
+class CompCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got  " + got)
+            print ("       want " + want)
+        }
+        this.ok(name good)
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.eqStr(name (to_string got) (to_string want))
+    }
+}
+
+; A row with three things on it that nothing above it owns: how many times it
+; has been mounted, how many times unmounted, and a counter standing in for
+; whatever a real row would want to remember. The counter is the point — it is
+; an ordinary field on an ordinary class, and it survives because the INSTANCE
+; survives, which is what makes `state` sugar rather than machinery later.
+class CountingRow extends EVGComponent {
+    def label:string ""
+    def mounts:int 0
+    def disposals:int 0
+    def ticks:int 0
+
+    Constructor () {
+    }
+
+    fn onMount:void () {
+        mounts = (mounts + 1)
+    }
+
+    fn onDispose:void () {
+        disposals = (disposals + 1)
+    }
+
+    fn view:EVGElement () {
+        def el (EVGElement.createDiv())
+        ; A colour per row, so a row in the wrong place is visible in what is
+        ; PAINTED rather than only in a field. It also gives every row a
+        ; background from the first frame — a transition needs somewhere to
+        ; travel FROM, and an element that has never had a colour does not
+        ; start a flight when it gets one.
+        el.className = ("row row-" + label)
+        el.id = ("row-" + label)
+        el.textContent = label
+        return el
+    }
+}
+
+class EVGComponentTest {
+
+    ; `use` at the call site, with the fallback allocation the design asks for.
+    sfn row:CountingRow (host:EVGComponentHost key:string label:string) {
+        def got:EVGComponent (host.use(key (new CountingRow())))
+        def r:CountingRow (cast got to:CountingRow)
+        r.label = label
+        return r
+    }
+
+    ; --- 1: the instance comes back -----------------------------------------------
+
+    sfn testSurvives:void (c:CompCheck) {
+        print "--- the same key returns the same instance ---"
+        def host (new EVGComponentHost())
+
+        host.beginPass()
+        def first:CountingRow (EVGComponentTest.row(host "a" "A"))
+        first.ticks = 7
+        first.render()
+        host.endPass()
+        c.eqInt("the first pass mounts it" host.stats.mounted 1)
+        c.eqInt("and updates nothing" host.stats.updated 0)
+
+        host.beginPass()
+        def again:CountingRow (EVGComponentTest.row(host "a" "A"))
+        again.render()
+        host.endPass()
+
+        c.eqInt("the second pass mounts nothing" host.stats.mounted 0)
+        c.eqInt("and updates the one there was" host.stats.updated 1)
+        ; The claim, stated as the thing the feature is for: a field set before
+        ; the rebuild is still set after it.
+        c.eqInt("a field set on it survived the rebuild" again.ticks 7)
+        c.eqInt("and it knows it has rendered twice" again.renders 2)
+        c.eqInt("onMount ran once, not twice" again.mounts 1)
+        c.eqInt("and onDispose not at all" again.disposals 0)
+    }
+
+    ; --- 2: the one that left is told ---------------------------------------------
+
+    sfn testUnmount:void (c:CompCheck) {
+        print "--- a component nobody asked for is disposed ---"
+        def host (new EVGComponentHost())
+
+        host.beginPass()
+        def keep:CountingRow (EVGComponentTest.row(host "a" "A"))
+        def go:CountingRow (EVGComponentTest.row(host "b" "B"))
+        go.ticks = 3
+        keep.render()
+        go.render()
+        host.endPass()
+        c.eqInt("two are live" host.stats.live 2)
+
+        ; The second pass simply does not build "b". There is no remove call
+        ; and there should not be one: a thing leaves a view by not being
+        ; built.
+        host.beginPass()
+        def stillHere:CountingRow (EVGComponentTest.row(host "a" "A"))
+        stillHere.render()
+        host.endPass()
+
+        c.eqInt("the one that left was disposed" host.stats.disposed 1)
+        c.eqInt("it was told so" go.disposals 1)
+        c.eqInt("and one is left" host.stats.live 1)
+        c.eqInt("the one that stayed was not told anything" keep.disposals 0)
+
+        ; And the forget is REAL: asking for "b" again builds a new one, which
+        ; is the difference between unmounting and hiding.
+        host.beginPass()
+        def reborn:CountingRow (EVGComponentTest.row(host "b" "B"))
+        reborn.render()
+        host.endPass()
+        c.eqInt("asking again mounts a fresh one" host.stats.mounted 1)
+        c.eqInt("with none of the old one's memory" reborn.ticks 0)
+        c.eqInt("and one render, not three" reborn.renders 1)
+    }
+
+    ; --- 3: a key is scoped to where it is asked for -------------------------------
+
+    sfn testPaths:void (c:CompCheck) {
+        print "--- the same key under two parents is two components ---"
+        def host (new EVGComponentHost())
+
+        host.beginPass()
+        host.enter("left")
+        def a:CountingRow (EVGComponentTest.row(host "video" "left video"))
+        a.ticks = 1
+        a.render()
+        host.leave()
+        host.enter("right")
+        def b:CountingRow (EVGComponentTest.row(host "video" "right video"))
+        b.ticks = 2
+        b.render()
+        host.leave()
+        host.endPass()
+
+        c.eqInt("both exist" host.stats.live 2)
+        c.eqStr("and are named by where they are" a.path "left/video")
+        c.eqStr("each under its own parent" b.path "right/video")
+
+        host.beginPass()
+        host.enter("left")
+        def a2:CountingRow (EVGComponentTest.row(host "video" "left video"))
+        a2.render()
+        host.leave()
+        host.enter("right")
+        def b2:CountingRow (EVGComponentTest.row(host "video" "right video"))
+        b2.render()
+        host.leave()
+        host.endPass()
+        c.eqInt("the left one kept the left one's memory" a2.ticks 1)
+        c.eqInt("and the right one the right's" b2.ticks 2)
+        c.eqInt("nothing was mounted again" host.stats.mounted 0)
+    }
+
+    ; --- 4: the element and the component agree about identity ---------------------
+
+    sfn testElementAgrees:void (c:CompCheck) {
+        print "--- the element carries the component's path as its key ---"
+        def host (new EVGComponentHost())
+        host.beginPass()
+        host.enter("list")
+        def r:CountingRow (EVGComponentTest.row(host "a" "A"))
+        def el:EVGElement (r.render())
+        host.leave()
+        host.endPass()
+        ; Not decoration. `EVGReconcile` matches elements by key and the host
+        ; matches components by path; if these two ever disagree a component
+        ; keeps its state while its element is replaced, which is worse than
+        ; neither persisting.
+        c.eqStr("the key is the path" el.key "list/a")
+    }
+
+    ; --- 5: misuse says so ----------------------------------------------------------
+
+    sfn testLint:void (c:CompCheck) {
+        print "--- misuse is reported rather than absorbed ---"
+
+        def h1 (new EVGComponentHost())
+        EVGComponentTest.row(h1 "a" "A")
+        c.eqInt("use outside a pass is a problem" (array_length (h1.lint())) 1)
+
+        def h2 (new EVGComponentHost())
+        h2.beginPass()
+        h2.enter("x")
+        h2.endPass()
+        c.ok("an unclosed enter is a problem" ((array_length (h2.lint())) > 0))
+
+        def h3 (new EVGComponentHost())
+        h3.beginPass()
+        h3.leave()
+        h3.endPass()
+        c.ok("a leave with nothing entered is a problem" ((array_length (h3.lint())) > 0))
+
+        ; Identity should be parent + CALL SITE + key, and a library can only
+        ; see two of the three. Two sibling calls with one key therefore look
+        ; exactly like one component being rebuilt — so they would share an
+        ; instance, and its state. Reported, because the alternative is a page
+        ; where two rows mysteriously agree about everything.
+        def h5 (new EVGComponentHost())
+        h5.beginPass()
+        EVGComponentTest.row(h5 "same" "one")
+        EVGComponentTest.row(h5 "same" "two")
+        h5.endPass()
+        c.eqInt("two components on one key is a problem" (array_length (h5.lint())) 1)
+        c.eqInt("and only one of them exists" h5.stats.live 1)
+
+        def h4 (new EVGComponentHost())
+        h4.beginPass()
+        EVGComponentTest.row(h4 "a" "A")
+        h4.endPass()
+        c.eqInt("and correct use reports nothing" (array_length (h4.lint())) 0)
+    }
+
+    ; --- 6: the whole loop ---------------------------------------------------------
+    ;
+    ; Components build a list, the list is reordered, and BOTH mechanisms have
+    ; to hold: the component instances survive (their counters carry) and the
+    ; elements survive (a flight in the air stays in the air). Either alone
+    ; would pass its own test and still leave the pair broken.
+
+    sfn sheetText:string () {
+        return (""
+            + ".list { display: flex; flex-direction: column; width: 200px; }"
+            + ".row { height: 20px; width: 200px; transition: background-color 100ms linear; }"
+            + ".row-a { background-color: #ff0000; }"
+            + ".row-b { background-color: #00ff00; }"
+            + ".row-c { background-color: #0000ff; }"
+            + ".row-d { background-color: #ffff00; }")
+    }
+
+    sfn settle:void (root:EVGElement sheet:EVGStyleSheet t:EVGTransition) {
+        sheet.setViewport(300.0 300.0 false)
+        sheet.applyTree(root "")
+        t.reconcileTree(root)
+        def lay (new EVGLayout())
+        lay.setPageSize(300.0 300.0)
+        lay.layout(root)
+    }
+
+    ; The whole page, as components. `names` is one character per row.
+    sfn buildList:EVGElement (host:EVGComponentHost names:string) {
+        def list (EVGElement.createDiv())
+        list.className = "list"
+        list.id = "list"
+        list.key = "list"
+        host.enter("list")
+        def i:int 0
+        while (i < (strlen names)) {
+            def n:string (substring names i (i + 1))
+            def r:CountingRow (EVGComponentTest.row(host n n))
+            list.addChild((r.render()))
+            i = (i + 1)
+        }
+        host.leave()
+        return list
+    }
+
+    sfn testWholeLoop:void (c:CompCheck) {
+        print "--- components + reconciliation, together ---"
+        def host (new EVGComponentHost())
+        def sheet (new EVGStyleSheet())
+        sheet.parse((EVGComponentTest.sheetText()))
+        def t (new EVGTransition())
+        def rec (new EVGReconcile())
+
+        host.beginPass()
+        def live:EVGElement (EVGComponentTest.buildList(host "abc"))
+        host.endPass()
+        EVGComponentTest.settle(live sheet t)
+        t.advanceTree(live 500.0)
+        EVGComponentTest.settle(live sheet t)
+        c.ok("nothing is moving once the first frame has settled" ((t.busy(live)) == false))
+
+        ; Something each component remembers, and something the middle row is
+        ; in the middle of doing.
+        def hostA:EVGComponent (unwrap (host.find("list/a")))
+        def rowA:CountingRow (cast hostA to:CountingRow)
+        rowA.ticks = 42
+        def bEl:EVGElement (itemAt live.children 1)
+        bEl.className = "row row-d"
+        EVGComponentTest.settle(live sheet t)
+        t.advanceTree(live 30.0)
+        c.ok("the middle row is in flight" (t.busy(bEl)))
+
+        ; The rebuild: a different order, from the same components.
+        host.beginPass()
+        def next:EVGElement (EVGComponentTest.buildList(host "cab"))
+        host.endPass()
+        rec.resetStats()
+        rec.reconcile(live next)
+        EVGComponentTest.settle(live sheet t)
+
+        c.eqInt("no component was mounted again" host.stats.mounted 0)
+        c.eqInt("all three were updated" host.stats.updated 3)
+        c.eqInt("and none disposed" host.stats.disposed 0)
+        c.eqInt("no element was built either" rec.stats.created 0)
+        ; Three: the reconcile is called ON the list, so its CHILDREN are what
+        ; get matched. The list itself is `live` and was never a candidate.
+        c.eqInt("all three elements were kept" rec.stats.kept 3)
+
+        def again:CountingRow (cast (unwrap (host.find("list/a"))) to:CountingRow)
+        c.eqInt("the component's own memory carried" again.ticks 42)
+
+        def movedEl:EVGElement (itemAt live.children 2)
+        c.eqStr("and the row is where the new order puts it" movedEl.id "row-b")
+        c.ok("still in flight, because it is still the same element" (t.busy(movedEl)))
+    }
+
+    sfn main:void () {
+        def c (new CompCheck())
+        print "=== EVG component instances ==="
+        EVGComponentTest.testSurvives(c)
+        EVGComponentTest.testUnmount(c)
+        EVGComponentTest.testPaths(c)
+        EVGComponentTest.testElementAgrees(c)
+        EVGComponentTest.testLint(c)
+        EVGComponentTest.testWholeLoop(c)
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed > 0) {
+            print "FAILURES"
+        } {
+            print "ALL PASS"
+        }
+    }
+}

@@ -1,0 +1,994 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; ControlsDemo — a stepper, a progress bar and a number field, working together
+; =============================================================================
+; Three components on one page rather than three pages, because the
+; INTERACTION is the thing worth showing and three isolated panels cannot show
+; it: filling in the number field completes the current step, which advances
+; the progress bar and enables Next. A progress bar that never moves is a
+; picture of a progress bar, and the same trap the filter bar was under.
+;
+; All three controllers are measured elsewhere and nothing about them is
+; decided again here:
+;
+;   `StepperCtl`   57 assertions — `stepper_check.mjs`. No reference exists,
+;                  so the flow is specified; what was measured is the DECISION
+;                  between a tablist and an ordered list with aria-current.
+;   `ProgressCtl`  65 assertions — `progress_check.mjs`, against BOTH Radix
+;                  and Base UI, which disagree in fourteen places.
+;   `NumberCtl`    58 assertions — `numberfield_check.mjs`, against Base UI.
+;
+; WHAT THE PAGE ADDS. Every one of those gates runs in Node with nothing drawn.
+; This file is where the fractions become pixels and where a pointer has to be
+; able to reach a thing — and where the three have to agree with each other,
+; which no single-component gate can check.
+;
+; THE STEPPER IS LINEAR HERE, deliberately: it is the mode where the gate
+; between steps is visible. In a free stepper every circle is clickable and
+; the whole `canGoTo` rule is invisible on screen.
+; =============================================================================
+
+Import "../src/StepperCtl.rgr"
+Import "../src/NumberCtl.rgr"
+Import "../src/SliderCtl.rgr"
+Import "../src/PresentationCtl.rgr"
+Import "../src/UiTree.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGStyleSheet.rgr"
+Import "../../evg/EVGTransition.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+Import "../../evg/EVGA11yFromTree.rgr"
+Import "../../evg/EVGHitTest.rgr"
+
+treefactory Ctl {
+    child addChild
+    text  textContent
+
+    tag Page      EVGElement (props (className "cx-page"))
+    tag Title     EVGElement (props (className "cx-title") (elementType 1))
+
+    ; The stepper strip: a LIST, not a tablist. See StepperCtl's header — a
+    ; tab is freely selectable and a step is not, and the capture shows a
+    ; tablist wrapping from the last item back to the first.
+    tag Strip     EVGElement (props (className "cx-strip") (role "list") (a11yLabel "Checkout steps"))
+    tag Step      EVGElement (props (className "cx-step") (role "listitem"))
+    tag Dot       EVGElement (props (className "cx-dot"))
+    tag DotTxt    EVGElement (props (className "cx-dottxt") (elementType 1) (a11yHidden true))
+    tag StepLbl   EVGElement (props (className "cx-steplbl") (elementType 1) (a11yHidden true))
+    tag Rail      EVGElement (props (className "cx-rail"))
+
+    ; The progress bar. Its indicator's width is the controller's FRACTION
+    ; turned into a percentage here and nowhere else.
+    tag Bar       EVGElement (props (className "cx-bar") (role "progressbar"))
+    tag BarFill   EVGElement (props (className "cx-barfill"))
+    tag BarTxt    EVGElement (props (className "cx-bartxt") (role "status") (elementType 1))
+
+    ; The number field. MEASURED as a TEXT input with a roledescription, not a
+    ; spinbutton — see NumberCtl's header.
+    tag Panel     EVGElement (props (className "cx-panel"))
+    tag PanelLbl  EVGElement (props (className "cx-panellbl") (elementType 1))
+    tag NumRow    EVGElement (props (className "cx-numrow"))
+    tag NumBtn    EVGElement (props (className "cx-numbtn") (role "button"))
+    tag NumBtnTxt EVGElement (props (className "cx-numbtntxt") (elementType 1) (a11yHidden true))
+    tag NumBox    EVGElement (props (className "cx-numbox") (role "textbox") (a11yRoleDescription "Number field"))
+    tag NumTxt    EVGElement (props (className "cx-numtxt") (elementType 1) (a11yHidden true))
+    tag NumHint   EVGElement (props (className "cx-numhint") (elementType 1))
+
+    ; ReUI's step block: an eyebrow, a title and a state badge under the
+    ; circle, with a separator running to the next step.
+    tag StepCol   EVGElement (props (className "cx-stepcol"))
+    tag Eyebrow   EVGElement (props (className "cx-eyebrow") (elementType 1) (a11yHidden true))
+    tag Badge     EVGElement (props (className "cx-badge"))
+    tag BadgeTxt  EVGElement (props (className "cx-badgetxt") (elementType 1) (a11yHidden true))
+    tag PanelBox  EVGElement (props (className "cx-panelbox") (role "region"))
+    tag PanelTxt  EVGElement (props (className "cx-paneltxt") (elementType 1))
+
+    ; The sliders. Four variants from the screenshots, over one SliderCtl each.
+    tag Slides    EVGElement (props (className "cx-slides"))
+    tag Slide     EVGElement (props (className "cx-slide"))
+    tag SlideLbl  EVGElement (props (className "cx-slidelbl") (elementType 1))
+    tag Track     EVGElement (props (className "cx-track"))
+    tag Range     EVGElement (props (className "cx-range"))
+    tag Thumb     EVGElement (props (className "cx-thumb") (role "slider"))
+    tag Refs      EVGElement (props (className "cx-refs"))
+    tag RefTxt    EVGElement (props (className "cx-reftxt") (elementType 1) (a11yHidden true))
+    tag Ticks     EVGElement (props (className "cx-ticks"))
+    tag Tick      EVGElement (props (className "cx-tick"))
+    tag TickMark  EVGElement (props (className "cx-tickmark"))
+    tag TickTxt   EVGElement (props (className "cx-ticktxt") (elementType 1) (a11yHidden true))
+    tag Bubble    EVGElement (props (className "cx-bubble"))
+    tag BubbleTxt EVGElement (props (className "cx-bubbletxt") (elementType 1) (a11yHidden true))
+    tag Emoji     EVGElement (props (className "cx-emoji") (elementType 1) (a11yHidden true))
+    tag BandTxt   EVGElement (props (className "cx-bandtxt") (elementType 1) (a11yHidden true))
+
+    tag Actions   EVGElement (props (className "cx-actions"))
+    tag Btn       EVGElement (props (className "cx-btn") (role "button"))
+    tag BtnTxt    EVGElement (props (className "cx-btntxt") (elementType 1) (a11yHidden true))
+    tag Note      EVGElement (props (className "cx-note") (elementType 1))
+}
+
+class ControlsDemo {
+    def stepper:StepperCtl (new StepperCtl())
+    def bar:ProgressCtl (new ProgressCtl())
+    def num:NumberCtl (new NumberCtl())
+    ; The four slider variants from the screenshots. Each is a real SliderCtl
+    ; — the measured one — differing only in what its presentation layer is
+    ; told, which is the point: four pictures, one control.
+    def storage:SliderCtl (new SliderCtl())
+    def duration:SliderCtl (new SliderCtl())
+    def volume:SliderCtl (new SliderCtl())
+    def rating:SliderCtl (new SliderCtl())
+    def root@(optional):EVGElement
+    def sheet@(optional):EVGStyleSheet
+    def transitions:EVGTransition (new EVGTransition())
+    def layout@(optional):EVGLayout
+    def hovered:string ""
+    def pressed:string ""
+    def focused:string ""
+    ; Which slider a live drag belongs to. A drag is a gesture, and a gesture
+    ; needs somewhere to remember what it picked up: the pointer leaves the
+    ; track long before the finger comes off it, so `dragTo` cannot ask what
+    ; is under the pointer NOW.
+    def dragSlider:string ""
+    def pageW:double 900.0
+    def pageH:double 460.0
+
+    fn init:void (css:string) {
+        def s (new EVGStyleSheet())
+        s.parse(css)
+        sheet = s
+
+        stepper.tid = "cx-steps"
+        stepper.name = "Checkout steps"
+        stepper.linear = true
+        stepper.addStep("account" "Account" "")
+        stepper.addStep("address" "Address" "")
+        stepper.addStep("payment" "Payment" "")
+        stepper.addStep("review" "Review" "")
+
+        bar.tid = "cx-bar"
+        bar.name = "Checkout progress"
+        bar.maxValue = 4.0
+        bar.value = 0.0
+        bar.build()
+
+        ; ReUI's own three steps, with its icons named rather than drawn: the
+        ; controller holds a NAME and the theme decides what "card" looks like.
+        ;
+        ; Written the way it reads. This spelling is what found ISSUES.md #76:
+        ; it used to compile and DROP THE STORE — the emitted JS kept the call
+        ; and lost the assignment entirely, so every circle drew the fallback
+        ; glyph and the panel was empty, with a clean compile. The gate could
+        ; not catch it either, because the gate is JavaScript, where the same
+        ; line works exactly as it reads. The parser now desugars it into the
+        ; temporary this block used to spell out by hand, so the file that
+        ; found the bug is also the file that exercises the fix.
+        stepper.stepAt(0).icon = "user"
+        stepper.stepAt(1).icon = "card"
+        stepper.stepAt(2).icon = "lock"
+        stepper.stepAt(0).content = "Name, email and how to reach you."
+        stepper.stepAt(1).content = "Card number, expiry and billing address."
+        stepper.stepAt(2).content = "The six digits we just sent you."
+        stepper.stepAt(3).content = "Check it over before it goes."
+
+        ; --- the four sliders ------------------------------------------------
+        ; Reference labels: the ends and the midpoint, with a unit a reader
+        ; would otherwise never hear.
+        storage.tid = "cx-storage"
+        storage.name = "Storage"
+        storage.minValue = 5
+        storage.maxValue = 35
+        storage.value = 12
+        storage.unitSuffix = " GB"
+        storage.build()
+
+        ; Tick marks: every month draws a mark, every second one a number.
+        duration.tid = "cx-duration"
+        duration.name = "Duration (months)"
+        duration.minValue = 0
+        duration.maxValue = 12
+        duration.value = 5
+        duration.tickStep = 1
+        duration.skipInterval = 2
+        duration.build()
+
+        ; A bubble over the thumb.
+        volume.tid = "cx-volume"
+        volume.name = "Volume"
+        volume.value = 50
+        volume.unitSuffix = "%"
+        volume.build()
+
+        ; A rating whose value is a WORD — the one that is an accessibility
+        ; fix rather than decoration: at 3 a reader hears "Okay", not "3".
+        rating.tid = "cx-rating"
+        rating.name = "Rate your experience"
+        rating.minValue = 1
+        rating.maxValue = 5
+        rating.value = 3
+        rating.addBand(1 "Awful" "😭")
+        rating.addBand(2 "Poor" "🙁")
+        rating.addBand(3 "Okay" "😐")
+        rating.addBand(4 "Good" "🙂")
+        rating.addBand(5 "Great" "😍")
+        rating.build()
+
+        num.tid = "cx-num"
+        num.name = "Quantity"
+        num.setRange(0.0 99.0)
+        num.step = 1.0
+
+        root = (this.page())
+    }
+
+    ; --- the link between the three ------------------------------------------
+    ;
+    ; The whole reason these are on one page. A step counts as done once the
+    ; field holds a number, and the bar reads the stepper's own count — not a
+    ; second tally kept here, which would be a number that could drift.
+
+    fn syncFromField:void () {
+        def s:StepItem (stepper.stepAt(stepper.current))
+        s.complete = num.hasValue
+        bar.value = (to_double (stepper.completedCount()))
+        bar.build()
+    }
+
+    ; Each step remembers its own number, so going back shows what was typed
+    ; rather than an empty box that reads as lost work.
+    def saved:[string]
+
+    fn saveField:void () {
+        while ((array_length saved) <= stepper.current) {
+            push saved ""
+        }
+        def out:[string]
+        def i:int 0
+        while (i < (array_length saved)) {
+            if (i == stepper.current) {
+                push out num.text
+            } {
+                push out (itemAt saved i)
+            }
+            i = (i + 1)
+        }
+        saved = out
+    }
+
+    fn loadField:void () {
+        def t:string ""
+        if (stepper.current < (array_length saved)) {
+            t = (itemAt saved stepper.current)
+        }
+        num.clearValue()
+        num.setText(t)
+        num.blur()
+    }
+
+    fn moveTo:boolean (i:int) {
+        this.saveField()
+        def moved:boolean (stepper.goTo(i))
+        if moved {
+            this.loadField()
+            this.syncFromField()
+        }
+        return moved
+    }
+
+    ; --- the look ------------------------------------------------------------
+
+    fn dotClass:string (i:int) {
+        return "cx-dot cx-dot-" + (stepper.stateOf(i))
+    }
+
+    fn dotTextClass:string (i:int) {
+        ; Its own token: no descendant selectors, so the numeral cannot inherit
+        ; the fill from the circle around it. A white-on-white "3" is what you
+        ; get for assuming it can.
+        return "cx-dottxt cx-dottxt-" + (stepper.stateOf(i))
+    }
+
+    fn stepLabelClass:string (i:int) {
+        return "cx-steplbl cx-steplbl-" + (stepper.stateOf(i))
+    }
+
+    fn nextClass:string () {
+        if (stepper.canAdvance()) {
+            return "cx-btn cx-btn-primary"
+        }
+        return "cx-btn cx-btn-off"
+    }
+
+    ; The LABEL's token, separate from the button's, because there are no
+    ; descendant selectors: a dark button with a label that inherits nothing
+    ; draws black on black.
+    fn nextTextClass:string () {
+        if (stepper.canAdvance()) {
+            return "cx-btntxt cx-btntxt-primary"
+        }
+        return "cx-btntxt cx-btntxt-off"
+    }
+
+    ; A glyph name to a character. The controller holds NAMES so a theme can
+    ; decide what an icon looks like; this is that decision, in one place.
+    sfn glyphFor:string (name:string) {
+        if (name == "check") { return "✓" }
+        if (name == "spinner") { return "◌" }
+        if (name == "user") { return "☺" }
+        if (name == "card") { return "▤" }
+        if (name == "lock") { return "🔒" }
+        return "•"
+    }
+
+    ; The track, the filled range and the thumb — the three the measured
+    ; controller owns. Every position here is its FRACTION times the width.
+    def trackW:double 300.0
+
+    fn trackFor:EVGElement (s:SliderCtl) {
+        def track (tree Ctl (Track (props (id (s.tid + "-track")))))
+        UiTree.inline(track "width" (ControlsDemo.px(trackW)))
+        def range (tree Ctl (Range (props (id (s.tid + "-range")))))
+        UiTree.inline(range "width" (ControlsDemo.px(((s.thumbFraction()) * trackW))))
+        track.addChild(range)
+        def thumb (tree Ctl (Thumb (props (id (s.tid + "-thumb")) (a11yLabel s.name))))
+        ; The thumb is where the VALUE lives — measured against Radix, which
+        ; puts role=slider and the value on the thumb and not on the track.
+        ; The FLAGS as well as the numbers. `a11yHasValue` and `a11yHasRange`
+        ; are what make the element path emit them at all — setting the values
+        ; alone leaves a slider that announces its name and nothing about where
+        ; it sits, which is the exact defect SliderCtl's header says forced the
+        ; trace to grow, reappearing on the other path.
+        thumb.a11yHasRange = true
+        thumb.a11yHasValue = true
+        thumb.a11yValueMin = s.minValue
+        thumb.a11yValueMax = s.maxValue
+        thumb.a11yValueNow = s.value
+        thumb.a11yValue = (s.valueText())
+        ; Centred on its position: half the thumb's own width back, or it
+        ; hangs off the right end at the maximum.
+        UiTree.inline(thumb "left" (ControlsDemo.px((((s.thumbFraction()) * trackW) - 7.0))))
+        track.addChild(thumb)
+        return track
+    }
+
+    sfn px:string (v:double) {
+        def scaled:int (to_int (v * 100.0))
+        def whole:int (idiv scaled 100)
+        def frac:int (scaled - (whole * 100))
+        if (frac < 0) { frac = (0 - frac) }
+        def fs:string (to_string frac)
+        if (frac < 10) { fs = "0" + fs }
+        return ((to_string whole) + "." + fs + "px")
+    }
+
+    ; Reference labels: the ends and the midpoint, spread under the track.
+    fn sliderWithRefs:EVGElement (s:SliderCtl) {
+        def box (tree Ctl (Slide))
+        box.addChild((tree Ctl (SlideLbl s.name)))
+        box.addChild((this.trackFor(s)))
+        def refs (tree Ctl (Refs))
+        UiTree.inline(refs "width" (ControlsDemo.px(trackW)))
+        def mid:int (s.minValue + (idiv (s.maxValue - s.minValue) 2))
+        refs.addChild((tree Ctl (RefTxt ((to_string s.minValue) + s.unitSuffix))))
+        refs.addChild((tree Ctl (RefTxt ((to_string mid) + s.unitSuffix))))
+        refs.addChild((tree Ctl (RefTxt ((to_string s.maxValue) + s.unitSuffix))))
+        box.addChild(refs)
+        return box
+    }
+
+    ; Tick marks: EVERY tick draws a mark, only a major one is tall and
+    ; carries a number. Two rules from ReUI's source, and an implementation
+    ; keeping one of them draws either a bare ruler or a crowded one.
+    fn sliderWithTicks:EVGElement (s:SliderCtl) {
+        def box (tree Ctl (Slide))
+        box.addChild((tree Ctl (SlideLbl s.name)))
+        box.addChild((this.trackFor(s)))
+        def ticks (tree Ctl (Ticks))
+        UiTree.inline(ticks "width" (ControlsDemo.px(trackW)))
+        def i:int 0
+        while (i < (s.tickCount())) {
+            def major:boolean (s.tickIsMajor(i))
+            def cell (tree Ctl (Tick))
+            def markCls:string "cx-tickmark cx-tickmark-minor"
+            if major {
+                markCls = "cx-tickmark cx-tickmark-major"
+            }
+            cell.addChild((tree Ctl (TickMark (props (className markCls)))))
+            def label:string ""
+            if major {
+                label = (to_string (s.tickValue(i)))
+            }
+            cell.addChild((tree Ctl (TickTxt label)))
+            ticks.addChild(cell)
+            i = (i + 1)
+        }
+        box.addChild(ticks)
+        return box
+    }
+
+    ; A bubble sitting over the thumb, carrying the formatted value.
+    fn sliderWithBubble:EVGElement (s:SliderCtl) {
+        def box (tree Ctl (Slide))
+        box.addChild((tree Ctl (SlideLbl s.name)))
+        def bubble (tree Ctl
+            (Bubble (props (id (s.tid + "-bubble")))
+                (BubbleTxt (s.formatted()))))
+        ; Over the thumb, and back by half its own width so it is centred on
+        ; the value rather than starting at it.
+        UiTree.inline(bubble "left" (ControlsDemo.px((((s.thumbFraction()) * trackW) - 22.0))))
+        box.addChild(bubble)
+        box.addChild((this.trackFor(s)))
+        return box
+    }
+
+    ; The rating: a face at the end of the track and the band word under it.
+    ; The WORD is what a reader hears — see SliderCtl.valueText.
+    fn sliderWithRating:EVGElement (s:SliderCtl) {
+        def box (tree Ctl (Slide))
+        box.addChild((tree Ctl (SlideLbl s.name)))
+        def row (tree Ctl (Refs))
+        row.addChild((this.trackFor(s)))
+        row.addChild((tree Ctl (Emoji (s.currentEmoji()))))
+        box.addChild(row)
+        box.addChild((tree Ctl (BandTxt (s.currentBand()))))
+        return box
+    }
+
+    fn page:EVGElement () {
+        def page (tree Ctl (Page))
+        page.addChild((tree Ctl (Title "Checkout")))
+
+        ; --- the stepper strip ------------------------------------------------
+        def strip (tree Ctl (Strip (props (id "cx-steps"))))
+        def n:int (stepper.count())
+        def i:int 0
+        while (i < n) {
+            def st:StepItem (stepper.stepAt(i))
+            def state:string (stepper.stateOf(i))
+            def item (tree Ctl
+                ; The BADGE, matching what `StepperCtl.rows()` reports on the
+                ; controller path. This used to be the raw state word, so the
+                ; same node was named "Account, completed" here and "Account,
+                ; Completed" there — one node, two names, and a conformance
+                ; comparison between the paths would have called it a
+                ; divergence when it was just this demo disagreeing with the
+                ; controller it draws.
+                (Step (props (id ("cx-step-" + st.key))
+                             (a11yLabel (st.label + ", " + (stepper.badgeAt(i)))))))
+            ; MEASURED-adjacent, and the whole shape decision: aria-current
+            ; "step", never aria-selected.
+            if (i == stepper.current) {
+                item.a11yCurrent = "step"
+            }
+            ; The indicator ReUI's `indicators` map decides: a tick once done,
+            ; a spinner while working, the step's own icon otherwise. One glyph
+            ; alone in a centred box — the measurer falls back to half an em
+            ; outside 32..126, which spaces a RUN wrongly and does not apply.
+            def mark:string (ControlsDemo.glyphFor((stepper.indicatorAt(i))))
+            item.addChild((tree Ctl
+                (Dot (props (className (this.dotClass(i))))
+                    (DotTxt (props (className (this.dotTextClass(i)))) mark))))
+            ; ReUI's block under the circle: eyebrow, title, state badge.
+            def col (tree Ctl (StepCol))
+            col.addChild((tree Ctl (Eyebrow (stepper.eyebrowAt(i)))))
+            col.addChild((tree Ctl
+                (StepLbl (props (className (this.stepLabelClass(i)))) st.label)))
+            col.addChild((tree Ctl
+                (Badge (props (className ("cx-badge cx-badge-" + state)))
+                    (BadgeTxt (props (className ("cx-badgetxt cx-badgetxt-" + state)))
+                        (stepper.badgeAt(i))))))
+            item.addChild(col)
+            strip.addChild(item)
+            ; The separator belongs to the step BEFORE it and takes ITS state —
+            ; colouring it from the step it points at leaves a green line
+            ; running into a pending circle.
+            if (stepper.hasSeparatorAfter(i)) {
+                strip.addChild((tree Ctl
+                    (Rail (props (className ("cx-rail cx-rail-" + (stepper.separatorStateAt(i))))))))
+            }
+            i = (i + 1)
+        }
+        page.addChild(strip)
+
+        ; --- the progress bar --------------------------------------------------
+        def track (tree Ctl (Bar (props (id "cx-bar") (a11yLabel "Checkout progress"))))
+        ; The controller's FRACTION, become a width here and nowhere else —
+        ; the same split the event calendar is under. `percent()` rounds, which
+        ; is what both references do and where truncation differs on 3 of 8.
+        def fill (tree Ctl (BarFill (props (id "cx-barfill"))))
+        UiTree.inline(fill "width" ((to_string (bar.percent())) + "%"))
+        track.addChild(fill)
+        ; The RANGE always, the POSITION only when there is one. An
+        ; indeterminate bar publishes no valuenow and that absence is what
+        ; makes a reader say "busy" — measured on both references.
+        ; The two FLAGS, not just the numbers. Without them the element path
+        ; drops the range and the position entirely — which is not a gap in the
+        ; plumbing but the indeterminate contract doing its job: a bar has to
+        ; SAY it has a value, because "no position" is the state that makes a
+        ; reader announce "busy" instead of a percentage. Found by the gate,
+        ; which read the accessible tree and got undefined back.
+        track.a11yHasRange = true
+        track.a11yValueMin = 0
+        track.a11yValueMax = (to_int bar.maxValue)
+        track.a11yHasValue = true
+        track.a11yValueNow = (to_int bar.value)
+        track.a11yValue = (bar.valueText())
+        page.addChild(track)
+        page.addChild((tree Ctl
+            (BarTxt (props (id "cx-bartxt"))
+                ((to_string (stepper.completedCount())) + " of " + (to_string n) + " steps done"))))
+
+        ; ReUI renders a StepperContent per step and shows the current one.
+        def curStep:StepItem (stepper.stepAt(stepper.current))
+        page.addChild((tree Ctl
+            (PanelBox (props (id "cx-panel") (a11yLabel curStep.label))
+                (PanelTxt curStep.content))))
+
+        ; --- the number field --------------------------------------------------
+        def panel (tree Ctl (Panel))
+        def cur:StepItem (stepper.stepAt(stepper.current))
+        panel.addChild((tree Ctl (PanelLbl ("How many for " + cur.label + "?"))))
+        def row (tree Ctl (NumRow))
+        def decBtn (tree Ctl
+            (NumBtn (props (id "cx-num-dec") (a11yLabel "Decrease"))
+                (NumBtnTxt "−")))
+        if ((num.canDecrement()) == false) {
+            decBtn.a11yDisabled = true
+            decBtn.className = "cx-numbtn cx-numbtn-off"
+        }
+        row.addChild(decBtn)
+        def box (tree Ctl
+            (NumBox (props (id "cx-num") (a11yLabel "Quantity"))))
+        def shown:string num.text
+        if ((strlen shown) == 0) {
+            shown = "—"
+        }
+        box.addChild((tree Ctl (NumTxt shown)))
+        ; What the field HOLDS, so the trace can see it. An empty box and one
+        ; holding "12" are identical in every other field. `a11yValue` is the
+        ; element path's name for it — the same property FormDemo puts a text
+        ; field's contents in.
+        box.a11yValue = num.text
+        row.addChild(box)
+        def incBtn (tree Ctl
+            (NumBtn (props (id "cx-num-inc") (a11yLabel "Increase"))
+                (NumBtnTxt "+")))
+        if ((num.canIncrement()) == false) {
+            incBtn.a11yDisabled = true
+            incBtn.className = "cx-numbtn cx-numbtn-off"
+        }
+        row.addChild(incBtn)
+        panel.addChild(row)
+        panel.addChild((tree Ctl (NumHint "0 to 99. Shift+Arrow moves by 10 — not PageUp, which does nothing.")))
+        page.addChild(panel)
+
+        ; --- the four sliders ---------------------------------------------------
+        def slides (tree Ctl (Slides))
+        slides.addChild((this.sliderWithRefs(storage)))
+        slides.addChild((this.sliderWithTicks(duration)))
+        slides.addChild((this.sliderWithBubble(volume)))
+        slides.addChild((this.sliderWithRating(rating)))
+        page.addChild(slides)
+
+        ; --- back and next -----------------------------------------------------
+        def actions (tree Ctl (Actions))
+        actions.addChild((tree Ctl
+            (Btn (props (id "cx-back") (a11yLabel "Back")) (BtnTxt "Back"))))
+        def nextBtn (tree Ctl
+            (Btn (props (id "cx-next") (className (this.nextClass())) (a11yLabel "Next"))
+                (BtnTxt (props (className (this.nextTextClass()))) "Next")))
+        if ((stepper.canAdvance()) == false) {
+            nextBtn.a11yDisabled = true
+        }
+        actions.addChild(nextBtn)
+        page.addChild(actions)
+
+        page.addChild((tree Ctl (Note
+            "Type a quantity and the step completes, the bar moves and Next lights up. A step you have not reached cannot be clicked.")))
+        return page
+    }
+
+    ; --- events ----------------------------------------------------------------
+
+    ; --- the sliders' pointer and keyboard --------------------------------------
+    ;
+    ; SliderCtl has answered all of this since it was measured against Radix:
+    ; `dragBoundsTid` says which track a press belongs to whether it landed on
+    ; the rail, the filled range or the thumb; `valueAtFraction` snaps to the
+    ; step grid; `keyDown` moves by a step and knows that Up means MORE. The
+    ; demo drew four of them and called none of it. A press on a track returned
+    ; false, a press on a thumb returned false, an arrow key returned false,
+    ; and all four controllers sat at their initial values for the life of the
+    ; page — four pictures of sliders.
+    ;
+    ; Which is the text field's dropped coordinate again, in a third place:
+    ; right in the controller, right in the demo's API, dead on the page. The
+    ; `position` fix two commits back made the thumbs LOOK right, which is the
+    ; version of this defect that is hardest to see.
+
+    sfn byId:EVGElement (el:EVGElement tid:string) {
+        if (el.id == tid) {
+            return el
+        }
+        def i:int 0
+        while (i < (el.getChildCount())) {
+            def kid:EVGElement (ControlsDemo.byId((el.getChild(i)) tid))
+            if (kid.id == tid) {
+                return kid
+            }
+            i = (i + 1)
+        }
+        return el
+    }
+
+    fn sliders:[SliderCtl] () {
+        def a:[SliderCtl]
+        push a storage
+        push a duration
+        push a volume
+        push a rating
+        return a
+    }
+
+    ; The slider a target belongs to. Asked of the CONTROLLERS rather than by
+    ; an id prefix: a prefix test would have `cx-rating` answer for a fifth
+    ; slider called `cx-rating-2`, and that is the sort of rule that is only
+    ; ever wrong once someone adds one. A miss returns a slider with an empty
+    ; tid, which is how every caller here spells "not one of mine".
+    fn sliderOwning:SliderCtl (target:string) {
+        def all:[SliderCtl] (this.sliders())
+        def i:int 0
+        while (i < (array_length all)) {
+            def s:SliderCtl (itemAt all i)
+            if ((strlen (s.dragBoundsTid(target))) > 0) {
+                return s
+            }
+            i = (i + 1)
+        }
+        def none:SliderCtl (new SliderCtl())
+        return none
+    }
+
+    ; A page x to a fraction of the TRACK — the geometry that decides the
+    ; value, wherever on the control the press actually landed. Laid out
+    ; first, because a press can be the first thing that happens to a demo
+    ; and an unlaid tree has every box at zero.
+    fn fractionAt:double (s:SliderCtl px:double) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def track:EVGElement (ControlsDemo.byId(r (s.trackTid())))
+        if (track.id != (s.trackTid())) {
+            return 0.0
+        }
+        def w:double track.calculatedWidth
+        if (w <= 0.0) {
+            return 0.0
+        }
+        def frac:double ((px - track.calculatedX) / w)
+        if (frac < 0.0) {
+            frac = 0.0
+        }
+        if (frac > 1.0) {
+            frac = 1.0
+        }
+        return frac
+    }
+
+    ; The press, WITH the x. `press` keeps its one-argument shape for every
+    ; other control on this page; this is the door the pointer comes through,
+    ; and it falls through to `press` for anything that is not a slider.
+    fn pressAt:boolean (target:string px:double) {
+        def s:SliderCtl (this.sliderOwning(target))
+        if ((strlen s.tid) > 0) {
+            ; A press on the rail focuses the THUMB, not the rail — that is
+            ; what `dragTo` returns, and it is what the reference does.
+            focused = (s.dragTo((this.fractionAt(s px))))
+            dragSlider = s.tid
+            this.rebuild()
+            return true
+        }
+        dragSlider = ""
+        return (this.press(target))
+    }
+
+    ; The carry. The pointer is off the track within a few pixels of a real
+    ; drag, so this asks the slider the press picked up, not the one under the
+    ; pointer now.
+    fn dragTo:boolean (target:string px:double) {
+        if ((strlen dragSlider) == 0) {
+            return false
+        }
+        def s:SliderCtl (this.sliderOwning((dragSlider + "-track")))
+        if ((strlen s.tid) == 0) {
+            return false
+        }
+        focused = (s.dragTo((this.fractionAt(s px))))
+        this.rebuild()
+        return true
+    }
+
+    fn dragEnd:boolean () {
+        if ((strlen dragSlider) == 0) {
+            return false
+        }
+        dragSlider = ""
+        return true
+    }
+
+    ; Which keys belong to a focused slider. Named rather than inferred from
+    ; whether the value moved: an ArrowRight at the maximum changes nothing
+    ; and still must not fall through to the stepper strip behind it, or the
+    ; page would advance a checkout step because a slider was already full.
+    sfn isSliderKey:boolean (k:string) {
+        if (k == "ArrowLeft") { return true }
+        if (k == "ArrowRight") { return true }
+        if (k == "ArrowUp") { return true }
+        if (k == "ArrowDown") { return true }
+        if (k == "Home") { return true }
+        if (k == "End") { return true }
+        return false
+    }
+
+    fn press:boolean (target:string) {
+        if (target == "") {
+            return false
+        }
+        focused = target
+        if (target == "cx-num-inc") {
+            ; Focus stays on the FIELD, not on the button. That is what a real
+            ; number field does — Base UI's Increment does not steal focus from
+            ; the input — and without it the next arrow key finds focus on a
+            ; button and does nothing, which reads as a dropped keystroke.
+            focused = "cx-num"
+            num.increment()
+            this.syncFromField()
+            this.saveField()
+            this.rebuild()
+            return true
+        }
+        if (target == "cx-num-dec") {
+            focused = "cx-num"
+            num.decrement()
+            this.syncFromField()
+            this.saveField()
+            this.rebuild()
+            return true
+        }
+        if (target == "cx-num") {
+            num.focus()
+            this.rebuild()
+            return true
+        }
+        if (target == "cx-next") {
+            this.saveField()
+            if (stepper.next()) {
+                this.loadField()
+                this.syncFromField()
+            }
+            this.rebuild()
+            return true
+        }
+        if (target == "cx-back") {
+            this.saveField()
+            if (stepper.back()) {
+                this.loadField()
+                this.syncFromField()
+            }
+            this.rebuild()
+            return true
+        }
+        def i:int 0
+        while (i < (stepper.count())) {
+            def st:StepItem (stepper.stepAt(i))
+            if (target == ("cx-step-" + st.key)) {
+                this.moveTo(i)
+                this.rebuild()
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; A key belongs to the number field when it has focus, and to the stepper
+    ; otherwise. Without the split, arrowing the strip would also nudge the
+    ; quantity — the same "one page, two consumers" problem the demo page had
+    ; when picking a demo swallowed every key.
+    fn key:boolean (k:string) {
+        def sk:SliderCtl (this.sliderOwning(focused))
+        if ((strlen sk.tid) > 0) {
+            if (ControlsDemo.isSliderKey(k)) {
+                sk.keyDown(focused k)
+                this.rebuild()
+                return true
+            }
+            return false
+        }
+        if (focused == "cx-num") {
+            if (num.onKey(k false)) {
+                this.syncFromField()
+                this.saveField()
+                this.rebuild()
+                return true
+            }
+            return false
+        }
+        if (stepper.onKey(k)) {
+            this.loadField()
+            this.syncFromField()
+            this.rebuild()
+            return true
+        }
+        return false
+    }
+
+    ; Shift is a separate entry point because the demo host's `key` hook passes
+    ; a name and no modifiers — and Shift is where the LARGE STEP lives, which
+    ; is the least guessable thing the number field measured.
+    fn keyWithShift:boolean (k:string) {
+        ; Respects focus exactly as `key` does. It used to not, which made
+        ; Shift a back door into the number field from anywhere on the page —
+        ; two key paths with two different rules about where a key goes. The
+        ; page gate caught it: Shift+ArrowUp moved the field while a plain
+        ; ArrowUp right after it did nothing, because the two disagreed about
+        ; whether focus was on the field or on the + button beside it.
+        ; A focused slider owns its keys under Shift too, or Shift+Arrow would
+        ; be a back door into the stepper from a control that has focus.
+        def shiftSlider:SliderCtl (this.sliderOwning(focused))
+        if ((strlen shiftSlider.tid) > 0) {
+            return (this.key(k))
+        }
+        if (focused != "cx-num") {
+            if (stepper.onKey(k)) {
+                this.loadField()
+                this.syncFromField()
+                this.rebuild()
+                return true
+            }
+            return false
+        }
+        if (num.onKey(k true)) {
+            this.syncFromField()
+            this.saveField()
+            this.rebuild()
+            return true
+        }
+        return false
+    }
+
+    fn typeChar:boolean (c:int) {
+        if (focused == "cx-num") {
+            num.focus()
+            if (num.typeCode(c)) {
+                num.blur()
+                this.syncFromField()
+                this.saveField()
+                this.rebuild()
+                return true
+            }
+        }
+        return false
+    }
+
+    fn setHover:void (id:string) {
+        hovered = id
+    }
+
+    fn setPressed:void (id:string) {
+        pressed = id
+    }
+
+    fn setFocus:void (id:string) {
+        focused = id
+    }
+
+    fn rebuild:void () {
+        root = (this.page())
+    }
+
+    fn markStates:void (el:EVGElement) {
+        el.isHovered = false
+        el.isPressed = false
+        el.isFocused = false
+        if ((strlen el.id) > 0) {
+            if (el.id == hovered) {
+                el.isHovered = true
+            }
+            if (el.id == pressed) {
+                el.isPressed = true
+            }
+            if (el.id == focused) {
+                el.isFocused = true
+            }
+        }
+        def i:int 0
+        while (i < (el.getChildCount())) {
+            this.markStates((el.getChild(i)))
+            i = (i + 1)
+        }
+    }
+
+    fn laidOut:EVGLayout () {
+        def r:EVGElement (unwrap root)
+        def s:EVGStyleSheet (unwrap sheet)
+        s.setViewport(pageW pageH false)
+        this.markStates(r)
+        s.applyTree(r "")
+        def t:EVGTransition transitions
+        t.reconcileTree(r)
+        if layout {
+            def lay:EVGLayout (unwrap layout)
+            if ((s.layoutClean()) == false) {
+                lay.layout(r)
+            }
+            return lay
+        }
+        def fresh (new EVGLayout())
+        fresh.setPageSize(pageW pageH)
+        layout = fresh
+        fresh.layout(r)
+        return fresh
+    }
+
+    fn displayListJson:string () {
+        def lay:EVGLayout (this.laidOut())
+        def r:EVGElement (unwrap root)
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(r)
+        return (dl.toJson())
+    }
+
+    fn hitId:string (px:double py:double) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def hit (new EVGHitTest())
+        return (hit.idAt(r px py))
+    }
+
+    fn a11yJson:string (generation:int focusId:string) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "Controls demo" generation focusId))
+        return (t.toJson())
+    }
+
+    fn a11yProblems:[string] () {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "Controls demo" 1 ""))
+        return (t.lint())
+    }
+
+    fn styleErrorCount:int () {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (s.getErrorCount())
+    }
+
+    fn styleErrorAt:string (i:int) {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (s.getError(i))
+    }
+
+    fn tick:boolean (dtMs:double) {
+        def r:EVGElement (unwrap root)
+        def t:EVGTransition transitions
+        t.advanceTree(r dtMs)
+        return (t.busy(r))
+    }
+
+    fn busyNow:boolean () {
+        def r:EVGElement (unwrap root)
+        def t:EVGTransition transitions
+        return (t.busy(r))
+    }
+
+    fn heightPx:double () {
+        return pageH
+    }
+}

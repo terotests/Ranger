@@ -1,0 +1,180 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+ *
+ * The pattern's own shape: a rounded bordered card holding a horizontal pair,
+ * whose right half is a vertical pair. The handles carry a grip, which is what
+ * `withHandle` draws in the reference.
+ */
+
+.rz-page {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  padding: 30px;
+  background-color: #fafafa;
+  width: 900px;
+  height: 520px;
+}
+
+.rz-card {
+  border-radius: 16px;
+  border: 1px solid #e4e4e7;
+  background-color: #ffffff;
+  width: 720px;
+  height: 300px;
+}
+
+/* `align-items: stretch` is CSS's default and this engine's is not, so it is
+ * stated. It is what makes a panel and a divider span the group's height
+ * without either of them being told a number — the alternative was the demo
+ * setting 298 on every one of them, and then being wrong by two pixels
+ * because the card's border is not the group's business. */
+.rz-group {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  width: 718px;
+  height: 298px;
+}
+
+.rz-group-v { flex-direction: column; align-items: stretch; width: 100%; height: 100%; }
+
+/* NO width or height here. A panel's size is the controller's business and
+ * changes on every drag, so the demo sets it inline — and a stylesheet that
+ * also stated one would win and freeze the panel, which is exactly what
+ * happened: the inner panels were all a third of the group because the sheet's
+ * `height: 298px` overwrote the percentages the demo had just set.
+ *
+ * One owner per number. */
+/* A PANEL CLIPS. Reported: drag the divider far enough and the trail inside
+ * the left panel wrote itself straight across the divider and into the panel
+ * beside it.
+ *
+ * The trail collapses as the panel narrows, but collapsing has a floor — at
+ * some width even "Home / ../ Breadcrumb One" is wider than the panel, and
+ * what a box does with content bigger than itself is decided by `overflow`
+ * and nothing else. Measured in a browser rather than assumed, because the
+ * obvious answer is wrong: a flex item's default `min-width: auto` does NOT
+ * prevent this. It only moves it — the item keeps its min-content width and
+ * the BOX spills past the row instead of the text spilling past the box. Of
+ * the three configurations, only one leaves nothing sticking out:
+ *
+ *   min-width:auto (default)   box 159px in a 120px row, spills 39px
+ *   min-width:0                box 80px, content overflows the box
+ *   min-width:0 overflow:hidden box 80px, content clipped, nothing spills
+ *
+ * So it is this pair, which is also what react-resizable-panels puts on a
+ * panel. `min-width: 0` is what lets the box shrink to the size the splitter
+ * asked for, and `overflow: hidden` is what keeps what does not fit inside
+ * it. */
+.rz-panel {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* The divider, and the grip in the middle of it. Six pixels of hit area around
+ * a one-pixel line: the line is the picture and the six pixels are what a
+ * pointer can actually land on. */
+/* The divider. Two classes, because a divider in a horizontal group is a
+ * VERTICAL line and one in a vertical group is horizontal — the same
+ * inversion the separator's `aria-orientation` publishes. One class for both
+ * was the bug: the inner divider came out six pixels wide and ninety tall,
+ * standing up inside a row it should have lain across. */
+.rz-sep {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  width: 6px;
+  background-color: #f4f4f5;
+  transition: background-color 120ms ease-out;
+}
+
+.rz-sep-h {
+  flex-direction: column;
+  width: auto;
+  height: 6px;
+}
+
+.rz-sep:hover { background-color: #e4e4e7; }
+.rz-sep:focus { background-color: #c7d2fe; }
+
+.rz-grip {
+  width: 4px;
+  height: 24px;
+  border-radius: 2px;
+  background-color: #d4d4d8;
+}
+
+/* The grip lies down with its divider. */
+.rz-grip-h { width: 24px; height: 4px; }
+
+/* No padding to fake a centre: the panel centres its children now. */
+.rz-label {
+  color: #18181b;
+  font-size: 14px;
+  font-weight: 600;
+  height: 20px;
+  text-align: center;
+}
+
+/* --- the trail ---------------------------------------------------------------
+ * No widths here. The demo measures each crumb with the same text engine the
+ * painter uses and tells the controller — a stylesheet cannot answer "does this
+ * fit", and a guessed width would be a different number from the drawn one. */
+.rz-crumbs {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  height: 20px;
+  padding: 0 0 10px 0;
+}
+
+.rz-crumb-list {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  height: 20px;
+}
+
+.rz-crumb-li {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  height: 20px;
+}
+
+/* The FAMILY is stated, and that is not decoration. The demo measures each
+ * crumb with the text engine before deciding what fits, and a measurement in
+ * one family against a drawing in another is two different numbers — the first
+ * version measured Arial, drew the sheet's default, and the trail ran off the
+ * end of the card while the arithmetic said it fitted comfortably.
+ *
+ * And no padding on the separator: its spacing lives inside the STRING it
+ * draws, " / ", so the measured width is the drawn width with nothing to add
+ * on. A padding here would be a number the rule cannot see. */
+.rz-crumb {
+  color: #71717a;
+  font-family: Arial;
+  font-size: 13px;
+  height: 18px;
+}
+
+.rz-crumb-page { color: #18181b; }
+.rz-crumb-sep { color: #d4d4d8; font-family: Arial; font-size: 13px; height: 18px; }
+.rz-crumb-dots { color: #71717a; font-family: Arial; font-size: 13px; height: 18px; }
+
+.rz-note {
+  color: #71717a;
+  font-size: 12px;
+  padding: 14px 0 0 0;
+  width: 720px;
+  height: 18px;
+}

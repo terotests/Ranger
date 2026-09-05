@@ -1,0 +1,853 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; MenuCtl — measured against @radix-ui/react-dropdown-menu and
+;           @radix-ui/react-context-menu
+; =============================================================================
+; One controller for both, because the reference gives them the same surface
+; and the same keyboard. Only the trigger differs, and `contextMode` is that
+; difference:
+;
+;   dropdown  trigger role button, named, a tab stop, opened by activation,
+;             carrying aria-expanded AND aria-haspopup="menu".
+;   context   trigger role none, unnamed, NOT focusable, opened by the
+;             secondary button, and with neither aria-expanded nor
+;             aria-haspopup — a reader is told nothing about a menu it cannot
+;             summon from the keyboard. Measured; Radix does exactly this.
+;
+; Shared, and all measured rather than assumed:
+;   open      content role menu, MODAL; focus lands on the CONTENT, not on the
+;             first item, so nothing is announced until the user arrows in.
+;   ArrowDown from the content focuses the first enabled item; ArrowUp focuses
+;             the last. Thereafter they step, skipping disabled items.
+;   ends      the menu does NOT wrap. ArrowDown on the last item stays on the
+;             last item. This is why UiCtl.stepIndex is not used here: that one
+;             wraps, which is right for a radio group and wrong for a menu.
+;   item      activating one closes the menu and returns focus to the trigger.
+;   Escape    closes. Focus returns to the trigger when there is one to return
+;             to — a context menu's trigger is not focusable, so focus is lost
+;             exactly as it is in the browser.
+;
+; --- SUBMENUS ----------------------------------------------------------------
+; An item with `kids` is a SUB-TRIGGER: still a menuitem, still named, but
+; carrying aria-haspopup="menu" and an aria-expanded of its own. Everything
+; below was read off the reference rather than off the WAI-ARIA prose, and two
+; of them are not what the prose would lead you to write:
+;
+;   opening   ArrowRight OR Enter/Space on a sub-trigger opens the submenu and
+;             focuses its FIRST item — not the surface. That is the opposite of
+;             what opening the root menu does, where focus lands on the content
+;             and the first item is only reached by arrowing. The asymmetry is
+;             real: you asked for this submenu by name, so it puts you in it.
+;   closing   ArrowLeft closes the submenu and returns focus to the sub-trigger.
+;   dead ends ArrowRight on an ordinary item does NOTHING, and neither does
+;             ArrowLeft in the root menu of a dropdown. A vertical menu's
+;             horizontal arrows are for nesting and for nothing else, which is
+;             why isNextKey/isPrevKey are not used here.
+;   escape    closes EVERYTHING, not one level, and focus goes back to the
+;             trigger.
+;   pointer   hovering a row focuses it. Hovering a sub-trigger opens its
+;             submenu after 100ms — measured, see `subOpenDelayMs` — and
+;             hovering any OTHER row closes an open submenu at once. The
+;             asymmetry is the whole point: slow to open so that dragging the
+;             pointer down a menu does not flash every submenu on the way past,
+;             instant to close so the menu keeps up with you.
+;   activate  choosing a leaf anywhere, at any depth, closes the whole menu.
+;
+; Nesting is not limited to one level: `openPath` is a stack of sub-trigger
+; tids, and the tids nest with it — `dm-item-share-item-mail` is an item of the
+; submenu of `dm-item-share`. One shape at every depth.
+; =============================================================================
+
+Import "UiCtl.rgr"
+Import "UiTree.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+
+class MenuCtl extends UiCtl {
+    def open:boolean false
+    def contextMode:boolean false
+    def items:[UiItem]
+    def triggerEl:EVGElement
+    def contentEl:EVGElement
+    ; The item focus sits on, by TID and not by value: an item's value is only
+    ; unique among its siblings, and `mail` may be an item of two different
+    ; submenus. The tid is unique by construction.
+    ; "" means focus is on the root content itself, which is where it starts
+    ; every time the menu opens.
+    def activeTid:string ""
+
+    ; The sub-triggers that are open, outermost first. Empty when only the root
+    ; menu is showing.
+    def openPath:[string]
+
+    ; How long the pointer has to rest on a sub-trigger before its submenu
+    ; opens. 100ms, measured off Radix in the browser: at 75ms it is still
+    ; closed and at 100ms it is open. A submenu that opens the instant the
+    ; pointer touches its row flashes open and shut as you drag past it.
+    def subOpenDelayMs:double 100.0
+    ; The sub-trigger the pointer is resting on, and for how long. "" when the
+    ; pointer is not on one.
+    def pendingTid:string ""
+    def pendingMs:double 0.0
+
+    ; --- the flattened view of what is currently on screen --------------------
+    ; Rebuilt by build(), so every lookup below is a scan of plain arrays rather
+    ; than a walk of the item tree carrying a prefix. Parallel arrays and not a
+    ; row class, because the only thing they are ever used for is the four
+    ; questions underneath them.
+    def rowTid:[string]
+    def rowOwner:[string]
+    def rowName:[string]
+    def rowDisabled:[boolean]
+    def rowIsSub:[boolean]
+    def rowItem:[UiItem]
+
+    Constructor () {
+        rootEl = (EVGElement.createDiv())
+        triggerEl = (EVGElement.createDiv())
+        contentEl = (EVGElement.createDiv())
+        def empty:[UiItem]
+        items = empty
+        def noPath:[string]
+        openPath = noPath
+        def e1:[string]
+        rowTid = e1
+        def e2:[string]
+        rowOwner = e2
+        def e3:[string]
+        rowName = e3
+        def e4:[boolean]
+        rowDisabled = e4
+        def e5:[boolean]
+        rowIsSub = e5
+        def e6:[UiItem]
+        rowItem = e6
+    }
+
+    fn addItem:void (itemValue:string itemName:string itemDisabled:boolean) {
+        def it (new UiItem())
+        it.value = itemValue
+        it.name = itemName
+        it.disabled = itemDisabled
+        push items it
+    }
+
+    ; A row that opens another menu. Returns it, so the caller can hang kids on
+    ; it without looking it up again — and so a submenu of a submenu is written
+    ; the same way as a submenu of the root.
+    fn addSub:UiItem (itemValue:string itemName:string itemDisabled:boolean) {
+        def it (new UiItem())
+        it.value = itemValue
+        it.name = itemName
+        it.disabled = itemDisabled
+        push items it
+        return it
+    }
+
+    sfn addKid:UiItem (parent:UiItem itemValue:string itemName:string itemDisabled:boolean) {
+        def it (new UiItem())
+        it.value = itemValue
+        it.name = itemName
+        it.disabled = itemDisabled
+        push parent.kids it
+        return it
+    }
+
+    fn baseClass:string () {
+        if contextMode {
+            return "ui-contextmenu"
+        }
+        return "ui-dropdownmenu"
+    }
+
+    fn triggerTid:string () {
+        return (tid + "-trigger")
+    }
+
+    fn contentTid:string () {
+        return (tid + "-content")
+    }
+
+    ; An item's tid is its OWNER'S tid plus its value, so nesting spells itself:
+    ; the root's items hang off `tid`, and a submenu's off its sub-trigger.
+    sfn itemTidUnder:string (prefix:string itemValue:string) {
+        return ((prefix + "-item-") + itemValue)
+    }
+
+    fn itemTid:string (itemValue:string) {
+        return (MenuCtl.itemTidUnder(tid itemValue))
+    }
+
+    ; The surface a sub-trigger opens.
+    sfn subContentTid:string (subTid:string) {
+        return (subTid + "-content")
+    }
+
+    fn stateWord:string () {
+        if open {
+            return "open"
+        }
+        return "closed"
+    }
+
+    ; The menu focus is in: the deepest open submenu, or the root content.
+    fn activeOwner:string () {
+        def n:int (array_length openPath)
+        if (n == 0) {
+            return (this.contentTid())
+        }
+        return (MenuCtl.subContentTid((itemAt openPath (n - 1))))
+    }
+
+    fn isOpenSub:boolean (subTid:string) {
+        def i:int 0
+        while (i < (array_length openPath)) {
+            if ((itemAt openPath i) == subTid) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; --- building -------------------------------------------------------------
+
+    fn build:void () {
+        def word:string (this.stateWord())
+        def base:string (this.baseClass())
+        def root:EVGElement (unwrap rootEl)
+        root.id = tid
+        root.className = base
+        UiTree.clearChildren(root)
+
+        def e1:[string]
+        rowTid = e1
+        def e2:[string]
+        rowOwner = e2
+        def e3:[string]
+        rowName = e3
+        def e4:[boolean]
+        rowDisabled = e4
+        def e5:[boolean]
+        rowIsSub = e5
+        def e6:[UiItem]
+        rowItem = e6
+
+        def trig:EVGElement (unwrap triggerEl)
+        trig.id = (this.triggerTid())
+        trig.className = (base + "-trigger")
+        if disabled {
+            UiTree.addClass(trig (base + "-trigger-disabled"))
+        }
+        UiTree.setState(trig (base + "-trigger") word)
+        UiTree.leafText(trig name)
+        UiTree.anchor(trig)
+        root.addChild(trig)
+
+        if (open == false) {
+            return
+        }
+
+        def content:EVGElement (unwrap contentEl)
+        content.id = (this.contentTid())
+        content.className = (base + "-content")
+        ; A dropdown opens under its trigger; a context menu opens under the
+        ; point it was invoked at, which is the trigger's rectangle here — the
+        ; same anchor, and no second rule for it.
+        UiTree.surface(content "bottom" "start")
+        UiTree.setState(content (base + "-content") word)
+        UiTree.clearChildren(content)
+        this.fill(content tid items base)
+        root.addChild(content)
+    }
+
+    ; One menu's worth of rows, and then — for each open sub-trigger among them
+    ; — the submenu it opens. Recursion, because a submenu is a menu.
+    fn fill:void (surface:EVGElement prefix:string list:[UiItem] base:string) {
+        def ownerTid:string surface.id
+        def i:int 0
+        while (i < (array_length list)) {
+            def it:UiItem (itemAt list i)
+            def myTid:string (MenuCtl.itemTidUnder(prefix it.value))
+            def isSub:boolean ((array_length it.kids) > 0)
+            def el:EVGElement (unwrap it.el)
+            el.id = myTid
+            el.className = (base + "-item")
+            if isSub {
+                UiTree.addClass(el (base + "-subtrigger"))
+                UiTree.anchor(el)
+                def subWord:string "closed"
+                if (this.isOpenSub(myTid)) {
+                    subWord = "open"
+                }
+                UiTree.setState(el (base + "-subtrigger") subWord)
+            }
+            if it.disabled {
+                UiTree.addClass(el (base + "-item-disabled"))
+            }
+            UiTree.leafText(el it.name)
+            surface.addChild(el)
+
+            push rowTid myTid
+            push rowOwner ownerTid
+            push rowName it.name
+            push rowDisabled it.disabled
+            push rowIsSub isSub
+            push rowItem it
+
+            if isSub {
+                if (this.isOpenSub(myTid)) {
+                    def sub:EVGElement (unwrap it.contentEl)
+                    sub.id = (MenuCtl.subContentTid(myTid))
+                    sub.className = (base + "-content")
+                    ; Beside its parent row and not below it: a submenu grows
+                    ; sideways, which is the whole reason the chevron points
+                    ; the way it does.
+                    UiTree.surface(sub "right" "start")
+                    UiTree.setState(sub (base + "-content") "open")
+                    UiTree.clearChildren(sub)
+                    this.fill(sub myTid it.kids base)
+                    ; Parented to the ROW, so ownership, events and the
+                    ; accessibility walk all follow the tree; paint order does
+                    ; too, so a submenu is painted after — and therefore over —
+                    ; the menu that owns it.
+                    ;
+                    ; The anchor is named OUTRIGHT rather than left to the
+                    ; sibling search. That search looks among the surface's
+                    ; siblings, and this surface is the anchor's CHILD, so it
+                    ; would find nothing and the submenu would be laid out at
+                    ; the origin. `overlayAnchor` exists for exactly this
+                    ; shape; nothing else in the gallery had used it, which is
+                    ; why the gap survived until a submenu opened on a page.
+                    sub.overlayAnchor = el
+                    el.addChild(sub)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; --- lookups over the flattened rows ---------------------------------------
+
+    fn rowIndexOf:int (rtid:string) {
+        def i:int 0
+        while (i < (array_length rowTid)) {
+            if ((itemAt rowTid i) == rtid) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; The first enabled row of `owner` at or after `from`, walking by `delta`,
+    ; WITHOUT wrapping — -1 when that menu's rows run out.
+    fn scanIn:int (owner:string from:int delta:int) {
+        def i:int from
+        while (i >= 0) {
+            if (i >= (array_length rowTid)) {
+                return -1
+            }
+            if ((itemAt rowOwner i) == owner) {
+                if ((itemAt rowDisabled i) == false) {
+                    return i
+                }
+            }
+            i = (i + delta)
+        }
+        return -1
+    }
+
+    ; The first and last rows belonging to one menu, in the flattened order.
+    fn firstOf:int (owner:string) {
+        def i:int 0
+        while (i < (array_length rowTid)) {
+            if ((itemAt rowOwner i) == owner) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn lastOf:int (owner:string) {
+        def found:int -1
+        def i:int 0
+        while (i < (array_length rowTid)) {
+            if ((itemAt rowOwner i) == owner) {
+                found = i
+            }
+            i = (i + 1)
+        }
+        return found
+    }
+
+    ; --- opening and closing ---------------------------------------------------
+
+    fn openMenu:string () {
+        open = true
+        activeTid = ""
+        def noPath:[string]
+        openPath = noPath
+        this.clearPending()
+        this.build()
+        return (this.contentTid())
+    }
+
+    ; Closing a dropdown hands focus back to its trigger. A context menu has no
+    ; focusable trigger, so it hands back nothing and UiHost drops focus — the
+    ; same thing the browser does when the focused node goes away.
+    fn closeMenu:string () {
+        open = false
+        activeTid = ""
+        def noPath:[string]
+        openPath = noPath
+        this.clearPending()
+        this.build()
+        if contextMode {
+            return ""
+        }
+        return (this.triggerTid())
+    }
+
+    ; Open one level.
+    ;
+    ; `enter` is the difference between the two ways in, and it is measured
+    ; rather than chosen. Asked for BY NAME — ArrowRight, or Enter on the row —
+    ; focus goes to the submenu's first item, because that is what you asked
+    ; for. Opened by the POINTER resting on the row, focus stays on the
+    ; sub-trigger: the pointer is still on the parent row and you have not said
+    ; you are going in. Radix does exactly this, and getting it wrong makes a
+    ; menu that jumps out from under the cursor.
+    fn openSub:string (subTid:string enter:boolean) {
+        if (this.isOpenSub(subTid)) {
+            return ""
+        }
+        ; A submenu opens beside the row it belongs to, so anything deeper than
+        ; that row's own menu closes first. Reached by hovering a sub-trigger
+        ; in an outer menu while an inner one is open.
+        def owner:string (this.ownerOf(subTid))
+        this.closeDeeperThan(owner)
+        push openPath subTid
+        this.clearPending()
+        this.build()
+        if (enter == false) {
+            activeTid = subTid
+            return subTid
+        }
+        def firstIdx:int (this.scanIn((MenuCtl.subContentTid(subTid)) 0 1))
+        if (firstIdx < 0) {
+            ; A submenu whose every row is disabled. It is open, and focus has
+            ; nowhere to go inside it, so it stays on the sub-trigger.
+            activeTid = subTid
+            return subTid
+        }
+        activeTid = (itemAt rowTid firstIdx)
+        return activeTid
+    }
+
+    fn ownerOf:string (rtid:string) {
+        def idx:int (this.rowIndexOf(rtid))
+        if (idx < 0) {
+            return (this.contentTid())
+        }
+        return (itemAt rowOwner idx)
+    }
+
+    ; Shut every submenu that is not `owner` or an ancestor of it.
+    fn closeDeeperThan:void (owner:string) {
+        def keep:[string]
+        def i:int 0
+        def stop:boolean false
+        while (i < (array_length openPath)) {
+            def subTid:string (itemAt openPath i)
+            if (stop == false) {
+                push keep subTid
+                if ((MenuCtl.subContentTid(subTid)) == owner) {
+                    stop = true
+                }
+            }
+            i = (i + 1)
+        }
+        ; `owner` is the root content: keep nothing.
+        if (owner == (this.contentTid())) {
+            def none:[string]
+            openPath = none
+            return
+        }
+        openPath = keep
+    }
+
+    ; Shut the innermost submenu and put focus back on the row that opened it.
+    fn closeSub:string () {
+        def n:int (array_length openPath)
+        if (n == 0) {
+            return ""
+        }
+        def subTid:string (itemAt openPath (n - 1))
+        def keep:[string]
+        def i:int 0
+        while (i < (n - 1)) {
+            push keep (itemAt openPath i)
+            i = (i + 1)
+        }
+        openPath = keep
+        this.clearPending()
+        this.build()
+        activeTid = subTid
+        return subTid
+    }
+
+    fn clearPending:void () {
+        pendingTid = ""
+        pendingMs = 0.0
+    }
+
+    ; --- input -----------------------------------------------------------------
+
+    fn activate:string (target:string) {
+        if disabled {
+            return ""
+        }
+        if (target == (this.triggerTid())) {
+            if contextMode {
+                return ""
+            }
+            if open {
+                return (this.closeMenu())
+            }
+            return (this.openMenu())
+        }
+        if (open == false) {
+            return ""
+        }
+        def idx:int (this.rowIndexOf(target))
+        if (idx < 0) {
+            return ""
+        }
+        if (itemAt rowDisabled idx) {
+            return ""
+        }
+        ; A sub-trigger is not a choice, it is a door. Activating it opens the
+        ; submenu rather than dismissing the menu — measured: Enter on `Share`
+        ; puts focus on `Email Link` and leaves everything open.
+        if (itemAt rowIsSub idx) {
+            return (this.openSub(target true))
+        }
+        return (this.closeMenu())
+    }
+
+    fn contextClick:string (target:string) {
+        if disabled {
+            return ""
+        }
+        if (contextMode == false) {
+            return ""
+        }
+        if (target == (this.triggerTid())) {
+            return (this.openMenu())
+        }
+        return ""
+    }
+
+    fn keyDown:string (target:string key:string) {
+        if disabled {
+            return ""
+        }
+        if (key == "Escape") {
+            if open {
+                ; Every level at once. Radix does not unwind one submenu per
+                ; press, and a menu that did would strand a user two Escapes
+                ; from the page they were on.
+                return (this.closeMenu())
+            }
+            return ""
+        }
+        if (open == false) {
+            if (UiCtl.activatesOn(key)) {
+                return (this.activate(target))
+            }
+            return ""
+        }
+
+        ; The horizontal pair is about nesting and nothing else. A vertical
+        ; menu does not step sideways, so ArrowRight on an ordinary row and
+        ; ArrowLeft in the root menu both do nothing at all — measured.
+        if (key == "ArrowRight") {
+            def ri:int (this.rowIndexOf(target))
+            if (ri < 0) {
+                return ""
+            }
+            if (itemAt rowIsSub ri) {
+                if (itemAt rowDisabled ri) {
+                    return ""
+                }
+                return (this.openSub(target true))
+            }
+            return ""
+        }
+        if (key == "ArrowLeft") {
+            if ((array_length openPath) == 0) {
+                return ""
+            }
+            return (this.closeSub())
+        }
+
+        def delta:int 0
+        if (key == "ArrowDown") {
+            delta = 1
+        }
+        if (key == "ArrowUp") {
+            delta = -1
+        }
+        if (delta == 0) {
+            if (UiCtl.activatesOn(key)) {
+                return (this.activate(target))
+            }
+            return ""
+        }
+
+        def owner:string (this.activeOwner())
+        def landed:int -1
+        if (target == owner) {
+            ; Entering a menu from its surface: down takes the first item, up
+            ; takes the last.
+            if (delta > 0) {
+                landed = (this.scanIn(owner (this.firstOf(owner)) 1))
+            } {
+                landed = (this.scanIn(owner (this.lastOf(owner)) -1))
+            }
+        } {
+            def from:int (this.rowIndexOf(target))
+            if (from < 0) {
+                return ""
+            }
+            ; Step within the menu the focused row belongs to, which is not
+            ; necessarily the deepest open one: a sub-trigger stays focused
+            ; while its submenu is open under the pointer.
+            def rowOwn:string (itemAt rowOwner from)
+            landed = (this.scanIn(rowOwn (from + delta) delta))
+        }
+        if (landed < 0) {
+            ; Off the end. The reference stays put rather than wrapping.
+            return ""
+        }
+        activeTid = (itemAt rowTid landed)
+        return activeTid
+    }
+
+    ; --- the pointer -----------------------------------------------------------
+
+    fn hover:string (target:string) {
+        if disabled {
+            return ""
+        }
+        if (open == false) {
+            return ""
+        }
+        def idx:int (this.rowIndexOf(target))
+        if (idx < 0) {
+            return ""
+        }
+        if (itemAt rowDisabled idx) {
+            return ""
+        }
+        ; Moving onto a row shuts anything that was open BESIDE that row's menu
+        ; — at once, with no delay. Only opening is slow.
+        def owner:string (itemAt rowOwner idx)
+        this.closeDeeperThan(owner)
+        this.clearPending()
+        if (itemAt rowIsSub idx) {
+            pendingTid = target
+            pendingMs = 0.0
+        }
+        this.build()
+        activeTid = target
+        return target
+    }
+
+    fn unhover:string () {
+        this.clearPending()
+        return ""
+    }
+
+    ; The clock. A submenu the pointer is resting on opens once `subOpenDelayMs`
+    ; has passed — the host advances this, so the delay is exact rather than a
+    ; race against a real timer.
+    fn tickCtl:string (dtMs:double) {
+        if ((strlen pendingTid) == 0) {
+            return ""
+        }
+        pendingMs = (pendingMs + dtMs)
+        if (pendingMs < subOpenDelayMs) {
+            return ""
+        }
+        def target:string pendingTid
+        this.clearPending()
+        return (this.openSub(target false))
+    }
+
+    ; --- what the host and the reader see --------------------------------------
+
+    fn tids:[string] () {
+        def a:[string]
+        push a tid
+        push a (this.triggerTid())
+        if open {
+            push a (this.contentTid())
+        }
+        def i:int 0
+        while (i < (array_length rowTid)) {
+            def rtid:string (itemAt rowTid i)
+            push a rtid
+            if (itemAt rowIsSub i) {
+                if (this.isOpenSub(rtid)) {
+                    push a (MenuCtl.subContentTid(rtid))
+                }
+            }
+            i = (i + 1)
+        }
+        return a
+    }
+
+    fn isFocusable:boolean (target:string) {
+        if disabled {
+            return false
+        }
+        if (target == (this.triggerTid())) {
+            if contextMode {
+                return false
+            }
+            return true
+        }
+        if (open == false) {
+            return false
+        }
+        if (target == (this.contentTid())) {
+            return true
+        }
+        def i:int 0
+        while (i < (array_length rowTid)) {
+            if ((itemAt rowTid i) == target) {
+                return ((itemAt rowDisabled i) == false)
+            }
+            if (itemAt rowIsSub i) {
+                if ((MenuCtl.subContentTid((itemAt rowTid i))) == target) {
+                    return true
+                }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn onFocus:void (target:string) {
+        if (target == (this.contentTid())) {
+            activeTid = ""
+            return
+        }
+        if ((this.rowIndexOf(target)) >= 0) {
+            activeTid = target
+        }
+    }
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+        def word:string (this.stateWord())
+
+        def trigRole:int (EVGA11yRole.button())
+        def trigName:string name
+        if contextMode {
+            trigRole = (EVGA11yRole.none())
+            trigName = ""
+        }
+        def trigRow:UiRow (UiRow.of((this.triggerTid()) trigRole trigName))
+        trigRow.state = word
+        ; `aria-haspopup` on the dropdown's trigger and NOT on the context
+        ; menu's, which is the same split as `aria-expanded` below and for the
+        ; same reason: a context menu cannot be summoned from the keyboard, so
+        ; promising a reader a popup would be promising something it cannot
+        ; reach. Measured on Radix, which does exactly this.
+        if (contextMode == false) {
+            trigRow.hasPopup = "menu"
+        }
+        trigRow.disabled = disabled
+        if (contextMode == false) {
+            if open {
+                trigRow.expanded = (EVGA11yTri.yes())
+            } {
+                trigRow.expanded = (EVGA11yTri.no())
+            }
+            if (disabled == false) {
+                trigRow.tabStop = true
+                trigRow.focusable = true
+            }
+        }
+        push out trigRow
+
+        if (open == false) {
+            return out
+        }
+
+        def contentRow:UiRow (UiRow.of((this.contentTid()) (EVGA11yRole.menu()) ""))
+        contentRow.state = word
+        ; Every Radix menu surface says it, submenus included. It is not
+        ; decoration: a reader uses it to know that Up and Down are the keys
+        ; that walk this thing, and a menu that says nothing is a menu the
+        ; reader has to guess at.
+        contentRow.orientation = "vertical"
+        contentRow.modal = true
+        contentRow.focusable = true
+        push out contentRow
+
+        def i:int 0
+        while (i < (array_length rowTid)) {
+            def rtid:string (itemAt rowTid i)
+            def row:UiRow (UiRow.of(rtid (EVGA11yRole.menuItem()) (itemAt rowName i)))
+            row.parentTid = (itemAt rowOwner i)
+            row.disabled = (itemAt rowDisabled i)
+            if ((itemAt rowDisabled i) == false) {
+                row.focusable = true
+                ; Each MENU keeps its own roving tab stop, and a submenu is a
+                ; menu — so with focus inside one, its sub-trigger is still the
+                ; tab stop of the menu it lives in and there are two. Measured;
+                ; the first version kept exactly one across the whole tree and
+                ; the diff said so.
+                if (rtid == activeTid) {
+                    row.tabStop = true
+                }
+                if (this.isOpenSub(rtid)) {
+                    row.tabStop = true
+                }
+            }
+            if (itemAt rowIsSub i) {
+                ; The one attribute that separates this row from the item
+                ; beside it: both are menuitems, both are named, and a chevron
+                ; is not something a reader can see.
+                row.hasPopup = "menu"
+                if (this.isOpenSub(rtid)) {
+                    row.expanded = (EVGA11yTri.yes())
+                    row.state = "open"
+                } {
+                    row.expanded = (EVGA11yTri.no())
+                    row.state = "closed"
+                }
+            }
+            push out row
+
+            if (itemAt rowIsSub i) {
+                if (this.isOpenSub(rtid)) {
+                    def subRow:UiRow (UiRow.of((MenuCtl.subContentTid(rtid)) (EVGA11yRole.menu()) ""))
+                    subRow.state = "open"
+                    subRow.orientation = "vertical"
+                    subRow.parentTid = rtid
+                    subRow.focusable = true
+                    push out subRow
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+}

@@ -1,0 +1,23 @@
+{ "name":"tree_expand","component":"tree",
+  "behaviours":["right-expands","right-enters","right-leaf-steps","left-collapses","left-to-parent","left-top-level-noop","level","setsize","setpos"],
+  "fixture":{"controls":[{"type":"tree","tid":"tr","root":"crm","indent":20,
+     "expanded":["leads","accounts"],
+     "items":[
+       {"value":"crm","name":"CRM","children":["leads","accounts","activities"]},
+       {"value":"leads","name":"Leads","children":["new-lead","contacted-lead"]},
+       {"value":"new-lead","name":"New Lead"},
+       {"value":"contacted-lead","name":"Contacted Lead"},
+       {"value":"accounts","name":"Accounts","children":["acme"]},
+       {"value":"acme","name":"Acme Corp","children":["jane","john"]},
+       {"value":"jane","name":"Jane Doe"},
+       {"value":"john","name":"John Smith"},
+       {"value":"activities","name":"Activities"}]}]},
+  "steps":[
+    {"click":"tr-item-acme"},
+    {"key":"ArrowRight","settle":80},
+    {"key":"ArrowRight","settle":80},
+    {"key":"ArrowLeft","settle":80},
+    {"key":"ArrowLeft","settle":80},
+    {"key":"ArrowLeft","settle":80},
+    {"key":"ArrowLeft","settle":80},
+    {"key":"ArrowLeft","settle":80}] }

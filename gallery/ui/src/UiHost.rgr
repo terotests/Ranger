@@ -23,12 +23,42 @@ Import "CheckboxCtl.rgr"
 Import "RadioGroupCtl.rgr"
 Import "TabsCtl.rgr"
 Import "AccordionCtl.rgr"
+Import "CalendarCtl.rgr"
+Import "ScrollerCtl.rgr"
+Import "QuestionnaireCtl.rgr"
+Import "FilterCtl.rgr"
+Import "EventCalCtl.rgr"
+Import "NumberCtl.rgr"
+Import "StepperCtl.rgr"
+Import "PresentationCtl.rgr"
+Import "ToolbarCtl.rgr"
+Import "DialogCtl.rgr"
+Import "WindowCtl.rgr"
+Import "AlertDialogCtl.rgr"
+Import "PopoverCtl.rgr"
+Import "MenuCtl.rgr"
+Import "HoverCtl.rgr"
+Import "InputCtl.rgr"
+Import "VirtualCtl.rgr"
+Import "SliderCtl.rgr"
+Import "ResizeCtl.rgr"
+Import "BreadcrumbCtl.rgr"
+Import "ToastCtl.rgr"
+Import "SortableCtl.rgr"
+Import "TableCtl.rgr"
+Import "TreeCtl.rgr"
+Import "MenubarCtl.rgr"
+Import "SelectCtl.rgr"
+Import "NavMenuCtl.rgr"
+Import "ScrollAreaCtl.rgr"
 Import "../../evg/EVGElement.rgr"
 Import "../../evg/EVGUnit.rgr"
 Import "../../evg/EVGLayout.rgr"
 Import "../../evg/EVGDisplayList.rgr"
 Import "../../evg/EVGStyleSheet.rgr"
 Import "../../evg/EVGA11yTree.rgr"
+Import "../../evg/EVGHitTest.rgr"
+Import "../../evg/EVGTransition.rgr"
 
 class UiHost {
     def root:EVGElement
@@ -38,6 +68,20 @@ class UiHost {
     def focusId:string ""
     ; The last laid-out page, kept so a pointer can be turned into a test id.
     def lastPage@(optional):EVGElement
+    ; Bumped on every tree so the DOM mirror knows the frame changed — it skips
+    ; an update whose generation it has already applied, which is what keeps a
+    ; reader's cursor from being rebuilt out from under it.
+    def a11yGen:int 0
+    ; The page's live region: the last thing any controller said out loud.
+    def announcement:string ""
+    ; What the pointer is over and what it is holding down, so a STYLESHEET can
+    ; say what those look like. The host knows both already — it hit-tests the
+    ; pointer and it owns focus — and publishing them as element state is what
+    ; lets `.ui-menubar-item:hover` exist at all, instead of every controller
+    ; writing a second class for a look it should not know about.
+    def hoverTid:string ""
+    def pressTidValue:string ""
+    def transitions:EVGTransition (new EVGTransition())
     def pageWidth:double 480.0
     def pageHeight:double 320.0
 
@@ -144,6 +188,283 @@ class UiHost {
         return c
     }
 
+    fn addQuestionnaire:QuestionnaireCtl (tid:string name:string) {
+        def c (new QuestionnaireCtl())
+        c.tid = tid
+        c.name = name
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addScroller:ScrollerCtl (tid:string name:string) {
+        def c (new ScrollerCtl())
+        c.tid = tid
+        c.name = name
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addCalendar:CalendarCtl (tid:string name:string) {
+        def c (new CalendarCtl())
+        c.tid = tid
+        c.name = name
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addToolbar:ToolbarCtl (tid:string name:string) {
+        def c (new ToolbarCtl())
+        c.tid = tid
+        c.name = name
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addDialog:DialogCtl (tid:string name:string title:string) {
+        def c (new DialogCtl())
+        c.tid = tid
+        c.name = name
+        c.title = title
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addAlertDialog:AlertDialogCtl (tid:string name:string title:string) {
+        def c (new AlertDialogCtl())
+        c.tid = tid
+        c.name = name
+        c.title = title
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addPopover:PopoverCtl (tid:string name:string) {
+        def c (new PopoverCtl())
+        c.tid = tid
+        c.name = name
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    ; A window with a title bar you can drag, holding whatever the caller puts
+    ; in its `bodyEl`. `modal` decides which of the two things it is; see
+    ; WindowCtl for why they are one class.
+    fn addWindow:WindowCtl (tid:string name:string title:string modal:boolean) {
+        def c (new WindowCtl())
+        c.tid = tid
+        c.name = name
+        c.title = title
+        c.isModal = modal
+        c.pageW = pageWidth
+        c.pageH = pageHeight
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    ; A tree. `root` names the node whose CHILDREN are the top-level rows —
+    ; the root itself is the container and is never a row, which is what
+    ; headless-tree does with `rootItemId`.
+    fn addTree:TreeCtl (tid:string name:string root:string) {
+        def c (new TreeCtl())
+        c.tid = tid
+        c.name = name
+        c.rootValue = root
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addDropdownMenu:MenuCtl (tid:string name:string) {
+        def c (new MenuCtl())
+        c.tid = tid
+        c.name = name
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addContextMenu:MenuCtl (tid:string name:string) {
+        def c (new MenuCtl())
+        c.tid = tid
+        c.name = name
+        c.contextMode = true
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addTooltip:TooltipCtl (tid:string name:string) {
+        def c (new TooltipCtl())
+        c.tid = tid
+        c.name = name
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addHoverCard:HoverCardCtl (tid:string name:string) {
+        def c (new HoverCardCtl())
+        c.tid = tid
+        c.name = name
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addBreadcrumb:BreadcrumbCtl (tid:string name:string) {
+        def c (new BreadcrumbCtl())
+        c.tid = tid
+        c.name = name
+        this.add(c)
+        return c
+    }
+
+    fn addResizable:ResizeCtl (tid:string orientation:string) {
+        def c (new ResizeCtl())
+        c.tid = tid
+        c.orientation = orientation
+        this.add(c)
+        return c
+    }
+
+    fn addInput:InputCtl (tid:string name:string) {
+        def c (new InputCtl())
+        c.tid = tid
+        c.name = name
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addSlider:SliderCtl (tid:string name:string) {
+        def c (new SliderCtl())
+        c.tid = tid
+        c.name = name
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addToast:ToastCtl (tid:string name:string) {
+        def c (new ToastCtl())
+        c.tid = tid
+        c.name = name
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addMenubar:MenubarCtl (tid:string name:string) {
+        def c (new MenubarCtl())
+        c.tid = tid
+        c.name = name
+        this.add(c)
+        return c
+    }
+
+    fn addSelect:SelectCtl (tid:string name:string) {
+        def c (new SelectCtl())
+        c.tid = tid
+        c.name = name
+        this.add(c)
+        return c
+    }
+
+    fn addNavMenu:NavMenuCtl (tid:string name:string) {
+        def c (new NavMenuCtl())
+        c.tid = tid
+        c.name = name
+        this.add(c)
+        return c
+    }
+
+    fn addScrollArea:ScrollAreaCtl (tid:string name:string) {
+        def c (new ScrollAreaCtl())
+        c.tid = tid
+        c.name = name
+        this.add(c)
+        return c
+    }
+
+    fn addSortable:SortableCtl (tid:string name:string) {
+        def c (new SortableCtl())
+        c.tid = tid
+        c.name = name
+        this.add(c)
+        return c
+    }
+
+    fn addTable:TableCtl (tid:string name:string) {
+        def c (new TableCtl())
+        c.tid = tid
+        c.name = name
+        this.add(c)
+        return c
+    }
+
+    fn addLabel:LabelCtl (tid:string name:string) {
+        def c (new LabelCtl())
+        c.tid = tid
+        c.name = name
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addSeparator:SeparatorCtl (tid:string) {
+        def c (new SeparatorCtl())
+        c.tid = tid
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addProgress:ProgressCtl (tid:string name:string) {
+        def c (new ProgressCtl())
+        c.tid = tid
+        c.name = name
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addAspectRatio:AspectRatioCtl (tid:string name:string) {
+        def c (new AspectRatioCtl())
+        c.tid = tid
+        c.name = name
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addAccessibleIcon:AccessibleIconCtl (tid:string name:string glyph:string) {
+        def c (new AccessibleIconCtl())
+        c.tid = tid
+        c.name = name
+        c.glyph = glyph
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addAvatar:AvatarCtl (tid:string name:string fallback:string) {
+        def c (new AvatarCtl())
+        c.tid = tid
+        c.name = name
+        c.fallback = fallback
+        c.build()
+        this.add(c)
+        return c
+    }
+
     fn ctlFor@(optional):UiCtl (target:string) {
         def i:int 0
         while (i < (array_length ctls)) {
@@ -162,13 +483,34 @@ class UiHost {
     ; disabled node activates nothing AND takes focus away — which is what a
     ; browser does, and what the Radix oracle records.
     fn click:void (target:string) {
+        this.clickWith(target false false)
+    }
+
+    ; The same click, with Shift and Control. A multi-select is the only thing
+    ; that reads them, and it reads them the way its reference does: shift wins
+    ; over control, and only a non-shift click moves the range anchor.
+    fn clickWith:void (target:string shift:boolean ctrl:boolean) {
         def maybe@(optional):UiCtl (this.ctlFor(target))
         if maybe {
             def c:UiCtl (unwrap maybe)
             if (c.isFocusable(target)) {
                 focusId = target
                 c.onFocus(target)
-                c.activate(target)
+                ; An activation may move focus itself — opening a dialog puts
+                ; it on the close button, and the host should not have to know
+                ; that a dialog is what happened.
+                def next:string (c.activateWith(target shift ctrl))
+                if ((strlen next) > 0) {
+                    focusId = next
+                }
+                ; An activation can take the ground out from under the focus:
+                ; the last page's Next button disables itself the moment it is
+                ; pressed. A browser drops focus from a control that becomes
+                ; disabled, and focus that stays on something unreachable is
+                ; focus a keyboard cannot get back from.
+                if ((c.isFocusable(focusId)) == false) {
+                    focusId = ""
+                }
                 return
             }
         }
@@ -190,30 +532,286 @@ class UiHost {
         focusId = ""
     }
 
-    ; Keys go to whatever holds focus, like every real host. A controller that
-    ; moves focus itself (arrow keys in a composite) says so by returning the
-    ; test id focus should land on.
-    fn key:void (name:string) {
-        if ((strlen focusId) == 0) {
-            return
-        }
-        def maybe@(optional):UiCtl (this.ctlFor(focusId))
+    ; The pointer arriving over a node, with no button pressed. A tooltip and a
+    ; hover card have no other input, so without this there is nothing to test
+    ; them with.
+    fn hover:void (target:string) {
+        hoverTid = target
+        def maybe@(optional):UiCtl (this.ctlFor(target))
         if maybe {
             def c:UiCtl (unwrap maybe)
-            def next:string (c.keyDown(focusId name))
+            def next:string (c.hover(target))
             if ((strlen next) > 0) {
                 focusId = next
             }
         }
     }
 
+    ; The pointer left everything. Broadcast, because the controller that has to
+    ; react is the one the pointer is no longer over — asking the new target
+    ; would never reach it.
+    fn unhover:void () {
+        hoverTid = ""
+        def i:int 0
+        while (i < (array_length ctls)) {
+            def c:UiCtl (itemAt ctls i)
+            def next:string (c.unhover())
+            if ((strlen next) > 0) {
+                focusId = next
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; The secondary button. Only a context menu reads it, and it does not focus
+    ; what it was pressed on — a context menu's trigger is not focusable.
+    fn rightClick:void (target:string) {
+        def maybe@(optional):UiCtl (this.ctlFor(target))
+        if maybe {
+            def c:UiCtl (unwrap maybe)
+            def next:string (c.contextClick(target))
+            if ((strlen next) > 0) {
+                focusId = next
+            }
+        }
+    }
+
+    ; --- dragging -------------------------------------------------------------
+    ; The pointer held down and moved. A slider is the reason this exists: its
+    ; real input is a drag, and the value under the cursor depends on where the
+    ; TRACK ended up, which is a fact about the laid-out tree and so the host's
+    ; to answer. The controller names the element to measure against; the host
+    ; turns a coordinate into a fraction of it.
+
+    ; The controller currently being dragged, and the element its drag is
+    ; measured against. Empty when no button is down.
+    def dragTid:string ""
+    def dragBounds:string ""
+
+    ; x as a fraction of `boundsTid`'s laid-out width: 0 at its left edge, 1 at
+    ; its right. NOT clamped — dragging past the end is a real gesture.
+    fn fractionIn:double (boundsTid:string px:double) {
+        def r:EVGElement (unwrap root)
+        def maybe@(optional):EVGElement (this.findEl(r boundsTid))
+        if maybe {
+            def el:EVGElement (unwrap maybe)
+            if (el.calculatedWidth > 0.0) {
+                return ((px - el.calculatedX) / el.calculatedWidth)
+            }
+        }
+        return 0.0
+    }
+
+    ; The laid-out rectangle of a test id, as "x,y,w,h", or "" if the display
+    ; tree does not carry it. A canvas offers nothing to a query selector, so
+    ; anything driving this host from outside — a browser test pressing an item
+    ; — has to ask where the item IS.
+    fn rectOf:string (target:string) {
+        def r:EVGElement (unwrap root)
+        def maybe@(optional):EVGElement (this.findEl(r target))
+        if maybe {
+            def el:EVGElement (unwrap maybe)
+            return ((((((to_string (to_int el.calculatedX)) + ",") + (to_string (to_int el.calculatedY))) + ",") + (to_string (to_int el.calculatedWidth))) + ",") + (to_string (to_int el.calculatedHeight))
+        }
+        return ""
+    }
+
+    ; Which element's rectangle a press on `target` would be measured against,
+    ; or "" if pressing it is not a drag. Anything driving this host from the
+    ; outside — the conformance adapter, the browser playground — asks first, so
+    ; both sides of a comparison measure the SAME rectangle. Pressing an 18px
+    ; thumb and pressing a 200px rail are the same gesture on the same track,
+    ; and a fraction of the thumb would mean nothing.
+    fn dragBoundsFor:string (target:string) {
+        def maybe@(optional):UiCtl (this.ctlFor(target))
+        if maybe {
+            def c:UiCtl (unwrap maybe)
+            return (c.dragBoundsTid(target))
+        }
+        return ""
+    }
+
+    ; Press on `target` at `frac` across its drag bounds. Nothing here converts
+    ; coordinates, so a caller that already has a fraction — from the DOM's own
+    ; geometry, say — does not have to invent EVG pixels to express it.
+    fn pressTid:void (target:string frac:double) {
+        def bounds:string (this.dragBoundsFor(target))
+        if ((strlen bounds) == 0) {
+            this.click(target)
+            return
+        }
+        dragTid = target
+        pressTidValue = target
+        dragBounds = bounds
+        def maybe@(optional):UiCtl (this.ctlFor(target))
+        if maybe {
+            def c:UiCtl (unwrap maybe)
+            def next:string (c.dragTo(frac))
+            if ((strlen next) > 0) {
+                focusId = next
+                c.onFocus(next)
+            }
+        }
+    }
+
+    fn dragFraction:void (frac:double) {
+        if ((strlen dragTid) == 0) {
+            return
+        }
+        def maybe@(optional):UiCtl (this.ctlFor(dragTid))
+        if maybe {
+            def c:UiCtl (unwrap maybe)
+            def next:string (c.dragTo(frac))
+            if ((strlen next) > 0) {
+                focusId = next
+            }
+        }
+    }
+
+    ; The coordinate entry points, for a host that has a real pointer: the
+    ; canvas in the playground, and eventually an SDL or browser window.
+    fn pressAt:string (px:double py:double) {
+        def target:string (this.hitTest(px py))
+        def bounds:string (this.dragBoundsFor(target))
+        if ((strlen bounds) == 0) {
+            this.click(target)
+            return target
+        }
+        this.pressTid(target (this.fractionIn(bounds px)))
+        return target
+    }
+
+    fn pointerMove:void (px:double py:double) {
+        if ((strlen dragBounds) == 0) {
+            return
+        }
+        this.dragFraction((this.fractionIn(dragBounds px)))
+    }
+
+    fn pointerUp:void () {
+        pressTidValue = ""
+        dragTid = ""
+        dragBounds = ""
+    }
+
+    ; Focus cannot survive the node it was on going away. A browser drops it to
+    ; the document; so does this. Without it, closing a context menu with
+    ; Escape would leave focus on a menu item that no longer exists.
+    fn settleFocus:void () {
+        if ((strlen focusId) == 0) {
+            return
+        }
+        def maybe@(optional):UiCtl (this.ctlFor(focusId))
+        if maybe {
+            def c:UiCtl (unwrap maybe)
+            if (c.isFocusable(focusId)) {
+                return
+            }
+        }
+        focusId = ""
+    }
+
+    ; Keys go to whatever holds focus, like every real host. A controller that
+    ; moves focus itself (arrow keys in a composite) says so by returning the
+    ; test id focus should land on.
+    fn key:void (name:string) {
+        this.keyWith(name false false)
+    }
+
+    ; The same key, carrying Shift and Control. The text field is the first
+    ; control that reads them: Shift+Arrow extends the selection Arrow
+    ; collapses, and Ctrl+Arrow moves by a word.
+    fn keyWith:void (name:string shift:boolean ctrl:boolean) {
+        if ((strlen focusId) == 0) {
+            return
+        }
+        def maybe@(optional):UiCtl (this.ctlFor(focusId))
+        if maybe {
+            def c:UiCtl (unwrap maybe)
+            def next:string (c.keyDownWith(focusId name shift ctrl))
+            if ((strlen next) > 0) {
+                focusId = next
+            }
+            this.remember(c)
+        }
+        this.settleFocus()
+    }
+
+    ; One printable character into whatever holds focus. Not routed through
+    ; `key`: a browser fires keydown AND a separate input event, and only the
+    ; second one inserts — so a control that reads Enter as an activation must
+    ; not also read "e" as a letter, and vice versa.
+    fn type:void (ch:string) {
+        if ((strlen focusId) == 0) {
+            return
+        }
+        def maybe@(optional):UiCtl (this.ctlFor(focusId))
+        if maybe {
+            def c:UiCtl (unwrap maybe)
+            c.typeChar(focusId ch)
+            this.remember(c)
+        }
+        this.settleFocus()
+    }
+
     ; Style, then lay out. Inline attributes written through UiTree.inline()
     ; are marked, so this pass cannot overwrite them.
+    ; Publish the interaction state onto the tree, so the stylesheet can match
+    ; on it. Before `applyTree`, because a rule cannot ask about a flag that is
+    ; set after it ran.
+    fn markStates:void (el:EVGElement) {
+        el.isHovered = ((strlen hoverTid) > 0) && (el.id == hoverTid)
+        el.isFocused = ((strlen focusId) > 0) && (el.id == focusId)
+        el.isPressed = ((strlen pressTidValue) > 0) && (el.id == pressTidValue)
+        def i:int 0
+        while (i < (array_length el.children)) {
+            this.markStates((itemAt el.children i))
+            i = (i + 1)
+        }
+    }
+
+    ; Move every transition on by `dtMs` and say whether anything is still
+    ; going. A host that repaints on demand asks, rather than running a clock
+    ; nobody is watching.
+    ; Is anything still moving? Asked AFTER a frame has been applied, because
+    ; the flight a state change starts does not exist until the stylesheet has
+    ; been applied — a loop that asks before that stops on the frame the
+    ; animation begins, which is exactly what it did.
+    fn busyNow:boolean () {
+        def r:EVGElement (unwrap root)
+        def t:EVGTransition transitions
+        return (t.busy(r))
+    }
+
+    fn tick:boolean (dtMs:double) {
+        ; Controllers first: a submenu that opens on this tick has to be in the
+        ; tree before the transitions on it are advanced, or its first frame is
+        ; the one where it does not exist yet.
+        def i:int 0
+        while (i < (array_length ctls)) {
+            def c:UiCtl (itemAt ctls i)
+            def next:string (c.tickCtl(dtMs))
+            if ((strlen next) > 0) {
+                focusId = next
+            }
+            i = (i + 1)
+        }
+        def r:EVGElement (unwrap root)
+        def t:EVGTransition transitions
+        t.advanceTree(r dtMs)
+        return (t.busy(r))
+    }
+
     fn layout:EVGElement () {
         def r:EVGElement (unwrap root)
         def s:EVGStyleSheet (unwrap sheet)
         s.setViewport(pageWidth pageHeight false)
+        this.markStates(r)
         s.applyTree(r theme)
+        ; The sheet has written what it WANTS; this leaves on the element what
+        ; is actually showing, which for a property in flight is neither end.
+        def t2:EVGTransition transitions
+        t2.reconcileTree(r)
         def page (EVGElement.createDiv())
         page.id = "page"
         page.width = (EVGUnit.px(pageWidth))
@@ -261,31 +859,35 @@ class UiHost {
         return false
     }
 
-    fn hitIn:string (el:EVGElement px:double py:double) {
-        def i:int (array_length el.children)
-        while (i > 0) {
-            i = (i - 1)
-            def c:EVGElement (itemAt el.children i)
-            def got:string (this.hitIn(c px py))
-            if ((strlen got) > 0) {
-                return got
-            }
-        }
-        ; Self last: a label that is not a test id falls through to the control
-        ; that owns it.
-        if (this.containsPoint(el px py)) {
-            if (this.ownsTid(el.id)) {
-                return el.id
-            }
-        }
-        return ""
-    }
-
     ; The test id under the pointer, or "" for empty space.
+    ;
+    ; The scan is PAINT order, backwards — the same list `EVGDisplayList` draws
+    ; and `EVGHitTest` builds, so what is clicked is what is seen. Walking the
+    ; tree deepest-last-first is nearly the same answer and differs exactly
+    ; where it matters: an open menu's panel is drawn above the trigger BESIDE
+    ; it, and a tree walk reaches that trigger first. It would take the click
+    ; through the panel.
+    ;
+    ; A modal's backdrop covers the page, so with this order it is what a click
+    ; outside the dialog lands on — which is what makes a modal modal, rather
+    ; than a thing that merely looks like one.
     fn hitTest:string (px:double py:double) {
         if lastPage {
             def page:EVGElement (unwrap lastPage)
-            return (this.hitIn(page px py))
+            def hit (new EVGHitTest())
+            def order:[EVGElement] (hit.paintOrder(page))
+            def i:int ((array_length order) - 1)
+            while (i >= 0) {
+                def el:EVGElement (itemAt order i)
+                ; A label that is not a test id falls through to the control
+                ; that owns it, exactly as it did before.
+                if (this.ownsTid(el.id)) {
+                    if (this.containsPoint(el px py)) {
+                        return el.id
+                    }
+                }
+                i = (i - 1)
+            }
         }
         return ""
     }
@@ -320,6 +922,28 @@ class UiHost {
 
     ; 0 = not applicable → null, 1 = no, 2 = yes, 3 = mixed. `mixed` is a real
     ; ARIA value, not a third boolean, so it travels as a string.
+    ; A header that CAN be sorted but is not says "none"; anything that is not
+    ; a sortable column header says nothing at all. The two are different and
+    ; the DOM makes the same distinction — `aria-sort` is absent on a cell and
+    ; present-and-"none" on an unsorted header — so 0 has to mean "no such
+    ; attribute" and "none" needs a code of its own.
+    ; A number, or null when it is zero — which is what "this row has no such
+    ; attribute" means for a level or a set size, neither of which can legally
+    ; be 0.
+    sfn numOrNull:string (v:int) {
+        if (v == 0) {
+            return "null"
+        }
+        return (to_string v)
+    }
+
+    sfn sortJson:string (v:int) {
+        if (v == 1) { return "\"none\"" }
+        if (v == 2) { return "\"ascending\"" }
+        if (v == 3) { return "\"descending\"" }
+        return "null"
+    }
+
     sfn triJson:string (v:int) {
         if (v == 1) {
             return "false"
@@ -329,6 +953,26 @@ class UiHost {
         }
         if (v == 3) {
             return "\"mixed\""
+        }
+        return "null"
+    }
+
+    ; A number a reader announces, or null when the row does not have one.
+    ; "absent" is a real value here: an indeterminate progress bar reports a
+    ; range and no position, and a reader says "busy" because of it.
+    sfn numJson:string (has:boolean v:int) {
+        if has {
+            return (to_string v)
+        }
+        return "null"
+    }
+
+    ; A string that may legitimately be empty. `textOrNull` cannot serve here:
+    ; it treats "" as absent, which is right for an attribute nobody set and
+    ; wrong for a text field that has been cleared.
+    sfn textJson:string (has:boolean v:string) {
+        if has {
+            return (EVGA11yTree.jsonString(v))
         }
         return "null"
     }
@@ -356,9 +1000,342 @@ class UiHost {
         return out
     }
 
+    ; --- the accessibility tree ----------------------------------------------
+    ; The same tree `gallery/evg/gl/evg-a11y.js` mirrors into real DOM over the
+    ; canvas, which is how a screen reader — and axe-core — sees an EVG frame at
+    ; all. A node the display tree no longer carries is left OUT: hidden content
+    ; is not in a browser's accessibility tree either, and putting it in would
+    ; hand a reader a panel nobody can reach.
+
+    ; The laid-out element with this id, if the display tree still carries it.
+    ; An instance method rather than a static on UiTree: Ranger will not resolve
+    ; a static that returns an optional and recurses into itself.
+    fn findEl@(optional):EVGElement (el:EVGElement id:string) {
+        if (el.id == id) {
+            def hit@(optional):EVGElement el
+            return hit
+        }
+        def i:int 0
+        while (i < (array_length el.children)) {
+            def c:EVGElement (itemAt el.children i)
+            def got@(optional):EVGElement (this.findEl(c id))
+            if got {
+                return got
+            }
+            i = (i + 1)
+        }
+        def miss@(optional):EVGElement
+        return miss
+    }
+
+    fn a11yTree:EVGA11yTree () {
+        def page:EVGElement (this.layout())
+        def r:EVGElement (unwrap root)
+        def t (new EVGA11yTree())
+        a11yGen = (a11yGen + 1)
+        t.generation = a11yGen
+        def rootNode:EVGA11yNode (t.node("root" "" (EVGA11yRole.group())))
+        rootNode.name = "Ranger UI"
+        def pw:int (to_int pageWidth)
+        def ph:int (to_int pageHeight)
+        t.place(rootNode 0 0 pw ph)
+
+        def rows:[UiRow] (this.allRows())
+        def i:int 0
+        while (i < (array_length rows)) {
+            def row:UiRow (itemAt rows i)
+            def maybe@(optional):EVGElement (this.findEl(r row.tid))
+            if maybe {
+                def el:EVGElement (unwrap maybe)
+                def parent:string "root"
+                if ((strlen row.parentTid) > 0) {
+                    parent = row.parentTid
+                }
+                def n:EVGA11yNode (t.node(row.tid parent row.role))
+                ; Decoration carries no name. The reference puts aria-label on
+                ; a div with no role, where a browser ignores it — so the TRACE
+                ; reports it (the attribute is there) and the accessibility
+                ; tree does not (nothing announces it). The structural lint
+                ; caught the difference; copying it blindly would have handed a
+                ; reader a named node with nothing to say about it.
+                if (row.role != (EVGA11yRole.none())) {
+                    n.name = row.name
+                }
+                n.roleDescription = row.roleDescription
+                n.description = row.description
+                n.hasValueNow = row.hasValueNow
+                n.valueNow = row.valueNow
+                n.hasValueRange = row.hasRange
+                n.valueMin = row.valueMin
+                n.valueMax = row.valueMax
+                n.disabled = row.disabled
+                n.focusable = row.focusable
+                n.modal = row.modal
+                n.checked = row.checked
+                n.expanded = row.expanded
+                ; Depth, size and position within the siblings. The TRACE has
+                ; carried these since the tree went in; the accessibility tree
+                ; dropped all three, so a reader mirroring an EVG frame was
+                ; told a tree was a flat list of unnumbered rows. Nothing
+                ; failed, because a fact that is simply absent breaks no rule
+                ; about the facts that are there.
+                n.level = row.level
+                n.setSize = row.setSize
+                n.posInSet = row.setPos
+                if (row.selected == 2) {
+                    n.selected = true
+                }
+                if row.focusable {
+                    n.actActivate = true
+                }
+                def x:int (to_int el.calculatedX)
+                def y:int (to_int el.calculatedY)
+                def w:int (to_int el.calculatedWidth)
+                def h:int (to_int el.calculatedHeight)
+                t.place(n x y w h)
+            }
+            i = (i + 1)
+        }
+        t.setFocus(focusId)
+        return t
+    }
+
+    fn a11yJson:string () {
+        def t:EVGA11yTree (this.a11yTree())
+        return (t.toJson())
+    }
+
+    ; EVGA11yTree's own structural lint: duplicate ids, orphaned parents, a
+    ; focusable node with no accessible name or no rectangle, a named node whose
+    ; role is decoration. Runs without a browser, so CI gets it.
+    fn a11yProblems:[string] () {
+        def t:EVGA11yTree (this.a11yTree())
+        return (t.lint())
+    }
+
+    ; Which row, if any, has taken the page over. "" when nothing is modal.
+    fn modalTid:string () {
+        def rows:[UiRow] (this.allRows())
+        def i:int 0
+        while (i < (array_length rows)) {
+            def row:UiRow (itemAt rows i)
+            if row.modal {
+                return row.tid
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    ; Is `target` the modal or inside it? Everything else is hidden while a
+    ; modal is open — the aria-hidden masking Radix does, which is what a
+    ; reader actually observes.
+    fn insideModal:boolean (rows:[UiRow] target:string modal:string) {
+        def at:string target
+        def hops:int 0
+        while (hops < 32) {
+            if (at == modal) {
+                return true
+            }
+            if ((strlen at) == 0) {
+                return false
+            }
+            def found:boolean false
+            def i:int 0
+            while (i < (array_length rows)) {
+                def row:UiRow (itemAt rows i)
+                if (row.tid == at) {
+                    at = row.parentTid
+                    found = true
+                    i = (array_length rows)
+                }
+                i = (i + 1)
+            }
+            if (found == false) {
+                return false
+            }
+            hops = (hops + 1)
+        }
+        return false
+    }
+
+    ; JSON string, or null for the empty one. `aria-roledescription` is absent
+    ; rather than "" on the DOM side, and an empty string would compare unequal
+    ; to null on every node in every spec.
+    sfn textOrNull:string (value:string) {
+        if ((strlen value) == 0) {
+            return "null"
+        }
+        return (EVGA11yTree.jsonString(value))
+    }
+
+    ; 1-based index among the rows that share this one's parent, counting in
+    ; the order the rows are emitted — which is display-tree order, the same
+    ; order the DOM side reads off the document.
+    fn posInSet:int (rows:[UiRow] index:int) {
+        def me:UiRow (itemAt rows index)
+        def n:int 0
+        def i:int 0
+        while (i <= index) {
+            def other:UiRow (itemAt rows i)
+            if (other.parentTid == me.parentTid) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; --- dragging one thing onto another ---------------------------------------
+    ; The host does the same thing for both ends of the gesture as it does for a
+    ; click: turn a target into a controller. What is under the cursor is the
+    ; paint-order hit test, so a drag and a click can never disagree about it.
+
+    ; Will pressing here start a drag onto something else? The playground asks
+    ; before it decides whether a press is a click.
+    fn dragsOntoFor:boolean (target:string) {
+        def maybe@(optional):UiCtl (this.ctlFor(target))
+        if maybe {
+            def c:UiCtl (unwrap maybe)
+            return (c.dragsOnto())
+        }
+        return false
+    }
+
+    fn pressOn:void (target:string) {
+        pressTidValue = target
+        def maybe@(optional):UiCtl (this.ctlFor(target))
+        if maybe {
+            def c:UiCtl (unwrap maybe)
+            def next:string (c.press(target))
+            if ((strlen next) > 0) {
+                focusId = next
+            }
+            this.remember(c)
+        }
+        this.settleFocus()
+    }
+
+    ; Does a press on this become a free drag? Asked before the gesture starts,
+    ; for the same reason `dragsOnto` is: a press that will move a window must
+    ; not also count as a click on it.
+    fn dragsFreelyFor:boolean (target:string) {
+        def maybe@(optional):UiCtl (this.ctlFor(target))
+        if maybe {
+            def c:UiCtl (unwrap maybe)
+            return (c.dragsFreely())
+        }
+        return false
+    }
+
+    ; How far the pointer has moved since it went down, in page pixels. The
+    ; host does the subtracting because it is the only one that knows where the
+    ; press was; the controller only ever sees "this much further".
+    fn dragMoveBy:void (dx:double dy:double) {
+        def maybe@(optional):UiCtl (this.ctlFor(pressTidValue))
+        if maybe {
+            def c:UiCtl (unwrap maybe)
+            c.dragBy(dx dy)
+            this.remember(c)
+        }
+    }
+
+    fn dragOnto:void (target:string) {
+        def maybe@(optional):UiCtl (this.ctlFor(target))
+        if maybe {
+            def c:UiCtl (unwrap maybe)
+            c.dragOver(target)
+            this.remember(c)
+        }
+        this.settleFocus()
+    }
+
+    ; --- the HTML5 drag, routed by tid -----------------------------------------
+    ; `x` is pixels from the row's left edge and `topPercent` a fraction of its
+    ; height. Pixels for the one and a fraction for the other is not an
+    ; oversight: the horizontal number is only ever compared against the
+    ; INDENT, which both sides are told, while the vertical one is compared
+    ; against bands, which are fractions. Sending a fraction horizontally would
+    ; make the answer depend on how wide a row happened to be laid out, and the
+    ; two sides have no reason to agree about that.
+    fn dragPick:void (target:string) {
+        def maybe@(optional):UiCtl (this.ctlFor(target))
+        if maybe {
+            def c:UiCtl (unwrap maybe)
+            def next:string (c.dragPick(target))
+            if ((strlen next) > 0) {
+                focusId = next
+            }
+            this.remember(c)
+        }
+        this.settleFocus()
+    }
+
+    fn dragPoint:void (target:string topPercent:double x:double) {
+        def maybe@(optional):UiCtl (this.ctlFor(target))
+        if maybe {
+            def c:UiCtl (unwrap maybe)
+            c.dragPoint(target topPercent x)
+            this.remember(c)
+        }
+        this.settleFocus()
+    }
+
+    fn dragHold:void (ms:double) {
+        def i:int 0
+        while (i < (array_length ctls)) {
+            def c:UiCtl (itemAt ctls i)
+            c.dragHold(ms)
+            this.remember(c)
+            i = (i + 1)
+        }
+        this.settleFocus()
+    }
+
+    fn dragLand:void (target:string topPercent:double x:double) {
+        def maybe@(optional):UiCtl (this.ctlFor(target))
+        if maybe {
+            def c:UiCtl (unwrap maybe)
+            def next:string (c.dragLand(target topPercent x))
+            if ((strlen next) > 0) {
+                focusId = next
+            }
+            this.remember(c)
+        }
+        this.settleFocus()
+    }
+
+    fn releaseDrag:void () {
+        pressTidValue = ""
+        def i:int 0
+        while (i < (array_length ctls)) {
+            def c:UiCtl (itemAt ctls i)
+            c.release()
+            this.remember(c)
+            i = (i + 1)
+        }
+        this.settleFocus()
+    }
+
+    ; The page has ONE live region, so the host owns the last thing said. It is
+    ; kept rather than recomputed because that is what a live region does: the
+    ; text stays until something replaces it, and a reader that arrives late
+    ; still finds it.
+    fn remember:void (c:UiCtl) {
+        def text:string (c.said())
+        if ((strlen text) > 0) {
+            announcement = text
+        }
+    }
+
+    fn announcementText:string () {
+        return announcement
+    }
+
     fn traceJson:string () {
         def r:EVGElement (unwrap root)
         def rows:[UiRow] (this.allRows())
+        def modal:string (this.modalTid())
         def out:string "{\"nodes\":["
         def i:int 0
         while (i < (array_length rows)) {
@@ -372,18 +1349,72 @@ class UiHost {
                 isFocused = true
             }
             def isVisible:boolean (UiTree.reachable(r row.tid))
+            def isHidden:boolean row.hidden
+            if ((strlen modal) > 0) {
+                if ((this.insideModal(rows row.tid modal)) == false) {
+                    isHidden = true
+                }
+            }
             out = out + "{\"tid\":" + (EVGA11yTree.jsonString(row.tid))
             out = out + ",\"role\":" + (EVGA11yTree.jsonString(roleName))
             out = out + ",\"name\":" + (EVGA11yTree.jsonString(row.name))
             out = out + ",\"state\":" + (EVGA11yTree.jsonString(row.state))
+            ; `aria-sort` as the DOM spells it, so the two sides compare as
+            ; strings rather than as one side's numbering.
+            out = out + ",\"sort\":" + (UiHost.sortJson(row.sorted))
+            out = out + ",\"orientation\":" + (UiHost.textOrNull(row.orientation))
+            out = out + ",\"current\":" + (UiHost.textOrNull(row.current))
+            out = out + ",\"invalid\":" + (UiHost.textOrNull(row.invalid))
+            out = out + ",\"required\":" + (UiHost.textOrNull(row.required))
+            out = out + ",\"readonly\":" + (UiHost.textOrNull(row.readOnly))
+            ; `aria-haspopup`, absent rather than empty when there is none —
+            ; the DOM reports null for a node without the attribute, and "" is
+            ; a different thing from "not there".
+            out = out + ",\"haspopup\":" + (UiHost.textOrNull(row.hasPopup))
+            out = out + ",\"multiselectable\":" + (UiHost.textOrNull(row.multiSelectable))
+            out = out + ",\"valuetext\":" + (UiHost.textOrNull(row.valueText))
+            ; Absent rather than zero where there is none: the DOM reports null
+            ; for a node without the attribute, and 0 is a different claim.
+            out = out + ",\"level\":" + (UiHost.numOrNull(row.level))
+            out = out + ",\"setsize\":" + (UiHost.numOrNull(row.setSize))
+            out = out + ",\"setpos\":" + (UiHost.numOrNull(row.setPos))
             out = out + ",\"expanded\":" + (UiHost.triJson(row.expanded))
             out = out + ",\"pressed\":" + (UiHost.triJson(row.pressed))
             out = out + ",\"checked\":" + (UiHost.triJson(row.checked))
             out = out + ",\"selected\":" + (UiHost.triJson(row.selected))
             out = out + ",\"disabled\":" + (UiHost.boolJson(row.disabled))
+            out = out + ",\"hidden\":" + (UiHost.boolJson(isHidden))
             out = out + ",\"tabstop\":" + (UiHost.boolJson(row.tabStop))
+            ; What a text field holds, and where the caret is in it. `null`
+            ; rather than "" for a node that is not a text field — a box
+            ; holding the empty string and a button are not the same claim,
+            ; and "" would make them identical in the diff.
+            out = out + ",\"value\":" + (UiHost.textJson(row.hasText row.text))
+            out = out + ",\"placeholder\":" + (UiHost.textOrNull(row.placeholder))
+            out = out + ",\"selstart\":" + (UiHost.numJson(row.hasSelection row.selStart))
+            out = out + ",\"selend\":" + (UiHost.numJson(row.hasSelection row.selEnd))
+            out = out + ",\"valuenow\":" + (UiHost.numJson(row.hasValueNow row.valueNow))
+            out = out + ",\"valuemin\":" + (UiHost.numJson(row.hasRange row.valueMin))
+            out = out + ",\"valuemax\":" + (UiHost.numJson(row.hasRange row.valueMax))
             out = out + ",\"focused\":" + (UiHost.boolJson(isFocused))
             out = out + ",\"visible\":" + (UiHost.boolJson(isVisible))
+            out = out + ",\"roledescription\":" + (UiHost.textOrNull(row.roleDescription))
+            ; The text `aria-describedby` points AT, not the id it points with.
+            out = out + ",\"description\":" + (UiHost.textOrNull(row.description))
+            out = out + ",\"keyshortcuts\":" + (UiHost.textOrNull(row.keyShortcut))
+            ; What a virtualised table owes a reader: how many rows there ARE,
+            ; and where this one really sits. Absent rather than zero, because
+            ; a table that is not virtualised publishes neither.
+            out = out + ",\"rowcount\":" + (UiHost.numOrNull(row.rowCount))
+            out = out + ",\"rowindex\":" + (UiHost.numOrNull(row.rowIndex))
+            ; Reported, not compared: the two systems disagree about the parent
+            ; of a floating surface on purpose. It is here so `posinset` can be
+            ; skipped where they do — see conformance/diff.mjs.
+            out = out + ",\"parent\":" + (EVGA11yTree.jsonString(row.parentTid))
+            ; Where this row sits among its siblings, 1-based. Derived from the
+            ; order the rows come in, not stored: position is a fact about the
+            ; tree, and a stored copy is a second truth to keep in step.
+            out = out + ",\"posinset\":" + (to_string (this.posInSet(rows i)))
             out = out + "}"
             i = (i + 1)
         }

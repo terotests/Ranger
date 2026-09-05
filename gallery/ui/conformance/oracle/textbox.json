@@ -1,0 +1,74 @@
+{
+ "faces": {
+  "sans-serif": {
+   "ascentEm": 0.905,
+   "descentEm": 0.212,
+   "normalLineBoxEm": 1.15,
+   "baselineInNormalEm": 0.921
+  },
+  "serif": {
+   "ascentEm": 0.891,
+   "descentEm": 0.216,
+   "normalLineBoxEm": 1.149,
+   "baselineInNormalEm": 0.912
+  },
+  "monospace": {
+   "ascentEm": 0.928,
+   "descentEm": 0.236,
+   "normalLineBoxEm": 1.164,
+   "baselineInNormalEm": 0.928
+  }
+ },
+ "leading": [
+  {
+   "lineHeight": "normal",
+   "lineBoxEm": 1.15,
+   "baselineEm": 0.921
+  },
+  {
+   "lineHeight": "2",
+   "lineBoxEm": 2,
+   "baselineEm": 1.346
+  },
+  {
+   "lineHeight": "1.5",
+   "lineBoxEm": 1.5,
+   "baselineEm": 1.096
+  },
+  {
+   "lineHeight": "1.2",
+   "lineBoxEm": 1.2,
+   "baselineEm": 0.946
+  },
+  {
+   "lineHeight": "1",
+   "lineBoxEm": 1,
+   "baselineEm": 0.846
+  },
+  {
+   "lineHeight": "0.8",
+   "lineBoxEm": 0.8,
+   "baselineEm": 0.746
+  }
+ ],
+ "withHandWrittenHeight": {
+  "rowCentre": 16,
+  "iconCentre": 16,
+  "textBoxTop": 6,
+  "textBoxHeight": 20,
+  "lineBoxTop": 6,
+  "lineBoxHeight": 15,
+  "lineBoxCentre": 13.5,
+  "offCentre": -2.5
+ },
+ "withAutoHeight": {
+  "rowCentre": 56,
+  "iconCentre": 56,
+  "textBoxTop": 8.5,
+  "textBoxHeight": 15,
+  "lineBoxTop": 8.5,
+  "lineBoxHeight": 15,
+  "lineBoxCentre": 56,
+  "offCentre": 0
+ }
+}

@@ -3,6 +3,8 @@
 
 Import "stdlib.rgr"
 Import "ng_RangerAppMessages.rgr"
+Import "ng_RangerDocBlock.rgr"
+Import "ng_RangerApiDoc.rgr"
 Import "ng_RangerAppParamDesc.rgr"
 Import "ng_RangerAppFunctionDesc.rgr"
 Import "ng_RangerAppClassDesc.rgr"
@@ -94,6 +96,27 @@ class RangerFlowParser {
   ; Keys are the generated class names (`Value_Num`); the alias maps also carry
   ; the unqualified spelling (`Num`) when it names exactly one case in the
   ; program, and "" when more than one shape claims it.
+  ; TREE LITERALS. `treefactory Name { … }` declares what a tag means and how a
+  ; child is attached; `(tree Name (Tag …))` builds one. Both are lowered to
+  ; ordinary Ranger — a `new`, some field assignments and some method calls —
+  ; before anything else looks at the program, so no target writer knows this
+  ; feature exists and the existing type checker does all the checking.
+  ;
+  ; There is deliberately no node type, no runtime, no element class and no
+  ; knowledge of EVG here. A factory whose tags map to SQL nodes or AST nodes
+  ; lowers exactly the same way.
+  def treeChildCall:[string:string]
+  def treeTextField:[string:string]
+  ; "<factory> <Tag>" -> the class the tag builds.
+  def treeTags:[string:string]
+  ; "<factory> <Tag>" -> a props form every use of that tag starts with, so a
+  ; tag can mean "an EVGElement that is a text leaf" rather than making every
+  ; call site repeat it.
+  def treeTagDefaults:[string:CodeNode]
+  ; Every factory that was declared, so an unknown one can say so.
+  def treeFactoryNames:[string:boolean]
+  def treeTmpCount:int 0
+
   def shapeCases:[string:[string]]
   def shapeGroupCases:[string:[string]]
   def caseAlias:[string:string]
@@ -808,6 +831,20 @@ class RangerFlowParser {
 
           prop.flow_done = true
           prop.eval_type = RangerNodeType.VRef
+          ; The NAME to emit lives on the descriptor, not on this node. A
+          ; property whose name is a keyword of the target is renamed at its
+          ; declaration -- `def async` becomes `self._async` on Python -- and
+          ; this vref still carries the source spelling. Writers reach it two
+          ; ways, and both read the descriptor list rather than the vref, so
+          ; putting it here fixes every target at once.
+          ;
+          ; Without it, `if ((h.nodeOf()).async)` emitted `h.nodeOf().async`
+          ; against a `self._async` declaration: a Python SyntaxError the
+          ; compiler reported as a successful build, and the reason the TS
+          ; engine had never once built for Python (ISSUES.md #80).
+          if ((array_length prop.nsp) == 0) {
+            push prop.nsp (unwrap varDef)
+          }
 
           node.hasParamDesc = true
           node.ownParamDesc = varDef
@@ -4704,6 +4741,475 @@ class RangerFlowParser {
   ; whole tree, so a shape reads as one type with variants while the compiler
   ; sees ordinary classes.
   ; ---------------------------------------------------------------------------
+  ; ==========================================================================
+  ; Tree literals
+  ; ==========================================================================
+  ; Two forms, and nothing else:
+  ;
+  ;   treefactory EVGTree {
+  ;       child addChild          ; how a parent takes a child
+  ;       text  textContent       ; the field a bare value child sets
+  ;       tag   View   EVGView    ; what a tag means
+  ;       tag   Text   EVGText
+  ;   }
+  ;
+  ;   (tree EVGTree
+  ;       (View (props (className "card"))
+  ;           (Text (props (id "t")) title)))
+  ;
+  ; lowers to, in the enclosing block:
+  ;
+  ;   def _tree1 (new EVGView)
+  ;   _tree1.className = "card"
+  ;   def _tree2 (new EVGText)
+  ;   _tree2.id = "t"
+  ;   _tree2.textContent = title
+  ;   _tree1.addChild(_tree2)
+  ;
+  ; and the expression itself becomes `_tree1`.
+  ;
+  ; Everything the feature checks, it checks by lowering to code that was
+  ; already checkable: a misspelled property is an assignment to a field that
+  ; does not exist, a wrongly typed one is a type error on that assignment, and
+  ; a child that the parent cannot take is an argument mismatch on the child
+  ; call. There is no separate property table and no new diagnostics to keep in
+  ; step with the type checker, because the type checker is doing the work.
+
+  fn DesugarTrees:void (node@(lives):CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    this.collectTreeFactories(node true ctx)
+    if ((array_length (keys treeFactoryNames)) > 0) {
+      this.expandTreesIn(node ctx wr)
+      ; A literal lowers to statements, so it can only live where a statement
+      ; can go. Anything still standing after the walk is somewhere there was no
+      ; block to hoist into, and says so rather than failing later as a type
+      ; error on a name nobody wrote.
+      ;
+      ; This does NOT catch a class FIELD initializer: by the time this pass
+      ; runs, a class member's value is no longer reachable from the AST the
+      ; walk can see, and such a literal fails as "Unknown type: type ID : 11"
+      ; instead. Build the tree in the constructor, which is where a retained
+      ; tree belongs anyway.
+      this.reportStrayTrees(node ctx)
+    }
+  }
+
+  fn reportStrayTrees:void (node:CodeNode ctx:RangerAppWriterContext) {
+    if (this.isTreeLiteral(node)) {
+      ctx.addError(node "a tree literal has to be inside a function body: it builds a tree with statements, and a class field initializer has nowhere to put them")
+      return
+    }
+    for node.children ch:CodeNode i {
+      this.reportStrayTrees(ch ctx)
+    }
+  }
+
+  ; `treefactory Name { … }` and nothing else. Recognised by its whole form
+  ; rather than its first word, for the same reason `shape` is: `treefactory`
+  ; is a perfectly ordinary identifier until it heads a three-part declaration.
+  fn isTreeFactoryDeclaration:boolean (node:CodeNode) {
+    if ((array_length node.children) != 3) {
+      return false
+    }
+    def head:CodeNode (node.getFirst())
+    if (head.vref != "treefactory") {
+      return false
+    }
+    if ((array_length head.ns) > 1) {
+      return false
+    }
+    def nameNode:CodeNode (node.getSecond())
+    if ((strlen nameNode.vref) == 0) {
+      return false
+    }
+    if nameNode.expression {
+      return false
+    }
+    def bodyNode:CodeNode (node.getThird())
+    return bodyNode.is_block_node
+  }
+
+  ; A factory declares names, so it has to be a top-level form: inside a class
+  ; body it would read as a member and take the class down with it.
+  fn collectTreeFactories:void (node@(lives):CodeNode atTopLevel:boolean ctx:RangerAppWriterContext) {
+    def childScope:boolean atTopLevel
+    if (node.isFirstVref("class")) {
+      childScope = false
+    }
+    if (node.isFirstVref("record")) {
+      childScope = false
+    }
+    if (node.isFirstVref("fn")) {
+      childScope = false
+    }
+    if (node.isFirstVref("sfn")) {
+      childScope = false
+    }
+    def kept:[CodeNode]
+    def removed:boolean false
+    for node.children ch@(lives):CodeNode i {
+      if (this.isTreeFactoryDeclaration(ch)) {
+        if atTopLevel {
+          this.registerTreeFactory(ch ctx)
+        } {
+          ctx.addError(ch "treefactory has to be declared at the top level of a file")
+        }
+        removed = true
+      } {
+        push kept ch
+        this.collectTreeFactories(ch childScope ctx)
+      }
+    }
+    if removed {
+      clear node.children
+      for kept k@(lives):CodeNode j {
+        node.add(k)
+      }
+    }
+  }
+
+  fn registerTreeFactory:void (node:CodeNode ctx:RangerAppWriterContext) {
+    def nameNode:CodeNode (node.getSecond())
+    def fname:string nameNode.vref
+    if (has treeFactoryNames fname) {
+      ctx.addError(node ("treefactory " + fname + " is declared twice"))
+      return
+    }
+    set treeFactoryNames fname true
+    set treeChildCall fname ""
+    set treeTextField fname ""
+
+    def body:CodeNode (node.getThird())
+    for body.children st@(lives):CodeNode i {
+      if ((array_length st.children) == 0) {
+        ctx.addError(st "expected child, text or tag")
+      } {
+        def head:CodeNode (st.getFirst())
+        def kw:string head.vref
+        if (kw == "child") {
+          if ((array_length st.children) == 2) {
+            set treeChildCall fname ((st.getSecond()).vref)
+          } {
+            ctx.addError(st "child takes one method name")
+          }
+        } {
+          if (kw == "text") {
+            if ((array_length st.children) == 2) {
+              set treeTextField fname ((st.getSecond()).vref)
+            } {
+              ctx.addError(st "text takes one field name")
+            }
+          } {
+            if (kw == "tag") {
+              def argc:int (array_length st.children)
+              if ((argc == 3) || (argc == 4)) {
+                def tagName:string ((st.getSecond()).vref)
+                def clsName:string ((st.getThird()).vref)
+                def tagKey:string ((fname + " ") + tagName)
+                set treeTags tagKey clsName
+                if (argc == 4) {
+                  def defs:CodeNode (at st.children 3)
+                  if (this.isTreeKeyword(defs "props")) {
+                    set treeTagDefaults tagKey defs
+                  } {
+                    ctx.addError(defs "a tag's defaults are a props form")
+                  }
+                }
+              } {
+                ctx.addError(st "tag takes a tag name, a class name and optionally a props form")
+              }
+            } {
+              ctx.addError(st (("unknown treefactory member " + kw) + ", expected child, text or tag"))
+            }
+          }
+        }
+      }
+    }
+  }
+
+  ; `(tree Name element)`. The factory name is NOT checked here: a literal
+  ; naming a factory nobody declared has to say that, and returning false would
+  ; leave it to fail much later as "Undefined variable tree".
+  fn isTreeLiteral:boolean (node:CodeNode) {
+    if ((array_length node.children) != 3) {
+      return false
+    }
+    def head:CodeNode (node.getFirst())
+    if (head.vref != "tree") {
+      return false
+    }
+    if ((array_length head.ns) > 1) {
+      return false
+    }
+    def nameNode:CodeNode (node.getSecond())
+    if ((strlen nameNode.vref) == 0) {
+      return false
+    }
+    return (nameNode.expression == false)
+  }
+
+  ; Find the blocks; each one then hoists the trees its own statements contain.
+  ;
+  ; A class body is a block too, and it is the one that must NOT be treated as
+  ; one: its children are member declarations, and hoisting `def _tree1 (new X)`
+  ; in among them puts a statement where a member belongs. Measured — a tree
+  ; literal in a field initializer compiled to a class whose body had loose
+  ; statements in it, and failed as "Unknown type: type ID : 11", which tells
+  ; nobody anything. The literal is now left alone there and named by
+  ; reportStrayTrees instead.
+  fn expandTreesIn:void (node@(lives):CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def memberScope:boolean false
+    if (node.isFirstVref("class")) {
+      memberScope = true
+    }
+    if (node.isFirstVref("record")) {
+      memberScope = true
+    }
+    if (node.isFirstVref("systemclass")) {
+      memberScope = true
+    }
+    if memberScope {
+      for node.children ch@(lives):CodeNode i {
+        if ch.is_block_node {
+          ; the members themselves — a method body inside one is an ordinary
+          ; block and is found by the recursion
+          for ch.children m@(lives):CodeNode j {
+            this.expandTreesIn(m ctx wr)
+          }
+        } {
+          this.expandTreesIn(ch ctx wr)
+        }
+      }
+      return
+    }
+    if node.is_block_node {
+      this.expandTreesInBlock(node ctx wr)
+      return
+    }
+    for node.children ch@(lives):CodeNode i {
+      this.expandTreesIn(ch ctx wr)
+    }
+  }
+
+  ; A tree literal is an expression, and it lowers to statements — so the
+  ; statements go in front of the statement that contained it, and the literal
+  ; becomes the name they built. Nothing about the enclosing expression changes,
+  ; which is why `return (tree …)`, `x = (tree …)` and `f((tree …))` all work
+  ; without the feature knowing what any of them are.
+  fn expandTreesInBlock:void (block@(lives):CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def out:[CodeNode]
+    for block.children stmt@(lives):CodeNode i {
+      def prelude:[CodeNode]
+      this.lowerTreesIn(stmt prelude ctx wr)
+      for prelude p@(lives):CodeNode j {
+        push out p
+      }
+      push out stmt
+    }
+    clear block.children
+    for out n@(lives):CodeNode k {
+      ; add(), not a bare push: a node the walker meets without a parent link
+      ; takes the compiler down when it tries to attach a scope to it.
+      block.add(n)
+    }
+  }
+
+  fn lowerTreesIn:void (node@(lives):CodeNode prelude:[CodeNode] ctx:RangerAppWriterContext wr:CodeWriter) {
+    ; A nested block is its own scope: hoisting out of an `if` body into the
+    ; statement above it would build the tree whether the branch ran or not.
+    if node.is_block_node {
+      this.expandTreesInBlock(node ctx wr)
+      return
+    }
+    if (this.isTreeLiteral(node)) {
+      def fname:string ((node.getSecond()).vref)
+      if ((has treeFactoryNames fname) == false) {
+        ctx.addError(node ("no treefactory named " + fname))
+        return
+      }
+      def reg:string (this.lowerTreeElement((node.getThird()) fname prelude ctx wr))
+      if ((strlen reg) > 0) {
+        this.rewriteAsVRef(node reg)
+      }
+      return
+    }
+    for node.children ch@(lives):CodeNode i {
+      this.lowerTreesIn(ch prelude ctx wr)
+    }
+  }
+
+  fn rewriteAsVRef:void (node@(lives):CodeNode name:string) {
+    clear node.children
+    node.expression = false
+    node.vref = name
+    node.value_type = RangerNodeType.VRef
+    node.parsed_type = RangerNodeType.VRef
+    clear node.ns
+    push node.ns name
+  }
+
+  ; `(Tag (props (name value) …) child …)` → the name of the temporary holding
+  ; it, with everything needed to build it pushed onto `prelude`.
+  fn lowerTreeElement:string (el:CodeNode fname:string prelude:[CodeNode] ctx:RangerAppWriterContext wr:CodeWriter) {
+    if ((array_length el.children) == 0) {
+      ctx.addError(el "expected a tag")
+      return ""
+    }
+    def head:CodeNode (el.getFirst())
+    def tagName:string head.vref
+    def key:string ((fname + " ") + tagName)
+    if ((has treeTags key) == false) {
+      ctx.addError(el ((("treefactory " + fname) + " has no tag ") + tagName))
+      return ""
+    }
+    def clsName:string (unwrap (get treeTags key))
+
+    treeTmpCount = (treeTmpCount + 1)
+    def reg:string ("_tree" + (to_string treeTmpCount))
+
+    ; def <reg> (new <Class>) — untyped on purpose: Ranger already infers the
+    ; type from `new`, and an annotation here would be a second place for the
+    ; tag mapping to be wrong.
+    def defNode:CodeNode (el.newExpressionNode())
+    defNode.add((el.newVRefNode("def")))
+    defNode.add((el.newVRefNode(reg)))
+    def newNode:CodeNode (el.newExpressionNode())
+    newNode.add((el.newVRefNode("new")))
+    newNode.add((el.newVRefNode(clsName)))
+    defNode.add(newNode)
+    push prelude defNode
+
+    ; The tag's own defaults first, so a use site can still override one.
+    if (has treeTagDefaults key) {
+      this.lowerTreeProps((unwrap (get treeTagDefaults key)) reg prelude ctx wr)
+    }
+
+    def idx:int 1
+    while (idx < (array_length el.children)) {
+      def ch:CodeNode (at el.children idx)
+      if (this.isTreeKeyword(ch "props")) {
+        this.lowerTreeProps(ch reg prelude ctx wr)
+      } {
+        if (this.isTreeKeyword(ch "child")) {
+          ; An explicit computed child: `(child (UserBadge user))`. A component
+          ; is an ordinary function that returns a node, and this is how one is
+          ; spliced in — marked, because `(UserBadge user)` and a mistyped tag
+          ; are the same shape, and guessing between them would turn a typo
+          ; into a call to something that does not exist.
+          this.lowerComputedChildren(ch reg fname prelude ctx wr)
+        } {
+          this.lowerTreeChild(ch reg fname prelude ctx wr)
+        }
+      }
+      idx = (idx + 1)
+    }
+    return reg
+  }
+
+  fn isTreeKeyword:boolean (node:CodeNode word:string) {
+    if ((array_length node.children) == 0) {
+      return false
+    }
+    def head:CodeNode (node.getFirst())
+    if ((array_length head.ns) > 1) {
+      return false
+    }
+    return (head.vref == word)
+  }
+
+  fn lowerComputedChildren:void (ch:CodeNode reg:string fname:string prelude:[CodeNode] ctx:RangerAppWriterContext wr:CodeWriter) {
+    def childCall:string (unwrap (get treeChildCall fname))
+    if ((strlen childCall) == 0) {
+      ctx.addError(ch (("treefactory " + fname) + " has no `child` method"))
+      return
+    }
+    if ((array_length ch.children) < 2) {
+      ctx.addError(ch "child takes one or more expressions")
+      return
+    }
+    def idx:int 1
+    while (idx < (array_length ch.children)) {
+      push prelude (this.treeCall(ch reg childCall (at ch.children idx)))
+      idx = (idx + 1)
+    }
+  }
+
+  ; <reg>.<method>(<arg>)
+  fn treeCall:CodeNode (at_node:CodeNode reg:string method:string arg:CodeNode) {
+    def call:CodeNode (at_node.newExpressionNode())
+    call.add((at_node.newVRefNode((reg + ".") + method)))
+    def args:CodeNode (at_node.newExpressionNode())
+    args.add((arg.copy()))
+    call.add(args)
+    return call
+  }
+
+  fn lowerTreeProps:void (propsNode:CodeNode reg:string prelude:[CodeNode] ctx:RangerAppWriterContext wr:CodeWriter) {
+    def idx:int 1
+    while (idx < (array_length propsNode.children)) {
+      def pair:CodeNode (at propsNode.children idx)
+      if ((array_length pair.children) != 2) {
+        ctx.addError(pair "a property is a name and a value")
+      } {
+        def pName:string ((pair.getFirst()).vref)
+        push prelude (this.treeAssign(pair reg pName (pair.getSecond())))
+      }
+      idx = (idx + 1)
+    }
+  }
+
+  ; <reg>.<field> = <value>
+  fn treeAssign:CodeNode (at_node:CodeNode reg:string field:string value:CodeNode) {
+    def assign:CodeNode (at_node.newExpressionNode())
+    assign.add((at_node.newVRefNode("=")))
+    assign.add((at_node.newVRefNode((reg + ".") + field)))
+    assign.add((value.copy()))
+    return assign
+  }
+
+  fn lowerTreeChild:void (ch:CodeNode reg:string fname:string prelude:[CodeNode] ctx:RangerAppWriterContext wr:CodeWriter) {
+    ; Another element of this factory, or a value.
+    def isElement:boolean false
+    if ((array_length ch.children) > 0) {
+      def head:CodeNode (ch.getFirst())
+      if ((array_length head.ns) == 1) {
+        if (has treeTags ((fname + " ") + head.vref)) {
+          isElement = true
+        }
+      }
+    }
+    if isElement {
+      def childCall:string (unwrap (get treeChildCall fname))
+      if ((strlen childCall) == 0) {
+        ctx.addError(ch (("treefactory " + fname) + " has no `child` method, so it cannot nest"))
+        return
+      }
+      def childReg:string (this.lowerTreeElement(ch fname prelude ctx wr))
+      if ((strlen childReg) == 0) {
+        return
+      }
+      push prelude (this.treeCall(ch reg childCall (ch.newVRefNode(childReg))))
+      return
+    }
+    if (ch.expression) {
+      if ((array_length ch.children) == 0) {
+        ctx.addError(ch "empty child: props are optional, so `()` is never needed")
+        return
+      }
+      def h:CodeNode (ch.getFirst())
+      if ((array_length h.ns) == 1) {
+        ctx.addError(ch ((((h.vref + " is not a tag of treefactory ") + fname) + " — declare it with `tag`, or wrap a computed child in `(child ")) + h.vref + " …)"))
+        return
+      }
+    }
+    ; A value child: the text field takes it.
+    def textField:string (unwrap (get treeTextField fname))
+    if ((strlen textField) == 0) {
+      ctx.addError(ch (("treefactory " + fname) + " has no `text` field, so a value cannot be a child here"))
+      return
+    }
+    push prelude (this.treeAssign(ch reg textField ch))
+  }
+
   fn DesugarShapes:void (node@(lives):CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def renames:[string:string]
     this.expandShapesIn(node ctx wr renames)
@@ -6668,10 +7174,74 @@ class RangerFlowParser {
     }
   }
 
+  ; Declarations that may carry a `doc { … }` tail. PLAN_API_DOCS.md §2.3.
+  fn isDocumentableHead:boolean (name:string) {
+    if (name == "fn") { return true }
+    if (name == "sfn") { return true }
+    if (name == "static") { return true }
+    if (name == "class") { return true }
+    if (name == "record") { return true }
+    if (name == "shape") { return true }
+    if (name == "enum") { return true }
+    if (name == "def") { return true }
+    if (name == "Constructor") { return true }
+    if (name == "constructor") { return true }
+    if (name == "case") { return true }
+    if (name == "variant") { return true }
+    if (name == "group") { return true }
+    if (name == "module") { return true }
+    return false
+  }
+
+  ; Moves a trailing `doc { … }` off the declaration node and onto docNode,
+  ; BEFORE anything counts children. Every existing arity check and index
+  ; lookup then sees exactly the tree it saw before the feature existed --
+  ; which is also what keeps EnterClass from taking the doc block for the
+  ; class body and emitting an unanalysed method (ISSUES.md #75).
+  ;
+  ; A head that is not a declaration is left alone rather than reported: an
+  ; ordinary `if doc { … }` over a variable called `doc` has the same shape.
+  fn DetachDocBlocks:void (node@(lives):CodeNode ctx:RangerAppWriterContext) {
+    def cnt:int (node.chlen())
+    if (cnt > 2) {
+      def tailWord:CodeNode (at node.children (cnt - 2))
+      def tailBlock:CodeNode (at node.children (cnt - 1))
+      if ((tailWord.vref == "doc") && tailBlock.is_block_node) {
+        def head:string (node.getVRefAt(0))
+        if (this.isDocumentableHead(head)) {
+          node.has_doc_tail = true
+          node.docNode = tailBlock
+          remove node.children (cnt - 1)
+          remove node.children (cnt - 2)
+        }
+      }
+    }
+    ; `doc { … }` as a statement of its own binds to nothing. Silently dropping
+    ; it publishes nothing while the author believes it published something.
+    if (node.isFirstVref("doc")) {
+      if ((node.chlen()) == 2) {
+        def second:CodeNode (node.getSecond())
+        if (second.is_block_node) {
+          ctx.addError(node "documentation block is not attached to a declaration. Write it as the tail of the declaration: `} doc { … }`")
+        }
+      }
+    }
+    for node.children ch@(lives):CodeNode i {
+      this.DetachDocBlocks(ch ctx)
+    }
+  }
+
   fn CollectMethods:void (node@(lives):CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
 
+    ; the `doc { … }` tails come off first, so nothing below this line sees a
+    ; declaration node with two extra children
+    this.DetachDocBlocks(node ctx)
     ; shapes first: everything below this line sees ordinary records and unions
     this.DesugarShapes(node ctx wr)
+    ; then tree literals, for the same reason: everything below this line sees
+    ; ordinary `new`, assignments and calls, and nothing knows the feature is
+    ; there. One lowering, before the targets, rather than eighteen writers.
+    this.DesugarTrees(node ctx wr)
     ; then every generic class declaration, before anything can refer to one.
     ; A reference expands the class where it is found, so a class variable of
     ; type `OfficeHistory@(DocEditOp)` collected before the file that declares
@@ -7806,7 +8376,7 @@ class RangerFlowParser {
       def currC:RangerAppClassDesc ctx.currentClass
       def m@(lives):RangerAppFunctionDesc (new RangerAppFunctionDesc ())
       m.name = s
-      m.compiledName = (ctx.transformWord(s))
+      m.compiledName = (ctx.transformMemberWord(s))
       m.node = node
       m.is_static = true
       m.nameNode = (at node.children 2)
@@ -7831,7 +8401,7 @@ class RangerFlowParser {
       def currC:RangerAppClassDesc ctx.currentClass
       def m@(lives):RangerAppFunctionDesc (new RangerAppFunctionDesc ())
       m.name = s
-      m.compiledName = (ctx.transformWord(s))
+      m.compiledName = (ctx.transformMemberWord(s))
       m.node = node
       m.is_static = true
       m.nameNode = (at node.children 1)

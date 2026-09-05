@@ -1,0 +1,53 @@
+{
+  "_": "AI Chat on the phone: a question sent, the reply streamed in on the clock, one action proposed and accepted. The reference cannot play this — the reply would be the AI's — so the trace is the port's alone, against the machine's states.",
+  "id": "chat-send-accept-single",
+  "area": "keskustelu",
+  "machine": "chat",
+  "source": "frontend/src/machines/chatMachine.ts",
+  "setup": [
+    {
+      "page": "390x844",
+      "why": "a phone, upright"
+    },
+    {
+      "route": "/calendar/cal-plan?week=2026-02-09"
+    }
+  ],
+  "steps": [
+    {
+      "id": "rt-nav-chat",
+      "role": "button",
+      "name": "AI Chat",
+      "state": "idle"
+    },
+    {
+      "id": "rt-chat-field",
+      "role": "textbox",
+      "name": "Kysy jotain päiväkirjastasi...",
+      "type": "Maastaveto 3x5@100kg",
+      "state": "idle"
+    },
+    {
+      "id": "rt-chat-send",
+      "role": "button",
+      "name": "",
+      "state": "sending.streaming",
+      "why": "the send button is an icon with no name in the original"
+    },
+    {
+      "tick": 3000,
+      "state": "reviewing.singleAction"
+    },
+    {
+      "id": "rt-chat-accept-0",
+      "role": "button",
+      "name": "Hyväksy 1",
+      "state": "processing.saving"
+    },
+    {
+      "tick": 800,
+      "state": "idle"
+    }
+  ],
+  "noReference": true
+}

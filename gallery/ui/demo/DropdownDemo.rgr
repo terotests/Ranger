@@ -1,0 +1,578 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; DropdownDemo — ReUI's account menu, submenu and all
+; =============================================================================
+; The reference is https://reui.io/components/dropdown-menu: an account button
+; that opens a card with the signed-in user at the top, a segmented theme
+; picker, rows carrying icons and counts, a status row that opens a submenu
+; beside it, and a destructive Logout at the bottom.
+;
+; THE STATE IS NOT REBUILT HERE. `MenuCtl` owns open/closed, the roving focus,
+; the submenu stack and the whole keyboard, and it is measured against
+; @radix-ui/react-dropdown-menu by five conformance specs. A demo that wrote
+; its own copy of that would be writing an untested second menu — which is
+; exactly what the first menubar demo in this directory is, and why it has no
+; keyboard at all.
+;
+; So this file is the other half, the same split the table demo makes: the
+; CONTROLLER decides what is true, the TREE LITERAL decides what it looks like.
+; `MenuCtl.build()` produces a plain, conformance-shaped tree; the factory
+; below produces ReUI's; neither knows about the other.
+;
+; What the demo adds on top of the controller is DECORATION and nothing else —
+; an avatar, an icon column, a count badge, a coloured status dot, a separator,
+; a destructive tint. None of it is state: every one of them is chosen from the
+; item's value, so there is no second source of truth about what the menu
+; contains.
+;
+; The one piece of demo-owned state is `status`, because the submenu is a radio
+; group and somebody has to remember which one is chosen. Choosing closes the
+; menu, which is what the reference does.
+;
+; The tree is KEPT between frames, like the motion and table demos: hover is a
+; flag on an element, and a tree rebuilt every frame has a different element in
+; that position with no memory of anything — so a rebuilt demo can have no
+; hover and no transitions.
+; =============================================================================
+
+Import "../src/MenuCtl.rgr"
+Import "../src/UiCtl.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGUnit.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGStyleSheet.rgr"
+Import "../../evg/EVGTransition.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+Import "../../evg/EVGA11yFromTree.rgr"
+Import "../../evg/EVGHitTest.rgr"
+
+treefactory Dd {
+    child addChild
+    text  textContent
+
+    tag Page      EVGElement (props (className "dd-page"))
+    ; The pair. Roleless on purpose: it exists so the surface is the trigger's
+    ; SIBLING rather than its child, which is both how the overlay pass finds
+    ; an anchor and the only shape that does not nest a whole menu inside a
+    ; button. The first version parented the content to the trigger and named
+    ; the anchor by hand; it laid out correctly and axe called it
+    ; `nested-interactive`, which it was.
+    tag Menu      EVGElement (props (className "dd-menu"))
+    ; The account button at the bottom of the screenshot. An anchor, because
+    ; the menu hangs off it.
+    tag Trigger   EVGElement (props (className "dd-trigger") (isOverlayAnchor true) (role "button") (a11yFocusable true))
+    tag TrigAv    EVGElement (props (className "dd-trig-avatar") (elementType 1) (a11yHidden true))
+    tag TrigName  EVGElement (props (className "dd-trig-name") (elementType 1))
+    tag TrigCaret EVGElement (props (className "dd-trig-caret") (elementType 1) (a11yHidden true))
+
+    ; The surface. Opens ABOVE the trigger, because the trigger sits at the
+    ; bottom of the page — and EVG's overlay pass flips it back down if there
+    ; is no room, which is the whole reason a side is a request rather than a
+    ; coordinate.
+    tag Content   EVGElement (props (className "dd-content") (isOverlay true) (overlaySide "top") (overlayAlign "start") (role "menu"))
+    tag SubContent EVGElement (props (className "dd-content dd-subcontent") (isOverlay true) (overlaySide "right") (overlayAlign "start") (role "menu"))
+
+    ; The signed-in user. A group label and not an item: it is not activatable
+    ; and a reader should not be offered it as a choice.
+    tag Head      EVGElement (props (className "dd-head") (role "group") (a11yLabel "Signed in"))
+    tag HeadAv    EVGElement (props (className "dd-head-avatar") (elementType 1) (a11yHidden true))
+    tag HeadCol   EVGElement (props (className "dd-head-col"))
+    tag HeadName  EVGElement (props (className "dd-head-name") (elementType 1))
+    tag HeadMail  EVGElement (props (className "dd-head-mail") (elementType 1))
+
+    ; The segmented theme picker. A `group` of `menuitemradio`s and NOT a
+    ; `radiogroup` of `radio`s: `role="menu"` may contain only menu things, and
+    ; a radiogroup is not one of them. axe called that out as
+    ; `aria-required-children` the first time this was audited — and it is the
+    ; same shape Radix's own DropdownMenu.RadioGroup renders for the same
+    ; reason.
+    tag Seg       EVGElement (props (className "dd-seg") (role "group") (a11yLabel "Theme"))
+    tag SegBtn    EVGElement (props (className "dd-seg-btn") (role "menuitemradio") (a11yFocusable true))
+    tag SegGlyph  EVGElement (props (className "dd-seg-glyph") (elementType 1) (a11yHidden true))
+
+    tag Row       EVGElement (props (className "dd-item") (role "menuitem") (a11yFocusable true))
+    ; A row that opens a submenu is itself an anchor, and the surface finds it
+    ; among its own children.
+    tag SubRow    EVGElement (props (className "dd-item dd-item-sub") (isOverlayAnchor true) (role "menuitem") (a11yFocusable true))
+    tag RadioRow  EVGElement (props (className "dd-item") (role "menuitemradio") (a11yFocusable true))
+
+    ; Everything below is what a row is NAMED by, or decoration marked as such.
+    ; `EVGA11yFromTree` collects the text of roleless descendants, so a row
+    ; announces as one string instead of four nodes.
+    tag Icon      EVGElement (props (className "dd-icon") (elementType 1) (a11yHidden true))
+    tag Dot       EVGElement (props (className "dd-dot") (elementType 1) (a11yHidden true))
+    tag Label     EVGElement (props (className "dd-label") (elementType 1))
+    tag Badge     EVGElement (props (className "dd-badge") (elementType 1))
+    tag Chevron   EVGElement (props (className "dd-chevron") (elementType 1) (a11yHidden true))
+    tag Tick      EVGElement (props (className "dd-tick") (elementType 1) (a11yHidden true))
+    tag Separator EVGElement (props (className "dd-separator") (role "separator"))
+}
+
+class DropdownDemo {
+
+    def model:MenuCtl (new MenuCtl())
+    def root@(optional):EVGElement
+    def sheet@(optional):EVGStyleSheet
+    def transitions:EVGTransition (new EVGTransition())
+    ; Kept across frames so a paint-only change can reuse the positions.
+    def layout@(optional):EVGLayout
+    def hovered:string ""
+    def pressed:string ""
+    def focused:string ""
+    ; The chosen status. Demo state, because the submenu is a radio group and
+    ; MenuCtl has no opinion about which of its rows is "on" — that is what a
+    ; menuitemradio means and the controller deliberately does not model it.
+    def status:string "available"
+    def theme:string "system"
+    def pageW:double 900.0
+    def pageH:double 560.0
+
+    Constructor () {
+    }
+
+    fn init:void (css:string) {
+        def s (new EVGStyleSheet())
+        s.parse(css)
+        sheet = s
+
+        model.tid = "dd"
+        model.name = "shadcn"
+        model.addItem("companies" "Your Companies" false)
+        model.addItem("numbers" "Your Numbers" false)
+        def st:UiItem (model.addSub("status" "Available" false))
+        MenuCtl.addKid(st "available" "Available" false)
+        MenuCtl.addKid(st "away" "Away" false)
+        MenuCtl.addKid(st "busy" "Busy" false)
+        MenuCtl.addKid(st "offline" "Offline" false)
+        model.addItem("settings" "Settings" false)
+        model.addItem("help" "Help Center" false)
+        model.addItem("logout" "Logout" false)
+        model.build()
+
+        root = (this.page())
+    }
+
+    ; --- decoration, all of it derived from the value ---------------------------
+    ; A lookup and not a field on the item: the controller's items say what the
+    ; menu CONTAINS, and how a row is drawn is this file's business alone. Two
+    ; places holding the same list is how they drift apart.
+
+    sfn iconFor:string (value:string) {
+        if (value == "companies") { return "▤" }
+        if (value == "numbers")   { return "☎" }
+        if (value == "settings")  { return "⚙" }
+        if (value == "help")      { return "☂" }
+        if (value == "logout")    { return "⇥" }
+        return ""
+    }
+
+    sfn badgeFor:string (value:string) {
+        if (value == "companies") { return "12" }
+        if (value == "numbers")   { return "2" }
+        return ""
+    }
+
+    ; The status colours are classes rather than inline colour, so the palette
+    ; lives in the stylesheet with the rest of it.
+    sfn dotClassFor:string (value:string) {
+        if (value == "away")    { return "dd-dot dd-dot-away" }
+        if (value == "busy")    { return "dd-dot dd-dot-busy" }
+        if (value == "offline") { return "dd-dot dd-dot-offline" }
+        return "dd-dot dd-dot-available"
+    }
+
+    sfn statusName:string (value:string) {
+        if (value == "away")    { return "Away" }
+        if (value == "busy")    { return "Busy" }
+        if (value == "offline") { return "Offline" }
+        return "Available"
+    }
+
+    ; A row that separates the group above it from the group below. Written
+    ; here rather than in the item list because it is not an item: a separator
+    ; has no value, cannot be focused and is skipped by every arrow key — which
+    ; is exactly why MenuCtl does not know about it.
+    sfn separatesAfter:boolean (value:string) {
+        if (value == "numbers")  { return false }
+        if (value == "status")   { return true }
+        if (value == "help")     { return true }
+        return false
+    }
+
+    ; --- the look ---------------------------------------------------------------
+
+    fn segButton:EVGElement (value:string glyph:string label:string) {
+        def cls:string "dd-seg-btn"
+        def state:int (EVGA11yTri.no())
+        if (theme == value) {
+            cls = "dd-seg-btn dd-seg-btn-on"
+            state = (EVGA11yTri.yes())
+        }
+        return (tree Dd
+            (SegBtn (props (id ("dd-theme-" + value)) (className cls)
+                           (a11yLabel label) (a11yChecked state))
+                (SegGlyph glyph)))
+    }
+
+    fn head:EVGElement () {
+        return (tree Dd
+            (Head (props (id "dd-head"))
+                (HeadAv "◕")
+                (HeadCol
+                    (HeadName "shadcn")
+                    (HeadMail "ui@shadcn.com"))))
+    }
+
+    fn themeRow:EVGElement () {
+        def seg (tree Dd (Seg (props (id "dd-theme"))))
+        seg.addChild((this.segButton("light" "☀" "Light")))
+        seg.addChild((this.segButton("dark" "☾" "Dark")))
+        seg.addChild((this.segButton("system" "▭" "System")))
+        return seg
+    }
+
+    ; One ordinary row: icon, label, and either a count or nothing.
+    fn plainRow:EVGElement (value:string label:string) {
+        def rowTid:string (model.itemTid(value))
+        def cls:string "dd-item"
+        if (value == "logout") {
+            cls = "dd-item dd-item-danger"
+        }
+        def labelCls:string "dd-label"
+        if (value == "logout") {
+            labelCls = "dd-label dd-label-danger"
+        }
+        def iconCls:string "dd-icon"
+        if (value == "logout") {
+            iconCls = "dd-icon dd-icon-danger"
+        }
+        def row (tree Dd
+            (Row (props (id rowTid) (className cls))
+                (Icon (props (className iconCls)) (DropdownDemo.iconFor(value)))
+                (Label (props (className labelCls)) label)))
+        def badge:string (DropdownDemo.badgeFor(value))
+        if ((strlen badge) > 0) {
+            row.addChild((tree Dd (Badge badge)))
+        }
+        return row
+    }
+
+    ; The status row, which is a door rather than a choice. `aria-expanded` is
+    ; on the ROW and not on the surface: it belongs to the thing you activate,
+    ; not to the thing that appears.
+    fn statusRow:EVGElement () {
+        def rowTid:string (model.itemTid("status"))
+        def isOpen:boolean (model.isOpenSub(rowTid))
+        def expanded:int (EVGA11yTri.no())
+        def cls:string "dd-item dd-item-sub"
+        if isOpen {
+            expanded = (EVGA11yTri.yes())
+            cls = "dd-item dd-item-sub dd-item-open"
+        }
+        def row (tree Dd
+            (SubRow (props (id rowTid) (className cls) (a11yExpanded expanded))
+                (Dot (props (className (DropdownDemo.dotClassFor(status)))) "●")
+                (Label (DropdownDemo.statusName(status)))
+                ; Decoration, and marked as such: `aria-expanded` on the row
+                ; already tells a reader there is more this way, and without
+                ; the flag the row announces as "Available greater-than".
+                (Chevron ">")))
+        if isOpen {
+            def surf:EVGElement (this.statusMenu(rowTid))
+            ; Named outright: the sibling search the overlay pass does looks
+            ; among the SURFACE's siblings, and this surface is the row's
+            ; child.
+            surf.overlayAnchor = row
+            row.addChild(surf)
+        }
+        return row
+    }
+
+    fn statusMenu:EVGElement (rowTid:string) {
+        def surf (tree Dd (SubContent (props (id (MenuCtl.subContentTid(rowTid))) (a11yLabel "Status"))))
+        def kinds:[string]
+        push kinds "available"
+        push kinds "away"
+        push kinds "busy"
+        push kinds "offline"
+        def i:int 0
+        while (i < (array_length kinds)) {
+            def k:string (itemAt kinds i)
+            def kidTid:string (MenuCtl.itemTidUnder(rowTid k))
+            def on:int (EVGA11yTri.no())
+            def glyph:string " "
+            if (status == k) {
+                on = (EVGA11yTri.yes())
+                glyph = "✓"
+            }
+            surf.addChild((tree Dd
+                (RadioRow (props (id kidTid) (a11yChecked on))
+                    (Dot (props (className (DropdownDemo.dotClassFor(k)))) "●")
+                    (Label (props (className "dd-label dd-label-sub")) (DropdownDemo.statusName(k)))
+                    (Tick glyph))))
+            i = (i + 1)
+        }
+        return surf
+    }
+
+    fn content:EVGElement () {
+        def surf (tree Dd (Content (props (id (model.contentTid())) (a11yLabel "Account"))))
+        surf.addChild((this.head()))
+        surf.addChild((this.themeRow()))
+        surf.addChild((tree Dd (Separator)))
+        def i:int 0
+        while (i < (array_length model.items)) {
+            def it:UiItem (itemAt model.items i)
+            if (it.value == "status") {
+                surf.addChild((this.statusRow()))
+            } {
+                surf.addChild((this.plainRow(it.value it.name)))
+            }
+            if (DropdownDemo.separatesAfter(it.value)) {
+                surf.addChild((tree Dd (Separator)))
+            }
+            i = (i + 1)
+        }
+        return surf
+    }
+
+    fn page:EVGElement () {
+        def trig (tree Dd
+            (Trigger (props (id (model.triggerTid())) (a11yLabel "Account menu"))
+                (TrigAv "◕")
+                (TrigName "shadcn")
+                (TrigCaret "⌃")))
+        def menu (tree Dd (Menu (props (id "dd"))))
+        menu.addChild(trig)
+        if model.open {
+            trig.a11yExpanded = (EVGA11yTri.yes())
+            ; A SIBLING of the trigger, which is what the overlay pass's anchor
+            ; search expects and the only arrangement that does not put a menu
+            ; inside a button.
+            menu.addChild((this.content()))
+        } {
+            trig.a11yExpanded = (EVGA11yTri.no())
+        }
+        return (tree Dd
+            (Page (props (id "page"))
+                (child menu)))
+    }
+
+    ; --- the host ----------------------------------------------------------------
+    ; Every input goes THROUGH the controller and the tree is rebuilt from what
+    ; it says afterwards. Nothing here decides whether the menu is open.
+
+    fn press:boolean (target:string) {
+        ; The theme buttons are the demo's own, not the controller's: they are a
+        ; radio group that happens to live inside a menu, and MenuCtl has no
+        ; row for them. Picking one leaves the menu open, because a theme is a
+        ; setting you may want to compare rather than a command.
+        if (target == "dd-theme-light") {
+            theme = "light"
+            root = (this.page())
+            return true
+        }
+        if (target == "dd-theme-dark") {
+            theme = "dark"
+            root = (this.page())
+            return true
+        }
+        if (target == "dd-theme-system") {
+            theme = "system"
+            root = (this.page())
+            return true
+        }
+
+        ; A status choice: remember it, then let the controller close the menu
+        ; the way choosing any leaf does.
+        def statusTid:string (model.itemTid("status"))
+        def kinds:[string]
+        push kinds "available"
+        push kinds "away"
+        push kinds "busy"
+        push kinds "offline"
+        def i:int 0
+        while (i < (array_length kinds)) {
+            def k:string (itemAt kinds i)
+            if (target == (MenuCtl.itemTidUnder(statusTid k))) {
+                status = k
+            }
+            i = (i + 1)
+        }
+
+        def before:boolean model.open
+        def beforeFocus:string focused
+        def next:string (model.activate(target))
+        if ((strlen next) > 0) {
+            focused = next
+        }
+        root = (this.page())
+        return true
+    }
+
+    fn key:boolean (k:string) {
+        def next:string (model.keyDown(focused k))
+        if ((strlen next) > 0) {
+            focused = next
+        }
+        root = (this.page())
+        return true
+    }
+
+    ; Hovering a row focuses it and starts the submenu's clock; the clock is
+    ; advanced by tick(), so the 100ms wait is the same number here as in the
+    ; conformance harness.
+    fn setHover:void (id:string) {
+        hovered = id
+        def next:string (model.hover(id))
+        if ((strlen next) > 0) {
+            focused = next
+        }
+        root = (this.page())
+    }
+
+    fn setPressed:void (id:string) {
+        pressed = id
+    }
+
+    fn markStates:void (el:EVGElement) {
+        el.isHovered = false
+        el.isPressed = false
+        el.isFocused = false
+        if ((strlen el.id) > 0) {
+            if (el.id == hovered) {
+                el.isHovered = true
+            }
+            if (el.id == pressed) {
+                el.isPressed = true
+            }
+            if (el.id == focused) {
+                el.isFocused = true
+            }
+        }
+        def i:int 0
+        while (i < (array_length el.children)) {
+            def kid:EVGElement (itemAt el.children i)
+            this.markStates(kid)
+            i = (i + 1)
+        }
+    }
+
+    fn laidOut:EVGLayout () {
+        def r:EVGElement (unwrap root)
+        def s:EVGStyleSheet (unwrap sheet)
+        s.setViewport(pageW pageH false)
+        this.markStates(r)
+        s.applyTree(r "")
+        def t:EVGTransition transitions
+        t.reconcileTree(r)
+        ; The layout is KEPT, and re-run only when the sheet says something it
+        ; wrote could have moved a box. A hover, a press, a focus ring and a
+        ; transform are all paint-only, and on this page that is most frames.
+        ; `EVGInvalidateTest` is what says the skip is allowed to mean that.
+        ;
+        ; There is no check for "is this the same tree as last time". A tree
+        ; that has just been built has no element the sheet has ever written
+        ; to, and a tree that has just been reconciled has had every element
+        ; overwritten by `adoptFrom` — both report themselves layout-dirty on
+        ; the first pass, so a replaced root lays out without being asked to.
+        if layout {
+            def lay:EVGLayout (unwrap layout)
+            if ((s.layoutClean()) == false) {
+                lay.layout(r)
+            }
+            return lay
+        }
+        def fresh (new EVGLayout())
+        fresh.setPageSize(pageW pageH)
+        layout = fresh
+        fresh.layout(r)
+        return fresh
+    }
+
+    ; Two clocks in one call: the controller's, which may open a submenu the
+    ; pointer has been resting on, and the stylesheet's, which moves the
+    ; transitions. The controller goes first — a submenu that opens on this
+    ; tick has to be in the tree before the transitions on it are advanced.
+    fn tick:boolean (dtMs:double) {
+        def opened:string (model.tickCtl(dtMs))
+        if ((strlen opened) > 0) {
+            focused = opened
+            root = (this.page())
+        }
+        def r:EVGElement (unwrap root)
+        def t:EVGTransition transitions
+        t.advanceTree(r dtMs)
+        if (t.busy(r)) {
+            return true
+        }
+        ; Still "busy" while a submenu is waiting to open, or the page stops
+        ; repainting and the clock above never runs again.
+        return ((strlen model.pendingTid) > 0)
+    }
+
+    fn busyNow:boolean () {
+        def r:EVGElement (unwrap root)
+        def t:EVGTransition transitions
+        if (t.busy(r)) {
+            return true
+        }
+        return ((strlen model.pendingTid) > 0)
+    }
+
+    fn displayListJson:string () {
+        def lay:EVGLayout (this.laidOut())
+        def r:EVGElement (unwrap root)
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(r)
+        return (dl.toJson())
+    }
+
+    fn hitId:string (px:double py:double) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def hit (new EVGHitTest())
+        return (hit.idAt(r px py))
+    }
+
+    fn a11yJson:string (generation:int focusId:string) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "Dropdown demo" generation focusId))
+        return (t.toJson())
+    }
+
+    fn a11yProblems:[string] () {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "Dropdown demo" 1 ""))
+        return (t.lint())
+    }
+
+    fn styleErrorCount:int () {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (s.getErrorCount())
+    }
+
+    fn styleErrorAt:string (i:int) {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (s.getError(i))
+    }
+
+    fn heightPx:double () {
+        return pageH
+    }
+
+    fn summary:string () {
+        def word:string "closed"
+        if model.open {
+            word = "open"
+        }
+        return ((((word + ", status ") + status) + ", theme ") + theme)
+    }
+}

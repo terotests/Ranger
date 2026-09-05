@@ -1,0 +1,600 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; GraphQLTest - one assertion per GraphQL language feature.
+; ==============================================================================
+;
+;   npm run graphql:test
+;
+; The suite is the feature matrix. A new GraphQL production belongs here
+; before it belongs in a demo: if the tree is wrong, format() can still look
+; plausible. Assertions read the AST (operation type, field names, type text,
+; field paths) so a missing `customer { name }` is a failed test, not a
+; pretty-print that happens to omit it.
+;
+; The documents at the bottom are the ones from the architecture note:
+; Dashboard query, CreateInvoice mutation, InvoiceChanged subscription, and
+; the Invoice SDL that ranger-graphql-gen would turn into Ranger classes.
+; ==============================================================================
+
+Import "../src/Gql.rgr"
+Import "../src/core/Token.rgr"
+Import "../src/core/Tokenizer.rgr"
+
+class GqlCheck {
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got  [" + got + "]")
+            print ("       want [" + want + "]")
+        }
+        this.ok(name good)
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got " + (to_string got) + " want " + (to_string want))
+        }
+        this.ok(name good)
+    }
+
+    fn has:void (name:string hay:string needle:string) {
+        this.ok(name (GqlText.hasSub(hay needle)))
+    }
+
+    fn parsed:GqlParseResult (c:GqlCheck src:string label:string) {
+        def r:GqlParseResult (Gql.parse(src))
+        c.ok((label + " parses") (r.okResult()))
+        if ((r.okResult()) == false) {
+            print ("       error [" + r.error + "]")
+        }
+        return r
+    }
+}
+
+class GqlText {
+    sfn hasSub:boolean (hay:string needle:string) {
+        def hl:int (strlen hay)
+        def nl:int (strlen needle)
+        if (nl == 0) {
+            return true
+        }
+        if (hl < nl) {
+            return false
+        }
+        def limit:int (hl - nl)
+        def i:int 0
+        while (i <= limit) {
+            if ((substring hay i (i + nl)) == needle) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+}
+
+class GraphQLTest {
+
+    sfn dashQuery:string () {
+        return "query Dashboard { currentUser { id name } invoices(first: 50) { nodes { id number customer { name } amount status } } revenue { month amount } }"
+    }
+
+    sfn invoiceSdl:string () {
+        return "type Invoice { id: ID! number: String! amount: Float! customer: Customer! status: InvoiceStatus! }"
+    }
+
+    sfn createMutation:string () {
+        return "mutation CreateInvoice($input: CreateInvoiceInput!) { createInvoice(input: $input) { invoice { id number amount } errors { field message } } }"
+    }
+
+    sfn changeSub:string () {
+        return "subscription InvoiceChanged { invoiceChanged { id status amount } }"
+    }
+
+    sfn nestLists:string (n:int) {
+        def out:string "{ f(x: "
+        def i:int 0
+        while (i < n) {
+            out = (out + "[")
+            i = (i + 1)
+        }
+        out = (out + "1")
+        i = 0
+        while (i < n) {
+            out = (out + "]")
+            i = (i + 1)
+        }
+        return (out + ") }")
+    }
+
+    sfn main:void () {
+        def c:GqlCheck (new GqlCheck)
+
+        print "== tokenizer =="
+        def tk:GqlTokenizer (new GqlTokenizer)
+        def tokens:[GqlToken] (tk.tokenize("{ currentUser { id } }"))
+        c.eqInt("token count, EOF included" (array_length tokens) 7)
+        def t0:GqlToken (itemAt tokens 0)
+        c.ok("{ is punct" (t0.isPunct("{")))
+        def t1:GqlToken (itemAt tokens 1)
+        c.eqStr("field name" t1.text "currentUser")
+        c.eqInt("name kind" t1.kind 1)
+        def nums:[GqlToken] (tk.tokenize("query Q { f(n: -4, x: 1.5e-2, z: 0) }"))
+        def foundInt:boolean false
+        def foundFloat:boolean false
+        def foundZero:boolean false
+        def ni:int 0
+        while (ni < (array_length nums)) {
+            def nt:GqlToken (itemAt nums ni)
+            if (nt.text == "-4") {
+                foundInt = true
+                c.eqInt("negative int kind" nt.kind 2)
+            }
+            if (nt.text == "1.5e-2") {
+                foundFloat = true
+                c.eqInt("float kind" nt.kind 3)
+            }
+            if (nt.text == "0") {
+                foundZero = true
+            }
+            ni = (ni + 1)
+        }
+        c.ok("lexed -4" foundInt)
+        c.ok("lexed 1.5e-2" foundFloat)
+        c.ok("lexed 0" foundZero)
+        def strs:[GqlToken] (tk.tokenize("{ f(s: \"hello\\nworld\") }"))
+        def si:int 0
+        def foundStr:boolean false
+        while (si < (array_length strs)) {
+            def st:GqlToken (itemAt strs si)
+            if (st.kind == (GqlTokenKind.stringTok())) {
+                foundStr = true
+                c.eqStr("unescaped newline in string" st.text ("hello" + (strfromcode 10) + "world"))
+            }
+            si = (si + 1)
+        }
+        c.ok("lexed a string" foundStr)
+        def commas:[GqlToken] (tk.tokenize("{foo,bar}"))
+        def nocomma:[GqlToken] (tk.tokenize("{ foo bar }"))
+        c.eqInt("commas are ignored, same token count" (array_length commas) (array_length nocomma))
+        def withCmt:[GqlToken] (tk.tokenize("{ foo # a comment" + (strfromcode 10) + " bar }"))
+        c.eqInt("comments are ignored" tk.commentCount 1)
+        c.eqInt("comment does not add a token" (array_length withCmt) 5)
+        def spread:[GqlToken] (tk.tokenize("{ ...Frag }"))
+        def sp:GqlToken (itemAt spread 1)
+        c.ok("... is one punctuator" (sp.isPunct("...")))
+        def bang:[GqlToken] (tk.tokenize("$id: ID!"))
+        def lastBang:GqlToken (itemAt bang 4)
+        c.ok("! is punct" (lastBang.isPunct("!")))
+        def leadZero:GqlTokenizer (new GqlTokenizer)
+        leadZero.tokenize("query { f(n: 01) }")
+        c.ok("leading zero is a lex error" ((strlen leadZero.error) > 0))
+        def blockTk:[GqlToken] (tk.tokenize("{ f(s: \"\"\"" + (strfromcode 10) + "  hello" + (strfromcode 10) + "  world" + (strfromcode 10) + "\"\"\") }"))
+        def bi:int 0
+        def foundBlock:boolean false
+        while (bi < (array_length blockTk)) {
+            def bt:GqlToken (itemAt blockTk bi)
+            if (bt.kind == (GqlTokenKind.stringTok())) {
+                foundBlock = true
+                c.ok("block string is marked" bt.isBlock)
+                c.eqStr("block string de-indented" bt.text ("hello" + (strfromcode 10) + "world"))
+            }
+            bi = (bi + 1)
+        }
+        c.ok("lexed a block string" foundBlock)
+
+        print "== query =="
+        def anon:GqlParseResult (c.parsed(c "{ currentUser { id name } }" "anonymous query"))
+        def anonOp:GqlNode (anon.document.childAt(0))
+        c.eqStr("shorthand is a query" anonOp.text "query")
+        c.eqStr("shorthand has no name" anonOp.name "")
+        c.eqStr("top fields" (anonOp.childNames()) "currentUser")
+        def user:GqlNode (anonOp.childNamed("currentUser"))
+        c.eqStr("nested fields" (user.childNames()) "id,name")
+        def named:GqlParseResult (c.parsed(c "query Dashboard { currentUser { id } }" "named query"))
+        def namedOp:GqlNode (named.document.findOp("Dashboard"))
+        c.eqStr("named query name" namedOp.name "Dashboard")
+        c.eqInt("one definition" (named.document.childCount()) 1)
+        c.ok("query is an operation" (namedOp.isKind((GqlKind.operation()))))
+
+        print "== mutation =="
+        def mut:GqlParseResult (c.parsed(c (GraphQLTest.createMutation()) "CreateInvoice"))
+        def mutOp:GqlNode (mut.document.childAt(0))
+        c.eqStr("mutation keyword" mutOp.text "mutation")
+        c.eqStr("mutation name" mutOp.name "CreateInvoice")
+        def inputVar:GqlNode (mutOp.varNamed("input"))
+        c.ok("has $input" (inputVar.kind == (GqlKind.variableDef())))
+        c.eqStr("$input type" (inputVar.typeText()) "CreateInvoiceInput!")
+        def create:GqlNode (mutOp.childNamed("createInvoice"))
+        c.ok("createInvoice takes input" (create.hasArg("input")))
+        def inArg:GqlNode (create.argNamed("input"))
+        def inVal:GqlNode (inArg.firstValue())
+        c.eqStr("input is a variable" (inVal.valueText()) "$input")
+        c.eqStr("payload fields" (create.childNames()) "invoice,errors")
+        def inv:GqlNode (create.childNamed("invoice"))
+        c.eqStr("invoice selection" (inv.childNames()) "id,number,amount")
+        def errs:GqlNode (create.childNamed("errors"))
+        c.eqStr("errors selection" (errs.childNames()) "field,message")
+
+        print "== subscription =="
+        def sub:GqlParseResult (c.parsed(c (GraphQLTest.changeSub()) "InvoiceChanged"))
+        def subOp:GqlNode (sub.document.childAt(0))
+        c.eqStr("subscription keyword" subOp.text "subscription")
+        c.eqStr("subscription name" subOp.name "InvoiceChanged")
+        def changed:GqlNode (subOp.childNamed("invoiceChanged"))
+        c.eqStr("payload" (changed.childNames()) "id,status,amount")
+
+        print "== variables and types =="
+        def varsDoc:GqlParseResult (c.parsed(c "query Q($id: ID!, $first: Int = 10, $ids: [ID!]!) { n(id: $id) }" "variables"))
+        def vop:GqlNode (varsDoc.document.childAt(0))
+        c.eqInt("three variables" (array_length vop.vars) 3)
+        def vid:GqlNode (vop.varNamed("id"))
+        c.eqStr("ID! " (vid.typeText()) "ID!")
+        def vfirst:GqlNode (vop.varNamed("first"))
+        c.eqStr("Int" (vfirst.typeText()) "Int")
+        c.eqInt("default present" (array_length vfirst.children) 2)
+        def defv:GqlNode (vfirst.childAt(1))
+        c.eqStr("default 10" defv.text "10")
+        def vids:GqlNode (vop.varNamed("ids"))
+        c.eqStr("[ID!]!" (vids.typeText()) "[ID!]!")
+        def nestT:GqlParseResult (c.parsed(c "query Q($x: [[String!]]) { f }" "nested list type"))
+        def xvar:GqlNode ((nestT.document.childAt(0)).varNamed("x"))
+        c.eqStr("[[String!]]" (xvar.typeText()) "[[String!]]")
+
+        print "== arguments =="
+        def argsDoc:GqlParseResult (c.parsed(c "{ invoices(first: 50, after: \"cur\", filter: { status: PAID, min: 1.5 }) { id } }" "arguments"))
+        def invF:GqlNode ((argsDoc.document.childAt(0)).childNamed("invoices"))
+        c.eqInt("three args" (array_length invF.args) 3)
+        def firstA:GqlNode ((invF.argNamed("first")).firstValue())
+        c.eqStr("first" firstA.text "50")
+        def afterA:GqlNode ((invF.argNamed("after")).firstValue())
+        c.eqStr("after" afterA.text "cur")
+        def filter:GqlNode ((invF.argNamed("filter")).firstValue())
+        c.ok("filter is an object" (filter.isKind((GqlKind.objectVal()))))
+        c.eqStr("object fields" (filter.childNames()) "status,min")
+        def stv:GqlNode (((filter.childNamed("status")).firstValue()))
+        c.ok("PAID is an enum" (stv.isKind((GqlKind.enumVal()))))
+        c.eqStr("enum text" stv.text "PAID")
+
+        print "== aliases =="
+        def al:GqlParseResult (c.parsed(c "{ me: currentUser { id } other: currentUser { name } }" "aliases"))
+        def me:GqlNode ((al.document.childAt(0)).childAt(0))
+        c.eqStr("alias" me.alias "me")
+        c.eqStr("aliased field" me.name "currentUser")
+        def other:GqlNode ((al.document.childAt(0)).childAt(1))
+        c.eqStr("second alias" other.alias "other")
+
+        print "== fragments =="
+        def fr:GqlParseResult (c.parsed(c "query Q { invoice { ...InvoiceFields ... on Customer { name } } } fragment InvoiceFields on Invoice { id number }" "fragments"))
+        def fdef:GqlNode (fr.document.childNamed("InvoiceFields"))
+        c.ok("fragment definition" (fdef.isKind((GqlKind.fragmentDef()))))
+        c.eqStr("fragment on Invoice" fdef.typeCondition "Invoice")
+        c.eqStr("fragment fields" (fdef.childNames()) "id,number")
+        def invoiceSel:GqlNode ((fr.document.findOp("Q")).childNamed("invoice"))
+        def spreadN:GqlNode (invoiceSel.childAt(0))
+        c.ok("named spread" (spreadN.isKind((GqlKind.fragmentSpread()))))
+        c.eqStr("spread name" spreadN.name "InvoiceFields")
+        def inlineN:GqlNode (invoiceSel.childAt(1))
+        c.ok("inline fragment" (inlineN.isKind((GqlKind.inlineFragment()))))
+        c.eqStr("inline on Customer" inlineN.typeCondition "Customer")
+        c.eqStr("inline fields" (inlineN.childNames()) "name")
+        def bare:GqlParseResult (c.parsed(c "{ ... { id } }" "inline without type"))
+        def bareIn:GqlNode ((bare.document.childAt(0)).childAt(0))
+        c.ok("bare inline" (bareIn.isKind((GqlKind.inlineFragment()))))
+        c.eqStr("bare inline has no type" bareIn.typeCondition "")
+
+        print "== directives =="
+        def dir:GqlParseResult (c.parsed(c "query Q($skip: Boolean!) { invoice @include(if: true) { id @skip(if: $skip) } }" "directives"))
+        def dInv:GqlNode ((dir.document.findOp("Q")).childNamed("invoice"))
+        c.ok("@include on field" (dInv.hasDirective("include")))
+        def inc:GqlNode (dInv.directiveNamed("include"))
+        def incIf:GqlNode ((inc.argNamed("if")).firstValue())
+        c.eqStr("@include(if:)" incIf.text "true")
+        def dId:GqlNode (dInv.childNamed("id"))
+        c.ok("@skip on leaf" (dId.hasDirective("skip")))
+        def skipA:GqlNode (((dId.directiveNamed("skip")).argNamed("if")).firstValue())
+        c.eqStr("@skip uses a variable" (skipA.valueText()) "$skip")
+
+        print "== values =="
+        def vals:GqlParseResult (c.parsed(c "{ f(a: 1, b: 1.5, c: \"x\", d: true, e: false, g: null, h: OPEN, i: [1, 2], j: { k: 3 }, v: $var) }" "values"))
+        def fargs:GqlNode ((vals.document.childAt(0)).childNamed("f"))
+        def va:GqlNode ((fargs.argNamed("a")).firstValue())
+        def vb:GqlNode ((fargs.argNamed("b")).firstValue())
+        def vc:GqlNode ((fargs.argNamed("c")).firstValue())
+        def vd:GqlNode ((fargs.argNamed("d")).firstValue())
+        def ve:GqlNode ((fargs.argNamed("e")).firstValue())
+        def vg:GqlNode ((fargs.argNamed("g")).firstValue())
+        def vh:GqlNode ((fargs.argNamed("h")).firstValue())
+        def vi:GqlNode ((fargs.argNamed("i")).firstValue())
+        def vj:GqlNode ((fargs.argNamed("j")).firstValue())
+        def vv:GqlNode ((fargs.argNamed("v")).firstValue())
+        c.ok("int" (va.isKind((GqlKind.intVal()))))
+        c.ok("float" (vb.isKind((GqlKind.floatVal()))))
+        c.ok("string" (vc.isKind((GqlKind.stringVal()))))
+        c.ok("true" (vd.isKind((GqlKind.boolVal()))))
+        c.ok("false" (ve.isKind((GqlKind.boolVal()))))
+        c.ok("null" (vg.isKind((GqlKind.nullVal()))))
+        c.ok("enum" (vh.isKind((GqlKind.enumVal()))))
+        c.ok("list" (vi.isKind((GqlKind.listVal()))))
+        c.eqInt("list length" (array_length vi.children) 2)
+        c.ok("object" (vj.isKind((GqlKind.objectVal()))))
+        c.ok("variable" (vv.isKind((GqlKind.variable()))))
+        def emptyL:GqlParseResult (c.parsed(c "{ f(x: [], y: {}) }" "empty list and object"))
+        def el:GqlNode ((emptyL.document.childAt(0)).childNamed("f"))
+        def emptyList:GqlNode ((el.argNamed("x")).firstValue())
+        def emptyObj:GqlNode ((el.argNamed("y")).firstValue())
+        c.eqInt("empty list" (array_length emptyList.children) 0)
+        c.eqInt("empty object" (array_length emptyObj.children) 0)
+
+        print "== schema SDL =="
+        def sdl:GqlParseResult (c.parsed(c (GraphQLTest.invoiceSdl()) "Invoice type"))
+        def invoiceT:GqlNode (sdl.document.childNamed("Invoice"))
+        c.ok("object type" (invoiceT.isKind((GqlKind.objectDef()))))
+        c.eqStr("Invoice fields" (invoiceT.childNames()) "id,number,amount,customer,status")
+        def idF:GqlNode (invoiceT.childNamed("id"))
+        def numF:GqlNode (invoiceT.childNamed("number"))
+        def amtF:GqlNode (invoiceT.childNamed("amount"))
+        def custF:GqlNode (invoiceT.childNamed("customer"))
+        def statF:GqlNode (invoiceT.childNamed("status"))
+        c.eqStr("id: ID!" (idF.typeText()) "ID!")
+        c.eqStr("number: String!" (numF.typeText()) "String!")
+        c.eqStr("amount: Float!" (amtF.typeText()) "Float!")
+        c.eqStr("customer: Customer!" (custF.typeText()) "Customer!")
+        c.eqStr("status: InvoiceStatus!" (statF.typeText()) "InvoiceStatus!")
+        c.eqStr("typeNames" (Gql.typeNames((GraphQLTest.invoiceSdl()))) "Invoice")
+        def nl:string (strfromcode 10)
+        c.eqStr("typeFields" (Gql.typeFields((GraphQLTest.invoiceSdl()) "Invoice")) ("id: ID!" + nl + "number: String!" + nl + "amount: Float!" + nl + "customer: Customer!" + nl + "status: InvoiceStatus!"))
+
+        def schemaDoc:string "schema { query: Query mutation: Mutation subscription: Subscription } scalar DateTime enum InvoiceStatus { DRAFT SENT PAID } interface Node { id: ID! } union SearchResult = Invoice | Customer input CreateInvoiceInput { number: String! amount: Float = 0.0 } type Query { invoice(id: ID!): Invoice } type Customer implements Node { id: ID! name: String! }"
+        def sch:GqlParseResult (c.parsed(c schemaDoc "full SDL"))
+        c.eqInt("eight definitions" (sch.document.childCount()) 8)
+        def schemaN:GqlNode (sch.document.childAt(0))
+        c.ok("schema" (schemaN.isKind((GqlKind.schemaDef()))))
+        c.eqStr("root ops" (schemaN.childNames()) "query,mutation,subscription")
+        def qRoot:GqlNode (schemaN.childNamed("query"))
+        c.eqStr("query root" qRoot.text "Query")
+        def scalarN:GqlNode (sch.document.childNamed("DateTime"))
+        c.ok("scalar" (scalarN.isKind((GqlKind.scalarDef()))))
+        def enumN:GqlNode (sch.document.childNamed("InvoiceStatus"))
+        c.ok("enum" (enumN.isKind((GqlKind.enumDef()))))
+        c.eqStr("enum values" (enumN.childNames()) "DRAFT,SENT,PAID")
+        def iface:GqlNode (sch.document.childNamed("Node"))
+        c.ok("interface" (iface.isKind((GqlKind.interfaceDef()))))
+        def ifaceId:GqlNode (iface.childNamed("id"))
+        c.eqStr("interface field" (ifaceId.typeText()) "ID!")
+        def uni:GqlNode (sch.document.childNamed("SearchResult"))
+        c.ok("union" (uni.isKind((GqlKind.unionDef()))))
+        c.eqStr("union members" (uni.childNames()) "Invoice,Customer")
+        def inp:GqlNode (sch.document.childNamed("CreateInvoiceInput"))
+        c.ok("input" (inp.isKind((GqlKind.inputDef()))))
+        def inpAmt:GqlNode (inp.childNamed("amount"))
+        c.eqStr("input amount type" (inpAmt.typeText()) "Float")
+        def amt:GqlNode (inp.childNamed("amount"))
+        c.eqInt("default on input field" (array_length amt.children) 2)
+        def qtype:GqlNode (sch.document.childNamed("Query"))
+        def qinv:GqlNode (qtype.childNamed("invoice"))
+        c.eqInt("field argument" (array_length qinv.args) 1)
+        def qarg:GqlNode (itemAt qinv.args 0)
+        c.eqStr("arg type" (qarg.typeText()) "ID!")
+        def cust:GqlNode (sch.document.childNamed("Customer"))
+        c.eqStr("implements Node" (cust.implementsText()) "Node")
+        c.eqStr("SDL typeNames" (Gql.typeNames(schemaDoc)) ("DateTime" + (strfromcode 10) + "InvoiceStatus" + (strfromcode 10) + "Node" + (strfromcode 10) + "SearchResult" + (strfromcode 10) + "CreateInvoiceInput" + (strfromcode 10) + "Query" + (strfromcode 10) + "Customer"))
+
+        print "== descriptions =="
+        def descSrc:string ("\"\"\"" + (strfromcode 10) + "An invoice." + (strfromcode 10) + "\"\"\"" + (strfromcode 10) + "type Invoice { \"The number\" number: String! }")
+        def descR:GqlParseResult (c.parsed(c descSrc "descriptions"))
+        def dInvT:GqlNode (descR.document.childNamed("Invoice"))
+        c.eqStr("type description" dInvT.description "An invoice.")
+        def descNum:GqlNode (dInvT.childNamed("number"))
+        c.eqStr("field description" descNum.description "The number")
+
+        print "== extensions =="
+        def ext:GqlParseResult (c.parsed(c "extend type Invoice { paidAt: DateTime } extend enum InvoiceStatus { VOID } extend schema { mutation: Mutation }" "extensions"))
+        c.eqInt("three extensions" (ext.document.childCount()) 3)
+        def extT:GqlNode (ext.document.childNamed("Invoice"))
+        c.ok("extend type" extT.isExtension)
+        c.eqStr("added field" (extT.childNames()) "paidAt")
+        def extE:GqlNode (ext.document.childNamed("InvoiceStatus"))
+        c.ok("extend enum" extE.isExtension)
+        c.eqStr("added value" (extE.childNames()) "VOID")
+        def extS:GqlNode (ext.document.childAt(2))
+        c.ok("extend schema" extS.isExtension)
+
+        print "== directive definitions =="
+        def dd:GqlParseResult (c.parsed(c "directive @auth(role: String = \"user\") repeatable on FIELD_DEFINITION | OBJECT" "directive def"))
+        def auth:GqlNode (dd.document.childNamed("auth"))
+        c.ok("directive def" (auth.isKind((GqlKind.directiveDef()))))
+        c.ok("repeatable" auth.repeatable)
+        c.eqStr("locations" (auth.locationsText()) "FIELD_DEFINITION | OBJECT")
+        def role:GqlNode (itemAt auth.args 0)
+        def roleDef:GqlNode (role.childAt(1))
+        c.eqStr("role default" roleDef.text "user")
+
+        print "== implements several interfaces =="
+        def impl:GqlParseResult (c.parsed(c "type Invoice implements Node & Timestamped & Billable { id: ID! }" "implements"))
+        def implInv:GqlNode (impl.document.childNamed("Invoice"))
+        c.eqStr("A & B & C" (implInv.implementsText()) "Node & Timestamped & Billable")
+        def impl2:GqlParseResult (c.parsed(c "type Invoice implements & Node & Timestamped { id: ID! }" "implements leading &"))
+        def implInv2:GqlNode (impl2.document.childNamed("Invoice"))
+        c.eqStr("leading &" (implInv2.implementsText()) "Node & Timestamped")
+
+        print "== dashboard query (architecture note) =="
+        def dash:GqlParseResult (c.parsed(c (GraphQLTest.dashQuery()) "Dashboard"))
+        def dop:GqlNode (dash.document.findOp("Dashboard"))
+        c.eqStr("Dashboard fields" (dop.childNames()) "currentUser,invoices,revenue")
+        def dUser:GqlNode (dop.childNamed("currentUser"))
+        c.eqStr("currentUser" (dUser.childNames()) "id,name")
+        def dInv:GqlNode (dop.childNamed("invoices"))
+        def dFirst:GqlNode ((dInv.argNamed("first")).firstValue())
+        c.eqStr("invoices(first:)" dFirst.text "50")
+        def nodes:GqlNode (dInv.childNamed("nodes"))
+        c.eqStr("nodes" (nodes.childNames()) "id,number,customer,amount,status")
+        def custSel:GqlNode (nodes.childNamed("customer"))
+        c.eqStr("customer.name" (custSel.childNames()) "name")
+        def rev:GqlNode (dop.childNamed("revenue"))
+        c.eqStr("revenue" (rev.childNames()) "month,amount")
+        def paths:string (Gql.fieldPaths((GraphQLTest.dashQuery())))
+        c.has("path currentUser.id" paths "Dashboard.currentUser.id")
+        c.has("path currentUser.name" paths "Dashboard.currentUser.name")
+        c.has("path invoices.nodes.customer.name" paths "Dashboard.invoices.nodes.customer.name")
+        c.has("path revenue.month" paths "Dashboard.revenue.month")
+        c.ok("path is not a JSON bag" ((GqlText.hasSub(paths "dynamic")) == false))
+
+        print "== round-trip =="
+        def docs:[string]
+        push docs "{ currentUser { id name } }"
+        push docs (GraphQLTest.dashQuery())
+        push docs (GraphQLTest.createMutation())
+        push docs (GraphQLTest.changeSub())
+        push docs (GraphQLTest.invoiceSdl())
+        push docs "fragment InvoiceFields on Invoice { id number }"
+        push docs "query Q($id: ID!) { n(id: $id) @include(if: true) { ...InvoiceFields } }"
+        push docs "enum InvoiceStatus { DRAFT SENT PAID }"
+        push docs "input CreateInvoiceInput { number: String! amount: Float = 0.0 }"
+        push docs "union SearchResult = Invoice | Customer"
+        push docs "directive @auth(role: String) on FIELD_DEFINITION"
+        push docs "extend type Invoice { paidAt: DateTime }"
+        def ri:int 0
+        while (ri < (array_length docs)) {
+            def src:string (itemAt docs ri)
+            def once:GqlParseResult (Gql.parse(src))
+            c.ok(("round-trip parse " + (to_string ri)) (once.okResult()))
+            def printed:string (Gql.format(src))
+            def twice:GqlParseResult (Gql.parse(printed))
+            c.ok(("printed parses " + (to_string ri)) (twice.okResult()))
+            if (once.okResult()) {
+                if (twice.okResult()) {
+                    c.eqStr(("tree survives print " + (to_string ri)) (twice.toJson()) (once.toJson()))
+                }
+            }
+            ri = (ri + 1)
+        }
+
+        print "== errors =="
+        def bad1:GqlParseResult (Gql.parse("{"))
+        c.ok("unfinished selection does not parse" ((bad1.okResult()) == false))
+        c.ok("and says where" ((strlen bad1.error) > 0))
+        def bad2:GqlParseResult (Gql.parse("query"))
+        c.ok("query without a set does not parse" ((bad2.okResult()) == false))
+        def bad3:GqlParseResult (Gql.parse("{ foo( }"))
+        c.ok("unfinished arguments do not parse" ((bad3.okResult()) == false))
+        def bad4:GqlParseResult (Gql.parse("type Invoice { id }"))
+        c.ok("field without a type does not parse" ((bad4.okResult()) == false))
+        def bad5:GqlParseResult (Gql.parse(""))
+        c.ok("empty document does not parse" ((bad5.okResult()) == false))
+        def bad6:GqlParseResult (Gql.parse("query Q($x: Int = $y) { f }"))
+        c.ok("variable default cannot be a variable" ((bad6.okResult()) == false))
+        def bad7:GqlParseResult (Gql.parse("{ ... }"))
+        c.ok("bare spread without a set does not parse" ((bad7.okResult()) == false))
+
+        print "== several operations in one document =="
+        def multi:GqlParseResult (c.parsed(c ((GraphQLTest.dashQuery()) + " " + (GraphQLTest.createMutation()) + " " + (GraphQLTest.changeSub())) "mixed document"))
+        c.eqInt("query + mutation + subscription" (multi.document.childCount()) 3)
+        def m0:GqlNode (multi.document.childAt(0))
+        def m1:GqlNode (multi.document.childAt(1))
+        def m2:GqlNode (multi.document.childAt(2))
+        c.eqStr("first is query" m0.text "query")
+        c.eqStr("second is mutation" m1.text "mutation")
+        c.eqStr("third is subscription" m2.text "subscription")
+
+        print "== typeNames skips non-types =="
+        def mixedSdl:string "type Invoice { id: ID! } directive @auth on OBJECT extend type Invoice { paidAt: String }"
+        c.eqStr("directive and extend are not type names" (Gql.typeNames(mixedSdl)) "Invoice")
+        def merged:string (Gql.typeFields(mixedSdl "Invoice"))
+        c.eqStr("typeFields includes the extension" merged ("id: ID!" + (strfromcode 10) + "paidAt: String"))
+
+        print "== description cannot precede extend =="
+        def descExt:GqlParseResult (Gql.parse("\"docs\" extend type Invoice { id: ID! }"))
+        c.ok("spec forbids a description on an extension" ((descExt.okResult()) == false))
+
+        print "== line numbers after a block string =="
+        def q3:string ((strfromcode 34) + (strfromcode 34) + (strfromcode 34))
+        def nl3:string (strfromcode 10)
+        def lined:string (q3 + nl3 + "docs" + nl3 + q3 + nl3 + "type Invoice { id: ID! }")
+        def lineTk:GqlTokenizer (new GqlTokenizer)
+        def lineToks:[GqlToken] (lineTk.tokenize(lined))
+        def foundInvoice:boolean false
+        def li:int 0
+        while (li < (array_length lineToks)) {
+            def lt:GqlToken (itemAt lineToks li)
+            if (lt.text == "Invoice") {
+                foundInvoice = true
+                c.eqInt("Invoice is on line 4" lt.line 4)
+            }
+            li = (li + 1)
+        }
+        c.ok("found Invoice after the description" foundInvoice)
+        def lineErr:GqlParseResult (Gql.parse((q3 + nl3 + "docs" + nl3 + q3 + nl3 + "type Invoice { id }")))
+        c.ok("error after a description still fails" ((lineErr.okResult()) == false))
+        c.has("error line is 4" lineErr.error "at 4:")
+
+        print "== block string round-trip with triple quotes =="
+        def escTriple:string ("\\" + q3)
+        def blockSrc:string ("type A { " + q3 + nl3 + "holds " + escTriple + " inside" + nl3 + q3 + " id: ID! }")
+        def blockOnce:GqlParseResult (c.parsed(c blockSrc "block string with quotes"))
+        def blockType:GqlNode (blockOnce.document.childNamed("A"))
+        def blockField:GqlNode (blockType.childNamed("id"))
+        c.eqStr("description keeps the quotes" blockField.description "holds \"\"\" inside")
+        def blockPrinted:string (blockOnce.format())
+        def blockTwice:GqlParseResult (Gql.parse(blockPrinted))
+        c.ok("printed block string reparses" (blockTwice.okResult()))
+        if (blockTwice.okResult()) {
+            c.eqStr("tree survives quoted block string" (blockTwice.toJson()) (blockOnce.toJson()))
+        }
+
+        print "== depth and token limits =="
+        def shallow:GqlParseResult (Gql.parse((GraphQLTest.nestLists(8))))
+        c.ok("an 8-deep list parses" (shallow.okResult()))
+        def deep:GqlParseResult (Gql.parseWith((GraphQLTest.nestLists(300)) 16 (GqlParser.defaultTokens())))
+        c.ok("a 300-deep list is an error, not a crash" ((deep.okResult()) == false))
+        c.has("the error names the nesting" deep.error "nested too deeply")
+        def asked:int 50000
+        def clamped:GqlParseResult (Gql.parseWith((GraphQLTest.nestLists(3000)) asked (GqlParser.defaultTokens())))
+        c.ok("parseWith cannot raise depth past the ceiling" ((clamped.okResult()) == false))
+        c.has("the ceiling still reports nesting" clamped.error "nested too deeply")
+        c.eqInt("the ceiling is 2048" (GqlParser.depthCeiling()) 2048)
+        def many:string "{ "
+        def mi:int 0
+        while (mi < 40) {
+            many = (many + "f" + (to_string mi) + " ")
+            mi = (mi + 1)
+        }
+        many = (many + "}")
+        def limited:GqlParseResult (Gql.parseWith(many 256 10))
+        c.ok("too many tokens is an error" ((limited.okResult()) == false))
+        c.has("the error names the token limit" limited.error "too many tokens")
+
+        print "== façade keeps the error =="
+        def failed:GqlParseResult (Gql.parse("query"))
+        c.ok("a failed parse has an error string" ((strlen failed.error) > 0))
+        c.eqStr("format of a failed parse is empty" (failed.format()) "")
+        def queryOnly:GqlParseResult (c.parsed(c "{ ok }" "tiny query"))
+        c.ok("a query with no types parsed" (queryOnly.okResult()))
+        c.eqStr("its typeNames is empty for a reason" (queryOnly.typeNames()) "")
+        c.ok("empty typeNames is not a parse failure" ((strlen queryOnly.error) == 0))
+
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+}

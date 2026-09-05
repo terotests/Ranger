@@ -1,0 +1,14 @@
+Import "TokenDetectorV1.rgr"
+
+class PyramidDetectorV1 {
+    Extends(TokenDetectorV1)
+
+    fn detect:LineKindValue (line:string) {
+        def out (new LineKindValue)
+        out.raw = line
+        if (this.startsWith(line "Pyramid ")) {
+            out.tag = "pyramid"
+        }
+        return out
+    }
+}

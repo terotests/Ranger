@@ -1,0 +1,361 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+; =============================================================================
+; CalendarWizard — the four steps of `CalendarWizard.tsx`, and their gates
+; =============================================================================
+; The original has no machine for this: a `currentStep` and a dozen
+; `useState`s. What it does have is a gate per step — the name must not be
+; blank, an encrypted calendar needs a password of strength two that matches
+; its confirmation — and a step you cannot pass until the gate opens. That is
+; a linear stepper, and `StepperCtl` is the one in gallery/ui: it clamps
+; instead of wrapping and refuses to advance past an incomplete step. The
+; gates are the app's and are computed here from the form, exactly as the
+; component's `canGoNext` computes them; the stepper is told the step is
+; complete the moment its gate is open.
+;
+; `state` is what a trace asserts on: the step's key while the wizard is
+; open, `creating` while the calendar is being written, `closed` otherwise.
+
+Import "../../ui/src/StepperCtl.rgr"
+
+; One of the thirteen calendar types: `newCalendar.types.*` in fi.json.
+class RtCalendarKind {
+    def key@(mutable):string ""
+    def label@(mutable):string ""
+    def description@(mutable):string ""
+
+    Constructor () {
+    }
+}
+
+class CalendarWizard {
+    def stepper:StepperCtl (new StepperCtl())
+    def kinds:[RtCalendarKind]
+    ; COLOR_OPTIONS, in order; the first is the default.
+    def colors:[string]
+    def state@(mutable):string "closed"
+
+    ; The form.
+    def typeKey@(mutable):string "training"
+    def name@(mutable):string ""
+    def description@(mutable):string ""
+    def goals@(mutable):string ""
+    def level@(mutable):string ""
+    ; Off by default — most people do not need it, and the original says so.
+    def encrypted@(mutable):boolean false
+    def password@(mutable):string ""
+    def confirm@(mutable):string ""
+    def showPassword@(mutable):boolean false
+    def color@(mutable):string "#22c55e"
+    def visibility@(mutable):string "private"
+    ; How many calendars this wizard has made; the host reads the form when
+    ; the job it started answers.
+    def created@(mutable):int 0
+
+    Constructor () {
+        this.addKind("training" "Harjoituspäiväkirja" "Kirjaa toteutuneet harjoitukset")
+        this.addKind("plan" "Harjoitussuunnitelma" "Suunnittele tulevia harjoituksia")
+        this.addKind("nutrition" "Ravintopäiväkirja" "Seuraa ruokailua ja ravintoa")
+        this.addKind("sleep" "Unipäiväkirja" "Seuraa unta ja palautumista")
+        this.addKind("feelings" "Fiilispäiväkirja" "Kirjaa psyykkiset ja fyysiset tuntemukset")
+        this.addKind("measurement" "Mittaukset" "HRV, paino, leposyke, kehonkoostumus")
+        this.addKind("competition" "Kilpailut" "Kirjaa kilpailut ja tulokset")
+        this.addKind("camp" "Leirit" "Leirien ja tapahtumien seuranta")
+        this.addKind("group-training" "Ryhmäliikunta" "Ryhmätreenit ja ohjatut tunnit")
+        this.addKind("expenses" "Kulut" "Harrastukseen liittyvät kulut")
+        this.addKind("test-plan" "Testaussuunnitelma" "Suunnittele testit ja kontrollit")
+        this.addKind("test-log" "Testauspöytäkirja" "Kirjaa testien tulokset")
+        this.addKind("other" "Muu päiväkirja" "Seuraa mitä tahansa omilla mittareilla")
+        push colors "#22c55e"
+        push colors "#3b82f6"
+        push colors "#f97316"
+        push colors "#ef4444"
+        push colors "#a855f7"
+        push colors "#ec4899"
+        push colors "#14b8a6"
+        push colors "#f59e0b"
+        push colors "#6366f1"
+        push colors "#8b5cf6"
+        stepper.tid = "rt-wiz-steps"
+        stepper.name = "Vaiheet"
+        stepper.linear = true
+        stepper.addStep("type" "Valitse tyyppi" "")
+        stepper.addStep("details" "Kalenterin tiedot" "")
+        stepper.addStep("encryption" "Suojaa tietosi" "")
+        stepper.addStep("appearance" "Ulkoasu" "")
+    }
+
+    fn addKind:void (key:string label:string description:string) {
+        def k (new RtCalendarKind)
+        k.key = key
+        k.label = label
+        k.description = description
+        push kinds k
+    }
+
+    ; --- opening and closing ----------------------------------------------------
+
+    ; The form as the component mounts it: type first, everything blank.
+    fn open:void () {
+        typeKey = "training"
+        name = ""
+        description = ""
+        goals = ""
+        level = ""
+        encrypted = false
+        password = ""
+        confirm = ""
+        showPassword = false
+        color = (itemAt colors 0)
+        visibility = "private"
+        def i@(mutable):int 0
+        while (i < (stepper.count())) {
+            def s:StepItem (stepper.stepAt(i))
+            s.complete = false
+            i = (i + 1)
+        }
+        stepper.current = 0
+        state = "type"
+    }
+
+    fn close:boolean () {
+        if (state == "closed") {
+            return false
+        }
+        state = "closed"
+        return true
+    }
+
+    fn isOpen:boolean () {
+        return (state != "closed")
+    }
+
+    ; --- reading ----------------------------------------------------------------
+
+    fn stepIndex:int () {
+        return stepper.current
+    }
+
+    fn stepCount:int () {
+        return (stepper.count())
+    }
+
+    ; "Vaihe 2/4" — `wizard.step` with its two numbers.
+    fn stepText:string () {
+        return ((("Vaihe " + (to_string (stepper.current + 1))) + "/") + (to_string (stepper.count())))
+    }
+
+    fn kindOf:RtCalendarKind (key:string) {
+        for kinds k:RtCalendarKind i {
+            if (k.key == key) {
+                return k
+            }
+        }
+        return (new RtCalendarKind)
+    }
+
+    fn selectedKind:RtCalendarKind () {
+        return (this.kindOf(typeKey))
+    }
+
+    fn colorIndex:int () {
+        for colors c:string i {
+            if (c == color) {
+                return i
+            }
+        }
+        return 0
+    }
+
+    ; --- the gates --------------------------------------------------------------
+
+    ; `passwordStrength.score`: one each for eight characters, twelve, both
+    ; cases, a digit, and anything that is none of those.
+    sfn strengthScore:int (pw:string) {
+        def n:int (strlen pw)
+        if (n == 0) {
+            return 0
+        }
+        def score@(mutable):int 0
+        if (n >= 8) { score = (score + 1) }
+        if (n >= 12) { score = (score + 1) }
+        def lower@(mutable):boolean false
+        def upper@(mutable):boolean false
+        def digit@(mutable):boolean false
+        def other@(mutable):boolean false
+        def i@(mutable):int 0
+        while (i < n) {
+            def c:int (charAt pw i)
+            if ((c >= 97) && (c <= 122)) {
+                lower = true
+            } {
+                if ((c >= 65) && (c <= 90)) {
+                    upper = true
+                } {
+                    if ((c >= 48) && (c <= 57)) {
+                        digit = true
+                    } {
+                        other = true
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if (lower && upper) { score = (score + 1) }
+        if digit { score = (score + 1) }
+        if other { score = (score + 1) }
+        return score
+    }
+
+    fn strength:int () {
+        return (CalendarWizard.strengthScore(password))
+    }
+
+    ; `wizard.passwordWeak` … `passwordStrong`, and nothing for no password.
+    fn strengthLabel:string () {
+        def s:int (this.strength())
+        if ((strlen password) == 0) { return "" }
+        if (s <= 1) { return "Heikko salasana" }
+        if (s <= 2) { return "Kohtalainen" }
+        if (s <= 3) { return "Hyvä" }
+        return "Vahva salasana"
+    }
+
+    fn passwordsMatch:boolean () {
+        if ((strlen password) == 0) {
+            return false
+        }
+        return (password == confirm)
+    }
+
+    fn canProceedEncryption:boolean () {
+        if (encrypted == false) {
+            return true
+        }
+        if ((this.strength()) < 2) {
+            return false
+        }
+        return (this.passwordsMatch())
+    }
+
+    fn nameTrimmed:string () {
+        return (CalendarWizard.trimEnds(name))
+    }
+
+    ; `canGoNext`, per step.
+    fn canGoNext:boolean () {
+        if (state == "type") { return true }
+        if (state == "details") { return ((strlen (this.nameTrimmed())) > 0) }
+        if (state == "encryption") { return (this.canProceedEncryption()) }
+        if (state == "appearance") { return true }
+        return false
+    }
+
+    fn isLast:boolean () {
+        return (stepper.current == ((stepper.count()) - 1))
+    }
+
+    ; --- moving -----------------------------------------------------------------
+
+    ; The gate is the app's; the stepper hears "complete" only when it is
+    ; open, and then does the moving — clamped, never wrapped.
+    fn goNext:boolean () {
+        if ((this.canGoNext()) == false) {
+            return false
+        }
+        def s:StepItem (stepper.stepAt(stepper.current))
+        s.complete = true
+        if ((stepper.next()) == false) {
+            return false
+        }
+        def cur:StepItem (stepper.stepAt(stepper.current))
+        state = cur.key
+        return true
+    }
+
+    fn goPrev:boolean () {
+        if ((stepper.back()) == false) {
+            return false
+        }
+        def cur:StepItem (stepper.stepAt(stepper.current))
+        state = cur.key
+        return true
+    }
+
+    ; --- the form's setters -----------------------------------------------------
+
+    fn setType:boolean (key:string) {
+        if (state != "type") { return false }
+        def k:RtCalendarKind (this.kindOf(key))
+        if ((strlen k.key) == 0) { return false }
+        typeKey = key
+        return true
+    }
+
+    fn setName:void (v:string) { name = v }
+    fn setDescription:void (v:string) { description = v }
+    fn setGoals:void (v:string) { goals = v }
+    fn setLevel:void (v:string) { level = v }
+    fn setPassword:void (v:string) { password = v }
+    fn setConfirm:void (v:string) { confirm = v }
+
+    fn toggleEncrypted:boolean () {
+        if (state != "encryption") { return false }
+        encrypted = (encrypted == false)
+        return true
+    }
+
+    fn toggleShowPassword:boolean () {
+        if (state != "encryption") { return false }
+        showPassword = (showPassword == false)
+        return true
+    }
+
+    fn setColorAt:boolean (i:int) {
+        if (state != "appearance") { return false }
+        if ((i < 0) || (i >= (array_length colors))) { return false }
+        color = (itemAt colors i)
+        return true
+    }
+
+    fn setVisibility:boolean (v:string) {
+        if (state != "appearance") { return false }
+        if ((v != "private") && (v != "group") && (v != "public")) { return false }
+        visibility = v
+        return true
+    }
+
+    ; --- submitting -------------------------------------------------------------
+
+    ; `handleSubmit`'s two refusals, then the job: the host starts it and
+    ; answers with `complete`.
+    fn submit:boolean () {
+        if (state != "appearance") { return false }
+        if ((strlen (this.nameTrimmed())) == 0) { return false }
+        if (encrypted && ((this.passwordsMatch()) == false)) { return false }
+        state = "creating"
+        return true
+    }
+
+    fn complete:boolean (ok:boolean) {
+        if (state != "creating") { return false }
+        if ok {
+            created = (created + 1)
+            state = "closed"
+        } {
+            state = "appearance"
+        }
+        return true
+    }
+
+    sfn trimEnds:string (text:string) {
+        def s@(mutable):int 0
+        def e@(mutable):int (strlen text)
+        while ((s < e) && ((charAt text s) == 32)) {
+            s = (s + 1)
+        }
+        while ((e > s) && ((charAt text (e - 1)) == 32)) {
+            e = (e - 1)
+        }
+        return (substring text s e)
+    }
+}

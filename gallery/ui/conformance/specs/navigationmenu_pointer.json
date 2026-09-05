@@ -1,0 +1,7 @@
+{ "name":"navigationmenu_pointer","component":"navigationmenu",
+  "behaviours":["navmenu-roles","navmenu-pointer-open"],
+  "fixture":{"controls":[
+    {"type":"navigationmenu","tid":"nm","name":"Site","items":[
+      {"value":"products","name":"Products","links":[{"value":"one","name":"One"},{"value":"two","name":"Two"}]},
+      {"value":"about","name":"About","links":[{"value":"team","name":"Team"}]}]}]},
+  "steps":[{"click":"nm-products-trigger"}] }

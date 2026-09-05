@@ -15,6 +15,24 @@
 ;   @media (min-width: 900px) and (orientation: landscape) { ... }
 ;   @media (pointer: coarse)  { ... }   ; a finger, not a mouse
 ;
+;   @vars          { --ink: #09090b; }  ; the palette, in every theme
+;   @vars classic  { --ink: #1b1a17; }  ; ...and what "classic" makes of it
+;   .caption { color: var(--ink); }     ; used anywhere in any value
+;   .rule    { border: 1px solid var(--line, #ddd); }   ; with a fallback
+;
+; CUSTOM PROPERTIES ARE SHEET-LEVEL HERE, and `@vars` says so out loud. In a
+; browser `--x` is an inherited property of an ELEMENT and `:root { --x }` is
+; only the commonest place to put it; this engine has no root element and no
+; inheritance, so a palette written on a class would look element-scoped and
+; not be. Declaring `--x` in a class rule is therefore an error rather than a
+; thing that half works.
+;
+; `var()` is resolved when a plan is BUILT — once per (class, theme, state) —
+; and never per element, so a sheet that is all variables costs what one that
+; is all literals costs. It is textual substitution before the value reaches
+; `setAttribute`, which is what lets it work inside a shorthand
+; (`border: 1px solid var(--line)`) with no property having to know.
+;
 ; A media block is a CONDITION on the rules inside it, not a new kind of
 ; selector: the rules keep the same specificity they would have had outside,
 ; and a block that does not match contributes nothing. Conditions are
@@ -128,11 +146,41 @@ class EVGMediaQuery {
     }
 }
 
+; The interaction states a rule can ask for. Not an enum of every CSS
+; pseudo-class: these four are the ones an element can answer from what it
+; knows, and anything else is reported rather than silently never matching.
+class EVGPseudo {
+    sfn none:int ()     { return 0 }
+    sfn hover:int ()    { return 1 }
+    sfn focus:int ()    { return 2 }
+    sfn active:int ()   { return 3 }
+    sfn disabled:int () { return 4 }
+
+    sfn parse:int (name:string) {
+        if (name == "hover")    { return 1 }
+        if (name == "focus")    { return 2 }
+        if (name == "active")   { return 3 }
+        if (name == "disabled") { return 4 }
+        return -1
+    }
+
+    sfn holds:boolean (code:int el:EVGElement) {
+        if (code == 0) { return true }
+        if (code == 1) { return el.isHovered }
+        if (code == 2) { return el.isFocused }
+        if (code == 3) { return el.isPressed }
+        if (code == 4) { return el.a11yDisabled }
+        return false
+    }
+}
+
 class EVGStyleRule {
     ; Theme this rule is scoped to, or "" when it applies in every theme.
     def theme:string ""
     ; Class this rule selects. Always set — the subset has no other selectors.
     def className:string ""
+    ; EVGPseudo: 0 for a plain class rule, otherwise the state it asks for.
+    def pseudo:int 0
     def decls:[EVGStyleDecl]
     ; Source order, used to break ties between rules of equal specificity.
     def order:int 0
@@ -153,6 +201,26 @@ class EVGStyleRule {
 
 class EVGStyleSheet {
     def rules:[EVGStyleRule]
+    ; --- the palette ----------------------------------------------------------
+    ;
+    ; Every `@vars` declaration in source order, as four parallel arrays: the
+    ; theme it was written under ("" for every theme), the media condition of
+    ; the block it sat in, the name and the value. A list and not a map,
+    ; because which declaration wins depends on the theme and the viewport
+    ; being asked about — the same question `rules` answers the same way.
+    def varThemes:[string]
+    def varMedia:[EVGMediaQuery]
+    def varNames:[string]
+    def varValues:[string]
+    ; Timing functions already checked, so a `transition` built out of
+    ; variables is reported once rather than once per plan that resolves it.
+    def varChecked:[string:int]
+    ; And the same for what resolution complains about. A parse error happens
+    ; once because parsing happens once; a resolution error happens wherever a
+    ; plan is built, so one typo in one rule would be reported once per class
+    ; that rule matches — forty copies of one sentence in the panel that is
+    ; supposed to tell you which sentence it is.
+    def varReported:[string:int]
     ; Rules that failed to parse, kept so tools can report them instead of
     ; silently rendering an unstyled page.
     def errors:[string]
@@ -165,14 +233,103 @@ class EVGStyleSheet {
     def viewportH:double 0.0
     def coarsePointer:boolean false
 
+    ; --- the resolved-style cache ---------------------------------------------
+    ;
+    ; `applyTo` used to do five full scans of the rule list PER ELEMENT, PER
+    ; FRAME: one to clear the state properties and four to apply the groups.
+    ; Measured on a 1600-row table (`npm run ui:bench`), that was 178ms of a
+    ; 252ms frame — 71% of it, and more than layout and display-list
+    ; construction put together.
+    ;
+    ; The waste is that the answer barely varies. What a rule scan produces is
+    ; an ordered list of (property, value) writes, and that list depends on
+    ; exactly four things: the element's class string, the theme, the four
+    ; interaction bits `EVGPseudo.holds` reads, and the viewport. That same
+    ; 1600-row table has EIGHTEEN distinct class strings in 22,403 elements.
+    ;
+    ; So the scan happens once per distinct key and the result is replayed. The
+    ; plans are stored as flat parallel arrays rather than a list of lists: one
+    ; allocation that grows, and no nested array type to thread through the
+    ; backends.
+    def planNames:[string]
+    def planValues:[string]
+    def planStart:[int]
+    def planCount:[int]
+    def planIndex:[string:int]
+    ; How often the cache answered, and how often it had to scan. Reported
+    ; rather than inferred: a cache that never hits looks exactly like one that
+    ; works, only slower.
+    def planHits:int 0
+    def planMisses:int 0
+    ; Bumped whenever every plan becomes a guess. An element records it
+    ; alongside what it was styled with, so one increment invalidates the whole
+    ; tree without walking it.
+    def generation:int 1
+    ; Per plan: the LAYOUT-relevant declarations, as one string. Two plans with
+    ; the same signature cannot move anything, however much else differs
+    ; between them — which is what lets a hover skip layout entirely.
+    def planLayoutSig:[string]
+    ; Which RULE asked for each planned declaration — an index into `rules`,
+    ; or -1 for a state clear's initial value. Parallel to `planNames` and
+    ; `planValues`, and the only reason the inspector can say what set a value.
+    ;
+    ; Recorded HERE, in the plan, and not at apply time. By the time a value
+    ; reaches an element the rule is long gone: `buildPlan` flattens every
+    ; matching rule into two arrays and `applyGroup` replays them. Reconstructing
+    ; the answer afterwards by re-matching selectors would be a second
+    ; implementation of the cascade, and a second implementation is a thing
+    ; that can disagree with the first.
+    ;
+    ; It costs one int per planned declaration, PER PLAN. A 1600-row table has
+    ; a handful of plans and a hundred thousand applications of them, so the
+    ; same record made at apply time would be paid a hundred thousand times.
+    def planRules:[int]
+
+    ; --- what the last `applyTree` actually did -------------------------------
+    ; Reset at the start of every pass. `layoutDirty` is the one that matters:
+    ; while it is zero, nothing that was written can have moved a box, and the
+    ; layout pass is doing arithmetic it already did.
+    def passSkipped:int 0
+    def passStyled:int 0
+    def passLayoutDirty:int 0
+    def passPaintDirty:int 0
+
     Constructor () {
         ruleCounter = 0
+        this.dropPlans()
+    }
+
+    ; Everything cached is a function of the rules and the viewport, so both of
+    ; those changing throws the lot away. There is no finer invalidation here on
+    ; purpose: a sheet is parsed once and a viewport changes when the window
+    ; does, and being clever about either would be optimising the rare case.
+    fn dropPlans:void () {
+        generation = (generation + 1)
+        def sig:[string]
+        planLayoutSig = sig
+        def a:[string]
+        planNames = a
+        def b:[string]
+        planValues = b
+        def c:[int]
+        planStart = c
+        def d:[int]
+        planCount = d
+        def e:[string:int]
+        planIndex = e
+        def r:[int]
+        planRules = r
     }
 
     ; State the surface once; `applyTree` then honours the media blocks.
     ; Width and height are CSS pixels, and `coarse` says the pointer is a
     ; finger rather than a mouse.
     fn setViewport:void (w:double h:double coarse:boolean) {
+        if (((w != viewportW) || (h != viewportH)) || (coarse != coarsePointer)) {
+            ; A media query can turn a rule on or off, so every plan built under
+            ; the old surface is now a guess.
+            this.dropPlans()
+        }
         viewportW = w
         viewportH = h
         coarsePointer = coarse
@@ -195,8 +352,169 @@ class EVGStyleSheet {
     ; -----------------------------------------------------------------------
 
     fn parse:void (css:string) {
+        this.dropPlans()
         def src:string (this.stripComments(css))
         this.parseBlock(src (new EVGMediaQuery()))
+    }
+
+    ; Replace the sheet's contents with a new stylesheet, in place.
+    ;
+    ; TWO REASONS THIS IS NOT `new EVGStyleSheet()` AT THE CALL SITE, and both
+    ; of them are silent when got wrong.
+    ;
+    ; `parse` APPENDS. It drops the plans and adds rules; it does not remove
+    ; the ones already there. Parsing twice into one sheet leaves every rule
+    ; in it twice, which mostly looks like it worked because the duplicates
+    ; agree with each other — until one of them is edited.
+    ;
+    ; And `generation` starts at 1 on a fresh sheet, so a fresh one is at 2
+    ; after its first parse — exactly where the sheet it replaced was.
+    ; `applyTo` skips an element whose `styleGen` already equals the
+    ; generation, so every RETAINED element would be skipped and the new CSS
+    ; would land on nothing at all. Worse, it fails asymmetrically: a page that
+    ; rebuilds its tree hands the cascade fresh elements with `styleGen` 0 and
+    ; works, so this shows up only in the apps that keep their trees.
+    ;
+    ; Reloading in place fixes both: the rules go, and the counter only ever
+    ; goes up, so every element in the tree is stale by construction.
+    fn reload:void (css:string) {
+        def r:[EVGStyleRule]
+        rules = r
+        def e:[string]
+        errors = e
+        ; AND THE PALETTE, for the same reason the rules go: `parse` appends,
+        ; so a sheet reloaded without this keeps every variable the old text
+        ; declared — and an old declaration outlives the new one, because the
+        ; later of two equals wins.
+        def vt:[string]
+        varThemes = vt
+        def vm:[EVGMediaQuery]
+        varMedia = vm
+        def vn:[string]
+        varNames = vn
+        def vv:[string]
+        varValues = vv
+        def vc:[string:int]
+        varChecked = vc
+        def vr:[string:int]
+        varReported = vr
+        ruleCounter = 0
+        this.parse(css)
+    }
+
+    ; --- what set this value -------------------------------------------------
+    ;
+    ; The plan for `slot` as (property, value, rule) triples, in cascade order.
+    ; The order is not sorted here and nothing is scored: `buildPlan` calls
+    ; `planGroup` in the four passes that ARE the precedence — plain, themed,
+    ; stateful, themed-and-stateful — and the last write wins. So "which
+    ; declaration won" is read off the end of the list rather than recomputed,
+    ; which is what stops a panel from disagreeing with the engine about it.
+
+    fn planLength:int (slot:int) {
+        if (slot < 0) {
+            return 0
+        }
+        if (slot >= (array_length planCount)) {
+            return 0
+        }
+        return (itemAt planCount slot)
+    }
+
+    fn planNameAt:string (slot:int i:int) {
+        def from:int (itemAt planStart slot)
+        return (itemAt planNames (from + i))
+    }
+
+    fn planValueAt:string (slot:int i:int) {
+        def from:int (itemAt planStart slot)
+        return (itemAt planValues (from + i))
+    }
+
+    ; -1 where no rule asked for it — a state clear's initial value.
+    fn planRuleAt:int (slot:int i:int) {
+        def from:int (itemAt planStart slot)
+        if ((from + i) >= (array_length planRules)) {
+            return (0 - 1)
+        }
+        return (itemAt planRules (from + i))
+    }
+
+    ; The selector as it was written, reassembled rather than stored. A rule
+    ; knows its class, its state, its theme and its media block, and the
+    ; subset of CSS this cascade implements has nothing else in a selector —
+    ; so this is the whole of it and not a summary of it.
+    fn selectorOf:string (ruleIdx:int) {
+        if (ruleIdx < 0) {
+            return "(initial)"
+        }
+        if (ruleIdx >= (array_length rules)) {
+            return "(gone)"
+        }
+        def rule:EVGStyleRule (itemAt rules ruleIdx)
+        def out:string ("." + rule.className)
+        if (rule.pseudo == 1) { out = (out + ":hover") }
+        if (rule.pseudo == 2) { out = (out + ":focus") }
+        if (rule.pseudo == 3) { out = (out + ":active") }
+        if (rule.pseudo == 4) { out = (out + ":disabled") }
+        if (rule.isThemeScoped()) {
+            out = (((out + "  [theme ") + rule.theme) + "]")
+        }
+        return out
+    }
+
+    fn ruleClassOf:string (ruleIdx:int) {
+        if (ruleIdx < 0) {
+            return ""
+        }
+        if (ruleIdx >= (array_length rules)) {
+            return ""
+        }
+        def rule:EVGStyleRule (itemAt rules ruleIdx)
+        return rule.className
+    }
+
+    ; The `@media` condition the rule was written inside, printed, or "" when
+    ; it was not inside one. It gates the rule; it does not change how strong
+    ; the rule is, and the panel says so by keeping it in its own column.
+    fn ruleMediaOf:string (ruleIdx:int) {
+        if (ruleIdx < 0) {
+            return ""
+        }
+        if (ruleIdx >= (array_length rules)) {
+            return ""
+        }
+        def rule:EVGStyleRule (itemAt rules ruleIdx)
+        def q:EVGMediaQuery rule.media
+        if (q.isEmpty()) {
+            return ""
+        }
+        if q.broken {
+            return "(unparseable — the rules inside it never apply)"
+        }
+        def out:string ""
+        if (q.minWidth >= 0.0) {
+            def v:int (to_int q.minWidth)
+            out = (((out + "min-width: ") + (to_string v)) + "px ")
+        }
+        if (q.maxWidth >= 0.0) {
+            def v2:int (to_int q.maxWidth)
+            out = (((out + "max-width: ") + (to_string v2)) + "px ")
+        }
+        if (q.minHeight >= 0.0) {
+            def v3:int (to_int q.minHeight)
+            out = (((out + "min-height: ") + (to_string v3)) + "px ")
+        }
+        if (q.maxHeight >= 0.0) {
+            def v4:int (to_int q.maxHeight)
+            out = (((out + "max-height: ") + (to_string v4)) + "px ")
+        }
+        if ((strlen q.orientation) > 0) {
+            out = ((out + "orientation: ") + q.orientation + " ")
+        }
+        if (q.pointer == 1) { out = (out + "pointer: coarse ") }
+        if (q.pointer == 2) { out = (out + "pointer: fine ") }
+        return out
     }
 
     ; One level of rules, all under the same media condition. A `@media` block
@@ -234,13 +552,21 @@ class EVGStyleSheet {
             } {
                 if ((strlen selectorText) > 0) {
                     if ((charAt selectorText 0) == 64) {
-                        ; Some other at-rule. Skipped as a whole, and said so,
-                        ; rather than its body being read as bare selectors.
                         def skipTo:int (this.matchingBrace(src braceAt))
                         if (skipTo < 0) {
                             push errors ("Unclosed at-rule: " + selectorText)
                             return
                         }
+                        ; `@vars` and `@vars <theme>` — the palette. It carries
+                        ; the media condition of the block it sits in, like a
+                        ; rule does, so a variable can answer a narrow window.
+                        if (this.startsWith(selectorText "@vars")) {
+                            this.addVars(selectorText (substring src (braceAt + 1) skipTo) cond)
+                            i = (skipTo + 1)
+                            continue
+                        }
+                        ; Some other at-rule. Skipped as a whole, and said so,
+                        ; rather than its body being read as bare selectors.
                         push errors ("Unsupported at-rule ignored: " + selectorText)
                         i = (skipTo + 1)
                         continue
@@ -489,10 +815,20 @@ class EVGStyleSheet {
     }
 
     ; Replace /* ... */ spans with a single space so tokens either side stay apart.
+    ; Comments out, everything else through unchanged.
+    ;
+    ; This appends whole SLICES between comments rather than one character at a
+    ; time. The difference is not style: on a target where a string is immutable
+    ; — Kotlin, Swift, C#, Java — `out = out + oneChar` copies the whole
+    ; accumulator on every character, so stripping an n-byte stylesheet cost
+    ; O(n^2). JavaScript hid it, because V8 concatenates with a rope; the
+    ; Kotlin build of a 6 KB sheet spent 11 ms here against 0.3 ms in Node, and
+    ; that ratio is the whole of the bug. Slices make it linear everywhere.
     fn stripComments:string (css:string) {
         def out:string ""
         def len:int (strlen css)
         def i:int 0
+        def segStart:int 0
         while (i < len) {
             def c:int (charAt css i)
             def isStart:boolean false
@@ -518,12 +854,18 @@ class EVGStyleSheet {
                         j = (j + 1)
                     }
                 }
-                out = out + " "
+                out = out + (substring css segStart i) + " "
+                ; An unterminated comment puts `i` past the end, which ends the
+                ; walk and drops the rest — the same thing the per-character
+                ; version did, and the reason `segStart` is clamped below.
                 i = (j + 2)
+                segStart = i
             } {
-                out = out + (substring css i (i + 1))
                 i = (i + 1)
             }
+        }
+        if (segStart < len) {
+            out = out + (substring css segStart len)
         }
         return out
     }
@@ -561,6 +903,200 @@ class EVGStyleSheet {
         pendingMedia = (new EVGMediaQuery())
     }
 
+    ; `@vars { --a: 1 }` / `@vars classic { --a: 2 }`.
+    ;
+    ; The header is the at-rule word and, at most, a theme name. A second word
+    ; is an error rather than a guess: `@vars theme classic` reads as if it
+    ; ought to work, and quietly filing it under the theme "theme" would be the
+    ; kind of failure that looks like a wrong colour.
+    fn addVars:void (header:string body:string cond:EVGMediaQuery) {
+        def parts:[string] (this.splitWhitespace(header))
+        def theme:string ""
+        if ((array_length parts) > 2) {
+            push errors ("@vars takes at most a theme name: " + header)
+            return
+        }
+        if ((array_length parts) == 2) {
+            theme = (itemAt parts 1)
+        }
+        def decls:[EVGStyleDecl] (this.parseDeclarations(body))
+        def i:int 0
+        while (i < (array_length decls)) {
+            def d:EVGStyleDecl (itemAt decls i)
+            if ((this.startsWith(d.name "--")) == false) {
+                ; A property in here would go nowhere: `@vars` declares the
+                ; palette and nothing wears it.
+                push errors ("Only custom properties belong in @vars: " + d.name)
+            } {
+                push varThemes theme
+                push varMedia cond
+                push varNames d.name
+                push varValues d.value
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn getVarCount:int () {
+        return (array_length varNames)
+    }
+
+    ; What `--name` is worth under `theme` and the stated viewport, or "" when
+    ; nothing defines it. A value is never empty — `parseDeclarations` drops an
+    ; empty one — so "" is an unambiguous "no".
+    ;
+    ; Precedence is the sheet's own, applied to the palette: a theme-scoped
+    ; declaration beats an unscoped one, and among equals the last one written
+    ; wins. A declaration inside a `@media` block that does not hold is not a
+    ; candidate at all.
+    fn lookupVar:string (name:string theme:string) {
+        def best:string ""
+        def bestScoped:boolean false
+        def i:int 0
+        def n:int (array_length varNames)
+        while (i < n) {
+            if ((itemAt varNames i) == name) {
+                def th:string (itemAt varThemes i)
+                def scoped:boolean ((strlen th) > 0)
+                def applies:boolean true
+                if scoped {
+                    applies = (th == theme)
+                }
+                if applies {
+                    def mq:EVGMediaQuery (itemAt varMedia i)
+                    applies = (mq.matches(viewportW viewportH coarsePointer))
+                }
+                if applies {
+                    ; An unscoped declaration cannot displace a themed one.
+                    if (scoped || (bestScoped == false)) {
+                        best = (itemAt varValues i)
+                        bestScoped = scoped
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return best
+    }
+
+    ; `var(--name)` and `var(--name, fallback)`, resolved against the palette.
+    ;
+    ; Called from the two places a rule's value becomes an element's — the plan
+    ; builder and the direct applier — so it runs once per (class, theme,
+    ; state) and not once per element. `prop` is carried only to say which
+    ; declaration was at fault.
+    ;
+    ; Returns "" when the value cannot be resolved, and the caller then writes
+    ; NOTHING: half a shorthand is worse than the value that was there before,
+    ; and the error list says what happened.
+    fn resolveVars:string (value:string theme:string prop:string) {
+        def at:int (this.findVar(value 0))
+        if (at < 0) {
+            return value
+        }
+        def out:string value
+        def guard:int 0
+        while (at >= 0) {
+            guard = (guard + 1)
+            if (guard > 32) {
+                ; `--a: var(--b)` and `--b: var(--a)`. A depth limit rather
+                ; than a visited-set: the limit is also what catches a chain
+                ; nobody meant to write.
+                this.reportOnce(("Custom property nested too deeply (a cycle?): " + prop))
+                return ""
+            }
+            def close:int (this.matchParen(out (at + 3)))
+            if (close < 0) {
+                this.reportOnce(("Unclosed var(): " + value))
+                return ""
+            }
+            def inner:string (trim (substring out (at + 4) close))
+            def comma:int (this.findChar(inner 0 44))
+            def name:string inner
+            def fallback:string ""
+            def hasFallback:boolean false
+            if (comma >= 0) {
+                name = (trim (substring inner 0 comma))
+                fallback = (trim (substring inner (comma + 1) (strlen inner)))
+                hasFallback = true
+            }
+            def got:string (this.lookupVar(name theme))
+            def repl:string got
+            if ((strlen got) == 0) {
+                if (hasFallback == false) {
+                    this.reportOnce(((("Undefined custom property " + name) + " in: ") + prop))
+                    return ""
+                }
+                repl = fallback
+            }
+            out = (((substring out 0 at) + repl) + (substring out (close + 1) (strlen out)))
+            at = (this.findVar(out 0))
+        }
+        ; A `transition` assembled out of variables cannot be checked when the
+        ; sheet is parsed, because until a theme is named it has no value. It
+        ; is checked here instead, once per distinct resolved value.
+        if (prop == "transition") {
+            def seen@(optional):int (get varChecked out)
+            if (null? seen) {
+                set varChecked out 1
+                this.checkTransition(out)
+            }
+        }
+        return out
+    }
+
+    ; Say it once. See `varReported`.
+    fn reportOnce:void (msg:string) {
+        def seen@(optional):int (get varReported msg)
+        if (null? seen) {
+            set varReported msg 1
+            push errors msg
+        }
+    }
+
+    ; The next "var(" at or after `from`, or -1. Four character comparisons in
+    ; the common case, and the common case is a value with no variable in it —
+    ; which is why this is a scan and not a split.
+    fn findVar:int (s:string from:int) {
+        def n:int (strlen s)
+        def i:int from
+        while ((i + 4) <= n) {
+            if ((charAt s i) == 118) {
+                if ((charAt s (i + 1)) == 97) {
+                    if ((charAt s (i + 2)) == 114) {
+                        if ((charAt s (i + 3)) == 40) {
+                            return i
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    ; The ')' that closes the '(' at `open`. Nested parentheses are counted,
+    ; because a fallback may be a function: `var(--c, rgb(0, 0, 0))`.
+    fn matchParen:int (s:string open:int) {
+        def n:int (strlen s)
+        def depth:int 0
+        def i:int open
+        while (i < n) {
+            def c:int (charAt s i)
+            if (c == 40) {
+                depth = (depth + 1)
+            }
+            if (c == 41) {
+                depth = (depth - 1)
+                if (depth == 0) {
+                    return i
+                }
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
     ; ".caption" -> class rule; ".theme-classic .caption" -> theme-scoped rule.
     ; Anything else is outside the subset and is reported rather than guessed at.
     fn addRuleForSelector:void (sel:string decls:[EVGStyleDecl]) {
@@ -568,13 +1104,27 @@ class EVGStyleSheet {
         def n:int (array_length parts)
 
         if (n == 1) {
-            def only:string (itemAt parts 0)
+            def whole:string (itemAt parts 0)
+            def bits:[string] (this.splitPseudo(whole))
+            def only:string (itemAt bits 0)
+            def pseudoName:string (itemAt bits 1)
             if ((this.isClassToken(only)) == false) {
                 push errors ("Unsupported selector (only .class and .theme-x .class are supported): " + sel)
                 return
             }
+            def code:int 0
+            if ((strlen pseudoName) > 0) {
+                code = (EVGPseudo.parse(pseudoName))
+                if (code < 0) {
+                    ; Reported rather than dropped: a rule that never fires and
+                    ; says nothing is a developer looking at the wrong file.
+                    push errors ("Unsupported pseudo-class (hover, focus, active, disabled): " + sel)
+                    return
+                }
+            }
             def rule (new EVGStyleRule())
             rule.className = (substring only 1 (strlen only))
+            rule.pseudo = code
             this.pushRule(rule decls)
             return
         }
@@ -582,7 +1132,9 @@ class EVGStyleSheet {
         if (n == 2) {
             def scope:string (itemAt parts 0)
             def target:string (itemAt parts 1)
-            if (((this.isClassToken(scope)) == false) || ((this.isClassToken(target)) == false)) {
+            def targetBits:[string] (this.splitPseudo(target))
+            def targetOnly:string (itemAt targetBits 0)
+            if (((this.isClassToken(scope)) == false) || ((this.isClassToken(targetOnly)) == false)) {
                 push errors ("Unsupported selector (only .class and .theme-x .class are supported): " + sel)
                 return
             }
@@ -591,9 +1143,21 @@ class EVGStyleSheet {
                 push errors ("Descendant selectors are only supported as `.theme-<name> .class`: " + sel)
                 return
             }
+            def bits2:[string] (this.splitPseudo(target))
+            def targetClass:string (itemAt bits2 0)
+            def pseudo2:string (itemAt bits2 1)
+            def code2:int 0
+            if ((strlen pseudo2) > 0) {
+                code2 = (EVGPseudo.parse(pseudo2))
+                if (code2 < 0) {
+                    push errors ("Unsupported pseudo-class (hover, focus, active, disabled): " + sel)
+                    return
+                }
+            }
             def rule2 (new EVGStyleRule())
             rule2.theme = (substring scopeName 6 (strlen scopeName))
-            rule2.className = (substring target 1 (strlen target))
+            rule2.className = (substring targetClass 1 (strlen targetClass))
+            rule2.pseudo = code2
             this.pushRule(rule2 decls)
             return
         }
@@ -602,11 +1166,42 @@ class EVGStyleSheet {
     }
 
     fn pushRule:void (rule:EVGStyleRule decls:[EVGStyleDecl]) {
-        rule.decls = decls
+        ; `--x` on a class. There is no element-scoped palette here, so this
+        ; would be planned for every element wearing the class and dropped in
+        ; silence by `setAttribute` — a declaration that reads like CSS and
+        ; does nothing. It is reported and removed instead.
+        def keep:[EVGStyleDecl]
+        def k:int 0
+        while (k < (array_length decls)) {
+            def d:EVGStyleDecl (itemAt decls k)
+            if (this.startsWith(d.name "--")) {
+                push errors ((("Custom properties are declared in @vars, not on ." + rule.className) + ": ") + d.name)
+            } {
+                push keep d
+            }
+            k = (k + 1)
+        }
+        rule.decls = keep
         rule.media = pendingMedia
         rule.order = ruleCounter
         ruleCounter = (ruleCounter + 1)
         push rules rule
+    }
+
+    ; ".btn:hover" -> ".btn" and "hover". The colon is the only place a
+    ; pseudo-class can appear in the selectors this engine supports, so finding
+    ; one is the whole parse.
+    fn splitPseudo:[string] (tok:string) {
+        def out:[string]
+        def at:int (this.findChar(tok 0 58))
+        if (at < 0) {
+            push out tok
+            push out ""
+            return out
+        }
+        push out (substring tok 0 at)
+        push out (substring tok (at + 1) (strlen tok))
+        return out
     }
 
     fn isClassToken:boolean (tok:string) {
@@ -641,6 +1236,17 @@ class EVGStyleSheet {
                     d.name = (trim (substring part 0 colon))
                     d.value = (this.unquote((trim (substring part (colon + 1) (strlen part)))))
                     if (((strlen d.name) > 0) && ((strlen d.value) > 0)) {
+                        ; A transition assembled out of variables has no
+                        ; value yet — until a theme is named, `var(--dur)`
+                        ; is neither a duration nor a timing function, and
+                        ; checking it here reports the variable itself as an
+                        ; unsupported function. `resolveVars` checks the
+                        ; resolved value instead, once per distinct result.
+                        if (d.name == "transition") {
+                            if ((this.findVar(d.value 0)) < 0) {
+                                this.checkTransition(d.value)
+                            }
+                        }
                         push out d
                     } {
                         push errors ("Incomplete declaration ignored: " + part)
@@ -650,6 +1256,30 @@ class EVGStyleSheet {
             i = (i + 1)
         }
         return out
+    }
+
+    ; A `transition` whose timing function does not parse is reported here, at
+    ; the sheet, rather than discovered as motion that looks subtly wrong.
+    ; `cubic-bezier(0.4, 0, 0.2, 1)` and `spring(1, 2)` are the same shape and
+    ; only one of them is CSS.
+    fn checkTransition:void (value:string) {
+        def parts:[string] (EVGEasing.splitTop(value 44))
+        def i:int 0
+        while (i < (array_length parts)) {
+            def words:[string] (EVGEasing.splitWordsTop((trim (itemAt parts i))))
+            def w:int 0
+            while (w < (array_length words)) {
+                def word:string (itemAt words w)
+                if (EVGEasing.looksLikeFunction(word)) {
+                    def e:EVGEasing (EVGEasing.parse(word))
+                    if ((e.ok) == false) {
+                        push errors ("Unsupported timing function (linear, ease, ease-in, ease-out, ease-in-out, step-start, step-end, cubic-bezier(), steps()): " + word)
+                    }
+                }
+                w = (w + 1)
+            }
+            i = (i + 1)
+        }
     }
 
     ; font-family: "Cinzel" — the quotes are CSS syntax, not part of the name.
@@ -735,33 +1365,281 @@ class EVGStyleSheet {
     }
 
     fn applyTree:void (root:EVGElement theme:string) {
+        passSkipped = 0
+        passStyled = 0
+        passLayoutDirty = 0
+        passPaintDirty = 0
+        this.applyIn(root theme)
+    }
+
+    ; True when nothing this pass wrote can have moved a box. The caller may
+    ; then skip layout entirely — which on a hover is 40% of the frame spent
+    ; recomputing positions that provably did not change.
+    fn layoutClean:boolean () {
+        return (passLayoutDirty == 0)
+    }
+
+    ; True when the pass wrote nothing at all, so even the display list is
+    ; still correct.
+    fn nothingChanged:boolean () {
+        return ((passLayoutDirty + passPaintDirty) == 0)
+    }
+
+    ; …and, on the way back up, whether the pass moved a box anywhere in
+    ; the subtree: `EVGElement.layoutClean`, which the layout reads for a
+    ; subtree an app asked it to keep. An element never laid out is not
+    ; clean, so a subtree with a new element in it is laid out.
+    fn applyIn:void (root:EVGElement theme:string) {
+        def before:int passLayoutDirty
+        def beforePaint:int passPaintDirty
         this.applyTo(root theme)
+        def ownClean:boolean (passLayoutDirty == before)
+        def ownPaintClean:boolean ((passPaintDirty == beforePaint) && ownClean)
+        def kidsClean@(mutable):boolean true
+        def kidsPaintClean@(mutable):boolean true
         def i:int 0
         def n:int (root.getChildCount())
         while (i < n) {
-            this.applyTree((root.getChild(i)) theme)
+            def kid:EVGElement (root.getChild(i))
+            this.applyIn(kid theme)
+            if (kid.layoutClean == false) {
+                kidsClean = false
+            }
+            if (kid.paintClean == false) {
+                kidsPaintClean = false
+            }
             i = (i + 1)
+        }
+        root.layoutClean = ((ownClean && kidsClean) && root.hasLayout)
+        root.paintClean = (ownPaintClean && kidsPaintClean)
+        if (root.paintClean == false) {
+            root.paintStamp = (root.paintStamp + 1)
         }
     }
 
-    ; Apply matching rules to a single element, weakest group first so that
-    ; stronger groups overwrite: unscoped classes, then theme-scoped classes.
-    ; Inline attributes are never overwritten.
+    ; The four interaction bits `EVGPseudo.holds` reads, as a string. Nothing
+    ; else about an element can change which rules match it, which is the whole
+    ; reason a plan can be shared.
+    sfn stateKey:string (el:EVGElement) {
+        def out:string "...."
+        if el.isHovered  { out = ("h" + (substring out 1 4)) }
+        if el.isFocused  { out = ((substring out 0 1) + "f" + (substring out 2 4)) }
+        if el.isPressed  { out = ((substring out 0 2) + "a" + (substring out 3 4)) }
+        if el.a11yDisabled { out = ((substring out 0 3) + "d") }
+        return out
+    }
+
+    ; Apply matching rules to a single element, from a plan built once per
+    ; distinct (class string, theme, interaction state) and replayed after that.
+    ; See the cache fields for why.
+    ; The four interaction bits as an int, so the common case compares numbers
+    ; and allocates nothing. The string form is only built when a plan has to
+    ; be looked up.
+    sfn stateBits:int (el:EVGElement) {
+        def b:int 0
+        if el.isHovered     { b = (b + 1) }
+        if el.isFocused     { b = (b + 2) }
+        if el.isPressed     { b = (b + 4) }
+        if el.a11yDisabled  { b = (b + 8) }
+        return b
+    }
+
     fn applyTo:void (el:EVGElement theme:string) {
         if ((strlen el.className) == 0) {
             return
         }
-        def classes:[string] (this.splitWhitespace(el.className))
-        this.applyGroup(el classes theme false)
-        this.applyGroup(el classes theme true)
+        def bits:int (EVGStyleSheet.stateBits(el))
+
+        ; Already holding exactly this. Four scalar comparisons and no
+        ; allocation, and on a hover it is the answer for every element but
+        ; one — which is the whole point: the pass still WALKS the tree, but it
+        ; stops writing to it.
+        ;
+        ; `styleGen` is what makes this safe against everything that is not a
+        ; class or a state change: re-parsing and resizing bump the sheet's
+        ; generation, and `EVGTransition.writeBack` sets the element's to -1
+        ; because after a flight has written a showing value the element is no
+        ; longer holding what the sheet declared.
+        if (((((el.styleGen == generation) && (el.styleBits == bits))
+             && (el.styleKids == (array_length el.children)))
+             && (el.styleTheme == theme)) && (el.styleClass == el.className)) {
+            passSkipped = (passSkipped + 1)
+            return
+        }
+
+        def key:string ((((el.className + "|") + theme) + "|") + (to_string bits))
+        def at@(optional):int (get planIndex key)
+        def slot:int 0
+        if (null? at) {
+            slot = (this.buildPlan(el theme key))
+            planMisses = (planMisses + 1)
+        } {
+            slot = (unwrap at)
+            planHits = (planHits + 1)
+        }
+
+        ; What KIND of change this is. Two plans whose layout-relevant
+        ; declarations are identical cannot move a box, however much else
+        ; differs — a `:hover` rule that only sets a colour is the case this
+        ; exists for. An element with inline attributes is counted as
+        ; layout-dirty regardless, because the plan does not know what they say.
+        ;
+        ; Only a slot from THIS generation's plans is compared: `dropPlans`
+        ; empties the tables, and an element that outlives that — a kept
+        ; card, styled before the viewport changed — still names a slot in
+        ; the old ones. Reading the new table at it is past its end, which
+        ; JavaScript answers with undefined and Swift with a trap.
+        passStyled = (passStyled + 1)
+        def layoutMoved:boolean true
+        if (((el.styleSlot >= 0) && (el.styleGen == generation)) && (el.styleKids == (array_length el.children))) {
+            if ((array_length el.inlineProps) == 0) {
+                if ((itemAt planLayoutSig el.styleSlot) == (itemAt planLayoutSig slot)) {
+                    layoutMoved = false
+                }
+            }
+        }
+        if layoutMoved {
+            passLayoutDirty = (passLayoutDirty + 1)
+        } {
+            passPaintDirty = (passPaintDirty + 1)
+        }
+        el.styleClass = el.className
+        el.styleTheme = theme
+        el.styleBits = bits
+        el.styleGen = generation
+        el.styleSlot = slot
+        el.styleKids = (array_length el.children)
+
+        def from:int (itemAt planStart slot)
+        def n:int (itemAt planCount slot)
+        def i:int 0
+        while (i < n) {
+            def name:string (itemAt planNames (from + i))
+            ; The one thing that is NOT in the key. Inline attributes outrank
+            ; every rule and they belong to the element, not to its class — the
+            ; sortable's placeholder carries an inline `transform` that its
+            ; siblings do not. So the plan records every write the rules asked
+            ; for and this filter runs per element, which is cheap because
+            ; `hasInline` answers immediately when nothing is inline.
+            if ((el.hasInline(name)) == false) {
+                el.setAttribute(name (itemAt planValues (from + i)))
+            }
+            i = (i + 1)
+        }
     }
 
-    fn applyGroup:void (el:EVGElement classes:[string] theme:string themeScoped:boolean) {
+    ; The original, direct implementation. Kept — not as dead code but as the
+    ; ORACLE: `EVGStyleCacheTest` applies the same tree both ways and compares
+    ; the display lists, so the cache is checked against the thing it replaced
+    ; rather than against a description of it.
+    fn applyToDirect:void (el:EVGElement theme:string) {
+        if ((strlen el.className) == 0) {
+            return
+        }
+        def classes:[string] (this.splitWhitespace(el.className))
+        this.clearStateProps(el classes theme)
+        ; Weakest first, so stronger overwrites: plain classes, then
+        ; theme-scoped ones, then the state rules in the same two groups.
+        ;
+        ; A state rule wins WHEREVER IT IS WRITTEN, which is why this is four
+        ; passes rather than one loop in file order: `:hover` is more specific
+        ; than the bare class, and the version that simply applied rules in
+        ; order let a base rule declared later undo it.
+        this.applyGroup(el classes theme false false)
+        this.applyGroup(el classes theme true false)
+        this.applyGroup(el classes theme false true)
+        this.applyGroup(el classes theme true true)
+    }
+
+    fn applyTreeDirect:void (root:EVGElement theme:string) {
+        this.applyToDirect(root theme)
+        def i:int 0
+        def n:int (root.getChildCount())
+        while (i < n) {
+            this.applyTreeDirect((root.getChild(i)) theme)
+            i = (i + 1)
+        }
+    }
+
+    ; Record what `applyToDirect` WOULD write, in the same order, and remember
+    ; it under `key`. The element is read for its state bits and its classes and
+    ; is not written to.
+    fn buildPlan:int (el:EVGElement theme:string key:string) {
+        def classes:[string] (this.splitWhitespace(el.className))
+        def from:int (array_length planNames)
+        this.planStateClears(classes theme)
+        this.planGroup(el classes theme false false)
+        this.planGroup(el classes theme true false)
+        this.planGroup(el classes theme false true)
+        this.planGroup(el classes theme true true)
+        def slot:int (array_length planStart)
+        push planStart from
+        def count:int ((array_length planNames) - from)
+        push planCount count
+        ; The layout-relevant half of the plan, as one string. Built once here
+        ; so the comparison at apply time is a single string equality.
+        def sig:string ""
+        def k:int 0
+        while (k < count) {
+            def nm:string (itemAt planNames (from + k))
+            if (EVGStyleSheet.isLayoutProperty(nm)) {
+                sig = ((((sig + nm) + ":") + (itemAt planValues (from + k))) + ";")
+            }
+            k = (k + 1)
+        }
+        push planLayoutSig sig
+        set planIndex key slot
+        return slot
+    }
+
+    ; `clearStateProps`, recorded. Note it does NOT consult `EVGPseudo.holds`:
+    ; every state rule that could match this class resets its properties first,
+    ; whether or not the state is currently on — which is what makes leaving a
+    ; state put the base value back.
+    fn planStateClears:void (classes:[string] theme:string) {
         def i:int 0
         def n:int (array_length rules)
         while (i < n) {
             def rule:EVGStyleRule (itemAt rules i)
-            if ((rule.isThemeScoped()) == themeScoped) {
+            if (rule.pseudo != 0) {
+                def applies:boolean true
+                if (rule.isThemeScoped()) {
+                    applies = (rule.theme == theme)
+                }
+                if applies {
+                    applies = (rule.media.matches(viewportW viewportH coarsePointer))
+                }
+                if applies {
+                    applies = (this.matchesClass(classes rule.className))
+                }
+                if applies {
+                    def d:int 0
+                    while (d < (array_length rule.decls)) {
+                        def decl:EVGStyleDecl (itemAt rule.decls d)
+                        def init:string (EVGStyleSheet.initialValue(decl.name))
+                        if ((strlen init) > 0) {
+                            push planNames decl.name
+                            push planValues init
+                            ; No rule asked for this: it is the initial value,
+                            ; put back before the state rules are consulted.
+                            push planRules (0 - 1)
+                        }
+                        d = (d + 1)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; `applyGroup`, recorded.
+    fn planGroup:void (el:EVGElement classes:[string] theme:string themeScoped:boolean stateful:boolean) {
+        def i:int 0
+        def n:int (array_length rules)
+        while (i < n) {
+            def rule:EVGStyleRule (itemAt rules i)
+            def isStateful:boolean (rule.pseudo != 0)
+            if ((isStateful == stateful) && ((rule.isThemeScoped()) == themeScoped)) {
                 def applies:boolean true
                 if themeScoped {
                     applies = (rule.theme == theme)
@@ -770,8 +1648,158 @@ class EVGStyleSheet {
                     applies = (rule.media.matches(viewportW viewportH coarsePointer))
                 }
                 if applies {
+                    applies = (EVGPseudo.holds(rule.pseudo el))
+                }
+                if applies {
                     if (this.matchesClass(classes rule.className)) {
-                        this.applyDecls(el rule)
+                        def d:int 0
+                        while (d < (array_length rule.decls)) {
+                            def decl:EVGStyleDecl (itemAt rule.decls d)
+                            ; ONCE PER PLAN, which is once per (class, theme,
+                            ; state) — the reason a sheet written entirely in
+                            ; variables costs what a literal one costs.
+                            def v:string (this.resolveVars(decl.value theme decl.name))
+                            if ((strlen v) > 0) {
+                                push planNames decl.name
+                                push planValues v
+                                push planRules i
+                            }
+                            d = (d + 1)
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Put back the initial value of everything a STATE rule for this element
+    ; can set, before deciding which states hold.
+    ;
+    ; The cascade in a browser recomputes a style from nothing every time. This
+    ; one mutates the element in place, which is fast and which quietly breaks
+    ; the moment a property is declared ONLY under `:hover`: the pointer leaves,
+    ; no rule writes the property, and the hover value stays on the element
+    ; forever. A row that lifts and never comes back down.
+    ;
+    ; The properties at risk are exactly those a state rule declares — a base
+    ; rule's are rewritten by the base pass a moment later — so that is the set
+    ; cleared here, whether or not the state currently holds.
+    ;
+    ; Only properties with an unambiguous initial value are cleared, and
+    ; `initialValue` says which those are. A property outside that table keeps
+    ; the old behaviour, so the fix cannot make anything worse than it was; the
+    ; workaround there is the one that has always worked, which is to declare
+    ; the property on the base rule too.
+    fn clearStateProps:void (el:EVGElement classes:[string] theme:string) {
+        def i:int 0
+        def n:int (array_length rules)
+        while (i < n) {
+            def rule:EVGStyleRule (itemAt rules i)
+            if (rule.pseudo != 0) {
+                def applies:boolean true
+                if (rule.isThemeScoped()) {
+                    applies = (rule.theme == theme)
+                }
+                if applies {
+                    applies = (rule.media.matches(viewportW viewportH coarsePointer))
+                }
+                if applies {
+                    applies = (this.matchesClass(classes rule.className))
+                }
+                if applies {
+                    def d:int 0
+                    while (d < (array_length rule.decls)) {
+                        def decl:EVGStyleDecl (itemAt rule.decls d)
+                        def init:string (EVGStyleSheet.initialValue(decl.name))
+                        if ((strlen init) > 0) {
+                            ; Inline still outranks the sheet, so an inline
+                            ; value is not something a state rule may clear.
+                            if ((el.hasInline(decl.name)) == false) {
+                                el.setAttribute(decl.name init)
+                            }
+                        }
+                        d = (d + 1)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; The CSS initial value, for the properties where it is unambiguous and
+    ; cheap to write back. "" means "no safe initial" and the property is left
+    ; alone.
+    ;
+    ; `color` is deliberately absent: its initial value is `inherit`, and
+    ; writing a literal here would break inheritance rather than restore it.
+    sfn initialValue:string (name:string) {
+        if (name == "transform")        { return "none" }
+        if (name == "transform-origin")  { return "50% 50%" }
+        if (name == "transformOrigin")   { return "50% 50%" }
+        if (name == "opacity")          { return "1" }
+        if (name == "background-color") { return "transparent" }
+        if (name == "backgroundColor")  { return "transparent" }
+        if (name == "rotate")           { return "0" }
+        if (name == "scale")            { return "1" }
+        return ""
+    }
+
+    ; Does this property take part in deciding where boxes go?
+    ;
+    ; Conservative by construction: anything not listed here counts as LAYOUT,
+    ; so a property nobody thought about costs a layout pass rather than
+    ; silently leaving a stale one. The listed set is the paint-only one —
+    ; colours, opacity, shadows, radii, and `transform`, which in EVG is applied
+    ; to the display list after layout and therefore moves nothing.
+    sfn isLayoutProperty:boolean (name:string) {
+        if (name == "color")              { return false }
+        if (name == "background-color")   { return false }
+        if (name == "backgroundColor")    { return false }
+        if (name == "border-color")       { return false }
+        if (name == "borderColor")        { return false }
+        if (name == "fill")               { return false }
+        if (name == "stroke")             { return false }
+        if (name == "opacity")            { return false }
+        if (name == "border-radius")      { return false }
+        if (name == "borderRadius")       { return false }
+        if (name == "transform")          { return false }
+        if (name == "transform-origin")   { return false }
+        if (name == "transformOrigin")    { return false }
+        if (name == "rotate")             { return false }
+        if (name == "scale")              { return false }
+        if (name == "box-shadow")         { return false }
+        if (name == "shadow-color")       { return false }
+        if (name == "background-gradient") { return false }
+        if (name == "backdrop-filter")    { return false }
+        if (name == "cursor")             { return false }
+        if (name == "transition")         { return false }
+        if (name == "scrollbar-width")    { return false }
+        if (name == "scrollbar-color")    { return false }
+        if (name == "evg-scrollbar-label") { return false }
+        return true
+    }
+
+    fn applyGroup:void (el:EVGElement classes:[string] theme:string themeScoped:boolean stateful:boolean) {
+        def i:int 0
+        def n:int (array_length rules)
+        while (i < n) {
+            def rule:EVGStyleRule (itemAt rules i)
+            def isStateful:boolean (rule.pseudo != 0)
+            if ((isStateful == stateful) && ((rule.isThemeScoped()) == themeScoped)) {
+                def applies:boolean true
+                if themeScoped {
+                    applies = (rule.theme == theme)
+                }
+                if applies {
+                    applies = (rule.media.matches(viewportW viewportH coarsePointer))
+                }
+                if applies {
+                    applies = (EVGPseudo.holds(rule.pseudo el))
+                }
+                if applies {
+                    if (this.matchesClass(classes rule.className)) {
+                        this.applyDecls(el rule theme)
                     }
                 }
             }
@@ -790,13 +1818,20 @@ class EVGStyleSheet {
         return false
     }
 
-    fn applyDecls:void (el:EVGElement rule:EVGStyleRule) {
+    ; The direct path's write. It resolves `var()` like the plan builder does,
+    ; and it has to: `EVGStyleCacheTest` styles the same tree both ways and
+    ; compares the display lists, so a variable the cache understood and this
+    ; did not would show up as the cache being wrong.
+    fn applyDecls:void (el:EVGElement rule:EVGStyleRule theme:string) {
         def i:int 0
         while (i < (array_length rule.decls)) {
             def d:EVGStyleDecl (itemAt rule.decls i)
             ; Inline attributes outrank every stylesheet rule.
             if ((el.hasInline(d.name)) == false) {
-                el.setAttribute(d.name d.value)
+                def v:string (this.resolveVars(d.value theme d.name))
+                if ((strlen v) > 0) {
+                    el.setAttribute(d.name v)
+                }
             }
             i = (i + 1)
         }

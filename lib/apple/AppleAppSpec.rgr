@@ -1,0 +1,201 @@
+; SPDX-License-Identifier: MIT
+
+; =============================================================================
+; AppleAppSpec.rgr -- the app, as everything but the code.
+; =============================================================================
+;
+; An .app bundle is a directory with an executable in it and a property list
+; that explains the executable to the system. Xcode builds that plist from a
+; project file, a target, a scheme and a build settings sheet; a command line
+; build has to say it in one place, and this is that place.
+;
+; The plist writer is here too, because the keys are not free-form: an iOS app
+; that omits `CFBundleExecutable` does not launch, one that omits
+; `UIDeviceFamily` is an iPhone app on an iPad, and one that omits
+; `UILaunchScreen` is letterboxed into a phone-sized box on every iPad no
+; matter what its families say. Those three are the ones a hand-built bundle
+; gets wrong, so they are written from the spec rather than left to a caller.
+; =============================================================================
+
+class AppleAppSpec {
+
+    ; The bundle and executable name. No spaces -- this is a file name.
+    def name:string "RangerApp"
+    ; What the home screen shows under the icon.
+    def displayName:string "Ranger App"
+    ; Reverse DNS, and the identity the simulator installs and launches by.
+    def bundleId:string "fi.ranger.app"
+    def version:string "1.0"
+    def build:string "1"
+
+    ; Every Swift file that goes into the executable, in no particular order.
+    ; For a Ranger app this is the generated .swift plus the host sources.
+    def sources:[string]
+    ; Files and directories copied into the bundle as they are. A stylesheet, a
+    ; font, an icon.
+    def resources:[string]
+    ; Anything extra for swiftc: -O, -warnings-as-errors, a framework path.
+    def swiftFlags:[string]
+    ; Frameworks to link that swiftc does not pull in on its own.
+    def frameworks:[string]
+
+    ; Extra Info.plist entries, as already-formatted XML fragments. The escape
+    ; hatch for a key this class does not know about.
+    def extraPlist:[string]
+
+    ; The .mobileprovision for a DEVICE build. Ignored for the simulator, which
+    ; needs no profile at all. When set, it is copied into the bundle as
+    ; `embedded.mobileprovision` and the entitlements it grants are read out of
+    ; it and handed to codesign.
+    def provisioningProfile:string ""
+
+    ; Portrait plus both landscapes, which is what a page that reflows wants.
+    ; An empty list leaves the key out and lets the system decide.
+    def orientations:[string]
+
+    Constructor () {
+        orientations = ([] _:string ( "UIInterfaceOrientationPortrait" "UIInterfaceOrientationLandscapeLeft" "UIInterfaceOrientationLandscapeRight" ))
+    }
+
+    fn addSource:void (path:string) {
+        push sources path
+    }
+
+    fn addResource:void (path:string) {
+        push resources path
+    }
+
+    fn addFramework:void (name:string) {
+        push frameworks name
+    }
+
+    ; The bundle directory name. `.app` is not decoration -- the simulator
+    ; installs a directory by that extension and nothing else.
+    fn bundleName:string () {
+        return (name + ".app")
+    }
+}
+
+; The property list, written out. XML rather than JSON or binary because it is
+; the format every Apple tool reads without conversion, and because a build that
+; goes wrong is one a person has to be able to read.
+class AppleInfoPlist {
+
+    ; Escape the five characters an XML text node cannot hold. A display name
+    ; with an ampersand in it is not exotic, and an unescaped one makes the
+    ; plist unparseable rather than wrong -- the app simply will not install.
+    sfn escape:string (s:string) {
+        def out:string s
+        out = (join (strsplit out "&") "&amp;")
+        out = (join (strsplit out "<") "&lt;")
+        out = (join (strsplit out ">") "&gt;")
+        out = (join (strsplit out "\"") "&quot;")
+        return out
+    }
+
+    sfn stringKey:string (key:string value:string) {
+        return ("\t<key>" + (AppleInfoPlist.escape(key)) + "</key>\n\t<string>" + (AppleInfoPlist.escape(value)) + "</string>")
+    }
+
+    sfn boolKey:string (key:string value:boolean) {
+        def word:string "<false/>"
+        if value {
+            word = "<true/>"
+        }
+        return ("\t<key>" + (AppleInfoPlist.escape(key)) + "</key>\n\t" + word)
+    }
+
+    sfn intArrayKey:string (key:string values:[int]) {
+        def rows:[string]
+        push rows ("\t<key>" + (AppleInfoPlist.escape(key)) + "</key>")
+        push rows "\t<array>"
+        for values v:int i {
+            push rows ("\t\t<integer>" + v + "</integer>")
+        }
+        push rows "\t</array>"
+        return (join rows "\n")
+    }
+
+    sfn stringArrayKey:string (key:string values:[string]) {
+        def rows:[string]
+        push rows ("\t<key>" + (AppleInfoPlist.escape(key)) + "</key>")
+        push rows "\t<array>"
+        for values v:string i {
+            push rows ("\t\t<string>" + (AppleInfoPlist.escape(v)) + "</string>")
+        }
+        push rows "\t</array>"
+        return (join rows "\n")
+    }
+
+    ; The whole plist for one app on one target.
+    sfn build:string (spec:AppleAppSpec target:AppleTarget) {
+        def rows:[string]
+        push rows "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+        push rows "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">"
+        push rows "<plist version=\"1.0\">"
+        push rows "<dict>"
+        push rows (AppleInfoPlist.stringKey("CFBundleDevelopmentRegion" "en"))
+        ; The one key with no default worth guessing: without it the system has
+        ; a directory and no idea which file in it to run.
+        push rows (AppleInfoPlist.stringKey("CFBundleExecutable" spec.name))
+        push rows (AppleInfoPlist.stringKey("CFBundleIdentifier" spec.bundleId))
+        push rows (AppleInfoPlist.stringKey("CFBundleInfoDictionaryVersion" "6.0"))
+        push rows (AppleInfoPlist.stringKey("CFBundleName" spec.name))
+        push rows (AppleInfoPlist.stringKey("CFBundleDisplayName" spec.displayName))
+        push rows (AppleInfoPlist.stringKey("CFBundlePackageType" "APPL"))
+        push rows (AppleInfoPlist.stringKey("CFBundleShortVersionString" spec.version))
+        push rows (AppleInfoPlist.stringKey("CFBundleVersion" spec.build))
+
+        def platformName:string "iPhoneOS"
+        if (target.isWatch()) {
+            platformName = "WatchOS"
+            if target.isSimulator {
+                platformName = "WatchSimulator"
+            }
+        } {
+            if target.isSimulator {
+                platformName = "iPhoneSimulator"
+            }
+        }
+        def platforms:[string]
+        push platforms platformName
+        push rows (AppleInfoPlist.stringArrayKey("CFBundleSupportedPlatforms" platforms))
+
+        if (target.isWatch()) {
+            ; A standalone watch app -- no paired iPhone app to be an appendage
+            ; of, which is what watchOS 6 and later allow and what makes a watch
+            ; build from the command line reasonable at all. WKApplication is
+            ; what watchOS 7 and later read, WKWatchOnly says there is no
+            ; companion, and WKRunsIndependentlyOfCompanionApp is what the
+            ; watchOS 6 generation read for the same thing. All three, because
+            ; which one is consulted depends on the OS and none of them costs
+            ; anything.
+            push rows (AppleInfoPlist.boolKey("WKApplication" true))
+            push rows (AppleInfoPlist.boolKey("WKWatchOnly" true))
+            push rows (AppleInfoPlist.boolKey("WKRunsIndependentlyOfCompanionApp" true))
+            push rows (AppleInfoPlist.stringKey("MinimumOSVersion" target.minVersion))
+        } {
+            push rows (AppleInfoPlist.stringKey("MinimumOSVersion" target.minVersion))
+            push rows (AppleInfoPlist.intArrayKey("UIDeviceFamily" target.families))
+            if ((array_length spec.orientations) > 0) {
+                push rows (AppleInfoPlist.stringArrayKey("UISupportedInterfaceOrientations" spec.orientations))
+                push rows (AppleInfoPlist.stringArrayKey("UISupportedInterfaceOrientations~ipad" spec.orientations))
+            }
+            ; An empty UILaunchScreen dictionary is the modern way to say "this
+            ; app has no launch storyboard and is still full screen". Leave it
+            ; out and iOS runs the app letterboxed in a phone-sized window on
+            ; every iPad, which looks exactly like a layout bug.
+            push rows "\t<key>UILaunchScreen</key>"
+            push rows "\t<dict/>"
+            push rows (AppleInfoPlist.boolKey("UIRequiresFullScreen" false))
+        }
+
+        for spec.extraPlist row:string i {
+            push rows row
+        }
+        push rows "</dict>"
+        push rows "</plist>"
+        push rows ""
+        return (join rows "\n")
+    }
+}

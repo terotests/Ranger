@@ -1,0 +1,129 @@
+{
+ "name": "tree_select_pointer",
+ "component": "tree",
+ "behaviours": [
+  "select-click",
+  "select-ctrl-click",
+  "select-shift-click",
+  "select-anchor",
+  "selected-state",
+  "select-modified-click-does-not-toggle"
+ ],
+ "fixture": {
+  "controls": [
+   {
+    "type": "tree",
+    "tid": "tr",
+    "root": "crm",
+    "indent": 20,
+    "selection": true,
+    "expanded": [
+     "leads",
+     "accounts",
+     "acme"
+    ],
+    "items": [
+     {
+      "value": "crm",
+      "name": "CRM",
+      "children": [
+       "leads",
+       "accounts",
+       "activities"
+      ]
+     },
+     {
+      "value": "leads",
+      "name": "Leads",
+      "children": [
+       "new-lead",
+       "contacted-lead"
+      ]
+     },
+     {
+      "value": "new-lead",
+      "name": "New Lead"
+     },
+     {
+      "value": "contacted-lead",
+      "name": "Contacted Lead"
+     },
+     {
+      "value": "accounts",
+      "name": "Accounts",
+      "children": [
+       "acme"
+      ]
+     },
+     {
+      "value": "acme",
+      "name": "Acme Corp",
+      "children": [
+       "jane",
+       "john"
+      ]
+     },
+     {
+      "value": "jane",
+      "name": "Jane Doe"
+     },
+     {
+      "value": "john",
+      "name": "John Smith"
+     },
+     {
+      "value": "activities",
+      "name": "Activities",
+      "children": [
+       "calls",
+       "emails"
+      ]
+     },
+     {
+      "value": "calls",
+      "name": "Calls"
+     },
+     {
+      "value": "emails",
+      "name": "Emails"
+     }
+    ]
+   }
+  ]
+ },
+ "steps": [
+  {
+   "click": "tr-item-new-lead"
+  },
+  {
+   "click": "tr-item-contacted-lead"
+  },
+  {
+   "click": "tr-item-jane",
+   "mods": [
+    "Control"
+   ]
+  },
+  {
+   "click": "tr-item-jane",
+   "mods": [
+    "Control"
+   ]
+  },
+  {
+   "click": "tr-item-activities",
+   "mods": [
+    "Shift"
+   ]
+  },
+  {
+   "click": "tr-item-new-lead",
+   "mods": [
+    "Shift"
+   ]
+  },
+  {
+   "click": "tr-item-acme"
+  }
+ ]
+}

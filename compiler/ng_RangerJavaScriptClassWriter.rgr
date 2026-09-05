@@ -185,11 +185,7 @@ class RangerJavaScriptClassWriter {
         }
       }
 
-      wr.out("(" false)
-      ctx.setInExpr()
-      this.WalkNode( obj ctx wr)
-      ctx.unsetInExpr()
-      wr.out(")" false)
+      this.writeCallReceiver(obj ctx wr)
       if(target_typescript) {
         if(this.isOptionalReference(obj)) {
           wr.out("!." false)
@@ -655,7 +651,7 @@ class RangerJavaScriptClassWriter {
       if was_set {
         wr.out(";" false)
         if ((p.ref_cnt == 0) && (p.is_class_variable == true)) {
-          wr.out("     /** note: unused */" false)
+          wr.out("     /* note: unused */" false)
         }
         wr.newline()
       }
@@ -724,7 +720,7 @@ class RangerJavaScriptClassWriter {
         }
       }
       if ((p.ref_cnt == 0) && (p.is_class_variable == true)) {
-        wr.out("     /** note: unused */" false)
+        wr.out("     /* note: unused */" false)
       }
       wr.out(";" false)
       wr.newline()
@@ -993,6 +989,15 @@ class RangerJavaScriptClassWriter {
               return
             }
           }          
+          ; A class that holds nothing but doc examples is left out of the
+          ; output unless `-keep-examples` asks for it — so its export line
+          ; has to be left out with it, or the module names a class that
+          ; does not exist and fails to load.
+          if(item.isDocExampleOnly()) {
+            if((ctx.hasCompilerFlag("keep-examples")) == false) {
+              return
+            }
+          }
           if(item.isNormalClass()) {
               def theEnd (wr.getTag("file_end"))
               theEnd.out( ("module.exports." + item.name + " = " + item.name + ";") true )
@@ -1021,6 +1026,11 @@ class RangerJavaScriptClassWriter {
       }
     }
 
+    if cl.has_doc {
+      def clDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
+      clDocWr.writeJsDocForClass((unwrap cl) ctx wr)
+    }
+
     if do_export {
       wr.out("export " false)
       if(is_rn_default) {
@@ -1047,6 +1057,12 @@ class RangerJavaScriptClassWriter {
     wr.indent(1)
     ; define the class variables
     for cl.variables pvar:RangerAppParamDesc i {
+      if target_typescript {
+        if pvar.has_doc {
+          def tsFieldDoc:RangerDocCommentWriter (new RangerDocCommentWriter)
+          tsFieldDoc.writeJsDocForField(pvar wr)
+        }
+      }
       this.writeClassVarDef( pvar ctx wr)
     }
 
@@ -1139,6 +1155,12 @@ class RangerJavaScriptClassWriter {
         if pvar.is_static {
           continue _
         }
+        if (target_typescript == false) {
+          if pvar.has_doc {
+            def jsFieldDoc:RangerDocCommentWriter (new RangerDocCommentWriter)
+            jsFieldDoc.writeJsDocForField(pvar wr)
+          }
+        }
         this.writeVarInitDef(( unwrap pvar.node ) ctx wr)
       }
       if cl.has_constructor {
@@ -1158,7 +1180,16 @@ class RangerJavaScriptClassWriter {
     for cl.defined_variants fnVar:string i {
       def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
       for mVs.variants variant:RangerAppFunctionDesc i {
+        if variant.is_doc_example {
+          if ((ctx.hasCompilerFlag("keep-examples")) == false) {
+            continue _
+          }
+        }
 
+        if variant.has_doc {
+          def mDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
+          mDocWr.writeJsDocForMethod(variant ctx wr)
+        }
         if( variant.nameNode.hasFlag('async') ) {
           wr.out('async ' false)
         }
@@ -1202,12 +1233,21 @@ class RangerJavaScriptClassWriter {
         if (variant.nameNode.hasFlag("main")) {
           continue _
         } 
+        if variant.is_doc_example {
+          if ((ctx.hasCompilerFlag("keep-examples")) == false) {
+            continue _
+          }
+        }
 
         if (variant.nameNode.hasFlag("test")) {
           print "Found a test function, but not writing it: " + (variant.nameNode.vref)
           continue _
         } 
 
+        if variant.has_doc {
+          def sDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
+          sDocWr.writeJsDocForMethod(variant ctx wr)
+        }
         wr.out("static " false)
         if( variant.nameNode.hasFlag('async') ) {
           wr.out('async ' false)
@@ -1338,6 +1378,11 @@ class RangerJavaScriptClassWriter {
       }
 
       for cl.static_methods variant:RangerAppFunctionDesc i {
+        if variant.is_doc_example {
+          if ((ctx.hasCompilerFlag("keep-examples")) == false) {
+            continue _
+          }
+        }
         if (variant.nameNode.hasFlag("main")) {
           continue _
         } {
@@ -1364,6 +1409,10 @@ class RangerJavaScriptClassWriter {
           def useDefineProp:boolean false
           if ((variant.compiledName == "name") || (variant.compiledName == "length")) {
             useDefineProp = true
+          }
+          if variant.has_doc {
+            def jsDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
+            jsDocWr.writeJsDocForMethod(variant ctx wr)
           }
           if useDefineProp {
             wr.out((("Object.defineProperty(" + cl.name + ", \"" + variant.compiledName + "\", { value: ") + asyncKeyword + "function(") false)

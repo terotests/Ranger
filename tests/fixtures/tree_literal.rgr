@@ -1,0 +1,129 @@
+; SPDX-License-Identifier: MIT
+;
+; Tree literals: `treefactory` names what a tag builds, `tree` builds one.
+;
+; The point of this fixture is that the SAME tag syntax drives two completely
+; unrelated object spaces. `UiTree` builds display nodes with a children list;
+; `SqlTree` builds a query out of classes that share nothing with them — not a
+; base class, not an interface, not a node type. Nothing in the compiler knows
+; what either of them is.
+
+; --- object space one: a display tree -----------------------------------------
+
+class Box {
+    def name:string ""
+    def label:string ""
+    def kids:[Box]
+    Constructor () { }
+    fn addKid:void (k:Box) {
+        push kids k
+    }
+    fn render:string () {
+        def out:string name
+        if ((strlen label) > 0) {
+            out = ((out + ":") + label)
+        }
+        if ((array_length kids) > 0) {
+            out = out + "("
+            def i:int 0
+            while (i < (array_length kids)) {
+                if (i > 0) {
+                    out = out + " "
+                }
+                out = out + ((itemAt kids i).render())
+                i = (i + 1)
+            }
+            out = out + ")"
+        }
+        return out
+    }
+}
+
+; --- object space two: a query ------------------------------------------------
+; Deliberately NOT a Box, and deliberately not even the same shape: a Select
+; takes columns and a table, and says so with two different methods.
+
+class Column {
+    def name:string ""
+    Constructor () { }
+}
+
+class Select {
+    def table:string ""
+    def cols:[Column]
+    Constructor () { }
+    fn addColumn:void (c:Column) {
+        push cols c
+    }
+    fn sql:string () {
+        def out:string "select "
+        def i:int 0
+        while (i < (array_length cols)) {
+            if (i > 0) {
+                out = out + ", "
+            }
+            out = out + ((itemAt cols i).name)
+            i = (i + 1)
+        }
+        return ((out + " from ") + table)
+    }
+}
+
+; --- the factories ------------------------------------------------------------
+
+treefactory UiTree {
+    child addKid
+    text  label
+    tag   Row  Box
+    tag   Cell Box
+}
+
+treefactory SqlTree {
+    child addColumn
+    tag   Query  Select
+    tag   Column Column
+}
+
+class TreeLiteralTest {
+
+    ; A component is an ordinary function that returns a node. There is no
+    ; component type, no registration and no runtime — the tag syntax does not
+    ; even know this happened.
+    sfn badge:Box (who:string) {
+        return (tree UiTree
+            (Cell (props (name "badge")) who))
+    }
+
+    sfn main:void () {
+        def title:string "hello"
+
+        def ui (tree UiTree
+            (Row (props (name "root"))
+                (Cell (props (name "a")) title)
+                (Cell (props (name "b")) "literal")
+                (child (TreeLiteralTest.badge("tero")))))
+        print (ui.render())
+
+        ; The same syntax, a different object space, a different child method.
+        def q (tree SqlTree
+            (Query (props (table "documents"))
+                (Column (props (name "id")))
+                (Column (props (name "title")))))
+        print (q.sql())
+
+        ; A tree literal is an expression: it works wherever one does.
+        def boxes:[Box]
+        def i:int 0
+        while (i < 3) {
+            push boxes (tree UiTree (Cell (props (name ("n" + (to_string i))))))
+            i = (i + 1)
+        }
+        def names:string ""
+        def j:int 0
+        while (j < (array_length boxes)) {
+            names = names + ((itemAt boxes j).name)
+            j = (j + 1)
+        }
+        print names
+    }
+}

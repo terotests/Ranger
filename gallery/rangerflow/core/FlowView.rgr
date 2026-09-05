@@ -1123,8 +1123,8 @@ class FlowView {
         ; allowed a second one — "changes requested" reads better stacked than
         ; strung across three nodes.
         def lay:FlowTextLayout (this.layoutText(raw size (this.sl(160.0)) 0.0 2))
-        def mx:double (this.sx((path.midX())))
-        def my:double (this.sy((path.midY())))
+        def mx:double (this.sx(((path.midX()) + e.labelDX)))
+        def my:double (this.sy(((path.midY()) + e.labelDY)))
         def pad:double 4.0
         def bw:double (lay.width + (pad * 2.0))
         def bh:double (lay.height + pad)

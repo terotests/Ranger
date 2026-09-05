@@ -1,0 +1,62 @@
+Import "../V1Json.rgr"
+Import "AstNode.rgr"
+
+class DrinkingNode {
+    Extends(AstNode)
+
+    def hasVolume:boolean false
+    def volumeRaw:string "0"
+    def volumeUnit:string ""
+    def hasCalories:boolean false
+    def caloriesRaw:string "0"
+    def hasProtein:boolean false
+    def proteinRaw:string "0"
+    def nutrientJsonList:[string]
+    def hasNutrients:boolean false
+    def hasLiquid:boolean false
+    def liquid:string ""
+    def hasDescription:boolean false
+    def description:string ""
+
+    Constructor () {
+        type = "drinking"
+    }
+
+    fn toJSONString@(override):string () {
+        def fields:[string]
+        CompactV1Json.addStringField(fields "type" type)
+        if (hasVolume) {
+            CompactV1Json.addRawField(fields "volume" volumeRaw)
+            CompactV1Json.addStringField(fields "volumeUnit" volumeUnit)
+        } {
+            CompactV1Json.addRawField(fields "volume" "null")
+            CompactV1Json.addRawField(fields "volumeUnit" "null")
+        }
+        if (hasCalories) {
+            CompactV1Json.addRawField(fields "calories" caloriesRaw)
+        } {
+            CompactV1Json.addRawField(fields "calories" "null")
+        }
+        if (hasProtein) {
+            CompactV1Json.addRawField(fields "protein" proteinRaw)
+        } {
+            CompactV1Json.addRawField(fields "protein" "null")
+        }
+        if (hasNutrients) {
+            CompactV1Json.addRawField(fields "nutrients" ("[" + (join nutrientJsonList ",") + "]"))
+        } {
+            CompactV1Json.addRawField(fields "nutrients" "null")
+        }
+        if (hasLiquid) {
+            CompactV1Json.addStringField(fields "liquid" liquid)
+        } {
+            CompactV1Json.addRawField(fields "liquid" "null")
+        }
+        if (hasDescription) {
+            CompactV1Json.addStringField(fields "description" description)
+        } {
+            CompactV1Json.addRawField(fields "description" "null")
+        }
+        return (CompactV1Json.jsonObject(fields))
+    }
+}

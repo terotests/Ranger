@@ -405,6 +405,20 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       return true
     }
     if node.hasClassDescription {
+      ; A class holding nothing but doc examples has nothing left to emit once
+      ; the examples are removed. The guard belongs HERE rather than in the
+      ; caller's class loop: a program with a top-level `main` reaches its
+      ; classes through the static-methods node instead, and a guard in the
+      ; loop alone let the empty shell through on exactly those programs.
+      def exCl@(optional weak):RangerAppClassDesc node.clDesc
+      if ((null? exCl) == false) {
+        def exDesc:RangerAppClassDesc (unwrap exCl)
+        if (exDesc.isDocExampleOnly()) {
+          if ((ctx.hasCompilerFlag("keep-examples")) == false) {
+            return true
+          }
+        }
+      }
       langWriter.writeClass(node ctx wr)
       return true
     }
@@ -669,26 +683,89 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
     if (cmdl_wraps && paren_suppressed) {
       cmdl_wraps = false
     }
+    def cmdlOpName:string ""
+    if ((array_length node.children) > 0) {
+      def cmdlFc0:CodeNode (node.getFirst())
+      cmdlOpName = cmdlFc0.vref
+    }
     if cmdl_wraps {
       ; an operator whose template is itself `( … )` never needs the pair
       if ((array_length node.children) > 0) {
-        def cmdlFc:CodeNode (node.getFirst())
-        if (langWriter.opWritesOwnParens(cmdlFc.vref node ctx)) {
+        if (langWriter.opWritesOwnParens(cmdlOpName node ctx)) {
           cmdl_wraps = false
         }
       }
     }
+    ; PLAN_FORMAT.md phase 2. The tree is already fully parenthesised by
+    ; construction, so a pair is needed in the OUTPUT only where the target's
+    ; precedence would re-associate differently. An operand that binds strictly
+    ; tighter than the operator it sits inside never needs one, in any target
+    ; here. Equal precedence and anything unknown keep the pair, which is why
+    ; this cannot change what a program means.
+    def cmdlMyBp:int (langWriter.bindingPowerOf(cmdlOpName))
     if cmdl_wraps {
-      wr.out('(' false)
+      if (langWriter.formatterEnabled(ctx)) {
+        def cmdlNeeds:boolean (langWriter.operandNeedsParens(cmdlMyBp wr.parent_binding))
+        if (cmdlNeeds == false) {
+          cmdl_wraps = false
+        }
+      }
+    }
+    ; Still wrapping, and the formatter is on: write the body aside and ask
+    ; what it turned out to be. An operator whose own precedence is not in the
+    ; table -- `to_double`, `unwrap`, an index read -- can still emit something
+    ; that needs no pair at all: `(to_double digit)` is just `digit`, and
+    ; `(itemAt xs i)` is `xs[i]`. A pair around a postfix expression is never
+    ; required, whatever sits outside it, so this is safe wherever it fires.
+    def cmdlBuffered:boolean false
+    if cmdl_wraps {
+      if (langWriter.formatterEnabled(ctx)) {
+        cmdlBuffered = true
+      }
     }
     def prev_op_np:boolean wr.current_op_no_parens
-    wr.current_op_no_parens = (paren_suppressed || cmdl_wraps)
-    for cmd.children c:CodeNode i {
-      this.walkCommand(c node ctx wr)
-    }
-    wr.current_op_no_parens = prev_op_np
-    if cmdl_wraps {
-      wr.out(')' false)
+    def prev_bind:int wr.parent_binding
+    if cmdlBuffered {
+      def body:CodeWriter (new CodeWriter)
+      body.parent = wr
+      body.indentAmount = 0
+      body.sourceMapsEnabled = wr.sourceMapsEnabled
+      body.sourceMapBuilder = wr.sourceMapBuilder
+      body.lineNumber = wr.lineNumber
+      body.suppress_expr_parens = wr.suppress_expr_parens
+      body.current_op_no_parens = true
+      body.in_format_args = wr.in_format_args
+      body.parent_binding = cmdlMyBp
+      wr.current_op_no_parens = true
+      wr.parent_binding = cmdlMyBp
+      for cmd.children c:CodeNode i {
+        this.walkCommand(c node ctx body)
+      }
+      wr.suppress_expr_parens = body.suppress_expr_parens
+      wr.in_format_args = body.in_format_args
+      wr.parent_binding = prev_bind
+      wr.current_op_no_parens = prev_op_np
+      def bodyCode:string (body.getCode())
+      def bodyNeeds:boolean (langWriter.receiverNeedsParens(bodyCode))
+      if bodyNeeds {
+        wr.out(("(" + bodyCode + ")") false)
+      } {
+        wr.out(bodyCode false)
+      }
+    } {
+      if cmdl_wraps {
+        wr.out('(' false)
+      }
+      wr.current_op_no_parens = (paren_suppressed || cmdl_wraps)
+      wr.parent_binding = cmdlMyBp
+      for cmd.children c:CodeNode i {
+        this.walkCommand(c node ctx wr)
+      }
+      wr.parent_binding = prev_bind
+      wr.current_op_no_parens = prev_op_np
+      if cmdl_wraps {
+        wr.out(')' false)
+      }
     }
     if ((ctx.expressionLevel()) == 0) {
       wr.line_end( (langWriter.lineEnding()) )
@@ -1127,6 +1204,42 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
             while (barg.expression && ((array_length barg.children) == 1)) {
               barg = (barg.getFirst())
             }
+            ; a field read through an EXPRESSION — `(st.getSecond()).vref` —
+            ; is the same read as `st.vref`, and the same move out of a Ref
+            ; (E0507). The property node is an expression with children, so
+            ; every test below turned it away; its PROPERTY child is a plain
+            ; name carrying the field's descriptor, which is exactly what they
+            ; ask for.
+            def bargPropDesc@(optional):RangerAppParamDesc
+            if (barg.isFirstVref("property")) {
+              if ((array_length barg.children) > 2) {
+                ; the property name carries no descriptor of its own — it was
+                ; never resolved against a name — so the OBJECT's class is
+                ; asked for the field, exactly as the property writer does
+                def pgObj:CodeNode (barg.getSecond())
+                def pgProp:CodeNode (barg.getThird())
+                def pgFldName:string pgProp.vref
+                if ((strlen pgFldName) > 0) {
+                  if ((charAt pgFldName 0) == 46) {
+                    pgFldName = (substring pgFldName 1 ((strlen pgFldName) - 1))
+                  }
+                }
+                def pgType:string pgObj.eval_type_name
+                if ((strlen pgType) == 0) {
+                  pgType = pgObj.type_name
+                }
+                if ((strlen pgType) > 0) {
+                  if (ctx.isDefinedClass(pgType)) {
+                    def pgCl:RangerAppClassDesc (ctx.findClass(pgType))
+                    def pgFld@(optional):RangerAppParamDesc (pgCl.findVariable(pgFldName))
+                    if (!null? pgFld) {
+                      bargPropDesc = pgFld
+                    }
+                  }
+                }
+                barg = pgProp
+              }
+            }
             if (((barg.expression == false) && ((strlen barg.vref) > 0)) && ((array_length barg.children) == 0)) {
               ; the deciding desc: the name itself, or — for a dotted
               ; field read, which comes out of a Ref and cannot move
@@ -1137,6 +1250,9 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
               }
               if (((array_length barg.ns) > 1) && ((array_length barg.nsp) > 0)) {
                 bpd2 = (itemAt barg.nsp ((array_length barg.nsp) - 1))
+              }
+              if (!null? bargPropDesc) {
+                bpd2 = (unwrap bargPropDesc)
               }
               if (!null? bpd2) {
                 def bpd:RangerAppParamDesc (unwrap bpd2)
@@ -1326,19 +1442,41 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
             }
           }
         }
+        ; Write a `for` loop's binding, or `_` when the loop BODY never reads it
+        ; -- Swift warns on every bound name that goes unread, and Ranger's
+        ; `for` binds both an item and an index whether the body wants them or
+        ; not.
+        ;
+        ; The question is answered by walking the body, the same way go_for_bind
+        ; decides whether to bind its item at all. ref_cnt cannot answer it: the
+        ; loop assigns the ITEM from the list on every iteration, so its counter
+        ; is never 0 even when nothing reads it -- which is why `for (_, row0)`
+        ; came out with the index elided and the unread item left in place.
         case "swift_rc" {
           def idx:int cmdArg.int_value
+          def blockIdx:int 4
           if ((array_length node.children) > idx) {
             def arg:CodeNode (itemAt node.children idx)
-            if arg.hasParamDesc {
-              if (arg.paramDesc.ref_cnt == 0) {
-                wr.out("_" false)
-              } {
-                def p:RangerAppParamDesc (ctx.getVariableDef(arg.vref))
-                wr.out(p.compiledName false)
+            def isRead:boolean true
+            if ((array_length node.children) > blockIdx) {
+              def blockNode:CodeNode (itemAt node.children blockIdx)
+              if ((strlen arg.vref) > 0) {
+                isRead = (this.treeReferencesVRef(blockNode arg.vref))
               }
             } {
-              wr.out(arg.vref false)
+              if arg.hasParamDesc {
+                isRead = (arg.paramDesc.ref_cnt != 0)
+              }
+            }
+            if (isRead == false) {
+              wr.out("_" false)
+            } {
+              if arg.hasParamDesc {
+                def p:RangerAppParamDesc (ctx.getVariableDef(arg.vref))
+                wr.out(p.compiledName false)
+              } {
+                wr.out(arg.vref false)
+              }
             }
           }
         }

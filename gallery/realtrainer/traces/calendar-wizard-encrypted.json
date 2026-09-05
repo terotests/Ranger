@@ -1,0 +1,1239 @@
+{
+ "id": "calendar-wizard-encrypted",
+ "machine": "calendarWizard",
+ "frames": [
+  {
+   "step": "rt-wiz-next",
+   "handled": true,
+   "state": "details",
+   "nodes": [
+    {
+     "role": "group",
+     "name": "RealTrainer",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Sulje",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Luo kalenteri",
+     "state": "level=1"
+    },
+    {
+     "role": "paragraph",
+     "name": "Vaihe 2/4",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Kalenterin tiedot",
+     "state": "level=2"
+    },
+    {
+     "role": "paragraph",
+     "name": "Kirjaa toteutuneet harjoitukset",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "esim. Juoksuharjoittelu 2026",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "Lyhyt kuvaus kalenterista...",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "esim. Juosta maraton alle 4 tunnissa",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "esim. Puolimaraton 2h, juoksen 3x viikossa",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Takaisin",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Seuraava",
+     "state": "disabled"
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-wiz-name",
+   "handled": true,
+   "state": "details",
+   "nodes": [
+    {
+     "role": "group",
+     "name": "RealTrainer",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Sulje",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Luo kalenteri",
+     "state": "level=1"
+    },
+    {
+     "role": "paragraph",
+     "name": "Vaihe 2/4",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Kalenterin tiedot",
+     "state": "level=2"
+    },
+    {
+     "role": "paragraph",
+     "name": "Kirjaa toteutuneet harjoitukset",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "esim. Juoksuharjoittelu 2026",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "Lyhyt kuvaus kalenterista...",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "esim. Juosta maraton alle 4 tunnissa",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "esim. Puolimaraton 2h, juoksen 3x viikossa",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Takaisin",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Seuraava",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-wiz-next",
+   "handled": true,
+   "state": "encryption",
+   "nodes": [
+    {
+     "role": "group",
+     "name": "RealTrainer",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Sulje",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Luo kalenteri",
+     "state": "level=1"
+    },
+    {
+     "role": "paragraph",
+     "name": "Vaihe 3/4",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Suojaa tietosi",
+     "state": "level=2"
+    },
+    {
+     "role": "paragraph",
+     "name": "Salaus suojaa tietosi niin, ettei kukaan muu voi lukea niitä - edes me.",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Vain sinä voit nähdä sisällön salasanallasi",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Ilman salausta tiedot tallennetaan palvelimelle suojaamattomina. Ne ovat edelleen yksityisiä, mutta ylläpito voi teknisesti nähdä ne.",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Takaisin",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Seuraava",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-wiz-encrypt",
+   "handled": true,
+   "state": "encryption",
+   "nodes": [
+    {
+     "role": "group",
+     "name": "RealTrainer",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Sulje",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Luo kalenteri",
+     "state": "level=1"
+    },
+    {
+     "role": "paragraph",
+     "name": "Vaihe 3/4",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Suojaa tietosi",
+     "state": "level=2"
+    },
+    {
+     "role": "paragraph",
+     "name": "Salaus suojaa tietosi niin, ettei kukaan muu voi lukea niitä - edes me.",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Vain sinä voit nähdä sisällön salasanallasi",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Jos unohdat salasanan, emme voi palauttaa tietojasi. Tallenna salasana turvalliseen paikkaan.",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "••••••••••••",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "••••••••••••",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Takaisin",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Seuraava",
+     "state": "disabled"
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-wiz-pass",
+   "handled": true,
+   "state": "encryption",
+   "nodes": [
+    {
+     "role": "group",
+     "name": "RealTrainer",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Sulje",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Luo kalenteri",
+     "state": "level=1"
+    },
+    {
+     "role": "paragraph",
+     "name": "Vaihe 3/4",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Suojaa tietosi",
+     "state": "level=2"
+    },
+    {
+     "role": "paragraph",
+     "name": "Salaus suojaa tietosi niin, ettei kukaan muu voi lukea niitä - edes me.",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Vain sinä voit nähdä sisällön salasanallasi",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Jos unohdat salasanan, emme voi palauttaa tietojasi. Tallenna salasana turvalliseen paikkaan.",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "••••••••••••",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Heikko salasana",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "••••••••••••",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Takaisin",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Seuraava",
+     "state": "disabled"
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-wiz-next",
+   "handled": false,
+   "state": "encryption",
+   "nodes": [
+    {
+     "role": "group",
+     "name": "RealTrainer",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Sulje",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Luo kalenteri",
+     "state": "level=1"
+    },
+    {
+     "role": "paragraph",
+     "name": "Vaihe 3/4",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Suojaa tietosi",
+     "state": "level=2"
+    },
+    {
+     "role": "paragraph",
+     "name": "Salaus suojaa tietosi niin, ettei kukaan muu voi lukea niitä - edes me.",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Vain sinä voit nähdä sisällön salasanallasi",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Jos unohdat salasanan, emme voi palauttaa tietojasi. Tallenna salasana turvalliseen paikkaan.",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "••••••••••••",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Heikko salasana",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "••••••••••••",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Takaisin",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Seuraava",
+     "state": "disabled"
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-wiz-pass",
+   "handled": true,
+   "state": "encryption",
+   "nodes": [
+    {
+     "role": "group",
+     "name": "RealTrainer",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Sulje",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Luo kalenteri",
+     "state": "level=1"
+    },
+    {
+     "role": "paragraph",
+     "name": "Vaihe 3/4",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Suojaa tietosi",
+     "state": "level=2"
+    },
+    {
+     "role": "paragraph",
+     "name": "Salaus suojaa tietosi niin, ettei kukaan muu voi lukea niitä - edes me.",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Vain sinä voit nähdä sisällön salasanallasi",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Jos unohdat salasanan, emme voi palauttaa tietojasi. Tallenna salasana turvalliseen paikkaan.",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "••••••••••••",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Vahva salasana",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "••••••••••••",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Takaisin",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Seuraava",
+     "state": "disabled"
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-wiz-confirm",
+   "handled": true,
+   "state": "encryption",
+   "nodes": [
+    {
+     "role": "group",
+     "name": "RealTrainer",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Sulje",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Luo kalenteri",
+     "state": "level=1"
+    },
+    {
+     "role": "paragraph",
+     "name": "Vaihe 3/4",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Suojaa tietosi",
+     "state": "level=2"
+    },
+    {
+     "role": "paragraph",
+     "name": "Salaus suojaa tietosi niin, ettei kukaan muu voi lukea niitä - edes me.",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Vain sinä voit nähdä sisällön salasanallasi",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Jos unohdat salasanan, emme voi palauttaa tietojasi. Tallenna salasana turvalliseen paikkaan.",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "••••••••••••",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Vahva salasana",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "••••••••••••",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Salasanat eivät täsmää",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Takaisin",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Seuraava",
+     "state": "disabled"
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-wiz-next",
+   "handled": false,
+   "state": "encryption",
+   "nodes": [
+    {
+     "role": "group",
+     "name": "RealTrainer",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Sulje",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Luo kalenteri",
+     "state": "level=1"
+    },
+    {
+     "role": "paragraph",
+     "name": "Vaihe 3/4",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Suojaa tietosi",
+     "state": "level=2"
+    },
+    {
+     "role": "paragraph",
+     "name": "Salaus suojaa tietosi niin, ettei kukaan muu voi lukea niitä - edes me.",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Vain sinä voit nähdä sisällön salasanallasi",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Jos unohdat salasanan, emme voi palauttaa tietojasi. Tallenna salasana turvalliseen paikkaan.",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "••••••••••••",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Vahva salasana",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "••••••••••••",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Salasanat eivät täsmää",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Takaisin",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Seuraava",
+     "state": "disabled"
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-wiz-confirm",
+   "handled": true,
+   "state": "encryption",
+   "nodes": [
+    {
+     "role": "group",
+     "name": "RealTrainer",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Sulje",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Luo kalenteri",
+     "state": "level=1"
+    },
+    {
+     "role": "paragraph",
+     "name": "Vaihe 3/4",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Suojaa tietosi",
+     "state": "level=2"
+    },
+    {
+     "role": "paragraph",
+     "name": "Salaus suojaa tietosi niin, ettei kukaan muu voi lukea niitä - edes me.",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Vain sinä voit nähdä sisällön salasanallasi",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Jos unohdat salasanan, emme voi palauttaa tietojasi. Tallenna salasana turvalliseen paikkaan.",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "••••••••••••",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Vahva salasana",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "••••••••••••",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Salasanat täsmäävät",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Takaisin",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Seuraava",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-wiz-show",
+   "handled": true,
+   "state": "encryption",
+   "nodes": [
+    {
+     "role": "group",
+     "name": "RealTrainer",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Sulje",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Luo kalenteri",
+     "state": "level=1"
+    },
+    {
+     "role": "paragraph",
+     "name": "Vaihe 3/4",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Suojaa tietosi",
+     "state": "level=2"
+    },
+    {
+     "role": "paragraph",
+     "name": "Salaus suojaa tietosi niin, ettei kukaan muu voi lukea niitä - edes me.",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Vain sinä voit nähdä sisällön salasanallasi",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Jos unohdat salasanan, emme voi palauttaa tietojasi. Tallenna salasana turvalliseen paikkaan.",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "••••••••••••",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Piilota",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Vahva salasana",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "••••••••••••",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Salasanat täsmäävät",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Takaisin",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Seuraava",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-wiz-next",
+   "handled": true,
+   "state": "appearance",
+   "nodes": [
+    {
+     "role": "group",
+     "name": "RealTrainer",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Sulje",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Luo kalenteri",
+     "state": "level=1"
+    },
+    {
+     "role": "paragraph",
+     "name": "Vaihe 4/4",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Ulkoasu",
+     "state": "level=2"
+    },
+    {
+     "role": "paragraph",
+     "name": "Valitse väri ja näkyvyysasetukset",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Harjoituspäiväkirja",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Yksityinen",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Ryhmälle",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Julkinen",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Takaisin",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Luo kalenteri",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-wiz-create",
+   "handled": true,
+   "state": "creating",
+   "nodes": [
+    {
+     "role": "group",
+     "name": "RealTrainer",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Sulje",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Luo kalenteri",
+     "state": "level=1"
+    },
+    {
+     "role": "paragraph",
+     "name": "Vaihe 4/4",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Ulkoasu",
+     "state": "level=2"
+    },
+    {
+     "role": "paragraph",
+     "name": "Valitse väri ja näkyvyysasetukset",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Harjoituspäiväkirja",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Yksityinen",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Ryhmälle",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Julkinen",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Takaisin",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Luodaan...",
+     "state": "disabled"
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "tick 600",
+   "handled": true,
+   "state": "closed",
+   "nodes": [
+    {
+     "role": "group",
+     "name": "RealTrainer",
+     "state": ""
+    },
+    {
+     "role": "banner",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Credits: 100k. Click to purchase more credits.",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "💪 Salattu päiväkirja",
+     "state": ""
+    },
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää harjoitus",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Päivitä suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää kuva",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Päiväkirja",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Harjoitteet",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Tilastot",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    },
+    {
+     "role": "list",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "listitem",
+     "name": "Salattu päiväkirja \"Salattu päiväkirja\" luotu 🔐",
+     "state": ""
+    }
+   ]
+  }
+ ]
+}

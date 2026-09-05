@@ -1,0 +1,105 @@
+Import "../V1Json.rgr"
+
+; One member of a Circuit / Superset block ("> Name|spec").
+;
+; Typed replacement for the JSON strings CircuitParserV1 used to push into
+; CircuitNode.exerciseJsonList — consumers (e.g. ActiveWorkoutExtract) read the
+; fields directly. toJSONString reproduces the previous serialization exactly.
+class CircuitExerciseNode {
+    def name:string ""
+    def hasSets:boolean false
+    def sets:int 0
+    def hasReps:boolean false
+    def reps:int 0
+    def hasRepsRight:boolean false
+    def repsRight:int 0
+    def hasUnit:boolean false
+    def unit:string ""
+
+    def hasWeightValue:boolean false
+    def weightValue:int 0
+    def weightUnit:string "kg"
+    def hasWeightValueMax:boolean false
+    def weightValueMax:int 0
+    def hasWeightPercent:boolean false
+    def weightPercent:int 0
+
+    def hasRecovery:boolean false
+    def recoveryValue:int 0
+    def recoveryUnit:string "sec"
+
+    fn weightJson:string () {
+        if (hasWeightPercent) {
+            def wf:[string]
+            CompactV1Json.addIntField(wf "percent" weightPercent)
+            CompactV1Json.addStringField(wf "of" "1RM")
+            return (CompactV1Json.jsonObject(wf))
+        }
+        if (hasWeightValue) {
+            def wf2:[string]
+            CompactV1Json.addIntField(wf2 "value" weightValue)
+            if (hasWeightValueMax) {
+                CompactV1Json.addIntField(wf2 "valueMax" weightValueMax)
+            }
+            CompactV1Json.addStringField(wf2 "unit" weightUnit)
+            return (CompactV1Json.jsonObject(wf2))
+        }
+        return ""
+    }
+
+    fn recoveryJson:string () {
+        if (hasRecovery) {
+            def rf:[string]
+            CompactV1Json.addIntField(rf "value" recoveryValue)
+            CompactV1Json.addRawField(rf "max" "null")
+            CompactV1Json.addStringField(rf "unit" recoveryUnit)
+            return (CompactV1Json.jsonObject(rf))
+        }
+        return ""
+    }
+
+    fn toJSONString:string () {
+        def fields:[string]
+        CompactV1Json.addStringField(fields "name" name)
+
+        if (hasSets) {
+            CompactV1Json.addIntField(fields "sets" sets)
+        } {
+            CompactV1Json.addRawField(fields "sets" "null")
+        }
+        if (hasReps) {
+            CompactV1Json.addIntField(fields "reps" reps)
+        } {
+            CompactV1Json.addRawField(fields "reps" "null")
+        }
+        if (hasRepsRight) {
+            CompactV1Json.addIntField(fields "repsRight" repsRight)
+        } {
+            CompactV1Json.addRawField(fields "repsRight" "null")
+        }
+        if (hasUnit) {
+            CompactV1Json.addStringField(fields "unit" unit)
+        } {
+            CompactV1Json.addRawField(fields "unit" "null")
+        }
+
+        def w (this.weightJson())
+        if ((strlen w) > 0) {
+            CompactV1Json.addRawField(fields "weight" w)
+        } {
+            CompactV1Json.addRawField(fields "weight" "null")
+        }
+
+        def r (this.recoveryJson())
+        if ((strlen r) > 0) {
+            CompactV1Json.addRawField(fields "recovery" r)
+        } {
+            CompactV1Json.addRawField(fields "recovery" "null")
+        }
+
+        CompactV1Json.addRawField(fields "customFields" "null")
+        CompactV1Json.addRawField(fields "note" "null")
+
+        return (CompactV1Json.jsonObject(fields))
+    }
+}

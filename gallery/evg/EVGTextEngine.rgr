@@ -40,6 +40,15 @@ class EVGTextLine {
     }
 }
 
+; One cached wrap. A map cannot hold a list directly, so the lines live in a
+; store beside the index and this is what the store holds.
+class EVGWrapEntry {
+    def lines:[EVGTextLine]
+
+    Constructor () {
+    }
+}
+
 class EVGTextEngine {
     def measurer:EVGTextMeasurer
     ; When strict, a family the measurer cannot back is a hard error rather
@@ -52,6 +61,38 @@ class EVGTextEngine {
     ; Set once a strict violation has been seen, so callers can fail the run.
     def hadFatal:boolean false
 
+    ; --- THE WRAP CACHE -------------------------------------------------------
+    ;
+    ; A SCROLL LAYS THE WHOLE TREE OUT AGAIN. The offset moved, so every box is
+    ; measured and every paragraph is broken into lines again — and not one
+    ; character of the text changed. In a profile of `gallery/realtrainer`
+    ; scrolling a real training diary, `breakLines` was over half of the frame
+    ; and every wrap in it produced the answer it had produced on the frame
+    ; before.
+    ;
+    ; A wrap is a pure function of five things: the text, the family, the size,
+    ; the width it is wrapped into, and what the measurer would say. The first
+    ; four are the arguments; the fifth is `measurer.measureKey()`, which is
+    ; how a measurer that loads a face or is switched to bold mid-run says that
+    ; its answers have changed — see `EVGTextMeasurer.measureKey`.
+    ;
+    ; It is a CACHE and not a memo table: it is dropped whole when it grows
+    ; past a bound, because a document that is edited produces a new key for
+    ; every keystroke and nothing would ever evict them. Dropping everything is
+    ; the cheapest eviction there is and the next frame refills what it uses.
+    ;
+    ; What comes back is SHARED. Two callers asking for the same wrap get the
+    ; same `EVGTextLine` objects, so the lines are to be read and not written
+    ; to; every caller in the tree derives a count, a width or the strings and
+    ; leaves them alone.
+    def wrapIndex:[string:int]
+    def wrapStore:[EVGWrapEntry]
+    ; The same for whole-string metrics, which `EVGLayout` asks for once per
+    ; text node per frame and `InputCtl` asks for once per character of the
+    ; string in front of the caret.
+    def runIndex:[string:int]
+    def runStore:[EVGTextMetrics]
+
     ; Starts on the heuristic measurer so the engine is always usable; callers
     ; that care about print correctness install a real one via setMeasurer and
     ; turn on strict mode.
@@ -62,8 +103,42 @@ class EVGTextEngine {
         hadFatal = false
     }
 
+    ; A different measurer measures differently, so nothing measured by the
+    ; old one may survive it.
     fn setMeasurer:void (m:EVGTextMeasurer) {
         measurer = m
+        this.clearCache()
+    }
+
+    ; Drop everything measured so far. Called when the measurer is replaced,
+    ; and when the cache has grown past the bound below; a caller that knows
+    ; its measurer has changed underneath it in a way `measureKey` does not
+    ; report may also call it.
+    fn clearCache:void () {
+        def wi:[string:int]
+        wrapIndex = wi
+        def ws:[EVGWrapEntry]
+        wrapStore = ws
+        def ri:[string:int]
+        runIndex = ri
+        def rs:[EVGTextMetrics]
+        runStore = rs
+    }
+
+    ; How many wraps and how many metrics are kept before the lot is dropped.
+    ; A page of text is a few hundred distinct strings; this is room for a
+    ; document's worth of them at several widths without ever growing without
+    ; bound.
+    sfn cacheLimit:int () {
+        return 4096
+    }
+
+    ; Everything about a measurement that is not the text: the size, the width
+    ; it is wrapped into, what the measurer would say, and the family. The TEXT
+    ; GOES LAST because it is the one field that can contain the separator.
+    fn cacheKey:string (kind:string fontFamily:string fontSize:double maxWidth:double text:string) {
+        return (kind + "\n" + (to_string fontSize) + "\n" + (to_string maxWidth)
+            + "\n" + (measurer.measureKey()) + "\n" + fontFamily + "\n" + text)
     }
 
     fn setStrict:void (s:boolean) {
@@ -126,8 +201,22 @@ class EVGTextEngine {
     ; -----------------------------------------------------------------------
 
     fn measureRun:EVGTextMetrics (text:string fontFamily:string fontSize:double) {
+        ; Before the cache, and not inside it: the font warnings are counted
+        ; per family and reported once, and a second frame must not be quieter
+        ; than the first because the first one filled a cache.
         this.checkFamily(fontFamily)
-        return (measurer.measureText(text fontFamily fontSize))
+        def key:string (this.cacheKey("m" fontFamily fontSize 0.0 text))
+        def hit@(optional):int (get runIndex key)
+        if (null? hit) {
+            def m:EVGTextMetrics (measurer.measureText(text fontFamily fontSize))
+            if ((array_length runStore) >= (EVGTextEngine.cacheLimit())) {
+                this.clearCache()
+            }
+            push runStore m
+            set runIndex key ((array_length runStore) - 1)
+            return m
+        }
+        return (itemAt runStore (unwrap hit))
     }
 
     fn lineHeightFor:double (fontFamily:string fontSize:double) {
@@ -141,8 +230,27 @@ class EVGTextEngine {
     ; maxWidth <= 0 means "do not wrap": each newline-separated paragraph
     ; becomes exactly one line.
     fn breakLines:[EVGTextLine] (text:string fontFamily:string fontSize:double maxWidth:double) {
-        def out:[EVGTextLine]
         this.checkFamily(fontFamily)
+        def key:string (this.cacheKey("w" fontFamily fontSize maxWidth text))
+        def hit@(optional):int (get wrapIndex key)
+        if (null? hit) {
+            def fresh:[EVGTextLine] (this.wrapUncached(text fontFamily fontSize maxWidth))
+            if ((array_length wrapStore) >= (EVGTextEngine.cacheLimit())) {
+                this.clearCache()
+            }
+            def entry (new EVGWrapEntry())
+            entry.lines = fresh
+            push wrapStore entry
+            set wrapIndex key ((array_length wrapStore) - 1)
+            return fresh
+        }
+        def kept:EVGWrapEntry (itemAt wrapStore (unwrap hit))
+        return kept.lines
+    }
+
+    ; The wrap itself, with no cache in front of it.
+    fn wrapUncached:[EVGTextLine] (text:string fontFamily:string fontSize:double maxWidth:double) {
+        def out:[EVGTextLine]
 
         def paragraphs:[string] (strsplit text "\n")
         def p:int 0
@@ -152,22 +260,36 @@ class EVGTextEngine {
                 this.pushLine(out para fontFamily fontSize)
             } {
                 def words:[string] (strsplit para " ")
+                ; How many TOKENS are on the line, not how many characters.
+                ; `strsplit " / " " "` is ["", "/", ""], and an empty token is a
+                ; token: it is the space that was there. Asking `strlen
+                ; currentLine == 0` cannot tell "nothing on this line yet" from
+                ; "one empty token on this line", so it took the `testLine =
+                ; word` branch a second time and dropped the space in front —
+                ; the breadcrumb separator went in as " / " and came out "/ ",
+                ; drawn hard against the crumb before it with the gap on the
+                ; wrong side. The no-wrap path (maxWidth <= 0) pushed the
+                ; paragraph verbatim and kept its spaces, so the same string
+                ; drew two different ways depending on whether it had a width.
                 def currentLine:string ""
+                def tokensOnLine:int 0
                 def w:int 0
                 while (w < (array_length words)) {
                     def word:string (itemAt words w)
                     def testLine:string ""
-                    if ((strlen currentLine) == 0) {
+                    if (tokensOnLine == 0) {
                         testLine = word
                     } {
                         testLine = currentLine + " " + word
                     }
                     def testWidth:double (measurer.measureTextWidth(testLine fontFamily fontSize))
-                    if ((testWidth > maxWidth) && ((strlen currentLine) > 0)) {
+                    if ((testWidth > maxWidth) && (tokensOnLine > 0)) {
                         this.pushLine(out currentLine fontFamily fontSize)
                         currentLine = word
+                        tokensOnLine = 1
                     } {
                         currentLine = testLine
+                        tokensOnLine = (tokensOnLine + 1)
                     }
                     w = (w + 1)
                 }

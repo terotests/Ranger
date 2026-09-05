@@ -1,0 +1,559 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EVGOverlayTest — surfaces that leave the flow but not the tree
+; ==============================================================================
+;
+; An overlay is a menu's dropdown, a tooltip, a popover: a box that has to paint
+; above the page and sit next to something, without becoming a child of some
+; overlay root. Here it stays exactly where it was put — still its parent's
+; child, still the owner of its subtree — and only layout and paint treat it
+; differently. That is the difference between this and a portal, and the reason
+; events, ownership and the accessibility walk keep working.
+;
+; What is asserted, in order of how badly each one bites when it is wrong:
+;
+;   * an overlay takes no space in its parent's flow, so a menu is as wide as
+;     its trigger and not as wide as the panel hanging off it;
+;   * it is placed against its anchor, which it finds among its own siblings;
+;   * an overlay INSIDE another overlay anchors to the moved rectangle, which
+;     is what makes a submenu work with no submenu case anywhere;
+;   * a surface with no anchor is REPORTED. Silently at (0,0) it looks like a
+;     stylesheet mistake and is not one;
+;   * it PAINTS above the page, not merely later in the tree — a menu whose
+;     trigger comes first must still cover the menu next to it;
+;   * and a click in the area it covers HITS IT, not what is underneath, which
+;     is the same rule as painting and is therefore the same list;
+;   * near an edge it FLIPS to the other side of its anchor and SHIFTS along
+;     the edge, because a menu drawn half off the page is worse than a menu
+;     drawn above its trigger.
+; ==============================================================================
+
+Import "EVGElement.rgr"
+Import "EVGUnit.rgr"
+Import "EVGLayout.rgr"
+Import "EVGDisplayList.rgr"
+Import "EVGHitTest.rgr"
+
+class OverlayCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got '" + got + "' want '" + want + "'")
+        }
+        this.ok(name good)
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got " + (to_string got) + " want " + (to_string want))
+        }
+        this.ok(name good)
+    }
+}
+
+class EVGOverlayTest {
+
+    sfn box:EVGElement (id:string cls:string w:double h:double) {
+        def el (EVGElement.createDiv())
+        el.id = id
+        el.className = cls
+        el.setAttribute("width" ((to_string (to_int w)) + "px"))
+        el.setAttribute("height" ((to_string (to_int h)) + "px"))
+        return el
+    }
+
+    sfn laidOut:EVGLayout (root:EVGElement) {
+        def lay (new EVGLayout())
+        lay.setPageSize(800.0 600.0)
+        lay.layout(root)
+        return lay
+    }
+
+    ; A menu: a page holding a row, holding a menu, holding a trigger and the
+    ; surface that hangs off it.
+    sfn buildMenu:EVGElement (withAnchor:boolean) {
+        def page:EVGElement (EVGOverlayTest.box("page" "page" 800.0 600.0))
+        def row:EVGElement (EVGOverlayTest.box("row" "row" 400.0 40.0))
+        row.setAttribute("display" "flex")
+        row.setAttribute("flex-direction" "row")
+        row.setAttribute("flex-wrap" "nowrap")
+
+        def menu:EVGElement (EVGElement.createDiv())
+        menu.id = "menu"
+        menu.setAttribute("display" "flex")
+        menu.setAttribute("flex-direction" "column")
+        menu.setAttribute("width" "fit-content")
+
+        def trigger:EVGElement (EVGOverlayTest.box("trigger" "trigger" 60.0 30.0))
+        if withAnchor {
+            trigger.setAttribute("overlay-anchor-role" "true")
+        }
+
+        def surface:EVGElement (EVGOverlayTest.box("surface" "surface" 200.0 120.0))
+        surface.setAttribute("overlay" "true")
+        surface.setAttribute("overlay-side" "bottom")
+        surface.setAttribute("overlay-align" "start")
+        surface.setAttribute("overlay-gap" "4")
+
+        menu.addChild(trigger)
+        menu.addChild(surface)
+        row.addChild(menu)
+        page.addChild(row)
+        return page
+    }
+
+    ; Breadth-first over a worklist rather than a recursive search: Ranger will
+    ; not resolve a static that returns an optional and calls itself, which is
+    ; noted next to UiHost.findEl for the same reason.
+    ; Not called `at`: that is a Ranger operator, and a static of the same
+    ; name does not resolve.
+    sfn nodeById:EVGElement (root:EVGElement id:string) {
+        def work:[EVGElement]
+        push work root
+        def i:int 0
+        while (i < (array_length work)) {
+            def el:EVGElement (itemAt work i)
+            if (el.id == id) {
+                return el
+            }
+            def j:int 0
+            while (j < (array_length el.children)) {
+                push work (itemAt el.children j)
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+        ; A miss returns an empty element, so a wrong id fails an assertion
+        ; rather than taking the process down.
+        return (EVGElement.createDiv())
+    }
+
+    sfn testOutOfFlow:void (c:OverlayCheck) {
+        print "--- an overlay takes no space in its parent's flow ---"
+        def page:EVGElement (EVGOverlayTest.buildMenu(true))
+        EVGOverlayTest.laidOut(page)
+        def menu:EVGElement (EVGOverlayTest.nodeById(page "menu"))
+        ; The menu holds a 60px trigger and a 200px surface. If the surface were
+        ; in the flow the menu would be 200 wide; it is the trigger's width.
+        c.eqInt("the menu is as wide as its trigger" (to_int menu.calculatedWidth) 60)
+        c.eqInt("and as tall" (to_int menu.calculatedHeight) 30)
+    }
+
+    sfn testPlacement:void (c:OverlayCheck) {
+        print "--- a surface is placed against its anchor ---"
+        def page:EVGElement (EVGOverlayTest.buildMenu(true))
+        EVGOverlayTest.laidOut(page)
+        def trigger:EVGElement (EVGOverlayTest.nodeById(page "trigger"))
+        def surface:EVGElement (EVGOverlayTest.nodeById(page "surface"))
+        ; bottom + start + a 4px gap
+        c.eqInt("left edges line up" (to_int surface.calculatedX) (to_int trigger.calculatedX))
+        c.eqInt("and it sits under the trigger, past the gap"
+            (to_int surface.calculatedY)
+            (to_int ((trigger.calculatedY + trigger.calculatedHeight) + 4.0)))
+    }
+
+    sfn testSubtreeTravels:void (c:OverlayCheck) {
+        print "--- the surface's children travel with it ---"
+        def page:EVGElement (EVGOverlayTest.buildMenu(true))
+        def surface:EVGElement (EVGOverlayTest.nodeById(page "surface"))
+        ; To the RIGHT, so the surface moves along BOTH axes: a surface that
+        ; only ever moves down would let a child that stayed behind
+        ; horizontally pass this unnoticed.
+        surface.setAttribute("overlay-side" "right")
+        def kid:EVGElement (EVGOverlayTest.box("kid" "kid" 100.0 20.0))
+        surface.addChild(kid)
+        EVGOverlayTest.laidOut(page)
+        def s2:EVGElement (EVGOverlayTest.nodeById(page "surface"))
+        def k2:EVGElement (EVGOverlayTest.nodeById(page "kid"))
+        ; The child was laid out inside the surface before the surface moved.
+        ; If the move did not take it along it would be left behind at the top.
+        c.ok("the child is inside its surface" (k2.calculatedY >= s2.calculatedY))
+        c.eqInt("and moved sideways with it too" (to_int k2.calculatedX) (to_int s2.calculatedX))
+    }
+
+    ; The one that makes a submenu ordinary: a surface whose anchor is itself
+    ; inside another surface, and therefore has already been moved.
+    sfn testNested:void (c:OverlayCheck) {
+        print "--- a surface inside a surface anchors to the moved rectangle ---"
+        def page:EVGElement (EVGOverlayTest.buildMenu(true))
+        def surface:EVGElement (EVGOverlayTest.nodeById(page "surface"))
+
+        def sub:EVGElement (EVGElement.createDiv())
+        sub.id = "submenu"
+        sub.setAttribute("display" "flex")
+        sub.setAttribute("flex-direction" "column")
+        sub.setAttribute("width" "fit-content")
+
+        def subRow:EVGElement (EVGOverlayTest.box("subrow" "subrow" 80.0 20.0))
+        subRow.setAttribute("overlay-anchor-role" "true")
+        def subSurface:EVGElement (EVGOverlayTest.box("subsurface" "subsurface" 150.0 60.0))
+        subSurface.setAttribute("overlay" "true")
+        subSurface.setAttribute("overlay-side" "right")
+        subSurface.setAttribute("overlay-align" "start")
+        subSurface.setAttribute("overlay-gap" "4")
+        sub.addChild(subRow)
+        sub.addChild(subSurface)
+        surface.addChild(sub)
+
+        EVGOverlayTest.laidOut(page)
+        def row2:EVGElement (EVGOverlayTest.nodeById(page "subrow"))
+        def surf2:EVGElement (EVGOverlayTest.nodeById(page "subsurface"))
+        c.eqInt("it opens to the right of its row, past the gap"
+            (to_int surf2.calculatedX)
+            (to_int ((row2.calculatedX + row2.calculatedWidth) + 4.0)))
+        c.eqInt("and lines up with it" (to_int surf2.calculatedY) (to_int row2.calculatedY))
+        ; The outer surface moved down by the trigger's height plus the gap, so
+        ; a submenu anchored to the pre-move rectangle would be 34px too high.
+        c.ok("which is BELOW the menu bar, not at the top of the page" (surf2.calculatedY > 30.0))
+    }
+
+    sfn testUnanchored:void (c:OverlayCheck) {
+        print "--- a surface with no anchor is reported ---"
+        def page:EVGElement (EVGOverlayTest.buildMenu(false))
+        def lay:EVGLayout (EVGOverlayTest.laidOut(page))
+        def errs:[string] (lay.getOverlayErrors())
+        c.eqInt("one error" (array_length errs) 1)
+        if ((array_length errs) > 0) {
+            def msg:string (itemAt errs 0)
+            c.ok("naming the surface" ((indexOf msg "surface") >= 0))
+            c.ok("and saying what to do" ((indexOf msg "overlay-anchor-role") >= 0))
+        }
+    }
+
+    sfn testCentered:void (c:OverlayCheck) {
+        print "--- a centred surface needs no anchor ---"
+        def page:EVGElement (EVGOverlayTest.box("page" "page" 800.0 600.0))
+        def modal:EVGElement (EVGOverlayTest.box("modal" "modal" 200.0 100.0))
+        modal.setAttribute("overlay" "true")
+        modal.setAttribute("overlay-side" "center")
+        page.addChild(modal)
+        def lay:EVGLayout (EVGOverlayTest.laidOut(page))
+        def m:EVGElement (EVGOverlayTest.nodeById(page "modal"))
+        c.eqInt("centred across" (to_int m.calculatedX) 300)
+        c.eqInt("and down" (to_int m.calculatedY) 250)
+        c.eqInt("with nothing reported" (array_length (lay.getOverlayErrors())) 0)
+    }
+
+    ; ---- paint order and hit testing -----------------------------------------
+    ; Being placed correctly is not enough. A surface that paints in tree order
+    ; is above the page only by luck of where its menu sits, and a click that
+    ; walks the tree lands on whatever is UNDER the panel. Both follow from one
+    ; list: the normal tree, then the surfaces, in the order they opened.
+
+    ; A bar with two menus where the FIRST one is open. Its panel overhangs the
+    ; second menu's trigger, so tree order paints the trigger on top of the
+    ; panel and a tree-order hit test answers "trigger" for a point inside the
+    ; panel. Both are wrong, and both are wrong in the same place.
+    sfn buildTwoMenus:EVGElement () {
+        def page:EVGElement (EVGOverlayTest.box("page" "page" 800.0 600.0))
+        def row:EVGElement (EVGOverlayTest.box("row" "row" 400.0 40.0))
+        row.setAttribute("display" "flex")
+        row.setAttribute("flex-direction" "row")
+        row.setAttribute("flex-wrap" "nowrap")
+
+        def first:EVGElement (EVGElement.createDiv())
+        first.id = "first"
+        first.setAttribute("display" "flex")
+        first.setAttribute("flex-direction" "column")
+        first.setAttribute("width" "fit-content")
+        def t1:EVGElement (EVGOverlayTest.box("t1" "trigger" 60.0 30.0))
+        t1.setAttribute("overlay-anchor-role" "true")
+        def panel:EVGElement (EVGOverlayTest.box("panel" "surface" 200.0 120.0))
+        panel.setAttribute("overlay" "true")
+        panel.setAttribute("overlay-side" "bottom")
+        panel.setAttribute("overlay-align" "start")
+        panel.setAttribute("overlay-gap" "4")
+        panel.setAttribute("background-color" "#ffffff")
+        first.addChild(t1)
+        first.addChild(panel)
+
+        ; The second menu is closed — a trigger and nothing else — and it sits
+        ; beside the first, so the open panel hangs over it.
+        def second:EVGElement (EVGElement.createDiv())
+        second.id = "second"
+        second.setAttribute("display" "flex")
+        second.setAttribute("flex-direction" "column")
+        second.setAttribute("width" "fit-content")
+        def t2:EVGElement (EVGOverlayTest.box("t2" "trigger" 60.0 30.0))
+        t2.setAttribute("background-color" "#ff0000")
+        t2.setAttribute("height" "300px")
+        second.addChild(t2)
+
+        row.addChild(first)
+        row.addChild(second)
+        page.addChild(row)
+        return page
+    }
+
+    ; Where in the display list this element's own background was drawn, or -1.
+    sfn rectIndex:int (dl:EVGDisplayList el:EVGElement) {
+        def i:int 0
+        while (i < (array_length dl.cmds)) {
+            def c:EVGDrawCmd (itemAt dl.cmds i)
+            if (c.kind == 0) {
+                def sameX:boolean ((to_int c.x) == (to_int el.calculatedX))
+                def sameY:boolean ((to_int c.y) == (to_int el.calculatedY))
+                def sameW:boolean ((to_int c.w) == (to_int el.calculatedWidth))
+                if (sameX && (sameY && sameW)) {
+                    return i
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    sfn testPaintOrder:void (c:OverlayCheck) {
+        print "--- a surface paints above the page, not in tree order ---"
+        def page:EVGElement (EVGOverlayTest.buildTwoMenus())
+        def lay:EVGLayout (EVGOverlayTest.laidOut(page))
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(page)
+        def panel:EVGElement (EVGOverlayTest.nodeById(page "panel"))
+        def t2:EVGElement (EVGOverlayTest.nodeById(page "t2"))
+        def pi:int (EVGOverlayTest.rectIndex(dl panel))
+        def ti:int (EVGOverlayTest.rectIndex(dl t2))
+        c.ok("both were drawn" ((pi >= 0) && (ti >= 0)))
+        ; The panel's menu comes FIRST in the bar, so tree order draws the
+        ; second menu's trigger over it.
+        c.ok("the panel is drawn after the trigger it overhangs" (pi > ti))
+    }
+
+    sfn testHitTopmost:void (c:OverlayCheck) {
+        print "--- a click in the panel hits the panel ---"
+        def page:EVGElement (EVGOverlayTest.buildTwoMenus())
+        EVGOverlayTest.laidOut(page)
+        def panel:EVGElement (EVGOverlayTest.nodeById(page "panel"))
+        def hit (new EVGHitTest())
+        ; A point inside the panel AND inside the trigger beside it: the whole
+        ; question is which one answers.
+        def px:double (panel.calculatedX + 150.0)
+        def py:double (panel.calculatedY + 10.0)
+        def t2:EVGElement (EVGOverlayTest.nodeById(page "t2"))
+        c.ok("the point really is over both" ((px > t2.calculatedX) && (py < (t2.calculatedY + t2.calculatedHeight))))
+        c.ok("and the panel answers" ((hit.idAt(page px py)) == "panel"))
+        ; Outside every surface, the page still answers normally.
+        c.ok("a point outside answers the element under it"
+            ((hit.idAt(page (t2.calculatedX + 10.0) (t2.calculatedY + 200.0))) == "t2"))
+    }
+
+    ; ---- collisions ----------------------------------------------------------
+    ; A menu near the bottom of the page opens upwards. Every real menu does
+    ; this, and the reason is not aesthetics: the part that falls off the page
+    ; cannot be clicked or read, so a surface that ignores the edge silently
+    ; loses rows.
+
+    ; One anchor at a given spot, with a surface hanging off it. The page is
+    ; 800x600, so putting the anchor near an edge is how the collision is set up.
+    sfn buildAt:EVGElement (ax:double ay:double side:string align:string sw:double sh:double) {
+        def page:EVGElement (EVGOverlayTest.box("page" "page" 800.0 600.0))
+        def holder:EVGElement (EVGElement.createDiv())
+        holder.id = "holder"
+        holder.setAttribute("position" "absolute")
+        holder.setAttribute("left" ((to_string (to_int ax)) + "px"))
+        holder.setAttribute("top" ((to_string (to_int ay)) + "px"))
+        holder.setAttribute("width" "60px")
+        holder.setAttribute("height" "30px")
+
+        def anchor:EVGElement (EVGOverlayTest.box("anchor" "anchor" 60.0 30.0))
+        anchor.setAttribute("overlay-anchor-role" "true")
+        def surface:EVGElement (EVGOverlayTest.box("surface" "surface" sw sh))
+        surface.setAttribute("overlay" "true")
+        surface.setAttribute("overlay-side" side)
+        surface.setAttribute("overlay-align" align)
+        surface.setAttribute("overlay-gap" "4")
+
+        holder.addChild(anchor)
+        holder.addChild(surface)
+        page.addChild(holder)
+        return page
+    }
+
+    sfn testFlip:void (c:OverlayCheck) {
+        print "--- a surface near an edge opens the other way ---"
+        ; Room below: nothing moves. This one is here so the flip cannot be a
+        ; test that passes because the code always flips.
+        def roomy:EVGElement (EVGOverlayTest.buildAt(100.0 100.0 "bottom" "start" 200.0 120.0))
+        EVGOverlayTest.laidOut(roomy)
+        def s1:EVGElement (EVGOverlayTest.nodeById(roomy "surface"))
+        def a1:EVGElement (EVGOverlayTest.nodeById(roomy "anchor"))
+        c.eqStr("with room, it stays where it was asked to be" s1.overlayPlacedSide "bottom")
+        c.eqInt("under the anchor" (to_int s1.calculatedY) (to_int ((a1.calculatedY + a1.calculatedHeight) + 4.0)))
+
+        ; 520 + 30 + 4 + 120 = 674, which is off a 600-tall page.
+        def tight:EVGElement (EVGOverlayTest.buildAt(100.0 520.0 "bottom" "start" 200.0 120.0))
+        EVGOverlayTest.laidOut(tight)
+        def s2:EVGElement (EVGOverlayTest.nodeById(tight "surface"))
+        def a2:EVGElement (EVGOverlayTest.nodeById(tight "anchor"))
+        c.eqStr("with no room below, it opens upwards" s2.overlayPlacedSide "top")
+        c.eqInt("above the anchor, past the gap"
+            (to_int s2.calculatedY)
+            (to_int ((a2.calculatedY - 120.0) - 4.0)))
+        c.ok("and is fully on the page" ((s2.calculatedY >= 0.0) && (((s2.calculatedY + 120.0)) <= 600.0)))
+
+        ; The same, sideways: a submenu at the right edge opens to the left.
+        def right:EVGElement (EVGOverlayTest.buildAt(700.0 100.0 "right" "start" 200.0 120.0))
+        EVGOverlayTest.laidOut(right)
+        def s3:EVGElement (EVGOverlayTest.nodeById(right "surface"))
+        def a3:EVGElement (EVGOverlayTest.nodeById(right "anchor"))
+        c.eqStr("a submenu at the right edge opens to the left" s3.overlayPlacedSide "left")
+        c.eqInt("beside the anchor, past the gap"
+            (to_int s3.calculatedX)
+            (to_int ((a3.calculatedX - 200.0) - 4.0)))
+    }
+
+    sfn testShift:void (c:OverlayCheck) {
+        print "--- and slides along the edge rather than hanging off it ---"
+        ; Anchored at x=700 with a 200-wide surface aligned to its left edge:
+        ; 700 + 200 = 900, off an 800-wide page. The side is fine; the CROSS
+        ; axis is not, and the fix is to slide, not to flip.
+        def page:EVGElement (EVGOverlayTest.buildAt(700.0 100.0 "bottom" "start" 200.0 120.0))
+        EVGOverlayTest.laidOut(page)
+        def s:EVGElement (EVGOverlayTest.nodeById(page "surface"))
+        def a:EVGElement (EVGOverlayTest.nodeById(page "anchor"))
+        c.eqStr("it is still below" s.overlayPlacedSide "bottom")
+        c.eqInt("and its right edge is the page's" (to_int (s.calculatedX + 200.0)) 800)
+        ; Sliding it back has to keep it attached to what opened it. A panel
+        ; that no longer overlaps its trigger has stopped being that trigger's.
+        c.ok("while still overlapping its anchor"
+            ((s.calculatedX < (a.calculatedX + a.calculatedWidth)) && ((s.calculatedX + 200.0) > a.calculatedX)))
+        ; The subtree comes along, as it does for the first placement.
+        c.ok("and the move is the whole surface" (s.calculatedX < a.calculatedX))
+    }
+
+    sfn testNoRoomEitherWay:void (c:OverlayCheck) {
+        print "--- with no room on either side it takes the roomier one ---"
+        ; A surface taller than the page cannot fit above or below. Drawing it
+        ; off the top would lose the first rows, which are the ones a menu puts
+        ; its most-used item in.
+        ;
+        ; The anchor sits at y=300 on a 600-tall page, so there are 296px above
+        ; it and 266 below: neither is enough for 700, and `top` loses less. It
+        ; asked for `bottom` and gets `top`, which is the rule doing its job
+        ; rather than a fits/does-not-fit test.
+        def page:EVGElement (EVGOverlayTest.buildAt(100.0 300.0 "bottom" "start" 200.0 700.0))
+        EVGOverlayTest.laidOut(page)
+        def s:EVGElement (EVGOverlayTest.nodeById(page "surface"))
+        c.eqInt("it starts at the top of the page" (to_int s.calculatedY) 0)
+        c.eqStr("on the side that loses less" s.overlayPlacedSide "top")
+    }
+
+    ; A modal's backdrop: the page itself, not the card the dialog was declared
+    ; in. This is the case a percentage cannot express — `width: 100%` resolves
+    ; against the PARENT, and the parent of a dialog is whatever part of the
+    ; page happened to declare it.
+    sfn testCover:void (c:OverlayCheck) {
+        print "--- a backdrop covers the page, not its parent ---"
+        def page:EVGElement (EVGOverlayTest.box("page" "page" 800.0 600.0))
+        def card:EVGElement (EVGOverlayTest.box("card" "card" 200.0 100.0))
+        def backdrop:EVGElement (EVGOverlayTest.box("backdrop" "backdrop" 50.0 20.0))
+        backdrop.setAttribute("overlay" "true")
+        backdrop.setAttribute("overlay-side" "cover")
+        def dialog:EVGElement (EVGOverlayTest.box("dialog" "dialog" 300.0 200.0))
+        dialog.setAttribute("overlay" "true")
+        dialog.setAttribute("overlay-side" "center")
+        card.addChild(backdrop)
+        card.addChild(dialog)
+        page.addChild(card)
+        def lay:EVGLayout (EVGOverlayTest.laidOut(page))
+
+        def b:EVGElement (EVGOverlayTest.nodeById(page "backdrop"))
+        c.eqInt("it starts at the page's origin" (to_int (b.calculatedX + b.calculatedY)) 0)
+        c.eqInt("as wide as the page" (to_int b.calculatedWidth) 800)
+        c.eqInt("and as tall" (to_int b.calculatedHeight) 600)
+        def d:EVGElement (EVGOverlayTest.nodeById(page "dialog"))
+        c.eqInt("the dialog is centred on the page, not on the card" (to_int d.calculatedX) 250)
+        c.eqInt("and down" (to_int d.calculatedY) 200)
+        ; The card it was declared in is unchanged: a modal takes no space.
+        def cd:EVGElement (EVGOverlayTest.nodeById(page "card"))
+        c.eqInt("and the card it was declared in is untouched" (to_int cd.calculatedWidth) 200)
+        ; Painted after everything, and the dialog after the backdrop, so the
+        ; dim never covers the dialog.
+        def hit (new EVGHitTest())
+        c.eqStr("a press in the middle hits the dialog" (hit.idAt(page 400.0 300.0)) "dialog")
+        c.eqStr("and one at the edge hits the backdrop, not the page behind it"
+            (hit.idAt(page 20.0 560.0)) "backdrop")
+        c.eqInt("with nothing reported" (array_length (lay.getOverlayErrors())) 0)
+    }
+
+    ; `fit-content` arrived for a floating panel, where what has to be measured
+    ; is a column of rows. A badge is the other half of the same idea: a pill
+    ; that hugs its word, where the content is TEXT and there are no children
+    ; to measure at all.
+    ;
+    ; It already worked, and not through `contentExtent` — which sees no
+    ; children and gives up — but because `fit-content` parses with `isSet`
+    ; false, and a width-less box holding only text is measured from the text.
+    ; That is worth a test rather than a shrug: it is load-bearing for every
+    ; badge in the sortable demo, and nothing else says so.
+    sfn testFitText:void (c:OverlayCheck) {
+        print "--- fit-content measures text, not only children ---"
+        def page:EVGElement (EVGOverlayTest.box("page" "page" 800.0 600.0))
+        def badge:EVGElement (EVGElement.createDiv())
+        badge.id = "badge"
+        badge.setAttribute("width" "fit-content")
+        badge.setAttribute("padding" "4px 12px")
+        badge.setAttribute("font-size" "13px")
+        badge.textContent = "document"
+        def wide:EVGElement (EVGElement.createDiv())
+        wide.id = "wide"
+        wide.setAttribute("width" "fit-content")
+        wide.setAttribute("padding" "4px 12px")
+        wide.setAttribute("font-size" "13px")
+        wide.textContent = "a much longer label"
+        page.addChild(badge)
+        page.addChild(wide)
+        EVGOverlayTest.laidOut(page)
+
+        def b:EVGElement (EVGOverlayTest.nodeById(page "badge"))
+        def w:EVGElement (EVGOverlayTest.nodeById(page "wide"))
+        ; Not the page's width, which is what a width-less box gets.
+        c.ok("a badge is narrower than the page it sits in" (b.calculatedWidth < 200.0))
+        ; And wide enough for the word plus its padding: 24px of padding, and a
+        ; 13px face is never wider than the string times the font size.
+        c.ok("but wide enough for its word" (b.calculatedWidth > 40.0))
+        c.ok("a longer label is wider" (w.calculatedWidth > b.calculatedWidth))
+        c.ok("and still not the whole page" (w.calculatedWidth < 400.0))
+    }
+
+    sfn main:void () {
+        def c (new OverlayCheck())
+        print "=== EVG overlay surfaces ==="
+        EVGOverlayTest.testOutOfFlow(c)
+        EVGOverlayTest.testPlacement(c)
+        EVGOverlayTest.testSubtreeTravels(c)
+        EVGOverlayTest.testNested(c)
+        EVGOverlayTest.testUnanchored(c)
+        EVGOverlayTest.testCentered(c)
+        EVGOverlayTest.testPaintOrder(c)
+        EVGOverlayTest.testHitTopmost(c)
+        EVGOverlayTest.testFlip(c)
+        EVGOverlayTest.testShift(c)
+        EVGOverlayTest.testNoRoomEitherWay(c)
+        EVGOverlayTest.testCover(c)
+        EVGOverlayTest.testFitText(c)
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed > 0) {
+            print "FAILURES"
+        } {
+            print "ALL PASS"
+        }
+    }
+}

@@ -1,0 +1,1864 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; ReadableRouter.rgr — one router that can see every other edge
+; ============================================================================
+;
+; The routing used to be a stack of passes — lanes, long-edge chains, an
+; orthogonal repair, sockets, labels — and each of them improved the picture
+; without being able to see the others. A route laid by the third pass did not
+; know what the first had drawn, so unrelated edges shared corridors, crossed
+; each other at a bend, and ran along the border of a box they had nothing to
+; do with. Every one of those is locally fine and globally unreadable.
+;
+; This is the replacement: a single orthogonal grid search per edge, run over
+; ALL edges in a deterministic order, where every finished route is recorded
+; and the next route is charged for what it does to the ones already there.
+; Readability is the objective, and shortest path is the last item on it:
+;
+;    1. never intersect a node                  hard: the halo is impassable
+;    2. leave and enter ports perpendicularly   hard: the stub is not searched
+;    3. keep clear of every node                hard: obstacles are inflated
+;    4. avoid crossing another edge             crossingCost
+;    5. keep unrelated parallel edges apart     proximityPerPx, sameCorridorPerPx
+;    6. give each socket its own departure lane fanOutStep — a staggered stub
+;    7. avoid labels, and keep a label with its own edge
+;    8. fewer bends                             bendCost
+;    9. shorter                                 distance
+;   10. no redundant detours                    simplify()
+;
+; The pipeline, in the order the plan asks for:
+;
+;    sockets → departure lanes → halos → grid → route in order → conflict
+;    rounds → labels beside their own longest segment → reroute around
+;    labels → simplify
+;
+; Every rule has a number `metrics` can print, so the gate can hold it.
+; ============================================================================
+
+Import "../core/GraphModel.rgr"
+Import "../core/EdgeRouter.rgr"
+Import "EdgeLanes.rgr"
+Import "OrthoRouter.rgr"
+Import "OrientedPorts.rgr"
+
+class ReadableRouter {
+    ; ------------------------------------------------------------- the rules
+    ; No segment may come closer than this to a node it does not belong to,
+    ; and no route may turn inside it. The obstacles are inflated by it.
+    def nodeClearance:double 20.0
+    ; How far an edge travels along its port's normal before it may turn. Equal
+    ; to the clearance on purpose: the stub ends exactly on the halo line, so
+    ; the first free grid segment is the one along it.
+    def exitDistance:double 20.0
+    ; Sibling sockets on one side turn this much further out, one after the
+    ; other, so their routes do not converge two pixels after leaving.
+    def fanOutStep:double 14.0
+    ; Two unrelated segments running parallel closer than this read as one.
+    def minParallelGap:double 12.0
+    ; A crossing this close to another edge's bend or socket reads as a
+    ; junction rather than a crossing; so does turning on somebody's line.
+    def junctionRadius:double 8.0
+
+    def bendCost:double 25.0
+    def crossingCost:double 200.0
+    def crossingAtBendCost:double 500.0
+    def proximityPerPx:double 2.0
+    def sameCorridorPerPx:double 8.0
+    def labelCost:double 150.0
+    ; Refuse rather than hang.
+    def maxAxis:int 400
+    def conflictRounds:int 3
+
+    ; ------------------------------------------------------ per-edge state --
+    def stubSrc:[double]
+    def stubDst:[double]
+    def padUsed:[double]
+
+    ; every routed segment, and every corner, of every committed route
+    def segEdge:[int]
+    def sx1:[double]
+    def sy1:[double]
+    def sx2:[double]
+    def sy2:[double]
+    def cornerEdge:[int]
+    def cornX:[double]
+    def cornY:[double]
+
+    ; placed labels — obstacles once they exist
+    def lbEdge:[int]
+    def lbX:[double]
+    def lbY:[double]
+    def lbW:[double]
+    def lbH:[double]
+    def useLabels:boolean false
+
+    ; obstacles for the edge being routed, inflated
+    def ox:[double]
+    def oy:[double]
+    def ow:[double]
+    def oh:[double]
+    ; the grid
+    def xs:[double]
+    def ys:[double]
+    def freeRight:[boolean]
+    def freeDown:[boolean]
+    ; what a grid segment costs against everything already drawn, cached
+    def extraRight:[double]
+    def extraDown:[double]
+    def turnExtra:[double]
+
+    def cur:int -1
+    ; diagnostics
+    def unrouted:int 0
+    def rerouted:int 0
+    def simplified:int 0
+
+    Constructor () {
+    }
+
+    ; The whole pipeline. The demo calls the three phases itself so it can
+    ; measure between them.
+    sfn routeAll:int (g:FlowGraph) {
+        def r (new ReadableRouter)
+        def n:int (r.route(g))
+        r.placeLabels(g)
+        r.finish(g)
+        return n
+    }
+
+    ; ========================================================= phase 1: routes
+    fn route:int (g:FlowGraph) {
+        def op (new OrientedPorts)
+        op.assignSockets(g)
+        this.reset(g)
+        this.assignStubs(g)
+        def order:[int] (this.orderOf(g))
+        def done:int 0
+        def i:int 0
+        while (i < (array_length order)) {
+            def k:int (itemAt order i)
+            def pts:[double] (this.findRoute(g k))
+            if ((array_length pts) >= 4) {
+                this.commit(g k pts)
+                done = (done + 1)
+            } {
+                unrouted = (unrouted + 1)
+            }
+            i = (i + 1)
+        }
+        def round:int 0
+        while (round < conflictRounds) {
+            if ((this.conflictPass(g)) == 0) {
+                round = conflictRounds
+            } {
+                round = (round + 1)
+            }
+        }
+        return done
+    }
+
+    fn reset:void (g:FlowGraph) {
+        clear stubSrc
+        clear stubDst
+        clear padUsed
+        clear segEdge
+        clear sx1
+        clear sy1
+        clear sx2
+        clear sy2
+        clear cornerEdge
+        clear cornX
+        clear cornY
+        clear lbEdge
+        clear lbX
+        clear lbY
+        clear lbW
+        clear lbH
+        useLabels = false
+        unrouted = 0
+        rerouted = 0
+        simplified = 0
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            push stubSrc exitDistance
+            push stubDst exitDistance
+            push padUsed nodeClearance
+            k = (k + 1)
+        }
+    }
+
+    fn wants:boolean (e:FlowEdge) {
+        if e.hidden { return false }
+        if e.pinnedRoute { return false }
+        if (e.sourceIndex < 0) { return false }
+        if (e.targetIndex < 0) { return false }
+        if (e.sourceIndex == e.targetIndex) { return false }
+        if (e.edgeType == "step") { return true }
+        if (e.edgeType == "smoothstep") { return true }
+        if (e.edgeType == "orthogonal") { return true }
+        return false
+    }
+
+    fn isRouted:boolean (e:FlowEdge) {
+        if ((this.wants(e)) == false) { return false }
+        return ((array_length e.waypoints) >= 4)
+    }
+
+    ; ------------------------------------------------- departure lanes ----
+    ; Sockets are distinct, but a socket is a point and two routes leaving
+    ; neighbouring points turn at the same distance and share a corridor from
+    ; there on. So the stub length is staggered: among the edges on one side
+    ; heading the same way along it, the socket nearest that way turns first
+    ; and each next one turns `fanOutStep` further out. Ordered like that the
+    ; fan never crosses itself, and every lane is its own.
+    fn assignStubs:void (g:FlowGraph) {
+        def n:int 0
+        while (n < (g.nodeCount())) {
+            def nd:FlowNode (g.nodeAt(n))
+            def side:int 0
+            while (side < 4) {
+                this.staggerSide(g n nd side)
+                side = (side + 1)
+            }
+            n = (n + 1)
+        }
+    }
+
+    fn staggerSide:void (g:FlowGraph nodeIdx:int nd:FlowNode side:int) {
+        def ends:[int]
+        def atSrc:[boolean]
+        def along:[double]
+        def toward:[double]
+        def centre:double (ReadableRouter.centreAlong(nd side))
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            if (this.wants(e)) {
+                if (e.sourceIndex == nodeIdx) {
+                    if ((g.edgeSide(e true)) == side) {
+                        push ends k
+                        push atSrc true
+                        push along e.portNudgeSource
+                        push toward ((OrientedPorts.otherKey(g e true side)) - centre)
+                    }
+                }
+                if (e.targetIndex == nodeIdx) {
+                    if ((g.edgeSide(e false)) == side) {
+                        push ends k
+                        push atSrc false
+                        push along e.portNudgeTarget
+                        push toward ((OrientedPorts.otherKey(g e false side)) - centre)
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        def count:int (array_length ends)
+        if (count < 2) {
+            return
+        }
+        def m:int 0
+        while (m < count) {
+            def rank:int 0
+            def dir:double (itemAt toward m)
+            def j:int 0
+            while (j < count) {
+                if (j != m) {
+                    def dj:double (itemAt toward j)
+                    if (dir < 0.0) {
+                        if (dj < 0.0) {
+                            if ((itemAt along j) < (itemAt along m)) {
+                                rank = (rank + 1)
+                            }
+                        }
+                    } {
+                        if (dj >= 0.0) {
+                            if ((itemAt along j) > (itemAt along m)) {
+                                rank = (rank + 1)
+                            }
+                        }
+                    }
+                }
+                j = (j + 1)
+            }
+            def stub:double (exitDistance + ((int2double rank) * fanOutStep))
+            def k2:int (itemAt ends m)
+            if (itemAt atSrc m) {
+                set_at stubSrc k2 stub
+            } {
+                set_at stubDst k2 stub
+            }
+            m = (m + 1)
+        }
+    }
+
+    sfn centreAlong:double (nd:FlowNode side:int) {
+        if (side == 0) { return (nd.centerX()) }
+        if (side == 2) { return (nd.centerX()) }
+        return (nd.centerY())
+    }
+
+    ; Shortest first. A short edge has few ways to go and should get its way;
+    ; a long one has room to go round. Ties keep edge order, so the same graph
+    ; routes the same way twice.
+    fn orderOf:[int] (g:FlowGraph) {
+        def order:[int]
+        def keys:[double]
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            if (this.wants(e)) {
+                def key:double ((fabs ((g.endpointX(e true)) - (g.endpointX(e false)))) + (fabs ((g.endpointY(e true)) - (g.endpointY(e false)))))
+                def at:int (array_length order)
+                push order k
+                push keys key
+                while (at > 0) {
+                    if ((itemAt keys (at - 1)) > key) {
+                        set_at keys at (itemAt keys (at - 1))
+                        set_at order at (itemAt order (at - 1))
+                        set_at keys (at - 1) key
+                        set_at order (at - 1) k
+                        at = (at - 1)
+                    } {
+                        at = 0
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        return order
+    }
+
+    ; ---------------------------------------------------------- one edge ----
+    ; Clearance is given up in steps, as OrthoRouter does: a stub standing
+    ; inside another box's halo has no route at full clearance, and a tight
+    ; squeeze beats a line through the box.
+    fn findRoute:[double] (g:FlowGraph k:int) {
+        def pads:[double]
+        push pads nodeClearance
+        push pads (nodeClearance * 0.5)
+        push pads 4.0
+        push pads 0.0
+        def p:int 0
+        while (p < (array_length pads)) {
+            def pts:[double] (this.tryRoute(g k (itemAt pads p)))
+            if ((array_length pts) >= 4) {
+                set_at padUsed k (itemAt pads p)
+                return pts
+            }
+            p = (p + 1)
+        }
+        def none:[double]
+        return none
+    }
+
+    fn tryRoute:[double] (g:FlowGraph k:int pad:double) {
+        def e:FlowEdge (g.edgeAt(k))
+        def s1:int (g.edgeSide(e true))
+        def s2:int (g.edgeSide(e false))
+        def x1:double (g.endpointX(e true))
+        def y1:double (g.endpointY(e true))
+        def x2:double (g.endpointX(e false))
+        def y2:double (g.endpointY(e false))
+        def ax:double (x1 + ((FlowPosition.normalX(s1)) * (itemAt stubSrc k)))
+        def ay:double (y1 + ((FlowPosition.normalY(s1)) * (itemAt stubSrc k)))
+        def bx:double (x2 + ((FlowPosition.normalX(s2)) * (itemAt stubDst k)))
+        def by:double (y2 + ((FlowPosition.normalY(s2)) * (itemAt stubDst k)))
+        def none:[double]
+
+        cur = k
+        this.collectObstacles(g pad)
+        this.collectGrid(ax ay bx by)
+        def nx:int (array_length xs)
+        def ny:int (array_length ys)
+        if (nx > maxAxis) { return none }
+        if (ny > maxAxis) { return none }
+        this.markPassable()
+        this.resetExtra(nx ny)
+
+        ; The edge's own stubs are lines on the drawing too. Registered under
+        ; the edge for the length of the search, so running back beside one is
+        ; charged like running beside anybody's.
+        this.addSeg(k x1 y1 ax ay)
+        this.addSeg(k bx by x2 y2)
+        def i0:int (OrthoRouter.nearest(xs ax))
+        def j0:int (OrthoRouter.nearest(ys ay))
+        def i1:int (OrthoRouter.nearest(xs bx))
+        def j1:int (OrthoRouter.nearest(ys by))
+        def cells:[int] (this.search(nx ny i0 j0 i1 j1 (ReadableRouter.dirOf(s1)) (ReadableRouter.dirOf(s2))))
+        this.dropSegsOf(k)
+        if ((array_length cells) == 0) {
+            return none
+        }
+        def pts:[double]
+        push pts (ReadableRouter.onOutline((g.nodeAt(e.sourceIndex)) x1 y1 (FlowPosition.normalX(s1)) (FlowPosition.normalY(s1)) true))
+        push pts (ReadableRouter.onOutline((g.nodeAt(e.sourceIndex)) x1 y1 (FlowPosition.normalX(s1)) (FlowPosition.normalY(s1)) false))
+        push pts ax
+        push pts ay
+        def c:int 0
+        while (c < (array_length cells)) {
+            def cell:int (itemAt cells c)
+            push pts (itemAt xs (cell % nx))
+            push pts (itemAt ys (idiv cell nx))
+            c = (c + 1)
+        }
+        push pts bx
+        push pts by
+        push pts (ReadableRouter.onOutline((g.nodeAt(e.targetIndex)) x2 y2 (FlowPosition.normalX(s2)) (FlowPosition.normalY(s2)) true))
+        push pts (ReadableRouter.onOutline((g.nodeAt(e.targetIndex)) x2 y2 (FlowPosition.normalX(s2)) (FlowPosition.normalY(s2)) false))
+        def tidy:[double] (EdgeRouter.dropCollinear((EdgeRouter.dedupe(pts))))
+        if ((idiv (array_length tidy) 2) < 2) {
+            return none
+        }
+        return tidy
+    }
+
+    ; A socket sits on the bounding box, and a diamond's outline is inside its
+    ; bounding box everywhere but at the four tips — so an arrow that stops at
+    ; the socket stops short of the shape. Walk the stub inward along the
+    ; normal until the shape is under it, and end the line there instead.
+    sfn onOutline:double (nd:FlowNode x:double y:double nx:double ny:double wantX:boolean) {
+        def px:double x
+        def py:double y
+        if (nd.shape != "rect") {
+            def reach:double nd.width
+            if (nd.height > reach) { reach = nd.height }
+            def walked:double 0.0
+            def found:boolean false
+            while (walked < reach) {
+                if (found == false) {
+                    if (nd.holdsPoint(px py)) {
+                        found = true
+                    } {
+                        px = (px - (nx * 0.5))
+                        py = (py - (ny * 0.5))
+                        walked = (walked + 0.5)
+                    }
+                } {
+                    walked = reach
+                }
+            }
+            if (found == false) {
+                px = x
+                py = y
+            }
+        }
+        if wantX {
+            return px
+        }
+        return py
+    }
+
+    ; 0 right, 1 down, 2 left, 3 up — the direction an edge travels when it
+    ; leaves a side.
+    sfn dirOf:int (side:int) {
+        if (side == 0) { return 3 }
+        if (side == 1) { return 0 }
+        if (side == 2) { return 1 }
+        return 2
+    }
+
+    sfn opposite:int (dir:int) {
+        return ((dir + 2) % 4)
+    }
+
+    fn commit:void (g:FlowGraph k:int pts:[double]) {
+        def e:FlowEdge (g.edgeAt(k))
+        clear e.waypoints
+        def w:int 0
+        while (w < (array_length pts)) {
+            push e.waypoints (itemAt pts w)
+            w = (w + 1)
+        }
+        e.hasLaneX = false
+        e.hasLaneY = false
+        this.register(k pts)
+    }
+
+    ; ------------------------------------------------------- the record ----
+    fn register:void (k:int pts:[double]) {
+        def n:int (idiv (array_length pts) 2)
+        def i:int 0
+        while (i < n) {
+            def px:double (itemAt pts (i * 2))
+            def pyAt:int ((i * 2) + 1)
+            def py:double (itemAt pts pyAt)
+            push cornerEdge k
+            push cornX px
+            push cornY py
+            if (i > 0) {
+                def qx:double (itemAt pts ((i - 1) * 2))
+                def qyAt:int (((i - 1) * 2) + 1)
+                def qy:double (itemAt pts qyAt)
+                this.addSeg(k qx qy px py)
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn addSeg:void (k:int ax:double ay:double bx:double by:double) {
+        push segEdge k
+        push sx1 ax
+        push sy1 ay
+        push sx2 bx
+        push sy2 by
+    }
+
+    fn dropSegsOf:void (k:int) {
+        def e2:[int]
+        def a:[double]
+        def b:[double]
+        def c:[double]
+        def d:[double]
+        def m:int 0
+        while (m < (array_length segEdge)) {
+            if ((itemAt segEdge m) != k) {
+                push e2 (itemAt segEdge m)
+                push a (itemAt sx1 m)
+                push b (itemAt sy1 m)
+                push c (itemAt sx2 m)
+                push d (itemAt sy2 m)
+            }
+            m = (m + 1)
+        }
+        ReadableRouter.takeInts(segEdge e2)
+        ReadableRouter.takeDoubles(sx1 a)
+        ReadableRouter.takeDoubles(sy1 b)
+        ReadableRouter.takeDoubles(sx2 c)
+        ReadableRouter.takeDoubles(sy2 d)
+    }
+
+    fn unregister:void (k:int) {
+        this.dropSegsOf(k)
+        def e2:[int]
+        def a:[double]
+        def b:[double]
+        def m:int 0
+        while (m < (array_length cornerEdge)) {
+            if ((itemAt cornerEdge m) != k) {
+                push e2 (itemAt cornerEdge m)
+                push a (itemAt cornX m)
+                push b (itemAt cornY m)
+            }
+            m = (m + 1)
+        }
+        ReadableRouter.takeInts(cornerEdge e2)
+        ReadableRouter.takeDoubles(cornX a)
+        ReadableRouter.takeDoubles(cornY b)
+    }
+
+    fn dropLabelOf:void (k:int) {
+        def e2:[int]
+        def a:[double]
+        def b:[double]
+        def c:[double]
+        def d:[double]
+        def m:int 0
+        while (m < (array_length lbEdge)) {
+            if ((itemAt lbEdge m) != k) {
+                push e2 (itemAt lbEdge m)
+                push a (itemAt lbX m)
+                push b (itemAt lbY m)
+                push c (itemAt lbW m)
+                push d (itemAt lbH m)
+            }
+            m = (m + 1)
+        }
+        ReadableRouter.takeInts(lbEdge e2)
+        ReadableRouter.takeDoubles(lbX a)
+        ReadableRouter.takeDoubles(lbY b)
+        ReadableRouter.takeDoubles(lbW c)
+        ReadableRouter.takeDoubles(lbH d)
+    }
+
+    sfn takeInts:void (into:[int] from:[int]) {
+        clear into
+        def i:int 0
+        while (i < (array_length from)) {
+            push into (itemAt from i)
+            i = (i + 1)
+        }
+    }
+
+    sfn takeDoubles:void (into:[double] from:[double]) {
+        clear into
+        def i:int 0
+        while (i < (array_length from)) {
+            push into (itemAt from i)
+            i = (i + 1)
+        }
+    }
+
+    ; ---------------------------------------------------------- the grid ----
+    fn collectObstacles:void (g:FlowGraph pad:double) {
+        clear ox
+        clear oy
+        clear ow
+        clear oh
+        def i:int 0
+        while (i < (g.nodeCount())) {
+            def n:FlowNode (g.nodeAt(i))
+            if (EdgeOverlap.blocks(n)) {
+                push ox (n.x - pad)
+                push oy (n.y - pad)
+                push ow (n.width + (pad * 2.0))
+                push oh (n.height + (pad * 2.0))
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Candidate lines: the two stub ends, every halo's four sides, two spare
+    ; lines outside everything so a route can go round the outside, and then
+    ; every gap wider than the parallel gap split into lanes at least that
+    ; wide — so a second edge through a corridor has a second lane to take.
+    fn collectGrid:void (ax:double ay:double bx:double by:double) {
+        clear xs
+        clear ys
+        OrthoRouter.addCoord(xs ax)
+        OrthoRouter.addCoord(xs bx)
+        OrthoRouter.addCoord(ys ay)
+        OrthoRouter.addCoord(ys by)
+        def i:int 0
+        while (i < (array_length ox)) {
+            OrthoRouter.addCoord(xs (itemAt ox i))
+            OrthoRouter.addCoord(xs ((itemAt ox i) + (itemAt ow i)))
+            OrthoRouter.addCoord(ys (itemAt oy i))
+            OrthoRouter.addCoord(ys ((itemAt oy i) + (itemAt oh i)))
+            i = (i + 1)
+        }
+        OrthoRouter.sortDoubles(xs)
+        OrthoRouter.sortDoubles(ys)
+        this.addMargins(xs)
+        this.addMargins(ys)
+        this.fillGaps(xs)
+        this.fillGaps(ys)
+    }
+
+    fn addMargins:void (arr:[double]) {
+        def n:int (array_length arr)
+        if (n == 0) {
+            return
+        }
+        def lo:double (itemAt arr 0)
+        def hi:double (itemAt arr (n - 1))
+        OrthoRouter.addCoord(arr (lo - fanOutStep))
+        OrthoRouter.addCoord(arr (lo - (fanOutStep * 2.0)))
+        OrthoRouter.addCoord(arr (hi + fanOutStep))
+        OrthoRouter.addCoord(arr (hi + (fanOutStep * 2.0)))
+        OrthoRouter.sortDoubles(arr)
+    }
+
+    fn fillGaps:void (arr:[double]) {
+        def added:[double]
+        def i:int 0
+        while (i < ((array_length arr) - 1)) {
+            def a:double (itemAt arr i)
+            def b:double (itemAt arr (i + 1))
+            def gap:double (b - a)
+            def parts:int 1
+            while ((gap / (int2double (parts + 1))) >= minParallelGap) {
+                parts = (parts + 1)
+            }
+            def p:int 1
+            while (p < parts) {
+                push added (a + ((gap * (int2double p)) / (int2double parts)))
+                p = (p + 1)
+            }
+            i = (i + 1)
+        }
+        def k:int 0
+        while (k < (array_length added)) {
+            OrthoRouter.addCoord(arr (itemAt added k))
+            k = (k + 1)
+        }
+        OrthoRouter.sortDoubles(arr)
+    }
+
+    fn markPassable:void () {
+        clear freeRight
+        clear freeDown
+        def nx:int (array_length xs)
+        def ny:int (array_length ys)
+        def j:int 0
+        while (j < ny) {
+            def i:int 0
+            while (i < nx) {
+                def okR:boolean false
+                if (i < (nx - 1)) {
+                    okR = (this.segmentClear((itemAt xs i) (itemAt ys j) (itemAt xs (i + 1)) (itemAt ys j)))
+                }
+                push freeRight okR
+                def okD:boolean false
+                if (j < (ny - 1)) {
+                    okD = (this.segmentClear((itemAt xs i) (itemAt ys j) (itemAt xs i) (itemAt ys (j + 1))))
+                }
+                push freeDown okD
+                i = (i + 1)
+            }
+            j = (j + 1)
+        }
+    }
+
+    ; Grazing a halo's border is allowed — that IS the clearance distance —
+    ; and entering it is not.
+    fn segmentClear:boolean (x1:double y1:double x2:double y2:double) {
+        def eps:double 0.5
+        def i:int 0
+        while (i < (array_length ox)) {
+            def r:FlowRect (FlowRect.create(((itemAt ox i) + eps) ((itemAt oy i) + eps) ((itemAt ow i) - (eps * 2.0)) ((itemAt oh i) - (eps * 2.0))))
+            if (r.w > 0.0) {
+                if (r.h > 0.0) {
+                    if (EdgeOverlap.segmentHitsRect(x1 y1 x2 y2 r)) {
+                        return false
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    fn resetExtra:void (nx:int ny:int) {
+        clear extraRight
+        clear extraDown
+        clear turnExtra
+        def n:int (nx * ny)
+        def i:int 0
+        while (i < n) {
+            push extraRight -1.0
+            push extraDown -1.0
+            push turnExtra -1.0
+            i = (i + 1)
+        }
+    }
+
+    ; ------------------------------------------------------------ search ----
+    ; Dijkstra over (cell, travel direction). Direction rather than axis,
+    ; because a reversal is a hairpin and is not allowed at all, and because
+    ; the start and the goal each have one direction that means "through the
+    ; node". Continuing straight costs the length; turning costs `bendCost`
+    ; plus whatever it costs to turn HERE, on or beside somebody's line.
+    fn search:[int] (nx:int ny:int i0:int j0:int i1:int j1:int startDir:int awayDir:int) {
+        def stateCount:int ((nx * ny) * 4)
+        def dist:[double]
+        def prev:[int]
+        def seen:[boolean]
+        def i:int 0
+        while (i < stateCount) {
+            push dist 1000000000.0
+            push prev -1
+            push seen false
+            i = (i + 1)
+        }
+        def startCell:int ((j0 * nx) + i0)
+        def goalCell:int ((j1 * nx) + i1)
+        def intoDir:int (ReadableRouter.opposite(awayDir))
+        def startState:int ((startCell * 4) + startDir)
+        set_at dist startState 0.0
+        def heap (new OrthoHeap)
+        heap.push(0.0 startState)
+        def goalState:int -1
+        while ((heap.size()) > 0) {
+            def s:int (heap.popItem())
+            if (s < 0) {
+                break
+            }
+            if ((itemAt seen s) == false) {
+                set_at seen s true
+                def cell:int (idiv s 4)
+                def dir:int (s % 4)
+                if (cell == goalCell) {
+                    if (dir != awayDir) {
+                        goalState = s
+                        clear heap.costs
+                        clear heap.items
+                    }
+                }
+                if (goalState < 0) {
+                    def ci:int (cell % nx)
+                    def cj:int (idiv cell nx)
+                    def base:double (itemAt dist s)
+                    if (ci < (nx - 1)) {
+                        if (dir != 2) {
+                            if (itemAt freeRight cell) {
+                                this.step(s base cell dir (cell + 1) 0 ((itemAt xs (ci + 1)) - (itemAt xs ci)) cell true goalCell intoDir dist prev heap)
+                            }
+                        }
+                    }
+                    if (ci > 0) {
+                        if (dir != 0) {
+                            if (itemAt freeRight (cell - 1)) {
+                                this.step(s base cell dir (cell - 1) 2 ((itemAt xs ci) - (itemAt xs (ci - 1))) (cell - 1) true goalCell intoDir dist prev heap)
+                            }
+                        }
+                    }
+                    if (cj < (ny - 1)) {
+                        if (dir != 3) {
+                            if (itemAt freeDown cell) {
+                                this.step(s base cell dir (cell + nx) 1 ((itemAt ys (cj + 1)) - (itemAt ys cj)) cell false goalCell intoDir dist prev heap)
+                            }
+                        }
+                    }
+                    if (cj > 0) {
+                        if (dir != 1) {
+                            if (itemAt freeDown (cell - nx)) {
+                                this.step(s base cell dir (cell - nx) 3 ((itemAt ys cj) - (itemAt ys (cj - 1))) (cell - nx) false goalCell intoDir dist prev heap)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        def out:[int]
+        if (goalState < 0) {
+            return out
+        }
+        def rev:[int]
+        def curState:int goalState
+        def guard:int 0
+        while (curState >= 0) {
+            guard = (guard + 1)
+            if (guard > 1000000) {
+                clear out
+                return out
+            }
+            push rev (idiv curState 4)
+            curState = (itemAt prev curState)
+        }
+        def k:int ((array_length rev) - 1)
+        while (k >= 0) {
+            push out (itemAt rev k)
+            k = (k - 1)
+        }
+        return out
+    }
+
+    fn step:void (s:int base:double fromCell:int fromDir:int toCell:int toDir:int length:double segIndex:int horizontal:boolean goalCell:int intoDir:int dist:[double] prev:[int] heap:OrthoHeap) {
+        def cost:double ((fabs length) + (this.extraOf(segIndex horizontal)))
+        if (toDir != fromDir) {
+            cost = (cost + bendCost)
+            cost = (cost + (this.turnExtraAt(fromCell)))
+        }
+        ; …and the turn INTO the entry stub, if arriving sideways.
+        if (toCell == goalCell) {
+            if (toDir != intoDir) {
+                cost = (cost + bendCost)
+                cost = (cost + (this.turnExtraAt(toCell)))
+            }
+        }
+        def to:int ((toCell * 4) + toDir)
+        def cand:double (base + cost)
+        if (cand < (itemAt dist to)) {
+            set_at dist to cand
+            set_at prev to s
+            heap.push(cand to)
+        }
+    }
+
+    fn extraOf:double (segIndex:int horizontal:boolean) {
+        def nx:int (array_length xs)
+        def ci:int (segIndex % nx)
+        def cj:int (idiv segIndex nx)
+        if horizontal {
+            def have:double (itemAt extraRight segIndex)
+            if (have >= 0.0) {
+                return have
+            }
+            def v:double (this.segmentExtra((itemAt xs ci) (itemAt ys cj) (itemAt xs (ci + 1)) (itemAt ys cj) -1))
+            set_at extraRight segIndex v
+            return v
+        }
+        def haveD:double (itemAt extraDown segIndex)
+        if (haveD >= 0.0) {
+            return haveD
+        }
+        def vd:double (this.segmentExtra((itemAt xs ci) (itemAt ys cj) (itemAt xs ci) (itemAt ys (cj + 1)) -1))
+        set_at extraDown segIndex vd
+        return vd
+    }
+
+    ; Turning here: on or beside another edge's line is a junction nobody can
+    ; read, and costs like a crossing at a bend.
+    fn turnExtraAt:double (cell:int) {
+        def have:double (itemAt turnExtra cell)
+        if (have >= 0.0) {
+            return have
+        }
+        def nx:int (array_length xs)
+        def px:double (itemAt xs (cell % nx))
+        def py:double (itemAt ys (idiv cell nx))
+        def v:double 0.0
+        if (this.pointNearSegments(px py cur)) {
+            v = crossingAtBendCost
+        }
+        set_at turnExtra cell v
+        return v
+    }
+
+    ; ------------------------------------------------------------- costs ----
+    ; What one segment costs against everything already drawn: a crossing,
+    ; a crossing at somebody's bend or socket, running parallel too close,
+    ; sharing a corridor outright, and passing through a label.
+    fn segmentExtra:double (ax:double ay:double bx:double by:double skip:int) {
+        def total:double 0.0
+        def vertical:boolean ((fabs (ax - bx)) < 0.5)
+        def m:int 0
+        while (m < (array_length segEdge)) {
+            def owner:int (itemAt segEdge m)
+            if (owner != skip) {
+                def cx:double (itemAt sx1 m)
+                def cy:double (itemAt sy1 m)
+                def dx:double (itemAt sx2 m)
+                def dy:double (itemAt sy2 m)
+                if (ReadableRouter.crosses(ax ay bx by cx cy dx dy)) {
+                    total = (total + crossingCost)
+                    def px:double cx
+                    def py:double ay
+                    if vertical {
+                        px = ax
+                        py = cy
+                    }
+                    if (this.nearCorner(px py owner)) {
+                        total = (total + crossingAtBendCost)
+                    }
+                } {
+                    total = (total + (this.proximityOf(ax ay bx by cx cy dx dy)))
+                }
+            }
+            m = (m + 1)
+        }
+        if useLabels {
+            def l:int 0
+            while (l < (array_length lbEdge)) {
+                def r:FlowRect (FlowRect.create((itemAt lbX l) (itemAt lbY l) (itemAt lbW l) (itemAt lbH l)))
+                if (EdgeOverlap.segmentHitsRect(ax ay bx by r)) {
+                    total = (total + labelCost)
+                }
+                l = (l + 1)
+            }
+        }
+        return total
+    }
+
+    ; Do two axis-aligned segments cross? Half-open along the first — a
+    ; crossing exactly at its far end counts, at its near end does not — so a
+    ; polyline walked segment by segment counts each crossing once.
+    sfn crosses:boolean (ax:double ay:double bx:double by:double cx:double cy:double dx:double dy:double) {
+        def aV:boolean ((fabs (ax - bx)) < 0.5)
+        def cV:boolean ((fabs (cx - dx)) < 0.5)
+        if (aV == cV) {
+            return false
+        }
+        if aV {
+            if ((ReadableRouter.within(ax cx dx)) == false) { return false }
+            return (ReadableRouter.halfOpen(cy ay by))
+        }
+        if ((ReadableRouter.within(ay cy dy)) == false) { return false }
+        return (ReadableRouter.halfOpen(cx ax bx))
+    }
+
+    sfn within:boolean (v:double a:double b:double) {
+        def lo:double a
+        def hi:double b
+        if (b < a) {
+            lo = b
+            hi = a
+        }
+        if (v < (lo - 0.25)) { return false }
+        if (v > (hi + 0.25)) { return false }
+        return true
+    }
+
+    sfn halfOpen:boolean (v:double a:double b:double) {
+        def lo:double a
+        def hi:double b
+        if (b < a) {
+            lo = b
+            hi = a
+        }
+        if (v <= (lo + 0.25)) { return false }
+        if (v > (hi + 0.25)) { return false }
+        return true
+    }
+
+    ; Parallel and close: charged per pixel of the shared span, and much more
+    ; when the two lines are the same line.
+    fn proximityOf:double (ax:double ay:double bx:double by:double cx:double cy:double dx:double dy:double) {
+        def aV:boolean ((fabs (ax - bx)) < 0.5)
+        def cV:boolean ((fabs (cx - dx)) < 0.5)
+        if (aV != cV) {
+            return 0.0
+        }
+        def gap:double 0.0
+        def overlap:double 0.0
+        if aV {
+            gap = (fabs (ax - cx))
+            overlap = (ReadableRouter.overlapOf(ay by cy dy))
+        } {
+            gap = (fabs (ay - cy))
+            overlap = (ReadableRouter.overlapOf(ax bx cx dx))
+        }
+        if (gap >= minParallelGap) {
+            return 0.0
+        }
+        if (overlap <= 0.5) {
+            return 0.0
+        }
+        def cost:double (overlap * proximityPerPx)
+        if (gap < 1.0) {
+            cost = (cost + (overlap * sameCorridorPerPx))
+        }
+        return cost
+    }
+
+    sfn overlapOf:double (a:double b:double c:double d:double) {
+        def lo1:double a
+        def hi1:double b
+        if (b < a) {
+            lo1 = b
+            hi1 = a
+        }
+        def lo2:double c
+        def hi2:double d
+        if (d < c) {
+            lo2 = d
+            hi2 = c
+        }
+        def lo:double lo1
+        if (lo2 > lo) { lo = lo2 }
+        def hi:double hi1
+        if (hi2 < hi) { hi = hi2 }
+        return (hi - lo)
+    }
+
+    fn nearCorner:boolean (px:double py:double owner:int) {
+        def m:int 0
+        while (m < (array_length cornerEdge)) {
+            if ((itemAt cornerEdge m) == owner) {
+                if ((fabs ((itemAt cornX m) - px)) <= junctionRadius) {
+                    if ((fabs ((itemAt cornY m) - py)) <= junctionRadius) {
+                        return true
+                    }
+                }
+            }
+            m = (m + 1)
+        }
+        return false
+    }
+
+    fn pointNearSegments:boolean (px:double py:double skip:int) {
+        def m:int 0
+        while (m < (array_length segEdge)) {
+            if ((itemAt segEdge m) != skip) {
+                if ((ReadableRouter.pointToSegment(px py (itemAt sx1 m) (itemAt sy1 m) (itemAt sx2 m) (itemAt sy2 m))) < junctionRadius) {
+                    return true
+                }
+            }
+            m = (m + 1)
+        }
+        return false
+    }
+
+    sfn pointToSegment:double (px:double py:double ax:double ay:double bx:double by:double) {
+        def dx:double (bx - ax)
+        def dy:double (by - ay)
+        def len2:double ((dx * dx) + (dy * dy))
+        def t:double 0.0
+        if (len2 > 0.0001) {
+            t = ((((px - ax) * dx) + ((py - ay) * dy)) / len2)
+            if (t < 0.0) { t = 0.0 }
+            if (t > 1.0) { t = 1.0 }
+        }
+        def qx:double (ax + (dx * t))
+        def qy:double (ay + (dy * t))
+        return (sqrt (((px - qx) * (px - qx)) + ((py - qy) * (py - qy))))
+    }
+
+    ; The full cost of a finished polyline, for comparing one route of an edge
+    ; against another: length, bends, and everything `segmentExtra` charges,
+    ; and a line through a node's halo is not a route at all.
+    fn evalRoute:double (g:FlowGraph k:int pts:[double]) {
+        def n:int (idiv (array_length pts) 2)
+        if (n < 2) {
+            return 1000000000.0
+        }
+        def pad:double (itemAt padUsed k)
+        def total:double 0.0
+        def i:int 1
+        while (i < n) {
+            def ax:double (itemAt pts ((i - 1) * 2))
+            def ayAt:int (((i - 1) * 2) + 1)
+            def ay:double (itemAt pts ayAt)
+            def bx:double (itemAt pts (i * 2))
+            def byAt:int ((i * 2) + 1)
+            def by:double (itemAt pts byAt)
+            total = (total + ((fabs (bx - ax)) + (fabs (by - ay))))
+            if (i > 1) {
+                total = (total + bendCost)
+                if (this.pointNearSegments(ax ay k)) {
+                    total = (total + crossingAtBendCost)
+                }
+                if (i < (n - 1)) {
+                    if (this.hitsNode(g ax ay bx by pad)) {
+                        return 1000000000.0
+                    }
+                }
+            }
+            total = (total + (this.segmentExtra(ax ay bx by k)))
+            i = (i + 1)
+        }
+        return total
+    }
+
+    fn hitsNode:boolean (g:FlowGraph ax:double ay:double bx:double by:double pad:double) {
+        def eps:double 0.5
+        def i:int 0
+        while (i < (g.nodeCount())) {
+            def nd:FlowNode (g.nodeAt(i))
+            if (EdgeOverlap.blocks(nd)) {
+                def r:FlowRect (FlowRect.create(((nd.x - pad) + eps) ((nd.y - pad) + eps) ((nd.width + (pad * 2.0)) - (eps * 2.0)) ((nd.height + (pad * 2.0)) - (eps * 2.0))))
+                if (EdgeOverlap.segmentHitsRect(ax ay bx by r)) {
+                    return true
+                }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; Length and bends alone — what a route would cost with nothing else on
+    ; the page. The difference from `evalRoute` is its conflict.
+    fn baseOf:double (pts:[double]) {
+        def n:int (idiv (array_length pts) 2)
+        def total:double 0.0
+        def i:int 1
+        while (i < n) {
+            def ax:double (itemAt pts ((i - 1) * 2))
+            def ayAt:int (((i - 1) * 2) + 1)
+            def ay:double (itemAt pts ayAt)
+            def bx:double (itemAt pts (i * 2))
+            def byAt:int ((i * 2) + 1)
+            def by:double (itemAt pts byAt)
+            total = (total + ((fabs (bx - ax)) + (fabs (by - ay))))
+            if (i > 1) {
+                total = (total + bendCost)
+            }
+            i = (i + 1)
+        }
+        return total
+    }
+
+    ; --------------------------------------------------- conflict rounds ----
+    ; The first pass could not charge an edge for a route that did not exist
+    ; yet. Now they all exist: take the edges in order of how much they
+    ; conflict, lift each one off the page, route it again against everything
+    ; else, and keep the new route only if it is actually cheaper.
+    fn conflictPass:int (g:FlowGraph) {
+        def order:[int]
+        def keys:[double]
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            if (this.isRouted(e)) {
+                def conflict:double ((this.evalRoute(g k e.waypoints)) - (this.baseOf(e.waypoints)))
+                if (conflict > 0.5) {
+                    def at:int (array_length order)
+                    push order k
+                    push keys conflict
+                    while (at > 0) {
+                        if ((itemAt keys (at - 1)) < conflict) {
+                            set_at keys at (itemAt keys (at - 1))
+                            set_at order at (itemAt order (at - 1))
+                            set_at keys (at - 1) conflict
+                            set_at order (at - 1) k
+                            at = (at - 1)
+                        } {
+                            at = 0
+                        }
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        def improved:int 0
+        def i:int 0
+        while (i < (array_length order)) {
+            if (this.rerouteIfBetter(g (itemAt order i))) {
+                improved = (improved + 1)
+            }
+            i = (i + 1)
+        }
+        return improved
+    }
+
+    fn rerouteIfBetter:boolean (g:FlowGraph k:int) {
+        def e:FlowEdge (g.edgeAt(k))
+        def old:[double] (OrthoRouter.copyOf(e.waypoints))
+        def oldPad:double (itemAt padUsed k)
+        this.unregister(k)
+        def oldCost:double (this.evalRoute(g k old))
+        def pts:[double] (this.findRoute(g k))
+        def newCost:double 1000000000.0
+        if ((array_length pts) >= 4) {
+            newCost = (this.evalRoute(g k pts))
+        }
+        if (newCost < (oldCost - 0.5)) {
+            this.commit(g k pts)
+            rerouted = (rerouted + 1)
+            return true
+        }
+        set_at padUsed k oldPad
+        this.commit(g k old)
+        return false
+    }
+
+    ; ======================================================== phase 2: labels
+    ; A label goes beside the longest clear segment of its OWN edge, on the
+    ; side with the least in the way, and keeps more distance from other edges
+    ; than from its own. Once placed it is a box on the page, and the third
+    ; phase routes around it.
+    fn placeLabels:void (g:FlowGraph) {
+        clear lbEdge
+        clear lbX
+        clear lbY
+        clear lbW
+        clear lbH
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            this.placeLabel(g k)
+            k = (k + 1)
+        }
+        useLabels = true
+    }
+
+    fn placeLabel:void (g:FlowGraph k:int) {
+        def e:FlowEdge (g.edgeAt(k))
+        if ((strlen e.label) == 0) {
+            return
+        }
+        if ((this.isRouted(e)) == false) {
+            return
+        }
+        def w:double (ReadableRouter.labelBoxWidth(e.label))
+        def h:double (ReadableRouter.labelBoxHeight(e.label))
+        def path:EdgePath (EdgeRouter.route(g e))
+        path.flatten(12)
+        def mx:double (path.midX())
+        def my:double (path.midY())
+        def pts:[double] e.waypoints
+        def n:int (idiv (array_length pts) 2)
+        def best:double 1000000000.0
+        def bestX:double mx
+        def bestY:double my
+        def fracs:[double]
+        push fracs 0.5
+        push fracs 0.3
+        push fracs 0.7
+        def i:int 1
+        while (i < n) {
+            def ax:double (itemAt pts ((i - 1) * 2))
+            def ayAt:int (((i - 1) * 2) + 1)
+            def ay:double (itemAt pts ayAt)
+            def bx:double (itemAt pts (i * 2))
+            def byAt:int ((i * 2) + 1)
+            def by:double (itemAt pts byAt)
+            def vertical:boolean ((fabs (ax - bx)) < 0.5)
+            def len:double ((fabs (bx - ax)) + (fabs (by - ay)))
+            def f:int 0
+            while (f < (array_length fracs)) {
+                def fr:double (itemAt fracs f)
+                def side:double -1.0
+                while (side < 2.0) {
+                    ; Beside the line first; further out only when beside it
+                    ; is on top of something, which is what a short segment
+                    ; between two boxes leaves. The distance is charged, so a
+                    ; label stays close when it can.
+                    def away:double 3.0
+                    while (away < 68.0) {
+                        def px:double (ax + ((bx - ax) * fr))
+                        def py:double (ay + ((by - ay) * fr))
+                        if vertical {
+                            px = (px + (side * ((w * 0.5) + away)))
+                        } {
+                            py = (py + (side * ((h * 0.5) + away)))
+                        }
+                        def score:double ((this.labelScore(g k px py w h len mx my)) + (away * 1.5))
+                        if (score < best) {
+                            best = score
+                            bestX = px
+                            bestY = py
+                        }
+                        away = (away + 16.0)
+                    }
+                    side = (side + 2.0)
+                }
+                f = (f + 1)
+            }
+            i = (i + 1)
+        }
+        e.labelDX = (bestX - mx)
+        e.labelDY = (bestY - my)
+        push lbEdge k
+        push lbX (bestX - (w * 0.5))
+        push lbY (bestY - (h * 0.5))
+        push lbW w
+        push lbH h
+    }
+
+    fn labelScore:double (g:FlowGraph k:int px:double py:double w:double h:double segLen:double mx:double my:double) {
+        def score:double 0.0
+        ; a short segment is a poor host; far from the middle is a poor sign
+        def cap:double segLen
+        if (cap > 200.0) { cap = 200.0 }
+        score = (score + ((200.0 - cap) * 0.15))
+        score = (score + (((fabs (px - mx)) + (fabs (py - my))) * 0.08))
+        def box:FlowRect (FlowRect.create((px - (w * 0.5)) (py - (h * 0.5)) w h))
+        def near:FlowRect (FlowRect.create(((px - (w * 0.5)) - 10.0) ((py - (h * 0.5)) - 10.0) (w + 20.0) (h + 20.0)))
+        ; boxes: a label on a state is a label of the state
+        def n:int 0
+        while (n < (g.nodeCount())) {
+            def nd:FlowNode (g.nodeAt(n))
+            if (EdgeOverlap.blocks(nd)) {
+                def r:FlowRect (FlowRect.create((nd.x - 4.0) (nd.y - 4.0) (nd.width + 8.0) (nd.height + 8.0)))
+                if (box.overlaps(r)) {
+                    ; By how much: where nothing fits, the place that covers
+                    ; the least of a box is still the best of them. A shape
+                    ; that is not its bounding box — a diamond — is asked
+                    ; itself, since the corners of its box are empty.
+                    def part:double (ReadableRouter.coveredBy(box nd r))
+                    if (part > 0.0) {
+                        score = (score + (400.0 + (1200.0 * part)))
+                    }
+                }
+            }
+            n = (n + 1)
+        }
+        ; labels already placed
+        def l:int 0
+        while (l < (array_length lbEdge)) {
+            if ((itemAt lbEdge l) != k) {
+                def lr:FlowRect (FlowRect.create((itemAt lbX l) (itemAt lbY l) (itemAt lbW l) (itemAt lbH l)))
+                if (box.overlaps(lr)) {
+                    score = (score + (300.0 + ((900.0 * (box.overlapArea(lr))) / (w * h))))
+                }
+            }
+            l = (l + 1)
+        }
+        ; lines: through the box is bad, beside it is a label that looks like
+        ; theirs; the edge's own other segments count too, a little less
+        def m:int 0
+        while (m < (array_length segEdge)) {
+            def owner:int (itemAt segEdge m)
+            def hit:boolean (EdgeOverlap.segmentHitsRect((itemAt sx1 m) (itemAt sy1 m) (itemAt sx2 m) (itemAt sy2 m) box))
+            if (owner != k) {
+                if hit {
+                    score = (score + 300.0)
+                } {
+                    if (EdgeOverlap.segmentHitsRect((itemAt sx1 m) (itemAt sy1 m) (itemAt sx2 m) (itemAt sy2 m) near)) {
+                        score = (score + 80.0)
+                    }
+                }
+            } {
+                if hit {
+                    score = (score + 150.0)
+                }
+            }
+            m = (m + 1)
+        }
+        return score
+    }
+
+    ; What fraction of `box` lies on the node: the shared area for a rectangle,
+    ; a sample of points for any other shape.
+    sfn coveredBy:double (box:FlowRect nd:FlowNode r:FlowRect) {
+        if (nd.shape == "rect") {
+            return ((box.overlapArea(r)) / (box.w * box.h))
+        }
+        def inside:int 0
+        def total:int 0
+        def i:int 0
+        while (i < 7) {
+            def j:int 0
+            while (j < 3) {
+                def px:double (box.x + ((box.w * ((int2double i) + 0.5)) / 7.0))
+                def py:double (box.y + ((box.h * ((int2double j) + 0.5)) / 3.0))
+                total = (total + 1)
+                if (nd.holdsPoint(px py)) {
+                    inside = (inside + 1)
+                }
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+        return ((int2double inside) / (int2double total))
+    }
+
+    ; The box the view draws around a label, in model pixels. Measured from
+    ; what the renderer emits: about 8.2 per character at the default size, 14
+    ; per line, padded, and wrapped onto a second line past 160.
+    sfn labelBoxWidth:double (text:string) {
+        def w:double (ReadableRouter.rawLabelWidth(text))
+        if (w > 160.0) {
+            return 174.0
+        }
+        return (w + 14.0)
+    }
+
+    sfn rawLabelWidth:double (text:string) {
+        def widest:double 0.0
+        def run:double 0.0
+        def i:int 0
+        def len:int (strlen text)
+        while (i < len) {
+            if ((charAt text i) == 10) {
+                if (run > widest) { widest = run }
+                run = 0.0
+            } {
+                run = (run + 8.2)
+            }
+            i = (i + 1)
+        }
+        if (run > widest) { widest = run }
+        return widest
+    }
+
+    sfn labelBoxHeight:double (text:string) {
+        def lines:double 1.0
+        def i:int 0
+        def len:int (strlen text)
+        while (i < len) {
+            if ((charAt text i) == 10) {
+                lines = (lines + 1.0)
+            }
+            i = (i + 1)
+        }
+        if ((ReadableRouter.rawLabelWidth(text)) > 160.0) {
+            lines = (lines + 1.0)
+        }
+        return ((lines * 14.0) + 8.0)
+    }
+
+    ; ============================================= phase 3: reroute, simplify
+    fn finish:void (g:FlowGraph) {
+        ; 10. An edge drawn through somebody's label is routed again with the
+        ;     labels on the page, and its own label is placed again after.
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            if (this.isRouted(e)) {
+                if ((this.labelsOnRoute(k e.waypoints)) > 0) {
+                    this.dropLabelOf(k)
+                    this.rerouteIfBetter(g k)
+                    this.placeLabel(g k)
+                }
+            }
+            k = (k + 1)
+        }
+        ; 11. …and then the detours.
+        def k2:int 0
+        while (k2 < (g.edgeCount())) {
+            def e2:FlowEdge (g.edgeAt(k2))
+            if (this.isRouted(e2)) {
+                if (this.simplify(g k2)) {
+                    simplified = (simplified + 1)
+                    this.dropLabelOf(k2)
+                    this.placeLabel(g k2)
+                }
+            }
+            k2 = (k2 + 1)
+        }
+    }
+
+    fn labelsOnRoute:int (k:int pts:[double]) {
+        def hits:int 0
+        def n:int (idiv (array_length pts) 2)
+        def l:int 0
+        while (l < (array_length lbEdge)) {
+            if ((itemAt lbEdge l) != k) {
+                def r:FlowRect (FlowRect.create((itemAt lbX l) (itemAt lbY l) (itemAt lbW l) (itemAt lbH l)))
+                def i:int 1
+                def found:boolean false
+                while (i < n) {
+                    def ayAt:int (((i - 1) * 2) + 1)
+                    def byAt:int ((i * 2) + 1)
+                    if (EdgeOverlap.segmentHitsRect((itemAt pts ((i - 1) * 2)) (itemAt pts ayAt) (itemAt pts (i * 2)) (itemAt pts byAt) r)) {
+                        found = true
+                    }
+                    i = (i + 1)
+                }
+                if found {
+                    hits = (hits + 1)
+                }
+            }
+            l = (l + 1)
+        }
+        return hits
+    }
+
+    ; ---------------------------------------------------------- simplify ----
+    ; Two non-adjacent corners that can be joined by a straight line or one
+    ; bend, without touching a halo and without making anything else worse,
+    ; are joined, and the detour between them goes. The stubs are never
+    ; touched: rule 2 outranks rule 10.
+    fn simplify:boolean (g:FlowGraph k:int) {
+        def e:FlowEdge (g.edgeAt(k))
+        def changed:boolean false
+        def rounds:int 0
+        while (rounds < 12) {
+            rounds = (rounds + 1)
+            def pts:[double] e.waypoints
+            def n:int (idiv (array_length pts) 2)
+            def oldCost:double (this.evalRoute(g k pts))
+            def oldBends:int (n - 2)
+            def best:double (oldCost - 0.5)
+            def bestPts:[double]
+            def found:boolean false
+            def a:int 1
+            while (a <= (n - 4)) {
+                def b:int (a + 2)
+                while (b <= (n - 2)) {
+                    def ax:double (itemAt pts (a * 2))
+                    def ayAt:int ((a * 2) + 1)
+                    def ay:double (itemAt pts ayAt)
+                    def bx:double (itemAt pts (b * 2))
+                    def byAt:int ((b * 2) + 1)
+                    def by:double (itemAt pts byAt)
+                    def cands:[double]
+                    def straight:boolean false
+                    if ((fabs (ax - bx)) < 0.5) { straight = true }
+                    if ((fabs (ay - by)) < 0.5) { straight = true }
+                    if straight {
+                        push cands ax
+                        push cands ay
+                    } {
+                        push cands ax
+                        push cands by
+                        push cands bx
+                        push cands ay
+                    }
+                    def c:int 0
+                    while (c < (idiv (array_length cands) 2)) {
+                        def cx:double (itemAt cands (c * 2))
+                        def cyAt:int ((c * 2) + 1)
+                        def cy:double (itemAt cands cyAt)
+                        def trial:[double] (ReadableRouter.spliced(pts a b cx cy straight))
+                        if (this.stubsIntact(g e trial)) {
+                            def bends:int ((idiv (array_length trial) 2) - 2)
+                            if (bends <= oldBends) {
+                                def cost:double (this.evalRoute(g k trial))
+                                if (cost < best) {
+                                    best = cost
+                                    found = true
+                                    ReadableRouter.takeDoubles(bestPts trial)
+                                }
+                            }
+                        }
+                        c = (c + 1)
+                    }
+                    b = (b + 1)
+                }
+                a = (a + 1)
+            }
+            if (found == false) {
+                return changed
+            }
+            this.unregister(k)
+            this.commit(g k bestPts)
+            changed = true
+        }
+        return changed
+    }
+
+    ; Points 0..a, the corner if there is one, points b..end.
+    sfn spliced:[double] (pts:[double] a:int b:int cx:double cy:double straight:boolean) {
+        def out:[double]
+        def n:int (idiv (array_length pts) 2)
+        def i:int 0
+        while (i <= a) {
+            push out (itemAt pts (i * 2))
+            def at:int ((i * 2) + 1)
+            push out (itemAt pts at)
+            i = (i + 1)
+        }
+        if (straight == false) {
+            push out cx
+            push out cy
+        }
+        def j:int b
+        while (j < n) {
+            push out (itemAt pts (j * 2))
+            def at2:int ((j * 2) + 1)
+            push out (itemAt pts at2)
+            j = (j + 1)
+        }
+        return (EdgeRouter.dropCollinear((EdgeRouter.dedupe(out))))
+    }
+
+    ; The first move after the exit stub may not head back into the node, and
+    ; the last move before the entry stub may not head away from it.
+    fn stubsIntact:boolean (g:FlowGraph e:FlowEdge pts:[double]) {
+        def n:int (idiv (array_length pts) 2)
+        if (n < 3) {
+            return false
+        }
+        def s1:int (g.edgeSide(e true))
+        def s2:int (g.edgeSide(e false))
+        def x1:double (itemAt pts 2)
+        def y1:double (itemAt pts 3)
+        def x2:double (itemAt pts 4)
+        def y2:double (itemAt pts 5)
+        def outDot:double (((x2 - x1) * (FlowPosition.normalX(s1))) + ((y2 - y1) * (FlowPosition.normalY(s1))))
+        if (outDot < -0.5) {
+            return false
+        }
+        def px:double (itemAt pts ((n - 3) * 2))
+        def pyAt:int (((n - 3) * 2) + 1)
+        def py:double (itemAt pts pyAt)
+        def qx:double (itemAt pts ((n - 2) * 2))
+        def qyAt:int (((n - 2) * 2) + 1)
+        def qy:double (itemAt pts qyAt)
+        def inDot:double (((qx - px) * (FlowPosition.normalX(s2))) + ((qy - py) * (FlowPosition.normalY(s2))))
+        if (inDot > 0.5) {
+            return false
+        }
+        return true
+    }
+
+    ; ================================================================ metrics
+    ; A rule with no number is a preference. Each of these is one of the rules
+    ; above, counted on the graph as it will be drawn, and the demo prints
+    ; them so the gate can hold them.
+
+    ; Corners strictly inside the clearance halo of a node the edge does not
+    ; belong to. Rule 4.
+    sfn haloTurns:int (g:FlowGraph clearance:double) {
+        def bad:int 0
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            if (e.hidden == false) {
+                def pts:[double] (EdgeRouter.cornersFor(g e))
+                def n:int (idiv (array_length pts) 2)
+                def i:int 1
+                while (i < (n - 1)) {
+                    def px:double (itemAt pts (i * 2))
+                    def pyAt:int ((i * 2) + 1)
+                    def py:double (itemAt pts pyAt)
+                    def m:int 0
+                    while (m < (g.nodeCount())) {
+                        if (m != e.sourceIndex) {
+                            if (m != e.targetIndex) {
+                                def nd:FlowNode (g.nodeAt(m))
+                                if (EdgeOverlap.blocks(nd)) {
+                                    def r:FlowRect (FlowRect.create(((nd.x - clearance) + 0.5) ((nd.y - clearance) + 0.5) ((nd.width + (clearance * 2.0)) - 1.0) ((nd.height + (clearance * 2.0)) - 1.0)))
+                                    if (r.holds(px py)) {
+                                        bad = (bad + 1)
+                                    }
+                                }
+                            }
+                        }
+                        m = (m + 1)
+                    }
+                    i = (i + 1)
+                }
+            }
+            k = (k + 1)
+        }
+        return bad
+    }
+
+    ; Crossings that land within `radius` of a corner or an end of either
+    ; edge — the ones a reader cannot tell from a junction. Rule 7.
+    sfn crossingsAtBend:int (g:FlowGraph radius:double) {
+        def owner:[int]
+        def x1:[double]
+        def y1:[double]
+        def x2:[double]
+        def y2:[double]
+        def cOwner:[int]
+        def cx:[double]
+        def cy:[double]
+        ReadableRouter.gather(g owner x1 y1 x2 y2 cOwner cx cy)
+        def bad:int 0
+        def a:int 0
+        while (a < (array_length owner)) {
+            def b:int (a + 1)
+            while (b < (array_length owner)) {
+                if ((itemAt owner a) != (itemAt owner b)) {
+                    if (ReadableRouter.crosses((itemAt x1 a) (itemAt y1 a) (itemAt x2 a) (itemAt y2 a) (itemAt x1 b) (itemAt y1 b) (itemAt x2 b) (itemAt y2 b))) {
+                        def px:double (itemAt x1 b)
+                        def py:double (itemAt y1 a)
+                        if ((fabs ((itemAt x1 a) - (itemAt x2 a))) < 0.5) {
+                            px = (itemAt x1 a)
+                            py = (itemAt y1 b)
+                        }
+                        def near:boolean false
+                        def m:int 0
+                        while (m < (array_length cOwner)) {
+                            def ok:boolean false
+                            if ((itemAt cOwner m) == (itemAt owner a)) { ok = true }
+                            if ((itemAt cOwner m) == (itemAt owner b)) { ok = true }
+                            if ok {
+                                if ((fabs ((itemAt cx m) - px)) <= radius) {
+                                    if ((fabs ((itemAt cy m) - py)) <= radius) {
+                                        near = true
+                                    }
+                                }
+                            }
+                            m = (m + 1)
+                        }
+                        if near {
+                            bad = (bad + 1)
+                        }
+                    }
+                }
+                b = (b + 1)
+            }
+            a = (a + 1)
+        }
+        return bad
+    }
+
+    ; Pairs of parallel segments of different edges closer than `gap` and
+    ; overlapping along their axis. Two stubs are exempt: sibling sockets
+    ; are spaced by the node's height, not by this rule. Rule 5.
+    sfn parallelClose:int (g:FlowGraph gap:double) {
+        def owner:[int]
+        def x1:[double]
+        def y1:[double]
+        def x2:[double]
+        def y2:[double]
+        def cOwner:[int]
+        def cx:[double]
+        def cy:[double]
+        def isStub:[boolean]
+        ReadableRouter.gatherWithStubs(g owner x1 y1 x2 y2 cOwner cx cy isStub)
+        def bad:int 0
+        def a:int 0
+        while (a < (array_length owner)) {
+            def b:int (a + 1)
+            while (b < (array_length owner)) {
+                if ((itemAt owner a) != (itemAt owner b)) {
+                    def bothStubs:boolean false
+                    if (itemAt isStub a) {
+                        if (itemAt isStub b) {
+                            bothStubs = true
+                        }
+                    }
+                    if (bothStubs == false) {
+                        def aV:boolean ((fabs ((itemAt x1 a) - (itemAt x2 a))) < 0.5)
+                        def bV:boolean ((fabs ((itemAt x1 b) - (itemAt x2 b))) < 0.5)
+                        if (aV == bV) {
+                            def d:double 0.0
+                            def overlap:double 0.0
+                            if aV {
+                                d = (fabs ((itemAt x1 a) - (itemAt x1 b)))
+                                overlap = (ReadableRouter.overlapOf((itemAt y1 a) (itemAt y2 a) (itemAt y1 b) (itemAt y2 b)))
+                            } {
+                                d = (fabs ((itemAt y1 a) - (itemAt y1 b)))
+                                overlap = (ReadableRouter.overlapOf((itemAt x1 a) (itemAt x2 a) (itemAt x1 b) (itemAt x2 b)))
+                            }
+                            if (d < gap) {
+                                if (overlap > 2.0) {
+                                    bad = (bad + 1)
+                                }
+                            }
+                        }
+                    }
+                }
+                b = (b + 1)
+            }
+            a = (a + 1)
+        }
+        return bad
+    }
+
+    ; Labels whose box is crossed by a segment of an edge that is not theirs.
+    ; Rule 7.
+    sfn labelHits:int (g:FlowGraph) {
+        def owner:[int]
+        def x1:[double]
+        def y1:[double]
+        def x2:[double]
+        def y2:[double]
+        def cOwner:[int]
+        def cx:[double]
+        def cy:[double]
+        ReadableRouter.gather(g owner x1 y1 x2 y2 cOwner cx cy)
+        def bad:int 0
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            if ((strlen e.label) > 0) {
+                if (e.hidden == false) {
+                    def path:EdgePath (EdgeRouter.route(g e))
+                    path.flatten(12)
+                    def w:double (ReadableRouter.labelBoxWidth(e.label))
+                    def h:double (ReadableRouter.labelBoxHeight(e.label))
+                    def r:FlowRect (FlowRect.create((((path.midX()) + e.labelDX) - (w * 0.5)) (((path.midY()) + e.labelDY) - (h * 0.5)) w h))
+                    def hit:boolean false
+                    def m:int 0
+                    while (m < (array_length owner)) {
+                        if ((itemAt owner m) != k) {
+                            if (EdgeOverlap.segmentHitsRect((itemAt x1 m) (itemAt y1 m) (itemAt x2 m) (itemAt y2 m) r)) {
+                                hit = true
+                            }
+                        }
+                        m = (m + 1)
+                    }
+                    if hit {
+                        bad = (bad + 1)
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        return bad
+    }
+
+    sfn gather:void (g:FlowGraph owner:[int] x1:[double] y1:[double] x2:[double] y2:[double] cOwner:[int] cx:[double] cy:[double]) {
+        def isStub:[boolean]
+        ReadableRouter.gatherWithStubs(g owner x1 y1 x2 y2 cOwner cx cy isStub)
+    }
+
+    ; Every drawn edge as its corner polyline, segments and corners apart.
+    sfn gatherWithStubs:void (g:FlowGraph owner:[int] x1:[double] y1:[double] x2:[double] y2:[double] cOwner:[int] cx:[double] cy:[double] isStub:[boolean]) {
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            if (e.hidden == false) {
+                if (e.sourceIndex >= 0) {
+                    if (e.targetIndex >= 0) {
+                        def pts:[double] (EdgeRouter.cornersFor(g e))
+                        def n:int (idiv (array_length pts) 2)
+                        def i:int 0
+                        while (i < n) {
+                            def px:double (itemAt pts (i * 2))
+                            def pyAt:int ((i * 2) + 1)
+                            def py:double (itemAt pts pyAt)
+                            push cOwner k
+                            push cx px
+                            push cy py
+                            if (i > 0) {
+                                push owner k
+                                push x1 (itemAt pts ((i - 1) * 2))
+                                def qyAt:int (((i - 1) * 2) + 1)
+                                push y1 (itemAt pts qyAt)
+                                push x2 px
+                                push y2 py
+                                def stub:boolean false
+                                if (i == 1) { stub = true }
+                                if (i == (n - 1)) { stub = true }
+                                push isStub stub
+                            }
+                            i = (i + 1)
+                        }
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+    }
+}

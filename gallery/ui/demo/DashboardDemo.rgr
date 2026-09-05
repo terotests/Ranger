@@ -1,0 +1,2526 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; DashboardDemo — four cards and a chart that is really drawn
+; =============================================================================
+; shadcn's dashboard-01, and the first page here that puts a component from
+; ANOTHER gallery on the same surface as this one's.
+;
+; --- THE CHART IS A VELA RENDER, NOT A PICTURE OF ONE ------------------------
+;
+; The area chart is a Vega specification, run by `VlRuntime`, turned into draw
+; commands by `VlSceneCommands`, and appended to this page's display list by
+; `VlEvgList`. Nothing is traced, embedded or approximated: the ninety points
+; below go in as data and the outline that comes out is the one Vela computed.
+;
+; There were two routes and the difference matters. An element can carry an SVG
+; string in `svgSource` and `EVGDisplayList` will import it — that works, and it
+; drops every LABEL, because the importer walks vector items and a `<text>` is
+; not one. Forty-seven commands of geometry and not a single axis tick. So this
+; uses the other bridge, `VlEvgList`, which was written for precisely this case
+; and emits geometry and text together: seventy-two commands, twenty-five of
+; them words.
+;
+; The consequence is that the chart is not in the ELEMENT tree. It is painted
+; into the display list at the position the layout put its card, which is why
+; `chartBox` is a placeholder with an id and no children: the tree owns where
+; the chart goes and Vela owns what is drawn there. A reader gets the card's
+; label and the summary under it, because a hundred path commands are not
+; something to announce.
+;
+; --- WHAT A CARD IS ----------------------------------------------------------
+;
+; A rounded box with a header row, a big number and a footer line. It is not a
+; controller: there is nothing to control. `TableCtl` exists because sorting,
+; paging and selection are hard; a card is a box with four strings in it, and
+; putting it behind a controller would be ceremony.
+;
+; --- THE DATA TABLE, AND WHO OWNS THE ROW ORDER ------------------------------
+;
+; Two controllers, and the reason there are two is that they answer different
+; questions. `TableCtl` is measured against TanStack for sorting, paging and
+; selection; `SortableCtl` is measured against dnd-kit for what a drag does.
+; Neither knows about the other.
+;
+; So ONE of them owns the order, and it is `TableCtl.records`. `SortableCtl` is
+; the GESTURE — pick up, move, drop or cancel, with dnd-kit's announcements —
+; and a completed drop writes the order it arrived at back into the records.
+; The alternative was two lists to keep in step, which is how a table ends up
+; showing a row twice.
+;
+; A SORT then replaces a hand-made order, which is not a compromise: sorting by
+; Target is a claim about where every row belongs, and honouring a drag inside
+; it would mean the column header lied. The demo says so under the table.
+;
+; --- THE SIDEBAR --------------------------------------------------------------
+;
+; A NAVIGATION LANDMARK, which is the only reason it is worth building rather
+; than drawing: a column of nine buttons is nine things a reader walks past,
+; and a named landmark is one thing they jump to.
+;
+; The page got WIDER for it instead of the content getting narrower. That is
+; not politeness towards the chart, it is arithmetic: `chartW` is 994 because
+; the card's inner width is 994, and every axis-label position measured against
+; that number would have had to be measured again. 1336 = 255 + 1 + 1080.
+;
+; Two things it says that a picture cannot. `aria-current="page"` marks the one
+; link you are on — set from the same test as the fill, so the two audiences
+; cannot be told different stories — and the inbox button carries the name its
+; envelope glyph does not.
+;
+; --- AND THE PAGE SCROLLS -----------------------------------------------------
+;
+; `pageH` is a VIEWPORT now. The sidebar is outside the scroll container and
+; stands still; everything else is inside one and moves, which is the whole
+; reason a sidebar is worth having — a navigation you have to scroll back up to
+; reach is a navigation that is only there some of the time.
+;
+; EVG could not do this until this page needed it: `overflow: hidden` clipped
+; and nothing scrolled, and a flex column with a definite height SHRANK
+; children that overflowed it. See `oracle/scroll_check.mjs` for the browser
+; behaviour that decides all of it.
+;
+; The nine links lead to six builders. The four Documents links and More differ
+; by WHAT THEY LIST and by nothing else, so they share one — five near-identical
+; page functions would have looked different here and identical on the screen.
+;
+; --- THE ICONS ARE ARTWORK, NOT GLYPHS ----------------------------------------
+;
+; Nine lucide icons, verbatim from lucide-static 1.37.0, through the mechanism
+; the timeline demo already proved. They were text glyphs and they sat low
+; against their labels, for two reasons of which only one was a mistake — see
+; the note above `svgOpen`. A 16x16 `path` element is a box, and a box has no
+; baseline to be low against.
+;
+; --- TWO PALETTES, ONE LAYOUT -------------------------------------------------
+;
+; `setTheme("marine")` and the page is a harbour rather than a white sheet. A
+; theme here is a NAME, handed to `applyTree` and nothing else: the sheet holds
+; both palettes — `.theme-marine .db-card` beats `.db-card` — so not one
+; element gains or loses a class and there is no second tree to keep in step.
+;
+; The theme declares colours and nothing else. That is the rule that makes it
+; a paint-only change — the layout signatures of the two plans are identical,
+; so `EVGStyleSheet` reports the pass layout-clean and no box is measured
+; again — and it is also what makes leaving one work at all: an element holds
+; whatever the last plan wrote to it, so a themed declaration with no unscoped
+; counterpart would survive the switch home and stay there. `dashboard-check`
+; asserts that pairing over the sheet's own text.
+;
+; The two things NOT on an element are themed the same way. The chart is
+; Vela's and the scroll indicator is two rectangles, so neither can carry a
+; class — but their colours are in the sheet anyway, on `.db-ink-*` classes
+; nothing wears, and `ink` asks the sheet what one resolves to under the theme
+; that is showing. A theme that could repaint the frame and not the picture
+; inside it would not be worth having.
+;
+; --- WHAT IS NOT HERE YET ----------------------------------------------------
+;
+; The reference's horizontal scroll, which it has because its sidebar takes the
+; width — this table is sized to its card instead, so there is nothing to
+; scroll and no scroll container to get wrong. The sidebar does not collapse to
+; icons; that is a width the page does not have. And the scrollbar is an
+; indicator rather than a control — see `displayListJson`.
+; =============================================================================
+
+Import "../src/RadioGroupCtl.rgr"
+Import "../src/TableCtl.rgr"
+Import "../src/SortableCtl.rgr"
+Import "../src/VirtualCtl.rgr"
+Import "../src/UiCtl.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGUnit.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGStyleSheet.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+Import "../../evg/EVGA11yFromTree.rgr"
+Import "../../evg/EVGHitTest.rgr"
+Import "../../evg/EVGInspect.rgr"
+Import "../../vela/src/VlRuntime.rgr"
+Import "../../vela/src/VlCommand.rgr"
+Import "../../vela/src/VlJson.rgr"
+Import "../../vela/src/VlEvgList.rgr"
+Import "../../game_engine/ui/UITextRenderer.rgr"
+
+treefactory Db {
+    child addChild
+    text  textContent
+
+    tag Page    EVGElement (props (className "db-page"))
+    tag Main    EVGElement (props (className "db-main") (role "region") (a11yLabel "Dashboard"))
+    tag Cards   EVGElement (props (className "db-cards") (role "list") (a11yLabel "Key figures"))
+
+    tag Card    EVGElement (props (className "db-card") (role "listitem"))
+    tag CardTop EVGElement (props (className "db-card-top"))
+    tag CardLbl EVGElement (props (className "db-card-label") (elementType 1))
+    tag Badge   EVGElement (props (className "db-badge"))
+    tag BadgeUp EVGElement (props (className "db-badge db-badge-up"))
+    tag BadgeTx EVGElement (props (className "db-badge-text") (elementType 1))
+    tag Big     EVGElement (props (className "db-big") (elementType 1))
+    tag Foot    EVGElement (props (className "db-card-foot"))
+    tag FootTop EVGElement (props (className "db-card-foot-top"))
+    tag Trend   EVGElement (props (className "db-trend") (elementType 1))
+    ; The arrow beside the trend line. Decoration: "up" is already in the
+    ; sentence beside it, and a glyph read aloud after it says it twice.
+    tag Arrow   EVGElement (props (className "db-arrow") (elementType 1) (a11yHidden true))
+    tag Sub     EVGElement (props (className "db-card-sub") (elementType 1))
+
+    tag Chart   EVGElement (props (className "db-chart-card"))
+    tag ChartHd EVGElement (props (className "db-chart-head"))
+    tag ChartTx EVGElement (props (className "db-chart-head-text"))
+    tag Title   EVGElement (props (className "db-chart-title") (elementType 1) (role "heading") (a11yLevel 2))
+    tag ChartSub EVGElement (props (className "db-chart-sub") (elementType 1))
+    tag Spacer  EVGElement (props (className "db-spacer"))
+    tag Segs    EVGElement (props (className "db-segs") (role "radiogroup") (a11yLabel "Range"))
+    tag Seg     EVGElement (props (className "db-seg") (role "radio"))
+    tag SegOn   EVGElement (props (className "db-seg db-seg-on") (role "radio"))
+    tag SegTx   EVGElement (props (className "db-seg-text") (elementType 1))
+    ; Where the chart goes. A placeholder with an id and nothing in it: the
+    ; tree owns the position and Vela owns the drawing.
+    tag ChartBox EVGElement (props (className "db-chart-box") (role "img"))
+
+    ; --- the table ------------------------------------------------------------
+    tag Tabs    EVGElement (props (className "db-tabs") (role "tablist") (a11yLabel "Sections"))
+    tag Tab     EVGElement (props (className "db-tab") (role "tab"))
+    tag TabOn   EVGElement (props (className "db-tab db-tab-on") (role "tab"))
+    tag TabTx   EVGElement (props (className "db-tab-text") (elementType 1))
+    ; The count beside a tab name. Part of the tab's NAME rather than a node of
+    ; its own — "Past Performance 3" is one thing a reader hears, and a pill
+    ; announced separately after it is a number with nothing attached.
+    tag TabPill EVGElement (props (className "db-tab-pill") (a11yHidden true))
+    tag PillTx  EVGElement (props (className "db-tab-pill-text") (elementType 1))
+    tag Tools   EVGElement (props (className "db-tools"))
+    tag Tool    EVGElement (props (className "db-tool") (role "button"))
+    tag ToolTx  EVGElement (props (className "db-tool-text") (elementType 1))
+    tag ToolIc  EVGElement (props (className "db-tool-icon") (elementType 1) (a11yHidden true))
+
+    tag Table   EVGElement (props (className "db-table") (role "table") (a11yLabel "Document sections"))
+    tag Head    EVGElement (props (className "db-thead") (role "rowgroup"))
+    tag Body    EVGElement (props (className "db-tbody") (role "rowgroup"))
+    tag Row     EVGElement (props (className "db-tr") (role "row"))
+    tag RowOn   EVGElement (props (className "db-tr db-tr-on") (role "row"))
+    tag Th      EVGElement (props (className "db-th") (role "columnheader"))
+    tag Td      EVGElement (props (className "db-td") (role "cell"))
+    tag CellTx  EVGElement (props (className "db-cell-text") (elementType 1))
+    tag Strong  EVGElement (props (className "db-cell-text db-cell-strong") (elementType 1))
+    tag Chip    EVGElement (props (className "db-chip"))
+    tag ChipTx  EVGElement (props (className "db-chip-text") (elementType 1))
+    tag Status  EVGElement (props (className "db-status"))
+    tag StatusD EVGElement (props (className "db-status db-status-done"))
+    tag StatIc  EVGElement (props (className "db-status-icon") (elementType 1) (a11yHidden true))
+    tag StatIcD EVGElement (props (className "db-status-icon db-status-icon-done") (elementType 1) (a11yHidden true))
+    tag StatTx  EVGElement (props (className "db-status-text") (elementType 1))
+    tag Grip    EVGElement (props (className "db-grip") (role "button"))
+    tag GripIc  EVGElement (props (className "db-grip-icon") (elementType 1) (a11yHidden true))
+    tag Check   EVGElement (props (className "db-check") (role "checkbox"))
+    tag Tick    EVGElement (props (className "db-tick") (elementType 1) (a11yHidden true))
+    tag More    EVGElement (props (className "db-more") (role "button"))
+    tag MoreIc  EVGElement (props (className "db-more-icon") (elementType 1) (a11yHidden true))
+    tag Assign  EVGElement (props (className "db-assign") (role "combobox"))
+    tag AssignT EVGElement (props (className "db-assign-text") (elementType 1))
+    tag Chevron EVGElement (props (className "db-chevron") (elementType 1) (a11yHidden true))
+    ; The window the rows are drawn in, slid up by the part of the first row
+    ; that is scrolled past. See `tableCard` for why there are no spacers.
+    tag Window  EVGElement (props (className "db-window"))
+    tag Live    EVGElement (props (className "db-live") (elementType 1) (role "status"))
+
+    tag Note    EVGElement (props (className "db-note") (elementType 1))
+
+    ; --- the sidebar ----------------------------------------------------------
+    ; A NAVIGATION landmark. That is not decoration: it is the thing that lets a
+    ; reader jump straight to the page's links, and a column of buttons with no
+    ; landmark around them is a column a reader has to walk.
+    tag Side     EVGElement (props (className "db-side") (role "navigation") (a11yLabel "Main"))
+    ; The hairline between the sidebar and the page. An ELEMENT, because
+    ; `border-right` is dropped in silence — see the note in `sidebar`.
+    tag SideEdge EVGElement (props (className "db-side-edge") (a11yHidden true))
+    tag Content  EVGElement (props (className "db-content"))
+    tag Brand    EVGElement (props (className "db-brand") (role "button"))
+    tag BrandMk  EVGElement (props (className "db-brand-mark") (a11yHidden true))
+    tag BrandMkT EVGElement (props (className "db-brand-mark-text") (elementType 1))
+    tag BrandTx  EVGElement (props (className "db-brand-text") (elementType 1))
+    tag SideBody EVGElement (props (className "db-side-body"))
+    tag SideGrp  EVGElement (props (className "db-side-group"))
+    tag GrpLbl   EVGElement (props (className "db-group-label") (elementType 1))
+    tag Menu     EVGElement (props (className "db-menu") (role "list"))
+    tag MenuItem EVGElement (props (className "db-menu-item") (role "listitem"))
+    tag QuickRow EVGElement (props (className "db-quick-row"))
+    tag Quick    EVGElement (props (className "db-quick") (role "button"))
+    tag QuickIc  EVGElement (props (className "db-quick-icon") (tagName "path") (a11yHidden true))
+    tag QuickTx  EVGElement (props (className "db-quick-text") (elementType 1))
+    tag IconBtn  EVGElement (props (className "db-iconbtn") (role "button"))
+    tag IconBtnI EVGElement (props (className "db-iconbtn-icon") (tagName "path") (a11yHidden true))
+    ; A LINK, not a button. The difference is what a reader is told will
+    ; happen: a link goes somewhere, a button does something here.
+    tag NavItem   EVGElement (props (className "db-nav") (role "link"))
+    tag NavItemOn EVGElement (props (className "db-nav db-nav-on") (role "link"))
+    tag NavIc    EVGElement (props (className "db-nav-icon") (tagName "path") (a11yHidden true))
+    tag NavTx    EVGElement (props (className "db-nav-text") (elementType 1))
+    tag NavTxOn  EVGElement (props (className "db-nav-text-on") (elementType 1))
+    tag NavTxDim EVGElement (props (className "db-nav-text-dim") (elementType 1))
+    tag User     EVGElement (props (className "db-user") (role "button"))
+    tag Avatar   EVGElement (props (className "db-avatar") (a11yHidden true))
+    tag AvatarTx EVGElement (props (className "db-avatar-text") (elementType 1))
+    tag UserTx   EVGElement (props (className "db-user-text"))
+    tag UserName EVGElement (props (className "db-user-name") (elementType 1))
+    tag UserMail EVGElement (props (className "db-user-mail") (elementType 1))
+
+    ; --- the scrolling main region --------------------------------------------
+    ; A real scroll container: `overflow: hidden` with a definite height, which
+    ; in EVG is now a box whose content keeps its own size and is moved rather
+    ; than squeezed. Its `scrollTop` is set from `scrollY` before the layout and
+    ; read back after, because the layout is the only thing that knows how far
+    ; there is to go.
+    tag Scroll   EVGElement (props (className "db-scroll") (role "region") (a11yLabel "Main content"))
+    ; The bar is DRAWN, not built: see `displayListJson`.
+    ;
+    ; --- the views ------------------------------------------------------------
+    tag View     EVGElement (props (className "db-view"))
+    ; NOT `Head`. That name was already the table's `<thead>` — a second `tag
+    ; Head` two hundred lines further down silently won, the table's head
+    ; became a plain div, and the rowgroup it had been went out of the
+    ; accessible tree with it. The picture was identical; a gate that counts
+    ; row groups is what noticed.
+    tag ViewHd   EVGElement (props (className "db-head"))
+    tag ViewTx   EVGElement (props (className "db-head-title") (elementType 1) (role "heading") (a11yLevel 1))
+    tag ViewSub  EVGElement (props (className "db-head-sub") (elementType 1))
+
+    tag Panel    EVGElement (props (className "db-panel"))
+    tag PanelHd  EVGElement (props (className "db-panel-head"))
+    tag PanelTx  EVGElement (props (className "db-panel-title") (elementType 1) (role "heading") (a11yLevel 2))
+    tag PanelSub EVGElement (props (className "db-panel-sub") (elementType 1))
+    tag PanelBd  EVGElement (props (className "db-panel-body") (role "list"))
+
+    tag Item     EVGElement (props (className "db-item") (role "listitem"))
+    tag ItemMark EVGElement (props (className "db-item-mark"))
+    tag ItemMkTx EVGElement (props (className "db-item-mark-text") (elementType 1))
+    tag ItemTx   EVGElement (props (className "db-item-text"))
+    tag ItemName EVGElement (props (className "db-item-name") (elementType 1))
+    tag ItemSub  EVGElement (props (className "db-item-sub") (elementType 1))
+    tag ItemTag  EVGElement (props (className "db-item-tag"))
+    tag ItemTagT EVGElement (props (className "db-item-tag-text") (elementType 1))
+
+    tag Grid     EVGElement (props (className "db-grid") (role "list"))
+    tag Tile     EVGElement (props (className "db-tile") (role "listitem"))
+    tag TileTx   EVGElement (props (className "db-tile-title") (elementType 1))
+    tag TileSub  EVGElement (props (className "db-tile-sub") (elementType 1))
+    tag Bar      EVGElement (props (className "db-bar"))
+    tag BarFill  EVGElement (props (className "db-bar-fill"))
+    tag BarTx    EVGElement (props (className "db-bar-text") (elementType 1))
+}
+
+; One of the four figures across the top.
+class DbCard {
+    def tid:string ""
+    def label:string ""
+    def value:string ""
+    def delta:string ""
+    def up:boolean true
+    def trend:string ""
+    def sub:string ""
+
+    Constructor () {
+    }
+}
+
+class DashboardDemo {
+
+    def cards:[DbCard]
+    ; Ninety days of visitors. Generated rather than pasted, so the range
+    ; buttons have something real to narrow.
+    def visitors:[int]
+    def range:RadioGroupCtl (new RadioGroupCtl())
+    ; The table owns the ORDER, the selection and the sort; the sortable owns
+    ; the gesture. See the header for why that is one owner and not two.
+    def table:TableCtl (new TableCtl())
+    def order:SortableCtl (new SortableCtl())
+    def tabs:RadioGroupCtl (new RadioGroupCtl())
+    ; What makes the table able to hold a hundred thousand rows: it decides
+    ; WHICH rows are worth building, and the answer is about a dozen whatever
+    ; the count is. Measured against @tanstack/virtual-core.
+    def virt:VirtualCtl (new VirtualCtl())
+    ; What a row is about, keyed the way the records are — the badge columns
+    ; are not strings the table sorts on, they are pictures of one.
+    ; What the Documents pages list. One table of data behind four links —
+    ; see `documentsView`.
+    def docTitles:[string]
+    def docKinds:[string]
+    def docWhen:[string]
+    def sectionOf:[string]
+    def statusOf:[string]
+    def reviewerOf:[string]
+
+    def root@(optional):EVGElement
+    def sheet@(optional):EVGStyleSheet
+    ; The sheet's source, kept so the inspector can show and edit the thing the
+    ; app was actually given rather than a reconstruction of it.
+    def cssText:string ""
+    def layout@(optional):EVGLayout
+    ; Whether that layout is of the tree that is there NOW. Set by every
+    ; rebuild, cleared by the layout that answers it.
+    def layoutStale:boolean true
+    ; Two cheaper kinds of stale, for a layout that is otherwise good. See
+    ; `laidOut`: a hover or a press changes which rules match and nothing else,
+    ; and a scroll changes an offset and nothing else. Neither needs the tree
+    ; laid out again, and on Android the tree laid out again on every touch
+    ; event was the whole of "the UI stopped responding".
+    def stateDirty:boolean false
+    def scrollPending:boolean false
+
+    def hovered:string ""
+    def pressed:string ""
+    def focused:string ""
+    ; Which sidebar link is the page you are on. One string, because
+    ; `aria-current="page"` is a claim about exactly one link.
+    def navPage:string "dashboard"
+
+    ; WHICH SET OF COLOURS. One string, handed to `applyTree`, and the whole
+    ; of the theme mechanism on this side: the sheet holds the palettes and the
+    ; app holds the name of the one it is showing. "" is the sheet's unscoped
+    ; rules, which is the shadcn light theme this page was built as; "marine"
+    ; is the block at the foot of `dashboard.css`.
+    ;
+    ; A theme may only override properties the unscoped rule already declares —
+    ; see the note there — so leaving one puts the original value back without
+    ; anything having to remember what it was.
+    def theme:string ""
+
+    ; The page got WIDER when the sidebar arrived, rather than the content
+    ; getting narrower. 1336 = 255 sidebar + 1 hairline + 1080, so `db-main`
+    ; keeps its 1032 and the chart keeps its 994 — and every measured label
+    ; position under it is the number it already was.
+    def pageW:double 1336.0
+    ; A VIEWPORT height now, not a document height. The dashboard's own content
+    ; is about 1370 tall and the page is 900, which is the whole point: the
+    ; sidebar stands still and the content moves under it.
+    def pageH:double 900.0
+    ; How far the main region is scrolled. Written here, applied to the element
+    ; before the layout runs and read back after — the layout clamps it, and it
+    ; is the only thing that knows what to clamp it to.
+    def scrollY:double 0.0
+    ; Which slice of the last display list is the CHART's.
+    ;
+    ; The gate used to tell the chart's commands from the page's by saying
+    ; "nothing in the element tree draws a path, so every path is Vela's". That
+    ; was true until the sidebar's icons became real SVG artwork, and then it
+    ; was silently wrong — the chart's bounding box grew to include a folder
+    ; icon 260 pixels to its left. So the demo says where the chart is instead
+    ; of the gate guessing, because the demo is the only thing that knows.
+    def chartFrom:int 0
+    def chartTo:int 0
+    ; The chart's commands, kept between frames. The Vela spec is parsed and
+    ; its runtime run only when the spec's TEXT changes — a range button —
+    ; because nothing else about the page changes what the chart is: a scroll
+    ; moves the card and the commands are emitted at the card's new corner.
+    ; Parsing JSON and running a scene graph on every touch event, for
+    ; geometry identical to the frame before, was the second half of the
+    ; Android host's stall.
+    def chartKey:string ""
+    def chartOk:boolean false
+    def chartCmds@(optional):VlCommandList
+
+    ; --- the surface's ripple --------------------------------------------------
+    ;
+    ; Where the page was touched and how long ago. `evg-surface-effect: ripple`
+    ; is in the sheet — the effect and its shape are STYLE — and these three
+    ; are state, like `scrollTop`: a stylesheet has no business owning where
+    ; somebody clicked.
+    ;
+    ; A negative age means nothing is in flight, which is the resting state and
+    ; costs the renderer one comparison.
+    ; EVERY touch still in flight, oldest first. Three parallel arrays because
+    ; that is the shape the uniform wants at the other end.
+    def dropXs:[double]
+    def dropYs:[double]
+    def dropAges:[double]
+    ; Where the last drop was left, so a finger dragged across the surface
+    ; leaves a TRAIL rather than one ring that follows it about. -1 means the
+    ; pointer is not down.
+    def lastDropX:double -1.0
+    def lastDropY:double -1.0
+    ; The chart's drawn size. ONE owner: the spec is built from these numbers
+    ; and the placeholder box is set to them inline, so the box the layout
+    ; reserves and the picture Vela computes cannot disagree.
+    ;
+    ; `chartW` is the CARD's inner width — 1032 less two 18px paddings and two
+    ; 1px borders — because a chart that stops short of the card it is in reads
+    ; as a mistake rather than as a margin.
+    def chartW:double 994.0
+    def chartH:double 300.0
+    ; Room for the labels, which Vela draws OUTSIDE the plot: the y ticks to
+    ; the left of x=0 and the x ticks below y=height. The command coordinates
+    ; put the plot's corner at the origin, so emitting at the box's corner
+    ; hangs the y labels off its left edge — measured, not guessed: geometry
+    ; came back spanning 43..938 while "600" and "400" drew at 29.
+    ;
+    ; So the plot is inset by the gutter and shrunk by it, and the two numbers
+    ; are stated once here rather than folded into the spec.
+    def gutterX:double 46.0
+    def gutterY:double 34.0
+    ; The table's scrollable box. ONE owner, handed to `VirtualCtl` and set on
+    ; the body inline, because the height the virtualiser reasons about and the
+    ; height the layout gives the box have to be the same number.
+    def tableViewport:double 414.0
+
+    Constructor () {
+    }
+
+    ; --- the data -------------------------------------------------------------
+
+    ; A deterministic wobble. Not random: a demo whose picture changes every
+    ; run has nothing a gate can assert about it.
+    fn buildSeries:void () {
+        def i:int 0
+        while (i < 90) {
+            def base:double (220.0 + ((to_double i) * 2.4))
+            def wobble:double (((to_double ((i * 37) % 61)) - 30.0) * 3.1)
+            def weekly:double (((to_double ((i * 53) % 7)) - 3.0) * 14.0)
+            def v:double ((base + wobble) + weekly)
+            if (v < 40.0) {
+                v = 40.0
+            }
+            push visitors (to_int v)
+            i = (i + 1)
+        }
+    }
+
+    fn rangeDays:int () {
+        if (range.value == "d7") {
+            return 7
+        }
+        if (range.value == "d30") {
+            return 30
+        }
+        return 90
+    }
+
+    fn rangeLabel:string () {
+        if (range.value == "d7") {
+            return "Total for the last 7 days"
+        }
+        if (range.value == "d30") {
+            return "Total for the last 30 days"
+        }
+        return "Total for the last 3 months"
+    }
+
+    ; --- the specification ----------------------------------------------------
+
+    ; Vega, built here rather than read from a file, because the number of
+    ; points depends on the range button and a chart that cannot change is not
+    ; a chart this page needs.
+    fn specText:string () {
+        def days:int (this.rangeDays())
+        def first:int (90 - days)
+        def rows:string ""
+        def i:int first
+        while (i < 90) {
+            if (i > first) {
+                rows = (rows + ",")
+            }
+            rows = (((((rows + "{\"d\":") + (to_string (i - first))) + ",\"v\":") + (to_string (itemAt visitors i))) + "}")
+            i = (i + 1)
+        }
+
+        def s:string "{"
+        s = (s + "\"$schema\":\"https://vega.github.io/schema/vega/v6.json\",")
+        s = (s + "\"background\":null,\"padding\":0,")
+        s = ((((s + "\"width\":") + (to_string (to_int (chartW - gutterX)))) + ",\"height\":") + (to_string (to_int (chartH - gutterY))))
+        s = (s + ",\"style\":\"cell\",")
+        s = (((s + "\"data\":[{\"name\":\"src\",\"values\":[") + rows) + "]}],")
+        s = (s + "\"marks\":[")
+        ; The filled body, then the line on top of it. Two marks over one
+        ; dataset, which is the shape the reference draws and the thing a
+        ; single `AreaChart` component cannot express.
+        s = (s + "{\"type\":\"area\",\"from\":{\"data\":\"src\"},\"encode\":{\"update\":{")
+        s = (((s + "\"orient\":{\"value\":\"vertical\"},\"fill\":{\"value\":\"") + (this.inkHex("db-ink-area"))) + "\"},\"fillOpacity\":{\"value\":0.55},")
+        s = (s + "\"x\":{\"scale\":\"x\",\"field\":\"d\"},\"y\":{\"scale\":\"y\",\"field\":\"v\"},\"y2\":{\"scale\":\"y\",\"value\":0}}}},")
+        s = (s + "{\"type\":\"line\",\"from\":{\"data\":\"src\"},\"encode\":{\"update\":{")
+        s = (((s + "\"stroke\":{\"value\":\"") + (this.inkHex("db-ink-line"))) + "\"},\"strokeWidth\":{\"value\":1.5},")
+        s = (s + "\"x\":{\"scale\":\"x\",\"field\":\"d\"},\"y\":{\"scale\":\"y\",\"field\":\"v\"}}}}")
+        s = (s + "],")
+        s = (s + "\"scales\":[")
+        s = (s + "{\"name\":\"x\",\"type\":\"linear\",\"domain\":{\"data\":\"src\",\"field\":\"d\"},\"range\":[0,{\"signal\":\"width\"}],\"zero\":false},")
+        s = (s + "{\"name\":\"y\",\"type\":\"linear\",\"domain\":{\"data\":\"src\",\"field\":\"v\"},\"range\":[{\"signal\":\"height\"},0],\"nice\":true,\"zero\":true}")
+        s = (s + "],")
+        s = (s + "\"axes\":[")
+        s = (((((((s + "{\"scale\":\"x\",\"orient\":\"bottom\",\"grid\":false,\"tickCount\":6,\"labelColor\":\"") + (this.inkHex("db-ink-label"))) + "\",\"labelFontSize\":11,\"domainColor\":\"") + (this.inkHex("db-ink-rule"))) + "\",\"tickColor\":\"") + (this.inkHex("db-ink-rule"))) + "\"},")
+        s = (((((s + "{\"scale\":\"y\",\"orient\":\"left\",\"grid\":true,\"tickCount\":4,\"labelColor\":\"") + (this.inkHex("db-ink-label"))) + "\",\"labelFontSize\":11,\"domain\":false,\"ticks\":false,\"gridColor\":\"") + (this.inkHex("db-ink-grid"))) + "\"}")
+        s = (s + "]}")
+        return s
+    }
+
+    ; --- setup ----------------------------------------------------------------
+
+    fn addCard:DbCard (tid:string label:string value:string delta:string up:boolean trend:string sub:string) {
+        def c (new DbCard())
+        c.tid = tid
+        c.label = label
+        c.value = value
+        c.delta = delta
+        c.up = up
+        c.trend = trend
+        c.sub = sub
+        push cards c
+        return c
+    }
+
+    fn init:void (css:string) {
+        def s (new EVGStyleSheet())
+        s.parse(css)
+        sheet = s
+        cssText = css
+
+        this.buildSeries()
+
+        this.addCard("db-revenue" "Total Revenue" "$1,250.00" "+12.5%" true
+            "Trending up this month" "Visitors for the last 6 months")
+        this.addCard("db-customers" "New Customers" "1,234" "-20%" false
+            "Down 20% this period" "Acquisition needs attention")
+        this.addCard("db-accounts" "Active Accounts" "45,678" "+12.5%" true
+            "Strong user retention" "Engagement exceed targets")
+        this.addCard("db-growth" "Growth Rate" "4.5%" "+4.5%" true
+            "Steady performance increase" "Meets growth projections")
+
+        this.buildTable()
+        this.addDoc("Q3 revenue extract" "Dataset" "Updated 2 days ago")
+        this.addDoc("Churn cohort 2025" "Dataset" "Updated 6 days ago")
+        this.addDoc("Support volume by week" "Dataset" "Updated 3 weeks ago")
+        this.addDoc("Quarterly business review" "Report" "Generated 1 day ago")
+        this.addDoc("Pipeline forecast" "Report" "Generated 5 days ago")
+        this.addDoc("Renewal risk" "Report" "Generated 2 weeks ago")
+        this.addDoc("Cover letter, EMR bid" "Draft" "Written 4 hours ago")
+        this.addDoc("Executive summary, v3" "Draft" "Written yesterday")
+
+        ; A RADIO GROUP, not a toggle group. The two differ in one measured
+        ; way: clicking the selected item of a toggle group DESELECTS it, and
+        ; a range picker with no range picked is a chart with nothing to draw.
+        range.tid = "db-range"
+        range.name = "Range"
+        range.addItem("d90" "Last 3 months" false)
+        range.addItem("d30" "Last 30 days" false)
+        range.addItem("d7" "Last 7 days" false)
+        range.value = "d90"
+        range.build()
+
+        tabs.tid = "db-tabs"
+        tabs.name = "Sections"
+        tabs.addItem("outline" "Outline" false)
+        tabs.addItem("past" "Past Performance" false)
+        tabs.addItem("people" "Key Personnel" false)
+        tabs.addItem("focus" "Focus Documents" false)
+        tabs.value = "outline"
+        tabs.build()
+
+        focused = "db-range-d90"
+        this.rebuild()
+    }
+
+    ; --- the table's data -----------------------------------------------------
+
+    fn addDoc:void (title:string kind:string when:string) {
+        push docTitles title
+        push docKinds kind
+        push docWhen when
+    }
+
+    fn addSection:void (key:string header:string section:string status:string target:string limit:string reviewer:string) {
+        def cells:[string]
+        push cells header
+        push cells section
+        push cells status
+        push cells target
+        push cells limit
+        push cells reviewer
+        table.addRecord(key cells)
+        push sectionOf section
+        push statusOf status
+        push reviewerOf reviewer
+    }
+
+    ; The sortable holds ONLY THE ROWS ON SCREEN, rebuilt when the range moves.
+    ;
+    ; The first version gave it an item per record. Five thousand items, and a
+    ; drop then looked each one up in the records by key — five thousand times
+    ; a linear search, twenty-five million comparisons for one drag. That is
+    ; the shape of the bug virtualisation exists to prevent, written into the
+    ; thing meant to demonstrate it.
+    ;
+    ; And it is not a compromise: a row that cannot be seen cannot be dragged.
+    ; The gesture is over what is on screen, so that is what the sortable is
+    ; given, and a drop moves ONE record in the full list — a splice, not a
+    ; rebuild.
+    fn syncOrder:void () {
+        def keep:[UiItem]
+        order.items = keep
+        def rows:[UiRecord] (table.sortedRecords())
+        def first:int (virt.firstVisible())
+        def last:int (virt.lastVisible())
+        if (first < 0) {
+            order.build()
+            return
+        }
+        def i:int first
+        while (i <= last) {
+            if (i < (array_length rows)) {
+                def r:UiRecord (itemAt rows i)
+                order.addItem(r.key (itemAt r.cells 0) false)
+            }
+            i = (i + 1)
+        }
+        order.build()
+    }
+
+    fn buildTable:void () {
+        table.tid = "db-table"
+        table.name = "Document sections"
+        table.addColumn("header" "Header" false true)
+        table.addColumn("type" "Section Type" false true)
+        table.addColumn("status" "Status" false true)
+        table.addColumn("target" "Target" true true)
+        table.addColumn("limit" "Limit" true true)
+        ; The reviewer column does not sort. Half its cells are a NAME and half
+        ; are an empty select, and sorting a column where "unassigned" has no
+        ; value is a claim about where those rows belong that nothing supports.
+        table.addColumn("reviewer" "Reviewer" false false)
+
+        order.tid = "db-order"
+        order.name = "Section order"
+
+        this.addSection("cover" "Cover page" "Cover page" "In Process" "18" "5" "Eddie Lake")
+        this.addSection("toc" "Table of contents" "Table of contents" "Done" "29" "24" "Eddie Lake")
+        this.addSection("exec" "Executive summary" "Narrative" "Done" "10" "13" "Eddie Lake")
+        this.addSection("tech" "Technical approach" "Narrative" "Done" "27" "23" "Jamik Tashpulatov")
+        this.addSection("design" "Design" "Narrative" "In Process" "2" "16" "Jamik Tashpulatov")
+        this.addSection("caps" "Capabilities" "Narrative" "In Process" "20" "8" "Jamik Tashpulatov")
+        this.addSection("integ" "Integration with existing systems" "Narrative" "In Process" "19" "21" "Jamik Tashpulatov")
+        ; The last two are unassigned, which is what the Reviewer column's
+        ; select is for and the reason that column does not sort.
+        this.addSection("innov" "Innovation and Advantages" "Narrative" "Done" "25" "26" "")
+        this.addSection("emr" "Overview of EMR's Innovative Solutions" "Technical content" "Done" "7" "23" "")
+        ; And then a great many more, because a virtualiser that is only ever
+        ; asked for nine rows proves nothing. These are generated rather than
+        ; written out: the point is the COUNT, and the nine above are the ones
+        ; the reference actually shows.
+        def i:int 0
+        while (i < 4991) {
+            def n:int (i + 10)
+            def status:string "In Process"
+            if ((n % 3) == 0) {
+                status = "Done"
+            }
+            def reviewer:string "Eddie Lake"
+            if ((n % 4) == 0) {
+                reviewer = "Jamik Tashpulatov"
+            }
+            if ((n % 7) == 0) {
+                reviewer = ""
+            }
+            this.addSection(("s" + (to_string n)) (("Section " + (to_string n))) "Narrative" status
+                (to_string ((n * 7) % 40)) (to_string ((n * 13) % 40)) reviewer)
+            i = (i + 1)
+        }
+
+        ; NO PAGER. Virtualisation replaces it rather than sitting inside it,
+        ; and the first version had them fighting: the virtualiser indexed into
+        ; all five thousand records while `pageRecords` handed back a thousand,
+        ; so scrolling past row 999 built five rows and then nothing. Two
+        ; mechanisms that both decide which rows exist is one too many.
+        ;
+        ; So the page is the whole table and the scroll box is what a person
+        ; moves through — which is also what the reference does, and why its
+        ; table scrolls rather than paginating.
+        table.pageSize = (array_length table.records)
+        virt.tid = "db-virt"
+        virt.rowHeight = 46.0
+        virt.viewport = tableViewport
+        ; Two rows either side, so a scroll of one row never exposes a strip
+        ; of nothing before the next frame.
+        virt.overscan = 2
+        virt.count = (array_length table.records)
+
+        ; NOT `table.build()`. `TableCtl` can build its own display tree and
+        ; this demo does not use it — it draws the table itself, because the
+        ; reference's cells are badges and selects rather than strings. With
+        ; five thousand records that call builds five thousand EVG rows, every
+        ; press, for nothing: the gate went from a second to a timeout, and the
+        ; virtualiser it was supposed to be testing was the only thing on the
+        ; page NOT doing the wasteful thing.
+        order.build()
+    }
+
+    ; What a record holds for a column, by key — the demo draws badges from
+    ; these rather than from the cell strings, so the picture and the value a
+    ; sort uses are the same number seen two ways.
+    fn cellOf:string (r:UiRecord key:string) {
+        def at:int (table.columnAt(key))
+        if (at < 0) {
+            return ""
+        }
+        if (at >= (array_length r.cells)) {
+            return ""
+        }
+        return (itemAt r.cells at)
+    }
+
+    ; --- the tree -------------------------------------------------------------
+
+    ; --- the sidebar's icons, verbatim from lucide-static 1.37.0 (ISC) --------
+    ;
+    ; REAL ARTWORK, and the reason is a bug report from a phone: the icons used
+    ; to be text glyphs — "●", "▭", "◕" — and they sat low against
+    ; the words beside them. Two causes, and only one of them was a mistake.
+    ;
+    ; The mistake was two numbers where there should have been one: the icon
+    ; box was 18 tall and the label 20, `align-items: center` centres the
+    ; BOXES, and a text box's baseline is measured from its own top. One pixel,
+    ; every row. A browser does the same with the same declarations.
+    ;
+    ; The other cause was not fixable that way. A glyph sits on a BASELINE, and
+    ; where its ink lands above that baseline is the type designer's business:
+    ; measured at 13px, the ink of "●" and "▭" centres a further pixel
+    ; below the ink of a capital letter, while "↺" centres exactly on it —
+    ; which is why the Lifecycle row looked right in the same screenshot where
+    ; Team and Projects looked wrong. Centring a glyph OPTICALLY needs its ink
+    ; box, and `EVGTextMeasurer` estimates.
+    ;
+    ; So the icons stop being text. A 16x16 `path` element is a BOX, centred by
+    ; the row like any other box, with no baseline anywhere in the arrangement —
+    ; which is also exactly what the reference does, because lucide ships SVG.
+    ; The mechanism is the timeline demo's, unchanged.
+    sfn svgOpen:string () {
+        return "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'>"
+    }
+
+    ; layout-dashboard
+    sfn icoDashboard:string () {
+        return ((DashboardDemo.svgOpen()) + "<rect width='7' height='9' x='3' y='3' rx='1'/><rect width='7' height='5' x='14' y='3' rx='1'/><rect width='7' height='9' x='14' y='12' rx='1'/><rect width='7' height='5' x='3' y='16' rx='1'/></svg>")
+    }
+    ; list-checks
+    sfn icoLifecycle:string () {
+        return ((DashboardDemo.svgOpen()) + "<path d='M13 5h8'/><path d='M13 12h8'/><path d='M13 19h8'/><path d='m3 17 2 2 4-4'/><path d='m3 7 2 2 4-4'/></svg>")
+    }
+    ; chart-column
+    sfn icoAnalytics:string () {
+        return ((DashboardDemo.svgOpen()) + "<path d='M3 3v16a2 2 0 0 0 2 2h16'/><path d='M18 17V9'/><path d='M13 17V5'/><path d='M8 17v-3'/></svg>")
+    }
+    ; folder
+    sfn icoProjects:string () {
+        return ((DashboardDemo.svgOpen()) + "<path d='M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z'/></svg>")
+    }
+    ; users
+    sfn icoTeam:string () {
+        return ((DashboardDemo.svgOpen()) + "<path d='M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2'/><path d='M16 3.128a4 4 0 0 1 0 7.744'/><path d='M22 21v-2a4 4 0 0 0-3-3.87'/><circle cx='9' cy='7' r='4'/></svg>")
+    }
+    ; database
+    sfn icoLibrary:string () {
+        return ((DashboardDemo.svgOpen()) + "<ellipse cx='12' cy='5' rx='9' ry='3'/><path d='M3 5V19A9 3 0 0 0 21 19V5'/><path d='M3 12A9 3 0 0 0 21 12'/></svg>")
+    }
+    ; file-text
+    sfn icoReports:string () {
+        return ((DashboardDemo.svgOpen()) + "<path d='M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z'/><path d='M14 2v5a1 1 0 0 0 1 1h5'/><path d='M10 9H8'/><path d='M16 13H8'/><path d='M16 17H8'/></svg>")
+    }
+    ; file-type-2
+    sfn icoAssistant:string () {
+        return ((DashboardDemo.svgOpen()) + "<path d='M12 22h6a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v6'/><path d='M14 2v5a1 1 0 0 0 1 1h5'/><path d='M3 16v-1.5a.5.5 0 0 1 .5-.5h7a.5.5 0 0 1 .5.5V16'/><path d='M6 22h2'/><path d='M7 14v8'/></svg>")
+    }
+    ; ellipsis
+    sfn icoMore:string () {
+        return ((DashboardDemo.svgOpen()) + "<circle cx='12' cy='12' r='1'/><circle cx='19' cy='12' r='1'/><circle cx='5' cy='12' r='1'/></svg>")
+    }
+    ; circle-plus
+    sfn icoCreate:string () {
+        return ((DashboardDemo.svgOpen()) + "<circle cx='12' cy='12' r='10'/><path d='M8 12h8'/><path d='M12 8v8'/></svg>")
+    }
+    ; mail
+    sfn icoMail:string () {
+        return ((DashboardDemo.svgOpen()) + "<path d='m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7'/><rect x='2' y='4' width='20' height='16' rx='2'/></svg>")
+    }
+
+    ; --- the sidebar ----------------------------------------------------------
+
+    ; One link. The fill and `aria-current` are set from the SAME test, because
+    ; a highlighted row that does not say it is current, or a current one that
+    ; is not highlighted, is one of the two audiences being told the truth.
+    fn navRow:EVGElement (key:string label:string icon:string dim:boolean) {
+        def id:string ("db-nav-" + key)
+        def on:boolean (navPage == key)
+        def item (tree Db (MenuItem))
+        def row (tree Db (NavItem (props (id id) (a11yLabel label))))
+        if on {
+            row = (tree Db (NavItemOn (props (id id) (a11yLabel label))))
+        }
+        row.a11yFocusable = true
+        if on {
+            row.a11yCurrent = "page"
+        }
+        def ic:EVGElement (tree Db (NavIc))
+        ic.svgSource = icon
+        row.addChild(ic)
+        if on {
+            row.addChild((tree Db (NavTxOn label)))
+        } {
+            if dim {
+                row.addChild((tree Db (NavTxDim label)))
+            } {
+                row.addChild((tree Db (NavTx label)))
+            }
+        }
+        item.addChild(row)
+        return item
+    }
+
+    ; The reference's sidebar: a brand, an action, two groups of links and the
+    ; account at the bottom.
+    ;
+    ; --- WHY THE HAIRLINE IS AN ELEMENT ---------------------------------------
+    ;
+    ; It wants to be `border-right: 1px solid #e4e4e7` on `.db-side`, and that
+    ; line would do NOTHING. `setAttribute` has branches for `border`,
+    ; `border-width`, `border-color` and `border-radius` and none for the four
+    ; sides; the `borderTopWidth`..`borderLeftWidth` fields exist on the element
+    ; and are read by no renderer, because the box model has one border width
+    ; and spends it on all four sides. No style error either — the stylesheet
+    ; reports selectors it cannot parse, not declarations it cannot use.
+    ;
+    ; So a one-pixel column, which is a true statement about a missing feature
+    ; rather than a trick to hide one. `border-bottom` in this very sheet and in
+    ; profile.css is dropped the same silent way and has been all along.
+    fn sidebar:EVGElement () {
+        def side (tree Db (Side (props (id "db-side"))))
+
+        def brand (tree Db (Brand (props (id "db-brand") (a11yLabel "Acme Inc."))))
+        brand.a11yFocusable = true
+        ; It opens a team switcher in the reference, so it says so. A button
+        ; that silently turns out to be a menu is a surprise a reader gets
+        ; after committing to the press.
+        brand.a11yHasPopup = "menu"
+        brand.a11yExpanded = (EVGA11yTri.no())
+        def mark (tree Db (BrandMk))
+        mark.addChild((tree Db (BrandMkT "A")))
+        brand.addChild(mark)
+        brand.addChild((tree Db (BrandTx "Acme Inc.")))
+        side.addChild(brand)
+
+        def body (tree Db (SideBody))
+
+        def g1 (tree Db (SideGrp))
+        ; The action pair. BUTTONS, both of them, and not part of the list
+        ; below: "Quick Create" goes nowhere, it does something.
+        def qrow (tree Db (QuickRow))
+        def quick (tree Db (Quick (props (id "db-quick") (a11yLabel "Quick Create"))))
+        quick.a11yFocusable = true
+        def qi:EVGElement (tree Db (QuickIc))
+        qi.svgSource = (DashboardDemo.icoCreate())
+        quick.addChild(qi)
+        quick.addChild((tree Db (QuickTx "Quick Create")))
+        qrow.addChild(quick)
+        ; An icon with no words. The label is the whole interface for a reader,
+        ; which is why it is stated rather than left to the glyph — and the
+        ; glyph is hidden, because "envelope" read out after "Inbox" is the
+        ; same thing said twice in two vocabularies.
+        def inbox (tree Db (IconBtn (props (id "db-inbox") (a11yLabel "Inbox"))))
+        inbox.a11yFocusable = true
+        def mi:EVGElement (tree Db (IconBtnI))
+        mi.svgSource = (DashboardDemo.icoMail())
+        inbox.addChild(mi)
+        qrow.addChild(inbox)
+        g1.addChild(qrow)
+
+        ; No name on this list. The reference draws no label above it, and a
+        ; name invented here is a word a reader hears that nobody wrote.
+        def m1 (tree Db (Menu (props (id "db-menu-pages"))))
+        m1.addChild((this.navRow("dashboard" "Dashboard" (DashboardDemo.icoDashboard()) false)))
+        m1.addChild((this.navRow("lifecycle" "Lifecycle" (DashboardDemo.icoLifecycle()) false)))
+        m1.addChild((this.navRow("analytics" "Analytics" (DashboardDemo.icoAnalytics()) false)))
+        m1.addChild((this.navRow("projects" "Projects" (DashboardDemo.icoProjects()) false)))
+        m1.addChild((this.navRow("team" "Team" (DashboardDemo.icoTeam()) false)))
+        g1.addChild(m1)
+        body.addChild(g1)
+
+        def g2 (tree Db (SideGrp))
+        g2.addChild((tree Db (GrpLbl "Documents")))
+        ; This one IS named, by the words drawn above it. A group label a
+        ; reader cannot associate with the group is a label for nobody.
+        def m2 (tree Db (Menu (props (id "db-menu-docs") (a11yLabel "Documents"))))
+        m2.addChild((this.navRow("library" "Data Library" (DashboardDemo.icoLibrary()) false)))
+        m2.addChild((this.navRow("reports" "Reports" (DashboardDemo.icoReports()) false)))
+        m2.addChild((this.navRow("assistant" "Word Assistant" (DashboardDemo.icoAssistant()) false)))
+        m2.addChild((this.navRow("more" "More" (DashboardDemo.icoMore()) true)))
+        g2.addChild(m2)
+        body.addChild(g2)
+
+        ; The body GROWS (see the sheet), so the account row below it sits on
+        ; the bottom edge whatever the links above it add up to.
+        side.addChild(body)
+
+        def user (tree Db (User (props (id "db-user") (a11yLabel "Account, Tero Tolonen"))))
+        user.a11yFocusable = true
+        user.a11yHasPopup = "menu"
+        user.a11yExpanded = (EVGA11yTri.no())
+        def av (tree Db (Avatar))
+        av.addChild((tree Db (AvatarTx "TT")))
+        user.addChild(av)
+        def ut (tree Db (UserTx))
+        ut.addChild((tree Db (UserName "Tero Tolonen")))
+        ut.addChild((tree Db (UserMail "tero@example.com")))
+        user.addChild(ut)
+        side.addChild(user)
+        return side
+    }
+
+    fn cardBody:EVGElement (c:DbCard) {
+        def card (tree Db (Card (props (id c.tid) (a11yLabel ((c.label + ", ") + c.value)))))
+
+        def top (tree Db (CardTop))
+        top.addChild((tree Db (CardLbl c.label)))
+        top.addChild((tree Db (Spacer)))
+        def badge (tree Db (Badge))
+        if c.up {
+            badge = (tree Db (BadgeUp))
+        }
+        def arrow:string "↘"
+        if c.up {
+            arrow = "↗"
+        }
+        badge.addChild((tree Db (Arrow arrow)))
+        badge.addChild((tree Db (BadgeTx c.delta)))
+        top.addChild(badge)
+        card.addChild(top)
+
+        card.addChild((tree Db (Big c.value)))
+
+        def foot (tree Db (Foot))
+        def ftop (tree Db (FootTop))
+        ftop.addChild((tree Db (Trend c.trend)))
+        ftop.addChild((tree Db (Arrow arrow)))
+        foot.addChild(ftop)
+        foot.addChild((tree Db (Sub c.sub)))
+        card.addChild(foot)
+        return card
+    }
+
+    fn chartCard:EVGElement () {
+        def card (tree Db (Chart (props (id "db-chart"))))
+
+        def head (tree Db (ChartHd))
+        def ht (tree Db (ChartTx))
+        ht.addChild((tree Db (Title "Total Visitors")))
+        ht.addChild((tree Db (ChartSub (this.rangeLabel()))))
+        head.addChild(ht)
+        head.addChild((tree Db (Spacer)))
+
+        def segs (tree Db (Segs (props (id "db-range"))))
+        def i:int 0
+        while (i < (array_length range.items)) {
+            def it:UiItem (itemAt range.items i)
+            def on:boolean (range.value == it.value)
+            def seg (tree Db (Seg (props (id ("db-range-" + it.value)) (a11yLabel it.name))))
+            if on {
+                seg = (tree Db (SegOn (props (id ("db-range-" + it.value)) (a11yLabel it.name))))
+            }
+            seg.a11yFocusable = true
+            if on {
+                seg.a11yChecked = (EVGA11yTri.yes())
+            } {
+                seg.a11yChecked = (EVGA11yTri.no())
+            }
+            seg.addChild((tree Db (SegTx it.name)))
+            segs.addChild(seg)
+            i = (i + 1)
+        }
+        head.addChild(segs)
+        card.addChild(head)
+
+        ; The placeholder. Its size is set from the SAME two numbers the
+        ; specification is built with, inline rather than in the sheet, because
+        ; two owners for one number is how the resize demo lost a frame.
+        def box (tree Db (ChartBox (props (id "db-chart-box")
+            (a11yLabel ("Visitors, " + (this.rangeLabel()))))))
+        box.width = (EVGUnit.px(chartW))
+        box.height = (EVGUnit.px(chartH))
+        card.addChild(box)
+        return card
+    }
+
+    ; --- the table's tree -----------------------------------------------------
+
+    fn tabStrip:EVGElement () {
+        def strip (tree Db (Tabs (props (id "db-tabs"))))
+        def i:int 0
+        while (i < (array_length tabs.items)) {
+            def it:UiItem (itemAt tabs.items i)
+            def on:boolean (tabs.value == it.value)
+            def count:string ""
+            if (it.value == "past") { count = "3" }
+            if (it.value == "people") { count = "2" }
+            ; The COUNT is part of the tab's name. A pill announced on its own
+            ; after "Past Performance" is a number with nothing attached to it.
+            def label:string it.name
+            if ((strlen count) > 0) {
+                label = ((it.name + ", ") + count)
+            }
+            def tab (tree Db (Tab (props (id ("db-tab-" + it.value)) (a11yLabel label))))
+            if on {
+                tab = (tree Db (TabOn (props (id ("db-tab-" + it.value)) (a11yLabel label))))
+            }
+            tab.a11yFocusable = true
+            if on {
+                tab.a11ySelected = (EVGA11yTri.yes())
+            } {
+                tab.a11ySelected = (EVGA11yTri.no())
+            }
+            tab.addChild((tree Db (TabTx it.name)))
+            if ((strlen count) > 0) {
+                def pill (tree Db (TabPill))
+                pill.addChild((tree Db (PillTx count)))
+                tab.addChild(pill)
+            }
+            strip.addChild(tab)
+            i = (i + 1)
+        }
+        return strip
+    }
+
+    fn toolRow:EVGElement () {
+        def tools (tree Db (Tools))
+        def cols (tree Db (Tool (props (id "db-columns") (a11yLabel "Customize columns"))))
+        cols.a11yFocusable = true
+        cols.a11yHasPopup = "menu"
+        cols.a11yExpanded = (EVGA11yTri.no())
+        cols.addChild((tree Db (ToolIc "▤")))
+        cols.addChild((tree Db (ToolTx "Customize Columns")))
+        cols.addChild((tree Db (Chevron "⌄")))
+        tools.addChild(cols)
+        def add (tree Db (Tool (props (id "db-add") (a11yLabel "Add section"))))
+        add.a11yFocusable = true
+        add.addChild((tree Db (ToolIc "+")))
+        add.addChild((tree Db (ToolTx "Add Section")))
+        tools.addChild(add)
+        return tools
+    }
+
+    fn headRow:EVGElement () {
+        def row (tree Db (Row (props (id "db-table-headrow"))))
+        ; The header is row 1. Everything below it starts at 2, which is what
+        ; `rowIndexOf` is adding.
+        row.a11yRowIndex = 1
+
+        ; The select-all box and the drag column's header, both of which have
+        ; a job and no words. A `columnheader` with no name is a column a
+        ; reader is told about and cannot identify, so each says what it is.
+        def selTh (tree Db (Th (props (id "db-table-selectcol") (a11yLabel "Select"))))
+        def all (tree Db (Check (props (id "db-table-selectall") (a11yLabel "Select all on this page"))))
+        all.a11yFocusable = true
+        def st:int (table.selectAllState())
+        if (st == 2) {
+            all.a11yChecked = (EVGA11yTri.yes())
+            all.addChild((tree Db (Tick "✓")))
+        } {
+            if (st == 3) {
+                all.a11yChecked = (EVGA11yTri.mixed())
+                all.addChild((tree Db (Tick "–")))
+            } {
+                all.a11yChecked = (EVGA11yTri.no())
+            }
+        }
+        selTh.addChild(all)
+        row.addChild(selTh)
+        row.addChild((tree Db (Th (props (id "db-table-dragcol") (a11yLabel "Reorder")))))
+
+        def i:int 0
+        while (i < (array_length table.columns)) {
+            def c:UiColumn (itemAt table.columns i)
+            def th (tree Db (Th (props (id ("db-table-col-" + c.key)) (a11yLabel c.label))))
+            th.className = ("db-th db-col-" + c.key)
+            if c.sortable {
+                th.a11yFocusable = true
+                th.a11ySorted = (table.sortStateOf(c.key))
+            }
+            th.addChild((tree Db (CellTx c.label)))
+            row.addChild(th)
+            i = (i + 1)
+        }
+        row.addChild((tree Db (Th (props (id "db-table-menucol") (a11yLabel "Actions")))))
+        return row
+    }
+
+    fn statusCell:EVGElement (value:string) {
+        def done:boolean (value == "Done")
+        def chip (tree Db (Status))
+        if done {
+            chip = (tree Db (StatusD))
+        }
+        if done {
+            chip.addChild((tree Db (StatIcD "✓")))
+        } {
+            chip.addChild((tree Db (StatIc "◌")))
+        }
+        chip.addChild((tree Db (StatTx value)))
+        return chip
+    }
+
+    fn bodyRow:EVGElement (r:UiRecord) {
+        def carried:boolean (order.activeValue == r.key)
+        def row (tree Db (Row (props (id ("db-table-row-" + r.key)))))
+        if r.selected {
+            row = (tree Db (RowOn (props (id ("db-table-row-" + r.key)))))
+        }
+        row.a11ySelected = (EVGA11yTri.no())
+        if r.selected {
+            row.a11ySelected = (EVGA11yTri.yes())
+        }
+
+        def selTd (tree Db (Td (props (id ("db-table-cell-" + r.key) + "-sel"))))
+        def box (tree Db (Check (props (id ("db-table-check-" + r.key))
+            (a11yLabel ("Select " + (this.cellOf(r "header")))))))
+        box.a11yFocusable = true
+        if r.selected {
+            box.a11yChecked = (EVGA11yTri.yes())
+            box.addChild((tree Db (Tick "✓")))
+        } {
+            box.a11yChecked = (EVGA11yTri.no())
+        }
+        selTd.addChild(box)
+        row.addChild(selTd)
+
+        ; The drag handle. A BUTTON, because that is what dnd-kit makes it and
+        ; the only way a keyboard reaches a reorder at all: space picks the row
+        ; up, the arrows move it, space drops it and escape puts it back.
+        def dragTd (tree Db (Td))
+        def grip (tree Db (Grip (props (id ("db-order-item-" + r.key))
+            (a11yLabel ("Reorder " + (this.cellOf(r "header")))))))
+        grip.a11yFocusable = true
+        grip.a11yRoleDescription = "sortable"
+        grip.a11yDescription = (SortableCtl.dragInstructions())
+        if carried {
+            grip.a11yPressed = (EVGA11yTri.yes())
+        }
+        grip.addChild((tree Db (GripIc "⠿")))
+        dragTd.addChild(grip)
+        row.addChild(dragTd)
+
+        def i:int 0
+        while (i < (array_length table.columns)) {
+            def c:UiColumn (itemAt table.columns i)
+            def value:string (this.cellOf(r c.key))
+            def td (tree Db (Td (props (id (((("db-table-cell-" + r.key) + "-") + c.key))))))
+            td.className = ("db-td db-col-" + c.key)
+            if (c.key == "header") {
+                td.addChild((tree Db (Strong value)))
+            } {
+                if (c.key == "type") {
+                    def chip (tree Db (Chip))
+                    chip.addChild((tree Db (ChipTx value)))
+                    td.addChild(chip)
+                } {
+                    if (c.key == "status") {
+                        td.addChild((this.statusCell(value)))
+                    } {
+                        if (c.key == "reviewer") {
+                            if ((strlen value) == 0) {
+                                def sel (tree Db (Assign (props (id ("db-assign-" + r.key))
+                                    (a11yLabel ("Assign a reviewer to " + (this.cellOf(r "header")))))))
+                                sel.a11yFocusable = true
+                                sel.a11yHasPopup = "listbox"
+                                sel.a11yExpanded = (EVGA11yTri.no())
+                                sel.addChild((tree Db (AssignT "Assign reviewer")))
+                                sel.addChild((tree Db (Chevron "⌄")))
+                                td.addChild(sel)
+                            } {
+                                td.addChild((tree Db (CellTx value)))
+                            }
+                        } {
+                            td.addChild((tree Db (CellTx value)))
+                        }
+                    }
+                }
+            }
+            row.addChild(td)
+            i = (i + 1)
+        }
+
+        def menuTd (tree Db (Td))
+        def more (tree Db (More (props (id ("db-more-" + r.key))
+            (a11yLabel ("Actions for " + (this.cellOf(r "header")))))))
+        more.a11yFocusable = true
+        more.a11yHasPopup = "menu"
+        more.a11yExpanded = (EVGA11yTri.no())
+        more.addChild((tree Db (MoreIc "⋮")))
+        menuTd.addChild(more)
+        row.addChild(menuTd)
+        return row
+    }
+
+    fn tableCard:EVGElement () {
+        def card (tree Db (Chart (props (id "db-table-card"))))
+
+        def head (tree Db (ChartHd))
+        head.addChild((this.tabStrip()))
+        head.addChild((tree Db (Spacer)))
+        head.addChild((this.toolRow()))
+        card.addChild(head)
+
+        def t (tree Db (Table (props (id "db-table"))))
+        t.a11yRowCount = (virt.rowCount())
+        def thead (tree Db (Head))
+        thead.addChild((this.headRow()))
+        t.addChild(thead)
+        ; THE VIRTUALISED BODY, and it is NOT built the way a DOM one is.
+        ;
+        ; A browser virtualiser puts the WHOLE content height in the document —
+        ; a spacer above the range and another below — and lets the scroll
+        ; container do the moving. That is how the scrollbar gets its size, and
+        ; it works because a browser has a scrolling viewport.
+        ;
+        ; EVG has no scrolling viewport. `overflow: hidden` clips; nothing
+        ; scrolls. So a 230,000-pixel spacer inside a 414-pixel flex column is
+        ; not a spacer, it is content that overflows — and the layout does
+        ; exactly what it says it does with overflowing fixed children, which
+        ; is shrink them all to fit. The first version drew fourteen rows on
+        ; top of each other in one 46-pixel line, and it looked for all the
+        ; world like a stylesheet bug.
+        ;
+        ; So the offset is applied instead of the spacers: the window holds
+        ; only the rows in range and is slid up by the part of the FIRST row
+        ; that is scrolled past — at most one row's height, never a number the
+        ; layout has to be talked out of. `virt.totalSize()` is still the
+        ; honest content height and is what a scrollbar would be sized from; it
+        ; simply never enters the tree.
+        def tbody (tree Db (Body (props (id "db-tbody"))))
+        tbody.height = (EVGUnit.px(tableViewport))
+        ; NO `aria-rowcount` here. It went on the body as well as the table at
+        ; first, on the reasoning that the body is what holds the rows — and
+        ; ARIA does not allow it on `rowgroup`, which owns no count. Neither
+        ; the lint nor the gate could see that: they check the fields a node
+        ; carries, not whether its ROLE is allowed to carry them. axe did, the
+        ; first time this page was put in front of it. The count is on
+        ; `db-table`, which is the element the attribute belongs to.
+
+        ; The SORTED list, which is what the virtualiser's indices are into.
+        def rows:[UiRecord] (table.sortedRecords())
+        def first:int (virt.firstVisible())
+        def last:int (virt.lastVisible())
+        if (first < 0) {
+            first = 0
+            last = (0 - 1)
+        }
+
+        ; The sortable is given the rows on screen before they are drawn, so a
+        ; grip's tid and the item it stands for cannot disagree.
+        this.syncOrder()
+
+        def win (tree Db (Window (props (id "db-window"))))
+        ; Zero at the top, negative once scrolled: how much of the first built
+        ; row is above the viewport's edge.
+        win.top = (EVGUnit.px(((virt.paddingTop()) - virt.scrollOffset)))
+        def i:int first
+        while (i <= last) {
+            if (i < (array_length rows)) {
+                def row:EVGElement (this.bodyRow((itemAt rows i)))
+                ; WHERE THIS ROW REALLY IS. 1-based and counting the header,
+                ; which is what an HTML table's own indices are — a built row
+                ; numbered 1..12 would tell a reader they were at the top of
+                ; the table four thousand rows down.
+                row.a11yRowIndex = (virt.rowIndexOf(i))
+                win.addChild(row)
+            }
+            i = (i + 1)
+        }
+        tbody.addChild(win)
+        t.addChild(tbody)
+        card.addChild(t)
+
+        ; What dnd-kit says out loud while a row is being carried. A live
+        ; region, because a reorder a reader cannot hear is a reorder that did
+        ; not happen as far as they are concerned.
+        card.addChild((tree Db (Live (props (id "db-live")) (order.said()))))
+        return card
+    }
+
+    ; --- the views ------------------------------------------------------------
+    ;
+    ; Nine links and six builders, which is a claim and not a shortcut: the
+    ; four Documents links and More differ by WHAT THEY LIST and by nothing
+    ; else, so they share a builder and are told apart by an argument. Writing
+    ; five near-identical page functions would have made them look different in
+    ; the source and identical on the screen, which is the wrong way round.
+
+    ; The page's h1 and a panel's h2 both need an ID. Without one the a11y
+    ; builder invents `<nearest ancestor with an id>/heading@0` for each, and
+    ; two headings whose nearest identified ancestor is the same scroll region
+    ; get the SAME invented id — a duplicate the lint catches and a screen
+    ; reader would have no way to tell apart.
+    fn headOf:EVGElement (title:string sub:string) {
+        def h (tree Db (ViewHd))
+        def t:EVGElement (tree Db (ViewTx title))
+        t.id = "db-head-title"
+        h.addChild(t)
+        h.addChild((tree Db (ViewSub sub)))
+        return h
+    }
+
+    ; One row of a panel: a mark, a name over a note, and a chip at the end.
+    fn itemOf:EVGElement (mark:string name:string sub:string tagText:string) {
+        def it (tree Db (Item))
+        def mk (tree Db (ItemMark))
+        mk.addChild((tree Db (ItemMkTx mark)))
+        it.addChild(mk)
+        def tx (tree Db (ItemTx))
+        tx.addChild((tree Db (ItemName name)))
+        tx.addChild((tree Db (ItemSub sub)))
+        it.addChild(tx)
+        it.addChild((tree Db (Spacer)))
+        if ((strlen tagText) > 0) {
+            def tg (tree Db (ItemTag))
+            tg.addChild((tree Db (ItemTagT tagText)))
+            it.addChild(tg)
+        }
+        return it
+    }
+
+    fn panelOf:EVGElement (pid:string title:string sub:string) {
+        def p (tree Db (Panel (props (id pid))))
+        def hd (tree Db (PanelHd))
+        def pt:EVGElement (tree Db (PanelTx title))
+        pt.id = (pid + "-title")
+        hd.addChild(pt)
+        if ((strlen sub) > 0) {
+            hd.addChild((tree Db (PanelSub sub)))
+        }
+        p.addChild(hd)
+        p.addChild((tree Db (PanelBd (props (id (pid + "-list")) (a11yLabel title)))))
+        return p
+    }
+
+    fn panelBody:EVGElement (panel:EVGElement) {
+        return (itemAt panel.children 1)
+    }
+
+    fn analyticsView:EVGElement () {
+        def v (tree Db (View (props (id "db-view"))))
+        v.addChild((this.headOf("Analytics" "Traffic and conversion, last 90 days")))
+        v.addChild((this.cardRow()))
+        v.addChild((this.chartCard()))
+        def p:EVGElement (this.panelOf("db-top" "Top pages" "By visitors"))
+        def b:EVGElement (this.panelBody(p))
+        b.addChild((this.itemOf("1" "/pricing" "12,480 visitors" "+18%")))
+        b.addChild((this.itemOf("2" "/docs/getting-started" "9,120 visitors" "+7%")))
+        b.addChild((this.itemOf("3" "/changelog" "6,004 visitors" "-3%")))
+        b.addChild((this.itemOf("4" "/blog/why-we-measure" "4,870 visitors" "+41%")))
+        v.addChild(p)
+        return v
+    }
+
+    fn lifecycleView:EVGElement () {
+        def v (tree Db (View (props (id "db-view"))))
+        v.addChild((this.headOf("Lifecycle" "Where every proposal is in the process")))
+        def p:EVGElement (this.panelOf("db-stages" "Stages" "Six, in order"))
+        def b:EVGElement (this.panelBody(p))
+        b.addChild((this.itemOf("1" "Intake" "12 in this stage" "Done")))
+        b.addChild((this.itemOf("2" "Qualification" "8 in this stage" "Done")))
+        b.addChild((this.itemOf("3" "Drafting" "21 in this stage" "Active")))
+        b.addChild((this.itemOf("4" "Internal review" "5 in this stage" "Active")))
+        b.addChild((this.itemOf("5" "Client review" "3 in this stage" "Waiting")))
+        b.addChild((this.itemOf("6" "Signed" "17 in this stage" "Done")))
+        v.addChild(p)
+        return v
+    }
+
+    fn projectsView:EVGElement () {
+        def v (tree Db (View (props (id "db-view"))))
+        v.addChild((this.headOf("Projects" "Six running, two of them behind")))
+        def g (tree Db (Grid (props (id "db-projects") (a11yLabel "Projects"))))
+        g.addChild((this.tileOf("Migration" "Platform" 82)))
+        g.addChild((this.tileOf("Cover redesign" "Design" 45)))
+        g.addChild((this.tileOf("Quarterly report" "Finance" 96)))
+        g.addChild((this.tileOf("Onboarding rewrite" "Docs" 30)))
+        g.addChild((this.tileOf("EMR integration" "Platform" 61)))
+        g.addChild((this.tileOf("Field research" "Research" 12)))
+        v.addChild(g)
+        return v
+    }
+
+    fn tileOf:EVGElement (title:string kind:string pct:int) {
+        def t (tree Db (Tile (props (a11yLabel ((((title + ", ") + kind) + ", ") + ((to_string pct) + "% complete"))))))
+        ; Three across, in pixels rather than thirds. 33.33% of 1032 is 344 and
+        ; three of those plus two 16-pixel gaps is 1064 — the row wraps to two
+        ; and the grid looks like a bug. A percentage is a share of the parent
+        ; and knows nothing about the gaps between its siblings.
+        t.width = (EVGUnit.px(333.0))
+        t.addChild((tree Db (TileTx title)))
+        t.addChild((tree Db (TileSub kind)))
+        def bar (tree Db (Bar))
+        def fill (tree Db (BarFill))
+        fill.width = (EVGUnit.percent((to_double pct)))
+        bar.addChild(fill)
+        t.addChild(bar)
+        t.addChild((tree Db (BarTx ((to_string pct) + "% complete"))))
+        return t
+    }
+
+    fn teamView:EVGElement () {
+        def v (tree Db (View (props (id "db-view"))))
+        v.addChild((this.headOf("Team" "Six people, and who reviews what")))
+        def p:EVGElement (this.panelOf("db-people" "People" ""))
+        def b:EVGElement (this.panelBody(p))
+        b.addChild((this.itemOf("EL" "Eddie Lake" "eddie@example.com" "Reviewer")))
+        b.addChild((this.itemOf("JT" "Jamik Tashpulatov" "jamik@example.com" "Reviewer")))
+        b.addChild((this.itemOf("TT" "Tero Tolonen" "tero@example.com" "Owner")))
+        b.addChild((this.itemOf("AM" "Aino Makela" "aino@example.com" "Editor")))
+        b.addChild((this.itemOf("BN" "Benoit Nadeau" "benoit@example.com" "Editor")))
+        b.addChild((this.itemOf("LR" "Luis Ramos" "luis@example.com" "Viewer")))
+        v.addChild(p)
+        return v
+    }
+
+    ; The four Documents links, and the one builder behind them. `only` is the
+    ; kind each page shows; "" is More, which shows everything.
+    fn documentsView:EVGElement (title:string sub:string only:string) {
+        def v (tree Db (View (props (id "db-view"))))
+        v.addChild((this.headOf(title sub)))
+        def p:EVGElement (this.panelOf("db-docs" title ""))
+        def b:EVGElement (this.panelBody(p))
+        def i:int 0
+        def shown:int 0
+        while (i < (array_length docTitles)) {
+            def kind:string (itemAt docKinds i)
+            def keep:boolean ((strlen only) == 0)
+            if (kind == only) {
+                keep = true
+            }
+            if keep {
+                b.addChild((this.itemOf("▭" (itemAt docTitles i) (itemAt docWhen i) kind)))
+                shown = (shown + 1)
+            }
+            i = (i + 1)
+        }
+        if (shown == 0) {
+            b.addChild((this.itemOf("◌" "Nothing here yet" "This page has no documents" "")))
+        }
+        v.addChild(p)
+        return v
+    }
+
+    fn cardRow:EVGElement () {
+        def row (tree Db (Cards (props (id "db-cards"))))
+        def i:int 0
+        while (i < (array_length cards)) {
+            def c:DbCard (itemAt cards i)
+            def el:EVGElement (this.cardBody(c))
+            el.width = (EVGUnit.percent(25.0))
+            row.addChild(el)
+            i = (i + 1)
+        }
+        return row
+    }
+
+    fn dashboardView:EVGElement () {
+        def main (tree Db (Main (props (id "db-main"))))
+        main.addChild((this.cardRow()))
+        main.addChild((this.chartCard()))
+        main.addChild((this.tableCard()))
+        return main
+    }
+
+    ; Which page the sidebar is pointing at. One place, so the link that is
+    ; marked current and the content that is shown cannot come apart.
+    fn viewFor:EVGElement (key:string) {
+        if (key == "analytics") { return (this.analyticsView()) }
+        if (key == "lifecycle") { return (this.lifecycleView()) }
+        if (key == "projects")  { return (this.projectsView()) }
+        if (key == "team")      { return (this.teamView()) }
+        if (key == "library")   { return (this.documentsView("Data Library" "Everything the team has filed" "Dataset")) }
+        if (key == "reports")   { return (this.documentsView("Reports" "Generated, and when" "Report")) }
+        if (key == "assistant") { return (this.documentsView("Word Assistant" "Drafts it has written" "Draft")) }
+        if (key == "more")      { return (this.documentsView("Documents" "Everything, in one list" "")) }
+        return (this.dashboardView())
+    }
+
+    fn noteFor:string () {
+        if (navPage == "dashboard") {
+            return "The chart is a Vega specification run by Vela and painted into this page's display list — geometry and axis labels both. Press a range button, or use the arrows."
+        }
+        if (navPage == "analytics") {
+            return "The same chart, on another page. Press a range button, or use the arrows."
+        }
+        return "The sidebar navigates: the link marked current and the content shown come from one field. The main region scrolls — Page Down, Page Up, Home, End, or the wheel."
+    }
+
+    ; A touch, in page pixels. The click that presses a button is the same
+    ; click that starts the ripple: the surface reacts to being touched, and
+    ; nothing about the button had to know.
+    ; The most drops that can be in flight. Eight is not a number anybody
+    ; reaches by tapping — it is what a dragged finger fills in a third of a
+    ; second, and the oldest is dropped to make room, which is also the one
+    ; that has faded most.
+    sfn maxDrops:int () {
+        return 8
+    }
+
+    fn ripple:void (px:double py:double) {
+        push dropXs px
+        push dropYs py
+        push dropAges 0.0
+        lastDropX = px
+        lastDropY = py
+        if ((array_length dropAges) > (DashboardDemo.maxDrops())) {
+            this.retireOldest()
+        }
+    }
+
+    ; A finger moving across the surface. One ring per step rather than one
+    ; ring that follows the pointer: a wake is a row of sources, and a single
+    ; source that moves is a source that has no history.
+    fn rippleDragTo:void (px:double py:double) {
+        if (lastDropX < 0.0) {
+            return
+        }
+        def dx:double (px - lastDropX)
+        def dy:double (py - lastDropY)
+        ; Every 26 pixels. Closer and the rings pile into one bright blob;
+        ; further and the wake reads as a row of separate taps.
+        if (((dx * dx) + (dy * dy)) < 676.0) {
+            return
+        }
+        this.ripple(px py)
+    }
+
+    fn rippleRelease:void () {
+        lastDropX = -1.0
+        lastDropY = -1.0
+    }
+
+    fn retireOldest:void () {
+        def xs:[double]
+        def ys:[double]
+        def ts:[double]
+        def i:int 1
+        while (i < (array_length dropAges)) {
+            push xs (itemAt dropXs i)
+            push ys (itemAt dropYs i)
+            push ts (itemAt dropAges i)
+            i = (i + 1)
+        }
+        dropXs = xs
+        dropYs = ys
+        dropAges = ts
+    }
+
+    ; Milliseconds, because that is what a frame loop has.
+    ;
+    ; NO REBUILD. The ripple is a post-process over the finished picture: not
+    ; one box moves, not one word re-wraps, and the only thing that differs
+    ; between two frames of it is a number the shader reads. Rebuilding the
+    ; tree to advance a clock would make the cheapest effect on the page the
+    ; most expensive thing on it — the age is stamped onto the root at paint
+    ; time instead, in `displayListJson`.
+    fn tick:void (dtMs:double) {
+        def dt:double (dtMs / 1000.0)
+        def xs:[double]
+        def ys:[double]
+        def ts:[double]
+        def i:int 0
+        while (i < (array_length dropAges)) {
+            def age:double ((itemAt dropAges i) + dt)
+            ; Retired when there is nothing left in it. The threshold is the
+            ; renderer's own — a drop whose decay has taken it under a
+            ;250th is a drop that is not on the screen.
+            if (age < 3.0) {
+                push xs (itemAt dropXs i)
+                push ys (itemAt dropYs i)
+                push ts age
+            }
+            i = (i + 1)
+        }
+        dropXs = xs
+        dropYs = ys
+        dropAges = ts
+    }
+
+    ; Is anything still moving? The ripple dies with its own decay, so this
+    ; asks the same question the shader does rather than guessing a duration.
+    fn busyNow:boolean () {
+        return ((array_length dropAges) > 0)
+    }
+
+    ; How many touches are in flight. The gate's way of asking whether the
+    ; drops really coexist rather than replacing one another.
+    fn dropCount:int () {
+        return (array_length dropAges)
+    }
+
+    fn pageBody:EVGElement () {
+        ; THE VIEWPORT IS IN THE STYLESHEET, as `100vh`.
+        ;
+        ; The page, the sidebar and the hairline stood at a constant 1420 —
+        ; the height this page was before it scrolled, kept because it is
+        ; taller than the 900 the browser shows and a column taller than the
+        ; window looks full. On a window TALLER than 1420 it stops looking
+        ; full: an Android tablet in portrait is 2137 page pixels tall, and the
+        ; sidebar ended two thirds of the way down with the host's own
+        ; background under it.
+        ;
+        ; `100%` would not have fixed it — a percentage needs a parent with a
+        ; definite height and the page's height is the number nobody in the
+        ; tree has — so EVG grew `vw`/`vh`, which ask the layout. The layout is
+        ; told by `laidOutOnce` below, from the same `pageH` the scroll box
+        ; used to be given inline.
+        def page (tree Db (Page (props (id "page"))))
+        page.addChild((this.sidebar()))
+        page.addChild((tree Db (SideEdge)))
+
+        ; THE SCROLL CONTAINER. Its height is the viewport's — `100vh` in the
+        ; sheet, like the page and the sidebar — its content is whatever the
+        ; current view came to, and the offset is put on before the layout so
+        ; the layout can clamp it.
+        def scroll (tree Db (Scroll (props (id "db-scroll"))))
+        scroll.scrollTop = scrollY
+
+        def content (tree Db (Content (props (id "db-content"))))
+        content.addChild((this.viewFor(navPage)))
+        content.addChild((tree Db (Note (this.noteFor()))))
+        scroll.addChild(content)
+        page.addChild(scroll)
+        return page
+    }
+
+    fn rebuild:void () {
+        root = (this.pageBody())
+        ; AND THE LAYOUT WITH IT. `pageBody` builds new elements, so the
+        ; rectangles in the layout that is cached belong to a tree that no
+        ; longer exists — nothing in the new one has been measured at all. A
+        ; `laidOut` that handed that back would answer questions about the page
+        ; before last: `maxScroll` clamping to a height the current view does
+        ; not have, and a hit test finding nothing because every element it
+        ; walked is still at zero.
+        layoutStale = true
+    }
+
+    ; --- layout ---------------------------------------------------------------
+
+    ; The layout that answers for the tree as it is now — paid for at the
+    ; cheapest rate that is still right.
+    ;
+    ;   the tree changed (`rebuild`, `setTheme`)   → `laidOutOnce`, everything
+    ;   a state changed (hover, press, focus)      → the sheet runs again; the
+    ;                                                 layout only if the sheet
+    ;                                                 says a box could have moved
+    ;   only the scroll offset changed             → `EVGLayout.scrollOnlyFrom`
+    ;                                                 moves the subtree by the
+    ;                                                 difference
+    ;   nothing                                    → the layout that is there
+    ;
+    ; This is realtrainer's `laidOut`, and the reason is the same: Android's
+    ; host asks for a frame on every pointer event, and a full cascade plus a
+    ; full flex layout plus the chart's runtime per event — in generated Kotlin
+    ; on an emulator's cold ART — added up to more than the five seconds the
+    ; input queue is allowed before the platform declares the app gone.
+    fn laidOut:EVGLayout () {
+        if layout {
+            if (layoutStale == false) {
+                def lay:EVGLayout (unwrap layout)
+                def r:EVGElement (unwrap root)
+                if stateDirty {
+                    stateDirty = false
+                    def s:EVGStyleSheet (unwrap sheet)
+                    this.markStates(r)
+                    EVGInspect.applyForced(r)
+                    s.applyTree(r theme)
+                    if ((s.layoutClean()) == false) {
+                        ; A rule that moved a box: lay out again. The layout
+                        ; reads every container's offset itself, so the scroll
+                        ; that was owed is paid by it.
+                        scrollPending = false
+                        lay.layout(r)
+                        this.readScrollBack(r)
+                        return lay
+                    }
+                }
+                if scrollPending {
+                    scrollPending = false
+                    def sc:EVGElement (this.findEl(r "db-scroll"))
+                    if ((strlen sc.id) > 0) {
+                        lay.scrollOnlyFrom(sc)
+                        scrollY = sc.scrollTop
+                    }
+                }
+                return lay
+            }
+        }
+        return (this.laidOutOnce())
+    }
+
+    ; READ THE OFFSET BACK. The layout clamps `scrollTop` to what there
+    ; actually is to scroll, and it is the only thing that knows: the
+    ; content's height is its answer. A demo that kept what it ASKED for
+    ; would go on believing it was scrolled to 4000 on a page with 300 to
+    ; go, and the next scroll-by would do nothing visible for thirteen
+    ; presses.
+    fn readScrollBack:void (r:EVGElement) {
+        def sc:EVGElement (this.findEl(r "db-scroll"))
+        if ((strlen sc.id) > 0) {
+            scrollY = sc.scrollTop
+        }
+    }
+
+    fn laidOutOnce:EVGLayout () {
+        def r:EVGElement (unwrap root)
+        def s:EVGStyleSheet (unwrap sheet)
+        this.markStates(r)
+        ; Between the app saying what IS hovered and the sheet being asked what
+        ; that makes true — which is the only ordering an inspector needs a
+        ; host to get right. A no-op costing one array length when nothing is
+        ; being held, which is every frame nobody is inspecting anything.
+        EVGInspect.applyForced(r)
+        s.applyTree(r theme)
+        def lay (new EVGLayout())
+        lay.setPageSize(pageW pageH)
+        lay.layout(r)
+        this.readScrollBack(r)
+        layout = lay
+        layoutStale = false
+        ; A full layout has read the states and the offsets; nothing cheaper
+        ; is owed on top of it.
+        stateDirty = false
+        scrollPending = false
+        return lay
+    }
+
+    ; --- scrolling ------------------------------------------------------------
+
+    ; How far there is to go on the current view. Zero before anything has been
+    ; laid out, which is the honest answer: nothing has been measured yet.
+    fn maxScroll:double () {
+        def lay:EVGLayout (this.laidOut())
+        def r:EVGElement (unwrap root)
+        def sc:EVGElement (this.findEl(r "db-scroll"))
+        if ((strlen sc.id) == 0) {
+            return 0.0
+        }
+        return (sc.maxScrollTop())
+    }
+
+    fn scrollTo:boolean (y:double) {
+        def before:double scrollY
+        def want:double y
+        if (want < 0.0) {
+            want = 0.0
+        }
+        ; A SCROLL DOES NOT CHANGE THE TREE. The virtualised table windows its
+        ; rows from its own 414px viewport, not from the page's offset, so the
+        ; page scrolled by a hundred pixels is the same elements at the same
+        ; sizes, moved. With a layout in hand the offset goes onto the live
+        ; container, the layout clamps it against the extents it measured,
+        ; and the move itself is owed to the next `laidOut` — once, however
+        ; many pointer reports arrive between two frames.
+        if layout {
+            if (layoutStale == false) {
+                def r:EVGElement (unwrap root)
+                def sc:EVGElement (this.findEl(r "db-scroll"))
+                if ((strlen sc.id) > 0) {
+                    def lay:EVGLayout (unwrap layout)
+                    sc.scrollTop = want
+                    lay.clampScroll(sc)
+                    scrollY = sc.scrollTop
+                    if (scrollY != before) {
+                        scrollPending = true
+                    }
+                    return (scrollY != before)
+                }
+            }
+        }
+        ; No layout yet, or a tree that has to be built anyway: the offset
+        ; goes on at the build and the clamp happens in the layout it needs.
+        scrollY = want
+        this.rebuild()
+        this.laidOutOnce()
+        return (scrollY != before)
+    }
+
+    fn scrollBy:boolean (dy:double) {
+        return (this.scrollTo((scrollY + dy)))
+    }
+
+
+    fn markStates:void (el:EVGElement) {
+        el.isHovered = ((strlen hovered) > 0) && (el.id == hovered)
+        el.isFocused = ((strlen focused) > 0) && (el.id == focused)
+        el.isPressed = ((strlen pressed) > 0) && (el.id == pressed)
+        def i:int 0
+        while (i < (array_length el.children)) {
+            this.markStates((itemAt el.children i))
+            i = (i + 1)
+        }
+    }
+
+    fn findEl:EVGElement (el:EVGElement id:string) {
+        if (el.id == id) {
+            return el
+        }
+        def i:int 0
+        while (i < (array_length el.children)) {
+            def found:EVGElement (this.findEl((itemAt el.children i) id))
+            if ((strlen found.id) > 0) {
+                return found
+            }
+            i = (i + 1)
+        }
+        return (EVGElement.createDiv())
+    }
+
+    ; --- the ink that is on no element -----------------------------------------
+    ;
+    ; What `.db-ink-line` resolves to under the theme that is showing.
+    ;
+    ; The chart is Vela's and the scroll indicator is two rectangles, so
+    ; neither is an element the sheet can write to — and both had their colours
+    ; typed into this file, which meant a theme could repaint the frame around
+    ; the biggest picture on the page and not the picture. So the colours stay
+    ; in the sheet on classes nothing wears, and this asks the sheet the
+    ; question an element would have asked: a bare element carrying the class,
+    ; styled, and read back.
+    ;
+    ; Nothing is added to the tree and nothing is measured — `applyTo` writes
+    ; the properties the rules declare, and `color` is the only one these rules
+    ; declare.
+    fn ink:EVGColor (cls:string) {
+        def s:EVGStyleSheet (unwrap sheet)
+        def probe:EVGElement (EVGElement.createDiv())
+        probe.className = cls
+        s.applyTo(probe theme)
+        if probe.color {
+            def got:EVGColor (unwrap probe.color)
+            ; `isSet`, not "is the field there": an element that was never
+            ; given a colour carries `EVGColor.noColor()`, so the field is
+            ; always there and the fallback below was unreachable. An unset
+            ; colour writes "none" into the Vega specification, which is a
+            ; transparent chart rather than a visible mistake.
+            if got.isSet {
+                return got
+            }
+        }
+        ; No `color` in the sheet for that class — a name that is not in the
+        ; file, in practice. Black, which is what an element with no colour
+        ; draws as, so a mistake looks like one instead of like a theme.
+        return (EVGColor.parse("#000000"))
+    }
+
+    ; The same answer as a string, because a Vega specification is JSON and
+    ; takes its colours as text.
+    fn inkHex:string (cls:string) {
+        def c:EVGColor (this.ink(cls))
+        return (c.toHexString())
+    }
+
+    ; --- input ----------------------------------------------------------------
+
+    fn ring:[string] () {
+        def a:[string]
+        def i:int 0
+        while (i < (array_length range.items)) {
+            def it:UiItem (itemAt range.items i)
+            push a ("db-range-" + it.value)
+            i = (i + 1)
+        }
+        return a
+    }
+
+    fn selectRange:boolean (value:string) {
+        if (range.value == value) {
+            return false
+        }
+        range.value = value
+        focused = ("db-range-" + value)
+        this.rebuild()
+        return true
+    }
+
+    ; --- the table's interaction ----------------------------------------------
+
+    ; THE WRITE-BACK. `SortableCtl` has arrived at an order; `TableCtl.records`
+    ; is the one that gets drawn. This is the only place the two meet, and it
+    ; runs after a drop rather than during a drag, because a half-finished
+    ; gesture is not an order anybody asked for.
+    ; THE WRITE-BACK, and it moves ONE record. `SortableCtl` has arrived at an
+    ; order for the rows on screen; `table.records` is the list that gets
+    ; drawn. Splicing the dragged record to where the sortable put it is O(n)
+    ; and rebuilding the whole list from the sortable was O(n²) — see
+    ; `syncOrder`.
+    ;
+    ; It runs after a drop rather than during a drag, because a half-finished
+    ; gesture is not an order anybody asked for.
+    fn applyOrder:void (moved:string) {
+        if ((strlen moved) == 0) {
+            return
+        }
+        def from:int (table.recordAt(moved))
+        if (from < 0) {
+            return
+        }
+        ; Where the sortable put it among the rows on screen, and which record
+        ; it now sits before. That record's position in the FULL list is the
+        ; destination.
+        def at:int (order.indexOf(moved))
+        if (at < 0) {
+            return
+        }
+        def beforeKey:string ""
+        if ((at + 1) < (array_length order.items)) {
+            def nextIt:UiItem (itemAt order.items (at + 1))
+            beforeKey = nextIt.value
+        }
+
+        def rec:UiRecord (itemAt table.records from)
+        def out:[UiRecord]
+        def i:int 0
+        def placed:boolean false
+        while (i < (array_length table.records)) {
+            def r:UiRecord (itemAt table.records i)
+            if (r.key != moved) {
+                if (r.key == beforeKey) {
+                    push out rec
+                    placed = true
+                }
+                push out r
+            }
+            i = (i + 1)
+        }
+        if (placed == false) {
+            ; Dropped at the end of the visible window, so it goes after
+            ; everything that was in front of it.
+            push out rec
+        }
+        ; Only when nothing was lost. A shorter list would mean a row vanished,
+        ; and drawing that is worse than ignoring the drag.
+        if ((array_length out) == (array_length table.records)) {
+            table.records = out
+            ; A hand-made order is not a sorted one, so the header stops
+            ; claiming it is. The alternative is a column that says
+            ; "ascending" over rows in an order it did not choose.
+            table.sortKey = ""
+        }
+    }
+
+    fn tabValueOf:string (target:string) {
+        def i:int 0
+        while (i < (array_length tabs.items)) {
+            def it:UiItem (itemAt tabs.items i)
+            if (target == ("db-tab-" + it.value)) {
+                return it.value
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    ; A sidebar link. Nothing NAVIGATES — there is one page — but the current
+    ; link moves, which is the visible and the announced half of navigation
+    ; both, and it is the half a layout gets wrong.
+    fn navPress:boolean (target:string) {
+        if ((strlen target) < 8) {
+            return false
+        }
+        if (((substring target 0 7)) != "db-nav-") {
+            return false
+        }
+        navPage = (substring target 7 (strlen target))
+        focused = target
+        ; BACK TO THE TOP. Following a link and landing halfway down the next
+        ; page is what a browser does not do, and the reason it does not is
+        ; that the offset belonged to the page you left.
+        scrollY = 0.0
+        this.rebuild()
+        return true
+    }
+
+    fn press:boolean (target:string) {
+        if (this.navPress(target)) {
+            return true
+        }
+        def i:int 0
+        while (i < (array_length range.items)) {
+            def it:UiItem (itemAt range.items i)
+            if (target == ("db-range-" + it.value)) {
+                focused = target
+                return (this.selectRange(it.value))
+            }
+            i = (i + 1)
+        }
+
+        def tabValue:string (this.tabValueOf(target))
+        if ((strlen tabValue) > 0) {
+            focused = target
+            if (tabs.value == tabValue) {
+                return false
+            }
+            tabs.value = tabValue
+            this.rebuild()
+            return true
+        }
+
+        ; The table's own targets: the select-all box, a row's checkbox, a
+        ; sortable column header, and the pager. `TableCtl` decides what each
+        ; one does; this only says where focus went.
+        if (table.pressTid(target)) {
+            focused = target
+            this.rebuild()
+            return true
+        }
+
+        ; A press on a grip picks the row up; a press on it again drops it.
+        def dragValue:string (order.valueOf(target))
+        if ((strlen dragValue) > 0) {
+            focused = target
+            if (order.activeValue == dragValue) {
+                order.drop()
+                this.applyOrder(dragValue)
+            } {
+                order.pickUp(dragValue)
+            }
+            this.rebuild()
+            return true
+        }
+        return false
+    }
+
+    ; A key that reaches a grip is a reorder; anything else goes to the table.
+    fn tableKey:boolean (k:string) {
+        def dragValue:string (order.valueOf(focused))
+        if ((strlen dragValue) > 0) {
+            def before:string order.activeValue
+            def moved:string (order.keyDown(focused k))
+            ; A DROP is the moment the order becomes real. `activeValue` going
+            ; empty after being set is what a drop looks like from here, and
+            ; a cancel looks the same — which is why `applyOrder` is written to
+            ; be safe to run either way: after a cancel the sortable has put
+            ; the row back and the write-back is a no-op.
+            if ((strlen before) > 0) {
+                if ((strlen order.activeValue) == 0) {
+                    this.applyOrder(before)
+                }
+            }
+            if ((strlen moved) > 0) {
+                focused = moved
+            }
+            this.rebuild()
+            return true
+        }
+        if (table.key(focused k)) {
+            this.rebuild()
+            return true
+        }
+        return false
+    }
+
+    ; Arrows move AND select, which is what a radio group does — a reader
+    ; arrowing through one hears each option chosen as they land on it.
+    fn key:boolean (k:string) {
+        ; The range buttons are the only arrow-driven thing on the page that
+        ; is NOT in the table, so they get first refusal and everything else
+        ; falls through to the grid.
+        def r:[string] (this.ring())
+        def n:int (array_length r)
+        def at:int (0 - 1)
+        def i:int 0
+        while (i < n) {
+            if ((itemAt r i) == focused) {
+                at = i
+            }
+            i = (i + 1)
+        }
+        if (at < 0) {
+            if (this.tableKey(k)) {
+                return true
+            }
+            ; Nothing else wanted it, so it goes to the scroll region. LAST,
+            ; not first: a Home that moves between range buttons and a Home
+            ; that jumps to the top of the page are the same key, and the
+            ; control that has focus is the one that gets to say which.
+            return (this.scrollKey(k))
+        }
+        def next:int at
+        if ((k == "ArrowRight") || (k == "ArrowDown")) {
+            next = (at + 1)
+        }
+        if ((k == "ArrowLeft") || (k == "ArrowUp")) {
+            next = (at - 1)
+        }
+        if (k == "Home") {
+            next = 0
+        }
+        if (k == "End") {
+            next = (n - 1)
+        }
+        if (next == at) {
+            return false
+        }
+        if (next < 0) {
+            next = (n - 1)
+        }
+        if (next >= n) {
+            next = 0
+        }
+        def it:UiItem (itemAt range.items next)
+        focused = (itemAt r next)
+        return (this.selectRange(it.value))
+    }
+
+    ; What the keys do to the main region. A page is the viewport less a
+    ; couple of lines of overlap, the way every document reader does it: land
+    ; with something you have already read still on the screen.
+    fn scrollKey:boolean (k:string) {
+        def page:double (pageH - 40.0)
+        if (k == "PageDown") { return (this.scrollBy(page)) }
+        if (k == "PageUp")   { return (this.scrollBy((0.0 - page))) }
+        if (k == "Home")     { return (this.scrollTo(0.0)) }
+        if (k == "End")      { return (this.scrollTo((this.maxScroll()))) }
+        if (k == "ArrowDown") { return (this.scrollBy(48.0)) }
+        if (k == "ArrowUp")   { return (this.scrollBy(-48.0)) }
+        return false
+    }
+
+    ; Each marks the layout's STATES stale and nothing more: the sheet has to
+    ; run again for `:hover` and `:active`, and `laidOut` decides whether the
+    ; boxes moved. Unchanged is not a change — a host that reports the hover
+    ; on every pointer move must not cost a cascade per move.
+    fn setHover:void (id:string) {
+        if (id != hovered) {
+            hovered = id
+            stateDirty = true
+        }
+    }
+    fn setPressed:void (id:string) {
+        if (id != pressed) {
+            pressed = id
+            stateDirty = true
+        }
+    }
+    fn setFocus:void (id:string) {
+        if (id != focused) {
+            focused = id
+            stateDirty = true
+        }
+    }
+
+    ; --- the theme ------------------------------------------------------------
+
+    fn themeName:string () { return theme }
+
+    ; The tree is NOT rebuilt: not one element gains or loses a class, and the
+    ; elements themselves say nothing about colour. What changes is which rules
+    ; the sheet matches on the next pass, so the only thing to invalidate is
+    ; the answer that pass produced.
+    fn setTheme:boolean (name:string) {
+        if (name == theme) {
+            return false
+        }
+        theme = name
+        layoutStale = true
+        return true
+    }
+
+    ; --- the picture ----------------------------------------------------------
+
+    ; The page, and then the chart on top of it at the box the layout reserved.
+    ;
+    ; The chart is NOT in the element tree — see the header. This is where the
+    ; two halves meet, and the only place either of them knows about the other.
+    ;
+    ; The list is returned as an OBJECT, and `displayListJson` below is one line
+    ; over it. A host in the same process wants the list: the Kotlin/Android
+    ; host (`gallery/ui/android`) reads `cmds` straight out of this, so nothing
+    ; is serialised and nothing is parsed back. The browser gets the JSON
+    ; because a page has to parse something anyway.
+    fn display:EVGDisplayList () {
+        def lay:EVGLayout (this.laidOut())
+        def r:EVGElement (unwrap root)
+        ; The ripple's state, stamped on at paint time. It is not part of the
+        ; tree's shape — nothing about the page depends on it — so it does not
+        ; belong in `pageBody` where it would make every frame of the effect a
+        ; rebuild.
+        r.rippleXs = dropXs
+        r.rippleYs = dropYs
+        r.rippleAges = dropAges
+        def dl (new EVGDisplayList())
+        dl.build(r)
+        chartFrom = 0
+        chartTo = 0
+
+        def scroll:EVGElement (this.findEl(r "db-scroll"))
+        def box:EVGElement (this.findEl(r "db-chart-box"))
+        if ((strlen box.id) > 0) {
+            ; Parsed and run once per SPEC, not once per frame — see
+            ; `chartCmds`. The key is the spec's own text, so a range button
+            ; changes the chart and a scroll or a hover does not.
+            def spec:string (this.specText())
+            if (spec != chartKey) {
+                chartKey = spec
+                chartOk = false
+                def parser (new VlJsonParser())
+                def specJson:VlJson (parser.parse(spec))
+                if parser.ok {
+                    def rt (new VlRuntime())
+                    def scene:VlSceneMark (rt.run(specJson))
+                    if ((array_length rt.errors) == 0) {
+                        chartCmds = (VlSceneCommands.build(scene))
+                        chartOk = true
+                    }
+                }
+            }
+            if chartOk {
+                if chartCmds {
+                    def list:VlCommandList (unwrap chartCmds)
+                    def tr (new UITextRenderer())
+                    def bridge (new VlEvgList())
+                    ; CLIPPED BY HAND, and it has to be. The chart is appended
+                    ; after `dl.build(root)` has walked the whole tree — that
+                    ; is what puts it outside the element tree — so it is also
+                    ; outside every clip the walk pushed and popped. Scrolled
+                    ; up, an unclipped chart draws straight across the sidebar.
+                    ;
+                    ; The box it is clipped to is the scroll region, which is
+                    ; the same box the walk would have clipped it to had it
+                    ; been a child.
+                    chartFrom = (array_length dl.cmds)
+                    dl.addClip(scroll.calculatedX scroll.calculatedY scroll.calculatedWidth scroll.calculatedHeight)
+                    ; The axis labels sit to the left of and below the plot,
+                    ; and Vela measures its own origin — so the offset is the
+                    ; box's corner and nothing else. `calculatedY` has already
+                    ; had the scroll offset applied to it by the layout, so the
+                    ; chart travels with the card it belongs to for free.
+                    bridge.emit(dl list tr (box.calculatedX + gutterX) box.calculatedY 1.0)
+                    dl.addClipEnd()
+                    chartTo = (array_length dl.cmds)
+                }
+            }
+        }
+
+        ; --- THE SCROLLBAR ----------------------------------------------------
+        ;
+        ; Drawn, not built. It is the one thing on the page whose size and
+        ; position are not known until AFTER the layout has run — the thumb is
+        ; a fraction of the content height — and an element that has to be
+        ; measured before it can be placed would need a second layout pass to
+        ; put in the tree.
+        ;
+        ; So it is two rectangles in the display list, and it is honest about
+        ; what that costs: it is an INDICATOR, not a control. There is nothing
+        ; to grab, because there is no element to hit. The wheel, the keys and
+        ; the sidebar do the scrolling.
+        if ((strlen scroll.id) > 0) {
+            def travel:double (scroll.maxScrollTop())
+            if (travel > 0.0) {
+                def trackX:double (((scroll.calculatedX + scroll.calculatedWidth) - 10.0))
+                def trackY:double (scroll.calculatedY + 6.0)
+                def trackH:double (scroll.calculatedHeight - 12.0)
+                dl.addRect(trackX trackY 4.0 trackH (this.ink("db-ink-track")))
+                def visible:double (scroll.clientHeight())
+                def frac:double (visible / scroll.scrollHeight)
+                def thumbH:double (trackH * frac)
+                if (thumbH < 24.0) {
+                    thumbH = 24.0
+                }
+                def at:double (scrollY / travel)
+                def thumbY:double (trackY + (at * (trackH - thumbH)))
+                dl.addRect(trackX thumbY 4.0 thumbH (this.ink("db-ink-thumb")))
+            }
+        }
+        return dl
+    }
+
+    fn displayListJson:string () {
+        def dl:EVGDisplayList (this.display())
+        return (dl.toJson())
+    }
+
+    ; How many commands the chart contributed. The gate's way of asking whether
+    ; there IS a chart, without asserting a particular outline.
+    fn chartCommandCount:int () {
+        def parser (new VlJsonParser())
+        def specJson:VlJson (parser.parse((this.specText())))
+        if (! parser.ok) {
+            return 0
+        }
+        def rt (new VlRuntime())
+        def scene:VlSceneMark (rt.run(specJson))
+        if ((array_length rt.errors) > 0) {
+            return 0
+        }
+        def list:VlCommandList (VlSceneCommands.build(scene))
+        def dl (new EVGDisplayList())
+        def tr (new UITextRenderer())
+        def bridge (new VlEvgList())
+        bridge.emit(dl list tr 0.0 0.0 1.0)
+        return (array_length dl.cmds)
+    }
+
+    fn specErrors:string () {
+        def parser (new VlJsonParser())
+        def specJson:VlJson (parser.parse((this.specText())))
+        if (! parser.ok) {
+            return ("json: " + parser.err)
+        }
+        def rt (new VlRuntime())
+        def scene:VlSceneMark (rt.run(specJson))
+        if ((array_length rt.errors) > 0) {
+            return (itemAt rt.errors 0)
+        }
+        return ""
+    }
+
+    fn hitId:string (px:double py:double) {
+        this.displayListJson()
+        def r:EVGElement (unwrap root)
+        def hit (new EVGHitTest())
+        return (hit.idAt(r px py))
+    }
+
+    ; The same hit test against the layout that is ALREADY there.
+    ;
+    ; `hitId` draws the whole picture first — the Vela chart included — because
+    ; a browser calls it once per click and a guaranteed-fresh layout is worth
+    ; more than the microseconds. A host that paints every frame has already
+    ; laid the page out, and running the chart's runtime again for every touch
+    ; event is tens of milliseconds spent on geometry nothing will look at: the
+    ; chart is not in the element tree, so it can never be what was hit.
+    ;
+    ; `laidOut` returns the cached layout when there is one and lays out once
+    ; when a rebuild threw it away, so this is never a hit test against stale
+    ; rectangles.
+    fn hitIdCached:string (px:double py:double) {
+        def r:EVGElement (unwrap root)
+        this.laidOut()
+        def hit (new EVGHitTest())
+        return (hit.idAt(r px py))
+    }
+
+    fn a11yJson:string (generation:int focusId:string) {
+        this.displayListJson()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "Dashboard demo" generation focusId))
+        return (t.toJson())
+    }
+
+    ; --- the inspector --------------------------------------------------------
+    ;
+    ; The fourth channel, beside displayListJson / hitId / a11yJson: what the
+    ; tree IS. `EVGInspect` walks the same laid-out tree the other three walk,
+    ; so nothing here is a second opinion about geometry.
+
+    fn inspectJson:string (gen:int) {
+        this.displayListJson()
+        def r:EVGElement (unwrap root)
+        def w:double (this.widthPx())
+        def h:double (this.heightPx())
+        return (EVGInspect.treeOf(r "Dashboard demo" gen w h))
+    }
+
+    fn inspectNodeJson:string (path:string) {
+        def r:EVGElement (unwrap root)
+        this.laidOut()
+        def sh:EVGStyleSheet (unwrap sheet)
+        return (EVGInspect.nodeOfIn(r path sh))
+    }
+
+    ; --- the sheet as an editable input ---------------------------------------
+    ;
+    ; The element tree is this app's OUTPUT and the stylesheet is its INPUT, so
+    ; the sheet is the thing an inspector can hand back changed. Nothing is
+    ; intercepted and no value is held over the app's head: it re-parses and
+    ; re-cascades exactly as it did at `init`, and everything downstream — the
+    ; layout, the display list, the hit test — follows because it always did.
+    ;
+    ; `reload` and not a fresh `EVGStyleSheet`: a new sheet would restart the
+    ; generation counter and `applyTo` would skip every element still holding
+    ; the old one. `EVGStyleSheet.reload` says the rest.
+    fn inspectCss:string () {
+        return cssText
+    }
+
+    fn inspectSetCss:void (css:string) {
+        cssText = css
+        def sh:EVGStyleSheet (unwrap sheet)
+        sh.reload(css)
+        ; The cascade will rewrite every element — `reload` bumped the
+        ; generation, so nothing in the tree is holding what the sheet says any
+        ; more — but the LAYOUT is cached separately and does not know that.
+        layoutStale = true
+        this.displayListJson()
+    }
+
+    ; --- states held on -------------------------------------------------------
+    ;
+    ; Chrome's `:hov` toggles. The table lives in `EVGInspectForce` and is
+    ; keyed by node path, so it outlives the rebuild this page does on every
+    ; input; `laidOutOnce` applies it between marking this app's own states and
+    ; running the cascade.
+    fn inspectForce:void (path:string bits:int) {
+        EVGInspect.forceState(path bits)
+        layoutStale = true
+        this.displayListJson()
+    }
+
+    fn inspectClearForced:void () {
+        EVGInspect.clearForced()
+        layoutStale = true
+        this.displayListJson()
+    }
+
+    fn inspectStyleErrors:string () {
+        def sh:EVGStyleSheet (unwrap sheet)
+        def out:string "["
+        def i:int 0
+        while (i < (array_length sh.errors)) {
+            if (i > 0) {
+                out = (out + ",")
+            }
+            out = (out + (EVGInspect.jsonString((itemAt sh.errors i))))
+            i = (i + 1)
+        }
+        return (out + "]")
+    }
+
+    ; `laidOut` and not `displayListJson`: a hit test wants the layout that is
+    ; already there, and re-rendering the page — the Vela chart included — for
+    ; every pointer move is tens of milliseconds spent on geometry nothing will
+    ; look at. Same reason `hitIdCached` exists.
+    fn inspectHitPath:string (px:double py:double) {
+        def r:EVGElement (unwrap root)
+        this.laidOut()
+        return (EVGInspect.hitOf(r px py))
+    }
+
+    ; The attributed frame. It is the element tree's commands only — the chart
+    ; is appended after the walk and belongs to no element, so it has nothing
+    ; to be attributed to and is left out rather than blamed on the box it
+    ; happens to sit in.
+    fn inspectFrameJson:string () {
+        def r:EVGElement (unwrap root)
+        this.laidOut()
+        return (EVGInspect.frameOf(r))
+    }
+
+    fn a11yProblems:[string] () {
+        this.displayListJson()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "Dashboard demo" 1 ""))
+        return (t.lint())
+    }
+
+    fn styleErrorCount:int () {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (array_length s.errors)
+    }
+
+    fn styleErrorAt:string (i:int) {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (itemAt s.errors i)
+    }
+
+    fn widthPx:double () { return pageW }
+    fn heightPx:double () { return pageH }
+}

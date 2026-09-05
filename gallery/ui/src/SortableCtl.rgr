@@ -1,0 +1,442 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; SortableCtl — measured against @dnd-kit/sortable
+; =============================================================================
+; The first controller here whose reference is not Radix, because Radix has no
+; sortable. ReUI's is @dnd-kit underneath, and so is every other one in the
+; shadcn family, so dnd-kit is the oracle — the same treatment Radix gets: real
+; library, real browser, one diff.
+;
+; What the oracle actually said, captured before a line of this file existed
+; (conformance/specs/sortable_*.json):
+;
+;   every item   role button, a tab stop, and `aria-roledescription: sortable`.
+;                That last one is the whole affordance: a reader told "button"
+;                learns nothing about being able to move the thing.
+;   pick up      Space. The item gets `aria-pressed`, and NOTHING else changes
+;                — it has not moved, and it will not until it is dropped.
+;   arrows       move the item's PROSPECTIVE position. Still nothing else
+;                changes: the displacement is a picture, and the only thing a
+;                reader gets is the sentence "Draggable item a was moved over
+;                droppable area b."
+;   drop         Space. The list reorders — `arrayMove(active → over)`, so
+;                dragging a onto c gives b, c, a rather than a swap.
+;   Escape       cancels, and reorders nothing.
+;   pointer      the same three stages, with the pointer choosing `over`.
+;
+; The announcements are quoted exactly, punctuation included, because they are
+; the only observable an arrow key has. The drop line ends without a full stop
+; in dnd-kit; copying that is not pedantry, it is the difference between
+; measuring the reference and paraphrasing it.
+; =============================================================================
+
+Import "UiCtl.rgr"
+Import "UiTree.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+
+class SortableCtl extends UiCtl {
+    def items:[UiItem]
+    ; The item being carried, "" when nothing is. `overValue` is where it would
+    ; land — a prospective index, not a committed one, which is why neither the
+    ; list nor the trace changes until the drop.
+    def activeValue:string ""
+    def overValue:string ""
+    ; The pointer went down here and no drag has started yet. dnd-kit needs the
+    ; pointer to MOVE before a press becomes a drag, so a click that never
+    ; travels reorders nothing.
+    def pressValue:string ""
+    def announcement:string ""
+    def listEl:EVGElement
+
+    Constructor () {
+        rootEl = (EVGElement.createDiv())
+        listEl = (EVGElement.createDiv())
+        def empty:[UiItem]
+        items = empty
+    }
+
+    fn addItem:void (itemValue:string itemName:string itemDisabled:boolean) {
+        def it (new UiItem())
+        it.value = itemValue
+        it.name = itemName
+        it.disabled = itemDisabled
+        push items it
+    }
+
+    fn itemTid:string (value:string) {
+        return ((tid + "-item-") + value)
+    }
+
+    fn valueOf:string (target:string) {
+        def prefix:string (tid + "-item-")
+        def n:int (strlen prefix)
+        if ((strlen target) <= n) {
+            return ""
+        }
+        if ((substring target 0 n) != prefix) {
+            return ""
+        }
+        return (substring target n (strlen target))
+    }
+
+    fn indexOf:int (value:string) {
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            if (it.value == value) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; --- what a reader hears ---------------------------------------------------
+
+    fn said:string () {
+        return announcement
+    }
+
+    fn announceOver:void () {
+        announcement = ((("Draggable item " + activeValue) + " was moved over droppable area ") + overValue) + "."
+    }
+
+    fn announceDrop:void () {
+        ; No full stop. dnd-kit's line ends bare, and the trace compares the
+        ; sentence, not a paraphrase of it.
+        announcement = ((("Draggable item " + activeValue) + " was dropped over droppable area ") + overValue)
+    }
+
+    fn announceCancel:void () {
+        announcement = (("Dragging was cancelled. Draggable item " + activeValue) + " was dropped.")
+    }
+
+    ; --- the move --------------------------------------------------------------
+
+    ; arrayMove, which is not a swap: the item is taken OUT and put back in at
+    ; the new index, so everything between shuffles up by one. Dragging a onto c
+    ; in [a b c] gives [b c a]; a swap would have given [c b a], and that is the
+    ; first thing a hand-written sortable gets wrong.
+    fn moveActive:void () {
+        def from:int (this.indexOf(activeValue))
+        def to:int (this.indexOf(overValue))
+        if (from < 0) {
+            return
+        }
+        if (to < 0) {
+            return
+        }
+        if (from == to) {
+            return
+        }
+        def moved:UiItem (itemAt items from)
+        def out:[UiItem]
+        def i:int 0
+        while (i < (array_length items)) {
+            if (i != from) {
+                push out (itemAt items i)
+            }
+            i = (i + 1)
+        }
+        def rebuilt:[UiItem]
+        def j:int 0
+        def placed:boolean false
+        while (j < (array_length out)) {
+            if (j == to) {
+                push rebuilt moved
+                placed = true
+            }
+            push rebuilt (itemAt out j)
+            j = (j + 1)
+        }
+        if (placed == false) {
+            push rebuilt moved
+        }
+        clear items
+        def k:int 0
+        while (k < (array_length rebuilt)) {
+            push items (itemAt rebuilt k)
+            k = (k + 1)
+        }
+    }
+
+    fn pickUp:void (value:string) {
+        activeValue = value
+        ; Over ITSELF to begin with, which is what the reference announces the
+        ; moment an item is picked up: "…was moved over droppable area a."
+        overValue = value
+        this.announceOver()
+        this.build()
+    }
+
+    fn drop:void () {
+        this.moveActive()
+        this.announceDrop()
+        activeValue = ""
+        overValue = ""
+        pressValue = ""
+        this.build()
+    }
+
+    fn cancel:void () {
+        this.announceCancel()
+        activeValue = ""
+        overValue = ""
+        pressValue = ""
+        this.build()
+    }
+
+    ; --- input -----------------------------------------------------------------
+
+    fn isFocusable:boolean (target:string) {
+        def value:string (this.valueOf(target))
+        if ((strlen value) == 0) {
+            return false
+        }
+        def i:int (this.indexOf(value))
+        if (i < 0) {
+            return false
+        }
+        def it:UiItem (itemAt items i)
+        if (it.disabled) {
+            return false
+        }
+        return true
+    }
+
+    fn keyDown:string (target:string key:string) {
+        if disabled {
+            return ""
+        }
+        def value:string (this.valueOf(target))
+        if ((strlen value) == 0) {
+            return ""
+        }
+        if (key == "Escape") {
+            if ((strlen activeValue) > 0) {
+                this.cancel()
+            }
+            return ""
+        }
+        if (UiCtl.activatesOn(key)) {
+            if ((strlen activeValue) > 0) {
+                this.drop()
+            } {
+                this.pickUp(value)
+            }
+            return ""
+        }
+        ; Arrows only mean something while an item is held. Before that they
+        ; belong to the page — the reference's keyboard sensor is not listening
+        ; until something has been picked up.
+        if ((strlen activeValue) == 0) {
+            return ""
+        }
+        def step:int 0
+        if ((key == "ArrowDown") || (key == "ArrowRight")) {
+            step = 1
+        }
+        if ((key == "ArrowUp") || (key == "ArrowLeft")) {
+            step = -1
+        }
+        if (step == 0) {
+            return ""
+        }
+        def at:int (this.indexOf(overValue))
+        def next:int (at + step)
+        ; No wrap. Off the end is not a move, and the reference stays put.
+        if (next < 0) {
+            return ""
+        }
+        if (next >= (array_length items)) {
+            return ""
+        }
+        def target:UiItem (itemAt items next)
+        overValue = target.value
+        this.announceOver()
+        this.build()
+        return ""
+    }
+
+    ; A press is not yet a drag: dnd-kit's pointer sensor waits for movement,
+    ; so a click that never travels leaves the list alone. Focus moves, which
+    ; is what the reference does and what makes the keyboard path reachable
+    ; from the mouse.
+    fn dragsOnto:boolean () {
+        return true
+    }
+
+    fn press:string (target:string) {
+        if disabled {
+            return ""
+        }
+        def value:string (this.valueOf(target))
+        if ((strlen value) == 0) {
+            return ""
+        }
+        if (this.isFocusable(target)) {
+            pressValue = value
+            return target
+        }
+        return ""
+    }
+
+    fn dragOver:string (target:string) {
+        if ((strlen pressValue) == 0) {
+            return ""
+        }
+        def value:string (this.valueOf(target))
+        if ((strlen value) == 0) {
+            return ""
+        }
+        if ((strlen activeValue) == 0) {
+            activeValue = pressValue
+        }
+        overValue = value
+        this.announceOver()
+        this.build()
+        return ""
+    }
+
+    fn release:string () {
+        if ((strlen activeValue) > 0) {
+            this.drop()
+            return ""
+        }
+        pressValue = ""
+        return ""
+    }
+
+    ; --- the tree --------------------------------------------------------------
+
+    ; The order to DRAW in: the carried item shown where it would land.
+    ;
+    ; The reference does the same thing and it is worth being precise about
+    ; why. dnd-kit leaves the DOM order alone during a drag and moves the items
+    ; with transforms — so what a reader is told and what the eye sees come
+    ; apart on purpose, and only the drop reconciles them. `rows()` therefore
+    ; reports the COMMITTED order while this reports the prospective one, and
+    ; the trace agrees with the reference precisely because they differ.
+    fn previewOrder:[UiItem] () {
+        def out:[UiItem]
+        def from:int (this.indexOf(activeValue))
+        def to:int (this.indexOf(overValue))
+        if ((from < 0) || ((to < 0) || (from == to))) {
+            def i:int 0
+            while (i < (array_length items)) {
+                push out (itemAt items i)
+                i = (i + 1)
+            }
+            return out
+        }
+        def moved:UiItem (itemAt items from)
+        def rest:[UiItem]
+        def j:int 0
+        while (j < (array_length items)) {
+            if (j != from) {
+                push rest (itemAt items j)
+            }
+            j = (j + 1)
+        }
+        def k:int 0
+        def placed:boolean false
+        while (k < (array_length rest)) {
+            if (k == to) {
+                push out moved
+                placed = true
+            }
+            push out (itemAt rest k)
+            k = (k + 1)
+        }
+        if (placed == false) {
+            push out moved
+        }
+        return out
+    }
+
+    fn build:void () {
+        def root:EVGElement (unwrap rootEl)
+        root.id = tid
+        root.className = "ui-sortable"
+        UiTree.clearChildren(root)
+        def shown:[UiItem] (this.previewOrder())
+        def i:int 0
+        while (i < (array_length shown)) {
+            def it:UiItem (itemAt shown i)
+            def el:EVGElement (unwrap it.el)
+            el.id = (this.itemTid(it.value))
+            el.className = "ui-sortable-item"
+            if (it.value == activeValue) {
+                UiTree.addClass(el "ui-sortable-item-dragging")
+            }
+            if (it.disabled) {
+                UiTree.addClass(el "ui-sortable-item-disabled")
+            }
+            UiTree.leafText(el it.name)
+            root.addChild(el)
+            i = (i + 1)
+        }
+    }
+
+    fn tids:[string] () {
+        def out:[string]
+        push out tid
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            push out (this.itemTid(it.value))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The reference's own wording, character for character. dnd-kit renders it
+    ; into a visually-hidden node and points every item at it with
+    ; `aria-describedby`; this side has no hidden node, so the string is the
+    ; description and the effect is the same thing announced.
+    sfn dragInstructions:string () {
+        return "To pick up a draggable item, press the space bar. While dragging, use the arrow keys to move the item. Press space again to drop the item in its new position, or press escape to cancel."
+    }
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+        ; The list itself is a named box and nothing more. The reference is a
+        ; <ul> with an aria-label, which a browser reports as decoration with a
+        ; name — so the name is in the trace and stays out of the accessibility
+        ; tree, exactly as it does for the other named-but-roleless nodes here.
+        def listRow:UiRow (UiRow.of(tid (EVGA11yRole.none()) name))
+        push out listRow
+
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            def row:UiRow (UiRow.of((this.itemTid(it.value)) (EVGA11yRole.button()) it.name))
+            row.parentTid = tid
+            row.roleDescription = "sortable"
+            ; dnd-kit's keyboard instructions, on EVERY draggable item, which
+            ; is where it puts them. It is a mouthful and it is not optional:
+            ; this pattern has no visible affordance a reader can discover, so
+            ; the sentence IS the interface. Verbatim, because paraphrasing it
+            ; would be inventing a different set of instructions for the same
+            ; keys.
+            row.description = SortableCtl.dragInstructions()
+            row.disabled = it.disabled
+            if (it.disabled == false) {
+                row.focusable = true
+                row.tabStop = true
+            }
+            ; Pressed only while carried. Not "false" the rest of the time: the
+            ; reference sets the attribute during the drag and removes it
+            ; after, and a reader told "not pressed" about a row it is merely
+            ; looking at learns something untrue.
+            if (it.value == activeValue) {
+                row.pressed = (EVGA11yTri.yes())
+            }
+            push out row
+            i = (i + 1)
+        }
+        return out
+    }
+}

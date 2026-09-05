@@ -1,0 +1,65 @@
+Import "../V1Json.rgr"
+Import "AstNode.rgr"
+Import "CircuitExerciseNode.rgr"
+
+class CircuitNode {
+    Extends(AstNode)
+
+    def variant:string "circuit"
+    def hasRounds:boolean false
+    def rounds:int 0
+    def roundsNull:boolean false
+    def hasRoundRest:boolean false
+    def roundRestValue:int 0
+    def roundRestUnit:string "min"
+    def hasNote:boolean false
+    def note:string ""
+    def exercises:[CircuitExerciseNode]
+
+    Constructor () {
+        type = "circuit"
+    }
+
+    fn toJSONString@(override):string () {
+        def fields:[string]
+        CompactV1Json.addStringField(fields "type" type)
+        CompactV1Json.addStringField(fields "variant" variant)
+
+        if (roundsNull) {
+            CompactV1Json.addRawField(fields "rounds" "null")
+        } {
+            if (hasRounds) {
+                CompactV1Json.addIntField(fields "rounds" rounds)
+            } {
+                CompactV1Json.addRawField(fields "rounds" "null")
+            }
+        }
+
+        if ((array_length exercises) > 0) {
+            def exerciseJson:[string]
+            for exercises child:CircuitExerciseNode ci {
+                push exerciseJson (child.toJSONString())
+            }
+            CompactV1Json.addRawField(fields "exercises" ("[" + (join exerciseJson ",") + "]"))
+        } {
+            CompactV1Json.addRawField(fields "exercises" "[]")
+        }
+
+        if (hasRoundRest) {
+            def rr:[string]
+            CompactV1Json.addIntField(rr "value" roundRestValue)
+            CompactV1Json.addStringField(rr "unit" roundRestUnit)
+            CompactV1Json.addRawField(fields "roundRest" (CompactV1Json.jsonObject(rr)))
+        } {
+            CompactV1Json.addRawField(fields "roundRest" "null")
+        }
+
+        if (hasNote) {
+            CompactV1Json.addStringField(fields "note" note)
+        } {
+            CompactV1Json.addRawField(fields "note" "null")
+        }
+
+        return (CompactV1Json.jsonObject(fields))
+    }
+}

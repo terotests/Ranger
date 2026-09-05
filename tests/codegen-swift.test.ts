@@ -158,6 +158,154 @@ describe("Swift6 Code Generation", () => {
     });
   });
 
+  describe("inout parameters", () => {
+    // Swift arrays, dictionaries and buffers are VALUE types, so a function
+    // that mutates one of its parameters needs `inout` -- and so does every
+    // function that only passes its own parameter along to that one. Fixing
+    // one level at a time exposes the next, which is why the requirement is
+    // inferred transitively (StaticAnalyzer.propagateArgMutRef) rather than
+    // annotated by hand.
+    const chain = () =>
+      getGeneratedSwiftCode(`${FIXTURES_DIR}/swift_inout_chain.rgr`);
+
+    it("marks the function that does the mutating", () => {
+      const result = chain();
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      expect(result.code).toContain("func put16(b : inout [UInt8]");
+      expect(result.code).toContain("func fill(xs : inout [Int]");
+    });
+
+    it("carries the requirement up through the callers", () => {
+      const result = chain();
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      // putLoca only hands `out` to put16; writeLoca only hands it to putLoca
+      expect(result.code).toContain("func putLoca(out : inout [UInt8]");
+      expect(result.code).toContain("func writeLoca(out : inout [UInt8]");
+      expect(result.code).toContain("func fillTwice(xs : inout [Int]");
+    });
+
+    it("passes &x at every call site, and never through a let", () => {
+      const result = chain();
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      expect(result.code).toContain("InoutChain.put16(b : &out");
+      expect(result.code).toContain("InoutChain.putLoca(out : &out");
+      expect(result.code).toContain("InoutChain.fill(xs : &xs");
+    });
+
+    it("leaves a reassigned string parameter alone, with a var copy", () => {
+      const result = chain();
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      // Ranger has no operator that writes into a string in place, so `s = s +
+      // "x"` rebinds a local name; `inout` would make Swift alone write it back
+      // to the caller and demand a `var` at every call site.
+      expect(result.code).toContain("func clampName(name name__p : String)");
+      expect(result.code).toContain("var name : String = name__p");
+      expect(result.code).not.toContain("clampName(name : &name)");
+    });
+  });
+
+  describe("let, var and char", () => {
+    // Swift is stricter than any other target about three things Ranger says
+    // freely: char and int are the same integer, a loop binds an index whether
+    // or not the body wants it, and a binding the body never writes to should
+    // be a `let`. Each of these is a warning or an error the reader has to
+    // wade through to find a real one.
+    const gen = () =>
+      getGeneratedSwiftCode(`${FIXTURES_DIR}/swift_let_and_char.rgr`);
+
+    it("treats char as the integer code unit it is everywhere else", () => {
+      const result = gen();
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      // `def ch:char (charAt text 0)` then `def code:int ch` — UInt8 made both
+      // lines a type error
+      expect(result.code).toContain("let ch : Int = r_char_at(text, 0)");
+      expect(result.code).toContain("let code : Int = ch");
+      expect(result.code).not.toContain("UInt8 = ");
+    });
+
+    it("writes _ for a loop index the body never reads", () => {
+      const result = gen();
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      expect(result.code).toContain("for (_, v) in values.enumerated()");
+      // and keeps the name where the body does read it
+      expect(result.code).toContain("for (i, v) in values.enumerated()");
+    });
+
+    it("declares a local let unless the body writes to it", () => {
+      const result = gen();
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      // never written
+      expect(result.code).toContain("let copyOf : [Int] = values");
+      // appended to
+      expect(result.code).toContain("var out : [Int] = [Int]()");
+      // a Ranger class is a Swift class, so assigning its fields writes
+      // through a let binding
+      expect(result.code).toContain("let p : Point = Point()");
+    });
+
+    it("discards the result of a call kept for its side effect", () => {
+      const result = gen();
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      expect(result.code).toContain("_ = SwiftLetAndChar.counted(text : \"abc\")");
+    });
+  });
+
+  describe("keywords, visibility and expression size", () => {
+    const gen = () =>
+      getGeneratedSwiftCode(`${FIXTURES_DIR}/swift_keywords_and_public.rgr`);
+
+    it("renames a name that is a Swift keyword, everywhere at once", () => {
+      const result = gen();
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      // declaration, local, and the call-site argument label all move together
+      // because the rename happens once, in assignParamCompiledName
+      expect(result.code).toContain("pick(values : [Double], _where : Double)");
+      expect(result.code).toContain("let _where : Double = 0.025");
+      expect(result.code).toContain("KeywordUser.pick(values : values, _where : _where)");
+      expect(result.code).not.toMatch(/\bwhere : where\b/);
+    });
+
+    it("makes a public class's synthesized witnesses public too", () => {
+      const result = gen();
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      // Swift requires a protocol witness to be at least as visible as the type
+      expect(result.code).toContain("public func ==(l: Boxed, r: Boxed)");
+      expect(result.code).toContain("public final class Boxed : Hashable");
+      expect(result.code).toContain("public func hash(into hasher: inout Hasher)");
+    });
+
+    it("keeps an internal class's witnesses internal", () => {
+      const result = getGeneratedSwiftCode(
+        `${FIXTURES_DIR}/swift_let_and_char.rgr`
+      );
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      expect(result.code).toContain("func ==(l: Point, r: Point)");
+      expect(result.code).not.toContain("public func ==(l: Point");
+    });
+
+    it("calls a helper instead of inlining a tower of initialisers", () => {
+      const result = gen();
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      // several of the inline forms in one expression exhausted swiftc's
+      // type-checking budget; one monomorphic call each takes the overload
+      // resolution out of the expression
+      expect(result.code).toContain("r_str_from_code(r_char_at(text, 0))");
+      expect(result.code).toContain("func r_char_at(_ s: String, _ at: Int) -> Int");
+      expect(result.code).toContain("func r_str_from_code(_ cp: Int) -> String");
+      // the UnicodeScalar dance now lives inside the helper, once, instead of
+      // at every call site
+      expect(result.code.split("UnicodeScalar(UInt32(").length - 1).toBe(1);
+    });
+
+    it("writes _ for a loop item the body never reads", () => {
+      const result = gen();
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      // ref_cnt cannot answer this: the loop assigns the item on every
+      // iteration, so its counter is never 0
+      expect(result.code).toContain("for (_, _) in rows.enumerated()");
+    });
+  });
+
   describe("Print Statements", () => {
     it("should use print() for output", () => {
       const result = getGeneratedSwiftCode(`${FIXTURES_DIR}/hello.rgr`);

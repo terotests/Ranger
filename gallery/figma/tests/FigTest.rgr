@@ -1,0 +1,395 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+Import "../src/KiwiBuffer.rgr"
+Import "../src/KiwiSchema.rgr"
+Import "../src/KiwiDecode.rgr"
+Import "../src/KiwiValue.rgr"
+Import "../src/FigParser.rgr"
+Import "../src/FigSample.rgr"
+Import "../src/FigApp.rgr"
+Import "../src/FigDeflate.rgr"
+Import "../src/convert/FigToScene.rgr"
+Import "../src/evg/SceneToEVG.rgr"
+Import "../src/scene/SceneNode.rgr"
+Import "../../zip/Inflate.rgr"
+
+class FigTest {
+    def passed:int 0
+    def failed:int 0
+
+    sfn main:void () {
+        def t (new FigTest())
+        t.run()
+    }
+
+    fn check:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS  " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL  " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.check((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.check((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+
+    fn close:void (name:string got:double want:double) {
+        def d:double (got - want)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        this.check((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (d < 0.02))
+    }
+
+    fn run:void () {
+        print "=== FigTest ==="
+        this.testVarint()
+        this.testVarfloat()
+        this.testSchema()
+        this.testMessage()
+        this.testStoredDeflate()
+        this.testSampleFig()
+        this.testViewer()
+        this.testSceneIr()
+        this.testFixtures()
+        this.testHealthFig()
+        this.testPaste()
+        print ""
+        print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
+        if (failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+
+    fn testVarint:void () {
+        print "--- varint ---"
+        def bb (new KiwiBuffer())
+        bb.init((buffer_alloc 32))
+        bb.writeVarUint(0)
+        bb.writeVarUint(127)
+        bb.writeVarUint(128)
+        bb.writeVarUint(300)
+        bb.writeVarInt((0 - 1))
+        bb.writeVarInt(2)
+        def raw:buffer (bb.toBuffer())
+        def r (new KiwiBuffer())
+        r.init(raw)
+        this.eqInt("u0" (r.readVarUint()) 0)
+        this.eqInt("u127" (r.readVarUint()) 127)
+        this.eqInt("u128" (r.readVarUint()) 128)
+        this.eqInt("u300" (r.readVarUint()) 300)
+        this.eqInt("i-1" (r.readVarInt()) (0 - 1))
+        this.eqInt("i2" (r.readVarInt()) 2)
+    }
+
+    fn testVarfloat:void () {
+        print "--- varfloat ---"
+        def bb (new KiwiBuffer())
+        bb.init((buffer_alloc 32))
+        bb.writeVarFloat(0.0)
+        bb.writeVarFloat(1.0)
+        bb.writeVarFloat(2.5)
+        bb.writeVarFloat((0.0 - 4.0))
+        def raw:buffer (bb.toBuffer())
+        def r (new KiwiBuffer())
+        r.init(raw)
+        this.close("f0" (r.readVarFloat()) 0.0)
+        this.close("f1" (r.readVarFloat()) 1.0)
+        this.close("f2.5" (r.readVarFloat()) 2.5)
+        this.close("f-4" (r.readVarFloat()) (0.0 - 4.0))
+    }
+
+    fn testSchema:void () {
+        print "--- schema ---"
+        def s:KiwiSchema (FigSample.schema())
+        this.check("has Message" ((s.findDef("Message")) >= 0))
+        this.check("has Node" ((s.findDef("Node")) >= 0))
+        def raw:buffer (s.encode())
+        def s2 (new KiwiSchema())
+        this.check("decode schema" (s2.decode(raw)))
+        this.eqInt("def count" (s2.defCount()) (s.defCount()))
+        this.check("roundtrip Message" ((s2.findDef("Message")) >= 0))
+        def node:KiwiDef (s2.getDef("Node"))
+        this.check("Node is message" (node.isMessage()))
+    }
+
+    fn testMessage:void () {
+        print "--- message ---"
+        def s:KiwiSchema (FigSample.schema())
+        def msg:KiwiValue (FigSample.message())
+        def enc (new KiwiEncode())
+        enc.init(s)
+        def raw:buffer (enc.encodeNamed("Message" msg))
+        this.check("encoded" ((buffer_length raw) > 10))
+        def dec (new KiwiDecode())
+        dec.init(s)
+        def back:KiwiValue (dec.decodeNamed("Message" raw))
+        this.check("decoded" dec.ok)
+        def nc:KiwiValue (back.child("nodeChanges"))
+        this.check("nodeChanges is array" (nc.isArray()))
+        this.check("has nodes" ((nc.itemCount()) > 5))
+        def n0:KiwiValue (nc.item(0))
+        this.eqStr("root type" (n0.childString("type" "")) "DOCUMENT")
+    }
+
+    fn testStoredDeflate:void () {
+        print "--- stored deflate ---"
+        def src:buffer (buffer_alloc 5)
+        buffer_set src 0 65
+        buffer_set src 1 66
+        buffer_set src 2 67
+        buffer_set src 3 68
+        buffer_set src 4 69
+        def wrapped:buffer (FigDeflate.wrapStored(src))
+        def inf (new Inflate())
+        def out:buffer (inf.decompress(wrapped))
+        this.eqInt("len" (buffer_length out) 5)
+        this.eqInt("A" (buffer_get out 0) 65)
+        this.eqInt("E" (buffer_get out 4) 69)
+    }
+
+    fn testSampleFig:void () {
+        print "--- sample .fig ---"
+        def bytes:buffer (FigSample.buildFig())
+        this.check("zip bytes" ((buffer_length bytes) > 100))
+        def p (new FigParser())
+        def doc:FigDoc (p.parseBytes(bytes "sample.fig"))
+        this.check(("parse ok " + doc.err) doc.ok)
+        this.eqStr("prelude" doc.prelude "fig-kiwi")
+        this.eqInt("version" doc.version 101)
+        this.check("nodes" ((array_length doc.nodes) >= 10))
+        this.eqInt("pages" (array_length doc.pages) 3)
+        def p0:FigNode (doc.pageAt(0))
+        this.eqStr("page 0" p0.name "Welcome")
+        this.check("page has children" ((array_length p0.children) > 0))
+        this.eqStr("file name" doc.fileName "Ranger Fig sample")
+        this.check("no zstd on sample" (doc.usedZstd == false))
+    }
+
+    fn testViewer:void () {
+        print "--- viewer ---"
+        def app (new FigApp())
+        this.check("open sample" (app.openSample()))
+        this.eqInt("pages" (app.pageCount()) 3)
+        def scene:string (app.sceneJson())
+        this.check("scene has cmds" (FigTest.hasSub(scene "\"cmds\"")))
+        this.check("scene has text or fill" ((FigTest.hasSub(scene "text")) || (FigTest.hasSub(scene "\"c\":["))))
+        this.check("has draw cmds" (app.cmdCount > 0))
+        app.setPage(1)
+        this.eqInt("page 1" app.pageIndex 1)
+        def frames:string (app.framesJson())
+        this.check("frames json" (FigTest.hasSub(frames "Swatches")))
+    }
+
+    fn testSceneIr:void () {
+        print "--- scene IR ---"
+        def app (new FigApp())
+        this.check("open" (app.openSample()))
+        def a:string (app.sceneGraphJson())
+        def b:string (app.sceneGraphJson())
+        this.check("deterministic scene json" (a == b))
+        this.check("scene source figma" (FigTest.hasSub(a "\"source\":\"figma\"")))
+        this.check("has container" (FigTest.hasSub(a "\"type\":\"container\"")))
+        this.check("has rect" (FigTest.hasSub(a "\"type\":\"rect\"")))
+        def dump:string (app.evgText())
+        this.check("evg absolute" (FigTest.hasSub(dump "position=\"absolute\"")))
+        this.check("evg left" (FigTest.hasSub(dump "left=\"")))
+        this.check("evg width" (FigTest.hasSub(dump "width=\"")))
+        def d2:string (app.evgText())
+        this.check("deterministic evg dump" (dump == d2))
+        app.setPage(0)
+        def welcome:SceneNode (app.currentPage())
+        this.eqStr("welcome page" welcome.name "Welcome")
+        def card:SceneNode (welcome.childNamed("Card"))
+        this.eqStr("card kind" card.kind "container")
+        this.check("card clips" card.clip)
+        def hero:SceneNode (card.childNamed("Hero"))
+        this.eqStr("hero kind" hero.kind "rect")
+        this.check("hero has fill" ((array_length hero.fills) > 0))
+    }
+
+    fn testFixtures:void () {
+        print "--- fixtures ---"
+        def app (new FigApp())
+        this.check("open" (app.openSample()))
+        app.setPage(2)
+        def fixtures:SceneNode (app.currentPage())
+        this.eqStr("fixtures page" fixtures.name "Fixtures")
+        def frames:string (app.framesJson())
+        this.check("01-basic-rect" (FigTest.hasSub(frames "01-basic-rect")))
+        this.check("02-border-radius" (FigTest.hasSub(frames "02-border-radius")))
+        this.check("03-stroke" (FigTest.hasSub(frames "03-stroke")))
+        this.check("04-opacity" (FigTest.hasSub(frames "04-opacity")))
+        this.check("05-clipping" (FigTest.hasSub(frames "05-clipping")))
+        this.check("06-text" (FigTest.hasSub(frames "06-text")))
+        this.check("07-multiline-text" (FigTest.hasSub(frames "07-multiline-text")))
+        this.check("08-image" (FigTest.hasSub(frames "08-image")))
+        this.check("09-vector" (FigTest.hasSub(frames "09-vector")))
+        this.check("10-auto-layout-horizontal" (FigTest.hasSub(frames "10-auto-layout-horizontal")))
+        this.check("11-auto-layout-vertical" (FigTest.hasSub(frames "11-auto-layout-vertical")))
+        this.check("12-nested-frame" (FigTest.hasSub(frames "12-nested-frame")))
+        this.check("13-rotation" (FigTest.hasSub(frames "13-rotation")))
+        this.check("14-shadow" (FigTest.hasSub(frames "14-shadow")))
+        this.check("15-gradient" (FigTest.hasSub(frames "15-gradient")))
+        def page:SceneNode (app.currentPage())
+        def basic:SceneNode (page.childNamed("01-basic-rect"))
+        def rect:SceneNode (basic.childNamed("Rect"))
+        this.eqStr("basic rect kind" rect.kind "rect")
+        this.close("basic rect x" rect.x 20.0)
+        this.close("basic rect y" rect.y 20.0)
+        def clip:SceneNode (page.childNamed("05-clipping"))
+        this.check("clip frame" clip.clip)
+        def textFrame:SceneNode (page.childNamed("06-text"))
+        def txt:SceneNode (textFrame.childNamed("Hello"))
+        this.eqStr("text kind" txt.kind "text")
+        this.eqStr("text chars" txt.text.characters "Hello")
+        def vecFrame:SceneNode (page.childNamed("09-vector"))
+        def vec:SceneNode (vecFrame.childNamed("Triangle"))
+        this.eqStr("vector kind" vec.kind "path")
+        this.check("vector path" ((strlen vec.pathData) > 0))
+        def row:SceneNode (page.childNamed("10-auto-layout-horizontal"))
+        this.eqStr("row layout" row.layout.mode "row")
+        def col:SceneNode (page.childNamed("11-auto-layout-vertical"))
+        this.eqStr("col layout" col.layout.mode "column")
+        def rotFrame:SceneNode (page.childNamed("13-rotation"))
+        def tilt:SceneNode (rotFrame.childNamed("Tilt"))
+        this.check("tilt has transform" tilt.hasXf)
+        def gradFrame:SceneNode (page.childNamed("15-gradient"))
+        def fade:SceneNode (gradFrame.childNamed("Fade"))
+        def fadeFill:SceneFill (fade.firstFill())
+        this.eqStr("gradient fill" fadeFill.kind "gradient")
+        app.setFrame(0)
+        def dump:string (app.evgText())
+        this.check("fixture evg abs" (FigTest.hasSub(dump "position=\"absolute\"")))
+        this.check("fixture evg left" (FigTest.hasSub(dump "left=\"")))
+    }
+
+    ; gallery/figma/fixtures/health.fig — a real Figma export. Three phone
+    ; frames built with Auto Layout, text in Space Grotesk and Inter,
+    ; one image, stroke-only vectors, a background blur on the tab bars.
+    fn testHealthFig:void () {
+        print "--- health.fig ---"
+        def bytes:buffer (buffer_read_file "gallery/figma/fixtures" "health.fig")
+        this.check("fixture bytes" ((buffer_length bytes) > 1000))
+        def app (new FigApp())
+        this.check("open" (app.openBytes(bytes "health.fig")))
+        this.eqInt("pages" (app.pageCount()) 1)
+        def frames:string (app.framesJson())
+        this.check("Dashboard" (FigTest.hasSub(frames "Dashboard")))
+        this.check("Activity" (FigTest.hasSub(frames "Activity")))
+        this.check("Progress" (FigTest.hasSub(frames "Progress")))
+        def page:SceneNode (app.currentPage())
+        def paper:SceneFill (page.firstFill())
+        this.eqStr("canvas background" (paper.hex()) "#f5f5f5")
+        def dash:SceneNode (page.childNamed("Dashboard"))
+        def container:SceneNode (dash.childNamed("Container"))
+        this.eqStr("column layout" container.layout.mode "column")
+        this.close("gap" container.layout.gap 28.0)
+        this.close("padding left" container.layout.padL 20.0)
+        this.close("padding top" container.layout.padT 28.0)
+        this.close("padding right" container.layout.padR 20.0)
+        this.close("padding bottom" container.layout.padB 112.0)
+        this.check("hugs height" container.layout.hugH)
+        def header:SceneNode (container.childNamed("Header"))
+        this.eqStr("row layout" header.layout.mode "row")
+        this.eqStr("space between" header.layout.justify "space-between")
+        this.close("header x" header.x 20.0)
+        this.close("header y" header.y 28.0)
+        def nav:SceneNode (container.childNamed("Navigation"))
+        this.check("nav is absolute in the stack" nav.layout.absolute)
+        this.close("nav backdrop blur" (nav.backdropBlur()) 8.0)
+        def title:SceneNode (app.findScene("1:9"))
+        this.eqStr("title text" title.text.characters "YOUR HEALTH")
+        this.eqStr("title family" title.text.fontFamily "Space Grotesk")
+        this.eqStr("title weight" title.text.fontWeight "700")
+        this.close("title size" title.text.fontSize 30.0)
+        this.close("title line height" title.text.lineHeight 1.2)
+        this.close("title letter spacing" title.text.letterSpacing (0.0 - 0.75))
+        this.check("title has outlines" (title.text.hasOutline()))
+        this.check("outline uses curves" (FigTest.hasSub(title.text.outline "Q")))
+        def avatar:SceneNode (app.findScene("1:13"))
+        this.eqStr("avatar kind" avatar.kind "image")
+        this.eqStr("avatar ref" avatar.imageRef "aa64b7b3e303e0ea28a3bb6efa93741511acd803")
+        def line:SceneNode (app.findScene("1:119"))
+        this.eqStr("chart line kind" line.kind "path")
+        this.eqInt("chart line strokes moved to geometry" (array_length line.strokes) 0)
+        def lineStroke:SceneNode (line.childNamed("stroke"))
+        this.eqStr("stroke geometry" lineStroke.sourceType "STROKE_GEOMETRY")
+        this.check("stroke geometry path" ((strlen lineStroke.pathData) > 0))
+        def track:SceneNode (app.findScene("1:35"))
+        def trackFill:SceneFill (track.firstFill())
+        this.eqStr("translucent fill in the colour" (trackFill.hexA()) "#00000026")
+        this.close("node opacity untouched" track.opacity 1.0)
+        def dump:string (app.evgText())
+        this.check("header placed at 20,28" (FigTest.hasSub(dump "id=\"1:4\" position=\"absolute\" left=\"20px\" top=\"28px\"")))
+        this.check("viewport painted in the canvas colour" (FigTest.hasSub(dump "background=\"#F5F5F5\"")))
+        this.check("no text spans" ((FigTest.hasSub(dump "<span")) == false))
+        this.check("no text background" ((FigTest.hasSub(dump "fill=\"#F7F5F0\" d=\"M")) == true))
+        this.eqInt("no warnings" (array_length app.sceneDoc.warnings) 0)
+    }
+
+    ; A paste from Figma: fig-kiwi bytes with no ZIP, and only the copied
+    ; nodes, each pointing at a page that did not come along.
+    fn testPaste:void () {
+        print "--- paste ---"
+        def app (new FigApp())
+        this.check("open loose layers" (app.openClipboardSample()))
+        this.check("flagged as a paste" app.doc.pasted)
+        this.check("canvas bytes kept" ((buffer_length app.doc.canvasBytes) > 16))
+        this.eqInt("one page" (app.pageCount()) 1)
+        def page:SceneNode (app.currentPage())
+        this.eqStr("synthetic page" page.name "Pasted")
+        this.eqStr("page type" page.sourceType "CANVAS")
+        this.eqInt("two roots" (array_length page.children) 2)
+        def card:SceneNode (page.childNamed("Card"))
+        this.eqStr("card kind" card.kind "container")
+        this.close("card x" card.x 640.0)
+        this.eqInt("card keeps its child" (array_length card.children) 1)
+        def dot:SceneNode (page.childNamed("Dot"))
+        this.eqStr("dot kind" dot.kind "ellipse")
+        this.check("frames list the card" (FigTest.hasSub((app.framesJson()) "Card")))
+        ; The same bytes a .fig keeps in canvas.fig open on their own too.
+        def whole (new FigApp())
+        this.check("open .fig" (whole.openSample()))
+        def again (new FigApp())
+        this.check("open its canvas bytes" (again.openBytes(whole.doc.canvasBytes "canvas")))
+        this.check("canvas bytes are a paste" again.doc.pasted)
+        this.eqInt("same pages" (again.pageCount()) (whole.pageCount()))
+        def bad (new FigApp())
+        this.check("garbage refused" ((bad.openBytes((buffer_alloc 40) "junk")) == false))
+    }
+
+    sfn hasSub:boolean (s:string needle:string) {
+        def n:int (strlen s)
+        def m:int (strlen needle)
+        if (m > n) {
+            return false
+        }
+        def i:int 0
+        while (i <= (n - m)) {
+            def ok:boolean true
+            def j:int 0
+            while (j < m) {
+                if ((charAt s (i + j)) != (charAt needle j)) {
+                    ok = false
+                    j = m
+                }
+                j = (j + 1)
+            }
+            if ok {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+}

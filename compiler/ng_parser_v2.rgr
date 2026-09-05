@@ -37,6 +37,10 @@ class RangerLispParser {
   def curr_node@(optional weak):CodeNode
   def had_error:boolean false
   def disableOperators false
+  ; ISSUES.md #76: numbers the temporaries that `recv.call(a).field = v` is
+  ; desugared into. Per parser instance, so per FILE; the temporaries are
+  ; block locals, so two files never see each other's.
+  def recv_tmp_count:int 0
 
   ; Accept LF, CRLF, and lone CR — normalize to LF before tokenization.
   ; Use split/join (linear) instead of repeated substring rebuilds (quadratic on
@@ -1052,6 +1056,125 @@ class RangerLispParser {
           ; `charAt s i` alongside it), and a leftover dot from an earlier token
           ; would reject innocent lines.
           if ((curr_node.is_block_node == true) && (((charAt s i)) == ((ccode ".")))) {
+            ; ISSUES.md #76, the PARENTHESISED spelling of the same store:
+            ;
+            ;     (b.at(0)).name = "x"
+            ;
+            ; It arrives here rather than at the vref site the bare spelling
+            ; uses, because the statement started with `(`: the group was
+            ; parsed as a statement of its own and is already the block's LAST
+            ; CHILD by the time this `.name` is scanned. So the receiver is not
+            ; in `curr_node.children` — it is the sibling behind us — and the
+            ; rewrite has to reach for it there.
+            ;
+            ; Same desugaring, same three moves:
+            ;
+            ;     def __rgr_recv_1 (b.at(0))
+            ;     __rgr_recv_1.name = "x"
+            ;
+            ; The receiver is only taken when the `.` sits IMMEDIATELY after a
+            ; `)`, with nothing between. That is what separates this from the
+            ; shape the guard below exists for:
+            ;
+            ;     doSomething()
+            ;     .name = "x"
+            ;
+            ; where the previous statement is unrelated and stealing it would
+            ; be far worse than refusing the line. Whitespace or a newline
+            ; before the dot means no rewrite.
+            ;
+            ; A parenthesised receiver followed by a CALL — `(a.b()).c()` —
+            ; still gets the guard, unchanged. The lookahead below only fires
+            ; on `=` (never `==`), and that shape has a bare spelling that has
+            ; always worked.
+            def didRewrite65:boolean false
+            if (i > 0) {
+              if (((charAt s (i - 1))) == ((ccode ")"))) {
+                def save65:int i
+                def fp_sp:int i
+                def cc65:char (charAt s i)
+                while ((i < len) && (((charAt s i)) > 32) && (cc65 != 58) && (cc65 != 40) && (cc65 != 41) && (cc65 != ((ccode "}")))) {
+                  if (i > fp_sp) {
+                    def isop65:int (this.isOperator(s disable_ops_set))
+                    if (isop65 > 0) {
+                      break
+                    }
+                  }
+                  i = 1 + i
+                  cc65 = (charAt s i)
+                }
+                def fp_ep:int i
+                def lk65:int i
+                while ((lk65 < len) && (((charAt s lk65)) <= 32)) {
+                  lk65 = lk65 + 1
+                }
+                def isAssign65:boolean false
+                if (lk65 < len) {
+                  if (((charAt s lk65)) == ((ccode "="))) {
+                    isAssign65 = true
+                    if ((lk65 + 1) < len) {
+                      if (((charAt s (lk65 + 1))) == ((ccode "="))) {
+                        isAssign65 = false
+                      }
+                    }
+                  }
+                }
+                if (isAssign65 && ((fp_ep - fp_sp) > 1) && (((array_length curr_node.children)) > 0)) {
+                  def blk65@(optional weak):CodeNode curr_node
+                  def recv65:CodeNode (array_extract blk65.children (((array_length blk65.children)) - 1))
+                  recv_tmp_count = recv_tmp_count + 1
+                  def tmp65:string ("__rgr_recv_" + (to_string recv_tmp_count))
+
+                  def defNode65:CodeNode (new CodeNode(( unwrap code) fp_sp fp_ep))
+                  defNode65.expression = true
+                  defNode65.parent = blk65
+
+                  def kw65:CodeNode (new CodeNode(( unwrap code) fp_sp fp_ep))
+                  kw65.vref = "def"
+                  kw65.value_type = RangerNodeType.VRef
+                  kw65.parsed_type = RangerNodeType.VRef
+                  kw65.ns = (strsplit "def" ".")
+                  kw65.parent = defNode65
+                  push defNode65.children kw65
+
+                  def nm65:CodeNode (new CodeNode(( unwrap code) fp_sp fp_ep))
+                  nm65.vref = tmp65
+                  nm65.value_type = RangerNodeType.VRef
+                  nm65.parsed_type = RangerNodeType.VRef
+                  nm65.ns = (strsplit tmp65 ".")
+                  nm65.parent = defNode65
+                  push defNode65.children nm65
+
+                  recv65.parent = defNode65
+                  push defNode65.children recv65
+                  push blk65.children defNode65
+
+                  def stmt65:CodeNode (new CodeNode(( unwrap code) fp_sp fp_ep))
+                  stmt65.expression = true
+                  stmt65.parent = blk65
+                  push blk65.children stmt65
+
+                  def tgt65:CodeNode (new CodeNode(( unwrap code) fp_sp fp_ep))
+                  tgt65.vref = (tmp65 + ((substring s fp_sp fp_ep)))
+                  tgt65.value_type = RangerNodeType.VRef
+                  tgt65.parsed_type = RangerNodeType.VRef
+                  tgt65.ns = (strsplit tgt65.vref ".")
+                  tgt65.parent = stmt65
+                  push stmt65.children tgt65
+
+                  curr_node = stmt65
+                  push parents stmt65
+                  paren_cnt = 1 + paren_cnt
+                  this.parseBuf(s disable_ops_set)
+                  didRewrite65 = true
+                } {
+                  i = save65
+                }
+              }
+            }
+            if didRewrite65 {
+              continue 
+            }
             def err_node:CodeNode (new CodeNode(( unwrap code) i (i + 1)))
             def err_line:int (err_node.getLine())
             print ((err_node.getFilename()) + " Line: " + err_line)
@@ -1309,6 +1432,144 @@ class RangerLispParser {
                 def rn@(optional lives):CodeNode iNode.right_node
                 new_vref_node.parent = rn
                 pTarget = rn
+              }
+            }
+            ; ISSUES.md #76. `recv.call(args).field = value` scans the trailing
+            ; `.field` as a vref whose NAME BEGINS WITH A DOT: the receiver in
+            ; front of it was the call, which has already been folded into a
+            ; group. Nothing downstream knew what to do with that shape, so
+            ; the statement degraded to just the call and the STORE VANISHED
+            ; with a clean compile — silent wrong-code generation, the same
+            ; severity as #65 and by the one route #65's guard does not cover
+            ; (that guard catches a PARENTHESISED receiver; this is the bare
+            ; one).
+            ;
+            ; Two other shapes reach here with a dot-leading vref and are both
+            ; LEGAL, so the test is not "does it lead with a dot" but what
+            ; follows it:
+            ;
+            ;   `b.at(0).rename(x)`   next is `(` — a chained method CALL. The
+            ;                         existing fold handles it and it emits
+            ;                         `((b).at(0)).rename(x)` correctly.
+            ;   `((b.at(0)).name)`    next is `)` — a READ inside an
+            ;                         expression, which has always worked.
+            ;   `b.at(0).name = x`    next is `=` — the assignment, which
+            ;                         the block below rewrites.
+            ;
+            ; `==` is excluded so a comparison on a call result stays a legal
+            ; read. Measured with an instrumented parser rather than reasoned
+            ; about: the three shapes were run and their following character
+            ; recorded.
+            if ((strlen new_vref_node.vref) > 1) {
+              if ((charAt new_vref_node.vref 0) == ((ccode "."))) {
+                def lk76:int i
+                while ((lk76 < len) && (((charAt s lk76)) <= 32)) {
+                  lk76 = lk76 + 1
+                }
+                def isAssign76:boolean false
+                if (lk76 < len) {
+                  if (((charAt s lk76)) == ((ccode "="))) {
+                    isAssign76 = true
+                    if ((lk76 + 1) < len) {
+                      if (((charAt s (lk76 + 1))) == ((ccode "="))) {
+                        isAssign76 = false
+                      }
+                    }
+                  }
+                }
+                if isAssign76 {
+                  ; DESUGARED, not rejected. `recv.call(a).field = v` becomes
+                  ; the two statements it already had to be written as:
+                  ;
+                  ;     def __rgr_recv_1 (recv.call(a))
+                  ;     __rgr_recv_1.field = v
+                  ;
+                  ; Both halves are shapes the compiler already handles — a
+                  ; `def` with an inferred type, and a plain field store on a
+                  ; local — so nothing downstream of the parser changes. The
+                  ; receiver is the children `pTarget` has accumulated so far
+                  ; (the callee vref and its argument group); they are MOVED
+                  ; into the new `def`, and the dot-leading vref is renamed to
+                  ; hang off the temporary instead of off nothing.
+                  ;
+                  ; The `def` has to land in the enclosing BLOCK, ahead of the
+                  ; statement being parsed. It is already a child of that block
+                  ; (a statement is pushed onto the block before its own parse
+                  ; begins), so the insert point is that statement's own index
+                  ; — found by start offset, which is unique per statement,
+                  ; rather than by identity.
+                  ;
+                  ; When the shape is not one this can rewrite — no enclosing
+                  ; block, or no receiver to move — the old diagnostic stands.
+                  ; Silently dropping the store is the one outcome that is
+                  ; never acceptable.
+                  def stmt76@(optional weak):CodeNode pTarget
+                  def blk76@(optional weak):CodeNode stmt76.parent
+                  def stmtIdx76:int (0 - 1)
+                  if (!null? blk76) {
+                    if (blk76.is_block_node && (((array_length pTarget.children)) > 0)) {
+                      def k76:int (((array_length blk76.children)) - 1)
+                      while (k76 >= 0) {
+                        def cand76:CodeNode (itemAt blk76.children k76)
+                        if (cand76.sp == stmt76.sp) {
+                          stmtIdx76 = k76
+                          break
+                        }
+                        k76 = k76 - 1
+                      }
+                    }
+                  }
+                  if (stmtIdx76 >= 0) {
+                    recv_tmp_count = recv_tmp_count + 1
+                    def tmp76:string ("__rgr_recv_" + (to_string recv_tmp_count))
+
+                    def defNode76:CodeNode (new CodeNode(( unwrap code) sp ep))
+                    defNode76.expression = true
+                    defNode76.parent = blk76
+
+                    def kw76:CodeNode (new CodeNode(( unwrap code) sp ep))
+                    kw76.vref = "def"
+                    kw76.value_type = RangerNodeType.VRef
+                    kw76.parsed_type = RangerNodeType.VRef
+                    kw76.ns = (strsplit "def" ".")
+                    kw76.parent = defNode76
+                    push defNode76.children kw76
+
+                    def nm76:CodeNode (new CodeNode(( unwrap code) sp ep))
+                    nm76.vref = tmp76
+                    nm76.value_type = RangerNodeType.VRef
+                    nm76.parsed_type = RangerNodeType.VRef
+                    nm76.ns = (strsplit tmp76 ".")
+                    nm76.parent = defNode76
+                    push defNode76.children nm76
+
+                    def rcv76:CodeNode (new CodeNode(( unwrap code) sp ep))
+                    rcv76.expression = true
+                    rcv76.parent = defNode76
+                    while (((array_length pTarget.children)) > 0) {
+                      def mv76:CodeNode (array_extract pTarget.children 0)
+                      mv76.parent = rcv76
+                      push rcv76.children mv76
+                    }
+                    push defNode76.children rcv76
+
+                    insert blk76.children stmtIdx76 defNode76
+
+                    new_vref_node.vref = (tmp76 + new_vref_node.vref)
+                    new_vref_node.ns = (strsplit new_vref_node.vref ".")
+                  } {
+                    def err76:CodeNode (new CodeNode(( unwrap code) sp ep))
+                    def line76:int (err76.getLine())
+                    print ((err76.getFilename()) + " Line: " + line76)
+                    print "Parser error: a field of a call result can not be assigned to directly."
+                    print (err76.getLineString(line76))
+                    print "The assignment would be silently dropped. Bind the call result first:"
+                    print "    def recv:SomeType (the.call())"
+                    print "    recv.field = value"
+                    had_error = true
+                    break
+                  }
+                }
               }
             }
             push pTarget.children new_vref_node

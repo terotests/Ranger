@@ -1,0 +1,6 @@
+{ "name":"sortable_cancel","component":"sortable","observe":["announce"],
+  "behaviours":["sortable-keyboard-pickup","sortable-escape-cancels"],
+  "fixture":{"controls":[
+    {"type":"sortable","tid":"sr","name":"Tasks","items":[
+      {"value":"a","name":"Alpha"},{"value":"b","name":"Beta"},{"value":"c","name":"Gamma"}]}]},
+  "steps":[{"focus":"sr-item-a"},{"key":" "},{"key":"ArrowDown"},{"key":"Escape"}] }

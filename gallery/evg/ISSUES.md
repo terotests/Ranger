@@ -251,3 +251,272 @@ See `gallery/pdf_writer/components/ListItem.tsx` for a component that demonstrat
 - A proper fix should distinguish between "inline" and "block" text elements
 - Consider adding a `display: inline` or similar property to control this behavior
 - Text measurement requires access to font metrics (FontManager in PDF writer context)
+
+---
+
+## Issue #4: The scene binary's record width was agreed in advance, not published
+
+**Status:** Resolved
+**Severity:** High — every field after the first command read from the wrong offset
+**Found:** August 30, 2026 (in CI, on master)
+**Resolved:** August 30, 2026
+**Component:** `EVGDisplayList.rgr`, `gallery/pptx/web/host/pptx-host.mjs`
+
+### What happened
+
+`EVGDisplayList` publishes a frame as three `Int32Array`s: one fixed-size record
+per draw command, then the ring coordinates and the strings those records index
+into. It is the fast path — the JSON one costs 1.5 MB of text a frame — and it
+is POSITIONAL. Nothing in it says how wide a record is.
+
+The record grew from 24 ints to 26 when `transform: rotate()` needed an origin
+to turn about. `EVGDisplayList.stride()` was updated, and its comment even says
+"read it through this function and never inline the number". The decoder on the
+other side of the bridge had inlined it:
+
+```js
+export const SCENE_STRIDE = 24;   //  pptx-host.mjs
+const b = i * SCENE_STRIDE;
+```
+
+So from the second command on, every field was read two ints early. Colours
+became coordinates, coordinates became flags, and the frame was nonsense that
+still *looked* like numbers. Nothing threw until a ring count read out of
+somebody's colour reached `new Array(eCount)`:
+
+```
+RangeError: Invalid array length
+    at decodeScene (pptx-host.mjs:104)
+```
+
+— in the WebAssembly parity job, which needs an Emscripten toolchain, runs late
+in the deploy workflow, and points a hundred fields downstream of the mistake.
+
+### Resolution
+
+**The shape is derived from the bytes, not agreed in advance.** `cmds` is
+allocated as exactly `count * stride`, so `sceneStride(bin)` recovers the number
+the writer used by dividing. That answer cannot drift, and it needs no new
+export — which matters, because three producers publish this frame by three
+different routes (the Ranger engine, the Emscripten build and the Rust one) and
+only one of them is in a position to export a constant.
+
+What the decoder now names is the FLOOR: `SCENE_FIELDS_READ = 23`, the number
+of fields it actually reads. A record wider than that is fine — the extra
+fields are not its business — and one narrower throws with both numbers in the
+message.
+
+### Why it was not caught sooner
+
+The claim that the two paths agree was written in a comment and checked
+nowhere. `gallery/pptx/web/host/scene-binary-check.mjs` now asks the engine for
+both the JSON and the binary, for every slide of every fixture, and compares
+them field by field: 37 decks, 45 slides, 8,658 commands, no browser, no
+toolchain, one second. It is in `scripts/run-gallery-editor-tests.sh` and runs
+in CI *before* the WebAssembly build rather than after it.
+
+Two other checks would also have caught this and neither was wired up: the
+standalone smoke test (`npm run pptx:web:test`) fails outright, and the frame
+is visibly empty in the playground. Both were reachable the whole time.
+
+### The general lesson
+
+A positional binary format needs its shape carried with it or derivable from
+it. "Both sides know the layout" is not a property anything enforces, and the
+failure mode is not a crash at the boundary — it is plausible-looking garbage
+that surfaces somewhere unrecognisable.
+
+
+---
+
+## Issue #5: `backdrop-filter` sampled the page, not the element
+
+**Status:** Resolved
+**Severity:** Medium — a scrim showed the page bleeding through its own border
+**Found:** August 30, 2026, while implementing it
+**Resolved:** the same day
+**Component:** `gallery/evg/gl/evg-webgl.js`
+
+### What happened
+
+The first implementation grew the copied region by the kernel's reach and
+blurred that, on the reading that `backdrop-filter` samples past the element's
+edge. The evidence for it was a flat grey behind a pane coming out flat to the
+border, with no rim.
+
+That is not evidence. **A uniform field is uniform under either rule** — edge
+clamping and sampling-past give the same answer when there is nothing outside
+worth sampling. The observation ruled out only a third possibility, that edge
+samples read transparent and the border fades.
+
+The case that decides is a feature that straddles the border. White page, black
+stripe starting exactly at the pane's left edge:
+
+```
+x:      95  96  97  98  99 | 100 101 102 ...
+browser 255 255 255 255 255|   0   0   0
+```
+
+No ramp at the border at all — while the same black/white boundary a hundred
+pixels further in, inside the pane, gets the full smooth curve. Outside content
+does not enter.
+
+### Resolution
+
+Copy exactly the element's box and let `CLAMP_TO_EDGE` do the rest, which is
+the measured rule expressed in one place.
+
+### The general lesson
+
+Three checks passed against the wrong implementation, and all three were scenes
+where the backdrop did not change across the element's border. A test that
+cannot distinguish the two candidate rules is not weak evidence for one of
+them; it is no evidence at all. Before trusting a case, ask what the WRONG
+implementation would print — and if the answer is "the same thing", the case is
+not about the question.
+
+---
+
+## Issue #6: a text run's reported width changes between the first frame and the rest
+
+**Status:** open, pre-existing, cosmetic in the display list only.
+
+Found while proving that moving `TreeDemo`'s rows onto component instances
+changed nothing observable. It did not — but the display list on frame 7 is not
+the display list on frame 1, and that is true with or without the change.
+
+Two text commands in the tree demo differ between the first paint and any later
+one:
+
+```
+frame 1  {"k":3,"x":105.14,"y":261,"w":58.1,  …,"text":"Jane Doe"}
+frame 7  {"k":3,"x":105.57,"y":261,"w":340,   …,"text":"Jane Doe"}
+```
+
+`w` goes from the MEASURED run width (58.1) to the label's declared box width
+(340), and `x` shifts by 0.43px. Only the deepest rows are affected — the ones
+whose label sits after an indent spacer whose width is set on the element
+rather than by the sheet.
+
+Nothing on screen moves: `k:3` is a text draw and the painter positions the run
+from `x` and the glyphs, not from `w`. So this is a display-list fidelity bug
+rather than a rendering one, and it was invisible until something compared two
+frames of the same state.
+
+### Why it is recorded rather than fixed here
+
+It is not the component work's to fix, and it was verified as pre-existing by
+running the identical probe on both sides of that change — same two commands,
+same numbers. Fixing it means understanding why a second layout pass over the
+same tree resolves the label's width differently, which is `EVGLayout`'s
+business and wants its own measurement.
+
+### The general lesson
+
+"Nothing changed" is only checkable if the thing you compare is stable to begin
+with. A baseline captured on frame 1 and a candidate settled over six frames
+are not the same experiment, and the first version of that comparison reported a
+difference my change had not caused. Compare like with like, and when a
+comparison fails, check the baseline before the change.
+
+## Issue #7: shrink-to-fit text can wrap inside the box its own width produced
+
+**Status:** Open
+**Severity:** Low (cosmetic; a label that fits is drawn on two lines)
+**Found:** September 2, 2026
+**Component:** `EVGLayout.rgr` / `EVGTextEngine.rgr`
+
+### What happens
+
+A text element with no stated width shrink-wraps: layout measures the run, adds
+the padding and border, and that sum is the box. The line breaker then works
+with the content width, which is that sum *minus* the same padding — and for
+some strings the round trip does not land back on the number it started from,
+so the breaker sees a width a fraction narrower than the text and breaks it.
+
+Reproduced in `gallery/evg/web/responsive`, whose sidebar is six labels in a
+column. Five sit on one line and `Display list` does not:
+
+```
+measure 'Display list' = 62.12453   'Text engine' = 67.93241
+item 'Display list' w=86.12453 h=47.9     <- 24px padding, two lines
+item 'Text engine'  w=91.93241 h=32.95    <- 24px padding, one line
+```
+
+Both boxes are exactly `measured + 24`. Both are therefore exactly on the
+threshold. One wraps and the other does not, which is what says this is a
+floating-point artifact of `(w + pad) - pad` and not a measurement disagreement:
+the run measurement and the sum of the per-word measurements agree to the last
+digit for both strings.
+
+### Why it is recorded rather than fixed here
+
+The fix belongs in the line breaker — a shrink-wrapped box should not be able to
+break its own content, so the comparison there wants an epsilon (or the content
+width wants to be carried alongside the box width rather than recomputed from
+it). Either is a change to how every EVG document breaks lines, and it needs
+its own measurement against the conformance oracles before it lands.
+
+### Workaround
+
+State a `min-width`, which takes the box off the threshold. The responsive
+demo's `.nav-item` does exactly that, and says so.
+
+## Issue #8: a flex row wrapped because of its own arithmetic
+
+**Status:** Resolved
+**Severity:** High (visible flicker while a window is resized)
+**Found:** September 2, 2026
+**Resolved:** September 2, 2026
+**Component:** `EVGLayout.rgr`
+
+### Resolution
+
+The row-wrap test in `EVGLayout.layoutFlexChildren` compares the child's total
+width against the space left on the line. It now allows a hundredth of a pixel
+of overflow before it wraps. `gallery/evg/EVGFlexWrapTest.rgr`
+(`npm run evg:flexwrap:test`) sweeps a 240px sidebar beside a `flex: 1` panel
+across every width from 400 to 1800 in quarter-pixel steps and asserts the two
+stay on one line — and, in the same file, that a row which genuinely does not
+fit still wraps and that `flex-wrap: nowrap` still means nowrap. Without the
+tolerance the first two of those five checks fail.
+
+`gallery/evg/web/responsive` carries the same sweep for the page the defect was
+found on.
+
+### What happened
+
+The commonest two-column layout there is:
+
+```css
+.body { display: flex; gap: 24px }   /* wrap allowed — EVG's default */
+.side { width: 240px }
+.main { flex: 1 }
+```
+
+`.main`'s width is computed **by the layout** out of the same line it is then
+measured against: the flex pass takes the inner width, subtracts the sidebar and
+the gap, and hands back the remainder. Adding those three back up is not
+guaranteed to return the number they were subtracted from — in binary floating
+point `(a - b - c) + b + c` can land one ulp above `a` — and a bare `>` then
+reads the row as too wide for itself.
+
+At a window width of 823px: `4vw` padding either side leaves an inner width of
+757.16, the sidebar is 240, the gap 24, and `.main` came out 493.15999999999997.
+The three sum to 757.1600000000001.
+
+### Why it mattered more than one pixel
+
+The failing widths are **scattered**, not a band. Of the 680 integer widths
+between 821 and 1500, 127 wrapped — 823, 826, 836, 842, 845, 848, 851, 861 …
+So dragging a window edge did not cross a threshold once; it dropped the content
+below the sidebar and pulled it back up again every few pixels, which reads as a
+flickering page rather than as a layout decision.
+
+### The general lesson
+
+Same root as issue #7, one stage further up: a number this engine **derived from
+a bound** must not then be tested against that bound with an exact comparison.
+Subtraction and addition do not cancel in floating point, so any "does what I
+just computed still fit in what I computed it from" test needs a tolerance —
+sized below what a painter can draw and above the error being cancelled.

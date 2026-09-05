@@ -1,0 +1,664 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; A self-contained .fig the viewer can open without a Figma export.
+; Schema + message are kiwi-encoded here; chunks use stored deflate so
+; the same Inflate path real files take is exercised.
+
+Import "../../zip/ZipWriter.rgr"
+Import "KiwiSchema.rgr"
+Import "KiwiDecode.rgr"
+Import "KiwiValue.rgr"
+Import "FigDeflate.rgr"
+Import "FigCanvas.rgr"
+
+class FigSample {
+    Constructor () {
+    }
+
+    sfn schema:KiwiSchema () {
+        def s (new KiwiSchema())
+        def nt:KiwiDef (s.addEnum("NodeType"))
+        s.addEnumMember(nt "DOCUMENT" 0)
+        s.addEnumMember(nt "CANVAS" 1)
+        s.addEnumMember(nt "FRAME" 2)
+        s.addEnumMember(nt "ROUNDED_RECTANGLE" 3)
+        s.addEnumMember(nt "ELLIPSE" 4)
+        s.addEnumMember(nt "TEXT" 5)
+        s.addEnumMember(nt "GROUP" 6)
+        s.addEnumMember(nt "LINE" 7)
+        s.addEnumMember(nt "VECTOR" 8)
+        s.addEnumMember(nt "SECTION" 9)
+        s.addEnumMember(nt "COMPONENT" 10)
+        s.addEnumMember(nt "INSTANCE" 11)
+        s.addEnumMember(nt "RECTANGLE" 12)
+        def guid:KiwiDef (s.addStruct("GUID"))
+        s.addField(guid "sessionID" "uint" 0 false)
+        s.addField(guid "localID" "uint" 1 false)
+        def vec:KiwiDef (s.addMessage("Vector"))
+        s.addField(vec "x" "float" 1 false)
+        s.addField(vec "y" "float" 2 false)
+        def tr:KiwiDef (s.addMessage("Transform"))
+        s.addField(tr "m00" "float" 1 false)
+        s.addField(tr "m01" "float" 2 false)
+        s.addField(tr "m02" "float" 3 false)
+        s.addField(tr "m10" "float" 4 false)
+        s.addField(tr "m11" "float" 5 false)
+        s.addField(tr "m12" "float" 6 false)
+        def col:KiwiDef (s.addMessage("Color"))
+        s.addField(col "r" "float" 1 false)
+        s.addField(col "g" "float" 2 false)
+        s.addField(col "b" "float" 3 false)
+        s.addField(col "a" "float" 4 false)
+        def stop:KiwiDef (s.addMessage("ColorStop"))
+        s.addField(stop "color" "Color" 1 false)
+        s.addField(stop "position" "float" 2 false)
+        def paint:KiwiDef (s.addMessage("Paint"))
+        s.addField(paint "type" "string" 1 false)
+        s.addField(paint "color" "Color" 2 false)
+        s.addField(paint "opacity" "float" 3 false)
+        s.addField(paint "visible" "bool" 4 false)
+        s.addField(paint "imageHash" "string" 5 false)
+        s.addField(paint "scaleMode" "string" 6 false)
+        s.addField(paint "stops" "ColorStop" 7 true)
+        def fx:KiwiDef (s.addMessage("Effect"))
+        s.addField(fx "type" "string" 1 false)
+        s.addField(fx "offset" "Vector" 2 false)
+        s.addField(fx "radius" "float" 3 false)
+        s.addField(fx "spread" "float" 4 false)
+        s.addField(fx "color" "Color" 5 false)
+        def path:KiwiDef (s.addMessage("Path"))
+        s.addField(path "commandsBlob" "uint" 1 false)
+        s.addField(path "windingRule" "string" 2 false)
+        def td:KiwiDef (s.addMessage("TextData"))
+        s.addField(td "characters" "string" 1 false)
+        def pidx:KiwiDef (s.addMessage("ParentIndex"))
+        s.addField(pidx "guid" "GUID" 1 false)
+        s.addField(pidx "position" "string" 2 false)
+        def node:KiwiDef (s.addMessage("Node"))
+        s.addField(node "guid" "GUID" 1 false)
+        s.addField(node "type" "NodeType" 2 false)
+        s.addField(node "name" "string" 3 false)
+        s.addField(node "parentIndex" "ParentIndex" 4 false)
+        s.addField(node "size" "Vector" 5 false)
+        s.addField(node "transform" "Transform" 6 false)
+        s.addField(node "visible" "bool" 7 false)
+        s.addField(node "opacity" "float" 8 false)
+        s.addField(node "cornerRadius" "float" 9 false)
+        s.addField(node "fillPaints" "Paint" 10 true)
+        s.addField(node "textData" "TextData" 11 false)
+        s.addField(node "fontSize" "float" 12 false)
+        s.addField(node "fontFamily" "string" 13 false)
+        s.addField(node "strokeWeight" "float" 14 false)
+        s.addField(node "strokePaints" "Paint" 15 true)
+        s.addField(node "stackMode" "string" 16 false)
+        s.addField(node "stackSpacing" "float" 17 false)
+        s.addField(node "paddingLeft" "float" 18 false)
+        s.addField(node "paddingRight" "float" 19 false)
+        s.addField(node "paddingTop" "float" 20 false)
+        s.addField(node "paddingBottom" "float" 21 false)
+        s.addField(node "clipsContent" "bool" 22 false)
+        s.addField(node "frameMaskDisabled" "bool" 23 false)
+        s.addField(node "rectangleTopLeftCornerRadius" "float" 24 false)
+        s.addField(node "rectangleTopRightCornerRadius" "float" 25 false)
+        s.addField(node "rectangleBottomRightCornerRadius" "float" 26 false)
+        s.addField(node "rectangleBottomLeftCornerRadius" "float" 27 false)
+        s.addField(node "textAlignHorizontal" "string" 28 false)
+        s.addField(node "fontWeight" "string" 29 false)
+        s.addField(node "strokeAlign" "string" 30 false)
+        s.addField(node "effects" "Effect" 31 true)
+        s.addField(node "primaryAxisAlignItems" "string" 32 false)
+        s.addField(node "counterAxisAlignItems" "string" 33 false)
+        s.addField(node "fillGeometry" "Path" 34 true)
+        def blob:KiwiDef (s.addMessage("Blob"))
+        s.addField(blob "bytes" "byte" 1 true)
+        def msg:KiwiDef (s.addMessage("Message"))
+        s.addField(msg "nodeChanges" "Node" 1 true)
+        s.addField(msg "blobs" "Blob" 2 true)
+        s.bindTypes()
+        return s
+    }
+
+    sfn guid:KiwiValue (sid:int lid:int) {
+        def o:KiwiValue (KiwiValue.fromObject())
+        o.put("sessionID" (KiwiValue.fromInt(sid)))
+        o.put("localID" (KiwiValue.fromInt(lid)))
+        return o
+    }
+
+    sfn vec:KiwiValue (x:double y:double) {
+        def o:KiwiValue (KiwiValue.fromObject())
+        o.put("x" (KiwiValue.fromDouble(x)))
+        o.put("y" (KiwiValue.fromDouble(y)))
+        return o
+    }
+
+    sfn xform:KiwiValue (x:double y:double) {
+        def o:KiwiValue (KiwiValue.fromObject())
+        o.put("m00" (KiwiValue.fromDouble(1.0)))
+        o.put("m01" (KiwiValue.fromDouble(0.0)))
+        o.put("m02" (KiwiValue.fromDouble(x)))
+        o.put("m10" (KiwiValue.fromDouble(0.0)))
+        o.put("m11" (KiwiValue.fromDouble(1.0)))
+        o.put("m12" (KiwiValue.fromDouble(y)))
+        return o
+    }
+
+    sfn xformRot:KiwiValue (x:double y:double c:double s:double) {
+        def o:KiwiValue (KiwiValue.fromObject())
+        o.put("m00" (KiwiValue.fromDouble(c)))
+        o.put("m01" (KiwiValue.fromDouble((0.0 - s))))
+        o.put("m02" (KiwiValue.fromDouble(x)))
+        o.put("m10" (KiwiValue.fromDouble(s)))
+        o.put("m11" (KiwiValue.fromDouble(c)))
+        o.put("m12" (KiwiValue.fromDouble(y)))
+        return o
+    }
+
+    sfn color:KiwiValue (r:double g:double b:double) {
+        def o:KiwiValue (KiwiValue.fromObject())
+        o.put("r" (KiwiValue.fromDouble(r)))
+        o.put("g" (KiwiValue.fromDouble(g)))
+        o.put("b" (KiwiValue.fromDouble(b)))
+        o.put("a" (KiwiValue.fromDouble(1.0)))
+        return o
+    }
+
+    sfn solid:KiwiValue (r:double g:double b:double) {
+        def o:KiwiValue (KiwiValue.fromObject())
+        o.put("type" (KiwiValue.fromString("SOLID")))
+        o.put("color" (FigSample.color(r g b)))
+        o.put("opacity" (KiwiValue.fromDouble(1.0)))
+        o.put("visible" (KiwiValue.fromBool(true)))
+        return o
+    }
+
+    sfn paints:KiwiValue (r:double g:double b:double) {
+        def a:KiwiValue (KiwiValue.fromArray())
+        a.pushItem((FigSample.solid(r g b)))
+        return a
+    }
+
+    sfn imagePaint:KiwiValue (hash:string) {
+        def o:KiwiValue (KiwiValue.fromObject())
+        o.put("type" (KiwiValue.fromString("IMAGE")))
+        o.put("imageHash" (KiwiValue.fromString(hash)))
+        o.put("scaleMode" (KiwiValue.fromString("FILL")))
+        o.put("opacity" (KiwiValue.fromDouble(1.0)))
+        o.put("visible" (KiwiValue.fromBool(true)))
+        def a:KiwiValue (KiwiValue.fromArray())
+        a.pushItem(o)
+        return a
+    }
+
+    sfn gradient:KiwiValue (r0:double g0:double b0:double r1:double g1:double b1:double) {
+        def o:KiwiValue (KiwiValue.fromObject())
+        o.put("type" (KiwiValue.fromString("GRADIENT_LINEAR")))
+        o.put("color" (FigSample.color(r0 g0 b0)))
+        o.put("opacity" (KiwiValue.fromDouble(1.0)))
+        o.put("visible" (KiwiValue.fromBool(true)))
+        def stops:KiwiValue (KiwiValue.fromArray())
+        def a:KiwiValue (KiwiValue.fromObject())
+        a.put("color" (FigSample.color(r0 g0 b0)))
+        a.put("position" (KiwiValue.fromDouble(0.0)))
+        def b:KiwiValue (KiwiValue.fromObject())
+        b.put("color" (FigSample.color(r1 g1 b1)))
+        b.put("position" (KiwiValue.fromDouble(1.0)))
+        stops.pushItem(a)
+        stops.pushItem(b)
+        o.put("stops" stops)
+        def arr:KiwiValue (KiwiValue.fromArray())
+        arr.pushItem(o)
+        return arr
+    }
+
+    sfn dropShadow:KiwiValue () {
+        def e:KiwiValue (KiwiValue.fromObject())
+        e.put("type" (KiwiValue.fromString("DROP_SHADOW")))
+        e.put("offset" (FigSample.vec(4.0 6.0)))
+        e.put("radius" (KiwiValue.fromDouble(12.0)))
+        e.put("spread" (KiwiValue.fromDouble(0.0)))
+        def col:KiwiValue (KiwiValue.fromObject())
+        col.put("r" (KiwiValue.fromDouble(0.0)))
+        col.put("g" (KiwiValue.fromDouble(0.0)))
+        col.put("b" (KiwiValue.fromDouble(0.0)))
+        col.put("a" (KiwiValue.fromDouble(0.35)))
+        e.put("color" col)
+        def arr:KiwiValue (KiwiValue.fromArray())
+        arr.pushItem(e)
+        return arr
+    }
+
+    sfn f32le:void (out:[int] v:double) {
+        ; write IEEE-754 binary32 little-endian for a few known fixture values
+        if (v == 0.0) {
+            push out 0
+            push out 0
+            push out 0
+            push out 0
+            return
+        }
+        if (v == 60.0) {
+            push out 0
+            push out 0
+            push out 112
+            push out 66
+            return
+        }
+        if (v == 120.0) {
+            push out 0
+            push out 0
+            push out 240
+            push out 66
+            return
+        }
+        push out 0
+        push out 0
+        push out 0
+        push out 0
+    }
+
+    sfn triangleBlob:buffer () {
+        def b:[int]
+        push b 1
+        FigSample.f32le(b 0.0)
+        FigSample.f32le(b 60.0)
+        push b 2
+        FigSample.f32le(b 120.0)
+        FigSample.f32le(b 0.0)
+        push b 2
+        FigSample.f32le(b 120.0)
+        FigSample.f32le(b 120.0)
+        push b 0
+        def n:int (array_length b)
+        def out:buffer (buffer_alloc n)
+        def i:int 0
+        while (i < n) {
+            buffer_set out i (itemAt b i)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn parent:KiwiValue (sid:int lid:int pos:string) {
+        def o:KiwiValue (KiwiValue.fromObject())
+        o.put("guid" (FigSample.guid(sid lid)))
+        o.put("position" (KiwiValue.fromString(pos)))
+        return o
+    }
+
+    sfn node:KiwiValue (sid:int lid:int typeName:string name:string ps:int pl:int pos:string w:double h:double x:double y:double) {
+        def o:KiwiValue (KiwiValue.fromObject())
+        o.put("guid" (FigSample.guid(sid lid)))
+        o.put("type" (KiwiValue.fromString(typeName)))
+        o.put("name" (KiwiValue.fromString(name)))
+        if ((ps >= 0) && (pl >= 0)) {
+            o.put("parentIndex" (FigSample.parent(ps pl pos)))
+        }
+        o.put("size" (FigSample.vec(w h)))
+        o.put("transform" (FigSample.xform(x y)))
+        o.put("visible" (KiwiValue.fromBool(true)))
+        o.put("opacity" (KiwiValue.fromDouble(1.0)))
+        return o
+    }
+
+    sfn message:KiwiValue () {
+        def nodes:KiwiValue (KiwiValue.fromArray())
+        def doc:KiwiValue (FigSample.node(0 0 "DOCUMENT" "Document" (0 - 1) (0 - 1) "" 0.0 0.0 0.0 0.0))
+        nodes.pushItem(doc)
+        def p1:KiwiValue (FigSample.node(0 1 "CANVAS" "Welcome" 0 0 "!" 1440.0 900.0 0.0 0.0))
+        nodes.pushItem(p1)
+        def card:KiwiValue (FigSample.node(1 1 "FRAME" "Card" 0 1 "!" 960.0 560.0 240.0 170.0))
+        card.put("fillPaints" (FigSample.paints(0.97 0.97 0.98)))
+        card.put("cornerRadius" (KiwiValue.fromDouble(24.0)))
+        nodes.pushItem(card)
+        def hero:KiwiValue (FigSample.node(1 2 "ROUNDED_RECTANGLE" "Hero" 1 1 "!" 912.0 168.0 24.0 24.0))
+        hero.put("fillPaints" (FigSample.paints(0.145 0.388 0.922)))
+        hero.put("cornerRadius" (KiwiValue.fromDouble(16.0)))
+        nodes.pushItem(hero)
+        def title:KiwiValue (FigSample.node(1 3 "TEXT" "Title" 1 1 "#" 800.0 56.0 48.0 72.0))
+        def td:KiwiValue (KiwiValue.fromObject())
+        td.put("characters" (KiwiValue.fromString("Ranger Fig Reader")))
+        title.put("textData" td)
+        title.put("fontSize" (KiwiValue.fromDouble(36.0)))
+        title.put("fontFamily" (KiwiValue.fromString("Open Sans")))
+        title.put("fillPaints" (FigSample.paints(1.0 1.0 1.0)))
+        nodes.pushItem(title)
+        def sub:KiwiValue (FigSample.node(1 4 "TEXT" "Sub" 1 1 "$" 700.0 28.0 48.0 128.0))
+        def td2:KiwiValue (KiwiValue.fromObject())
+        td2.put("characters" (KiwiValue.fromString("Kiwi · EVG · no server")))
+        sub.put("textData" td2)
+        sub.put("fontSize" (KiwiValue.fromDouble(18.0)))
+        sub.put("fillPaints" (FigSample.paints(0.85 0.9 1.0)))
+        nodes.pushItem(sub)
+        def dot:KiwiValue (FigSample.node(1 5 "ELLIPSE" "Dot" 1 1 "%" 96.0 96.0 56.0 232.0))
+        dot.put("fillPaints" (FigSample.paints(0.133 0.773 0.369)))
+        nodes.pushItem(dot)
+        def box:KiwiValue (FigSample.node(1 6 "ROUNDED_RECTANGLE" "Box" 1 1 "&" 220.0 96.0 176.0 232.0))
+        box.put("fillPaints" (FigSample.paints(0.976 0.451 0.086)))
+        box.put("cornerRadius" (KiwiValue.fromDouble(12.0)))
+        nodes.pushItem(box)
+        def note:KiwiValue (FigSample.node(1 7 "TEXT" "Note" 1 1 "'" 700.0 40.0 56.0 380.0))
+        def td3:KiwiValue (KiwiValue.fromObject())
+        td3.put("characters" (KiwiValue.fromString("Upload a .fig or .deck to inspect its node tree.")))
+        note.put("textData" td3)
+        note.put("fontSize" (KiwiValue.fromDouble(18.0)))
+        note.put("fillPaints" (FigSample.paints(0.15 0.18 0.22)))
+        nodes.pushItem(note)
+        def p2:KiwiValue (FigSample.node(0 2 "CANVAS" "Palette" 0 0 "#" 1440.0 900.0 0.0 0.0))
+        nodes.pushItem(p2)
+        def grid:KiwiValue (FigSample.node(2 1 "FRAME" "Swatches" 0 2 "!" 720.0 240.0 360.0 330.0))
+        grid.put("fillPaints" (FigSample.paints(1.0 1.0 1.0)))
+        grid.put("cornerRadius" (KiwiValue.fromDouble(16.0)))
+        nodes.pushItem(grid)
+        def c1:KiwiValue (FigSample.node(2 2 "ROUNDED_RECTANGLE" "Red" 2 1 "!" 140.0 140.0 40.0 50.0))
+        c1.put("fillPaints" (FigSample.paints(0.937 0.267 0.267)))
+        c1.put("cornerRadius" (KiwiValue.fromDouble(12.0)))
+        nodes.pushItem(c1)
+        def c2:KiwiValue (FigSample.node(2 3 "ROUNDED_RECTANGLE" "Amber" 2 1 "#" 140.0 140.0 200.0 50.0))
+        c2.put("fillPaints" (FigSample.paints(0.961 0.620 0.043)))
+        c2.put("cornerRadius" (KiwiValue.fromDouble(12.0)))
+        nodes.pushItem(c2)
+        def c3:KiwiValue (FigSample.node(2 4 "ELLIPSE" "Teal" 2 1 "$" 140.0 140.0 360.0 50.0))
+        c3.put("fillPaints" (FigSample.paints(0.078 0.722 0.651)))
+        nodes.pushItem(c3)
+        def c4:KiwiValue (FigSample.node(2 5 "ROUNDED_RECTANGLE" "Violet" 2 1 "%" 140.0 140.0 520.0 50.0))
+        c4.put("fillPaints" (FigSample.paints(0.545 0.361 0.965)))
+        c4.put("cornerRadius" (KiwiValue.fromDouble(70.0)))
+        nodes.pushItem(c4)
+        def p3:KiwiValue (FigSample.node(0 3 "CANVAS" "Fixtures" 0 0 "$" 1600.0 2200.0 0.0 0.0))
+        nodes.pushItem(p3)
+        def f01:KiwiValue (FigSample.node(3 1 "FRAME" "01-basic-rect" 0 3 "A" 200.0 120.0 40.0 40.0))
+        f01.put("fillPaints" (FigSample.paints(1.0 1.0 1.0)))
+        nodes.pushItem(f01)
+        def r01:KiwiValue (FigSample.node(3 16 "RECTANGLE" "Rect" 3 1 "!" 160.0 80.0 20.0 20.0))
+        r01.put("fillPaints" (FigSample.paints(0.145 0.388 0.922)))
+        nodes.pushItem(r01)
+        def f02:KiwiValue (FigSample.node(3 2 "FRAME" "02-border-radius" 0 3 "B" 200.0 120.0 280.0 40.0))
+        f02.put("fillPaints" (FigSample.paints(1.0 1.0 1.0)))
+        nodes.pushItem(f02)
+        def r02:KiwiValue (FigSample.node(3 17 "ROUNDED_RECTANGLE" "Round" 3 2 "!" 160.0 80.0 20.0 20.0))
+        r02.put("fillPaints" (FigSample.paints(0.133 0.773 0.369)))
+        r02.put("rectangleTopLeftCornerRadius" (KiwiValue.fromDouble(4.0)))
+        r02.put("rectangleTopRightCornerRadius" (KiwiValue.fromDouble(24.0)))
+        r02.put("rectangleBottomRightCornerRadius" (KiwiValue.fromDouble(24.0)))
+        r02.put("rectangleBottomLeftCornerRadius" (KiwiValue.fromDouble(4.0)))
+        nodes.pushItem(r02)
+        def f03:KiwiValue (FigSample.node(3 3 "FRAME" "03-stroke" 0 3 "C" 200.0 120.0 520.0 40.0))
+        f03.put("fillPaints" (FigSample.paints(1.0 1.0 1.0)))
+        nodes.pushItem(f03)
+        def r03:KiwiValue (FigSample.node(3 18 "RECTANGLE" "Stroke" 3 3 "!" 160.0 80.0 20.0 20.0))
+        r03.put("fillPaints" (FigSample.paints(1.0 1.0 1.0)))
+        r03.put("strokePaints" (FigSample.paints(0.145 0.388 0.922)))
+        r03.put("strokeWeight" (KiwiValue.fromDouble(4.0)))
+        r03.put("strokeAlign" (KiwiValue.fromString("CENTER")))
+        nodes.pushItem(r03)
+        def f04:KiwiValue (FigSample.node(3 4 "FRAME" "04-opacity" 0 3 "D" 200.0 120.0 760.0 40.0))
+        f04.put("fillPaints" (FigSample.paints(1.0 1.0 1.0)))
+        nodes.pushItem(f04)
+        def r04:KiwiValue (FigSample.node(3 19 "RECTANGLE" "Ghost" 3 4 "!" 160.0 80.0 20.0 20.0))
+        r04.put("fillPaints" (FigSample.paints(0.937 0.267 0.267)))
+        r04.put("opacity" (KiwiValue.fromDouble(0.45)))
+        nodes.pushItem(r04)
+        def f05:KiwiValue (FigSample.node(3 5 "FRAME" "05-clipping" 0 3 "E" 200.0 120.0 40.0 200.0))
+        f05.put("fillPaints" (FigSample.paints(0.94 0.95 0.97)))
+        f05.put("clipsContent" (KiwiValue.fromBool(true)))
+        nodes.pushItem(f05)
+        def r05:KiwiValue (FigSample.node(3 20 "RECTANGLE" "Overflow" 3 5 "!" 240.0 80.0 80.0 40.0))
+        r05.put("fillPaints" (FigSample.paints(0.976 0.451 0.086)))
+        nodes.pushItem(r05)
+        def f06:KiwiValue (FigSample.node(3 6 "FRAME" "06-text" 0 3 "F" 280.0 120.0 280.0 200.0))
+        f06.put("fillPaints" (FigSample.paints(1.0 1.0 1.0)))
+        nodes.pushItem(f06)
+        def t06:KiwiValue (FigSample.node(3 21 "TEXT" "Hello" 3 6 "!" 240.0 40.0 16.0 36.0))
+        def td06:KiwiValue (KiwiValue.fromObject())
+        td06.put("characters" (KiwiValue.fromString("Hello")))
+        t06.put("textData" td06)
+        t06.put("fontSize" (KiwiValue.fromDouble(28.0)))
+        t06.put("fontWeight" (KiwiValue.fromString("600")))
+        t06.put("fillPaints" (FigSample.paints(0.07 0.07 0.07)))
+        nodes.pushItem(t06)
+        def f07:KiwiValue (FigSample.node(3 7 "FRAME" "07-multiline-text" 0 3 "G" 280.0 140.0 600.0 200.0))
+        f07.put("fillPaints" (FigSample.paints(1.0 1.0 1.0)))
+        nodes.pushItem(f07)
+        def t07:KiwiValue (FigSample.node(3 22 "TEXT" "Lines" 3 7 "!" 240.0 100.0 16.0 16.0))
+        def td07:KiwiValue (KiwiValue.fromObject())
+        td07.put("characters" (KiwiValue.fromString("one\ntwo\nthree")))
+        t07.put("textData" td07)
+        t07.put("fontSize" (KiwiValue.fromDouble(18.0)))
+        t07.put("textAlignHorizontal" (KiwiValue.fromString("CENTER")))
+        t07.put("fillPaints" (FigSample.paints(0.15 0.18 0.22)))
+        nodes.pushItem(t07)
+        def f08:KiwiValue (FigSample.node(3 8 "FRAME" "08-image" 0 3 "H" 200.0 120.0 920.0 200.0))
+        f08.put("fillPaints" (FigSample.paints(1.0 1.0 1.0)))
+        nodes.pushItem(f08)
+        def r08:KiwiValue (FigSample.node(3 23 "RECTANGLE" "Photo" 3 8 "!" 160.0 80.0 20.0 20.0))
+        r08.put("fillPaints" (FigSample.imagePaint("sample.png")))
+        nodes.pushItem(r08)
+        def f09:KiwiValue (FigSample.node(3 9 "FRAME" "09-vector" 0 3 "I" 200.0 160.0 40.0 380.0))
+        f09.put("fillPaints" (FigSample.paints(1.0 1.0 1.0)))
+        nodes.pushItem(f09)
+        def v09:KiwiValue (FigSample.node(3 24 "VECTOR" "Triangle" 3 9 "!" 120.0 120.0 40.0 20.0))
+        v09.put("fillPaints" (FigSample.paints(0.545 0.361 0.965)))
+        def geom:KiwiValue (KiwiValue.fromArray())
+        def g0:KiwiValue (KiwiValue.fromObject())
+        g0.put("commandsBlob" (KiwiValue.fromInt(0)))
+        geom.pushItem(g0)
+        v09.put("fillGeometry" geom)
+        nodes.pushItem(v09)
+        ; Auto Layout children carry the x/y the editor's layout settled on,
+        ; exactly as a Figma export stores them; the viewer paints those.
+        def f10:KiwiValue (FigSample.node(3 10 "FRAME" "10-auto-layout-horizontal" 0 3 "J" 280.0 100.0 280.0 380.0))
+        f10.put("fillPaints" (FigSample.paints(0.97 0.97 0.98)))
+        f10.put("stackMode" (KiwiValue.fromString("HORIZONTAL")))
+        f10.put("stackSpacing" (KiwiValue.fromDouble(12.0)))
+        f10.put("paddingLeft" (KiwiValue.fromDouble(12.0)))
+        f10.put("paddingRight" (KiwiValue.fromDouble(12.0)))
+        f10.put("paddingTop" (KiwiValue.fromDouble(12.0)))
+        f10.put("paddingBottom" (KiwiValue.fromDouble(12.0)))
+        f10.put("primaryAxisAlignItems" (KiwiValue.fromString("MIN")))
+        nodes.pushItem(f10)
+        def h1:KiwiValue (FigSample.node(3 25 "RECTANGLE" "H1" 3 10 "!" 48.0 48.0 12.0 12.0))
+        h1.put("fillPaints" (FigSample.paints(0.145 0.388 0.922)))
+        nodes.pushItem(h1)
+        def h2:KiwiValue (FigSample.node(3 26 "RECTANGLE" "H2" 3 10 "#" 48.0 48.0 72.0 12.0))
+        h2.put("fillPaints" (FigSample.paints(0.133 0.773 0.369)))
+        nodes.pushItem(h2)
+        def f11:KiwiValue (FigSample.node(3 11 "FRAME" "11-auto-layout-vertical" 0 3 "K" 120.0 200.0 600.0 380.0))
+        f11.put("fillPaints" (FigSample.paints(0.97 0.97 0.98)))
+        f11.put("stackMode" (KiwiValue.fromString("VERTICAL")))
+        f11.put("stackSpacing" (KiwiValue.fromDouble(8.0)))
+        f11.put("paddingTop" (KiwiValue.fromDouble(12.0)))
+        f11.put("paddingBottom" (KiwiValue.fromDouble(12.0)))
+        f11.put("paddingLeft" (KiwiValue.fromDouble(12.0)))
+        f11.put("paddingRight" (KiwiValue.fromDouble(12.0)))
+        nodes.pushItem(f11)
+        def v1:KiwiValue (FigSample.node(3 27 "RECTANGLE" "V1" 3 11 "!" 80.0 36.0 12.0 12.0))
+        v1.put("fillPaints" (FigSample.paints(0.937 0.267 0.267)))
+        nodes.pushItem(v1)
+        def v2:KiwiValue (FigSample.node(3 28 "RECTANGLE" "V2" 3 11 "#" 80.0 36.0 12.0 56.0))
+        v2.put("fillPaints" (FigSample.paints(0.961 0.620 0.043)))
+        nodes.pushItem(v2)
+        def f12:KiwiValue (FigSample.node(3 12 "FRAME" "12-nested-frame" 0 3 "L" 200.0 160.0 760.0 380.0))
+        f12.put("fillPaints" (FigSample.paints(0.94 0.95 0.97)))
+        nodes.pushItem(f12)
+        def inner:KiwiValue (FigSample.node(3 29 "FRAME" "Inner" 3 12 "!" 140.0 100.0 30.0 30.0))
+        inner.put("fillPaints" (FigSample.paints(1.0 1.0 1.0)))
+        inner.put("cornerRadius" (KiwiValue.fromDouble(8.0)))
+        nodes.pushItem(inner)
+        def innr:KiwiValue (FigSample.node(3 30 "RECTANGLE" "InnerRect" 3 29 "!" 80.0 40.0 20.0 20.0))
+        innr.put("fillPaints" (FigSample.paints(0.145 0.388 0.922)))
+        nodes.pushItem(innr)
+        def f13:KiwiValue (FigSample.node(3 13 "FRAME" "13-rotation" 0 3 "M" 200.0 160.0 40.0 600.0))
+        f13.put("fillPaints" (FigSample.paints(1.0 1.0 1.0)))
+        nodes.pushItem(f13)
+        def r13:KiwiValue (FigSample.node(3 31 "RECTANGLE" "Tilt" 3 13 "!" 80.0 48.0 50.0 50.0))
+        r13.put("fillPaints" (FigSample.paints(0.976 0.451 0.086)))
+        r13.put("transform" (FigSample.xformRot(50.0 50.0 0.965925826289 0.258819045103)))
+        nodes.pushItem(r13)
+        def f14:KiwiValue (FigSample.node(3 14 "FRAME" "14-shadow" 0 3 "N" 200.0 140.0 280.0 600.0))
+        f14.put("fillPaints" (FigSample.paints(1.0 1.0 1.0)))
+        nodes.pushItem(f14)
+        def r14:KiwiValue (FigSample.node(3 32 "RECTANGLE" "Shade" 3 14 "!" 120.0 72.0 40.0 34.0))
+        r14.put("fillPaints" (FigSample.paints(1.0 1.0 1.0)))
+        r14.put("cornerRadius" (KiwiValue.fromDouble(8.0)))
+        r14.put("effects" (FigSample.dropShadow()))
+        nodes.pushItem(r14)
+        def f15:KiwiValue (FigSample.node(3 15 "FRAME" "15-gradient" 0 3 "O" 200.0 140.0 520.0 600.0))
+        f15.put("fillPaints" (FigSample.paints(1.0 1.0 1.0)))
+        nodes.pushItem(f15)
+        def r15:KiwiValue (FigSample.node(3 33 "RECTANGLE" "Fade" 3 15 "!" 160.0 80.0 20.0 30.0))
+        r15.put("fillPaints" (FigSample.gradient(0.145 0.388 0.922 0.545 0.361 0.965)))
+        r15.put("cornerRadius" (KiwiValue.fromDouble(12.0)))
+        nodes.pushItem(r15)
+        def fLine:KiwiValue (FigSample.node(3 34 "FRAME" "line-wrap" 0 3 "P" 200.0 80.0 760.0 600.0))
+        fLine.put("fillPaints" (FigSample.paints(1.0 1.0 1.0)))
+        nodes.pushItem(fLine)
+        def ln:KiwiValue (FigSample.node(3 35 "LINE" "Rule" 3 34 "!" 160.0 0.0 20.0 40.0))
+        ln.put("strokePaints" (FigSample.paints(0.15 0.18 0.22)))
+        ln.put("strokeWeight" (KiwiValue.fromDouble(3.0)))
+        nodes.pushItem(ln)
+        def fComp:KiwiValue (FigSample.node(3 36 "COMPONENT" "CardComponent" 0 3 "Q" 200.0 80.0 40.0 800.0))
+        fComp.put("fillPaints" (FigSample.paints(0.97 0.97 0.98)))
+        nodes.pushItem(fComp)
+        def cr:KiwiValue (FigSample.node(3 37 "RECTANGLE" "CompRect" 3 36 "!" 160.0 48.0 20.0 16.0))
+        cr.put("fillPaints" (FigSample.paints(0.078 0.722 0.651)))
+        nodes.pushItem(cr)
+        def fInst:KiwiValue (FigSample.node(3 38 "INSTANCE" "CardInstance" 0 3 "R" 200.0 80.0 280.0 800.0))
+        fInst.put("fillPaints" (FigSample.paints(0.97 0.97 0.98)))
+        nodes.pushItem(fInst)
+        def ir:KiwiValue (FigSample.node(3 39 "RECTANGLE" "InstRect" 3 38 "!" 160.0 48.0 20.0 16.0))
+        ir.put("fillPaints" (FigSample.paints(0.078 0.722 0.651)))
+        nodes.pushItem(ir)
+        def blobs:KiwiValue (KiwiValue.fromArray())
+        def blob0:KiwiValue (KiwiValue.fromObject())
+        blob0.put("bytes" (KiwiValue.fromBytes((FigSample.triangleBlob()))))
+        blobs.pushItem(blob0)
+        def root:KiwiValue (KiwiValue.fromObject())
+        root.put("nodeChanges" nodes)
+        root.put("blobs" blobs)
+        return root
+    }
+
+    sfn png1x1:buffer () {
+        def b:[int]
+        push b 137
+        push b 80
+        push b 78
+        push b 71
+        push b 13
+        push b 10
+        push b 26
+        push b 10
+        push b 0
+        push b 0
+        push b 0
+        push b 13
+        push b 73
+        push b 72
+        push b 68
+        push b 82
+        push b 0
+        push b 0
+        push b 0
+        push b 1
+        push b 0
+        push b 0
+        push b 0
+        push b 1
+        push b 8
+        push b 2
+        push b 0
+        push b 0
+        push b 0
+        push b 144
+        push b 119
+        push b 83
+        push b 222
+        push b 0
+        push b 0
+        push b 0
+        push b 12
+        push b 73
+        push b 68
+        push b 65
+        push b 84
+        push b 8
+        push b 215
+        push b 99
+        push b 248
+        push b 207
+        push b 192
+        push b 0
+        push b 0
+        push b 3
+        push b 1
+        push b 1
+        push b 0
+        push b 24
+        push b 221
+        push b 141
+        push b 180
+        push b 0
+        push b 0
+        push b 0
+        push b 0
+        push b 73
+        push b 69
+        push b 78
+        push b 68
+        push b 174
+        push b 66
+        push b 96
+        push b 130
+        def n:int (array_length b)
+        def out:buffer (buffer_alloc n)
+        def i:int 0
+        while (i < n) {
+            buffer_set out i (itemAt b i)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; fig-kiwi bytes for one message: what canvas.fig holds, and what a
+    ; Figma copy puts on the clipboard.
+    sfn canvasFrom:buffer (s:KiwiSchema root:KiwiValue) {
+        def enc (new KiwiEncode())
+        enc.init(s)
+        def msg:buffer (enc.encodeNamed("Message" root))
+        def schemaRaw:buffer (s.encode())
+        def schemaComp:buffer (FigDeflate.wrapStored(schemaRaw))
+        def msgComp:buffer (FigDeflate.wrapStored(msg))
+        return (FigCanvas.assemble("fig-kiwi" 101 schemaComp msgComp))
+    }
+
+    ; A copy from Figma: only the copied nodes, no document and no page,
+    ; each top-level one still naming the page it came from as its parent.
+    sfn buildClipboard:buffer () {
+        def nodes:KiwiValue (KiwiValue.fromArray())
+        def card:KiwiValue (FigSample.node(5 1 "FRAME" "Card" 0 99 "!" 200.0 120.0 640.0 300.0))
+        card.put("fillPaints" (FigSample.paints(1.0 1.0 1.0)))
+        card.put("cornerRadius" (KiwiValue.fromDouble(12.0)))
+        nodes.pushItem(card)
+        def swatch:KiwiValue (FigSample.node(5 2 "RECTANGLE" "Swatch" 5 1 "!" 80.0 40.0 16.0 16.0))
+        swatch.put("fillPaints" (FigSample.paints(0.145 0.388 0.922)))
+        nodes.pushItem(swatch)
+        def dot:KiwiValue (FigSample.node(5 3 "ELLIPSE" "Dot" 0 99 "#" 40.0 40.0 900.0 300.0))
+        dot.put("fillPaints" (FigSample.paints(0.9 0.3 0.3)))
+        nodes.pushItem(dot)
+        def root:KiwiValue (KiwiValue.fromObject())
+        root.put("nodeChanges" nodes)
+        return (FigSample.canvasFrom((FigSample.schema()) root))
+    }
+
+    sfn buildFig:buffer () {
+        def canvas:buffer (FigSample.canvasFrom((FigSample.schema()) (FigSample.message())))
+        def zip (new ZipWriter())
+        zip.create()
+        zip.addFile("canvas.fig" canvas)
+        zip.addString("meta.json" "{\"file_name\":\"Ranger Fig sample\",\"version\":\"1\"}")
+        zip.addFile("thumbnail.png" (FigSample.png1x1()))
+        zip.addFile("images/sample.png" (FigSample.png1x1()))
+        return (zip.toBuffer())
+    }
+}

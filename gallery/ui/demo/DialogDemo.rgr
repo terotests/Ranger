@@ -1,0 +1,447 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; DialogDemo — the same window twice: once modal, once movable
+; =============================================================================
+; The reference for the modal is ReUI's dialog
+; (https://reui.io/components/dialog): a card over a softened page, a title, a
+; line of explanation, two fields, and Cancel / Save changes at the bottom.
+;
+; The point of the page, though, is the OTHER one. A modal dialog covers the
+; thing you opened it to look at, and cannot be pushed aside; a movable window
+; can. Both are `WindowCtl` with one flag different, and the demo shows them
+; side by side so the difference is a flag rather than a rewrite.
+;
+; WHAT GOES INSIDE IS THE WHOLE POINT. `WindowCtl` owns a frame — a title bar,
+; a close button, a description — and `bodyEl` is an ordinary EVGElement the
+; caller fills. This file fills the modal's with a form and the window's with a
+; small table, from two unrelated tree literals, and the window class knows
+; about neither. The older `EVGWindow` could not hold either of them: its
+; vocabulary is label, button, radio, checkbox and one rectangle whose pixels
+; the owner paints by hand.
+;
+; The scrim is where `backdrop-filter: blur()` earns its place. `dialog.css`
+; asks for a blur and a dim; the WebGL painter copies what is behind the scrim,
+; runs the three-box kernel the browser uses, and puts it back. On a backend
+; that cannot, the dim remains and only the softening is lost — which is why
+; the blur is a property of the surface and not a command of its own.
+;
+; The tree is KEPT between frames, like the motion, table and dropdown demos:
+; hover is a flag on an element, and a rebuilt tree has no memory of it.
+; =============================================================================
+
+Import "../src/WindowCtl.rgr"
+Import "../src/UiCtl.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGUnit.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGStyleSheet.rgr"
+Import "../../evg/EVGTransition.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+Import "../../evg/EVGA11yFromTree.rgr"
+Import "../../evg/EVGHitTest.rgr"
+
+treefactory Dlg {
+    child addChild
+    text  textContent
+
+    tag Page     EVGElement (props (className "dg-page"))
+    ; What the dialog covers, so there is something to see softened. Not
+    ; decoration: a scrim over a blank page proves nothing about a blur.
+    tag Sheet    EVGElement (props (className "dg-sheet"))
+    tag SheetHd  EVGElement (props (className "dg-sheet-head") (elementType 1))
+    tag SheetRow EVGElement (props (className "dg-sheet-row"))
+    tag SheetCel EVGElement (props (className "dg-sheet-cell") (elementType 1))
+    tag Swatch   EVGElement (props (className "dg-swatch"))
+
+    ; --- the form inside the modal ---
+    tag Form     EVGElement (props (className "dg-form"))
+    tag Field    EVGElement (props (className "dg-field"))
+    tag Label    EVGElement (props (className "dg-label") (elementType 1))
+    ; A text field EVG cannot yet type into — the value is the demo's, and the
+    ; box is a box. Marked as a textbox all the same, because what a reader is
+    ; told about it should not depend on how finished it is.
+    tag Input    EVGElement (props (className "dg-input") (role "textbox") (a11yFocusable true))
+    tag InputTx  EVGElement (props (className "dg-input-text") (elementType 1))
+    tag Foot     EVGElement (props (className "dg-foot"))
+    tag Ghost    EVGElement (props (className "dg-button dg-button-ghost") (role "button") (a11yFocusable true))
+    tag Solid    EVGElement (props (className "dg-button dg-button-solid") (role "button") (a11yFocusable true))
+    tag BtnText  EVGElement (props (className "dg-button-text") (elementType 1))
+
+    ; --- the table inside the movable window ---
+    tag Mini     EVGElement (props (className "dg-mini") (role "table") (a11yLabel "Filters"))
+    tag MiniRow  EVGElement (props (className "dg-mini-row") (role "row"))
+    tag MiniCel  EVGElement (props (className "dg-mini-cell") (role "cell") (elementType 1))
+    tag Chip     EVGElement (props (className "dg-chip") (elementType 1))
+    tag Hint     EVGElement (props (className "dg-hint") (elementType 1))
+}
+
+class DialogDemo {
+
+    def modal:WindowCtl (new WindowCtl())
+    def window:WindowCtl (new WindowCtl())
+    def root@(optional):EVGElement
+    def sheet@(optional):EVGStyleSheet
+    def transitions:EVGTransition (new EVGTransition())
+    ; Kept across frames so a paint-only change can reuse the positions.
+    def layout@(optional):EVGLayout
+    def hovered:string ""
+    def pressed:string ""
+    def focused:string ""
+    def dragFrom:string ""
+    def pageW:double 900.0
+    def pageH:double 560.0
+
+    Constructor () {
+    }
+
+    fn init:void (css:string) {
+        def s (new EVGStyleSheet())
+        s.parse(css)
+        sheet = s
+
+        modal.tid = "dlg"
+        modal.name = "Edit profile"
+        modal.title = "Edit profile"
+        modal.description = "Make changes to your profile here. Click save when you're done."
+        modal.isModal = true
+        modal.pageW = pageW
+        modal.pageH = pageH
+        def modalBody:EVGElement (unwrap modal.bodyEl)
+        modalBody.className = "dg-body"
+        modalBody.addChild((this.form()))
+        modal.build()
+
+        window.tid = "win"
+        window.name = "Filters"
+        window.title = "Filters"
+        window.isModal = false
+        window.pageW = pageW
+        window.pageH = pageH
+        ; Clear of the modal on the vertical axis, so nothing important is
+        ; hidden on first sight. The overlap is meant to be created by DRAGGING
+        ; it over the dialog, which is the point being made — not to be there
+        ; already, covering the Save button.
+        window.x = 578.0
+        window.y = 26.0
+        def winBody:EVGElement (unwrap window.bodyEl)
+        winBody.className = "dg-body"
+        winBody.addChild((this.miniTable()))
+        window.build()
+
+        root = (this.page())
+    }
+
+    ; --- what goes INSIDE, which neither window class knows anything about ------
+
+    fn field:EVGElement (key:string label:string value:string) {
+        return (tree Dlg
+            (Field
+                (Label label)
+                (Input (props (id ("dlg-input-" + key)) (a11yLabel label))
+                    (InputTx value))))
+    }
+
+    fn form:EVGElement () {
+        def f (tree Dlg (Form (props (id "dlg-form"))))
+        f.addChild((this.field("name" "Name" "Albert Einstein")))
+        f.addChild((this.field("username" "Username" "@albert")))
+        f.addChild((tree Dlg
+            (Foot
+                (Ghost (props (id "dlg-cancel") (a11yLabel "Cancel"))
+                    (BtnText "Cancel"))
+                (Solid (props (id "dlg-save") (a11yLabel "Save changes"))
+                    ; Its own class: EVGStyleSheet matches one class token per
+                    ; selector, so `.dg-button-solid .dg-button-text` is not a
+                    ; rule it can express — the ink goes on the text itself.
+                    (BtnText (props (className "dg-button-text dg-button-text-on-solid")) "Save changes")))))
+        return f
+    }
+
+    ; A different tree entirely, from the same window class.
+    fn miniTable:EVGElement () {
+        def t (tree Dlg (Mini (props (id "win-table"))))
+        t.addChild((this.miniRow("status" "Status" "active")))
+        t.addChild((this.miniRow("plan" "Plan" "Pro")))
+        t.addChild((this.miniRow("seats" "Seats" "12")))
+        t.addChild((tree Dlg (Hint "Drag the title bar to move me.")))
+        return t
+    }
+
+    fn miniRow:EVGElement (key:string label:string value:string) {
+        return (tree Dlg
+            (MiniRow (props (id ("win-row-" + key)))
+                (MiniCel label)
+                (Chip value)))
+    }
+
+    ; --- the page under it all ---------------------------------------------------
+    ; Something worth softening. A scrim over an empty page says nothing about
+    ; whether the blur works.
+
+    fn sheetBlock:EVGElement () {
+        def s (tree Dlg (Sheet (props (id "dg-sheet"))))
+        s.addChild((tree Dlg (SheetHd "Team")))
+        def names:[string]
+        push names "Ada Lovelace"
+        push names "Grace Hopper"
+        push names "Alan Turing"
+        push names "Edsger Dijkstra"
+        push names "Barbara McClintock"
+        def roles:[string]
+        push roles "Owner"
+        push roles "Admin"
+        push roles "Member"
+        push roles "Member"
+        push roles "Member"
+        def i:int 0
+        while (i < (array_length names)) {
+            ; Bound first: a computed expression cannot be a text child of a
+            ; tree literal directly.
+            def who:string (itemAt names i)
+            def role:string (itemAt roles i)
+            def row (tree Dlg
+                (SheetRow
+                    (Swatch)
+                    (SheetCel who)
+                    (SheetCel (props (className "dg-sheet-cell dg-sheet-role")) role)))
+            s.addChild(row)
+            i = (i + 1)
+        }
+        return s
+    }
+
+    fn page:EVGElement () {
+        def p (tree Dlg (Page (props (id "page"))))
+        p.addChild((this.sheetBlock()))
+        p.addChild((unwrap modal.rootEl))
+        p.addChild((unwrap window.rootEl))
+        return p
+    }
+
+    ; --- the host ---------------------------------------------------------------
+
+    fn press:boolean (target:string) {
+        def next:string (modal.activate(target))
+        if ((strlen next) > 0) {
+            focused = next
+        }
+        def next2:string (window.activate(target))
+        if ((strlen next2) > 0) {
+            focused = next2
+        }
+        ; The form's own buttons close the modal, which is what Cancel and
+        ; Save both do — the demo saves nothing, and pretending otherwise
+        ; would be a lie in a picture.
+        if (target == "dlg-cancel") {
+            focused = (modal.closeWindow())
+        }
+        if (target == "dlg-save") {
+            focused = (modal.closeWindow())
+        }
+        root = (this.page())
+        return true
+    }
+
+    fn key:boolean (k:string) {
+        def next:string (modal.keyDown(focused k))
+        if ((strlen next) > 0) {
+            focused = next
+        }
+        def next2:string (window.keyDown(focused k))
+        if ((strlen next2) > 0) {
+            focused = next2
+        }
+        root = (this.page())
+        return true
+    }
+
+    ; --- moving the window -------------------------------------------------------
+
+    fn beginDrag:boolean (target:string) {
+        def next:string (window.press(target))
+        if ((strlen next) > 0) {
+            focused = next
+            root = (this.page())
+            return true
+        }
+        return false
+    }
+
+    ; MOVE, AND SAY SO. `beginDrag` and `endDrag` both rebuild; this one did
+    ; not, and the window's x and y live on the controller while the tree is
+    ; built from them. So the picture kept the position it was built with and
+    ; the window did not budge until the release rebuilt it — a drag that ends
+    ; in a jump rather than one you can steer.
+    fn dragBy:void (dx:double dy:double) {
+        window.dragBy(dx dy)
+        root = (this.page())
+    }
+
+    fn endDrag:void () {
+        window.release()
+        root = (this.page())
+    }
+
+    fn isDragging:boolean () {
+        return window.dragging
+    }
+
+    fn setHover:void (id:string) {
+        hovered = id
+    }
+
+    fn setPressed:void (id:string) {
+        pressed = id
+    }
+
+    fn setFocus:void (id:string) {
+        focused = id
+    }
+
+    fn openModal:void () {
+        focused = (modal.openWindow())
+        root = (this.page())
+    }
+
+    fn openWindow:void () {
+        focused = (window.openWindow())
+        root = (this.page())
+    }
+
+    fn markStates:void (el:EVGElement) {
+        el.isHovered = false
+        el.isPressed = false
+        el.isFocused = false
+        if ((strlen el.id) > 0) {
+            if (el.id == hovered) {
+                el.isHovered = true
+            }
+            if (el.id == pressed) {
+                el.isPressed = true
+            }
+            if (el.id == focused) {
+                el.isFocused = true
+            }
+        }
+        def i:int 0
+        while (i < (array_length el.children)) {
+            this.markStates((itemAt el.children i))
+            i = (i + 1)
+        }
+    }
+
+    fn laidOut:EVGLayout () {
+        def r:EVGElement (unwrap root)
+        def s:EVGStyleSheet (unwrap sheet)
+        s.setViewport(pageW pageH false)
+        this.markStates(r)
+        s.applyTree(r "")
+        def t:EVGTransition transitions
+        t.reconcileTree(r)
+        ; The layout is KEPT, and re-run only when the sheet says something it
+        ; wrote could have moved a box. A hover, a press, a focus ring and a
+        ; transform are all paint-only, and on this page that is most frames.
+        ; `EVGInvalidateTest` is what says the skip is allowed to mean that.
+        ;
+        ; There is no check for "is this the same tree as last time". A tree
+        ; that has just been built has no element the sheet has ever written
+        ; to, and a tree that has just been reconciled has had every element
+        ; overwritten by `adoptFrom` — both report themselves layout-dirty on
+        ; the first pass, so a replaced root lays out without being asked to.
+        if layout {
+            def lay:EVGLayout (unwrap layout)
+            if ((s.layoutClean()) == false) {
+                lay.layout(r)
+            }
+            return lay
+        }
+        def fresh (new EVGLayout())
+        fresh.setPageSize(pageW pageH)
+        layout = fresh
+        fresh.layout(r)
+        return fresh
+    }
+
+    fn tick:boolean (dtMs:double) {
+        def r:EVGElement (unwrap root)
+        def t:EVGTransition transitions
+        t.advanceTree(r dtMs)
+        return (t.busy(r))
+    }
+
+    fn busyNow:boolean () {
+        def r:EVGElement (unwrap root)
+        def t:EVGTransition transitions
+        return (t.busy(r))
+    }
+
+    fn displayListJson:string () {
+        def lay:EVGLayout (this.laidOut())
+        def r:EVGElement (unwrap root)
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(r)
+        return (dl.toJson())
+    }
+
+    fn hitId:string (px:double py:double) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def hit (new EVGHitTest())
+        return (hit.idAt(r px py))
+    }
+
+    ; What the pointer should look like here. The stylesheet says it — the
+    ; title bar carries `cursor: move` — and the page only has to ask.
+    fn cursorAt:string (px:double py:double) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def hit (new EVGHitTest())
+        return (hit.cursorAt(r px py))
+    }
+
+    fn a11yJson:string (generation:int focusId:string) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "Dialog demo" generation focusId))
+        return (t.toJson())
+    }
+
+    fn a11yProblems:[string] () {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "Dialog demo" 1 ""))
+        return (t.lint())
+    }
+
+    fn styleErrorCount:int () {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (s.getErrorCount())
+    }
+
+    fn styleErrorAt:string (i:int) {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (s.getError(i))
+    }
+
+    fn heightPx:double () {
+        return pageH
+    }
+
+    fn summary:string () {
+        def a:string "closed"
+        if modal.open {
+            a = "open"
+        }
+        def b:string "closed"
+        if window.open {
+            b = "open"
+        }
+        return (((((("modal " + a) + ", window ") + b) + " at ")
+            + (to_string window.x)) + "," + (to_string window.y))
+    }
+}

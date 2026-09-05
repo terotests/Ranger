@@ -1,0 +1,6 @@
+{ "name":"select_keyboard","component":"select",
+  "behaviours":["select-roles","select-selected-state","select-choose-value"],
+  "fixture":{"controls":[
+    {"type":"select","tid":"sl","name":"Size","value":"m","items":[
+      {"value":"s","name":"Small"},{"value":"m","name":"Medium"},{"value":"l","name":"Large"}]}]},
+  "steps":[{"focus":"sl-trigger"},{"key":" "},{"key":"ArrowDown"},{"key":"Enter"}] }

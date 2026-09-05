@@ -1,0 +1,46 @@
+{
+  "_": "Home's other two tabs on the training calendar: Harjoitteet, the exercises the diary has used, and Tilastot, the summary of it.",
+  "id": "home-tabs",
+  "area": "koti",
+  "machine": "",
+  "reference": {
+    "route": "/calendar/cal-train?week=2026-02-09"
+  },
+  "setup": [
+    {
+      "page": "390x844"
+    },
+    {
+      "route": "/calendar/cal-train?week=2026-02-09"
+    }
+  ],
+  "steps": [
+    {
+      "tick": 500
+    },
+    {
+      "id": "rt-nav-home",
+      "role": "button",
+      "name": "Koti"
+    },
+    {
+      "tick": 1000
+    },
+    {
+      "id": "rt-home-tab-drills",
+      "role": "button",
+      "name": "Harjoitteet"
+    },
+    {
+      "tick": 1000
+    },
+    {
+      "id": "rt-home-tab-stats",
+      "role": "button",
+      "name": "Tilastot"
+    },
+    {
+      "tick": 1000
+    }
+  ]
+}

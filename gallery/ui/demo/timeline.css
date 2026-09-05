@@ -1,0 +1,147 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+ *
+ * ReUI's git activity timeline.
+ *
+ * The reference hangs the rail off the item with `position: absolute` and a
+ * `calc()` height — `-left-7`, `h-[calc(100%-1.5rem-0.25rem)]`, `translate-y-6.5`.
+ * Here the rail is a flex COLUMN instead, which needs no absolute positioning
+ * at all; but the line's height is still a subtraction, and it is done in
+ * `TimelineDemo.rgr` rather than here. Two measurements say why: EVG's
+ * `align-items: stretch` only stretches against an EXPLICIT parent height, and
+ * its `fill` unit means "as big as the parent" rather than flex-grow. Both are
+ * written up beside `rowHeight` in the .rgr.
+ *
+ * One class token per selector, as everywhere in this directory.
+ */
+
+.tl-page {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  padding: 30px;
+  background-color: #fafafa;
+  width: 900px;
+  height: 520px;
+}
+
+.tl-card {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  padding: 20px;
+  width: 440px;
+  border-radius: 10px;
+  border: 1px solid #e4e4e7;
+  background-color: #ffffff;
+}
+
+.tl-list {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  width: 398px;
+}
+
+/* No `align-items: stretch` here, and there was, until removing it changed
+ * nothing at all. The rail is content-sized and its content already adds up to
+ * the row's height — dot, line, two margins — so there is nothing left to
+ * stretch. An inert declaration that reads as load-bearing is worse than none. */
+.tl-item {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 12px;
+  width: 398px;
+}
+
+/* The rail. A fixed-width column so the dots line up whatever the text below
+ * them does, and `align-items: center` so the line runs through the middle of
+ * the dot rather than down its left edge. */
+.tl-rail {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: center;
+  width: 24px;
+}
+
+.tl-dot {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 12px;
+  /* `bg-primary/10` — the ink at a tenth, which on white is this. */
+  background-color: #e8e8ea;
+  transition: background-color 160ms ease-out;
+}
+
+.tl-dot-done { background-color: #18181b; }
+
+/* `stroke="currentColor"` in the imported file resolves to the element's fill,
+ * so these two rules are the whole of the icon's theming and there is only one
+ * copy of the artwork. */
+/* `fill` and not `fill-color`: the property is spelt as SVG spells it, and the
+ * first version here used the field's name instead. The sheet ignores a
+ * property it does not know without complaining, so every icon came out the
+ * parser's default black and the page still rendered — which is why this was
+ * found by reading the display list's colours and not by looking at it. */
+.tl-icon {
+  width: 14px;
+  height: 14px;
+  fill: #18181b;
+}
+
+.tl-icon-done { fill: #ffffff; }
+
+/* No height here — the demo sets it, being the only thing that can subtract.
+ *
+ * The 2px margins are the reference's, recovered from its own arithmetic
+ * rather than guessed: `translate-y-6.5` puts the line 26px down against a
+ * 24px dot, and `h-[calc(100%-1.5rem-0.25rem)]` takes 28 off the height. Start
+ * two below the dot, end two above the next one — so 2 top and 2 bottom, not
+ * 4 at the bottom, which is where the first version put the whole gap. The
+ * screenshot could not show the difference; the check could. */
+.tl-line {
+  width: 2px;
+  margin: 2px 0 2px 0;
+  background-color: #e4e4e7;
+  transition: background-color 160ms ease-out;
+}
+
+.tl-line-done { background-color: #18181b; }
+
+.tl-body {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  width: 362px;
+  padding: 0 0 24px 0;
+}
+
+.tl-title {
+  color: #18181b;
+  font-size: 15px;
+  font-weight: 600;
+  height: 22px;
+  width: 362px;
+}
+
+.tl-desc {
+  color: #71717a;
+  font-size: 13.5px;
+  width: 362px;
+  height: 40px;
+  padding: 2px 0 0 0;
+}
+
+.tl-date {
+  color: #a1a1aa;
+  font-size: 12.5px;
+  width: 362px;
+  height: 18px;
+  padding: 6px 0 0 0;
+}

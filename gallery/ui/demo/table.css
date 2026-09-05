@@ -1,0 +1,238 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+ *
+ * ReUI's Table, as an EVG stylesheet.
+ *
+ * Class-first: every class here is one TableDemo.rgr writes, and the literal
+ * carries no appearance at all. The zinc palette is the reference's; the
+ * geometry is measured off it — a 40px header, 52px rows, 14px body text and
+ * 12px muted headings.
+ *
+ * EVGStyleSheet matches ONE class token per selector, so a variant is its own
+ * token on the same element (`tb-badge tb-badge-active`) rather than a
+ * compound rule.
+ */
+
+.tb-page {
+  display: flex;
+  flex-direction: column;
+  background-color: #fafafa;
+  padding: 30px;
+  width: 900px;
+  height: 460px;
+}
+
+/* The card. One border, one radius, and the header's own background stopping
+ * cleanly inside it — which is why the header has the top corners and the card
+ * has `overflow: hidden` in the reference. Here the header simply does not
+ * paint its own corners, because EVG has no per-corner radius. */
+.tb-card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #e4e4e7;
+  border-radius: 10px;
+  background-color: #ffffff;
+  width: 840px;
+}
+
+.tb-grid {
+  display: flex;
+  flex-direction: column;
+  width: 838px;
+}
+
+.tb-headrow,
+.tb-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  padding: 0 16px;
+  gap: 12px;
+}
+
+.tb-headrow {
+  background-color: #fafafa;
+  height: 40px;
+}
+
+.tb-row {
+  height: 52px;
+  border-top: 1px solid #f4f4f5;
+  background-color: #ffffff;
+  /* The transition is on the BASE rule, not on `:hover`. A transition
+   * describes the property and not the direction — declared only under
+   * `:hover` a row lights up slowly and goes dark instantly. */
+  transition: background-color 120ms ease-out;
+}
+
+.tb-row:hover { background-color: #fafafa; }
+
+/* Selected beats hovered, and it has to: a row you have chosen should not stop
+ * looking chosen because the pointer left it. Later in the sheet is stronger
+ * here — there are no compound selectors to say it with. */
+.tb-row-selected { background-color: #f4f4f5; }
+
+/* --- columns ------------------------------------------------------------------
+   Widths are numbers because a row child with no width takes the parent's full
+   width in EVG. They add up to the card's inner width less the gaps. */
+.tb-col,
+.tb-cell {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  height: 20px;
+}
+
+.tb-col-sel,
+.tb-cell-sel { width: 18px; }
+
+.tb-col-name,   .tb-cell-name   { width: 190px; }
+.tb-col-email,  .tb-cell-email  { width: 210px; }
+.tb-col-role,   .tb-cell-role   { width: 110px; }
+.tb-col-status, .tb-cell-status { width: 110px; }
+.tb-col-spend,  .tb-cell-spend  { width: 100px; }
+
+.tb-col-text {
+  color: #71717a;
+  font-size: 12px;
+  font-weight: bold;
+  height: 18px;
+  width: 96px;
+}
+
+/* A sortable header answers the pointer, because a header that sorts and one
+ * that does not look identical otherwise. The tint is on the HEADER and not on
+ * its label: `EVGStyleSheet` matches one class token per selector and has no
+ * `.tb-col:hover .tb-col-text` — it reports the rule rather than ignoring it,
+ * which is how this was caught. */
+.tb-col { transition: background-color 120ms ease-out; border-radius: 6px; }
+.tb-col:hover { background-color: #f4f4f5; }
+
+.tb-arrow {
+  color: #18181b;
+  font-size: 9px;
+  width: 12px;
+  height: 18px;
+}
+
+.tb-cell-text {
+  color: #18181b;
+  font-size: 14px;
+  height: 20px;
+  width: 200px;
+}
+
+/* Per-column ink, as a class the builder puts on the text. */
+.tb-text-email { color: #52525b; }
+.tb-text-spend { color: #18181b; }
+
+/* --- the checkbox --------------------------------------------------------------
+   16px, the reference's size, and the tick is the element's own text rather
+   than a glyph in the tree — `aria-checked` is what a reader is told, and the
+   mark is marked `aria-hidden` in the literal. */
+.tb-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: 1px solid #d4d4d8;
+  border-radius: 4px;
+  background-color: #ffffff;
+  text-align: center;
+  transition: background-color 120ms ease-out, border-color 120ms ease-out;
+}
+
+.tb-check:hover { border-color: #a1a1aa; }
+
+.tb-check-checked,
+.tb-check-indeterminate {
+  background-color: #18181b;
+  border-color: #18181b;
+}
+
+.tb-mark {
+  color: #ffffff;
+  font-size: 11px;
+  width: 14px;
+  height: 14px;
+  text-align: center;
+}
+
+/* --- the status badge ----------------------------------------------------------
+   Per-kind colour picked from the data by the builder, not by a branch in the
+   stylesheet — the same rule the sortable's badges follow. */
+.tb-badge {
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 12px;
+  width: 74px;
+  height: 20px;
+  text-align: center;
+}
+
+.tb-badge-active  { background-color: #dcfce7; color: #166534; }
+.tb-badge-invited { background-color: #e0e7ff; color: #3730a3; }
+.tb-badge-paused  { background-color: #fef3c7; color: #92400e; }
+
+/* --- the footer ---------------------------------------------------------------- */
+.tb-foot {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  border-top: 1px solid #f4f4f5;
+  padding: 0 16px;
+  height: 56px;
+}
+
+/* The footer is one flex row, and EVG gives a row child no width of its own —
+ * so every child here is a number and the numbers have to ADD UP. The card is
+ * 840px with a 1px border and 16px of padding each side, leaving 806px, and
+ * four 12px gaps take 48 of those. 170 + 318 + 90 + 90 + 90 = 758, and
+ * 758 + 48 = 806 exactly. Overshoot it and the last button wraps onto a line
+ * of its own below the card. */
+.tb-note {
+  color: #71717a;
+  font-size: 13px;
+  width: 170px;
+  height: 20px;
+}
+
+/* The one child carrying slack rather than content: it is what pushes the
+ * paging controls to the far end. */
+.tb-spacer { width: 318px; height: 1px; }
+
+/* "Page 1 of 2" needs far less room than the selection count, and giving it
+ * the same 170 is what stole the width the buttons needed. */
+.tb-note-page { width: 90px; }
+
+.tb-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #e4e4e7;
+  border-radius: 8px;
+  background-color: #ffffff;
+  width: 90px;
+  height: 32px;
+  transition: background-color 120ms ease-out, transform 120ms ease-out;
+}
+
+.tb-button:hover  { background-color: #f4f4f5; }
+.tb-button:active { transform: scale(0.97); }
+
+.tb-button-text {
+  color: #18181b;
+  font-size: 13px;
+  width: 88px;
+  height: 18px;
+  text-align: center;
+}
+
+/* At an end. Greyed but still READABLE — WCAG exempts a disabled control's
+ * text from the contrast minimum, and taking that exemption is how a kit ends
+ * up with buttons nobody can read. */
+.tb-button-off { background-color: #fafafa; }
+.tb-button-text-off { color: #71717a; }

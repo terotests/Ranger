@@ -1,0 +1,662 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; evg_trace_cli.rgr — bitmap → SVG from a command line
+; ==============================================================================
+;
+; The tracer already runs in a browser and in the test harness. This is the
+; third caller it needed: a file in, a file out, no page and no Node-only
+; plumbing, so the same engine can be built for whichever runtime is at hand.
+; Everything it uses — the PNG and JPEG decoders, the tracer, the SVG writer —
+; is Ranger, so the compiled program is one self-contained file per target with
+; no library to install.
+;
+;   npm run evg:trace:cli -- in.png out.svg --preset broken
+;
+; The option names are exactly the fields of EvgTraceOptions, so there is
+; nothing extra to learn and nothing to keep in sync: --colorCount 12 sets
+; colorCount. See EvgTraceTypes.rgr for what each one means.
+;
+; Numbers are parsed here rather than with to_int, whose string form is
+; optional-typed and behaves differently per target. A digit loop is the same
+; everywhere.
+; ==============================================================================
+
+Import "../EvgBitmapTracer.rgr"
+Import "../../game_engine/v2/imaging/png/PNGDecoder.rgr"
+Import "../../pdf_writer/src/jpeg/JPEGDecoder.rgr"
+Import "../../pdf_writer/src/jpeg/ProgressiveJPEGDecoder.rgr"
+
+class EvgTraceCli {
+
+    Constructor () {
+    }
+
+    sfn m@(main):void () {
+        def cli (new EvgTraceCli())
+        cli.run()
+    }
+
+    ; --- parsing ----------------------------------------------------------
+
+    sfn digitOf:int (ch:string) {
+        return (indexOf "0123456789" ch)
+    }
+
+    sfn parseInt:int (s:string) {
+        def n:int (strlen s)
+        def i:int 0
+        def neg:boolean false
+        if (n > 0) {
+            def first:string (substring s 0 1)
+            if (first == "-") {
+                neg = true
+                i = 1
+            }
+            if (first == "+") {
+                i = 1
+            }
+        }
+        def v:int 0
+        while (i < n) {
+            def d:int (EvgTraceCli.digitOf((substring s i (i + 1))))
+            if (d < 0) {
+                i = n
+            } {
+                v = ((v * 10) + d)
+                i = (i + 1)
+            }
+        }
+        if (neg) {
+            return (0 - v)
+        }
+        return v
+    }
+
+    sfn parseDouble:double (s:string) {
+        def n:int (strlen s)
+        def i:int 0
+        def neg:boolean false
+        if (n > 0) {
+            def first:string (substring s 0 1)
+            if (first == "-") {
+                neg = true
+                i = 1
+            }
+            if (first == "+") {
+                i = 1
+            }
+        }
+        def whole:double 0.0
+        def stop:boolean false
+        while ((i < n) && (stop == false)) {
+            def ch:string (substring s i (i + 1))
+            def d:int (EvgTraceCli.digitOf(ch))
+            if (d < 0) {
+                stop = true
+            } {
+                whole = ((whole * 10.0) + (to_double d))
+                i = (i + 1)
+            }
+        }
+        if (i < n) {
+            def dot:string (substring s i (i + 1))
+            if (dot == ".") {
+                i = (i + 1)
+                def scale:double 1.0
+                def more:boolean true
+                while ((i < n) && more) {
+                    def ch2:string (substring s i (i + 1))
+                    def d2:int (EvgTraceCli.digitOf(ch2))
+                    if (d2 < 0) {
+                        more = false
+                    } {
+                        scale = (scale / 10.0)
+                        whole = (whole + ((to_double d2) * scale))
+                        i = (i + 1)
+                    }
+                }
+            }
+        }
+        if (neg) {
+            return (0.0 - whole)
+        }
+        return whole
+    }
+
+    ; Anything but a plain no is a yes, so `--optcurve 0` and `--optcurve false`
+    ; both turn it off and a bare `--optcurve` turns it on.
+    sfn parseBool:boolean (s:string) {
+        if (s == "0") {
+            return false
+        }
+        if (s == "false") {
+            return false
+        }
+        if (s == "no") {
+            return false
+        }
+        if (s == "off") {
+            return false
+        }
+        return true
+    }
+
+    sfn splitList:[string] (s:string) {
+        def out:[string]
+        def parts:[string] (strsplit s ",")
+        def i:int 0
+        while (i < (array_length parts)) {
+            def p:string (trim (itemAt parts i))
+            if ((strlen p) > 0) {
+                push out p
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; --- paths ------------------------------------------------------------
+
+    sfn lastSepOf:int (path:string) {
+        def a:int (lastIndexOf path "/")
+        def b:int (lastIndexOf path "\\")
+        if (b > a) {
+            return b
+        }
+        return a
+    }
+
+    sfn dirOf:string (path:string) {
+        def sep:int (EvgTraceCli.lastSepOf(path))
+        if (sep < 0) {
+            return "."
+        }
+        return (substring path 0 sep)
+    }
+
+    sfn fileOf:string (path:string) {
+        def sep:int (EvgTraceCli.lastSepOf(path))
+        if (sep < 0) {
+            return path
+        }
+        return (substring path (sep + 1) (strlen path))
+    }
+
+    ; --- options ----------------------------------------------------------
+
+    ; One name per EvgTraceOptions field. Anything else is a typo, and saying so
+    ; is the whole point: a silently ignored --colorcount is an hour lost to
+    ; wondering why the palette will not change.
+    fn applyOption:boolean (o:EvgTraceOptions name:string value:string) {
+        if (name == "turdsize") {
+            o.turdsize = (EvgTraceCli.parseInt(value))
+            return true
+        }
+        if (name == "alphamax") {
+            o.alphamax = (EvgTraceCli.parseDouble(value))
+            return true
+        }
+        if (name == "turnpolicy") {
+            o.turnpolicy = value
+            return true
+        }
+        if (name == "optcurve") {
+            o.optcurve = (EvgTraceCli.parseBool(value))
+            return true
+        }
+        if (name == "opttolerance") {
+            o.opttolerance = (EvgTraceCli.parseDouble(value))
+            return true
+        }
+        if (name == "threshold") {
+            o.threshold = (EvgTraceCli.parseInt(value))
+            return true
+        }
+        if (name == "blackOnWhite") {
+            o.blackOnWhite = (EvgTraceCli.parseBool(value))
+            return true
+        }
+        if (name == "fillHex") {
+            o.fillHex = value
+            return true
+        }
+        if (name == "colorCount") {
+            o.colorCount = (EvgTraceCli.parseInt(value))
+            return true
+        }
+        if (name == "skipLuma") {
+            o.skipLuma = (EvgTraceCli.parseInt(value))
+            return true
+        }
+        if (name == "flatTolerance") {
+            o.flatTolerance = (EvgTraceCli.parseInt(value))
+            return true
+        }
+        if (name == "edgeSnap") {
+            o.edgeSnap = (EvgTraceCli.parseBool(value))
+            return true
+        }
+        if (name == "snapRatio") {
+            o.snapRatio = (EvgTraceCli.parseDouble(value))
+            return true
+        }
+        if (name == "lumaWeight") {
+            o.lumaWeight = (EvgTraceCli.parseInt(value))
+            return true
+        }
+        if (name == "colorSpace") {
+            o.colorSpace = value
+            return true
+        }
+        if (name == "paletteMode") {
+            o.paletteMode = value
+            return true
+        }
+        if (name == "paletteHex") {
+            o.paletteHex = (EvgTraceCli.splitList(value))
+            return true
+        }
+        if (name == "paletteBias") {
+            o.paletteBias = value
+            return true
+        }
+        if (name == "paletteChroma") {
+            o.paletteChroma = (EvgTraceCli.parseInt(value))
+            return true
+        }
+        if (name == "paletteMute") {
+            o.paletteMute = (EvgTraceCli.parseInt(value))
+            return true
+        }
+        if (name == "paletteTint") {
+            o.paletteTint = (EvgTraceCli.parseInt(value))
+            return true
+        }
+        if (name == "paletteWarm") {
+            o.paletteWarm = (EvgTraceCli.parseInt(value))
+            return true
+        }
+        if (name == "paletteContrast") {
+            o.paletteContrast = (EvgTraceCli.parseInt(value))
+            return true
+        }
+        if (name == "minColorDelta") {
+            o.minColorDelta = (EvgTraceCli.parseInt(value))
+            return true
+        }
+        if (name == "contourMode") {
+            o.contourMode = value
+            return true
+        }
+        if (name == "overlaySimilar") {
+            o.overlaySimilar = (EvgTraceCli.parseInt(value))
+            return true
+        }
+        if (name == "overlayFollowBase") {
+            o.overlayFollowBase = (EvgTraceCli.parseBool(value))
+            return true
+        }
+        if (name == "detailSwatches") {
+            o.detailSwatches = (EvgTraceCli.parseInt(value))
+            return true
+        }
+        if (name == "detailSpread") {
+            o.detailSpread = (EvgTraceCli.parseInt(value))
+            return true
+        }
+        if (name == "detailRadius") {
+            o.detailRadius = (EvgTraceCli.parseInt(value))
+            return true
+        }
+        if (name == "detailBoost") {
+            o.detailBoost = (EvgTraceCli.parseInt(value))
+            return true
+        }
+        if (name == "detailTrueColor") {
+            o.detailTrueColor = (EvgTraceCli.parseBool(value))
+            return true
+        }
+        if (name == "detailColors") {
+            o.detailColors = (EvgTraceCli.parseInt(value))
+            return true
+        }
+        if (name == "detailMinShare") {
+            o.detailMinShare = (EvgTraceCli.parseInt(value))
+            return true
+        }
+        if (name == "detailColorMerge") {
+            o.detailColorMerge = (EvgTraceCli.parseInt(value))
+            return true
+        }
+        if (name == "detailColorMax") {
+            o.detailColorMax = (EvgTraceCli.parseInt(value))
+            return true
+        }
+        if (name == "edgeMinRun") {
+            o.edgeMinRun = (EvgTraceCli.parseInt(value))
+            return true
+        }
+        if (name == "contourEdge") {
+            o.contourEdge = (EvgTraceCli.parseInt(value))
+            return true
+        }
+        if (name == "contourSpread") {
+            o.contourSpread = (EvgTraceCli.parseInt(value))
+            return true
+        }
+        if (name == "gradientFill") {
+            o.gradientFill = (EvgTraceCli.parseBool(value))
+            return true
+        }
+        if (name == "gradientGain") {
+            o.gradientGain = (EvgTraceCli.parseInt(value))
+            return true
+        }
+        if (name == "layerMode") {
+            o.layerMode = value
+            return true
+        }
+        if (name == "pathFormat") {
+            o.pathFormat = value
+            return true
+        }
+        if (name == "pathPrecision") {
+            o.pathPrecision = (EvgTraceCli.parseInt(value))
+            return true
+        }
+        if (name == "smooth") {
+            o.smooth = (EvgTraceCli.parseInt(value))
+            return true
+        }
+        if (name == "minRegion") {
+            o.minRegion = (EvgTraceCli.parseInt(value))
+            return true
+        }
+        if (name == "absorbContrast") {
+            o.absorbContrast = (EvgTraceCli.parseInt(value))
+            return true
+        }
+        if (name == "bgMode") {
+            o.bgMode = value
+            return true
+        }
+        if (name == "bgColor") {
+            o.bgColor = value
+            return true
+        }
+        if (name == "bgTolerance") {
+            o.bgTolerance = (EvgTraceCli.parseInt(value))
+            return true
+        }
+        return false
+    }
+
+    ; Which options are switches. A switch may be written bare, so it must not
+    ; swallow the token after it — and the token after it is very often the
+    ; output path.
+    sfn isSwitch:boolean (name:string) {
+        if (name == "optcurve") {
+            return true
+        }
+        if (name == "blackOnWhite") {
+            return true
+        }
+        if (name == "edgeSnap") {
+            return true
+        }
+        if (name == "overlayFollowBase") {
+            return true
+        }
+        if (name == "detailTrueColor") {
+            return true
+        }
+        if (name == "gradientFill") {
+            return true
+        }
+        return false
+    }
+
+    ; Whether a token reads as a value for a switch, as opposed to being the
+    ; next thing on the line.
+    sfn looksBoolean:boolean (s:string) {
+        return ((indexOf "|0|1|true|false|yes|no|on|off|" ("|" + s + "|")) >= 0)
+    }
+
+    fn printUsage:void () {
+        print "evg-trace — bitmap to SVG (Ranger EvgBitmapTracer)"
+        print ""
+        print "  evg-trace <input.png|.jpg> <output.svg> [options]"
+        print ""
+        print "  The two paths may come anywhere among the options, and an"
+        print "  option may be written --name value or --name=value."
+        print ""
+        print "  --preset <name>   lineart | poster | photo | print | broken"
+        print "  --<option> <value>"
+        print ""
+        print "Options are the fields of EvgTraceOptions, e.g. --colorCount 12"
+        print "--paletteMute 130 --pathPrecision 1. See EvgTraceTypes.rgr for"
+        print "what each one does and what it defaults to."
+        print ""
+        print "Known options:"
+        print "  turdsize alphamax turnpolicy optcurve opttolerance threshold"
+        print "  blackOnWhite fillHex colorCount skipLuma flatTolerance edgeSnap"
+        print "  snapRatio lumaWeight colorSpace paletteMode paletteHex"
+        print "  paletteBias paletteChroma paletteMute paletteTint paletteWarm"
+        print "  paletteContrast minColorDelta contourMode overlaySimilar"
+        print "  overlayFollowBase detailSwatches detailSpread detailRadius"
+        print "  detailBoost detailTrueColor detailColors detailMinShare"
+        print "  detailColorMerge detailColorMax edgeMinRun contourEdge"
+        print "  contourSpread gradientFill gradientGain layerMode pathFormat"
+        print "  pathPrecision smooth minRegion absorbContrast bgMode bgColor"
+        print "  bgTolerance"
+    }
+
+    ; --- decode -----------------------------------------------------------
+
+    ; A JPEG says which kind it is in its first SOF marker, which always
+    ; precedes the entropy-coded data — so the first 0xFFC0 or 0xFFC2 from the
+    ; start is the answer and nothing later can be mistaken for it.
+    sfn isProgressiveJpeg:boolean (bytes:buffer) {
+        def n:int (buffer_length bytes)
+        def i:int 0
+        while (i < (n - 1)) {
+            def b:int (buffer_get bytes i)
+            if (b == 255) {
+                def marker:int (buffer_get bytes (i + 1))
+                ; 194 = SOF2 (progressive), 192/193 = SOF0/1 (baseline)
+                if (marker == 194) {
+                    return true
+                }
+                if (marker == 192) {
+                    return false
+                }
+                if (marker == 193) {
+                    return false
+                }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; By the magic bytes rather than the extension: a .png that is really a
+    ; JPEG is common enough, and the extension is the one thing about a file
+    ; that nothing checks. The decoders report failure as a 1x1 image, which
+    ; the caller checks for.
+    fn decodeImage:ImageBuffer (bytes:buffer dir:string file:string) {
+        def n:int (buffer_length bytes)
+        def fail (new ImageBuffer())
+        fail.init(1 1)
+        if (n < 4) {
+            return fail
+        }
+        def b0:int (buffer_get bytes 0)
+        def b1:int (buffer_get bytes 1)
+        if ((b0 == 137) && (b1 == 80)) {
+            def png (new PNGDecoder())
+            return (png.decodeBytes(bytes))
+        }
+        if ((b0 == 255) && (b1 == 216)) {
+            if (EvgTraceCli.isProgressiveJpeg(bytes)) {
+                ; The progressive decoder reads the file itself; it has no
+                ; in-memory entry point.
+                def prog (new ProgressiveJPEGDecoder())
+                return (prog.decode(dir file))
+            }
+            def jpg (new JPEGDecoder())
+            jpg.quiet = true
+            return (jpg.decodeBytes(bytes))
+        }
+        return fail
+    }
+
+    ; --- run --------------------------------------------------------------
+
+    fn run:void () {
+        def argCount:int (shell_arg_cnt)
+        if (argCount < 1) {
+            this.printUsage()
+            return
+        }
+
+        ; Positionals are taken wherever they fall. Requiring them first is the
+        ; one thing about a command line nobody remembers, and
+        ; `in.jpg --colorCount 4 out.svg` reading `--colorCount` as the output
+        ; path is a confusing way to say so.
+        def opts:EvgTraceOptions (EvgTraceOptions.defaults())
+        def positional:[string]
+        def i:int 0
+        def bad:boolean false
+        def wantHelp:boolean false
+        while (i < argCount) {
+            def arg:string (shell_arg i)
+            if ((arg == "-h") || (arg == "--help")) {
+                wantHelp = true
+            } {
+                if ((indexOf arg "--") == 0) {
+                    def body:string (substring arg 2 (strlen arg))
+                    def name:string body
+                    def value:string ""
+                    def haveValue:boolean false
+                    ; --name=value is accepted as well as --name value.
+                    def eq:int (indexOf body "=")
+                    if (eq >= 0) {
+                        name = (substring body 0 eq)
+                        value = (substring body (eq + 1) (strlen body))
+                        haveValue = true
+                    }
+                    def isFlag:boolean (EvgTraceCli.isSwitch(name))
+                    if (haveValue == false) {
+                        if ((i + 1) < argCount) {
+                            def peek:string (shell_arg (i + 1))
+                            def peekIsOption:boolean ((indexOf peek "--") == 0)
+                            def take:boolean false
+                            if (peekIsOption == false) {
+                                take = true
+                                if (isFlag) {
+                                    ; A switch only eats what reads as a switch
+                                    ; value; anything else is a positional.
+                                    take = (EvgTraceCli.looksBoolean(peek))
+                                }
+                            }
+                            if (take) {
+                                value = peek
+                                haveValue = true
+                                i = (i + 1)
+                            }
+                        }
+                    }
+                    if ((haveValue == false) && isFlag) {
+                        value = "true"
+                        haveValue = true
+                    }
+                    if (haveValue == false) {
+                        print (("--" + name) + " needs a value")
+                        bad = true
+                    } {
+                        if (name == "preset") {
+                            opts = (EvgTraceOptions.preset(value))
+                        } {
+                            def ok:boolean (this.applyOption(opts name value))
+                            if (ok == false) {
+                                print ("unknown option --" + name)
+                                bad = true
+                            }
+                        }
+                    }
+                } {
+                    push positional arg
+                }
+            }
+            i = (i + 1)
+        }
+
+        if (wantHelp) {
+            this.printUsage()
+            return
+        }
+        def pn:int (array_length positional)
+        if (pn > 2) {
+            print (("expected an input and an output path, got " + (to_string pn)) + ":")
+            def pi:int 0
+            while (pi < pn) {
+                print ("  " + (itemAt positional pi))
+                pi = (pi + 1)
+            }
+            bad = true
+        }
+        if (pn < 2) {
+            if (bad == false) {
+                print "an input path and an output path are both needed"
+            }
+            bad = true
+        }
+        if (bad) {
+            print ""
+            this.printUsage()
+            return
+        }
+        def inputPath:string (itemAt positional 0)
+        def outputPath:string (itemAt positional 1)
+
+        def inDir:string (EvgTraceCli.dirOf(inputPath))
+        def inFile:string (EvgTraceCli.fileOf(inputPath))
+        ; Asked for a file that is not there, buffer_read_file raises on some
+        ; targets and returns nothing on others. Neither is a message, so look
+        ; first: a mistyped path is the most ordinary thing that can happen
+        ; here and it should read as one line, not as a stack trace.
+        if ((file_exists inDir inFile) == false) {
+            print ("no such file: " + inputPath)
+            return
+        }
+        def bytes:buffer (buffer_read_file inDir inFile)
+        if ((buffer_length bytes) == 0) {
+            print ("cannot read " + inputPath)
+            return
+        }
+        def img:ImageBuffer (this.decodeImage(bytes inDir inFile))
+        ; 1x1 is how both decoders report a failure, and writing an SVG of it
+        ; would be worse than saying so: the file would look like a result.
+        if (((img.width) < 2) && ((img.height) < 2)) {
+            print ("not a PNG or JPEG this build can decode: " + inputPath)
+            return
+        }
+
+        def tr:EvgBitmapTracer (EvgBitmapTracer.fromImageBuffer(img opts))
+        tr.trace()
+        def svg:string (tr.toSVG())
+
+        def outDir:string (EvgTraceCli.dirOf(outputPath))
+        def outFile:string (EvgTraceCli.fileOf(outputPath))
+        write_file outDir outFile svg
+
+        def w:string (to_string (img.width))
+        def h:string (to_string (img.height))
+        def layers:string (to_string (tr.layerCount()))
+        def rings:string (to_string (tr.ringCount()))
+        def bytesOut:string (to_string (strlen svg))
+        print ((((((((outputPath + "  ") + w) + "x") + h) + "  layers=") + layers) + "  rings=") + rings)
+        print (("  " + bytesOut) + " bytes")
+    }
+}

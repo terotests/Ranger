@@ -1,0 +1,472 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; ChatHost — the AI-conversation machine, run from its own definition
+; =============================================================================
+; `fixtures/machines/chat.machine.json` is `chatMachine.ts` in the shape
+; `createMachine()` takes: eight leaf states on three levels, sixteen events,
+; guards, an `always` fork and an `onDone`, measured against XState itself by
+; `rt:machine:live`. The runner reads it as it is. This class is the HOST
+; around it, the way `PlanDialogHost` is around the plan-week machine:
+;
+;   the named actions   `newRequestId`, `appendChunk`, `takeResponse`,
+;                       `acceptAll`, `acceptAt`, `rejectAt` — the same six
+;                       `fixtures/machines/manifest.mjs` gives XState. Each
+;                       needs the event that caused it, and the runner keeps
+;                       names, not events, so the host remembers the event it
+;                       sent and runs the action against that.
+;   the transcript      what was sent and what came back, which the machine
+;                       does not keep because the original's UI keeps it.
+;
+; The runner STOPS while a named action is owed — `reviewing` forks on how
+; many pending actions `takeResponse` put there — so every send here is
+; `send → run pending → resume`. That loop is `settleHost`.
+;
+; Streaming is not here. `RtChatSim` below turns a prompt into chunks on the
+; demo's clock — the mock adapter of the original, made deterministic.
+; =============================================================================
+
+Import "../../statechart/src/Statechart.rgr"
+Import "../../statechart/src/StatechartJson.rgr"
+
+class ChatHost {
+    def runner:ScRunner (new ScRunner())
+    def loaded@(mutable):boolean false
+    def lastEvent:ScEvent (ScEvent.of(""))
+    def requestSeq@(mutable):int 0
+    ; The named actions the host ran, in order — what a test asserts on.
+    def ranActions:[string]
+    ; The conversation as the view shows it: each thing sent, each reply.
+    def sentTexts:[string]
+    def replies:[string]
+
+    Constructor () {
+    }
+
+    fn load:void (text:string) {
+        def chart:Statechart (StatechartJson.load(text))
+        runner.start(chart)
+        loaded = true
+    }
+
+    fn state:string () {
+        return runner.state
+    }
+
+    ; "sending.streaming" is in "sending".
+    fn inside:boolean (prefix:string) {
+        def s:string runner.state
+        if (s == prefix) {
+            return true
+        }
+        def p:string (prefix + ".")
+        if ((strlen s) > (strlen p)) {
+            return ((substring s 0 (strlen p)) == p)
+        }
+        return false
+    }
+
+    ; --- reading the context --------------------------------------------------
+
+    fn text:string (key:string) {
+        return (ChatHost.textOf((runner.get(key))))
+    }
+
+    fn hasImage:boolean () {
+        return (ScValOps.present((runner.get("image"))))
+    }
+
+    fn actionCount:int () {
+        return (ScValOps.sizeOf((runner.get("pendingActions"))))
+    }
+
+    fn actionField:string (i:int field:string) {
+        def items:[ScVal] (ScValOps.items((runner.get("pendingActions"))))
+        if (i >= (array_length items)) {
+            return ""
+        }
+        return (ChatHost.textOf((ChatHost.entryOf((itemAt items i) field))))
+    }
+
+    ; "" while undecided, "accepted" or "rejected" after.
+    fn actionStatus:string (i:int) {
+        return (this.actionField(i "processedAs"))
+    }
+
+    fn resultText:string () {
+        return (ChatHost.textOf((ChatHost.entryOf((runner.get("result")) "text"))))
+    }
+
+    sfn textOf:string (v:ScVal) {
+        match v {
+            Str s { return s.text }
+            Nothing { return "" }
+            Bool b { return "" }
+            Num n { return (ScValOps.toJson(v)) }
+            List l { return "" }
+            Map m { return "" }
+        }
+        return ""
+    }
+
+    sfn intOf:int (v:ScVal) {
+        match v {
+            Num n { return (to_int n.value) }
+            Nothing { return 0 }
+            Str s { return 0 }
+            Bool b { return 0 }
+            List l { return 0 }
+            Map m { return 0 }
+        }
+        return 0
+    }
+
+    sfn entryOf:ScVal (v:ScVal key:string) {
+        match v {
+            Map m {
+                for m.keys k:string i {
+                    if (k == key) {
+                        return (itemAt m.entries i)
+                    }
+                }
+            }
+            Nothing { }
+            Str s { }
+            Bool b { }
+            Num n { }
+            List l { }
+        }
+        return (ScValOps.nothing())
+    }
+
+    ; --- sending, and settling what the machine owes --------------------------
+
+    fn send:boolean (e:ScEvent) {
+        lastEvent = e
+        def ok:boolean (runner.send(e))
+        this.settleHost()
+        return ok
+    }
+
+    fn settleHost:void () {
+        def rounds@(mutable):int 0
+        while ((array_length runner.pending) > 0) {
+            rounds = (rounds + 1)
+            if (rounds > 8) {
+                return
+            }
+            for runner.pending name:string i {
+                push ranActions name
+                if (name == "newRequestId") { this.newRequestId() }
+                if (name == "appendChunk") { this.appendChunk() }
+                if (name == "takeResponse") { this.takeResponse() }
+                if (name == "acceptAll") { this.markAll("accepted") }
+                if (name == "acceptAt") { this.markAt((ChatHost.intOf((lastEvent.get("index")))) "accepted") }
+                if (name == "rejectAt") { this.markAt((ChatHost.intOf((lastEvent.get("index")))) "rejected") }
+            }
+            runner.resume()
+        }
+    }
+
+    ; `crypto.randomUUID()` in the original; a host mints its own.
+    fn newRequestId:void () {
+        requestSeq = (requestSeq + 1)
+        runner.setStr("requestId" ("req-" + (to_string requestSeq)))
+    }
+
+    fn appendChunk:void () {
+        def chunk:string (ChatHost.textOf((lastEvent.get("chunk"))))
+        runner.setStr("streamingContent" ((this.text("streamingContent")) + chunk))
+    }
+
+    ; `result = event.response`, and every action of it pending, unprocessed.
+    fn takeResponse:void () {
+        def response:ScVal (lastEvent.get("response"))
+        runner.set("result" response)
+        def actions:[ScVal] (ScValOps.items((ChatHost.entryOf(response "actions"))))
+        def list@(mutable):ScVal (ScValOps.emptyList())
+        for actions a:ScVal i {
+            def withFlag:ScVal (ScValOps.withKey(a "processed" (ScValOps.bool(false))))
+            list = (ScValOps.appended(list withFlag))
+        }
+        runner.set("pendingActions" list)
+        push replies (ChatHost.textOf((ChatHost.entryOf(response "text"))))
+    }
+
+    fn markAll:void (how:string) {
+        def items:[ScVal] (ScValOps.items((runner.get("pendingActions"))))
+        def list@(mutable):ScVal (ScValOps.emptyList())
+        for items a:ScVal i {
+            list = (ScValOps.appended(list (ChatHost.marked(a how))))
+        }
+        runner.set("pendingActions" list)
+    }
+
+    fn markAt:void (index:int how:string) {
+        def items:[ScVal] (ScValOps.items((runner.get("pendingActions"))))
+        def list@(mutable):ScVal (ScValOps.emptyList())
+        for items a:ScVal i {
+            if (i == index) {
+                list = (ScValOps.appended(list (ChatHost.marked(a how))))
+            } {
+                list = (ScValOps.appended(list a))
+            }
+        }
+        runner.set("pendingActions" list)
+    }
+
+    sfn marked:ScVal (a:ScVal how:string) {
+        def once:ScVal (ScValOps.withKey(a "processed" (ScValOps.bool(true))))
+        return (ScValOps.withKey(once "processedAs" (ScValOps.str(how))))
+    }
+
+    ; --- the events the view sends -------------------------------------------
+
+    fn setInput:boolean (text:string) {
+        def e:ScEvent (ScEvent.of("SET_INPUT"))
+        e.withStr("text" text)
+        return (this.send(e))
+    }
+
+    ; The composer empties when a message goes — the component's own
+    ; `setInputValue('')` beside the machine, which keeps `inputText` as the
+    ; prompt until RESET. This is that assignment, on the context.
+    fn clearInput:void () {
+        runner.setStr("inputText" "")
+    }
+
+    fn setImage:boolean (name:string) {
+        def e:ScEvent (ScEvent.of("SET_IMAGE"))
+        e.withStr("image" name)
+        return (this.send(e))
+    }
+
+    fn clearImage:boolean () {
+        return (this.send((ScEvent.of("CLEAR_IMAGE"))))
+    }
+
+    ; SEND is guarded: nothing to say is nothing sent, and the machine answers
+    ; `false` rather than the host checking first.
+    fn sendMessage:boolean () {
+        def prompt:string (this.text("inputText"))
+        def ok:boolean (this.send((ScEvent.of("SEND"))))
+        if ok {
+            push sentTexts prompt
+        }
+        return ok
+    }
+
+    fn chunk:boolean (text:string) {
+        def e:ScEvent (ScEvent.of("STREAM_CHUNK"))
+        e.withStr("chunk" text)
+        return (this.send(e))
+    }
+
+    ; The reply, and the actions it proposes — `kind` and `id` each, as the
+    ; manifest's payloads have them.
+    fn complete:boolean (replyText:string kinds:[string] ids:[string]) {
+        def actions@(mutable):ScVal (ScValOps.emptyList())
+        for kinds kind:string i {
+            def keys:[string]
+            def entries:[ScVal]
+            push keys "kind"
+            push entries (ScValOps.str(kind))
+            push keys "id"
+            push entries (ScValOps.str((itemAt ids i)))
+            actions = (ScValOps.appended(actions (new ScVal.Map(keys entries))))
+        }
+        def rkeys:[string]
+        def rentries:[ScVal]
+        push rkeys "text"
+        push rentries (ScValOps.str(replyText))
+        push rkeys "actions"
+        push rentries actions
+        def e:ScEvent (ScEvent.of("STREAM_COMPLETE"))
+        e.with("response" (new ScVal.Map(rkeys rentries)))
+        return (this.send(e))
+    }
+
+    fn streamError:boolean (message:string) {
+        def e:ScEvent (ScEvent.of("STREAM_ERROR"))
+        e.withStr("error" message)
+        return (this.send(e))
+    }
+
+    fn cancel:boolean () {
+        return (this.send((ScEvent.of("CANCEL"))))
+    }
+
+    fn retry:boolean () {
+        return (this.send((ScEvent.of("RETRY"))))
+    }
+
+    fn acceptAction:boolean (index:int) {
+        def e:ScEvent (ScEvent.of("ACCEPT_ACTION"))
+        e.with("index" (ScValOps.num((int2double index))))
+        return (this.send(e))
+    }
+
+    fn rejectAction:boolean (index:int) {
+        def e:ScEvent (ScEvent.of("REJECT_ACTION"))
+        e.with("index" (ScValOps.num((int2double index))))
+        return (this.send(e))
+    }
+
+    fn acceptAll:boolean () {
+        return (this.send((ScEvent.of("ACCEPT_ALL"))))
+    }
+
+    fn rejectAll:boolean () {
+        return (this.send((ScEvent.of("REJECT_ALL"))))
+    }
+
+    fn closeReview:boolean () {
+        return (this.send((ScEvent.of("CLOSE_REVIEW"))))
+    }
+
+    fn saveComplete:boolean () {
+        return (this.send((ScEvent.of("SAVE_COMPLETE"))))
+    }
+
+    fn reset:boolean () {
+        def ok:boolean (this.send((ScEvent.of("RESET"))))
+        if ok {
+            clear sentTexts
+            clear replies
+        }
+        return ok
+    }
+}
+
+; =============================================================================
+; RtChatSim — the mock adapter, on the clock
+; =============================================================================
+; The original's `mockAdapter` answers a prompt with a canned response; this
+; answers with the same response in CHUNKS, one per `chunkMs`, and then the
+; whole. What the reply proposes follows from the prompt in a way a scenario
+; can steer: a question proposes nothing, a prompt with " ja " in it two
+; workouts, anything else one. A demo is a simulation; the shape of the
+; conversation is what is measured, not the words.
+; =============================================================================
+class RtChatSim {
+    ; "idle" | "streaming"
+    def state@(mutable):string "idle"
+    def chunkMs@(mutable):double 220.0
+    def leftMs@(mutable):double 0.0
+    def words:[string]
+    def at@(mutable):int 0
+    def reply@(mutable):string ""
+    def kinds:[string]
+    def ids:[string]
+    ; The next stream fails instead of completing.
+    def failNext@(mutable):boolean false
+    ; What the last tick produced: the chunks that came due, in order, and
+    ; then "" | "complete" | "error" for how the stream ended, if it did.
+    def dueChunks:[string]
+    def produced@(mutable):string ""
+
+    Constructor () {
+    }
+
+    fn begin:void (prompt:string) {
+        clear kinds
+        clear ids
+        reply = "Lisään päiväkirjaan: "
+        if (RtChatSim.hasText(prompt "?")) {
+            reply = "Viime viikolla oli kolme voimaharjoitusta ja yksi lenkki."
+        } {
+            if (RtChatSim.hasText(prompt " ja ")) {
+                reply = "Lisään kaksi liikettä: maastaveto ja kyykky."
+                push kinds "addWorkout"
+                push ids "w1"
+                push kinds "addWorkout"
+                push ids "w2"
+            } {
+                reply = "Lisään harjoituksen: maastaveto 3x5@100kg."
+                push kinds "addWorkout"
+                push ids "w1"
+            }
+        }
+        clear words
+        RtChatSim.splitWords(reply words)
+        at = 0
+        leftMs = chunkMs
+        state = "streaming"
+        produced = ""
+        clear dueChunks
+    }
+
+    fn stop:void () {
+        state = "idle"
+        produced = ""
+        clear dueChunks
+    }
+
+    ; One frame of time — however long. A headless check ticks in seconds,
+    ; so every chunk the elapsed time covers comes out, in order, and the end
+    ; of the stream with them if it was reached.
+    fn tick:boolean (deltaMs:double) {
+        produced = ""
+        clear dueChunks
+        if (state != "streaming") {
+            return false
+        }
+        leftMs = (leftMs - deltaMs)
+        def running@(mutable):boolean true
+        while running {
+            if (leftMs > 0.0) {
+                running = false
+            } {
+                if (at < (array_length words)) {
+                    push dueChunks (itemAt words at)
+                    at = (at + 1)
+                    leftMs = (leftMs + chunkMs)
+                } {
+                    state = "idle"
+                    produced = "complete"
+                    if failNext {
+                        failNext = false
+                        produced = "error"
+                    }
+                    running = false
+                }
+            }
+        }
+        if ((array_length dueChunks) > 0) {
+            return true
+        }
+        return ((strlen produced) > 0)
+    }
+
+    sfn hasText:boolean (text:string needle:string) {
+        def n:int (strlen needle)
+        def len:int (strlen text)
+        def i@(mutable):int 0
+        while ((i + n) <= len) {
+            if ((substring text i (i + n)) == needle) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; Words with their trailing space, so joining the chunks gives the reply.
+    sfn splitWords:void (text:string out:[string]) {
+        def run@(mutable):string ""
+        def i@(mutable):int 0
+        def len:int (strlen text)
+        while (i < len) {
+            def ch:string (substring text i (i + 1))
+            run = (run + ch)
+            if (ch == " ") {
+                push out run
+                run = ""
+            }
+            i = (i + 1)
+        }
+        if ((strlen run) > 0) {
+            push out run
+        }
+    }
+}

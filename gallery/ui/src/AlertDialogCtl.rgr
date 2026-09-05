@@ -1,0 +1,286 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; AlertDialogCtl — measured against @radix-ui/react-alert-dialog
+; =============================================================================
+; Parity contract (see conformance/SPEC.md):
+;   closed    only the trigger exists.
+;   open      content role ALERTDIALOG, not dialog — the difference is the
+;             whole component: a reader interrupts for one and queues the
+;             other. Modal, so everything outside is hidden.
+;   focus     lands on Cancel, not on the first button in the content and not
+;             on the destructive one. Measured; it is also the safe default.
+;   Escape    closes, and focus returns to the trigger.
+;   Cancel    and the action button both close, and both restore focus.
+; =============================================================================
+
+Import "UiCtl.rgr"
+Import "UiTree.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+
+class AlertDialogCtl extends UiCtl {
+    def open:boolean false
+    def title:string ""
+    def bodyText:string ""
+    def cancelLabel:string "Cancel"
+    def actionLabel:string "OK"
+    def triggerEl:EVGElement
+    def overlayEl:EVGElement
+    def contentEl:EVGElement
+    def titleEl:EVGElement
+    def descEl:EVGElement
+    def cancelEl:EVGElement
+    def actionEl:EVGElement
+
+    Constructor () {
+        rootEl = (EVGElement.createDiv())
+        triggerEl = (EVGElement.createDiv())
+        overlayEl = (EVGElement.createDiv())
+        contentEl = (EVGElement.createDiv())
+        titleEl = (EVGElement.createDiv())
+        descEl = (EVGElement.createDiv())
+        cancelEl = (EVGElement.createDiv())
+        actionEl = (EVGElement.createDiv())
+    }
+
+    fn triggerTid:string () {
+        return (tid + "-trigger")
+    }
+
+    fn overlayTid:string () {
+        return (tid + "-overlay")
+    }
+
+    fn contentTid:string () {
+        return (tid + "-content")
+    }
+
+    fn titleTid:string () {
+        return (tid + "-title")
+    }
+
+    fn descTid:string () {
+        return (tid + "-description")
+    }
+
+    fn cancelTid:string () {
+        return (tid + "-cancel")
+    }
+
+    fn actionTid:string () {
+        return (tid + "-action")
+    }
+
+    fn stateWord:string () {
+        if open {
+            return "open"
+        }
+        return "closed"
+    }
+
+    fn build:void () {
+        def word:string (this.stateWord())
+        def root:EVGElement (unwrap rootEl)
+        root.id = tid
+        root.className = "ui-alertdialog"
+        UiTree.clearChildren(root)
+
+        def trig:EVGElement (unwrap triggerEl)
+        trig.id = (this.triggerTid())
+        trig.className = "ui-alertdialog-trigger"
+        if disabled {
+            UiTree.addClass(trig "ui-alertdialog-trigger-disabled")
+        }
+        UiTree.setState(trig "ui-alertdialog-trigger" word)
+        UiTree.leafText(trig name)
+        root.addChild(trig)
+
+        if (open == false) {
+            return
+        }
+
+        def overlay:EVGElement (unwrap overlayEl)
+        overlay.id = (this.overlayTid())
+        overlay.className = "ui-alertdialog-overlay"
+        UiTree.backdrop(overlay)
+        UiTree.setState(overlay "ui-alertdialog-overlay" word)
+        UiTree.clearChildren(overlay)
+        root.addChild(overlay)
+
+        def content:EVGElement (unwrap contentEl)
+        content.id = (this.contentTid())
+        content.className = "ui-alertdialog-content"
+        UiTree.surface(content "center" "center")
+        UiTree.setState(content "ui-alertdialog-content" word)
+        UiTree.clearChildren(content)
+
+        def titleNode:EVGElement (unwrap titleEl)
+        titleNode.id = (this.titleTid())
+        titleNode.className = "ui-alertdialog-title"
+        UiTree.leafText(titleNode title)
+        content.addChild(titleNode)
+
+        def descNode:EVGElement (unwrap descEl)
+        descNode.id = (this.descTid())
+        descNode.className = "ui-alertdialog-description"
+        UiTree.leafText(descNode bodyText)
+        content.addChild(descNode)
+
+        def cancelNode:EVGElement (unwrap cancelEl)
+        cancelNode.id = (this.cancelTid())
+        cancelNode.className = "ui-alertdialog-cancel"
+        UiTree.leafText(cancelNode cancelLabel)
+        content.addChild(cancelNode)
+
+        def actionNode:EVGElement (unwrap actionEl)
+        actionNode.id = (this.actionTid())
+        actionNode.className = "ui-alertdialog-action"
+        UiTree.leafText(actionNode actionLabel)
+        content.addChild(actionNode)
+
+        root.addChild(content)
+    }
+
+    fn openAndFocus:string () {
+        open = true
+        this.build()
+        return (this.cancelTid())
+    }
+
+    fn closeAndRestore:string () {
+        open = false
+        this.build()
+        return (this.triggerTid())
+    }
+
+    fn activate:string (target:string) {
+        if disabled {
+            return ""
+        }
+        if (target == (this.triggerTid())) {
+            if (open == false) {
+                return (this.openAndFocus())
+            }
+            return ""
+        }
+        if open {
+            if (target == (this.cancelTid())) {
+                return (this.closeAndRestore())
+            }
+            if (target == (this.actionTid())) {
+                return (this.closeAndRestore())
+            }
+        }
+        return ""
+    }
+
+    fn keyDown:string (target:string key:string) {
+        if disabled {
+            return ""
+        }
+        if (key == "Escape") {
+            if open {
+                return (this.closeAndRestore())
+            }
+            return ""
+        }
+        if ((UiCtl.activatesOn(key)) == false) {
+            return ""
+        }
+        return (this.activate(target))
+    }
+
+    fn tids:[string] () {
+        def a:[string]
+        push a tid
+        push a (this.triggerTid())
+        push a (this.overlayTid())
+        push a (this.contentTid())
+        push a (this.titleTid())
+        push a (this.descTid())
+        push a (this.cancelTid())
+        push a (this.actionTid())
+        return a
+    }
+
+    fn isFocusable:boolean (target:string) {
+        if disabled {
+            return false
+        }
+        if (target == (this.triggerTid())) {
+            return true
+        }
+        if (target == (this.cancelTid())) {
+            return open
+        }
+        if (target == (this.actionTid())) {
+            return open
+        }
+        return false
+    }
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+        def word:string (this.stateWord())
+
+        def trigRow:UiRow (UiRow.of((this.triggerTid()) (EVGA11yRole.button()) name))
+        trigRow.state = word
+        ; A trigger that opens a dialog says so, and says WHICH kind: Radix
+        ; writes `aria-haspopup="dialog"` here rather than the "menu" a menu
+        ; trigger gets. The two are different promises to a reader.
+        trigRow.hasPopup = "dialog"
+        trigRow.disabled = disabled
+        if open {
+            trigRow.expanded = (EVGA11yTri.yes())
+        } {
+            trigRow.expanded = (EVGA11yTri.no())
+        }
+        if (disabled == false) {
+            trigRow.tabStop = true
+            trigRow.focusable = true
+        }
+        push out trigRow
+
+        if (open == false) {
+            return out
+        }
+
+        def overlayRow:UiRow (UiRow.of((this.overlayTid()) (EVGA11yRole.none()) ""))
+        overlayRow.state = word
+        push out overlayRow
+
+        def contentRow:UiRow (UiRow.of((this.contentTid()) (EVGA11yRole.alertDialog()) ""))
+        contentRow.state = word
+        contentRow.modal = true
+        ; The dialog's own body text, which `AlertDialog.Description` wires to
+        ; the content with `aria-describedby`. It was drawn and it was in the
+        ; tree, and a reader opening the dialog was still told nothing but
+        ; "alert dialog" — the sentence explaining WHY it is asking was
+        ; invisible to the trace until `description` was a compared field.
+        contentRow.description = bodyText
+        push out contentRow
+
+        def titleRow:UiRow (UiRow.of((this.titleTid()) (EVGA11yRole.none()) ""))
+        titleRow.parentTid = (this.contentTid())
+        push out titleRow
+
+        def descRow:UiRow (UiRow.of((this.descTid()) (EVGA11yRole.none()) ""))
+        descRow.parentTid = (this.contentTid())
+        push out descRow
+
+        def cancelRow:UiRow (UiRow.of((this.cancelTid()) (EVGA11yRole.button()) cancelLabel))
+        cancelRow.parentTid = (this.contentTid())
+        cancelRow.tabStop = true
+        cancelRow.focusable = true
+        push out cancelRow
+
+        def actionRow:UiRow (UiRow.of((this.actionTid()) (EVGA11yRole.button()) actionLabel))
+        actionRow.parentTid = (this.contentTid())
+        actionRow.tabStop = true
+        actionRow.focusable = true
+        push out actionRow
+
+        return out
+    }
+}

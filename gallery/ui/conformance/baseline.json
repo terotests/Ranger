@@ -1,10 +1,10 @@
 {
   "total": {
-    "catalogued": 56,
-    "covered": 49,
-    "matchedBehaviours": 49,
-    "observations": 2486,
-    "matchedObservations": 2486
+    "catalogued": 280,
+    "covered": 278,
+    "matchedBehaviours": 278,
+    "observations": 69570,
+    "matchedObservations": 69570
   },
   "components": {
     "toggle": {
@@ -36,8 +36,108 @@
       "matchedBehaviours": 5
     },
     "dialog": {
-      "covered": 0,
-      "matchedBehaviours": 0
+      "covered": 8,
+      "matchedBehaviours": 8
+    },
+    "label": {
+      "covered": 2,
+      "matchedBehaviours": 2
+    },
+    "separator": {
+      "covered": 3,
+      "matchedBehaviours": 3
+    },
+    "progress": {
+      "covered": 5,
+      "matchedBehaviours": 5
+    },
+    "aspect-ratio": {
+      "covered": 2,
+      "matchedBehaviours": 2
+    },
+    "accessible-icon": {
+      "covered": 3,
+      "matchedBehaviours": 3
+    },
+    "avatar": {
+      "covered": 2,
+      "matchedBehaviours": 2
+    },
+    "toggle-group": {
+      "covered": 8,
+      "matchedBehaviours": 8
+    },
+    "toolbar": {
+      "covered": 6,
+      "matchedBehaviours": 6
+    },
+    "alert-dialog": {
+      "covered": 9,
+      "matchedBehaviours": 9
+    },
+    "popover": {
+      "covered": 9,
+      "matchedBehaviours": 9
+    },
+    "tooltip": {
+      "covered": 8,
+      "matchedBehaviours": 8
+    },
+    "hover-card": {
+      "covered": 5,
+      "matchedBehaviours": 5
+    },
+    "dropdown-menu": {
+      "covered": 26,
+      "matchedBehaviours": 26
+    },
+    "context-menu": {
+      "covered": 8,
+      "matchedBehaviours": 8
+    },
+    "slider": {
+      "covered": 12,
+      "matchedBehaviours": 12
+    },
+    "toast": {
+      "covered": 8,
+      "matchedBehaviours": 8
+    },
+    "sortable": {
+      "covered": 8,
+      "matchedBehaviours": 8
+    },
+    "menubar": {
+      "covered": 7,
+      "matchedBehaviours": 7
+    },
+    "select": {
+      "covered": 4,
+      "matchedBehaviours": 4
+    },
+    "navigationmenu": {
+      "covered": 3,
+      "matchedBehaviours": 3
+    },
+    "scrollarea": {
+      "covered": 2,
+      "matchedBehaviours": 2
+    },
+    "tree": {
+      "covered": 51,
+      "matchedBehaviours": 51
+    },
+    "table": {
+      "covered": 10,
+      "matchedBehaviours": 10
+    },
+    "resizable": {
+      "covered": 12,
+      "matchedBehaviours": 12
+    },
+    "breadcrumb": {
+      "covered": 8,
+      "matchedBehaviours": 8
     }
   }
 }

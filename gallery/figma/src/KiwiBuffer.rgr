@@ -1,0 +1,384 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; KiwiBuffer — the kiwi wire types: varint, varfloat, null-terminated UTF-8.
+; The float encoding is kiwi's own: exponent in the first eight bits, not
+; IEEE layout on the wire. See evanw/kiwi ByteBuffer.readVarFloat.
+
+class KiwiBuffer {
+    def data:buffer (buffer_alloc 0)
+    def pos:int 0
+    def length:int 0
+    def ok:boolean true
+    def err:string ""
+
+    Constructor () {
+    }
+
+    fn init:void (buf:buffer) {
+        data = buf
+        length = (buffer_length buf)
+        pos = 0
+        ok = true
+        err = ""
+    }
+
+    fn remaining:int () {
+        return (length - pos)
+    }
+
+    fn fail:void (msg:string) {
+        ok = false
+        err = msg
+    }
+
+    fn readByte:int () {
+        if (pos >= length) {
+            this.fail("kiwi: past end of buffer")
+            return 0
+        }
+        def b:int (buffer_get data pos)
+        pos = (pos + 1)
+        return b
+    }
+
+    fn readVarUint:int () {
+        def value:int 0
+        def shift:int 0
+        def guard:int 0
+        while (guard < 5) {
+            def b:int (this.readByte())
+            if (ok == false) {
+                return value
+            }
+            def part:int (bit_and b 127)
+            value = (bit_or value (bit_shl part shift))
+            if ((bit_and b 128) == 0) {
+                return value
+            }
+            shift = (shift + 7)
+            guard = (guard + 1)
+        }
+        this.fail("kiwi: varuint too long")
+        return value
+    }
+
+    fn readVarInt:int () {
+        def u:int (this.readVarUint())
+        if ((bit_and u 1) == 1) {
+            return (bit_not (bit_ushr u 1))
+        }
+        return (bit_ushr u 1)
+    }
+
+    ; kiwi stores float32 with the exponent in the low 8 bits. Zero is one byte.
+    fn readVarFloat:double () {
+        def first:int (this.readByte())
+        if (ok == false) {
+            return 0.0
+        }
+        if (first == 0) {
+            return 0.0
+        }
+        def b1:int (this.readByte())
+        def b2:int (this.readByte())
+        def b3:int (this.readByte())
+        if (ok == false) {
+            return 0.0
+        }
+        def bits:int first
+        bits = (bit_or bits (bit_shl b1 8))
+        bits = (bit_or bits (bit_shl b2 16))
+        bits = (bit_or bits (bit_shl b3 24))
+        def ieee:int (bit_or (bit_shl bits 23) (bit_ushr bits 9))
+        return (KiwiBuffer.ieee32(ieee))
+    }
+
+    sfn ieee32:double (bits:int) {
+        def signBit:int (bit_and (bit_ushr bits 31) 1)
+        def exp:int (bit_and (bit_ushr bits 23) 255)
+        def frac:int (bit_and bits 8388607)
+        if (exp == 0) {
+            if (frac == 0) {
+                return 0.0
+            }
+            def den:double ((to_double frac) / 8388608.0)
+            def dv:double (den * (KiwiBuffer.pow2((0 - 126))))
+            if (signBit == 1) {
+                return (0.0 - dv)
+            }
+            return dv
+        }
+        if (exp == 255) {
+            return 0.0
+        }
+        def mant:double (1.0 + ((to_double frac) / 8388608.0))
+        def p:int (exp - 127)
+        def v:double (mant * (KiwiBuffer.pow2(p)))
+        if (signBit == 1) {
+            return (0.0 - v)
+        }
+        return v
+    }
+
+    sfn pow2:double (n:int) {
+        if (n == 0) {
+            return 1.0
+        }
+        def v:double 1.0
+        def i:int 0
+        if (n > 0) {
+            while (i < n) {
+                v = (v * 2.0)
+                i = (i + 1)
+            }
+            return v
+        }
+        def m:int (0 - n)
+        while (i < m) {
+            v = (v / 2.0)
+            i = (i + 1)
+        }
+        return v
+    }
+
+    sfn floatToBits:int (raw:double) {
+        def v:double raw
+        def sign:int 0
+        if (v < 0.0) {
+            sign = 1
+            v = (0.0 - v)
+        }
+        if (v == 0.0) {
+            return 0
+        }
+        def exp:int 0
+        def m:double v
+        while (m >= 2.0) {
+            m = (m / 2.0)
+            exp = (exp + 1)
+            if (exp > 128) {
+                return 2139095040
+            }
+        }
+        while (m < 1.0) {
+            m = (m * 2.0)
+            exp = (exp - 1)
+            if (exp < (0 - 140)) {
+                return 0
+            }
+        }
+        def frac:double (m - 1.0)
+        def mantissa:int (to_int ((frac * 8388608.0) + 0.5))
+        if (mantissa >= 8388608) {
+            mantissa = 0
+            exp = (exp + 1)
+        }
+        def biased:int (exp + 127)
+        if (biased <= 0) {
+            return 0
+        }
+        if (biased >= 255) {
+            return 2139095040
+        }
+        def bits:int (bit_or (bit_shl biased 23) (bit_and mantissa 8388607))
+        if (sign == 1) {
+            bits = (bit_or bits (bit_shl 1 31))
+        }
+        return bits
+    }
+
+    fn readString:string () {
+        def out:string ""
+        def guard:int 0
+        while ((ok == true) && (guard < 1000000)) {
+            def a:int (this.readByte())
+            if (ok == false) {
+                return out
+            }
+            def cp:int a
+            if (a >= 192) {
+                def b:int (this.readByte())
+                if (a < 224) {
+                    cp = (bit_or (bit_shl (bit_and a 31) 6) (bit_and b 63))
+                } {
+                    def c:int (this.readByte())
+                    if (a < 240) {
+                        def p1:int (bit_shl (bit_and a 15) 12)
+                        def p2:int (bit_shl (bit_and b 63) 6)
+                        cp = (bit_or (bit_or p1 p2) (bit_and c 63))
+                    } {
+                        def d:int (this.readByte())
+                        def q1:int (bit_shl (bit_and a 7) 18)
+                        def q2:int (bit_shl (bit_and b 63) 12)
+                        def q3:int (bit_shl (bit_and c 63) 6)
+                        cp = (bit_or (bit_or (bit_or q1 q2) q3) (bit_and d 63))
+                    }
+                }
+            }
+            if (cp == 0) {
+                return out
+            }
+            if (cp < 65536) {
+                out = (out + (strfromcode cp))
+            } {
+                def u:int (cp - 65536)
+                def hi:int ((bit_shr u 10) + 55296)
+                def lo:int ((bit_and u 1023) + 56320)
+                out = (out + (strfromcode hi) + (strfromcode lo))
+            }
+            guard = (guard + 1)
+        }
+        return out
+    }
+
+    fn readByteArray:buffer () {
+        def n:int (this.readVarUint())
+        if ((n < 0) || ((pos + n) > length)) {
+            this.fail("kiwi: byte array overruns buffer")
+            return (buffer_alloc 0)
+        }
+        def out:buffer (buffer_alloc n)
+        def i:int 0
+        while (i < n) {
+            buffer_set out i (buffer_get data (pos + i))
+            i = (i + 1)
+        }
+        pos = (pos + n)
+        return out
+    }
+
+    fn writeByte:void (b:int) {
+        if (pos >= length) {
+            this.grow(1)
+        }
+        buffer_set data pos (bit_and b 255)
+        pos = (pos + 1)
+        if (pos > length) {
+            length = pos
+        }
+    }
+
+    fn grow:void (need:int) {
+        def cap:int (buffer_length data)
+        def want:int (pos + need)
+        if (want <= cap) {
+            return
+        }
+        def ncap:int cap
+        if (ncap < 64) {
+            ncap = 64
+        }
+        while (ncap < want) {
+            ncap = (ncap * 2)
+        }
+        def next:buffer (buffer_alloc ncap)
+        def i:int 0
+        while (i < pos) {
+            buffer_set next i (buffer_get data i)
+            i = (i + 1)
+        }
+        data = next
+    }
+
+    fn writeVarUint:void (raw:int) {
+        def value:int raw
+        if (value < 0) {
+            value = 0
+        }
+        def guard:int 0
+        while (guard < 5) {
+            def b:int (bit_and value 127)
+            value = (bit_ushr value 7)
+            if (value == 0) {
+                this.writeByte(b)
+                return
+            }
+            this.writeByte((bit_or b 128))
+            guard = (guard + 1)
+        }
+    }
+
+    fn writeVarInt:void (value:int) {
+        def u:int (bit_xor (bit_shl value 1) (bit_shr value 31))
+        this.writeVarUint(u)
+    }
+
+    fn writeVarFloat:void (value:double) {
+        if (value == 0.0) {
+            this.writeByte(0)
+            return
+        }
+        def bits:int (KiwiBuffer.floatToBits(value))
+        def moved:int (bit_or (bit_ushr bits 23) (bit_shl bits 9))
+        if ((bit_and moved 255) == 0) {
+            this.writeByte(0)
+            return
+        }
+        this.writeByte((bit_and moved 255))
+        this.writeByte((bit_and (bit_ushr moved 8) 255))
+        this.writeByte((bit_and (bit_ushr moved 16) 255))
+        this.writeByte((bit_and (bit_ushr moved 24) 255))
+    }
+
+    fn writeString:void (s:string) {
+        def n:int (strlen s)
+        def i:int 0
+        while (i < n) {
+            def cp:int (charAt s i)
+            if ((cp >= 55296) && (cp <= 56319) && ((i + 1) < n)) {
+                def lo:int (charAt s (i + 1))
+                if ((lo >= 56320) && (lo <= 57343)) {
+                    cp = (((cp - 55296) * 1024) + (lo - 56320) + 65536)
+                    i = (i + 1)
+                }
+            }
+            if (cp == 0) {
+                this.writeByte(63)
+            } {
+                if (cp < 128) {
+                    this.writeByte(cp)
+                } {
+                    if (cp < 2048) {
+                        this.writeByte((bit_or 192 (bit_shr cp 6)))
+                        this.writeByte((bit_or 128 (bit_and cp 63)))
+                    } {
+                        if (cp < 65536) {
+                            this.writeByte((bit_or 224 (bit_shr cp 12)))
+                            this.writeByte((bit_or 128 (bit_and (bit_shr cp 6) 63)))
+                            this.writeByte((bit_or 128 (bit_and cp 63)))
+                        } {
+                            this.writeByte((bit_or 240 (bit_shr cp 18)))
+                            this.writeByte((bit_or 128 (bit_and (bit_shr cp 12) 63)))
+                            this.writeByte((bit_or 128 (bit_and (bit_shr cp 6) 63)))
+                            this.writeByte((bit_or 128 (bit_and cp 63)))
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        this.writeByte(0)
+    }
+
+    fn writeByteArray:void (src:buffer) {
+        def n:int (buffer_length src)
+        this.writeVarUint(n)
+        this.grow(n)
+        def i:int 0
+        while (i < n) {
+            this.writeByte((buffer_get src i))
+            i = (i + 1)
+        }
+    }
+
+    fn toBuffer:buffer () {
+        def n:int pos
+        def out:buffer (buffer_alloc n)
+        def i:int 0
+        while (i < n) {
+            buffer_set out i (buffer_get data i)
+            i = (i + 1)
+        }
+        return out
+    }
+}

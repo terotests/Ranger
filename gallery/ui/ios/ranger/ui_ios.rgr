@@ -1,0 +1,499 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; ui_ios.rgr — the dashboard demo on iPhone, iPad and Apple Watch.
+; ==============================================================================
+;
+; `gallery/ui/demo/DashboardDemo.rgr` is a page: a sidebar, four cards, a Vela
+; chart, a virtualised table and a scroll container, built out of EVG
+; controllers and painted from an `EVGDisplayList`. The browser host asks it for
+; `displayListJson()` because a page has to parse something anyway. Swift does
+; not: the demo and the host are objects in one process, so this facade hands
+; the painter `display()` itself — no serialise, no parse, and the gradients and
+; shadows `toJson` does not carry survive to the surface.
+;
+; This is the sibling of `gallery/ui/android/ranger/ui_android.rgr`, and it is
+; deliberately not a copy of it. Three things are different on Apple hardware
+; and all three are here rather than in the Swift host, because a rule that
+; lives in a `UIView` is a rule nothing without a Mac can check:
+;
+;   THE SAFE AREA. An Android surface is the screen. An iPhone's is not: a
+;   notch, a status bar and a home indicator all sit ON the window, and a page
+;   drawn to the window's edges has its top row of cards under the clock. The
+;   host reports the insets it is given and the page is laid into what is left.
+;
+;   THREE SCREEN SIZES, NOT TWO. `fitScale = screenW / 1336` is the right answer
+;   for a tablet and a defensible one for a phone. On a 45mm watch it is 0.15,
+;   which is a photograph of a dashboard rather than a dashboard. So the fit is
+;   a MODE: fit-the-width for a phone or a tablet, and a readable floor plus
+;   panning for a watch.
+;
+;   THE CROWN. A watch scrolls by a rotary encoder that reports its own units,
+;   not by a finger travelling a distance. That conversion is arithmetic and
+;   belongs with the rest of it.
+;
+; Everything else is the same DashboardDemo the browser, the gates, the Android
+; port and the screenshot runner drive. No dashboard, table or chart knowledge
+; lives here.
+; ==============================================================================
+
+Import "../../demo/DashboardDemo.rgr"
+
+class UiIos {
+
+    def app:DashboardDemo (new DashboardDemo)
+    def started:boolean false
+
+    ; The window, in points, and the part of it the system will not cover.
+    ; `screenW`/`screenH` are the whole window; the insets are what the notch,
+    ; the status bar, the home indicator and (on an iPad in Slide Over) the
+    ; neighbouring app take out of it.
+    def screenW:double 0.0
+    def screenH:double 0.0
+    def insetTop:double 0.0
+    def insetBottom:double 0.0
+    def insetLeft:double 0.0
+    def insetRight:double 0.0
+
+    ; What the page has to be scaled by to fit the usable width, and what the
+    ; reader has zoomed in by on top of that.
+    def fitScale:double 1.0
+    def zoomValue:double 1.0
+    ; How far right the page is panned, in PAGE pixels. Only ever non-zero when
+    ; the whole width does not fit, and clamped so the page cannot be dragged
+    ; off its own edge.
+    def panXValue:double 0.0
+
+    ; 0 = fit the width (phone, tablet). 1 = readable floor (watch).
+    def fitMode:int 0
+    ; The smallest scale the readable mode will go to. 1336 page pixels at 0.5
+    ; is 668 of them across a 45mm watch — a column of the page, at a size the
+    ; text on it is text rather than texture.
+    def readableScale:double 0.5
+    ; How many page pixels one detent of the digital crown is worth. The crown
+    ; reports a rotation in fractions of a turn; this is the page distance a
+    ; whole turn scrolls.
+    def crownPageTravel:double 320.0
+
+    Constructor () {
+    }
+
+    ; --- lifecycle ------------------------------------------------------------
+
+    ; `css` is the demo's own stylesheet, read out of the app bundle. It is the
+    ; same file the browser build styles the tree from — not a copy of it, the
+    ; file — so the two cannot drift.
+    fn start:void (w:double h:double css:string) {
+        screenW = w
+        screenH = h
+        this.refit()
+        app.init(css)
+        started = true
+    }
+
+    ; A rotation, a split screen, the keyboard appearing, an iPad resized in
+    ; Stage Manager. The page keeps its width, its scroll offset and every bit
+    ; of its state; only the viewport the scroll container is told about
+    ; changes.
+    fn resize:void (w:double h:double) {
+        screenW = w
+        screenH = h
+        this.refit()
+        if started {
+            app.rebuild()
+        }
+    }
+
+    ; What the system is covering. Reported separately from the size because
+    ; they arrive separately: a rotation changes both, the keyboard changes only
+    ; the bottom, and Dynamic Island changes only the top.
+    fn setSafeArea:void (top:double bottom:double left:double right:double) {
+        insetTop = top
+        insetBottom = bottom
+        insetLeft = left
+        insetRight = right
+        this.refit()
+        if started {
+            app.rebuild()
+        }
+    }
+
+    ; Switch to the watch's fit. Called once, by the watch host, before start.
+    fn useWatchFit:void (minScale:double) {
+        fitMode = 1
+        if (minScale > 0.0) {
+            readableScale = minScale
+        }
+        this.refit()
+    }
+
+    ; --- the viewport ---------------------------------------------------------
+
+    ; The window less what the system covers. Every other number here is
+    ; derived from these two, which is why the insets only have to be right
+    ; once.
+    fn usableWidth:double () {
+        def w:double (screenW - insetLeft - insetRight)
+        if (w < 1.0) {
+            return 1.0
+        }
+        return w
+    }
+
+    fn usableHeight:double () {
+        def h:double (screenH - insetTop - insetBottom)
+        if (h < 1.0) {
+            return 1.0
+        }
+        return h
+    }
+
+    ; The one piece of arithmetic this file exists for.
+    ;
+    ; The page is a fixed-width document, so the scale is a ratio of widths —
+    ; and the page's HEIGHT is then whatever the usable area is worth at that
+    ; scale. Getting that second half wrong is what makes a ported page scroll
+    ; to a stop halfway down the screen: the demo clamps the scroll to its own
+    ; `pageH`, and a `pageH` that is not the viewport is a clamp against a
+    ; viewport nobody has.
+    fn refit:void () {
+        def usable:double (this.usableWidth())
+        def pageW:double (app.widthPx())
+        if (pageW > 0.0) {
+            fitScale = (usable / pageW)
+        }
+        ; On a watch the width fit is unreadable, so it is a FLOOR rather than
+        ; an answer: the page is shown at a size its text survives and the
+        ; reader moves around it, which is what a watch face-sized viewport of a
+        ; desktop page can honestly be.
+        if (fitMode == 1) {
+            if (fitScale < readableScale) {
+                fitScale = readableScale
+            }
+        }
+        def s:double (this.scale())
+        if (s > 0.0) {
+            app.pageH = ((this.usableHeight()) / s)
+        }
+        this.clampPan()
+    }
+
+    ; Page pixels to screen points. The host scales its context by this and
+    ; leaves the display list alone — text then rasterises at the panel's real
+    ; resolution instead of being blown up from a bitmap made at some other
+    ; size, which is the same trick the WebGL host plays with `dpr` and the
+    ; Android port plays with `density`.
+    fn scale:double () {
+        return (fitScale * zoomValue)
+    }
+
+    fn zoom:double () {
+        return zoomValue
+    }
+
+    fn panX:double () {
+        return panXValue
+    }
+
+    ; How much of the page is off the left edge at the current scale. Zero when
+    ; the whole width fits, which is the resting state on a phone and a tablet
+    ; and never the resting state on a watch.
+    fn maxPanX:double () {
+        def s:double (this.scale())
+        if (s <= 0.0) {
+            return 0.0
+        }
+        def visible:double ((this.usableWidth()) / s)
+        def over:double ((app.widthPx()) - visible)
+        if (over < 0.0) {
+            return 0.0
+        }
+        return over
+    }
+
+    fn clampPan:void () {
+        def limit:double (this.maxPanX())
+        if (panXValue > limit) {
+            panXValue = limit
+        }
+        if (panXValue < 0.0) {
+            panXValue = 0.0
+        }
+    }
+
+    ; A pinch. The factor is relative — what the fingers did since the last
+    ; report — and the point under them is held still, which is the whole of
+    ; what a reader expects a pinch to do and the part a naive implementation
+    ; gets wrong by scaling about the origin instead.
+    fn pinch:boolean (factor:double focusX:double focusY:double) {
+        def before:double zoomValue
+        def next:double (zoomValue * factor)
+        if (next < 1.0) {
+            next = 1.0
+        }
+        if (next > 4.0) {
+            next = 4.0
+        }
+        if (next == before) {
+            return false
+        }
+        def pageX:double (this.toPageX(focusX))
+        zoomValue = next
+        this.refit()
+        def s:double (this.scale())
+        panXValue = (pageX - ((focusX - insetLeft) / s))
+        this.clampPan()
+        if started {
+            app.rebuild()
+        }
+        return true
+    }
+
+    ; Back to the whole width. What a double tap means.
+    fn resetZoom:boolean () {
+        if ((zoomValue == 1.0) && (panXValue == 0.0)) {
+            return false
+        }
+        zoomValue = 1.0
+        panXValue = 0.0
+        this.refit()
+        if started {
+            app.rebuild()
+        }
+        return true
+    }
+
+    ; Sideways, and only ever inside the page. `dx` is in SCREEN points because
+    ; it comes from a finger; everything below it is page pixels.
+    fn panBy:boolean (dx:double) {
+        def s:double (this.scale())
+        if (s <= 0.0) {
+            return false
+        }
+        def before:double panXValue
+        panXValue = (panXValue - (dx / s))
+        this.clampPan()
+        return (panXValue != before)
+    }
+
+    ; --- screen to page -------------------------------------------------------
+    ;
+    ; A touch arrives in WINDOW coordinates, which start at the window's corner
+    ; and not at the page's. The safe area is taken off first, then the scale,
+    ; then the pan. A host that skipped the first of those would be wrong by the
+    ; height of the status bar everywhere on the page, and by the notch on a
+    ; phone held sideways.
+
+    fn toPageX:double (x:double) {
+        def s:double (this.scale())
+        if (s <= 0.0) {
+            return x
+        }
+        return (((x - insetLeft) / s) + panXValue)
+    }
+
+    fn toPageY:double (y:double) {
+        def s:double (this.scale())
+        if (s <= 0.0) {
+            return y
+        }
+        return ((y - insetTop) / s)
+    }
+
+    ; --- the frame ------------------------------------------------------------
+
+    ; The display list itself, laid out and with the chart already in it.
+    fn frame:EVGDisplayList () {
+        return (app.display())
+    }
+
+    fn pageWidth:double () {
+        return (app.widthPx())
+    }
+
+    fn pageHeight:double () {
+        return (app.heightPx())
+    }
+
+    ; --- input ----------------------------------------------------------------
+
+    ; The CACHED hit test, not `hitId`. The demo's own one repaints the page
+    ; before answering, chart and all, which is the right trade for a browser
+    ; calling it once per click and the wrong one for a touchscreen: every touch
+    ; down would re-run the Vela runtime for geometry the hit test cannot reach
+    ; anyway, because the chart is not in the element tree.
+    fn hitAt:string (x:double y:double) {
+        return (app.hitIdCached((this.toPageX(x)) (this.toPageY(y))))
+    }
+
+    ; A finger down: what it landed on is pressed, and what it landed on is
+    ; worked. Both, because the pressed CLASS is what the stylesheet reads and
+    ; the press is what the controller acts on.
+    fn pressAt:boolean (x:double y:double) {
+        def id:string (this.hitAt(x y))
+        app.setPressed(id)
+        app.press(id)
+        return true
+    }
+
+    ; A finger up. Nothing is activated here — the press already did that — but
+    ; the pressed flag has to go, or the last thing touched stays lit.
+    fn releasePress:boolean () {
+        app.setPressed("")
+        return true
+    }
+
+    ; A pointer on an iPad, or a hover from a trackpad. There is no such thing
+    ; on a phone or a watch, and the demo does not mind being told there is not.
+    fn hoverAt:boolean (x:double y:double) {
+        app.setHover((this.hitAt(x y)))
+        return true
+    }
+
+    ; --- scrolling ------------------------------------------------------------
+
+    ; The demo's own scroll container, in page pixels. A drag reports SCREEN
+    ; points, so a zoomed-in page scrolls by less document than the finger
+    ; travelled — which is what zoom means.
+    fn scrollByScreen:boolean (dy:double) {
+        def s:double (this.scale())
+        if (s <= 0.0) {
+            return false
+        }
+        return (app.scrollBy((dy / s)))
+    }
+
+    ; The digital crown. `turns` is what the crown reported — a fraction of a
+    ; full rotation, positive downwards — and it is NOT a distance on a screen,
+    ; so it does not go through the scale the way a finger does. One turn moves
+    ; the page by `crownPageTravel` page pixels whatever the page is scaled to,
+    ; which is what makes the crown feel the same on a 40mm watch and a 49mm
+    ; one.
+    fn scrollByCrown:boolean (turns:double) {
+        return (app.scrollBy((turns * crownPageTravel)))
+    }
+
+    fn scrollTop:double () {
+        return app.scrollY
+    }
+
+    fn maxScroll:double () {
+        return (app.maxScroll())
+    }
+
+    ; --- the keyboard ---------------------------------------------------------
+    ; An iPad with a Magic Keyboard, or a Bluetooth keyboard on a phone. The
+    ; demo already knows what every key means; the host only has to name them
+    ; the way the browser does.
+    fn key:boolean (name:string) {
+        return (app.key(name))
+    }
+
+    ; --- the surface's ripple -------------------------------------------------
+    ;
+    ; `evg-surface-effect: ripple` is a POST-PROCESS: the page is drawn, and
+    ; then the finished pixels are read through a shader that bends the sample
+    ; position in a ring around wherever the surface was touched. Nothing on the
+    ; page knows it happened — which is why nothing here rebuilds anything.
+    ;
+    ; SCREEN coordinates in, page coordinates out — the drops are stamped onto
+    ; the page and the page is what the shader works in.
+
+    fn rippleAt:void (x:double y:double) {
+        app.ripple((this.toPageX(x)) (this.toPageY(y)))
+    }
+
+    ; A finger dragged across the surface leaves a WAKE — one source every few
+    ; pixels rather than one that follows the pointer, because a wake is a row
+    ; of sources and a source that moves has no history.
+    fn rippleTo:void (x:double y:double) {
+        app.rippleDragTo((this.toPageX(x)) (this.toPageY(y)))
+    }
+
+    fn rippleEnd:void () {
+        app.rippleRelease()
+    }
+
+    ; Milliseconds, because that is what a frame loop has. Answers whether
+    ; anything is still moving, so a host can stop asking for frames without a
+    ; second call.
+    ;
+    ; THE STEP IS CLAMPED HERE, and that is the point of this method existing
+    ; rather than the host calling `app.tick` itself. A frame can arrive a
+    ; second late — the app was backgrounded, or a watch throttled it — and
+    ; ageing every touch out of existence in one step is wrong. But so is the
+    ; other reflex, which is to SKIP a step that looks impossible: a step that
+    ; is skipped is a page that never goes quiet, and a page that never goes
+    ; quiet keeps a full-screen effect running for as long as the app is open.
+    ;
+    ; A clamp cannot do that. However late a frame is, time moves.
+    fn tick:boolean (dtMs:double) {
+        def step:double dtMs
+        if (step < 4.0) {
+            step = 4.0
+        }
+        if (step > 64.0) {
+            step = 64.0
+        }
+        app.tick(step)
+        return (app.busyNow())
+    }
+
+    fn busy:boolean () {
+        return (app.busyNow())
+    }
+
+    ; The touches in flight, oldest first, in PAGE pixels. Read one at a time
+    ; rather than as arrays: a host that is about to write eight uniforms wants
+    ; eight numbers, not a copy of three lists per frame.
+    fn dropCount:int () {
+        return (app.dropCount())
+    }
+
+    fn dropX:double (i:int) {
+        if (i >= (array_length app.dropXs)) {
+            return 0.0
+        }
+        return (itemAt app.dropXs i)
+    }
+
+    fn dropY:double (i:int) {
+        if (i >= (array_length app.dropYs)) {
+            return 0.0
+        }
+        return (itemAt app.dropYs i)
+    }
+
+    ; Seconds since the touch. The shader turns this into a radius.
+    fn dropAge:double (i:int) {
+        if (i >= (array_length app.dropAges)) {
+            return 0.0
+        }
+        return (itemAt app.dropAges i)
+    }
+
+    ; --- what the page says ---------------------------------------------------
+
+    fn navPage:string () {
+        return app.navPage
+    }
+
+    fn commandCount:int () {
+        def dl:EVGDisplayList (this.frame())
+        return (array_length dl.cmds)
+    }
+
+    ; How many of those commands are the chart's. The check's way of asking
+    ; whether Vela ran at all, without asserting a particular outline.
+    fn chartCommandCount:int () {
+        return (app.chartCommandCount())
+    }
+
+    fn styleErrorCount:int () {
+        return (app.styleErrorCount())
+    }
+
+    fn styleErrorAt:string (i:int) {
+        return (app.styleErrorAt(i))
+    }
+}

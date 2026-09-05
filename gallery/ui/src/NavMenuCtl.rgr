@@ -1,0 +1,343 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; NavMenuCtl — measured against @radix-ui/react-navigation-menu
+; =============================================================================
+; A site navigation bar, and it is deliberately NOT a menubar. Measured
+; (conformance/specs/navigationmenu_pointer.json), the differences are the
+; whole reason it is a separate control rather than a skin on MenubarCtl:
+;
+;   trigger   role BUTTON, not menuitem — this is site navigation, not an
+;             application menu, and a reader is told so.
+;   tab stops EVERY trigger is one. There is no roving focus: Tab walks the
+;             navigation, which is what someone reading a page expects.
+;   open      focus stays ON THE TRIGGER. A menu moves focus into itself and
+;             traps it; this one opens a panel and leaves you where you were.
+;   content   no role at all, and its links are LINKS — each one a tab stop,
+;             because a panel of links is a piece of the page rather than a
+;             widget with a keyboard of its own.
+;   viewport  one shared box that carries the open state, whichever panel is
+;             showing. It is in the tree even when nothing is open.
+; =============================================================================
+
+Import "UiCtl.rgr"
+Import "UiTree.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+
+class UiNavSection {
+    def value:string ""
+    def name:string ""
+    def links:[UiItem]
+    def triggerEl:EVGElement
+    def contentEl:EVGElement
+
+    Constructor () {
+        triggerEl = (EVGElement.createDiv())
+        contentEl = (EVGElement.createDiv())
+        def empty:[UiItem]
+        links = empty
+    }
+}
+
+class NavMenuCtl extends UiCtl {
+    def sections:[UiNavSection]
+    def openValue:string ""
+    def listEl:EVGElement
+    def viewportEl:EVGElement
+
+    Constructor () {
+        rootEl = (EVGElement.createDiv())
+        listEl = (EVGElement.createDiv())
+        viewportEl = (EVGElement.createDiv())
+        def empty:[UiNavSection]
+        sections = empty
+    }
+
+    fn addSection:UiNavSection (sectionValue:string sectionName:string) {
+        def s (new UiNavSection())
+        s.value = sectionValue
+        s.name = sectionName
+        push sections s
+        return s
+    }
+
+    fn addLink:void (sectionValue:string linkValue:string linkName:string) {
+        def i:int (this.indexOfSection(sectionValue))
+        if (i < 0) {
+            return
+        }
+        def s:UiNavSection (itemAt sections i)
+        def l (new UiItem())
+        l.value = linkValue
+        l.name = linkName
+        push s.links l
+    }
+
+    fn listTid:string () {
+        return (tid + "-list")
+    }
+
+    fn viewportTid:string () {
+        return (tid + "-viewport")
+    }
+
+    fn triggerTid:string (sectionValue:string) {
+        return ((tid + "-") + sectionValue) + "-trigger"
+    }
+
+    fn contentTid:string (sectionValue:string) {
+        return ((tid + "-") + sectionValue) + "-content"
+    }
+
+    fn linkTid:string (sectionValue:string linkValue:string) {
+        return ((((tid + "-") + sectionValue) + "-link-") + linkValue)
+    }
+
+    fn indexOfSection:int (sectionValue:string) {
+        def i:int 0
+        while (i < (array_length sections)) {
+            def s:UiNavSection (itemAt sections i)
+            if (s.value == sectionValue) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn sectionOf:string (target:string) {
+        def i:int 0
+        while (i < (array_length sections)) {
+            def s:UiNavSection (itemAt sections i)
+            if (target == (this.triggerTid(s.value))) {
+                return s.value
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn stateWord:string (sectionValue:string) {
+        if (sectionValue == openValue) {
+            return "open"
+        }
+        return "closed"
+    }
+
+    fn activate:string (target:string) {
+        if disabled {
+            return ""
+        }
+        def sectionValue:string (this.sectionOf(target))
+        if ((strlen sectionValue) == 0) {
+            return ""
+        }
+        if (sectionValue == openValue) {
+            openValue = ""
+        } {
+            openValue = sectionValue
+        }
+        this.build()
+        ; Focus stays on the trigger — the panel is content, not a widget to
+        ; be entered.
+        return target
+    }
+
+    fn keyDown:string (target:string key:string) {
+        if disabled {
+            return ""
+        }
+        if (key == "Escape") {
+            if ((strlen openValue) > 0) {
+                openValue = ""
+                this.build()
+            }
+            return ""
+        }
+        if (UiCtl.activatesOn(key)) {
+            return (this.activate(target))
+        }
+        return ""
+    }
+
+    fn build:void () {
+        def root:EVGElement (unwrap rootEl)
+        root.id = tid
+        root.className = "ui-navmenu"
+        UiTree.clearChildren(root)
+
+        def list:EVGElement (unwrap listEl)
+        list.id = (this.listTid())
+        list.className = "ui-navmenu-list"
+        UiTree.clearChildren(list)
+
+        def i:int 0
+        while (i < (array_length sections)) {
+            def s:UiNavSection (itemAt sections i)
+            def word:string (this.stateWord(s.value))
+            def trig:EVGElement (unwrap s.triggerEl)
+            trig.id = (this.triggerTid(s.value))
+            trig.className = "ui-navmenu-trigger"
+            UiTree.setState(trig "ui-navmenu-trigger" word)
+            UiTree.leafText(trig s.name)
+            UiTree.anchor(trig)
+            ; Wrapped in a list item, to match both Radix's markup and the
+            ; rows above. A row without an element is not reachable.
+            def li (EVGElement.createDiv())
+            li.id = ((this.triggerTid(s.value)) + "-li")
+            li.className = "ui-navmenu-item"
+            li.addChild(trig)
+            list.addChild(li)
+
+            if (s.value == openValue) {
+                def content:EVGElement (unwrap s.contentEl)
+                content.id = (this.contentTid(s.value))
+                content.className = "ui-navmenu-content"
+                UiTree.surface(content "bottom" "start")
+                UiTree.clearChildren(content)
+                def j:int 0
+                while (j < (array_length s.links)) {
+                    def l:UiItem (itemAt s.links j)
+                    def el:EVGElement (unwrap l.el)
+                    el.id = (this.linkTid(s.value l.value))
+                    el.className = "ui-navmenu-link"
+                    UiTree.leafText(el l.name)
+                    content.addChild(el)
+                    j = (j + 1)
+                }
+                list.addChild(content)
+            }
+            i = (i + 1)
+        }
+        root.addChild(list)
+
+        ; The viewport is drawn only while a panel is showing — see rows().
+        if ((strlen openValue) > 0) {
+            def vp:EVGElement (unwrap viewportEl)
+            vp.id = (this.viewportTid())
+            vp.className = "ui-navmenu-viewport"
+            UiTree.setState(vp "ui-navmenu-viewport" "open")
+            root.addChild(vp)
+        }
+    }
+
+    fn tids:[string] () {
+        def a:[string]
+        push a tid
+        push a (this.listTid())
+        def i:int 0
+        while (i < (array_length sections)) {
+            def s:UiNavSection (itemAt sections i)
+            push a (this.triggerTid(s.value))
+            push a ((this.triggerTid(s.value)) + "-li")
+            push a (this.contentTid(s.value))
+            def j:int 0
+            while (j < (array_length s.links)) {
+                def l:UiItem (itemAt s.links j)
+                push a (this.linkTid(s.value l.value))
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+        push a (this.viewportTid())
+        return a
+    }
+
+    fn isFocusable:boolean (target:string) {
+        if disabled {
+            return false
+        }
+        if ((strlen (this.sectionOf(target))) > 0) {
+            return true
+        }
+        def i:int 0
+        while (i < (array_length sections)) {
+            def s:UiNavSection (itemAt sections i)
+            if (s.value == openValue) {
+                def j:int 0
+                while (j < (array_length s.links)) {
+                    def l:UiItem (itemAt s.links j)
+                    if (target == (this.linkTid(s.value l.value))) {
+                        return true
+                    }
+                    j = (j + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+        ; A NAVIGATION LANDMARK. Radix renders `NavigationMenu.Root` as a
+        ; `<nav>` and this side reported no role at all until the trace learnt
+        ; to read implicit ones — so a reader could not jump to it, and nothing
+        ; said so.
+        def rootRow:UiRow (UiRow.of(tid (EVGA11yRole.navigation()) name))
+        push out rootRow
+        def listRow:UiRow (UiRow.of((this.listTid()) (EVGA11yRole.list()) ""))
+        listRow.parentTid = tid
+        push out listRow
+
+        def i:int 0
+        while (i < (array_length sections)) {
+            def s:UiNavSection (itemAt sections i)
+            def word:string (this.stateWord(s.value))
+            ; A LIST ITEM around each trigger, which is what Radix renders —
+            ; `NavigationMenu.Item` is an `<li>`. Without it the list has
+            ; buttons for children, which is invalid ARIA and which axe said so
+            ; about the moment the list stopped claiming no role at all. The
+            ; conformance diff could not see it: Radix's `<li>` carries no test
+            ; id, so it is not in the trace on either side.
+            def liRow:UiRow (UiRow.of(((this.triggerTid(s.value)) + "-li") (EVGA11yRole.listItem()) ""))
+            liRow.parentTid = (this.listTid())
+            push out liRow
+
+            def trigRow:UiRow (UiRow.of((this.triggerTid(s.value)) (EVGA11yRole.button()) s.name))
+            trigRow.parentTid = ((this.triggerTid(s.value)) + "-li")
+            trigRow.state = word
+            trigRow.focusable = true
+            ; Every one of them, always. Tab walks the navigation.
+            trigRow.tabStop = true
+            if (s.value == openValue) {
+                trigRow.expanded = (EVGA11yTri.yes())
+            } {
+                trigRow.expanded = (EVGA11yTri.no())
+            }
+            push out trigRow
+            i = (i + 1)
+        }
+
+        ; The viewport exists only while something is open. Measured, and it
+        ; corrected the assumption written here first: the reference renders
+        ; the box on demand rather than keeping an empty one in the page.
+        if ((strlen openValue) > 0) {
+            def vpRow:UiRow (UiRow.of((this.viewportTid()) (EVGA11yRole.none()) ""))
+            vpRow.state = "open"
+            push out vpRow
+        }
+
+        def k:int 0
+        while (k < (array_length sections)) {
+            def s:UiNavSection (itemAt sections k)
+            if (s.value == openValue) {
+                def contentRow:UiRow (UiRow.of((this.contentTid(s.value)) (EVGA11yRole.none()) ""))
+                push out contentRow
+                def j:int 0
+                while (j < (array_length s.links)) {
+                    def l:UiItem (itemAt s.links j)
+                    def row:UiRow (UiRow.of((this.linkTid(s.value l.value)) (EVGA11yRole.link()) l.name))
+                    row.parentTid = (this.contentTid(s.value))
+                    row.focusable = true
+                    row.tabStop = true
+                    push out row
+                    j = (j + 1)
+                }
+            }
+            k = (k + 1)
+        }
+        return out
+    }
+}

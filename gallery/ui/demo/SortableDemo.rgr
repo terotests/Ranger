@@ -1,0 +1,441 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; SortableDemo — a sortable file list, written with Ranger tree literals
+; =============================================================================
+; The reference is ReUI's Sortable (https://reui.io/components/sortable): a
+; column of cards, each with a drag handle, a type icon, a title with a line of
+; description under it, a coloured badge and a size at the far right. The
+; behaviour underneath it is @dnd-kit, which `SortableCtl` in gallery/ui/src is
+; measured against; this is the same interaction wearing the clothes the
+; reference wears, because "does it work" and "does it look like the thing"
+; are two different questions and the conformance host only answers the first.
+;
+; A third `treefactory`, and the tags say what a row is made of rather than
+; what it is made from: `Grip`, `Icon`, `Title`, `Subtitle`, `Badge`, `Size`.
+; None of them mean anything to the other two factories in this directory.
+;
+; What this one exercises that the menubar and toolbar did not:
+;
+;   * a row with three regions — a fixed left, a growing middle, a fixed right
+;     — which is `space-between` plus `fit-content`, and the first layout here
+;     that has to survive text of different lengths.
+;   * per-kind styling from data: the badge's colour is a class the builder
+;     picks from the item's kind, not a branch in the stylesheet.
+;   * ORDER as state. The page holds a list of ids and hands it over; the tree
+;     is rebuilt from it. Reordering is rebuilding, which is the whole claim of
+;     this directory — and for a long time the claim was only half true here.
+;
+;     A drag changes its target every time the pointer crosses a row, and that
+;     is exactly the moment the gap has to OPEN. Rebuilding gave every row a
+;     brand-new element with no flight, so the rows arrived at their new
+;     positions instead of travelling to them; measured, they were there 40ms
+;     after the crossing having gone through nothing. So this file carried an
+;     `applyShift` that re-aimed the existing list by hand, and the page
+;     carried a `movePreview` that reached in and set two attributes — a keyed
+;     reconciler for one list, written without keys, correct only because the
+;     order does not change mid-drag.
+;
+;     `EVGReconcile` is that reconciler with the keys put back. Every row
+;     carries a `key`, the page rebuilds on every frame of a drag, and the two
+;     imperative special cases are gone.
+; =============================================================================
+
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGUnit.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGStyleSheet.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+Import "../../evg/EVGA11yFromTree.rgr"
+Import "../../evg/EVGHitTest.rgr"
+; Not used by the builders below — imported so the page can drive a
+; transition over the tree they produce. Hover is a presentational state and
+; belongs to the stylesheet; the demo just builds boxes with class names.
+Import "../../evg/EVGTransition.rgr"
+; Same: not used by the builders, imported so the page can reconcile one built
+; tree into another and keep the elements. `key` below is what makes that work.
+Import "../../evg/EVGReconcile.rgr"
+
+treefactory Sortable {
+    child addChild
+    text  textContent
+
+    tag Page     EVGElement (props (className "sr-page"))
+    ; A GROUP, not a list. `role="list"` demands `listitem` children and these
+    ; are buttons — axe called it critical, and it is right: a reader that is
+    ; promised a list and handed five buttons is told the wrong thing about
+    ; what it is walking. The reference does not name the container at all;
+    ; naming it costs nothing and gives the set an identity.
+    ; Keyed, and so is the preview beside it. The page's two children are a
+    ; list and a floating copy that comes and goes, and unkeyed positional
+    ; matching would be fine — until the preview is the only child left, at
+    ; which point it would inherit the list's element. A key costs one word.
+    tag List     EVGElement (props (className "sr-list") (key "list") (role "group") (a11yLabel "Product files"))
+    ; A row is what you pick up, so it carries the role, the tab stop and the
+    ; role description — the same three things dnd-kit puts on its items, and
+    ; the reason a reader is told "sortable" rather than just "button".
+    tag Row      EVGElement (props (className "sr-row") (role "button") (a11yFocusable true) (a11yRoleDescription "sortable"))
+    ; Six dots in two columns — Lucide's grip, drawn rather than typed. The
+    ; braille character ⠿ is close enough to pass at a glance and wrong at
+    ; every size: it is a glyph the font decides the shape of.
+    tag Grip     EVGElement (props (className "sr-grip") (tagName "path") (elementType 3) (viewBox "0 0 24 24"))
+    ; A real drawing, not a character. The reference's icons are line art and
+    ; a font glyph cannot be that — EVG has had `path` with `d`, `viewBox`,
+    ; `fill` and `stroke` all along, and nothing in this directory had used it.
+    tag Icon     EVGElement (props (className "sr-icon") (tagName "path") (elementType 3) (viewBox "0 0 24 24"))
+    ; The left-hand group. It exists because `space-between` spreads ALL of a
+    ; row's children, so four of them came out evenly spaced across the card
+    ; instead of three packed left and one at the end. Two groups, one gap.
+    tag Left     EVGElement (props (className "sr-left"))
+    tag Body     EVGElement (props (className "sr-body"))
+    tag Title    EVGElement (props (className "sr-title") (elementType 1))
+    tag Subtitle EVGElement (props (className "sr-subtitle") (elementType 1))
+    tag Right    EVGElement (props (className "sr-right"))
+    tag Badge    EVGElement (props (className "sr-badge") (elementType 1))
+    tag Size     EVGElement (props (className "sr-size") (elementType 1))
+}
+
+class SortableDemo {
+
+    ; --- the catalogue ---------------------------------------------------------
+    ; Five files, in the order the reference shows them. The demo's state is a
+    ; list of these ids and nothing else.
+
+    sfn ids:[string] () {
+        return ([] _:string ( "demo" "spec" "video" "audio" "extra" ))
+    }
+
+    sfn titleOf:string (id:string) {
+        if (id == "demo")  { return "Product Demo" }
+        if (id == "spec")  { return "Product Specification" }
+        if (id == "video") { return "Product Demo Video" }
+        if (id == "audio") { return "Product Audio Guide" }
+        if (id == "extra") { return "Product Specification" }
+        return id
+    }
+
+    sfn subtitleOf:string (id:string) {
+        if (id == "demo")  { return "Main product image" }
+        if (id == "spec")  { return "Technical details document" }
+        if (id == "video") { return "How to use the product" }
+        if (id == "audio") { return "Audio instructions" }
+        if (id == "extra") { return "Additional product view" }
+        return ""
+    }
+
+    sfn kindOf:string (id:string) {
+        if (id == "video") { return "video" }
+        if (id == "audio") { return "audio" }
+        if (id == "spec")  { return "document" }
+        return "image"
+    }
+
+    sfn sizeOf:string (id:string) {
+        if (id == "demo")  { return "2.4 MB" }
+        if (id == "spec")  { return "1.2 MB" }
+        if (id == "video") { return "15.7 MB" }
+        if (id == "audio") { return "8.3 MB" }
+        if (id == "extra") { return "3.1 MB" }
+        return ""
+    }
+
+    ; The handle: two columns of three filled dots, as one path.
+    sfn gripPath:string () {
+        return "M10 12 A1 1 0 1 1 8 12 A1 1 0 1 1 10 12 Z M10 5 A1 1 0 1 1 8 5 A1 1 0 1 1 10 5 Z M10 19 A1 1 0 1 1 8 19 A1 1 0 1 1 10 19 Z M16 12 A1 1 0 1 1 14 12 A1 1 0 1 1 16 12 Z M16 5 A1 1 0 1 1 14 5 A1 1 0 1 1 16 5 Z M16 19 A1 1 0 1 1 14 19 A1 1 0 1 1 16 19 Z"
+    }
+
+    ; The type icon, as one `d` string.
+    ;
+    ; These are the Lucide shapes the reference draws — a 24x24 box, stroked
+    ; and not filled — written as a single path each, with the circles and
+    ; rounded rectangles expanded into arcs because `svgPath` takes one `d`
+    ; and an element is one shape. A font glyph could not be this: ▣ is a
+    ; character that happens to look like a frame, and the difference shows
+    ; the moment it sits next to the real thing.
+    sfn iconPath:string (kind:string) {
+        if (kind == "video") {
+            ; A camcorder: the body, and the lens block beside it.
+            return "M16 13 L21.223 16.482 A0.5 0.5 0 0 0 22 16.066 V7.87 A0.5 0.5 0 0 0 21.248 7.438 L16 10.5 M4 6 H14 A2 2 0 0 1 16 8 V16 A2 2 0 0 1 14 18 H4 A2 2 0 0 1 2 16 V8 A2 2 0 0 1 4 6 Z"
+        }
+        if (kind == "audio") {
+            ; A beamed note: the stem, and the two heads.
+            return "M9 18 V5 L21 3 V16 M9 18 A3 3 0 1 1 3 18 A3 3 0 1 1 9 18 Z M21 16 A3 3 0 1 1 15 16 A3 3 0 1 1 21 16 Z"
+        }
+        if (kind == "document") {
+            ; A page with a folded corner and three lines of text.
+            return "M15 2 H6 A2 2 0 0 0 4 4 V20 A2 2 0 0 0 6 22 H18 A2 2 0 0 0 20 20 V7 Z M14 2 V6 A2 2 0 0 0 16 8 H20 M10 9 H8 M16 13 H8 M16 17 H8"
+        }
+        ; A picture: the frame, the sun, and the hill.
+        return "M5 3 H19 A2 2 0 0 1 21 5 V19 A2 2 0 0 1 19 21 H5 A2 2 0 0 1 3 19 V5 A2 2 0 0 1 5 3 Z M11 9 A2 2 0 1 1 7 9 A2 2 0 1 1 11 9 Z M21 15 L17.914 11.914 A2 2 0 0 0 15.086 11.914 L6 21"
+    }
+
+    ; --- a row -----------------------------------------------------------------
+
+    sfn rowId:string (id:string) {
+        return ("sr-row-" + id)
+    }
+
+    ; `dragging` is the id being carried, "" for none. It only changes classes:
+    ; where the row is DRAWN is the page's business, and the order it is drawn
+    ; in is the list it was handed.
+    sfn row:EVGElement (id:string dragging:string) {
+        return (SortableDemo.rowAt(id dragging 0 false))
+    }
+
+    ; One row.
+    ;
+    ; `shift` is -1, 0 or +1: whether this row has to make room for the one
+    ; being carried, and in which direction. It is a CLASS and not a number,
+    ; because a row only ever moves by exactly one place — pick a row up and
+    ; drop it three down and the three it passes each move up ONE, they do not
+    ; move three. Two classes are therefore the whole vocabulary.
+    ;
+    ; `floating` builds the copy that follows the pointer. It carries no id, on
+    ; purpose: hit testing scans the display list backwards, so an id here
+    ; would put the preview under the cursor and the row beneath it would never
+    ; be found. The preview is a picture; the list is what answers.
+    sfn rowAt:EVGElement (id:string dragging:string shift:int floating:boolean) {
+        def kind:string (SortableDemo.kindOf(id))
+        ; What a dragged row leaves BEHIND is a faded outline holding the
+        ; place. dnd-kit calls it the placeholder, and it is the thing that
+        ; makes a drag legible — without it the list has a hole and nothing
+        ; says what came out of it.
+        def cls:string (SortableDemo.rowClass(id dragging shift))
+        def rowKey:string (SortableDemo.rowId(id))
+        ; The RECONCILER's name for this row, next to but not the same as its
+        ; id. The preview deliberately has no id — hit testing scans backwards
+        ; and an id here would put the preview under the cursor so the row
+        ; beneath it could never be found — but it very much needs a key, or a
+        ; rebuild would match it against the first list row and the two would
+        ; trade elements every frame.
+        def key:string rowKey
+        if floating {
+            cls = "sr-row sr-row-preview"
+            rowKey = ""
+            key = "preview"
+        }
+        return (tree Sortable
+            (Row (props (id rowKey) (key key) (className cls) (a11yLabel (SortableDemo.titleOf(id))))
+                ; Six dots, the handle every list like this has. It is not a
+                ; separate target here: the whole row is draggable, and the
+                ; grip says so rather than being the only place that works.
+                (Left
+                    (Grip (props (svgPath (SortableDemo.gripPath()))))
+                    (Icon (props (svgPath (SortableDemo.iconPath(kind)))))
+                    (Body
+                        (Title (SortableDemo.titleOf(id)))
+                        (Subtitle (SortableDemo.subtitleOf(id)))))
+                (Right
+                    (Badge (props (className ("sr-badge sr-badge-" + kind))) kind)
+                    (Size (SortableDemo.sizeOf(id))))))
+    }
+
+    sfn list:EVGElement (order:[string] dragging:string) {
+        return (SortableDemo.listOver(order dragging ""))
+    }
+
+    ; Which way row `i` has to move to open a gap, given that the row at `a` is
+    ; being carried towards `b`.
+    ;
+    ; The order itself does NOT change while a drag is in flight — that is the
+    ; whole point, and it is what dnd-kit does. Reordering live means rebuilding
+    ; the list on every pointer move, and a rebuilt list has different elements
+    ; in it, so nothing can glide anywhere: the rows teleport. Keeping the order
+    ; still and moving the rows with transforms is what lets the gap OPEN before
+    ; the drop rather than after it.
+    sfn shiftFor:int (i:int a:int b:int) {
+        if ((a < 0) || (b < 0)) {
+            return 0
+        }
+        if (a < b) {
+            if ((i > a) && (i <= b)) {
+                return (0 - 1)
+            }
+            return 0
+        }
+        if (a > b) {
+            if ((i >= b) && (i < a)) {
+                return 1
+            }
+            return 0
+        }
+        return 0
+    }
+
+    ; One row's height plus the list's gap: how far a row moves when it steps
+    ; one place. It has to agree with `.sr-row`'s height and `.sr-list`'s gap in
+    ; sortable.css, and it is the one number here that a change over there can
+    ; silently break.
+    sfn stride:double () {
+        return 88.0
+    }
+
+    sfn listOver:EVGElement (order:[string] dragging:string overId:string) {
+        def out (tree Sortable (List (props (id "sr-list"))))
+        def a:int (SortableDemo.slotOf(order dragging))
+        def b:int (SortableDemo.slotOf(order overId))
+        def i:int 0
+        while (i < (array_length order)) {
+            def id:string (itemAt order i)
+            def shift:int (SortableDemo.shiftFor(i a b))
+            def one:EVGElement (SortableDemo.rowAt(id dragging shift false))
+            ; The placeholder travels to the slot it will land in, so the gap
+            ; the other rows opened has the ghost sitting in it rather than a
+            ; hole. It moves by however many places it is going — unlike every
+            ; other row, which only ever steps one — so this is the one
+            ; transform here that cannot be a class.
+            if ((i == a) && (b >= 0)) {
+                def dy:double ((to_double (b - a)) * (SortableDemo.stride()))
+                one.setAttribute("transform" ("translate(0, " + (to_string (to_int dy)) + "px)"))
+                one.markInline("transform")
+            }
+            out.addChild(one)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The class a row wears, given what is being carried and where it is going.
+    sfn rowClass:string (id:string dragging:string shift:int) {
+        def cls:string "sr-row"
+        if (id == dragging) {
+            cls = "sr-row sr-row-dragging"
+        }
+        ; Every row, not just the moving ones: the class carries the TRANSITION
+        ; and its absence is what makes the transform snap when the drag ends.
+        ; See `.sr-row-sorting` in sortable.css for why that matters at the
+        ; drop.
+        if ((strlen dragging) > 0) {
+            cls = (cls + " sr-row-sorting")
+        }
+        if (shift < 0) {
+            cls = (cls + " sr-row-up")
+        }
+        if (shift > 0) {
+            cls = (cls + " sr-row-down")
+        }
+        return cls
+    }
+
+    sfn slotOf:int (order:[string] id:string) {
+        if ((strlen id) == 0) {
+            return (0 - 1)
+        }
+        def i:int 0
+        while (i < (array_length order)) {
+            if ((itemAt order i) == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    sfn page:EVGElement (order:[string] dragging:string) {
+        return (SortableDemo.dragPage(order dragging "" 0.0 0.0 false))
+    }
+
+    ; The list, plus the copy that follows the pointer.
+    ;
+    ; The preview is positioned with `left`/`top`, which takes it out of the
+    ; flow — so it does not disturb the column — and it is added LAST, which is
+    ; what puts it on top: the display list paints children in order and there
+    ; is no z-index to get wrong. Without both of those a dragged row is drawn
+    ; UNDER the row it is passing, which is the one thing a drag must never
+    ; look like.
+    sfn dragPage:EVGElement (order:[string] dragging:string overId:string px:double py:double floating:boolean) {
+        def root (tree Sortable
+            (Page (props (id "page"))
+                (child (SortableDemo.listOver(order dragging overId)))))
+        ; Only a POINTER drag floats a copy. Picking a row up from the
+        ; keyboard moves it with the arrow keys and never leaves the list, so
+        ; there is nothing following anything and a preview would be a lie
+        ; about where the row is.
+        if (floating && ((strlen dragging) > 0)) {
+            def preview:EVGElement (SortableDemo.rowAt(dragging dragging 0 true))
+            preview.setAttribute("left" ((to_string (to_int px)) + "px"))
+            preview.setAttribute("top" ((to_string (to_int py)) + "px"))
+            preview.markInline("left")
+            preview.markInline("top")
+            root.addChild(preview)
+        }
+        return root
+    }
+
+    ; --- one pipeline, four answers --------------------------------------------
+
+    sfn laidOut:EVGLayout (root:EVGElement css:string) {
+        def sheet (new EVGStyleSheet())
+        sheet.parse(css)
+        sheet.setViewport(1240.0 560.0 false)
+        sheet.applyTree(root "")
+        def lay (new EVGLayout())
+        lay.setPageSize(1240.0 560.0)
+        lay.layout(root)
+        return lay
+    }
+
+    sfn displayListJson:string (css:string order:[string] dragging:string) {
+        def root:EVGElement (SortableDemo.page(order dragging))
+        def lay:EVGLayout (SortableDemo.laidOut(root css))
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(root)
+        return (dl.toJson())
+    }
+
+    sfn hitId:string (css:string order:[string] dragging:string px:double py:double) {
+        def root:EVGElement (SortableDemo.page(order dragging))
+        SortableDemo.laidOut(root css)
+        def hit (new EVGHitTest())
+        return (hit.idAt(root px py))
+    }
+
+    sfn a11yJson:string (css:string order:[string] dragging:string generation:int focusId:string) {
+        def root:EVGElement (SortableDemo.page(order dragging))
+        SortableDemo.laidOut(root css)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(root "Sortable demo" generation focusId))
+        return (t.toJson())
+    }
+
+    sfn a11yProblems:[string] (css:string order:[string] dragging:string) {
+        def root:EVGElement (SortableDemo.page(order dragging))
+        SortableDemo.laidOut(root css)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(root "Sortable demo" 1 ""))
+        return (t.lint())
+    }
+
+    sfn styleErrors:int (css:string) {
+        def sheet (new EVGStyleSheet())
+        sheet.parse(css)
+        return (sheet.getErrorCount())
+    }
+
+    sfn describe:string (el:EVGElement depth:int) {
+        def pad:string ""
+        def i:int 0
+        while (i < depth) {
+            pad = pad + "  "
+            i = (i + 1)
+        }
+        def line:string (pad + el.className)
+        if ((strlen el.textContent) > 0) {
+            line = ((line + " ") + el.textContent)
+        }
+        def out:string (line + "\n")
+        def j:int 0
+        while (j < (array_length el.children)) {
+            def kid:EVGElement (itemAt el.children j)
+            out = out + (SortableDemo.describe(kid (depth + 1)))
+            j = (j + 1)
+        }
+        return out
+    }
+
+    sfn main:void () {
+        print (SortableDemo.describe((SortableDemo.page((SortableDemo.ids()) "")) 0))
+    }
+}

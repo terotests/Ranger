@@ -1,0 +1,11 @@
+{ "name":"breadcrumb_collapse","component":"breadcrumb",
+  "$comment":"The same trail in a box too narrow for it: the first crumb stays because it is the way out, the last two stay because they are where you are and one step back, and the middle becomes one named ellipsis. Widths are stated by the fixture on both sides — the rule is what is under test, and two layout engines have no reason to agree about how wide 'Components' is.",
+  "behaviours":["breadcrumb-collapses","breadcrumb-keeps-first-and-last-two","breadcrumb-ellipsis-named"],
+  "fixture":{"controls":[{"type":"breadcrumb","tid":"bc","name":"breadcrumb","available":320,
+    "items":[
+      {"value":"home","name":"Home","width":50},
+      {"value":"docs","name":"Documentation","width":120},
+      {"value":"guides","name":"Guides","width":70},
+      {"value":"components","name":"Components","width":95},
+      {"value":"breadcrumb","name":"Breadcrumb","width":95}]}]},
+  "steps":[{"focus":"bc-item-home"}] }

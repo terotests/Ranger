@@ -90,6 +90,15 @@ const KNOWN_TARGET_GAPS: Record<string, number> = {
   // only byte-model target and is not on the engine's gated path
   // (npm run test:tsengine covers go/kotlin/python/csharp/dart/swift6).
   cpp: 26,
+  // 5 probes, newly VISIBLE rather than newly broken: the Python engine could
+  // not be built at all until ISSUES.md #80 was fixed -- it emitted
+  // `fnV.functionNodeOf().async` against a `self._async` declaration -- so
+  // this leg has never reported before. Four are negative zero not surviving
+  // an operation (`math-pow-negzero-odd`, `neg-zero-remainder`,
+  // `mathzero-ceil-neg-frac`, `mathzero-round-neg-half`), where 1/-0 answers
+  // +Infinity instead of -Infinity. The fifth is `uni-lastindexof`, which
+  // Rust gets wrong the same way. 2,061 of 2,066 agree with es6.
+  python: 5,
 };
 
 function hasTool(name: string): boolean {

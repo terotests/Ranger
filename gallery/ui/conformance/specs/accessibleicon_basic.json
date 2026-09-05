@@ -1,0 +1,4 @@
+{ "name":"accessibleicon_basic","component":"accessible-icon",
+  "behaviours":["button-role","label-names-it","glyph-hidden"],
+  "fixture":{"controls":[{"type":"accessibleicon","tid":"ai","name":"Favourite","glyph":"*"}]},
+  "steps":[{"click":"ai"}] }

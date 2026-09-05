@@ -1,0 +1,51 @@
+; Test: a field read whose OBJECT is an expression rather than a name.
+;
+; `(this.first()).name` reads a String out of a `Ref` exactly as `b.name`
+; does, but it is a property node with no dotted path, so every test that
+; decides "this read has to be cloned" turned it away and the String moved out
+; of the borrow (E0507). Two of the places that ask that question are covered
+; here: a local's initializer, and the temporary an operator hoists its operand
+; into. (A property read cannot be written as a call argument — the front end
+; refuses to type one — so that path has no fixture of its own.)
+;
+; This is the shape the compiler's own tree-literal lowering is written in
+; (`set treeChildCall fname ((st.getSecond()).vref)`), and the last of the six
+; errors that kept the compiler from compiling itself to Rust.
+;
+; Expected: hello hello hello
+
+class Box {
+    def name:string ""
+    Constructor (n:string) {
+        name = n
+    }
+}
+
+class Test_RustPropReadOfCall {
+
+    def items:[Box]
+    def names:[string:string]
+
+    fn add:void (n:string) {
+        push items (new Box(n))
+    }
+    fn first:Box () {
+        return (itemAt items 0)
+    }
+    fn run:void () {
+        this.add("hello")
+        ; a name receiver — this one always cloned
+        def b:Box (this.first())
+        def viaName:string (b.name)
+        ; …the same read through a call
+        def viaCall:string ((this.first()).name)
+        ; …and as an operator operand stored by value
+        set names "k" ((this.first()).name)
+        print ((((viaName + " ") + viaCall) + " ") + (unwrap (get names "k")))
+    }
+
+    sfn m@(main):void () {
+        def t (new Test_RustPropReadOfCall())
+        t.run()
+    }
+}

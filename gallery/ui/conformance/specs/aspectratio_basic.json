@@ -1,0 +1,2 @@
+{ "name":"aspectratio_basic","component":"aspect-ratio","behaviours":["no-role","ratio-applied"],
+  "fixture":{"controls":[{"type":"aspectratio","tid":"ar","name":"box","ratio":2,"width":120}]},"steps":[] }

@@ -16,6 +16,13 @@ Import "../src/CheckboxCtl.rgr"
 Import "../src/RadioGroupCtl.rgr"
 Import "../src/TabsCtl.rgr"
 Import "../src/AccordionCtl.rgr"
+Import "../src/PopoverCtl.rgr"
+Import "../src/AlertDialogCtl.rgr"
+Import "../src/MenuCtl.rgr"
+Import "../src/WindowCtl.rgr"
+Import "../src/HoverCtl.rgr"
+Import "../src/SliderCtl.rgr"
+Import "../src/ToastCtl.rgr"
 Import "../src/UiHost.rgr"
 Import "../../evg/EVGElement.rgr"
 Import "../../evg/EVGA11yTree.rgr"
@@ -64,6 +71,152 @@ class UiTest {
         return css
     }
 
+    ; --- the window ------------------------------------------------------------
+    ; The ARIA here is Radix's dialog and is measured by the conformance
+    ; harness through DialogCtl; what is specified rather than measured is the
+    ; MOVING, because nothing in Radix moves a dialog and inventing an oracle
+    ; would be inventing the answer. So these state the rules instead:
+    ;
+    ;   the title bar is the handle, and only when the window is movable;
+    ;   a modal is not movable at all;
+    ;   enough of the window stays on the page to grab it again;
+    ;   the arrow keys move it too, or a keyboard cannot;
+    ;   and the caller's content survives every one of those rebuilds, which
+    ;   is the whole point of the class.
+
+    sfn testWindow:void (t:Check) {
+        print "--- the movable window ---"
+        def h (new UiHost())
+        def w:WindowCtl (h.addWindow("win" "Open" "Filters" false))
+        w.x = 200.0
+        w.y = 120.0
+
+        ; Compose something into it — a tree the window knows nothing about.
+        ; The body is NAMED too, the way a caller that wants to style it would,
+        ; and that is the case this covers: the frame's own class has to survive
+        ; being given a neighbour.
+        def body:EVGElement (unwrap w.bodyEl)
+        body.className = "my-own-body"
+        def row (EVGElement.createDiv())
+        row.id = "win-custom"
+        row.className = "whatever-the-caller-likes"
+        body.addChild(row)
+        w.build()
+
+        h.click("win-trigger")
+        ; Checked after opening, because a closed window builds no frame at all
+        ; — which is also why the first version of this check failed.
+        ;
+        ; The caller composes CHILDREN; the body's own box is the frame's
+        ; business. An earlier version set the frame's class only when the
+        ; caller had left it empty, so naming the body silently took the
+        ; window's padding away — the title sat fourteen pixels in and every
+        ; row under it started at the window's border.
+        t.ok("the caller's class is kept" (UiTree.hasClass(body "my-own-body")))
+        t.ok("and the frame's own class is added beside it"
+            (UiTree.hasClass(body "ui-window-body")))
+        t.eqStr("it is a dialog" (UiTest.roleOf(h "win-content")) "dialog")
+        t.eqStr("focus lands on close" h.focusId "win-close")
+        t.ok("the composed child is still there after opening"
+            ((UiTest.hasRow(h "win-body")) && ((body.getChildCount()) == 1)))
+        t.eqStr("and it is the caller's own element"
+            ((body.getChild(0)).id) "win-custom")
+
+        ; Moving.
+        t.ok("a movable window drags freely" (w.dragsFreely()))
+        h.pressOn("win-titlebar")
+        h.dragMoveBy(40.0 25.0)
+        t.eqStr("the window went with the pointer"
+            (((to_string w.x) + ",") + (to_string w.y)) "240,145")
+        h.releaseDrag()
+        t.eqStr("and stayed where it was dropped"
+            (((to_string w.x) + ",") + (to_string w.y)) "240,145")
+
+        ; The content survived all of that.
+        t.ok("the caller's child survived the drag" ((body.getChildCount()) == 1))
+
+        ; A press somewhere else in the window is not a drag.
+        h.pressOn("win-close")
+        h.dragMoveBy(100.0 100.0)
+        t.eqStr("a press off the title bar moves nothing"
+            (((to_string w.x) + ",") + (to_string w.y)) "240,145")
+        h.releaseDrag()
+
+        ; Keyboard.
+        ; Focused by CLICKING the title, which is what a hit test reports and
+        ; what the live page therefore hands over — not the bar id a test would
+        ; reach for. The first version focused the bar directly and passed while
+        ; the real page could not move the window at all.
+        h.click("win-title")
+        t.eqStr("clicking the title focuses the handle" h.focusId "win-titlebar")
+        h.key("ArrowRight")
+        t.eqStr("an arrow key moves it too" (to_string w.x) "256")
+        h.key("ArrowUp")
+        t.eqStr("and on the other axis" (to_string w.y) "129")
+
+        h.key("Escape")
+        t.eqStr("escape closes it" h.focusId "win-trigger")
+        t.ok("and the window is gone" ((UiTest.hasRow(h "win-content")) == false))
+    }
+
+    ; A window dragged off the page is a window nobody can get back, so the
+    ; clamp is a behaviour and not a detail. It needs a laid-out window,
+    ; because "enough of it" is measured against its width.
+    sfn testWindowStaysReachable:void (t:Check) {
+        print "--- a window stays reachable ---"
+        def h (new UiHost())
+        h.setPageSize(900.0 560.0)
+        def w:WindowCtl (h.addWindow("win" "Open" "Filters" false))
+        w.pageW = 900.0
+        w.pageH = 560.0
+        def body:EVGElement (unwrap w.bodyEl)
+        def filler (EVGElement.createDiv())
+        filler.width = (EVGUnit.px(320.0))
+        filler.height = (EVGUnit.px(200.0))
+        body.addChild(filler)
+        w.build()
+        h.click("win-trigger")
+        h.layout()
+
+        ; Far off to the right.
+        h.pressOn("win-titlebar")
+        h.dragMoveBy(5000.0 0.0)
+        t.ok("it cannot be pushed off the right edge" (w.x <= (900.0 - w.keepOnScreen)))
+        ; And far off the bottom.
+        h.dragMoveBy(0.0 5000.0)
+        t.ok("nor off the bottom" (w.y <= (560.0 - w.keepOnScreen)))
+        ; And the top is hard: the handle must stay reachable.
+        h.dragMoveBy(0.0 (0.0 - 5000.0))
+        t.ok("nor above the top, where the handle would go out of reach" (w.y >= 0.0))
+        h.releaseDrag()
+    }
+
+    ; The modal half of the same class. Everything the window does with the
+    ; pointer, this refuses to do — and it takes the page instead.
+    sfn testModalWindow:void (t:Check) {
+        print "--- the modal window ---"
+        def h (new UiHost())
+        def m:WindowCtl (h.addWindow("dlg" "Edit" "Edit profile" true))
+        m.description = "Make changes to your profile here."
+        m.build()
+        h.click("dlg-trigger")
+        t.eqStr("it is a dialog too" (UiTest.roleOf(h "dlg-content")) "dialog")
+        t.eqStr("and it is the modal one" (h.modalTid()) "dlg-content")
+        t.ok("it has a scrim" (UiTest.hasRow(h "dlg-scrim")))
+        t.ok("which a reader is not offered"
+            ((UiTest.roleOf(h "dlg-scrim")) == "none"))
+        t.ok("a modal does not drag" ((m.dragsFreely()) == false))
+        t.ok("and its title bar is not a tab stop"
+            ((m.isFocusable("dlg-titlebar")) == false))
+        h.pressOn("dlg-titlebar")
+        h.dragMoveBy(60.0 60.0)
+        t.eqStr("so dragging it moves nothing"
+            (((to_string m.x) + ",") + (to_string m.y)) "0,0")
+        h.releaseDrag()
+        h.key("Escape")
+        t.eqStr("escape closes it" h.focusId "dlg-trigger")
+    }
+
     sfn main:void () {
         def t (new Check())
         print "=== gallery/ui controller + cascade tests ==="
@@ -80,6 +233,14 @@ class UiTest {
         UiTest.testAccordion(t)
         UiTest.testDisabledFade(t)
         UiTest.testBorderShorthand(t)
+        UiTest.testOverlays(t)
+        UiTest.testHoverSurfaces(t)
+        UiTest.testSubmenuClock(t)
+        UiTest.testWindow(t)
+        UiTest.testWindowStaysReachable(t)
+        UiTest.testModalWindow(t)
+        UiTest.testSliderAndToast(t)
+        UiTest.testA11yTree(t)
         print ""
         print ("passed=" + (to_string t.passed) + " failed=" + (to_string t.failed))
         if (t.failed > 0) {
@@ -375,6 +536,318 @@ class UiTest {
         def col2:EVGColor (el2.effectiveBorderColor())
         def b2:int (col2.blue())
         t.eqInt("and its channels survive" b2 225)
+    }
+
+    ; The accessibility tree is what a screen reader gets — `evg-a11y.js` mirrors
+    ; it into real DOM over the canvas, and conformance/a11y.mjs runs axe-core on
+    ; that. This half needs no browser, so CI holds the structure down: every
+    ; focusable node named and sized, no orphans, no duplicate ids.
+    ; --- the overlay family --------------------------------------------------
+    ; Popover, alert dialog and the two menus. What is checked here is what the
+    ; browser half proved against the reference, so a regression is caught in
+    ; CI rather than on a machine that happens to have Chromium.
+
+    sfn rowFor@(optional):UiRow (h:UiHost target:string) {
+        def rows:[UiRow] (h.allRows())
+        def i:int 0
+        while (i < (array_length rows)) {
+            def r:UiRow (itemAt rows i)
+            if (r.tid == target) {
+                def hit@(optional):UiRow r
+                return hit
+            }
+            i = (i + 1)
+        }
+        def miss@(optional):UiRow
+        return miss
+    }
+
+    sfn roleOf:string (h:UiHost target:string) {
+        def maybe@(optional):UiRow (UiTest.rowFor(h target))
+        if maybe {
+            def r:UiRow (unwrap maybe)
+            return (EVGA11yRole.ariaName(r.role))
+        }
+        return "<missing>"
+    }
+
+    sfn stateOfRow:string (h:UiHost target:string) {
+        def maybe@(optional):UiRow (UiTest.rowFor(h target))
+        if maybe {
+            def r:UiRow (unwrap maybe)
+            return r.state
+        }
+        return "<missing>"
+    }
+
+    sfn hasRow:boolean (h:UiHost target:string) {
+        def maybe@(optional):UiRow (UiTest.rowFor(h target))
+        if maybe {
+            return true
+        }
+        return false
+    }
+
+    sfn testOverlays:void (t:Check) {
+        print "--- overlays ---"
+
+        def h (new UiHost())
+        def pop:PopoverCtl (h.addPopover("pop" "Open"))
+        def out:ToggleCtl (h.addToggle("out" "Outside"))
+        t.ok("popover content absent while closed" ((UiTest.hasRow(h "pop-content")) == false))
+        h.click("pop-trigger")
+        t.eqStr("popover surface is a dialog" (UiTest.roleOf(h "pop-content")) "dialog")
+        t.eqStr("focus lands inside, not on the surface" h.focusId "pop-inner")
+        ; A popover is not modal: the page behind keeps its rows unhidden.
+        def trace:string (h.traceJson())
+        t.ok("outside control stays reachable" ((UiTest.hasRow(h "out")) == true))
+        h.key("Escape")
+        t.eqStr("escape restores focus to the trigger" h.focusId "pop-trigger")
+        t.ok("popover content gone again" ((UiTest.hasRow(h "pop-content")) == false))
+
+        def h2 (new UiHost())
+        def ad:AlertDialogCtl (h2.addAlertDialog("ad" "Delete" "Sure?"))
+        h2.click("ad-trigger")
+        t.eqStr("alert dialog is not a plain dialog" (UiTest.roleOf(h2 "ad-content")) "alertdialog")
+        t.eqStr("focus lands on cancel" h2.focusId "ad-cancel")
+        t.eqStr("modal is the content" (h2.modalTid()) "ad-content")
+        h2.click("ad-action")
+        t.eqStr("the action closes and restores focus" h2.focusId "ad-trigger")
+
+        def h3 (new UiHost())
+        def dm:MenuCtl (h3.addDropdownMenu("dm" "Menu"))
+        dm.addItem("a" "Alpha" false)
+        dm.addItem("b" "Beta" true)
+        dm.addItem("c" "Gamma" false)
+        dm.build()
+        h3.click("dm-trigger")
+        t.eqStr("menu surface" (UiTest.roleOf(h3 "dm-content")) "menu")
+        t.eqStr("opening focuses the surface" h3.focusId "dm-content")
+        h3.key("ArrowDown")
+        t.eqStr("first arrow takes the first item" h3.focusId "dm-item-a")
+        h3.key("ArrowDown")
+        t.eqStr("arrows skip the disabled item" h3.focusId "dm-item-c")
+        h3.key("ArrowDown")
+        t.eqStr("and stop at the end rather than wrapping" h3.focusId "dm-item-c")
+        h3.key("Escape")
+        t.eqStr("escape restores focus to the trigger" h3.focusId "dm-trigger")
+
+        def h4 (new UiHost())
+        def cm:MenuCtl (h4.addContextMenu("cm" "Right-click here"))
+        cm.addItem("a" "Alpha" false)
+        cm.addItem("b" "Beta" false)
+        cm.build()
+        h4.click("cm-trigger")
+        t.ok("a plain click does not open a context menu" ((UiTest.hasRow(h4 "cm-content")) == false))
+        h4.rightClick("cm-trigger")
+        t.eqStr("the secondary button does" (UiTest.roleOf(h4 "cm-content")) "menu")
+        t.eqStr("its trigger has no role" (UiTest.roleOf(h4 "cm-trigger")) "none")
+        h4.key("ArrowUp")
+        t.eqStr("arrow up from the surface takes the last item" h4.focusId "cm-item-b")
+        h4.key("Escape")
+        t.eqStr("closing loses focus, because the trigger cannot hold it" h4.focusId "")
+    }
+
+    ; --- the submenu's clock --------------------------------------------------
+    ; The conformance harness proves WHAT a submenu does; it cannot prove WHEN.
+    ; A hover step there settles for 300ms and observes once, firmly past the
+    ; delay — deliberately, because a spec that observed at 60ms would be
+    ; measuring the machine and would pass and fail on different runs.
+    ;
+    ; So the delay itself is measured here, where the clock is a number the test
+    ; hands over. Radix opens a hovered submenu after 100ms: measured in the
+    ; browser at 25ms intervals, closed through 75 and open at 100. Without
+    ; these four checks a submenu that opened INSTANTLY passed every conformance
+    ; spec — which it did, until they were written.
+
+    sfn testSubmenuClock:void (t:Check) {
+        print "--- the submenu clock ---"
+        def h (new UiHost())
+        def dm:MenuCtl (h.addDropdownMenu("dm" "Menu"))
+        dm.addItem("a" "Alpha" false)
+        def share:UiItem (dm.addSub("share" "Share" false))
+        MenuCtl.addKid(share "mail" "Email Link" false)
+        MenuCtl.addKid(share "sms" "Messages" false)
+        dm.addItem("c" "Gamma" false)
+        dm.build()
+
+        h.click("dm-trigger")
+        h.hover("dm-item-share")
+        t.ok("the pointer arriving does not open it"
+            ((UiTest.hasRow(h "dm-item-share-content")) == false))
+        h.tick(50.0)
+        t.ok("nor does half the delay"
+            ((UiTest.hasRow(h "dm-item-share-content")) == false))
+        h.tick(45.0)
+        t.ok("nor 95ms of it"
+            ((UiTest.hasRow(h "dm-item-share-content")) == false))
+        h.tick(10.0)
+        t.ok("105ms opens it" (UiTest.hasRow(h "dm-item-share-content")))
+        ; Opened by the pointer, focus stays on the row the pointer is on. The
+        ; keyboard path is the other way round and is checked below.
+        t.eqStr("and focus stays on the row under the pointer" h.focusId "dm-item-share")
+
+        ; Leaving before the delay elapses cancels it outright. Without this a
+        ; submenu opens under a pointer that has already moved on.
+        def h2 (new UiHost())
+        def dm2:MenuCtl (h2.addDropdownMenu("dm" "Menu"))
+        dm2.addItem("a" "Alpha" false)
+        def share2:UiItem (dm2.addSub("share" "Share" false))
+        MenuCtl.addKid(share2 "mail" "Email Link" false)
+        dm2.build()
+        h2.click("dm-trigger")
+        h2.hover("dm-item-share")
+        h2.tick(60.0)
+        h2.hover("dm-item-a")
+        h2.tick(400.0)
+        t.ok("moving away before the delay cancels it"
+            ((UiTest.hasRow(h2 "dm-item-share-content")) == false))
+
+        ; And the keyboard has no delay at all: you asked for it by name.
+        def h3 (new UiHost())
+        def dm3:MenuCtl (h3.addDropdownMenu("dm" "Menu"))
+        def share3:UiItem (dm3.addSub("share" "Share" false))
+        MenuCtl.addKid(share3 "mail" "Email Link" false)
+        dm3.build()
+        h3.click("dm-trigger")
+        h3.key("ArrowDown")
+        h3.key("ArrowRight")
+        t.ok("ArrowRight opens it with no clock at all"
+            (UiTest.hasRow(h3 "dm-item-share-content")))
+        t.eqStr("and puts focus on the first item" h3.focusId "dm-item-share-item-mail")
+    }
+
+    ; --- tooltip and hover card ----------------------------------------------
+
+    sfn testHoverSurfaces:void (t:Check) {
+        print "--- hover surfaces ---"
+        def h (new UiHost())
+        def tip:TooltipCtl (h.addTooltip("tip" "Hover me"))
+        tip.bodyText = "Tip text"
+        tip.build()
+        t.eqStr("closed to start" (UiTest.stateOfRow(h "tip-trigger")) "closed")
+        h.hover("tip-trigger")
+        t.eqStr("the pointer opens it" (UiTest.stateOfRow(h "tip-trigger")) "delayed-open")
+        t.eqStr("and the content is a tooltip" (UiTest.roleOf(h "tip-content")) "tooltip")
+        h.unhover()
+        t.eqStr("leaving closes it" (UiTest.stateOfRow(h "tip-trigger")) "closed")
+        h.focus("tip-trigger")
+        ; Two words, not one: a reader is told HOW the tip was summoned.
+        t.eqStr("focus opens it instantly" (UiTest.stateOfRow(h "tip-trigger")) "instant-open")
+        h.key("Escape")
+        t.eqStr("escape closes it" (UiTest.stateOfRow(h "tip-trigger")) "closed")
+        t.eqStr("and leaves focus alone" h.focusId "tip-trigger")
+
+        def h2 (new UiHost())
+        def hc:HoverCardCtl (h2.addHoverCard("hc" "Card"))
+        hc.bodyText = "Card body"
+        hc.build()
+        t.eqStr("the trigger is a link" (UiTest.roleOf(h2 "hc-trigger")) "link")
+        h2.hover("hc-trigger")
+        t.eqStr("hovering opens the card" (UiTest.stateOfRow(h2 "hc-trigger")) "open")
+        t.eqStr("the card itself carries no role" (UiTest.roleOf(h2 "hc-content")) "none")
+        h2.unhover()
+        t.ok("leaving removes it" ((UiTest.hasRow(h2 "hc-content")) == false))
+    }
+
+    ; --- slider and toast ----------------------------------------------------
+
+    sfn valueNowOf:int (h:UiHost target:string) {
+        def maybe@(optional):UiRow (UiTest.rowFor(h target))
+        if maybe {
+            def r:UiRow (unwrap maybe)
+            return r.valueNow
+        }
+        return -1
+    }
+
+    sfn testSliderAndToast:void (t:Check) {
+        print "--- slider and toast ---"
+        def h (new UiHost())
+        def sl:SliderCtl (h.addSlider("sl" "Volume"))
+        sl.value = 50
+        sl.step = 10
+        sl.build()
+        t.eqStr("the thumb is the slider" (UiTest.roleOf(h "sl-thumb")) "slider")
+        h.focus("sl-thumb")
+        h.key("ArrowRight")
+        t.eqInt("right adds a step" (UiTest.valueNowOf(h "sl-thumb")) 60)
+        ; Up means MORE on a slider, even though it means "earlier" in a list.
+        h.key("ArrowUp")
+        t.eqInt("up adds a step too" (UiTest.valueNowOf(h "sl-thumb")) 70)
+        h.key("ArrowDown")
+        t.eqInt("down subtracts one" (UiTest.valueNowOf(h "sl-thumb")) 60)
+        h.key("Home")
+        t.eqInt("home goes to the minimum" (UiTest.valueNowOf(h "sl-thumb")) 0)
+        h.key("ArrowLeft")
+        t.eqInt("and it clamps there" (UiTest.valueNowOf(h "sl-thumb")) 0)
+        h.key("End")
+        t.eqInt("end goes to the maximum" (UiTest.valueNowOf(h "sl-thumb")) 100)
+        h.key("ArrowRight")
+        t.eqInt("and clamps there too" (UiTest.valueNowOf(h "sl-thumb")) 100)
+
+        def h2 (new UiHost())
+        def ts:ToastCtl (h2.addToast("ts" "Show"))
+        ts.title = "Saved"
+        ts.build()
+        t.eqStr("the region is a named landmark" (UiTest.roleOf(h2 "ts-region")) "region")
+        t.ok("nothing is raised yet" ((UiTest.hasRow(h2 "ts")) == false))
+        h2.click("ts-trigger")
+        t.eqStr("raising it does not steal focus" h2.focusId "ts-trigger")
+        t.ok("the toast is there" ((UiTest.hasRow(h2 "ts")) == true))
+        h2.click("ts-close")
+        t.eqStr("dismissing parks focus on the viewport" h2.focusId "ts-viewport")
+        h2.click("ts-trigger")
+        h2.key("Escape")
+        t.ok("escape dismisses it" ((UiTest.hasRow(h2 "ts")) == false))
+        t.eqStr("and leaves focus where it was" h2.focusId "ts-trigger")
+    }
+
+    sfn testA11yTree:void (t:Check) {
+        print "--- accessibility tree ---"
+        def h (new UiHost())
+        h.addStyleSheet((UiTest.themeCss()))
+        def tog:ToggleCtl (h.addToggle("tog" "Bold"))
+        def cb:CheckboxCtl (h.addCheckbox("cb" "Accept"))
+        cb.checkState = 2
+        cb.build()
+        def col:CollapsibleCtl (h.addCollapsible("col" "Details" "Body"))
+        def rg:RadioGroupCtl (h.addRadioGroup("rg" "Size"))
+        rg.addItem("s" "Small" false)
+        rg.addItem("m" "Medium" true)
+        rg.value = "s"
+        rg.build()
+        h.setPageSize(420.0 600.0)
+
+        def problems:[string] (h.a11yProblems())
+        def i:int 0
+        while (i < (array_length problems)) {
+            print ("       lint: " + (itemAt problems i))
+            i = (i + 1)
+        }
+        t.eqInt("tree lints clean" (array_length problems) 0)
+
+        def tree:EVGA11yTree (h.a11yTree())
+        t.ok("the root is the page" (tree.rootId == "root"))
+        def togNode:EVGA11yNode (tree.find("tog"))
+        def togRole:string (EVGA11yRole.ariaName(togNode.role))
+        t.eqStr("a toggle is a button" togRole "button")
+        t.ok("and it is focusable" togNode.focusable)
+        t.ok("and it has a rectangle" (togNode.w > 0))
+        def cbNode:EVGA11yNode (tree.find("cb"))
+        t.eqInt("a mixed checkbox says mixed" cbNode.checked (EVGA11yTri.mixed()))
+        def disabledNode:EVGA11yNode (tree.find("rg-m"))
+        t.ok("a disabled item is disabled" disabledNode.disabled)
+        t.ok("and not focusable" (disabledNode.focusable == false))
+        def trigNode:EVGA11yNode (tree.find("col-trigger"))
+        t.eqStr("a trigger hangs under its collapsible" trigNode.parentId "col")
+        ; Closed content is out of the tree, exactly as a hidden node is out of
+        ; the browser's — a reader must not find a panel nobody can open.
+        t.ok("closed content is not in the tree" ((tree.has("col-content")) == false))
+        h.click("col-trigger")
+        def tree2:EVGA11yTree (h.a11yTree())
+        t.ok("open content is" (tree2.has("col-content")))
+        t.eqStr("focus is reported" tree2.focusId "col-trigger")
     }
 
     sfn testFocusAndKeys:void (t:Check) {

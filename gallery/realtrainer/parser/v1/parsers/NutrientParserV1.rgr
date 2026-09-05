@@ -1,0 +1,85 @@
+Import "../V1Json.rgr"
+Import "../V1SharedHelpers.rgr"
+
+class NutrientScanResult {
+    def found:boolean false
+    def nextPos:int -1
+    def name:string ""
+    def value:string ""
+    def unit:string ""
+}
+
+class NutrientParserV1 {
+    static fn nutrientJson:string (name:string valueRaw:string unit:string) {
+        def fields:[string]
+        CompactV1Json.addStringField(fields "name" name)
+        CompactV1Json.addRawField(fields "value" valueRaw)
+        CompactV1Json.addStringField(fields "unit" unit)
+        return (CompactV1Json.jsonObject(fields))
+    }
+
+    static fn tryParseAt:NutrientScanResult (s:string start:int) {
+        def out (new NutrientScanResult)
+        def sLen (strlen s)
+        def i (V1SharedHelpers.skipWhitespace(s start))
+        if (i >= sLen) {
+            return out
+        }
+
+        def numEnd (V1SharedHelpers.splitNumAndUnit((substring s i sLen)))
+        if (numEnd <= 0) {
+            return out
+        }
+        def numPart (substring s i (i + numEnd))
+        def isDec (V1SharedHelpers.isDecimalToken(numPart))
+        if (isDec == false) {
+            return out
+        }
+        def afterNum (i + numEnd)
+        if (afterNum >= sLen) {
+            return out
+        }
+
+        def tail (substring s afterNum sLen)
+        def isKcal (V1SharedHelpers.hasPrefix(tail "kcal"))
+        if (isKcal) {
+            out.found = true
+            out.name = "kcal"
+            out.value = numPart
+            out.unit = "kcal"
+            out.nextPos = (afterNum + 4)
+            return out
+        }
+
+        def slashPos (V1SharedHelpers.findToken(tail "/"))
+        if (slashPos <= 0) {
+            return out
+        }
+        def unitPart (substring tail 0 slashPos)
+        def nameStart (slashPos + 1)
+        def nameEnd@(mutable):int (strlen tail)
+        def ni@(mutable):int nameStart
+        while (ni < (strlen tail)) {
+            def ch (charAt tail ni)
+            if (V1SharedHelpers.isWhitespace(ch)) {
+                nameEnd = ni
+                ni = (strlen tail)
+            } {
+                ni = ni + 1
+            }
+        }
+        def namePart (trim (substring tail nameStart nameEnd))
+        if ((strlen unitPart) == 0) {
+            return out
+        }
+        if ((strlen namePart) == 0) {
+            return out
+        }
+        out.found = true
+        out.name = namePart
+        out.value = numPart
+        out.unit = unitPart
+        out.nextPos = (afterNum + nameEnd)
+        return out
+    }
+}

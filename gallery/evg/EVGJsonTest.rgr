@@ -26,6 +26,8 @@
 
 Import "EVGDisplayList.rgr"
 Import "EVGColor.rgr"
+Import "EVGElement.rgr"
+Import "EVGLayout.rgr"
 
 class EVGJsonTest {
     def passed:int 0
@@ -55,9 +57,11 @@ class EVGJsonTest {
         this.testPolygonWithRings()
         this.testPolygonBuiltByHand()
         this.testGradient()
+        this.testElementGradient()
         this.testFlatRectHasNoGradient()
         this.testRectAndBorder()
         this.testTextAndImage()
+        this.testEveryNumberIsANumber()
         print ""
         print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
         if (failed > 0) {
@@ -65,6 +69,62 @@ class EVGJsonTest {
         } {
             print "ALL PASS"
         }
+    }
+
+    ; WHATEVER GOES IN, A JSON NUMBER COMES OUT.
+    ;
+    ; `num` writes every coordinate, size, radius and colour in the list, so a
+    ; value it cannot spell does not make one command wrong — it makes the
+    ; whole frame unparseable, and the page drawing it stops dead. That is what
+    ; it looked like from the outside: a ripple frozen mid-flight, with
+    ; `SyntaxError: Expected ',' or '}' after property` beside it.
+    ;
+    ; Two ways in, and neither one announced itself. A value that was not a
+    ; number came out as "0.NaN". And the integer divide truncated to 32 bits,
+    ; so a magnitude past 2^31 WRAPPED: 1e10 came out as
+    ; "1410065408.858993459200", which parses and is merely wrong, and past
+    ; about 1e19 the leftover went exponential and stopped being JSON at all.
+    ;
+    ; So the test is the contract rather than the arithmetic: hand it the worst
+    ; values there are and require something a parser will take.
+    fn testEveryNumberIsANumber:void () {
+        print "-- num writes a number for anything it is given"
+        ; The ordinary cases still have to be exactly right — a guard that
+        ; rounds real coordinates is worse than the fault it guards against.
+        this.ok("a plain value is unchanged" ((EVGDisplayList.num(1336.25)) == "1336.25"))
+        this.ok("and a negative one" ((EVGDisplayList.num(-45.0)) == "-45.00"))
+        this.ok("and zero" ((EVGDisplayList.num(0.0)) == "0.00"))
+        ; Everything up to the clamp keeps its value: the old code went wrong
+        ; at 2^31, which is inside this.
+        this.ok("and a value past 2^31, which used to wrap"
+            ((EVGDisplayList.num(3000000000.0)) == "10000000.00"))
+        ; Written as a product because the lexer takes no exponent literals,
+        ; and this is well past where the fraction used to go exponential.
+        def huge:double (1000000000.0 * 1000000000000.0)
+        this.ok("a huge value is pinned, not wrapped"
+            ((EVGDisplayList.num(huge)) == "10000000.00"))
+        this.ok("and a hugely negative one keeps its sign"
+            ((EVGDisplayList.num((0.0 - huge))) == "-10000000.00"))
+        ; A NaN fails every comparison, which is exactly how it is caught.
+        def nan:double (0.0 / 0.0)
+        this.ok("a value that is not a number becomes zero"
+            ((EVGDisplayList.num(nan)) == "0.00"))
+        def inf:double (1.0 / 0.0)
+        this.ok("an infinity is pinned at the limit"
+            ((EVGDisplayList.num(inf)) == "10000000.00"))
+        this.ok("and a negative infinity"
+            ((EVGDisplayList.num((0.0 - inf))) == "-10000000.00"))
+        ; And the point of all of it: a command carrying one of these still
+        ; produces a list something can read. The needle is what a parser would
+        ; choke on — a second dot inside one number.
+        def dl (new EVGDisplayList())
+        dl.addRect(nan inf huge 10.0 (EVGColor.rgb(1 2 3)))
+        def json:string (dl.toJson())
+        this.ok("and a command carrying them writes no second dot"
+            ((indexOf json ".0.") < 0))
+        this.ok("nor an exponent" ((indexOf json "e+") < 0))
+        this.ok("nor the word NaN" ((indexOf json "NaN") < 0))
+        this.ok("nor an Infinity" ((indexOf json "Infinity") < 0))
     }
 
     ; The sanctioned way to add a path. Points, one ring, and a box derived
@@ -125,6 +185,74 @@ class EVGJsonTest {
         this.has("the near stop is the command's colour" json "\"c\":[10,20,30,1.00]")
         this.has("the far stop is written too" json "\"c2\":[200,210,220,0.50]")
         this.has("along with the direction" json "\"gd\":1")
+    }
+
+    ; --- and the half above the command --------------------------------------
+    ;
+    ; `testGradient` proves a command with `hasGrad` set is written down. It
+    ; cannot prove anything ever SETS it — and for a long time nothing did: the
+    ; walk from an element to a display list read `backgroundColor` and no
+    ; more, so `background: linear-gradient(...)` came out flat when there was
+    ; a colour beside it and emitted no rectangle at all when there was not.
+    ;
+    ; The two directions the list can carry are down the box and across it, so
+    ; an angle is snapped to the nearer axis and the stops are swapped when it
+    ; points the other way. Those are the four cases below.
+    fn listOf:string (el:EVGElement) {
+        def lay (new EVGLayout())
+        lay.setPageSize(200.0 100.0)
+        lay.layout(el)
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(el)
+        return (dl.toJson())
+    }
+
+    sfn boxWith:EVGElement (name:string value:string) {
+        def el (new EVGElement())
+        el.setAttribute("width" "100px")
+        el.setAttribute("height" "50px")
+        el.setAttribute(name value)
+        return el
+    }
+
+    fn testElementGradient:void () {
+        print "-- an element with a CSS gradient"
+        def down:EVGElement (EVGJsonTest.boxWith("background" "linear-gradient(180deg, #102030, #c8d2dc)"))
+        def j1:string (this.listOf(down))
+        this.has("to bottom keeps the stops in order" j1 "\"c\":[16,32,48,1.00]")
+        this.has("and names the far one" j1 "\"c2\":[200,210,220,1.00]")
+        this.has("running down the box" j1 "\"gd\":0")
+
+        def across:EVGElement (EVGJsonTest.boxWith("background" "linear-gradient(90deg, #102030, #c8d2dc)"))
+        this.has("to right runs across it" (this.listOf(across)) "\"gd\":1")
+
+        ; 0deg is "to top", which the list cannot say — so it is the same axis
+        ; with the stops the other way round.
+        def up:EVGElement (EVGJsonTest.boxWith("background" "linear-gradient(0deg, #102030, #c8d2dc)"))
+        def j3:string (this.listOf(up))
+        this.has("to top swaps them instead" j3 "\"c\":[200,210,220,1.00]")
+        this.has("and keeps the axis" j3 "\"gd\":0")
+
+        ; A radial gradient is not a direction, so it is not turned into one:
+        ; the box keeps whatever flat colour it had and a viewer sees a missing
+        ; effect rather than a wrong one.
+        def radial:EVGElement (EVGJsonTest.boxWith("background" "radial-gradient(circle, #102030, #c8d2dc)"))
+        radial.setAttribute("background-color" "#010203")
+        def j4:string (this.listOf(radial))
+        this.ok("a radial gradient is left flat" ((indexOf j4 "\"c2\"") < 0))
+        this.has("with the colour it had" j4 "\"c\":[1,2,3,1.00]")
+
+        ; The RGU1 pair, which is already the list's own vocabulary.
+        def pair (new EVGElement())
+        pair.setAttribute("width" "100px")
+        pair.setAttribute("height" "50px")
+        pair.setAttribute("gradient-from" "#102030")
+        pair.setAttribute("gradient-to" "#c8d2dc")
+        pair.setAttribute("gradient-dir" "1")
+        def j5:string (this.listOf(pair))
+        this.has("gradient-from/to needs no interpretation" j5 "\"c2\":[200,210,220,1.00]")
+        this.has("and carries its own direction" j5 "\"gd\":1")
     }
 
     ; The other half of the same rule: a flat fill must NOT claim a gradient,

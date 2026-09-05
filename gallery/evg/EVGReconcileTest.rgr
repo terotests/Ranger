@@ -1,0 +1,421 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EVGReconcileTest — a rebuilt tree keeps its elements, and says nothing new
+; ==============================================================================
+;
+; There is no browser to measure here: no engine ships a "keyed reconciliation"
+; you can read pixels off. So the oracle is an INVARIANT rather than a capture,
+; and the invariant is the strongest one available:
+;
+;     Reconciling a live tree against a freshly built one must leave it
+;     describing exactly what a tree built from scratch would describe.
+;
+; Checked on all four things a tree produces — the display list, the laid-out
+; boxes, the hit test and the accessible tree. That is what makes the check
+; field-agnostic: `adoptFrom` copies 180 fields by name, and a field somebody
+; adds to `EVGElement` and forgets to add there would be silently dropped on
+; every rebuild. It cannot hide from this, because a dropped field that changes
+; nothing observable changes nothing at all. (`scripts/check-evg-adopt.mjs`
+; catches the same mistake earlier and by name.)
+;
+; The second half is the point of the exercise: an element that SURVIVES keeps
+; its transitions, and one that is replaced does not. That is checked by
+; putting a real flight on a row, reconciling, and asking whether it is still
+; in the air — which is the difference between a row that slides and a row that
+; teleports, and the reason `SortableDemo.applyShift()` exists.
+; ==============================================================================
+
+Import "EVGElement.rgr"
+Import "EVGUnit.rgr"
+Import "EVGStyleSheet.rgr"
+Import "EVGLayout.rgr"
+Import "EVGDisplayList.rgr"
+Import "EVGTransition.rgr"
+Import "EVGHitTest.rgr"
+Import "EVGA11yTree.rgr"
+Import "EVGA11yFromTree.rgr"
+Import "EVGReconcile.rgr"
+
+class RecCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got  " + got)
+            print ("       want " + want)
+        }
+        this.ok(name good)
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.eqStr(name (to_string got) (to_string want))
+    }
+}
+
+class EVGReconcileTest {
+
+    ; --- the fixture ------------------------------------------------------------
+    ; A list of rows named by key, in the order given. Every row carries a
+    ; background that differs per row, so a row that ends up in the wrong place
+    ; is visible in the display list rather than only in a field nobody reads.
+
+    sfn sheetText:string () {
+        return (""
+            + ".list { display: flex; flex-direction: column; width: 200px; gap: 0px; }"
+            + ".row { height: 20px; width: 200px; transition: background-color 100ms linear; }"
+            + ".row-a { background-color: #ff0000; }"
+            + ".row-b { background-color: #00ff00; }"
+            + ".row-c { background-color: #0000ff; }"
+            + ".row-d { background-color: #ffff00; }")
+    }
+
+    sfn row:EVGElement (name:string keyed:boolean) {
+        def el (EVGElement.createDiv())
+        el.className = ("row row-" + name)
+        el.id = ("row-" + name)
+        el.textContent = name
+        el.role = "listitem"
+        el.a11yLabel = name
+        if keyed {
+            el.key = name
+        }
+        return el
+    }
+
+    ; `names` is one character per row: "abc" is three rows.
+    sfn list:EVGElement (names:string keyed:boolean) {
+        def el (EVGElement.createDiv())
+        el.className = "list"
+        el.id = "list"
+        el.role = "list"
+        el.a11yLabel = "rows"
+        def i:int 0
+        while (i < (strlen names)) {
+            ; `substring` here is (start, END) and not (start, length). The
+            ; first version passed 1 as the length, so every row after the
+            ; first was named "" — an unkeyed, textless row. Every invariant
+            ; check below still PASSED on that, because a degenerate fixture is
+            ; degenerate identically on both sides of an equality.
+            el.addChild((EVGReconcileTest.row((substring names i (i + 1)) keyed)))
+            i = (i + 1)
+        }
+        return el
+    }
+
+    ; --- the four derived artefacts ----------------------------------------------
+
+    sfn styled:EVGLayout (root:EVGElement) {
+        def s (new EVGStyleSheet())
+        s.parse((EVGReconcileTest.sheetText()))
+        s.setViewport(300.0 300.0 false)
+        s.applyTree(root "")
+        def lay (new EVGLayout())
+        lay.setPageSize(300.0 300.0)
+        lay.layout(root)
+        return lay
+    }
+
+    sfn paintOf:string (root:EVGElement) {
+        def lay:EVGLayout (EVGReconcileTest.styled(root))
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(root)
+        return (dl.toJson())
+    }
+
+    sfn treeOf:string (root:EVGElement) {
+        EVGReconcileTest.styled(root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(root "rec" 1 ""))
+        return (t.toJson())
+    }
+
+    ; Who is under each row's middle, top to bottom. One string, so a wrong
+    ; answer names itself.
+    sfn hitsOf:string (root:EVGElement) {
+        EVGReconcileTest.styled(root)
+        def h (new EVGHitTest())
+        def out:string ""
+        def y:double 10.0
+        while (y < 100.0) {
+            out = ((out + (h.idAt(root 100.0 y))) + "|")
+            y = (y + 20.0)
+        }
+        return out
+    }
+
+    ; --- the invariant ------------------------------------------------------------
+
+    sfn sameAsFresh:void (c:RecCheck label:string from:string to:string keyed:boolean) {
+        def live:EVGElement (EVGReconcileTest.list(from keyed))
+        def next:EVGElement (EVGReconcileTest.list(to keyed))
+        def r (new EVGReconcile())
+        r.reconcile(live next)
+
+        ; A third tree, built from scratch with the destination's data. `next`
+        ; was consumed by the reconcile and cannot be the comparison.
+        def fresh:EVGElement (EVGReconcileTest.list(to keyed))
+
+        c.eqStr((label + ": the display list") (EVGReconcileTest.paintOf(live)) (EVGReconcileTest.paintOf(fresh)))
+        c.eqStr((label + ": the accessible tree") (EVGReconcileTest.treeOf(live)) (EVGReconcileTest.treeOf(fresh)))
+        c.eqStr((label + ": the hit test") (EVGReconcileTest.hitsOf(live)) (EVGReconcileTest.hitsOf(fresh)))
+        c.eqInt((label + ": the child count") (array_length live.children) (array_length fresh.children))
+    }
+
+    sfn testInvariant:void (c:RecCheck) {
+        print "--- reconciled == freshly built ---"
+        EVGReconcileTest.sameAsFresh(c "unchanged" "abc" "abc" true)
+        EVGReconcileTest.sameAsFresh(c "reordered" "abc" "cab" true)
+        EVGReconcileTest.sameAsFresh(c "one inserted" "abc" "abdc" true)
+        EVGReconcileTest.sameAsFresh(c "one removed" "abc" "ac" true)
+        EVGReconcileTest.sameAsFresh(c "emptied" "abc" "" true)
+        EVGReconcileTest.sameAsFresh(c "filled from empty" "" "abc" true)
+        EVGReconcileTest.sameAsFresh(c "wholly replaced" "ab" "cd" true)
+        ; The same set of changes with no keys at all. The RESULT still has to
+        ; be right — an unkeyed list is not a broken list, it is a list whose
+        ; elements do not follow their data.
+        EVGReconcileTest.sameAsFresh(c "unkeyed, reordered" "abc" "cab" false)
+        EVGReconcileTest.sameAsFresh(c "unkeyed, one inserted" "abc" "abdc" false)
+        EVGReconcileTest.sameAsFresh(c "unkeyed, one removed" "abc" "ac" false)
+    }
+
+    ; --- what survives, which is the whole point ---------------------------------
+
+    sfn testKeepsElements:void (c:RecCheck) {
+        print "--- how much is kept ---"
+
+        def live:EVGElement (EVGReconcileTest.list("abc" true))
+        def r (new EVGReconcile())
+        r.reconcile(live (EVGReconcileTest.list("cab" true)))
+        ; Three rows in, three rows out, and not one of them rebuilt. Without
+        ; keys this same reorder keeps three elements too — but the WRONG
+        ; three, which is what the flight test below is for.
+        c.eqInt("a reorder keeps every element" r.stats.kept 3)
+        c.eqInt("and creates none" r.stats.created 0)
+        ; And every one of them actually MOVED. Without this, a reconciler that
+        ; ignores keys entirely and pairs children off by position scores the
+        ; same three-kept-none-created — it keeps three elements and puts the
+        ; wrong data on each. `moved` is what tells the two apart.
+        c.eqInt("and every one of them changed position" r.stats.moved 3)
+
+        def live2:EVGElement (EVGReconcileTest.list("abc" true))
+        def r2 (new EVGReconcile())
+        r2.reconcile(live2 (EVGReconcileTest.list("abdc" true)))
+        c.eqInt("an insert keeps the three that were there" r2.stats.kept 3)
+        c.eqInt("and creates exactly the new one" r2.stats.created 1)
+        c.eqInt("and drops nothing" r2.stats.dropped 0)
+
+        def live3:EVGElement (EVGReconcileTest.list("abc" true))
+        def r3 (new EVGReconcile())
+        r3.reconcile(live3 (EVGReconcileTest.list("ac" true)))
+        c.eqInt("a removal drops exactly one" r3.stats.dropped 1)
+        c.eqInt("and keeps the rest" r3.stats.kept 2)
+
+        ; A key names a LOGICAL child, and a tag names a kind of thing. Same
+        ; key, different tag is a different element — reusing one as the other
+        ; would carry a text node's leftovers into a button.
+        def live4 (EVGElement.createDiv())
+        def a (EVGElement.createDiv())
+        a.key = "x"
+        live4.addChild(a)
+        def next4 (EVGElement.createDiv())
+        def b (EVGElement.createDiv())
+        b.tagName = "button"
+        b.key = "x"
+        next4.addChild(b)
+        def r4 (new EVGReconcile())
+        r4.reconcile(live4 next4)
+        c.eqInt("same key, different tag is not a match" r4.stats.kept 0)
+        c.eqInt("it is built instead" r4.stats.created 1)
+    }
+
+    ; --- and what that buys: a flight that survives the rebuild --------------------
+    ;
+    ; This is the test the whole class exists for. Put a row mid-flight, rebuild
+    ; the list around it, and ask whether the flight is still in the air ON THE
+    ; ROW IT BELONGS TO. Keyed, the answer is yes and the row slides. Unkeyed,
+    ; the element stays but the DATA moves under it, so the flight lands on
+    ; whatever row happens to be in that position — which looks like the wrong
+    ; row animating, and is exactly the failure the demos work around by never
+    ; rebuilding at all.
+
+    sfn flightCount:int (el:EVGElement) {
+        return (array_length el.transitions)
+    }
+
+    sfn childByLabel@(optional):EVGElement (root:EVGElement label:string) {
+        def i:int 0
+        while (i < (array_length root.children)) {
+            def ch:EVGElement (itemAt root.children i)
+            if (ch.a11yLabel == label) {
+                def hit@(optional):EVGElement ch
+                return hit
+            }
+            i = (i + 1)
+        }
+        def miss@(optional):EVGElement
+        return miss
+    }
+
+    sfn testFlightSurvives:void (c:RecCheck) {
+        print "--- a flight survives a rebuild ---"
+
+        def live:EVGElement (EVGReconcileTest.list("abc" true))
+        def t (new EVGTransition())
+
+        ; Frame one, then SETTLE. The first reconcile of a transitioned
+        ; property does start a flight — from whatever the element had before
+        ; the sheet spoke — so "nothing is moving yet" has to be established by
+        ; running the clock out, not assumed. The first version of this test
+        ; assumed it, and read a leftover first-frame flight as proof that the
+        ; reconciler had put a row in motion.
+        EVGReconcileTest.styled(live)
+        t.reconcileTree(live)
+        t.advanceTree(live 500.0)
+        c.ok("nothing is moving once the first frame has settled" ((t.busy(live)) == false))
+
+        ; Now change what row `c` is: its class decides its colour, and the
+        ; sheet says background-color transitions over 100ms.
+        def cRow:EVGElement (unwrap (EVGReconcileTest.childByLabel(live "c")))
+        cRow.className = "row row-d"
+        EVGReconcileTest.styled(live)
+        t.reconcileTree(live)
+        t.advanceTree(live 30.0)
+        c.ok("the row is in flight before the rebuild" (t.busy(cRow)))
+
+        ; The rebuild. `c` moves to the front, and the builder does not know or
+        ; care that anything was moving.
+        def r (new EVGReconcile())
+        r.reconcile(live (EVGReconcileTest.list("cab" true)))
+
+        def moved:EVGElement (unwrap (EVGReconcileTest.childByLabel(live "c")))
+        def first:EVGElement (itemAt live.children 0)
+        c.eqStr("the row is where the new order puts it" first.a11yLabel "c")
+        c.ok("and it is still the same element, still in flight" (t.busy(moved)))
+
+        ; The other two were never touched and must not have picked anything
+        ; up. Asked with `busy` and not with a flight COUNT: a finished flight
+        ; stays in the list, so counting cannot tell "moving" from "moved".
+        def aRow:EVGElement (unwrap (EVGReconcileTest.childByLabel(live "a")))
+        c.ok("a row that did not change is not put in flight" ((t.busy(aRow)) == false))
+    }
+
+    sfn testUnkeyedLosesIt:void (c:RecCheck) {
+        print "--- and why the key is not the id ---"
+
+        ; The same scenario with no keys. The elements are matched by position,
+        ; so the element that was row `c` is now row `a` — it keeps its flight,
+        ; and the flight is now on the wrong row.
+        def live:EVGElement (EVGReconcileTest.list("abc" false))
+        def t (new EVGTransition())
+        EVGReconcileTest.styled(live)
+        t.reconcileTree(live)
+        t.advanceTree(live 500.0)
+
+        def third:EVGElement (itemAt live.children 2)
+        third.className = "row row-d"
+        EVGReconcileTest.styled(live)
+        t.reconcileTree(live)
+        t.advanceTree(live 30.0)
+        c.ok("the third row is in flight" (t.busy(third)))
+
+        def r (new EVGReconcile())
+        r.reconcile(live (EVGReconcileTest.list("cab" false)))
+
+        ; Position 2 is row `b` now. It inherited the flight of the element
+        ; that used to be there.
+        def nowThird:EVGElement (itemAt live.children 2)
+        c.eqStr("position two is a different row now" nowThird.a11yLabel "b")
+        c.ok("and it inherited the flight that was not its own" (t.busy(nowThird)))
+    }
+
+    ; --- the unkeyed rule that is easy to get wrong -------------------------------
+    ;
+    ; An unkeyed child is "the k-th unkeyed here is the k-th unkeyed there",
+    ; and when the k-th on the two sides disagree about their TAG the answer is
+    ; "no match" — not "keep looking". Falling forward past a mismatch pairs
+    ; the second unkeyed child of one render with the third of another, which
+    ; is how an unkeyed list ends up shifting its state by one on every insert.
+    ;
+    ; The counts alone cannot see the difference: both rules keep two and build
+    ; one here. What sees it is WHICH element survives, asked by putting a
+    ; flight on one and looking for it afterwards.
+    sfn mixedRow:EVGElement (tag:string label:string) {
+        def el (EVGElement.createDiv())
+        el.tagName = tag
+        el.className = "row row-a"
+        el.a11yLabel = label
+        return el
+    }
+
+    sfn testUnkeyedDoesNotFallForward:void (c:RecCheck) {
+        print "--- an unkeyed mismatch is a miss, not a search ---"
+
+        def live (EVGElement.createDiv())
+        live.className = "list"
+        live.addChild((EVGReconcileTest.mixedRow("div" "one")))
+        live.addChild((EVGReconcileTest.mixedRow("button" "two")))
+        live.addChild((EVGReconcileTest.mixedRow("div" "three")))
+
+        def t (new EVGTransition())
+        EVGReconcileTest.styled(live)
+        t.reconcileTree(live)
+        t.advanceTree(live 500.0)
+
+        ; Put the third child, and only it, in flight.
+        def third:EVGElement (itemAt live.children 2)
+        third.className = "row row-d"
+        EVGReconcileTest.styled(live)
+        t.reconcileTree(live)
+        t.advanceTree(live 30.0)
+        c.ok("the third child is in flight" (t.busy(third)))
+
+        def next (EVGElement.createDiv())
+        next.className = "list"
+        next.addChild((EVGReconcileTest.mixedRow("div" "one")))
+        next.addChild((EVGReconcileTest.mixedRow("div" "two")))
+        next.addChild((EVGReconcileTest.mixedRow("div" "three")))
+
+        def r (new EVGReconcile())
+        r.reconcile(live next)
+        c.eqInt("the button is not reused as a div" r.stats.kept 2)
+        c.eqInt("so one child is built" r.stats.created 1)
+
+        ; The third unkeyed child on both sides is the third one. Falling
+        ; forward would have given the flight to position ONE.
+        def nowSecond:EVGElement (itemAt live.children 1)
+        def nowThird:EVGElement (itemAt live.children 2)
+        c.ok("the flight stayed at position two" (t.busy(nowThird)))
+        c.ok("and did not slide up to position one" ((t.busy(nowSecond)) == false))
+    }
+
+    sfn main:void () {
+        def c (new RecCheck())
+        print "=== EVG keyed reconciliation ==="
+        EVGReconcileTest.testInvariant(c)
+        EVGReconcileTest.testKeepsElements(c)
+        EVGReconcileTest.testFlightSurvives(c)
+        EVGReconcileTest.testUnkeyedLosesIt(c)
+        EVGReconcileTest.testUnkeyedDoesNotFallForward(c)
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed > 0) {
+            print "FAILURES"
+        } {
+            print "ALL PASS"
+        }
+    }
+}

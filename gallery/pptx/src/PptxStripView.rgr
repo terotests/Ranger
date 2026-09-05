@@ -1,0 +1,252 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; PptxStripView — the strip, in the gallery's style
+; ==============================================================================
+;
+; Reported, looking at the editor zoomed in: the style is still very old
+; fashioned. It is, and the reason is structural rather than a matter of taste.
+; `EVGToolbarView` draws the whole strip with `pushRect`, and a rectangle is
+; the only shape it has: there is not one rounded corner in the file. A band of
+; hard rectangles with hairlines between them and a white folder-tab standing
+; on a blue line is what a toolbar looked like in 2003, and it is what a
+; toolbar looks like when the only primitive available is a rectangle.
+;
+; WHAT THIS DOES NOT DO IS FORK THE STRIP. `EVGToolbar` still owns the items,
+; the tabs, the layout and the hit testing, and `EVGToolbarView` still draws
+; every icon — this subclasses it and replaces the two methods that draw the
+; CHROME around those icons. So the spreadsheet and the document keep the strip
+; they have, the command table is untouched, and what changes is paint.
+;
+; The look is the gallery's, which is a neutral palette and a radius:
+;
+;   A HOVER IS A PILL, not a rectangle the width of the button. Six pixels of
+;   radius and a light zinc fill, inset by two, so a row of them reads as
+;   separate targets rather than as a fence.
+;
+;   AN ACTIVE TAB IS A PILL TOO, not a folder tab. The folder shape needs a
+;   line for the tab to stand on, a gap cut in that line, and a border that
+;   stops at both ends — four rectangles and a seam to get wrong, and it is
+;   the single most dated thing in the picture. A filled pill needs one.
+;
+;   THE SEPARATOR IS SHORTER AND PALER. It was a full-height hairline in the
+;   same colour as the band's border, so it read as a division of the strip
+;   rather than as a breath between two groups.
+;
+; The colours are the ones the rest of the gallery uses — zinc, near-white
+; surfaces, one accent — and they are set on the theme rather than written into
+; the drawing, so a host that wants its own can still have it.
+;
+;   npm run pptx:web:test   (the strip is hit-tested by the browser selftests)
+; ==============================================================================
+
+Import "../../evg/EVGToolbarView.rgr"
+Import "../../evg/EVGToolbar.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+
+; The chrome's surfaces, which the strip's theme does not cover.
+;
+; The strip was one band out of six, and making it near-white while the panel
+; beside it stayed at 32,36,47 left a light toolbar sitting on a dark navy
+; application — the two-tone look of a program that has been half rewritten,
+; which is what it was. These are the other five, in the same palette: the
+; gallery's zinc, one accent, and no navy anywhere.
+;
+; They are a class rather than a table of literals because the same numbers
+; were written out in fifteen places, and a colour written out fifteen times is
+; a colour that gets changed in fourteen.
+class PptxChromeTheme {
+    ; The desk the slide sits on. Darker than the panels so the page reads as a
+    ; sheet of paper lying on something, which is the one place a dark surface
+    ; earns its keep here.
+    def desk:EVGColor (EVGColor.rgb(228 228 231))
+    ; The radius the whole gallery is drawn with.
+    def radius:double 8.0
+    ; The panels: the thumbnails down one side, the properties down the other.
+    ; WHITE, like the dashboard's sidebar — the page around it is the near
+    ; white, and the panel lifting off it by one step is what gives the
+    ; arrangement its depth. Both being 250 was flat.
+    def panel:EVGColor (EVGColor.rgb(255 255 255))
+    ; A row inside a panel that is hovered or otherwise raised.
+    ; `.db-nav:hover` and `.db-nav-on` are the same fill, which is the
+    ; dashboard saying a row you are on and a row you are over are worth the
+    ; same amount of attention.
+    def panelAlt:EVGColor (EVGColor.rgb(244 244 245))
+    ; The row that is selected, and the ring around the chosen thumbnail.
+    def selected:EVGColor (EVGColor.rgb(244 244 245))
+    def accent:EVGColor (EVGColor.rgb(37 99 235))
+    def line:EVGColor (EVGColor.rgb(228 228 231))
+    ; `.db-nav-text` for a label, `.db-nav-text-on` for the one you are on.
+    def ink:EVGColor (EVGColor.rgb(39 39 42))
+    def inkOn:EVGColor (EVGColor.rgb(9 9 11))
+    def dim:EVGColor (EVGColor.rgb(113 113 122))
+
+    Constructor () {
+    }
+}
+
+class PptxStripView extends EVGToolbarView {
+    ; The radius everything on the strip is drawn with. One number, because a
+    ; strip whose pills and tabs disagree about their corners reads as two
+    ; strips.
+    ; EIGHT, because that is what the dashboard uses on every row, button and
+    ; card of it. A chrome that agrees with the gallery to within two pixels is
+    ; a chrome that looks like a near-miss of it.
+    def pillRadius:double 8.0
+
+    Constructor () {
+        ; EIGHTEEN, not twenty-four. The base view draws on a 24 grid, which
+        ; was chosen when the strip's buttons were 30 wide and the picture WAS
+        ; the button; in a 38-wide button with ten pixels of air around it a
+        ; 24px glyph reads as a stamp. The dashboard's icons are 16 in a 32
+        ; row, and this is that ratio in a slightly larger button.
+        glyphSize = 18
+    }
+
+    ; The gallery's palette, on the shared theme object. Written here and not
+    ; into the drawing below so that a host can still replace it — and so that
+    ; the difference between this strip and the spreadsheet's is a table of
+    ; colours plus two shapes, which is what it should be.
+    sfn modernTheme:EVGToolbarTheme () {
+        def t (new EVGToolbarTheme())
+        ; The band itself: near-white rather than the blue-grey 236,240,246.
+        t.bg = (EVGColor.rgb(250 250 250))
+        ; zinc-200, which is what every hairline in the gallery is.
+        t.line = (EVGColor.rgb(228 228 231))
+        ; `.db-nav-text` and `.db-nav-text-dim`, to the number.
+        t.ink = (EVGColor.rgb(39 39 42))
+        t.dim = (EVGColor.rgb(113 113 122))
+        ; `.db-nav-icon`, which is a step lighter than the text beside it. The
+        ; strip's icons were being drawn in the text ink and came out as heavy
+        ; black stamps — the single loudest thing on a near-white band.
+        t.glyphInk = (EVGColor.rgb(82 82 91))
+        ; A filled shape inside an icon. Mid zinc, so it reads as part of the
+        ; drawing rather than as a smudge.
+        t.glyph = (EVGColor.rgb(161 161 170))
+        ; zinc-100 under the pointer, zinc-200 when held. Two steps rather than
+        ; one, so a press is distinguishable from a hover without being loud.
+        t.hotBg = (EVGColor.rgb(244 244 245))
+        t.pressedBg = (EVGColor.rgb(228 228 231))
+        t.accent = (EVGColor.rgb(37 99 235))
+        t.tipBg = (EVGColor.rgb(255 255 255))
+        return t
+    }
+
+    ; A rounded rectangle, which the display list can draw and no toolbar has
+    ; ever asked it for.
+    ; STATIC, because it reads nothing off the view. The panel's tabs want the
+    ; same pill and have no view to ask for it.
+    sfn pushPill:void (dl:EVGDisplayList x:double y:double w:double h:double
+        rad:double col:EVGColor) {
+        if (w <= 0.0) {
+            return
+        }
+        if (h <= 0.0) {
+            return
+        }
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 0
+        c.x = x
+        c.y = y
+        c.w = w
+        c.h = h
+        c.radius = rad
+        c.radiusTR = rad
+        c.radiusBR = rad
+        c.radiusBL = rad
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        push dl.cmds c
+    }
+
+    ; The band. Same contract as the one it replaces — measure, lay out, draw —
+    ; with the chrome around the icons drawn in the gallery's shapes.
+    fn paint:void (dl:EVGDisplayList bar:EVGToolbar x0:int y0:int width:int height:int) {
+        this.pushRect(dl (to_double x0) (to_double y0) (to_double width) (to_double height) theme.bg)
+        ; ONE HAIRLINE, along the bottom, where the band meets what is under
+        ; it. The old strip drew a border on all four sides, which put a line
+        ; down each edge of the window and another across the top of the
+        ; screen — three rules nothing needed and one that was doing a job.
+        this.pushRect(dl (to_double x0) (to_double ((y0 + height) - 1))
+            (to_double width) 1.0 theme.line)
+        this.measureTabs(bar)
+        this.measureLabels(bar)
+        bar.layout(x0 y0 width)
+        if (bar.hasTabs()) {
+            this.paintTabs(dl bar x0 y0 width)
+        }
+        def i:int 0
+        while (i < (bar.count())) {
+            def t:ToolItem (bar.at(i))
+            if (t.w > 0) {
+                if t.isSeparator {
+                    ; SHORTER AND PALER than the band's own rule: a breath
+                    ; between two groups of buttons, not a division of the
+                    ; strip. Ten pixels in from either end of the button's box.
+                    this.pushRect(dl (to_double (t.x + 4)) (to_double (t.y + 10))
+                        1.0 (to_double (t.h - 20)) theme.line)
+                } {
+                    ; The pill, inset so that a row of them has air between.
+                    def px:double (to_double (t.x + 2))
+                    def py:double (to_double (t.y + 2))
+                    def pw:double (to_double (t.w - 4))
+                    def ph:double (to_double (t.h - 4))
+                    if t.pressed {
+                        PptxStripView.pushPill(dl px py pw ph pillRadius theme.pressedBg)
+                    }
+                    if (bar.hot == i) {
+                        if (t.pressed == false) {
+                            PptxStripView.pushPill(dl px py pw ph pillRadius theme.hotBg)
+                        }
+                    }
+                    if (t.textW > 0) {
+                        this.paintTextButton(dl t)
+                    } {
+                        this.paintToolIcon(dl t bar.iconW)
+                        if t.showLabel {
+                            this.paintChipLabel(dl t bar.iconW)
+                        }
+                        if t.isMenu {
+                            this.paintChevron(dl ((t.x + t.w) - 9) (t.y + (idiv t.h 2)) theme.dim)
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; The tabs, as pills.
+    ;
+    ; The shape this replaces was a folder tab: a white chip with a border, an
+    ; accent bar across its top, a rule along the whole row, and a one-pixel
+    ; length of that rule painted out again underneath the active chip so the
+    ; two would join. Five rectangles, and the seam between the fourth and the
+    ; fifth is the thing that makes it look like software from twenty years
+    ; ago. A pill is one.
+    fn paintTabs:void (dl:EVGDisplayList bar:EVGToolbar x0:int y0:int width:int) {
+        def i:int 0
+        while (i < (bar.tabCount())) {
+            def t:ToolTab (bar.tabAt(i))
+            if (t.w > 0) {
+                def active:boolean (i == bar.activeTab)
+                def col:EVGColor theme.dim
+                if active {
+                    ; White, so it lifts off the near-white band the way a
+                    ; selected row does everywhere else in the gallery, and
+                    ; inset top and bottom so the row has a rhythm.
+                    PptxStripView.pushPill(dl (to_double t.x) (to_double (t.y + 3))
+                        (to_double t.w) (to_double (t.h - 5)) pillRadius theme.tipBg)
+                    col = theme.ink
+                }
+                def tw:double (ctx.tr.measureWidth(t.name 13.0))
+                def tx:double ((to_double t.x) + (((to_double t.w) - tw) * 0.5))
+                def ty:double ((to_double t.y) + (((to_double t.h) - 13.0) * 0.5))
+                this.pushText(dl t.name tx ty 13.0 col)
+            }
+            i = (i + 1)
+        }
+    }
+}

@@ -1,0 +1,91 @@
+{
+  "$comment": "The denominator for input-bench.mjs: the demo variants a shadcn-family input page shows (reui.io/components/input and its neighbours, shadcn/ui's Input, Textarea, Date Picker, Input OTP), and which text field on THESE pages stands for each. A variant with no field is printed as MISSING and lowers nothing — it is the list of what a person coming from that page will not find here. Field ids are `<demo>/<a11y id>`, as the bench prints them. reui.io is refused by this environment's egress proxy, so the variant list is from the shadcn family's published demos rather than a fresh read of that page; it is reviewable data, not a measurement.",
+  "groups": [
+    {
+      "component": "Input",
+      "reference": "reui.io/components/input · shadcn/ui Input",
+      "variants": [
+        { "variant": "default", "fields": ["form/fm-name", "profile/pf-name", "profile/pf-company"] },
+        { "variant": "with label", "fields": ["form/fm-name", "profile/pf-name"], "note": "the label names the field; a11y-label on the box" },
+        { "variant": "with description", "fields": ["form/fm-email", "profile/pf-birth"], "note": "hint under the field, aria-description on the box" },
+        { "variant": "required", "fields": ["form/fm-name", "form/fm-email", "form/fm-secret"] },
+        { "variant": "invalid (form error)", "fields": ["form/fm-email"], "note": "red ring, aria-invalid, the error replaces the hint" },
+        { "variant": "placeholder", "fields": ["form/fm-search", "form/fm-name", "form/fm-email"] },
+        { "variant": "readonly", "fields": ["form/fm-invoice"] },
+        { "variant": "disabled", "fields": [], "note": "no disabled TEXT field on any page — the invoice form's disabled control is a radio" },
+        { "variant": "with icon (leading)", "fields": ["profile/pf-dismissal", "form/fm-search"] },
+        { "variant": "with icon (trailing)", "fields": ["profile/pf-birth", "profile/pf-available"] },
+        { "variant": "with addon / prefix", "fields": ["form/fm-amount"], "note": "a € prefix inside the box" },
+        { "variant": "with button inside", "fields": ["form/fm-secret"], "note": "the reveal toggle is a button living in the field's box" },
+        { "variant": "input group (input + button)", "fields": [], "note": "no field with a sibling button that acts on it" },
+        { "variant": "clearable (× to clear)", "fields": [] },
+        { "variant": "sizes (sm / md / lg)", "fields": [], "note": "one size on every page" },
+        { "variant": "file", "fields": [], "note": "no file input; a canvas cannot open the picker without a native control" },
+        { "variant": "phone", "fields": ["profile/pf-phone"] }
+      ]
+    },
+    {
+      "component": "Input Password",
+      "reference": "reui.io/components/input (password) · shadcn/ui Input type=password",
+      "variants": [
+        { "variant": "masked with reveal toggle", "fields": ["form/fm-secret"] }
+      ]
+    },
+    {
+      "component": "Number field",
+      "reference": "shadcn/ui components/base number-field (Base UI) · reui.io Input number",
+      "variants": [
+        { "variant": "digits only", "fields": ["form/fm-amount", "controls/cx-num"], "note": "fm-amount is InputCtl kind=number (a filter); cx-num is NumberCtl, measured against @base-ui/react in ui:number:check" },
+        { "variant": "stepper buttons (− +)", "fields": ["controls/cx-num"] },
+        { "variant": "arrow keys step, Shift+Arrow large step", "fields": ["controls/cx-num"] },
+        { "variant": "min / max clamped on commit, formatted on blur", "fields": ["controls/cx-num"] }
+      ]
+    },
+    {
+      "component": "Textarea",
+      "reference": "reui.io/components/textarea · shadcn/ui Textarea",
+      "variants": [
+        { "variant": "default (multi-line, caret moves up and down)", "fields": [], "note": "InputCtl is single-line; PLAN.md Phase 4 — no component exists" },
+        { "variant": "disabled", "fields": [] },
+        { "variant": "with label and text", "fields": [] },
+        { "variant": "with button (composer)", "fields": [], "note": "the message demo's composer is drawn, not a field" },
+        { "variant": "form (validation)", "fields": [] }
+      ]
+    },
+    {
+      "component": "Date picker",
+      "reference": "shadcn/ui Date Picker (react-day-picker in a Popover) · reui.io date picker",
+      "variants": [
+        { "variant": "calendar fills a field", "fields": ["calendar/cd-box"], "note": "the field above the always-visible grid; CalendarCtl is measured in ui:calendar:check" },
+        { "variant": "date of birth (year dropdown)", "fields": ["calendar/cd-box"], "note": "the year button and panel, measured against captionLayout=dropdown" },
+        { "variant": "picker in a popover (button opens the calendar)", "fields": [], "note": "the calendar is always on the page; no popover trigger" },
+        { "variant": "picker with typed input (parse what is typed)", "fields": [], "note": "cd-box shows the date; typing into it is not parsed" },
+        { "variant": "date and time", "fields": [], "note": "profile/pf-available is a text field drawn with an icon, and says so" },
+        { "variant": "natural language (\"in 2 days\")", "fields": [] },
+        { "variant": "time picker", "fields": [], "note": "profile/pf-dismissal is a text field with a clock icon; the benchmark is the browser's own <input type=time>" },
+        { "variant": "segmented date field (ArrowUp on the month changes the month)", "fields": [], "note": "profile/pf-birth is a text field; segmented editing declined until measured" }
+      ]
+    },
+    {
+      "component": "Input OTP",
+      "reference": "shadcn/ui Input OTP (input-otp) · reui.io input OTP",
+      "variants": [
+        { "variant": "one value, N boxes, paste spreads, Backspace walks back", "fields": [], "note": "PLAN_INPUTS.md P5b — OtpCtl not written" }
+      ]
+    },
+    {
+      "component": "Fields inside a dialog",
+      "reference": "shadcn/ui Dialog demo (Edit profile: Name, Username)",
+      "variants": [
+        { "variant": "text fields in a modal", "fields": ["dialog/dlg-input-name", "dialog/dlg-input-username"] }
+      ]
+    },
+    {
+      "component": "Tag input",
+      "reference": "reui.io tag input · shadcn-family tags input",
+      "variants": [
+        { "variant": "chips with ×, Backspace at 0 takes the chip", "fields": [], "note": "PLAN.md: needs an oracle before a rule" }
+      ]
+    }
+  ]
+}

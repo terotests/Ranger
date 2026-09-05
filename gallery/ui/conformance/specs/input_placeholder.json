@@ -1,0 +1,12 @@
+{
+  "name": "input_placeholder",
+  "component": "input",
+  "behaviours": ["input-placeholder", "textbox-role"],
+  "$comment": "A placeholder is drawn text and never a value. The trap is a field that reports its placeholder as its value once it is empty again, which is only visible because `value` and `placeholder` are separate fields.",
+  "fixture": { "controls": [{ "type": "input", "tid": "in", "name": "Email", "placeholder": "you@example.com" }] },
+  "steps": [
+    { "focus": "in" },
+    { "type": "a" },
+    { "key": "Backspace" }
+  ]
+}

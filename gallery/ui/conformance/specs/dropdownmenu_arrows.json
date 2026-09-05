@@ -1,0 +1,6 @@
+{ "name":"dropdownmenu_arrows","component":"dropdown-menu",
+  "behaviours":["arrow-first","arrow-last","arrow-steps","disabled-skipped","no-wrap","escape-closes","focus-restore"],
+  "fixture":{"controls":[
+    {"type":"dropdownmenu","tid":"dm","name":"Menu","items":[
+      {"value":"a","name":"Alpha"},{"value":"b","name":"Beta","disabled":true},{"value":"c","name":"Gamma"}]}]},
+  "steps":[{"click":"dm-trigger"},{"key":"ArrowUp"},{"key":"ArrowDown"},{"key":"ArrowUp"},{"key":"ArrowUp"},{"key":"Escape"}] }

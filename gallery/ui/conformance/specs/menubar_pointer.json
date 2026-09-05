@@ -1,0 +1,7 @@
+{ "name":"menubar_pointer","component":"menubar",
+  "behaviours":["menubar-role","menubar-pointer-open","menubar-item-closes"],
+  "fixture":{"controls":[
+    {"type":"menubar","tid":"mb","name":"Main","items":[
+      {"value":"file","name":"File","items":[{"value":"new","name":"New"},{"value":"open","name":"Open"}]},
+      {"value":"edit","name":"Edit","items":[{"value":"undo","name":"Undo"}]}]}]},
+  "steps":[{"click":"mb-file-trigger"},{"click":"mb-file-item-new"}] }

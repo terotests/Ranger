@@ -1,0 +1,331 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EVGComponent — an instance that outlives the tree it produces
+; ==============================================================================
+; `EVGReconcile` made an ELEMENT survive a rebuild. This makes the thing that
+; BUILT it survive one, which is a different problem and the one that has to be
+; solved before `state` means anything.
+;
+; The difference is worth stating precisely, because "keyed reconciliation"
+; sounds like it should already cover this. A reconciler works on the OUTPUT:
+; two trees exist, and it decides which of their nodes are the same node.
+; Nothing in that process gives the builder anywhere to live. A function that
+; returns a subtree starts from nothing every time it is called — so a value it
+; would like to remember between calls has no home, and the code that wants to
+; remember something has to push it up into a controller or a page. That is
+; where `MenuCtl.pendingTid` lives, and `pendingMs` beside it: a 100ms submenu
+; timer that belongs to ONE ROW, kept on the controller because a row is a
+; function call and a function call cannot hold a clock.
+;
+; A component is that home. It is an ordinary Ranger class with ordinary
+; fields, and the only thing this file adds is the guarantee that the same
+; instance comes back on the next pass.
+;
+; --- HOW IT WORKS -------------------------------------------------------------
+;
+;   host.beginPass()
+;   def root:EVGElement (myApp.render(host))
+;   host.endPass()
+;   reconciler.reconcile(live root)
+;
+; and inside the build, wherever a component is wanted:
+;
+;   def row:TreeRow (cast (host.use(value (new TreeRow())) to:TreeRow))
+;   row.label = name
+;   surface.addChild((row.render()))
+;
+; `use` returns the instance registered under that path if there is one, and
+; registers the fresh one otherwise — so the `new` on that line is a fallback
+; that is thrown away on every pass after the first. That is one allocation per
+; mounted component per frame, and it buys a call site with no factory
+; registry, no reflection and no second name for the class. Ranger has no way
+; to construct a class from a string, and inventing one for this would be a
+; larger feature than the one being built.
+;
+; --- KEYS, AND WHY THEY ARE PATHS ---------------------------------------------
+;
+; A key identifies a component among its SIBLINGS, exactly as `EVGElement.key`
+; identifies an element among its siblings. Two lists on one page may both have
+; a row keyed "video". So the host keeps a path — `enter(segment)` on the way
+; down, `leave()` on the way back — and the registry is keyed by the joined
+; path. The caller never concatenates anything.
+;
+; A component that renders components therefore reads:
+;
+;   host.enter(("row:" + value))
+;   ... children ask for plain keys ...
+;   host.leave()
+;
+; --- MOUNT, UPDATE, DISPOSE ---------------------------------------------------
+;
+; The same three events `EVGReconcileStats` counts for elements — kept, created,
+; dropped — one level up, and named apart so a number says which layer it came
+; from. `endPass` disposes everything that was not asked for during the pass,
+; and that is the half a reconciler cannot do for you: dropping an element takes
+; its subtree out of the tree and tells nobody, which is fine for a box and
+; wrong for anything holding a timer, a pointer capture or a subscription.
+;
+; --- WHAT IDENTITY IS MISSING -------------------------------------------------
+;
+; A component's identity should be its parent, its CALL SITE and its key. This
+; has the first and the third; a library cannot see the second. So two sibling
+; calls with the same key are indistinguishable here from one component being
+; rebuilt, and they would share an instance and its state. That is reported
+; rather than absorbed — see `use`. Folding the call site in is a thing the
+; compiler can do when `component` becomes a literal, and it is the reason to
+; do it there rather than here.
+;
+; --- WHAT THIS IS NOT ---------------------------------------------------------
+;
+; There is no `state` keyword, no dependency tracking, and no decision about
+; WHEN to re-render — every component's `view` runs on every pass. A field on a
+; component subclass already survives, which is what makes `state` sugar rather
+; than machinery when it arrives. Tracking which fields were read, and skipping
+; the views that cannot have changed, is the step after this one.
+; ==============================================================================
+
+Import "EVGElement.rgr"
+
+class EVGComponent {
+
+    ; The name this instance is registered under, set by the host. A component
+    ; never chooses its own — a thing cannot decide what it is called among
+    ; siblings it does not know about.
+    def path:string ""
+
+    ; How many times `render` has been called on THIS INSTANCE. Not a
+    ; diagnostic: it is the cheapest possible proof that an instance survived a
+    ; rebuild, and it is what the tests read.
+    def renders:int 0
+
+    Constructor () {
+    }
+
+    ; What the component draws. Subclasses override this; nothing else here is
+    ; meant to be.
+    fn view:EVGElement () {
+        return (EVGElement.createDiv())
+    }
+
+    ; Called once, when the host first registers this instance.
+    fn onMount:void () {
+    }
+
+    ; Called once, when a pass ends without this instance having been asked
+    ; for. After this the host forgets it, and asking again builds a new one.
+    ;
+    ; `dispose` and not `unmount`, because unmounting is what happens to the
+    ; ELEMENT and this is what happens to the OWNER. A component may hold a
+    ; timer, a pointer capture, a subscription or a pending request, and a key
+    ; that leaves the tree must not leave any of them running: this is the only
+    ; notification that a thing is gone, and the reconciler cannot give it —
+    ; dropping an element takes a subtree out of the tree and tells nobody.
+    fn onDispose:void () {
+    }
+
+    ; The view, plus the two things every component's root needs.
+    ;
+    ; Stamping the key here rather than leaving it to `view` is deliberate: the
+    ; host and the reconciler have to agree about identity, and they agree by
+    ; construction if the element's key is the component's path. A component
+    ; whose view forgot the key would keep its own state and lose its element's
+    ; — half-persistent, which is worse than neither.
+    fn render:EVGElement () {
+        renders = (renders + 1)
+        def el:EVGElement (this.view())
+        el.key = path
+        return el
+    }
+}
+
+; The component-level counterpart of `EVGReconcileStats`. Elements are kept,
+; created and dropped; components are mounted, updated and disposed — the same
+; three events one level up, and named differently on purpose so a number in a
+; log says which layer it came from.
+class EVGComponentStats {
+    def mounted:int 0
+    def updated:int 0
+    def disposed:int 0
+    ; How many are registered right now. `live` and not `count`, because the
+    ; number that matters is how many are being kept alive.
+    def live:int 0
+
+    Constructor () {
+    }
+}
+
+class EVGComponentHost {
+
+    ; The registry. Parallel arrays plus an index, the same shape `DBOps` uses
+    ; for a join: the map answers "is this path known", the arrays hold what is
+    ; known, and `seen` is cleared at the start of every pass.
+    def paths:[string]
+    def comps:[EVGComponent]
+    def seen:[boolean]
+    def index:[string:int]
+
+    ; Where the walk currently is. Joined with "/" to make a path.
+    def stack:[string]
+
+    def stats:EVGComponentStats (new EVGComponentStats())
+    ; True between beginPass and endPass. `use` outside a pass is a mistake
+    ; that would otherwise look like a component that never unmounts.
+    def inPass:boolean false
+    def problems:[string]
+
+    Constructor () {
+        def a:[string]
+        paths = a
+        def b:[EVGComponent]
+        comps = b
+        def c:[boolean]
+        seen = c
+        def d:[string:int]
+        index = d
+        def e:[string]
+        stack = e
+        def f:[string]
+        problems = f
+    }
+
+    fn beginPass:void () {
+        if inPass {
+            push problems "beginPass called twice without an endPass"
+        }
+        inPass = true
+        stats = (new EVGComponentStats())
+        def i:int 0
+        while (i < (array_length seen)) {
+            set_at seen i false
+            i = (i + 1)
+        }
+        def empty:[string]
+        stack = empty
+    }
+
+    fn enter:void (segment:string) {
+        push stack segment
+    }
+
+    fn leave:void () {
+        if ((array_length stack) == 0) {
+            push problems "leave() with nothing entered"
+            return
+        }
+        removeLast stack
+    }
+
+    ; The path a `use(key …)` right here would land on. Public because a test
+    ; that cannot say where a component went is a test of nothing.
+    fn pathFor:string (key:string) {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length stack)) {
+            out = ((out + (itemAt stack i)) + "/")
+            i = (i + 1)
+        }
+        return (out + key)
+    }
+
+    ; The instance for `key` at the current path — the one from last pass if
+    ; there is one, `fresh` otherwise.
+    fn use:EVGComponent (key:string fresh:EVGComponent) {
+        if (inPass == false) {
+            push problems ("use(" + key + ") outside a pass")
+        }
+        def path:string (this.pathFor(key))
+        def at@(optional):int (get index path)
+        if (null? at) {
+            def slot:int (array_length comps)
+            fresh.path = path
+            push paths path
+            push comps fresh
+            push seen true
+            set index path slot
+            stats.mounted = (stats.mounted + 1)
+            fresh.onMount()
+            return fresh
+        }
+        def slot2:int (unwrap at)
+        ; Asked for TWICE in the same pass. A component's identity is its
+        ; parent plus its key, and nothing here can see a call site — so two
+        ; sibling calls with one key are indistinguishable from a rebuild of
+        ; the same component, and both would silently share an instance and
+        ; therefore share its state.
+        ;
+        ; Saying so is the honest fix at this layer. A compiler that lowers a
+        ; `component` literal can fold the call site into the path and make the
+        ; collision impossible; a library cannot, and quietly handing back the
+        ; same object is the failure mode that looks like it works.
+        if (itemAt seen slot2) {
+            push problems (("two components asked for the same key in one pass: " + path) + " — give them different keys, or they will share state")
+        }
+        set_at seen slot2 true
+        stats.updated = (stats.updated + 1)
+        return (itemAt comps slot2)
+    }
+
+    ; Close the pass, and unmount whatever nobody asked for.
+    ;
+    ; The rebuild is what removes a component: there is no `remove` call and
+    ; there should not be one. Something disappears from a view by not being
+    ; built, and anything that has to happen when it does is this method's job
+    ; — which is the whole reason a component is more than a function.
+    fn endPass:void () {
+        if (inPass == false) {
+            push problems "endPass without a beginPass"
+        }
+        if ((array_length stack) != 0) {
+            push problems "endPass with an unclosed enter()"
+        }
+        inPass = false
+
+        def keptPaths:[string]
+        def keptComps:[EVGComponent]
+        def keptSeen:[boolean]
+        def fresh:[string:int]
+        def i:int 0
+        while (i < (array_length comps)) {
+            def c:EVGComponent (itemAt comps i)
+            if (itemAt seen i) {
+                def slot:int (array_length keptComps)
+                push keptPaths (itemAt paths i)
+                push keptComps c
+                push keptSeen true
+                set fresh (itemAt paths i) slot
+            } {
+                stats.disposed = (stats.disposed + 1)
+                c.onDispose()
+            }
+            i = (i + 1)
+        }
+        paths = keptPaths
+        comps = keptComps
+        seen = keptSeen
+        index = fresh
+        stats.live = (array_length comps)
+    }
+
+    ; Everything registered, for a test or a page that wants to look.
+    fn livePaths:[string] () {
+        return paths
+    }
+
+    fn find@(optional):EVGComponent (path:string) {
+        def at@(optional):int (get index path)
+        if (null? at) {
+            def miss@(optional):EVGComponent
+            return miss
+        }
+        def hit@(optional):EVGComponent (itemAt comps (unwrap at))
+        return hit
+    }
+
+    ; Misuse, in the host's own words. Same idea as `EVGA11yTree.notes`: a
+    ; mistake that produces a plausible-looking result is one that has to
+    ; announce itself, because nothing downstream will.
+    fn lint:[string] () {
+        return problems
+    }
+}

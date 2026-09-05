@@ -1,0 +1,23 @@
+{
+  "_": "The year sheets — /summary/yearsheet: the list, one card per sheet named by everything on it. The card opens a sheet by reloading the page in the original, which loses the test sign-in, so the sheet is its own scenario by route.",
+  "id": "yearsheet-list",
+  "area": "vuosi",
+  "machine": "",
+  "source": "frontend/src/pages/YearSheetPageV2.tsx",
+  "reference": {
+    "route": "/summary/yearsheet"
+  },
+  "setup": [
+    {
+      "page": "390x844"
+    },
+    {
+      "route": "/summary/yearsheet"
+    }
+  ],
+  "steps": [
+    {
+      "tick": 300
+    }
+  ]
+}

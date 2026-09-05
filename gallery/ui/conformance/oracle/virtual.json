@@ -1,0 +1,554 @@
+{
+  "$comment": "Captured from @tanstack/virtual-core. Regenerate with `npm run ui:virtual:oracle`.",
+  "library": "@tanstack/virtual-core@3.17.8",
+  "fixture": {
+    "count": 10000,
+    "rowHeight": 46,
+    "viewport": 320
+  },
+  "totalSize": 460000,
+  "exact": [
+    {
+      "offset": 0,
+      "overscan": 0,
+      "first": 0,
+      "last": 6,
+      "shown": 7,
+      "firstStart": 0,
+      "total": 460000
+    },
+    {
+      "offset": 1,
+      "overscan": 0,
+      "first": 0,
+      "last": 6,
+      "shown": 7,
+      "firstStart": 0,
+      "total": 460000
+    },
+    {
+      "offset": 45,
+      "overscan": 0,
+      "first": 0,
+      "last": 7,
+      "shown": 8,
+      "firstStart": 0,
+      "total": 460000
+    },
+    {
+      "offset": 46,
+      "overscan": 0,
+      "first": 1,
+      "last": 7,
+      "shown": 7,
+      "firstStart": 46,
+      "total": 460000
+    },
+    {
+      "offset": 47,
+      "overscan": 0,
+      "first": 1,
+      "last": 7,
+      "shown": 7,
+      "firstStart": 46,
+      "total": 460000
+    },
+    {
+      "offset": 92,
+      "overscan": 0,
+      "first": 2,
+      "last": 8,
+      "shown": 7,
+      "firstStart": 92,
+      "total": 460000
+    },
+    {
+      "offset": 100,
+      "overscan": 0,
+      "first": 2,
+      "last": 9,
+      "shown": 8,
+      "firstStart": 92,
+      "total": 460000
+    },
+    {
+      "offset": 500,
+      "overscan": 0,
+      "first": 10,
+      "last": 17,
+      "shown": 8,
+      "firstStart": 460,
+      "total": 460000
+    },
+    {
+      "offset": 1000,
+      "overscan": 0,
+      "first": 21,
+      "last": 28,
+      "shown": 8,
+      "firstStart": 966,
+      "total": 460000
+    },
+    {
+      "offset": 4600,
+      "overscan": 0,
+      "first": 100,
+      "last": 106,
+      "shown": 7,
+      "firstStart": 4600,
+      "total": 460000
+    },
+    {
+      "offset": 45.5,
+      "overscan": 0,
+      "first": 0,
+      "last": 7,
+      "shown": 8,
+      "firstStart": 0,
+      "total": 460000
+    },
+    {
+      "offset": 229999,
+      "overscan": 0,
+      "first": 4999,
+      "last": 5006,
+      "shown": 8,
+      "firstStart": 229954,
+      "total": 460000
+    },
+    {
+      "offset": 459954,
+      "overscan": 0,
+      "first": 9999,
+      "last": 9999,
+      "shown": 1,
+      "firstStart": 459954,
+      "total": 460000
+    },
+    {
+      "offset": 459955,
+      "overscan": 0,
+      "first": 9999,
+      "last": 9999,
+      "shown": 1,
+      "firstStart": 459954,
+      "total": 460000
+    },
+    {
+      "offset": 500000,
+      "overscan": 0,
+      "first": 9999,
+      "last": 9999,
+      "shown": 1,
+      "firstStart": 459954,
+      "total": 460000
+    }
+  ],
+  "overscanned": [
+    {
+      "offset": 0,
+      "overscan": 1,
+      "first": 0,
+      "last": 7,
+      "shown": 8,
+      "firstStart": 0,
+      "total": 460000
+    },
+    {
+      "offset": 0,
+      "overscan": 3,
+      "first": 0,
+      "last": 9,
+      "shown": 10,
+      "firstStart": 0,
+      "total": 460000
+    },
+    {
+      "offset": 0,
+      "overscan": 5,
+      "first": 0,
+      "last": 11,
+      "shown": 12,
+      "firstStart": 0,
+      "total": 460000
+    },
+    {
+      "offset": 1,
+      "overscan": 1,
+      "first": 0,
+      "last": 7,
+      "shown": 8,
+      "firstStart": 0,
+      "total": 460000
+    },
+    {
+      "offset": 1,
+      "overscan": 3,
+      "first": 0,
+      "last": 9,
+      "shown": 10,
+      "firstStart": 0,
+      "total": 460000
+    },
+    {
+      "offset": 1,
+      "overscan": 5,
+      "first": 0,
+      "last": 11,
+      "shown": 12,
+      "firstStart": 0,
+      "total": 460000
+    },
+    {
+      "offset": 45,
+      "overscan": 1,
+      "first": 0,
+      "last": 8,
+      "shown": 9,
+      "firstStart": 0,
+      "total": 460000
+    },
+    {
+      "offset": 45,
+      "overscan": 3,
+      "first": 0,
+      "last": 10,
+      "shown": 11,
+      "firstStart": 0,
+      "total": 460000
+    },
+    {
+      "offset": 45,
+      "overscan": 5,
+      "first": 0,
+      "last": 12,
+      "shown": 13,
+      "firstStart": 0,
+      "total": 460000
+    },
+    {
+      "offset": 46,
+      "overscan": 1,
+      "first": 0,
+      "last": 8,
+      "shown": 9,
+      "firstStart": 0,
+      "total": 460000
+    },
+    {
+      "offset": 46,
+      "overscan": 3,
+      "first": 0,
+      "last": 10,
+      "shown": 11,
+      "firstStart": 0,
+      "total": 460000
+    },
+    {
+      "offset": 46,
+      "overscan": 5,
+      "first": 0,
+      "last": 12,
+      "shown": 13,
+      "firstStart": 0,
+      "total": 460000
+    },
+    {
+      "offset": 47,
+      "overscan": 1,
+      "first": 0,
+      "last": 8,
+      "shown": 9,
+      "firstStart": 0,
+      "total": 460000
+    },
+    {
+      "offset": 47,
+      "overscan": 3,
+      "first": 0,
+      "last": 10,
+      "shown": 11,
+      "firstStart": 0,
+      "total": 460000
+    },
+    {
+      "offset": 47,
+      "overscan": 5,
+      "first": 0,
+      "last": 12,
+      "shown": 13,
+      "firstStart": 0,
+      "total": 460000
+    },
+    {
+      "offset": 92,
+      "overscan": 1,
+      "first": 1,
+      "last": 9,
+      "shown": 9,
+      "firstStart": 46,
+      "total": 460000
+    },
+    {
+      "offset": 92,
+      "overscan": 3,
+      "first": 0,
+      "last": 11,
+      "shown": 12,
+      "firstStart": 0,
+      "total": 460000
+    },
+    {
+      "offset": 92,
+      "overscan": 5,
+      "first": 0,
+      "last": 13,
+      "shown": 14,
+      "firstStart": 0,
+      "total": 460000
+    },
+    {
+      "offset": 100,
+      "overscan": 1,
+      "first": 1,
+      "last": 10,
+      "shown": 10,
+      "firstStart": 46,
+      "total": 460000
+    },
+    {
+      "offset": 100,
+      "overscan": 3,
+      "first": 0,
+      "last": 12,
+      "shown": 13,
+      "firstStart": 0,
+      "total": 460000
+    },
+    {
+      "offset": 100,
+      "overscan": 5,
+      "first": 0,
+      "last": 14,
+      "shown": 15,
+      "firstStart": 0,
+      "total": 460000
+    },
+    {
+      "offset": 500,
+      "overscan": 1,
+      "first": 9,
+      "last": 18,
+      "shown": 10,
+      "firstStart": 414,
+      "total": 460000
+    },
+    {
+      "offset": 500,
+      "overscan": 3,
+      "first": 7,
+      "last": 20,
+      "shown": 14,
+      "firstStart": 322,
+      "total": 460000
+    },
+    {
+      "offset": 500,
+      "overscan": 5,
+      "first": 5,
+      "last": 22,
+      "shown": 18,
+      "firstStart": 230,
+      "total": 460000
+    },
+    {
+      "offset": 1000,
+      "overscan": 1,
+      "first": 20,
+      "last": 29,
+      "shown": 10,
+      "firstStart": 920,
+      "total": 460000
+    },
+    {
+      "offset": 1000,
+      "overscan": 3,
+      "first": 18,
+      "last": 31,
+      "shown": 14,
+      "firstStart": 828,
+      "total": 460000
+    },
+    {
+      "offset": 1000,
+      "overscan": 5,
+      "first": 16,
+      "last": 33,
+      "shown": 18,
+      "firstStart": 736,
+      "total": 460000
+    },
+    {
+      "offset": 4600,
+      "overscan": 1,
+      "first": 99,
+      "last": 107,
+      "shown": 9,
+      "firstStart": 4554,
+      "total": 460000
+    },
+    {
+      "offset": 4600,
+      "overscan": 3,
+      "first": 97,
+      "last": 109,
+      "shown": 13,
+      "firstStart": 4462,
+      "total": 460000
+    },
+    {
+      "offset": 4600,
+      "overscan": 5,
+      "first": 95,
+      "last": 111,
+      "shown": 17,
+      "firstStart": 4370,
+      "total": 460000
+    },
+    {
+      "offset": 45.5,
+      "overscan": 1,
+      "first": 0,
+      "last": 8,
+      "shown": 9,
+      "firstStart": 0,
+      "total": 460000
+    },
+    {
+      "offset": 45.5,
+      "overscan": 3,
+      "first": 0,
+      "last": 10,
+      "shown": 11,
+      "firstStart": 0,
+      "total": 460000
+    },
+    {
+      "offset": 45.5,
+      "overscan": 5,
+      "first": 0,
+      "last": 12,
+      "shown": 13,
+      "firstStart": 0,
+      "total": 460000
+    },
+    {
+      "offset": 229999,
+      "overscan": 1,
+      "first": 4998,
+      "last": 5007,
+      "shown": 10,
+      "firstStart": 229908,
+      "total": 460000
+    },
+    {
+      "offset": 229999,
+      "overscan": 3,
+      "first": 4996,
+      "last": 5009,
+      "shown": 14,
+      "firstStart": 229816,
+      "total": 460000
+    },
+    {
+      "offset": 229999,
+      "overscan": 5,
+      "first": 4994,
+      "last": 5011,
+      "shown": 18,
+      "firstStart": 229724,
+      "total": 460000
+    },
+    {
+      "offset": 459954,
+      "overscan": 1,
+      "first": 9998,
+      "last": 9999,
+      "shown": 2,
+      "firstStart": 459908,
+      "total": 460000
+    },
+    {
+      "offset": 459954,
+      "overscan": 3,
+      "first": 9996,
+      "last": 9999,
+      "shown": 4,
+      "firstStart": 459816,
+      "total": 460000
+    },
+    {
+      "offset": 459954,
+      "overscan": 5,
+      "first": 9994,
+      "last": 9999,
+      "shown": 6,
+      "firstStart": 459724,
+      "total": 460000
+    },
+    {
+      "offset": 459955,
+      "overscan": 1,
+      "first": 9998,
+      "last": 9999,
+      "shown": 2,
+      "firstStart": 459908,
+      "total": 460000
+    },
+    {
+      "offset": 459955,
+      "overscan": 3,
+      "first": 9996,
+      "last": 9999,
+      "shown": 4,
+      "firstStart": 459816,
+      "total": 460000
+    },
+    {
+      "offset": 459955,
+      "overscan": 5,
+      "first": 9994,
+      "last": 9999,
+      "shown": 6,
+      "firstStart": 459724,
+      "total": 460000
+    },
+    {
+      "offset": 500000,
+      "overscan": 1,
+      "first": 9998,
+      "last": 9999,
+      "shown": 2,
+      "firstStart": 459908,
+      "total": 460000
+    },
+    {
+      "offset": 500000,
+      "overscan": 3,
+      "first": 9996,
+      "last": 9999,
+      "shown": 4,
+      "firstStart": 459816,
+      "total": 460000
+    },
+    {
+      "offset": 500000,
+      "overscan": 5,
+      "first": 9994,
+      "last": 9999,
+      "shown": 6,
+      "firstStart": 459724,
+      "total": 460000
+    }
+  ]
+}

@@ -1,0 +1,244 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EVGFling — a finger that leaves the glass moving is still scrolling
+; ==============================================================================
+;
+; A drag that stops when the finger lifts is the difference between a page that
+; feels like a phone and one that feels like a spreadsheet. What a phone does
+; is simple and worth stating exactly, because every part of it is a decision:
+;
+;   THE SPEED IS MEASURED OVER A WINDOW, not from the last two points. The last
+;   sample before a lift is very often a slow one — a finger decelerates on the
+;   glass in the few milliseconds before it leaves — and a fling taken from it
+;   is a fling that barely moves. So the last few samples inside `windowMs` are
+;   summed and the speed is the total distance over the total time.
+;
+;   IT DECAYS IN PROPORTION TO ITSELF, which makes the distance travelled
+;   exactly proportional to the speed of the throw: a swipe twice as fast goes
+;   twice as far. That is the property being asked for, and it falls out of
+;   the decay rather than being a rule on top of it — the total is
+;   `velocity / friction`, and at the default that is four hundred times the
+;   speed in pixels per millisecond, so a firm 3 px/ms flick carries about
+;   1200 pixels, a page and a half of a phone.
+;
+;   The step is `v - v*friction*dt` and not `v * decay^dt`, because Ranger has
+;   no `pow` and does not need one here: over a frame `friction*dt` is between
+;   0.02 and 0.08, where the two agree to a tenth of a percent. The factor is
+;   clamped so a very long frame — a tab coming back to the foreground — stops
+;   the page rather than throwing it backwards.
+;
+;   IT IS DRIVEN BY THE REAL FRAME TIME. `step(dtMs)` asks for a distance, so a
+;   dropped frame moves further rather than slowing the page down; nothing here
+;   assumes sixty of anything.
+;
+; It scrolls nothing itself. `step` returns a distance and the caller decides
+; what it means, which is what lets the same object serve a browser's wheel
+; handler, a UIPanGestureRecognizer and a headless check.
+; ==============================================================================
+
+class EVGFling {
+    ; The samples still inside the window: how far, and over how long.
+    def dys:[double]
+    def dts:[double]
+    ; What the page is doing now, in pixels per millisecond. Zero is stopped.
+    def velocity:double 0.0
+
+    ; --- the numbers, and why they are these numbers --------------------------
+    ;
+    ; The fraction of the speed lost per millisecond. Higher stops sooner.
+    ;
+    ; 0.002 is a total distance of five hundred times the speed in pixels per
+    ; millisecond, and a glide of about two seconds. In the sizes a phone
+    ; actually produces: an idle drag of 0.5 px/ms carries 250 pixels, a
+    ; normal swipe of 2 carries a thousand — more than a screen — and a hard
+    ; flick of 4 carries two thousand, which is two and a half screens of a
+    ; 390x844 phone. Those are the numbers `web/scroll-check.mjs` holds it to.
+    def frictionPerMs:double 0.002
+    ; Below this a lift is a stop and not a throw — a third of a pixel a frame
+    ; at sixty of them, which is under the smallest movement anyone sees.
+    def minVelocity:double 0.05
+    ; A single sample cannot make the page faster than this. A finger that
+    ; jumps — a lost frame, a warped timestamp, a synthetic event — would
+    ; otherwise launch the document into next week.
+    def maxVelocity:double 8.0
+    ; How far back the speed is measured. Long enough to average out one bad
+    ; sample, short enough that a finger that paused before lifting is read as
+    ; having stopped, which is exactly what it did.
+    def windowMs:double 90.0
+
+    Constructor () {
+    }
+
+    ; How quickly a throw runs out. Higher is shorter; `distanceFor` says
+    ; what a given value means in pixels.
+    fn setFriction:void (perMs:double) {
+        frictionPerMs = perMs
+    }
+
+    ; One sample of a drag: how far it moved and how long that took. Sign is
+    ; the caller's — whatever `scroll by this much` means to it.
+    fn track:void (dy:double dtMs:double) {
+        ; TWO MOVES INSIDE ONE TICK OF THE CALLER'S CLOCK. A host whose only
+        ; clock is the frame — the iOS one, whose pan callbacks arrive between
+        ; frames — reports the second move of a frame as having taken no time.
+        ; Dropping it would lose most of a fast swipe, which is the swipe that
+        ; matters, so it is folded into the sample already there: the
+        ; distances add and the time stays the frame's, which is what happened.
+        if (dtMs <= 0.0) {
+            def n:int (array_length dys)
+            if (n > 0) {
+                dys = (this.withAdded(dys (n - 1) dy))
+            }
+            return
+        }
+        ; A gap longer than the window is a new gesture as far as speed is
+        ; concerned: whatever was moving before it is not moving now.
+        if (dtMs > windowMs) {
+            this.clearSamples()
+        }
+        push dys dy
+        push dts dtMs
+        this.trim()
+    }
+
+    ; `dys` with `dy` added to the entry at `i`. A list is rebuilt rather than
+    ; written into because Ranger has no indexed assignment on one, and the
+    ; list is at most a handful of samples long.
+    fn withAdded:[double] (src:[double] i:int dy:double) {
+        def out:[double]
+        def k:int 0
+        while (k < (array_length src)) {
+            def v:double (itemAt src k)
+            if (k == i) {
+                v = (v + dy)
+            }
+            push out v
+            k = (k + 1)
+        }
+        return out
+    }
+
+    fn clearSamples:void () {
+        def a:[double]
+        dys = a
+        def b:[double]
+        dts = b
+    }
+
+    ; Drop whatever has fallen out of the window, oldest first, but always keep
+    ; the last sample: a single slow one is still the best answer there is.
+    fn trim:void () {
+        def total:double (this.windowTotalTime())
+        while ((array_length dts) > 1) {
+            def oldest:double (itemAt dts 0)
+            if ((total - oldest) < windowMs) {
+                return
+            }
+            total = (total - oldest)
+            def ky:[double]
+            def kt:[double]
+            def i:int 1
+            while (i < (array_length dts)) {
+                push ky (itemAt dys i)
+                push kt (itemAt dts i)
+                i = (i + 1)
+            }
+            dys = ky
+            dts = kt
+        }
+    }
+
+    fn windowTotalTime:double () {
+        def t:double 0.0
+        def i:int 0
+        while (i < (array_length dts)) {
+            t = (t + (itemAt dts i))
+            i = (i + 1)
+        }
+        return t
+    }
+
+    fn windowTotalDistance:double () {
+        def d:double 0.0
+        def i:int 0
+        while (i < (array_length dys)) {
+            d = (d + (itemAt dys i))
+            i = (i + 1)
+        }
+        return d
+    }
+
+    ; The speed of the drag as it stands, over the window. Public because a
+    ; host that wants to decide for itself whether a gesture was a throw can
+    ; ask, and because it is the one number worth seeing in a test.
+    fn trackedVelocity:double () {
+        def t:double (this.windowTotalTime())
+        if (t <= 0.0) {
+            return 0.0
+        }
+        def v:double ((this.windowTotalDistance()) / t)
+        if (v > maxVelocity) {
+            return maxVelocity
+        }
+        if (v < (0.0 - maxVelocity)) {
+            return (0.0 - maxVelocity)
+        }
+        return v
+    }
+
+    ; The finger left. Returns whether that started a fling — a lift below
+    ; `minVelocity` is a stop, and says so.
+    fn release:boolean () {
+        def v:double (this.trackedVelocity())
+        this.clearSamples()
+        if ((fabs v) < minVelocity) {
+            velocity = 0.0
+            return false
+        }
+        velocity = v
+        return true
+    }
+
+    ; Stop dead. A finger going down catches the page where it is, the way it
+    ; does on a phone, and a wheel event takes it over.
+    fn halt:void () {
+        velocity = 0.0
+        this.clearSamples()
+    }
+
+    fn running:boolean () {
+        return (velocity != 0.0)
+    }
+
+    ; How far to scroll for this frame, and the speed left afterwards. Zero
+    ; when there is no fling, so a caller can ask on every frame.
+    fn step:double (dtMs:double) {
+        if (velocity == 0.0) {
+            return 0.0
+        }
+        if (dtMs <= 0.0) {
+            return 0.0
+        }
+        def d:double (velocity * dtMs)
+        def keep:double (1.0 - (frictionPerMs * dtMs))
+        if (keep < 0.0) {
+            keep = 0.0
+        }
+        velocity = (velocity * keep)
+        if ((fabs velocity) < minVelocity) {
+            velocity = 0.0
+        }
+        return d
+    }
+
+    ; What a throw at this speed would cover in total, if nothing stopped it.
+    ; The integral of the decay, and the reason "twice as fast goes twice as
+    ; far" is a fact about this class rather than a hope: it is linear in `v`.
+    fn distanceFor:double (v:double) {
+        if (frictionPerMs <= 0.0) {
+            return 0.0
+        }
+        return (v / frictionPerMs)
+    }
+}

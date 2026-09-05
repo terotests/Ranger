@@ -53,7 +53,13 @@ class ToolIconPath {
         ; button before can still read it as "the text goes that way", which
         ; is more than a pair of mirrored arrows or the letters RTL manage.
         if (k == (ToolIcon.textRtl())) {
-            return "M4 3 h16 v3 h-16 z M8 8 h12 v3 h-12 z M4 13 h16 v3 h-16 z M9 21 l4 -4 v2.4 h8 v3.2 h-8 v2.4 z"
+            ; The arrow starts at 20 and not at 21, which is a correction the
+            ; grid check above found the day it was written: from 21 the tail
+            ; runs 4 up and then 2.4 + 3.2 + 2.4 back down, ending at 25 — one
+            ; unit BELOW the 24-grid the whole file is authored on. Since
+            ; `pushIconPath` scales from the grid rather than from the path's
+            ; own bounds, that unit was simply hanging out of the box.
+            return "M4 3 h16 v3 h-16 z M8 8 h12 v3 h-12 z M4 13 h16 v3 h-16 z M9 20 l4 -4 v2.4 h8 v3.2 h-8 v2.4 z"
         }
         ; --- files and history
         if (k == (ToolIcon.newFile())) {
@@ -187,6 +193,207 @@ class ToolIconPath {
         }
         if (k == (ToolIcon.database())) {
             return "M12 1 a9 4 0 0 1 0 8 a9 4 0 0 1 0 -8 z M3 8 a9 4 0 0 0 18 0 v4 a9 4 0 0 1 -18 0 z M3 15 a9 4 0 0 0 18 0 v4 a9 4 0 0 1 -18 0 z"
+        }
+        ; --- traced from the drawings they replace ------------------------------
+        ;
+        ; These fifteen were stacks of `pushRect` calls in `EVGToolbarView`,
+        ; and they are here because the repository's own bitmap tracer put
+        ; them here: the drawing was painted through the real painter onto a
+        ; 24-grid scaled 32x, `EvgBitmapTracer` followed the boundary, and
+        ; every coordinate that came back divided by 32 onto a whole unit of
+        ; the grid. Not an approximation of the old icons — the same shapes.
+        ;
+        ; TWO THINGS THE CONVERSION FIXED THAT WERE NOT THE POINT OF IT.
+        ;
+        ;   They scale now. `pushIconPath` sizes a path from the 24-grid by
+        ;   `glyphSize / 24`; the rectangle drawings were written with literal
+        ;   offsets — `cx - 8`, `16.0` — so they came out 24 pixels across
+        ;   whatever size the caller asked for. A strip drawing its outlines
+        ;   at 18 and these at 24 was drawing two sizes of icon at once.
+        ;
+        ;   Overlapping shapes became one ring. `arrangeCenter` was three
+        ;   rectangles that overlap; the tracer returned a single boundary
+        ;   around their union, which is what the even-odd fill needs. Emitting
+        ;   the three rectangles as three subpaths would have punched the
+        ;   overlaps back out as holes.
+        ; --- text alignment, and the paragraph it acts on
+        if (k == (ToolIcon.alignLeft())) {
+            return "M2 2 L2 4.75 L22 4.75 L22 2 Z M2 7.75 L2 10.5 L14.75 10.5 L14.75 7.75 Z M2 13.5 L2 16.25 L22 16.25 L22 13.5 Z M2 19.25 L2 22 L14.75 22 L14.75 19.25 Z"
+        }
+        if (k == (ToolIcon.alignCenter())) {
+            return "M2 2 L2 4.75 L22 4.75 L22 2 Z M6.25 7.75 L6.25 10.5 L19.25 10.5 L19.25 7.75 Z M2 13.5 L2 16.25 L22 16.25 L22 13.5 Z M6.25 19.25 L6.25 22 L19.25 22 L19.25 19.25 Z"
+        }
+        if (k == (ToolIcon.alignRight())) {
+            return "M2 2 L2 4.75 L22 4.75 L22 2 Z M9.25 7.75 L9.25 10.5 L22 10.5 L22 7.75 Z M2 13.5 L2 16.25 L22 16.25 L22 13.5 Z M9.25 19.25 L9.25 22 L22 22 L22 19.25 Z"
+        }
+        if (k == (ToolIcon.textJustify())) {
+            return "M2 2 L2 4.75 L22 4.75 L22 2 Z M2 7.75 L2 10.5 L22 10.5 L22 7.75 Z M2 13.5 L2 16.25 L22 16.25 L22 13.5 Z M2 19.25 L2 22 L22 22 L22 19.25 Z"
+        }
+        ; --- lists
+        if (k == (ToolIcon.bulletList())) {
+            return "M2 4.75 L2 7.75 L4.75 7.75 L4.75 4.75 Z M7.75 4.75 L7.75 7.75 L22 7.75 L22 4.75 Z M2 10.5 L2 13.5 L4.75 13.5 L4.75 10.5 Z M7.75 10.5 L7.75 13.5 L22 13.5 L22 10.5 Z M2 16.25 L2 19.25 L4.75 19.25 L4.75 16.25 Z M7.75 16.25 L7.75 19.25 L22 19.25 L22 16.25 Z"
+        }
+        if (k == (ToolIcon.outlineList())) {
+            return "M2 4L2 20L4.75 20L4.75 4Z M7.5 5.25L7.5 8L22 8L22 5.25Z M11.5 10.75L11.5 13.25L22 13.25L22 10.75Z M11.5 16L11.5 18.75L22 18.75L22 16Z"
+        }
+        if (k == (ToolIcon.indentMore())) {
+            return "M10.5 4.75 L10.5 7.75 L22 7.75 L22 4.75 Z M2 7.75 L2 16.25 L3.5 16.25 L3.5 13.5 L4.75 13.5 L4.75 10.5 L6.25 10.5 L6.25 7.75 Z M10.5 10.5 L10.5 13.5 L22 13.5 L22 10.5 Z M10.5 16.25 L10.5 19.25 L22 19.25 L22 16.25 Z"
+        }
+        if (k == (ToolIcon.indentLess())) {
+            return "M10.5 4.75 L10.5 7.75 L22 7.75 L22 4.75 Z M2 7.75 L2 10.5 L3.5 10.5 L3.5 13.5 L4.75 13.5 L4.75 16.25 L6.25 16.25 L6.25 7.75 Z M10.5 10.5 L10.5 13.5 L22 13.5 L22 10.5 Z M10.5 16.25 L10.5 19.25 L22 19.25 L22 16.25 Z"
+        }
+        ; --- arranging a shape against the page
+        if (k == (ToolIcon.arrangeLeft())) {
+            return "M4 2L4 22L5.25 22L5.25 2Z M6.25 4.25L6.25 9.75L19.75 9.75L19.75 4.25Z M6.25 14.25L6.25 19.75L14 19.75L14 14.25Z"
+        }
+        if (k == (ToolIcon.arrangeCenter())) {
+            return "M12 2 L12 4.25 L5.25 4.25 L5.25 9.75 L12 9.75 L12 14.25 L8.75 14.25 L8.75 19.75 L12 19.75 L12 22 L13 22 L13 19.75 L16.5 19.75 L16.5 14.25 L13 14.25 L13 9.75 L18.75 9.75 L18.75 4.25 L13 4.25 L13 2 Z"
+        }
+        if (k == (ToolIcon.arrangeRight())) {
+            return "M19.5 2L19.5 22L20.5 22L20.5 2Z M3.75 4.25L3.75 9.75L17.25 9.75L17.25 4.25Z M9.5 14.25L9.5 19.75L17.25 19.75L17.25 14.25Z"
+        }
+        ; --- undo and redo, whose arrowheads are drawn rather than traced
+        ;
+        ; Every other outline in this file came back from the tracer and was
+        ; kept exactly as it came. These two did not, and the reason is worth
+        ; keeping: their arrowheads were built from one-unit rectangles, so
+        ; following the boundary exactly returned a flight of fourteen steps.
+        ; That was the conversion working and the ARTWORK not — a diagonal
+        ; made of bars is a staircase however faithfully you trace it, and
+        ; tracing cannot supply what was never in the picture.
+        ;
+        ; So the silhouette is the traced one and the head is a triangle: the
+        ; same three corners the steps were approximating, joined by one line.
+        ; Nine points instead of twenty-three, and it is a diagonal at any size
+        ; rather than a staircase that gets coarser the larger it is drawn.
+        ;
+        ; AND THE TWO ARE SWAPPED FROM WHAT THEY USED TO BE, because they were
+        ; the wrong way round. `edit.undo` was drawing an arrow that points
+        ; RIGHT and `edit.redo` one that points left — backwards from every
+        ; office application, in all three of the apps that share this strip.
+        ; Nobody had noticed because at fourteen pixels a staircase arrowhead
+        ; is a smudge and you read the button by its position; drawing the head
+        ; as a clean triangle made it legible and made it obviously wrong. So
+        ; undo goes back and redo goes forward, which is what the words mean.
+        if (k == (ToolIcon.undo())) {
+            return "M6.75 4.25L2 10.5L6.75 16.5L8.25 16.5L8.25 12L19 12L19 19.5L22 19.5L22 8.75L8.25 8.75L8.25 4.25Z"
+        }
+        if (k == (ToolIcon.redo())) {
+            return "M16.25 5L16.25 9.25L2 9.25L2 19.25L4.75 19.25L4.75 12.25L16.25 12.25L16.25 16.5L22 10.75Z"
+        }
+        ; --- the paint bucket
+        if (k == (ToolIcon.paint())) {
+            return "M4.25 2L4.25 9.75L10.5 9.75L10.5 22L13.5 22L13.5 9.75L19.75 9.75L19.75 2Z"
+        }
+        ; --- the spreadsheet's own, traced from their drawings
+        if (k == (ToolIcon.borderAll())) {
+            return "M2 2 L2 22 L22 22 L22 2 Z M12 3.5 L12 12 L3.5 12 L3.5 3.5 Z M20.5 3.5 L20.5 12 L13.5 12 L13.5 3.5 Z M12 13.5 L12 20.5 L3.5 20.5 L3.5 13.5 Z M20.5 13.5 L20.5 20.5 L13.5 20.5 L13.5 13.5 Z"
+        }
+        if (k == (ToolIcon.borderOut())) {
+            return "M2 2 L2 22 L22 22 L22 2 Z M20.5 3.5 L20.5 20.5 L3.5 20.5 L3.5 3.5 Z"
+        }
+        if (k == (ToolIcon.borderMore())) {
+            return "M2.5 2 L2.5 16 L16.75 16 L16.75 2 Z M8.5 3.25 L8.5 8 L3.75 8 L3.75 3.25 Z M15.5 3.25 L15.5 8 L9.75 8 L9.75 3.25 Z M8.5 9 L8.5 15 L3.75 15 L3.75 9 Z M15.5 9 L15.5 15 L9.75 15 L9.75 9 Z M13.25 17.25 L13.25 18.5 L14.25 18.5 L14.25 19.75 L15.5 19.75 L15.5 20.75 L16.75 20.75 L16.75 22 L18 22 L18 20.75 L19 20.75 L19 19.75 L20.25 19.75 L20.25 18.5 L21.5 18.5 L21.5 17.25 Z"
+        }
+        if (k == (ToolIcon.valignTop())) {
+            return "M5.75 5.75 L5.75 8.25 L18.25 8.25 L18.25 5.75 Z M5.75 9.5 L5.75 12 L14.5 12 L14.5 9.5 Z"
+        }
+        if (k == (ToolIcon.valignMid())) {
+            return "M5.75 9.5 L5.75 12 L18.25 12 L18.25 9.5 Z M5.75 13.25 L5.75 15.75 L14.5 15.75 L14.5 13.25 Z"
+        }
+        if (k == (ToolIcon.valignBot())) {
+            return "M5.75 13.25 L5.75 15.75 L18.25 15.75 L18.25 13.25 Z M5.75 17 L5.75 19.5 L14.5 19.5 L14.5 17 Z"
+        }
+        if (k == (ToolIcon.merge())) {
+            return "M2 4.5 L2 19.5 L22 19.5 L22 4.5 Z M20.75 5.75 L20.75 18.25 L3.25 18.25 L3.25 5.75 Z"
+        }
+        if (k == (ToolIcon.wrapCell())) {
+            return "M2 4 L2 6.5 L22 6.5 L22 4 Z M2 10.25 L2 12.75 L15.75 12.75 L15.75 10.25 Z"
+        }
+        ; The chain link, which the view draws in `theme.link`.
+        if (k == (ToolIcon.link())) {
+            return "M2 10.5 L2 13.5 L22 13.5 L22 10.5 Z"
+        }
+        return ""
+    }
+
+
+    ; --- the other tones ------------------------------------------------------
+    ;
+    ; A silhouette is one colour, and most icons want no more than that. The
+    ; spreadsheet's do. A vertical-alignment button is a CELL with text parked
+    ; at the top of it, and if the cell and the text are the same weight the
+    ; icon says "some bars"; the cell has to recede for the position of the
+    ; text inside it to be the thing you notice. Same for a border button,
+    ; where the point is which edge is dark, and for insert-row, where a blue
+    ; plus sits on a grey grid.
+    ;
+    ; So an icon can have up to four layers, painted faintest first:
+    ;
+    ;   frameFor   `theme.line`     the faintest — a cell outline
+    ;   tintFor    `theme.glyph`    a mid tone — a filled body, a grid
+    ;   dataFor    the ink          the shape the icon is about
+    ;   accentFor  `theme.accent`   the one coloured mark, a plus or an arrow
+    ;
+    ; They are separate strings rather than one path with a fill rule because
+    ; they are separate COLOURS; even-odd can put a hole in a shape but it
+    ; cannot make part of it grey. Every layer of an icon is authored on the
+    ; same 24-grid at the same scale, so they line up by construction.
+    ;
+    ; A layer traced from a drawing already excludes what covers it — the
+    ; frame under a dark bar was masked out before tracing — so the layers
+    ; tile rather than overdraw.
+
+    ; The faint outline, in `theme.line`. "" when the icon has none.
+    sfn frameFor:string (k:int) {
+        if (k == (ToolIcon.insertRow())) {
+            return "M2 2 L2 14.5 L3.25 14.5 L3.25 3.25 L12 3.25 L12 2 Z M14.5 2 L14.5 3.25 L20.75 3.25 L20.75 14.5 L22 14.5 L22 2 Z M2 19.5 L2 22 L22 22 L22 19.5 L20.75 19.5 L20.75 20.75 L3.25 20.75 L3.25 19.5 Z"
+        }
+        if (k == (ToolIcon.insertCol())) {
+            return "M2 2 L2 12 L3.25 12 L3.25 3.25 L14.5 3.25 L14.5 2 Z M19.5 2 L19.5 3.25 L20.75 3.25 L20.75 20.75 L19.5 20.75 L19.5 22 L22 22 L22 2 Z M2 14.5 L2 22 L14.5 22 L14.5 20.75 L3.25 20.75 L3.25 14.5 Z"
+        }
+        return ""
+    }
+
+    ; The mid tone, in `theme.glyph`. "" when the icon has none.
+    sfn tintFor:string (k:int) {
+        if (k == (ToolIcon.borderNone())) {
+            return "M2 2 L2 4.75 L3.5 4.75 L3.5 3.5 L4.75 3.5 L4.75 2 Z M7.75 2 L7.75 3.5 L10.5 3.5 L10.5 2 Z M13.5 2 L13.5 3.5 L16.25 3.5 L16.25 2 Z M19.25 2 L19.25 3.5 L20.5 3.5 L20.5 4.75 L22 4.75 L22 2 Z M2 7.75 L2 10.5 L3.5 10.5 L3.5 7.75 Z M20.5 7.75 L20.5 10.5 L22 10.5 L22 7.75 Z M2 13.5 L2 16.25 L3.5 16.25 L3.5 13.5 Z M20.5 13.5 L20.5 16.25 L22 16.25 L22 13.5 Z M2 19.25 L2 22 L4.75 22 L4.75 20.5 L3.5 20.5 L3.5 19.25 Z M20.5 19.25 L20.5 20.5 L19.25 20.5 L19.25 22 L22 22 L22 19.25 Z M7.75 20.5 L7.75 22 L10.5 22 L10.5 20.5 Z M13.5 20.5 L13.5 22 L16.25 22 L16.25 20.5 Z"
+        }
+        if (k == (ToolIcon.valignTop())) {
+            return "M2 2 L2 22 L22 22 L22 2 Z M20.75 3.25 L20.75 20.75 L3.25 20.75 L3.25 3.25 Z"
+        }
+        if (k == (ToolIcon.valignMid())) {
+            return "M2 2 L2 22 L22 22 L22 2 Z M20.75 3.25 L20.75 20.75 L3.25 20.75 L3.25 3.25 Z"
+        }
+        if (k == (ToolIcon.valignBot())) {
+            return "M2 2 L2 22 L22 22 L22 2 Z M20.75 3.25 L20.75 20.75 L3.25 20.75 L3.25 3.25 Z"
+        }
+        if (k == (ToolIcon.insertRow())) {
+            return "M2 14.5 L2 19.5 L22 19.5 L22 14.5 Z"
+        }
+        if (k == (ToolIcon.insertCol())) {
+            return "M14.5 2 L14.5 22 L19.5 22 L19.5 2 Z"
+        }
+        return ""
+    }
+
+    ; The one coloured mark, in `theme.accent`. "" when the icon has none.
+    sfn accentFor:string (k:int) {
+        if (k == (ToolIcon.insertRow())) {
+            return "M12 2 L12 7 L7 7 L7 9.5 L12 9.5 L12 13.25 L14.5 13.25 L14.5 9.5 L18.25 9.5 L18.25 7 L14.5 7 L14.5 2 Z"
+        }
+        if (k == (ToolIcon.insertCol())) {
+            return "M7 7 L7 12 L2 12 L2 14.5 L7 14.5 L7 18.25 L9.5 18.25 L9.5 14.5 L13.25 14.5 L13.25 12 L9.5 12 L9.5 7 Z"
+        }
+        if (k == (ToolIcon.merge())) {
+            return "M9.5 8.25 L9.5 10.75 L5.75 10.75 L5.75 13.25 L9.5 13.25 L9.5 15.75 L10.75 15.75 L10.75 8.25 Z M13.25 8.25 L13.25 15.75 L14.5 15.75 L14.5 13.25 L18.25 13.25 L18.25 10.75 L14.5 10.75 L14.5 8.25 Z"
+        }
+        if (k == (ToolIcon.freeze())) {
+            return "M10.5 2 L10.5 10.5 L2 10.5 L2 12 L10.5 12 L10.5 22 L12 22 L12 12 L22 12 L22 10.5 L12 10.5 L12 2 Z"
+        }
+        if (k == (ToolIcon.wrapCell())) {
+            return "M19.5 10.25 L19.5 15.25 L13.25 15.25 L13.25 14 L10.75 14 L10.75 12.75 L8.25 12.75 L8.25 20.25 L10.75 20.25 L10.75 19 L13.25 19 L13.25 17.75 L22 17.75 L22 10.25 Z"
         }
         return ""
     }

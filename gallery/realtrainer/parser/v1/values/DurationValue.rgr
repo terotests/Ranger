@@ -1,0 +1,5 @@
+class DurationValue @serialize(true) {
+    def kind:string "duration"
+    def value:int 0
+    def unit:string ""    ; "s" | "min" | "h"
+}

@@ -1,0 +1,57 @@
+
+Import "CompactWalkItem.rgr"
+Import "Pace.rgr"
+Import "StatsDataPoint.rgr"
+
+class ExerciseStatsCalendar {
+  def id:string ""
+  def name:string ""
+  def type:string ""
+}
+
+class ExerciseStatsEntry {
+  def calendarId:string ""
+  def compact:string ""
+  def date:string ""
+}
+
+class CollectExercisesOptions {
+  def filterName:string ""
+  def excludePlans:boolean true
+}
+
+class ExerciseStatsParsedItem {
+  def calendarId:string ""
+  def item:CompactWalkItem
+
+  Constructor () {
+    item = (new CompactWalkItem ())
+  }
+}
+
+class CategorizedExercises {
+  def strength:[ExerciseSummary]
+  def endurance:[ExerciseSummary]
+  def bodyweight:[ExerciseSummary]
+}
+
+class ExerciseSummary {
+  def name:string ""
+  def displayName:string ""
+  def category:string ""
+  def occurrences:int 0
+  def maxWeight:double -1.0
+  def maxRm1:double -1.0
+  def maxDuration:int 0
+  def bestPaceMinutes:int 0
+  def bestPaceSeconds:int 0
+  def hasBestPace:boolean false
+  def totalDistance:double 0.0
+  def lastDate:string ""
+  def history:[StatsDataPoint]
+  def trend:double 0.0
+  def totalTonnage:double 0.0
+  def avgTonnagePerWorkout:double 0.0
+  def tonnageDates:[string]
+  def tonnageValues:[double]
+}

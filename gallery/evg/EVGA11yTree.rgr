@@ -81,10 +81,99 @@ class EVGA11yRole {
     sfn radioGroup:int ()  { return 25 }
     sfn tabPanel:int ()    { return 26 }
     sfn region:int ()      { return 27 }
+    sfn progressBar:int () { return 28 }
+    ; The overlay family: a menu and its surface, a tooltip, the dialog
+    ; variant a reader must interrupt for, and a value a user drags.
+    sfn menu:int ()        { return 29 }
+    sfn tooltip:int ()     { return 30 }
+    sfn alertDialog:int () { return 31 }
+    sfn slider:int ()      { return 32 }
+    ; A menu bar and the two menu rows that carry a state. ARIA spells these as
+    ; separate roles rather than a menuitem with aria-checked, and a reader
+    ; announces them differently, so they are separate here too.
+    sfn menuBar:int ()          { return 33 }
+    sfn menuItemCheckbox:int () { return 34 }
+    sfn menuItemRadio:int ()    { return 35 }
+    ; A select: a button that opens a list of options, and the list itself.
+    ; `combobox` even when nothing can be typed — it is what the reference
+    ; reports, and what every platform maps a picker onto.
+    sfn comboBox:int ()         { return 36 }
+    sfn listBox:int ()          { return 37 }
+    sfn option:int ()           { return 38 }
+    ; `table` and not `grid`. They are different promises: a grid is a widget
+    ; you arrow around cell by cell, a table is tabular DATA with ordinary
+    ; controls inside it. A sortable, selectable table of the ReUI kind is the
+    ; second — you tab to the sort button and the checkbox, you do not steer a
+    ; cell cursor — and a native `<table>`, which is what the reference
+    ; renders, reports exactly this.
+    sfn table:int ()            { return 39 }
+    ; `cell` and `gridcell` are different roles, not two spellings. A cell
+    ; belongs to a table, a gridcell to a grid — and a reader announces the
+    ; second as something you can steer around with the arrow keys. `cell()`
+    ; keeps its old meaning so the datagrid is untouched.
+    sfn tableCell:int ()        { return 40 }
+
+    ; A tree, and its rows. Nesting is carried by `aria-level` and not by a
+    ; `group` per folder — which is what headless-tree does, and therefore what
+    ; ReUI's tree does: `getItems()` hands back the visible rows already
+    ; flattened, all siblings, each saying how deep it is.
+    sfn tree:int ()             { return 41 }
+    sfn treeItem:int ()         { return 42 }
+
+    ; A landmark. `navigation` is the one a breadcrumb needs, and it needs a
+    ; NAME with it: a page has several navigations and an unnamed one leaves a
+    ; reader to guess which of them it has landed in.
+    sfn navigation:int ()       { return 43 }
+
+    ; A form is a landmark ONLY when it is named, which is the HTML-ARIA
+    ; mapping and not a simplification: an unnamed <form> is not a landmark,
+    ; because a reader offered "form" with nothing to distinguish it from the
+    ; other three on the page has been given a list and no way to choose from
+    ; it. The demo names its own; a controller that does not should not use
+    ; this role.
+    sfn form:int ()             { return 44 }
+
+    ; The page's own landmarks: the header strip and the content. A reader
+    ; jumps between them, and a screen with a bottom bar and a top bar has to
+    ; say which of its three regions is which.
+    sfn banner:int ()           { return 47 }
+    sfn mainContent:int ()      { return 48 }
+    ; A paragraph of running text. Rendered markdown is paragraphs, and a
+    ; reader steps through them; without the role the text was dropped from
+    ; the tree with everything under it.
+    sfn paragraph:int ()        { return 49 }
+
+    ; `rowgroup` — a thead or a tbody. Missing until a table was built out of
+    ; roles rather than out of `<table>` tags, and an unrecognised role drops
+    ; the element AND EVERYTHING UNDER IT, so the whole body of the dashboard's
+    ; table was absent from the tree while the picture looked perfect. The
+    ; lint is the only reason that was noticed.
+    sfn rowGroup:int ()         { return 45 }
+
+    ; A LOG: a live region whose new content is appended, and which a reader
+    ; announces as it arrives. `status` is the other polite one and they are
+    ; not interchangeable — a status is a single changing value, a log is a
+    ; growing list, and a transcript is the second.
+    ;
+    ; Added because a tree literal saying role="log" produced no error and no
+    ; node: `EVGA11yFromTree` drops a role it does not know AND everything
+    ; under it, so a whole conversation went missing from the accessible tree
+    ; while the picture looked perfect. The lint said so, which is the only
+    ; reason it was noticed.
+    sfn log:int ()              { return 46 }
 
     ; The ARIA role string. A browser host writes this straight into role="…";
     ; a native adapter maps it to the platform's own constant.
     sfn ariaName:string (role:int) {
+        if (role == 43) { return "navigation" }
+        if (role == 44) { return "form" }
+        if (role == 45) { return "rowgroup" }
+        if (role == 46) { return "log" }
+        if (role == 47) { return "banner" }
+        if (role == 48) { return "main" }
+        if (role == 49) { return "paragraph" }
+        if (role == 41) { return "tree" }
+        if (role == 42) { return "treeitem" }
         if (role == 1)  { return "group" }
         if (role == 2)  { return "text" }
         if (role == 3)  { return "heading" }
@@ -94,6 +183,8 @@ class EVGA11yRole {
         if (role == 7)  { return "textbox" }
         if (role == 8)  { return "img" }
         if (role == 9)  { return "link" }
+        if (role == 39) { return "table" }
+        if (role == 40) { return "cell" }
         if (role == 10) { return "grid" }
         if (role == 11) { return "row" }
         if (role == 12) { return "columnheader" }
@@ -112,6 +203,17 @@ class EVGA11yRole {
         if (role == 25) { return "radiogroup" }
         if (role == 26) { return "tabpanel" }
         if (role == 27) { return "region" }
+        if (role == 28) { return "progressbar" }
+        if (role == 29) { return "menu" }
+        if (role == 30) { return "tooltip" }
+        if (role == 31) { return "alertdialog" }
+        if (role == 32) { return "slider" }
+        if (role == 33) { return "menubar" }
+        if (role == 34) { return "menuitemcheckbox" }
+        if (role == 35) { return "menuitemradio" }
+        if (role == 36) { return "combobox" }
+        if (role == 37) { return "listbox" }
+        if (role == 38) { return "option" }
         return "none"
     }
 }
@@ -146,6 +248,14 @@ class EVGA11yNode {
     ; Spoken after a pause, or on request: the formula behind a cell, the note
     ; attached to it, the shortcut on a button.
     def description:string ""
+    ; What a reader says INSTEAD of the role: "sortable" on a draggable row.
+    ; Every platform has it — aria-roledescription, UIA LocalizedControlType,
+    ; AT-SPI's localized role name — because some controls are a known role
+    ; doing an unfamiliar job, and the role name alone then says nothing useful.
+    def roleDescription:string ""
+    ; `aria-haspopup`. What a reader is told about a trigger that opens
+    ; something — a select's closed box is a word in a rectangle without it.
+    def hasPopup:string ""
     ; A field's text, a cell's value — separate from the name, which is the
     ; label that does not change when the content does.
     def value:string ""
@@ -159,14 +269,55 @@ class EVGA11yNode {
     def focused:boolean false
     def disabled:boolean false
     def selected:boolean false
-    def readOnly:boolean false
+    ; `aria-required`, `aria-invalid` and `aria-readonly`, as the DOM spells
+    ; them: "true", "false", or "" for a node that says nothing.
+    ;
+    ; STRINGS, and `readOnly` used to be a boolean here. That was the weaker
+    ; spelling and it could not express the distinction the `input_required`
+    ; spec exists to record: absent and "false" are different claims. The
+    ; controller path has always used three states; this one had one and a
+    ; half, and no `required` or `invalid` at all — so a demo-built form drew
+    ; a red ring and an error sentence for a person and told a reader nothing.
+    def required:string ""
+    def invalid:string ""
+    def readOnly:string ""
     ; A dialog that owns the screen while it is up. Every platform has this —
     ; aria-modal, UIA IsModal, AT-SPI MODAL, AccessKit Modal — and a host uses
     ; it to hide everything the user cannot currently reach, which is the
     ; difference between "a dialog is open" and "there are two applications".
     def modal:boolean false
     def checked:int 0
+    ; `aria-pressed`, tri-state like `checked`. A toggle button that is ON —
+    ; a carried sortable row, a show/hide switch beside a password — and NOT
+    ; the same claim as `checked`: a pressed button is a button held down, a
+    ; checked one is a box with a tick in it, and a reader says different
+    ; words for each.
+    def pressed:int 0
     def expanded:int 0
+    ; `aria-sort` on a column header: 0 none, 1 ascending, 2 descending.
+    ;
+    ; It needs its own field for the same reason `valuenow` did. Sorting a
+    ; table changes which rows are where and nothing else about any node — the
+    ; header keeps its name, its role and its position — so without this the
+    ; one thing the control does is the one thing the trace cannot see.
+    def sorted:int 0
+    ; `aria-orientation`, verbatim: "horizontal", "vertical", or "" for none.
+    ; A string rather than a code because there are exactly two values and a
+    ; reader says them; the tri-state codes exist where a THIRD state (mixed,
+    ; not-applicable) has to be told apart from false.
+    def orientation:string ""
+    ; `aria-current`, verbatim: "page" on a breadcrumb's last crumb.
+    def current:string ""
+
+    ; A number the platform announces: where a slider sits, how far a progress
+    ; bar has got. `hasValueNow` is not decoration — a progress bar with a range
+    ; and NO position is how every platform spells "busy, length unknown", and
+    ; a reader that is handed 0 instead says the work has not started.
+    def hasValueNow:boolean false
+    def valueNow:int 0
+    def hasValueRange:boolean false
+    def valueMin:int 0
+    def valueMax:int 0
 
     ; Position in a set the tree does not fully contain — the whole point of
     ; virtualization. A 10,000 row sheet emits the ~40 rows on screen; "row
@@ -178,6 +329,12 @@ class EVGA11yNode {
     def colCount:int 0
     def posInSet:int 0
     def setSize:int 0
+    ; How deep a `treeitem` sits, counting from 1. A flat list of rows whose
+    ; nesting lives only in this number is what headless-tree publishes and
+    ; what a reader announces as "level 3" — WITHOUT it a tree is announced as
+    ; a flat list of siblings, which is a different structure entirely and not
+    ; the one on screen. 0 means the node is not in a levelled structure.
+    def level:int 0
 
     ; Text fields: caret and selection as offsets into `value`.
     def caret:int 0
@@ -212,8 +369,15 @@ class EVGA11yTree {
     ; already done — a platform accessibility API wants events, not a fresh
     ; tree sixty times a second.
     def generation:int 0
+    ; What the BUILDER could not represent, in its own words. A builder walks
+    ; a source it does not fully control — an element tree, a row list — and
+    ; anything it cannot map lands here rather than being dropped in silence.
+    ; `lint()` reports them first.
+    def notes:[string]
 
     Constructor () {
+        def n:[string]
+        notes = n
     }
 
     fn count:int () {
@@ -361,8 +525,18 @@ class EVGA11yTree {
         if ((strlen n.value) > 0) {
             out = (out + ",\"value\":" + (EVGA11yTree.jsonString(n.value)))
         }
+        if ((strlen n.hasPopup) > 0) {
+            out = (out + ",\"haspopup\":" + (EVGA11yTree.jsonString(n.hasPopup)))
+        }
         if ((strlen n.description) > 0) {
             out = (out + ",\"desc\":" + (EVGA11yTree.jsonString(n.description)))
+        }
+        if n.hasValueNow {
+            out = (out + ",\"now\":" + (to_string n.valueNow))
+        }
+        if n.hasValueRange {
+            out = (out + ",\"min\":" + (to_string n.valueMin))
+            out = (out + ",\"max\":" + (to_string n.valueMax))
         }
         out = (out + ",\"b\":[" + (to_string n.x) + "," + (to_string n.y))
         out = (out + "," + (to_string n.w) + "," + (to_string n.h) + "]")
@@ -378,14 +552,33 @@ class EVGA11yTree {
         if n.selected {
             out = (out + ",\"selected\":true")
         }
-        if n.readOnly {
-            out = (out + ",\"readonly\":true")
+        if ((strlen n.required) > 0) {
+            out = (out + ",\"required\":" + (EVGA11yTree.jsonString(n.required)))
+        }
+        if ((strlen n.invalid) > 0) {
+            out = (out + ",\"invalid\":" + (EVGA11yTree.jsonString(n.invalid)))
+        }
+        if ((strlen n.readOnly) > 0) {
+            out = (out + ",\"readonly\":" + (EVGA11yTree.jsonString(n.readOnly)))
         }
         if n.modal {
             out = (out + ",\"modal\":true")
         }
         if (n.checked != 0) {
             out = (out + ",\"checked\":" + (to_string n.checked))
+        }
+
+        if (n.pressed != 0) {
+            out = (out + ",\"pressed\":" + (to_string n.pressed))
+        }
+        if ((strlen n.orientation) > 0) {
+            out = (out + ",\"orientation\":\"" + n.orientation + "\"")
+        }
+        if ((strlen n.current) > 0) {
+            out = (out + ",\"current\":\"" + n.current + "\"")
+        }
+        if (n.sorted != 0) {
+            out = (out + ",\"sorted\":" + (to_string n.sorted))
         }
         if (n.expanded != 0) {
             out = (out + ",\"expanded\":" + (to_string n.expanded))
@@ -402,8 +595,14 @@ class EVGA11yTree {
         if (n.colCount != 0) {
             out = (out + ",\"cols\":" + (to_string n.colCount))
         }
+        if ((strlen n.roleDescription) > 0) {
+            out = (out + ",\"roledesc\":" + (EVGA11yTree.jsonString(n.roleDescription)))
+        }
         if (n.posInSet != 0) {
             out = (out + ",\"pos\":" + (to_string n.posInSet))
+        }
+        if (n.level != 0) {
+            out = (out + ",\"level\":" + (to_string n.level))
         }
         if (n.setSize != 0) {
             out = (out + ",\"size\":" + (to_string n.setSize))
@@ -490,7 +689,16 @@ class EVGA11yTree {
         if n.selected {
             out = (EVGA11yTree.addWord(out "selected"))
         }
-        if n.readOnly {
+        ; The words a reader hears. Only a "true" is spoken: "not required" is
+        ; not something anybody says out loud, and `aria-required="false"` is
+        ; still a claim worth carrying in the tree even though it is silent.
+        if (n.required == "true") {
+            out = (EVGA11yTree.addWord(out "required"))
+        }
+        if (n.invalid == "true") {
+            out = (EVGA11yTree.addWord(out "invalid"))
+        }
+        if (n.readOnly == "true") {
             out = (EVGA11yTree.addWord(out "readonly"))
         }
         if n.modal {
@@ -527,6 +735,16 @@ class EVGA11yTree {
 
     fn lint:[string] () {
         def problems:[string]
+        ; Whatever the BUILDER could not represent, reported before anything
+        ; this tree can see for itself. A node that was never made breaks no
+        ; rule about the nodes that were, so without this the failure mode of
+        ; an unknown role is a clean audit over an empty tree — which is what
+        ; the tree demo got: eighteen rows on screen, one node, PASS.
+        def i0:int 0
+        while (i0 < (array_length notes)) {
+            push problems (itemAt notes i0)
+            i0 = (i0 + 1)
+        }
         if ((strlen rootId) == 0) {
             push problems "tree has no root"
         }

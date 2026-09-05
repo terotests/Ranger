@@ -33,6 +33,7 @@ compiler — the long-form writeups live here.
 | [`vela`](vela/README.md) | Vega-compatible visualization runtime: a Vega spec in, a scene out, checked against official Vega |
 | [`text_editor`](text_editor/README.md) | EVG/SoftCanvas multiline text-editor prototype (canvas-editor benchmark target), JS validation + bench |
 | [`book`](book/README.md) | Visual book composition engine **and editor**: stories, linked text frames, master pages, auto layout, preflight, PDF through the EVG tooling — a spread editor that runs in the browser on WebGL with no server, and photographs brought in from an Apple album or searched out of a photo library by date and place. Runs in a browser, in Node, or as a native SDL2 window |
+| [`figma`](figma/README.md) | Figma `.fig` / `.deck` reader: ZIP → kiwi schema + message → node tree → EVG, with a github.io page that opens a file in the tab |
 | [`pptx`](pptx/README.md) | PPTX Lite reader/viewer: OPC ZIP → PptxModel → theme resolve → EVG display list |
 | [`pptx/android`](pptx/android/README.md) | The same PPTX viewer as an **Android app**: Ranger → Kotlin → `android.graphics`, plus a Java2D twin of the painter so the port can be checked without a device |
 | [`docx_viewer`](docx_viewer/README.md) | DOCX viewer + editing MVP: WordprocessingML → RichDocument → paginated layout → EVG; Word-style keyboard, multi-paragraph selection, and pastes a spreadsheet selection as a table |
@@ -41,6 +42,7 @@ compiler — the long-form writeups live here.
 | [`rangerdbviewer`](rangerdbviewer/README.md) | A database workbench: open SQLite / DuckDB / RangerDB, introspect the real schema, browse it, draw it in RangerFlow and export it |
 | [`rangerdb`](rangerdb/README.md) | A database API with three engines behind it — a columnar engine written in Ranger, plus SQLite and DuckDB adapters — feeding the DataGrid |
 | [`rangersql`](rangersql/README.md) | SQL parser, generator and dialect transpiler, checked against SQLGlot's own identity corpus — and RangerDB's SQL front end |
+| [`graphql`](graphql/README.md) | GraphQL language parser (queries, mutations, subscriptions, SDL) — Ranger's northbound API toward application data, with a feature-by-feature unit suite |
 | [`process_counter_board`](process_counter_board/README.md) | Vite + React host for `@process` classes |
 | `process_counter_ios`, `process_counter_android` | Native hosts for the same `@process` demo |
 | [`odp`](odp/README.md) | The OpenDocument presentation reader: OCF ZIP → `OdpModel` → styles resolved through `OfficeStyle` → EVG display list. A `.odp` opens **in the `.pptx` viewer**, drawn by the same backend in the same window — two models that never meet, one painter |
@@ -49,7 +51,11 @@ compiler — the long-form writeups live here.
 | [`ooxml`](ooxml/README.md) | What the three OOXML editors share: one OPC package reader (parts, content types, relationships) and the XML text rules — plus the roadmap for what moves there next |
 | [`office`](office/README.md) | The rest of what they share: which font face draws a run, offset↔x measurement, a style property that knows it was not stated, and the DrawingML theme palette |
 | [`ui`](ui/README.md) | EVG controllers measured against Radix: a behaviour-parity harness that runs the same spec through Ranger's own controllers and real `@radix-ui` components, and diffs what a user can observe |
-| `evg`, `evg_video`, `watch_evg`, `zip`, `ts_to_ranger` | Smaller experiments |
+| [`ui/android`](ui/android/README.md) | The `gallery/ui` dashboard as an **Android app**: Ranger → Kotlin → `android.graphics`, and a Java2D twin so the port can be checked with no device |
+| [`ui/ios`](ui/ios/README.md) | The same dashboard on **iPhone, iPad and Apple Watch**: Ranger → Swift → CoreGraphics, built by a **Ranger program** that calls `xcrun`, `swiftc`, `plutil`, `codesign` and `simctl` — no Xcode project, and `--dry-run` prints the whole plan on a machine that is not a Mac |
+| [`evg/apple`](evg/apple/README.md) | The EVG painter and the CoreGraphics surface the Apple ports draw through — one backend for UIKit, SwiftUI and watchOS |
+| [`evg`](evg/README.md) | **The layout engine** everything above draws through: the CSS-shaped box model, flex, grid, units, the stylesheet with `@media` and pseudo-classes, text measurement, transitions, hit testing, the accessibility tree, and the display list the painters read |
+| `evg_video`, `watch_evg`, `zip`, `ts_to_ranger` | Smaller experiments |
 
 ---
 

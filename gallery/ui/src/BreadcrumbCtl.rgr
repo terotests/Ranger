@@ -1,0 +1,351 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; BreadcrumbCtl — the ARIA from the spec, the collapse from measurement
+; =============================================================================
+; Radix has no breadcrumb and neither does any headless library ReUI uses: the
+; reference is markup and nothing else. So this component has NO ORACLE in the
+; sense the others do, and that has to be said plainly rather than dressed up:
+;
+;   THE DOM SIDE IS NOT AN INDEPENDENT REFERENCE. It is a second implementation
+;   of the same spec, written here. A conformance spec over it catches the two
+;   sides DISAGREEING; it cannot catch both of them being wrong about what the
+;   HTML and ARIA specs require. That is a weaker guarantee than the tree's or
+;   the table's, and the score should be read knowing it.
+;
+; What the specs do say, and what is copied from them:
+;
+;   `nav` NAMED "breadcrumb", holding a LIST. The name is what tells a reader
+;   which of a page's several navigations this one is.
+;   THE TRAIL IS LINKS, except the last.
+;   THE LAST IS `aria-current="page"` and is NOT a link — you are already
+;   there, and a link to here is a link to nowhere.
+;   THE SEPARATORS ARE HIDDEN. "greater than" read aloud between every crumb
+;   is noise, and the list already says these are a sequence.
+;
+; --- THE HALF THAT IS ACTUALLY INTERESTING ------------------------------------
+;
+; A breadcrumb that does not fit has to shorten itself, and WHICH crumbs it
+; keeps is a rule rather than a preference:
+;
+;   the FIRST stays, because it is the root and the way back out
+;   the LAST stays, because it is where you are
+;   the LAST BUT ONE stays if it fits, because it is the way one step back
+;   everything else becomes one ellipsis
+;
+; That is what the reference's own screenshot shows: `Home > … > Components >
+; Breadcrumb` — first, ellipsis, and the last two.
+;
+; The controller does not measure anything. It is TOLD the available width and
+; the width of each crumb, and answers which ones to draw. That keeps the rule
+; testable without a font, and it is the only shape that works in EVG at all:
+; layout happens after the tree is built, so a component whose CONTENT depends
+; on its own width needs two passes and somebody has to own the decision
+; between them. Here the caller owns it.
+; =============================================================================
+
+Import "UiCtl.rgr"
+Import "UiTree.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+
+class UiCrumb {
+    def value:string ""
+    def label:string ""
+    ; What this crumb costs, in the caller's units. Pixels from a real text
+    ; measurement in the demo; whatever the test says in a test.
+    def width:double 0.0
+
+    Constructor () {
+    }
+}
+
+class BreadcrumbCtl extends UiCtl {
+    def crumbs:[UiCrumb]
+    ; The width the trail has to fit into. 0 means "do not collapse at all",
+    ; which is the state before anything has been measured.
+    def available:double 0.0
+    ; What one separator costs, and what the ellipsis costs. Told, not guessed.
+    def separatorWidth:double 20.0
+    def ellipsisWidth:double 24.0
+
+    Constructor () {
+        rootEl = (EVGElement.createDiv())
+    }
+
+    fn listTid:string () {
+        return (tid + "-list")
+    }
+
+    fn crumbTid:string (value:string) {
+        return (((tid + "-item-") + value))
+    }
+
+    fn sepTid:string (i:int) {
+        return (((tid + "-sep-") + (to_string i)))
+    }
+
+    fn ellipsisTid:string () {
+        return (tid + "-ellipsis")
+    }
+
+    fn addCrumb:UiCrumb (value:string label:string width:double) {
+        def c (new UiCrumb())
+        c.value = value
+        c.label = label
+        c.width = width
+        push crumbs c
+        return c
+    }
+
+    ; --- the rule ---------------------------------------------------------------
+
+    ; What a run of crumbs costs, separators included. `n` items need `n - 1`
+    ; separators, and the ellipsis when there is one brings its own.
+    fn widthOfAll:double () {
+        def n:int (array_length crumbs)
+        if (n == 0) {
+            return 0.0
+        }
+        def total:double (separatorWidth * (to_double (n - 1)))
+        def i:int 0
+        while (i < n) {
+            def c:UiCrumb (itemAt crumbs i)
+            total = (total + c.width)
+            i = (i + 1)
+        }
+        return total
+    }
+
+    ; The cost of first + ellipsis + the last `tailCount` crumbs.
+    fn widthOfTail:double (tailCount:int) {
+        def n:int (array_length crumbs)
+        def first:UiCrumb (itemAt crumbs 0)
+        def total:double (first.width + ellipsisWidth)
+        ; first | … | each tail crumb — so one separator per piece after the
+        ; first, which is `tailCount + 1` pieces in all.
+        total = (total + (separatorWidth * (to_double (tailCount + 1))))
+        def i:int (n - tailCount)
+        while (i < n) {
+            def c:UiCrumb (itemAt crumbs i)
+            total = (total + c.width)
+            i = (i + 1)
+        }
+        return total
+    }
+
+    ; How many crumbs at the END are shown. `array_length crumbs` means all of
+    ; them and no ellipsis; anything less means first + … + that many.
+    fn shownTail:int () {
+        def n:int (array_length crumbs)
+        if (n <= 2) {
+            return n
+        }
+        if (available <= 0.0) {
+            return n
+        }
+        if ((this.widthOfAll()) <= available) {
+            return n
+        }
+        ; Two at the end: where you are, and one step back.
+        if ((this.widthOfTail(2)) <= available) {
+            return 2
+        }
+        ; The floor. Below this there is nothing left to drop — the first crumb
+        ; is the way out and the last is where you are, and a trail that has
+        ; given up both is not a trail. It OVERFLOWS rather than lying.
+        return 1
+    }
+
+    fn isCollapsed:boolean () {
+        return ((this.shownTail()) < (array_length crumbs))
+    }
+
+    ; Every tid this controller answers for. The default is just `tid`, and
+    ; without this the host cannot find the owner of a crumb — `focus` looked
+    ; up a controller, found none, and did nothing.
+    fn tids:[string] () {
+        def a:[string]
+        push a tid
+        push a (this.listTid())
+        push a (this.ellipsisTid())
+        push a ((this.ellipsisTid()) + "-li")
+        def i:int 0
+        while (i < (array_length crumbs)) {
+            def c:UiCrumb (itemAt crumbs i)
+            push a (this.crumbTid(c.value))
+            push a ((this.crumbTid(c.value)) + "-li")
+            push a (this.sepTid(i))
+            i = (i + 1)
+        }
+        return a
+    }
+
+    ; The crumbs are links, so they are tab stops — except the last, which is
+    ; where you already are.
+    fn isFocusable:boolean (target:string) {
+        def n:int (array_length crumbs)
+        def i:int 0
+        while (i < n) {
+            def c:UiCrumb (itemAt crumbs i)
+            if ((this.crumbTid(c.value)) == target) {
+                return (i < (n - 1))
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; --- the tree ---------------------------------------------------------------
+
+    fn build:void () {
+        def root:EVGElement (unwrap rootEl)
+        root.id = tid
+        root.className = "ui-breadcrumb"
+        UiTree.clearChildren(root)
+
+        def list (EVGElement.createDiv())
+        list.id = (this.listTid())
+        list.className = "ui-breadcrumb-list"
+        root.addChild(list)
+
+        def n:int (array_length crumbs)
+        def tail:int (this.shownTail())
+        def firstShown:int (n - tail)
+        def drawn:int 0
+
+        def i:int 0
+        while (i < n) {
+            def show:boolean ((i == 0) || (i >= firstShown))
+            if show {
+                if (drawn > 0) {
+                    def sep (EVGElement.createDiv())
+                    sep.id = (this.sepTid(drawn - 1))
+                    sep.className = "ui-breadcrumb-sep"
+                    sep.a11yHidden = true
+                    list.addChild(sep)
+                }
+                ; The ellipsis stands where the dropped crumbs were, so it goes
+                ; in after the first one's separator and before the tail.
+                if (i == firstShown) {
+                    if (firstShown > 1) {
+                        def dli (EVGElement.createDiv())
+                        dli.id = ((this.ellipsisTid()) + "-li")
+                        dli.className = "ui-breadcrumb-li"
+                        list.addChild(dli)
+                        def dots (EVGElement.createDiv())
+                        dots.id = (this.ellipsisTid())
+                        dots.className = "ui-breadcrumb-ellipsis"
+                        dli.addChild(dots)
+                        def sep2 (EVGElement.createDiv())
+                        sep2.id = (this.sepTid(drawn))
+                        sep2.className = "ui-breadcrumb-sep"
+                        sep2.a11yHidden = true
+                        list.addChild(sep2)
+                        drawn = (drawn + 1)
+                    }
+                }
+                def c:UiCrumb (itemAt crumbs i)
+                ; A real element per LIST ITEM as well as per crumb. The rows
+                ; and the tree have to agree: a row with no element is not
+                ; reachable, and the trace reports it invisible while the
+                ; reference reports it on screen.
+                def li (EVGElement.createDiv())
+                li.id = ((this.crumbTid(c.value)) + "-li")
+                li.className = "ui-breadcrumb-li"
+                list.addChild(li)
+                def el (EVGElement.createDiv())
+                el.id = (this.crumbTid(c.value))
+                el.className = "ui-breadcrumb-item"
+                if (i == (n - 1)) {
+                    UiTree.addClass(el "ui-breadcrumb-page")
+                }
+                li.addChild(el)
+                drawn = (drawn + 1)
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+        ; `nav`, and NAMED. A page has several navigations and this is the one
+        ; that says where you are; unnamed, a reader announces "navigation" and
+        ; the person has to guess which.
+        def navRow:UiRow (UiRow.of(tid (EVGA11yRole.navigation()) name))
+        push out navRow
+
+        def listRow:UiRow (UiRow.of((this.listTid()) (EVGA11yRole.list()) ""))
+        listRow.parentTid = tid
+        push out listRow
+
+        def n:int (array_length crumbs)
+        def tail:int (this.shownTail())
+        def firstShown:int (n - tail)
+        def drawn:int 0
+
+        def i:int 0
+        while (i < n) {
+            def show:boolean ((i == 0) || (i >= firstShown))
+            if show {
+                if (drawn > 0) {
+                    ; Role NONE and hidden, which is the reference's own shape:
+                    ; a separator is punctuation, and `role="none"` takes it out
+                    ; of the list so the list is a list of crumbs. Hidden,
+                    ; between every crumb is reading punctuation aloud, and the
+                    ; list already says these are a sequence.
+                    def sr:UiRow (UiRow.of((this.sepTid(drawn - 1)) (EVGA11yRole.none()) ""))
+                    sr.parentTid = (this.listTid())
+                    sr.hidden = true
+                    push out sr
+                }
+                if (i == firstShown) {
+                    if (firstShown > 1) {
+                        def eli:UiRow (UiRow.of(((this.ellipsisTid()) + "-li") (EVGA11yRole.listItem()) ""))
+                        eli.parentTid = (this.listTid())
+                        push out eli
+                        ; NAMED "More". The glyph is three dots and a reader
+                        ; that is told nothing learns only that some crumbs are
+                        ; missing, not that there are any.
+                        def er:UiRow (UiRow.of((this.ellipsisTid()) (EVGA11yRole.none()) "More"))
+                        er.parentTid = ((this.ellipsisTid()) + "-li")
+                        push out er
+                        def sr2:UiRow (UiRow.of((this.sepTid(drawn)) (EVGA11yRole.none()) ""))
+                        sr2.parentTid = (this.listTid())
+                        sr2.hidden = true
+                        push out sr2
+                        drawn = (drawn + 1)
+                    }
+                }
+                def c:UiCrumb (itemAt crumbs i)
+                ; A LISTITEM holding the crumb, not the crumb pretending to be
+                ; one. A list whose children are links is invalid ARIA and axe
+                ; says so — `aria-required-children` — so the shape here is the
+                ; markup's shape: li, and the link inside it.
+                def li:UiRow (UiRow.of(((this.crumbTid(c.value)) + "-li") (EVGA11yRole.listItem()) ""))
+                li.parentTid = (this.listTid())
+                push out li
+
+                ; The last crumb is where you ARE: `aria-current="page"`, and
+                ; not a link, because a link to here goes nowhere.
+                ; Still a LINK, and disabled. That is the reference's own
+                ; shape and it is better than dropping the role: a reader
+                ; walking the trail hears "Breadcrumb, link, dimmed, current
+                ; page" rather than an unexplained piece of text.
+                def cr:UiRow (UiRow.of((this.crumbTid(c.value)) (EVGA11yRole.link()) c.label))
+                cr.parentTid = ((this.crumbTid(c.value)) + "-li")
+                if (i == (n - 1)) {
+                    cr.current = "page"
+                    cr.disabled = true
+                } {
+                    cr.focusable = true
+                    cr.tabStop = true
+                }
+                push out cr
+                drawn = (drawn + 1)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+}

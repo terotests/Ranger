@@ -21,6 +21,13 @@ Import "../../evg/EVGA11yTree.rgr"
 
 class RadioGroupCtl extends UiCtl {
     def items:[UiItem]
+    ; A single-select toggle group IS a radio group — Radix gives it role
+    ; radiogroup and its items role radio. Two differences, both measured:
+    ; the state words ("on"/"off" rather than "checked"/"unchecked"), and that
+    ; clicking the SELECTED item deselects it. A radio cannot be switched off
+    ; by clicking it; a toggle can, and that is the whole reason the two are
+    ; different components rather than one.
+    def toggleMode:boolean false
     def value:string ""
     ; The item focus last reached; "" until the group has been touched.
     def rovingValue:string ""
@@ -37,6 +44,33 @@ class RadioGroupCtl extends UiCtl {
         it.name = itemName
         it.disabled = itemDisabled
         push items it
+    }
+
+    fn baseClass:string () {
+        if toggleMode {
+            return "ui-togglegroup-item"
+        }
+        return "ui-radio"
+    }
+
+    fn groupClass:string () {
+        if toggleMode {
+            return "ui-togglegroup"
+        }
+        return "ui-radiogroup"
+    }
+
+    fn wordFor:string (itemValue:string) {
+        if (itemValue == value) {
+            if toggleMode {
+                return "on"
+            }
+            return "checked"
+        }
+        if toggleMode {
+            return "off"
+        }
+        return "unchecked"
     }
 
     fn itemTid:string (itemValue:string) {
@@ -58,22 +92,18 @@ class RadioGroupCtl extends UiCtl {
     fn build:void () {
         def root:EVGElement (unwrap rootEl)
         root.id = tid
-        root.className = "ui-radiogroup"
+        root.className = (this.groupClass())
         UiTree.clearChildren(root)
         def i:int 0
         while (i < (array_length items)) {
             def it:UiItem (itemAt items i)
             def el:EVGElement (unwrap it.el)
             el.id = (this.itemTid(it.value))
-            el.className = "ui-radio"
+            el.className = (this.baseClass())
             if it.disabled {
-                UiTree.addClass(el "ui-radio-disabled")
+                UiTree.addClass(el ((this.baseClass()) + "-disabled"))
             }
-            def word:string "unchecked"
-            if (it.value == value) {
-                word = "checked"
-            }
-            UiTree.setState(el "ui-radio" word)
+            UiTree.setState(el (this.baseClass()) (this.wordFor(it.value)))
             UiTree.leafText(el it.name)
             root.addChild(el)
             i = (i + 1)
@@ -104,23 +134,33 @@ class RadioGroupCtl extends UiCtl {
         this.build()
     }
 
-    fn activate:void (target:string) {
+    fn activate:string (target:string) {
         if disabled {
-            return
+            return ""
         }
         def i:int 0
         while (i < (array_length items)) {
             def it:UiItem (itemAt items i)
             if ((this.itemTid(it.value)) == target) {
                 if (it.disabled == false) {
-                    value = it.value
+                    if toggleMode {
+                        if (value == it.value) {
+                            ; Clicking the one that is on turns it off.
+                            value = ""
+                        } {
+                            value = it.value
+                        }
+                    } {
+                        value = it.value
+                    }
                     rovingValue = it.value
                     this.build()
                 }
-                return
+                return ""
             }
             i = (i + 1)
         }
+        return ""
     }
 
     fn keyDown:string (target:string key:string) {
@@ -213,17 +253,27 @@ class RadioGroupCtl extends UiCtl {
     fn rows:[UiRow] () {
         def out:[UiRow]
         def rootRow:UiRow (UiRow.of(tid (EVGA11yRole.radioGroup()) name))
+        ; `aria-required="false"`, written down rather than left off — and only
+        ; on a RADIO group. Radix's radio group publishes it; its toggle group,
+        ; which shares this controller, publishes nothing. The distinction is
+        ; real: a group that says false has been asked and answered, and one
+        ; that says nothing has not. Both halves were invisible until
+        ; `required` joined the observed fields, and the field found the first
+        ; on its first run and the second on its second.
+        if (toggleMode == false) {
+            rootRow.required = "false"
+        }
         rootRow.tabStop = true
         push out rootRow
         def i:int 0
         while (i < (array_length items)) {
             def it:UiItem (itemAt items i)
             def row:UiRow (UiRow.of((this.itemTid(it.value)) (EVGA11yRole.radio()) it.name))
+            row.parentTid = tid
+            row.state = (this.wordFor(it.value))
             if (it.value == value) {
-                row.state = "checked"
                 row.checked = (EVGA11yTri.yes())
             } {
-                row.state = "unchecked"
                 row.checked = (EVGA11yTri.no())
             }
             row.disabled = it.disabled
@@ -232,6 +282,8 @@ class RadioGroupCtl extends UiCtl {
             }
             if it.disabled {
                 row.tabStop = false
+            } {
+                row.focusable = true
             }
             push out row
             i = (i + 1)

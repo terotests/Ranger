@@ -1,0 +1,101 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+ *
+ * The Radix toolbar example's look, as an EVG stylesheet. Class-first: every
+ * class is one the tree literal in ToolbarDemo.rgr writes, and the literal
+ * carries no appearance at all.
+ */
+
+.tb-page {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  background-color: #6d5ce7;
+  padding: 60px;
+  width: 1240px;
+  height: 320px;
+}
+
+.tb-root {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  flex-wrap: nowrap;
+  background-color: #ffffff;
+  border-radius: 8px;
+  padding: 10px;
+  width: 1120px;
+  height: 60px;
+}
+
+/* fit-content, not a number. A width-less box in EVG is as wide as its parent,
+ * so the first child of a row fills it and every sibling wraps — which is what
+ * this toolbar did until these were measured by hand. `fit-content` is what
+ * those numbers were approximating. */
+/* `nowrap` alongside it, every time: EVG decides whether a row wraps from the
+ * child's width BEFORE that child's own fit-content shrink, so a row of
+ * fit-content boxes still looks full-width at the moment it is deciding. */
+.tb-left { display: flex; flex-direction: row; flex-wrap: nowrap; width: fit-content; }
+.tb-group { display: flex; flex-direction: row; flex-wrap: nowrap; width: fit-content; }
+
+.tb-button {
+  color: #4c2889;
+  font-size: 15px;
+  text-align: center;
+  padding: 9px 0;
+  border-radius: 4px;
+  width: 40px;
+  height: 38px;
+}
+/* The one state a still picture shows: a pressed toggle. The reference tints
+ * it rather than outlining it, so this does too. */
+.tb-button-on { background-color: #ece7fd; }
+/* `bold`, not 700: EVGElement compares fontWeight against the literal string
+ * "bold" to pick the -Bold face, so a numeric weight is parsed and then does
+ * nothing. And EVG has no `font-style` or `text-decoration` at all — the
+ * display list carries an italic flag but no element ever sets it, and nothing
+ * draws an underline — so the italic I and the underlined U of the reference
+ * are not reproducible here yet. Left out rather than written as CSS that
+ * silently does nothing. */
+.tb-button-bold { font-weight: bold; }
+
+.tb-separator {
+  background-color: #e6e0fb;
+  width: 1px;
+  height: 26px;
+  margin-left: 10px;
+  margin-right: 10px;
+}
+
+.tb-status { color: #6b5f8c; font-size: 15px; padding: 9px 12px; width: 220px; }
+
+.tb-share {
+  background-color: #6d5ce7;
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 600;
+  text-align: center;
+  padding: 10px 0;
+  border-radius: 6px;
+  width: 110px;
+  height: 40px;
+}
+
+/* --- the pointer -------------------------------------------------------------
+   The toolbar had exactly one visible state, a pressed toggle, and no answer
+   to the pointer at all. `#ece7fd` is that toggled tint, so hover is a lighter
+   step of it and pressed is a darker one — three shades of one colour rather
+   than three colours.
+
+   The transition is on the base rule so a button tints in AND out; declared
+   under `:hover` alone it would snap off the moment the pointer left. */
+.tb-button {
+  transition: background-color 130ms ease-out, transform 130ms ease-out;
+}
+.tb-button:hover  { background-color: #f4f1fe; }
+.tb-button:active { background-color: #ded4fb; transform: scale(0.94); }
+
+.tb-share {
+  transition: background-color 130ms ease-out, transform 130ms ease-out;
+}
+.tb-share:hover  { background-color: #5b4bd6; }
+.tb-share:active { transform: scale(0.97); }

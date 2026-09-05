@@ -17,6 +17,7 @@ Import "../layout/ForceLayout.rgr"
 Import "../layout/LayeredLayout.rgr"
 Import "../layout/EdgeLanes.rgr"
 Import "../layout/OrthoRouter.rgr"
+Import "../layout/ReadableRouter.rgr"
 Import "../layout/TreeLayouts.rgr"
 Import "../domains/erd/SqlSchemaReader.rgr"
 Import "../domains/erd/SchemaToGraph.rgr"
@@ -77,6 +78,7 @@ class RangerFlowTest {
         RangerFlowTest.testEdgeLanes(c)
         RangerFlowTest.testLongEdgeRouting(c)
         RangerFlowTest.testObstacleRepair(c)
+        RangerFlowTest.testReadableRouter(c)
         RangerFlowTest.testLaneOrdering(c)
         RangerFlowTest.testDragSweep(c)
         RangerFlowTest.testSegmentDrag(c)
@@ -1532,6 +1534,115 @@ class RangerFlowTest {
     ; The complaint this pass exists for: drag a node into the middle of
     ; somebody else's route and the line is drawn straight through it. The
     ; layered layout cannot help — it routed against a picture that no longer
+    ; One router that sees every edge. A fan of three out of one side, a box
+    ; standing in the corridor, and a label on every line: the rules in
+    ; PLAN_READABLE_ROUTING each have a number, and this holds them.
+    sfn testReadableRouter:void (c:Checker) {
+        def g (new FlowGraph)
+        def hub:FlowNode (g.node("hub" "hub" 0.0 400.0))
+        def top:FlowNode (g.node("top" "top" 500.0 0.0))
+        def mid:FlowNode (g.node("mid" "mid" 500.0 200.0))
+        def low:FlowNode (g.node("low" "low" 500.0 410.0))
+        def wall:FlowNode (g.node("wall" "in the way" 250.0 380.0))
+        hub.width = 140.0
+        hub.height = 80.0
+        top.width = 140.0
+        top.height = 60.0
+        mid.width = 140.0
+        mid.height = 60.0
+        low.width = 140.0
+        low.height = 60.0
+        wall.width = 60.0
+        wall.height = 100.0
+        def e1:FlowEdge (g.connect("hub" "top"))
+        def e2:FlowEdge (g.connect("hub" "mid"))
+        def e3:FlowEdge (g.connect("hub" "low"))
+        def e4:FlowEdge (g.connect("low" "hub"))
+        e1.edgeType = "smoothstep"
+        e2.edgeType = "smoothstep"
+        e3.edgeType = "smoothstep"
+        e4.edgeType = "smoothstep"
+        e1.label = "UP"
+        e2.label = "STRAIGHT ON"
+        e3.label = "DOWN"
+        e4.label = "BACK AGAIN"
+        e4.sourceHandle = 2
+        e4.targetHandle = 2
+        g.reindex()
+        c.section("readable router")
+
+        def rr (new ReadableRouter)
+        def routed:int (rr.route(g))
+        c.eqInt("every edge was routed" routed 4)
+        c.eqInt("nothing is drawn through the box in the corridor" (EdgeOverlap.nodeCrossings(g)) 0)
+        c.eqInt("no route turns inside another box's clearance" (ReadableRouter.haloTurns(g rr.nodeClearance)) 0)
+        c.eqInt("no two unrelated lines share a corridor" (ReadableRouter.parallelClose(g rr.minParallelGap)) 0)
+        c.eqInt("every line leaves and arrives square to its side" (OrientedPorts.faults(g)) 0)
+        c.eqInt("no crossing sits at another edge's bend" (ReadableRouter.crossingsAtBend(g rr.junctionRadius)) 0)
+
+        ; Three edges out of one side, two of them heading up: two sockets,
+        ; and two stubs of different lengths, so the lanes are distinct from
+        ; the first pixel rather than converging two pixels out.
+        def sx1:double (itemAt e1.waypoints 2)
+        def sx2:double (itemAt e2.waypoints 2)
+        c.ok("sibling sockets heading the same way turn at different distances" ((fabs (sx1 - sx2)) >= (rr.fanOutStep - 0.5)))
+        c.ok("the one nearer that way turns first" (sx1 < sx2))
+        c.ok("no socket is shared" (e1.portNudgeSource != e3.portNudgeSource))
+
+        ; Labels: beside their own edge, on nothing, with no other line through.
+        rr.placeLabels(g)
+        rr.finish(g)
+        c.eqInt("no label has another edge's line through it" (ReadableRouter.labelHits(g)) 0)
+        def k:int 0
+        def onABox:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            def p:EdgePath (EdgeRouter.route(g e))
+            p.flatten(12)
+            def w:double (ReadableRouter.labelBoxWidth(e.label))
+            def h:double (ReadableRouter.labelBoxHeight(e.label))
+            def box:FlowRect (FlowRect.create((((p.midX()) + e.labelDX) - (w * 0.5)) (((p.midY()) + e.labelDY) - (h * 0.5)) w h))
+            def n:int 0
+            while (n < (g.nodeCount())) {
+                def nd:FlowNode (g.nodeAt(n))
+                if (box.overlaps((nd.rect()))) {
+                    onABox = (onABox + 1)
+                }
+                n = (n + 1)
+            }
+            k = (k + 1)
+        }
+        c.eqInt("no label sits on a box" onABox 0)
+
+        ; The same graph twice is the same drawing.
+        def before:[double] (OrthoRouter.copyOf(e3.waypoints))
+        def rr2 (new ReadableRouter)
+        rr2.route(g)
+        rr2.placeLabels(g)
+        rr2.finish(g)
+        def same:boolean ((array_length before) == (array_length e3.waypoints))
+        def i:int 0
+        while (i < (array_length before)) {
+            if (i < (array_length e3.waypoints)) {
+                if ((fabs ((itemAt before i) - (itemAt e3.waypoints i))) > 0.01) {
+                    same = false
+                }
+            }
+            i = (i + 1)
+        }
+        c.ok("routing is deterministic" same)
+
+        ; The half-way point of a path is half way by LENGTH, not the middle
+        ; entry of a list whose size depends on how finely it was flattened.
+        def p3:EdgePath (EdgeRouter.route(g e3))
+        p3.flatten(4)
+        def coarseX:double (p3.midX())
+        def coarseY:double (p3.midY())
+        p3.flatten(24)
+        c.near("a label's anchor does not move with the flattening (x)" (p3.midX()) coarseX 1.5)
+        c.near("a label's anchor does not move with the flattening (y)" (p3.midY()) coarseY 1.5)
+    }
+
     ; exists — so the grid router repairs what is broken and leaves the rest.
     sfn testObstacleRepair:void (c:Checker) {
         def g (new FlowGraph)

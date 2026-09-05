@@ -1,0 +1,84 @@
+{
+  "_": "The wizard's encryption gate, which the reference cannot show: its toggle is a box with no role. Encryption on, a weak password refused at the gate, a strong one that does not match refused, then matching and through. This side's alone.",
+  "id": "calendar-wizard-encrypted",
+  "area": "kalenterit",
+  "machine": "calendarWizard",
+  "source": "frontend/src/components/wizards/CalendarWizard.tsx",
+  "noReference": true,
+  "setup": [
+    {
+      "page": "390x844"
+    },
+    {
+      "route": "/new-calendar"
+    }
+  ],
+  "steps": [
+    {
+      "id": "rt-wiz-next",
+      "state": "details"
+    },
+    {
+      "id": "rt-wiz-name",
+      "type": "Salattu päiväkirja",
+      "state": "details"
+    },
+    {
+      "id": "rt-wiz-next",
+      "state": "encryption"
+    },
+    {
+      "id": "rt-wiz-encrypt",
+      "state": "encryption"
+    },
+    {
+      "id": "rt-wiz-pass",
+      "type": "kissa",
+      "state": "encryption",
+      "why": "five lowercase letters: score 0, the gate is shut"
+    },
+    {
+      "id": "rt-wiz-next",
+      "state": "encryption",
+      "why": "refused"
+    },
+    {
+      "id": "rt-wiz-pass",
+      "type": "Kissa2026!x",
+      "state": "encryption"
+    },
+    {
+      "id": "rt-wiz-confirm",
+      "type": "Kissa2026",
+      "state": "encryption",
+      "why": "does not match yet"
+    },
+    {
+      "id": "rt-wiz-next",
+      "state": "encryption",
+      "why": "refused"
+    },
+    {
+      "id": "rt-wiz-confirm",
+      "type": "Kissa2026!x",
+      "state": "encryption",
+      "why": "the confirmation, retyped whole — a `type` step is the recorder's fill"
+    },
+    {
+      "id": "rt-wiz-show",
+      "state": "encryption"
+    },
+    {
+      "id": "rt-wiz-next",
+      "state": "appearance"
+    },
+    {
+      "id": "rt-wiz-create",
+      "state": "creating"
+    },
+    {
+      "tick": 600,
+      "state": "closed"
+    }
+  ]
+}

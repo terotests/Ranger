@@ -1,0 +1,276 @@
+Import "../V1Json.rgr"
+Import "../V1SharedHelpers.rgr"
+Import "../nodes/CircuitNode.rgr"
+Import "../nodes/CircuitExerciseNode.rgr"
+
+class CircuitParserV1 {
+    ; Parse a weight spec ("bw", "70%", "60kg", "50-60kg") into typed node fields.
+    static fn applyWeight:void (node:CircuitExerciseNode ws:string) {
+        if (ws == "bw") {
+            node.hasWeightValue = true
+            node.weightValue = 0
+            node.weightUnit = "bodyweight"
+            return
+        }
+        def pctPos (V1SharedHelpers.findToken(ws "%"))
+        if (pctPos > 0) {
+            def pctRaw (substring ws 0 pctPos)
+            def pctVal (V1SharedHelpers.parseStrictInt(pctRaw))
+            if (pctVal >= 0) {
+                node.hasWeightPercent = true
+                node.weightPercent = pctVal
+                return
+            }
+        }
+        def kgPos (V1SharedHelpers.findToken(ws "kg"))
+        if (kgPos > 0) {
+            def vRaw (substring ws 0 kgPos)
+            def dashPos (V1SharedHelpers.findToken(vRaw "-"))
+            if (dashPos > 0) {
+                def vMin (V1SharedHelpers.parseStrictInt((substring vRaw 0 dashPos)))
+                def vMax (V1SharedHelpers.parseStrictInt((substring vRaw (dashPos + 1) (strlen vRaw))))
+                if (vMin >= 0) {
+                    if (vMax >= 0) {
+                        node.hasWeightValue = true
+                        node.weightValue = vMin
+                        node.hasWeightValueMax = true
+                        node.weightValueMax = vMax
+                        node.weightUnit = "kg"
+                        return
+                    }
+                }
+            }
+            def vOpt (str2int vRaw)
+            if (!null? vOpt) {
+                if ((to_string (unwrap vOpt)) == vRaw) {
+                    node.hasWeightValue = true
+                    node.weightValue = (unwrap vOpt)
+                    node.weightUnit = "kg"
+                }
+            }
+        }
+    }
+
+    static fn findSpecStart:int (rest:string) {
+        def sLen (strlen rest)
+        def i@(mutable):int 0
+        while (i < sLen) {
+            def ch (charAt rest i)
+            if ((ch >= (ccode "0")) && (ch <= (ccode "9"))) {
+                return i
+            }
+            i = i + 1
+        }
+        return -1
+    }
+
+    static fn parseItemNode:CircuitExerciseNode (line:string) {
+        def rest (trim (substring line 1 (strlen line)))
+        def specStart (CircuitParserV1.findSpecStart(rest))
+        def name@(mutable):string rest
+        def spec@(mutable):string ""
+        if (specStart > 0) {
+            name = (trim (substring rest 0 specStart))
+            spec = (trim (substring rest specStart (strlen rest)))
+        }
+        def node (new CircuitExerciseNode)
+        node.name = name
+
+        def hasSets@(mutable):boolean false
+        def setsVal@(mutable):int 0
+        def hasReps@(mutable):boolean false
+        def repsVal@(mutable):int 0
+        def hasRepsRight@(mutable):boolean false
+        def repsRightVal@(mutable):int 0
+        def hasUnit@(mutable):boolean false
+        def unitVal@(mutable):string ""
+        def weightSpecOut@(mutable):string ""
+
+        if ((strlen spec) > 0) {
+            def atPos (V1SharedHelpers.findToken(spec "@"))
+            def left@(mutable):string spec
+            def weightSpec@(mutable):string ""
+            if (atPos >= 0) {
+                left = (trim (substring spec 0 atPos))
+                weightSpec = (trim (substring spec (atPos + 1) (strlen spec)))
+            }
+
+            def slashInWeight (V1SharedHelpers.findToken(weightSpec "/"))
+            if (slashInWeight > 0) {
+                def wOnly (trim (substring weightSpec 0 slashInWeight))
+                def recPart (trim (substring weightSpec (slashInWeight + 1) (strlen weightSpec)))
+                weightSpec = wOnly
+                def recLen (strlen recPart)
+                if (recLen > 1) {
+                    if ((charAt recPart (recLen - 1)) == (ccode "s")) {
+                        def recVal (V1SharedHelpers.parseStrictInt((substring recPart 0 (recLen - 1))))
+                        if (recVal >= 0) {
+                            node.hasRecovery = true
+                            node.recoveryValue = recVal
+                            node.recoveryUnit = "sec"
+                        }
+                    }
+                }
+            }
+
+            def xPos (V1SharedHelpers.findToken(left "x"))
+            if (xPos > 0) {
+                def setsRaw (substring left 0 xPos)
+                def repsRaw (substring left (xPos + 1) (strlen left))
+                def parsedSets (V1SharedHelpers.parseStrictInt(setsRaw))
+                def plusPos (V1SharedHelpers.findToken(repsRaw "+"))
+                if (plusPos > 0) {
+                    def lVal (V1SharedHelpers.parseStrictInt((substring repsRaw 0 plusPos)))
+                    def rVal (V1SharedHelpers.parseStrictInt((substring repsRaw (plusPos + 1) (strlen repsRaw))))
+                    if (parsedSets >= 0) {
+                        hasSets = true
+                        setsVal = parsedSets
+                    }
+                    if (lVal >= 0) {
+                        hasReps = true
+                        repsVal = lVal
+                    }
+                    if (rVal >= 0) {
+                        hasRepsRight = true
+                        repsRightVal = rVal
+                    }
+                } {
+                    def repsOnly (V1SharedHelpers.parseStrictInt(repsRaw))
+                    if (parsedSets >= 0) {
+                        hasSets = true
+                        setsVal = parsedSets
+                    }
+                    if (repsOnly >= 0) {
+                        hasReps = true
+                        repsVal = repsOnly
+                    }
+                }
+            } {
+                def plusPos2 (V1SharedHelpers.findToken(left "+"))
+                if (plusPos2 > 0) {
+                    def lVal2 (V1SharedHelpers.parseStrictInt((substring left 0 plusPos2)))
+                    def rVal2 (V1SharedHelpers.parseStrictInt((substring left (plusPos2 + 1) (strlen left))))
+                    hasSets = true
+                    setsVal = 1
+                    if (lVal2 >= 0) {
+                        hasReps = true
+                        repsVal = lVal2
+                    }
+                    if (rVal2 >= 0) {
+                        hasRepsRight = true
+                        repsRightVal = rVal2
+                    }
+                } {
+                    def repsOnly2 (V1SharedHelpers.parseStrictInt(left))
+                    if (repsOnly2 >= 0) {
+                        hasSets = true
+                        setsVal = 1
+                        hasReps = true
+                        repsVal = repsOnly2
+                    } {
+                        def sLen (strlen left)
+                        if (sLen > 1) {
+                            if ((charAt left (sLen - 1)) == (ccode "s")) {
+                                def durVal (V1SharedHelpers.parseStrictInt((substring left 0 (sLen - 1))))
+                                if (durVal >= 0) {
+                                    hasSets = true
+                                    setsVal = 1
+                                    hasReps = true
+                                    repsVal = durVal
+                                    hasUnit = true
+                                    unitVal = "s"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            weightSpecOut = weightSpec
+        }
+        CircuitParserV1.applyWeight(node weightSpecOut)
+
+        if (hasSets) {
+            node.hasSets = true
+            node.sets = setsVal
+        }
+        if (hasReps) {
+            node.hasReps = true
+            node.reps = repsVal
+        }
+        if (hasRepsRight) {
+            node.hasRepsRight = true
+            node.repsRight = repsRightVal
+        }
+        if (hasUnit) {
+            node.hasUnit = true
+            node.unit = unitVal
+        }
+
+        return node
+    }
+
+    static fn parseHeader:CircuitNode (line:string) {
+        def n (new CircuitNode)
+        def variant@(mutable):string "circuit"
+        def body@(mutable):string line
+        if (V1SharedHelpers.hasPrefix(line "Superset|")) {
+            variant = "superset"
+            body = (substring line 9 (strlen line))
+        } {
+            body = (substring line 8 (strlen line))
+        }
+        n.variant = variant
+
+        def noteSep (V1SharedHelpers.findToken(body " | "))
+        def roundsPart@(mutable):string (trim body)
+        if (noteSep >= 0) {
+            roundsPart = (trim (substring body 0 noteSep))
+            def noteText (trim (substring body (noteSep + 3) (strlen body)))
+            if ((strlen noteText) > 0) {
+                n.hasNote = true
+                n.note = noteText
+            }
+        }
+
+        def slashPos (V1SharedHelpers.findToken(roundsPart "/"))
+        def roundsRaw@(mutable):string roundsPart
+        if (slashPos >= 0) {
+            roundsRaw = (trim (substring roundsPart 0 slashPos))
+            def restRaw (trim (substring roundsPart (slashPos + 1) (strlen roundsPart)))
+            def minPos (V1SharedHelpers.findToken(restRaw "min"))
+            if (minPos > 0) {
+                def rv (V1SharedHelpers.parseStrictInt((substring restRaw 0 minPos)))
+                if (rv >= 0) {
+                    n.hasRoundRest = true
+                    n.roundRestValue = rv
+                    n.roundRestUnit = "min"
+                }
+            } {
+                def sLen (strlen restRaw)
+                if (sLen > 1) {
+                    if ((charAt restRaw (sLen - 1)) == (ccode "s")) {
+                        def rv2 (V1SharedHelpers.parseStrictInt((substring restRaw 0 (sLen - 1))))
+                        if (rv2 >= 0) {
+                            n.hasRoundRest = true
+                            n.roundRestValue = rv2
+                            n.roundRestUnit = "s"
+                        }
+                    }
+                }
+            }
+        }
+
+        if (roundsRaw == "?") {
+            n.roundsNull = true
+        } {
+            def rv3 (V1SharedHelpers.parseStrictInt(roundsRaw))
+            if (rv3 >= 0) {
+                n.hasRounds = true
+                n.rounds = rv3
+            }
+        }
+
+        return n
+    }
+}

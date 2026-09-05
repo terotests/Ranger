@@ -1,0 +1,77 @@
+class CompactV1Json {
+    static fn escape:string (value:string) {
+        def out@(mutable):string ""
+        def len (strlen value)
+        def i@(mutable):int 0
+        while (i < len) {
+            def ch (charAt value i)
+            if (ch == (ccode "\\")) {
+                out = (out + "\\\\")
+            } {
+                if (ch == (ccode "\"")) {
+                    out = (out + "\\\"")
+                } {
+                    if (ch == 10) {
+                        out = (out + "\\n")
+                    } {
+                        if (ch == 13) {
+                            out = (out + "\\r")
+                        } {
+                            if (ch == 9) {
+                                out = (out + "\\t")
+                            } {
+                                out = (out + (substring value i (i + 1)))
+                            }
+                        }
+                    }
+                }
+            }
+            i = i + 1
+        }
+        return out
+    }
+
+    static fn quote:string (value:string) {
+        return ("\"" + (CompactV1Json.escape(value)) + "\"")
+    }
+
+    static fn field:string (name:string rawValue:string) {
+        return ((CompactV1Json.quote(name)) + ":" + rawValue)
+    }
+
+    static fn jsonObject:string (fields:[string]) {
+        return ("{" + (join fields ",") + "}")
+    }
+
+    static fn addRawField:void (fields@(mutates):[string] name:string rawValue:string) {
+        push fields (CompactV1Json.field(name rawValue))
+    }
+
+    static fn addStringField:void (fields@(mutates):[string] name:string value:string) {
+        push fields (CompactV1Json.field(name (CompactV1Json.quote(value))))
+    }
+
+    static fn addIntField:void (fields@(mutates):[string] name:string value:int) {
+        push fields (CompactV1Json.field(name (to_string value)))
+    }
+
+    static fn addDoubleField:void (fields@(mutates):[string] name:string value:double) {
+        push fields (CompactV1Json.field(name (double2str value)))
+    }
+
+    static fn addBooleanField:void (fields@(mutates):[string] name:string value:boolean) {
+        if (value) {
+            push fields (CompactV1Json.field(name "true"))
+        } {
+            push fields (CompactV1Json.field(name "false"))
+        }
+    }
+
+    static fn stringArray:string (values:[string]) {
+        def items:[string]
+        for values item:string i {
+            push items (CompactV1Json.quote(item))
+        }
+        return ("[" + (join items ",") + "]")
+    }
+}

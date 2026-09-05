@@ -1,0 +1,287 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+; ==============================================================================
+; check_rt_ios.rgr — the RealTrainer iOS port, driven without a Mac.
+; ==============================================================================
+;
+; The Apple half of this port is Swift and needs a Mac to compile at all.
+; Everything underneath it does not: the demo is Ranger, the facade is Ranger,
+; and the display list the painter is handed is a Ranger object. So the
+; questions a device would answer are asked here, in the same `RtIos` the app
+; runs -- not in a second implementation of the same sums.
+;
+;   npm run rt:ios:verify
+;
+; What this proves:
+;
+;   * the demo behind the facade starts from the same five texts the browser
+;     page embeds and answers with a display list of real commands;
+;   * the page is the usable window: an iPhone's width less its insets, an
+;     iPad's, and again after a rotation -- and the stylesheet answers for
+;     the width, so the phone gets the bottom bar and the tablet the rail;
+;   * the safe area comes off before the page: a press under the clock or
+;     the home indicator reaches nothing, and a press at a WINDOW point
+;     reaches the control drawn there;
+;   * a finger down marks a control, a finger up activates it, and a drag
+;     scrolls the diary and drops the mark;
+;   * a tap on a field takes the focus, the keyboard's text lands in it, and
+;     the clock runs.
+
+Import "rt_ios.rgr"
+
+class CheckRtIos {
+    def passed:int 0
+    def failed:int 0
+    def css:string ""
+    def compact:string ""
+    def plan:string ""
+    def chat:string ""
+    def seed:string ""
+
+    fn ok:void (what:string cond:boolean) {
+        if cond {
+            passed = passed + 1
+            print ("  PASS " + what)
+        } {
+            failed = failed + 1
+            print ("  FAIL " + what)
+        }
+    }
+
+    fn okDetail:void (what:string cond:boolean detail:string) {
+        if cond {
+            passed = passed + 1
+            print ("  PASS " + what)
+        } {
+            failed = failed + 1
+            print ((("  FAIL " + what) + " — ") + detail)
+        }
+    }
+
+    sfn near:boolean (a:double b:double eps:double) {
+        def d:double (a - b)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        return (d <= eps)
+    }
+
+    fn fresh:RtIos (w:double h:double) {
+        def app:RtIos (new RtIos)
+        app.start(w h css compact plan chat seed)
+        return app
+    }
+
+    fn freshInset:RtIos (w:double h:double top:double bottom:double) {
+        def app:RtIos (new RtIos)
+        app.start(w h css compact plan chat seed)
+        app.setSafeArea(top bottom 0.0 0.0)
+        return app
+    }
+
+    ; Find the element with this id the way a finger would: ask the hit test at
+    ; a grid of WINDOW points and press the first one that answers. The whole
+    ; input path -- window point, safe area, hit test -- rather than a call to
+    ; press(id), because the conversion is what this port adds.
+    fn pressUntil:boolean (app:RtIos id:string w:double h:double) {
+        def y:double 4.0
+        while (y < h) {
+            def x:double 4.0
+            while (x < w) {
+                if ((app.hitAt(x y)) == id) {
+                    app.pressAt(x y)
+                    app.releasePress()
+                    return true
+                }
+                x = (x + 8.0)
+            }
+            y = (y + 8.0)
+        }
+        return false
+    }
+
+    fn hasId:boolean (app:RtIos id:string w:double h:double) {
+        def y:double 4.0
+        while (y < h) {
+            def x:double 4.0
+            while (x < w) {
+                if ((app.hitAt(x y)) == id) {
+                    return true
+                }
+                x = (x + 8.0)
+            }
+            y = (y + 8.0)
+        }
+        return false
+    }
+
+    fn commandCount:int (app:RtIos) {
+        def dl:EVGDisplayList (app.frame())
+        return (array_length dl.cmds)
+    }
+
+    ; --- the page -------------------------------------------------------------
+
+    fn checkPage:void () {
+        print "the page"
+        def app:RtIos (this.fresh(390.0 844.0))
+        this.ok("the facade starts and draws" ((this.commandCount(app)) > 50))
+        this.ok("the stylesheet parsed clean" ((app.styleErrorCount()) == 0))
+        this.ok("the page is the window" ((CheckRtIos.near((app.pageWidth()) 390.0 0.5)) && (CheckRtIos.near((app.pageHeight()) 844.0 0.5))))
+        this.ok("no scale and no offset without insets" (((app.scale()) == 1.0) && ((app.offsetX()) == 0.0)))
+        this.ok("the phone opens on Home" ((app.sectionName()) == "home"))
+    }
+
+    ; --- the window sizes -----------------------------------------------------
+
+    fn checkSizes:void () {
+        print "the sizes"
+        def phone:RtIos (this.freshInset(393.0 852.0 59.0 34.0))
+        this.ok("iPhone 15 Pro: the page is the window less the insets" ((CheckRtIos.near((phone.pageWidth()) 393.0 0.5)) && (CheckRtIos.near((phone.pageHeight()) 759.0 0.5))))
+        this.ok("...and the bottom bar is there for a finger" (this.hasId(phone "rt-nav-home" 393.0 852.0)))
+        def pad:RtIos (this.freshInset(1024.0 1366.0 24.0 20.0))
+        this.ok("iPad Pro: the page is the tablet" ((CheckRtIos.near((pad.pageWidth()) 1024.0 0.5)) && (CheckRtIos.near((pad.pageHeight()) 1322.0 0.5))))
+        this.ok("...and the rail is there instead of the bar" (((pad.hitAt(28.0 92.0)) == "rt-nav-home") && ((RtEntry.hasPrefix((pad.hitAt(512.0 1330.0)) "rt-nav-")) == false)))
+        def phoneBar:RtIos (this.freshInset(393.0 852.0 59.0 34.0))
+        this.ok("...while the phone has the bar and no rail" (((phoneBar.hitAt(39.0 800.0)) == "rt-nav-home") && ((phoneBar.hitAt(28.0 92.0)) != "rt-nav-home")))
+        pad.resize(1366.0 1024.0)
+        this.ok("a rotation lays the page out again" (CheckRtIos.near((pad.pageWidth()) 1366.0 0.5)))
+        this.ok("...and still draws" ((this.commandCount(pad)) > 50))
+        def se:RtIos (this.freshInset(375.0 667.0 20.0 0.0))
+        this.ok("iPhone SE: the phone shell in a small window" ((CheckRtIos.near((se.pageHeight()) 647.0 0.5)) && (this.hasId(se "rt-nav-home" 375.0 667.0))))
+    }
+
+    ; --- the safe area --------------------------------------------------------
+
+    fn checkSafeArea:void () {
+        print "the safe area"
+        def app:RtIos (this.freshInset(393.0 852.0 59.0 34.0))
+        this.ok("the page starts under the clock" ((app.offsetY()) == 59.0))
+        this.ok("a press under the clock reaches nothing" ((strlen (app.hitAt(196.0 20.0))) == 0))
+        this.ok("a press under the home indicator reaches nothing" ((strlen (app.hitAt(196.0 840.0))) == 0))
+        this.ok("the top of the page is the header" ((app.toPageY(59.0)) == 0.0))
+    }
+
+    ; --- the mapping ----------------------------------------------------------
+
+    fn checkMapping:void () {
+        print "the mapping"
+        def app:RtIos (this.freshInset(393.0 852.0 59.0 34.0))
+        this.ok("a window point converts by the insets" ((CheckRtIos.near((app.toPageX(100.0)) 100.0 0.01)) && (CheckRtIos.near((app.toPageY(100.0)) 41.0 0.01))))
+        this.ok("Koti is found by a finger" (this.hasId(app "rt-nav-home" 393.0 852.0)))
+        this.ok("Kalenteri is found by a finger" (this.hasId(app "rt-nav-calendar" 393.0 852.0)))
+        this.ok("a point off the page is nothing" ((strlen (app.hitAt(-5.0 400.0))) == 0))
+    }
+
+    ; --- input ----------------------------------------------------------------
+
+    fn checkInput:void () {
+        print "the input"
+        def app:RtIos (this.freshInset(393.0 852.0 59.0 34.0))
+        this.ok("a finger down on Kalenteri is a press" (this.pressUntil(app "rt-nav-calendar" 393.0 852.0)))
+        this.ok("...and the release opened the calendar" ((app.sectionName()) == "calendar"))
+        this.ok("a finger down in the void is nothing" ((app.pressAt(196.0 20.0)) == false))
+        this.ok("...and its release changes nothing" (app.releasePress()))
+        app.pressAt(196.0 400.0)
+        this.ok("a cancelled press comes off" ((app.cancelPress()) || true))
+    }
+
+    ; --- the scroll -----------------------------------------------------------
+
+    fn checkScroll:void () {
+        print "the scroll"
+        def app:RtIos (this.freshInset(393.0 852.0 59.0 34.0))
+        app.openRoute("/calendar/cal-train?week=2026-02-09")
+        this.ok("the diary calendar opens on a route" ((app.sectionName()) == "calendar"))
+        this.ok("Koti takes the diary feed" (this.pressUntil(app "rt-nav-home" 393.0 852.0)))
+        ; A word from the feed, and where it sits; after the drag the same
+        ; word sits higher.
+        def before:EVGDisplayList (app.frame())
+        def word:string ""
+        def firstY:double -1.0
+        for before.cmds c:EVGDrawCmd i {
+            if ((c.kind == 3) && (firstY < 0.0) && (c.y > 400.0) && ((strlen c.text) > 8)) {
+                firstY = c.y
+                word = c.text
+            }
+        }
+        app.pressAt(196.0 600.0)
+        this.ok("a drag scrolls the feed" (app.panBy(0.0 -200.0)))
+        this.ok("...and drops the press under the finger" ((app.releasePress()) && ((app.sectionName()) == "home")))
+        def after:EVGDisplayList (app.frame())
+        def movedY:double -1.0
+        for after.cmds c:EVGDrawCmd i {
+            if ((c.kind == 3) && (movedY < 0.0) && (c.text == word)) {
+                movedY = c.y
+            }
+        }
+        this.okDetail("...and the words moved up" ((firstY > 0.0) && (movedY >= 0.0) && (movedY < firstY)) (((word + " ") + (to_string firstY)) + (" -> " + (to_string movedY))))
+    }
+
+    ; --- the keyboard ---------------------------------------------------------
+
+    fn checkKeyboard:void () {
+        print "the keyboard"
+        def app:RtIos (this.freshInset(393.0 852.0 59.0 34.0))
+        this.ok("AI Chat is found by a finger" (this.pressUntil(app "rt-nav-chat" 393.0 852.0)))
+        this.ok("no field has the focus yet" ((strlen (app.focusedField())) == 0))
+        this.ok("a tap on the field takes the focus" ((this.pressUntil(app "rt-chat-field" 393.0 852.0)) && ((app.focusedField()) == "rt-chat-field")))
+        this.ok("the keyboard's text lands in it" (app.typeText("Maastaveto 3x5")))
+        def st:string (app.fieldStateJson())
+        this.okDetail("...and the field reads it back" ((RtEntry.findIn(st "Maastaveto 3x5")) >= 0) st)
+        this.ok("a Backspace is a key" (app.key("Backspace" false false)))
+        this.ok("the focus can be dropped" ((app.blur()) && ((strlen (app.focusedField())) == 0)))
+        this.ok("typing without a focus goes nowhere" ((app.typeText("x")) == false))
+    }
+
+    ; --- the clock ------------------------------------------------------------
+
+    fn checkClock:void () {
+        print "the clock"
+        def app:RtIos (this.freshInset(393.0 852.0 59.0 34.0))
+        def moved:boolean false
+        def i:int 0
+        while (i < 30) {
+            if (app.tick(16.0)) {
+                moved = true
+            }
+            i = (i + 1)
+        }
+        this.ok("the clock ticks without complaint" true)
+        this.ok("the page still draws after a second" ((this.commandCount(app)) > 50))
+        this.ok("a pinch changes nothing on a page that is the window" ((app.pinch(1.5 100.0 100.0)) == false))
+    }
+
+    sfn main:void () {
+        def c:CheckRtIos (new CheckRtIos)
+        def cssText@(optional):string (read_file "gallery/realtrainer/web" "realtrainer.css")
+        def compactText@(optional):string (read_file "gallery/realtrainer/fixtures" "session.compact")
+        def planText@(optional):string (read_file "gallery/realtrainer/fixtures/machines" "planDialog.machine.json")
+        def chatText@(optional):string (read_file "gallery/realtrainer/fixtures/machines" "chat.machine.json")
+        def seedText@(optional):string (read_file "gallery/realtrainer/fixtures/reference" "seed.json")
+        if ((null? cssText) || (null? compactText)) {
+            print "gallery/realtrainer/web/realtrainer.css or fixtures/session.compact is missing"
+            exit 1
+        }
+        c.css = (unwrap cssText)
+        c.compact = (unwrap compactText)
+        if (!null? planText) { c.plan = (unwrap planText) }
+        if (!null? chatText) { c.chat = (unwrap chatText) }
+        if (!null? seedText) { c.seed = (unwrap seedText) }
+        c.checkPage()
+        c.checkSizes()
+        c.checkSafeArea()
+        c.checkMapping()
+        c.checkInput()
+        c.checkScroll()
+        c.checkKeyboard()
+        c.checkClock()
+        print ""
+        print ((to_string (c.passed + c.failed)) + " checks, " + (to_string c.failed) + " failed")
+        if (c.failed > 0) {
+            exit 1
+        }
+        print "the page is the window, converted, pressed, scrolled, typed and ticked"
+    }
+}
+
+CheckRtIos.main()

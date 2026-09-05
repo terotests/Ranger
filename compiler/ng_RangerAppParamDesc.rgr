@@ -111,6 +111,14 @@ class RangerAppParamDesc {
   def escapes_function:boolean false
   def needs_cpp_reference:boolean false
   def rust_borrow_type:int 0  ; 0=owned, 1=borrow, 2=mut_borrow
+  ; Swift `inout`. The same idea as needs_cpp_reference, for the types Swift
+  ; passes by value: arrays, dictionaries, buffers and String. It is a separate
+  ; marker because the two languages disagree about objects — a class instance
+  ; is a reference in Swift and needs no `inout`, but is a value in C++ and
+  ; needs `&`. StaticAnalyzer sets it where the body mutates the parameter and
+  ; propagates it through calls (propagateArgMutRef), so a parameter that is
+  ; only handed on to a mutating callee carries it too.
+  def needs_swift_inout:boolean false
   ; Every value ever assigned to this string is a literal or a copy of another
   ; such string (StaticAnalyzer.analyzeRustStaticStrings) — Rust emits it as
   ; `&'static str`: assignment is a pointer copy, no allocation, Copy semantics.
@@ -162,6 +170,17 @@ class RangerAppParamDesc {
   def return_value:RangerAppParamDesc
   def description:string ""
   def git_doc:string ""
+  ; The parsed `doc { … }` tail. RangerAppClassDesc and RangerAppFunctionDesc
+  ; both extend this class, so one slot serves classes, methods and fields.
+  def has_doc:boolean false
+  def docBlock:RangerDocBlock
+  ; This declaration is named by an `example` entry somewhere. It is compiled
+  ; and type-checked like any other function, then left OUT of the emitted
+  ; code -- the point of an example is that it is checked, not that it ships.
+  def is_doc_example:boolean false
+  ; The body of an example, rendered in the target's own syntax, filled in
+  ; before any class is written.
+  def docExampleText:string ""
   def has_events:boolean false
   def eMap:RangerParamEventMap
 

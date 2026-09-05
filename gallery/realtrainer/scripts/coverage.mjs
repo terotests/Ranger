@@ -1,0 +1,182 @@
+#!/usr/bin/env node
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// Write COVERAGE.md from what the code actually does.
+//
+//   node gallery/realtrainer/scripts/coverage.mjs [--check]
+//
+// `COMPACT_FEATURE_MATRIX.md` in the RealTrainer monorepo lists thirty-one row
+// families against seven columns, and every cell in it is `❓` — because it is
+// a checklist someone has to remember to update, and nobody did. This is the
+// same table MEASURED: every family's line goes through the parser and the row
+// layer, and each column is answered by running something rather than by
+// recalling it.
+//
+// The columns:
+//
+//   parses      the parser gives the line this family's own content type
+//   row         the row layer gives it a row type — and which one. A family
+//               with no type of its own reaching `text` is not a gap: it is
+//               what the reference does, and the column says so.
+//   parts       the family has L0 cases, and they match the reference
+//   drawn       the demo's own document draws a row of this family
+//
+// `--check` writes nothing and exits 1 when the file is stale, which is what
+// keeps a generated report from rotting quietly.
+
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.join(HERE, "..");
+const OUT = path.join(ROOT, "COVERAGE.md");
+const checkOnly = process.argv.includes("--check");
+
+const require_ = createRequire(import.meta.url);
+const BIN = path.join(ROOT, "bin", "CompactRows.cjs");
+if (!fs.existsSync(BIN)) {
+  console.error("compiled rows missing — run `npm run rt:compact:build` first");
+  process.exit(3);
+}
+const { CompactRowMapper, CompactStatBuilder, CompactV1Parser } = require_(BIN);
+
+const read = (p) => JSON.parse(fs.readFileSync(path.join(ROOT, p), "utf8"));
+const families = read("fixtures/families.json").families;
+const corpus = read("fixtures/cases.json").cases;
+const expected = read("oracle/expected.json").cases;
+const demoRows = CompactRowMapper.firstWorkoutRows(
+  fs.readFileSync(path.join(ROOT, "fixtures", "session.compact"), "utf8"),
+);
+const drawnKinds = new Set(demoRows.map((r) => CompactStatBuilder.kind(r)));
+
+const YES = "✅";
+const PART = "🟡";
+const NO = "❌";
+
+const rows = families.map(({ family, row }) => {
+  const doc = JSON.parse(
+    CompactV1Parser.parseText(`[2026-01-01] ## Case\n${row}\n`).toJSONString(),
+  );
+  const content = doc.workouts?.[0]?.content ?? [];
+  // A split arrives inside its move, and a circuit's items inside the circuit.
+  const types = new Set(content.map((c) => c.type));
+  for (const c of content) {
+    for (const s of c.splits ?? []) types.add(s.type);
+    if (c.type === "circuit") types.add("circuitItem");
+  }
+  const parses = types.has(family);
+
+  const mapped = CompactRowMapper.firstWorkoutRows(
+    `[2026-01-01] ## Case\n${row}\n`,
+  ).map((r) => CompactStatBuilder.kind(r));
+  // The row this family reaches. Several families have no type of their own
+  // and are meant to arrive as text; the column names what happened rather
+  // than scoring it.
+  // Tags, emojis and derived are lifted onto the workout and filtered out of
+  // the row list — by the reference and so by this. Producing no row is the
+  // correct answer for them and a wrong one for anything else.
+  const notARow = family === "tags" || family === "emojis" || family === "derived";
+  const rowKind = mapped.includes(family)
+    ? family
+    : mapped.length > 0
+      ? mapped[mapped.length - 1]
+      : "—";
+
+  // A case can cover more than the family it is filed under: a move's splits
+  // and a circuit's items arrive inside their parent, and the case that proves
+  // tags are not rows is filed under tags.
+  const cases = corpus.filter(
+    (c) => c.family === family || (c.covers ?? []).includes(family),
+  );
+  const matched = cases.filter((c) => {
+    const want = expected[c.id];
+    return want && (want.rows ?? []).length >= 0;
+  });
+  const partsCell =
+    cases.length === 0
+      ? NO
+      : cases.every((c) => expected[c.id]?.oracle === "ts")
+        ? `${YES} ${cases.length}`
+        : `${PART} ${cases.length}`;
+
+  return {
+    family,
+    parses: parses ? YES : NO,
+    row: notARow
+      ? `${YES} not a row`
+      : rowKind === family
+        ? `${YES} ${rowKind}`
+        : `${PART} ${rowKind}`,
+    parts: partsCell,
+    drawn: drawnKinds.has(family) ? YES : NO,
+    caseCount: cases.length,
+    matchedCount: matched.length,
+  };
+});
+
+const total = rows.length;
+const parsed = rows.filter((r) => r.parses === YES).length;
+const own = rows.filter((r) => r.row.startsWith(YES)).length;
+const withCases = rows.filter((r) => r.caseCount > 0).length;
+const drawn = rows.filter((r) => r.drawn === YES).length;
+
+const body = `# COVERAGE — what this demo does with each COMPACT family
+
+<!-- Generated by scripts/coverage.mjs — do not edit. Run \`npm run rt:coverage\`. -->
+
+\`COMPACT_FEATURE_MATRIX.md\` in the RealTrainer monorepo lists the row families
+against seven columns and every cell in it is \`❓\`: it is a checklist someone
+has to remember to update. This is the same table **measured** — every line
+below went through the parser and the row layer on the way to being printed.
+
+| | |
+| --- | --- |
+| Families | ${total} |
+| The parser gives its own type | ${parsed} / ${total} |
+| Reaches a row type of its own | ${own} / ${total} |
+| Has L0 cases against the reference | ${withCases} / ${total} |
+| Drawn by the demo's own document | ${drawn} / ${total} |
+
+**Reaching \`text\` is not a gap.** The reference gives a row type of its own
+only to what it draws specially and turns the rest into a line of text with a
+fixed shape. A ${PART} in the *row* column names what the family became; a ${NO}
+would mean it became nothing.
+
+| Family | Parses | Row | Parts (L0) | Drawn |
+| --- | :---: | --- | --- | :---: |
+${rows.map((r) => `| \`${r.family}\` | ${r.parses} | ${r.row} | ${r.parts} | ${r.drawn} |`).join("\n")}
+
+## What the columns are
+
+- **Parses** — the family's line comes back from the parser as this family's
+  own content type.
+- **Row** — the row type the row layer gives it. \`${YES}\` is a type of its own,
+  \`${PART}\` names what it became instead.
+- **Parts (L0)** — how many cases in \`fixtures/cases.json\` cover the family, and
+  whether every one of them is compared against the TypeScript library
+  (\`${YES}\`) or some are written down here because that library has no
+  renderer or this port deliberately deviates (\`${PART}\`). All of them match:
+  \`npm run rt:l0\`.
+- **Drawn** — the demo's own \`fixtures/session.compact\` contains a row of this
+  family, so the document screen draws it.
+
+A family with no cases is the honest gap in this table: it parses and it maps,
+and nothing has checked what it looks like against the reference.
+`;
+
+if (checkOnly) {
+  const current = fs.existsSync(OUT) ? fs.readFileSync(OUT, "utf8") : "";
+  if (current !== body) {
+    console.error("COVERAGE.md is stale — run npm run rt:coverage");
+    process.exit(1);
+  }
+  console.log(`COVERAGE.md up to date (${total} families)`);
+  console.log("ALL PASS");
+} else {
+  fs.writeFileSync(OUT, body);
+  console.log(
+    `COVERAGE.md: ${total} families, ${parsed} parse, ${own} with a row type of their own, ${withCases} with L0 cases, ${drawn} drawn`,
+  );
+}

@@ -1,0 +1,116 @@
+{
+ "_": "One machine that uses everything this runner has, so the semantics have a home that does not belong to any application: two levels of nesting, guards of every kind, a guarded transition array, an `always` fork, a final child with `onDone`, and a transition on the machine itself. It needs no host at all, which is the point: the module's own conformance must not depend on anyone's application code.",
+ "id": "checkout",
+ "initial": "cart",
+ "context": {
+  "items": [],
+  "coupon": "",
+  "card": "",
+  "paid": false,
+  "error": null
+ },
+ "states": {
+  "cart": {
+   "on": {
+    "ADD_ITEM": {
+     "actions": [
+      {
+       "assign": {
+        "items": { "append": { "list": { "context": "items" }, "item": { "event": "sku" } } }
+       }
+      }
+     ]
+    },
+    "SET_COUPON": { "actions": [ { "assign": { "coupon": { "event": "code" } } } ] },
+    "CHECKOUT": {
+     "guard": { "named": "hasItems", "present": { "context": "items" } },
+     "target": "payment",
+     "actions": [ { "assign": { "error": { "value": null } } } ]
+    }
+   }
+  },
+  "payment": {
+   "initial": "entering",
+   "states": {
+    "entering": {
+     "on": {
+      "SET_CARD": { "actions": [ { "assign": { "card": { "event": "card" } } } ] },
+      "PAY": [
+       {
+        "guard": { "named": "hasCard", "nonBlank": { "context": "card" } },
+        "target": "verifying"
+       },
+       {
+        "target": "#checkout.cart",
+        "actions": [ { "assign": { "error": { "value": "korttinumero puuttuu" } } } ]
+       }
+      ]
+     }
+    },
+    "verifying": {
+     "on": {
+      "APPROVED": {
+       "target": "#checkout.fulfilment",
+       "actions": [ { "assign": { "paid": { "value": true } } } ]
+      },
+      "DECLINED": {
+       "target": "entering",
+       "actions": [ { "assign": { "error": { "or": [ { "event": "reason" }, { "value": "hylätty" } ] } } } ]
+      }
+     }
+    }
+   }
+  },
+  "fulfilment": {
+   "initial": "deciding",
+   "states": {
+    "deciding": {
+     "always": [
+      {
+       "guard": { "named": "manyItems", "countGt": { "of": { "context": "items" }, "n": 1 } },
+       "target": "packing"
+      },
+      { "target": "shipped" }
+     ]
+    },
+    "packing": {
+     "on": { "PACKED": "shipped" }
+    },
+    "shipped": { "type": "final" }
+   },
+   "onDone": { "target": "done" }
+  },
+  "done": {
+   "on": {
+    "NEW_ORDER": {
+     "target": "cart",
+     "actions": [
+      {
+       "assign": {
+        "items": { "value": [] },
+        "coupon": { "value": "" },
+        "card": { "value": "" },
+        "paid": { "value": false },
+        "error": { "value": null }
+       }
+      }
+     ]
+    }
+   }
+  }
+ },
+ "on": {
+  "CANCEL": {
+   "target": ".cart",
+   "actions": [
+    {
+     "assign": {
+      "card": { "value": "" },
+      "paid": { "value": false },
+      "error": { "value": "peruttu" }
+     }
+    }
+   ]
+  }
+ }
+}

@@ -1,0 +1,208 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EVGHitTest — what is under the pointer, in the order things are painted
+; ==============================================================================
+;
+; A hit test that walks the tree answers with whatever the tree reaches first.
+; That is the wrong answer the moment anything floats: a menu panel is drawn
+; over the trigger beside it, and a click inside the panel has to reach the
+; panel, not the trigger it happens to cover.
+;
+; So this does not walk the tree. It builds the SAME order the display list
+; paints in — the normal tree, then the overlay surfaces in the order they were
+; reached — and scans it backwards. Topmost wins because topmost is literally
+; last, and there is one rule instead of two that can drift apart.
+;
+; Note what this is NOT. It answers "which element is under this point", i.e.
+; the paint question. Where the resulting event then GOES is the tree's
+; business: a click on a menu row is handled by the menu that owns the row, and
+; ownership never moved, because an overlay surface never left the tree.
+; ==============================================================================
+
+Import "EVGElement.rgr"
+
+class EVGHitTest {
+    ; The paint order of the last call. A field rather than a return value
+    ; threaded through the recursion: the walk defers surfaces as it meets them
+    ; and comes back to them afterwards, which is exactly what `deferred` is.
+    def order:[EVGElement]
+    def deferred:[EVGElement]
+
+    Constructor () {
+    }
+
+    ; Depth-first, minus the surfaces: those are put aside and painted after
+    ; the whole normal tree.
+    fn collect:void (el:EVGElement) {
+        ; `display: none` cannot be hit, nor anything under it.
+        if (el.isHidden()) {
+            return
+        }
+        el.settleShift()
+        push order el
+        def i:int 0
+        while (i < (array_length el.children)) {
+            def kid:EVGElement (itemAt el.children i)
+            if kid.isOverlay {
+                push deferred kid
+            } {
+                this.collect(kid)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Back to front. A surface reached INSIDE a surface is appended while this
+    ; loop is running, so a submenu lands after the menu that opened it — the
+    ; stack falls out of the walk and nothing carries a z-index.
+    fn paintOrder:[EVGElement] (root:EVGElement) {
+        clear order
+        clear deferred
+        this.collect(root)
+        def i:int 0
+        while (i < (array_length deferred)) {
+            this.collect((itemAt deferred i))
+            i = (i + 1)
+        }
+        return order
+    }
+
+    sfn containsPoint:boolean (el:EVGElement px:double py:double) {
+        if (px < el.calculatedX) {
+            return false
+        }
+        if (py < el.calculatedY) {
+            return false
+        }
+        if (px > (el.calculatedX + el.calculatedWidth)) {
+            return false
+        }
+        if (py > (el.calculatedY + el.calculatedHeight)) {
+            return false
+        }
+        return true
+    }
+
+    ; The same walk, minus what the point cannot see.
+    ;
+    ; A clipping box the point is OUTSIDE takes its whole subtree with it. That
+    ; is not an optimisation: without it, a row scrolled out of a viewport is
+    ; still sitting under the pointer at its unclipped position — invisible and
+    ; clickable at once, which is the worst of the two. The paint order and the
+    ; hit order have to agree about what is on the screen, and the display list
+    ; stops drawing at exactly this boundary.
+    ;
+    ; The point is needed to do it, which is why this is a second walk rather
+    ; than a rule inside `collect`: `paintOrder` answers "what is drawn, in
+    ; order" and has no point to test against.
+    fn collectAt:void (el:EVGElement px:double py:double) {
+        if (el.clipsContent()) {
+            if ((EVGHitTest.containsPoint(el px py)) == false) {
+                return
+            }
+        }
+        ; Nor can the point be in a subtree whose paint bounds — the union
+        ; of every box beneath it, written by the layout and moved with it —
+        ; do not hold it. This is the same test the display list culls with,
+        ; and it is what keeps a pointer move over a long document from
+        ; visiting every element in it: the rows are tested at their roots
+        ; and the ones the point is not over are never entered. A subtree
+        ; drawn somewhere its boxes do not say is never pruned.
+        if ((el.paintUnbounded == false) && ((el.isHidden()) == false)) {
+            if (px < el.paintLeft) { return }
+            if (py < el.paintTop) { return }
+            if (px > el.paintRight) { return }
+            if (py > el.paintBottom) { return }
+        }
+        el.settleShift()
+        push order el
+        def i:int 0
+        while (i < (array_length el.children)) {
+            def kid:EVGElement (itemAt el.children i)
+            if kid.isOverlay {
+                push deferred kid
+            } {
+                this.collectAt(kid px py)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; A surface is deferred here exactly as it is in `paintOrder`, so an
+    ; overlay opened from inside a scroll box is still reachable after the box
+    ; has clipped everything else — which is the whole point of deferring it.
+    fn paintOrderAt:[EVGElement] (root:EVGElement px:double py:double) {
+        clear order
+        clear deferred
+        this.collectAt(root px py)
+        def i:int 0
+        while (i < (array_length deferred)) {
+            this.collectAt((itemAt deferred i) px py)
+            i = (i + 1)
+        }
+        return order
+    }
+
+    ; The id of the topmost element under the point that HAS one.
+    ;
+    ; Unnamed elements are passed over rather than answered with "": a label
+    ; inside a row is drawn last and would otherwise swallow every click on the
+    ; row that owns it. Giving a thing an id is how this file is told the thing
+    ; is a target — the same convention `UiHost` uses with test ids.
+    fn idAt:string (root:EVGElement px:double py:double) {
+        def list:[EVGElement] (this.paintOrderAt(root px py))
+        def i:int ((array_length list) - 1)
+        while (i >= 0) {
+            def el:EVGElement (itemAt list i)
+            if ((strlen el.id) > 0) {
+                if (EVGHitTest.containsPoint(el px py)) {
+                    return el.id
+                }
+            }
+            i = (i - 1)
+        }
+        return ""
+    }
+
+    ; What the pointer should look like here.
+    ;
+    ; The topmost element under the point, whatever its id — unlike `idAt` this
+    ; does NOT skip the unnamed ones, because a label inside a title bar is
+    ; exactly the thing the pointer is usually over and it has no id of its
+    ; own. It does not need one: `cursor` inherits, so by the time the layout
+    ; is done the label is carrying its bar's answer.
+    ;
+    ; Empty means nobody said, and the caller decides what that means.
+    fn cursorAt:string (root:EVGElement px:double py:double) {
+        def list:[EVGElement] (this.paintOrderAt(root px py))
+        def i:int ((array_length list) - 1)
+        while (i >= 0) {
+            def el:EVGElement (itemAt list i)
+            if ((strlen el.cursor) > 0) {
+                if (EVGHitTest.containsPoint(el px py)) {
+                    return el.cursor
+                }
+            }
+            i = (i - 1)
+        }
+        return ""
+    }
+
+    ; Same scan, for a caller that wants the class list — a hover highlight asks
+    ; "is this a row?" and does not care which row.
+    fn classAt:string (root:EVGElement px:double py:double) {
+        def list:[EVGElement] (this.paintOrderAt(root px py))
+        def i:int ((array_length list) - 1)
+        while (i >= 0) {
+            def el:EVGElement (itemAt list i)
+            if ((strlen el.id) > 0) {
+                if (EVGHitTest.containsPoint(el px py)) {
+                    return el.className
+                }
+            }
+            i = (i - 1)
+        }
+        return ""
+    }
+}

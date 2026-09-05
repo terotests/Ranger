@@ -1,0 +1,436 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EVGStyleVarTest — the palette, and where it is allowed to live
+; ==============================================================================
+;
+; `@vars { --ink: #09090b }` and `color: var(--ink)`. Two claims are worth
+; testing and one of them is not about colour at all:
+;
+;   WHAT IT MEANS.  A theme replaces a palette rather than ninety rules, a
+;                   fallback stands in for a name nobody defined, and a name
+;                   nobody defined and no fallback is an ERROR — the
+;                   declaration is dropped rather than written half resolved,
+;                   because half a shorthand is worse than the value that was
+;                   there before.
+;
+;   WHAT IT COSTS.  `var()` is resolved when a PLAN is built, so two elements
+;                   of the same class resolve once between them. That is the
+;                   whole performance claim of the feature and it is checked
+;                   here against the sheet's own counters, not asserted in a
+;                   comment.
+;
+; And the honesty rule the syntax exists for: this engine has no root element
+; and no inheritance, so a palette written on a class would look element-scoped
+; and not be. `--x` in a class rule is reported, not quietly ignored.
+; ==============================================================================
+
+Import "EVGElement.rgr"
+Import "EVGUnit.rgr"
+Import "EVGStyleSheet.rgr"
+
+class VarCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ((("       got '" + got) + "' want '") + want + "'")
+        }
+        this.ok(name good)
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print (("       got " + (to_string got)) + " want " + (to_string want))
+        }
+        this.ok(name good)
+    }
+}
+
+class EVGStyleVarTest {
+
+    sfn sheetOf:EVGStyleSheet (css:string) {
+        def s (new EVGStyleSheet())
+        s.parse(css)
+        s.setViewport(800.0 600.0 false)
+        return s
+    }
+
+    sfn boxWith:EVGElement (cls:string) {
+        def el (EVGElement.createDiv())
+        el.id = "box"
+        el.className = cls
+        return el
+    }
+
+    ; The background's red channel, or -1 when nothing was written. A number
+    ; the failure can print, rather than "not equal".
+    ;
+    ; `isSet`, and not whether the field is there: a fresh element carries
+    ; `EVGColor.noColor()`, whose red is 0 — so "nothing was written" and
+    ; "black was written" look identical to anything that reads the channel.
+    sfn bgRed:int (el:EVGElement) {
+        if el.backgroundColor {
+            def c:EVGColor (unwrap el.backgroundColor)
+            if (c.isSet == false) {
+                return (0 - 1)
+            }
+            return (c.red())
+        }
+        return (0 - 1)
+    }
+
+    sfn inkRed:int (el:EVGElement) {
+        if el.color {
+            def c:EVGColor (unwrap el.color)
+            if (c.isSet == false) {
+                return (0 - 1)
+            }
+            return (c.red())
+        }
+        return (0 - 1)
+    }
+
+    ; The BOX's border colour, which is where the `border` shorthand puts it —
+    ; the element has a field of the same name and the shorthand does not write
+    ; to it.
+    sfn borderRed:int (el:EVGElement) {
+        if el.box.borderColor {
+            def c:EVGColor (unwrap el.box.borderColor)
+            if (c.isSet == false) {
+                return (0 - 1)
+            }
+            return (c.red())
+        }
+        return (0 - 1)
+    }
+
+    ; --- what it means --------------------------------------------------------
+
+    sfn testSubstitution:void (c:VarCheck) {
+        print "--- a value can name the palette ---"
+        def css:string ("@vars { --ink: rgb(20,0,0); }"
+            + " .box { color: var(--ink); }")
+        def s:EVGStyleSheet (EVGStyleVarTest.sheetOf(css))
+        c.eqInt("the palette was read" (s.getVarCount()) 1)
+        c.eqInt("and it is not a rule" (s.getRuleCount()) 1)
+        c.eqInt("nothing was rejected" (s.getErrorCount()) 0)
+
+        def el:EVGElement (EVGStyleVarTest.boxWith("box"))
+        s.applyTree(el "")
+        c.eqInt("the element got the palette's value" (EVGStyleVarTest.inkRed(el)) 20)
+
+        ; And the palette does not have to be written first. Nothing is
+        ; resolved while the sheet is being read — the whole file is parsed,
+        ; and a value is resolved when a plan for it is built.
+        def later:EVGStyleSheet (EVGStyleVarTest.sheetOf(".box { color: var(--ink); } @vars { --ink: rgb(21,0,0); }"))
+        def el2:EVGElement (EVGStyleVarTest.boxWith("box"))
+        later.applyTree(el2 "")
+        c.eqInt("declared after it is used" (EVGStyleVarTest.inkRed(el2)) 21)
+        c.eqInt("and still no error" (later.getErrorCount()) 0)
+    }
+
+    sfn testShorthand:void (c:VarCheck) {
+        print "--- and it works inside a shorthand ---"
+        ; The point of substituting TEXT before the value reaches
+        ; `setAttribute`: no property has to know that variables exist, so this
+        ; reaches the border shorthand's colour with nothing added for it.
+        def css:string ("@vars { --line: rgb(90,0,0); }"
+            + " .box { border: 2px solid var(--line); }")
+        def s:EVGStyleSheet (EVGStyleVarTest.sheetOf(css))
+        def el:EVGElement (EVGStyleVarTest.boxWith("box"))
+        s.applyTree(el "")
+        c.eqInt("no error" (s.getErrorCount()) 0)
+        c.eqInt("the shorthand's colour came from the palette" (EVGStyleVarTest.borderRed(el)) 90)
+        el.box.resolveUnits(400.0 200.0 16.0 16.0 0.0 0.0)
+        c.eqInt("and the rest of the shorthand survived" (to_int el.box.borderWidthPx) 2)
+    }
+
+    sfn testTheme:void (c:VarCheck) {
+        print "--- a theme is a palette, not a second set of rules ---"
+        def css:string ("@vars { --paper: rgb(10,0,0); }"
+            + " @vars marine { --paper: rgb(200,0,0); }"
+            + " .box { background-color: var(--paper); }")
+        def s:EVGStyleSheet (EVGStyleVarTest.sheetOf(css))
+        c.eqInt("one rule, two declarations of one name" (s.getRuleCount()) 1)
+        c.eqInt("both are in the palette" (s.getVarCount()) 2)
+
+        def el:EVGElement (EVGStyleVarTest.boxWith("box"))
+        s.applyTree(el "")
+        c.eqInt("with no theme the unscoped value" (EVGStyleVarTest.bgRed(el)) 10)
+        s.applyTree(el "marine")
+        c.eqInt("under the theme the scoped one" (EVGStyleVarTest.bgRed(el)) 200)
+        ; The thing a theme built out of rules has to be careful about — a
+        ; property with no unscoped counterpart stays behind — cannot happen
+        ; here: there is one declaration and it is resolved per theme.
+        s.applyTree(el "")
+        c.eqInt("and leaving it puts the first back" (EVGStyleVarTest.bgRed(el)) 10)
+        ; A theme nobody wrote a palette for is not an error: it falls through
+        ; to the unscoped values, which is what "optional theming" means.
+        s.applyTree(el "sunset")
+        c.eqInt("an unknown theme is just the unscoped palette" (EVGStyleVarTest.bgRed(el)) 10)
+        c.eqInt("and says nothing" (s.getErrorCount()) 0)
+    }
+
+    sfn testIndirection:void (c:VarCheck) {
+        print "--- a variable may be written in terms of another ---"
+        def css:string ("@vars { --brand: rgb(70,0,0); --button: var(--brand); }"
+            + " .box { background-color: var(--button); }")
+        def s:EVGStyleSheet (EVGStyleVarTest.sheetOf(css))
+        def el:EVGElement (EVGStyleVarTest.boxWith("box"))
+        s.applyTree(el "")
+        c.eqInt("resolved through the chain" (EVGStyleVarTest.bgRed(el)) 70)
+        c.eqInt("no error" (s.getErrorCount()) 0)
+    }
+
+    sfn testThemeIndirection:void (c:VarCheck) {
+        print "--- and a theme may re-point one name and move everything under it ---"
+        ; What a palette is FOR: "marine" says one thing about the brand and
+        ; the button follows, because the button was never a colour.
+        def css:string ("@vars { --brand: rgb(70,0,0); --button: var(--brand); }"
+            + " @vars marine { --brand: rgb(180,0,0); }"
+            + " .box { background-color: var(--button); }")
+        def s:EVGStyleSheet (EVGStyleVarTest.sheetOf(css))
+        def el:EVGElement (EVGStyleVarTest.boxWith("box"))
+        s.applyTree(el "marine")
+        c.eqInt("the theme reached through the indirection" (EVGStyleVarTest.bgRed(el)) 180)
+    }
+
+    sfn testFallback:void (c:VarCheck) {
+        print "--- a fallback stands in, and steps aside ---"
+        def css:string ("@vars { --known: rgb(30,0,0); }"
+            + " .a { color: var(--known, rgb(240,0,0)); }"
+            + " .b { color: var(--missing, rgb(240,0,0)); }"
+            + " .c { color: var(--missing, rgb(0,0,0)); background-color: var(--nope, rgb(120,0,0)); }")
+        def s:EVGStyleSheet (EVGStyleVarTest.sheetOf(css))
+        def a:EVGElement (EVGStyleVarTest.boxWith("a"))
+        s.applyTree(a "")
+        c.eqInt("a defined name ignores the fallback" (EVGStyleVarTest.inkRed(a)) 30)
+        def b:EVGElement (EVGStyleVarTest.boxWith("b"))
+        s.applyTree(b "")
+        c.eqInt("an undefined one takes it" (EVGStyleVarTest.inkRed(b)) 240)
+        def d:EVGElement (EVGStyleVarTest.boxWith("c"))
+        s.applyTree(d "")
+        c.eqInt("and a fallback may be a function call" (EVGStyleVarTest.bgRed(d)) 120)
+        c.eqInt("none of which is an error" (s.getErrorCount()) 0)
+    }
+
+    ; --- what it refuses to guess at ------------------------------------------
+
+    sfn testUndefined:void (c:VarCheck) {
+        print "--- an undefined name with no fallback is reported, not painted ---"
+        def css:string (".box { background-color: rgb(5,0,0); }"
+            + " .box { background-color: var(--nobody); }")
+        def s:EVGStyleSheet (EVGStyleVarTest.sheetOf(css))
+        def el:EVGElement (EVGStyleVarTest.boxWith("box"))
+        s.applyTree(el "")
+        c.eqInt("the sheet says so" (s.getErrorCount()) 1)
+        ; The declaration is DROPPED, so what shows is the rule before it and
+        ; not an unparseable colour. A page with a typo in it keeps working and
+        ; the error list says where.
+        c.eqInt("and the value before it stands" (EVGStyleVarTest.bgRed(el)) 5)
+    }
+
+    sfn testReportedOnce:void (c:VarCheck) {
+        print "--- and reported once, however many classes use it ---"
+        ; Parsing happens once; resolution happens wherever a plan is built. So
+        ; one typo used by six classes would be six copies of one sentence in
+        ; the panel that exists to say which sentence it is.
+        def css:string (".a { color: var(--nobody); }"
+            + " .b { color: var(--nobody); }"
+            + " .c { color: var(--nobody); }")
+        def s:EVGStyleSheet (EVGStyleVarTest.sheetOf(css))
+        def root:EVGElement (EVGStyleVarTest.boxWith("wrap"))
+        root.addChild((EVGStyleVarTest.boxWith("a")))
+        root.addChild((EVGStyleVarTest.boxWith("b")))
+        root.addChild((EVGStyleVarTest.boxWith("c")))
+        s.applyTree(root "")
+        c.eqInt("three plans, one sentence" (s.getErrorCount()) 1)
+    }
+
+    sfn testCustomPropertyOnAClass:void (c:VarCheck) {
+        print "--- and a palette written on a class is refused ---"
+        ; There is no inheritance here, so this would look element-scoped and
+        ; not be: `.box` would be the only place the name existed, and it
+        ; would reach nothing. `@vars` is the only place it means something.
+        def css:string ".box { --ink: rgb(10,0,0); color: rgb(60,0,0); }"
+        def s:EVGStyleSheet (EVGStyleVarTest.sheetOf(css))
+        c.eqInt("it is reported" (s.getErrorCount()) 1)
+        c.eqInt("and it did not join the palette" (s.getVarCount()) 0)
+        def el:EVGElement (EVGStyleVarTest.boxWith("box"))
+        s.applyTree(el "")
+        c.eqInt("the rest of the rule is untouched" (EVGStyleVarTest.inkRed(el)) 60)
+    }
+
+    sfn testMalformed:void (c:VarCheck) {
+        print "--- malformed palettes and malformed uses ---"
+        def s1:EVGStyleSheet (EVGStyleVarTest.sheetOf("@vars theme marine { --a: rgb(1,0,0); }"))
+        c.eqInt("@vars takes at most a theme name" (s1.getErrorCount()) 1)
+        c.eqInt("and stores nothing from a header it did not understand" (s1.getVarCount()) 0)
+
+        def s2:EVGStyleSheet (EVGStyleVarTest.sheetOf("@vars { color: rgb(1,0,0); }"))
+        c.eqInt("a property inside @vars is reported" (s2.getErrorCount()) 1)
+
+        ; What follows asserts that NOTHING was written, which is the half of
+        ; "reported rather than painted" that matters — see `bgRed` for why
+        ; that is a question about `isSet` and not about a colour channel.
+        def s3:EVGStyleSheet (EVGStyleVarTest.sheetOf("@vars { --a: rgb(9,0,0); } .box { background-color: var(--a; }"))
+        def el3:EVGElement (EVGStyleVarTest.boxWith("box"))
+        s3.applyTree(el3 "")
+        c.eqInt("an unclosed var() is reported" (s3.getErrorCount()) 1)
+        c.eqInt("and writes nothing" (EVGStyleVarTest.bgRed(el3)) (0 - 1))
+
+        ; `--a: var(--b)` and `--b: var(--a)`. The check that matters is that
+        ; this RETURNS.
+        def s4:EVGStyleSheet (EVGStyleVarTest.sheetOf("@vars { --a: var(--b); --b: var(--a); } .box { background-color: var(--a); }"))
+        def el4:EVGElement (EVGStyleVarTest.boxWith("box"))
+        s4.applyTree(el4 "")
+        c.ok("a cycle is reported rather than spun on" ((s4.getErrorCount()) > 0))
+        c.eqInt("and writes nothing" (EVGStyleVarTest.bgRed(el4)) (0 - 1))
+    }
+
+    ; --- what it costs --------------------------------------------------------
+
+    sfn testResolvedPerPlanNotPerElement:void (c:VarCheck) {
+        print "--- resolved once per plan, not once per element ---"
+        def css:string ("@vars { --ink: rgb(40,0,0); }"
+            + " .box { color: var(--ink); background-color: var(--ink); }")
+        def s:EVGStyleSheet (EVGStyleVarTest.sheetOf(css))
+        def parent:EVGElement (EVGStyleVarTest.boxWith("wrap"))
+        def i:int 0
+        while (i < 50) {
+            parent.addChild((EVGStyleVarTest.boxWith("box")))
+            i = (i + 1)
+        }
+        s.applyTree(parent "")
+        ; Fifty-one elements, two distinct class strings, and the sheet built
+        ; a plan for each: every other element replayed one. The palette was
+        ; therefore consulted twice — once for each declaration of `.box` —
+        ; however many rows the page has.
+        c.eqInt("one plan per distinct class" s.planMisses 2)
+        c.eqInt("everything else replayed one" s.planHits 49)
+        def kid:EVGElement (parent.getChild(7))
+        c.eqInt("and they all got the value" (EVGStyleVarTest.inkRed(kid)) 40)
+    }
+
+    ; --- the palette answers the viewport too ---------------------------------
+
+    sfn testMediaScoped:void (c:VarCheck) {
+        print "--- a variable may answer a media query ---"
+        def css:string ("@vars { --pad: 20px; }"
+            + " @media (max-width: 640px) { @vars { --pad: 4px; } }"
+            + " .box { padding: var(--pad); }")
+        def s (new EVGStyleSheet())
+        s.parse(css)
+        s.setViewport(1000.0 800.0 false)
+        def wide:EVGElement (EVGStyleVarTest.boxWith("box"))
+        s.applyTree(wide "")
+        wide.box.resolveUnits(400.0 200.0 16.0 16.0 0.0 0.0)
+        c.eqInt("on a wide surface the unconditional value" (to_int wide.box.paddingTopPx) 20)
+        ; And the narrow one is not a second element: the same sheet, told the
+        ; surface changed. `setViewport` drops the plans, so the palette is
+        ; consulted again rather than the old answer being replayed.
+        s.setViewport(500.0 800.0 false)
+        def narrow:EVGElement (EVGStyleVarTest.boxWith("box"))
+        s.applyTree(narrow "")
+        narrow.box.resolveUnits(400.0 200.0 16.0 16.0 0.0 0.0)
+        c.eqInt("on a narrow one the conditional value" (to_int narrow.box.paddingTopPx) 4)
+        c.eqInt("no error either way" (s.getErrorCount()) 0)
+    }
+
+    ; --- reloading -------------------------------------------------------------
+
+    sfn testReload:void (c:VarCheck) {
+        print "--- reloading replaces the palette rather than adding to it ---"
+        def s (new EVGStyleSheet())
+        s.parse("@vars { --ink: rgb(11,0,0); } .box { color: var(--ink); }")
+        s.setViewport(800.0 600.0 false)
+        def el:EVGElement (EVGStyleVarTest.boxWith("box"))
+        s.applyTree(el "")
+        c.eqInt("the first sheet" (EVGStyleVarTest.inkRed(el)) 11)
+        ; The failure this guards: `parse` APPENDS, and the later of two equal
+        ; declarations wins — so a palette that is not cleared means the OLD
+        ; value outlives the edit. Which is exactly the case the inspector's
+        ; live editing walks into.
+        s.reload("@vars { --ink: rgb(222,0,0); } .box { color: var(--ink); }")
+        c.eqInt("and only one name after the reload" (s.getVarCount()) 1)
+        s.applyTree(el "")
+        c.eqInt("the edited value shows" (EVGStyleVarTest.inkRed(el)) 222)
+    }
+
+    sfn testTransitionThroughAVariable:void (c:VarCheck) {
+        print "--- a transition may be built out of the palette ---"
+        ; `transition` is checked for a timing function nobody implements, and
+        ; that check runs when the sheet is parsed — where `var(--speed)` reads
+        ; as a function call and would be reported as an unsupported one. The
+        ; check has to wait for the value.
+        def css:string ("@vars { --speed: 150ms; }"
+            + " .box { transition: background-color var(--speed) ease; background-color: rgb(1,0,0); }")
+        def s:EVGStyleSheet (EVGStyleVarTest.sheetOf(css))
+        def el:EVGElement (EVGStyleVarTest.boxWith("box"))
+        s.applyTree(el "")
+        c.eqInt("the variable is not mistaken for a timing function" (s.getErrorCount()) 0)
+        c.eqStr("and the resolved transition reached the element" el.transitionSpec
+            "background-color 150ms ease")
+
+        ; And a timing function that really is unsupported is still reported,
+        ; now that the check happens later: `spring()` is CSS-shaped and is not
+        ; CSS.
+        def bad:EVGStyleSheet (EVGStyleVarTest.sheetOf("@vars { --e: spring(1, 2); } .box { transition: opacity 100ms var(--e); }"))
+        def el2:EVGElement (EVGStyleVarTest.boxWith("box"))
+        bad.applyTree(el2 "")
+        c.eqInt("an unsupported one still is" (bad.getErrorCount()) 1)
+    }
+
+    sfn testNoVariables:void (c:VarCheck) {
+        print "--- a sheet with no variables in it is untouched ---"
+        def css:string ".box { color: rgb(3,0,0); background-color: rgb(4,0,0); }"
+        def s:EVGStyleSheet (EVGStyleVarTest.sheetOf(css))
+        def el:EVGElement (EVGStyleVarTest.boxWith("box"))
+        s.applyTree(el "")
+        c.eqInt("no palette" (s.getVarCount()) 0)
+        c.eqInt("no errors" (s.getErrorCount()) 0)
+        c.eqInt("and the values it always had" (EVGStyleVarTest.inkRed(el)) 3)
+        c.eqInt("both of them" (EVGStyleVarTest.bgRed(el)) 4)
+    }
+
+    sfn main:void () {
+        def c (new VarCheck())
+        print "=== EVG stylesheet: custom properties ==="
+        EVGStyleVarTest.testSubstitution(c)
+        EVGStyleVarTest.testShorthand(c)
+        EVGStyleVarTest.testTheme(c)
+        EVGStyleVarTest.testIndirection(c)
+        EVGStyleVarTest.testThemeIndirection(c)
+        EVGStyleVarTest.testFallback(c)
+        EVGStyleVarTest.testUndefined(c)
+        EVGStyleVarTest.testReportedOnce(c)
+        EVGStyleVarTest.testCustomPropertyOnAClass(c)
+        EVGStyleVarTest.testMalformed(c)
+        EVGStyleVarTest.testResolvedPerPlanNotPerElement(c)
+        EVGStyleVarTest.testMediaScoped(c)
+        EVGStyleVarTest.testTransitionThroughAVariable(c)
+        EVGStyleVarTest.testReload(c)
+        EVGStyleVarTest.testNoVariables(c)
+        print ""
+        print (("passed=" + (to_string c.passed)) + " failed=" + (to_string c.failed))
+        if (c.failed > 0) {
+            print "FAILURES"
+        } {
+            print "ALL PASS"
+        }
+    }
+}

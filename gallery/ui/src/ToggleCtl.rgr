@@ -38,12 +38,12 @@ class ToggleCtl extends UiCtl {
         UiTree.leafText(el name)
     }
 
-    fn activate:void (target:string) {
+    fn activate:string (target:string) {
         if disabled {
-            return
+            return ""
         }
         if (target != tid) {
-            return
+            return ""
         }
         if on {
             on = false
@@ -51,6 +51,7 @@ class ToggleCtl extends UiCtl {
             on = true
         }
         this.build()
+        return ""
     }
 
     fn isFocusable:boolean (target:string) {
@@ -73,6 +74,7 @@ class ToggleCtl extends UiCtl {
             r.tabStop = false
         } {
             r.tabStop = true
+            r.focusable = true
         }
         if on {
             r.pressed = (EVGA11yTri.yes())

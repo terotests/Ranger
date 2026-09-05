@@ -1,0 +1,95 @@
+{
+ "name": "table_select",
+ "component": "table",
+ "behaviours": [
+  "select-row",
+  "select-all-page",
+  "select-all-mixed"
+ ],
+ "fixture": {
+  "controls": [
+   {
+    "type": "table",
+    "tid": "tb",
+    "name": "People",
+    "pageSize": 4,
+    "columns": [
+     {
+      "key": "name",
+      "label": "Name"
+     },
+     {
+      "key": "role",
+      "label": "Role"
+     },
+     {
+      "key": "size",
+      "label": "Size",
+      "numeric": true
+     }
+    ],
+    "rows": [
+     {
+      "key": "r1",
+      "cells": [
+       "Ada",
+       "Engineer",
+       "30"
+      ]
+     },
+     {
+      "key": "r2",
+      "cells": [
+       "Grace",
+       "Admiral",
+       "10"
+      ]
+     },
+     {
+      "key": "r3",
+      "cells": [
+       "Alan",
+       "Logician",
+       "20"
+      ]
+     },
+     {
+      "key": "r4",
+      "cells": [
+       "Edsger",
+       "Engineer",
+       "50"
+      ]
+     },
+     {
+      "key": "r5",
+      "cells": [
+       "Barbara",
+       "Geneticist",
+       "40"
+      ]
+     },
+     {
+      "key": "r6",
+      "cells": [
+       "Katherine",
+       "Mathematician",
+       "60"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "steps": [
+  {
+   "click": "tb-check-r1"
+  },
+  {
+   "click": "tb-selectall"
+  },
+  {
+   "click": "tb-selectall"
+  }
+ ]
+}

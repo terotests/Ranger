@@ -17,6 +17,9 @@ Import "../../odp/OdpToEvg.rgr"
 Import "PptxEdit.rgr"
 Import "PptxWriter.rgr"
 Import "PptxToEvg.rgr"
+Import "PptxChrome.rgr"
+Import "PptxStripView.rgr"
+Import "PptxStripUi.rgr"
 Import "../../office/assets/OfficeAsset.rgr"
 Import "PptxA11y.rgr"
 Import "../../game_engine/ui/UIInput.rgr"
@@ -239,10 +242,18 @@ class PptxApp {
     ; one that never guessed.
     def uiRtlChosen:boolean false
     def toolbar:PptxToolbar (new PptxToolbar)
-    def toolbarView:EVGToolbarView (new EVGToolbarView)
+    ; The strip's own view, which draws the chrome around the shared icons in
+    ; the gallery's shapes. `EVGToolbar` still owns the items, the tabs, the
+    ; layout and the hit testing; the spreadsheet and the document keep the
+    ; view they have.
+    def toolbarView:EVGToolbarView (new PptxStripView)
     def windows:EVGWindowManager (new EVGWindowManager)
     def commands:GridCommandTable (new GridCommandTable)
-    def theme:EVGToolbarTheme (new EVGToolbarTheme)
+    def theme:EVGToolbarTheme (PptxStripView.modernTheme())
+    ; The five bands the strip's theme does not cover. See PptxChromeTheme.
+    def skin:PptxChromeTheme (new PptxChromeTheme)
+    ; The strip, as a component tree. See PptxStripUi.
+    def stripUi:PptxStripUi (new PptxStripUi)
     def toolbarH:int 30
     def statusH:int 22
     def status:string ""
@@ -354,6 +365,12 @@ class PptxApp {
 
     ; The slide panel: the deck down the left-hand side.
     def panelW:int 150
+    ; THE SHELL, LAID OUT. The six regions used to be worked out by
+    ; subtraction in half a dozen places; they come off a flex layout now, and
+    ; the accessors below hand back what it computed. Kept in step by
+    ; `syncChrome`, which is cheap — the tree is nine elements.
+    def chrome:PptxChrome (new PptxChrome())
+
     def panelVisible:boolean true
     def panelScroll:int 0
     ; Whether `buildFrame` paints the thumbnails into the frame it returns.
@@ -502,7 +519,7 @@ class PptxApp {
     fn initFrame:void () {
         toolbar.build()
         toolbar.editOn = editMode
-        toolbarH = (toolbar.heightFor(W))
+        toolbarH = (stripUi.heightFor(W))
         view.chromeH = (((toolbarH + statusH) + (this.notesHeight())) + (this.panelHeight()))
         view.chromeW = ((this.panelWidth()) + (this.propsWidth()))
         this.registerCommands()
@@ -1331,32 +1348,28 @@ class PptxApp {
     ; replace the string instead of patching the app.
     ;
     ; A width of zero folds a thing away.
+    ; The chrome, as a stylesheet. This is `PptxChrome.shellCss` and not a copy
+    ; of it: the sizes and the breakpoints that used to live here are in there,
+    ; along with the ARRANGEMENT they always implied — which is what turned
+    ; this sheet from a list of three numbers a caller read back into a layout
+    ; something can be laid out with.
     sfn defaultChromeCss:string () {
-        return (".slide-panel { width: 150px }"
-              + " .notes { height: 92px }"
-              + " .toolbar { height: 34px; padding-left: 5px }"
-              + " .toolbar-tabs { height: 28px }"
-              + " .toolbar-button { width: 30px; height: 54px }"
-              ; A tablet: the list of slides is worth less than the slide.
-              + " @media (max-width: 900px) { .slide-panel { width: 96px } }"
-              ; A phone: the notes are the first thing to go — they are the
-              ; least useful thing on a small screen and the most expensive,
-              ; because they cost height, which is what a phone has least of.
-              ; A phone: the deck goes ACROSS THE TOP. A phone is narrow and
-              ; tall, so a column down the side spends the dimension there is
-              ; least of — and it is the dimension the slide itself needs,
-              ; because a slide is wider than it is tall. A width of zero and
-              ; a height turns the column into a strip.
-              + " @media (max-width: 640px) { .slide-panel { width: 0px; height: 76px } .notes { height: 0px } }"
-              ; A thumb is not a mouse. 44px is what WCAG 2.2 asks for, and
-              ; nothing about a window's WIDTH says which is on it — a laptop
-              ; with a touchscreen is wide and coarse at the same time.
-              + " @media (pointer: coarse) { .toolbar { height: 48px; padding-left: 8px } .toolbar-button { width: 44px; height: 66px } }")
+        return (PptxChrome.shellCss())
     }
 
+    ; A HOST'S SHEET GOES ON TOP OF THE SHELL, not instead of it. The shell is
+    ; parsed first and the host's rules after, so a caller that wants a wider
+    ; panel writes one declaration rather than restating the arrangement — and
+    ; a caller that knew nothing about the arrangement, which is every caller
+    ; that existed before it was written down, keeps working.
     fn setChromeCss:void (css:string) {
         chromeCss = css
         chromeSheet = (new EVGStyleSheet())
+        ; THE ARRANGEMENT, not the sizes. A host replaces the app's numbers —
+        ; that is what this call is for, and a host whose sheet has no
+        ; breakpoints in it gets its number at every window size. What it does
+        ; not have to restate is how the regions are stacked.
+        chromeSheet.parse((PptxChrome.structureCss()))
         chromeSheet.parse(css)
         this.applyChrome()
     }
@@ -1367,6 +1380,22 @@ class PptxApp {
     fn setCoarsePointer:void (coarse:boolean) {
         coarsePointer = coarse
         this.applyChrome()
+    }
+
+    ; Lay the shell out again. The inputs are the window, the pointer, the
+    ; strip's measured height and which bands the reader has switched on — so
+    ; this is called from `resize`, from `applyChrome`, and once a frame after
+    ; the strip has said how tall its current page is.
+    fn syncChrome:void () {
+        if ((chromeSheet.getRuleCount()) == 0) {
+            chromeSheet.parse((PptxApp.defaultChromeCss()))
+        }
+        chrome.toolbarH = toolbarH
+        chrome.statusH = statusH
+        chrome.panelOn = panelVisible
+        chrome.propsOn = propsVisible
+        chrome.notesOn = notesVisible
+        chrome.layout(chromeSheet W H coarsePointer)
     }
 
     fn applyChrome:void () {
@@ -1393,13 +1422,24 @@ class PptxApp {
             notesH = (to_int notes.height.pixels)
         }
         toolbar.applyStyle(chromeSheet)
+        this.syncChrome()
     }
 
     fn resize:void (nw:int nh:int) {
         W = nw
         H = nh
         this.applyChrome()
-        toolbarH = (toolbar.heightFor(W))
+        toolbarH = (stripUi.heightFor(W))
+        ; AND LAY THE STRIP OUT, not only measure it. A button's box has to be
+        ; valid as soon as the window size is known: a host may click before it
+        ; has drawn anything, and the boxes are what `toolbar.hit` answers
+        ; from. The hand-painted strip laid itself out inside `paint`, which
+        ; made every click depend on a frame having been built first.
+        stripUi.layout(toolbar 0 0 W)
+        ; AFTER the strip has been measured, not before: `applyChrome` laid the
+        ; shell out with whatever height the last page needed, and the band is
+        ; as tall as the page showing on it.
+        this.syncChrome()
         view.chromeH = (((toolbarH + statusH) + (this.notesHeight())) + (this.panelHeight()))
         view.chromeW = ((this.panelWidth()) + (this.propsWidth()))
         view.resize(W H)
@@ -2030,7 +2070,7 @@ class PptxApp {
             return (this.buildShowFrame())
         }
         def framed:EVGDisplayList (new EVGDisplayList)
-        framed.addRect(0.0 0.0 (to_double W) (to_double H) (EVGColor.rgb(40 44 58)))
+        framed.addRect(0.0 0.0 (to_double W) (to_double H) skin.desk)
         ; Where the panel has scrolled itself to is settled every frame, panel
         ; drawn or not: the slide the reader is on has to be in view by the
         ; time anyone asks where the thumbnails are, and a host drawing the
@@ -2076,13 +2116,44 @@ class PptxApp {
         ; differ — one with a big button on it is taller than one without.
         ; Settling this only on resize left the strip short after a page
         ; change, with the bottom of the button drawn over the slide.
-        toolbarH = (toolbar.heightFor(W))
+        toolbarH = (stripUi.heightFor(W))
+        ; The strip has just said how tall it is for the page it is showing, so
+        ; the shell is laid out against that rather than against last frame's.
+        this.syncChrome()
         toolbar.outlineTab = (this.outlineOn())
         toolbar.boldOn = (this.selectionBold())
         toolbar.italicOn = (this.selectionItalic())
         this.refreshFonts()
         toolbar.refresh(index (this.slideCount()))
-        toolbarView.paint(framed toolbar 0 0 W toolbarH)
+        ; THE STRIP, AS A COMPONENT. The tree is laid out by `EVGLayout`, which
+        ; also writes each button's box back onto the model — so `toolbar.hit`
+        ; and `toolbar.hitTab` answer out of the same numbers they always did
+        ; and nothing downstream knows the painter changed.
+        stripUi.layout(toolbar 0 0 W)
+        def stripEl:EVGElement (unwrap stripUi.root)
+        def stripDl (new EVGDisplayList())
+        stripDl.build(stripEl)
+        PptxApp.appendList(framed stripDl)
+        ; The icons go into the boxes the layout computed. They are stacks of
+        ; rectangles rather than path data, so they cannot live in the tree
+        ; yet — the tree says where, the old painter says what.
+        def bi:int 0
+        while (bi < (toolbar.count())) {
+            def bit:ToolItem (toolbar.at(bi))
+            ; A BOX OF ZERO WIDTH IS A BUTTON ON ANOTHER TAB. `build` zeroes
+            ; them and the old painter guarded on the same thing; without the
+            ; guard every hidden tab's icons were drawn at the origin, in a
+            ; heap under the corner of the strip, and the frame carried
+            ; fifteen icons nobody could see.
+            if (bit.w > 0) {
+                if (bit.isSeparator == false) {
+                    if (bit.icon > 0) {
+                        toolbarView.paintToolIcon(framed bit 18)
+                    }
+                }
+            }
+            bi = (bi + 1)
+        }
 
         def sy:int (H - statusH)
         framed.addRect(0.0 (to_double sy) (to_double W) (to_double statusH) theme.bg)
@@ -3743,6 +3814,8 @@ class PptxApp {
         }
         if (id == "view.notes") {
             notesVisible = (notesVisible == false)
+            ; The shell is laid out from these flags, so it is laid out again.
+            this.syncChrome()
             view.chromeH = (((toolbarH + statusH) + (this.notesHeight())) + (this.panelHeight()))
             if (notesVisible == false) {
                 if (editor.isEditingNotes()) {
@@ -3753,6 +3826,8 @@ class PptxApp {
         }
         if (id == "notes.edit") {
             notesVisible = true
+            ; The shell is laid out from these flags, so it is laid out again.
+            this.syncChrome()
             view.chromeH = (((toolbarH + statusH) + (this.notesHeight())) + (this.panelHeight()))
             return (editor.editNotes())
         }
@@ -3918,6 +3993,8 @@ class PptxApp {
         }
         if (id == "view.panel") {
             panelVisible = (panelVisible == false)
+            ; The shell is laid out from these flags, so it is laid out again.
+            this.syncChrome()
             view.chromeW = (this.panelWidth())
             return true
         }
@@ -3927,6 +4004,8 @@ class PptxApp {
         }
         if (id == "view.props") {
             propsVisible = (propsVisible == false)
+            ; The shell is laid out from these flags, so it is laid out again.
+            this.syncChrome()
             this.resize(W H)
             return true
         }
@@ -3940,6 +4019,8 @@ class PptxApp {
                 leftTab = "outline"
                 ; A column that is not there cannot show an outline.
                 panelVisible = true
+                ; The shell is laid out from these flags, so it is laid out again.
+                this.syncChrome()
                 this.resize(W H)
             }
             return true
@@ -4343,7 +4424,7 @@ class PptxApp {
             def bandX:double ((mx * sc) + ox)
             def bandY:double ((my * sc) + oy)
             dl.addRect(bandX bandY (mw * sc) (mh * sc) (EVGColor.rgba(90 140 230 0.15)))
-            dl.addFrame(bandX bandY (mw * sc) (mh * sc) 1.0 (EVGColor.rgb(90 140 230)))
+            dl.addFrame(bandX bandY (mw * sc) (mh * sc) 1.0 skin.accent)
         }
         def sel:[PptxShape] (editor.selectedShapes())
         if ((array_length sel) == 0) {
@@ -4803,14 +4884,16 @@ class PptxApp {
     }
 
     ; What the panel takes out of the WIDTH — zero when it is a strip on top.
+    ; OFF THE LAYOUT, not out of a subtraction. `panelW` and `panelH` are still
+    ; read from the sheet by `applyChrome` — a host that hands in a stylesheet
+    ; still gets its numbers — but which of them the panel is USING, and how
+    ; much room that leaves, is now the flex layout's answer. The rules are
+    ; unchanged and `PptxChromeTest` asserts so at five window sizes.
     fn panelWidth:int () {
         if (panelVisible == false) {
             return 0
         }
-        if (panelH > 0) {
-            return 0
-        }
-        return panelW
+        return (chrome.panelWidth())
     }
 
     ; …and out of the HEIGHT, which is zero when it is a column on the side.
@@ -4818,10 +4901,7 @@ class PptxApp {
         if (panelVisible == false) {
             return 0
         }
-        if (panelH > 0) {
-            return panelH
-        }
-        return 0
+        return (chrome.panelHeight())
     }
 
     fn panelThumbW:int () {
@@ -5418,7 +5498,7 @@ class PptxApp {
             return
         }
         def onTop:boolean (this.panelOnTop())
-        def bandBg:EVGColor (EVGColor.rgb(32 36 47))
+        def bandBg:EVGColor skin.panel
         def top:double (to_double toolbarH)
         if onTop {
             dl.addRect(0.0 top (to_double W) (to_double panelH) bandBg)
@@ -5456,24 +5536,43 @@ class PptxApp {
                 }
             }
             if visible {
+                ; THE SLIDE YOU ARE ON, said the way the dashboard says it: a
+                ; filled row BEHIND the thing, not a saturated ring around it.
+                ; A 2px accent frame drawn outside the thumbnail was the
+                ; loudest thing in the panel — louder than the slide it was
+                ; pointing at, which is the wrong way round for a picture of a
+                ; picture.
+                ;
+                ; Behind, and so drawn first. Drawing it after meant painting
+                ; the thumbnail again on top, which built the same thumbnail
+                ; twice a frame and was caught by the cache counter the panel
+                ; keeps for exactly that.
+                if (i == index) {
+                    PptxStripView.pushPill(dl (to_double (tx - 6)) (to_double (ty - 5))
+                        (to_double (tw + 12)) (to_double (th + 10)) skin.radius skin.panelAlt)
+                }
                 dl.addRect((to_double tx) (to_double ty) (to_double tw) (to_double th) (EVGColor.rgb(255 255 255)))
                 def sub:EVGDisplayList (this.thumbnailAt(i tx ty tw))
                 dl.addClip((to_double tx) (to_double ty) (to_double tw) (to_double th))
                 PptxApp.appendList(dl sub)
                 dl.addClipEnd()
-                def border:EVGColor theme.line
-                if (i == index) {
-                    border = (EVGColor.rgb(90 140 230))
-                    dl.addFrame((to_double (tx - 2)) (to_double (ty - 2)) (to_double (tw + 4)) (to_double (th + 4)) 2.0 border)
-                } {
-                    dl.addFrame((to_double tx) (to_double ty) (to_double tw) (to_double th) 1.0 border)
-                }
+                ; Every thumbnail keeps its hairline, the selected one too, so
+                ; the row does not jump as the selection moves.
+                dl.addFrame((to_double tx) (to_double ty) (to_double tw) (to_double th) 1.0 theme.line)
                 ; The number: beside a column's thumbnail, under a strip's,
                 ; because a strip has no room to its left.
+                ; …and the number goes dark for the one you are on, which is
+                ; `.db-nav-text-on` doing the same job. The filled row alone is
+                ; a quiet signal — deliberately, since it must not shout over
+                ; the thumbnails — and a quiet signal wants a second one.
+                def numInk:EVGColor (PptxApp.panelLabel())
+                if (i == index) {
+                    numInk = skin.inkOn
+                }
                 if onTop {
-                    toolbarView.pushText(dl (to_string (i + 1)) (to_double tx) (to_double ((ty + th) + 3)) 11.0 (PptxApp.panelLabel()))
+                    toolbarView.pushText(dl (to_string (i + 1)) (to_double tx) (to_double ((ty + th) + 3)) 11.0 numInk)
                 } {
-                    toolbarView.pushText(dl (to_string (i + 1)) 6.0 (to_double (ty + 4)) 11.0 (PptxApp.panelLabel()))
+                    toolbarView.pushText(dl (to_string (i + 1)) 6.0 (to_double (ty + 4)) 11.0 numInk)
                 }
                 ; A section names the run of slides that starts here, so it is
                 ; written once, above the first of them.
@@ -5490,7 +5589,7 @@ class PptxApp {
                         ; is worse than one not drawn.
                         if (onTop == false) {
                             def secName:string (editor.sectionNameAt(sec))
-                            toolbarView.pushText(dl (OfficeText.forDisplay(secName)) (to_double tx) (to_double (ty - 13)) 11.0 (EVGColor.rgb(176 192 230)))
+                            toolbarView.pushText(dl (OfficeText.forDisplay(secName)) (to_double tx) (to_double (ty - 13)) 11.0 skin.dim)
                         }
                     }
                 }
@@ -5532,7 +5631,10 @@ class PptxApp {
     ; value the reader is meant to READ stays brighter still — those are
     ; written where they are drawn.
     sfn panelLabel:EVGColor () {
-        return (EVGColor.rgb(166 176 196))
+        ; A static, so it cannot reach the palette on the instance. The value
+        ; is the palette's `dim` and has to be kept in step with it by hand,
+        ; which is a small debt and the only one this recolour left.
+        return (EVGColor.rgb(113 113 122))
     }
 
     sfn panelFaint:EVGColor () {
@@ -5917,37 +6019,48 @@ class PptxApp {
         def w:int (this.panelWidth())
         def half:double (to_double (idiv w 2))
         def top:double (to_double toolbarH)
-        def on:EVGColor (EVGColor.rgb(46 52 66))
-        def off:EVGColor (EVGColor.rgb(32 36 47))
+        def on:EVGColor skin.panelAlt
+        def off:EVGColor skin.panel
         def slidesBg:EVGColor on
         def outlineBg:EVGColor off
         if (this.outlineOn()) {
             slidesBg = off
             outlineBg = on
         }
-        dl.addRect(0.0 top half (to_double h) slidesBg)
-        dl.addRect(half top ((to_double w) - half) (to_double h) outlineBg)
-        dl.addRect(0.0 (to_double ((toolbarH + h) - 1)) (to_double w) 1.0 theme.line)
-        def slidesInk:EVGColor (PptxApp.panelLabel())
-        def outlineInk:EVGColor (PptxApp.panelLabel())
+        ; TWO ROWS OF THE DASHBOARD'S SIDEBAR, which is what this pair is.
+        ;
+        ; It used to be two flat half-width panels of slightly different grey
+        ; with an accent rule under whichever was on — a shape that needs a
+        ; comment to explain that it is a control at all, and the comment was
+        ; there. A filled pill needs none: the same 8px radius, the same
+        ; `#f4f4f5` fill and the same two text colours the dashboard's nav rows
+        ; use, so the two look like they came out of one design rather than two.
+        dl.addRect(0.0 top (to_double w) (to_double h) skin.panel)
+        def pad:double 4.0
+        def cell:double (half - (pad * 2.0))
+        def pillY:double (top + 3.0)
+        def pillH:double ((to_double h) - 8.0)
+        def slidesInk:EVGColor skin.ink
+        def outlineInk:EVGColor skin.ink
         if (this.outlineOn()) {
-            outlineInk = (EVGColor.rgb(238 242 250))
-            ; The tab that is on is underlined, because two panels of the same
-            ; grey with one word each is not a control anybody can read.
-            dl.addRect(half (to_double ((toolbarH + h) - 2)) ((to_double w) - half) 2.0 (EVGColor.rgb(90 140 230)))
+            PptxStripView.pushPill(dl (half + pad) pillY cell pillH skin.radius skin.panelAlt)
+            outlineInk = skin.inkOn
+            slidesInk = skin.dim
         } {
-            slidesInk = (EVGColor.rgb(238 242 250))
-            dl.addRect(0.0 (to_double ((toolbarH + h) - 2)) half 2.0 (EVGColor.rgb(90 140 230)))
+            PptxStripView.pushPill(dl pad pillY cell pillH skin.radius skin.panelAlt)
+            slidesInk = skin.inkOn
+            outlineInk = skin.dim
         }
-        toolbarView.pushText(dl "Slides" 10.0 (top + 6.0) 11.0 slidesInk)
-        toolbarView.pushText(dl "Outline" (half + 8.0) (top + 6.0) 11.0 outlineInk)
+        dl.addRect(0.0 (to_double ((toolbarH + h) - 1)) (to_double w) 1.0 theme.line)
+        toolbarView.pushText(dl "Slides" (pad + 8.0) (top + 6.0) 11.0 slidesInk)
+        toolbarView.pushText(dl "Outline" (half + pad + 8.0) (top + 6.0) 11.0 outlineInk)
     }
 
     fn paintOutline:void (dl:EVGDisplayList) {
         def w:int (this.panelWidth())
         def top:double (to_double toolbarH)
         def height:double (to_double (((H - toolbarH) - statusH) - (this.notesHeight())))
-        dl.addRect(0.0 top (to_double w) height (EVGColor.rgb(32 36 47)))
+        dl.addRect(0.0 top (to_double w) height skin.panel)
         dl.addRect((to_double (w - 1)) top 1.0 height theme.line)
         this.paintLeftTabs(dl)
         this.rebuildOutline()
@@ -5976,15 +6089,15 @@ class PptxApp {
                 def owner:int (itemAt outlineOwner i)
                 def chosen:boolean (editor.isSelected(owner))
                 if chosen {
-                    dl.addRect(0.0 fy (to_double (w - 1)) (to_double rowH) (EVGColor.rgb(52 66 96)))
+                    dl.addRect(0.0 fy (to_double (w - 1)) (to_double rowH) skin.selected)
                 }
                 def depth:int (itemAt outlineDepth i)
                 def x:double (8.0 + ((to_double depth) * 10.0))
-                def ink:EVGColor (EVGColor.rgb(214 221 236))
+                def ink:EVGColor skin.dim
                 if chosen {
-                    ink = (EVGColor.rgb(240 244 252))
+                    ink = skin.ink
                 }
-                toolbarView.pushText(dl (itemAt outlineKind i) x (fy + 4.0) 10.0 (EVGColor.rgb(146 176 236)))
+                toolbarView.pushText(dl (itemAt outlineKind i) x (fy + 4.0) 10.0 skin.dim)
                 ; The note is set hard right and the name is cut to what is
                 ; left of the row. A column 150 pixels wide has room for one
                 ; of them at full length and not for two, and a name written
@@ -6037,29 +6150,30 @@ class PptxApp {
     ; and zero on a narrow window — the same call the slide panel makes, and
     ; for the same reason: a column spends width, and width is what a phone
     ; has least of.
+    ; The band that disappears on a narrow window. `W < 820` used to be written
+    ; here; it is a media query in the shell's sheet now, which is where a
+    ; breakpoint belongs — and it means a host can move it.
     fn propsWidth:int () {
         if (propsVisible == false) {
             return 0
         }
-        if (W < 820) {
-            return 0
-        }
-        return propsW
+        return (chrome.propsWidth())
     }
 
     ; The band itself: below the strip, above the status line, hard right.
     fn propsRect:PptxEditRect () {
-        def w:double (to_double (this.propsWidth()))
-        def y:double (to_double toolbarH)
-        def h:double (to_double ((H - toolbarH) - statusH))
-        return (PptxEditRect.of(((to_double W) - w) y w h))
+        if (propsVisible == false) {
+            return (PptxEditRect.of((to_double W) (to_double toolbarH) 0.0
+                (to_double ((H - toolbarH) - statusH))))
+        }
+        return chrome.propsRect
     }
 
     fn notesHeight:int () {
         if (notesVisible == false) {
             return 0
         }
-        return notesH
+        return (chrome.notesHeight())
     }
 
     fn notesScale:double () {
@@ -6068,14 +6182,17 @@ class PptxApp {
         return 1.0
     }
 
+    ; The band between the panel and the properties, which used to be spelled
+    ; as two subtractions — and drawing it underneath the properties band, so
+    ; that the text ran on out of sight, was what those two subtractions were
+    ; there to prevent. The layout does it by putting the three side by side.
     fn notesRect:PptxEditRect () {
-        def x:double (to_double (this.panelWidth()))
-        def h:double (to_double (this.notesHeight()))
-        def y:double (to_double ((H - statusH) - (this.notesHeight())))
-        ; …and stops where the properties panel starts, or the notes are drawn
-        ; underneath it and the text runs on out of sight.
-        def w:double ((((to_double W) - x) - (to_double (this.propsWidth()))))
-        return (PptxEditRect.of(x y w h))
+        if (notesVisible == false) {
+            def x:double (to_double (this.panelWidth()))
+            return (PptxEditRect.of(x (to_double (H - statusH))
+                ((((to_double W) - x) - (to_double (this.propsWidth())))) 0.0))
+        }
+        return chrome.notesRect
     }
 
     fn notesTextRect:PptxEditRect () {
@@ -6138,7 +6255,7 @@ class PptxApp {
             return
         }
         def r:PptxEditRect (this.propsRect())
-        dl.addRect(r.x r.y r.w r.h (EVGColor.rgb(32 36 47)))
+        dl.addRect(r.x r.y r.w r.h skin.panel)
         dl.addRect(r.x r.y 1.0 r.h theme.line)
         def x:double (r.x + 12.0)
         def y:double (r.y + 10.0)
@@ -6147,7 +6264,7 @@ class PptxApp {
         ; Nothing selected is worth saying out loud. A panel of dead controls
         ; reads as a broken panel; a panel that says why is a panel.
         if ((editor.selectionCount()) == 0) {
-            toolbarView.pushText(dl "Nothing selected" x (y + 4.0) 12.0 (EVGColor.rgb(226 232 244)))
+            toolbarView.pushText(dl "Nothing selected" x (y + 4.0) 12.0 skin.ink)
             toolbarView.pushText(dl "Click a shape to change" x (y + 24.0) 11.0 (PptxApp.panelFaint()))
             toolbarView.pushText(dl "how it looks." x (y + 38.0) 11.0 (PptxApp.panelFaint()))
             return
@@ -6189,7 +6306,7 @@ class PptxApp {
     ; numbers under it are not the document's own.
     fn propsIdentity:double (dl:EVGDisplayList shape:PptxShape x:double y:double w:double) {
         def name:string (PptxApp.outlineLabel(shape))
-        toolbarView.pushText(dl name x y 12.0 (EVGColor.rgb(238 242 250)))
+        toolbarView.pushText(dl name x y 12.0 skin.ink)
         def kind:string (PptxApp.outlineKindName(shape))
         if shape.isPlaceholder {
             kind = (kind + (" · " + shape.phType))
@@ -6216,7 +6333,7 @@ class PptxApp {
             ; the answer the moment the shape is moved — see PptxWriter.
             if ((strlen shape.sheetXfrmSig) > 0) {
                 if ((shape.xfrmSignature()) == shape.sheetXfrmSig) {
-                    toolbarView.pushText(dl "Size from the layout" x out 10.0 (EVGColor.rgb(146 176 236)))
+                    toolbarView.pushText(dl "Size from the layout" x out 10.0 skin.dim)
                     out = (out + 14.0)
                 }
             }
@@ -6246,20 +6363,20 @@ class PptxApp {
     ; move by one point instead of both jumping to the first one's.
     fn propsNumberRow:double (dl:EVGDisplayList label:string x:double y:double w:double now:double cmd:string step:double) {
         toolbarView.pushText(dl label x (y + 3.0) 11.0 (PptxApp.panelLabel()))
-        toolbarView.pushText(dl (PptxApp.numText(now)) (x + 26.0) (y + 3.0) 11.0 (EVGColor.rgb(232 238 248)))
+        toolbarView.pushText(dl (PptxApp.numText(now)) (x + 26.0) (y + 3.0) 11.0 skin.ink)
         def bw:double 18.0
         def plusX:double ((x + w) - bw)
         def minusX:double ((plusX - bw) - 3.0)
         def down:string ("-" + (PptxApp.numText(step)))
         def up:string (PptxApp.numText(step))
         def deltaCmd:string ("geom.d" + (substring cmd 5 (strlen cmd)))
-        dl.addRect(minusX y bw 16.0 (EVGColor.rgb(46 52 66)))
+        dl.addRect(minusX y bw 16.0 skin.panelAlt)
         dl.addFrame(minusX y bw 16.0 1.0 (EVGColor.rgb(70 78 96)))
-        toolbarView.pushText(dl "−" (minusX + 6.0) (y + 3.0) 11.0 (EVGColor.rgb(232 238 248)))
+        toolbarView.pushText(dl "−" (minusX + 6.0) (y + 3.0) 11.0 skin.ink)
         this.addPropHit((to_int minusX) (to_int y) (to_int bw) 16 deltaCmd down)
-        dl.addRect(plusX y bw 16.0 (EVGColor.rgb(46 52 66)))
+        dl.addRect(plusX y bw 16.0 skin.panelAlt)
         dl.addFrame(plusX y bw 16.0 1.0 (EVGColor.rgb(70 78 96)))
-        toolbarView.pushText(dl "+" (plusX + 6.0) (y + 3.0) 11.0 (EVGColor.rgb(232 238 248)))
+        toolbarView.pushText(dl "+" (plusX + 6.0) (y + 3.0) 11.0 skin.ink)
         this.addPropHit((to_int plusX) (to_int y) (to_int bw) 16 deltaCmd up)
         return (y + 20.0)
     }
@@ -6323,7 +6440,7 @@ class PptxApp {
             ; can see where they are in the palette rather than only where
             ; they might go.
             if (hex == now) {
-                dl.addFrame((sx - 1.0) (sy - 1.0) (cell - 1.0) (cell - 1.0) 2.0 (EVGColor.rgb(90 140 230)))
+                dl.addFrame((sx - 1.0) (sy - 1.0) (cell - 1.0) (cell - 1.0) 2.0 skin.accent)
             } {
                 dl.addFrame(sx sy (cell - 3.0) (cell - 3.0) 1.0 (EVGColor.rgb(70 78 96)))
             }
@@ -6357,7 +6474,7 @@ class PptxApp {
             if ((fabs (now - pt)) < 0.01) {
                 on = true
             }
-            def bg:EVGColor (EVGColor.rgb(46 52 66))
+            def bg:EVGColor skin.panelAlt
             if on {
                 bg = (EVGColor.rgb(60 90 150))
             }
@@ -6505,7 +6622,7 @@ class PptxApp {
         def i:int 0
         while (i < (array_length lines)) {
             if (y < ((r.y + r.h) - 4.0)) {
-                toolbarView.pushText(dl (itemAt lines i) (r.x + 10.0) y 12.0 (EVGColor.rgb(40 44 58)))
+                toolbarView.pushText(dl (itemAt lines i) (r.x + 10.0) y 12.0 skin.ink)
                 y = (y + 16.0)
             }
             i = (i + 1)
@@ -6556,7 +6673,7 @@ class PptxApp {
                 ; second of the two places the notes are drawn, and it was raw
                 ; for the same reason.
                 def nshown:string (OfficeText.forDisplayDir(piece npara.rtl))
-                toolbarView.pushText(dl nshown line.x line.y line.size (EVGColor.rgb(40 44 58)))
+                toolbarView.pushText(dl nshown line.x line.y line.size skin.ink)
             }
             li = (li + 1)
         }

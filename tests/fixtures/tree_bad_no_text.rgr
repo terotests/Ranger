@@ -1,0 +1,19 @@
+; SPDX-License-Identifier: MIT
+; Negative control: the factory declares no `text` field, so a value child has
+; nowhere to go.
+
+class Box {
+    def name:string ""
+    def kids:[Box]
+    Constructor () { }
+    fn addKid:void (k:Box) {
+        push kids k
+    }
+}
+
+treefactory UiTree {
+    child addKid
+    tag   Row Box
+}
+
+class T { sfn main:void () { def b (tree UiTree (Row "text")) print b.name } }

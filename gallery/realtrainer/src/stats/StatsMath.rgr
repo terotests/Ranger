@@ -1,0 +1,195 @@
+
+Import "Pace.rgr"
+Import "StatsDataPoint.rgr"
+
+; Pure stats math (mirrors frontend/src/lib/exercise-stats.ts primitives).
+class StatsMath {
+
+  sfn roundToInt:int (value:double) {
+    return (floor (value + 0.5))
+  }
+
+  sfn clampDouble:double (value:double minVal:double maxVal:double) {
+    if (value < minVal) {
+      return minVal
+    }
+    if (value > maxVal) {
+      return maxVal
+    }
+    return value
+  }
+
+  sfn pad2:string (n:int) {
+    if (n < 10) {
+      return ("0" + (to_string n))
+    }
+    return (to_string n)
+  }
+
+  sfn calculateRM1:double (weight:double reps:int) {
+    if (weight <= 0.0) {
+      return -1.0
+    }
+    if (reps <= 0) {
+      return -1.0
+    }
+    if (reps > 12) {
+      return -1.0
+    }
+    if (reps == 1) {
+      return weight
+    }
+    def factor:double (1.0 + ((int2double reps) / 30.0))
+    def raw:double (weight * factor)
+    return (int2double (StatsMath.roundToInt(raw)))
+  }
+
+  sfn isValidRM1:boolean (weight:double reps:int) {
+    if (weight <= 0.0) {
+      return false
+    }
+    if (reps <= 0) {
+      return false
+    }
+    if (reps > 12) {
+      return false
+    }
+    return true
+  }
+
+  sfn calculateTonnage:double (sets:int reps:int weight:double) {
+    if (sets <= 0) {
+      return -1.0
+    }
+    if (reps <= 0) {
+      return -1.0
+    }
+    if (weight <= 0.0) {
+      return -1.0
+    }
+    return ((int2double sets) * (int2double reps) * weight)
+  }
+
+  sfn formatTonnage:string (kg:double) {
+    if (kg >= 1000.0) {
+      def roundedTenths:int (floor ((kg / 100.0) + 0.5))
+      def whole:int (floor ((int2double roundedTenths) / 10.0))
+      def frac:int (roundedTenths - (whole * 10))
+      return ((to_string whole) + "." + (to_string frac) + "t")
+    }
+    return ((to_string (StatsMath.roundToInt(kg))) + "kg")
+  }
+
+  sfn paceToSeconds:int (pace:Pace) {
+    return ((pace.minutes * 60) + pace.seconds)
+  }
+
+  sfn formatPace:string (pace:Pace) {
+    def inchMark:string (strfromcode 34)
+    return ((to_string pace.minutes) + "'" + (StatsMath.pad2(pace.seconds)) + inchMark + "/100m")
+  }
+
+  sfn formatDuration:string (seconds:int) {
+    if (seconds >= 3600) {
+      def hrs:int (floor ((int2double seconds) / 3600.0))
+      def mins:int (floor (((int2double (seconds % 3600)) / 60.0)))
+      if (mins > 0) {
+        return ((to_string hrs) + "h " + (to_string mins) + "min")
+      }
+      return ((to_string hrs) + "h")
+    }
+    if (seconds >= 60) {
+      def mins:int (floor ((int2double seconds) / 60.0))
+      def secs:int (seconds % 60)
+      if (secs > 0) {
+        return ((to_string mins) + "min " + (to_string secs) + "s")
+      }
+      return ((to_string mins) + "min")
+    }
+    return ((to_string seconds) + "s")
+  }
+
+  sfn normalizeExerciseName:string (name:string) {
+    return (trim (to_lowercase name))
+  }
+
+  sfn calculatePace@(optional):Pace (durationSeconds:double distanceMeters:double) {
+    def empty@(optional):Pace
+    if (durationSeconds <= 0.0) {
+      return empty
+    }
+    if (distanceMeters <= 0.0) {
+      return empty
+    }
+    def secsPerUnit:double ((durationSeconds / distanceMeters) * 100.0)
+    def p@(optional):Pace (new Pace ())
+    def pace:Pace (unwrap p)
+    pace.minutes = (floor (secsPerUnit / 60.0))
+    def rem:double (secsPerUnit - ((int2double pace.minutes) * 60.0))
+    pace.seconds = (StatsMath.roundToInt(rem))
+    return p
+  }
+
+  sfn validateSplitPace:boolean (splitPace:Pace overallPace:Pace) {
+    def splitSecs:int (StatsMath.paceToSeconds(splitPace))
+    def overallSecs:int (StatsMath.paceToSeconds(overallPace))
+    if (splitSecs <= 0) {
+      return false
+    }
+    if (overallSecs <= 0) {
+      return false
+    }
+    def threshold:double ((int2double overallSecs) * 0.75)
+    if ((int2double splitSecs) < threshold) {
+      return false
+    }
+    return true
+  }
+
+  sfn calculateTrend:double (history:[StatsDataPoint] invertForPace:boolean) {
+    def n:int (array_length history)
+    if (n < 2) {
+      return 0.0
+    }
+    def useCount:int n
+    if (useCount > 5) {
+      useCount = 5
+    }
+    def startIdx:int (n - useCount)
+    if (startIdx < 0) {
+      startIdx = 0
+    }
+    def sumX:double 0.0
+    def sumY:double 0.0
+    def sumXY:double 0.0
+    def sumX2:double 0.0
+    def i:int 0
+    while (i < useCount) {
+      def idx:int (startIdx + i)
+      def pt:StatsDataPoint (itemAt history idx)
+      def x:double (int2double i)
+      def y:double pt.value
+      sumX = sumX + x
+      sumY = sumY + y
+      sumXY = sumXY + (x * y)
+      sumX2 = sumX2 + (x * x)
+      i = i + 1
+    }
+    def count:double (int2double useCount)
+    def denom:double ((count * sumX2) - (sumX * sumX))
+    if (denom == 0.0) {
+      return 0.0
+    }
+    def slope:double (((count * sumXY) - (sumX * sumY)) / denom)
+    def avgY:double (sumY / count)
+    def normalizedTrend:double 0.0
+    if (avgY != 0.0) {
+      normalizedTrend = ((slope / avgY) * 10.0)
+    }
+    normalizedTrend = (StatsMath.clampDouble(normalizedTrend -1.0 1.0))
+    if (invertForPace) {
+      normalizedTrend = (0.0 - normalizedTrend)
+    }
+    return normalizedTrend
+  }
+}

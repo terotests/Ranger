@@ -1,0 +1,324 @@
+# PLAN: Tree literals — `treefactory` and `tree`
+
+> **Status:** the S-expression core is **implemented** and tested. `treefactory`
+> declares what a tag builds; `(tree Name (Tag …))` builds one; both are lowered
+> to ordinary Ranger — a `new`, some field assignments and some method calls —
+> in a single pass before anything else looks at the program. Nine targets
+> compile the fixture and five of them (ES6, Go, Rust, C++, Python) print the
+> same three lines. XML/JSX-style `<Tag>` is **not** implemented and is only
+> ever intended as sugar over this.
+
+---
+
+## What it is, and what it deliberately is not
+
+The valuable part of `createElement` is not React. It is **tree construction**:
+a hierarchy written as a hierarchy, and functions that return hierarchies. That
+part is a syntax transformation, and it belongs in the language.
+
+Everything else React puts around it — a virtual DOM, a reconciler, a diff, a
+render loop, hooks, a DOM host, an element type — is a runtime, and none of it
+is here. There is no node type, no base class, no interface, no registry and no
+UI in this feature. What a tag means is decided entirely by the factory the
+program declares.
+
+## The two forms
+
+```ranger
+treefactory UiTree {
+    child addKid          ; how a parent takes a child
+    text  label           ; the field a bare value child sets
+    tag   Row  Box        ; what a tag builds
+    tag   Cell Box
+}
+```
+
+```ranger
+def ui (tree UiTree
+    (Row (props (name "root"))
+        (Cell (props (name "a")) title)
+        (Cell (props (name "b")) "literal")
+        (child (badge("tero")))))
+```
+
+lowers, in the enclosing block, to:
+
+```ranger
+def _tree1 (new Box)
+_tree1.name = "root"
+def _tree2 (new Box)
+_tree2.name = "a"
+_tree2.label = title
+_tree1.addKid(_tree2)
+def _tree3 (new Box)
+_tree3.name = "b"
+_tree3.label = "literal"
+_tree1.addKid(_tree3)
+_tree1.addKid(badge("tero"))
+def ui _tree1
+```
+
+That is the whole feature. The generated C++ and Rust contain no helper, no
+factory object and no word from this document.
+
+### Inside a tag form
+
+| Form | Meaning |
+| --- | --- |
+| `(props (name value) …)` | field assignments on the node |
+| `(child expr …)` | expressions attached with the factory's `child` method |
+| `(Tag …)` where `Tag` is declared | a nested element |
+| anything else | a value child, assigned to the factory's `text` field |
+
+`props` is optional; there is no empty-parentheses placeholder, and `()` is a
+named error rather than a silently empty child.
+
+`(child …)` exists because `(UserBadge user)` and a mistyped tag are the same
+shape. Guessing between them would turn a typo into a call to something that
+does not exist, so a computed child is marked. **A component is then just a
+Ranger function that returns a node** — no component type, no registration, no
+runtime:
+
+```ranger
+sfn badge:Box (who:string) {
+    return (tree UiTree
+        (Cell (props (name "badge")) who))
+}
+```
+
+## Why the checking is not a second type checker
+
+Every mistake this feature can make is lowered into code that was already
+checkable:
+
+| Mistake | Becomes | Reported by |
+| --- | --- | --- |
+| misspelled property | assignment to a field that does not exist | the type checker |
+| wrongly typed property | a type error on that assignment | the type checker |
+| child the parent cannot take | argument mismatch on the child call | the type checker |
+| tag the factory never declared | — | the pass, by name |
+| factory that does not exist | — | the pass, by name |
+
+There is no property table to keep in step with the type checker, because the
+type checker is doing the work. The pass raises exactly the two errors the type
+checker cannot see.
+
+## Where it happens
+
+One pass, `DesugarTrees`, next to `DesugarShapes` at the top of
+`CollectMethods` — before templates, before collection, before type checking.
+By the time any target writer runs, there is nothing left to see. Eighteen
+writers, no JSX implementations.
+
+## The same syntax over unrelated object spaces
+
+`tests/fixtures/tree_literal.rgr` drives two object spaces that share no base
+class, no interface and no shape: a display tree whose parent takes children
+with `addKid`, and a SQL select whose parent takes columns with `addColumn`.
+Same tag syntax, different everything else. This is the difference from JSX,
+where the factory is fixed by the runtime — here it is named at the use site
+and defined by the program.
+
+```ranger
+treefactory SqlTree {
+    child addColumn
+    tag   Query  Select
+    tag   Column Column
+}
+
+def q (tree SqlTree
+    (Query (props (table "documents"))
+        (Column (props (name "id")))
+        (Column (props (name "title")))))
+```
+
+## Retained trees, not re-rendering
+
+A tree literal **builds a tree, once**. It is not a render function and nothing
+re-runs it. In `gallery/ui`'s terms: a controller may build its subtree with a
+tree literal in its constructor and then go on mutating that subtree in place,
+exactly as it does now. Nothing about the runtime semantics changes; what
+changes is that
+
+```ranger
+root = (EVGElement.createDiv())
+root.className = "foo"
+def title (EVGElement.createDiv())
+title.className = "title"
+root.addChild(title)
+UiTree.leafText(title text)
+```
+
+can be written as the tree it already is.
+
+## Where a literal may appear
+
+A tree literal lowers to statements, so it lives where a statement can go: a
+function body, a constructor, a loop, an argument, a `return`. That covers the
+retained-controller pattern this was wanted for — build the subtree once in the
+constructor, keep the reference, mutate it in place afterwards:
+
+```ranger
+Constructor (t:string) {
+    rootEl = (tree EvgUi
+        (Div (props (id "card") (className "ui-card"))
+            (Text (props (className "ui-card-title") (elementType 1)) t)))
+}
+```
+
+It may **not** appear in a class field initializer. That one is not merely
+unsupported but badly reported: by the time the pass runs, a class member's
+value is no longer reachable from the AST it walks, so the literal survives to
+the type checker and fails as `Unknown type: type ID : 11`. Everywhere else a
+stray literal is named. Measured, and left named here rather than in a comment
+nobody reads.
+
+## A non-trivial demo
+
+`gallery/ui/demo/MenubarDemo.rgr` is the Radix menubar example
+(https://www.radix-ui.com/primitives/docs/components/menubar, ~200 lines of
+JSX) written with the syntax over real `EVGElement` trees: four menus, two
+submenus, checkbox items, a radio group, separators, disabled rows and
+right-hand shortcut slots. `npm run ui:menubar` prints the structure;
+`npm run ui:menubar:png` paints it with the EVG WebGL painter into
+`gallery/ui/demo/menubar.png`.
+
+Three things it settled:
+
+- **A tag carries defaults.** `tag Trigger EVGElement (props (className
+  "mb-trigger") (elementType 1))` means the factory knows what a trigger is and
+  no call site repeats it. That option exists *because* writing the demo
+  without it read badly; it was added while writing this file, not before.
+- **A loop is an ordinary loop.** The reference maps over an array inside JSX;
+  here the children are built in a `while` and handed to the parent. There is
+  no list form in the syntax and the demo did not want one.
+- **Composition is function composition.** `item`, `disabledItem`,
+  `checkItem`, `radioItem` and `subTrigger` are five ordinary functions
+  returning `EVGElement`, and the menus are built out of them with `(child …)`.
+
+`gallery/ui/demo/ToolbarDemo.rgr` is the Radix toolbar by a **second factory**,
+and that is why it is a separate file rather than more of the menubar: `Bar`,
+`Group` and `Button` mean something in `Toolbar` that they do not mean in
+`Menubar` — where `Bar` is the menu strip and `Button` is not declared at all —
+and both build plain `EVGElement`s. Tag resolution is the factory's business,
+demonstrated in one repository rather than argued for.
+
+It also walked into two more EVG gaps, both recorded in `toolbar.css`:
+
+- **A row child with no width takes the parent's full width**, so the first
+  child fills the row and every sibling wraps to the next line. The toolbar did
+  exactly that until each box was given a number. Same root cause as
+  `width: fill` below.
+- **No `font-style`, no `text-decoration`.** The display list carries an italic
+  flag that no element ever sets, and nothing draws an underline, so the
+  reference's italic *I* and underlined *U* cannot be drawn. `font-weight` works
+  but only for the literal word `bold` — a numeric `700` parses and does
+  nothing.
+
+Two EVG limits the menubar exposed, neither of them about the syntax:
+
+- **No overlay layer** — *fixed since, and the demo now shows it.* Laying the
+  full structure out in flow stacked all four dropdowns down the page, so the
+  first version of the picture was composed by hand from a trigger bar and the
+  panels that would be portalled. EVG has overlay surfaces now
+  (`gallery/evg/EVGLayout.rgr`, `npm run evg:overlay:test`): `Content` is
+  still the `Menu`'s child, and layout takes it out of the parent's flow,
+  finds its anchor among its own siblings and moves it and its subtree there.
+  The hand composition is gone from `MenubarDemo.rgr` and a submenu is a `Menu`
+  like any other — there is no submenu case in the file. Note what did *not*
+  change: no new syntax. The factory says `(isOverlay true)` on a tag and the
+  call sites are untouched, which is the strongest evidence so far that the
+  tree/factory split is in the right place.
+
+  The same held for accessibility, which is the harder test. The demo is now
+  clickable and readable — EVG hit testing answers the pointer, and an
+  accessible tree is derived from the elements and mirrored into DOM over the
+  canvas — and the syntax again did not change. The roles are `(role
+  "menuitem")` on a TAG, beside the class, so one declaration says what a thing
+  looks like and what it means, and no call site says either twice.
+
+  Collision handling went the same way: `atBottom` moves the bar to the bottom
+  of the page and the menus open upwards, and the demo does not know a flip
+  happened. It moved a bar; the placement followed.
+- **`width: fill` is not "the remaining space".** It resolves to the parent's
+  full width, so a filled label pushes its shortcut onto the next line. The
+  demo's columns are therefore numbers.
+
+## A third factory: the sortable
+
+`SortableDemo.rgr` is ReUI's Sortable — a column of cards, each with a drag
+handle, a type icon, a title over a line of description, a coloured badge and a
+size at the far right — and it is the demo that answers a question the
+conformance harness cannot: the harness proves the *behaviour* matches
+`@dnd-kit/sortable`, and says nothing about whether the thing looks like the
+thing.
+
+What it added that the first two did not:
+
+- a row with three regions — a fixed left, a growing middle, a fixed right —
+  which is `space-between` plus `fit-content`, and the first layout here that
+  has to survive text of different lengths;
+- styling from data: the badge's colour is a class the builder picks from the
+  item's kind, so the class IS the data and the stylesheet has no branch in it;
+- **order as state.** The page holds a list of ids; the tree is rebuilt from
+  it. There is no move, no animation and no reconciler — reordering is
+  rebuilding, which is the whole claim this file makes.
+
+It is also the first thing in this repository to draw a VECTOR. EVG has had
+`path` with `d`, `viewBox`, `fill` and `stroke` all along and nothing here had
+used it, so the icons started as characters — ▣ for an image, ♪ for audio — and
+that is exactly as close as a character gets: a glyph that happens to look like
+a frame, at whatever weight the font decided. They are Lucide's shapes now,
+each written as one `d` with its circles and rounded rectangles expanded into
+arcs, stroked and not filled. The grip is six dots, drawn for the same reason.
+
+Three things it found, none of them about the syntax:
+
+- **`space-between` spreads ALL of a row's children**, so a handle, an icon,
+  a title block and a badge came out evenly spaced across the card instead of
+  three packed left and one at the end. Two groups, one gap — the same shape
+  the toolbar demo needed and the reason `Left` exists as a tag.
+
+- **`fit-content` on text already worked**, and not through `contentExtent`,
+  which sees no children and gives up: `fit-content` parses with `isSet` false,
+  and a box holding only text is measured from the text. Every badge here
+  depends on it, so `EVGOverlayTest` now pins it.
+- **`role="list"` with button children is a critical axe violation** — a reader
+  promised a list and handed five buttons is told the wrong thing. Caught by
+  `npm run ui:demo:a11y` the first time the demo was audited, and fixed by
+  making the container a labelled `group`, which is what it is.
+
+## Two things trying it on EVG surfaced
+
+Building a real `EVGElement` tree works — `tests`-level proof is in the plan's
+fixture, and an EVG tree with classes, ids and text builds correctly. Two gaps
+showed up immediately, and both are about the *element API*, not the syntax:
+
+1. **No way to name a node inside a literal.** A retained controller keeps
+   `trackEl`, `thumbEl` and mutates them later; a literal returns only its root.
+   The natural fix is a `bind` form (`(Div (bind trackEl) …)`), and it is the
+   first thing to add if this is used for the controllers.
+2. **Class-first helpers are operations, not fields.** `UiTree.setState` writes
+   two classes and `UiTree.leafText` writes two fields and clears children; a
+   factory can only assign fields. `(props (elementType 1))` reproduces
+   `leafText` by hand, which works and reads badly. Either the factory learns to
+   call a setter, or `EVGElement` grows the fields these helpers are hiding.
+
+## Not done
+
+- **`<Tag>` syntax.** Only ever sugar over the form above, and deliberately
+  last: `<` is ambiguous in an expression language, and there is no reason to
+  touch the parser before the semantics have been used in anger. Nothing in the
+  current parser produces an XML node, so this is a real parser change when it
+  comes.
+- **Child lists and fragments.** `(child a b c)` takes several expressions, but
+  an expression that evaluates to an *array* of nodes is not spread. That needs
+  the pass to know the expression's type, which it cannot at this point in the
+  pipeline; the fix is either a `children` keyword that emits a loop, or moving
+  the pass after type inference.
+- **A declared node type.** `treefactory` has no `node T`, on purpose: it would
+  have been a field the lowering never read. The moment child lists need a
+  temporary's type, it earns its place.
+- **Tags that are not classes.** Every tag maps to a class instantiated with
+  `new`. A factory whose tags are made by a static function would need a second
+  spelling (`tag Row Box.make`), and there is no user for it yet.

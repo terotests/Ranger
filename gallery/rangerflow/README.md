@@ -319,6 +319,7 @@ nobody replaces.
 | Routing | `layout/EdgeLanes.rgr` | channel routing: a track per edge through each corridor, and a fan per shared port |
 | | `layout/LayeredLayout.rgr` | dummy-vertex chains, so long edges are ordered, given room, and drawn round what is between their ends |
 | | `layout/OrthoRouter.rgr` | an orthogonal visibility grid and a bend-charging Dijkstra, run as a repair pass for whatever the layout never saw |
+| | `layout/ReadableRouter.rgr` | one router for every edge: halos, staggered departure lanes, and a search charged for crossings, shared corridors and labels against every route already drawn — see [`docs/PLAN_READABLE_ROUTING.md`](docs/PLAN_READABLE_ROUTING.md) |
 | | `layout/TreeLayouts.rgr` | the radial tree and the mind map: measure a subtree, then hand it the share it earned |
 | Parity | `harness/`, `tools/parity.mjs`, `tests/ParityDump.rgr` | React Flow and d3, asked the same questions and compared |
 | Domains | `domains/erd/*`, `domains/uml/*` | schema and class models, and the two mappings |

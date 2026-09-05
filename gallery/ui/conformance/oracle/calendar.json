@@ -1,0 +1,2052 @@
+{
+  "$source": "react-day-picker 10.0.1, mode=single, May 2026, today=2026-05-14",
+  "reactDayPicker": "10.0.1",
+  "month": "2026-05",
+  "today": "2026-05-14",
+  "grid": {
+    "caption": "May 2026",
+    "captionRole": "status",
+    "captionLive": "polite",
+    "navLabel": "Navigation bar",
+    "prevLabel": "Go to the Previous Month",
+    "nextLabel": "Go to the Next Month",
+    "prevDisabled": false,
+    "nextDisabled": false,
+    "gridRole": "grid",
+    "gridLabel": "May 2026",
+    "multiselectable": "false",
+    "headRowHidden": "true",
+    "weekdays": [
+      {
+        "text": "Su",
+        "label": "Sunday",
+        "scope": "col"
+      },
+      {
+        "text": "Mo",
+        "label": "Monday",
+        "scope": "col"
+      },
+      {
+        "text": "Tu",
+        "label": "Tuesday",
+        "scope": "col"
+      },
+      {
+        "text": "We",
+        "label": "Wednesday",
+        "scope": "col"
+      },
+      {
+        "text": "Th",
+        "label": "Thursday",
+        "scope": "col"
+      },
+      {
+        "text": "Fr",
+        "label": "Friday",
+        "scope": "col"
+      },
+      {
+        "text": "Sa",
+        "label": "Saturday",
+        "scope": "col"
+      }
+    ],
+    "weeks": [
+      [
+        {
+          "day": "2026-04-26",
+          "text": "26",
+          "outside": true,
+          "selected": false,
+          "today": false,
+          "disabled": false,
+          "role": "gridcell",
+          "tabindex": "-1",
+          "label": "Sunday, April 26th, 2026",
+          "ariaSelected": null,
+          "ariaDisabled": null,
+          "buttonDisabled": false
+        },
+        {
+          "day": "2026-04-27",
+          "text": "27",
+          "outside": true,
+          "selected": false,
+          "today": false,
+          "disabled": false,
+          "role": "gridcell",
+          "tabindex": "-1",
+          "label": "Monday, April 27th, 2026",
+          "ariaSelected": null,
+          "ariaDisabled": null,
+          "buttonDisabled": false
+        },
+        {
+          "day": "2026-04-28",
+          "text": "28",
+          "outside": true,
+          "selected": false,
+          "today": false,
+          "disabled": false,
+          "role": "gridcell",
+          "tabindex": "-1",
+          "label": "Tuesday, April 28th, 2026",
+          "ariaSelected": null,
+          "ariaDisabled": null,
+          "buttonDisabled": false
+        },
+        {
+          "day": "2026-04-29",
+          "text": "29",
+          "outside": true,
+          "selected": false,
+          "today": false,
+          "disabled": false,
+          "role": "gridcell",
+          "tabindex": "-1",
+          "label": "Wednesday, April 29th, 2026",
+          "ariaSelected": null,
+          "ariaDisabled": null,
+          "buttonDisabled": false
+        },
+        {
+          "day": "2026-04-30",
+          "text": "30",
+          "outside": true,
+          "selected": false,
+          "today": false,
+          "disabled": false,
+          "role": "gridcell",
+          "tabindex": "-1",
+          "label": "Thursday, April 30th, 2026",
+          "ariaSelected": null,
+          "ariaDisabled": null,
+          "buttonDisabled": false
+        },
+        {
+          "day": "2026-05-01",
+          "text": "1",
+          "outside": false,
+          "selected": false,
+          "today": false,
+          "disabled": false,
+          "role": "gridcell",
+          "tabindex": "-1",
+          "label": "Friday, May 1st, 2026",
+          "ariaSelected": null,
+          "ariaDisabled": null,
+          "buttonDisabled": false
+        },
+        {
+          "day": "2026-05-02",
+          "text": "2",
+          "outside": false,
+          "selected": false,
+          "today": false,
+          "disabled": false,
+          "role": "gridcell",
+          "tabindex": "-1",
+          "label": "Saturday, May 2nd, 2026",
+          "ariaSelected": null,
+          "ariaDisabled": null,
+          "buttonDisabled": false
+        }
+      ],
+      [
+        {
+          "day": "2026-05-03",
+          "text": "3",
+          "outside": false,
+          "selected": false,
+          "today": false,
+          "disabled": false,
+          "role": "gridcell",
+          "tabindex": "-1",
+          "label": "Sunday, May 3rd, 2026",
+          "ariaSelected": null,
+          "ariaDisabled": null,
+          "buttonDisabled": false
+        },
+        {
+          "day": "2026-05-04",
+          "text": "4",
+          "outside": false,
+          "selected": false,
+          "today": false,
+          "disabled": false,
+          "role": "gridcell",
+          "tabindex": "-1",
+          "label": "Monday, May 4th, 2026",
+          "ariaSelected": null,
+          "ariaDisabled": null,
+          "buttonDisabled": false
+        },
+        {
+          "day": "2026-05-05",
+          "text": "5",
+          "outside": false,
+          "selected": false,
+          "today": false,
+          "disabled": false,
+          "role": "gridcell",
+          "tabindex": "-1",
+          "label": "Tuesday, May 5th, 2026",
+          "ariaSelected": null,
+          "ariaDisabled": null,
+          "buttonDisabled": false
+        },
+        {
+          "day": "2026-05-06",
+          "text": "6",
+          "outside": false,
+          "selected": false,
+          "today": false,
+          "disabled": false,
+          "role": "gridcell",
+          "tabindex": "-1",
+          "label": "Wednesday, May 6th, 2026",
+          "ariaSelected": null,
+          "ariaDisabled": null,
+          "buttonDisabled": false
+        },
+        {
+          "day": "2026-05-07",
+          "text": "7",
+          "outside": false,
+          "selected": false,
+          "today": false,
+          "disabled": false,
+          "role": "gridcell",
+          "tabindex": "-1",
+          "label": "Thursday, May 7th, 2026",
+          "ariaSelected": null,
+          "ariaDisabled": null,
+          "buttonDisabled": false
+        },
+        {
+          "day": "2026-05-08",
+          "text": "8",
+          "outside": false,
+          "selected": false,
+          "today": false,
+          "disabled": false,
+          "role": "gridcell",
+          "tabindex": "-1",
+          "label": "Friday, May 8th, 2026",
+          "ariaSelected": null,
+          "ariaDisabled": null,
+          "buttonDisabled": false
+        },
+        {
+          "day": "2026-05-09",
+          "text": "9",
+          "outside": false,
+          "selected": false,
+          "today": false,
+          "disabled": false,
+          "role": "gridcell",
+          "tabindex": "-1",
+          "label": "Saturday, May 9th, 2026",
+          "ariaSelected": null,
+          "ariaDisabled": null,
+          "buttonDisabled": false
+        }
+      ],
+      [
+        {
+          "day": "2026-05-10",
+          "text": "10",
+          "outside": false,
+          "selected": false,
+          "today": false,
+          "disabled": false,
+          "role": "gridcell",
+          "tabindex": "-1",
+          "label": "Sunday, May 10th, 2026",
+          "ariaSelected": null,
+          "ariaDisabled": null,
+          "buttonDisabled": false
+        },
+        {
+          "day": "2026-05-11",
+          "text": "11",
+          "outside": false,
+          "selected": false,
+          "today": false,
+          "disabled": false,
+          "role": "gridcell",
+          "tabindex": "-1",
+          "label": "Monday, May 11th, 2026",
+          "ariaSelected": null,
+          "ariaDisabled": null,
+          "buttonDisabled": false
+        },
+        {
+          "day": "2026-05-12",
+          "text": "12",
+          "outside": false,
+          "selected": false,
+          "today": false,
+          "disabled": false,
+          "role": "gridcell",
+          "tabindex": "-1",
+          "label": "Tuesday, May 12th, 2026",
+          "ariaSelected": null,
+          "ariaDisabled": null,
+          "buttonDisabled": false
+        },
+        {
+          "day": "2026-05-13",
+          "text": "13",
+          "outside": false,
+          "selected": false,
+          "today": false,
+          "disabled": false,
+          "role": "gridcell",
+          "tabindex": "-1",
+          "label": "Wednesday, May 13th, 2026",
+          "ariaSelected": null,
+          "ariaDisabled": null,
+          "buttonDisabled": false
+        },
+        {
+          "day": "2026-05-14",
+          "text": "14",
+          "outside": false,
+          "selected": false,
+          "today": true,
+          "disabled": false,
+          "role": "gridcell",
+          "tabindex": "0",
+          "label": "Today, Thursday, May 14th, 2026",
+          "ariaSelected": null,
+          "ariaDisabled": null,
+          "buttonDisabled": false
+        },
+        {
+          "day": "2026-05-15",
+          "text": "15",
+          "outside": false,
+          "selected": false,
+          "today": false,
+          "disabled": false,
+          "role": "gridcell",
+          "tabindex": "-1",
+          "label": "Friday, May 15th, 2026",
+          "ariaSelected": null,
+          "ariaDisabled": null,
+          "buttonDisabled": false
+        },
+        {
+          "day": "2026-05-16",
+          "text": "16",
+          "outside": false,
+          "selected": false,
+          "today": false,
+          "disabled": false,
+          "role": "gridcell",
+          "tabindex": "-1",
+          "label": "Saturday, May 16th, 2026",
+          "ariaSelected": null,
+          "ariaDisabled": null,
+          "buttonDisabled": false
+        }
+      ],
+      [
+        {
+          "day": "2026-05-17",
+          "text": "17",
+          "outside": false,
+          "selected": false,
+          "today": false,
+          "disabled": false,
+          "role": "gridcell",
+          "tabindex": "-1",
+          "label": "Sunday, May 17th, 2026",
+          "ariaSelected": null,
+          "ariaDisabled": null,
+          "buttonDisabled": false
+        },
+        {
+          "day": "2026-05-18",
+          "text": "18",
+          "outside": false,
+          "selected": false,
+          "today": false,
+          "disabled": false,
+          "role": "gridcell",
+          "tabindex": "-1",
+          "label": "Monday, May 18th, 2026",
+          "ariaSelected": null,
+          "ariaDisabled": null,
+          "buttonDisabled": false
+        },
+        {
+          "day": "2026-05-19",
+          "text": "19",
+          "outside": false,
+          "selected": false,
+          "today": false,
+          "disabled": false,
+          "role": "gridcell",
+          "tabindex": "-1",
+          "label": "Tuesday, May 19th, 2026",
+          "ariaSelected": null,
+          "ariaDisabled": null,
+          "buttonDisabled": false
+        },
+        {
+          "day": "2026-05-20",
+          "text": "20",
+          "outside": false,
+          "selected": false,
+          "today": false,
+          "disabled": false,
+          "role": "gridcell",
+          "tabindex": "-1",
+          "label": "Wednesday, May 20th, 2026",
+          "ariaSelected": null,
+          "ariaDisabled": null,
+          "buttonDisabled": false
+        },
+        {
+          "day": "2026-05-21",
+          "text": "21",
+          "outside": false,
+          "selected": false,
+          "today": false,
+          "disabled": false,
+          "role": "gridcell",
+          "tabindex": "-1",
+          "label": "Thursday, May 21st, 2026",
+          "ariaSelected": null,
+          "ariaDisabled": null,
+          "buttonDisabled": false
+        },
+        {
+          "day": "2026-05-22",
+          "text": "22",
+          "outside": false,
+          "selected": false,
+          "today": false,
+          "disabled": false,
+          "role": "gridcell",
+          "tabindex": "-1",
+          "label": "Friday, May 22nd, 2026",
+          "ariaSelected": null,
+          "ariaDisabled": null,
+          "buttonDisabled": false
+        },
+        {
+          "day": "2026-05-23",
+          "text": "23",
+          "outside": false,
+          "selected": false,
+          "today": false,
+          "disabled": false,
+          "role": "gridcell",
+          "tabindex": "-1",
+          "label": "Saturday, May 23rd, 2026",
+          "ariaSelected": null,
+          "ariaDisabled": null,
+          "buttonDisabled": false
+        }
+      ],
+      [
+        {
+          "day": "2026-05-24",
+          "text": "24",
+          "outside": false,
+          "selected": false,
+          "today": false,
+          "disabled": false,
+          "role": "gridcell",
+          "tabindex": "-1",
+          "label": "Sunday, May 24th, 2026",
+          "ariaSelected": null,
+          "ariaDisabled": null,
+          "buttonDisabled": false
+        },
+        {
+          "day": "2026-05-25",
+          "text": "25",
+          "outside": false,
+          "selected": false,
+          "today": false,
+          "disabled": false,
+          "role": "gridcell",
+          "tabindex": "-1",
+          "label": "Monday, May 25th, 2026",
+          "ariaSelected": null,
+          "ariaDisabled": null,
+          "buttonDisabled": false
+        },
+        {
+          "day": "2026-05-26",
+          "text": "26",
+          "outside": false,
+          "selected": false,
+          "today": false,
+          "disabled": false,
+          "role": "gridcell",
+          "tabindex": "-1",
+          "label": "Tuesday, May 26th, 2026",
+          "ariaSelected": null,
+          "ariaDisabled": null,
+          "buttonDisabled": false
+        },
+        {
+          "day": "2026-05-27",
+          "text": "27",
+          "outside": false,
+          "selected": false,
+          "today": false,
+          "disabled": false,
+          "role": "gridcell",
+          "tabindex": "-1",
+          "label": "Wednesday, May 27th, 2026",
+          "ariaSelected": null,
+          "ariaDisabled": null,
+          "buttonDisabled": false
+        },
+        {
+          "day": "2026-05-28",
+          "text": "28",
+          "outside": false,
+          "selected": false,
+          "today": false,
+          "disabled": false,
+          "role": "gridcell",
+          "tabindex": "-1",
+          "label": "Thursday, May 28th, 2026",
+          "ariaSelected": null,
+          "ariaDisabled": null,
+          "buttonDisabled": false
+        },
+        {
+          "day": "2026-05-29",
+          "text": "29",
+          "outside": false,
+          "selected": false,
+          "today": false,
+          "disabled": false,
+          "role": "gridcell",
+          "tabindex": "-1",
+          "label": "Friday, May 29th, 2026",
+          "ariaSelected": null,
+          "ariaDisabled": null,
+          "buttonDisabled": false
+        },
+        {
+          "day": "2026-05-30",
+          "text": "30",
+          "outside": false,
+          "selected": false,
+          "today": false,
+          "disabled": false,
+          "role": "gridcell",
+          "tabindex": "-1",
+          "label": "Saturday, May 30th, 2026",
+          "ariaSelected": null,
+          "ariaDisabled": null,
+          "buttonDisabled": false
+        }
+      ],
+      [
+        {
+          "day": "2026-05-31",
+          "text": "31",
+          "outside": false,
+          "selected": false,
+          "today": false,
+          "disabled": false,
+          "role": "gridcell",
+          "tabindex": "-1",
+          "label": "Sunday, May 31st, 2026",
+          "ariaSelected": null,
+          "ariaDisabled": null,
+          "buttonDisabled": false
+        },
+        {
+          "day": "2026-06-01",
+          "text": "1",
+          "outside": true,
+          "selected": false,
+          "today": false,
+          "disabled": false,
+          "role": "gridcell",
+          "tabindex": "-1",
+          "label": "Monday, June 1st, 2026",
+          "ariaSelected": null,
+          "ariaDisabled": null,
+          "buttonDisabled": false
+        },
+        {
+          "day": "2026-06-02",
+          "text": "2",
+          "outside": true,
+          "selected": false,
+          "today": false,
+          "disabled": false,
+          "role": "gridcell",
+          "tabindex": "-1",
+          "label": "Tuesday, June 2nd, 2026",
+          "ariaSelected": null,
+          "ariaDisabled": null,
+          "buttonDisabled": false
+        },
+        {
+          "day": "2026-06-03",
+          "text": "3",
+          "outside": true,
+          "selected": false,
+          "today": false,
+          "disabled": false,
+          "role": "gridcell",
+          "tabindex": "-1",
+          "label": "Wednesday, June 3rd, 2026",
+          "ariaSelected": null,
+          "ariaDisabled": null,
+          "buttonDisabled": false
+        },
+        {
+          "day": "2026-06-04",
+          "text": "4",
+          "outside": true,
+          "selected": false,
+          "today": false,
+          "disabled": false,
+          "role": "gridcell",
+          "tabindex": "-1",
+          "label": "Thursday, June 4th, 2026",
+          "ariaSelected": null,
+          "ariaDisabled": null,
+          "buttonDisabled": false
+        },
+        {
+          "day": "2026-06-05",
+          "text": "5",
+          "outside": true,
+          "selected": false,
+          "today": false,
+          "disabled": false,
+          "role": "gridcell",
+          "tabindex": "-1",
+          "label": "Friday, June 5th, 2026",
+          "ariaSelected": null,
+          "ariaDisabled": null,
+          "buttonDisabled": false
+        },
+        {
+          "day": "2026-06-06",
+          "text": "6",
+          "outside": true,
+          "selected": false,
+          "today": false,
+          "disabled": false,
+          "role": "gridcell",
+          "tabindex": "-1",
+          "label": "Saturday, June 6th, 2026",
+          "ariaSelected": null,
+          "ariaDisabled": null,
+          "buttonDisabled": false
+        }
+      ]
+    ],
+    "mode": "single",
+    "lang": "en-US"
+  },
+  "shape": {
+    "weeks": 6,
+    "cellsPerWeek": 7,
+    "leadingOutside": 5,
+    "trailingOutside": 6,
+    "firstCell": "2026-04-26",
+    "lastCell": "2026-06-06",
+    "$comment": "Six rows because May 2026 starts on a Friday and ends on a Sunday. A calendar that always draws six rows and one that draws as many as the month needs disagree on every other month, so the row count is data."
+  },
+  "initialFocus": {
+    "tabbable": [
+      "2026-05-14"
+    ],
+    "focused": null,
+    "focusedTag": "BODY",
+    "caption": "May 2026",
+    "selected": null,
+    "$comment": "Exactly one day is tabbable, and with nothing selected it is TODAY — not the first of the month and not the first cell of the grid. Guessed wrong here before measuring: the first-of-month reading is what most hand-written calendars do, and it is not what the reference does."
+  },
+  "keyboardMiddle": [
+    {
+      "from": "2026-05-13",
+      "key": "ArrowRight",
+      "to": "2026-05-14",
+      "caption": "May 2026",
+      "tabbable": [
+        "2026-05-14"
+      ]
+    },
+    {
+      "from": "2026-05-13",
+      "key": "ArrowLeft",
+      "to": "2026-05-12",
+      "caption": "May 2026",
+      "tabbable": [
+        "2026-05-12"
+      ]
+    },
+    {
+      "from": "2026-05-13",
+      "key": "ArrowDown",
+      "to": "2026-05-20",
+      "caption": "May 2026",
+      "tabbable": [
+        "2026-05-20"
+      ]
+    },
+    {
+      "from": "2026-05-13",
+      "key": "ArrowUp",
+      "to": "2026-05-06",
+      "caption": "May 2026",
+      "tabbable": [
+        "2026-05-06"
+      ]
+    },
+    {
+      "from": "2026-05-13",
+      "key": "Home",
+      "to": "2026-05-10",
+      "caption": "May 2026",
+      "tabbable": [
+        "2026-05-10"
+      ]
+    },
+    {
+      "from": "2026-05-13",
+      "key": "End",
+      "to": "2026-05-16",
+      "caption": "May 2026",
+      "tabbable": [
+        "2026-05-16"
+      ]
+    },
+    {
+      "from": "2026-05-13",
+      "key": "PageUp",
+      "to": "2026-04-13",
+      "caption": "April 2026",
+      "tabbable": [
+        "2026-04-01"
+      ]
+    },
+    {
+      "from": "2026-05-13",
+      "key": "PageDown",
+      "to": "2026-06-13",
+      "caption": "June 2026",
+      "tabbable": [
+        "2026-06-01"
+      ]
+    }
+  ],
+  "keyboardEdges": {
+    "first of month (a Friday)": [
+      {
+        "from": "2026-05-01",
+        "key": "ArrowRight",
+        "to": "2026-05-02",
+        "caption": "May 2026",
+        "tabbable": [
+          "2026-05-02"
+        ]
+      },
+      {
+        "from": "2026-05-01",
+        "key": "ArrowLeft",
+        "to": "2026-04-30",
+        "caption": "April 2026",
+        "tabbable": [
+          "2026-04-01"
+        ]
+      },
+      {
+        "from": "2026-05-01",
+        "key": "ArrowDown",
+        "to": "2026-05-08",
+        "caption": "May 2026",
+        "tabbable": [
+          "2026-05-08"
+        ]
+      },
+      {
+        "from": "2026-05-01",
+        "key": "ArrowUp",
+        "to": "2026-04-24",
+        "caption": "April 2026",
+        "tabbable": [
+          "2026-04-01"
+        ]
+      },
+      {
+        "from": "2026-05-01",
+        "key": "Home",
+        "to": "2026-04-26",
+        "caption": "April 2026",
+        "tabbable": [
+          "2026-04-01"
+        ]
+      },
+      {
+        "from": "2026-05-01",
+        "key": "End",
+        "to": "2026-05-02",
+        "caption": "May 2026",
+        "tabbable": [
+          "2026-05-02"
+        ]
+      },
+      {
+        "from": "2026-05-01",
+        "key": "PageUp",
+        "to": "2026-04-01",
+        "caption": "April 2026",
+        "tabbable": [
+          "2026-04-01"
+        ]
+      },
+      {
+        "from": "2026-05-01",
+        "key": "PageDown",
+        "to": "2026-06-01",
+        "caption": "June 2026",
+        "tabbable": [
+          "2026-06-01"
+        ]
+      }
+    ],
+    "last of month (a Sunday)": [
+      {
+        "from": "2026-05-31",
+        "key": "ArrowRight",
+        "to": "2026-06-01",
+        "caption": "June 2026",
+        "tabbable": [
+          "2026-06-01"
+        ]
+      },
+      {
+        "from": "2026-05-31",
+        "key": "ArrowLeft",
+        "to": "2026-05-30",
+        "caption": "May 2026",
+        "tabbable": [
+          "2026-05-30"
+        ]
+      },
+      {
+        "from": "2026-05-31",
+        "key": "ArrowDown",
+        "to": "2026-06-07",
+        "caption": "June 2026",
+        "tabbable": [
+          "2026-06-01"
+        ]
+      },
+      {
+        "from": "2026-05-31",
+        "key": "ArrowUp",
+        "to": "2026-05-24",
+        "caption": "May 2026",
+        "tabbable": [
+          "2026-05-24"
+        ]
+      },
+      {
+        "from": "2026-05-31",
+        "key": "Home",
+        "to": "2026-05-31",
+        "caption": "May 2026",
+        "tabbable": [
+          "2026-05-14"
+        ]
+      },
+      {
+        "from": "2026-05-31",
+        "key": "End",
+        "to": "2026-06-06",
+        "caption": "June 2026",
+        "tabbable": [
+          "2026-06-01"
+        ]
+      },
+      {
+        "from": "2026-05-31",
+        "key": "PageUp",
+        "to": "2026-04-30",
+        "caption": "April 2026",
+        "tabbable": [
+          "2026-04-01"
+        ]
+      },
+      {
+        "from": "2026-05-31",
+        "key": "PageDown",
+        "to": "2026-06-30",
+        "caption": "June 2026",
+        "tabbable": [
+          "2026-06-01"
+        ]
+      }
+    ],
+    "first Sunday": [
+      {
+        "from": "2026-05-03",
+        "key": "ArrowRight",
+        "to": "2026-05-04",
+        "caption": "May 2026",
+        "tabbable": [
+          "2026-05-04"
+        ]
+      },
+      {
+        "from": "2026-05-03",
+        "key": "ArrowLeft",
+        "to": "2026-05-02",
+        "caption": "May 2026",
+        "tabbable": [
+          "2026-05-02"
+        ]
+      },
+      {
+        "from": "2026-05-03",
+        "key": "ArrowDown",
+        "to": "2026-05-10",
+        "caption": "May 2026",
+        "tabbable": [
+          "2026-05-10"
+        ]
+      },
+      {
+        "from": "2026-05-03",
+        "key": "ArrowUp",
+        "to": "2026-04-26",
+        "caption": "April 2026",
+        "tabbable": [
+          "2026-04-01"
+        ]
+      },
+      {
+        "from": "2026-05-03",
+        "key": "Home",
+        "to": "2026-05-03",
+        "caption": "May 2026",
+        "tabbable": [
+          "2026-05-14"
+        ]
+      },
+      {
+        "from": "2026-05-03",
+        "key": "End",
+        "to": "2026-05-09",
+        "caption": "May 2026",
+        "tabbable": [
+          "2026-05-09"
+        ]
+      },
+      {
+        "from": "2026-05-03",
+        "key": "PageUp",
+        "to": "2026-04-03",
+        "caption": "April 2026",
+        "tabbable": [
+          "2026-04-01"
+        ]
+      },
+      {
+        "from": "2026-05-03",
+        "key": "PageDown",
+        "to": "2026-06-03",
+        "caption": "June 2026",
+        "tabbable": [
+          "2026-06-01"
+        ]
+      }
+    ],
+    "a Saturday": [
+      {
+        "from": "2026-05-09",
+        "key": "ArrowRight",
+        "to": "2026-05-10",
+        "caption": "May 2026",
+        "tabbable": [
+          "2026-05-10"
+        ]
+      },
+      {
+        "from": "2026-05-09",
+        "key": "ArrowLeft",
+        "to": "2026-05-08",
+        "caption": "May 2026",
+        "tabbable": [
+          "2026-05-08"
+        ]
+      },
+      {
+        "from": "2026-05-09",
+        "key": "ArrowDown",
+        "to": "2026-05-16",
+        "caption": "May 2026",
+        "tabbable": [
+          "2026-05-16"
+        ]
+      },
+      {
+        "from": "2026-05-09",
+        "key": "ArrowUp",
+        "to": "2026-05-02",
+        "caption": "May 2026",
+        "tabbable": [
+          "2026-05-02"
+        ]
+      },
+      {
+        "from": "2026-05-09",
+        "key": "Home",
+        "to": "2026-05-03",
+        "caption": "May 2026",
+        "tabbable": [
+          "2026-05-03"
+        ]
+      },
+      {
+        "from": "2026-05-09",
+        "key": "End",
+        "to": "2026-05-09",
+        "caption": "May 2026",
+        "tabbable": [
+          "2026-05-14"
+        ]
+      },
+      {
+        "from": "2026-05-09",
+        "key": "PageUp",
+        "to": "2026-04-09",
+        "caption": "April 2026",
+        "tabbable": [
+          "2026-04-01"
+        ]
+      },
+      {
+        "from": "2026-05-09",
+        "key": "PageDown",
+        "to": "2026-06-09",
+        "caption": "June 2026",
+        "tabbable": [
+          "2026-06-01"
+        ]
+      }
+    ]
+  },
+  "crossingMonth": {
+    "from": "2026-05-01",
+    "key": "ArrowLeft",
+    "focused": "2026-04-30",
+    "caption": "April 2026",
+    "tabbable": [
+      "2026-04-01"
+    ],
+    "$comment": "Arrowing off the start of the month moves the displayed month with the focus. The grid is not a fixed window you page separately. Note the tab stop lands on the 1st of the NEW month rather than on the focused day — see `findings.rovingTabindex`, which is not a rule to copy."
+  },
+  "selection": [
+    {
+      "after": "nothing",
+      "selected": null,
+      "tabbable": [
+        "2026-05-14"
+      ],
+      "focused": null
+    },
+    {
+      "after": "click 2026-05-13",
+      "selected": "2026-05-13",
+      "tabbable": [
+        "2026-05-13"
+      ],
+      "focused": "2026-05-13"
+    },
+    {
+      "after": "click another day",
+      "selected": "2026-05-20",
+      "tabbable": [
+        "2026-05-13"
+      ],
+      "focused": "2026-05-20"
+    },
+    {
+      "after": "click the SAME day again",
+      "selected": null,
+      "tabbable": [
+        "2026-05-13"
+      ],
+      "focused": "2026-05-20"
+    }
+  ],
+  "tabStopAfterSelect": {
+    "tabbable": [
+      "2026-05-20"
+    ],
+    "focused": "2026-05-20",
+    "focusedTag": "rdp-day_button",
+    "caption": "May 2026",
+    "selected": "2026-05-20",
+    "$comment": "Once a day is selected it becomes the single tab stop."
+  },
+  "commitKeys": {
+    "enter": {
+      "on": "2026-05-07",
+      "selected": "2026-05-07"
+    },
+    "space": {
+      "on": "2026-05-08",
+      "selected": "2026-05-08"
+    }
+  },
+  "outsideDayClick": {
+    "day": "2026-04-26",
+    "tabbable": [
+      "2026-05-14"
+    ],
+    "focused": "2026-04-26",
+    "focusedTag": "rdp-day_button",
+    "caption": "May 2026",
+    "selected": "2026-04-26",
+    "$comment": "showOutsideDays renders the neighbours' days. Clicking one selects that date; whether the displayed month follows is the interesting half."
+  },
+  "selectedCell": {
+    "cell": {
+      "day": "2026-05-20",
+      "text": "20",
+      "outside": false,
+      "selected": true,
+      "today": false,
+      "disabled": false,
+      "role": "gridcell",
+      "tabindex": "0",
+      "label": "Wednesday, May 20th, 2026, selected",
+      "ariaSelected": null,
+      "ariaDisabled": null,
+      "buttonDisabled": false
+    },
+    "todayCell": {
+      "day": "2026-05-14",
+      "text": "14",
+      "outside": false,
+      "selected": false,
+      "today": true,
+      "disabled": false,
+      "role": "gridcell",
+      "tabindex": "-1",
+      "label": "Today, Thursday, May 14th, 2026",
+      "ariaSelected": null,
+      "ariaDisabled": null,
+      "buttonDisabled": false
+    },
+    "othersAriaSelected": [
+      null
+    ],
+    "$comment": "What a selected day carries, and what every other day carries. If the unselected days say nothing at all rather than aria-selected=false, a reader counts differently and the Ranger side must match."
+  },
+  "enterOnSelected": {
+    "tabbable": [
+      "2026-05-14"
+    ],
+    "focused": "2026-05-20",
+    "focusedTag": "rdp-day_button",
+    "caption": "May 2026",
+    "selected": null,
+    "$comment": "Does the keyboard toggle the way the pointer does?"
+  },
+  "nav": [
+    {
+      "after": "start",
+      "caption": "May 2026"
+    },
+    {
+      "after": "prev",
+      "caption": "April 2026"
+    },
+    {
+      "after": "next twice",
+      "caption": "June 2026"
+    }
+  ],
+  "disabledFixture": {
+    "grid": {
+      "caption": "May 2026",
+      "captionRole": "status",
+      "captionLive": "polite",
+      "navLabel": "Navigation bar",
+      "prevLabel": "Go to the Previous Month",
+      "nextLabel": "Go to the Next Month",
+      "prevDisabled": false,
+      "nextDisabled": false,
+      "gridRole": "grid",
+      "gridLabel": "May 2026",
+      "multiselectable": "false",
+      "headRowHidden": "true",
+      "weekdays": [
+        {
+          "text": "Su",
+          "label": "Sunday",
+          "scope": "col"
+        },
+        {
+          "text": "Mo",
+          "label": "Monday",
+          "scope": "col"
+        },
+        {
+          "text": "Tu",
+          "label": "Tuesday",
+          "scope": "col"
+        },
+        {
+          "text": "We",
+          "label": "Wednesday",
+          "scope": "col"
+        },
+        {
+          "text": "Th",
+          "label": "Thursday",
+          "scope": "col"
+        },
+        {
+          "text": "Fr",
+          "label": "Friday",
+          "scope": "col"
+        },
+        {
+          "text": "Sa",
+          "label": "Saturday",
+          "scope": "col"
+        }
+      ],
+      "weeks": [
+        [
+          {
+            "day": "2026-04-26",
+            "text": "26",
+            "outside": true,
+            "selected": false,
+            "today": false,
+            "disabled": true,
+            "role": "gridcell",
+            "tabindex": "-1",
+            "label": "Sunday, April 26th, 2026",
+            "ariaSelected": null,
+            "ariaDisabled": null,
+            "buttonDisabled": true
+          },
+          {
+            "day": "2026-04-27",
+            "text": "27",
+            "outside": true,
+            "selected": false,
+            "today": false,
+            "disabled": true,
+            "role": "gridcell",
+            "tabindex": "-1",
+            "label": "Monday, April 27th, 2026",
+            "ariaSelected": null,
+            "ariaDisabled": null,
+            "buttonDisabled": true
+          },
+          {
+            "day": "2026-04-28",
+            "text": "28",
+            "outside": true,
+            "selected": false,
+            "today": false,
+            "disabled": true,
+            "role": "gridcell",
+            "tabindex": "-1",
+            "label": "Tuesday, April 28th, 2026",
+            "ariaSelected": null,
+            "ariaDisabled": null,
+            "buttonDisabled": true
+          },
+          {
+            "day": "2026-04-29",
+            "text": "29",
+            "outside": true,
+            "selected": false,
+            "today": false,
+            "disabled": true,
+            "role": "gridcell",
+            "tabindex": "-1",
+            "label": "Wednesday, April 29th, 2026",
+            "ariaSelected": null,
+            "ariaDisabled": null,
+            "buttonDisabled": true
+          },
+          {
+            "day": "2026-04-30",
+            "text": "30",
+            "outside": true,
+            "selected": false,
+            "today": false,
+            "disabled": true,
+            "role": "gridcell",
+            "tabindex": "-1",
+            "label": "Thursday, April 30th, 2026",
+            "ariaSelected": null,
+            "ariaDisabled": null,
+            "buttonDisabled": true
+          },
+          {
+            "day": "2026-05-01",
+            "text": "1",
+            "outside": false,
+            "selected": false,
+            "today": false,
+            "disabled": true,
+            "role": "gridcell",
+            "tabindex": "-1",
+            "label": "Friday, May 1st, 2026",
+            "ariaSelected": null,
+            "ariaDisabled": null,
+            "buttonDisabled": true
+          },
+          {
+            "day": "2026-05-02",
+            "text": "2",
+            "outside": false,
+            "selected": false,
+            "today": false,
+            "disabled": true,
+            "role": "gridcell",
+            "tabindex": "-1",
+            "label": "Saturday, May 2nd, 2026",
+            "ariaSelected": null,
+            "ariaDisabled": null,
+            "buttonDisabled": true
+          }
+        ],
+        [
+          {
+            "day": "2026-05-03",
+            "text": "3",
+            "outside": false,
+            "selected": false,
+            "today": false,
+            "disabled": true,
+            "role": "gridcell",
+            "tabindex": "-1",
+            "label": "Sunday, May 3rd, 2026",
+            "ariaSelected": null,
+            "ariaDisabled": null,
+            "buttonDisabled": true
+          },
+          {
+            "day": "2026-05-04",
+            "text": "4",
+            "outside": false,
+            "selected": false,
+            "today": false,
+            "disabled": true,
+            "role": "gridcell",
+            "tabindex": "-1",
+            "label": "Monday, May 4th, 2026",
+            "ariaSelected": null,
+            "ariaDisabled": null,
+            "buttonDisabled": true
+          },
+          {
+            "day": "2026-05-05",
+            "text": "5",
+            "outside": false,
+            "selected": false,
+            "today": false,
+            "disabled": true,
+            "role": "gridcell",
+            "tabindex": "-1",
+            "label": "Tuesday, May 5th, 2026",
+            "ariaSelected": null,
+            "ariaDisabled": null,
+            "buttonDisabled": true
+          },
+          {
+            "day": "2026-05-06",
+            "text": "6",
+            "outside": false,
+            "selected": false,
+            "today": false,
+            "disabled": true,
+            "role": "gridcell",
+            "tabindex": "-1",
+            "label": "Wednesday, May 6th, 2026",
+            "ariaSelected": null,
+            "ariaDisabled": null,
+            "buttonDisabled": true
+          },
+          {
+            "day": "2026-05-07",
+            "text": "7",
+            "outside": false,
+            "selected": false,
+            "today": false,
+            "disabled": true,
+            "role": "gridcell",
+            "tabindex": "-1",
+            "label": "Thursday, May 7th, 2026",
+            "ariaSelected": null,
+            "ariaDisabled": null,
+            "buttonDisabled": true
+          },
+          {
+            "day": "2026-05-08",
+            "text": "8",
+            "outside": false,
+            "selected": false,
+            "today": false,
+            "disabled": true,
+            "role": "gridcell",
+            "tabindex": "-1",
+            "label": "Friday, May 8th, 2026",
+            "ariaSelected": null,
+            "ariaDisabled": null,
+            "buttonDisabled": true
+          },
+          {
+            "day": "2026-05-09",
+            "text": "9",
+            "outside": false,
+            "selected": false,
+            "today": false,
+            "disabled": true,
+            "role": "gridcell",
+            "tabindex": "-1",
+            "label": "Saturday, May 9th, 2026",
+            "ariaSelected": null,
+            "ariaDisabled": null,
+            "buttonDisabled": true
+          }
+        ],
+        [
+          {
+            "day": "2026-05-10",
+            "text": "10",
+            "outside": false,
+            "selected": false,
+            "today": false,
+            "disabled": false,
+            "role": "gridcell",
+            "tabindex": "-1",
+            "label": "Sunday, May 10th, 2026",
+            "ariaSelected": null,
+            "ariaDisabled": null,
+            "buttonDisabled": false
+          },
+          {
+            "day": "2026-05-11",
+            "text": "11",
+            "outside": false,
+            "selected": false,
+            "today": false,
+            "disabled": false,
+            "role": "gridcell",
+            "tabindex": "-1",
+            "label": "Monday, May 11th, 2026",
+            "ariaSelected": null,
+            "ariaDisabled": null,
+            "buttonDisabled": false
+          },
+          {
+            "day": "2026-05-12",
+            "text": "12",
+            "outside": false,
+            "selected": false,
+            "today": false,
+            "disabled": false,
+            "role": "gridcell",
+            "tabindex": "-1",
+            "label": "Tuesday, May 12th, 2026",
+            "ariaSelected": null,
+            "ariaDisabled": null,
+            "buttonDisabled": false
+          },
+          {
+            "day": "2026-05-13",
+            "text": "13",
+            "outside": false,
+            "selected": false,
+            "today": false,
+            "disabled": false,
+            "role": "gridcell",
+            "tabindex": "-1",
+            "label": "Wednesday, May 13th, 2026",
+            "ariaSelected": null,
+            "ariaDisabled": null,
+            "buttonDisabled": false
+          },
+          {
+            "day": "2026-05-14",
+            "text": "14",
+            "outside": false,
+            "selected": false,
+            "today": true,
+            "disabled": false,
+            "role": "gridcell",
+            "tabindex": "0",
+            "label": "Today, Thursday, May 14th, 2026",
+            "ariaSelected": null,
+            "ariaDisabled": null,
+            "buttonDisabled": false
+          },
+          {
+            "day": "2026-05-15",
+            "text": "15",
+            "outside": false,
+            "selected": false,
+            "today": false,
+            "disabled": false,
+            "role": "gridcell",
+            "tabindex": "-1",
+            "label": "Friday, May 15th, 2026",
+            "ariaSelected": null,
+            "ariaDisabled": null,
+            "buttonDisabled": false
+          },
+          {
+            "day": "2026-05-16",
+            "text": "16",
+            "outside": false,
+            "selected": false,
+            "today": false,
+            "disabled": false,
+            "role": "gridcell",
+            "tabindex": "-1",
+            "label": "Saturday, May 16th, 2026",
+            "ariaSelected": null,
+            "ariaDisabled": null,
+            "buttonDisabled": false
+          }
+        ],
+        [
+          {
+            "day": "2026-05-17",
+            "text": "17",
+            "outside": false,
+            "selected": false,
+            "today": false,
+            "disabled": false,
+            "role": "gridcell",
+            "tabindex": "-1",
+            "label": "Sunday, May 17th, 2026",
+            "ariaSelected": null,
+            "ariaDisabled": null,
+            "buttonDisabled": false
+          },
+          {
+            "day": "2026-05-18",
+            "text": "18",
+            "outside": false,
+            "selected": false,
+            "today": false,
+            "disabled": false,
+            "role": "gridcell",
+            "tabindex": "-1",
+            "label": "Monday, May 18th, 2026",
+            "ariaSelected": null,
+            "ariaDisabled": null,
+            "buttonDisabled": false
+          },
+          {
+            "day": "2026-05-19",
+            "text": "19",
+            "outside": false,
+            "selected": false,
+            "today": false,
+            "disabled": false,
+            "role": "gridcell",
+            "tabindex": "-1",
+            "label": "Tuesday, May 19th, 2026",
+            "ariaSelected": null,
+            "ariaDisabled": null,
+            "buttonDisabled": false
+          },
+          {
+            "day": "2026-05-20",
+            "text": "20",
+            "outside": false,
+            "selected": false,
+            "today": false,
+            "disabled": false,
+            "role": "gridcell",
+            "tabindex": "-1",
+            "label": "Wednesday, May 20th, 2026",
+            "ariaSelected": null,
+            "ariaDisabled": null,
+            "buttonDisabled": false
+          },
+          {
+            "day": "2026-05-21",
+            "text": "21",
+            "outside": false,
+            "selected": false,
+            "today": false,
+            "disabled": false,
+            "role": "gridcell",
+            "tabindex": "-1",
+            "label": "Thursday, May 21st, 2026",
+            "ariaSelected": null,
+            "ariaDisabled": null,
+            "buttonDisabled": false
+          },
+          {
+            "day": "2026-05-22",
+            "text": "22",
+            "outside": false,
+            "selected": false,
+            "today": false,
+            "disabled": false,
+            "role": "gridcell",
+            "tabindex": "-1",
+            "label": "Friday, May 22nd, 2026",
+            "ariaSelected": null,
+            "ariaDisabled": null,
+            "buttonDisabled": false
+          },
+          {
+            "day": "2026-05-23",
+            "text": "23",
+            "outside": false,
+            "selected": false,
+            "today": false,
+            "disabled": false,
+            "role": "gridcell",
+            "tabindex": "-1",
+            "label": "Saturday, May 23rd, 2026",
+            "ariaSelected": null,
+            "ariaDisabled": null,
+            "buttonDisabled": false
+          }
+        ],
+        [
+          {
+            "day": "2026-05-24",
+            "text": "24",
+            "outside": false,
+            "selected": false,
+            "today": false,
+            "disabled": false,
+            "role": "gridcell",
+            "tabindex": "-1",
+            "label": "Sunday, May 24th, 2026",
+            "ariaSelected": null,
+            "ariaDisabled": null,
+            "buttonDisabled": false
+          },
+          {
+            "day": "2026-05-25",
+            "text": "25",
+            "outside": false,
+            "selected": false,
+            "today": false,
+            "disabled": false,
+            "role": "gridcell",
+            "tabindex": "-1",
+            "label": "Monday, May 25th, 2026",
+            "ariaSelected": null,
+            "ariaDisabled": null,
+            "buttonDisabled": false
+          },
+          {
+            "day": "2026-05-26",
+            "text": "26",
+            "outside": false,
+            "selected": false,
+            "today": false,
+            "disabled": false,
+            "role": "gridcell",
+            "tabindex": "-1",
+            "label": "Tuesday, May 26th, 2026",
+            "ariaSelected": null,
+            "ariaDisabled": null,
+            "buttonDisabled": false
+          },
+          {
+            "day": "2026-05-27",
+            "text": "27",
+            "outside": false,
+            "selected": false,
+            "today": false,
+            "disabled": false,
+            "role": "gridcell",
+            "tabindex": "-1",
+            "label": "Wednesday, May 27th, 2026",
+            "ariaSelected": null,
+            "ariaDisabled": null,
+            "buttonDisabled": false
+          },
+          {
+            "day": "2026-05-28",
+            "text": "28",
+            "outside": false,
+            "selected": false,
+            "today": false,
+            "disabled": false,
+            "role": "gridcell",
+            "tabindex": "-1",
+            "label": "Thursday, May 28th, 2026",
+            "ariaSelected": null,
+            "ariaDisabled": null,
+            "buttonDisabled": false
+          },
+          {
+            "day": "2026-05-29",
+            "text": "29",
+            "outside": false,
+            "selected": false,
+            "today": false,
+            "disabled": false,
+            "role": "gridcell",
+            "tabindex": "-1",
+            "label": "Friday, May 29th, 2026",
+            "ariaSelected": null,
+            "ariaDisabled": null,
+            "buttonDisabled": false
+          },
+          {
+            "day": "2026-05-30",
+            "text": "30",
+            "outside": false,
+            "selected": false,
+            "today": false,
+            "disabled": false,
+            "role": "gridcell",
+            "tabindex": "-1",
+            "label": "Saturday, May 30th, 2026",
+            "ariaSelected": null,
+            "ariaDisabled": null,
+            "buttonDisabled": false
+          }
+        ],
+        [
+          {
+            "day": "2026-05-31",
+            "text": "31",
+            "outside": false,
+            "selected": false,
+            "today": false,
+            "disabled": false,
+            "role": "gridcell",
+            "tabindex": "-1",
+            "label": "Sunday, May 31st, 2026",
+            "ariaSelected": null,
+            "ariaDisabled": null,
+            "buttonDisabled": false
+          },
+          {
+            "day": "2026-06-01",
+            "text": "1",
+            "outside": true,
+            "selected": false,
+            "today": false,
+            "disabled": false,
+            "role": "gridcell",
+            "tabindex": "-1",
+            "label": "Monday, June 1st, 2026",
+            "ariaSelected": null,
+            "ariaDisabled": null,
+            "buttonDisabled": false
+          },
+          {
+            "day": "2026-06-02",
+            "text": "2",
+            "outside": true,
+            "selected": false,
+            "today": false,
+            "disabled": false,
+            "role": "gridcell",
+            "tabindex": "-1",
+            "label": "Tuesday, June 2nd, 2026",
+            "ariaSelected": null,
+            "ariaDisabled": null,
+            "buttonDisabled": false
+          },
+          {
+            "day": "2026-06-03",
+            "text": "3",
+            "outside": true,
+            "selected": false,
+            "today": false,
+            "disabled": false,
+            "role": "gridcell",
+            "tabindex": "-1",
+            "label": "Wednesday, June 3rd, 2026",
+            "ariaSelected": null,
+            "ariaDisabled": null,
+            "buttonDisabled": false
+          },
+          {
+            "day": "2026-06-04",
+            "text": "4",
+            "outside": true,
+            "selected": false,
+            "today": false,
+            "disabled": false,
+            "role": "gridcell",
+            "tabindex": "-1",
+            "label": "Thursday, June 4th, 2026",
+            "ariaSelected": null,
+            "ariaDisabled": null,
+            "buttonDisabled": false
+          },
+          {
+            "day": "2026-06-05",
+            "text": "5",
+            "outside": true,
+            "selected": false,
+            "today": false,
+            "disabled": false,
+            "role": "gridcell",
+            "tabindex": "-1",
+            "label": "Friday, June 5th, 2026",
+            "ariaSelected": null,
+            "ariaDisabled": null,
+            "buttonDisabled": false
+          },
+          {
+            "day": "2026-06-06",
+            "text": "6",
+            "outside": true,
+            "selected": false,
+            "today": false,
+            "disabled": false,
+            "role": "gridcell",
+            "tabindex": "-1",
+            "label": "Saturday, June 6th, 2026",
+            "ariaSelected": null,
+            "ariaDisabled": null,
+            "buttonDisabled": false
+          }
+        ]
+      ],
+      "mode": "single",
+      "lang": "en-US"
+    },
+    "disabledDays": [
+      "2026-04-26",
+      "2026-04-27",
+      "2026-04-28",
+      "2026-04-29",
+      "2026-04-30",
+      "2026-05-01",
+      "2026-05-02",
+      "2026-05-03",
+      "2026-05-04",
+      "2026-05-05",
+      "2026-05-06",
+      "2026-05-07",
+      "2026-05-08",
+      "2026-05-09"
+    ],
+    "initialFocus": {
+      "tabbable": [
+        "2026-05-14"
+      ],
+      "focused": null,
+      "focusedTag": "BODY",
+      "caption": "May 2026",
+      "selected": null
+    },
+    "stepOntoDisabled": {
+      "from": "2026-05-10",
+      "key": "ArrowLeft",
+      "to": "2026-05-10",
+      "caption": "May 2026",
+      "tabbable": [
+        "2026-05-14"
+      ]
+    },
+    "stepOntoDisabledUp": {
+      "from": "2026-05-14",
+      "key": "ArrowUp",
+      "to": "2026-05-14",
+      "caption": "May 2026",
+      "tabbable": [
+        "2026-05-14"
+      ]
+    },
+    "clickDisabled": {
+      "day": "2026-05-05",
+      "tabbable": [
+        "2026-05-14"
+      ],
+      "focused": null,
+      "focusedTag": "BODY",
+      "caption": "May 2026",
+      "selected": null,
+      "$comment": "A disabled day is not selectable by pointer either."
+    }
+  },
+  "yearNav": {
+    "dropdownUnbounded": {
+      "hasMonthSelect": true,
+      "hasYearSelect": true,
+      "navKept": [
+        "Go to the Previous Month",
+        "Go to the Next Month"
+      ],
+      "yearCount": 101,
+      "firstYear": 1926,
+      "lastYear": 2026,
+      "viewYear": "2026",
+      "$comment": "No bounds given: the list runs a hundred years BACK from the current year and stops there, ascending. So out of the box the dropdown cannot reach next year at all — the range is a decision the host has to make, not a default worth copying."
+    },
+    "dropdownYearsOnly": {
+      "hasMonthSelect": false,
+      "hasYearSelect": true,
+      "$comment": "\"dropdown-years\" is the year alone; the month stays a label."
+    },
+    "bounded": {
+      "years": [
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+        2025,
+        2026,
+        2027,
+        2028,
+        2029,
+        2030
+      ],
+      "monthValues": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11"
+      ],
+      "monthTexts": [
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December"
+      ],
+      "monthValueOfMay": "4",
+      "$comment": "The year list is exactly the bounded years, ascending. Month option values are ZERO-BASED indices, not month numbers."
+    },
+    "reversed": {
+      "years": [
+        2030,
+        2029,
+        2028,
+        2027,
+        2026,
+        2025,
+        2024,
+        2023,
+        2022,
+        2021,
+        2020
+      ]
+    },
+    "narrowBounds": {
+      "years": [
+        2026
+      ],
+      "monthsEnabled": [
+        "May",
+        "June",
+        "July"
+      ],
+      "monthsDisabled": [
+        "January",
+        "February",
+        "March",
+        "April",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December"
+      ],
+      "nav": [
+        {
+          "label": "Go to the Previous Month",
+          "disabled": false
+        },
+        {
+          "label": "Go to the Next Month",
+          "disabled": false
+        }
+      ],
+      "$comment": "A month outside the range is DISABLED, not removed: the list is always twelve long, so it does not reflow as you move through the range. The nav arrows are not bounded by it in this version."
+    },
+    "changing": {
+      "before": {
+        "year": "2026",
+        "month": "4",
+        "cells": 42,
+        "tabbable": [
+          "2026-05-14"
+        ]
+      },
+      "afterYear": {
+        "year": "2023",
+        "month": "4",
+        "cells": 35,
+        "tabbable": [
+          "2023-05-01"
+        ]
+      },
+      "afterMonth": {
+        "year": "2023",
+        "month": "1",
+        "cells": 35,
+        "tabbable": [
+          "2023-02-01"
+        ]
+      },
+      "$comment": "Changing the year KEEPS the month index and vice versa. The grid reshapes — May 2026 is six rows and May 2023 is five — and the tab stop moves to the FIRST of the shown month rather than staying on the same day number, which is the part a re-implementation gets wrong: keeping the day number would land on a day that may not exist in the new month."
+    },
+    "selectionSurvives": {
+      "selectedValue": "2026-05-20",
+      "markedInView": [],
+      "$comment": "Jumping the year does not clear the selection — it just takes it off screen. Nothing in the shown month is marked, and coming back to May 2026 finds it still there."
+    }
+  },
+  "findings": {
+    "homeAndEndAreWeekRelative": "Home and End move within the displayed WEEK, not the month: Home from 2026-05-13 is 2026-05-10 (that week's Sunday) and End is 2026-05-16. From 2026-05-01, a Friday, Home is 2026-04-26 — an outside day — and the displayed month changes to April. A calendar whose Home key means 'the 1st' is a different component, and that is the obvious wrong guess.",
+    "pageKeysKeepTheDayOfMonth": "PageUp and PageDown shift by one month and hold the day number: 2026-05-13 goes to 2026-04-13 and 2026-06-13. At the ends this is capped by the target month's length — PageUp from 2026-05-31 is 2026-04-30, because April has no 31st.",
+    "focusDragsTheMonth": "Arrow keys are not bounded by the displayed month. Stepping off either end scrolls the grid, so the caption is a function of the focused day.",
+    "tabStopAtRestIsToday": "With nothing selected the single tab stop is today; once a day is selected it is the selected day. Both are measured — see initialFocus and tabStopAfterSelect.",
+    "singleModeToggles": "mode=single without `required` clears the selection when the selected day is clicked again. onSelect fires with undefined.",
+    "outsideDayDoesNotNavigate": "Clicking a leading outside day selects that date and leaves the caption on the original month. Selection and display are independent.",
+    "rovingTabindex": {
+      "measured": "The tab stop follows the FIRST click (05-13) but not a second one: after clicking 05-20 the tabbable day is still 05-13 while focus is on 05-20. Stable at 800ms, so not a race. Keyboard focus does keep the tab stop in step, except across a month change, where it jumps to the 1st of the new month.",
+      "divergence": "NOT COPIED. WAI-ARIA's grid pattern says the tabbable cell is the one that will receive focus, and here it demonstrably is not — tabbing out and back would land somewhere other than where you left. The Ranger side keeps the tab stop on the focused day at all times. This is a deliberate, recorded deviation from the reference and the parity counter scores it as such rather than as a miss."
+    }
+  }
+}

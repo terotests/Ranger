@@ -1,0 +1,5 @@
+{ "name":"toolbar_arrows","component":"toolbar",
+  "behaviours":["arrow-next","arrow-prev","arrow-wraps","disabled-skipped"],
+  "fixture":{"controls":[{"type":"toolbar","tid":"tb","name":"Format","items":[
+    {"value":"b","name":"Bold"},{"value":"i","name":"Italic","disabled":true},{"value":"u","name":"Under"}]}]},
+  "steps":[{"click":"tb-b"},{"key":"ArrowRight"},{"key":"ArrowLeft"}] }

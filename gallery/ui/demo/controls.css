@@ -1,0 +1,524 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+ *
+ * A stepper, a progress bar and a number field, as an EVG stylesheet.
+ *
+ * No GEOMETRY that a controller owns is in here. The progress fill's width is
+ * ProgressCtl's rounded percentage, written inline by ControlsDemo.rgr; a rule
+ * here that sized it would be a second, unmeasured answer competing with the
+ * measured one.
+ *
+ * Class-first, one token per selector, no descendant selectors — which is why
+ * a completed step's NUMERAL carries `cx-dottxt-complete` rather than
+ * inheriting a colour from the circle around it. White-on-white is what you
+ * get for assuming it can.
+ */
+
+/* NO FIXED HEIGHT. It was `height: 460px` while the content came to 584, so
+ * the last three sections — the slider bank, the buttons and the note — were
+ * drawn below the page's own bottom edge and over whatever the browser put
+ * there. A panel that states a height its content does not fit is stating a
+ * wish. `min-height` keeps the empty case from collapsing without capping the
+ * full one. */
+.cx-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  background-color: #ffffff;
+  padding: 24px;
+  width: 900px;
+  min-height: 460px;
+}
+
+.cx-title {
+  font-size: 18px;
+  color: #0a0a0a;
+  height: 24px;
+}
+
+/* --- the stepper strip -------------------------------------------------- */
+
+/* `nowrap`, because EVG's default is `wrap` and CSS's is `nowrap` — the
+ * comment on `flexWrap` in EVGElement calls its own default historical. Four
+ * steps and three rails come to exactly the strip's 852px, so with the
+ * implicit wrap the last step fell to a second line and sat on the section
+ * below it.
+ *
+ * And no fixed height: a step is an icon, an eyebrow, a title and a badge
+ * stacked, which is 75px, not the 40 this claimed. The strip is as tall as the
+ * tallest step. */
+.cx-strip {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.cx-step {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The rail between two steps. Grows, so the strip spans its width however
+ * many steps there are. */
+.cx-rail {
+  height: 2px;
+  background-color: #e4e4e7;
+  flex-grow: 1;
+}
+
+.cx-dot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 13px;
+  border-width: 1px;
+  border-color: #e4e4e7;
+  background-color: #ffffff;
+  cursor: pointer;
+}
+
+.cx-dot-current {
+  background-color: #0a0a0a;
+  border-color: #0a0a0a;
+}
+
+.cx-dot-complete {
+  background-color: #16a34a;
+  border-color: #16a34a;
+}
+
+/* An unreachable step is not merely pale — the cursor says so too, because a
+ * circle that looks clickable and is not is the worst of the three states. */
+.cx-dot-upcoming {
+  background-color: #fafafa;
+  cursor: default;
+}
+
+.cx-dot-disabled {
+  background-color: #fafafa;
+  cursor: default;
+}
+
+.cx-dottxt {
+  font-size: 12px;
+  color: #71717a;
+}
+
+.cx-dottxt-current {
+  color: #ffffff;
+}
+
+.cx-dottxt-complete {
+  color: #ffffff;
+}
+
+.cx-dottxt-upcoming {
+  color: #a1a1aa;
+}
+
+.cx-dottxt-disabled {
+  color: #d4d4d8;
+}
+
+.cx-steplbl {
+  font-size: 13px;
+  color: #71717a;
+}
+
+.cx-steplbl-current {
+  color: #0a0a0a;
+}
+
+.cx-steplbl-complete {
+  color: #16a34a;
+}
+
+.cx-steplbl-upcoming {
+  color: #a1a1aa;
+}
+
+.cx-steplbl-disabled {
+  color: #d4d4d8;
+}
+
+/* ReUI's block under each circle: an eyebrow, the title, a state badge. */
+.cx-stepcol {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+}
+
+.cx-eyebrow {
+  font-size: 10px;
+  color: #a1a1aa;
+}
+
+.cx-badge {
+  display: flex;
+  align-items: center;
+  height: 17px;
+  padding-left: 6px;
+  padding-right: 6px;
+  border-radius: 9px;
+  background-color: #f4f4f5;
+}
+
+.cx-badge-active {
+  background-color: #dbeafe;
+}
+
+.cx-badge-completed {
+  background-color: #dcfce7;
+}
+
+.cx-badge-loading {
+  background-color: #fef3c7;
+}
+
+/* Every badge label needs its own token, for the reason every other label in
+ * this file does: there are no descendant selectors, so a dark badge with a
+ * label inheriting nothing draws dark on dark. */
+.cx-badgetxt {
+  font-size: 10px;
+  color: #71717a;
+}
+
+.cx-badgetxt-active {
+  color: #1e3a8a;
+}
+
+.cx-badgetxt-completed {
+  color: #14532d;
+}
+
+.cx-badgetxt-loading {
+  color: #78350f;
+}
+
+/* The separator takes the state of the step BEFORE it. */
+.cx-rail-completed {
+  background-color: #16a34a;
+}
+
+.cx-rail-inactive {
+  background-color: #e4e4e7;
+}
+
+.cx-panelbox {
+  display: flex;
+  align-items: center;
+  border-width: 1px;
+  border-color: #e4e4e7;
+  border-radius: 10px;
+  padding-left: 14px;
+  height: 44px;
+  width: 852px;
+  background-color: #fafafa;
+}
+
+.cx-paneltxt {
+  font-size: 13px;
+  color: #52525b;
+}
+
+/* --- the four sliders ----------------------------------------------------
+ *
+ * No POSITION here that the controller owns. Every left and width is a
+ * SliderCtl fraction turned into pixels by ControlsDemo.rgr — a rule in this
+ * file that placed a thumb would be a second, unmeasured answer competing
+ * with the one the Radix capture settled.
+ */
+
+.cx-slides {
+  display: flex;
+  flex-direction: row;
+  gap: 24px;
+}
+
+.cx-slide {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 300px;
+}
+
+.cx-slidelbl {
+  font-size: 13px;
+  color: #0a0a0a;
+  height: 18px;
+}
+
+.cx-track {
+  position: relative;
+  height: 6px;
+  border-radius: 3px;
+  background-color: #f4f4f5;
+}
+
+.cx-range {
+  height: 6px;
+  border-radius: 3px;
+  background-color: #0a0a0a;
+}
+
+.cx-thumb {
+  position: absolute;
+  top: -4px;
+  width: 14px;
+  height: 14px;
+  border-radius: 7px;
+  border-width: 1px;
+  border-color: #a1a1aa;
+  background-color: #ffffff;
+  cursor: pointer;
+}
+
+/* Reference labels: the ends and the midpoint, spread under the track. */
+.cx-refs {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.cx-reftxt {
+  font-size: 12px;
+  color: #71717a;
+}
+
+/* The ruler. Every tick has a cell; a MINOR one is a shorter mark with an
+ * empty label, which is how ReUI hides the number without losing the space. */
+.cx-ticks {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+}
+
+.cx-tick {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.cx-tickmark {
+  width: 1px;
+  background-color: #a1a1aa;
+}
+
+.cx-tickmark-major {
+  height: 5px;
+}
+
+.cx-tickmark-minor {
+  height: 3px;
+}
+
+.cx-ticktxt {
+  font-size: 11px;
+  color: #71717a;
+  height: 14px;
+}
+
+/* The bubble over the thumb. */
+.cx-bubble {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 20px;
+  border-radius: 5px;
+  background-color: #0a0a0a;
+}
+
+.cx-bubbletxt {
+  font-size: 11px;
+  color: #ffffff;
+}
+
+.cx-emoji {
+  font-size: 20px;
+  color: #0a0a0a;
+}
+
+.cx-bandtxt {
+  font-size: 12px;
+  color: #52525b;
+  height: 16px;
+}
+
+/* --- the progress bar ---------------------------------------------------- */
+
+.cx-bar {
+  width: 852px;
+  height: 8px;
+  border-radius: 4px;
+  background-color: #f4f4f5;
+  overflow: hidden;
+}
+
+.cx-barfill {
+  height: 8px;
+  border-radius: 4px;
+  background-color: #16a34a;
+  transition: width 220ms ease-out;
+}
+
+.cx-bartxt {
+  font-size: 12px;
+  color: #71717a;
+  height: 16px;
+}
+
+/* --- the number field ---------------------------------------------------- */
+
+.cx-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-width: 1px;
+  border-color: #e4e4e7;
+  border-radius: 10px;
+  padding: 16px;
+  width: 320px;
+}
+
+.cx-panellbl {
+  font-size: 13px;
+  color: #0a0a0a;
+  height: 18px;
+}
+
+.cx-numrow {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0px;
+  height: 34px;
+}
+
+.cx-numbtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-width: 1px;
+  border-color: #e4e4e7;
+  background-color: #ffffff;
+  cursor: pointer;
+}
+
+.cx-numbtn:hover {
+  background-color: #f4f4f5;
+}
+
+/* MEASURED: the buttons go disabled AT the bound. Base UI writes
+ * aria-disabled="false" when they are enabled, which is why the probe that
+ * read `hasAttribute` called every one of them disabled. */
+.cx-numbtn-off {
+  background-color: #fafafa;
+  cursor: default;
+}
+
+.cx-numbtntxt {
+  font-size: 15px;
+  color: #0a0a0a;
+}
+
+.cx-numbox {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 90px;
+  height: 34px;
+  border-width: 1px;
+  border-color: #e4e4e7;
+  background-color: #ffffff;
+  cursor: text;
+}
+
+.cx-numbox:focus {
+  border-color: #0a0a0a;
+}
+
+.cx-numtxt {
+  font-size: 14px;
+  color: #0a0a0a;
+}
+
+.cx-numhint {
+  font-size: 11px;
+  color: #a1a1aa;
+  height: 15px;
+}
+
+/* --- back and next -------------------------------------------------------- */
+
+.cx-actions {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  height: 34px;
+}
+
+.cx-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  padding-left: 16px;
+  padding-right: 16px;
+  border-width: 1px;
+  border-color: #e4e4e7;
+  border-radius: 8px;
+  background-color: #ffffff;
+  cursor: pointer;
+}
+
+.cx-btn:hover {
+  background-color: #f4f4f5;
+}
+
+.cx-btn-primary {
+  background-color: #0a0a0a;
+  border-color: #0a0a0a;
+}
+
+/* Next while the step is not done. The gate is the whole point of a linear
+ * stepper, so it has to be visible rather than only refused on click. */
+.cx-btn-off {
+  background-color: #fafafa;
+  cursor: default;
+}
+
+.cx-btntxt {
+  font-size: 13px;
+  color: #0a0a0a;
+}
+
+/* The primary button's LABEL needs its own token for the reason the step
+ * numerals do: there are no descendant selectors, so black-on-black is exactly
+ * what a label inheriting nothing from a dark button gets. Caught by reading
+ * this file back rather than by looking at the picture. */
+.cx-btntxt-primary {
+  color: #ffffff;
+}
+
+.cx-btntxt-off {
+  color: #a1a1aa;
+}
+
+.cx-note {
+  font-size: 12px;
+  color: #a1a1aa;
+  height: 16px;
+}

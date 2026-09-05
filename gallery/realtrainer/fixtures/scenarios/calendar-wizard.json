@@ -1,0 +1,79 @@
+{
+  "_": "The calendar wizard — /new-calendar, a full-screen page of its own: four steps, a type picked, a name typed, encryption left off, a colour and a visibility picked, and the calendar created. The header's calendar is then the new one and a toast says so.",
+  "id": "calendar-wizard-create",
+  "area": "kalenterit",
+  "machine": "calendarWizard",
+  "source": "frontend/src/components/wizards/CalendarWizard.tsx",
+  "reference": {
+    "route": "/new-calendar"
+  },
+  "setup": [
+    {
+      "page": "390x844",
+      "why": "a phone, upright"
+    },
+    {
+      "route": "/new-calendar"
+    }
+  ],
+  "steps": [
+    {
+      "id": "rt-wiz-type-plan",
+      "role": "button",
+      "name": "Harjoitussuunnitelma Suunnittele tulevia harjoituksia",
+      "state": "type",
+      "why": "a type card's name is its label and its description, as the tree reads them"
+    },
+    {
+      "id": "rt-wiz-next",
+      "role": "button",
+      "name": "Seuraava",
+      "state": "details"
+    },
+    {
+      "id": "rt-wiz-name",
+      "role": "textbox",
+      "name": "esim. Juoksuharjoittelu 2026",
+      "type": "Kilpailukausi 2026",
+      "state": "details"
+    },
+    {
+      "id": "rt-wiz-next",
+      "role": "button",
+      "name": "Seuraava",
+      "state": "encryption"
+    },
+    {
+      "id": "rt-wiz-next",
+      "role": "button",
+      "name": "Seuraava",
+      "state": "appearance"
+    },
+    {
+      "id": "rt-wiz-color-2",
+      "role": "button",
+      "name": "",
+      "nth": 2,
+      "state": "appearance",
+      "why": "the colour swatches are the page's only unnamed buttons; the third is orange"
+    },
+    {
+      "id": "rt-wiz-vis-public",
+      "role": "button",
+      "name": "Julkinen",
+      "state": "appearance"
+    },
+    {
+      "id": "rt-wiz-create",
+      "role": "button",
+      "name": "Luo kalenteri",
+      "state": "creating",
+      "why": "the calendar is being written; the reference shows its loading page here"
+    },
+    {
+      "tick": 600,
+      "state": "closed",
+      "why": "the job answered: Home, with the new calendar in the header and a toast"
+    }
+  ]
+}

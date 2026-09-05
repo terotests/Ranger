@@ -1,0 +1,793 @@
+{
+ "id": "plan-edit-regenerate-cancel",
+ "machine": "planDialog",
+ "viewport": "390x844",
+ "frames": [
+  {
+   "step": "rt-tab-example",
+   "handled": true,
+   "state": "",
+   "nodes": [
+    {
+     "role": "banner",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Credits: 100k. Click to purchase more credits.",
+     "state": ""
+    },
+    {
+     "role": "img",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "100k credits",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "📋 Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "T",
+     "state": ""
+    },
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää harjoitus",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Päivitä suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Viikot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Malliviikko",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Kuntoutus & Ylläpito",
+     "state": "level=3"
+    },
+    {
+     "role": "paragraph",
+     "name": "Malliviikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Muokkaa",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Luo viikolle",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Tavoiteviikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kevyt viikko",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "\"Ma 💪🏋️ Ylävartalon voima - Eristävä #Voimaharjoittelu\"",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "LÄMMITTELY",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "10min Kuntopyörä",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "PÄÄOSA",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "\"Ti Kevyt lenkki #kestävyys 40min rauhallinen Ke Alavartalon voima #Voimaharjoittelu To Lepo #lepo Pe Liikkuvuus #huolto 30min venyttely La Pitkä lenkki #kestävyys 1h 10min pitkä Su Lepo #lepo\"",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Tavoiteviikko",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-ex-edit",
+   "handled": true,
+   "state": "",
+   "nodes": [
+    {
+     "role": "banner",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Credits: 100k. Click to purchase more credits.",
+     "state": ""
+    },
+    {
+     "role": "img",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "100k credits",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "📋 Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "T",
+     "state": ""
+    },
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää harjoitus",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Päivitä suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Viikot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Malliviikko",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Kuntoutus & Ylläpito",
+     "state": "level=3"
+    },
+    {
+     "role": "paragraph",
+     "name": "Malliviikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Muokkaa",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Luo viikolle",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Muokkaa viikkosuunnitelmaa",
+     "state": "level=3"
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Yleiset ohjeet regenerointiin",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "Esim. pidä torstai kevyenä, lisää polven kuntoutusta, vältä kahta kovaa päivää peräkkäin",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Päiväjärjestys ja päiväkohtaiset ohjeet (raahaa vasemman kahvan avulla)",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Raahaa päivän paikkaa",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "\"Ma ## Ylävartalon voima - Eristävä · Tags Voimaharjoittelu · Emojis 💪🏋️ · # LÄMMI...\"",
+     "state": ""
+    },
+    {
+     "role": "checkbox",
+     "name": "Nykyinen on hyvä — pidä samana",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Nykyinen on hyvä — pidä samana",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Hyväksy tämä",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä nykyinen",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kopioi nykyinen",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "Päiväkohtainen ohje (esim. tiistai vain palauttava uinti)",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Raahaa päivän paikkaa",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "\"Ti ## Kevyt lenkki · Tags kestävyys · Time 40min | rauhallinen\"",
+     "state": ""
+    },
+    {
+     "role": "checkbox",
+     "name": "Nykyinen on hyvä — pidä samana",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Nykyinen on hyvä — pidä samana",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Hyväksy tämä",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä nykyinen",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kopioi nykyinen",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "Päiväkohtainen ohje (esim. tiistai vain palauttava uinti)",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Raahaa päivän paikkaa",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "\"Ke ## Alavartalon voima · Tags Voimaharjoittelu · Kyykky 5x5x80kg · Maastaveto 3x5x...\"",
+     "state": ""
+    },
+    {
+     "role": "checkbox",
+     "name": "Nykyinen on hyvä — pidä samana",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Nykyinen on hyvä — pidä samana",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Hyväksy tämä",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä nykyinen",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kopioi nykyinen",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "Päiväkohtainen ohje (esim. tiistai vain palauttava uinti)",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Raahaa päivän paikkaa",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "\"To ## Lepo · Tags lepo\"",
+     "state": ""
+    },
+    {
+     "role": "checkbox",
+     "name": "Nykyinen on hyvä — pidä samana",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Nykyinen on hyvä — pidä samana",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Hyväksy tämä",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä nykyinen",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kopioi nykyinen",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "Päiväkohtainen ohje (esim. tiistai vain palauttava uinti)",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Raahaa päivän paikkaa",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "\"Pe ## Liikkuvuus · Tags huolto · Time 30min | venyttely\"",
+     "state": ""
+    },
+    {
+     "role": "checkbox",
+     "name": "Nykyinen on hyvä — pidä samana",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Nykyinen on hyvä — pidä samana",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Hyväksy tämä",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä nykyinen",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kopioi nykyinen",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "Päiväkohtainen ohje (esim. tiistai vain palauttava uinti)",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Raahaa päivän paikkaa",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "\"La ## Pitkä lenkki · Tags kestävyys · Time 70min | pitkä\"",
+     "state": ""
+    },
+    {
+     "role": "checkbox",
+     "name": "Nykyinen on hyvä — pidä samana",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Nykyinen on hyvä — pidä samana",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Hyväksy tämä",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä nykyinen",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kopioi nykyinen",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "Päiväkohtainen ohje (esim. tiistai vain palauttava uinti)",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Raahaa päivän paikkaa",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "\"Su ## Lepo · Tags lepo\"",
+     "state": ""
+    },
+    {
+     "role": "checkbox",
+     "name": "Nykyinen on hyvä — pidä samana",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "Nykyinen on hyvä — pidä samana",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Hyväksy tämä",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Näytä nykyinen",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kopioi nykyinen",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "Päiväkohtainen ohje (esim. tiistai vain palauttava uinti)",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Peruuta",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Tallenna ohjeet ja generoi",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Tavoiteviikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kevyt viikko",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "\"Ma 💪🏋️ Ylävartalon voima - Eristävä #Voimaharjoittelu\"",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "LÄMMITTELY",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "10min Kuntopyörä",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "PÄÄOSA",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "\"Ti Kevyt lenkki #kestävyys 40min rauhallinen Ke Alavartalon voima #Voimaharjoittelu To Lepo #lepo Pe Liikkuvuus #huolto 30min venyttely La Pitkä lenkki #kestävyys 1h 10min pitkä Su Lepo #lepo\"",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Tavoiteviikko",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-plan-close",
+   "handled": true,
+   "state": "",
+   "nodes": [
+    {
+     "role": "banner",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Credits: 100k. Click to purchase more credits.",
+     "state": ""
+    },
+    {
+     "role": "img",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "100k credits",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "📋 Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "T",
+     "state": ""
+    },
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää harjoitus",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Päivitä suunnitelma",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Viikot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Malliviikko",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "Kuntoutus & Ylläpito",
+     "state": "level=3"
+    },
+    {
+     "role": "paragraph",
+     "name": "Malliviikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Muokkaa",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Luo viikolle",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Tavoiteviikko",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kevyt viikko",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "\"Ma 💪🏋️ Ylävartalon voima - Eristävä #Voimaharjoittelu\"",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "LÄMMITTELY",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "10min Kuntopyörä",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "PÄÄOSA",
+     "state": ""
+    },
+    {
+     "role": "text",
+     "name": "\"Ti Kevyt lenkki #kestävyys 40min rauhallinen Ke Alavartalon voima #Voimaharjoittelu To Lepo #lepo Pe Liikkuvuus #huolto 30min venyttely La Pitkä lenkki #kestävyys 1h 10min pitkä Su Lepo #lepo\"",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Tavoiteviikko",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  }
+ ]
+}

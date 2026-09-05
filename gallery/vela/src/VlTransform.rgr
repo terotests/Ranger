@@ -19,7 +19,7 @@ Import "VlJson.rgr"
 Import "VlExprEval.rgr"
 Import "VlMath.rgr"
 
-class VlDataSet {
+class VlRowSet {
     def name:string ""
     def rows:[VlJson]
 

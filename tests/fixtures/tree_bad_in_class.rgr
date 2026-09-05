@@ -1,0 +1,21 @@
+; SPDX-License-Identifier: MIT
+; Negative control: a treefactory declares names, so it is a top-level form.
+
+class Box {
+    def name:string ""
+    def kids:[Box]
+    Constructor () { }
+    fn addKid:void (k:Box) {
+        push kids k
+    }
+}
+
+class T {
+    treefactory UiTree {
+        child addKid
+        tag   Row Box
+    }
+    sfn main:void () {
+        print "x"
+    }
+}

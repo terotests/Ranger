@@ -1,0 +1,268 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; fillGeometry commandsBlob: 0x00 close, 0x01 moveTo, 0x02 lineTo,
+; 0x03 quadTo, 0x04 cubicTo. Coordinates are f32 LE in node space.
+; Glyph outlines from TrueType fonts are almost entirely quadratics: without
+; 0x03 every curved letter stopped at its first curve and vanished.
+
+Import "KiwiBuffer.rgr"
+
+class FigPathRing {
+    def pts:[double]
+
+    Constructor () {
+    }
+}
+
+class FigPath {
+    Constructor () {
+    }
+
+    sfn f32:double (b:buffer off:int) {
+        if ((off + 4) > (buffer_length b)) {
+            return 0.0
+        }
+        def b0:int (buffer_get b off)
+        def b1:int (buffer_get b (off + 1))
+        def b2:int (buffer_get b (off + 2))
+        def b3:int (buffer_get b (off + 3))
+        def bits:int b0
+        bits = (bit_or bits (bit_shl b1 8))
+        bits = (bit_or bits (bit_shl b2 16))
+        bits = (bit_or bits (bit_shl b3 24))
+        return (KiwiBuffer.ieee32(bits))
+    }
+
+    sfn decode:void (blob:buffer rings:[FigPathRing]) {
+        def n:int (buffer_length blob)
+        def i:int 0
+        def ring (new FigPathRing())
+        def cx:double 0.0
+        def cy:double 0.0
+        def sx:double 0.0
+        def sy:double 0.0
+        def has:boolean false
+        while (i < n) {
+            def op:int (buffer_get blob i)
+            i = (i + 1)
+            if (op == 0) {
+                if has {
+                    push rings ring
+                    ring = (new FigPathRing())
+                    has = false
+                }
+            } {
+                if (op == 1) {
+                    if ((i + 8) > n) {
+                        return
+                    }
+                    cx = (FigPath.f32(blob i))
+                    cy = (FigPath.f32(blob (i + 4)))
+                    i = (i + 8)
+                    sx = cx
+                    sy = cy
+                    push ring.pts cx
+                    push ring.pts cy
+                    has = true
+                } {
+                    if (op == 2) {
+                        if ((i + 8) > n) {
+                            return
+                        }
+                        cx = (FigPath.f32(blob i))
+                        cy = (FigPath.f32(blob (i + 4)))
+                        i = (i + 8)
+                        push ring.pts cx
+                        push ring.pts cy
+                        has = true
+                    } {
+                        if (op == 3) {
+                            if ((i + 16) > n) {
+                                return
+                            }
+                            def qx:double (FigPath.f32(blob i))
+                            def qy:double (FigPath.f32(blob (i + 4)))
+                            def ex:double (FigPath.f32(blob (i + 8)))
+                            def ey:double (FigPath.f32(blob (i + 12)))
+                            i = (i + 16)
+                            ; A quadratic is the cubic with both controls
+                            ; two thirds of the way to the one control.
+                            FigPath.cubic(ring cx cy (cx + ((2.0 / 3.0) * (qx - cx))) (cy + ((2.0 / 3.0) * (qy - cy))) (ex + ((2.0 / 3.0) * (qx - ex))) (ey + ((2.0 / 3.0) * (qy - ey))) ex ey)
+                            cx = ex
+                            cy = ey
+                            has = true
+                        } {
+                        if (op == 4) {
+                            if ((i + 24) > n) {
+                                return
+                            }
+                            def c1x:double (FigPath.f32(blob i))
+                            def c1y:double (FigPath.f32(blob (i + 4)))
+                            def c2x:double (FigPath.f32(blob (i + 8)))
+                            def c2y:double (FigPath.f32(blob (i + 12)))
+                            def x:double (FigPath.f32(blob (i + 16)))
+                            def y:double (FigPath.f32(blob (i + 20)))
+                            i = (i + 24)
+                            FigPath.cubic(ring cx cy c1x c1y c2x c2y x y)
+                            cx = x
+                            cy = y
+                            has = true
+                        } {
+                            ; unknown opcode — stop rather than desync
+                            return
+                        }
+                        }
+                    }
+                }
+            }
+        }
+        if has {
+            push rings ring
+        }
+    }
+
+    sfn cubic:void (ring:FigPathRing x0:double y0:double x1:double y1:double x2:double y2:double x3:double y3:double) {
+        def s:int 0
+        while (s < 8) {
+            def t:double ((to_double (s + 1)) / 8.0)
+            def u:double (1.0 - t)
+            def u2:double (u * u)
+            def t2:double (t * t)
+            def a:double (u2 * u)
+            def b:double ((3.0 * u2) * t)
+            def c:double ((3.0 * u) * t2)
+            def d:double (t2 * t)
+            def x:double ((((a * x0) + (b * x1)) + (c * x2)) + (d * x3))
+            def y:double ((((a * y0) + (b * y1)) + (c * y2)) + (d * y3))
+            push ring.pts x
+            push ring.pts y
+            s = (s + 1)
+        }
+    }
+
+    ; SVG path `d` from a commandsBlob, mapped through x' = tx + sx*x,
+    ; y' = ty + sy*y. Glyph outlines are stored in em units with y UP and
+    ; the origin on the baseline, so a text node passes sx = fontSize,
+    ; sy = -fontSize and the glyph's baseline position. Numbers are cut to
+    ; a thousandth: a page of text is hundreds of glyphs and the full f32
+    ; expansion triples the string for nothing the eye can see.
+    sfn toSvgXf:string (blob:buffer sx:double sy:double tx:double ty:double) {
+        def n:int (buffer_length blob)
+        def i:int 0
+        def d:string ""
+        while (i < n) {
+            def op:int (buffer_get blob i)
+            i = (i + 1)
+            if (op == 0) {
+                d = (d + "Z")
+            } {
+                if (op == 1) {
+                    if ((i + 8) > n) {
+                        return d
+                    }
+                    d = (d + "M" + (FigPath.ptXf(blob i sx sy tx ty)))
+                    i = (i + 8)
+                } {
+                    if (op == 2) {
+                        if ((i + 8) > n) {
+                            return d
+                        }
+                        d = (d + "L" + (FigPath.ptXf(blob i sx sy tx ty)))
+                        i = (i + 8)
+                    } {
+                        if (op == 3) {
+                            if ((i + 16) > n) {
+                                return d
+                            }
+                            d = (d + "Q" + (FigPath.ptXf(blob i sx sy tx ty)) + " " + (FigPath.ptXf(blob (i + 8) sx sy tx ty)))
+                            i = (i + 16)
+                        } {
+                        if (op == 4) {
+                            if ((i + 24) > n) {
+                                return d
+                            }
+                            d = (d + "C" + (FigPath.ptXf(blob i sx sy tx ty)) + " ")
+                            d = (d + (FigPath.ptXf(blob (i + 8) sx sy tx ty)) + " ")
+                            d = (d + (FigPath.ptXf(blob (i + 16) sx sy tx ty)))
+                            i = (i + 24)
+                        } {
+                            return d
+                        }
+                        }
+                    }
+                }
+            }
+        }
+        return d
+    }
+
+    sfn ptXf:string (blob:buffer off:int sx:double sy:double tx:double ty:double) {
+        def x:double (tx + (sx * (FigPath.f32(blob off))))
+        def y:double (ty + (sy * (FigPath.f32(blob (off + 4)))))
+        return ((FigPath.short(x)) + " " + (FigPath.short(y)))
+    }
+
+    sfn short:string (v:double) {
+        def scaled:double (v * 1000.0)
+        if (scaled < 0.0) {
+            scaled = (scaled - 0.5)
+        } {
+            scaled = (scaled + 0.5)
+        }
+        def r:double ((to_double (to_int scaled)) / 1000.0)
+        return (to_string r)
+    }
+
+    ; SVG path `d` from a commandsBlob. Curves stay curves (C), not flattened.
+    sfn toSvg:string (blob:buffer) {
+        def n:int (buffer_length blob)
+        def i:int 0
+        def d:string ""
+        while (i < n) {
+            def op:int (buffer_get blob i)
+            i = (i + 1)
+            if (op == 0) {
+                d = (d + "Z")
+            } {
+                if (op == 1) {
+                    if ((i + 8) > n) {
+                        return d
+                    }
+                    d = (d + "M" + (to_string (FigPath.f32(blob i))) + " " + (to_string (FigPath.f32(blob (i + 4)))))
+                    i = (i + 8)
+                } {
+                    if (op == 2) {
+                        if ((i + 8) > n) {
+                            return d
+                        }
+                        d = (d + "L" + (to_string (FigPath.f32(blob i))) + " " + (to_string (FigPath.f32(blob (i + 4)))))
+                        i = (i + 8)
+                    } {
+                        if (op == 3) {
+                            if ((i + 16) > n) {
+                                return d
+                            }
+                            d = (d + "Q" + (to_string (FigPath.f32(blob i))) + " " + (to_string (FigPath.f32(blob (i + 4)))) + " ")
+                            d = (d + (to_string (FigPath.f32(blob (i + 8)))) + " " + (to_string (FigPath.f32(blob (i + 12)))))
+                            i = (i + 16)
+                        } {
+                        if (op == 4) {
+                            if ((i + 24) > n) {
+                                return d
+                            }
+                            d = (d + "C")
+                            d = (d + (to_string (FigPath.f32(blob i))) + " " + (to_string (FigPath.f32(blob (i + 4)))) + " ")
+                            d = (d + (to_string (FigPath.f32(blob (i + 8)))) + " " + (to_string (FigPath.f32(blob (i + 12)))) + " ")
+                            d = (d + (to_string (FigPath.f32(blob (i + 16)))) + " " + (to_string (FigPath.f32(blob (i + 20)))))
+                            i = (i + 24)
+                        } {
+                            return d
+                        }
+                        }
+                    }
+                }
+            }
+        }
+        return d
+    }
+}

@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ranger Fig — read a .fig in the browser</title>
+    <meta name="description" content="Upload a Figma .fig or .deck. It is parsed in this tab (ZIP → kiwi → node tree) and drawn with EVG. Nothing is uploaded." />
+    <style>
+      :root {
+        --bg: #12141a;
+        --panel: #1b1f28;
+        --ink: #e8ecf2;
+        --muted: #8b97a8;
+        --line: #2c3340;
+        --accent: #3b82f6;
+        --good: #34d399;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink);
+        font: 14px/1.45 "IBM Plex Sans", "Segoe UI", sans-serif; }
+      body { display: grid; grid-template-rows: auto 1fr auto; min-height: 100dvh; }
+      header { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center;
+        padding: 10px 14px; border-bottom: 1px solid var(--line); background: #161920; }
+      header h1 { margin: 0; font-size: 1.05rem; font-weight: 650; }
+      header p { margin: 0; color: var(--muted); font-size: 0.85rem; }
+      .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+      button, select, input[type="file"] {
+        background: #252b36; color: var(--ink); border: 1px solid #3a4250;
+        border-radius: 6px; padding: 6px 10px; font: inherit;
+      }
+      button { cursor: pointer; }
+      button:hover { border-color: var(--accent); }
+      button.primary { background: #1d4ed8; border-color: #2563eb; }
+      main { display: grid; grid-template-columns: 260px 1fr 300px; min-height: 0; }
+      .pane { overflow: auto; border-right: 1px solid var(--line); padding: 8px; }
+      .pane:last-child { border-right: 0; border-left: 1px solid var(--line); }
+      .stage { min-width: 0; min-height: 0; background: #0d1014; display: grid; place-items: stretch; }
+      canvas { width: 100%; height: 100%; display: block; touch-action: none; }
+      .tree { font: 12px/1.4 ui-monospace, Menlo, Consolas, monospace; }
+      .tree button { display: block; width: 100%; text-align: left; background: transparent;
+        border: 0; padding: 3px 6px; border-radius: 4px; color: var(--ink); }
+      .tree button:hover, .tree button.on { background: #243044; }
+      .props { font: 12px/1.45 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap;
+        color: #c9d4e4; margin: 0; }
+      .k { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em;
+        margin: 8px 4px 4px; }
+      footer { display: flex; flex-wrap: wrap; gap: 12px 20px; padding: 6px 14px;
+        border-top: 1px solid var(--line); color: var(--muted); font-size: 0.8rem; background: #161920; }
+      footer b { color: var(--good); font-weight: 600; }
+      a { color: #93c5fd; }
+      .drop { outline: 2px dashed var(--accent); outline-offset: -8px; }
+      @media (max-width: 900px) {
+        main { grid-template-columns: 1fr; grid-template-rows: 180px 1fr 220px; }
+        .pane { border-right: 0; border-bottom: 1px solid var(--line); }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div>
+        <h1>Ranger Fig</h1>
+        <p>Read a Figma <code>.fig</code> / <code>.deck</code> in this tab, or copy layers in Figma and paste them here (⌘V). ZIP → kiwi → scene graph → EVG. Nothing is uploaded.</p>
+      </div>
+      <div class="row">
+        <input id="file" type="file" accept=".fig,.deck,.jam,application/zip" />
+        <button id="sample" class="primary" type="button">Open sample</button>
+        <button id="paste" type="button" title="Read layers copied in Figma from the clipboard (or press ⌘V / Ctrl+V anywhere on the page)">Paste</button>
+        <label>Page <select id="page"></select></label>
+        <label>Frame <select id="frame"></select></label>
+        <button id="fit" type="button">Fit</button>
+        <button id="zoom100" type="button">100%</button>
+        <label><input id="debug" type="checkbox" /> Debug</label>
+        <span id="zoomlab" class="k" style="margin:0">100%</span>
+      </div>
+    </header>
+    <main>
+      <aside class="pane">
+        <div class="k">Layers</div>
+        <div id="tree" class="tree"></div>
+      </aside>
+      <section class="stage">
+        <canvas id="screen"></canvas>
+      </section>
+      <aside class="pane">
+        <div class="k">Selected</div>
+        <pre id="props" class="props">click a layer or the canvas</pre>
+      </aside>
+    </main>
+    <footer>
+      <span id="status">loading…</span>
+      <span>nodes <b id="nodes">0</b></span>
+      <span>cmds <b id="cmds">0</b></span>
+      <span>Ranger parse <b id="ms">–</b> ms</span>
+      <span>OpenFig parse <b id="ofms">–</b> ms</span>
+      <span>build __BUILD__</span>
+      <span><a href="https://terotests.github.io/Ranger/">Ranger</a> ·
+        <a href="https://github.com/OpenFig-org/openfig-cli">OpenFig</a></span>
+    </footer>
+    <script src="./fig_web.js?v=__BUILD__"></script>
+    <script type="module" src="./standalone.mjs?v=__BUILD__"></script>
+  </body>
+</html>

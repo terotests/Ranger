@@ -1,0 +1,17 @@
+class Greeter {
+  fn greet:string ( name:string ) {
+    return ("Hello, " + name)
+  } doc {
+    public
+    description "Builds a greeting."
+    param name "Who to greet."
+    returns "The greeting."
+    example noSuchExample
+  }
+} doc {
+  public
+  description "Makes greetings."
+}
+sfn main:void () {
+  print "ok"
+}

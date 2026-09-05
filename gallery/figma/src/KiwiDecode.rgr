@@ -1,0 +1,243 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; Schema-driven kiwi decoder. Messages are (field-id, value)* until 0;
+; structs write every field in order.
+
+Import "KiwiBuffer.rgr"
+Import "KiwiSchema.rgr"
+Import "KiwiValue.rgr"
+
+class KiwiDecode {
+    def schema:KiwiSchema (new KiwiSchema())
+    def bb:KiwiBuffer (new KiwiBuffer())
+    def ok:boolean true
+    def err:string ""
+
+    Constructor () {
+    }
+
+    fn init:void (s:KiwiSchema) {
+        schema = s
+        ok = true
+        err = ""
+    }
+
+    fn fail:void (msg:string) {
+        ok = false
+        err = msg
+    }
+
+    fn decodeNamed:KiwiValue (typeName:string buf:buffer) {
+        bb.init(buf)
+        def v:KiwiValue (this.decodeType(typeName false))
+        if (bb.ok == false) {
+            this.fail(bb.err)
+        }
+        return v
+    }
+
+    fn decodeType:KiwiValue (typeName:string isArray:boolean) {
+        if isArray {
+            if (typeName == "byte") {
+                return (KiwiValue.fromBytes((bb.readByteArray())))
+            }
+            def arr:KiwiValue (KiwiValue.fromArray())
+            def n:int (bb.readVarUint())
+            def i:int 0
+            while ((i < n) && ok && bb.ok) {
+                arr.pushItem((this.decodeType(typeName false)))
+                i = (i + 1)
+            }
+            return arr
+        }
+        if (typeName == "bool") {
+            def b:int (bb.readByte())
+            return (KiwiValue.fromBool((b != 0)))
+        }
+        if (typeName == "byte") {
+            return (KiwiValue.fromInt((bb.readByte())))
+        }
+        if (typeName == "int") {
+            return (KiwiValue.fromInt((bb.readVarInt())))
+        }
+        if (typeName == "uint") {
+            return (KiwiValue.fromInt((bb.readVarUint())))
+        }
+        if (typeName == "float") {
+            return (KiwiValue.fromDouble((bb.readVarFloat())))
+        }
+        if (typeName == "string") {
+            return (KiwiValue.fromString((bb.readString())))
+        }
+        if (typeName == "int64") {
+            return (KiwiValue.fromInt((bb.readVarInt())))
+        }
+        if (typeName == "uint64") {
+            return (KiwiValue.fromInt((bb.readVarUint())))
+        }
+        def idx:int (schema.findDef(typeName))
+        if (idx < 0) {
+            this.fail(("unknown kiwi type " + typeName))
+            return (KiwiValue.nilVal())
+        }
+        def d:KiwiDef (itemAt schema.defs idx)
+        if (d.kind == 0) {
+            def ev:int (bb.readVarUint())
+            return (KiwiValue.fromString((d.enumName(ev))))
+        }
+        if (d.kind == 1) {
+            return (this.decodeStruct(d))
+        }
+        return (this.decodeMessage(d))
+    }
+
+    fn decodeStruct:KiwiValue (d:KiwiDef) {
+        def obj:KiwiValue (KiwiValue.fromObject())
+        def n:int (array_length d.fields)
+        def i:int 0
+        while ((i < n) && ok && bb.ok) {
+            def f:KiwiField (itemAt d.fields i)
+            obj.put(f.name (this.decodeType(f.typeName f.isArray)))
+            i = (i + 1)
+        }
+        return obj
+    }
+
+    fn decodeMessage:KiwiValue (d:KiwiDef) {
+        def obj:KiwiValue (KiwiValue.fromObject())
+        def guard:int 0
+        while ((ok == true) && (bb.ok == true) && (guard < 2000000)) {
+            def id:int (bb.readVarUint())
+            if (bb.ok == false) {
+                this.fail(bb.err)
+                return obj
+            }
+            if (id == 0) {
+                return obj
+            }
+            def f:KiwiField (d.fieldById(id))
+            if ((strlen f.name) == 0) {
+                this.fail((d.name + ": unknown field id " + (to_string id)))
+                return obj
+            }
+            obj.put(f.name (this.decodeType(f.typeName f.isArray)))
+            guard = (guard + 1)
+        }
+        return obj
+    }
+}
+
+class KiwiEncode {
+    def schema:KiwiSchema (new KiwiSchema())
+    def bb:KiwiBuffer (new KiwiBuffer())
+    def ok:boolean true
+    def err:string ""
+
+    Constructor () {
+    }
+
+    fn init:void (s:KiwiSchema) {
+        schema = s
+        ok = true
+        err = ""
+        bb.init((buffer_alloc 256))
+    }
+
+    fn encodeNamed:buffer (typeName:string v:KiwiValue) {
+        this.encodeType(typeName false v)
+        return (bb.toBuffer())
+    }
+
+    fn encodeType:void (typeName:string isArray:boolean v:KiwiValue) {
+        if isArray {
+            if (typeName == "byte") {
+                bb.writeByteArray(v.bytesVal)
+                return
+            }
+            def n:int (v.itemCount())
+            bb.writeVarUint(n)
+            def i:int 0
+            while (i < n) {
+                this.encodeType(typeName false (v.item(i)))
+                i = (i + 1)
+            }
+            return
+        }
+        if (typeName == "bool") {
+            if (v.asBool(false)) {
+                bb.writeByte(1)
+            } {
+                bb.writeByte(0)
+            }
+            return
+        }
+        if (typeName == "byte") {
+            bb.writeByte((v.asInt(0)))
+            return
+        }
+        if (typeName == "int") {
+            bb.writeVarInt((v.asInt(0)))
+            return
+        }
+        if (typeName == "uint") {
+            bb.writeVarUint((v.asInt(0)))
+            return
+        }
+        if (typeName == "float") {
+            bb.writeVarFloat((v.asDouble(0.0)))
+            return
+        }
+        if (typeName == "string") {
+            bb.writeString((v.asString("")))
+            return
+        }
+        if (typeName == "int64") {
+            bb.writeVarInt((v.asInt(0)))
+            return
+        }
+        if (typeName == "uint64") {
+            bb.writeVarUint((v.asInt(0)))
+            return
+        }
+        def idx:int (schema.findDef(typeName))
+        if (idx < 0) {
+            ok = false
+            err = ("unknown type " + typeName)
+            return
+        }
+        def d:KiwiDef (itemAt schema.defs idx)
+        if (d.kind == 0) {
+            bb.writeVarUint((d.enumValue((v.asString("")))))
+            return
+        }
+        if (d.kind == 1) {
+            this.encodeStruct(d v)
+            return
+        }
+        this.encodeMessage(d v)
+    }
+
+    fn encodeStruct:void (d:KiwiDef v:KiwiValue) {
+        def n:int (array_length d.fields)
+        def i:int 0
+        while (i < n) {
+            def f:KiwiField (itemAt d.fields i)
+            this.encodeType(f.typeName f.isArray (v.field(f.name)))
+            i = (i + 1)
+        }
+    }
+
+    fn encodeMessage:void (d:KiwiDef v:KiwiValue) {
+        def n:int (array_length d.fields)
+        def i:int 0
+        while (i < n) {
+            def f:KiwiField (itemAt d.fields i)
+            if (v.hasField(f.name)) {
+                bb.writeVarUint(f.value)
+                this.encodeType(f.typeName f.isArray (v.field(f.name)))
+            }
+            i = (i + 1)
+        }
+        bb.writeVarUint(0)
+    }
+}

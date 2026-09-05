@@ -1,0 +1,5 @@
+{ "name":"popover_keyboard","component":"popover",
+  "behaviours":["escape-closes","focus-restore"],
+  "fixture":{"controls":[
+    {"type":"popover","tid":"pop","name":"Open","body":"Body"}]},
+  "steps":[{"click":"pop-trigger"},{"key":"Escape"},{"click":"pop-trigger"},{"click":"pop-close"}] }

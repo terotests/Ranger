@@ -1,0 +1,39 @@
+{
+  "_": "The plan dialog's other way out: the example week's \"Muokkaa\" opens the machine's edit sheet, and the tabs come back.",
+  "id": "plan-edit-regenerate-cancel",
+  "area": "suunnittelu",
+  "machine": "planDialog",
+  "source": "frontend/src/machines/planDialogMachine.ts",
+  "reference": {
+    "route": "/calendar/cal-plan?week=2026-02-09"
+  },
+  "setup": [
+    {
+      "page": "390x844",
+      "why": "a phone, upright"
+    },
+    {
+      "route": "/calendar/cal-plan?week=2026-02-09"
+    }
+  ],
+  "steps": [
+    {
+      "id": "rt-tab-example",
+      "role": "button",
+      "name": "Malliviikko",
+      "state": "closed"
+    },
+    {
+      "id": "rt-ex-edit",
+      "role": "button",
+      "name": "Muokkaa",
+      "state": "editInstructions"
+    },
+    {
+      "id": "rt-plan-close",
+      "role": "button",
+      "name": "Peruuta",
+      "state": "closed"
+    }
+  ]
+}

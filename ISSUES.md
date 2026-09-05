@@ -10,6 +10,7 @@
 - Issue #68: Rust `main:int` emitted `return <code>` into a `fn main()` that returns `()` — never compiled. Body now runs as a closure feeding `std::process::exit`, so the exit status survives (July 2026)
 - Issue #67: `([] _:T a b c)` — the typed array literal *without* the parenthesised element group — silently miscompiled on every backend. Now a parse error naming the correct spelling (July 2026)
 - Issue #66: Rust backend emitted a fixed-size array `[a, b, c]` for the `([] ...)` array literal where every Ranger array is a `Vec<T>` — never compiled (`expected Vec<K>, found [K; 3]`). Fixed with a `writeArrayLiteral` override emitting `vec![...]`. The C++ writer moved off C99 compound literals to `std::vector<T>{...}` at the same time (July 2026)
+- Issue #76: `recv.call(args).field = value` compiled and SILENTLY DROPPED the assignment — the call was emitted, the store was not - Parser now rejects it with the fix in the message (September 2026)
 - Issue #65: A statement starting with a parenthesised receiver silently deleted the rest of the block (infinite loops in `game_provider.rgr`, a dropped `return` in `wasm_abi_io.rgr`) - Parser now rejects it; parse errors are fatal (July 2026)
 - Issue #64: Inheritance broke when a subclass's file was imported via two different path strings (duplicate class collection) - Fixed with `RangerAppClassDesc.is_collected` guard (July 2026)
 - Issue #1: `toString` method crash - Fixed with `hasOwnProperty` check
@@ -19,8 +20,20 @@
 - Issue #59: Go `clear` operator - Fixed with `[:0]` slice reset
 - Issue #60: Go `buffer_read_file` separator - Fixed with `filepath.Join()`
 - Issue #60: Systemclass types not dynamically discovered in `isDefinedType()` - Fixed with `TTypeRegistry` and `registerLangSystemClasses()` (July 2026)
+- Issue #76 (fixed): a Ranger name that is a keyword of the target was emitted verbatim and the file did not parse. Not a Go defect but a family of them: **JavaScript was worst at 41 of 46 keywords and had no `reserved_words` block at all**, C++ had 25 missing behind 56 existing entries, Go 20 of 25, Rust 2. Found by `scripts/reserved_probe.py`, which asks each target's own parser about every keyword; Dart, Kotlin, Swift and C# report UNCHECKED where no parser is installed (September 2026)
+- Issue #77 (fixed): `npm test` ran 1 of its 83 test files. `es-conformance-targets.test.ts` compiles a 45,000-line interpreter to five targets, which starves the vitest reporter under `singleFork` exactly as the config's own comment predicts; the run ends with `Timeout calling "onTaskUpdate"` and the remaining 82 files never run. The summary reads `Test Files 1 failed (83)` — a suite with one failure, not a suite that stopped. Fixed by adding the file to the exclude list it was already documented as belonging to (September 2026)
+- Issue #78 (fixed): on Python a method whose name is a builtin was DECLARED under its renamed form and CALLED under its original one. `fn str` came out as `def _str`, and a chained `r.str(...)` called a method that does not exist — `AttributeError: 'LcRow' object has no attribute 'str'`. Every other writer reads `compiledName` at the call site; the Python writer wrote `method.vref`. Found by the phase-3 chain fixture, which is the first Ranger program to chain a call to such a method on Python (September 2026)
+
+- Issue #80 (fixed): a property read through `(expr).field` emitted the SOURCE spelling of the name, not the renamed one. `GetProperty` resolves the member and attaches the descriptor to the expression node but never to the property node itself, so a name that is a keyword of the target came out unrenamed. The TS engine writes `(fnV.functionNodeOf()).async` and `async` is a Python keyword, so **the engine had never once built for Python** — a `SyntaxError` the compiler reported as a successful build. The same property is renamed correctly at its declaration (`self._async`) and at ordinary reads (`member._async`). Fixed by attaching the descriptor to the property node and by making the Python and PHP writers read it, as every other writer already did. The engine now builds, runs, and answers 2,061 of its 2,066 conformance probes identically to JavaScript (September 2026)
+- Issue #82 (fixed): the `es6` keyword table added in #76 renamed METHOD and PROPERTY names as well as bindings, so `EvHandle.null()` -- the constructor three suites and every JavaScript consumer of the engine module call -- became `EvHandle._null()`. JavaScript reserves its keywords only where a name may stand: `const null = 1` is a syntax error, `obj.null` and `static null() {}` are not. `transformWord` now splits into a binding transform and a member transform. Found by CI, not locally: `runtime-conformance.test.ts` rebuilt the engine module only when a `.rgr` under `migrate/src/` was newer, so after a COMPILER change it measured the engine built by the previous compiler and reported green. The compiler is in that dependency list now (September 2026)
 
 ### Still Open
+- Issue #85: an array literal passed to a call whose RESULT IS IMMEDIATELY DEREFERENCED is lost — the elements are emitted bare where the array should be. `(box.take(([] _:string ( "a" "b" )))).count()` becomes `box.take("a""b").count()`, which does not parse on JavaScript or PHP; the one-element form becomes `box.take("a")`, which parses and is silently wrong. Every target. The same array literal one line up, bound to a variable first, is correct (September 2026)
+- Issue #84: Rust drops a ONE-element inline array literal in argument position: `Take.f(([] _:string ( "a" )))` emits `Take::f("a")` where every other target emits the vector. Two elements are correct, so it is the arity, not the literal (September 2026)
+- Issue #83: the PHP writer turns a `$` inside a string literal into `\"`. `def s:string "literal $HOME stays"` comes out as `$s = "literal \"HOME stays";` — a parse error, and the escape that was intended (PHP interpolates `$` inside double quotes) is not what was written either (September 2026)
+- Issue #81: `(expr).field` does not resolve when it appears as a CALL ARGUMENT. `def ok:int ((h.nodeOf()).plain)` compiles; `ArgMain.id((h.nodeOf()).plain)` on the very next line gives "Undefined variable .plain". Nothing to do with keywords — any property name fails. The dot-tail branch in `WalkNode` is never reached for an argument, so the tail is left as an unresolved `.field` vref. Found while fixing #80 (September 2026)
+- Issue #79: on Rust a method that returns `this` returns `self.clone()`, so every call after the first in a chain mutates a COPY. `a.bump().bump().bump()` leaves `a.n` at 1 where JavaScript, Python and Go all say 3. No error, no warning — a silently wrong answer, and the builder pattern is exactly the shape that hits it. Reproduces on a 13-line program with no generics and no aliasing (September 2026)
+- Issue #75 (partially fixed): any trailing block on a class declaration makes `EnterClass` take it for the class body. The real body is never flow-analysed, the compiler reports success, and the emitted method body is broken (`return+x1` for `return (x + 1)`). The `doc { … }` case is fixed by the detach pass; the arity check is still wrong for any other trailing token (August 2026)
 - Issue #74: Rust emits `&self` for a method whose only statement is a mutating call on a field object, so the output does not compile. Statement-position calls keep a node shape the mutability analysis does not read. Reproduces without generics (August 2026)
 - Issue #73: LLVM mishandles a collection nested inside a collection — `[[string]]` comes back with the inner array empty, and `[string:[string:int]]` segfaults once the inner map holds more than one entry. Reproduces without generics; same family as TARGET_NOTES #25/#26 (August 2026)
 - Issue #63: `return call()` (a bare/compound method-call in return position) fails type analysis — must be written `return (call())`. Low priority; clean workaround exists (see below).
@@ -264,6 +277,280 @@ A `main:void` is emitted as before, with no wrapper.
 Verified as a real net: 9 of the 12 fail against the pre-fix compiler. The 3
 that pass either way are deliberate over-reach guards (valid spellings still
 compile; `main:void` untouched; runtime element values unchanged).
+
+---
+
+## Issue #76: Assigning to a field of a call result silently drops the assignment
+
+**Status:** Fixed — the parser now compiles it (September 2026)
+**Severity:** **Critical** (silent wrong-code generation; no diagnostic at all)
+**Found:** September 2026, drawing the ReUI stepper in `gallery/ui/demo/ControlsDemo.rgr`
+**Targets:** front-end, so every backend inherits it
+
+### Description
+
+A statement of the form `recv.method(args).field = value` compiled without a
+word of complaint and did nothing. The call was emitted; the store was not.
+
+This is the same failure #65 documents — silent wrong-code generation with no
+diagnostic — reached by the path #65's guard does not cover. That guard rejects
+a statement STARTING with a parenthesised receiver, `(expr).method()`. The bare
+spelling never tripped it, because it parses as an ordinary vref chain.
+
+The two spellings therefore behaved in three different ways, and only one of
+them was safe:
+
+| spelling | result |
+|---|---|
+| `(b.at(0)).name = "x"` | **was rejected** by #65's guard; now compiles and stores |
+| `b.at(0).name = "x"` | **compiled, did nothing** — this issue; now compiles and stores |
+| `def t:Item (b.at(0))` then `t.name = "x"` | works |
+
+All three spellings now do the same thing. The two that store reach the parser
+at **different places**, which is why the fix has two halves — see *The
+parenthesised spelling* below.
+
+### Reproduction
+
+```ranger
+class Item {
+    def name:string "unset"
+    Constructor () {
+    }
+}
+class Box {
+    def items:[Item]
+    Constructor () { def none:[Item] items = none }
+    fn add:void () { def i:Item (new Item ()) push items i }
+    fn at:Item (i:int) { return (itemAt items i) }
+}
+class Main {
+    Constructor () {
+    }
+    sfn main:void () {
+        def b:Box (new Box ())
+        b.add()
+        b.at(0).name = "bare"
+        def chk:Item (b.at(0))
+        print ("-> " + chk.name)     ; prints "-> unset"
+    }
+}
+```
+
+### What was emitted
+
+```js
+function __js_main() {
+  const b = new Box();
+  b.add();
+  (b).at(0);                 // <-- the call survives; `.name = "bare"` is gone
+  const chk = (b).at(0);
+  console.log("-> " + chk.name);
+}
+```
+
+### Why it bit
+
+`gallery/ui/demo/ControlsDemo.rgr` set each stepper step's icon with
+`stepper.stepAt(0).icon = "user"`. Every circle drew the fallback glyph and the
+panel came up empty, with a clean compile. The gate could not catch it either:
+the gate is JavaScript, where that same expression works exactly as it reads.
+One line, two meanings across the boundary, and only one of them a mistake.
+
+### What has been ruled out
+
+Four probes, each compiled and run, narrowing where the store was lost:
+
+| probe | result |
+|---|---|
+| `b.at(0).rename("x")` — a chained METHOD call | **works**, emits `((b).at(0)).rename("x")` |
+| `((b.at(0)).name)` — reading a field of a call result | **works** |
+| `b.solo.name = "x"` — a plain field chain | **works**, emits `b.solo.name = "x"` |
+| `b.first().name = "x"` — zero-arg call, still an assignment | **silent no-op** |
+
+So:
+
+- **The parser handles the chain.** A method call on a call result parses and
+  renders correctly, and the renderer already produces exactly the receiver
+  syntax an assignment would need.
+- **Reading is fine.** Only writing was lost.
+- **It is not arity.** A zero-argument call fails the same way.
+- **It is lost before codegen.** Nothing of the assignment appears in the
+  output at all — not a mangled store, no store.
+- **It is NOT the `=` operator overload.** `Lang.rgr` declares
+  `= cmdAssign:void ( target:vref expr:expression )`, and a chain is not a
+  plain `vref`, so that looked like the cause. Adding a sibling overload
+  `( target:expression expr:expression )` and rebuilding the compiler changes
+  nothing — the statement never reaches operator matching in this shape.
+  (Tried and reverted; recorded so nobody spends the afternoon on it twice.)
+
+That left the symbol/vref scanner in `ng_parser_v2.rgr`, which absorbed the
+trailing `.field` into the chain it was building and then dropped it when the
+statement turned out to be an assignment rather than a call.
+
+### The fix
+
+The trailing `.field` is scanned as a vref **whose name begins with a dot** —
+there is no receiver in front of it, because the receiver was the call, already
+folded into a group. Nothing downstream knew that shape, so the statement
+collapsed to the call alone.
+
+Two other shapes reach the same point with a dot-leading vref and are both
+legal, so the test is not "does it lead with a dot" but *what follows it*.
+Established by instrumenting the parser and running all three, rather than by
+reasoning:
+
+| source | next char | meaning |
+|---|---|---|
+| `b.at(0).rename(x)` | `(` | chained method CALL — folds correctly today |
+| `((b.at(0)).name)` | `)` | READ inside an expression — always worked |
+| `b.at(0).name = x` | `=` | the assignment, this issue |
+
+At that point — a dot-leading vref followed by `=`, with `==` excluded so a
+comparison on a call result stays a legal read — the parser now **desugars the
+statement into the two it always had to be written as**:
+
+```ranger
+b.at(0).name = "x"
+```
+
+becomes, before anything downstream sees it,
+
+```ranger
+def __rgr_recv_1 (b.at(0))
+__rgr_recv_1.name = "x"
+```
+
+Both halves are shapes the compiler already handled: a `def` whose type is
+inferred from a call, and a plain field store on a local. **Nothing downstream
+of the parser changed** — no new operator overload, no codegen change, no type
+rule. That is the whole reason this route works where the `Lang.rgr` route
+ruled out above does not.
+
+The surgery is three moves at the detection point in `ng_parser_v2.rgr`:
+
+1. The children the statement node has accumulated so far *are* the receiver
+   (the callee vref and its argument group). They are moved into the new
+   `def`'s value expression.
+2. The `def` is inserted into the enclosing **block**, immediately ahead of the
+   statement being parsed. The statement is already a child of that block — a
+   statement is pushed onto its block before its own parse begins — so the
+   insert point is that statement's own index, found by start offset, which is
+   unique per statement, rather than by object identity.
+3. The dot-leading vref is renamed from `.name` to `__rgr_recv_1.name`, so it
+   hangs off the temporary instead of off nothing. Parsing then continues
+   normally and the `=` is matched by the ordinary `cmdAssign` overload.
+
+The temporaries are numbered per parser instance, so per **file**; they are
+block locals, so two files never see each other's.
+
+The old diagnostic is kept as the `else` branch, for a shape this cannot
+rewrite — no enclosing block, or no receiver to move. Silently dropping the
+store is the one outcome that must never come back.
+
+### The parenthesised spelling
+
+`(b.at(0)).name = "x"` never reaches that point. The statement starts with `(`,
+so the group is parsed as a statement of its own and is **already the block's
+last child** by the time `.name` is scanned — with `curr_node` back at the
+block, which is exactly the condition #65's guard fires on. The receiver is not
+in the statement's children; it is the sibling behind it.
+
+So the same desugaring is taught to reach for it there, at the #65 guard site,
+before the guard gives up. It pops the block's last child as the receiver,
+builds the same `def`, then opens the statement itself — pushing a vref named
+`__rgr_recv_N.name` and handing the rest of the line (` = "x"`) to the ordinary
+recursion, which is the same thing the normal statement path does one token
+later.
+
+**The receiver is only taken when the `.` sits immediately after a `)`, with
+nothing between.** That single check is what separates a rewrite from a theft:
+
+```ranger
+b.touch()
+.name = "stolen"
+```
+
+Here the previous statement also ends in `)`, and a rewrite that looked only
+for a call result behind it would store into whatever `b.touch()` returned.
+Whitespace or a newline before the dot means no rewrite, and #65's error
+stands. `tests/fixtures/issue_76_dangling_dot.rgr` gates it.
+
+A parenthesised receiver followed by a **call** — `(a.b()).c()` — is also still
+#65's error, gated by `tests/fixtures/issue_76_paren_receiver_call.rgr`. The
+lookahead fires only on `=`, and that shape has a bare spelling,
+`a.b().c()`, that has always worked.
+
+### What it emits
+
+```js
+const __rgr_recv_1 = (b).at(0);
+__rgr_recv_1.name = "zero";
+const __rgr_recv_2 = (b).at(1);
+__rgr_recv_2.name = "one";
+const __rgr_recv_3 = (b).first();
+__rgr_recv_3.n = 42;
+```
+
+### What was tried first, and does not work
+
+The obvious route is the operator declaration in `Lang.rgr`,
+`= cmdAssign:void ( target:vref expr:expression )`: a call chain is not a plain
+`vref`, so no overload can match. Adding a sibling overload with an expression
+target and rebuilding the compiler changes nothing — **the statement never
+reaches operator matching in this shape**, because the dot-leading vref is
+already lost by then. Recorded so the next person does not spend an afternoon
+on it. The parser is the only place early enough to see the receiver still
+intact.
+
+### Verified
+
+A probe compiled and run against the rebuilt compiler, covering the shapes that
+reach the rewrite and the ones that must not:
+
+| shape | result |
+|---|---|
+| `b.at(0).name = "zero"` | stores |
+| `b.first().n = 42` — zero-arg call | stores |
+| `b.at(k).n = (k + 100)` inside a `while` block | stores |
+| two rewrites in the same block | both store, distinct temporaries |
+| `b.at(0).self().name = "chained"` — chained receiver | stores |
+| `b.at(0).inner.tag = "deep"` — nested field path | stores |
+| `b.at(i).n = (i + 7)` inside a `for` block | stores |
+| `(b.at(0)).name = "paren"` — the parenthesised spelling | stores |
+| `(b.at(0)).n= 5` — no space before the `=` | stores |
+| `(b.at(1)).inner.tag = "deep"` — parenthesised, nested path | stores |
+| `((b.at(1)).name) == "one"` | still a READ, unchanged |
+| `def r:string ((b.at(0)).name)` | still a READ, unchanged |
+| `b.touch()` then `.name = "x"` on the next line | still #65's error — not stolen |
+| `(b.at(0)).ping()` — parenthesised receiver, a CALL | still #65's error |
+
+The compiler bootstraps to a fixpoint on the change (stage1 == stage2 ==
+stage3), and all 79 gallery editor suites pass.
+
+The probe is kept as `tests/fixtures/issue_76_call_result_field.rgr` with
+`tests/compiler-issue-76.test.ts` over it, so it is a gate rather than a
+session. The gate reads the program's OUTPUT, not the emitted source: grepping
+for `__rgr_recv_` would pass on a rewrite that stored the wrong thing, and fail
+on a future fix that reached the same result another way.
+
+Mutation-proved against both earlier states of the compiler, by compiling and
+running the same fixture:
+
+| compiler | result |
+|---|---|
+| before any fix (`f57e27d^`) | **compiles cleanly, prints `unset\|0\|unset` four times** — every store dropped, and the comparison branch never fires |
+| the reject-only fix (`f57e27d`) | parse error, no output |
+| this fix | the eight expected lines |
+
+`vitest` is not installed in the environment this was written in, so the test
+file itself was not executed here; the fixture was compiled and run directly
+with `bin/output.js` and its output matched every assertion in the file,
+line for line.
+
+`gallery/ui/demo/ControlsDemo.rgr` — the file that found the bug — is written
+back in the natural spelling, so the fix has a live user rather than only a
+probe.
 
 ---
 
@@ -2624,6 +2911,710 @@ Depth is now bounded by real nesting and no longer grows with the file.
 Fixed. Found while adding `tests/es-conformance-targets.test.ts`, and initially
 misattributed to that suite's 2,138-probe corpus — which in fact parses at depth
 70. The corpus only made an existing marginal condition reproducible.
+
+## Issue #85: an array literal is lost when the call taking it is immediately dereferenced
+
+**Status:** open. Found while writing `lib/Shell.rgr`, where every command is a
+program name and an argument vector, so the shape is unavoidable.
+
+### Reproduction
+
+```ranger
+class Box {
+    def n:int 0
+    fn take:Box (v:[string]) {
+        n = (array_length v)
+        return this
+    }
+    fn count:int () {
+        return n
+    }
+}
+class Bugs {
+    sfn m@(main):void () {
+        def b:Box (new Box)
+        print "chained one = " + ((b.take(([] _:string ( "a" )))).count())
+        print "chained two = " + ((b.take(([] _:string ( "a" "b" )))).count())
+    }
+}
+```
+
+JavaScript:
+
+```javascript
+console.log("chained one = " + b.take("a").count());
+console.log("chained two = " + b.take("a""b").count());
+```
+
+The array is gone. One element parses and is silently wrong — `array_length`
+answers the string's length rather than 1. Two elements do not parse at all,
+on JavaScript or on PHP.
+
+### Where it bites
+
+Any API of the form "a name and a list": a command and its arguments, a query
+and its parameters, a template and its values. The natural way to write the
+assertion is
+
+```ranger
+this.check("it ran" ((sh.capture("ls" ([] _:string ( "-la" )))).ok()))
+```
+
+and it has to be written
+
+```ranger
+def argv:[string]
+push argv "-la"
+def res:ShellResult (sh.capture("ls" argv))
+this.check("it ran" (res.ok()))
+```
+
+### Workaround
+
+Bind the array — or the call result — to a variable first. Related to the
+family in AGENTS.md ("never start a statement with a parenthesised receiver",
+"arithmetic on a call result needs a variable"): a call result that is
+immediately dereferenced is not re-walked, and its arguments are re-emitted
+from a node shape the argument writer does not read.
+
+---
+
+## Issue #84: Rust drops a one-element inline array literal in argument position
+
+**Status:** open.
+
+### Reproduction
+
+```ranger
+class ArrLit {
+    sfn take:int (v:[string]) {
+        return (array_length v)
+    }
+    sfn m@(main):void () {
+        def bound:[string] ([] _:string ( "a" ))
+        print "bound one  = " + (ArrLit.take(bound))
+        print "inline one = " + (ArrLit.take(([] _:string ( "a" ))))
+        print "inline two = " + (ArrLit.take(([] _:string ( "a" "b" ))))
+    }
+}
+```
+
+Rust:
+
+```rust
+ArrLit::take(&bound)                                   // correct
+ArrLit::take("a")                                      // expected &[String]
+ArrLit::take(&vec!["a".to_string(), "b".to_string()])  // correct
+```
+
+`rustc` rejects the middle one, so this is a build failure rather than a wrong
+answer — which is the good version of this bug. JavaScript emits `["a"]` for
+the same line, so it is the Rust writer and not the parser.
+
+### Workaround
+
+Bind it, or build it with `push`. `lib/apple/` does the latter throughout for
+this reason and is checked on seven targets because of it.
+
+---
+
+## Issue #83: the PHP writer mangles a `$` inside a string literal
+
+**Status:** open.
+
+### Reproduction
+
+```ranger
+def dollar:string "literal $HOME stays"
+print dollar
+```
+
+PHP:
+
+```php
+$dollar = "literal \"HOME stays";
+```
+
+The `$` became `\"`. The file does not parse.
+
+Two things are wrong and only one of them is the substitution. PHP interpolates
+`$name` inside a double-quoted string, so a Ranger string holding a `$` needs
+either an escaped `\$` or a single-quoted PHP literal; what it must not get is
+a quote character it never had.
+
+### Where it shows
+
+Any Ranger program that carries a shell fragment, a template, a currency
+amount or a regular expression through a string literal. It is invisible until
+the PHP target is built, because every other target writes the string through.
+
+---
+
+## Issue #82: the JavaScript keyword table renamed METHOD and PROPERTY names, which changed the API its callers already spell
+
+**Status:** fixed (September 2026). Caught by CI, not by the local suite --
+see "Why the local run said PASS" below, which is the more useful half.
+
+### Reproduction
+
+`gallery/game_engine/v2/interp/migrate/src/EvHandle.rgr` declares
+
+```ranger
+sfn null:EvHandle () {
+    return ((EvalConstPool.__singleton()).nullValue)
+}
+```
+
+`EvHandle.null()` is the constructor three test suites and every JavaScript
+consumer of the engine module call. After #76 added an `es6` block to
+`reserved_words` and put `null` beside the C#/Dart cases in `transformWord`,
+the module emitted `EvHandle._null` -- declaration and call site consistently,
+so the module itself worked, but the name its callers use was gone:
+
+```
+AssertionError: expected '<threw EvalValue.null is not a function>' to deeply equal '10'
+```
+
+2,209 of the 2,215 assertions in `runtime-conformance.test.ts` failed that way,
+because every one of them goes through `engine.callFunction(fn, EvalValue.null())`.
+
+### Cause
+
+A keyword table is not a single word set. JavaScript reserves its keywords only
+where a NAME may stand:
+
+```js
+const null = 1;          // SyntaxError
+function f(null) {}      // SyntaxError
+obj.null                 // legal
+this.null = 1            // legal
+class X { static null() {} }   // legal
+```
+
+`transformWord` is called from both positions -- from `defineVariable` and
+`assignParamCompiledName` for bindings, and from `createStaticMethod`,
+`r.funcdesc` and the two flow parsers for members -- and had no way to tell
+them apart. C# and Dart reserve the word in both positions, so for those the
+single table was right and the defect never showed.
+
+Two names in the repo were hit. `EvHandle.null` broke three suites;
+`EvHandle.function` broke nothing in tree but had equally been renamed out
+from under any caller.
+
+### Fix
+
+`transformWord` splits three ways in `ng_RangerAppWriterContext.rgr`:
+
+- `transformBindingWord` -- locals, parameters, and any non-property
+  `defineVariable`. Adds the es6 `null` case.
+- `transformMemberWord` -- methods, static methods and properties. For es6 it
+  is the identity; every other target reserves the word in both positions, so
+  for those it is `transformWord` unchanged.
+- `transformWord` -- unchanged behaviour for everything else, minus the es6
+  `null` case that moved into `transformBindingWord`.
+
+The member sites are `createStaticMethod` and the property branch of
+`defineVariable` in `ng_RangerAppWriterContext.rgr`, `r.funcdesc` in
+`ng_RangerAppFunctionDesc.rgr`, and the three/two `m.compiledName`
+assignments in `ng_FlowWork.rgr` and `ng_RangerFlowParser.rgr`.
+
+Fixture, compiled to es6 and run by node:
+
+```ranger
+class MKw {
+  def class:int 1
+  def default:int 2
+  fn function:int (function:int) {
+    def new:int function
+    return (new + this.class + this.default)
+  }
+  fn delete:int () { return (this.function(3)) }
+}
+```
+
+```js
+class MKw  {
+  constructor() { this.class = 1; this.default = 2; }
+  function (_function) {
+    const _new = _function;
+    return (_new + this.class) + this.default;
+  };
+  delete () { return this.function(3); };
+}
+```
+
+Members keep their names; the parameter and the local are renamed. `node
+--check` accepts it and it answers 6.
+
+### Why the local run said PASS and CI said FAIL
+
+This is the part worth keeping. `engine_module.cjs` is a build artifact, and
+`buildEngineModuleIfNeeded` in `tests/runtime-conformance.test.ts` rebuilt it
+only when one of four `.rgr` files under `migrate/src/` was newer than it. The
+COMPILER was not in that list. So after any compiler change the module was
+judged up to date, and the suite measured the engine built by the PREVIOUS
+compiler -- it passed locally for exactly the same reason `scripts/build-engine-module.sh`
+already carries a comment about a stale `.cjs` reading as success. CI builds
+the module fresh on every run and caught it in seven seconds.
+
+`bin/output.js` and `compiler/Lang.rgr` are now in that dependency list. Any
+test that consumes a build artifact needs the tool that produced it among its
+dependencies, or the gate measures the wrong thing and reports green.
+
+### Verification
+
+- Self-host reaches a fixpoint (gen2 == gen3) and `node --check` reads it
+- `runtime-conformance.test.ts`: 2,215 of 2,215 pass, from a module rebuilt by
+  the fixed compiler
+- The keyword fixture above compiles, parses and runs on node
+- Repo-wide: no es6 output renames a member any more; before the fix
+  `engine_module.cjs` had `_null` at 12 sites and `_function` at 2
+- `scripts/suite_matrix.sh`: 72 pass, 5 fail, 9 excluded, and
+  `scripts/suite_baseline_diff.sh` against the pre-fix compiler says
+  regressions=0 pre-existing=5 -- the same five files as before
+- `scripts/fmt_parity.sh` against the compiler from before the formatter work:
+  every target byte-identical under `-format=none` except the two already
+  documented there (C++ 44 lines of `rg_ordered_map`, Python 20 lines of #78)
+- `tests/fixtures/format_members.rgr` and three cases in `format.test.ts` pin
+  the split: members keep their names, the parameter and the two locals are
+  renamed, `node --check` accepts it, and it answers `6 1 2`
+
+## Issue #81: `(expr).field` does not resolve as a call argument
+
+**Status:** open. Found while fixing #80, which is a different defect in the
+same shape.
+
+### Reproduction
+
+```ranger
+class NodeA {
+  def plain:int 7
+}
+class HolderA {
+  def n:NodeA (new NodeA())
+  fn nodeOf:NodeA () {
+    return n
+  }
+}
+class ArgMain {
+  sfn id:int (v:int) {
+    return v
+  }
+  sfn main:void () {
+    def h:HolderA (new HolderA())
+    def ok:int ((h.nodeOf()).plain)               ; compiles
+    def bad:int (ArgMain.id((h.nodeOf()).plain))  ; Undefined variable .plain
+  }
+}
+```
+
+The two lines differ only in whether the property read is an initialiser or an
+argument.
+
+### Not a keyword problem
+
+`.plain` fails exactly as `.async` does. This is unrelated to `reserved_words`
+and unrelated to #80 — it is the resolution of the dot-tail itself.
+
+### Cause
+
+`(expr).field` is parsed with the field as a dot-prefixed tail vref, and
+`RangerFlowParser.WalkNode` has a branch that rewrites that pair into a
+`property` expression. Instrumenting that branch shows it is reached for the
+initialiser and never for the argument, so the tail stays an unresolved
+`.field` vref and the "Undefined variable" check fires on it later.
+
+### Workaround
+
+Bind the receiver first, which is the same workaround Issue #63 needs:
+
+```ranger
+def n:NodeA (h.nodeOf())
+def bad:int (ArgMain.id(n.plain))
+```
+
+## Issue #79: a Rust method returning `this` returns a clone, so a chain mutates copies
+
+**Status:** open. Found while testing chain formatting
+([`PLAN_FORMAT.md`](PLAN_FORMAT.md) phase 3) — the fixture chains six calls and
+Rust was the one target that printed the wrong number.
+
+### Reproduction
+
+```ranger
+class Acc {
+  def n:int 0
+  fn bump:Acc () {
+    n = n + 1
+    return this
+  }
+}
+class RbMain {
+  sfn main:void () {
+    def a:Acc (new Acc())
+    a.bump().bump().bump()
+    print ("" + a.n)
+  }
+}
+```
+
+| Target | Answer |
+| --- | --- |
+| JavaScript | 3 |
+| Python | 3 |
+| Go | 3 |
+| **Rust** | **1** |
+
+### Cause
+
+`return this` is emitted as `self.clone()`:
+
+```rust
+  fn bump(&mut self) -> Acc {
+    self.n += 1;
+    self.clone()
+  }
+```
+
+The first `bump()` mutates `a`. It then hands back a copy, and the second and
+third `bump()` calls mutate that copy, which is dropped. The count reaches 1
+and no one is told.
+
+`Acc` is not detected as shared here — nothing aliases it — so it is emitted as
+a value struct, and a value struct cannot return itself by reference from a
+`&mut self` method. The shared-class path (`Rc<RefCell<T>>`, the default since
+PLAN_RUST_OWNERSHIP 2b) is the one that could, and the sharing analysis does
+not currently count "returns `this`" as a reason to treat a class as shared.
+
+### Why it matters more than most
+
+It is silent. There is no compile error, no warning and no panic — the program
+runs and prints the wrong number. The shape that triggers it is the builder
+pattern, which is the single most common reason to return `this` at all, and
+it is what `gallery/vela`'s chart API is built on.
+
+### Note
+
+This is not a formatting defect and phase 3 did not cause it: a copy of the
+pre-change compiler produces the identical output. It was found because chain
+breaking needed a chain to test, and the fixture was run rather than only
+inspected.
+
+## Issue #78: a Python method renamed at its declaration was called by its old name
+
+**Status:** fixed.
+
+### Reproduction
+
+```ranger
+class LcRow {
+  def cells:[string]
+  fn str:LcRow (k:string v:string) {
+    push cells (k + "=" + v)
+    return this
+  }
+}
+```
+
+compiled with `-l=python` declares
+
+```python
+  def _str(self, k, v):
+```
+
+because `str` is a Python builtin and the `python` block of `reserved_words`
+renames it — and then writes the chained call as
+
+```python
+  r._str("region", "North").str("category", "Hardware")
+```
+
+The first call is renamed; every call after it in the chain is not. The
+program raises at runtime:
+
+```
+AttributeError: 'LcRow' object has no attribute 'str'. Did you mean: '_str'?
+```
+
+### Cause
+
+`RangerPythonClassWriter.CreateCallExpression` wrote `method.vref` — the name
+as it appears in the Ranger source. Every other writer resolves the same thing
+through `node.fnDesc.compiledName`, which is where the rename lives:
+
+```ranger
+def methodName method.vref
+if ((!null? node.fnDesc) && ((strlen node.fnDesc.compiledName) > 0)) {
+  methodName = node.fnDesc.compiledName
+}
+```
+
+The first call in the chain came out right because it reaches the writer by a
+different path.
+
+### Why it went unnoticed
+
+It needs a method whose name is a Python builtin AND a call to it in a chain.
+`reserved_words` has 100 entries for Python, so the declaration side has been
+right all along, and the failure is a runtime `AttributeError` in generated
+Python rather than anything the compiler reports.
+
+It was found by the phase-3 fixture in `tests/fixtures/format_longchain.rgr`,
+which chains `str` six times — written to test chain breaking, not renaming.
+
+### Effect on output
+
+20 lines across `gallery/vela/src/VlChart.rgr`, all of them `.str(` becoming
+`._str(`. `scripts/fmt_parity.sh` reports Python as the one target that
+differs from a pre-fix baseline, and says why.
+
+## Issue #77: `npm test` ran one of its eighty-three test files
+
+**Status:** fixed. Found while trying to verify the formatter change
+([`PLAN_FORMAT.md`](PLAN_FORMAT.md)), which is the only reason it was found at
+all — the summary line does not look like a failure.
+
+### What it looked like
+
+```
+ Test Files  1 failed (83)
+      Tests  5 failed | 1 passed (6)
+     Errors  1 error
+```
+
+Read quickly, that is a suite of 83 files with one failing. It is not. Six
+tests ran in total; 82 files never started. The `Errors 1 error` line is the
+whole story:
+
+```
+Error: [vitest-worker]: Timeout calling "onTaskUpdate"
+```
+
+### Cause
+
+`tests/vitest.config.ts` already carries the explanation, written for three
+other files:
+
+> each shells out to compilers for a minute or more, and a single file that
+> long starves the reporter under singleFork — the run then stops with
+> `Timeout calling "onTaskUpdate"` and the files after it never run
+
+`es-conformance-targets.test.ts` is worse than any of them: it compiles a
+45,000-line interpreter plus a 2,138-probe corpus once per target, builds two
+native binaries and evaluates 2,138 pieces of JavaScript in each. Its own
+config, `tests/vitest.esconformance.config.ts`, says so in as many words —
+*"Out of the default run for the same reason as vitest.tsengine.config.ts"* —
+and gives it a 3,600,000ms timeout against the default config's 30,000.
+
+But nothing ever added it to the default config's `exclude` list. The intent
+was written down twice and never acted on once.
+
+### Effect
+
+Every `npm test` since the file landed has reported on `es-conformance-targets`
+and nothing else. Its five failures were also an artifact in part: under the
+default 30-second `testTimeout` the Go and C++ legs cannot finish a build, so
+they time out where their own config would let them run.
+
+### Fix
+
+One line in the exclude list, plus the comment saying why. `npm run
+test:esconformance` runs it under the config built for it.
+
+### Worth noting
+
+A suite that stops early is indistinguishable from a suite that passes, if the
+only thing read is the exit code — and it is nearly indistinguishable from a
+suite with one failure, if the only thing read is the summary. The signal that
+gives it away is the file count not matching the test count.
+
+## Issue #76: A Ranger name that is a keyword of the target emits a file the target cannot parse
+
+**Status:** fixed for every target whose parser is installed here (JavaScript,
+C++, Go, Rust, Python). Dart, Kotlin, Swift and C# are UNCHECKED, not clean.
+Found while measuring formatter output for
+[`PLAN_FORMAT.md`](PLAN_FORMAT.md).
+
+### Reproduction
+
+```ranger
+class T {
+  fn run:int () {
+    def go:boolean true
+    def n:int 0
+    while go {
+      n = (n + 1)
+      if (n > 2) {
+        go = false
+      }
+    }
+    return n
+  }
+}
+sfn main:void () {
+  def t:T (new T())
+  print ("" + (t.run()))
+}
+```
+
+The compiler reports `[OK] Compilation successful!` and writes
+
+```go
+var go bool= true;
+for go {
+```
+
+which is not Go. `gofmt` exits 2 on it:
+
+```
+k.go:21:7: expected 'IDENT', found 'go'
+k.go:23:7: expected operand, found 'go'
+```
+
+Rust, C# and Kotlin compile the same source without complaint — they rename the
+identifier.
+
+### Cause
+
+The per-target `reserved_words` block in `compiler/Lang.rgr` has **two** entries
+for Go:
+
+```ranger
+go {
+    type _type
+    range _range
+}
+```
+
+Go has 25 keywords. `func` and `map` happen to be covered by the shared `*`
+block, which leaves `go`, `var`, `chan`, `select`, `defer`, `package`, `import`,
+`interface`, `struct`, `switch`, `case`, `default`, `fallthrough`, `goto`,
+`const`, `else`, `for`, `if`, `return` and `continue` unmapped. Most of those
+would be unusual variable names; `go`, `map`, `type`, `range`, `select`, `chan`
+and `defer` are not — `go` is an ordinary loop flag, and it is what
+`gallery/vela/src/VlJson.rgr:636` calls one.
+
+### Effect
+
+`gallery/vela/src/VlChart.rgr` compiled to Go has not parsed for as long as that
+local has existed. Nothing caught it because the Go path is only exercised by
+programs that avoid the name, and the compiler itself reports success — the
+failure is in a file nobody compiles.
+
+### It was not a Go defect
+
+The Go list being 2 entries long suggested the tables had been filled in as
+errors were hit rather than from any language's keyword list. So rather than
+hand-listing Go's 25, `scripts/reserved_probe.py` was written to ask the
+question of every target: for each keyword of the language it compiles a Ranger
+program naming a local, a parameter, a property and a method after it, and
+hands the output to that target's own parser.
+
+| Target | Broken | Of | Note |
+| --- | --- | --- | --- |
+| **JavaScript** | **41** | 46 | there was no `es6` block at all |
+| C++ | 25 | 85 | behind 56 existing entries |
+| Go | 20 | 25 | the one this issue was filed for |
+| Rust | 2 | 41 | `crate` and `super` — the writer spells every other keyword `r#kw`, and those two cannot be raw identifiers |
+| Python | 0 | 37 | 100 entries; the one table that was complete |
+| Dart, Kotlin, Swift 6, C# | ? | 230 | **UNCHECKED — no parser installed** |
+
+JavaScript is the compiler's own primary target, and `def new:int 1` emitted
+`const new = 1`. It had been broken longer than Go and by more.
+
+### Fix
+
+Data, in the `reserved_words` block of `compiler/Lang.rgr`, plus one code
+change: `null` cannot be listed there at all — the Ranger parser reads it as a
+literal rather than a name, so the `word transform` pair does not parse — and
+it is renamed for JavaScript in `transformWord`, beside the C# and Dart cases
+already there for the same reason.
+
+The blast radius was measurable exactly, because the compiler self-hosts to
+JavaScript: rebuilding it with the new `es6` block changed **4 lines**, all of
+them the source edit itself. The compiler's own sources use none of the 40
+names. `scripts/fmt_parity.sh` confirms the same for `gallery/invaders` and
+`gallery/vela` across eleven targets.
+
+### What is still open
+
+The four unchecked targets. The probe reports them as UNCHECKED on every run
+rather than passing them, so the gap is visible rather than assumed closed;
+running it where a Dart, Kotlin, Swift or C# toolchain exists would close it.
+That matters most for Dart and C#, whose blocks (60 and 74 entries) are large
+enough to look finished and were built the same way as the Go one.
+
+## Issue #75: A trailing block on a `class` is taken for the class body, so the real body is never analysed
+
+**Status:** partially fixed. The `doc { … }` case is gone: `DetachDocBlocks`
+(`compiler/ng_RangerFlowParser.rgr`) removes a documentation tail from the
+declaration node before `CollectMethods`, so `EnterClass` counts the children it
+counted before the feature existed. `tests/api-docs.test.ts` compiles and runs
+the reproduction. The underlying arity check is still wrong for any OTHER
+trailing token, which is what the Fix section below describes; that part is
+open.
+
+### Reproduction
+
+```ranger
+class Sample {
+  fn foo:int ( x:int ) {
+    return (x + 1)
+  }
+} doc { public }
+
+sfn main:void () {
+  def s:Sample (new Sample())
+  print ("" + (s.foo(1)))
+}
+```
+
+The compiler reports `[OK] Compilation successful!` and writes JavaScript that is not
+valid JavaScript:
+
+```javascript
+foo (x) {
+    return+x1
+}
+```
+
+A `record` in the same shape, with a method, fails compilation outright instead.
+
+### Cause
+
+The parser ends an expression at a newline when the parent is a block node
+(`compiler/ng_RangerLispParser.rgr:64`, `skip_space`), so `} doc { … }` on the closing
+line stays inside the `class` expression and adds two more children to it.
+
+`EnterClass` (`compiler/ng_RangerFlowParser.rgr:2891`) then takes the class body as the
+**last** child:
+
+```ranger
+def body_index ( (node.chlen())  - 1)
+```
+
+and accepts a 5-child node, because `class Child extends Base { }` is 5 children. With a
+trailing block the count is also 5, `body_index` lands on the trailing block, and the real
+body — child 2 — is never walked. Nothing else reports it: the methods were already
+collected by `WalkCollectMethods`, so the class and its method exist; only the flow pass
+that repairs infix operators and type-checks the body was skipped. `return (x + 1)` is
+written out with the operator un-repaired.
+
+Any trailing token sequence produces it, not just `doc`. The 5-child branch was written
+for one specific shape and never checked that the extra children are that shape.
+
+### Fix
+
+`body_index` must not be `chlen() - 1`. The class body is the last child **of the
+declaration**, which is child 2 in the 3-child form and child 4 in the `extends` form —
+so the branch that accepts 5 children should assert that children 2 and 3 are `extends`
+and a name, and take child 4 only then. Anything else is a malformed declaration and
+should be the error the 3-child path already gives.
+
+PLAN_API_DOCS.md §5.1 proposes a pass that strips a trailing `doc { … }` from every
+declaration before `CollectMethods`, which removes this shape for the documented case.
+It does not remove the bug: the arity check is still wrong for any other trailing token,
+and it should be fixed on its own.
 
 ## Issue #74: Rust writes `&self` for a method whose only job is to mutate a field object
 

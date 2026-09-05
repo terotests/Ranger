@@ -1,0 +1,7 @@
+{ "name":"scrollarea_basic","component":"scrollarea",
+  "behaviours":["scrollarea-roles","scrollarea-content-reachable"],
+  "fixture":{"controls":[
+    {"type":"scrollarea","tid":"sa","name":"Files","items":[
+      {"value":"a","name":"Alpha"},{"value":"b","name":"Beta"},
+      {"value":"c","name":"Gamma"},{"value":"d","name":"Delta"}]}]},
+  "steps":[] }

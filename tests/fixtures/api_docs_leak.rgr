@@ -1,0 +1,20 @@
+; A public declaration may not expose a type that is not itself public.
+; Rust rejects this (E0446) and so does Swift; every other target accepts it
+; and produces an API nobody outside the module can call.
+class InternalCache {
+  def n:int 0
+}
+class Service {
+  fn getCache:InternalCache () {
+    return (new InternalCache())
+  } doc {
+    public
+    description "Leaks an internal type."
+  }
+} doc {
+  public
+  description "A service."
+}
+sfn main:void () {
+  print "ok"
+}

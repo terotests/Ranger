@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+if [ "$1" = "find-identity" ]; then
+  printf '  1) A1B2C3D4E5F60718293A4B5C6D7E8F901A2B3C4D "Apple Development: Tero Tolonen (ABC123DEF4)"\n'
+  printf '     1 valid identities found\n'; exit 0
+fi
+if [ "$1" = "cms" ]; then
+  cat <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict>
+<key>Name</key><string>iOS Team Provisioning Profile: *</string>
+<key>ExpirationDate</key><date>2027-01-01T00:00:00Z</date>
+<key>ProvisionedDevices</key><array><string>1A2B3C4D-5E6F-7890-ABCD-EF1234567890</string></array>
+<key>Entitlements</key><dict><key>application-identifier</key><string>ABC123DEF4.*</string></dict>
+</dict></plist>
+PLIST
+  exit 0
+fi
+exit 1

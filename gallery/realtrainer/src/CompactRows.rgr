@@ -1,0 +1,2303 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; CompactRows — the parsed COMPACT document, as rows a screen can draw
+; =============================================================================
+; The parser hands back an AST: `AstNode` subclasses discriminated by a `type`
+; STRING, narrowed with `cast`. That is the right shape for a parser, where a
+; new row family should not break a build, and the wrong one for a renderer,
+; where a row family nobody drew is a blank line in the app.
+;
+; So the UI model is a `shape`. `match` over it is checked for exhaustiveness,
+; which is the whole reason this layer exists rather than the renderer walking
+; `AstNode` and testing strings: COMPACT has thirty-one row families, and the
+; failure mode being designed out is the thirty-second one silently rendering
+; as nothing.
+;
+;   AstNode (parser, string-tagged)  →  CompactRow (shape)  →  [StatPart]
+;
+; `StatPart` is the same three fields as the TypeScript library's
+; `CompactStatPart` — text, tone, kind — because that library is this port's
+; test oracle and the comparison is only cheap while the two agree on a
+; structure. All formatting happens HERE: a renderer receives text and never a
+; number it has to decide how to write.
+;
+; Families so far: section, text, exercise. The rest arrive one at a time, and
+; every one of them makes `match` demand an arm.
+; =============================================================================
+
+Import "../parser/compact_parser_v1.rgr"
+Import "../parser/v1/nodes/AstNode.rgr"
+
+; One run of text in a row's spec line. `tone` is what it looks like, `kind` is
+; what it means; they are separate because a theme may want to colour a weight
+; and a recovery the same and a test never should.
+class StatPart {
+    def text:string ""
+    def tone:string "default"
+    def kind:string "spec"
+
+    Constructor (t:string tn:string k:string) {
+        text = t
+        tone = tn
+        kind = k
+    }
+}
+
+; The exercise payload, as a plain class rather than twenty-five positional
+; case fields. A shape case is constructed positionally, so the fields that
+; arrive one `if` at a time from the parser would be twenty-five arguments in a
+; fixed order — which is a rename away from a silent bug.
+; One timed set as it was actually performed: `45s`, or `30s+30s` when the two
+; sides were timed apart. The parser hands these over typed now — until the
+; patch listed in PATCHES.md they were JSON strings, and a renderer that wanted
+; the number had to parse the parser's output back.
+class MeasuredSet {
+    def left@(mutable):int 0
+    def hasRight@(mutable):boolean false
+    def right@(mutable):int 0
+    def unit@(mutable):string "s"
+
+    Constructor () {
+    }
+}
+
+class ExerciseSpec {
+    def name@(mutable):string ""
+
+    ; "measured" when the row records what was done rather than what was
+    ; planned — `Lankku|3x45s,45s,0s` is three sets that happened.
+    def specType@(mutable):string ""
+    def measured:[MeasuredSet]
+
+    def hasSets@(mutable):boolean false
+    def sets@(mutable):int 0
+    def hasSetsMax@(mutable):boolean false
+    def setsMax@(mutable):int 0
+
+    def hasReps@(mutable):boolean false
+    def reps@(mutable):int 0
+    def hasRepsMax@(mutable):boolean false
+    def repsMax@(mutable):int 0
+    def hasRepsRight@(mutable):boolean false
+    def repsRight@(mutable):int 0
+
+    def hasRounds@(mutable):boolean false
+    def rounds@(mutable):int 0
+    def unit@(mutable):string ""
+
+    def hasDistance@(mutable):boolean false
+    def distance@(mutable):int 0
+    def distanceUnit@(mutable):string ""
+
+    def hasWeight@(mutable):boolean false
+    def weightKg@(mutable):int 0
+    def hasWeightCount@(mutable):boolean false
+    def weightCount@(mutable):int 0
+
+    def hasRecovery@(mutable):boolean false
+    def recoveryValue@(mutable):int 0
+    def hasRecoveryMax@(mutable):boolean false
+    def recoveryMax@(mutable):int 0
+    def recoveryUnit@(mutable):string ""
+
+    def note@(mutable):string ""
+
+    Constructor () {
+    }
+}
+
+
+; --- the endurance families ---------------------------------------------
+;
+; The parser keeps several of these numbers as RAW STRINGS ("5", "2.5") and
+; turns them into JSON numbers only when it serialises. That is the same
+; stringly-typed shape PATCHES.md's first entry removed from measured
+; durations, one family over; here the specs parse them once, on the way in,
+; so nothing downstream has to.
+
+class MoveSpec {
+    def sport@(mutable):string ""
+    def sets@(mutable):int 1
+    def count@(mutable):int 1
+    def hasDuration@(mutable):boolean false
+    def durationValue@(mutable):double 0.0
+    def durationUnit@(mutable):string ""
+    def hasDistance@(mutable):boolean false
+    def distanceValue@(mutable):double 0.0
+    def distanceUnit@(mutable):string ""
+    def hasSteps@(mutable):boolean false
+    def steps@(mutable):int 0
+    def note@(mutable):string ""
+    def splits:[SplitSpec]
+
+    Constructor () {
+    }
+}
+
+class SplitSpec {
+    def hasDistance@(mutable):boolean false
+    def distanceValue@(mutable):double 0.0
+    def distanceUnit@(mutable):string ""
+    def hasPace@(mutable):boolean false
+    def paceMinutes@(mutable):int 0
+    def paceSeconds@(mutable):int 0
+    def hasPacePer@(mutable):boolean false
+    def pacePerValue@(mutable):double 0.0
+    def pacePerUnit@(mutable):string ""
+    def hasDuration@(mutable):boolean false
+    def durationValue@(mutable):double 0.0
+    def durationUnit@(mutable):string ""
+    def hasHr@(mutable):boolean false
+    def hr@(mutable):int 0
+    def note@(mutable):string ""
+    def text@(mutable):string ""
+
+    Constructor () {
+    }
+}
+
+class PyramidSet {
+    def reps@(mutable):int 0
+    def hasWeight@(mutable):boolean false
+    def weightKg@(mutable):double 0.0
+
+    Constructor () {
+    }
+}
+
+class PyramidSpec {
+    def name@(mutable):string ""
+    def sets:[PyramidSet]
+    def note@(mutable):string ""
+
+    Constructor () {
+    }
+}
+
+; --- the light families ---------------------------------------------------
+
+class PhaseSpec {
+    def hasNumber@(mutable):boolean false
+    def number@(mutable):int 0
+    def name@(mutable):string ""
+    def details@(mutable):string ""
+
+    Constructor () {
+    }
+}
+
+class CustomSpec {
+    def name@(mutable):string ""
+    def value@(mutable):string ""
+    def hasValueMax@(mutable):boolean false
+    def valueMax@(mutable):string ""
+    def unit@(mutable):string ""
+
+    Constructor () {
+    }
+}
+
+class DurationSpec {
+    def value@(mutable):double 0.0
+    def unit@(mutable):string "min"
+    def description@(mutable):string ""
+
+    Constructor () {
+    }
+}
+
+; --- circuits -------------------------------------------------------------
+;
+; A circuit is a header and a list of exercises under it, and the exercises
+; are NOT the exercise family: their spec is written `8@80kg` where an
+; exercise row would say `8x80kg`. Two cases rather than one, and the items
+; are flattened into the row list after their header the same way a move's
+; splits are — a renderer walking rows top to bottom is what every screen
+; here does.
+
+class CircuitItemSpec {
+    def name@(mutable):string ""
+    def hasSets@(mutable):boolean false
+    def sets@(mutable):int 0
+    def hasReps@(mutable):boolean false
+    def reps@(mutable):int 0
+    def hasRepsRight@(mutable):boolean false
+    def repsRight@(mutable):int 0
+    def unit@(mutable):string ""
+    def hasWeight@(mutable):boolean false
+    def weightKg@(mutable):int 0
+    def hasRecovery@(mutable):boolean false
+    def recoveryValue@(mutable):int 0
+    def recoveryUnit@(mutable):string ""
+
+    Constructor () {
+    }
+}
+
+class CircuitSpec {
+    def variant@(mutable):string "circuit"
+    def rounds@(mutable):int 0
+    def hasRoundRest@(mutable):boolean false
+    def roundRestValue@(mutable):int 0
+    def roundRestUnit@(mutable):string ""
+    def note@(mutable):string ""
+    def items:[CircuitItemSpec]
+
+    Constructor () {
+    }
+}
+
+shape CompactRow {
+    case Section  { def name:string "" }
+    case Text     { def text:string "" }
+    case Exercise { def spec:ExerciseSpec }
+    case Move     { def spec:MoveSpec }
+    case Pyramid  { def spec:PyramidSpec }
+    case Split    { def spec:SplitSpec }
+    case Summary  { def text:string "" }
+    case Phase    { def spec:PhaseSpec }
+    case Custom   { def spec:CustomSpec }
+    case Duration { def spec:DurationSpec }
+    case Unknown  { def raw:string "" }
+    case Circuit  { def spec:CircuitSpec }
+    case CircuitItem { def spec:CircuitItemSpec }
+}
+
+; =============================================================================
+; CompactStatBuilder — a row's spec line, as runs of text
+; =============================================================================
+; Ported from `formatExerciseSchemeParts` in the TypeScript library. The
+; branches and their order are its branches and their order, because L0 parity
+; compares the two outputs part for part: `3x5` and `x90kg` are TWO parts that
+; happen to print as `3x5x90kg`, and collapsing them into one string would pass
+; a text test and fail the one that matters.
+; =============================================================================
+class CompactStatBuilder {
+
+    Constructor () {
+    }
+
+    ; `45s`, `2min`, `1min30s`. A minute unit stays in minutes; seconds roll up
+    ; once there is a whole minute in them.
+    sfn measuredValue:string (value:int unit:string) {
+        if (unit == "min") {
+            return ((to_string value) + "min")
+        }
+        if (value >= 60) {
+            def mins:int (to_int (value / 60))
+            def secs:int (value - (mins * 60))
+            if (secs > 0) {
+                return ((((to_string mins) + "min") + (to_string secs)) + "s")
+            }
+            return ((to_string mins) + "min")
+        }
+        return ((to_string value) + "s")
+    }
+
+    ; `45s, 45s` — a set that measured zero is dropped rather than printed,
+    ; because a zero is a set that was not done and not a set of no length.
+    sfn measuredText:string (e:ExerciseSpec) {
+        def items:[string]
+        for e.measured m:MeasuredSet i {
+            def left@(mutable):string ""
+            if (m.left > 0) {
+                left = (CompactStatBuilder.measuredValue(m.left m.unit))
+            }
+            def right@(mutable):string ""
+            if (m.hasRight) {
+                if (m.right > 0) {
+                    right = (CompactStatBuilder.measuredValue(m.right m.unit))
+                }
+            }
+            if ((strlen left) > 0) {
+                if ((strlen right) > 0) {
+                    push items ((left + "+") + right)
+                } {
+                    push items left
+                }
+            } {
+                if ((strlen right) > 0) {
+                    push items right
+                }
+            }
+        }
+        return (join items ", ")
+    }
+
+    ; The spelt-out recovery a measured row carries: `/ palautus 2-3min`. The
+    ; planned rows use the terse `/2-3min` instead — two spellings on purpose,
+    ; and both are the TypeScript library's.
+    sfn recoveryLabel:string (e:ExerciseSpec) {
+        if (e.hasRecovery == false) {
+            return ""
+        }
+        def unit:string e.recoveryUnit
+        if (unit == "sec") {
+            unit = "s"
+        }
+        if (e.hasRecoveryMax) {
+            if (e.recoveryMax != e.recoveryValue) {
+                return ((((("/ palautus " + (to_string e.recoveryValue)) + "-") + (to_string e.recoveryMax)) + unit))
+            }
+        }
+        return (("/ palautus " + (to_string e.recoveryValue)) + unit)
+    }
+
+    ; A number as the TypeScript side writes it: `5` and not `5.0`, `2.5` when
+    ; there is a fraction. Both sides have to print the same string or L0 fails
+    ; on a decimal point.
+    sfn num:string (v:double) {
+        def whole:int (to_int v)
+        if ((int2double whole) == v) {
+            return (to_string whole)
+        }
+        return (to_string v)
+    }
+
+    ; `formatMoveDuration`. A minute value is re-expressed as whole minutes and
+    ; seconds, so 25.5min reads `25min 30s` — and the seconds are dropped when
+    ; there are none, rather than printed as `min 0s`.
+    sfn moveDuration:string (e:MoveSpec) {
+        if (e.hasDuration == false) {
+            return ""
+        }
+        if (e.durationUnit == "min") {
+            def total:int (to_int ((e.durationValue * 60.0) + 0.5))
+            def mins:int (to_int (total / 60))
+            def secs:int (total - (mins * 60))
+            if (secs == 0) {
+                return ((to_string mins) + "min")
+            }
+            return ((((to_string mins) + "min ") + (to_string secs)) + "s")
+        }
+        return ((CompactStatBuilder.num(e.durationValue)) + e.durationUnit)
+    }
+
+    ; `deriveMovePace`: seconds per hundred metres, and only when there is a
+    ; minute duration and a metric distance to divide. A mile gets no pace
+    ; rather than a wrong one.
+    sfn movePace:string (e:MoveSpec) {
+        if (e.hasDuration == false) {
+            return ""
+        }
+        if (e.hasDistance == false) {
+            return ""
+        }
+        if (e.durationUnit != "min") {
+            return ""
+        }
+        def meters@(mutable):double 0.0
+        if (e.distanceUnit == "km") {
+            meters = (e.distanceValue * 1000.0)
+        }
+        if (e.distanceUnit == "m") {
+            meters = e.distanceValue
+        }
+        if (meters <= 0.0) {
+            return ""
+        }
+        def per100:double ((e.durationValue * 60.0) / (meters / 100.0))
+        def mins@(mutable):int (to_int (per100 / 60.0))
+        def secs@(mutable):int (to_int ((per100 - ((int2double mins) * 60.0)) + 0.5))
+        if (secs == 60) {
+            mins = (mins + 1)
+            secs = 0
+        }
+        def ss@(mutable):string (to_string secs)
+        if (secs < 10) {
+            ss = ("0" + ss)
+        }
+        return (((("@" + (to_string mins)) + ":") + ss) + "/100m")
+    }
+
+    ; The move's right-hand column: how many, how long, how far, how fast. The
+    ; separating space lives INSIDE the part, which is the component's own
+    ; arrangement and not a detail — a renderer that put a gap between the
+    ; spans would space the steps count differently.
+    sfn moveParts:[StatPart] (e:MoveSpec) {
+        def texts:[string]
+        if (e.sets != 0) {
+            if (e.count != 0) {
+                if ((e.sets == 1) && (e.count == 1)) {
+                } {
+                    push texts (((to_string e.sets) + "x") + (to_string e.count))
+                }
+            }
+        }
+        def dur:string (CompactStatBuilder.moveDuration(e))
+        if ((strlen dur) > 0) {
+            push texts dur
+        }
+        if (e.hasDistance) {
+            if (e.distanceValue != 0.0) {
+                push texts ((CompactStatBuilder.num(e.distanceValue)) + e.distanceUnit)
+            }
+        }
+        def pace:string (CompactStatBuilder.movePace(e))
+        if ((strlen pace) > 0) {
+            push texts pace
+        }
+
+        def out:[StatPart]
+        for texts t:string i {
+            def lead@(mutable):string ""
+            if (i > 0) {
+                lead = " "
+            }
+            ; A pace is the one run the component colours, and it is spelled by
+            ; its leading `@` rather than by its position.
+            def tone@(mutable):string "default"
+            if ((indexOf t "@") == 0) {
+                tone = "weight"
+            }
+            push out (new StatPart((lead + t) tone "spec"))
+        }
+        if (e.hasSteps) {
+            push out (new StatPart(((" " + (to_string e.steps)) + " steps") "default" "meta"))
+        }
+        return out
+    }
+
+    ; Two runs per set — `5x` then `60kg` — and a set of no reps is not drawn
+    ; at all.
+    sfn pyramidParts:[StatPart] (e:PyramidSpec) {
+        def out:[StatPart]
+        for e.sets set:PyramidSet i {
+            if (set.reps > 0) {
+                push out (new StatPart(((to_string set.reps) + "x") "default" "spec"))
+                if (set.hasWeight) {
+                    if (set.weightKg > 0.0) {
+                        push out (new StatPart(((CompactStatBuilder.num(set.weightKg)) + "kg") "weight" "weight"))
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    ; `formatSplitPace` — `4'30"/1km`. The minutes carry no padding and the
+    ; seconds always do.
+    sfn splitPace:string (e:SplitSpec) {
+        if (e.hasPace == false) {
+            return ""
+        }
+        def ss@(mutable):string (to_string e.paceSeconds)
+        if (e.paceSeconds < 10) {
+            ss = ("0" + ss)
+        }
+        def per@(mutable):string ""
+        if (e.hasPacePer) {
+            per = (("/" + (CompactStatBuilder.num(e.pacePerValue))) + e.pacePerUnit)
+        }
+        return (((((to_string e.paceMinutes) + "'") + ss) + "\"") + per)
+    }
+
+    ; `formatSplitDuration` — seconds become `1'05"`, minutes stay minutes.
+    sfn splitDuration:string (e:SplitSpec) {
+        if (e.hasDuration == false) {
+            return ""
+        }
+        if (e.durationUnit == "s") {
+            def total@(mutable):int (to_int (e.durationValue + 0.5))
+            if (total < 0) {
+                total = 0
+            }
+            def mins:int (to_int (total / 60))
+            def secs:int (total - (mins * 60))
+            def ss@(mutable):string (to_string secs)
+            if (secs < 10) {
+                ss = ("0" + ss)
+            }
+            return ((((to_string mins) + "'") + ss) + "\"")
+        }
+        if (e.durationUnit == "min") {
+            return ((CompactStatBuilder.num(e.durationValue)) + "min")
+        }
+        return ((CompactStatBuilder.num(e.durationValue)) + e.durationUnit)
+    }
+
+    ; A split is separate spans with no separator of their own — the gap
+    ; between them is the row's, so nothing is inserted here.
+    sfn splitParts:[StatPart] (e:SplitSpec) {
+        def out:[StatPart]
+        if (e.hasDistance) {
+            if (e.distanceValue != 0.0) {
+                push out (new StatPart(((CompactStatBuilder.num(e.distanceValue)) + e.distanceUnit) "default" "spec"))
+            }
+        }
+        def pace:string (CompactStatBuilder.splitPace(e))
+        if ((strlen pace) > 0) {
+            push out (new StatPart(pace "default" "pace"))
+        }
+        def dur:string (CompactStatBuilder.splitDuration(e))
+        if ((strlen dur) > 0) {
+            push out (new StatPart(dur "default" "duration"))
+        }
+        if (e.hasHr) {
+            push out (new StatPart(((to_string e.hr) + "bpm") "weight" "meta"))
+        }
+        if ((strlen e.note) > 0) {
+            push out (new StatPart(e.note "muted" "meta"))
+        }
+        return out
+    }
+
+    ; --- the light families -------------------------------------------------
+
+    ; `Text.tsx` gives a life row two things a plain line does not get: the
+    ; LABEL is set apart, and the numbers in the body are picked out from the
+    ; words around them. Both are parts here, so a theme can draw them and a
+    ; test can read them.
+    sfn isLifeLabel:boolean (word:string) {
+        if (word == "Drinking") { return true }
+        if (word == "Food") { return true }
+        if (word == "Expense") { return true }
+        if (word == "Reminder") { return true }
+        if (word == "Feeling") { return true }
+        if (word == "Pain") { return true }
+        if (word == "Sleep") { return true }
+        if (word == "Health") { return true }
+        if (word == "Vitals") { return true }
+        if (word == "Weight") { return true }
+        if (word == "BodyFat") { return true }
+        if (word == "Waist") { return true }
+        if (word == "Hip") { return true }
+        if (word == "Measurement") { return true }
+        return false
+    }
+
+    sfn isDigit:boolean (code:int) {
+        if (code < 48) { return false }
+        return (code <= 57)
+    }
+
+    sfn isLetter:boolean (code:int) {
+        if (code >= 97) {
+            return (code <= 122)
+        }
+        if (code >= 65) {
+            return (code <= 90)
+        }
+        return false
+    }
+
+    ; What may trail a number and still belong to it: `7h`, `45%`, `21°`.
+    sfn isNumberTail:boolean (code:int) {
+        if (CompactStatBuilder.isLetter(code)) { return true }
+        if (code == 37) { return true }
+        if (code == 176) { return true }
+        return false
+    }
+
+    sfn isSpace:boolean (code:int) {
+        if (code == 32) { return true }
+        if (code == 9) { return true }
+        if (code == 10) { return true }
+        return (code == 13)
+    }
+
+    ; The body, split into numbers and the runs between them. An empty run is
+    ; dropped: the reference splits on a capturing group and keeps the empty
+    ; strings it produces, and a span with no text draws nothing on either side.
+    sfn numberParts:[StatPart] (body:string) {
+        def out:[StatPart]
+        def run@(mutable):string ""
+        def i@(mutable):int 0
+        def len:int (strlen body)
+        while (i < len) {
+            def code:int (charAt body i)
+            if (CompactStatBuilder.isDigit(code)) {
+                if ((strlen run) > 0) {
+                    push out (new StatPart(run "default" "meta"))
+                    run = ""
+                }
+                def start:int i
+                while (i < len) {
+                    if (CompactStatBuilder.isDigit((charAt body i))) {
+                        i = (i + 1)
+                    } {
+                        break
+                    }
+                }
+                ; A decimal point counts only when a digit follows it, so the
+                ; full stop that ends a sentence stays with the words.
+                if (i < (len - 1)) {
+                    def sep:int (charAt body i)
+                    if ((sep == 46) || (sep == 44)) {
+                        if (CompactStatBuilder.isDigit((charAt body (i + 1)))) {
+                            i = (i + 1)
+                            while (i < len) {
+                                if (CompactStatBuilder.isDigit((charAt body i))) {
+                                    i = (i + 1)
+                                } {
+                                    break
+                                }
+                            }
+                        }
+                    }
+                }
+                while (i < len) {
+                    if (CompactStatBuilder.isNumberTail((charAt body i))) {
+                        i = (i + 1)
+                    } {
+                        break
+                    }
+                }
+                push out (new StatPart((substring body start i) "number" "meta"))
+            } {
+                run = (run + (strfromcode code))
+                i = (i + 1)
+            }
+        }
+        if ((strlen run) > 0) {
+            push out (new StatPart(run "default" "meta"))
+        }
+        return out
+    }
+
+    sfn textParts:[StatPart] (raw:string) {
+        def out:[StatPart]
+        def len:int (strlen raw)
+        def i@(mutable):int 0
+        while (i < len) {
+            if (CompactStatBuilder.isLetter((charAt raw i))) {
+                i = (i + 1)
+            } {
+                break
+            }
+        }
+        if (i > 0) {
+            if (i < len) {
+                if (CompactStatBuilder.isSpace((charAt raw i))) {
+                    def label:string (substring raw 0 i)
+                    if (CompactStatBuilder.isLifeLabel(label)) {
+                        def j@(mutable):int i
+                        while (j < len) {
+                            if (CompactStatBuilder.isSpace((charAt raw j))) {
+                                j = (j + 1)
+                            } {
+                                break
+                            }
+                        }
+                        push out (new StatPart(label "label" "meta"))
+                        def body:string (substring raw j len)
+                        def parts:[StatPart] (CompactStatBuilder.numberParts(body))
+                        for parts p:StatPart k {
+                            push out p
+                        }
+                        return out
+                    }
+                }
+            }
+        }
+        push out (new StatPart(raw "muted" "meta"))
+        return out
+    }
+
+    ; `Phase.tsx`: a marker, the name, and the details when there are any.
+    sfn phaseParts:[StatPart] (e:PhaseSpec) {
+        def out:[StatPart]
+        def marker@(mutable):string "Phase"
+        if (e.hasNumber) {
+            marker = ("Phase" + (to_string e.number))
+        }
+        push out (new StatPart(marker "weight" "meta"))
+        push out (new StatPart(e.name "default" "spec"))
+        if ((strlen e.details) > 0) {
+            push out (new StatPart(e.details "muted" "meta"))
+        }
+        return out
+    }
+
+    ; `Custom.tsx`: the name, then the value with its tilde and unit. The
+    ; tilde is the component's, not a rounding claim of ours.
+    sfn customParts:[StatPart] (e:CustomSpec) {
+        def out:[StatPart]
+        push out (new StatPart((e.name + ": ") "muted" "meta"))
+        def value@(mutable):string e.value
+        if (e.hasValueMax) {
+            value = ((value + "-") + e.valueMax)
+        }
+        push out (new StatPart((("~" + value) + e.unit) "default" "spec"))
+        return out
+    }
+
+    ; `Duration.tsx` — see PATCHES.md: the reference draws the value TWICE
+    ; when there is no description, once as the badge and once as the stat
+    ; chip beside it. This draws it once, which is the deviation the corpus
+    ; records rather than a difference it hides.
+    sfn durationParts:[StatPart] (e:DurationSpec) {
+        def out:[StatPart]
+        push out (new StatPart(((CompactStatBuilder.num(e.value)) + e.unit) "weight" "duration"))
+        if ((strlen e.description) > 0) {
+            push out (new StatPart(e.description "default" "meta"))
+        }
+        return out
+    }
+
+    ; `CircuitRow.tsx`'s `formatRecovery`: a text recovery wins, otherwise the
+    ; value with its unit. A circuit item never carries text, so this is the
+    ; numeric half.
+    sfn circuitRecovery:string (value:int unit:string) {
+        return ((to_string value) + unit)
+    }
+
+    ; The header: how many rounds, which word, and the rest between rounds.
+    sfn circuitParts:[StatPart] (e:CircuitSpec) {
+        def out:[StatPart]
+        push out (new StatPart(((to_string e.rounds) + "x") "default" "spec"))
+        def label@(mutable):string "circuit"
+        if (e.variant == "superset") {
+            label = "superset"
+        }
+        push out (new StatPart(label "muted" "meta"))
+        if (e.hasRoundRest) {
+            push out (new StatPart(("/" + (CompactStatBuilder.circuitRecovery(e.roundRestValue e.roundRestUnit))) "muted" "meta"))
+        }
+        return out
+    }
+
+    ; `formatSpec`: one run, joined with nothing. A set count of one is not
+    ; written — every item in a circuit is done once per round, so saying so
+    ; would be noise on every line.
+    sfn circuitItemSpec:string (e:CircuitItemSpec) {
+        def out@(mutable):string ""
+        if (e.hasSets) {
+            if (e.sets > 1) {
+                out = (out + ((to_string e.sets) + "x"))
+            }
+        }
+        if (e.hasReps) {
+            if (e.hasRepsRight) {
+                out = (out + (((to_string e.reps) + "+") + (to_string e.repsRight)))
+            } {
+                out = (out + (to_string e.reps))
+            }
+            out = (out + e.unit)
+        }
+        if (e.hasWeight) {
+            out = (out + (("@" + (to_string e.weightKg)) + "kg"))
+        }
+        if (e.hasRecovery) {
+            out = (out + ("/" + (CompactStatBuilder.circuitRecovery(e.recoveryValue e.recoveryUnit))))
+        }
+        return out
+    }
+
+    sfn circuitItemParts:[StatPart] (e:CircuitItemSpec) {
+        def out:[StatPart]
+        def spec:string (CompactStatBuilder.circuitItemSpec(e))
+        if ((strlen spec) > 0) {
+            push out (new StatPart(spec "default" "spec"))
+        }
+        return out
+    }
+
+    ; `2-3` when a set range was given, `3` when it was not, and "" for a row
+    ; with no set count at all.
+    sfn setsText:string (e:ExerciseSpec) {
+        if (e.hasSets == false) {
+            return ""
+        }
+        if (e.sets <= 0) {
+            return ""
+        }
+        if (e.hasSetsMax) {
+            if (e.setsMax > e.sets) {
+                return ((((to_string e.sets) + "-") + (to_string e.setsMax)) + "x")
+            }
+        }
+        return ((to_string e.sets) + "x")
+    }
+
+    ; `5`, `5-8`, `10+10` — the reps side of the spec, with its unit.
+    sfn repsText:string (e:ExerciseSpec) {
+        if (e.hasReps == false) {
+            return ""
+        }
+        def out@(mutable):string (to_string e.reps)
+        if (e.hasRepsMax) {
+            out = ((out + "-") + (to_string e.repsMax))
+        }
+        out = (out + e.unit)
+        if (e.hasRepsRight) {
+            out = (((out + "+") + (to_string e.repsRight)) + e.unit)
+        }
+        return out
+    }
+
+    ; `/2min`, `/2-3min`. Empty when the row carries no recovery.
+    sfn recoveryText:string (e:ExerciseSpec) {
+        if (e.hasRecovery == false) {
+            return ""
+        }
+        def unit:string e.recoveryUnit
+        if (unit == "sec") {
+            unit = "s"
+        }
+        if (e.hasRecoveryMax) {
+            if (e.recoveryMax != e.recoveryValue) {
+                return (((("/" + (to_string e.recoveryValue)) + "-") + (to_string e.recoveryMax)) + unit)
+            }
+        }
+        return (("/" + (to_string e.recoveryValue)) + unit)
+    }
+
+    sfn exerciseParts:[StatPart] (e:ExerciseSpec) {
+        def out:[StatPart]
+
+        ; A measured row reports what happened, so it prints the times and not
+        ; the plan that produced them. First branch, as it is in the library.
+        if (e.specType == "measured") {
+            if ((array_length e.measured) > 0) {
+                push out (new StatPart((CompactStatBuilder.measuredText(e)) "default" "spec"))
+                def rec:string (CompactStatBuilder.recoveryLabel(e))
+                if ((strlen rec) > 0) {
+                    push out (new StatPart((" • " + rec) "muted" "recovery"))
+                }
+                return out
+            }
+        }
+
+        ; A distance row reads as a distance, not as reps: `3x400m/2min` with
+        ; the load hanging off the end.
+        if (e.hasDistance) {
+            def spec@(mutable):string (CompactStatBuilder.setsText(e))
+            spec = ((spec + (to_string e.distance)) + e.distanceUnit)
+            spec = (spec + (CompactStatBuilder.recoveryText(e)))
+            push out (new StatPart(spec "default" "spec"))
+            if (e.hasWeight) {
+                if (e.weightKg > 0) {
+                    def load@(mutable):string "@"
+                    if (e.hasWeightCount) {
+                        if (e.weightCount > 1) {
+                            load = ((load + (to_string e.weightCount)) + "x")
+                        }
+                    }
+                    load = ((load + (to_string e.weightKg)) + "kg")
+                    push out (new StatPart(load "weight" "weight"))
+                }
+            }
+            return out
+        }
+
+        def rounds@(mutable):string ""
+        if (e.hasRounds) {
+            if (e.rounds > 0) {
+                rounds = ((to_string e.rounds) + "x")
+            }
+        }
+        def reps:string (CompactStatBuilder.repsText(e))
+        def spec:string (((rounds + (CompactStatBuilder.setsText(e)))) + reps)
+        push out (new StatPart(spec "default" "spec"))
+
+        ; The `x` before the weight belongs to the weight and not to the reps:
+        ; a row with no reps prints `90kg`, not `x90kg`.
+        if (e.hasWeight) {
+            if (e.weightKg > 0) {
+                def load@(mutable):string ""
+                if ((strlen reps) > 0) {
+                    load = "x"
+                }
+                load = ((load + (to_string e.weightKg)) + "kg")
+                push out (new StatPart(load "weight" "weight"))
+            }
+        }
+
+        def rec:string (CompactStatBuilder.recoveryText(e))
+        if ((strlen rec) > 0) {
+            push out (new StatPart(rec "default" "recovery"))
+        }
+        return out
+    }
+
+    ; The one entry point a renderer calls. Every family answers, and `match`
+    ; will not compile until every family does.
+    sfn parts:[StatPart] (row:CompactRow) {
+        def out:[StatPart]
+        match row {
+            Exercise ex {
+                def e:ExerciseSpec (unwrap ex.spec)
+                return (CompactStatBuilder.exerciseParts(e))
+            }
+            Move mv {
+                def m:MoveSpec (unwrap mv.spec)
+                return (CompactStatBuilder.moveParts(m))
+            }
+            Pyramid py {
+                def pd:PyramidSpec (unwrap py.spec)
+                return (CompactStatBuilder.pyramidParts(pd))
+            }
+            Split sp {
+                def sd:SplitSpec (unwrap sp.spec)
+                return (CompactStatBuilder.splitParts(sd))
+            }
+            Section s {
+                push out (new StatPart(s.name "default" "heading"))
+            }
+            Text t {
+                return (CompactStatBuilder.textParts(t.text))
+            }
+            Summary sm {
+                push out (new StatPart(sm.text "muted" "meta"))
+            }
+            Phase ph {
+                def pspec:PhaseSpec (unwrap ph.spec)
+                return (CompactStatBuilder.phaseParts(pspec))
+            }
+            Custom cu {
+                def cspec:CustomSpec (unwrap cu.spec)
+                return (CompactStatBuilder.customParts(cspec))
+            }
+            Duration du {
+                def dspec:DurationSpec (unwrap du.spec)
+                return (CompactStatBuilder.durationParts(dspec))
+            }
+            Unknown un {
+                push out (new StatPart(un.raw "warn" "meta"))
+            }
+            Circuit ci {
+                def cspec2:CircuitSpec (unwrap ci.spec)
+                return (CompactStatBuilder.circuitParts(cspec2))
+            }
+            CircuitItem it {
+                def ispec:CircuitItemSpec (unwrap it.spec)
+                return (CompactStatBuilder.circuitItemParts(ispec))
+            }
+        }
+        return out
+    }
+
+    ; The parts run together, which is what a one-line renderer draws and what
+    ; the parity oracle's `textContent` reports.
+    sfn text:string (row:CompactRow) {
+        def parts:[StatPart] (CompactStatBuilder.parts(row))
+        def out@(mutable):string ""
+        for parts p:StatPart i {
+            out = (out + p.text)
+        }
+        return out
+    }
+
+    ; The family, as a word. A renderer uses it for a class name and a check
+    ; reads it; both want the name the format uses, not the generated one.
+    sfn kind:string (row:CompactRow) {
+        match row {
+            Exercise ex { return "exercise" }
+            Move mv { return "move" }
+            Pyramid py { return "pyramid" }
+            Split sp { return "split" }
+            Section s { return "section" }
+            Text t { return "text" }
+            Summary sm { return "summary" }
+            Phase ph { return "phase" }
+            Custom cu { return "custom" }
+            Duration du { return "duration" }
+            Unknown un { return "unknown" }
+            Circuit ci { return "circuit" }
+            CircuitItem it { return "circuitItem" }
+        }
+        return "unknown"
+    }
+
+    ; The row's own name — the exercise, the section heading, the line of text.
+    sfn label:string (row:CompactRow) {
+        match row {
+            Exercise ex {
+                def e:ExerciseSpec (unwrap ex.spec)
+                return e.name
+            }
+            Move mv {
+                def m:MoveSpec (unwrap mv.spec)
+                if ((strlen m.sport) > 0) {
+                    return m.sport
+                }
+                return "Move"
+            }
+            Pyramid py {
+                def pd:PyramidSpec (unwrap py.spec)
+                return pd.name
+            }
+            Split sp {
+                return ""
+            }
+            Section s {
+                return s.name
+            }
+            Text t {
+                return ""
+            }
+            Summary sm {
+                return ""
+            }
+            Phase ph {
+                def pspec:PhaseSpec (unwrap ph.spec)
+                return pspec.name
+            }
+            Custom cu {
+                def cspec:CustomSpec (unwrap cu.spec)
+                return cspec.name
+            }
+            Duration du {
+                return ""
+            }
+            Unknown un {
+                return ""
+            }
+            Circuit ci {
+                return ""
+            }
+            CircuitItem it {
+                def ispec:CircuitItemSpec (unwrap it.spec)
+                return ispec.name
+            }
+        }
+        return ""
+    }
+}
+
+; =============================================================================
+; CompactDocument — the rows AND the text they were read from
+; =============================================================================
+; A view model is LOSSY on purpose: fourteen life families come out as a line
+; of text with their structure thrown away, because that is what the reference
+; draws. So a save path must not go through it — serialising the rows back
+; would rewrite `Sleep 7h` as `Text Sleep 7h` and quietly change the document.
+;
+; The document therefore keeps its source, and an edit PATCHES the one line it
+; touched. `rowLines` is how a row finds that line: the parser hands back
+; content in order and each content node came from exactly one line, so the
+; lines are handed out in the same walk that builds the rows.
+; =============================================================================
+class LineCursor {
+    def lines:[string]
+    def at@(mutable):int 0
+
+    Constructor () {
+    }
+
+    ; The next line that carries anything. Blank lines are between rows, not
+    ; rows, and the parser does not report them.
+    fn next:int () {
+        while (at < (array_length lines)) {
+            def line:string (trim (itemAt lines at))
+            def here:int at
+            at = (at + 1)
+            if ((strlen line) > 0) {
+                return here
+            }
+        }
+        return -1
+    }
+}
+
+class CompactDocument {
+    def title@(mutable):string ""
+    def rows:[CompactRow]
+    ; One entry per row: the index in `lines` the row was read from, or -1.
+    def rowLines:[int]
+    def lines:[string]
+
+    Constructor () {
+    }
+
+    fn text:string () {
+        return (join lines "\n")
+    }
+
+    fn lineOf:int (rowIndex:int) {
+        if (rowIndex < 0) {
+            return -1
+        }
+        if (rowIndex >= (array_length rowLines)) {
+            return -1
+        }
+        return (itemAt rowLines rowIndex)
+    }
+
+    ; Replace one line and leave every other byte alone. This is the whole
+    ; save path: what was not edited is not rewritten, so a family this model
+    ; cannot express cannot be damaged by saving.
+    fn replaceLine:boolean (lineIndex:int replacement:string) {
+        if (lineIndex < 0) {
+            return false
+        }
+        if (lineIndex >= (array_length lines)) {
+            return false
+        }
+        set lines lineIndex replacement
+        return true
+    }
+}
+
+; =============================================================================
+; CompactRowMapper — parser AST → rows
+; =============================================================================
+; The only place in the app that knows the parser's field spellings. Anything
+; the mapper does not recognise becomes a Text row carrying what the parser
+; read, so an unsupported family shows up as a line the user can see rather
+; than as a gap they cannot.
+; =============================================================================
+class CompactRowMapper {
+
+    Constructor () {
+    }
+
+    ; The parser keeps several numbers as raw strings. A value it could not
+    ; make a number of is zero here, which is also how the serialiser treats it.
+    sfn toNum:double (raw:string) {
+        def parsed (str2double raw)
+        if (null? parsed) {
+            return 0.0
+        }
+        return (unwrap parsed)
+    }
+
+    sfn fromSplit:SplitSpec (node:SplitNode) {
+        def sp (new SplitSpec)
+        if (node.hasDistance) {
+            sp.hasDistance = true
+            if (node.useDistanceRaw) {
+                sp.distanceValue = (CompactRowMapper.toNum(node.distanceValueRaw))
+            } {
+                sp.distanceValue = (int2double node.distanceValue)
+            }
+            sp.distanceUnit = node.distanceUnit
+        }
+        if (node.hasDuration) {
+            sp.hasDuration = true
+            sp.durationValue = (int2double node.durationValue)
+            sp.durationUnit = node.durationUnit
+        }
+        if (node.hasPace) {
+            sp.hasPace = true
+            sp.paceMinutes = node.paceMinutes
+            sp.paceSeconds = node.paceSeconds
+            if (node.pacePerDistanceValue > 0) {
+                sp.hasPacePer = true
+                sp.pacePerValue = (int2double node.pacePerDistanceValue)
+                sp.pacePerUnit = node.pacePerDistanceUnit
+            }
+        }
+        if (node.hasHr) {
+            sp.hasHr = true
+            sp.hr = node.hr
+        }
+        if (node.hasNote) {
+            sp.note = node.note
+        }
+        return sp
+    }
+
+    sfn moveSpec:MoveSpec (node:MoveNode) {
+        def m (new MoveSpec)
+        m.sport = node.sport
+        if (node.hasSetsVal) {
+            m.sets = node.setsVal
+        }
+        if (node.hasCountVal) {
+            m.count = node.countVal
+        }
+        ; A move's duration is always minutes on the wire, whatever the source
+        ; said — the serialiser writes the unit as a literal.
+        if (node.hasDuration) {
+            m.hasDuration = true
+            m.durationValue = (CompactRowMapper.toNum(node.durationValueRaw))
+            m.durationUnit = "min"
+        }
+        if (node.hasDistanceNumeric) {
+            m.hasDistance = true
+            m.distanceValue = (CompactRowMapper.toNum(node.distanceValue))
+            m.distanceUnit = node.distanceUnit
+        }
+        if (node.hasSteps) {
+            m.hasSteps = true
+            m.steps = node.steps
+        }
+        if (node.hasNote) {
+            m.note = node.note
+        }
+        for node.splits child:AstNode i {
+            if (child.type == "split") {
+                def sn:SplitNode (cast child to:SplitNode)
+                push m.splits (CompactRowMapper.fromSplit(sn))
+            }
+        }
+        return m
+    }
+
+    sfn fromPyramid:CompactRow (node:PyramidNode) {
+        def pd (new PyramidSpec)
+        pd.name = node.name
+        for node.sets item:PyramidSetNode i {
+            def set (new PyramidSet)
+            set.reps = item.reps
+            if (item.hasWeight) {
+                set.hasWeight = true
+                set.weightKg = (CompactRowMapper.toNum(item.weightValueRaw))
+            }
+            push pd.sets set
+        }
+        if (node.hasNote) {
+            pd.note = node.note
+        }
+        return (new CompactRow.Pyramid(pd))
+    }
+
+    ; --- the life families ----------------------------------------------------
+    ;
+    ; The reference does not give these a row type of their own. It turns each
+    ; into a line of TEXT with a fixed shape — `Sleep 7h`, `Expense 45EUR |
+    ; sali` — and lets the text row draw it, which is why a life line's label
+    ; and numbers come out as separate parts. This is a port of
+    ; `fallbackTextForEntry`, family by family, because a port that invented
+    ; its own wording would look right and compare wrong.
+
+    ; `[a, b, c].filter(Boolean).join(sep)` — an empty piece leaves no
+    ; separator behind, which is the whole reason this exists.
+    sfn joinParts:string (values:[string] sep:string) {
+        def kept:[string]
+        for values v:string i {
+            if ((strlen v) > 0) {
+                push kept v
+            }
+        }
+        return (join kept sep)
+    }
+
+    sfn fallbackText:string (node:AstNode) {
+        if (node.type == "contacts") {
+            def c:ContactsNode (cast node to:ContactsNode)
+            def name@(mutable):string "Contacts"
+            if (c.hasName) {
+                if ((strlen c.name) > 0) {
+                    name = c.name
+                }
+            }
+            def count@(mutable):string ""
+            if (c.hasCount) {
+                count = (to_string c.count)
+            }
+            return (trim ((name + " ") + count))
+        }
+        if (node.type == "interval") {
+            def v:IntervalNode (cast node to:IntervalNode)
+            def count@(mutable):string ""
+            if (v.hasCount) {
+                count = ((to_string v.count) + "x")
+            }
+            def distance@(mutable):string ""
+            if (v.hasDistance) {
+                distance = ((to_string v.distanceValue) + v.distanceUnit)
+            }
+            def intensity@(mutable):string ""
+            if (v.hasIntensityText) {
+                intensity = (" @" + v.intensityText)
+            }
+            return (trim ((("Interval " + count) + distance) + intensity))
+        }
+        if (node.type == "food") {
+            def f:FoodNode (cast node to:FoodNode)
+            def bits:[string]
+            push bits "Food"
+            if (f.hasCalories) {
+                push bits (f.caloriesRaw + "kcal")
+            }
+            if (f.hasProtein) {
+                push bits (f.proteinRaw + "g/prot")
+            }
+            if (f.hasCarbs) {
+                push bits (f.carbsRaw + "g/carb")
+            }
+            if (f.hasFat) {
+                push bits (f.fatRaw + "g/fat")
+            }
+            def head:string (CompactRowMapper.joinParts(bits " "))
+            if (f.hasDescription) {
+                if ((strlen f.description) > 0) {
+                    return (trim ((head + " | ") + f.description))
+                }
+            }
+            return (trim head)
+        }
+        if (node.type == "drinking") {
+            def d:DrinkingNode (cast node to:DrinkingNode)
+            def bits:[string]
+            push bits "Drinking"
+            if (d.hasVolume) {
+                push bits (d.volumeRaw + d.volumeUnit)
+            }
+            if (d.hasLiquid) {
+                push bits d.liquid
+            }
+            def head:string (CompactRowMapper.joinParts(bits " "))
+            if (d.hasDescription) {
+                if ((strlen d.description) > 0) {
+                    return (trim ((head + " | ") + d.description))
+                }
+            }
+            return (trim head)
+        }
+        if (node.type == "expense") {
+            def e:ExpenseNode (cast node to:ExpenseNode)
+            def amount@(mutable):string ""
+            if ((strlen e.amountRaw) > 0) {
+                amount = (e.amountRaw + e.currency)
+            }
+            if (e.hasDescription) {
+                if ((strlen e.description) > 0) {
+                    return (trim ((("Expense " + amount) + " | ") + e.description))
+                }
+            }
+            return (trim ("Expense " + amount))
+        }
+        if (node.type == "reminder") {
+            def r:ReminderNode (cast node to:ReminderNode)
+            def bits:[string]
+            push bits "Reminder"
+            ; The date contributes NOTHING, and that is the reference's
+            ; behaviour rather than an omission: `formatCompactDate` keys on a
+            ; `type` discriminator, and the reminder's date is serialised
+            ; without one. Pinned by a case in the corpus.
+            if (r.hasDescription) {
+                push bits r.description
+            }
+            return (trim (CompactRowMapper.joinParts(bits " ")))
+        }
+        if (node.type == "health") {
+            def h:HealthNode (cast node to:HealthNode)
+            def bits:[string]
+            push bits "Health"
+            push bits h.healthType
+            push bits h.description
+            ; join(" | ") and then replace the FIRST " | " with a space — the
+            ; reference's `.replace(' | ', ' ')` takes one occurrence, so a
+            ; description keeps its own separator.
+            def joined:string (CompactRowMapper.joinParts(bits " | "))
+            def at:int (indexOf joined " | ")
+            if (at >= 0) {
+                joined = ((((substring joined 0 at)) + " ") + (substring joined (at + 3) (strlen joined)))
+            }
+            return (trim joined)
+        }
+        if (node.type == "vitals") {
+            def v:VitalsNode (cast node to:VitalsNode)
+            def bits:[string]
+            push bits "Vitals"
+            if (v.hasKey) {
+                push bits v.key
+            }
+            if (v.hasValue) {
+                def unit@(mutable):string ""
+                if (v.hasUnit) {
+                    unit = v.unit
+                }
+                push bits (v.value + unit)
+            }
+            return (trim (CompactRowMapper.joinParts(bits " ")))
+        }
+        if (node.type == "sleep") {
+            def sl:SleepNode (cast node to:SleepNode)
+            def bits:[string]
+            push bits "Sleep"
+            push bits (sl.durationRaw + "h")
+            if (sl.hasQuality) {
+                push bits sl.quality
+            }
+            return (trim (CompactRowMapper.joinParts(bits " ")))
+        }
+        if (node.type == "feeling") {
+            def fe:FeelingNode (cast node to:FeelingNode)
+            def bits:[string]
+            push bits "Feeling"
+            if (fe.hasValue) {
+                def suffix@(mutable):string "/10"
+                if (fe.scale == "rpe") {
+                    suffix = " RPE"
+                }
+                push bits ((to_string fe.value) + suffix)
+            }
+            if (fe.hasDescription) {
+                if ((strlen fe.description) > 0) {
+                    push bits ("| " + fe.description)
+                }
+            }
+            return (trim (CompactRowMapper.joinParts(bits " ")))
+        }
+        if (node.type == "pain") {
+            def pa:PainNode (cast node to:PainNode)
+            def bits:[string]
+            push bits "Pain"
+            if (pa.hasBodyPart) {
+                push bits pa.bodyPart
+            }
+            if (pa.hasSeverity) {
+                push bits ((to_string pa.severity) + "/10")
+            }
+            if (pa.hasDescription) {
+                if ((strlen pa.description) > 0) {
+                    push bits ("| " + pa.description)
+                }
+            }
+            return (trim (CompactRowMapper.joinParts(bits " ")))
+        }
+        if (node.type == "measurement") {
+            def me:MeasurementNode (cast node to:MeasurementNode)
+            def bits:[string]
+            def label@(mutable):string "Measurement"
+            if ((strlen me.measureType) > 0) {
+                label = me.measureType
+            }
+            push bits label
+            def unit@(mutable):string ""
+            if (me.hasUnit) {
+                unit = me.unit
+            }
+            push bits (me.valueRaw + unit)
+            return (trim (CompactRowMapper.joinParts(bits " ")))
+        }
+        if (node.type == "location") {
+            def lo:LocationNode (cast node to:LocationNode)
+            def bits:[string]
+            push bits "Location"
+            push bits lo.place
+            return (trim (CompactRowMapper.joinParts(bits " ")))
+        }
+        if (node.type == "url") {
+            def ur:UrlNode (cast node to:UrlNode)
+            def bits:[string]
+            push bits "URL"
+            push bits ur.url
+            return (trim (CompactRowMapper.joinParts(bits " ")))
+        }
+        ; The tail: `type: name value description`, or the bare type when the
+        ; row carries none of the three.
+        def bits:[string]
+        if (node.type == "meta") {
+            def mt:MetaNode (cast node to:MetaNode)
+            push bits mt.value
+        }
+        if (node.type == "sport") {
+            def sp:SportNode (cast node to:SportNode)
+            push bits sp.name
+        }
+        if (node.type == "max") {
+            def mx:MaxNode (cast node to:MaxNode)
+            push bits mx.name
+        }
+        if (node.type == "best") {
+            def bt:BestNode (cast node to:BestNode)
+            push bits bt.name
+        }
+        def joined:string (CompactRowMapper.joinParts(bits " "))
+        if ((strlen joined) > 0) {
+            return ((node.type + ": ") + joined)
+        }
+        return node.type
+    }
+
+    sfn fromExercise:CompactRow (node:ExerciseNode) {
+        def e (new ExerciseSpec())
+        e.name = node.name
+
+        e.hasSets = node.hasSets
+        e.sets = node.sets
+        e.hasSetsMax = node.hasSetsMax
+        e.setsMax = node.setsMax
+
+        e.hasReps = node.hasReps
+        e.reps = node.reps
+        e.hasRepsMax = node.hasRepsMax
+        e.repsMax = node.repsMax
+        e.hasRepsRight = node.hasRepsRight
+        e.repsRight = node.repsRight
+
+        e.unit = node.unit
+
+        e.hasDistance = node.hasExerciseDistance
+        e.distance = node.exerciseDistance
+        e.distanceUnit = node.exerciseDistanceUnit
+
+        e.hasWeight = node.hasWeight
+        e.weightKg = node.weightValue
+
+        e.hasRecovery = node.hasRecovery
+        e.recoveryValue = node.recoveryValue
+        e.hasRecoveryMax = node.hasRecoveryMax
+        e.recoveryMax = node.recoveryMax
+        e.recoveryUnit = node.recoveryUnit
+
+        if (node.hasSpecType) {
+            e.specType = node.specType
+        }
+        for node.measuredDurations md:MeasuredDurationNode i {
+            def m (new MeasuredSet)
+            m.left = md.left
+            m.hasRight = md.hasRight
+            m.right = md.right
+            m.unit = md.unit
+            push e.measured m
+        }
+
+        if (node.hasNote) {
+            e.note = node.note
+        }
+        return (new CompactRow.Exercise(e))
+    }
+
+    sfn fromWorkout:[CompactRow] (workout:WorkoutNode) {
+        def doc (new CompactDocument)
+        CompactRowMapper.fillDocument(workout doc)
+        return doc.rows
+    }
+
+    ; Every content node consumes exactly one line, whether or not it becomes a
+    ; row — tags and emojis are lines too. A node with children takes one more
+    ; line per child, in the order the children are pushed.
+    sfn fillDocument:void (workout:WorkoutNode doc:CompactDocument) {
+        def cursor (new LineCursor)
+        cursor.lines = doc.lines
+        ; The header is a line and not a row.
+        cursor.next()
+        def rows:[CompactRow] doc.rows
+        for workout.content node:AstNode idx {
+            def line:int (cursor.next())
+            def mark:int (array_length rows)
+            CompactRowMapper.mapNode(node rows cursor)
+            def added:int ((array_length rows) - mark)
+            def k@(mutable):int 0
+            while (k < added) {
+                ; The parent takes the line the node came from; a child takes
+                ; the next line, which is the `>` row underneath it.
+                if (k == 0) {
+                    push doc.rowLines line
+                } {
+                    push doc.rowLines (cursor.next())
+                }
+                k = (k + 1)
+            }
+        }
+    }
+
+    sfn mapNode:void (node:AstNode rows:[CompactRow] cursor:LineCursor) {
+        if (node.type == "section") {
+            def sec:SectionNode (cast node to:SectionNode)
+            push rows (new CompactRow.Section(sec.name))
+            return
+        }
+        if (node.type == "exercise") {
+            def ex:ExerciseNode (cast node to:ExerciseNode)
+            push rows (CompactRowMapper.fromExercise(ex))
+            return
+        }
+        if (node.type == "move") {
+            def mv:MoveNode (cast node to:MoveNode)
+            def mspec:MoveSpec (CompactRowMapper.moveSpec(mv))
+            push rows (new CompactRow.Move(mspec))
+            ; A move's splits are rows of their own on the screen, under
+            ; the move they belong to. Flattening them into one list is
+            ; what a renderer walking rows top to bottom wants; which move
+            ; they came from is the move directly above them.
+            for mspec.splits sp:SplitSpec si {
+                push rows (new CompactRow.Split(sp))
+            }
+            return
+        }
+        if (node.type == "pyramid") {
+            def py:PyramidNode (cast node to:PyramidNode)
+            push rows (CompactRowMapper.fromPyramid(py))
+            return
+        }
+        if (node.type == "split") {
+            def sn:SplitNode (cast node to:SplitNode)
+            push rows (new CompactRow.Split((CompactRowMapper.fromSplit(sn))))
+            return
+        }
+        if (node.type == "summary") {
+            def su:SummaryNode (cast node to:SummaryNode)
+            push rows (new CompactRow.Summary(su.text))
+            return
+        }
+        if (node.type == "phase") {
+            def ph:PhaseNode (cast node to:PhaseNode)
+            def pspec (new PhaseSpec)
+            pspec.hasNumber = ph.hasNumber
+            pspec.number = ph.number
+            pspec.name = ph.name
+            if (ph.hasDetails) {
+                pspec.details = ph.details
+            }
+            push rows (new CompactRow.Phase(pspec))
+            return
+        }
+        if (node.type == "custom") {
+            def cu:CustomNode (cast node to:CustomNode)
+            def cspec (new CustomSpec)
+            cspec.name = cu.name
+            cspec.value = cu.valueRaw
+            if (cu.hasValueMax) {
+                cspec.hasValueMax = true
+                cspec.valueMax = cu.valueMaxRaw
+            }
+            if (cu.hasUnit) {
+                cspec.unit = cu.unit
+            }
+            push rows (new CompactRow.Custom(cspec))
+            return
+        }
+        if (node.type == "duration") {
+            def du:DurationNode (cast node to:DurationNode)
+            def dspec (new DurationSpec)
+            if (du.hasFloatSingle) {
+                dspec.value = (CompactRowMapper.toNum(du.floatValueRaw))
+            } {
+                dspec.value = (int2double du.singleValue)
+            }
+            ; The reference reads any unit that is not seconds as minutes.
+            dspec.unit = "min"
+            if (du.unit == "s") {
+                dspec.unit = "s"
+            }
+            if (du.hasDescription) {
+                dspec.description = du.description
+            }
+            push rows (new CompactRow.Duration(dspec))
+            return
+        }
+        if (node.type == "circuit") {
+            def ci:CircuitNode (cast node to:CircuitNode)
+            def cspec (new CircuitSpec)
+            cspec.variant = ci.variant
+            cspec.rounds = ci.rounds
+            if (ci.hasRoundRest) {
+                cspec.hasRoundRest = true
+                cspec.roundRestValue = ci.roundRestValue
+                cspec.roundRestUnit = ci.roundRestUnit
+            }
+            if (ci.hasNote) {
+                cspec.note = ci.note
+            }
+            for ci.exercises item:CircuitExerciseNode ei {
+                def isp (new CircuitItemSpec)
+                isp.name = item.name
+                isp.hasSets = item.hasSets
+                isp.sets = item.sets
+                isp.hasReps = item.hasReps
+                isp.reps = item.reps
+                isp.hasRepsRight = item.hasRepsRight
+                isp.repsRight = item.repsRight
+                if (item.hasUnit) {
+                    isp.unit = item.unit
+                }
+                if (item.hasWeightValue) {
+                    isp.hasWeight = true
+                    isp.weightKg = item.weightValue
+                }
+                if (item.hasRecovery) {
+                    isp.hasRecovery = true
+                    isp.recoveryValue = item.recoveryValue
+                    isp.recoveryUnit = item.recoveryUnit
+                }
+                push cspec.items isp
+            }
+            push rows (new CompactRow.Circuit(cspec))
+            for cspec.items isp2:CircuitItemSpec ii {
+                push rows (new CompactRow.CircuitItem(isp2))
+            }
+            return
+        }
+        if (node.type == "unknown") {
+            def un:UnknownNode (cast node to:UnknownNode)
+            push rows (new CompactRow.Unknown(un.raw))
+            return
+        }
+        ; Not rows at all. The reference lifts tags, emojis and derived
+        ; values onto the WORKOUT and filters them out of the row list, so
+        ; a renderer walking rows never meets one.
+        if (node.type == "tags") {
+            return
+        }
+        if (node.type == "emojis") {
+            return
+        }
+        if (node.type == "derived") {
+            return
+        }
+        if (node.type == "text") {
+            def t:TextLineNode (cast node to:TextLineNode)
+            push rows (new CompactRow.Text(t.value))
+            return
+        }
+        ; Everything else is a line of text, shaped the way the reference
+        ; shapes it.
+    push rows (new CompactRow.Text((CompactRowMapper.fallbackText(node))))
+}
+
+    ; Parse text and flatten its first workout. The demo shows one session at a
+    ; time; a document with several is a screen this app does not have yet.
+    sfn firstWorkoutRows:[CompactRow] (text:string) {
+        def doc:CompactDocument (CompactRowMapper.parseDocument(text))
+        return doc.rows
+    }
+
+    ; The document a screen edits: its rows, its title, and the text they came
+    ; from, line by line.
+    ; Ranger has no `split`, and a document is the one place this needs one. A
+    ; trailing carriage return is dropped so a file written on either platform
+    ; gives the same lines.
+    sfn splitLines:[string] (text:string) {
+        def out:[string]
+        def cur@(mutable):string ""
+        def i@(mutable):int 0
+        def len:int (strlen text)
+        while (i < len) {
+            def code:int (charAt text i)
+            if (code == 10) {
+                push out cur
+                cur = ""
+            } {
+                if (code == 13) {
+                } {
+                    cur = (cur + (strfromcode code))
+                }
+            }
+            i = (i + 1)
+        }
+        push out cur
+        return out
+    }
+
+    sfn parseDocument:CompactDocument (text:string) {
+        def out (new CompactDocument)
+        def lines:[string] (CompactRowMapper.splitLines(text))
+        for lines line:string i {
+            push out.lines line
+        }
+        def parsed:DocumentNode (CompactV1Parser.parseText(text))
+        if ((array_length parsed.workouts) == 0) {
+            return out
+        }
+        def w:WorkoutNode (at parsed.workouts 0)
+        if (w.hasTitle) {
+            if (!null? w.title) {
+                out.title = (unwrap w.title)
+            }
+        }
+        CompactRowMapper.fillDocument(w out)
+        return out
+    }
+
+    sfn firstWorkoutTitle:string (text:string) {
+        def doc:DocumentNode (CompactV1Parser.parseText(text))
+        if ((array_length doc.workouts) == 0) {
+            return ""
+        }
+        def w:WorkoutNode (at doc.workouts 0)
+        if (w.hasTitle) {
+            if (!null? w.title) {
+                return (unwrap w.title)
+            }
+        }
+        return ""
+    }
+}
+
+; =============================================================================
+; CompactRowEdit — what a screen may change about a row, and what it may ask
+; =============================================================================
+; The steppers on the session screen write HERE and nowhere else. The row is
+; the only copy of the plan, so a stepper that kept its own number would be a
+; second one, and the two would disagree the moment anything else touched the
+; row.
+;
+; Everything is a `match`, so a family that cannot be edited says so by having
+; an arm that does nothing rather than by being forgotten.
+; =============================================================================
+class CompactRowEdit {
+
+    Constructor () {
+    }
+
+    ; A row whose sets and reps are a PLAN a person can still change. A
+    ; measured row is not one: its numbers are a record of what happened, and
+    ; a stepper under it would be offering to edit the past.
+    sfn isPlanned:boolean (row:CompactRow) {
+        match row {
+            Exercise ex {
+                def e:ExerciseSpec (unwrap ex.spec)
+                if (e.specType == "measured") {
+                    return false
+                }
+                return e.hasSets
+            }
+            Move mv {
+                return false
+            }
+            Pyramid py {
+                return false
+            }
+            Split sp {
+                return false
+            }
+            Section s {
+                return false
+            }
+            Text t {
+                return false
+            }
+            Summary sm {
+                return false
+            }
+            Phase ph {
+                return false
+            }
+            Custom cu {
+                return false
+            }
+            Duration du {
+                return false
+            }
+            Unknown un {
+                return false
+            }
+            Circuit ci {
+                return false
+            }
+            CircuitItem it {
+                return false
+            }
+        }
+        return false
+    }
+
+    sfn isSection:boolean (row:CompactRow) {
+        match row {
+            Section s {
+                return true
+            }
+            Exercise ex {
+                return false
+            }
+            Move mv {
+                return false
+            }
+            Pyramid py {
+                return false
+            }
+            Split sp {
+                return false
+            }
+            Text t {
+                return false
+            }
+            Summary sm {
+                return false
+            }
+            Phase ph {
+                return false
+            }
+            Custom cu {
+                return false
+            }
+            Duration du {
+                return false
+            }
+            Unknown un {
+                return false
+            }
+            Circuit ci {
+                return false
+            }
+            CircuitItem it {
+                return false
+            }
+        }
+        return false
+    }
+
+    sfn isExercise:boolean (row:CompactRow) {
+        match row {
+            Exercise ex {
+                return true
+            }
+            Move mv {
+                return false
+            }
+            Pyramid py {
+                return false
+            }
+            Split sp {
+                return false
+            }
+            Section s {
+                return false
+            }
+            Text t {
+                return false
+            }
+            Summary sm {
+                return false
+            }
+            Phase ph {
+                return false
+            }
+            Custom cu {
+                return false
+            }
+            Duration du {
+                return false
+            }
+            Unknown un {
+                return false
+            }
+            Circuit ci {
+                return false
+            }
+            CircuitItem it {
+                return false
+            }
+        }
+        return false
+    }
+
+    sfn sets:int (row:CompactRow) {
+        match row {
+            Exercise ex {
+                def e:ExerciseSpec (unwrap ex.spec)
+                return e.sets
+            }
+            Move mv {
+                return 0
+            }
+            Pyramid py {
+                return 0
+            }
+            Split sp {
+                return 0
+            }
+            Section s {
+                return 0
+            }
+            Text t {
+                return 0
+            }
+            Summary sm {
+                return 0
+            }
+            Phase ph {
+                return 0
+            }
+            Custom cu {
+                return 0
+            }
+            Duration du {
+                return 0
+            }
+            Unknown un {
+                return 0
+            }
+            Circuit ci {
+                return 0
+            }
+            CircuitItem it {
+                return 0
+            }
+        }
+        return 0
+    }
+
+    sfn reps:int (row:CompactRow) {
+        match row {
+            Exercise ex {
+                def e:ExerciseSpec (unwrap ex.spec)
+                return e.reps
+            }
+            Move mv {
+                return 0
+            }
+            Pyramid py {
+                return 0
+            }
+            Split sp {
+                return 0
+            }
+            Section s {
+                return 0
+            }
+            Text t {
+                return 0
+            }
+            Summary sm {
+                return 0
+            }
+            Phase ph {
+                return 0
+            }
+            Custom cu {
+                return 0
+            }
+            Duration du {
+                return 0
+            }
+            Unknown un {
+                return 0
+            }
+            Circuit ci {
+                return 0
+            }
+            CircuitItem it {
+                return 0
+            }
+        }
+        return 0
+    }
+
+    sfn weight:int (row:CompactRow) {
+        match row {
+            Exercise ex {
+                def e:ExerciseSpec (unwrap ex.spec)
+                return e.weightKg
+            }
+            Move mv {
+                return 0
+            }
+            Pyramid py {
+                return 0
+            }
+            Split sp {
+                return 0
+            }
+            Section s {
+                return 0
+            }
+            Text t {
+                return 0
+            }
+            Summary sm {
+                return 0
+            }
+            Phase ph {
+                return 0
+            }
+            Custom cu {
+                return 0
+            }
+            Duration du {
+                return 0
+            }
+            Unknown un {
+                return 0
+            }
+            Circuit ci {
+                return 0
+            }
+            CircuitItem it {
+                return 0
+            }
+        }
+        return 0
+    }
+
+    ; The clamps are what a stepper is FOR: a set count of zero and a negative
+    ; weight are not states this screen can reach. `step` carries the size, so
+    ; weight moves five at a time and reps one.
+    sfn nudge:void (row:CompactRow field:string delta:int) {
+        match row {
+            Exercise ex {
+                def e:ExerciseSpec (unwrap ex.spec)
+                if (field == "sets") {
+                    def next:int (e.sets + delta)
+                    if (next >= 1) {
+                        if (next <= 10) {
+                            e.sets = next
+                            e.hasSets = true
+                        }
+                    }
+                }
+                if (field == "reps") {
+                    def next:int (e.reps + delta)
+                    if (next >= 1) {
+                        if (next <= 30) {
+                            e.reps = next
+                            e.hasReps = true
+                        }
+                    }
+                }
+                if (field == "weight") {
+                    def next:int (e.weightKg + delta)
+                    if (next >= 0) {
+                        if (next <= 200) {
+                            e.weightKg = next
+                            e.hasWeight = (next > 0)
+                        }
+                    }
+                }
+            }
+            Move mv {
+            }
+            Pyramid py {
+            }
+            Split sp {
+            }
+            Section s {
+            }
+            Text t {
+            }
+            Summary sm {
+            }
+            Phase ph {
+            }
+            Custom cu {
+            }
+            Duration du {
+            }
+            Unknown un {
+            }
+            Circuit ci {
+            }
+            CircuitItem it {
+            }
+        }
+    }
+}
+
+; =============================================================================
+; CompactWrite — an edited row, back as the line it came from
+; =============================================================================
+; Only the rows a screen may edit, and only the forms those rows can hold. A
+; serialiser that guessed at the rest would be a way to lose a document, and
+; `rt:compact` pins the guarantee that matters: for every editable row in the
+; fixture, writing the row back with nothing changed gives the SAME LINE it was
+; read from. A form that arrives and does not round-trip fails that check
+; rather than quietly rewriting someone's training log.
+; =============================================================================
+class CompactWrite {
+
+    Constructor () {
+    }
+
+    sfn exerciseSpec:string (e:ExerciseSpec) {
+        def out@(mutable):string ""
+        if (e.hasSets) {
+            out = (out + (to_string e.sets))
+            if (e.hasSetsMax) {
+                if (e.setsMax > e.sets) {
+                    out = ((out + "-") + (to_string e.setsMax))
+                }
+            }
+            out = (out + "x")
+        }
+        if (e.hasReps) {
+            out = (out + (to_string e.reps))
+            if (e.hasRepsMax) {
+                out = ((out + "-") + (to_string e.repsMax))
+            }
+            out = (out + e.unit)
+            if (e.hasRepsRight) {
+                out = (((out + "+") + (to_string e.repsRight)) + e.unit)
+            }
+        }
+        if (e.hasWeight) {
+            if (e.weightKg > 0) {
+                out = ((out + "@") + (to_string e.weightKg))
+                out = (out + "kg")
+            }
+        }
+        if (e.hasRecovery) {
+            out = ((out + "/") + (to_string e.recoveryValue))
+            if (e.hasRecoveryMax) {
+                if (e.recoveryMax != e.recoveryValue) {
+                    out = ((out + "-") + (to_string e.recoveryMax))
+                }
+            }
+            out = (out + e.recoveryUnit)
+        }
+        return out
+    }
+
+    ; "" for a row this cannot write. The caller does not save what it cannot
+    ; write back.
+    sfn line:string (row:CompactRow) {
+        match row {
+            Exercise ex {
+                def e:ExerciseSpec (unwrap ex.spec)
+                if (e.specType == "measured") {
+                    return ""
+                }
+                return ((("Exercise " + e.name) + "|") + (CompactWrite.exerciseSpec(e)))
+            }
+            Move mv { return "" }
+            Pyramid py { return "" }
+            Split sp { return "" }
+            Section s { return "" }
+            Text t { return "" }
+            Summary sm { return "" }
+            Phase ph { return "" }
+            Custom cu { return "" }
+            Duration du { return "" }
+            Unknown un { return "" }
+            Circuit ci { return "" }
+            CircuitItem it { return "" }
+        }
+        return ""
+    }
+}
+
+; =============================================================================
+; RtBackendSim — a backend that is not there
+; =============================================================================
+; No network and no cloud: this demo has neither and does not want either. What
+; it does need is the SHAPE of one, because a screen with no waiting and no
+; failure in it is a screen whose waiting and failure states were never drawn.
+;
+; The clock is the app's, so a save takes the same number of milliseconds in
+; the browser and in the headless check, and a test does not sleep.
+; =============================================================================
+class RtBackendSim {
+    ; "idle" | "saving" | "saved" | "failed"
+    def state@(mutable):string "idle"
+    def message@(mutable):string ""
+    def latencyMs@(mutable):double 700.0
+    def leftMs@(mutable):double 0.0
+    def version@(mutable):int 0
+    ; The next save fails. A demo that cannot be made to fail on purpose is a
+    ; demo whose error state nobody has looked at.
+    def failNext@(mutable):boolean false
+    def pendingText@(mutable):string ""
+
+    Constructor () {
+    }
+
+    fn begin:void (text:string) {
+        pendingText = text
+        state = "saving"
+        message = "Tallennetaan…"
+        leftMs = latencyMs
+    }
+
+    fn tick:boolean (deltaMs:double) {
+        if (state != "saving") {
+            return false
+        }
+        leftMs = (leftMs - deltaMs)
+        if (leftMs > 0.0) {
+            return false
+        }
+        leftMs = 0.0
+        if (failNext) {
+            state = "failed"
+            message = "Tallennus epäonnistui — yritä uudelleen"
+            return true
+        }
+        version = (version + 1)
+        state = "saved"
+        message = ("Tallennettu — versio " + (to_string version))
+        return true
+    }
+
+    fn clear:void () {
+        state = "idle"
+        message = ""
+    }
+}

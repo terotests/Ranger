@@ -24,6 +24,26 @@ import { renderDisplayList } from "../../evg/gl/evg-webgl.js";
 import * as HostModule from "../bin/ui_host.cjs";
 import { SPECS, THEME_CSS } from "./generated.js";
 
+/**
+ * The specs, grouped by the component they exercise. A flat dropdown of 31
+ * names was unreadable; a tree says at a glance which components exist, how
+ * many specs each one has, and — once visited — which of them diverge.
+ */
+const GROUPS = (() => {
+  const by = new Map();
+  SPECS.forEach((s, index) => {
+    const key = s.component || "—";
+    if (!by.has(key)) by.set(key, []);
+    // The component name is already the heading; repeating it in every row
+    // just makes them all start with the same word.
+    const label = s.name.replace(/^[a-z]+_/, "").replace(/_/g, " ");
+    by.get(key).push({ index, label });
+  });
+  return [...by.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([component, specs]) => ({ component, specs }));
+})();
+
 const PAGE_W = 420;
 const PAGE_H = 320;
 
@@ -36,6 +56,11 @@ function useEvgHost(fixture, theme) {
     host.setPageSize(PAGE_W, PAGE_H);
     host.setTheme(theme);
     host.layout();
+    // The EVG host, for anything driving this page from outside: a browser
+    // test needs an item's RECTANGLE to press, and only the host knows where
+    // layout put it. The same hook the accessibility audit page exposes, and
+    // for the same reason — a canvas offers nothing to a query selector.
+    window.__uiHost = host;
     return host;
   }, [fixture, theme]);
 }
@@ -76,8 +101,12 @@ function Playground() {
   const [diffs, setDiffs] = useState([]);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  // What each spec looked like the last time it was on screen, so the tree can
+  // show where the divergences are without re-running everything.
+  const [seen, setSeen] = useState({});
 
   const spec = SPECS[specIndex];
+  const specName = spec.name;
   const host = useEvgHost(spec.fixture, theme);
   const radixRef = useRef(null);
   const canvasRef = useRef(null);
@@ -107,7 +136,8 @@ function Playground() {
     }
     setRows([...byTid.values()]);
     setDiffs(d);
-  }, [host, repaint]);
+    setSeen((prev) => ({ ...prev, [specName]: d.length }));
+  }, [host, repaint, specName]);
 
   /**
    * Re-observe whenever the DOM side actually changes, instead of guessing how
@@ -126,32 +156,238 @@ function Playground() {
     });
   }, [observe]);
 
+  /**
+   * Keep painting while anything is still moving.
+   *
+   * A transition needs frames, and the page repaints on demand — so after any
+   * input it asks the host whether something is in flight and keeps asking
+   * until nothing is. The host is handed the real elapsed time rather than a
+   * fixed step: a dropped frame then shortens the animation instead of
+   * stretching it, which is what makes a hover feel the same on a slow machine.
+   */
+  const animating = useRef(0);
+  // Repaint, not observe.
+  //
+  // `repaint()` goes through `host.displayList()`, which lays out — which is
+  // where `markStates`, the stylesheet and `reconcileTree` run, and therefore
+  // where the flight a hover creates comes into existence. So the loop must
+  // paint BEFORE asking whether anything is still moving; asking first gives
+  // exactly one frame and a colour frozen where it started, which it did,
+  // twice.
+  //
+  // What the loop must NOT do is call `observe()`. That snapshots both trees
+  // and diffs them behind two `requestAnimationFrame` waits, so an animation
+  // driven through it advanced once every ~33ms — five frames for a 140ms
+  // transition, which reads as a stutter rather than a fade. The diff is a
+  // property of the settled state anyway, so it is taken once at the end.
+  const observeRef = useRef(observe);
+  observeRef.current = observe;
+  const repaintRef = useRef(repaint);
+  repaintRef.current = repaint;
+  const animate = useCallback(() => {
+    if (animating.current) return;
+    let last = performance.now();
+    const step = async () => {
+      const now = performance.now();
+      const dt = now - last;
+      last = now;
+      host.tick(dt);
+      await repaintRef.current();
+      if (host.busyNow()) {
+        animating.current = requestAnimationFrame(step);
+      } else {
+        animating.current = 0;
+        // Settled: now the trace and the diff are worth recomputing.
+        observeRef.current();
+      }
+    };
+    animating.current = requestAnimationFrame(step);
+  }, [host]);
+
   useEffect(() => {
     observe();
-    const mo = new MutationObserver(schedule);
-    mo.observe(radixRef.current, { attributes: true, childList: true, subtree: true });
-    document.addEventListener("focusin", schedule);
+    // Watch the panel AND the portals — an overlay's content is a child of
+    // <body>, not of #radix, so a panel-scoped observer shows a stale dialog.
+    // But not the playground's own chrome: rendering the trace table is itself
+    // a mutation of <body>, so an unfiltered observer re-observes because it
+    // just observed, forever. Anything inside #app that is not the panel is
+    // this page's own furniture; anything outside #app is a portal.
+    const app = document.getElementById("app");
+    const mo = new MutationObserver((records) => {
+      for (const r of records) {
+        const el = r.target.nodeType === 1 ? r.target : r.target.parentElement;
+        if (!el) continue;
+        if (radixRef.current.contains(el) || !app.contains(el)) {
+          schedule();
+          return;
+        }
+      }
+    });
+    mo.observe(document.body, { attributes: true, childList: true, subtree: true });
+    const onFocusIn = (e) => {
+      if (tabbing.current && !driving.current) {
+        tabbing.current = false;
+        const hit = e.target.closest && e.target.closest("[data-tid]");
+        if (hit) host.focus(hit.getAttribute("data-tid"));
+      }
+      schedule();
+    };
+    document.addEventListener("focusin", onFocusIn);
     document.addEventListener("focusout", schedule);
     return () => {
       mo.disconnect();
-      document.removeEventListener("focusin", schedule);
+      document.removeEventListener("focusin", onFocusIn);
       document.removeEventListener("focusout", schedule);
+      // Clear the id as well as the frame. `schedule()` treats a non-zero
+      // pending as "an observation is already on its way", so leaving the id
+      // behind after cancelling it wedges the live view shut: every later
+      // change returns early and the panel keeps showing — and scoring — the
+      // trace from before the spec was switched. Measured: opening a menu
+      // added five nodes to the DOM and the table still showed one, under a
+      // green "traces agree".
       if (pending.current) cancelAnimationFrame(pending.current);
+      pending.current = 0;
     };
-  }, [observe, schedule]);
+  }, [observe, schedule, host]);
 
   /**
-   * Radix → Ranger. The DOM side gets a real user event, so its focus and
-   * state are genuine; the id under the pointer is all Ranger needs.
+   * Radix → Ranger, listened for on the DOCUMENT rather than on the panel.
+   *
+   * Every overlay — dialog, popover, menu, tooltip — is rendered through a
+   * portal, so its content is a child of <body>, not of #radix. A listener on
+   * the panel therefore never sees a click on a dialog's Cancel button, and
+   * the two sides silently stop agreeing the moment anything opens. Measured:
+   * replaying the alert-dialog spec through the panel-scoped handler produced
+   * eleven divergences that the headless gate does not have.
+   *
+   * Only elements the fixture tagged are acted on, so the sidebar and the
+   * header are not mistaken for the page under test. A click inside #radix
+   * that lands on nothing still blurs, which is what a browser does.
    */
-  const onRadixPointer = useCallback(
-    (e) => {
-      const hit = e.target.closest("[data-tid]");
-      host.click(hit ? hit.getAttribute("data-tid") : "");
+  /**
+   * Set while the page is driving the DOM side itself — the canvas mirror and
+   * the spec replay both synthesise real events, and a real event reaches the
+   * document listeners below. Without this the EVG side gets the input twice:
+   * measured as a dialog that closed and then immediately blurred its own
+   * trigger, because the second dispatch found the close button gone.
+   */
+  const driving = useRef(false);
+  /** Set between a Tab keydown and the focusin it causes. */
+  const tabbing = useRef(false);
+  /** The element a drag started in the Radix panel is measured against. */
+  const domDragBounds = useRef("");
+  // A drag of one thing onto another, started on the reference side.
+  const domOnto = useRef(false);
+  const drive = useCallback((fn) => {
+    driving.current = true;
+    try {
+      fn();
+    } finally {
+      driving.current = false;
+    }
+  }, []);
+
+  useEffect(() => {
+    const fromCanvas = (e) =>
+      driving.current || (canvasRef.current && canvasRef.current.contains(e.target));
+    const tidOf = (e) => {
+      const hit = e.target.closest && e.target.closest("[data-tid]");
+      return hit ? hit.getAttribute("data-tid") : null;
+    };
+
+    // POINTERDOWN, not click. A menu opens on pointer down and portals its
+    // surface directly under the cursor, so by the time the click event fires
+    // the target is the menu, not the trigger — the EVG side was told about a
+    // press on a node that had not existed a moment earlier, and never opened
+    // at all. Measured: five nodes on the Radix side, one on this one.
+    // It is also the more faithful event: UiHost's own entry point is
+    // pointerDown(), and both sides are observed once everything has settled.
+    // The fraction across the element the control drags against, read off the
+    // DOM's own geometry. Both hosts are asked about the same element, so a
+    // grab on an 18px thumb and one on a 200px rail mean the same point.
+    const fracFor = (boundsTid, e) => {
+      const el = document.querySelector(`[data-tid="${CSS.escape(boundsTid)}"]`);
+      if (!el) return 0;
+      const b = el.getBoundingClientRect();
+      return b.width ? (e.clientX - b.x) / b.width : 0;
+    };
+    const onDown = (e) => {
+      if (fromCanvas(e)) return;
+      const tid = tidOf(e);
+      if (tid === null && !radixRef.current.contains(e.target)) return;
+      if (tid && host.dragsOntoFor(tid)) {
+        // The same gesture from the other side: the reference is being dragged
+        // with the real pointer, and the EVG list follows it by test id.
+        domOnto.current = true;
+        host.pressOn(tid);
+        schedule();
+        return;
+      }
+      const boundsTid = tid ? host.dragBoundsFor(tid) : "";
+      if (boundsTid) {
+        // A drag, not a click. Radix is already handling the real pointer; the
+        // EVG side follows it by fraction until the button comes up.
+        domDragBounds.current = boundsTid;
+        host.pressTid(tid, fracFor(boundsTid, e));
+        schedule();
+        return;
+      }
+      host.click(tid || "");
       schedule();
-    },
-    [host, schedule],
-  );
+    };
+    const onMove = (e) => {
+      if (fromCanvas(e)) return;
+      if (domOnto.current) {
+        const over = tidOf(e);
+        if (over) host.dragOnto(over);
+        schedule();
+        return;
+      }
+      if (!domDragBounds.current) return;
+      host.dragFraction(fracFor(domDragBounds.current, e));
+      schedule();
+    };
+    const onUp = () => {
+      if (domOnto.current) {
+        domOnto.current = false;
+        host.releaseDrag();
+        schedule();
+        return;
+      }
+      if (!domDragBounds.current) return;
+      domDragBounds.current = "";
+      host.pointerUp();
+      schedule();
+    };
+    // A tooltip and a hover card have no other input than this.
+    const onOver = (e) => {
+      if (fromCanvas(e)) return;
+      const tid = tidOf(e);
+      if (tid) host.hover(tid);
+      else host.unhover();
+      schedule();
+      animate();
+    };
+    const onContext = (e) => {
+      if (fromCanvas(e)) return;
+      const tid = tidOf(e);
+      if (tid) host.rightClick(tid);
+      schedule();
+    };
+
+    document.addEventListener("pointerdown", onDown, true);
+    document.addEventListener("pointermove", onMove, true);
+    document.addEventListener("pointerup", onUp, true);
+    document.addEventListener("pointerover", onOver, true);
+    document.addEventListener("contextmenu", onContext, true);
+    return () => {
+      document.removeEventListener("pointerdown", onDown, true);
+      document.removeEventListener("pointermove", onMove, true);
+      document.removeEventListener("pointerup", onUp, true);
+      document.removeEventListener("pointerover", onOver, true);
+      document.removeEventListener("contextmenu", onContext, true);
+    };
+  }, [host, schedule]);
 
   /**
    * Ranger → Radix. The canvas has coordinates, so this is the one place the
@@ -159,17 +395,284 @@ function Playground() {
    * focus + click for an enabled control, blur otherwise — which is what the
    * headless oracle showed a real press does.
    */
+  /**
+   * Canvas → Radix for a drag. The EVG side is driven by its own hit test and
+   * its own geometry; this puts the same gesture on the reference by asking
+   * both hosts for the fraction across the SAME element — the one the control
+   * drags against, which for a slider is the track whether you grabbed the
+   * rail or the thumb.
+   */
+  const dragging = useRef(false);
+  const pressedTid = useRef("");
+  /**
+   * Pointer capture, faked for the length of a canvas-driven drag.
+   *
+   * Radix grabs the pointer with `setPointerCapture(event.pointerId)` and then
+   * ignores every move where `event.target.hasPointerCapture(id)` is false.
+   * Neither can work here: the real pointer is on the CANVAS, which holds the
+   * capture, and the events going to Radix are replayed. Both failures were
+   * measured, one after the other — first the capture call threw inside
+   * Radix's own handler and it never started dragging, then with that stubbed
+   * it took the press and dropped every move.
+   *
+   * So for the duration of one mirrored drag: capture is a no-op and every
+   * element claims to hold it. Three prototype methods, restored on release.
+   * The headless gate drives Radix with a real mouse and needs none of this.
+   */
+  const savedCapture = useRef(null);
+  const stubPointerCapture = useCallback((on) => {
+    if (on && !savedCapture.current) {
+      savedCapture.current = [
+        Element.prototype.setPointerCapture,
+        Element.prototype.releasePointerCapture,
+        Element.prototype.hasPointerCapture,
+      ];
+      Element.prototype.setPointerCapture = function () {};
+      Element.prototype.releasePointerCapture = function () {};
+      Element.prototype.hasPointerCapture = function () {
+        return true;
+      };
+    } else if (!on && savedCapture.current) {
+      [
+        Element.prototype.setPointerCapture,
+        Element.prototype.releasePointerCapture,
+        Element.prototype.hasPointerCapture,
+      ] = savedCapture.current;
+      savedCapture.current = null;
+    }
+  }, []);
+  const mirrorDrag = useCallback(
+    (tid, e) => {
+      const boundsTid = host.dragBoundsFor(tid);
+      if (!boundsTid) return;
+      const el = document.querySelector(`[data-tid="${CSS.escape(boundsTid)}"]`);
+      if (!el) return;
+      const b = el.getBoundingClientRect();
+      const cr = canvasRef.current.getBoundingClientRect();
+      const evgBox = host.findEl(host.root, boundsTid);
+      if (!evgBox || !evgBox.calculatedWidth) return;
+      const frac = (e.clientX - cr.left - evgBox.calculatedX) / evgBox.calculatedWidth;
+      drive(() => {
+        const x = b.x + b.width * frac;
+        const y = b.y + b.height / 2;
+        el.dispatchEvent(
+          new PointerEvent(dragging.current ? "pointermove" : "pointerdown", {
+            bubbles: true,
+            pointerType: "mouse",
+            clientX: x,
+            clientY: y,
+            buttons: 1,
+            pointerId: 1,
+            isPrimary: true,
+          }),
+        );
+      });
+    },
+    [host, drive],
+  );
+
+  /**
+   * The other kind of drag: one thing onto another.
+   *
+   * A slider's drag is a fraction of a track, and the mirror has to compute
+   * that fraction. This one is simpler and more robust — what matters is which
+   * ITEM the pointer is over, which is a test id on both sides, so the mirror
+   * dispatches at the centre of the element carrying the same id. Nothing has
+   * to agree about geometry for the two lists to reorder together.
+   */
+  const ontoDrag = useRef(false);
+  const mirrorOnto = useCallback(
+    (tid, kind) => {
+      const el = tid ? document.querySelector(`[data-tid="${CSS.escape(tid)}"]`) : null;
+      if (!el) return;
+      const b = el.getBoundingClientRect();
+      drive(() => {
+        // A real mousedown focuses what it lands on; a synthetic one does not,
+        // because focusing is the browser's default action and not part of the
+        // event. Without this the panel reported the pressed item as focused
+        // on the EVG side and not on the reference — a divergence the headless
+        // gate, which uses real input, does not have.
+        if (kind === "pointerdown" && el.focus) el.focus();
+        el.dispatchEvent(
+          new PointerEvent(kind, {
+            bubbles: true,
+            pointerType: "mouse",
+            clientX: b.x + b.width / 2,
+            clientY: b.y + b.height / 2,
+            buttons: kind === "pointerup" ? 0 : 1,
+            pointerId: 1,
+            isPrimary: true,
+          }),
+        );
+      });
+    },
+    [drive],
+  );
+
+  const onCanvasDragMove = useCallback(
+    (e) => {
+      if (!dragging.current) return;
+      const r = canvasRef.current.getBoundingClientRect();
+      if (ontoDrag.current) {
+        const over = host.hitTest(e.clientX - r.left, e.clientY - r.top);
+        if (over) {
+          host.dragOnto(over);
+          mirrorOnto(over, "pointermove");
+        }
+        schedule();
+        return;
+      }
+      host.pointerMove(e.clientX - r.left, e.clientY - r.top);
+      // The bounds come from what was PRESSED, not from what is under the
+      // cursor now — a drag routinely leaves the control it started on.
+      mirrorDrag(pressedTid.current, e);
+      schedule();
+    },
+    [host, mirrorDrag, mirrorOnto, schedule],
+  );
+
+  const onCanvasUp = useCallback(
+    (e) => {
+      if (!dragging.current) return;
+      dragging.current = false;
+      if (ontoDrag.current) {
+        ontoDrag.current = false;
+        host.releaseDrag();
+        mirrorOnto(pressedTid.current, "pointerup");
+        stubPointerCapture(false);
+        schedule();
+        return;
+      }
+      host.pointerUp();
+      stubPointerCapture(false);
+      drive(() => {
+        document.dispatchEvent(
+          new PointerEvent("pointerup", { bubbles: true, pointerType: "mouse", clientX: e.clientX, clientY: e.clientY }),
+        );
+      });
+      schedule();
+    },
+    [host, drive, schedule, stubPointerCapture, mirrorOnto],
+  );
+
   const onCanvasPointer = useCallback(
     (e) => {
       const r = canvasRef.current.getBoundingClientRect();
-      const tid = host.pointerDown(e.clientX - r.left, e.clientY - r.top);
-      const el = tid ? radixRef.current.querySelector(`[data-tid="${CSS.escape(tid)}"]`) : null;
-      if (el && !el.disabled) {
-        el.focus();
-        el.click();
-      } else if (document.activeElement && document.activeElement !== document.body) {
-        document.activeElement.blur();
+      // pressAt, not pointerDown: a slider's thumb is grabbed, not clicked, and
+      // this is the one host with a real pointer to grab it with.
+      const tid = host.pressAt(e.clientX - r.left, e.clientY - r.top);
+      if (tid && host.dragsOntoFor(tid)) {
+        // A press that will become a drag onto something else, so it is NOT
+        // also a click: dnd-kit waits for the pointer to travel before a press
+        // becomes a drag, and a click that never travels must leave the list
+        // alone on both sides.
+        //
+        // preventDefault, because focusing the canvas is the browser's default
+        // action for a press on it — and it happens AFTER this handler, so it
+        // would undo the focus the mirror just gave the item. Measured: the
+        // reference then never heard Space, because the element dnd-kit
+        // listens on did not have focus.
+        e.preventDefault();
+        pressedTid.current = tid;
+        ontoDrag.current = true;
+        dragging.current = true;
+        stubPointerCapture(true);
+        host.pressOn(tid);
+        mirrorOnto(tid, "pointerdown");
+        try {
+          canvasRef.current.setPointerCapture(e.pointerId);
+        } catch {
+          // A synthetic pointer has none to capture; the drag works without it.
+        }
+        // Focus stays on the MIRRORED element rather than moving to the canvas.
+        // A sortable's next input is usually a key — Space picks the item up —
+        // and the reference only hears it if the element it belongs to has
+        // focus. The EVG side is not affected: the key handler is on `window`,
+        // which sees the event wherever focus is.
+        schedule();
+        return;
       }
+      if (host.dragBoundsFor(tid)) {
+        pressedTid.current = tid;
+        stubPointerCapture(true);
+        mirrorDrag(tid, e);
+        dragging.current = true;
+        try {
+          canvasRef.current.setPointerCapture(e.pointerId);
+        } catch {
+          // A synthetic pointer has none to capture; the drag works without it.
+        }
+        canvasRef.current.focus();
+        schedule();
+        return;
+      }
+      const el = tid ? document.querySelector(`[data-tid="${CSS.escape(tid)}"]`) : null;
+      drive(() => {
+        if (el && !el.disabled) {
+          el.focus();
+          el.click();
+        } else if (document.activeElement && document.activeElement !== document.body) {
+          document.activeElement.blur();
+        }
+      });
+      canvasRef.current.focus();
+      schedule();
+    },
+    [host, schedule, drive, mirrorDrag, mirrorOnto, stubPointerCapture],
+  );
+
+  /**
+   * Ranger → Radix for the pointer without a button. Same simulation caveat as
+   * onCanvasPointer, and a little worse: React reconstructs enter/leave from
+   * the bubbling `pointerover` / `pointerout` pair, so those are what get
+   * dispatched. The EVG side is driven by its own hit test either way.
+   */
+  const hoveredTid = useRef("");
+  const onCanvasMove = useCallback(
+    (e) => {
+      const r = canvasRef.current.getBoundingClientRect();
+      const tid = host.hitTest(e.clientX - r.left, e.clientY - r.top);
+      if (tid === hoveredTid.current) return;
+      const find = (id) => (id ? document.querySelector(`[data-tid="${CSS.escape(id)}"]`) : null);
+      const was = find(hoveredTid.current);
+      if (was) {
+        was.dispatchEvent(new PointerEvent("pointerout", { bubbles: true, pointerType: "mouse" }));
+      }
+      hoveredTid.current = tid;
+      if (tid) {
+        host.hover(tid);
+        const el = find(tid);
+        if (el) {
+          el.dispatchEvent(new PointerEvent("pointerover", { bubbles: true, pointerType: "mouse" }));
+          el.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, pointerType: "mouse" }));
+        }
+      } else {
+        host.unhover();
+      }
+      schedule();
+      animate();
+    },
+    [host, schedule, animate],
+  );
+
+  const onCanvasLeave = useCallback(() => {
+    hoveredTid.current = "";
+    host.unhover();
+    animate();
+    radixRef.current.dispatchEvent(
+      new PointerEvent("pointerout", { bubbles: true, pointerType: "mouse" }),
+    );
+    schedule();
+  }, [host, schedule, animate]);
+
+  const onCanvasContext = useCallback(
+    (e) => {
+      e.preventDefault();
+      const r = canvasRef.current.getBoundingClientRect();
+      const tid = host.hitTest(e.clientX - r.left, e.clientY - r.top);
+      host.rightClick(tid);
+      const el = tid ? document.querySelector(`[data-tid="${CSS.escape(tid)}"]`) : null;
+      if (el) el.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
       canvasRef.current.focus();
       schedule();
     },
@@ -179,7 +682,20 @@ function Playground() {
   /** Keyboard is genuinely shared: one real key event, both sides handle it. */
   useEffect(() => {
     const onKey = (e) => {
-      if (e.key === "Tab") return; // the browser owns Tab; see PLAN.md
+      if (e.key === "Tab") {
+        // The browser owns Tab (see PLAN.md), so the DOM side moves focus on
+        // its own and the EVG side would otherwise be left behind — every
+        // later key would then go to the wrong control. This is the ONE place
+        // the page copies focus across rather than deriving it from input:
+        // the focusin handler below reads the flag and does it.
+        tabbing.current = true;
+        return;
+      }
+      // The replay synthesises its own keydown and tells the host separately,
+      // and a synthetic keydown bubbles to window like any other. Without this
+      // the EVG side takes every replayed arrow twice: measured as a tab strip
+      // that ended two steps past where the reference left it.
+      if (driving.current) return;
       host.key(e.key === "Spacebar" ? " " : e.key);
       schedule();
     };
@@ -191,8 +707,11 @@ function Playground() {
   const replay = useCallback(async () => {
     setBusy(true);
     for (const step of spec.steps) {
+      // Every branch below synthesises the DOM event itself and then tells the
+      // EVG host separately, so the document listeners must stay out of it.
+      driving.current = true;
       if ("click" in step) {
-        const el = radixRef.current.querySelector(`[data-tid="${CSS.escape(step.click)}"]`);
+        const el = document.querySelector(`[data-tid="${CSS.escape(step.click)}"]`);
         if (el && !el.disabled) {
           el.focus();
           el.click();
@@ -209,7 +728,67 @@ function Playground() {
           if (step.key === " " || step.key === "Enter") el.click();
         }
         host.key(step.key);
+      } else if ("focus" in step) {
+        const el = document.querySelector(`[data-tid="${CSS.escape(step.focus)}"]`);
+        if (el) el.focus();
+        host.focus(step.focus);
+      } else if ("hover" in step) {
+        const el = document.querySelector(`[data-tid="${CSS.escape(step.hover)}"]`);
+        if (el) {
+          el.dispatchEvent(new PointerEvent("pointerover", { bubbles: true, pointerType: "mouse" }));
+          el.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, pointerType: "mouse" }));
+        }
+        host.hover(step.hover);
+      } else if ("unhover" in step) {
+        // A tooltip stays up over a "grace area" between trigger and content,
+        // and decides with a DOCUMENT pointermove carrying real coordinates —
+        // a pointerout on the panel leaves it open. Measured: the replay
+        // reported the tip still delayed-open after the step said it had left.
+        // React derives pointerleave from a BUBBLING pointerout whose
+        // relatedTarget is outside the element, so a bare pointerleave never
+        // reaches the handler. Leave first, then move: the grace area is only
+        // created on leave, and the document pointermove is what tells the
+        // tooltip the pointer is no longer inside it.
+        // The coordinates matter: a tooltip builds its grace polygon from the
+        // point the pointer left at, so leaving at (0,0) and then moving to
+        // (0,0) puts the pointer on a vertex of its own grace area and the tip
+        // never closes. Leave from the middle of the control, as a hand would.
+        for (const el of document.querySelectorAll("[data-tid]")) {
+          const r = el.getBoundingClientRect();
+          el.dispatchEvent(
+            new PointerEvent("pointerout", {
+              bubbles: true,
+              pointerType: "mouse",
+              relatedTarget: document.body,
+              clientX: r.left + r.width / 2,
+              clientY: r.top + r.height / 2,
+            }),
+          );
+        }
+        // Then WALK away, rather than teleport. A grace area is left by
+        // crossing its edge, and the headless adapter needed the same thing:
+        // one jump can land outside the polygon without a pointermove ever
+        // reporting a point beyond it. Twelve steps to the far corner, which
+        // is the direction nothing is portalled into.
+        const toX = window.innerWidth - 2;
+        const toY = window.innerHeight - 2;
+        for (let i = 1; i <= 12; i += 1) {
+          document.dispatchEvent(
+            new PointerEvent("pointermove", {
+              bubbles: true,
+              pointerType: "mouse",
+              clientX: (toX * i) / 12,
+              clientY: (toY * i) / 12,
+            }),
+          );
+        }
+        host.unhover();
+      } else if ("rightclick" in step) {
+        const el = document.querySelector(`[data-tid="${CSS.escape(step.rightclick)}"]`);
+        if (el) el.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+        host.rightClick(step.rightclick);
       }
+      driving.current = false;
       await observe();
       await new Promise((r) => setTimeout(r, 260));
     }
@@ -223,16 +802,6 @@ function Playground() {
     <>
       <header>
         <h1>gallery/ui — Radix vs Ranger EVG</h1>
-        <label>
-          fixture
-          <select value={specIndex} onChange={(e) => setSpecIndex(Number(e.target.value))}>
-            {SPECS.map((s, i) => (
-              <option key={s.name} value={i}>
-                {s.name}
-              </option>
-            ))}
-          </select>
-        </label>
         <label>
           <input
             type="checkbox"
@@ -249,12 +818,54 @@ function Playground() {
         </span>
       </header>
 
+      <div className="body">
+        <nav className="tree" aria-label="Specs by component">
+          <div className="count">
+            <span>{GROUPS.length} components</span>
+            <span>{SPECS.length} specs</span>
+          </div>
+          {GROUPS.map((g) => (
+            <div className="group" key={g.component}>
+              <div className="name">
+                <span>{g.component}</span>
+                <span className="n">{g.specs.length}</span>
+              </div>
+              {g.specs.map(({ index, label }) => {
+                const d = seen[SPECS[index].name];
+                const cls = d === undefined ? "dot" : d === 0 ? "dot ok" : "dot bad";
+                return (
+                  <button
+                    key={index}
+                    className="spec"
+                    aria-current={index === specIndex ? "true" : undefined}
+                    title={d === undefined ? "not visited yet" : d === 0 ? "traces agree" : d + " divergences"}
+                    onClick={() => setSpecIndex(index)}
+                  >
+                    <span className={cls} />
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+        </nav>
+
+        <div className="content">
       <main>
         <section>
           <h2>Radix — React DOM</h2>
           <p className="sub">Real @radix-ui components. Click and type here; both sides follow.</p>
-          <div id="radix" ref={radixRef} onClickCapture={onRadixPointer}>
-            <RadixApp fixture={spec.fixture} />
+          {/*
+            key=specName so React REMOUNTS the reference host on every spec
+            change. Radix's controls are uncontrolled — a checkbox holds its own
+            checked state — so an update in place leaves the previous spec's
+            state behind while the EVG host is rebuilt from scratch, and the two
+            sides start out of sync. Measured: replaying every spec in order
+            reported seven divergences that the headless gate, which gets a
+            fresh page each time, does not have.
+          */}
+          <div id="radix" ref={radixRef}>
+            <RadixApp key={specName} fixture={spec.fixture} />
           </div>
         </section>
 
@@ -264,7 +875,16 @@ function Playground() {
             Controllers mutating a display list, painted by <code>evg-webgl.js</code>. Clicking here
             runs the real EVG hit test.
           </p>
-          <canvas ref={canvasRef} tabIndex={0} onPointerDown={onCanvasPointer} />
+          <canvas
+            ref={canvasRef}
+            tabIndex={0}
+            onPointerDown={onCanvasPointer}
+            onPointerMove={(e) => (dragging.current ? onCanvasDragMove(e) : onCanvasMove(e))}
+            onPointerUp={onCanvasUp}
+            onPointerCancel={onCanvasUp}
+            onPointerLeave={onCanvasLeave}
+            onContextMenu={onCanvasContext}
+          />
           {err ? <p className="note">painter: {err}</p> : null}
         </section>
       </main>
@@ -305,6 +925,17 @@ function Playground() {
           simulation of a click; the keyboard is shared for real. Confirm anything you see with{" "}
           <code>npm run ui:report</code>, which drives both sides with real input.
         </p>
+        {spec.steps.some((st) => "unhover" in st) ? (
+          <p className="note">
+            <strong>Replaying an <code>unhover</code> step is not reliable.</strong> A Radix tooltip
+            stays up over a grace area between the trigger and its content and leaves it only on a
+            real pointer move, which no synthetic event reproduces — so the replay can leave the tip
+            open and report a divergence the gate does not have. Hover the trigger with the mouse
+            and move away: that path is real input on both sides, and it agrees.
+          </p>
+        ) : null}
+          </div>
+        </div>
       </div>
     </>
   );

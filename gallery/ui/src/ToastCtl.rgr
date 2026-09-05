@@ -1,0 +1,307 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; ToastCtl — measured against @radix-ui/react-toast
+; =============================================================================
+; A toast is not summoned by the user, so the fixture supplies a button that
+; raises it — the same shape the reference host uses, because a component with
+; no trigger cannot be driven by a spec at all.
+;
+; Parity contract (see conformance/SPEC.md):
+;   region    a named landmark wrapping the viewport. It is a separate element
+;             from the list inside it, in the reference as well as here, and it
+;             is how a reader finds a message that arrived unannounced.
+;   viewport  the list. No role, no name, not a tab stop — but it is where
+;             focus goes when the toast it holds disappears.
+;   closed    only the trigger, the region and the viewport exist.
+;   open      the toast root has no role and IS a tab stop, so Tab reaches a
+;             message that appeared without being asked for; title and
+;             description have no role; the action and close buttons do.
+;   raising   does NOT move focus. The trigger keeps it — a toast that stole
+;             focus would interrupt whatever the user was doing, which is the
+;             opposite of what a toast is for.
+;   closing   moves focus to the VIEWPORT, not back to the trigger. Measured,
+;             and it is what keeps a keyboard user in the region rather than
+;             throwing them back across the page.
+;
+; Auto-dismiss is deliberately absent. The reference is driven with an enormous
+; duration for the same reason: a timer would make the oracle depend on how
+; fast the machine running it happens to be.
+; =============================================================================
+
+Import "UiCtl.rgr"
+Import "UiTree.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+
+class ToastCtl extends UiCtl {
+    def open:boolean false
+    def title:string ""
+    def bodyText:string ""
+    def actionLabel:string "Undo"
+    def closeLabel:string "Close"
+    def triggerEl:EVGElement
+    def regionEl:EVGElement
+    def viewportEl:EVGElement
+    def toastEl:EVGElement
+    def titleEl:EVGElement
+    def descEl:EVGElement
+    def actionEl:EVGElement
+    def closeEl:EVGElement
+
+    Constructor () {
+        rootEl = (EVGElement.createDiv())
+        triggerEl = (EVGElement.createDiv())
+        regionEl = (EVGElement.createDiv())
+        viewportEl = (EVGElement.createDiv())
+        toastEl = (EVGElement.createDiv())
+        titleEl = (EVGElement.createDiv())
+        descEl = (EVGElement.createDiv())
+        actionEl = (EVGElement.createDiv())
+        closeEl = (EVGElement.createDiv())
+    }
+
+    fn triggerTid:string () {
+        return (tid + "-trigger")
+    }
+
+    fn regionTid:string () {
+        return (tid + "-region")
+    }
+
+    fn viewportTid:string () {
+        return (tid + "-viewport")
+    }
+
+    fn titleTid:string () {
+        return (tid + "-title")
+    }
+
+    fn descTid:string () {
+        return (tid + "-description")
+    }
+
+    fn actionTid:string () {
+        return (tid + "-action")
+    }
+
+    fn closeTid:string () {
+        return (tid + "-close")
+    }
+
+    fn build:void () {
+        def root:EVGElement (unwrap rootEl)
+        root.id = tid + "-root"
+        root.className = "ui-toast"
+        UiTree.clearChildren(root)
+
+        def trig:EVGElement (unwrap triggerEl)
+        trig.id = (this.triggerTid())
+        trig.className = "ui-toast-trigger"
+        if disabled {
+            UiTree.addClass(trig "ui-toast-trigger-disabled")
+        }
+        UiTree.leafText(trig name)
+        root.addChild(trig)
+
+        def region:EVGElement (unwrap regionEl)
+        region.id = (this.regionTid())
+        region.className = "ui-toast-region"
+        UiTree.clearChildren(region)
+
+        def viewport:EVGElement (unwrap viewportEl)
+        viewport.id = (this.viewportTid())
+        viewport.className = "ui-toast-viewport"
+        UiTree.clearChildren(viewport)
+        region.addChild(viewport)
+        root.addChild(region)
+
+        if (open == false) {
+            return
+        }
+
+        def toast:EVGElement (unwrap toastEl)
+        toast.id = tid
+        toast.className = "ui-toast-item"
+        UiTree.setState(toast "ui-toast-item" "open")
+        UiTree.clearChildren(toast)
+
+        def titleNode:EVGElement (unwrap titleEl)
+        titleNode.id = (this.titleTid())
+        titleNode.className = "ui-toast-title"
+        UiTree.leafText(titleNode title)
+        toast.addChild(titleNode)
+
+        def descNode:EVGElement (unwrap descEl)
+        descNode.id = (this.descTid())
+        descNode.className = "ui-toast-description"
+        UiTree.leafText(descNode bodyText)
+        toast.addChild(descNode)
+
+        def actionNode:EVGElement (unwrap actionEl)
+        actionNode.id = (this.actionTid())
+        actionNode.className = "ui-toast-action"
+        UiTree.leafText(actionNode actionLabel)
+        toast.addChild(actionNode)
+
+        def closeNode:EVGElement (unwrap closeEl)
+        closeNode.id = (this.closeTid())
+        closeNode.className = "ui-toast-close"
+        UiTree.leafText(closeNode closeLabel)
+        toast.addChild(closeNode)
+
+        viewport.addChild(toast)
+    }
+
+    fn dismiss:string () {
+        open = false
+        this.build()
+        return (this.viewportTid())
+    }
+
+    fn activate:string (target:string) {
+        if disabled {
+            return ""
+        }
+        if (target == (this.triggerTid())) {
+            if (open == false) {
+                open = true
+                this.build()
+            }
+            ; Focus stays on the trigger: raising a toast must not interrupt.
+            return ""
+        }
+        if (open == false) {
+            return ""
+        }
+        if (target == (this.closeTid())) {
+            return (this.dismiss())
+        }
+        if (target == (this.actionTid())) {
+            return (this.dismiss())
+        }
+        return ""
+    }
+
+    fn keyDown:string (target:string key:string) {
+        if disabled {
+            return ""
+        }
+        if (key == "Escape") {
+            ; Escape dismisses from anywhere on the page — the reference binds
+            ; it to the document, not to the toast — and leaves focus exactly
+            ; where it was. Only a button INSIDE the toast hands focus to the
+            ; viewport, because that button is the thing that just vanished.
+            if open {
+                open = false
+                this.build()
+            }
+            return ""
+        }
+        if ((UiCtl.activatesOn(key)) == false) {
+            return ""
+        }
+        return (this.activate(target))
+    }
+
+    fn tids:[string] () {
+        def a:[string]
+        push a tid
+        push a (this.triggerTid())
+        push a (this.regionTid())
+        push a (this.viewportTid())
+        push a (this.titleTid())
+        push a (this.descTid())
+        push a (this.actionTid())
+        push a (this.closeTid())
+        return a
+    }
+
+    fn isFocusable:boolean (target:string) {
+        if disabled {
+            return false
+        }
+        if (target == (this.triggerTid())) {
+            return true
+        }
+        if (target == (this.viewportTid())) {
+            return true
+        }
+        if (open == false) {
+            return false
+        }
+        if (target == tid) {
+            return true
+        }
+        if (target == (this.actionTid())) {
+            return true
+        }
+        if (target == (this.closeTid())) {
+            return true
+        }
+        return false
+    }
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+
+        def trigRow:UiRow (UiRow.of((this.triggerTid()) (EVGA11yRole.button()) name))
+        trigRow.disabled = disabled
+        if (disabled == false) {
+            trigRow.tabStop = true
+            trigRow.focusable = true
+        }
+        push out trigRow
+
+        ; The landmark. Named, and NOT where focus lands — a reader navigating
+        ; by region finds this, and everything a toast raises is inside it.
+        def regionRow:UiRow (UiRow.of((this.regionTid()) (EVGA11yRole.region()) "Notifications"))
+        push out regionRow
+
+        ; The list. `focusable` is deliberately false even though UiHost can
+        ; and does put focus here: this is a PARKING SPOT, where focus is left
+        ; when the button holding it disappears, not something a user chose to
+        ; go to. Saying otherwise in the accessibility tree would offer a
+        ; reader an unnamed, empty node to activate — which is exactly what the
+        ; structural lint objected to, and it was right.
+        ; A LIST of toasts, and each toast a list item. Radix renders the
+        ; viewport as an `<ol>`; this side said nothing, so a reader was told
+        ; how many notifications were waiting by no one.
+        def viewRow:UiRow (UiRow.of((this.viewportTid()) (EVGA11yRole.list()) ""))
+        viewRow.parentTid = (this.regionTid())
+        push out viewRow
+
+        if (open == false) {
+            return out
+        }
+
+        def toastRow:UiRow (UiRow.of(tid (EVGA11yRole.listItem()) ""))
+        toastRow.parentTid = (this.viewportTid())
+        toastRow.state = "open"
+        toastRow.tabStop = true
+        toastRow.focusable = true
+        push out toastRow
+
+        def titleRow:UiRow (UiRow.of((this.titleTid()) (EVGA11yRole.none()) ""))
+        titleRow.parentTid = tid
+        push out titleRow
+
+        def descRow:UiRow (UiRow.of((this.descTid()) (EVGA11yRole.none()) ""))
+        descRow.parentTid = tid
+        push out descRow
+
+        def actionRow:UiRow (UiRow.of((this.actionTid()) (EVGA11yRole.button()) actionLabel))
+        actionRow.parentTid = tid
+        actionRow.tabStop = true
+        actionRow.focusable = true
+        push out actionRow
+
+        def closeRow:UiRow (UiRow.of((this.closeTid()) (EVGA11yRole.button()) closeLabel))
+        closeRow.parentTid = tid
+        closeRow.tabStop = true
+        closeRow.focusable = true
+        push out closeRow
+
+        return out
+    }
+}

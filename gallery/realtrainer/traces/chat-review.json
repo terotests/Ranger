@@ -1,0 +1,883 @@
+{
+ "id": "chat-send-accept-single",
+ "machine": "chat",
+ "frames": [
+  {
+   "step": "rt-nav-chat",
+   "handled": true,
+   "state": "idle",
+   "nodes": [
+    {
+     "role": "group",
+     "name": "RealTrainer",
+     "state": ""
+    },
+    {
+     "role": "banner",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Credits: 100k. Click to purchase more credits.",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "📋 Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "AI Chat",
+     "state": "level=2"
+    },
+    {
+     "role": "button",
+     "name": "Uusi keskustelu",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Keskusteluhistoria",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Tallennetut muistiinpanot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI-ohjeet",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Valitse kalenteri(t) ja kysy mitä vain päiväkirjamerkinnöistäsi!",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Anna palautetta harjoittelustani",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Esimerkkikysymyksiä:",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "\"Paljonko söin proteiinia viime viikolla?\"",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "\"Analysoi harjoitteluni viimeisen kuukauden aikana\"",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "\"Mitä parannettavaa näet ruokavaliossani?\"",
+     "state": ""
+    },
+    {
+     "role": "list",
+     "name": "Keskustelu",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "Kysy jotain päiväkirjastasi...",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": "disabled"
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-chat-field",
+   "handled": true,
+   "state": "idle",
+   "nodes": [
+    {
+     "role": "group",
+     "name": "RealTrainer",
+     "state": ""
+    },
+    {
+     "role": "banner",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Credits: 100k. Click to purchase more credits.",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "📋 Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "AI Chat",
+     "state": "level=2"
+    },
+    {
+     "role": "button",
+     "name": "Uusi keskustelu",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Keskusteluhistoria",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Tallennetut muistiinpanot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI-ohjeet",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Valitse kalenteri(t) ja kysy mitä vain päiväkirjamerkinnöistäsi!",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Anna palautetta harjoittelustani",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Esimerkkikysymyksiä:",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "\"Paljonko söin proteiinia viime viikolla?\"",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "\"Analysoi harjoitteluni viimeisen kuukauden aikana\"",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "\"Mitä parannettavaa näet ruokavaliossani?\"",
+     "state": ""
+    },
+    {
+     "role": "list",
+     "name": "Keskustelu",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "Kysy jotain päiväkirjastasi...",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-chat-send",
+   "handled": true,
+   "state": "sending.streaming",
+   "nodes": [
+    {
+     "role": "group",
+     "name": "RealTrainer",
+     "state": ""
+    },
+    {
+     "role": "banner",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Credits: 100k. Click to purchase more credits.",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "📋 Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "AI Chat",
+     "state": "level=2"
+    },
+    {
+     "role": "button",
+     "name": "Kopioi koko keskustelu",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Uusi keskustelu",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Keskusteluhistoria",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Tallennetut muistiinpanot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI-ohjeet",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "list",
+     "name": "Keskustelu",
+     "state": ""
+    },
+    {
+     "role": "listitem",
+     "name": "Maastaveto 3x5@100kg",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kopioi viesti",
+     "state": ""
+    },
+    {
+     "role": "status",
+     "name": "…",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "Kysy jotain päiväkirjastasi...",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": "disabled"
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "tick 3000",
+   "handled": true,
+   "state": "reviewing.singleAction",
+   "nodes": [
+    {
+     "role": "group",
+     "name": "RealTrainer",
+     "state": ""
+    },
+    {
+     "role": "banner",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Credits: 100k. Click to purchase more credits.",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "📋 Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "AI Chat",
+     "state": "level=2"
+    },
+    {
+     "role": "button",
+     "name": "Kopioi koko keskustelu",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Uusi keskustelu",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Keskusteluhistoria",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Tallennetut muistiinpanot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI-ohjeet",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "list",
+     "name": "Keskustelu",
+     "state": ""
+    },
+    {
+     "role": "listitem",
+     "name": "Maastaveto 3x5@100kg",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kopioi viesti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Tallenna muistiin",
+     "state": ""
+    },
+    {
+     "role": "listitem",
+     "name": "Lisään harjoituksen: maastaveto 3x5@100kg.",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kopioi viesti",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Viesti",
+     "state": ""
+    },
+    {
+     "role": "list",
+     "name": "Ehdotetut toiminnot",
+     "state": ""
+    },
+    {
+     "role": "listitem",
+     "name": "addWorkout · w1 odottaa",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Hyväksy 1",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Hylkää 1",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Sulje tarkistus",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "Kysy jotain päiväkirjastasi...",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": "disabled"
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "rt-chat-accept-0",
+   "handled": true,
+   "state": "processing.saving",
+   "nodes": [
+    {
+     "role": "group",
+     "name": "RealTrainer",
+     "state": ""
+    },
+    {
+     "role": "banner",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Credits: 100k. Click to purchase more credits.",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "📋 Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "AI Chat",
+     "state": "level=2"
+    },
+    {
+     "role": "button",
+     "name": "Kopioi koko keskustelu",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Uusi keskustelu",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Keskusteluhistoria",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Tallennetut muistiinpanot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI-ohjeet",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "list",
+     "name": "Keskustelu",
+     "state": ""
+    },
+    {
+     "role": "listitem",
+     "name": "Maastaveto 3x5@100kg",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kopioi viesti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Tallenna muistiin",
+     "state": ""
+    },
+    {
+     "role": "listitem",
+     "name": "Lisään harjoituksen: maastaveto 3x5@100kg.",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kopioi viesti",
+     "state": ""
+    },
+    {
+     "role": "paragraph",
+     "name": "Tallennetaan päiväkirjaan…",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "Kysy jotain päiväkirjastasi...",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": "disabled"
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  },
+  {
+   "step": "tick 800",
+   "handled": true,
+   "state": "idle",
+   "nodes": [
+    {
+     "role": "group",
+     "name": "RealTrainer",
+     "state": ""
+    },
+    {
+     "role": "banner",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Credits: 100k. Click to purchase more credits.",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "📋 Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "main",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "heading",
+     "name": "AI Chat",
+     "state": "level=2"
+    },
+    {
+     "role": "button",
+     "name": "Kopioi koko keskustelu",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Uusi keskustelu",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Keskusteluhistoria",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Tallennetut muistiinpanot",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI-ohjeet",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Harjoitussuunnitelma",
+     "state": ""
+    },
+    {
+     "role": "list",
+     "name": "Keskustelu",
+     "state": ""
+    },
+    {
+     "role": "listitem",
+     "name": "Maastaveto 3x5@100kg",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kopioi viesti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Tallenna muistiin",
+     "state": ""
+    },
+    {
+     "role": "listitem",
+     "name": "Lisään harjoituksen: maastaveto 3x5@100kg.",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kopioi viesti",
+     "state": ""
+    },
+    {
+     "role": "textbox",
+     "name": "Kysy jotain päiväkirjastasi...",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "",
+     "state": "disabled"
+    },
+    {
+     "role": "navigation",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Koti",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Kalenteri",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Dashboard",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Chat",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lisää",
+     "state": ""
+    },
+    {
+     "role": "region",
+     "name": "Notifications alt+T",
+     "state": ""
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,6 @@
+{ "name":"tooltip_hover","component":"tooltip",
+  "behaviours":["hover-opens","hover-closes","state-delayed-open","tooltip-role","content-unmounted"],
+  "fixture":{"controls":[
+    {"type":"tooltip","tid":"tip","name":"Hover me","body":"Tip text"},
+    {"type":"toggle","tid":"out","name":"Outside"}]},
+  "steps":[{"hover":"tip-trigger"},{"unhover":true}] }

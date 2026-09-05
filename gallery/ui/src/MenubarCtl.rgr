@@ -1,0 +1,509 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; MenubarCtl — measured against @radix-ui/react-menubar
+; =============================================================================
+; A row of menus that behave as ONE control: opening a second closes the first,
+; and an arrow key at the top level does not move focus between triggers — it
+; moves which menu is OPEN. That is the whole difference from a row of
+; independent dropdowns, and it is the reason this is not `MenuCtl` in a loop.
+;
+; Measured, before any of it was written (conformance/specs/menubar_*.json):
+;
+;   the bar    role menubar, named, and a TAB STOP in its own right. None of
+;              the triggers is one until a menu has been opened; after that the
+;              one that was opened keeps it, closed or not. Roving focus, with
+;              the group holding the tab stop until an item becomes current.
+;   trigger    role menuitem, `aria-expanded`, and a state word.
+;   open       focus lands on the CONTENT, not on the first item — nothing is
+;              announced until the user arrows in, exactly as a dropdown does.
+;   ArrowRight closes this menu and opens the NEXT one, with focus on its
+;              content. It does not wrap.
+;   ArrowDown  from the content focuses the first item; the item takes the tab
+;              stop and the content gives it up.
+;   Escape     closes and returns focus to the trigger, which keeps the tab
+;              stop so Tab resumes from where the user was.
+;   an item    closes the menu and returns focus to the trigger.
+; =============================================================================
+
+Import "UiCtl.rgr"
+Import "UiTree.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+
+; One menu in the bar: a label, and the items under it.
+class UiMenu {
+    def value:string ""
+    def name:string ""
+    def disabled:boolean false
+    def items:[UiItem]
+    def triggerEl:EVGElement
+    def contentEl:EVGElement
+
+    Constructor () {
+        triggerEl = (EVGElement.createDiv())
+        contentEl = (EVGElement.createDiv())
+        def empty:[UiItem]
+        items = empty
+    }
+}
+
+class MenubarCtl extends UiCtl {
+    def menus:[UiMenu]
+    ; Which menu is open, "" for none.
+    def openValue:string ""
+    ; Which menu owns the bar's tab stop. Empty until one has been opened:
+    ; the reference starts with the tab stop on the BAR and moves it to a
+    ; trigger only once there is a current one.
+    def currentValue:string ""
+    ; The focused item inside the open menu, "" while focus is on the content.
+    def activeItem:string ""
+
+    Constructor () {
+        rootEl = (EVGElement.createDiv())
+        def empty:[UiMenu]
+        menus = empty
+    }
+
+    fn addMenu:UiMenu (menuValue:string menuName:string) {
+        def m (new UiMenu())
+        m.value = menuValue
+        m.name = menuName
+        push menus m
+        return m
+    }
+
+    fn addItem:void (menuValue:string itemValue:string itemName:string itemDisabled:boolean) {
+        def i:int (this.indexOfMenu(menuValue))
+        if (i < 0) {
+            return
+        }
+        def m:UiMenu (itemAt menus i)
+        def it (new UiItem())
+        it.value = itemValue
+        it.name = itemName
+        it.disabled = itemDisabled
+        push m.items it
+    }
+
+    ; --- ids --------------------------------------------------------------------
+
+    fn triggerTid:string (menuValue:string) {
+        return ((tid + "-") + menuValue) + "-trigger"
+    }
+
+    fn contentTid:string (menuValue:string) {
+        return ((tid + "-") + menuValue) + "-content"
+    }
+
+    fn itemTid:string (menuValue:string itemValue:string) {
+        return ((((tid + "-") + menuValue) + "-item-") + itemValue)
+    }
+
+    fn indexOfMenu:int (menuValue:string) {
+        def i:int 0
+        while (i < (array_length menus)) {
+            def m:UiMenu (itemAt menus i)
+            if (m.value == menuValue) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; Which menu does this test id belong to? "" when it belongs to none.
+    fn menuOf:string (target:string) {
+        def i:int 0
+        while (i < (array_length menus)) {
+            def m:UiMenu (itemAt menus i)
+            if (target == (this.triggerTid(m.value))) {
+                return m.value
+            }
+            if (target == (this.contentTid(m.value))) {
+                return m.value
+            }
+            def j:int 0
+            while (j < (array_length m.items)) {
+                def it:UiItem (itemAt m.items j)
+                if (target == (this.itemTid(m.value it.value))) {
+                    return m.value
+                }
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn itemOf:string (target:string) {
+        def i:int 0
+        while (i < (array_length menus)) {
+            def m:UiMenu (itemAt menus i)
+            def j:int 0
+            while (j < (array_length m.items)) {
+                def it:UiItem (itemAt m.items j)
+                if (target == (this.itemTid(m.value it.value))) {
+                    return it.value
+                }
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn stateWord:string (menuValue:string) {
+        if (menuValue == openValue) {
+            return "open"
+        }
+        return "closed"
+    }
+
+    ; --- opening and closing -----------------------------------------------------
+
+    fn openMenu:string (menuValue:string) {
+        openValue = menuValue
+        currentValue = menuValue
+        activeItem = ""
+        this.build()
+        ; Focus lands on the content. Not on the first item: the reference
+        ; announces the menu, and says nothing about a row until one is chosen.
+        return (this.contentTid(menuValue))
+    }
+
+    fn closeMenu:string () {
+        def was:string openValue
+        openValue = ""
+        activeItem = ""
+        this.build()
+        if ((strlen was) == 0) {
+            return ""
+        }
+        currentValue = was
+        return (this.triggerTid(was))
+    }
+
+    fn activate:string (target:string) {
+        if disabled {
+            return ""
+        }
+        def menuValue:string (this.menuOf(target))
+        if ((strlen menuValue) == 0) {
+            return ""
+        }
+        def i:int (this.indexOfMenu(menuValue))
+        def m:UiMenu (itemAt menus i)
+        if (target == (this.triggerTid(menuValue))) {
+            if m.disabled {
+                return ""
+            }
+            if (menuValue == openValue) {
+                return (this.closeMenu())
+            }
+            return (this.openMenu(menuValue))
+        }
+        def itemValue:string (this.itemOf(target))
+        if ((strlen itemValue) > 0) {
+            def k:int 0
+            while (k < (array_length m.items)) {
+                def it:UiItem (itemAt m.items k)
+                if (it.value == itemValue) {
+                    if it.disabled {
+                        return ""
+                    }
+                }
+                k = (k + 1)
+            }
+            ; Choosing a row closes the menu and hands focus back to the
+            ; trigger, which is where the user was before it opened.
+            return (this.closeMenu())
+        }
+        return ""
+    }
+
+    ; --- keys --------------------------------------------------------------------
+
+    ; The next enabled item from `from`, stepping by `delta`. -1 off the end:
+    ; a menu does not wrap, which is what separates it from a radio group.
+    fn scan:int (menuValue:string from:int delta:int) {
+        def i:int (this.indexOfMenu(menuValue))
+        if (i < 0) {
+            return -1
+        }
+        def m:UiMenu (itemAt menus i)
+        def at:int from
+        while ((at >= 0) && (at < (array_length m.items))) {
+            def it:UiItem (itemAt m.items at)
+            if (it.disabled == false) {
+                return at
+            }
+            at = (at + delta)
+        }
+        return -1
+    }
+
+    ; Sideways: the OPEN menu moves, rather than focus moving between triggers.
+    fn stepMenu:string (delta:int) {
+        def at:int (this.indexOfMenu(openValue))
+        if (at < 0) {
+            return ""
+        }
+        def next:int (at + delta)
+        while ((next >= 0) && (next < (array_length menus))) {
+            def m:UiMenu (itemAt menus next)
+            if (m.disabled == false) {
+                return (this.openMenu(m.value))
+            }
+            next = (next + delta)
+        }
+        return ""
+    }
+
+    fn keyDown:string (target:string key:string) {
+        if disabled {
+            return ""
+        }
+        def menuValue:string (this.menuOf(target))
+        if ((strlen menuValue) == 0) {
+            return ""
+        }
+        if (key == "Escape") {
+            if ((strlen openValue) > 0) {
+                return (this.closeMenu())
+            }
+            return ""
+        }
+        if ((strlen openValue) == 0) {
+            if (UiCtl.activatesOn(key)) {
+                return (this.activate(target))
+            }
+            return ""
+        }
+        if ((key == "ArrowRight") || (key == "ArrowLeft")) {
+            def delta:int 1
+            if (key == "ArrowLeft") {
+                delta = -1
+            }
+            return (this.stepMenu(delta))
+        }
+        def step:int 0
+        if (key == "ArrowDown") {
+            step = 1
+        }
+        if (key == "ArrowUp") {
+            step = -1
+        }
+        if (step == 0) {
+            if (UiCtl.activatesOn(key)) {
+                return (this.activate(target))
+            }
+            return ""
+        }
+        def mi:int (this.indexOfMenu(openValue))
+        def m:UiMenu (itemAt menus mi)
+        def landed:int -1
+        if (target == (this.contentTid(openValue))) {
+            if (step > 0) {
+                landed = (this.scan(openValue 0 1))
+            } {
+                landed = (this.scan(openValue ((array_length m.items) - 1) -1))
+            }
+        } {
+            def from:int -1
+            def j:int 0
+            while (j < (array_length m.items)) {
+                def it:UiItem (itemAt m.items j)
+                if (it.value == activeItem) {
+                    from = j
+                }
+                j = (j + 1)
+            }
+            if (from < 0) {
+                return ""
+            }
+            landed = (this.scan(openValue (from + step) step))
+        }
+        if (landed < 0) {
+            return ""
+        }
+        def hit:UiItem (itemAt m.items landed)
+        activeItem = hit.value
+        this.build()
+        return (this.itemTid(openValue hit.value))
+    }
+
+    ; --- the tree -----------------------------------------------------------------
+
+    fn build:void () {
+        def root:EVGElement (unwrap rootEl)
+        root.id = tid
+        root.className = "ui-menubar"
+        UiTree.clearChildren(root)
+        def i:int 0
+        while (i < (array_length menus)) {
+            def m:UiMenu (itemAt menus i)
+            def word:string (this.stateWord(m.value))
+            def trig:EVGElement (unwrap m.triggerEl)
+            trig.id = (this.triggerTid(m.value))
+            trig.className = "ui-menubar-trigger"
+            if m.disabled {
+                UiTree.addClass(trig "ui-menubar-trigger-disabled")
+            }
+            UiTree.setState(trig "ui-menubar-trigger" word)
+            UiTree.leafText(trig m.name)
+            ; The surface hangs off this one, and the overlay pass finds it
+            ; among its own siblings — the same convention every other floating
+            ; control here uses.
+            UiTree.anchor(trig)
+            root.addChild(trig)
+
+            if (m.value == openValue) {
+                def content:EVGElement (unwrap m.contentEl)
+                content.id = (this.contentTid(m.value))
+                content.className = "ui-menubar-content"
+                UiTree.setState(content "ui-menubar-content" word)
+                UiTree.surface(content "bottom" "start")
+                UiTree.clearChildren(content)
+                def j:int 0
+                while (j < (array_length m.items)) {
+                    def it:UiItem (itemAt m.items j)
+                    def el:EVGElement (unwrap it.el)
+                    el.id = (this.itemTid(m.value it.value))
+                    el.className = "ui-menubar-item"
+                    if it.disabled {
+                        UiTree.addClass(el "ui-menubar-item-disabled")
+                    }
+                    UiTree.leafText(el it.name)
+                    content.addChild(el)
+                    j = (j + 1)
+                }
+                root.addChild(content)
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn tids:[string] () {
+        def a:[string]
+        push a tid
+        def i:int 0
+        while (i < (array_length menus)) {
+            def m:UiMenu (itemAt menus i)
+            push a (this.triggerTid(m.value))
+            push a (this.contentTid(m.value))
+            def j:int 0
+            while (j < (array_length m.items)) {
+                def it:UiItem (itemAt m.items j)
+                push a (this.itemTid(m.value it.value))
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+        return a
+    }
+
+    fn isFocusable:boolean (target:string) {
+        if disabled {
+            return false
+        }
+        def menuValue:string (this.menuOf(target))
+        if ((strlen menuValue) == 0) {
+            return false
+        }
+        def i:int (this.indexOfMenu(menuValue))
+        def m:UiMenu (itemAt menus i)
+        if m.disabled {
+            return false
+        }
+        if (target == (this.triggerTid(menuValue))) {
+            return true
+        }
+        if (menuValue != openValue) {
+            return false
+        }
+        if (target == (this.contentTid(menuValue))) {
+            return true
+        }
+        def itemValue:string (this.itemOf(target))
+        def j:int 0
+        while (j < (array_length m.items)) {
+            def it:UiItem (itemAt m.items j)
+            if (it.value == itemValue) {
+                return (it.disabled == false)
+            }
+            j = (j + 1)
+        }
+        return false
+    }
+
+    fn onFocus:void (target:string) {
+        def itemValue:string (this.itemOf(target))
+        if ((strlen itemValue) > 0) {
+            activeItem = itemValue
+        }
+    }
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+        ; The bar is the tab stop until a menu has been opened. That is not a
+        ; detail: it is how Tab reaches a roving group at all, and the
+        ; reference keeps it true for the whole life of the control.
+        def barRow:UiRow (UiRow.of(tid (EVGA11yRole.menuBar()) name))
+        barRow.tabStop = true
+        barRow.focusable = true
+        push out barRow
+
+        def i:int 0
+        while (i < (array_length menus)) {
+            def m:UiMenu (itemAt menus i)
+            def word:string (this.stateWord(m.value))
+            def trigRow:UiRow (UiRow.of((this.triggerTid(m.value)) (EVGA11yRole.menuItem()) m.name))
+            trigRow.parentTid = tid
+            trigRow.state = word
+            ; Each bar item opens a menu, and says so.
+            trigRow.hasPopup = "menu"
+            trigRow.disabled = m.disabled
+            trigRow.focusable = (m.disabled == false)
+            if (m.value == openValue) {
+                trigRow.expanded = (EVGA11yTri.yes())
+            } {
+                trigRow.expanded = (EVGA11yTri.no())
+            }
+            ; Roving: exactly the menu that was last opened carries it.
+            if (m.value == currentValue) {
+                trigRow.tabStop = (m.disabled == false)
+            }
+            push out trigRow
+
+            if (m.value == openValue) {
+                def contentRow:UiRow (UiRow.of((this.contentTid(m.value)) (EVGA11yRole.menu()) ""))
+                contentRow.state = word
+                ; The BAR is horizontal and the menu it opens is vertical, and
+                ; a reader needs both: one says Left and Right walk the bar,
+                ; the other says Up and Down walk the menu.
+                contentRow.orientation = "vertical"
+                contentRow.focusable = true
+                push out contentRow
+
+                def j:int 0
+                while (j < (array_length m.items)) {
+                    def it:UiItem (itemAt m.items j)
+                    def row:UiRow (UiRow.of((this.itemTid(m.value it.value)) (EVGA11yRole.menuItem()) it.name))
+                    row.parentTid = (this.contentTid(m.value))
+                    row.disabled = it.disabled
+                    row.focusable = (it.disabled == false)
+                    ; The item that has focus is the one Tab would land on,
+                    ; and the content has given the tab stop up to it.
+                    if (it.value == activeItem) {
+                        row.tabStop = (it.disabled == false)
+                    }
+                    push out row
+                    j = (j + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+}

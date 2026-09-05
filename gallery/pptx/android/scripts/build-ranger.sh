@@ -3,7 +3,7 @@
 #
 #   bash gallery/pptx/android/scripts/build-ranger.sh
 #
-# Output: gallery/pptx/android/generated/pptx_android.kt — one file, ~66k lines,
+# Output: gallery/pptx/android/generated/pptx_android.kt — one file, ~91k lines,
 # holding the ZIP reader, the OOXML parser, the theme resolver, the JPEG and PNG
 # decoders, the TrueType reader, the EVG layout engine and the display list.
 # All of it is Ranger; none of it is written twice for Android.
@@ -17,7 +17,7 @@ cd "$(dirname "$0")/../../../.."
 ROOT="$(pwd)"
 
 OUT="gallery/pptx/android/generated"
-PKG="fi.ranger.pptx.rgr"
+PKG="fi.ranger.rgr"
 
 if [ ! -f bin/output.js ]; then
   echo "bin/output.js is missing — build the compiler first (npm run compile)" >&2
@@ -44,6 +44,11 @@ fi
 # the default package at all — a host in `fi.ranger.pptx` could not name a
 # single generated class. One line at the top fixes that; the generated code is
 # internally consistent either way because every reference in it is unqualified.
+#
+# The name says what the code IS rather than which app it is for, and that is
+# what lets `gallery/evg/android` be shared: the painter imports
+# `fi.ranger.rgr.EVGDisplayList`, and every port compiles its own generated file
+# into that package. Two apps, two compilations, one import line.
 if ! head -1 "$OUT/pptx_android.kt" | grep -q "^package "; then
   printf 'package %s\n\n' "$PKG" | cat - "$OUT/pptx_android.kt" > "$OUT/.pptx_android.kt.tmp"
   mv "$OUT/.pptx_android.kt.tmp" "$OUT/pptx_android.kt"

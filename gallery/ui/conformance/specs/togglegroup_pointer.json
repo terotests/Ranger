@@ -1,0 +1,5 @@
+{ "name":"togglegroup_pointer","component":"toggle-group",
+  "behaviours":["radiogroup-role","pointer-select","aria-checked","roving-focus","state-attr"],
+  "fixture":{"controls":[{"type":"togglegroup","tid":"tg","name":"Align","value":"left","items":[
+    {"value":"left","name":"Left"},{"value":"right","name":"Right"}]}]},
+  "steps":[{"click":"tg-right"},{"click":"tg-left"}] }

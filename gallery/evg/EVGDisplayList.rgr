@@ -17,7 +17,22 @@
 ; read a stale `el.borderRadius` that nothing wrote. A sixth backend (GL,
 ; WebGL, SDL2) should not be a sixth copy.
 ;
-; So: walk once, emit commands, and let a backend consume them. A command is
+; So: walk once, emit commands, and let a backend consume them.
+;
+; Two backends consume this today and neither walks a tree: `gl/evg-webgl.js`
+; and `html/evg-html.js`. The second one is worth knowing about from here,
+; because it says something about the shape of this list rather than about the
+; DOM: SVG has a native answer for seven of the eight kinds, and the two it
+; answers BETTER than the GPU does are PATH (rings and a fill rule, no stencil)
+; and the CLIP STACK (nested clip paths intersect by construction, where a
+; scissor is one rectangle that has to be intersected by hand). The two are
+; checked against each other pixel for pixel — see
+; gallery/pptx/web/html/parity.mjs.
+;
+; What neither of them can do is keep an element's IDENTITY, because a command
+; below carries none: an `id` here is the one field that would let a DOM
+; backend patch nodes instead of rebuilding them, and let a transition, a focus
+; ring or a native <input> attach to something that survives a frame. A command is
 ; deliberately dumb — absolute pixels, resolved colours, no tree, no units —
 ; because that is what a GPU backend wants: quads it can batch, glyph runs it
 ; can look up in an atlas, and clip rectangles it can push and pop.
@@ -47,7 +62,15 @@ class EVGDrawCmd {
     def y:double 0.0
     def w:double 0.0
     def h:double 0.0
+    ; The TOP-LEFT radius, and — when `perCorner` is set — the other three.
+    ; One number is what every backend but the WebGL painter reads, and it is
+    ; what a box with one radius has always emitted, so nothing that consumes
+    ; this had to change to keep working.
     def radius:double 0.0
+    def perCorner:boolean false
+    def radiusTR:double 0.0
+    def radiusBR:double 0.0
+    def radiusBL:double 0.0
     def thickness:double 0.0
     ; Colour, pre-resolved to 0-255 + alpha 0-1 so a backend needs no EVGColor.
     def r:int 0
@@ -70,6 +93,15 @@ class EVGDrawCmd {
     def g2:int 0
     def b2:int 0
     def a2:double 1.0
+    ; `backdrop-filter: blur(Npx)` on a RECT: soften what is already painted
+    ; behind this rectangle before drawing it, clipped to the rectangle and its
+    ; radius. 0 is no filter.
+    ;
+    ; It is on the RECT and not a command of its own because it is a property
+    ; of the surface, and a backend that cannot do it draws the rectangle and
+    ; loses only the softening — which is the right failure. A separate
+    ; "blur this region" command would leave such a backend with a hole.
+    def backdropBlur:double 0.0
     ; Optional drop shadow under RECT / PATH
     def hasShadow:boolean false
     def shadowX:double 0.0
@@ -94,9 +126,31 @@ class EVGDrawCmd {
     def pts:[double]
     def ringEnds:[int]
     def evenOdd:boolean false
-    ; Rotation about the command's own box centre, in degrees, as the element
-    ; asked for it. Text is what needs this — an axis title on its side.
+    ; Rotation in degrees, as the element asked for it. Text is what first
+    ; needed this — an axis title on its side.
     def rotate:double 0.0
+    ; What it turns ABOUT. Unset means the command's own box centre, which is
+    ; right for a lone rotated label and wrong for everything else: a box, its
+    ; text and its children have to turn about ONE point or they come apart.
+    ;
+    ; A text command is where that shows first and worst. The painter draws
+    ; glyphs in a quad sized to the ink, not to the line box the command
+    ; carries, so "rotate each command about its own centre" puts the words
+    ; somewhere the box is not. A backend that ignores these two fields keeps
+    ; the old behaviour exactly, which is why they are additive rather than a
+    ; change to `rotate`.
+    ; Which element emitted this, as an `EVGElement.inspectSlot`, or -1 when
+    ; nothing was inspecting. Written only while `EVGDisplayList.attribute` is
+    ; on, and written to the JSON only then, so a list built without an
+    ; inspector is byte-identical to the one built before this field existed.
+    def node:int (0 - 1)
+
+    def rotOriginX:double 0.0
+    def rotOriginY:double 0.0
+    def hasRotOrigin:boolean false
+    ; On a PUSH_CLIP: which scroll layer this clip opens, 1-based, or 0 for
+    ; a clip that is not one. See `EVGDisplayList.refreshLayers`.
+    def layer:int 0
 
     Constructor () {
     }
@@ -181,6 +235,13 @@ class EVGSceneBinary {
 
 class EVGDisplayList {
     def cmds:[EVGDrawCmd]
+    ; Attribution, off by default. On, every command records the element that
+    ; emitted it — see `addCmd` and `walk`.
+    def attribute:boolean false
+    def curNode:int (0 - 1)
+    ; Overlay surfaces met during the first pass, drawn by the second. See
+    ; `build`.
+    def deferredOverlays:[EVGElement]
     ; The same engine layout measured with. A paragraph is emitted one command
     ; per LINE, broken exactly where layout broke it — a backend that got the
     ; whole string would draw one long run straight out of its box, which is
@@ -192,6 +253,14 @@ class EVGDisplayList {
 
     fn setTextEngine:void (e:EVGTextEngine) {
         textEngine = e
+    }
+
+    ; Every command in this file is appended here, so the element being walked
+    ; is stamped on it in one place rather than at twenty. The walk sets
+    ; `curNode`; this is the only thing that reads it.
+    fn addCmd:void (c:EVGDrawCmd) {
+        c.node = curNode
+        push cmds c
     }
 
     fn count:int () {
@@ -218,7 +287,7 @@ class EVGDisplayList {
         c.g = (col.green())
         c.b = (col.blue())
         c.a = (col.alpha())
-        push cmds c
+        this.addCmd(c)
     }
 
     fn addFrame:void (x:double y:double w:double h:double thickness:double col:EVGColor) {
@@ -233,7 +302,7 @@ class EVGDisplayList {
         c.g = (col.green())
         c.b = (col.blue())
         c.a = (col.alpha())
-        push cmds c
+        this.addCmd(c)
     }
 
     ; The measured width and height come from the caller, because the list has
@@ -259,7 +328,7 @@ class EVGDisplayList {
         c.flipH = flipH
         c.flipV = flipV
         c.rotate = rotate
-        push cmds c
+        this.addCmd(c)
     }
 
     fn addText:void (text:string x:double y:double size:double col:EVGColor family:string bold:boolean italic:boolean width:double height:double) {
@@ -285,7 +354,32 @@ class EVGDisplayList {
         c.g = (col.green())
         c.b = (col.blue())
         c.a = (col.alpha())
-        push cmds c
+        this.addCmd(c)
+    }
+
+    ; One side's contribution to the box-wide scale factor: the smaller of what
+    ; we have and this side's length over the two radii that share it. A side
+    ; whose radii are zero contributes nothing, which is why the guard is on
+    ; the SUM and not on the side.
+    ; A radius in pixels, re-resolving a percentage against the box's OWN size.
+    ; `already` is what the box worked out from its parent, which is right for
+    ; every unit but a percentage.
+    sfn radiusPx:double (isPct:boolean pct:double already:double own:double) {
+        if isPct {
+            return ((pct / 100.0) * own)
+        }
+        return already
+    }
+
+    sfn sideFactor:double (soFar:double side:double sum:double) {
+        if (sum <= 0.0) {
+            return soFar
+        }
+        def f:double (side / sum)
+        if (f < soFar) {
+            return f
+        }
+        return soFar
     }
 
     fn addClip:void (x:double y:double w:double h:double) {
@@ -295,7 +389,7 @@ class EVGDisplayList {
         c.y = y
         c.w = w
         c.h = h
-        push cmds c
+        this.addCmd(c)
     }
 
     ; A stroked polyline and a filled polygon, given in page coordinates.
@@ -322,7 +416,7 @@ class EVGDisplayList {
         }
         push c.ringEnds (array_length c.pts)
         this.setPolyBounds(c)
-        push cmds c
+        this.addCmd(c)
     }
 
     ; A filled shape made of SEVERAL rings, with holes.
@@ -361,7 +455,7 @@ class EVGDisplayList {
             return
         }
         this.setPolyBounds(c)
-        push cmds c
+        this.addCmd(c)
     }
 
     fn addPolygon:void (pts:[double] col:EVGColor) {
@@ -381,7 +475,7 @@ class EVGDisplayList {
         }
         push c.ringEnds (array_length c.pts)
         this.setPolyBounds(c)
-        push cmds c
+        this.addCmd(c)
     }
 
     ; A path command still carries a box, because the GL backend scissors and
@@ -420,9 +514,33 @@ class EVGDisplayList {
     fn addClipEnd:void () {
         def c:EVGDrawCmd (new EVGDrawCmd)
         c.kind = 5
-        push cmds c
+        this.addCmd(c)
     }
 
+
+    ; The element's imported document, parsed once and kept on the element
+    ; — see `EVGElement.svgDoc`. Every frame that draws the element asked
+    ; for a fresh parse of the same markup before this.
+    fn svgDocumentOf:SvgDocument (el:EVGElement) {
+        def key@(mutable):string el.svgSource
+        if el.fillColor.isSet {
+            def fill:EVGColor el.fillColor
+            key = (key + ("|" + ((to_string fill.r) + ("," + ((to_string fill.g) + ("," + ((to_string fill.b) + ("," + (to_string fill.a)))))))))
+        }
+        if el.svgDoc {
+            if (el.svgDocKey == key) {
+                return (unwrap el.svgDoc)
+            }
+        }
+        def sp (new SvgParser())
+        if el.fillColor.isSet {
+            sp.setInitialFill((unwrap el.fillColor))
+        }
+        def doc:SvgDocument (sp.parse(el.svgSource))
+        el.svgDoc = doc
+        el.svgDocKey = key
+        return doc
+    }
 
     ; A `<path>` element, flattened into rings and pushed as a fill and/or a
     ; stroke. The transform is the one the raster and PDF targets build: the
@@ -437,11 +555,7 @@ class EVGDisplayList {
     ; this is the single-path walk with the per-shape paint coming from the item
     ; rather than from the element.
     fn walkSvgDocument:void (el:EVGElement x:double y:double w:double h:double) {
-        def sp (new SvgParser())
-        if el.fillColor.isSet {
-            sp.setInitialFill((unwrap el.fillColor))
-        }
-        def doc:SvgDocument (sp.parse(el.svgSource))
+        def doc:SvgDocument (this.svgDocumentOf(el))
         if ((doc.itemCount()) == 0) {
             return
         }
@@ -476,7 +590,7 @@ class EVGDisplayList {
                     cf.b = (item.fillColor.blue())
                     cf.a = (item.fillColor.alpha())
                     this.copyRings(cf rings)
-                    push cmds cf
+                    this.addCmd(cf)
                 }
                 if (item.hasStroke()) {
                     def cs (new EVGDrawCmd())
@@ -491,7 +605,7 @@ class EVGDisplayList {
                     cs.b = (item.strokeColor.blue())
                     cs.a = (item.strokeColor.alpha())
                     this.copyRings(cs rings)
-                    push cmds cs
+                    this.addCmd(cs)
                 }
             }
             k = (k + 1)
@@ -557,7 +671,7 @@ class EVGDisplayList {
             cf.b = (fillColor.blue())
             cf.a = (fillColor.alpha())
             this.copyRings(cf rings)
-            push cmds cf
+            this.addCmd(cf)
         }
 
         if el.strokeColor.isSet {
@@ -583,7 +697,7 @@ class EVGDisplayList {
                 cs.b = (sc.blue())
                 cs.a = (sc.alpha())
                 this.copyRings(cs rings)
-                push cmds cs
+                this.addCmd(cs)
             }
         }
     }
@@ -597,15 +711,848 @@ class EVGDisplayList {
                 push c.pts (itemAt ring.pts k)
                 k = (k + 1)
             }
+            ; A stroke is drawn segment by segment, so a ring Z closed gets
+            ; its closing edge as one more point — back to where it began.
+            ; A fill closes by itself and is left as it is.
+            if ((c.kind == 7) && ring.closed) {
+                if ((ring.pointCount()) >= 2) {
+                    push c.pts (itemAt ring.pts 0)
+                    push c.pts (itemAt ring.pts 1)
+                }
+            }
             push c.ringEnds (array_length c.pts)
             i = (i + 1)
         }
     }
 
     ; Walk a LAID-OUT tree. Call after EVGLayout.layout(root).
+    ;
+    ; Two passes, because an overlay surface has to be drawn ABOVE the page and
+    ; not merely later in the tree. The first pass draws everything that is in
+    ; flow and puts each surface it meets aside; the second draws those, in the
+    ; order they were reached. A surface met INSIDE a surface is appended while
+    ; that loop is running, so a submenu lands after the menu that opened it.
+    ;
+    ; That order is a STACK — the order things opened in — not a z-index. There
+    ; is no number to get wrong and nothing for two components to disagree
+    ; about, and `EVGHitTest` builds the same list so that what is clicked is
+    ; what is seen.
+    ;
+    ; Deferring is also what takes a surface out of an ancestor's clip: the
+    ; second pass runs after the clip was popped, which is what a dropdown
+    ; inside a scrolling panel needs and what `overflow: hidden` would
+    ; otherwise forbid.
+    ; --- VIEWPORT CULLING -----------------------------------------------------
+    ;
+    ; A scrolled document is mostly not on the screen. Walking all of it to
+    ; emit commands for the tenth that is was the largest thing left in a
+    ; scroll frame of `gallery/realtrainer` once the layout stopped running:
+    ; `walkOpaque` alone — resolving corners, colours and gradients for rows
+    ; ten thousand pixels below the fold — was 17% of it, and the text it drew
+    ; had to be re-broken into lines to be drawn at all.
+    ;
+    ; So a subtree that cannot reach the clip it is inside is not walked. Two
+    ; things make that safe rather than merely fast:
+    ;
+    ;   It is tested against `EVGElement.paintTop`/`paintBottom` — the union
+    ;   of the subtree, written by the layout — and NOT against the element's
+    ;   own box, which says nothing about where its children are.
+    ;
+    ;   It happens only inside a real CLIP. An element that overflows a
+    ;   container that does not clip is drawn, and correctly: there is no clip
+    ;   rectangle in force, so nothing is culled. The scroll containers are
+    ;   exactly the elements that clip, which is why this needs no notion of
+    ;   scrolling at all.
+    ;
+    ; A subtree carrying a transform is never culled — see `paintUnbounded`.
+    ;
+    ; THE MARGIN is what keeps a fling from showing blank rows: the clip is
+    ; grown by `overscanBefore` above and `overscanAfter` below before
+    ; anything is tested, so the rows just past the edge are already drawn
+    ; when they arrive. A host that knows which way the finger went can make
+    ; the two different — big ahead, small behind — through `setOverscan`.
+    ; The default is one clip height each way, which also covers the shadow of
+    ; a box just off the edge.
+    def culling:boolean true
+    ; --- SCROLL LAYERS -------------------------------------------------------
+    ;
+    ; A scroll container's clip is a LAYER: the commands between its push
+    ; and its pop are the content the container shows, drawn with the
+    ; overscan above and below, in page coordinates at the offset the
+    ; container had when the list was built. Scrolling the container does
+    ; not need a new list — the same commands, moved by the difference —
+    ; until the offset leaves the range the overscan covered. That is what
+    ; `refreshLayers` does, and it is what lets a host keep this list, and
+    ; whatever it made from it, across a whole fling: a browser keeps its
+    ; vertex buffers on the card and changes one uniform per frame; a
+    ; CoreGraphics or Android painter paints the same commands, moved, and
+    ; pays no layout and no walk.
+    ;
+    ; The commands ARE moved, in place, so a painter that knows nothing of
+    ; layers draws the right frame. A painter that keeps something built from
+    ; the commands — the browser's buffers — reads `layerShiftX/Y`, the total
+    ; move since the build, and applies the part it has not built in.
+    ;
+    ; A layer is recorded only while culling is on: an uncut list is asked for
+    ; by a check that wants every command, and it should not be kept.
+    ;
+    ; `buildSeq` names the build, for a host that keeps what it made from a
+    ; list and has to know whether the list it was handed is the one it
+    ; built from. The app writes it: the list cannot number its own builds
+    ; across lists, and it is lists the host is telling apart.
+    def buildSeq:int 0
+    def layerEls:[EVGElement]
+    def layerTop:[double]
+    def layerLeft:[double]
+    def layerShiftX:[double]
+    def layerShiftY:[double]
+    def layerCullL:[double]
+    def layerCullT:[double]
+    def layerCullR:[double]
+    def layerCullB:[double]
+    def layerClip:[int]
+    def layerFirst:[int]
+    def layerLast:[int]
+    def layerStack:[int]
+    ; What a layer is: 0 the content of a scroll container, 1 the THUMB of
+    ; its scrollbar — a layer of its own, so a kept list moves it the way it
+    ; moves the content, by the scroll and `layerScale`, the thumb's pixels
+    ; per pixel of content.
+    def layerKind:[int]
+    def layerScale:[double]
+
+    ; --- SCROLLBARS ----------------------------------------------------------
+    ;
+    ; A scroll container draws its own bar: a track along its right edge
+    ; and a thumb whose length is the container's share of its content and
+    ; whose place is the offset. It is drawn by the list rather than by a
+    ; host, so every host has the same one, and it is drawn in three states
+    ; a host reports through `setScrollbarState`: 0, at rest — a thin,
+    ; faint thumb and no track, so it says where the page is without
+    ; asking to be looked at; 1, scrolling — wider and brighter, with the
+    ; track, which is what makes a fling readable; 2, the pointer on it or
+    ; dragging it — wider still. A container the pointer is over is named
+    ; through `setScrollbarHover` and drawn in state 2 whatever the rest are.
+    ;
+    ; The thumb is a layer (`layerKind` 1): a kept list moves it per frame
+    ; with the content, and a host that keeps its frame moves it with a
+    ; uniform. The bar's states are not per-frame — they change when a
+    ; scroll starts and ends and when the pointer arrives and leaves — and
+    ; each change is one build.
+    ;
+    ; Off unless an app asks: a list is also what the PDF and PNG targets and
+    ; the conformance oracles draw from, and a bar in those is a difference
+    ; nobody asked for.
+    ; --- FRAGMENTS -------------------------------------------------------------
+    ;
+    ; A subtree an app keeps (`EVGElement.keepLayout`) draws the same
+    ; commands each time it is walked: the text broken into the same lines,
+    ; the same icons flattened. So the first walk of it keeps the commands
+    ; it emitted, and the walks after emit THE SAME COMMANDS again — not
+    ; copies: the list that held them is the list being replaced. They are
+    ; where the subtree is, or are moved to it first: a kept list moves its
+    ; commands with the scroll exactly as the layout moves the elements, so
+    ; after a scroll they agree already, and after a rebuild that moved the
+    ; subtree by the flow they are moved by the difference, in place. The
+    ; difference is read off the first command's distance from the element,
+    ; which a move of both leaves alone.
+    ;
+    ; They hold while the sheet has written no paint in the subtree and the
+    ; layout has not laid it out for real since (`EVGElement.paintStamp`),
+    ; and while nothing is in flight anywhere, because a flight writes paint
+    ; between the sheet's passes. The recording walks the whole subtree,
+    ; culling off, so a card half over the edge is recorded whole and shown
+    ; whole when it arrives; a subtree that opened a scroll layer is not
+    ; kept, its layer would not be the new list's. On a diary of a hundred
+    ; workouts this is the difference between a list built by walking
+    ; twelve thousand commands' worth of elements and one built by walking
+    ; the shell.
+    def fragments:boolean true
+    ; How many kept subtrees this build drew from what they had, and how
+    ; many it walked — for a check, and for a bench.
+    def fragHits:int 0
+    def fragMisses:int 0
+    def fragEls:[EVGElement]
+    def fragLists:[[EVGDrawCmd]]
+    def fragStamps:[int]
+    def fragOffX:[double]
+    def fragOffY:[double]
+
+    fn setFragments:void (on:boolean) {
+        fragments = on
+    }
+
+    ; The fragments the last list kept, handed to this one by the app.
+    fn takeFragments:void (from:EVGDisplayList) {
+        fragEls = from.fragEls
+        fragLists = from.fragLists
+        fragStamps = from.fragStamps
+        fragOffX = from.fragOffX
+        fragOffY = from.fragOffY
+    }
+
+    fn forgetFragments:void () {
+        clear fragEls
+        clear fragLists
+        clear fragStamps
+        clear fragOffX
+        clear fragOffY
+    }
+
+    fn fragmentOf:int (el:EVGElement) {
+        def i:int 0
+        while (i < (array_length fragEls)) {
+            if ((itemAt fragEls i) == el) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    ; Emit a kept subtree's commands again, moved to where it is now.
+    ; False when there is nothing kept that holds.
+    fn emitFragment:boolean (el:EVGElement) {
+        def fi:int (this.fragmentOf(el))
+        if (fi < 0) {
+            return false
+        }
+        if ((itemAt fragStamps fi) != el.paintStamp) {
+            return false
+        }
+        def kept:[EVGDrawCmd] (itemAt fragLists fi)
+        if ((array_length kept) == 0) {
+            return false
+        }
+        def first:EVGDrawCmd (itemAt kept 0)
+        def dx:double (el.calculatedX - (first.x + (itemAt fragOffX fi)))
+        def dy:double (el.calculatedY - (first.y + (itemAt fragOffY fi)))
+        for kept c:EVGDrawCmd ci {
+            if ((dx != 0.0) || (dy != 0.0)) {
+                c.x = (c.x + dx)
+                c.y = (c.y + dy)
+                if c.hasRotOrigin {
+                    c.rotOriginX = (c.rotOriginX + dx)
+                    c.rotOriginY = (c.rotOriginY + dy)
+                }
+                def n:int (array_length c.pts)
+                def p:int 0
+                while (p < n) {
+                    set c.pts p ((itemAt c.pts p) + dx)
+                    set c.pts (p + 1) ((itemAt c.pts (p + 1)) + dy)
+                    p = (p + 2)
+                }
+            }
+            this.addCmd(c)
+        }
+        return true
+    }
+
+    ; Keep what the walk just emitted for a subtree — or not, when it
+    ; opened a scroll layer, or emitted nothing to be placed by.
+    fn recordFragment:void (el:EVGElement start:int) {
+        def kept:[EVGDrawCmd]
+        def i:int start
+        def n:int (array_length cmds)
+        while (i < n) {
+            def c:EVGDrawCmd (itemAt cmds i)
+            if (c.layer > 0) {
+                return
+            }
+            push kept c
+            i = (i + 1)
+        }
+        if ((array_length kept) == 0) {
+            return
+        }
+        def first:EVGDrawCmd (itemAt kept 0)
+        def offX:double (el.calculatedX - first.x)
+        def offY:double (el.calculatedY - first.y)
+        def fi:int (this.fragmentOf(el))
+        if (fi < 0) {
+            push fragEls el
+            push fragLists kept
+            push fragStamps el.paintStamp
+            push fragOffX offX
+            push fragOffY offY
+            return
+        }
+        set fragLists fi kept
+        set fragStamps fi el.paintStamp
+        set fragOffX fi offX
+        set fragOffY fi offY
+    }
+
+    def scrollbars:boolean false
+    def barState:int 0
+    def barHover@(optional):EVGElement
+    ; The container the pointer is NEAR — within `barNearPx` of its right
+    ; edge — whose bar is up for it, so it can be found and taken. Near is
+    ; not on: nothing under the pointer is kept from a press by it.
+    def barNear@(optional):EVGElement
+    ; The thumb's label — "34 %" — and the percent it was written for: a
+    ; scroll that changes the number rewrites the text in place, which a
+    ; painter reads as it draws and a host that keeps its frame is told
+    ; about through `frameSeq`.
+    def layerPct:[int]
+    def layerLabel:[int]
+    ; Bumped whenever a command in a KEPT list changed in a way a frame
+    ; built from it cannot follow with a shift — a label's text. A host that
+    ; keeps its frame rebuilds it when this moves; the list is kept.
+    def frameSeq:int 0
+    ; What is painted under the element being walked: the nearest set
+    ; background up the tree, kept as the walk descends. The bar is ink on
+    ; it — light ink on a dark page, dark on a light one — because the
+    ; container's own text colour is not inherited onto it and a black thumb
+    ; on a black page was reported as no thumb at all.
+    def backdropR:int 255
+    def backdropG:int 255
+    def backdropB:int 255
+
+    fn setScrollbars:void (on:boolean) {
+        scrollbars = on
+    }
+
+    fn setScrollbarState:void (state:int) {
+        barState = state
+    }
+
+    fn setScrollbarHover:void (el@(optional):EVGElement) {
+        barHover = el
+    }
+
+    fn setScrollbarNear:void (el@(optional):EVGElement) {
+        barNear = el
+    }
+
+    ; How far from a container's right edge the pointer brings its bar up.
+    sfn barNearPx:double () {
+        return 36.0
+    }
+
+    sfn pctLabel:string (pct:int) {
+        return ((to_string pct) + " %")
+    }
+
+    ; How wide the thumb is in a state, in page pixels; `thin` is CSS's
+    ; `scrollbar-width: thin`.
+    sfn barWidth:double (state:int thin:boolean) {
+        if thin {
+            if (state >= 2) {
+                return 7.0
+            }
+            if (state == 1) {
+                return 5.0
+            }
+            return 3.0
+        }
+        if (state >= 2) {
+            return 11.0
+        }
+        if (state == 1) {
+            return 8.0
+        }
+        return 4.0
+    }
+
+    ; The bar for a container whose clip was just popped: the track when the
+    ; bar is up, and the thumb as a layer of its own, clipped to the track.
+    fn addScrollbar:void (el:EVGElement x:double y:double w:double h:double) {
+        def maxY:double (el.maxScrollTop())
+        if (maxY <= 0.0) {
+            return
+        }
+        def state@(mutable):int barState
+        if barNear {
+            if ((unwrap barNear) == el) {
+                if (state < 1) {
+                    state = 1
+                }
+            }
+        }
+        if barHover {
+            if ((unwrap barHover) == el) {
+                state = 2
+            }
+        }
+        if (el.scrollbarWidth == "none") {
+            return
+        }
+        def width:double (EVGDisplayList.barWidth(state (el.scrollbarWidth == "thin")))
+        def margin:double 3.0
+        def trackX:double ((x + w) - (width + margin))
+        def trackY:double (y + margin)
+        def trackH:double (h - (margin * 2.0))
+        if (trackH <= (width * 2.0)) {
+            return
+        }
+        ; The thumb's length is the container's share of its content, and
+        ; never so short a finger could not find it.
+        def thumbH@(mutable):double ((trackH * h) / (h + maxY))
+        if (thumbH < 24.0) {
+            thumbH = 24.0
+        }
+        if (thumbH > trackH) {
+            thumbH = trackH
+        }
+        def travel:double (trackH - thumbH)
+        def scale:double (travel / maxY)
+        def thumbY:double (trackY + (scale * el.scrollTop))
+        ; The container's own text colour, thinned: a bar that is the page's
+        ; ink at a fraction reads as part of the page on any theme.
+        def lum:int (idiv ((backdropR * 299) + ((backdropG * 587) + (backdropB * 114))) 1000)
+        ; The thumb's colour: the sheet's `scrollbar-color`, else ink on the
+        ; backdrop. Its alpha is the colour's own, thinned at rest and full
+        ; when lit — so a sheet that asks for a translucent thumb gets one
+        ; in every state.
+        def base@(mutable):EVGColor (EVGColor.rgba(30 30 30 1.0))
+        if (lum < 128) {
+            base = (EVGColor.rgba(235 235 235 1.0))
+        }
+        if el.scrollbarThumb.isSet {
+            base = (unwrap el.scrollbarThumb)
+        }
+        def cr:int (base.red())
+        def cg:int (base.green())
+        def cb:int (base.blue())
+        def own:double (base.alpha())
+        def thumbA@(mutable):double (own * 0.5)
+        if (state == 1) {
+            thumbA = (own * 0.72)
+        }
+        if (state >= 2) {
+            thumbA = (own * 0.92)
+        }
+        ; Lit from the left: the thumb is a gradient across itself, from the
+        ; colour lightened to the colour, which is what makes a flat bar
+        ; read as a rounded one.
+        def lit:EVGColor (base.lighten(0.38))
+        ; The ink of the label is what the pill is NOT: dark on a light
+        ; pill, light on a dark one.
+        def pillLum:int (idiv ((cr * 299) + ((cg * 587) + (cb * 114))) 1000)
+        def tr@(mutable):int 20
+        def tg@(mutable):int 20
+        def tb@(mutable):int 24
+        if (pillLum < 140) {
+            tr = 250
+            tg = 250
+            tb = 250
+        }
+        if (state > 0) {
+            def track (new EVGDrawCmd())
+            track.kind = 0
+            track.x = trackX
+            track.y = trackY
+            track.w = width
+            track.h = trackH
+            track.radius = (width / 2.0)
+            if el.scrollbarTrack.isSet {
+                track.r = (el.scrollbarTrack.red())
+                track.g = (el.scrollbarTrack.green())
+                track.b = (el.scrollbarTrack.blue())
+                track.a = (el.scrollbarTrack.alpha())
+            } {
+                track.r = cr
+                track.g = cg
+                track.b = cb
+                track.a = 0.12
+            }
+            this.addCmd(track)
+        }
+        ; The clip reaches left of the track to hold the label; the thumb
+        ; never leaves the track on its own, the offset is clamped.
+        def cp (new EVGDrawCmd())
+        cp.kind = 4
+        cp.x = (trackX - 64.0)
+        cp.y = trackY
+        cp.w = (width + 64.0)
+        cp.h = trackH
+        cp.layer = ((array_length layerEls) + 1)
+        push layerEls el
+        push layerTop el.scrollTop
+        push layerLeft el.scrollLeft
+        push layerShiftX 0.0
+        push layerShiftY 0.0
+        push layerClip (array_length cmds)
+        push layerFirst ((array_length cmds) + 1)
+        push layerLast ((array_length cmds) + 2)
+        push layerCullL 0.0
+        push layerCullT 0.0
+        push layerCullR 0.0
+        push layerCullB 0.0
+        push layerKind 1
+        push layerScale scale
+        def pct:int (to_int (((el.scrollTop * 100.0) / maxY) + 0.5))
+        push layerPct pct
+        push layerLabel (0 - 1)
+        this.addCmd(cp)
+        def thumb (new EVGDrawCmd())
+        thumb.kind = 0
+        thumb.x = trackX
+        thumb.y = thumbY
+        thumb.w = width
+        thumb.h = thumbH
+        thumb.radius = (width / 2.0)
+        thumb.hasGrad = true
+        thumb.gradDir = 1
+        thumb.r = (lit.red())
+        thumb.g = (lit.green())
+        thumb.b = (lit.blue())
+        thumb.a = thumbA
+        thumb.r2 = cr
+        thumb.g2 = cg
+        thumb.b2 = cb
+        thumb.a2 = thumbA
+        this.addCmd(thumb)
+        if ((state >= 1) && (el.scrollbarLabel != "none")) {
+            ; Where the page is, as a number beside the thumb: a pill in the
+            ; bar's ink with the text in the backdrop's, so it reads on any
+            ; page. It moves with the thumb — it is in the thumb's layer —
+            ; and its text is rewritten in place as the number changes.
+            def pillW:double 42.0
+            def pillH:double 18.0
+            def pillX:double ((trackX - pillW) - 6.0)
+            def pillY:double ((thumbY + (thumbH / 2.0)) - (pillH / 2.0))
+            def pill (new EVGDrawCmd())
+            pill.kind = 0
+            pill.x = pillX
+            pill.y = pillY
+            pill.w = pillW
+            pill.h = pillH
+            pill.radius = (pillH / 2.0)
+            pill.hasGrad = true
+            pill.gradDir = 0
+            pill.r = (lit.red())
+            pill.g = (lit.green())
+            pill.b = (lit.blue())
+            pill.a = (own * 0.94)
+            pill.r2 = cr
+            pill.g2 = cg
+            pill.b2 = cb
+            pill.a2 = (own * 0.94)
+            this.addCmd(pill)
+            def label (new EVGDrawCmd())
+            label.kind = 3
+            label.x = (pillX + 7.0)
+            label.y = (pillY + 2.0)
+            label.w = (pillW - 10.0)
+            label.h = (pillH - 4.0)
+            label.text = (EVGDisplayList.pctLabel(pct))
+            label.fontFamily = "sans-serif"
+            label.fontSize = 11.0
+            label.fontWeight = "600"
+            label.r = tr
+            label.g = tg
+            label.b = tb
+            label.a = 1.0
+            set layerLabel ((array_length layerEls) - 1) (array_length cmds)
+            this.addCmd(label)
+            set layerLast ((array_length layerEls) - 1) (array_length cmds)
+        }
+        def pp (new EVGDrawCmd())
+        pp.kind = 5
+        this.addCmd(pp)
+    }
+
+    ; The track column of a bar that is up, under a point: the layer index
+    ; of its thumb, or -1. A press here jumps the page to the point.
+    fn trackAt:int (px:double py:double) {
+        def i:int 0
+        while (i < (array_length layerEls)) {
+            if ((itemAt layerKind i) == 1) {
+                def cp:EVGDrawCmd (itemAt cmds (itemAt layerClip i))
+                def t:EVGDrawCmd (itemAt cmds (itemAt layerFirst i))
+                if ((px >= (t.x - 4.0)) && (px <= ((t.x + t.w) + 3.0))) {
+                    if ((py >= cp.y) && (py <= (cp.y + cp.h))) {
+                        return i
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    ; The offset that puts a thumb's middle at `py`.
+    fn trackScrollFor:double (i:int py:double) {
+        def cp:EVGDrawCmd (itemAt cmds (itemAt layerClip i))
+        def t:EVGDrawCmd (itemAt cmds (itemAt layerFirst i))
+        def scale:double (itemAt layerScale i)
+        if (scale <= 0.0) {
+            return 0.0
+        }
+        return (((py - cp.y) - (t.h / 2.0)) / scale)
+    }
+
+    ; The scroll container whose right edge the point is near, as the index
+    ; of its CONTENT layer, or -1.
+    fn nearBarAt:int (px:double py:double) {
+        def i:int 0
+        while (i < (array_length layerEls)) {
+            if ((itemAt layerKind i) == 0) {
+                def cp:EVGDrawCmd (itemAt cmds (itemAt layerClip i))
+                if ((px >= ((cp.x + cp.w) - (EVGDisplayList.barNearPx()))) && (px <= (cp.x + cp.w))) {
+                    if ((py >= cp.y) && (py <= (cp.y + cp.h))) {
+                        return i
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    ; The thumb under a point, as a layer index, or -1. A finger's width of
+    ; slack to the left of a thumb at rest, which is four pixels wide.
+    fn thumbAt:int (px:double py:double) {
+        def i:int 0
+        while (i < (array_length layerEls)) {
+            if ((itemAt layerKind i) == 1) {
+                def t:EVGDrawCmd (itemAt cmds (itemAt layerFirst i))
+                if ((px >= (t.x - 8.0)) && (px <= ((t.x + t.w) + 3.0))) {
+                    if ((py >= t.y) && (py <= (t.y + t.h))) {
+                        return i
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    fn layerElement:EVGElement (i:int) {
+        return (itemAt layerEls i)
+    }
+
+    fn thumbScale:double (i:int) {
+        return (itemAt layerScale i)
+    }
+
+    ; The thumbs, as JSON, for a check to look at.
+    fn thumbsJson:string () {
+        def out@(mutable):string "["
+        def n@(mutable):int 0
+        def i:int 0
+        while (i < (array_length layerEls)) {
+            if ((itemAt layerKind i) == 1) {
+                def t:EVGDrawCmd (itemAt cmds (itemAt layerFirst i))
+                if (n > 0) {
+                    out = (out + ",")
+                }
+                out = (out + "{\"x\":" + (EVGDisplayList.num(t.x)) + ",\"y\":" + (EVGDisplayList.num(t.y)))
+                out = (out + ",\"w\":" + (EVGDisplayList.num(t.w)) + ",\"h\":" + (EVGDisplayList.num(t.h)) + ",\"a\":" + (EVGDisplayList.num(t.a)))
+                out = (out + ",\"c\":[" + (to_string t.r2) + "," + (to_string t.g2) + "," + (to_string t.b2) + "]}")
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return (out + "]")
+    }
+
+    fn layerCount:int () {
+        return (array_length layerEls)
+    }
+
+    ; The layer this container's clip opens, or -1.
+    fn layerFor:int (el:EVGElement) {
+        def i:int 0
+        while (i < (array_length layerEls)) {
+            if ((itemAt layerEls i) == el) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    ; Move every command in a layer's range — the content, the clips inside
+    ; it, the paths — by (dx, dy). The layer's own clip is not in the range:
+    ; the container stays where it is, its content moves.
+    fn shiftRange:void (first:int last:int dx:double dy:double) {
+        def i:int first
+        while (i < last) {
+            def c:EVGDrawCmd (itemAt cmds i)
+            c.x = (c.x + dx)
+            c.y = (c.y + dy)
+            if c.hasRotOrigin {
+                c.rotOriginX = (c.rotOriginX + dx)
+                c.rotOriginY = (c.rotOriginY + dy)
+            }
+            def n:int (array_length c.pts)
+            if (n > 0) {
+                def p:int 0
+                while (p < n) {
+                    set c.pts p ((itemAt c.pts p) + dx)
+                    set c.pts (p + 1) ((itemAt c.pts (p + 1)) + dy)
+                    p = (p + 2)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Bring the layers up to their containers' current offsets. True when
+    ; every layer still covers what its container shows — the list is good
+    ; for this frame, moved — and false when one has scrolled past what was
+    ; built for it, which is the caller's cue to build again.
+    fn refreshLayers:boolean () {
+        def i:int 0
+        while (i < (array_length layerEls)) {
+            def el:EVGElement (itemAt layerEls i)
+            if ((itemAt layerKind i) == 1) {
+                def ty:double ((el.scrollTop - (itemAt layerTop i)) * (itemAt layerScale i))
+                def dsy:double (ty - (itemAt layerShiftY i))
+                if (dsy != 0.0) {
+                    this.shiftRange((itemAt layerFirst i) (itemAt layerLast i) 0.0 dsy)
+                    set layerShiftY i ty
+                }
+                if ((itemAt layerLabel i) >= 0) {
+                    def maxY:double (el.maxScrollTop())
+                    if (maxY > 0.0) {
+                        def pct:int (to_int (((el.scrollTop * 100.0) / maxY) + 0.5))
+                        if (pct != (itemAt layerPct i)) {
+                            set layerPct i pct
+                            def label:EVGDrawCmd (itemAt cmds (itemAt layerLabel i))
+                            label.text = (EVGDisplayList.pctLabel(pct))
+                            frameSeq = (frameSeq + 1)
+                        }
+                    }
+                }
+                i = (i + 1)
+                continue
+            }
+            def dy:double ((itemAt layerTop i) - el.scrollTop)
+            def dx:double ((itemAt layerLeft i) - el.scrollLeft)
+            ; The container's clip as it stands — an outer layer may have
+            ; moved it, and moved this layer's built range with it — has to
+            ; sit inside the built range once that range is moved by the
+            ; content's whole shift. Outside it, a row the viewport shows was
+            ; never built.
+            def cp:EVGDrawCmd (itemAt cmds (itemAt layerClip i))
+            if (cp.y < ((itemAt layerCullT i) + dy)) {
+                return false
+            }
+            if ((cp.y + cp.h) > ((itemAt layerCullB i) + dy)) {
+                return false
+            }
+            if (cp.x < ((itemAt layerCullL i) + dx)) {
+                return false
+            }
+            if ((cp.x + cp.w) > ((itemAt layerCullR i) + dx)) {
+                return false
+            }
+            def sx:double (dx - (itemAt layerShiftX i))
+            def sy:double (dy - (itemAt layerShiftY i))
+            if ((sx != 0.0) || (sy != 0.0)) {
+                this.shiftRange((itemAt layerFirst i) (itemAt layerLast i) sx sy)
+                set layerShiftX i dx
+                set layerShiftY i dy
+                ; The layers inside this one moved with its content, and so
+                ; did the ranges they were built for.
+                def j:int (i + 1)
+                while (j < (array_length layerEls)) {
+                    if ((itemAt layerClip j) > (itemAt layerClip i)) {
+                        if ((itemAt layerClip j) < (itemAt layerLast i)) {
+                            set layerCullL j ((itemAt layerCullL j) + sx)
+                            set layerCullR j ((itemAt layerCullR j) + sx)
+                            set layerCullT j ((itemAt layerCullT j) + sy)
+                            set layerCullB j ((itemAt layerCullB j) + sy)
+                        }
+                    }
+                    j = (j + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+    def overscanBefore:double (0.0 - 1.0)
+    def overscanAfter:double (0.0 - 1.0)
+    ; The clip in force, and whether there is one. Not a stack: the rectangle
+    ; is intersected on the way down and restored on the way back up, which is
+    ; the stack, held in the recursion.
+    def cullOn:boolean false
+    def cullLeft:double 0.0
+    def cullTop:double 0.0
+    def cullRight:double 0.0
+    def cullBottom:double 0.0
+
+    fn setCulling:void (on:boolean) {
+        culling = on
+    }
+
+    ; How far past the clip to draw anyway, in pixels, above and below. A
+    ; negative value means "one clip height", which is the default. Give the
+    ; direction of travel more room than the direction behind it.
+    fn setOverscan:void (before:double after:double) {
+        overscanBefore = before
+        overscanAfter = after
+    }
+
+    ; Is this subtree worth walking into?
+    fn cullable:boolean (el:EVGElement) {
+        if (cullOn == false) {
+            return false
+        }
+        if el.paintUnbounded {
+            return false
+        }
+        if (el.paintBottom < cullTop) {
+            return true
+        }
+        if (el.paintTop > cullBottom) {
+            return true
+        }
+        if (el.paintRight < cullLeft) {
+            return true
+        }
+        if (el.paintLeft > cullRight) {
+            return true
+        }
+        return false
+    }
+
     fn build:void (root:EVGElement) {
         clear cmds
+        clear deferredOverlays
+        clear layerEls
+        clear layerTop
+        clear layerLeft
+        clear layerShiftX
+        clear layerShiftY
+        clear layerCullL
+        clear layerCullT
+        clear layerCullR
+        clear layerCullB
+        clear layerClip
+        clear layerFirst
+        clear layerLast
+        clear layerStack
+        clear layerKind
+        clear layerScale
+        clear layerPct
+        clear layerLabel
+        fragHits = 0
+        fragMisses = 0
+        cullOn = false
+        effectKind = ""
+        def noX:[double]
+        def noY:[double]
+        def noT:[double]
+        effectXs = noX
+        effectYs = noY
+        effectAges = noT
+        this.readEffect(root)
         this.walk(root)
+        def i:int 0
+        while (i < (array_length deferredOverlays)) {
+            ; Outside every clip: a surface is placed against the page, not
+            ; against whatever it was written inside.
+            cullOn = false
+            this.walk((itemAt deferredOverlays i))
+            i = (i + 1)
+        }
+        cullOn = false
     }
 
     ; Apply `opacity` to everything this element and its subtree just emitted.
@@ -634,13 +1581,269 @@ class EVGDisplayList {
         }
     }
 
+    ; A `transform` applied to everything this element and its children drew.
+    ;
+    ; The same shape as `fadeFrom` and for the same reason: a transform is a
+    ; property of a SUBTREE, and the display list has already flattened the
+    ; subtree by the time it is known what was in it. Recording where the
+    ; element's output began and rewriting that range afterwards is how both are
+    ; expressed without a transform stack in every backend. Nested transforms
+    ; compose because an outer element's range covers the inner one's output and
+    ; is rewritten after it.
+    ;
+    ; It is a similarity — rotation, uniform scale, translation — so each
+    ; command survives as a command rather than needing a matrix in the wire
+    ; format. Two different treatments, for two different kinds of command:
+    ;
+    ;   a box (rect, border, image, text) keeps its axis-aligned rectangle,
+    ;   moved and resized, and carries the ANGLE with the origin it turns
+    ;   about. The painter does the turning.
+    ;
+    ;   a path is turned in its GEOMETRY, here, because its shape does not live
+    ;   in `x/y/w/h` and no backend's quad rotation would reach it. That is the
+    ;   same choice `PathBuilder.rotateAbout` already makes, and it means SVG,
+    ;   PDF and raster all draw a turned icon without knowing what a transform
+    ;   is.
+    fn transformFrom:void (start:int el:EVGElement) {
+        def deg:double el.rotate
+        def sc:double el.scale
+        def tx:double el.translateX
+        def ty:double el.translateY
+        def turns:boolean (deg != 0.0)
+        def scales:boolean ((fabs (sc - 1.0)) > 0.000001)
+        def shifts:boolean ((tx != 0.0) || (ty != 0.0))
+        if (((turns == false) && (scales == false)) && (shifts == false)) {
+            return
+        }
+        ; What it turns about. `transform-origin` decides, and its default is
+        ; 50% 50% — the element's own centre. Measured against a browser rather
+        ; than assumed: a 100x40 box given a quarter turn about the default
+        ; comes back with its centre exactly where it started.
+        ;
+        ; Resolved HERE and not earlier, because a percentage needs the laid-out
+        ; box and this is the first place that exists.
+        def ox:double (el.calculatedX + (EVGElement.resolveOrigin(el.transformOriginX el.calculatedWidth)))
+        def oy:double (el.calculatedY + (EVGElement.resolveOrigin(el.transformOriginY el.calculatedHeight)))
+        def rad:double ((deg * 3.14159265358979) / 180.0)
+        def cs:double (cos rad)
+        def sn:double (sin rad)
+        def i:int start
+        def n:int (array_length cmds)
+        while (i < n) {
+            def c:EVGDrawCmd (itemAt cmds i)
+            if ((array_length c.pts) > 0) {
+                this.mapPoints(c ox oy sc cs sn tx ty)
+            } {
+                if scales {
+                    c.x = (ox + ((c.x - ox) * sc))
+                    c.y = (oy + ((c.y - oy) * sc))
+                    c.w = (c.w * sc)
+                    c.h = (c.h * sc)
+                    c.radius = (c.radius * sc)
+                    c.thickness = (c.thickness * sc)
+                    ; Type scales with the box. A button that grows on hover
+                    ; and keeps its old type size looks like a rendering fault.
+                    c.fontSize = (c.fontSize * sc)
+                }
+                if turns {
+                    ; A command already carrying its own rotation — a sideways
+                    ; axis label inside a turned panel — adds the two angles and
+                    ; has its pivot carried round by the outer one. Its own
+                    ; centre stops being the pivot, which is right: it is being
+                    ; carried, not spun in place.
+                    c.rotate = (c.rotate + deg)
+                    if (c.hasRotOrigin == false) {
+                        c.rotOriginX = ox
+                        c.rotOriginY = oy
+                        c.hasRotOrigin = true
+                    } {
+                        def rx:double (c.rotOriginX - ox)
+                        def ry:double (c.rotOriginY - oy)
+                        c.rotOriginX = (ox + ((rx * cs) - (ry * sn)))
+                        c.rotOriginY = (oy + ((rx * sn) + (ry * cs)))
+                    }
+                }
+                if shifts {
+                    c.x = (c.x + tx)
+                    c.y = (c.y + ty)
+                    if c.hasRotOrigin {
+                        c.rotOriginX = (c.rotOriginX + tx)
+                        c.rotOriginY = (c.rotOriginY + ty)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; The whole similarity applied to a path's points. Rebuilt rather than
+    ; written in place: the array has no element assignment, and a fresh list
+    ; pushed back is clearer than an index dance anyway.
+    fn mapPoints:void (c:EVGDrawCmd ox:double oy:double sc:double cs:double sn:double tx:double ty:double) {
+        def moved:[double]
+        def i:int 0
+        def n:int (array_length c.pts)
+        while ((i + 1) < n) {
+            def px:double ((itemAt c.pts i) - ox)
+            def py:double ((itemAt c.pts (i + 1)) - oy)
+            def sx:double (px * sc)
+            def sy:double (py * sc)
+            push moved (((ox + ((sx * cs) - (sy * sn))) + tx))
+            push moved (((oy + ((sx * sn) + (sy * cs))) + ty))
+            i = (i + 2)
+        }
+        clear c.pts
+        def j:int 0
+        while (j < (array_length moved)) {
+            push c.pts (itemAt moved j)
+            j = (j + 1)
+        }
+    }
+
+    ; --- the background gradient -------------------------------------------
+    ;
+    ; TWO SHAPES AND NO MORE: down the box and across it. That is what `gd`
+    ; can say, and what every backend reading this list implements — the GL
+    ; shader mixes along one axis of the quad and the software canvas does the
+    ; same. So a linear gradient is snapped to the nearer axis and its stops
+    ; are swapped when it points the other way, which is exact for the four
+    ; right angles and an approximation for everything between them.
+    ;
+    ; A RADIAL gradient is not a direction at all, so it is not turned into
+    ; one: the box keeps whatever flat colour it had, and a viewer sees a
+    ; missing effect rather than a wrong one.
+    ;
+    ; Two stops, because the command carries two. A gradient authored with
+    ; more keeps its first and its last, and the ones between are dropped —
+    ; recorded here rather than hidden, since the alternative is a list format
+    ; change every backend would have to follow.
+    sfn normAngle:double (a:double) {
+        def v:double a
+        while (v < 0.0) {
+            v = (v + 360.0)
+        }
+        while (v >= 360.0) {
+            v = (v - 360.0)
+        }
+        return v
+    }
+
+    sfn hasLinearGradient:boolean (el:EVGElement) {
+        ; The RGU1 pair — `gradient-from` / `gradient-to` / `gradient-dir` — is
+        ; already this list's own vocabulary: a direction and two colours, with
+        ; nothing to interpret.
+        if el.gradientSet {
+            return true
+        }
+        def g:EVGGradient el.gradient
+        if (g.isSet == false) {
+            return false
+        }
+        if (g.isLinear == false) {
+            return false
+        }
+        return ((g.getStopCount()) > 1)
+    }
+
+    sfn applyGradient:void (c:EVGDrawCmd el:EVGElement) {
+        if el.gradientSet {
+            def a0:EVGColor el.gradientFrom
+            def b0:EVGColor el.gradientTo
+            c.hasGrad = true
+            c.gradDir = el.gradientDir
+            c.r = (a0.red())
+            c.g = (a0.green())
+            c.b = (a0.blue())
+            c.a = (a0.alpha())
+            c.r2 = (b0.red())
+            c.g2 = (b0.green())
+            c.b2 = (b0.blue())
+            c.a2 = (b0.alpha())
+            return
+        }
+        def g:EVGGradient el.gradient
+        def ang:double (EVGDisplayList.normAngle(g.angle))
+        ; CSS reads the angle as the direction the gradient TRAVELS, with 0 to
+        ; the top and 90 to the right; the list reads a start corner. So the
+        ; two directions that run up or left are the same axis with the stops
+        ; the other way round.
+        def dir:int 0
+        def swap:boolean false
+        if ((ang >= 45.0) && (ang < 135.0)) {
+            dir = 1
+        }
+        if ((ang >= 225.0) && (ang < 315.0)) {
+            dir = 1
+            swap = true
+        }
+        if ((ang < 45.0) || (ang >= 315.0)) {
+            swap = true
+        }
+        def from:EVGColor (g.getStartColor())
+        def to:EVGColor (g.getEndColor())
+        if swap {
+            def tmp:EVGColor from
+            from = to
+            to = tmp
+        }
+        c.hasGrad = true
+        c.gradDir = dir
+        c.r = (from.red())
+        c.g = (from.green())
+        c.b = (from.blue())
+        c.a = (from.alpha())
+        c.r2 = (to.red())
+        c.g2 = (to.green())
+        c.b2 = (to.blue())
+        c.a2 = (to.alpha())
+    }
+
     fn walk:void (el:EVGElement) {
+        ; `display: none` paints nothing, and nothing under it.
+        if (el.isHidden()) {
+            return
+        }
+        ; Nor does a subtree that cannot reach the clip it is inside.
+        if (this.cullable(el)) {
+            return
+        }
+        ; A subtree still owed a scroll is paid it before it is drawn — see
+        ; `EVGElement.shiftDx`. Its own box, which the test above read, was
+        ; already where it should be.
+        el.settleShift()
         ; Where this element's own output begins, so `opacity` can scale
         ; exactly what it and its children add — nested fades then multiply as
-        ; the recursion unwinds.
+        ; the recursion unwinds. A transform uses the same range.
         def emitStart:int (array_length cmds)
+        ; The element every command appended below belongs to. Saved and put
+        ; back rather than cleared, because `walkOpaque` recurses through here
+        ; and a child must not leave its own slot behind for the commands its
+        ; parent emits afterwards.
+        ; A kept subtree, from what it emitted last time when that holds.
+        def keeping:boolean ((fragments && el.keepLayout) && (attribute == false))
+        if keeping {
+            if (this.emitFragment(el)) {
+                fragHits = (fragHits + 1)
+                return
+            }
+            fragMisses = (fragMisses + 1)
+        }
+        def prevNode:int curNode
+        if attribute {
+            curNode = el.inspectSlot
+        }
+        def hadCull:boolean cullOn
+        if keeping {
+            cullOn = false
+        }
         this.walkOpaque(el)
+        cullOn = hadCull
+        curNode = prevNode
         this.fadeFrom(emitStart el.opacity)
+        this.transformFrom(emitStart el)
+        if keeping {
+            this.recordFragment(el emitStart)
+        }
     }
 
     fn walkOpaque:void (el:EVGElement) {
@@ -650,23 +1853,137 @@ class EVGDisplayList {
         def h:double el.calculatedHeight
 
         def radius:double el.box.borderRadiusPx
+        ; THE FOUR CORNERS, and the scale-down that makes them legal.
+        ;
+        ; CSS: if two radii on one side add up to more than that side, EVERY
+        ; radius on the box is multiplied by the same factor — the smallest
+        ; ratio over the four sides. Per-corner clamping is the classic wrong
+        ; answer and it comes out lopsided. Measured: 80px corners on a 100x40
+        ; box are drawn at 40, a factor of 0.5 applied to all four, and 60/20
+        ; on a 50x200 box become 37.5 and 12.5.
+        ;
+        ; It is done here and not in the box because it needs the DRAWN width
+        ; and height, which nothing knows until the layout has finished.
+        ; A PERCENTAGE IS AGAINST THIS BOX, not its parent. The box resolves
+        ; units when only the parent's dimensions are known, so it had nothing
+        ; else to use — `border-radius: 50%` on a 200x100 box inside a
+        ; 800x600 page came out 300, which the shader then clamped to 50 and
+        ; the PDF and raster backends did not. Re-resolved here against `w`,
+        ; where the box's own width is finally a number. Circular corners, so
+        ; one base: the browser would make an ellipse of it, and that is
+        ; recorded as a divergence rather than approximated.
+        def bx:EVGBox el.box
+        def uTL:EVGUnit bx.borderRadiusTL
+        def uTR:EVGUnit bx.borderRadiusTR
+        def uBR:EVGUnit bx.borderRadiusBR
+        def uBL:EVGUnit bx.borderRadiusBL
+        def uAll:EVGUnit bx.borderRadius
+        def rTL:double (EVGDisplayList.radiusPx((uTL.isSet && (uTL.isPercent())) uTL.value bx.borderRadiusTLPx w))
+        def rTR:double (EVGDisplayList.radiusPx((uTR.isSet && (uTR.isPercent())) uTR.value bx.borderRadiusTRPx w))
+        def rBR:double (EVGDisplayList.radiusPx((uBR.isSet && (uBR.isPercent())) uBR.value bx.borderRadiusBRPx w))
+        def rBL:double (EVGDisplayList.radiusPx((uBL.isSet && (uBL.isPercent())) uBL.value bx.borderRadiusBLPx w))
+        if ((bx.hasPerCornerRadius()) == false) {
+            def uni:double (EVGDisplayList.radiusPx((uAll.isSet && (uAll.isPercent())) uAll.value bx.borderRadiusPx w))
+            rTL = uni
+            rTR = uni
+            rBR = uni
+            rBL = uni
+        }
+        def f:double 1.0
+        f = (EVGDisplayList.sideFactor(f w (rTL + rTR)))
+        f = (EVGDisplayList.sideFactor(f h (rTR + rBR)))
+        f = (EVGDisplayList.sideFactor(f w (rBL + rBR)))
+        f = (EVGDisplayList.sideFactor(f h (rTL + rBL)))
+        if (f < 1.0) {
+            rTL = (rTL * f)
+            rTR = (rTR * f)
+            rBR = (rBR * f)
+            rBL = (rBL * f)
+        }
+        ; And the single number every other backend reads is the SCALED one.
+        ; It used to be the authored value: an 80-pixel radius on a 100-pixel
+        ; box went out as 80, and only the WebGL shader's own clamp made it
+        ; look right — PDF and the rasteriser drew what they were told.
+        radius = rTL
+        def perCorner:boolean (el.box.hasPerCornerRadius())
 
         ; Background
+        ;
+        ; `painted` guards the case below it: an element carrying only a
+        ; `backdrop-filter` and no background of its own still has to emit a
+        ; rectangle, because the filter is the thing being drawn. CSS applies
+        ; `backdrop-filter` whether or not there is a background — a scrim that
+        ; softens the page and tints it not at all is an ordinary thing to want
+        ; — and gating the emit on a colour dropped that case entirely.
+        def painted:boolean false
+        def bgSet:boolean false
+        def bg:EVGColor (new EVGColor())
         if el.backgroundColor {
-            def bg:EVGColor (unwrap el.backgroundColor)
-            if bg.isSet {
-                def c (new EVGDrawCmd())
-                c.kind = 0
-                c.x = x
-                c.y = y
-                c.w = w
-                c.h = h
-                c.radius = radius
+            def b0:EVGColor (unwrap el.backgroundColor)
+            if b0.isSet {
+                bg = b0
+                bgSet = true
+            }
+        }
+        ; A gradient is a background too, and until now it was the one kind
+        ; that never arrived: `hasGrad` has been on the command, in the JSON
+        ; and in the GL shader all along, and nothing wrote one from an
+        ; ELEMENT. So `background: linear-gradient(...)` with no
+        ; `background-color` beside it emitted no rectangle at all, and with
+        ; one it was painted flat.
+        def gradOk:boolean (EVGDisplayList.hasLinearGradient(el))
+        if (bgSet || gradOk) {
+            def c (new EVGDrawCmd())
+            c.kind = 0
+            c.x = x
+            c.y = y
+            c.w = w
+            c.h = h
+            c.radius = radius
+            c.perCorner = perCorner
+            if perCorner {
+                c.radius = rTL
+                c.radiusTR = rTR
+                c.radiusBR = rBR
+                c.radiusBL = rBL
+            }
+            if bgSet {
                 c.r = (bg.red())
                 c.g = (bg.green())
                 c.b = (bg.blue())
                 c.a = (bg.alpha())
-                push cmds c
+            }
+            ; The gradient outranks the flat colour, the way `background-image`
+            ; is painted over `background-color` in a browser.
+            if gradOk {
+                EVGDisplayList.applyGradient(c el)
+            }
+            c.backdropBlur = el.backdropBlur
+            this.addCmd(c)
+            painted = true
+        }
+        if (painted == false) {
+            if (el.backdropBlur > 0.0) {
+                def cb (new EVGDrawCmd())
+                cb.kind = 0
+                cb.x = x
+                cb.y = y
+                cb.w = w
+                cb.h = h
+                cb.radius = radius
+                cb.perCorner = perCorner
+                if perCorner {
+                    cb.radius = rTL
+                    cb.radiusTR = rTR
+                    cb.radiusBR = rBR
+                    cb.radiusBL = rBL
+                }
+                ; Fully transparent: the rectangle exists to carry the filter,
+                ; and a backend that cannot filter draws nothing, which is
+                ; exactly right.
+                cb.a = 0.0
+                cb.backdropBlur = el.backdropBlur
+                this.addCmd(cb)
             }
         }
 
@@ -685,12 +2002,19 @@ class EVGDisplayList {
             c2.w = w
             c2.h = h
             c2.radius = radius
+            c2.perCorner = perCorner
+            if perCorner {
+                c2.radius = rTL
+                c2.radiusTR = rTR
+                c2.radiusBR = rBR
+                c2.radiusBL = rBL
+            }
             c2.thickness = bw
             c2.r = (bc.red())
             c2.g = (bc.green())
             c2.b = (bc.blue())
             c2.a = (bc.alpha())
-            push cmds c2
+            this.addCmd(c2)
         }
 
 
@@ -709,8 +2033,15 @@ class EVGDisplayList {
             c3.w = w
             c3.h = h
             c3.radius = radius
+            c3.perCorner = perCorner
+            if perCorner {
+                c3.radius = rTL
+                c3.radiusTR = rTR
+                c3.radiusBR = rBR
+                c3.radiusBL = rBL
+            }
             c3.src = el.src
-            push cmds c3
+            this.addCmd(c3)
         }
 
         ; Text. One command per element; a backend that shapes lines itself can
@@ -725,7 +2056,13 @@ class EVGDisplayList {
             if (fs <= 0.0) {
                 fs = 14.0
             }
+            ; The same rule the layout reserved the space by, so the line the
+            ; painter draws lands where the box was sized for it. Zero means
+            ; `normal`, which is the FACE's line box and not 1.2.
             def lh:double el.lineHeight
+            if (lh <= 0.0) {
+                lh = ((textEngine.lineHeightFor(face fs)) / fs)
+            }
             if (lh <= 0.0) {
                 lh = 1.2
             }
@@ -746,25 +2083,76 @@ class EVGDisplayList {
             while (li < (array_length lines)) {
                 def c4 (new EVGDrawCmd())
                 c4.kind = 3
-                c4.x = (x + el.box.paddingLeftPx)
+                ; `text-align`, which until now was parsed by EVGElement and
+                ; read by absolutely nothing — a documented attribute that did
+                ; not exist, which costs an afternoon every time someone
+                ; believes it.
+                ;
+                ; The offset is measured, not guessed: the painter draws a run
+                ; at c.x and sizes the quad to the ink, so centring means
+                ; asking the same engine that broke the line how wide the line
+                ; came out and moving the start by the slack.
+                def indent:double 0.0
+                if ((el.textAlign == "center") || (el.textAlign == "right")) {
+                    def m:EVGTextMetrics (textEngine.measureRun((itemAt lines li) face fs))
+                    def slack:double (avail - m.width)
+                    if (slack > 0.0) {
+                        if (el.textAlign == "center") {
+                            indent = (slack / 2.0)
+                        } {
+                            indent = slack
+                        }
+                    }
+                }
+                c4.x = ((x + el.box.paddingLeftPx) + indent)
                 c4.y = ((y + el.box.paddingTopPx) + ((to_double li) * (fs * lh)))
                 c4.w = avail
                 c4.h = (fs * lh)
                 c4.text = (itemAt lines li)
                 c4.fontFamily = face
                 c4.fontSize = fs
-                c4.rotate = el.rotate
+                ; The element's weight, which `addText` has always carried
+                ; and this walk never did: a `font-weight: 700` span was
+                ; laid out bold and painted regular by every GPU backend.
+                if ((strlen el.fontWeight) > 0) {
+                    if (el.fontWeight != "normal") {
+                        c4.fontWeight = el.fontWeight
+                    }
+                }
                 c4.r = tr
                 c4.g = tg
                 c4.b = tb
                 c4.a = ta
-                push cmds c4
+                this.addCmd(c4)
                 li = (li + 1)
             }
         }
 
-        ; Children, clipped when the element says so.
-        def clips:boolean (el.overflow == "hidden")
+        ; Children, clipped when the element says so. EVERY overflow value but
+        ; `visible` clips — this used to name `hidden` alone, which meant a
+        ; scroll container drew its content straight over whatever was beside
+        ; it, and the one thing a scrolling box has to do is stay inside itself.
+        ; The backdrop under this element's children, and under its own
+        ; scrollbar: its background when it paints one, else what was there.
+        def hadBdR:int backdropR
+        def hadBdG:int backdropG
+        def hadBdB:int backdropB
+        def ownBg:EVGColor el.backgroundColor
+        if ownBg.isSet {
+            if ((ownBg.alpha()) > 0.5) {
+                backdropR = (ownBg.red())
+                backdropG = (ownBg.green())
+                backdropB = (ownBg.blue())
+            }
+        }
+        def clips:boolean (el.clipsContent())
+        ; A clip that can scroll is a layer — see `refreshLayers`.
+        def scrolls:boolean false
+        if ((clips && culling) && ((w > 0.0) && (h > 0.0))) {
+            if (((el.maxScrollTop()) > 0.0) || ((el.maxScrollLeft()) > 0.0)) {
+                scrolls = true
+            }
+        }
         if clips {
             def cp (new EVGDrawCmd())
             cp.kind = 4
@@ -772,19 +2160,97 @@ class EVGDisplayList {
             cp.y = y
             cp.w = w
             cp.h = h
-            push cmds cp
+            if scrolls {
+                cp.layer = ((array_length layerEls) + 1)
+                push layerStack (array_length layerEls)
+                push layerEls el
+                push layerTop el.scrollTop
+                push layerLeft el.scrollLeft
+                push layerShiftX 0.0
+                push layerShiftY 0.0
+                push layerClip (array_length cmds)
+                push layerFirst ((array_length cmds) + 1)
+                push layerLast ((array_length cmds) + 1)
+                push layerCullL 0.0
+                push layerCullT 0.0
+                push layerCullR 0.0
+                push layerCullB 0.0
+                push layerKind 0
+                push layerScale 1.0
+                push layerPct 0
+                push layerLabel (0 - 1)
+            }
+            this.addCmd(cp)
+        }
+        ; The clip narrows what is worth walking, and it is restored on the
+        ; way out — the recursion is the stack. See the note on culling above.
+        def hadCull:boolean cullOn
+        def hadL:double cullLeft
+        def hadT:double cullTop
+        def hadR:double cullRight
+        def hadB:double cullBottom
+        if (clips && culling) {
+            def before:double overscanBefore
+            def after:double overscanAfter
+            if (before < 0.0) { before = h }
+            if (after < 0.0) { after = h }
+            def l:double (x - w)
+            def t:double (y - before)
+            def r:double ((x + w) + w)
+            def b:double ((y + h) + after)
+            if cullOn {
+                ; Nested clips intersect: the inner one can only narrow.
+                if (l < cullLeft) { l = cullLeft }
+                if (t < cullTop) { t = cullTop }
+                if (r > cullRight) { r = cullRight }
+                if (b > cullBottom) { b = cullBottom }
+            }
+            cullOn = true
+            cullLeft = l
+            cullTop = t
+            cullRight = r
+            cullBottom = b
+            if scrolls {
+                def li:int (itemAt layerStack ((array_length layerStack) - 1))
+                set layerCullL li l
+                set layerCullT li t
+                set layerCullR li r
+                set layerCullB li b
+            }
         }
         def i:int 0
         while (i < (el.getChildCount())) {
             def kid:EVGElement (el.getChild(i))
-            this.walk(kid)
+            ; A surface is not drawn here. `build` comes back to it once the
+            ; whole normal tree is down — see the note there.
+            if kid.isOverlay {
+                push deferredOverlays kid
+            } {
+                this.walk(kid)
+            }
             i = (i + 1)
         }
+        cullOn = hadCull
+        cullLeft = hadL
+        cullTop = hadT
+        cullRight = hadR
+        cullBottom = hadB
         if clips {
+            if scrolls {
+                def done:int (itemAt layerStack ((array_length layerStack) - 1))
+                set layerLast done (array_length cmds)
+                removeLast layerStack
+            }
             def pp (new EVGDrawCmd())
             pp.kind = 5
-            push cmds pp
+            this.addCmd(pp)
+            if (scrolls && scrollbars) {
+                this.addScrollbar(el x y w h)
+            }
         }
+        backdropR = hadBdR
+        backdropG = hadBdG
+        backdropB = hadBdB
     }
 
     ; Serialize to JSON — the wire format between the engine and a backend.
@@ -793,9 +2259,22 @@ class EVGDisplayList {
     ; it, which is what lets the WebGL renderer be plain JavaScript while the
     ; SDL2 one is the same list decoded in C++.
     ; How many ints one command occupies. Fixed, so a reader indexes rather
-    ; than walks: command `i` starts at `i * 24`.
+    ; than walks: command `i` starts at `i * stride()`. Read it through this
+    ; function and never inline the number — it has changed once already, when
+    ; a rotation needed an origin to turn about.
+    ;
+    ; That instruction was there and a reader across the bridge had inlined it
+    ; anyway. The record went 24 -> 26, `pptx-host.mjs` went on multiplying by
+    ; 24, and from the second command on every field was read two ints early —
+    ; colours as coordinates, coordinates as flags — until a ring count taken
+    ; out of somebody's colour reached `new Array(n)`. So a comment is not the
+    ; mechanism: `sceneStride()` on the decoding side now DERIVES this by
+    ; dividing the buffer by the command count, which is exact because the
+    ; buffer is allocated as count * stride here, and it is checked against the
+    ; JSON path for every fixture by `pptx/web/host/scene-binary-check.mjs`.
+    ; Growing this number is safe; a reader that wants the new fields opts in.
     sfn stride:int () {
-        return 24
+        return 27
     }
 
     ; A value in hundredths, which is the precision `num` writes and therefore
@@ -875,12 +2354,24 @@ class EVGDisplayList {
             if c2.evenOdd {
                 flags = (flags + 16)
             }
+            ; Whether slots 24 and 25 mean anything. A zero origin is a legal
+            ; place to turn about, so the flag cannot be inferred from the
+            ; numbers being zero.
+            if c2.hasRotOrigin {
+                flags = (flags + 32)
+            }
             int_buffer_set recs (base + 9) flags
             int_buffer_set recs (base + 10) c2.gradDir
             int_buffer_set recs (base + 11) (EVGDisplayList.packRgb(c2.r2 c2.g2 c2.b2))
             int_buffer_set recs (base + 12) (EVGDisplayList.fixed(c2.a2))
             int_buffer_set recs (base + 13) (EVGDisplayList.fixed(c2.fontSize))
             int_buffer_set recs (base + 14) (EVGDisplayList.fixed(c2.rotate))
+            int_buffer_set recs (base + 24) (EVGDisplayList.fixed(c2.rotOriginX))
+            int_buffer_set recs (base + 25) (EVGDisplayList.fixed(c2.rotOriginY))
+            ; No flag beside it: zero is "no filter", which is a value a blur
+            ; radius cannot otherwise take. Contrast slot 24/25, where zero is
+            ; a legal place to turn about and the flag is the only way to tell.
+            int_buffer_set recs (base + 26) (EVGDisplayList.fixed(c2.backdropBlur))
             ; A command with no text names none of the three text strings, and
             ; `toJson` writes none of them either — so the reader must be able
             ; to tell "no text" from "empty text", which -1 says and 0 would
@@ -950,8 +2441,105 @@ class EVGDisplayList {
         return at
     }
 
+    ; The surface's post-process, written beside the commands and not as one of
+    ; them, because it applies to everything that was drawn rather than to a
+    ; rectangle in paint order. A backend that has never heard of it draws the
+    ; page and ignores the field, which is the whole reason it is here and not
+    ; in the command stream.
+    def effectKind:string ""
+    ; Every drop still in flight: x, y and how long ago, in step.
+    def effectXs:[double]
+    def effectYs:[double]
+    def effectAges:[double]
+    def effectSpeed:double 0.0
+    def effectWidth:double 0.0
+    def effectStrength:double 0.0
+    def effectDecay:double 0.0
+    def effectHighlight:double 0.0
+    def effectRings:double 1.0
+    def effectStagger:double 0.0
+    def effectFalloff:double 0.0
+    def effectShine:double 0.0
+    def effectGloss:double 1.0
+    def effectBump:double 0.0
+    def effectLightX:double 0.0
+    def effectLightY:double 0.0
+    def effectLightZ:double 1.0
+
+    ; Pick the effect up off the tree. The first element that names one wins:
+    ; a surface has one post-process, and two would be a question about order
+    ; that nobody asked.
+    fn readEffect:void (el:EVGElement) {
+        if ((strlen effectKind) > 0) {
+            return
+        }
+        if ((strlen el.surfaceEffect) > 0) {
+            effectKind = el.surfaceEffect
+            effectXs = el.rippleXs
+            effectYs = el.rippleYs
+            effectAges = el.rippleAges
+            effectSpeed = el.rippleSpeed
+            effectWidth = el.rippleWidth
+            effectStrength = el.rippleStrength
+            effectDecay = el.rippleDecay
+            effectHighlight = el.rippleHighlight
+            effectRings = el.rippleRings
+            effectStagger = el.rippleStagger
+            effectFalloff = el.rippleFalloff
+            effectShine = el.rippleShine
+            effectGloss = el.rippleGloss
+            effectBump = el.rippleBump
+            effectLightX = el.rippleLightX
+            effectLightY = el.rippleLightY
+            effectLightZ = el.rippleLightZ
+        }
+        ; Nothing below carries one, so there is nothing to find down there.
+        ; `paintHasEffect` is the layout's answer for the whole subtree; an
+        ; element whose own effect was set since the layout is still read
+        ; above, so only the search is short-circuited, never the element.
+        if ((el.paintHasEffect == false) && ((strlen el.surfaceEffect) == 0)) {
+            return
+        }
+        def i:int 0
+        while (i < (el.getChildCount())) {
+            this.readEffect((el.getChild(i)))
+            i = (i + 1)
+        }
+    }
+
     fn toJson:string () {
-        def out:string "{\"cmds\":["
+        def out:string "{"
+        if ((strlen effectKind) > 0) {
+            out = (out + "\"effect\":{\"kind\":\"" + effectKind + "\"")
+            out = (out + ",\"drops\":[")
+            def di:int 0
+            while (di < (array_length effectAges)) {
+                if (di > 0) {
+                    out = (out + ",")
+                }
+                out = (out + "[" + (EVGDisplayList.num((itemAt effectXs di))))
+                out = (out + "," + (EVGDisplayList.num((itemAt effectYs di))))
+                out = (out + "," + (EVGDisplayList.num((itemAt effectAges di))) + "]")
+                di = (di + 1)
+            }
+            out = (out + "]")
+            out = (out + ",\"speed\":" + (EVGDisplayList.num(effectSpeed)))
+            out = (out + ",\"width\":" + (EVGDisplayList.num(effectWidth)))
+            out = (out + ",\"strength\":" + (EVGDisplayList.num(effectStrength)))
+            out = (out + ",\"decay\":" + (EVGDisplayList.num(effectDecay)))
+            out = (out + ",\"highlight\":" + (EVGDisplayList.num(effectHighlight)))
+            out = (out + ",\"rings\":" + (EVGDisplayList.num(effectRings)))
+            out = (out + ",\"stagger\":" + (EVGDisplayList.num(effectStagger)))
+            out = (out + ",\"falloff\":" + (EVGDisplayList.num(effectFalloff)))
+            out = (out + ",\"shine\":" + (EVGDisplayList.num(effectShine)))
+            out = (out + ",\"gloss\":" + (EVGDisplayList.num(effectGloss)))
+            out = (out + ",\"bump\":" + (EVGDisplayList.num(effectBump)))
+            out = (out + ",\"light\":[" + (EVGDisplayList.num(effectLightX)) + "," +
+                (EVGDisplayList.num(effectLightY)) + "," +
+                (EVGDisplayList.num(effectLightZ)) + "]")
+            out = (out + "},")
+        }
+        out = (out + "\"cmds\":[")
         def i:int 0
         while (i < (array_length cmds)) {
             def c:EVGDrawCmd (itemAt cmds i)
@@ -959,10 +2547,22 @@ class EVGDisplayList {
                 out = out + ","
             }
             out = out + "{\"k\":" + (to_string c.kind)
+            if (c.layer > 0) {
+                out = out + ",\"layer\":" + (to_string c.layer)
+            }
+            if attribute {
+                out = out + ",\"n\":" + (to_string c.node)
+            }
             out = out + ",\"x\":" + (EVGDisplayList.num(c.x))
             out = out + ",\"y\":" + (EVGDisplayList.num(c.y))
             out = out + ",\"w\":" + (EVGDisplayList.num(c.w))
             out = out + ",\"h\":" + (EVGDisplayList.num(c.h))
+            if c.perCorner {
+                out = out + ",\"rc\":[" + (EVGDisplayList.num(c.radius)) + "," +
+                    (EVGDisplayList.num(c.radiusTR)) + "," +
+                    (EVGDisplayList.num(c.radiusBR)) + "," +
+                    (EVGDisplayList.num(c.radiusBL)) + "]"
+            }
             if (c.radius > 0.0) {
                 out = out + ",\"r\":" + (EVGDisplayList.num(c.radius))
             }
@@ -1004,6 +2604,13 @@ class EVGDisplayList {
             }
             if (c.rotate != 0.0) {
                 out = out + ",\"rot\":" + (EVGDisplayList.num(c.rotate))
+                if c.hasRotOrigin {
+                    out = out + ",\"rox\":" + (EVGDisplayList.num(c.rotOriginX))
+                    out = out + ",\"roy\":" + (EVGDisplayList.num(c.rotOriginY))
+                }
+            }
+            if (c.backdropBlur > 0.0) {
+                out = out + ",\"bb\":" + (EVGDisplayList.num(c.backdropBlur))
             }
             ; The GEOMETRY decides whether there is a path, not the ring list:
             ; a command built by hand — and there are several, in this gallery
@@ -1044,21 +2651,80 @@ class EVGDisplayList {
             out = out + "}"
             i = (i + 1)
         }
-        out = out + "]}"
+        ; The build's number and the layers' shifts, AFTER the commands: a
+        ; reader that wants only the commands takes the document from its
+        ; first byte, and one did.
+        out = (out + "],\"seq\":" + (to_string buildSeq) + ",\"shifts\":[")
+        def si:int 0
+        while (si < (array_length layerEls)) {
+            if (si > 0) {
+                out = (out + ",")
+            }
+            out = (out + "[" + (EVGDisplayList.num((itemAt layerShiftX si))) + "," + (EVGDisplayList.num((itemAt layerShiftY si))) + "]")
+            si = (si + 1)
+        }
+        out = (out + "]}")
         return out
     }
 
     ; Two decimals is plenty for a pixel and keeps the payload small.
     sfn num:string (v:double) {
+        ; WHATEVER COMES IN, A JSON NUMBER GOES OUT. This is the only writer of
+        ; every coordinate, size, radius and colour in the list, so a value it
+        ; cannot spell does not make one command wrong — it makes the whole
+        ; frame unparseable, and the page that was drawing it stops. Reported
+        ; as a ripple frozen mid-flight with `SyntaxError: Expected ',' or '}'
+        ; after property` beside it: the paint loop threw, and a loop that
+        ; throws does not ask for another frame.
+        ;
+        ; Two ways in. A value that is not a number came out as "0.NaN", since
+        ; the fraction was formatted from a NaN. And the integer divide below
+        ; TRUNCATES TO 32 BITS, so a magnitude past 2^31 wrapped: 1e10 came out
+        ; as "1410065408.858993459200", which parses and is simply wrong, and
+        ; past about 1e19 the leftover went exponential — "1.0000000001e+21"
+        ; as a FRACTION — which is where the JSON stops being JSON.
+        ;
+        ; So: NaN becomes zero, and the magnitude is pinned inside the range
+        ; the arithmetic below is exact over. Ten million pixels is four
+        ; thousand times the tallest page in this gallery, and it keeps the
+        ; scaled value under 2^31 with a factor of two to spare, so nothing a
+        ; real page draws is touched. Clamping does not make a wrong value
+        ; right — the frame will look wrong where the bad number was — but a
+        ; page that keeps drawing can be looked at, and one that has stopped
+        ; cannot.
+        def limit:double 10000000.0
+        ; A value is kept only if it compares as either side of zero. Zero
+        ; itself fails both and stays the zero it already is, which is why the
+        ; test can be this blunt — and a NaN fails both as well, because a NaN
+        ; fails EVERY comparison. That is the whole test, with no library
+        ; behind it, and it catches one thing more that an equality test does
+        ; not: a slot read past the end of an array, which on this target is
+        ; not a number at all and is equal to itself, so `v == v` waved it
+        ; through and the arithmetic below turned it back into a NaN.
+        def x:double 0.0
+        if (v > 0.0) {
+            x = v
+        }
+        if (v < 0.0) {
+            x = v
+        }
+        ; Infinities pass the comparison above and are pinned here with
+        ; everything else too big to spell.
+        if (x > limit) {
+            x = limit
+        }
+        if (x < (0.0 - limit)) {
+            x = (0.0 - limit)
+        }
         ; Sign first, magnitude second. `to_int` FLOORS rather than truncating
         ; here, so the old two-branch rounding turned -45 into "-46.99": the
         ; scaled value floored to -4501 and then the integer divide floored
         ; again. Every negative coordinate in every scene was off by one and a
         ; bit — invisible until a rotation angle was written through it.
-        def neg:boolean (v < 0.0)
-        def av:double v
+        def neg:boolean (x < 0.0)
+        def av:double x
         if neg {
-            av = (0.0 - v)
+            av = (0.0 - x)
         }
         def scaled:int (to_int ((av * 100.0) + 0.5))
         def whole:int (idiv scaled 100)

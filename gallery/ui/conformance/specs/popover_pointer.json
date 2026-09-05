@@ -1,0 +1,6 @@
+{ "name":"popover_pointer","component":"popover",
+  "behaviours":["pointer-open","pointer-close","dialog-role","not-modal","focus-into","aria-expanded","content-unmounted"],
+  "fixture":{"controls":[
+    {"type":"popover","tid":"pop","name":"Open","body":"Body"},
+    {"type":"toggle","tid":"out","name":"Outside"}]},
+  "steps":[{"click":"pop-trigger"},{"click":"pop-trigger"}] }

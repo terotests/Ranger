@@ -1,0 +1,31 @@
+{
+  "_": "Home on the training calendar: the quick entry with the diary's placeholder, the three tabs, and the diary feed — every workout of sample.compact as a card, newest first.",
+  "id": "home-diary",
+  "area": "koti",
+  "machine": "",
+  "reference": {
+    "route": "/calendar/cal-train?week=2026-02-09"
+  },
+  "setup": [
+    {
+      "page": "390x844"
+    },
+    {
+      "route": "/calendar/cal-train?week=2026-02-09"
+    }
+  ],
+  "steps": [
+    {
+      "tick": 500
+    },
+    {
+      "id": "rt-nav-home",
+      "role": "button",
+      "name": "Koti",
+      "why": "the bottom bar's Koti; the feed builds from the selected calendar"
+    },
+    {
+      "tick": 1500
+    }
+  ]
+}

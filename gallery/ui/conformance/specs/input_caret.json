@@ -1,0 +1,66 @@
+{
+  "name": "input_caret",
+  "component": "input",
+  "behaviours": [
+    "input-caret",
+    "input-selection"
+  ],
+  "fixture": {
+    "controls": [
+      {
+        "type": "input",
+        "tid": "in",
+        "name": "Name",
+        "value": "one two three"
+      }
+    ]
+  },
+  "steps": [
+    {
+      "focus": "in"
+    },
+    {
+      "key": "Home"
+    },
+    {
+      "key": "ArrowRight"
+    },
+    {
+      "key": "ArrowRight"
+    },
+    {
+      "key": "ArrowRight",
+      "mods": [
+        "Shift"
+      ]
+    },
+    {
+      "key": "ArrowRight",
+      "mods": [
+        "Shift"
+      ]
+    },
+    {
+      "key": "ArrowLeft"
+    },
+    {
+      "key": "End"
+    },
+    {
+      "key": "ArrowLeft",
+      "mods": [
+        "Shift"
+      ]
+    },
+    {
+      "key": "a",
+      "mods": [
+        "Control"
+      ]
+    },
+    {
+      "key": "Backspace"
+    }
+  ],
+  "$comment": "`focus`, not `click`. A click DOES place the caret, on both sides \u2014 but agreeing about where needs the two boxes to be the same width in the same font, and they are not: the fallback measurer calls '/' 0.55em where Arial's advance is 0.278. This spec passed with a click only because 'one two three' does not fill the box, so the centre landed past the end of the text and both sides said 13. A check that passes by coincidence is worse than no check. See input_click_caret in the plan."
+}

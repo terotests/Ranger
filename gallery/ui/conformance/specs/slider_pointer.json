@@ -1,0 +1,5 @@
+{ "name":"slider_pointer","component":"slider",
+  "behaviours":["pointer-jump","pointer-drag","drag-clamped","pointer-focuses-thumb","step-snapped"],
+  "fixture":{"controls":[
+    {"type":"slider","tid":"sl","name":"Volume","value":50,"min":0,"max":100,"step":10}]},
+  "steps":[{"press":"sl-track","at":0.8},{"dragto":0.23},{"dragto":-1.0},{"release":true}] }

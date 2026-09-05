@@ -1,0 +1,549 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; Typed node tree. The kiwi message is a flat nodeChanges list; the tree
+; is parentIndex.guid + sibling position.
+
+Import "KiwiValue.rgr"
+
+class FigPaint {
+    def kind:string "SOLID"
+    def r:double 0.0
+    def g:double 0.0
+    def b:double 0.0
+    def a:double 1.0
+    def opacity:double 1.0
+    def visible:boolean true
+    def imageHash:string ""
+    def scaleMode:string "FILL"
+
+    Constructor () {
+    }
+
+    fn rgba:void (cr:double cg:double cb:double ca:double) {
+        r = cr
+        g = cg
+        b = cb
+        a = ca
+    }
+
+    fn toColorInts:void (outR:int outG:int outB:int) {
+    }
+}
+
+class FigNode {
+    def id:string ""
+    def sessionID:int 0
+    def localID:int 0
+    def typeName:string ""
+    def name:string ""
+    def phase:string ""
+    def parentId:string ""
+    def position:string ""
+    def visible:boolean true
+    def opacity:double 1.0
+    def w:double 0.0
+    def h:double 0.0
+    def m00:double 1.0
+    def m01:double 0.0
+    def m02:double 0.0
+    def m10:double 0.0
+    def m11:double 1.0
+    def m12:double 0.0
+    def corner:double 0.0
+    def strokeWeight:double 0.0
+    def fontSize:double 16.0
+    def fontFamily:string "Open Sans"
+    def characters:string ""
+    def fills:[FigPaint]
+    def strokes:[FigPaint]
+    def fillBlobs:[int]
+    def evenOdd:boolean false
+    def strokeBlobs:[int]
+    def strokeEvenOdd:boolean false
+    def children:[FigNode]
+    def raw:KiwiValue (new KiwiValue())
+    def removed:boolean false
+
+    Constructor () {
+    }
+
+    fn guidStr:string () {
+        return id
+    }
+
+    fn isPage:boolean () {
+        if (typeName == "CANVAS") {
+            return true
+        }
+        if (typeName == "SLIDE") {
+            return true
+        }
+        return false
+    }
+
+    fn isInternal:boolean () {
+        if (typeName != "CANVAS") {
+            return false
+        }
+        return (FigNode.hasInternalName(name))
+    }
+
+    sfn hasInternalName:boolean (s:string) {
+        def n:int (strlen s)
+        if (n < 8) {
+            return false
+        }
+        ; "Internal"
+        if ((charAt s 0) != 73) {
+            return false
+        }
+        if ((charAt s 1) != 110) {
+            return false
+        }
+        if ((charAt s 2) != 116) {
+            return false
+        }
+        return true
+    }
+
+    fn isFrameLike:boolean () {
+        if (typeName == "FRAME") {
+            return true
+        }
+        if (typeName == "GROUP") {
+            return true
+        }
+        if (typeName == "SECTION") {
+            return true
+        }
+        if (typeName == "COMPONENT") {
+            return true
+        }
+        if (typeName == "COMPONENT_SET") {
+            return true
+        }
+        if (typeName == "SYMBOL") {
+            return true
+        }
+        return false
+    }
+
+    fn firstFill:FigPaint () {
+        def n:int (array_length fills)
+        def i:int 0
+        while (i < n) {
+            def p:FigPaint (itemAt fills i)
+            if p.visible {
+                return p
+            }
+            i = (i + 1)
+        }
+        return (new FigPaint())
+    }
+
+    fn firstStroke:FigPaint () {
+        def n:int (array_length strokes)
+        def i:int 0
+        while (i < n) {
+            def p:FigPaint (itemAt strokes i)
+            if p.visible {
+                return p
+            }
+            i = (i + 1)
+        }
+        return (new FigPaint())
+    }
+
+    fn childCount:int () {
+        return (array_length children)
+    }
+}
+
+class FigImage {
+    def name:string ""
+    def bytes:buffer (buffer_alloc 0)
+
+    Constructor () {
+    }
+}
+
+class FigDoc {
+    def prelude:string ""
+    def version:int 0
+    def fileName:string ""
+    def nodes:[FigNode]
+    def pages:[FigNode]
+    def blobs:[buffer]
+    def images:[FigImage]
+    def thumbnail:buffer (buffer_alloc 0)
+    def root:KiwiValue (new KiwiValue())
+    def schemaNames:[string]
+    def schemaCount:int 0
+    def zipMs:double 0.0
+    def inflateMs:double 0.0
+    def zstdMs:double 0.0
+    def schemaMs:double 0.0
+    def decodeMs:double 0.0
+    def treeMs:double 0.0
+    def totalMs:double 0.0
+    def usedZstd:boolean false
+    ; The fig-kiwi bytes the tree was read from (canvas.fig, or a paste).
+    def canvasBytes:buffer (buffer_alloc 0)
+    ; True when the bytes came without a ZIP — a clipboard paste.
+    def pasted:boolean false
+    def ok:boolean true
+    def err:string ""
+
+    Constructor () {
+    }
+
+    fn nodeById:FigNode (id:string) {
+        def n:int (array_length nodes)
+        def i:int 0
+        while (i < n) {
+            def nd:FigNode (itemAt nodes i)
+            if (nd.id == id) {
+                return nd
+            }
+            i = (i + 1)
+        }
+        return (new FigNode())
+    }
+
+    fn pageCount:int () {
+        return (array_length pages)
+    }
+
+    fn pageAt:FigNode (i:int) {
+        if ((i < 0) || (i >= (array_length pages))) {
+            return (new FigNode())
+        }
+        return (itemAt pages i)
+    }
+
+    fn imageByName:FigImage (name:string) {
+        def n:int (array_length images)
+        def i:int 0
+        while (i < n) {
+            def im:FigImage (itemAt images i)
+            if (im.name == name) {
+                return im
+            }
+            i = (i + 1)
+        }
+        return (new FigImage())
+    }
+}
+
+class FigModel {
+    Constructor () {
+    }
+
+    sfn guidOf:string (v:KiwiValue) {
+        if (v.isNull()) {
+            return ""
+        }
+        def sid:int (v.childInt("sessionID" 0))
+        def lid:int (v.childInt("localID" 0))
+        return ((to_string sid) + ":" + (to_string lid))
+    }
+
+    sfn paintFrom:FigPaint (v:KiwiValue) {
+        def p (new FigPaint())
+        p.kind = (v.childString("type" "SOLID"))
+        p.opacity = (v.childDouble("opacity" 1.0))
+        p.visible = (v.childBool("visible" true))
+        def col:KiwiValue (v.child("color"))
+        if (col.isObject()) {
+            p.r = (col.childDouble("r" 0.0))
+            p.g = (col.childDouble("g" 0.0))
+            p.b = (col.childDouble("b" 0.0))
+            p.a = (col.childDouble("a" 1.0))
+        }
+        def img:KiwiValue (v.child("image"))
+        if (img.isObject()) {
+            ; A Figma export stores the hash as 20 raw bytes, and the file in
+            ; the ZIP's images/ folder is named by their hex. Read as a
+            ; string it came back empty, so no image ever resolved.
+            def hv:KiwiValue (img.child("hash"))
+            if (hv.kind == 7) {
+                p.imageHash = (FigModel.hexOf(hv.bytesVal))
+            } {
+                p.imageHash = (hv.asString(""))
+            }
+            if ((strlen p.imageHash) == 0) {
+                p.imageHash = (img.childString("name" ""))
+            }
+        }
+        if ((strlen p.imageHash) == 0) {
+            p.imageHash = (v.childString("imageHash" ""))
+        }
+        p.scaleMode = (v.childString("imageScaleMode" (v.childString("scaleMode" "FILL"))))
+        return p
+    }
+
+    sfn hexOf:string (b:buffer) {
+        def digits:string "0123456789abcdef"
+        def out:string ""
+        def n:int (buffer_length b)
+        def i:int 0
+        while (i < n) {
+            def v:int (buffer_get b i)
+            def hi:int (idiv v 16)
+            def lo:int (v - (hi * 16))
+            out = (out + (strfromcode (charAt digits hi)) + (strfromcode (charAt digits lo)))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn paintsFrom:void (arr:KiwiValue dest:[FigPaint]) {
+        def n:int (arr.itemCount())
+        def i:int 0
+        while (i < n) {
+            def it:KiwiValue (arr.item(i))
+            push dest (FigModel.paintFrom(it))
+            i = (i + 1)
+        }
+    }
+
+    sfn nodeFrom:FigNode (v:KiwiValue) {
+        def nd (new FigNode())
+        nd.raw = v
+        def g:KiwiValue (v.child("guid"))
+        nd.sessionID = (g.childInt("sessionID" 0))
+        nd.localID = (g.childInt("localID" 0))
+        nd.id = (FigModel.guidOf(g))
+        nd.typeName = (v.childString("type" ""))
+        nd.name = (v.childString("name" ""))
+        nd.phase = (v.childString("phase" ""))
+        if (nd.phase == "REMOVED") {
+            nd.removed = true
+        }
+        def pidx:KiwiValue (v.child("parentIndex"))
+        if (pidx.isObject()) {
+            nd.parentId = (FigModel.guidOf((pidx.child("guid"))))
+            nd.position = (pidx.childString("position" ""))
+        }
+        nd.visible = (v.childBool("visible" true))
+        nd.opacity = (v.childDouble("opacity" 1.0))
+        def sz:KiwiValue (v.child("size"))
+        if (sz.isObject()) {
+            nd.w = (sz.childDouble("x" 0.0))
+            nd.h = (sz.childDouble("y" 0.0))
+        }
+        def tr:KiwiValue (v.child("transform"))
+        if (tr.isObject()) {
+            nd.m00 = (tr.childDouble("m00" 1.0))
+            nd.m01 = (tr.childDouble("m01" 0.0))
+            nd.m02 = (tr.childDouble("m02" 0.0))
+            nd.m10 = (tr.childDouble("m10" 0.0))
+            nd.m11 = (tr.childDouble("m11" 1.0))
+            nd.m12 = (tr.childDouble("m12" 0.0))
+        }
+        nd.corner = (v.childDouble("cornerRadius" 0.0))
+        nd.strokeWeight = (v.childDouble("strokeWeight" 0.0))
+        nd.fontSize = (v.childDouble("fontSize" 16.0))
+        def fn:KiwiValue (v.child("fontName"))
+        if (fn.isObject()) {
+            nd.fontFamily = (fn.childString("family" nd.fontFamily))
+        } {
+            def ff:string (v.childString("fontFamily" ""))
+            if ((strlen ff) > 0) {
+                nd.fontFamily = ff
+            }
+        }
+        def td:KiwiValue (v.child("textData"))
+        if (td.isObject()) {
+            nd.characters = (td.childString("characters" ""))
+            def tsz:double (td.childDouble("fontSize" 0.0))
+            if (tsz > 0.0) {
+                nd.fontSize = tsz
+            }
+        }
+        if ((strlen nd.characters) == 0) {
+            nd.characters = (v.childString("characters" ""))
+        }
+        FigModel.paintsFrom((v.child("fillPaints")) nd.fills)
+        FigModel.paintsFrom((v.child("strokePaints")) nd.strokes)
+        def geom:KiwiValue (v.child("fillGeometry"))
+        def gi:int 0
+        while (gi < (geom.itemCount())) {
+            def gitem:KiwiValue (geom.item(gi))
+            def bid:int (gitem.childInt("commandsBlob" (0 - 1)))
+            if (bid >= 0) {
+                push nd.fillBlobs bid
+            }
+            def wr:string (gitem.childString("windingRule" ""))
+            if (wr == "EVENODD") {
+                nd.evenOdd = true
+            }
+            gi = (gi + 1)
+        }
+        def sgeom:KiwiValue (v.child("strokeGeometry"))
+        def si:int 0
+        while (si < (sgeom.itemCount())) {
+            def sitem:KiwiValue (sgeom.item(si))
+            def sbid:int (sitem.childInt("commandsBlob" (0 - 1)))
+            if (sbid >= 0) {
+                push nd.strokeBlobs sbid
+            }
+            if ((sitem.childString("windingRule" "")) == "EVENODD") {
+                nd.strokeEvenOdd = true
+            }
+            si = (si + 1)
+        }
+        return nd
+    }
+
+    sfn cmpPos:int (a:string b:string) {
+        if (a == b) {
+            return 0
+        }
+        def na:int (strlen a)
+        def nb:int (strlen b)
+        def n:int na
+        if (nb < n) {
+            n = nb
+        }
+        def i:int 0
+        while (i < n) {
+            def ca:int (charAt a i)
+            def cb:int (charAt b i)
+            if (ca < cb) {
+                return (0 - 1)
+            }
+            if (ca > cb) {
+                return 1
+            }
+            i = (i + 1)
+        }
+        if (na < nb) {
+            return (0 - 1)
+        }
+        if (na > nb) {
+            return 1
+        }
+        return 0
+    }
+
+    sfn sortChildren:void (list:[FigNode]) {
+        def n:int (array_length list)
+        def i:int 0
+        while (i < n) {
+            def j:int (i + 1)
+            while (j < n) {
+                def a:FigNode (itemAt list i)
+                def b:FigNode (itemAt list j)
+                if ((FigModel.cmpPos(a.position b.position)) > 0) {
+                    set list i b
+                    set list j a
+                }
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn buildTree:void (doc:FigDoc message:KiwiValue) {
+        def t0:double (wall_clock_ms)
+        def nc:KiwiValue (message.child("nodeChanges"))
+        def n:int (nc.itemCount())
+        def i:int 0
+        while (i < n) {
+            def nd:FigNode (FigModel.nodeFrom((nc.item(i))))
+            if ((nd.removed == false) && ((strlen nd.id) > 0)) {
+                push doc.nodes nd
+            }
+            i = (i + 1)
+        }
+        def blobs:KiwiValue (message.child("blobs"))
+        def bi:int 0
+        while (bi < (blobs.itemCount())) {
+            def b:KiwiValue (blobs.item(bi))
+            def bytes:KiwiValue (b.child("bytes"))
+            if (bytes.kind == 7) {
+                push doc.blobs bytes.bytesVal
+            } {
+                push doc.blobs (buffer_alloc 0)
+            }
+            bi = (bi + 1)
+        }
+        def map:[string:FigNode]
+        def ni:int 0
+        while (ni < (array_length doc.nodes)) {
+            def nd2:FigNode (itemAt doc.nodes ni)
+            set map nd2.id nd2
+            ni = (ni + 1)
+        }
+        ; A node whose parent is not in the message. A copy from Figma is
+        ; exactly that: the copied nodes, still pointing at the page they
+        ; were copied from, which did not come along.
+        def orphans:[FigNode]
+        def nj:int 0
+        while (nj < (array_length doc.nodes)) {
+            def nd3:FigNode (itemAt doc.nodes nj)
+            if ((strlen nd3.parentId) > 0) {
+                def parent@(optional):FigNode (get map nd3.parentId)
+                if (null? parent) {
+                    if ((nd3.isPage()) == false) {
+                        push orphans nd3
+                    }
+                } {
+                    def p:FigNode (unwrap parent)
+                    push p.children nd3
+                }
+            }
+            nj = (nj + 1)
+        }
+        def nk:int 0
+        while (nk < (array_length doc.nodes)) {
+            def nd4:FigNode (itemAt doc.nodes nk)
+            FigModel.sortChildren(nd4.children)
+            if (nd4.isPage()) {
+                if (nd4.isInternal()) {
+                } {
+                    push doc.pages nd4
+                }
+            }
+            nk = (nk + 1)
+        }
+        FigModel.sortChildren(doc.pages)
+        if ((array_length doc.pages) == 0) {
+            def nl:int 0
+            while (nl < (array_length doc.nodes)) {
+                def nd5:FigNode (itemAt doc.nodes nl)
+                if (nd5.typeName == "DOCUMENT") {
+                    def ci:int 0
+                    while (ci < (array_length nd5.children)) {
+                        def ch:FigNode (itemAt nd5.children ci)
+                        if (ch.isInternal()) {
+                        } {
+                            push doc.pages ch
+                        }
+                        ci = (ci + 1)
+                    }
+                }
+                nl = (nl + 1)
+            }
+        }
+        if (((array_length doc.pages) == 0) && ((array_length orphans) > 0)) {
+            ; No page came with the nodes: give them one, so the viewer has
+            ; a canvas to fit and the scene graph a root.
+            def page (new FigNode())
+            page.id = "paste:0"
+            page.typeName = "CANVAS"
+            page.name = "Pasted"
+            FigModel.sortChildren(orphans)
+            def oi:int 0
+            while (oi < (array_length orphans)) {
+                def orphan:FigNode (itemAt orphans oi)
+                push page.children orphan
+                oi = (oi + 1)
+            }
+            push doc.nodes page
+            push doc.pages page
+        }
+        doc.treeMs = ((wall_clock_ms) - t0)
+    }
+}

@@ -1,0 +1,690 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; GqlAst - one node type for the GraphQL language.
+; ==============================================================================
+;
+; Executable documents and the schema SDL share a grammar, so they share a
+; node. `kind` says which production, and the fields that do not apply stay
+; empty. Parent pointers are deliberately absent: they are pleasant on a
+; garbage-collected target and painful on Rust, C++ and Swift, and this
+; library exists to compile to all of them.
+;
+;     query Dashboard { currentUser { id name } }
+;
+;     Document
+;       Operation query "Dashboard"
+;         Field currentUser
+;           Field id
+;           Field name
+;
+; The later compiler feature (schema + query → Ranger types) walks this tree.
+; The tests assert on it so a missing selection is a failed assertion, not a
+; pretty-print that happens to look right.
+; ==============================================================================
+
+class GqlKind {
+    sfn document:int () {
+        return 1
+    }
+    sfn operation:int () {
+        return 2
+    }
+    sfn fragmentDef:int () {
+        return 3
+    }
+    sfn fieldSel:int () {
+        return 10
+    }
+    sfn fragmentSpread:int () {
+        return 11
+    }
+    sfn inlineFragment:int () {
+        return 12
+    }
+    sfn argument:int () {
+        return 13
+    }
+    sfn variableDef:int () {
+        return 14
+    }
+    sfn directive:int () {
+        return 15
+    }
+    sfn namedType:int () {
+        return 20
+    }
+    sfn listType:int () {
+        return 21
+    }
+    sfn nonNullType:int () {
+        return 22
+    }
+    sfn variable:int () {
+        return 30
+    }
+    sfn intVal:int () {
+        return 31
+    }
+    sfn floatVal:int () {
+        return 32
+    }
+    sfn stringVal:int () {
+        return 33
+    }
+    sfn boolVal:int () {
+        return 34
+    }
+    sfn nullVal:int () {
+        return 35
+    }
+    sfn enumVal:int () {
+        return 36
+    }
+    sfn listVal:int () {
+        return 37
+    }
+    sfn objectVal:int () {
+        return 38
+    }
+    sfn schemaDef:int () {
+        return 40
+    }
+    sfn scalarDef:int () {
+        return 41
+    }
+    sfn objectDef:int () {
+        return 42
+    }
+    sfn interfaceDef:int () {
+        return 43
+    }
+    sfn unionDef:int () {
+        return 44
+    }
+    sfn enumDef:int () {
+        return 45
+    }
+    sfn inputDef:int () {
+        return 46
+    }
+    sfn directiveDef:int () {
+        return 47
+    }
+    sfn fieldDef:int () {
+        return 50
+    }
+    sfn inputValue:int () {
+        return 51
+    }
+    sfn enumValueDef:int () {
+        return 52
+    }
+    sfn rootOp:int () {
+        return 53
+    }
+
+    sfn kindName:string (kind:int) {
+        if (kind == 1) {
+            return "Document"
+        }
+        if (kind == 2) {
+            return "Operation"
+        }
+        if (kind == 3) {
+            return "FragmentDefinition"
+        }
+        if (kind == 10) {
+            return "Field"
+        }
+        if (kind == 11) {
+            return "FragmentSpread"
+        }
+        if (kind == 12) {
+            return "InlineFragment"
+        }
+        if (kind == 13) {
+            return "Argument"
+        }
+        if (kind == 14) {
+            return "VariableDefinition"
+        }
+        if (kind == 15) {
+            return "Directive"
+        }
+        if (kind == 20) {
+            return "NamedType"
+        }
+        if (kind == 21) {
+            return "ListType"
+        }
+        if (kind == 22) {
+            return "NonNullType"
+        }
+        if (kind == 30) {
+            return "Variable"
+        }
+        if (kind == 31) {
+            return "IntValue"
+        }
+        if (kind == 32) {
+            return "FloatValue"
+        }
+        if (kind == 33) {
+            return "StringValue"
+        }
+        if (kind == 34) {
+            return "BooleanValue"
+        }
+        if (kind == 35) {
+            return "NullValue"
+        }
+        if (kind == 36) {
+            return "EnumValue"
+        }
+        if (kind == 37) {
+            return "ListValue"
+        }
+        if (kind == 38) {
+            return "ObjectValue"
+        }
+        if (kind == 40) {
+            return "SchemaDefinition"
+        }
+        if (kind == 41) {
+            return "ScalarTypeDefinition"
+        }
+        if (kind == 42) {
+            return "ObjectTypeDefinition"
+        }
+        if (kind == 43) {
+            return "InterfaceTypeDefinition"
+        }
+        if (kind == 44) {
+            return "UnionTypeDefinition"
+        }
+        if (kind == 45) {
+            return "EnumTypeDefinition"
+        }
+        if (kind == 46) {
+            return "InputObjectTypeDefinition"
+        }
+        if (kind == 47) {
+            return "DirectiveDefinition"
+        }
+        if (kind == 50) {
+            return "FieldDefinition"
+        }
+        if (kind == 51) {
+            return "InputValueDefinition"
+        }
+        if (kind == 52) {
+            return "EnumValueDefinition"
+        }
+        if (kind == 53) {
+            return "RootOperationType"
+        }
+        return "Unknown"
+    }
+
+    ; Named type definitions in an SDL document — not schema, not
+    ; `directive @…`, and the caller still has to reject extensions.
+    sfn isNamedTypeDef:boolean (kind:int) {
+        if (kind == (GqlKind.scalarDef())) {
+            return true
+        }
+        if (kind == (GqlKind.objectDef())) {
+            return true
+        }
+        if (kind == (GqlKind.interfaceDef())) {
+            return true
+        }
+        if (kind == (GqlKind.unionDef())) {
+            return true
+        }
+        if (kind == (GqlKind.enumDef())) {
+            return true
+        }
+        if (kind == (GqlKind.inputDef())) {
+            return true
+        }
+        return false
+    }
+}
+
+class GqlNode {
+    def kind:int 0
+    def name:string ""
+    def alias:string ""
+    ; Operation type (`query` / `mutation` / `subscription`), or a literal's
+    ; text, or a schema root's type name.
+    def text:string ""
+    def description:string ""
+    def typeCondition:string ""
+    def children:[GqlNode]
+    def args:[GqlNode]
+    def directives:[GqlNode]
+    def vars:[GqlNode]
+    def implementsTypes:[string]
+    def locations:[string]
+    def repeatable:boolean false
+    def isExtension:boolean false
+    def isBlock:boolean false
+    def line:int 1
+    def col:int 1
+
+    Constructor () {
+    }
+
+    fn kindName:string () {
+        return (GqlKind.kindName(kind))
+    }
+
+    fn isKind:boolean (k:int) {
+        return (kind == k)
+    }
+
+    fn childCount:int () {
+        return (array_length children)
+    }
+
+    fn childAt:GqlNode (index:int) {
+        if (index < 0) {
+            return (new GqlNode)
+        }
+        if (index >= (array_length children)) {
+            return (new GqlNode)
+        }
+        return (itemAt children index)
+    }
+
+    fn childNamed:GqlNode (want:string) {
+        def i:int 0
+        while (i < (array_length children)) {
+            def ch:GqlNode (itemAt children i)
+            if (ch.name == want) {
+                return ch
+            }
+            i = (i + 1)
+        }
+        return (new GqlNode)
+    }
+
+    fn hasChild:boolean (want:string) {
+        def ch:GqlNode (this.childNamed(want))
+        return (ch.kind != 0)
+    }
+
+    fn argNamed:GqlNode (want:string) {
+        def i:int 0
+        while (i < (array_length args)) {
+            def a:GqlNode (itemAt args i)
+            if (a.name == want) {
+                return a
+            }
+            i = (i + 1)
+        }
+        return (new GqlNode)
+    }
+
+    fn hasArg:boolean (want:string) {
+        def a:GqlNode (this.argNamed(want))
+        return (a.kind != 0)
+    }
+
+    fn varNamed:GqlNode (want:string) {
+        def i:int 0
+        while (i < (array_length vars)) {
+            def v:GqlNode (itemAt vars i)
+            if (v.name == want) {
+                return v
+            }
+            i = (i + 1)
+        }
+        return (new GqlNode)
+    }
+
+    fn hasDirective:boolean (want:string) {
+        def i:int 0
+        while (i < (array_length directives)) {
+            def d:GqlNode (itemAt directives i)
+            if (d.name == want) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn directiveNamed:GqlNode (want:string) {
+        def i:int 0
+        while (i < (array_length directives)) {
+            def d:GqlNode (itemAt directives i)
+            if (d.name == want) {
+                return d
+            }
+            i = (i + 1)
+        }
+        return (new GqlNode)
+    }
+
+    fn findDef:GqlNode (want:string) {
+        return (this.childNamed(want))
+    }
+
+    fn findOp:GqlNode (want:string) {
+        def i:int 0
+        while (i < (array_length children)) {
+            def ch:GqlNode (itemAt children i)
+            if (ch.kind == (GqlKind.operation())) {
+                if (ch.name == want) {
+                    return ch
+                }
+            }
+            i = (i + 1)
+        }
+        return (new GqlNode)
+    }
+
+    fn findOpType:GqlNode (opType:string) {
+        def i:int 0
+        while (i < (array_length children)) {
+            def ch:GqlNode (itemAt children i)
+            if (ch.kind == (GqlKind.operation())) {
+                if (ch.text == opType) {
+                    return ch
+                }
+            }
+            i = (i + 1)
+        }
+        return (new GqlNode)
+    }
+
+    ; GraphQL type text: ID!  [Invoice]  [[String!]!]!
+    fn typeText:string () {
+        if (kind == (GqlKind.namedType())) {
+            return name
+        }
+        if (kind == (GqlKind.listType())) {
+            def inner:GqlNode (this.childAt(0))
+            return ("[" + (inner.typeText()) + "]")
+        }
+        if (kind == (GqlKind.nonNullType())) {
+            def inner2:GqlNode (this.childAt(0))
+            return ((inner2.typeText()) + "!")
+        }
+        if ((array_length children) > 0) {
+            def first:GqlNode (this.childAt(0))
+            if (first.kind == (GqlKind.namedType())) {
+                return (first.typeText())
+            }
+            if (first.kind == (GqlKind.listType())) {
+                return (first.typeText())
+            }
+            if (first.kind == (GqlKind.nonNullType())) {
+                return (first.typeText())
+            }
+        }
+        return ""
+    }
+
+    fn firstValue:GqlNode () {
+        return (this.childAt(0))
+    }
+
+    fn valueText:string () {
+        if (kind == (GqlKind.variable())) {
+            return ("$" + name)
+        }
+        if (kind == (GqlKind.nullVal())) {
+            return "null"
+        }
+        if (kind == (GqlKind.boolVal())) {
+            return text
+        }
+        if (kind == (GqlKind.listVal())) {
+            def out:string "["
+            def i:int 0
+            while (i < (array_length children)) {
+                if (i > 0) {
+                    out = (out + ", ")
+                }
+                def ch:GqlNode (itemAt children i)
+                out = (out + (ch.valueText()))
+                i = (i + 1)
+            }
+            return (out + "]")
+        }
+        if (kind == (GqlKind.objectVal())) {
+            def out2:string "{"
+            def j:int 0
+            while (j < (array_length children)) {
+                if (j > 0) {
+                    out2 = (out2 + ", ")
+                }
+                def f:GqlNode (itemAt children j)
+                def fv:GqlNode (f.firstValue())
+                out2 = (out2 + f.name + ": " + (fv.valueText()))
+                j = (j + 1)
+            }
+            return (out2 + "}")
+        }
+        return text
+    }
+
+    fn childNames:string () {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length children)) {
+            if (i > 0) {
+                out = (out + ",")
+            }
+            def ch:GqlNode (itemAt children i)
+            out = (out + ch.name)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn implementsText:string () {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length implementsTypes)) {
+            if (i > 0) {
+                out = (out + " & ")
+            }
+            out = (out + (itemAt implementsTypes i))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn locationsText:string () {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length locations)) {
+            if (i > 0) {
+                out = (out + " | ")
+            }
+            out = (out + (itemAt locations i))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn toJson:string () {
+        def out:string ("{\"kind\":\"" + (this.kindName()) + "\"")
+        if ((strlen name) > 0) {
+            out = (out + ",\"name\":\"" + (GqlNode.esc(name)) + "\"")
+        }
+        if ((strlen alias) > 0) {
+            out = (out + ",\"alias\":\"" + (GqlNode.esc(alias)) + "\"")
+        }
+        if ((strlen text) > 0) {
+            out = (out + ",\"text\":\"" + (GqlNode.esc(text)) + "\"")
+        }
+        if ((strlen description) > 0) {
+            out = (out + ",\"description\":\"" + (GqlNode.esc(description)) + "\"")
+        }
+        if ((strlen typeCondition) > 0) {
+            out = (out + ",\"on\":\"" + (GqlNode.esc(typeCondition)) + "\"")
+        }
+        if isExtension {
+            out = (out + ",\"extend\":true")
+        }
+        if repeatable {
+            out = (out + ",\"repeatable\":true")
+        }
+        if ((array_length implementsTypes) > 0) {
+            out = (out + ",\"implements\":\"" + (GqlNode.esc((this.implementsText()))) + "\"")
+        }
+        if ((array_length locations) > 0) {
+            out = (out + ",\"locations\":\"" + (GqlNode.esc((this.locationsText()))) + "\"")
+        }
+        if ((array_length vars) > 0) {
+            out = (out + ",\"vars\":" + (GqlNode.jsonList(vars)))
+        }
+        if ((array_length args) > 0) {
+            out = (out + ",\"args\":" + (GqlNode.jsonList(args)))
+        }
+        if ((array_length directives) > 0) {
+            out = (out + ",\"directives\":" + (GqlNode.jsonList(directives)))
+        }
+        if ((array_length children) > 0) {
+            out = (out + ",\"children\":" + (GqlNode.jsonList(children)))
+        }
+        return (out + "}")
+    }
+
+    sfn jsonList:string (nodes:[GqlNode]) {
+        def out:string "["
+        def i:int 0
+        while (i < (array_length nodes)) {
+            if (i > 0) {
+                out = (out + ",")
+            }
+            def n:GqlNode (itemAt nodes i)
+            out = (out + (n.toJson()))
+            i = (i + 1)
+        }
+        return (out + "]")
+    }
+
+    sfn esc:string (s:string) {
+        def out:string ""
+        def n:int (strlen s)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt s i)
+            if (c == 92) {
+                out = (out + "\\\\")
+            } {
+                if (c == 34) {
+                    out = (out + "\\\"")
+                } {
+                    if (c == 10) {
+                        out = (out + "\\n")
+                    } {
+                        if (c == 13) {
+                            out = (out + "\\r")
+                        } {
+                            if (c == 9) {
+                                out = (out + "\\t")
+                            } {
+                                out = (out + (strfromcode c))
+                            }
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Dotted paths of every leaf and object field in an operation or fragment.
+    ; The compiler feature that generates Ranger types walks the same shape.
+    fn fieldPaths:string () {
+        def lines:[string]
+        this.collectPaths("" lines)
+        def out:string ""
+        def i:int 0
+        while (i < (array_length lines)) {
+            if (i > 0) {
+                out = (out + (strfromcode 10))
+            }
+            out = (out + (itemAt lines i))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn collectPaths:void (prefix:string lines:[string]) {
+        if (kind == (GqlKind.document())) {
+            def i:int 0
+            while (i < (array_length children)) {
+                def ch:GqlNode (itemAt children i)
+                ch.collectPaths("" lines)
+                i = (i + 1)
+            }
+            return
+        }
+        if (kind == (GqlKind.operation())) {
+            def head:string text
+            if ((strlen name) > 0) {
+                head = name
+            }
+            def j:int 0
+            while (j < (array_length children)) {
+                def f:GqlNode (itemAt children j)
+                f.collectPaths(head lines)
+                j = (j + 1)
+            }
+            return
+        }
+        if (kind == (GqlKind.fragmentDef())) {
+            def fhead:string ("fragment " + name)
+            def k:int 0
+            while (k < (array_length children)) {
+                def fs:GqlNode (itemAt children k)
+                fs.collectPaths(fhead lines)
+                k = (k + 1)
+            }
+            return
+        }
+        if (kind == (GqlKind.fieldSel())) {
+            def label:string name
+            if ((strlen alias) > 0) {
+                label = (alias + ":" + name)
+            }
+            def next:string label
+            if ((strlen prefix) > 0) {
+                next = (prefix + "." + label)
+            }
+            push lines next
+            def m:int 0
+            while (m < (array_length children)) {
+                def kid:GqlNode (itemAt children m)
+                kid.collectPaths(next lines)
+                m = (m + 1)
+            }
+            return
+        }
+        if (kind == (GqlKind.inlineFragment())) {
+            def p:int 0
+            while (p < (array_length children)) {
+                def ik:GqlNode (itemAt children p)
+                ik.collectPaths(prefix lines)
+                p = (p + 1)
+            }
+            return
+        }
+        if (kind == (GqlKind.fragmentSpread())) {
+            def spread:string ("..." + name)
+            if ((strlen prefix) > 0) {
+                spread = (prefix + "." + spread)
+            }
+            push lines spread
+        }
+    }
+}

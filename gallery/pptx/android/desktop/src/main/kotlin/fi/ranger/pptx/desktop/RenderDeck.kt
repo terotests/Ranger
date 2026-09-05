@@ -1,7 +1,8 @@
 package fi.ranger.pptx.desktop
 
-import fi.ranger.pptx.evg.EvgPainter
-import fi.ranger.pptx.rgr.PptxAndroid
+import fi.ranger.evg.AwtEvgSurface
+import fi.ranger.evg.EvgPainter
+import fi.ranger.rgr.PptxAndroid
 import java.awt.Color
 import java.awt.image.BufferedImage
 import java.io.File

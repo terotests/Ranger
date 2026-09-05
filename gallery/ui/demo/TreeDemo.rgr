@@ -1,0 +1,858 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; TreeDemo — ReUI's CRM tree, wearing its own clothes
+; =============================================================================
+; The reference is ReUI's Tree (https://reui.io/components/tree): a bordered
+; card holding a flat list of rows, each indented by twenty pixels per level,
+; folders carrying a twisty that turns when they open, and the row under the
+; pointer lighting up across its whole width.
+;
+; THE STATE IS NOT REBUILT HERE. `TreeCtl` owns which folders are open, where
+; focus sits, and the whole arrow/Home/End/Enter/Space key map, and it is
+; measured against @headless-tree/core by three conformance specs. A demo that
+; wrote its own copy of that would be writing an untested second tree — and
+; the arrows are the only part of a tree that is hard.
+;
+; So this file is the other half, the same split the table and dropdown demos
+; make: the CONTROLLER decides what is true, the TREE LITERAL decides what it
+; looks like. `TreeCtl.build()` produces a plain, conformance-shaped tree; the
+; factory below produces the reference's one; neither knows about the other.
+;
+; TWO THINGS THIS DEMO OWNS THAT THE CONTROLLER DOES NOT:
+;
+;   THE INDENT. `indent` is a prop on the library's `useTree` and it is pure
+;   presentation — depth is already in `aria-level`, which is what a reader
+;   uses. It lives here, as a spacer whose width is set on the element, because
+;   a stylesheet that matches one class token per selector cannot say "twenty
+;   pixels for every level you are down".
+;
+;   THE TWISTY. Decoration: `aria-expanded` on the row already says which way
+;   it points, and a reader told "Leads chevron-down" has been told the same
+;   thing twice, once as a shape. So it is `a11yHidden`, and the glyphs are
+;   ▸ and ▾ rather than ASCII angle brackets, which are read as "greater than".
+;
+; The tree is KEPT between frames, like the motion, table, dropdown and dialog
+; demos: hover is a flag on an element, and a rebuilt tree has a different
+; element in that position with no memory of anything. A press rebuilds,
+; because a press opens or closes a folder; the pointer moving does not.
+; =============================================================================
+
+Import "../src/TreeCtl.rgr"
+Import "../src/UiCtl.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGUnit.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGStyleSheet.rgr"
+Import "../../evg/EVGTransition.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+Import "../../evg/EVGA11yFromTree.rgr"
+Import "../../evg/EVGHitTest.rgr"
+Import "../../evg/EVGComponent.rgr"
+Import "../../evg/EVGReconcile.rgr"
+
+treefactory Tv {
+    child addChild
+    text  textContent
+
+    tag Page     EVGElement (props (className "tv-page"))
+    tag Card     EVGElement (props (className "tv-card"))
+    tag Head     EVGElement (props (className "tv-head"))
+    tag HeadText EVGElement (props (className "tv-head-text") (elementType 1))
+    ; The tree itself. `role="tree"` with `treeitem` children and nothing in
+    ; between — the rows are SIBLINGS, because that is the shape headless-tree
+    ; renders and depth is carried by `aria-level` alone.
+    tag Tree     EVGElement (props (className "tv-tree") (role "tree") (a11yLabel "CRM"))
+    tag Item     EVGElement (props (className "tv-item") (role "treeitem"))
+    tag Indent   EVGElement (props (className "tv-indent") (a11yHidden true))
+    tag Chevron  EVGElement (props (className "tv-chevron") (elementType 1) (a11yHidden true))
+    ; The box. It has an ID — that is the whole mechanism by which a click on
+    ; it is not a click on the row: `EVGHitTest.idAt` answers with the
+    ; DEEPEST element that has one, so there is nothing to stop propagating.
+    ; And it is `a11yHidden`, because to a reader this is not a second widget
+    ; inside the row; the row itself carries `aria-checked`, which is the
+    ; WAI-ARIA tree-with-checkboxes pattern.
+    tag Check    EVGElement (props (className "tv-check") (a11yHidden true))
+    tag CheckInk EVGElement (props (className "tv-check-ink") (elementType 1))
+    tag Label    EVGElement (props (className "tv-label") (elementType 1))
+    tag Note     EVGElement (props (className "tv-note") (elementType 1))
+    ; The drop line. A row of its own in the flat list, `a11yHidden` because it
+    ; is a picture of where a drop would land — `role="tree"` may hold nothing
+    ; but `treeitem`s, and a reader has the drag announced to it in words.
+    tag Line     EVGElement (props (className "tv-dropline") (a11yHidden true))
+    tag LineInk  EVGElement (props (className "tv-dropline-ink"))
+}
+
+; One row of the tree, as a component.
+;
+; It is an ordinary class with ordinary fields, and everything above
+; `Constructor` is props — the facts the tree hands it before each render. What
+; being a component BUYS is that the instance comes back: a folder collapsed
+; and re-opened is the same TreeRow, and a row that leaves the list is told so.
+;
+; Nothing here needs local state yet, and that is the honest state of things —
+; this row is a pure function of its props today. The point of putting it in a
+; component now is the identity and the lifecycle, which are what `state` will
+; need somewhere to live when it arrives.
+class TreeRow extends EVGComponent {
+    def value:string ""
+    def rowId:string ""
+    def label:string ""
+    def level:int 1
+    def setSize:int 1
+    def setPos:int 1
+    def isFolder:boolean false
+    def isOpen:boolean false
+    def isSelected:boolean false
+    def isDragged:boolean false
+    def isDropInto:boolean false
+    ; A box on this row, and whether it is ticked. Leaf-only, the way the
+    ; reference has it — a folder shows no box at all rather than a mixed one,
+    ; because nothing here propagates.
+    def checkable:boolean false
+    def isChecked:boolean false
+    def checkId:string ""
+    ; 0 = chevrons, 1 = plus/minus. ReUI's `toggleIconType`, and presentation
+    ; either way: `aria-expanded` on the row already says which way it points.
+    def toggleIcon:int 0
+    def indent:double 20.0
+
+    Constructor () {
+    }
+
+    sfn chevronGlyph:string (folder:boolean open:boolean icon:int) {
+        if (folder == false) {
+            return ""
+        }
+        if (icon == 1) {
+            if open {
+                return "−"
+            }
+            return "+"
+        }
+        if open {
+            return "▾"
+        }
+        return "▸"
+    }
+
+    fn rowClass:string () {
+        def cls:string "tv-item"
+        if isFolder {
+            cls = (cls + " tv-item-folder")
+            if isOpen {
+                cls = (cls + " tv-item-open")
+            }
+        } {
+            cls = (cls + " tv-item-leaf")
+        }
+        if isSelected {
+            cls = (cls + " tv-item-selected")
+        }
+        ; Being CARRIED and being POINTED AT are different pictures and the
+        ; reference draws both: the rows travelling go pale, and the folder
+        ; about to receive them is outlined.
+        if isDragged {
+            cls = (cls + " tv-item-dragged")
+        }
+        if isDropInto {
+            cls = (cls + " tv-item-dropinto")
+        }
+        return cls
+    }
+
+    fn view:EVGElement () {
+        def cls:string (this.rowClass())
+        def row (tree Tv (Item (props (id rowId) (className cls) (a11yLabel label))))
+
+        ; The three ARIA numbers, straight off the controller's flattened rows.
+        ; Written onto the ELEMENT and not only into `rows()`, because
+        ; `EVGA11yFromTree` walks elements and that is what a page using the
+        ; controller directly publishes — the same gap the dialog demo had.
+        row.a11yLevel = level
+        row.a11ySetSize = setSize
+        row.a11yPosInSet = setPos
+        row.a11yFocusable = true
+        row.a11ySelected = (EVGA11yTri.no())
+        if isSelected {
+            row.a11ySelected = (EVGA11yTri.yes())
+        }
+        if isFolder {
+            if isOpen {
+                row.a11yExpanded = (EVGA11yTri.yes())
+            } {
+                row.a11yExpanded = (EVGA11yTri.no())
+            }
+        }
+
+        if (level > 1) {
+            def pad (tree Tv (Indent))
+            ; Set on the element rather than by the sheet: see the header.
+            pad.width = (EVGUnit.px((indent * (to_double (level - 1)))))
+            row.addChild(pad)
+        }
+
+        def glyph:string (TreeRow.chevronGlyph(isFolder isOpen toggleIcon))
+        row.addChild((tree Tv (Chevron glyph)))
+        if checkable {
+            ; `aria-checked` goes on the ROW, not on the box. WAI-ARIA's
+            ; tree-with-checkboxes pattern has one widget per row and no
+            ; nested control — a `role="checkbox"` inside a `treeitem` makes a
+            ; reader announce two things where a person sees one. The
+            ; reference nests a real checkbox and is wrong about this; the
+            ; PICTURE is copied and the semantics are not.
+            row.a11yChecked = (EVGA11yTri.no())
+            def boxCls:string "tv-check"
+            def mark:string ""
+            if isChecked {
+                row.a11yChecked = (EVGA11yTri.yes())
+                boxCls = "tv-check tv-check-on"
+                mark = "✓"
+            }
+            def box (tree Tv (Check (props (id checkId) (className boxCls))))
+            box.addChild((tree Tv (CheckInk mark)))
+            row.addChild(box)
+        }
+        row.addChild((tree Tv (Label label)))
+        return row
+    }
+}
+
+class TreeDemo {
+
+    def model:TreeCtl (new TreeCtl())
+    def root@(optional):EVGElement
+    def sheet@(optional):EVGStyleSheet
+    def transitions:EVGTransition (new EVGTransition())
+    ; Kept across frames so a paint-only change can reuse the positions.
+    def layout@(optional):EVGLayout
+    ; The two halves of a live tree: the host keeps the component instances,
+    ; the reconciler keeps the elements they produce. Both keyed by the tree
+    ; value, so they cannot disagree about which row is which.
+    def host:EVGComponentHost (new EVGComponentHost())
+    def reconciler:EVGReconcile (new EVGReconcile())
+    def hovered:string ""
+    def pressed:string ""
+    def focused:string ""
+    ; --- the pointer drag ------------------------------------------------------
+    ; A press is not yet a drag. It becomes one when the pointer TRAVELS, which
+    ; is the only way one gesture can be both "open this folder" and "carry it
+    ; somewhere" — activate on the press and every drag would toggle a folder
+    ; on its way out.
+    def pressAt:string ""
+    def pressX:double 0.0
+    def pressY:double 0.0
+    def dragLive:boolean false
+    ; Where the last move put the cursor, so the release can drop at the same
+    ; point: `pointerup` carries no position through this page's protocol, and
+    ; the drop recomputes its target from where it is told it is.
+    def dropX:double 0.0
+    def dropY:double 0.0
+    ; What `probeAt` last resolved: a row, and where in it.
+    def probeRow:string ""
+    def probeTop:double 0.5
+    def probeLeft:double 0.0
+    ; --- checkboxes, which are NOT a tree feature -----------------------------
+    ;
+    ; The whole point of the exercise: this is the DEMO's state and the demo's
+    ; picture, and `TreeCtl` does not know it exists. The reference does the
+    ; same — its tree is configured with `syncDataLoaderFeature` and
+    ; `hotkeysCoreFeature` and nothing else, and the ticked set is ordinary
+    ; page state beside it.
+    ;
+    ; headless-tree DOES ship a `checkboxesFeature`, and it is a different
+    ; product: it propagates a folder's tick to its whole subtree, gives
+    ; folders a third `indeterminate` state, and by default forbids ticking a
+    ; folder directly. None of that is here, because none of it is in the
+    ; pattern being copied. If it is ever wanted it belongs in `TreeCtl`,
+    ; measured, and not in this file.
+    def checkable:boolean true
+    def checkedValues:[string]
+    ; 0 = chevrons, 1 = plus/minus, ReUI's `toggleIconType`.
+    def toggleIcon:int 1
+    ; The library's `indent` prop, in pixels. Presentation, and therefore the
+    ; demo's rather than the controller's.
+    def indent:double 20.0
+    def pageW:double 900.0
+    def pageH:double 520.0
+
+    Constructor () {
+    }
+
+    ; --- the data ---------------------------------------------------------------
+    ; The reference's own CRM tree: a root that is NOT a row, three top-level
+    ; folders under it, and one branch three deep so that `aria-level` has more
+    ; than two values to be wrong about.
+
+    fn init:void (css:string) {
+        def s (new EVGStyleSheet())
+        s.parse(css)
+        sheet = s
+
+        model.tid = "tv"
+        model.name = "CRM"
+        model.rootValue = "crm"
+
+        this.node("crm" "CRM")
+        this.node("leads" "Leads")
+        this.node("new-lead" "New Lead")
+        this.node("contacted-lead" "Contacted Lead")
+        this.node("qualified-lead" "Qualified Lead")
+        this.node("accounts" "Accounts")
+        this.node("acme" "Acme Corp")
+        this.node("jane" "Jane Doe")
+        this.node("john" "John Smith")
+        this.node("globex" "Globex")
+        this.node("activities" "Activities")
+        this.node("calls" "Calls")
+        this.node("emails" "Emails")
+
+        ; Every node first, then the child lists. A folder may name a child
+        ; the line above it has not declared, and the library's own data
+        ; loader has the same freedom — the fixtures rely on it.
+        this.kid("crm" "leads")
+        this.kid("crm" "accounts")
+        this.kid("crm" "activities")
+        this.kid("leads" "new-lead")
+        this.kid("leads" "contacted-lead")
+        this.kid("leads" "qualified-lead")
+        this.kid("accounts" "acme")
+        this.kid("accounts" "globex")
+        this.kid("acme" "jane")
+        this.kid("acme" "john")
+        this.kid("activities" "calls")
+        this.kid("activities" "emails")
+
+        ; Both modes on. The demo is the one place the whole feature is meant
+        ; to be usable at once, and the conformance fixtures turn them on and
+        ; off separately because they measure different contracts.
+        model.selectable = true
+        model.draggable = true
+        model.dndIndent = indent
+
+        ; A few already ticked, so the picture has both states in it from the
+        ; first frame and a screenshot is worth looking at.
+        this.setChecked("new-lead" true)
+        this.setChecked("jane" true)
+        this.setChecked("calls" true)
+
+        model.setExpanded("leads" true)
+        model.setExpanded("accounts" true)
+        model.setExpanded("acme" true)
+        model.build()
+
+        this.rebuild()
+    }
+
+    fn node:void (value:string label:string) {
+        model.addNode(value label)
+    }
+
+    ; What makes a node a FOLDER is having children — there is no flag. So a
+    ; node named here and never given one is a leaf, and the shape of the tree
+    ; is exactly the shape of the calls below.
+    fn kid:void (parentValue:string childValue:string) {
+        def i:int (model.nodeAt(parentValue))
+        if (i >= 0) {
+            TreeCtl.addKid((itemAt model.nodes i) childValue)
+        }
+    }
+
+    ; --- the look ------------------------------------------------------------------
+
+    ; The props one row is handed. Set on the instance before `render()`, so a
+    ; row that survives a rebuild is handed the new facts rather than rebuilt
+    ; around them.
+    fn rowProps:void (r:TreeRow i:int) {
+        def value:string (itemAt model.rowValue i)
+        r.value = value
+        r.rowId = (model.itemTid(value))
+        r.level = (itemAt model.rowLevel i)
+        r.setSize = (itemAt model.rowSetSize i)
+        r.setPos = (itemAt model.rowSetPos i)
+        r.isFolder = (itemAt model.rowFolder i)
+        r.isOpen = (model.isExpanded(value))
+        r.isSelected = (model.isSelected(value))
+        r.isDragged = false
+        if model.dragging {
+            def d:int 0
+            while (d < (array_length model.draggedValues)) {
+                if ((itemAt model.draggedValues d) == value) {
+                    r.isDragged = true
+                }
+                d = (d + 1)
+            }
+        }
+        r.isDropInto = (model.dragging && ((model.dropKind == 1) && (model.dropItem == value)))
+        ; Leaf-only, like the reference. A folder gets no box rather than a
+        ; mixed one, because nothing propagates.
+        r.checkable = (checkable && ((itemAt model.rowFolder i) == false))
+        r.isChecked = (this.isChecked(value))
+        r.checkId = (this.checkTid(value))
+        r.toggleIcon = toggleIcon
+        r.indent = indent
+        r.label = ""
+        def ni:int (model.nodeAt(value))
+        if (ni >= 0) {
+            def node:UiTreeNode (itemAt model.nodes ni)
+            r.label = node.name
+        }
+    }
+
+    fn treeBlock:EVGElement () {
+        def t (tree Tv (Tree (props (id "tv") (key "tv"))))
+        ; Rows are components, keyed by the tree value they show. Collapsing a
+        ; folder is what makes that visible: the rows underneath are not built,
+        ; so `endPass` unmounts them — and a controller-shaped page would have
+        ; had to remember to tell somebody.
+        host.enter("tv")
+        def i:int 0
+        while (i < (array_length model.rowValue)) {
+            this.maybeLine(t i)
+            def value:string (itemAt model.rowValue i)
+            def got:EVGComponent (host.use(value (new TreeRow())))
+            def r:TreeRow (cast got to:TreeRow)
+            this.rowProps(r i)
+            t.addChild((r.render()))
+            i = (i + 1)
+        }
+        ; A line BELOW the last row has an index one past the end, which no
+        ; iteration of the loop above reaches.
+        this.maybeLine(t (array_length model.rowValue))
+        host.leave()
+        return t
+    }
+
+    ; The drop line, if it belongs above the row about to be built.
+    ;
+    ; It is a row in the flat list rather than an absolutely positioned bar,
+    ; because the list is the only thing that knows where row N is — and a bar
+    ; measured in pixels would have to be told the row height, which is the
+    ; stylesheet's business. The cost is that inserting it moves everything
+    ; below down by its own height, so it is one pixel tall with negative
+    ; margins: it takes no room.
+    fn maybeLine:void (t:EVGElement at:int) {
+        if (model.dragging == false) {
+            return
+        }
+        if (model.dropKind != 2) {
+            return
+        }
+        if (model.dropLineIndex != at) {
+            return
+        }
+        def line (tree Tv (Line))
+        ; Indented to the LEVEL the drop would land at, which is the whole
+        ; point of the reparent gesture: dragging left along the last row of a
+        ; group walks the line out, one indent at a time, and the picture is
+        ; the only feedback saying which one you are on.
+        if (model.dropLineLevel > 0) {
+            def pad (tree Tv (Indent))
+            pad.width = (EVGUnit.px((indent * (to_double model.dropLineLevel))))
+            line.addChild(pad)
+        }
+        line.addChild((tree Tv (LineInk)))
+        t.addChild(line)
+    }
+
+    ; One render pass. `beginPass`/`endPass` bracket the WHOLE build and not
+    ; just the list: a component asked for outside the brackets is not counted
+    ; as seen, and would be unmounted while still on screen.
+    fn page:EVGElement () {
+        host.beginPass()
+        def p:EVGElement (this.pageBody())
+        host.endPass()
+        return p
+    }
+
+    fn pageBody:EVGElement () {
+        def p (tree Tv (Page (props (id "page"))))
+        def card (tree Tv
+            (Card (props (id "tv-card"))
+                (Head (HeadText "CRM"))))
+        card.addChild((this.treeBlock()))
+        card.addChild((tree Tv (Note "Click to select, tick to include, drag to move a row.")))
+        p.addChild(card)
+        return p
+    }
+
+    ; --- the host ---------------------------------------------------------------
+
+    ; Rebuild the page and reconcile it into the live one.
+    ;
+    ; This is the demo that runs the whole stack: the state changes, the view
+    ; is rebuilt from it, the component instances come back, the elements come
+    ; back with them, and whatever was in flight stays in flight. The first
+    ; call has nothing to reconcile against and simply takes the tree.
+    fn rebuild:void () {
+        def next:EVGElement (this.page())
+        if root {
+            reconciler.resetStats()
+            reconciler.reconcile((unwrap root) next)
+        } {
+            root = next
+        }
+    }
+
+    ; --- the ticked set --------------------------------------------------------
+
+    ; The box's own test id. It has to be distinct from the row's, because
+    ; being a separate HIT TARGET is the entire mechanism: `EVGHitTest.idAt`
+    ; answers with the deepest element carrying an id, so a click on the box
+    ; never reaches the row and the reference's `stopPropagation` has no
+    ; counterpart here — there is no propagation to stop.
+    fn checkTid:string (value:string) {
+        return ((model.itemTid(value)) + "-check")
+    }
+
+    fn isChecked:boolean (value:string) {
+        def i:int 0
+        while (i < (array_length checkedValues)) {
+            if ((itemAt checkedValues i) == value) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn setChecked:void (value:string on:boolean) {
+        def keep:[string]
+        def i:int 0
+        while (i < (array_length checkedValues)) {
+            def v:string (itemAt checkedValues i)
+            if (v != value) {
+                push keep v
+            }
+            i = (i + 1)
+        }
+        if on {
+            push keep value
+        }
+        checkedValues = keep
+    }
+
+    ; Which row's box is this, if any. "" for anything that is not one.
+    fn valueOfCheckTid:string (target:string) {
+        def i:int 0
+        while (i < (array_length model.rowValue)) {
+            def v:string (itemAt model.rowValue i)
+            if ((this.checkTid(v)) == target) {
+                return v
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    ; --- the gesture -----------------------------------------------------------
+    ;
+    ; `pressAt` / `dragMove` / `dragDrop`, the page's three-step protocol. The
+    ; drag begins on the first MOVE past a threshold rather than on the press,
+    ; which is what lets one gesture be both "toggle this folder" and "carry
+    ; it": a press that never travels ends as an ordinary click.
+
+    fn beginPress:boolean (target:string px:double py:double) {
+        pressAt = target
+        pressX = px
+        pressY = py
+        dropX = px
+        dropY = py
+        dragLive = false
+        ; True unconditionally: the page routes moves and the release here only
+        ; while a press is held, and the release is where the click happens.
+        return true
+    }
+
+    ; Resolve a page point to a ROW and where in it, in the two numbers the
+    ; placement rule reads. Answers false for a point on no row at all.
+    fn probeAt:boolean (px:double py:double) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def hit (new EVGHitTest())
+        def id:string (hit.idAt(r px py))
+        probeRow = ""
+        if ((strlen id) == 0) {
+            return false
+        }
+        this.probeIn(r id px py)
+        return ((strlen probeRow) > 0)
+    }
+
+    fn probeIn:void (el:EVGElement id:string px:double py:double) {
+        if (el.id == id) {
+            if (el.role == "treeitem") {
+                probeRow = id
+                probeTop = 0.5
+                if (el.calculatedHeight > 0.0) {
+                    probeTop = ((py - el.calculatedY) / el.calculatedHeight)
+                }
+                probeLeft = (px - el.calculatedX)
+            }
+            return
+        }
+        def i:int 0
+        while (i < (array_length el.children)) {
+            this.probeIn((itemAt el.children i) id px py)
+            i = (i + 1)
+        }
+    }
+
+    fn dragMove:boolean (px:double py:double) {
+        if ((strlen pressAt) == 0) {
+            return false
+        }
+        dropX = px
+        dropY = py
+        if (dragLive == false) {
+            ; Four pixels. Below that a press is a click with a shaky hand, and
+            ; a tree whose folders opened only when you held perfectly still
+            ; would be worse than one that could not be dragged at all.
+            def dx:double (px - pressX)
+            def dy:double (py - pressY)
+            if (((dx * dx) + (dy * dy)) < 16.0) {
+                return false
+            }
+            model.dragPick(pressAt)
+            ; A press that began on a checkbox picks nothing up: the box is not
+            ; a handle, and `dragPick` has already declined an id that is not a
+            ; row. Without this the gesture would go live with nothing in it.
+            if (model.dragging == false) {
+                pressAt = ""
+                return false
+            }
+            dragLive = true
+        }
+        if (this.probeAt(px py)) {
+            model.dragPoint(probeRow probeTop probeLeft)
+        }
+        this.rebuild()
+        return true
+    }
+
+    fn dragDrop:boolean () {
+        def target:string pressAt
+        pressAt = ""
+        if (dragLive == false) {
+            ; Never travelled: the ordinary click, which is what opens folders
+            ; and moves the selection.
+            if ((strlen target) == 0) {
+                return false
+            }
+            return (this.press(target))
+        }
+        dragLive = false
+        if (this.probeAt(dropX dropY)) {
+            model.dragLand(probeRow probeTop probeLeft)
+        } {
+            model.cancelDrag()
+        }
+        this.rebuild()
+        return true
+    }
+
+    ; Is a folder waiting to open under the cursor? Answered every frame, and
+    ; the rebuild is conditional because opening one is the only thing this can
+    ; change — a drag that is merely being held must not rebuild sixty times a
+    ; second.
+    ; Is there a timer to run down? The page's animation loop stops when
+    ; nothing is busy, and a drag held still is exactly the case where nothing
+    ; is moving and time still has to pass.
+    fn dragWaiting:boolean () {
+        if (model.dragging == false) {
+            return false
+        }
+        return ((strlen model.autoOpenCode) > 0)
+    }
+
+    fn dragHold:boolean (dtMs:double) {
+        if (model.dragging == false) {
+            return false
+        }
+        def before:int (array_length model.rowValue)
+        model.dragHold(dtMs)
+        if ((array_length model.rowValue) == before) {
+            return false
+        }
+        this.rebuild()
+        return true
+    }
+
+    fn press:boolean (target:string) {
+        ; A box first. It toggles and does nothing else — no focus move, no
+        ; selection change — which is what the reference's `stopPropagation`
+        ; buys it and what falling through to `activate` would undo.
+        def boxed:string (this.valueOfCheckTid(target))
+        if ((strlen boxed) > 0) {
+            this.setChecked(boxed ((this.isChecked(boxed)) == false))
+            this.rebuild()
+            return true
+        }
+        def next:string (model.activate(target))
+        if ((strlen next) > 0) {
+            focused = next
+        }
+        this.rebuild()
+        return true
+    }
+
+    fn key:boolean (k:string) {
+        def next:string (model.keyDown(focused k))
+        if ((strlen next) > 0) {
+            focused = next
+        }
+        this.rebuild()
+        return true
+    }
+
+    fn setHover:void (id:string) {
+        hovered = id
+    }
+
+    fn setPressed:void (id:string) {
+        pressed = id
+    }
+
+    fn setFocus:void (id:string) {
+        focused = id
+    }
+
+    fn markStates:void (el:EVGElement) {
+        el.isHovered = false
+        el.isPressed = false
+        el.isFocused = false
+        if ((strlen el.id) > 0) {
+            if (el.id == hovered) {
+                el.isHovered = true
+            }
+            if (el.id == pressed) {
+                el.isPressed = true
+            }
+            if (el.id == focused) {
+                el.isFocused = true
+            }
+        }
+        def i:int 0
+        while (i < (array_length el.children)) {
+            this.markStates((itemAt el.children i))
+            i = (i + 1)
+        }
+    }
+
+    fn laidOut:EVGLayout () {
+        def r:EVGElement (unwrap root)
+        def s:EVGStyleSheet (unwrap sheet)
+        s.setViewport(pageW pageH false)
+        this.markStates(r)
+        s.applyTree(r "")
+        def t:EVGTransition transitions
+        t.reconcileTree(r)
+        ; The layout is KEPT, and re-run only when the sheet says something it
+        ; wrote could have moved a box. A hover, a press, a focus ring and a
+        ; transform are all paint-only, and on this page that is most frames.
+        ; `EVGInvalidateTest` is what says the skip is allowed to mean that.
+        ;
+        ; There is no check for "is this the same tree as last time". A tree
+        ; that has just been built has no element the sheet has ever written
+        ; to, and a tree that has just been reconciled has had every element
+        ; overwritten by `adoptFrom` — both report themselves layout-dirty on
+        ; the first pass, so a replaced root lays out without being asked to.
+        if layout {
+            def lay:EVGLayout (unwrap layout)
+            if ((s.layoutClean()) == false) {
+                lay.layout(r)
+            }
+            return lay
+        }
+        def fresh (new EVGLayout())
+        fresh.setPageSize(pageW pageH)
+        layout = fresh
+        fresh.layout(r)
+        return fresh
+    }
+
+    fn tick:boolean (dtMs:double) {
+        def r:EVGElement (unwrap root)
+        def t:EVGTransition transitions
+        t.advanceTree(r dtMs)
+        return (t.busy(r))
+    }
+
+    fn busyNow:boolean () {
+        def r:EVGElement (unwrap root)
+        def t:EVGTransition transitions
+        return (t.busy(r))
+    }
+
+    fn displayListJson:string () {
+        def lay:EVGLayout (this.laidOut())
+        def r:EVGElement (unwrap root)
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(r)
+        return (dl.toJson())
+    }
+
+    fn hitId:string (px:double py:double) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def hit (new EVGHitTest())
+        return (hit.idAt(r px py))
+    }
+
+    fn a11yJson:string (generation:int focusId:string) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "Tree demo" generation focusId))
+        return (t.toJson())
+    }
+
+    ; The component host's own complaints, folded in with the tree's. A page
+    ; that misuses the host gets a plausible-looking frame and a wrong
+    ; lifecycle, which is exactly the kind of failure that has to announce
+    ; itself.
+    fn hostProblems:[string] () {
+        return (host.lint())
+    }
+
+    fn componentCount:int () {
+        return host.stats.live
+    }
+
+    fn a11yProblems:[string] () {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "Tree demo" 1 ""))
+        return (t.lint())
+    }
+
+    fn styleErrorCount:int () {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (s.getErrorCount())
+    }
+
+    fn styleErrorAt:string (i:int) {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (s.getError(i))
+    }
+
+    fn heightPx:double () {
+        return pageH
+    }
+
+    fn rowCount:int () {
+        return (array_length model.rowValue)
+    }
+
+    fn summary:string () {
+        def n:int (array_length model.rowValue)
+        def where:string focused
+        if ((strlen where) == 0) {
+            where = "nothing"
+        }
+        return (((to_string n) + " visible rows, focus on ") + where)
+    }
+}

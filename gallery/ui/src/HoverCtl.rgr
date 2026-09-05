@@ -1,0 +1,307 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; TooltipCtl and HoverCardCtl — measured against @radix-ui/react-tooltip and
+;                               @radix-ui/react-hover-card
+; =============================================================================
+; The first two controls with no activation at all: the pointer arriving IS the
+; input. Everything here was captured from the reference before it was written,
+; and two of the three findings would not have been guessed:
+;
+;   1. A tooltip has THREE state words, not two. Opened by the pointer it says
+;      "delayed-open"; opened by focus it says "instant-open". A reader is told
+;      how the tip was summoned, and the trace records the difference.
+;   2. A hover card has two, "open" and "closed", and its trigger is a LINK,
+;      not a button — it is a preview of somewhere you can go.
+;   3. Escape closes a tooltip and leaves focus on the trigger. It does not
+;      hand focus anywhere, because focus never left.
+;
+; The tooltip's content is role tooltip and is not focusable; the hover card's
+; content has no role at all. Neither is modal — the page behind stays
+; reachable, which is what separates a hint from a dialog.
+; =============================================================================
+
+Import "UiCtl.rgr"
+Import "UiTree.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+
+class TooltipCtl extends UiCtl {
+    def open:boolean false
+    ; Which input opened it, which is the state word the reference reports.
+    def instant:boolean false
+    def bodyText:string ""
+    def triggerEl:EVGElement
+    def contentEl:EVGElement
+
+    Constructor () {
+        rootEl = (EVGElement.createDiv())
+        triggerEl = (EVGElement.createDiv())
+        contentEl = (EVGElement.createDiv())
+    }
+
+    fn triggerTid:string () {
+        return (tid + "-trigger")
+    }
+
+    fn contentTid:string () {
+        return (tid + "-content")
+    }
+
+    fn stateWord:string () {
+        if (open == false) {
+            return "closed"
+        }
+        if instant {
+            return "instant-open"
+        }
+        return "delayed-open"
+    }
+
+    fn build:void () {
+        def word:string (this.stateWord())
+        def root:EVGElement (unwrap rootEl)
+        root.id = tid
+        root.className = "ui-tooltip"
+        UiTree.clearChildren(root)
+
+        def trig:EVGElement (unwrap triggerEl)
+        trig.id = (this.triggerTid())
+        trig.className = "ui-tooltip-trigger"
+        if disabled {
+            UiTree.addClass(trig "ui-tooltip-trigger-disabled")
+        }
+        UiTree.setState(trig "ui-tooltip-trigger" word)
+        UiTree.leafText(trig name)
+        UiTree.anchor(trig)
+        root.addChild(trig)
+
+        if (open == false) {
+            return
+        }
+
+        def content:EVGElement (unwrap contentEl)
+        content.id = (this.contentTid())
+        content.className = "ui-tooltip-content"
+        ; A tooltip sits above what it describes and centred on it, which is
+        ; the reference's default and the one placement people read as "this
+        ; belongs to that".
+        UiTree.surface(content "top" "center")
+        UiTree.setState(content "ui-tooltip-content" word)
+        UiTree.leafText(content bodyText)
+        root.addChild(content)
+    }
+
+    fn hover:string (target:string) {
+        if disabled {
+            return ""
+        }
+        if (target == (this.triggerTid())) {
+            open = true
+            instant = false
+            this.build()
+        }
+        return ""
+    }
+
+    fn unhover:string () {
+        if open {
+            ; Focus keeps it up; only a pointer-opened tip closes on leaving.
+            if instant {
+                return ""
+            }
+            open = false
+            this.build()
+        }
+        return ""
+    }
+
+    ; Focus opens it too, and says so with a different word.
+    fn onFocus:void (target:string) {
+        if disabled {
+            return
+        }
+        if (target == (this.triggerTid())) {
+            open = true
+            instant = true
+            this.build()
+        }
+    }
+
+    fn keyDown:string (target:string key:string) {
+        if (key == "Escape") {
+            if open {
+                open = false
+                this.build()
+            }
+        }
+        return ""
+    }
+
+    fn tids:[string] () {
+        def a:[string]
+        push a tid
+        push a (this.triggerTid())
+        push a (this.contentTid())
+        return a
+    }
+
+    fn isFocusable:boolean (target:string) {
+        if disabled {
+            return false
+        }
+        return (target == (this.triggerTid()))
+    }
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+        def word:string (this.stateWord())
+
+        def trigRow:UiRow (UiRow.of((this.triggerTid()) (EVGA11yRole.button()) name))
+        trigRow.state = word
+        trigRow.disabled = disabled
+        if (disabled == false) {
+            trigRow.tabStop = true
+            trigRow.focusable = true
+        }
+        ; The tip DESCRIBES the trigger while it is open, which is the whole
+        ; point of a tooltip and was missing entirely: a reader was told the
+        ; button's name and never the sentence the tooltip exists to say.
+        ;
+        ; Only while OPEN. Radix wires `aria-describedby` to the content and
+        ; the content is not in the document until the tip is showing, so a
+        ; closed tooltip describes nothing — which is right: a description a
+        ; reader hears for a tip nobody has opened is a description of
+        ; something that is not there.
+        if open {
+            trigRow.description = bodyText
+        }
+        push out trigRow
+
+        if (open == false) {
+            return out
+        }
+
+        def contentRow:UiRow (UiRow.of((this.contentTid()) (EVGA11yRole.tooltip()) ""))
+        contentRow.state = word
+        push out contentRow
+        return out
+    }
+}
+
+class HoverCardCtl extends UiCtl {
+    def open:boolean false
+    def bodyText:string ""
+    def triggerEl:EVGElement
+    def contentEl:EVGElement
+
+    Constructor () {
+        rootEl = (EVGElement.createDiv())
+        triggerEl = (EVGElement.createDiv())
+        contentEl = (EVGElement.createDiv())
+    }
+
+    fn triggerTid:string () {
+        return (tid + "-trigger")
+    }
+
+    fn contentTid:string () {
+        return (tid + "-content")
+    }
+
+    fn stateWord:string () {
+        if open {
+            return "open"
+        }
+        return "closed"
+    }
+
+    fn build:void () {
+        def word:string (this.stateWord())
+        def root:EVGElement (unwrap rootEl)
+        root.id = tid
+        root.className = "ui-hovercard"
+        UiTree.clearChildren(root)
+
+        def trig:EVGElement (unwrap triggerEl)
+        trig.id = (this.triggerTid())
+        trig.className = "ui-hovercard-trigger"
+        UiTree.setState(trig "ui-hovercard-trigger" word)
+        UiTree.leafText(trig name)
+        UiTree.anchor(trig)
+        root.addChild(trig)
+
+        if (open == false) {
+            return
+        }
+
+        def content:EVGElement (unwrap contentEl)
+        content.id = (this.contentTid())
+        content.className = "ui-hovercard-content"
+        UiTree.surface(content "bottom" "start")
+        UiTree.setState(content "ui-hovercard-content" word)
+        UiTree.leafText(content bodyText)
+        root.addChild(content)
+    }
+
+    fn hover:string (target:string) {
+        if disabled {
+            return ""
+        }
+        if (target == (this.triggerTid())) {
+            open = true
+            this.build()
+        }
+        return ""
+    }
+
+    fn unhover:string () {
+        if open {
+            open = false
+            this.build()
+        }
+        return ""
+    }
+
+    fn tids:[string] () {
+        def a:[string]
+        push a tid
+        push a (this.triggerTid())
+        push a (this.contentTid())
+        return a
+    }
+
+    fn isFocusable:boolean (target:string) {
+        if disabled {
+            return false
+        }
+        return (target == (this.triggerTid()))
+    }
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+        def word:string (this.stateWord())
+
+        ; A link, not a button: the reference makes the trigger an anchor, and
+        ; a reader announces it as somewhere to go rather than something to do.
+        def trigRow:UiRow (UiRow.of((this.triggerTid()) (EVGA11yRole.link()) name))
+        trigRow.state = word
+        trigRow.disabled = disabled
+        if (disabled == false) {
+            trigRow.tabStop = true
+            trigRow.focusable = true
+        }
+        push out trigRow
+
+        if (open == false) {
+            return out
+        }
+
+        ; No role: the card is a container the reader walks into, not a
+        ; landmark it announces.
+        def contentRow:UiRow (UiRow.of((this.contentTid()) (EVGA11yRole.none()) ""))
+        contentRow.state = word
+        push out contentRow
+        return out
+    }
+}

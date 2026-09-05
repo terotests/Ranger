@@ -1,0 +1,48 @@
+; Chained calls, property reads and a static call: the shapes whose receivers
+; used to be wrapped in parentheses whatever they were.
+class FmtRow {
+  def cells:[string]
+  def label:string ""
+  fn add:FmtRow (v:string) {
+    push cells v
+    return this
+  }
+  fn name:FmtRow (v:string) {
+    label = v
+    return this
+  }
+  fn count:int () {
+    return (array_length cells)
+  }
+}
+class FmtTable {
+  def rows:[FmtRow]
+  fn row:FmtRow () {
+    def r:FmtRow (new FmtRow())
+    push rows r
+    return r
+  }
+  fn total:int () {
+    def n:int 0
+    for rows r:FmtRow i {
+      def c:int (r.count())
+      n = n + c
+    }
+    return n
+  }
+}
+class FmtMain {
+  sfn build:FmtTable () {
+    def t:FmtTable (new FmtTable())
+    def r1:FmtRow (t.row())
+    r1.name("north").add("a").add("b")
+    def r2:FmtRow (t.row())
+    r2.name("south").add("c")
+    return t
+  }
+  sfn main:void () {
+    def t:FmtTable (FmtMain.build())
+    def n:int (t.total())
+    print ("" + n)
+  }
+}

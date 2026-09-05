@@ -1,0 +1,21 @@
+
+; One stats-relevant row extracted from COMPACT text or structured workout content.
+class CompactWalkItem {
+  def kind:string ""
+  def name:string ""
+  def date:string ""
+  def sets:int 0
+  def reps:int 0
+  def weight:double -1.0
+  def unit:string ""
+  def durationSeconds:int 0
+  def distanceMeters:double 0.0
+  ; When > 0, used instead of sets x reps x weight (e.g. pyramid total).
+  def tonnage:double -1.0
+  ; Move count, circuit rounds, interval count, steps, etc.
+  def itemCount:int 0
+  ; Generic scalar (feeling, sleep hours, calories, pain severity, ...).
+  def metricValue:double 0.0
+  ; 1 = personal record marker on max/best rows.
+  def prFlag:int 0
+}

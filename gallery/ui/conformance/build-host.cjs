@@ -8,6 +8,28 @@
 "use strict";
 
 /** Same fixture the Radix playground reads; see conformance/SPEC.md. */
+/**
+ * A menu's items, which may themselves be menus. `addSub` returns the row so
+ * its children can be hung on it, and `MenuCtl.addKid` does the same one level
+ * down — so nesting is written the same way at every depth, and the fixture
+ * needs no special case for "a submenu of a submenu".
+ */
+function addMenuItems(ctl, items, parent) {
+  for (const it of items || []) {
+    const kids = it.items || [];
+    if (kids.length) {
+      const sub = parent
+        ? ctl.constructor.addKid(parent, it.value, it.name, !!it.disabled)
+        : ctl.addSub(it.value, it.name, !!it.disabled);
+      addMenuItems(ctl, kids, sub);
+    } else if (parent) {
+      ctl.constructor.addKid(parent, it.value, it.name, !!it.disabled);
+    } else {
+      ctl.addItem(it.value, it.name, !!it.disabled);
+    }
+  }
+}
+
 function buildHost(M, fixture, css) {
   const host = new M.UiHost();
   if (css) host.addStyleSheet(css);
@@ -45,6 +67,247 @@ function buildHost(M, fixture, css) {
         ctl.value = c.value || "";
         break;
 
+      case "togglegroup":
+        // A single-select toggle group IS a radio group; Radix says so with
+        // role=radiogroup, so the same controller serves both.
+        ctl = host.addRadioGroup(c.tid, c.name);
+        ctl.toggleMode = true;
+        for (const it of c.items) ctl.addItem(it.value, it.name, !!it.disabled);
+        ctl.value = c.value || "";
+        break;
+
+      case "toolbar":
+        ctl = host.addToolbar(c.tid, c.name);
+        for (const it of c.items) ctl.addItem(it.value, it.name, !!it.disabled);
+        break;
+
+      case "dialog":
+        ctl = host.addDialog(c.tid, c.name, c.title || c.name);
+        break;
+
+      case "alertdialog":
+        ctl = host.addAlertDialog(c.tid, c.name, c.title || c.name);
+        ctl.bodyText = c.body || "";
+        break;
+
+      case "popover":
+        ctl = host.addPopover(c.tid, c.name);
+        ctl.bodyText = c.body || "";
+        break;
+
+      case "tooltip":
+        ctl = host.addTooltip(c.tid, c.name);
+        ctl.bodyText = c.body || c.name;
+        break;
+
+      case "hovercard":
+        ctl = host.addHoverCard(c.tid, c.name);
+        ctl.bodyText = c.body || "";
+        break;
+
+      case "dropdownmenu":
+        ctl = host.addDropdownMenu(c.tid, c.name);
+        addMenuItems(ctl, c.items);
+        break;
+
+      case "contextmenu":
+        ctl = host.addContextMenu(c.tid, c.name);
+        addMenuItems(ctl, c.items);
+        break;
+
+      case "input":
+        ctl = host.addInput(c.tid, c.name);
+        ctl.kind = c.kind || "text";
+        ctl.value = c.value || "";
+        ctl.placeholder = c.placeholder || "";
+        ctl.readOnly = !!c.readonly;
+        ctl.required = !!c.required;
+        ctl.invalid = !!c.invalid;
+        ctl.maxLength = c.maxlength ?? 0;
+        // A field built with a value starts with the caret at the END of it,
+        // which is where a browser puts it when the element is focused for
+        // the first time. Not zero: an input whose caret starts at 0 reports
+        // a different selstart on its very first observation than the
+        // reference does, before any key has been pressed.
+        ctl.caret = String(ctl.value).length;
+        ctl.anchor = ctl.caret;
+        ctl.build();
+        break;
+
+      case "slider":
+        ctl = host.addSlider(c.tid, c.name);
+        ctl.minValue = c.min ?? 0;
+        ctl.maxValue = c.max ?? 100;
+        ctl.step = c.step ?? 1;
+        ctl.value = c.value ?? 50;
+        break;
+
+      case "toast":
+        ctl = host.addToast(c.tid, c.name);
+        ctl.title = c.title || c.name;
+        ctl.bodyText = c.body || "";
+        ctl.actionLabel = c.actionName || "Undo";
+        break;
+
+      case "label":
+        ctl = host.addLabel(c.tid, c.name);
+        break;
+
+      case "separator":
+        ctl = host.addSeparator(c.tid);
+        ctl.decorative = !!c.decorative;
+        ctl.vertical = c.orientation === "vertical";
+        break;
+
+      case "progress":
+        ctl = host.addProgress(c.tid, c.name);
+        ctl.indeterminate = c.value == null;
+        ctl.value = c.value || 0;
+        ctl.maxValue = c.max || 100;
+        break;
+
+      case "aspectratio":
+        ctl = host.addAspectRatio(c.tid, c.name || "");
+        ctl.boxWidth = c.width || 120;
+        ctl.ratioW = c.ratio || 1;
+        ctl.ratioH = 1;
+        break;
+
+      case "accessibleicon":
+        ctl = host.addAccessibleIcon(c.tid, c.name, c.glyph || "*");
+        break;
+
+      case "avatar":
+        ctl = host.addAvatar(c.tid, c.name, c.fallback || "?");
+        break;
+
+      case "menubar":
+        ctl = host.addMenubar(c.tid, c.name || "");
+        for (const m of c.items) {
+          const menu = ctl.addMenu(m.value, m.name);
+          if (m.disabled) menu.disabled = true;
+          for (const it of m.items || []) {
+            ctl.addItem(m.value, it.value, it.name, !!it.disabled);
+          }
+        }
+        break;
+
+      case "select":
+        ctl = host.addSelect(c.tid, c.name || "");
+        for (const it of c.items) ctl.addItem(it.value, it.name, !!it.disabled);
+        ctl.value = c.value || "";
+        break;
+
+      case "navigationmenu":
+        ctl = host.addNavMenu(c.tid, c.name || "");
+        for (const s of c.items) {
+          ctl.addSection(s.value, s.name);
+          for (const l of s.links || []) ctl.addLink(s.value, l.value, l.name);
+        }
+        break;
+
+      case "scrollarea":
+        ctl = host.addScrollArea(c.tid, c.name || "");
+        for (const it of c.items || []) ctl.addItem(it.value, it.name);
+        break;
+
+      case "sortable":
+        ctl = host.addSortable(c.tid, c.name || "");
+        for (const it of c.items) ctl.addItem(it.value, it.name, !!it.disabled);
+        break;
+
+      // A breadcrumb. Widths are stated by the fixture rather than measured,
+      // because the collapse rule is what is under test and two engines have
+      // no reason to agree about how wide "Components" is.
+      case "breadcrumb":
+        ctl = host.addBreadcrumb(c.tid, c.name || "breadcrumb");
+        for (const it of c.items || []) ctl.addCrumb(it.value, it.name, it.width ?? 0);
+        if (c.available != null) ctl.available = c.available;
+        if (c.separatorWidth != null) ctl.separatorWidth = c.separatorWidth;
+        if (c.ellipsisWidth != null) ctl.ellipsisWidth = c.ellipsisWidth;
+        ctl.build();
+        break;
+
+      // A group of resizable panels, and a panel may hold a group of its own.
+      // Nesting is the controller's business here the way a submenu is
+      // MenuCtl's, so the fixture nests and the host does not have to.
+      case "resizable": {
+        const build = (group, ctl) => {
+          for (const p of group.panels || []) {
+            const size = parseFloat(String(p.defaultSize ?? "0").replace("%", ""));
+            const panel = ctl.addPanel(p.value, size);
+            if (p.minSize != null) panel.minSize = parseFloat(String(p.minSize).replace("%", ""));
+            if (p.maxSize != null) panel.maxSize = parseFloat(String(p.maxSize).replace("%", ""));
+            if (p.collapsible) {
+              panel.collapsible = true;
+              panel.collapsedSize = parseFloat(String(p.collapsedSize ?? "0").replace("%", ""));
+            }
+            if (p.group) {
+              const sub = new M.ResizeCtl();
+              sub.tid = ctl.panelTid(p.value) + "-group";
+              sub.orientation = p.group.orientation || "horizontal";
+              build(p.group, sub);
+              panel.sub = sub;
+            }
+          }
+        };
+        ctl = host.addResizable(c.tid, c.orientation || "horizontal");
+        build(c, ctl);
+        ctl.build();
+        break;
+      }
+
+      case "tree": {
+        ctl = host.addTree(c.tid, c.name || "", c.root);
+        // Selection is a MODE, off unless the fixture asks. ReUI's tree does
+        // not enable it, and the eighteen behaviours measured against that
+        // configuration must not move.
+        if (c.selection) ctl.selectable = true;
+        // Drag and drop needs selection: a drag carries the selected rows.
+        if (c.dnd) {
+          ctl.selectable = true;
+          ctl.draggable = true;
+          if (c.indent) ctl.dndIndent = c.indent;
+        }
+        // Two passes: every node first, then the child lists — a fixture may
+        // name a child before the line that declares it, and the library's own
+        // data loader has the same freedom.
+        const made = new Map();
+        for (const it of c.items || []) made.set(it.value, ctl.addNode(it.value, it.name));
+        for (const it of c.items || []) {
+          for (const kid of it.children || []) ctl.constructor.addKid(made.get(it.value), kid);
+        }
+        for (const v of c.expanded || []) ctl.setExpanded(v, true);
+        ctl.build();
+        break;
+      }
+
+      case "table": {
+        ctl = host.addTable(c.tid, c.name || "");
+        for (const col of c.columns || []) {
+          ctl.addColumn(col.key, col.label || col.key, !!col.numeric, col.sortable !== false);
+        }
+        for (const r of c.rows || []) ctl.addRecord(r.key, r.cells || []);
+        if (c.pageSize) ctl.pageSize = c.pageSize;
+        ctl.build();
+        break;
+      }
+
+      // A calendar. The month and `today` come from the fixture rather than a
+      // clock, because a control whose output changes overnight cannot be
+      // compared against anything.
+      case "calendar": {
+        ctl = host.addCalendar(c.tid, c.name || "");
+        const [y, m] = String(c.month || "2026-05").split("-").map(Number);
+        ctl.setMonth(y, m);
+        if (c.today) ctl.setToday(...c.today.split("-").map(Number));
+        if (c.selected) ctl.setSelected(...c.selected.split("-").map(Number));
+        if (c.minDate) ctl.setMinDate(...c.minDate.split("-").map(Number));
+        if (c.showOutsideDays === false) ctl.showOutsideDays = false;
+        ctl.build();
+        break;
+      }
+
       case "accordion":
         ctl = host.addAccordion(c.tid, c.name || "");
         for (const it of c.items) ctl.addItem(it.value, it.name, it.body || "", !!it.disabled);
@@ -52,7 +315,9 @@ function buildHost(M, fixture, css) {
         break;
 
       default:
-        throw new Error("unknown control type: " + c.type);
+        throw new Error(
+          "unknown control type: " + c.type + " (known: " + SUPPORTED_TYPES.join(", ") + ")",
+        );
     }
     if (c.disabled) ctl.disabled = true;
     // Every field above is initial state, so the subtree is built once here
@@ -62,4 +327,44 @@ function buildHost(M, fixture, css) {
   return host;
 }
 
-module.exports = { buildHost };
+/**
+ * The control types the kit can actually build. The inventory reads this rather
+ * than a hand-kept list, so "implemented" cannot drift from what the code does.
+ */
+const SUPPORTED_TYPES = [
+  "toggle",
+  "collapsible",
+  "checkbox",
+  "switch",
+  "radiogroup",
+  "tabs",
+  "accordion",
+  "togglegroup",
+  "toolbar",
+  "dialog",
+  "label",
+  "separator",
+  "progress",
+  "aspectratio",
+  "accessibleicon",
+  "avatar",
+  "alertdialog",
+  "popover",
+  "tooltip",
+  "hovercard",
+  "dropdownmenu",
+  "contextmenu",
+  "input",
+  "slider",
+  "toast",
+  "sortable",
+  "tree",
+  "menubar",
+  "select",
+  "navigationmenu",
+  "scrollarea",
+  "table",
+  "calendar",
+];
+
+module.exports = { buildHost, SUPPORTED_TYPES };

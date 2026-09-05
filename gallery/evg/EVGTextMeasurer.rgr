@@ -30,6 +30,78 @@ class EVGTextMetrics {
 ; Abstract interface - implementations must override
 class EVGTextMeasurer {
 
+    ; --- WHAT `measureChar` IS NOT ALLOWED TO DO AGAIN PER CHARACTER ----------
+    ;
+    ; `measureChar` is called once per character of every string the layout
+    ; measures, and a wrap measures the same string many times over, so
+    ; anything it does is done millions of times in a frame. It used to do two
+    ; things there that had no business being in that loop:
+    ;
+    ;   `isMono(fontFamily)` — six substring searches over the family name,
+    ;   for an answer that is the same for every character of the run. It was
+    ;   38% of the whole profile of a scroll in `gallery/realtrainer`: the
+    ;   single most expensive function in the frame, computing one boolean
+    ;   over and over.
+    ;
+    ;   `advanceEm()` — a NINETY-FIVE ELEMENT ARRAY LITERAL, freshly allocated
+    ;   for each character, to read one slot out of it. That is what put minor
+    ;   GC and the collector's `drop` next in the same profile.
+    ;
+    ; Both are constants of the run, so they are held here instead: the tables
+    ; materialised once per measurer, and the family's monospace-ness
+    ; remembered for the last family asked about — which, inside a run, is
+    ; every character after the first.
+    def advTable:[double]
+    def monoTable:[double]
+    def latinTable:[double]
+    def punctTable:[double]
+    def tablesReady:boolean false
+    ; The last family `monoFor` was asked about and the answer it gave.
+    ; `monoKnown` is what distinguishes "not asked yet" from "asked about the
+    ; empty family", which `monoFamily` alone cannot.
+    def monoFamily:string ""
+    def monoKnown:boolean false
+    def monoCached:boolean false
+    ; …and whether it is the bold cut, remembered with it. The layout asks
+    ; for `Arial-Bold` when the element is bold (`EVGElement.effectiveFontFamily`),
+    ; and a bold face is measured with the bold tables below.
+    def boldCached:boolean false
+    def boldTable:[double]
+    def boldLatinTable:[double]
+    def boldPunctTable:[double]
+
+    ; --- THE FACE'S VERTICAL METRICS, MEASURED ---------------------------------
+    ;
+    ; These used to be 0.80 and 0.20, which sum to exactly 1.00em — and no real
+    ; face does. Measured at 1000px in Chromium, the sans fallback is 0.905 and
+    ; 0.212, summing to 1.117em; see `oracle/textbox.json`, which records the
+    ; serif and monospace faces too.
+    ;
+    ; The ASCENT is what puts the baseline inside the line box, so an ascent
+    ; that is a tenth of an em short draws every run of text that much high. It
+    ; is not a rounding error, it is the difference between text sitting in a
+    ; row and text sitting above one.
+    ;
+    ; They are still an ESTIMATE — a measurer with no font file cannot know the
+    ; face — but an estimate taken from a real fallback rather than from a
+    ; round number. A measurer that opens fonts overrides `measureText` and
+    ; reports the truth.
+    sfn fallbackAscentEm:double () {
+        return 0.905
+    }
+
+    sfn fallbackDescentEm:double () {
+        return 0.212
+    }
+
+    ; `line-height: normal`, which is NOT 1.2. It is the face's own line box —
+    ; ascent plus descent plus the line gap — and it is 1.15em for the sans
+    ; fallback, 1.164 for monospace. 1.2 is a number people type, not a number
+    ; a browser computes.
+    sfn normalLineHeightEm:double () {
+        return 1.15
+    }
+
     ; Does this measurer report real metrics from the font file that will be
     ; painted? The default implementation below does NOT — it guesses from the
     ; font size and never opens a font — so it must not silently drive print
@@ -45,19 +117,36 @@ class EVGTextMeasurer {
         return false
     }
 
+    ; --- WHAT WOULD MAKE THIS MEASURER ANSWER DIFFERENTLY --------------------
+    ;
+    ; `EVGTextEngine` caches wraps and metrics, and this string goes in the
+    ; key. A measurer whose answers depend on nothing but its arguments — this
+    ; one, whose tables are constants — has nothing to report and returns the
+    ; empty string.
+    ;
+    ; A measurer that can CHANGE ITS MIND must override it: one that loads
+    ; faces answers differently once a face is loaded, and one that is told a
+    ; weight before each run answers differently for bold. Without the change
+    ; showing up here, the engine would hand back a width measured before it.
+    ; The rule is simply that anything read by `measureText` and not passed to
+    ; it belongs in this string.
+    fn measureKey:string () {
+        return ""
+    }
+
     fn measureText:EVGTextMetrics (text:string fontFamily:string fontSize:double) {
         ; Default implementation - estimate based on font size
         ; Average character width is approximately 0.5-0.6 of font size
         def avgCharWidth:double (fontSize * 0.55)
         def textLen:int (strlen text)
         def width:double ((to_double textLen) * avgCharWidth)
-        def lineHeight:double (fontSize * 1.2)
+        def lineHeight:double (fontSize * (EVGTextMeasurer.normalLineHeightEm()))
         
         def metrics (new EVGTextMetrics())
         metrics.width = width
         metrics.height = lineHeight
-        metrics.ascent = (fontSize * 0.8)
-        metrics.descent = (fontSize * 0.2)
+        metrics.ascent = (fontSize * (EVGTextMeasurer.fallbackAscentEm()))
+        metrics.descent = (fontSize * (EVGTextMeasurer.fallbackDescentEm()))
         metrics.lineHeight = lineHeight
         return metrics
     }
@@ -68,43 +157,360 @@ class EVGTextMeasurer {
     }
     
     fn getLineHeight:double (fontFamily:string fontSize:double) {
-        return (fontSize * 1.2)
+        return (fontSize * (EVGTextMeasurer.normalLineHeightEm()))
     }
     
+
+    ; --- how wide a character really is ---------------------------------------
+    ;
+    ; MEASURED, one advance per printable character, as a fraction of the em.
+    ; `advance_oracle.mjs` asks a browser for each one with canvas
+    ; `measureText` at a 100px reference and this is what it said.
+    ;
+    ; What it replaces was a handful of buckets — space and `i l j t f` at 0.3
+    ; of the size, `m w` at 0.8, `M W` at 0.9, everything else in between — and
+    ; those buckets put "At least 8 characters." 12.4 pixels wide of the truth
+    ; at 13px, and "ada.example.com" 7.9 wide. That second number is the bug
+    ; this was written for: a caret is drawn at the measured width of the text
+    ; before it, so the caret sat eight pixels past the end of the text.
+    ;
+    ; It is worse than a caret being untidy. The RENDERER does not estimate —
+    ; the GL backend builds its glyph atlas with the browser's own
+    ; `measureText` — so the text was DRAWN at its true width while the layout
+    ; believed the buckets. Two measurements of one string, and everything
+    ; placed from the wrong one: the caret, the selection band, the index a
+    ; click maps to, the width of a box meant to fit its label.
+    ;
+    ; WHAT THIS TABLE IS NOT. It is a sum of single advances, and a browser
+    ; kerns pairs, which no per-character table can express. Measured over
+    ; fifteen strings the sum is EXACT for twelve and drifts at most 3.9px on
+    ; the all-caps pairs that kern hardest — "AVATAR", "To Wave". So the table
+    ; is right for text and slightly wide for capitals, which is a different
+    ; and much smaller error than the one it replaces, and the check reports it
+    ; rather than hiding it.
+    ;
+    ; AND IT IS ONE FACE. Arial, Helvetica and `sans-serif` all measured
+    ; identically here because they resolve to the same substitute; a machine
+    ; with a different Arial will differ slightly. The honest fix for that is
+    ; to measure with the face actually in use, which the browser can do
+    ; through `setMeasurer` — this table is what every target can carry.
+    ; The same, for the BOLD cut. Bold Arial is not the regular face drawn
+    ; thicker: `i`, `l`, `r`, `t` and `s` are a twentieth of an em wider each,
+    ; and "Päivitä suunnitelma" at 14px is 131px bold against 121px regular.
+    ; A button whose label was measured regular and drawn bold had its text
+    ; against its right edge — the padding the sheet gave it went to the
+    ; ten pixels the measurement was short. Measured as `advanceEm` was.
+    sfn boldAdvanceEm:[double] () {
+        return ([] _:double (
+            0.27783 0.33301 0.47412 0.55615 0.55615 0.88916 0.72217 0.23779
+            0.33301 0.33301 0.38916 0.58398 0.27783 0.33301 0.27783 0.27783
+            0.55615 0.55615 0.55615 0.55615 0.55615 0.55615 0.55615 0.55615
+            0.55615 0.55615 0.33301 0.33301 0.58398 0.58398 0.58398 0.61084
+            0.97510 0.72217 0.72217 0.72217 0.72217 0.66699 0.61084 0.77783
+            0.72217 0.27783 0.55615 0.72217 0.61084 0.83301 0.72217 0.77783
+            0.66699 0.77783 0.72217 0.66699 0.61084 0.72217 0.66699 0.94385
+            0.66699 0.66699 0.61084 0.33301 0.27783 0.33301 0.58398 0.55615
+            0.33301 0.55615 0.61084 0.55615 0.61084 0.55615 0.33301 0.61084
+            0.61084 0.27783 0.27783 0.55615 0.27783 0.88916 0.61084 0.61084
+            0.61084 0.61084 0.38916 0.55615 0.33301 0.61084 0.55615 0.77783
+            0.55615 0.55615 0.50000 0.38916 0.27979 0.38916 0.58398
+        ))
+    }
+
+    sfn boldLatin1Em:[double] () {
+        return ([] _:double (
+            0.27783 0.33301 0.55615 0.55615 0.55615 0.55615 0.27979 0.55615
+            0.33301 0.73682 0.37012 0.55615 0.58398 0.00000 0.73682 0.55225
+            0.39990 0.54883 0.33301 0.33301 0.33301 0.57617 0.55615 0.33301
+            0.33301 0.33301 0.36523 0.55615 0.83398 0.83398 0.83398 0.61084
+            0.72217 0.72217 0.72217 0.72217 0.72217 0.72217 1.00000 0.72217
+            0.66699 0.66699 0.66699 0.66699 0.27783 0.27783 0.27783 0.27783
+            0.72217 0.72217 0.77783 0.77783 0.77783 0.77783 0.77783 0.58398
+            0.77783 0.72217 0.72217 0.72217 0.72217 0.66699 0.66699 0.61084
+            0.55615 0.55615 0.55615 0.55615 0.55615 0.55615 0.88916 0.55615
+            0.55615 0.55615 0.55615 0.55615 0.27783 0.27783 0.27783 0.27783
+            0.61084 0.61084 0.61084 0.61084 0.61084 0.61084 0.61084 0.54883
+            0.61084 0.61084 0.61084 0.61084 0.61084 0.55615 0.61084 0.55615
+        ))
+    }
+
+    sfn boldPunctEm:[double] () {
+        return ([] _:double (
+            0.33301 0.33301 0.55615 0.55615 1.00000 1.00000 0.49756 0.55225
+            0.27783 0.27783 0.27783 0.27783 0.50000 0.50000 0.50000 0.50000
+            0.55615 0.55615 0.35010 0.58984 0.33447 0.66748 1.00000
+        ))
+    }
+
+    sfn advanceEm:[double] () {
+        return ([] _:double (
+            0.27783 0.27783 0.35498 0.55615 0.55615 0.88916 0.66699 0.19092
+            0.33301 0.33301 0.38916 0.58398 0.27783 0.33301 0.27783 0.27783
+            0.55615 0.55615 0.55615 0.55615 0.55615 0.55615 0.55615 0.55615
+            0.55615 0.55615 0.27783 0.27783 0.58398 0.58398 0.58398 0.55615
+            1.01514 0.66699 0.66699 0.72217 0.72217 0.66699 0.61084 0.77783
+            0.72217 0.27783 0.50000 0.66699 0.55615 0.83301 0.72217 0.77783
+            0.66699 0.77783 0.72217 0.66699 0.61084 0.72217 0.66699 0.94385
+            0.66699 0.66699 0.61084 0.27783 0.27783 0.27783 0.46924 0.55615
+            0.33301 0.55615 0.55615 0.50000 0.55615 0.55615 0.27783 0.55615
+            0.55615 0.22217 0.22217 0.50000 0.22217 0.83301 0.55615 0.55615
+            0.55615 0.55615 0.33301 0.50000 0.27783 0.55615 0.50000 0.72217
+            0.50000 0.50000 0.50000 0.33398 0.25977 0.33398 0.58398
+        ))
+    }
+
+    ; The same for a monospace face, where every advance is the same number and
+    ; the sum is exact by construction.
+    sfn monoAdvanceEm:[double] () {
+        return ([] _:double (
+            0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205
+            0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205
+            0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205
+            0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205
+            0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205
+            0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205
+            0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205
+            0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205
+            0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205
+            0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205
+            0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205
+            0.60205 0.60205 0.60205 0.60205 0.60205 0.60205 0.60205
+        ))
+    }
+
+    ; Latin-1 Supplement, U+00A0 … U+00FF, measured the same way at the same
+    ; reference: the umlauts every Finnish string has, the degree, the
+    ; multiplication sign, and the soft hyphen at zero. Before this table
+    ; an a-umlaut was the half-em guess below — 0.5 where the face has
+    ; 0.55615 — and a caret after "Päiväkirja" was two pixels short.
+    sfn latin1Em:[double] () {
+        return ([] _:double (
+            0.27783 0.33301 0.55615 0.55615 0.55615 0.55615 0.25977 0.55615
+            0.33301 0.73682 0.37012 0.55615 0.58398 0.00000 0.73682 0.55225
+            0.39990 0.54883 0.33301 0.33301 0.33301 0.57617 0.53711 0.33301
+            0.33301 0.33301 0.36523 0.55615 0.83398 0.83398 0.83398 0.61084
+            0.66699 0.66699 0.66699 0.66699 0.66699 0.66699 1.00000 0.72217
+            0.66699 0.66699 0.66699 0.66699 0.27783 0.27783 0.27783 0.27783
+            0.72217 0.72217 0.77783 0.77783 0.77783 0.77783 0.77783 0.58398
+            0.77783 0.72217 0.72217 0.72217 0.72217 0.66699 0.66699 0.61084
+            0.55615 0.55615 0.55615 0.55615 0.55615 0.55615 0.88916 0.50000
+            0.55615 0.55615 0.55615 0.55615 0.27783 0.27783 0.27783 0.27783
+            0.55615 0.55615 0.55615 0.55615 0.55615 0.55615 0.55615 0.54883
+            0.61084 0.55615 0.55615 0.55615 0.55615 0.50000 0.55615 0.50000
+        ))
+    }
+
+    ; General Punctuation, U+2010 … U+2026: the dashes, the curly quotes,
+    ; the daggers, the bullet and the ellipsis. The bullet is the one that
+    ; was seen wrong: a password field draws one per character and the caret
+    ; sat at the guessed 0.5 em each where the face draws 0.3501 — nine
+    ; characters in, the caret was fifteen pixels past the last bullet.
+    sfn punctEm:[double] () {
+        return ([] _:double (
+            0.33301 0.33301 0.55615 0.55615 1.00000 1.00000 0.41309 0.55225
+            0.22217 0.22217 0.22217 0.22217 0.33301 0.33301 0.33301 0.33301
+            0.55615 0.55615 0.35010 0.59000 0.33000 0.67000 1.00000
+        ))
+    }
+
+    ; A few beyond those ranges the gallery draws: the single guillemets,
+    ; the trade mark, the check mark.
+    sfn extraEm:double (ch:int) {
+        if (ch == 8249) { return 0.33301 }
+        if (ch == 8250) { return 0.33301 }
+        if (ch == 8482) { return 1.0 }
+        if (ch == 10003) { return 0.84 }
+        if (ch == 10004) { return 0.84 }
+        if (ch == 8242) { return 0.1875 }
+        if (ch == 8243) { return 0.354 }
+        return -1.0
+    }
+
+    ; The euro, which the invoice demo puts in front of an amount and which
+    ; was, before the two tables above, the one character outside printable
+    ; ASCII the gallery asked for.
+    sfn euroEm:double () {
+        return 0.55615
+    }
+
+    sfn monoEuroEm:double () {
+        return 0.60205
+    }
+
+    ; Is this family drawn with one advance for every character?
+    ; Is this family drawn with one advance for every character?
+    ;
+    ; By name, and in both spellings, because Ranger has no case folding to
+    ; reach for here. The families the gallery actually names are `monospace`,
+    ; `Courier New` and `Consolas`; anything else is measured with the
+    ; proportional table, which is the safer way to be wrong — a proportional
+    ; table on a monospace face is a little narrow, a monospace table on a
+    ; proportional face is wrong for every character.
+    sfn isMono:boolean (fontFamily:string) {
+        if ((indexOf fontFamily "mono") >= 0) {
+            return true
+        }
+        if ((indexOf fontFamily "Mono") >= 0) {
+            return true
+        }
+        if ((indexOf fontFamily "courier") >= 0) {
+            return true
+        }
+        if ((indexOf fontFamily "Courier") >= 0) {
+            return true
+        }
+        if ((indexOf fontFamily "Consol") >= 0) {
+            return true
+        }
+        if ((indexOf fontFamily "consol") >= 0) {
+            return true
+        }
+        return false
+    }
+
+    ; `isMono` for a family, asked once and remembered. A run is measured one
+    ; character at a time and every one of them names the same family, so the
+    ; answer after the first is a pointer comparison rather than six searches.
+    fn monoFor:boolean (fontFamily:string) {
+        if monoKnown {
+            if (monoFamily == fontFamily) {
+                return monoCached
+            }
+        }
+        monoFamily = fontFamily
+        monoCached = (EVGTextMeasurer.isMono(fontFamily))
+        boldCached = (EVGTextMeasurer.isBold(fontFamily))
+        monoKnown = true
+        return monoCached
+    }
+
+    ; The bold cut, as the layout names it: the family with `-Bold` on it.
+    sfn isBold:boolean (fontFamily:string) {
+        return ((indexOf fontFamily "-Bold") >= 0)
+    }
+
+    ; The advance tables, built once per measurer rather than once per
+    ; character. Lazily, because a measurer that overrides `measureText` and
+    ; never reaches `measureChar` should not pay for four arrays it will not
+    ; read.
+    fn prepareTables:void () {
+        advTable = (EVGTextMeasurer.advanceEm())
+        monoTable = (EVGTextMeasurer.monoAdvanceEm())
+        latinTable = (EVGTextMeasurer.latin1Em())
+        punctTable = (EVGTextMeasurer.punctEm())
+        boldTable = (EVGTextMeasurer.boldAdvanceEm())
+        boldLatinTable = (EVGTextMeasurer.boldLatin1Em())
+        boldPunctTable = (EVGTextMeasurer.boldPunctEm())
+        tablesReady = true
+    }
+
     fn measureChar:double (ch:int fontFamily:string fontSize:double) {
-        ; Estimate width of a single character
-        ; Proportional fonts have varying widths
-        ; This is a rough approximation
-        
-        ; Space (32) - narrower
-        if (ch == 32) {
-            return (fontSize * 0.3)
+        if (tablesReady == false) {
+            this.prepareTables()
         }
-        
-        ; i, l, j, t, f - narrow characters
-        if ((ch == 105) || (ch == 108) || (ch == 106) || (ch == 116) || (ch == 102)) {
-            return (fontSize * 0.3)
+        def mono:boolean (this.monoFor(fontFamily))
+        def bold:boolean boldCached
+        if (ch == 8364) {
+            if mono {
+                return ((EVGTextMeasurer.monoEuroEm()) * fontSize)
+            }
+            return ((EVGTextMeasurer.euroEm()) * fontSize)
         }
-        
-        ; m, w - wide characters
-        if ((ch == 109) || (ch == 119)) {
-            return (fontSize * 0.8)
+        if ((ch >= 32) && (ch <= 126)) {
+            def t:[double] advTable
+            if mono {
+                t = monoTable
+            } {
+                if bold {
+                    t = boldTable
+                }
+            }
+            return ((itemAt t (ch - 32)) * fontSize)
         }
-        
-        ; M, W - uppercase wide
-        if ((ch == 77) || (ch == 87)) {
-            return (fontSize * 0.9)
+        ; The soft hyphen takes no space in either kind of face.
+        if (ch == 173) {
+            return 0.0
         }
-        
-        ; I - narrow uppercase
-        if (ch == 73) {
-            return (fontSize * 0.35)
+        ; A monospace face has one advance for everything it holds, and it
+        ; holds all of these — measured: every code below came back 0.60205.
+        if mono {
+            if (((ch >= 160) && (ch <= 255)) || ((ch >= 8208) && (ch <= 8230))) {
+                return ((EVGTextMeasurer.monoEuroEm()) * fontSize)
+            }
+            if ((EVGTextMeasurer.extraEm(ch)) >= 0.0) {
+                return ((EVGTextMeasurer.monoEuroEm()) * fontSize)
+            }
         }
-        
-        ; Default for most characters
-        return (fontSize * 0.55)
+        if ((ch >= 160) && (ch <= 255)) {
+            if bold {
+                return ((itemAt boldLatinTable (ch - 160)) * fontSize)
+            }
+            return ((itemAt latinTable (ch - 160)) * fontSize)
+        }
+        if ((ch >= 8208) && (ch <= 8230)) {
+            if bold {
+                return ((itemAt boldPunctTable (ch - 8208)) * fontSize)
+            }
+            return ((itemAt punctTable (ch - 8208)) * fontSize)
+        }
+        def extra:double (EVGTextMeasurer.extraEm(ch))
+        if (extra >= 0.0) {
+            return (extra * fontSize)
+        }
+        ; --- surrogate pairs, which is to say emoji -------------------------
+        ;
+        ; A code point above the BMP arrives as TWO code units, and half an em
+        ; each made an emoji exactly one em wide. Measured in Chromium at
+        ; 13px and 16px — the fractions are identical at both, so they really
+        ; are per-em:
+        ;
+        ;   thumbs up  1.2477 em      crying face  1.1685 em      eye  1.0 em
+        ;
+        ; So the pair was under-measured by a factor of about 1.2, and a chat
+        ; bubble sized from that wrapped its emoji onto a second line and
+        ; spilled it out of the box. That is what this fixes.
+        ;
+        ; The HIGH surrogate carries the whole width and the low one carries
+        ; none, so a caret index still lands between characters rather than
+        ; inside one.
+        ;
+        ; 1.25 em for an emoji this does not know individually, and that
+        ; number is deliberately the WIDEST measured rather than the average.
+        ; The two failure modes are not symmetric: over-measuring leaves a box
+        ; a few pixels wide, and under-measuring wraps a line that was meant
+        ; to fit and pushes it out of its container.
+        if ((ch >= 55296) && (ch <= 56319)) {
+            if (ch == 55357) {
+                return (fontSize * 1.25)
+            }
+            return (fontSize * 1.25)
+        }
+        if ((ch >= 56320) && (ch <= 57343)) {
+            return 0.0
+        }
+        ; A zero-width joiner and a variation selector take no space of their
+        ; own — they modify the run around them. Counting them as half an em
+        ; each is how a family of four ends up measured as seven characters.
+        if (ch == 8205) {
+            return 0.0
+        }
+        if (ch == 65039) {
+            return 0.0
+        }
+        ; Outside the table — anything beyond printable ASCII and the euro.
+        ; Half an em, which is the middle of the measured range rather than a
+        ; number picked by feel, and it is a GUESS: the honest fix for a
+        ; character this table does not hold is to measure with the face that
+        ; will draw it, through `EVGTextEngine.setMeasurer`.
+        ;
+        ; Latin-1 and the general punctuation block are in the tables above
+        ; now; this is what is left — other scripts, symbols, arrows. A left
+        ; arrow measured 1.0 em and an up arrow 0.5, so half an em is the
+        ; middle of the range rather than a number picked by feel, and it is
+        ; a GUESS: fine for a glyph alone in a box, not for a sentence.
+        return (fontSize * 0.5)
     }
-    
+
     fn wrapText:[string] (text:string fontFamily:string fontSize:double maxWidth:double) {
         ; Wrap text to fit within maxWidth
         ; Returns array of lines
@@ -244,13 +650,13 @@ class SimpleTextMeasurer {
             i = i + 1
         }
         
-        def lineHeight:double (fontSize * 1.2)
+        def lineHeight:double (fontSize * (EVGTextMeasurer.normalLineHeightEm()))
         
         def metrics (new EVGTextMetrics())
         metrics.width = width
         metrics.height = lineHeight
-        metrics.ascent = (fontSize * 0.8)
-        metrics.descent = (fontSize * 0.2)
+        metrics.ascent = (fontSize * (EVGTextMeasurer.fallbackAscentEm()))
+        metrics.descent = (fontSize * (EVGTextMeasurer.fallbackDescentEm()))
         metrics.lineHeight = lineHeight
         return metrics
     }

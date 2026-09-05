@@ -1,0 +1,435 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EvgTracePath.rgr — compact `d` encoding for traced paths
+; ==============================================================================
+;
+; A trace is thousands of curves, and how they are written down is worth as
+; much as how they were fitted. VectorShapes.asPathData is the general writer
+; for the vector stack: absolute commands, four decimals, a separator between
+; every pair of numbers. That is the right default for hand-built art, where a
+; path is a few dozen commands a human may read. For a traced picture it is
+; roughly twice the bytes it needs to be, on geometry nobody will ever read.
+;
+; Nothing here moves a point beyond the rounding the caller asks for:
+;
+;   1. quantize  — round every coordinate to `precision` decimals, once, in
+;                  document space, BEFORE the cleanup below. Rounding at write
+;                  time instead leaves the segments the rounding itself made
+;                  degenerate in the file.
+;   2. cleanup   — drop the zero-length steps and the collinear middles that
+;                  quantization just created.
+;   3. encode    — per segment the shorter of the absolute and the relative
+;                  form, H/V for an axis-aligned line, S for a cubic whose
+;                  first handle mirrors the last one, numbers with no leading
+;                  zero or trailing zeros, and no separator where the grammar
+;                  does not need one.
+;
+; The separator rule is the only subtle one. A number may be run straight onto
+; the previous one when it cannot extend it: always before a minus sign, and
+; before a leading "." only when the previous number already spent its own dot
+; (so "5.25.5" is two numbers, while "5" then ".5" must stay apart or it reads
+; as the single number 5.5).
+; ==============================================================================
+
+Import "SVGPathParser.rgr"
+
+class EvgTracePath {
+
+    Constructor () {
+    }
+
+    sfn absD:double (v:double) {
+        if (v < 0.0) {
+            return (0.0 - v)
+        }
+        return v
+    }
+
+    ; Round to `p` decimals and write it in the shortest form that reads back
+    ; the same: no trailing zeros, no leading zero on a pure fraction.
+    sfn num:string (v:double p:int) {
+        def scale:double 1.0
+        def i:int 0
+        while (i < p) {
+            scale = (scale * 10.0)
+            i = (i + 1)
+        }
+        def neg:boolean false
+        def a:double v
+        if (a < 0.0) {
+            neg = true
+            a = (0.0 - a)
+        }
+        def scaled:int (to_int ((a * scale) + 0.5))
+        def unit:int (to_int scale)
+        def whole:int (idiv scaled unit)
+        def frac:int (scaled - (whole * unit))
+        def out:string ""
+        if (frac > 0) {
+            ; Trim the trailing zeros as digits, not as text.
+            def digits:int p
+            while ((frac - ((idiv frac 10) * 10)) == 0) {
+                frac = (idiv frac 10)
+                digits = (digits - 1)
+            }
+            def fs:string (to_string frac)
+            ; Left-pad back to the place the digits actually sit in.
+            def pad:int (digits - (strlen fs))
+            while (pad > 0) {
+                fs = ("0" + fs)
+                pad = (pad - 1)
+            }
+            if (whole == 0) {
+                out = ("." + fs)
+            } {
+                out = ((to_string whole) + "." + fs)
+            }
+        } {
+            out = (to_string whole)
+        }
+        if (neg) {
+            if (out == "0") {
+                return "0"
+            }
+            return ("-" + out)
+        }
+        return out
+    }
+
+    ; Round every coordinate to `p` decimals, in place on a copy.
+    sfn quantize:[PathCommand] (cmds:[PathCommand] p:int) {
+        def out:[PathCommand]
+        def n:int (array_length cmds)
+        def i:int 0
+        while (i < n) {
+            def c:PathCommand (itemAt cmds i)
+            def q (new PathCommand())
+            q.type = c.type
+            q.x = (EvgTracePath.roundTo(c.x p))
+            q.y = (EvgTracePath.roundTo(c.y p))
+            q.x1 = (EvgTracePath.roundTo(c.x1 p))
+            q.y1 = (EvgTracePath.roundTo(c.y1 p))
+            q.x2 = (EvgTracePath.roundTo(c.x2 p))
+            q.y2 = (EvgTracePath.roundTo(c.y2 p))
+            push out q
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn roundTo:double (v:double p:int) {
+        def scale:double 1.0
+        def i:int 0
+        while (i < p) {
+            scale = (scale * 10.0)
+            i = (i + 1)
+        }
+        def neg:boolean false
+        def a:double v
+        if (a < 0.0) {
+            neg = true
+            a = (0.0 - a)
+        }
+        def r:int (to_int ((a * scale) + 0.5))
+        def back:double ((to_double r) / scale)
+        if (neg) {
+            return (0.0 - back)
+        }
+        return back
+    }
+
+    ; True when b sits on the segment a→c, within a tenth of the rounding grid.
+    sfn collinear:boolean (ax:double ay:double bx:double by:double cx:double cy:double) {
+        def cross:double (((bx - ax) * (cy - ay)) - ((by - ay) * (cx - ax)))
+        def dx:double (cx - ax)
+        def dy:double (cy - ay)
+        def base:double (sqrt ((dx * dx) + (dy * dy)))
+        if (base < 0.000001) {
+            return true
+        }
+        def d:double (EvgTracePath.absD(cross))
+        return ((d / base) < 0.0001)
+    }
+
+    ; Drop zero-length steps and collinear middles left by the rounding. Only
+    ; straight runs are touched; a curve is never merged into its neighbour.
+    sfn cleanup:[PathCommand] (cmds:[PathCommand]) {
+        def out:[PathCommand]
+        def n:int (array_length cmds)
+        def lx:double 0.0
+        def ly:double 0.0
+        def px:double 0.0
+        def py:double 0.0
+        def i:int 0
+        while (i < n) {
+            def c:PathCommand (itemAt cmds i)
+            if (c.type == "M") {
+                push out c
+                lx = c.x
+                ly = c.y
+                px = c.x
+                py = c.y
+            }
+            if (c.type == "L") {
+                def skip:boolean false
+                if ((lx == c.x) && (ly == c.y)) {
+                    skip = true
+                }
+                if (skip == false) {
+                    def merged:boolean false
+                    def m:int (array_length out)
+                    if (m > 0) {
+                        def prev:PathCommand (itemAt out (m - 1))
+                        if (prev.type == "L") {
+                            if (EvgTracePath.collinear(px py lx ly c.x c.y)) {
+                                prev.x = c.x
+                                prev.y = c.y
+                                merged = true
+                            }
+                        }
+                    }
+                    if (merged == false) {
+                        push out c
+                        px = lx
+                        py = ly
+                    }
+                    lx = c.x
+                    ly = c.y
+                }
+            }
+            if (c.type == "C") {
+                push out c
+                px = lx
+                py = ly
+                lx = c.x
+                ly = c.y
+            }
+            if (c.type == "Q") {
+                push out c
+                px = lx
+                py = ly
+                lx = c.x
+                ly = c.y
+            }
+            if (c.type == "Z") {
+                push out c
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Append `tok` to `d`, with a separator only where the SVG number grammar
+    ; needs one. `prev` is the number written just before it.
+    sfn joinNum:string (d:string prev:string tok:string) {
+        if ((strlen prev) == 0) {
+            return (d + tok)
+        }
+        def first:string (substring tok 0 1)
+        if (first == "-") {
+            return (d + tok)
+        }
+        if (first == ".") {
+            if ((indexOf prev ".") >= 0) {
+                return (d + tok)
+            }
+        }
+        return ((d + " ") + tok)
+    }
+
+    ; Two numbers as one coordinate pair, appended to `d`.
+    sfn pair:string (d:string prev:string a:string b:string) {
+        def s1:string (EvgTracePath.joinNum(d prev a))
+        return (EvgTracePath.joinNum(s1 a b))
+    }
+
+    ; The last number written in `s`, so the next one knows whether it may run
+    ; on. Empty when `s` ends in a command letter.
+    ;
+    ; A minus sign STARTS a number, it does not continue one, so the scan stops
+    ; at it and then takes it. Reading "-" as an interior character instead
+    ; makes ".2-1" look like a single number that has already spent its dot,
+    ; and the next ".44" is then written with no separator — ".2-1.44" — which
+    ; is three numbers where four were meant, and the path breaks there.
+    sfn lastNum:string (s:string) {
+        def n:int (strlen s)
+        def i:int n
+        while (i > 0) {
+            def ch:string (substring s (i - 1) i)
+            if ((indexOf "0123456789." ch) < 0) {
+                if (ch == "-") {
+                    return (substring s (i - 1) n)
+                }
+                return (substring s i n)
+            }
+            i = (i - 1)
+        }
+        return (substring s 0 n)
+    }
+
+    ; The whole `d` attribute. `precision` is decimal places; `compact` picks
+    ; the shorthand encoding over plain absolute commands.
+    sfn encode:string (cmds:[PathCommand] precision:int compact:boolean) {
+        def q:[PathCommand] (EvgTracePath.quantize(cmds precision))
+        def work:[PathCommand] (EvgTracePath.cleanup(q))
+        if (compact == false) {
+            return (EvgTracePath.encodePlain(work precision))
+        }
+        return (EvgTracePath.encodeCompact(work precision))
+    }
+
+    sfn encodePlain:string (cmds:[PathCommand] precision:int) {
+        def d:string ""
+        def n:int (array_length cmds)
+        def i:int 0
+        while (i < n) {
+            def c:PathCommand (itemAt cmds i)
+            if (i > 0) {
+                d = (d + " ")
+            }
+            if (c.type == "M") {
+                d = (((d + "M") + (EvgTracePath.num(c.x precision)) + ",") + (EvgTracePath.num(c.y precision)))
+            }
+            if (c.type == "L") {
+                d = (((d + "L") + (EvgTracePath.num(c.x precision)) + ",") + (EvgTracePath.num(c.y precision)))
+            }
+            if (c.type == "C") {
+                d = (((d + "C") + (EvgTracePath.num(c.x1 precision)) + ",") + (EvgTracePath.num(c.y1 precision)))
+                d = (((d + " ") + (EvgTracePath.num(c.x2 precision)) + ",") + (EvgTracePath.num(c.y2 precision)))
+                d = (((d + " ") + (EvgTracePath.num(c.x precision)) + ",") + (EvgTracePath.num(c.y precision)))
+            }
+            if (c.type == "Q") {
+                d = (((d + "Q") + (EvgTracePath.num(c.x1 precision)) + ",") + (EvgTracePath.num(c.y1 precision)))
+                d = (((d + " ") + (EvgTracePath.num(c.x precision)) + ",") + (EvgTracePath.num(c.y precision)))
+            }
+            if (c.type == "Z") {
+                d = (d + "Z")
+            }
+            i = (i + 1)
+        }
+        return d
+    }
+
+    sfn encodeCompact:string (cmds:[PathCommand] precision:int) {
+        def d:string ""
+        def n:int (array_length cmds)
+        ; Current point, the subpath start, and the previous cubic's second
+        ; handle (for the S shorthand). `smooth` says whether that handle is
+        ; real, i.e. whether the previous command was a cubic.
+        def cx:double 0.0
+        def cy:double 0.0
+        def sx:double 0.0
+        def sy:double 0.0
+        def hx:double 0.0
+        def hy:double 0.0
+        def smooth:boolean false
+        def i:int 0
+        while (i < n) {
+            def c:PathCommand (itemAt cmds i)
+            if (c.type == "M") {
+                def absTok:string (EvgTracePath.pair("M" "" (EvgTracePath.num(c.x precision)) (EvgTracePath.num(c.y precision))))
+                def relTok:string (EvgTracePath.pair("m" "" (EvgTracePath.num((c.x - cx) precision)) (EvgTracePath.num((c.y - cy) precision))))
+                if (i == 0) {
+                    d = (d + absTok)
+                } {
+                    if ((strlen relTok) < (strlen absTok)) {
+                        d = (d + relTok)
+                    } {
+                        d = (d + absTok)
+                    }
+                }
+                cx = c.x
+                cy = c.y
+                sx = c.x
+                sy = c.y
+                smooth = false
+            }
+            if (c.type == "L") {
+                def absTok2:string ""
+                def relTok2:string ""
+                if (c.y == cy) {
+                    absTok2 = (EvgTracePath.joinNum("H" "" (EvgTracePath.num(c.x precision))))
+                    relTok2 = (EvgTracePath.joinNum("h" "" (EvgTracePath.num((c.x - cx) precision))))
+                } {
+                    if (c.x == cx) {
+                        absTok2 = (EvgTracePath.joinNum("V" "" (EvgTracePath.num(c.y precision))))
+                        relTok2 = (EvgTracePath.joinNum("v" "" (EvgTracePath.num((c.y - cy) precision))))
+                    } {
+                        absTok2 = (EvgTracePath.pair("L" "" (EvgTracePath.num(c.x precision)) (EvgTracePath.num(c.y precision))))
+                        relTok2 = (EvgTracePath.pair("l" "" (EvgTracePath.num((c.x - cx) precision)) (EvgTracePath.num((c.y - cy) precision))))
+                    }
+                }
+                if ((strlen relTok2) < (strlen absTok2)) {
+                    d = (d + relTok2)
+                } {
+                    d = (d + absTok2)
+                }
+                cx = c.x
+                cy = c.y
+                smooth = false
+            }
+            if (c.type == "C") {
+                ; S is available when the first handle is the reflection of the
+                ; previous cubic's second handle through the current point.
+                def useS:boolean false
+                if (smooth) {
+                    def rx:double ((2.0 * cx) - hx)
+                    def ry:double ((2.0 * cy) - hy)
+                    def ex:double (EvgTracePath.absD((rx - c.x1)))
+                    def ey:double (EvgTracePath.absD((ry - c.y1)))
+                    if ((ex < 0.0000001) && (ey < 0.0000001)) {
+                        useS = true
+                    }
+                }
+                def absTok3:string ""
+                def relTok3:string ""
+                if (useS) {
+                    absTok3 = (EvgTracePath.pair("S" "" (EvgTracePath.num(c.x2 precision)) (EvgTracePath.num(c.y2 precision))))
+                    absTok3 = (EvgTracePath.pair(absTok3 (EvgTracePath.lastNum(absTok3)) (EvgTracePath.num(c.x precision)) (EvgTracePath.num(c.y precision))))
+                    relTok3 = (EvgTracePath.pair("s" "" (EvgTracePath.num((c.x2 - cx) precision)) (EvgTracePath.num((c.y2 - cy) precision))))
+                    relTok3 = (EvgTracePath.pair(relTok3 (EvgTracePath.lastNum(relTok3)) (EvgTracePath.num((c.x - cx) precision)) (EvgTracePath.num((c.y - cy) precision))))
+                } {
+                    absTok3 = (EvgTracePath.pair("C" "" (EvgTracePath.num(c.x1 precision)) (EvgTracePath.num(c.y1 precision))))
+                    absTok3 = (EvgTracePath.pair(absTok3 (EvgTracePath.lastNum(absTok3)) (EvgTracePath.num(c.x2 precision)) (EvgTracePath.num(c.y2 precision))))
+                    absTok3 = (EvgTracePath.pair(absTok3 (EvgTracePath.lastNum(absTok3)) (EvgTracePath.num(c.x precision)) (EvgTracePath.num(c.y precision))))
+                    relTok3 = (EvgTracePath.pair("c" "" (EvgTracePath.num((c.x1 - cx) precision)) (EvgTracePath.num((c.y1 - cy) precision))))
+                    relTok3 = (EvgTracePath.pair(relTok3 (EvgTracePath.lastNum(relTok3)) (EvgTracePath.num((c.x2 - cx) precision)) (EvgTracePath.num((c.y2 - cy) precision))))
+                    relTok3 = (EvgTracePath.pair(relTok3 (EvgTracePath.lastNum(relTok3)) (EvgTracePath.num((c.x - cx) precision)) (EvgTracePath.num((c.y - cy) precision))))
+                }
+                if ((strlen relTok3) < (strlen absTok3)) {
+                    d = (d + relTok3)
+                } {
+                    d = (d + absTok3)
+                }
+                hx = c.x2
+                hy = c.y2
+                cx = c.x
+                cy = c.y
+                smooth = true
+            }
+            if (c.type == "Q") {
+                def absTok4:string (EvgTracePath.pair("Q" "" (EvgTracePath.num(c.x1 precision)) (EvgTracePath.num(c.y1 precision))))
+                absTok4 = (EvgTracePath.pair(absTok4 (EvgTracePath.lastNum(absTok4)) (EvgTracePath.num(c.x precision)) (EvgTracePath.num(c.y precision))))
+                def relTok4:string (EvgTracePath.pair("q" "" (EvgTracePath.num((c.x1 - cx) precision)) (EvgTracePath.num((c.y1 - cy) precision))))
+                relTok4 = (EvgTracePath.pair(relTok4 (EvgTracePath.lastNum(relTok4)) (EvgTracePath.num((c.x - cx) precision)) (EvgTracePath.num((c.y - cy) precision))))
+                if ((strlen relTok4) < (strlen absTok4)) {
+                    d = (d + relTok4)
+                } {
+                    d = (d + absTok4)
+                }
+                cx = c.x
+                cy = c.y
+                smooth = false
+            }
+            if (c.type == "Z") {
+                d = (d + "Z")
+                cx = sx
+                cy = sy
+                smooth = false
+            }
+            i = (i + 1)
+        }
+        return d
+    }
+}

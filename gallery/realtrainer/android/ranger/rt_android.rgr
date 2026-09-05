@@ -1,0 +1,401 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+; ==============================================================================
+; rt_android.rgr — the RealTrainer demo behind an Android View.
+; ==============================================================================
+;
+; The facade the Kotlin host talks to. The demo is `RealTrainerDemo.rgr`,
+; unchanged; this is the viewport around it, and the viewport is the whole of
+; what the port adds.
+;
+; The page IS the view. The demo is responsive — one tree, and the
+; stylesheet's `@media` blocks fold the rail or the bottom bar at 768px — so
+; it is laid out at the view's size in density-independent pixels, and again
+; whenever that changes: a rotation, multi-window, the keyboard pushing the
+; view up. There is no fit, no letterbox and no pinch, as there is none in
+; the browser at `?page=fit`: a phone gets the phone app and a tablet the
+; desktop one, at their own size, the way the original does.
+;
+; The host works in physical pixels and divides by the display density
+; before it calls in; the display list comes back in dp and the host scales
+; the canvas by the density to draw it. Text and paths then rasterise at the
+; panel's real resolution.
+;
+; This is the iOS facade (`../../ios/ranger/rt_ios.rgr`) without the safe
+; area: an Activity's content view already sits inside the system bars, and
+; `windowSoftInputMode=adjustResize` makes the keyboard a resize.
+;
+; Everything here is checked on Node by `check_rt_android.rgr` — the same
+; class, the same sums — so an SDK is needed only for the Kotlin on top.
+
+Import "../../src/RealTrainerDemo.rgr"
+
+class RtAndroid {
+
+    def app:RealTrainerDemo (new RealTrainerDemo)
+    def started:boolean false
+
+    ; The view, in dp.
+    def screenW:double 0.0
+    def screenH:double 0.0
+
+    ; A press is two events -- down marks the control, up activates it -- and
+    ; the demo's `press` takes the id, so the id has to survive between them.
+    ; A drag that scrolls cancels the press, as it does under a finger in the
+    ; browser.
+    def lastPageX:double 0.0
+    def lastPageY:double 0.0
+    def pressedId:string ""
+    ; The frame clock, so a pan is timed against it and a lift can throw the
+    ; page — see `RealTrainerDemo.scrollDrag`.
+    def nowMs:double 0.0
+    def lastPanMs:double 0.0
+    ; A finger that landed on the scrollbar's thumb drags the thumb, not the
+    ; page, until it lifts. `barY` follows it in page units.
+    def barDrag:boolean false
+    def barY:double 0.0
+    def dragged:double 0.0
+
+    Constructor () {
+    }
+
+    ; --- lifecycle ------------------------------------------------------------
+
+    ; The view and the five texts the browser page embeds: the stylesheet, the
+    ; session's COMPACT, the two state machines and the reference seed. An
+    ; empty machine or seed is left unloaded rather than parsed, so an APK that
+    ; lacks one still opens the page.
+    fn start:void (w:double h:double css:string compact:string planMachine:string chatMachine:string seed:string) {
+        screenW = w
+        screenH = h
+        app.init(css compact)
+        if ((strlen planMachine) > 0) {
+            app.loadPlanMachine(planMachine)
+        }
+        if ((strlen chatMachine) > 0) {
+            app.loadChatMachine(chatMachine)
+        }
+        if ((strlen seed) > 0) {
+            app.loadReference(seed)
+        }
+        ; A finger, not a mouse: the stylesheet's `(pointer: coarse)` block
+        ; gives the targets their size.
+        app.setPointerCoarse(true)
+        started = true
+        this.fitPage()
+        app.openRoute("/")
+    }
+
+    ; A rotation, multi-window, the keyboard. The page keeps every bit of its
+    ; state; only its size changes, and the layout answers for it.
+    fn resize:void (w:double h:double) {
+        screenW = w
+        screenH = h
+        this.fitPage()
+    }
+
+    ; --- the viewport ---------------------------------------------------------
+
+    fn usableWidth:double () {
+        if (screenW < 1.0) {
+            return 1.0
+        }
+        return screenW
+    }
+
+    fn usableHeight:double () {
+        if (screenH < 1.0) {
+            return 1.0
+        }
+        return screenH
+    }
+
+    ; The page is the view, exactly: no scale and no offset. The demo lays
+    ; itself out at that size.
+    fn fitPage:void () {
+        if (started == false) {
+            return
+        }
+        app.setPageSize((this.usableWidth()) (this.usableHeight()))
+    }
+
+    ; What the host scales the canvas by beyond the density — one, always.
+    ; The names are the dashboard port's, so the two hosts read alike.
+    fn scale:double () {
+        return 1.0
+    }
+
+    fn zoom:double () {
+        return 1.0
+    }
+
+    fn panX:double () {
+        return 0.0
+    }
+
+    fn pageWidth:double () {
+        return (app.widthPx())
+    }
+
+    fn pageHeight:double () {
+        return (app.heightPx())
+    }
+
+    ; A view point in dp to a page pixel — the same number — and whether it
+    ; lands on the page at all.
+    fn toPageX:double (x:double) {
+        return x
+    }
+
+    fn toPageY:double (y:double) {
+        return y
+    }
+
+    fn onPage:boolean (x:double y:double) {
+        if ((x < 0.0) || (y < 0.0)) {
+            return false
+        }
+        if (x > (this.usableWidth())) {
+            return false
+        }
+        if (y > (this.usableHeight())) {
+            return false
+        }
+        return true
+    }
+
+    ; No zoom on a page that is already the view's size: a pinch changes
+    ; nothing and says so, and a double tap has nothing to reset.
+    fn pinch:boolean (factor:double focusX:double focusY:double) {
+        return false
+    }
+
+    fn resetZoom:boolean () {
+        return false
+    }
+
+    ; A drag scrolls the document, as a finger does in the browser: the
+    ; content follows the finger, so `dy` is the FINGER's travel. Past a few
+    ; dp of travel the press under the finger is a drag and not a tap, and the
+    ; mark comes off.
+    fn canPan:boolean () {
+        return started
+    }
+
+    fn panBy:boolean (dx:double dy:double) {
+        if (started == false) {
+            return false
+        }
+        dragged = (dragged + (dy * dy) + (dx * dx))
+        if ((dragged > 36.0) && ((strlen pressedId) > 0)) {
+            pressedId = ""
+            app.setPressed("")
+        }
+        def dt:double (nowMs - lastPanMs)
+        lastPanMs = nowMs
+        if barDrag {
+            barY = (barY + dy)
+            return (app.scrollbarDrag(barY))
+        }
+        ; HOW LONG the move took as well as how far: that is what decides
+        ; where the lift throws the page.
+        return (app.scrollDrag((0.0 - dy) dt))
+    }
+
+    ; --- the frame ------------------------------------------------------------
+
+    fn frame:EVGDisplayList () {
+        return (app.display())
+    }
+
+    ; The clock. `dtMs` is the REAL milliseconds since the last frame, which is
+    ; what makes a dropped frame shorten an animation rather than stretch it.
+    ; The host clamps a long gap; this answers whether anything moved.
+    fn tick:boolean (dtMs:double) {
+        if (started == false) {
+            return false
+        }
+        nowMs = (nowMs + dtMs)
+        return (app.tick(dtMs))
+    }
+
+    ; --- input ----------------------------------------------------------------
+
+    fn hitAt:string (x:double y:double) {
+        if ((this.onPage(x y)) == false) {
+            return ""
+        }
+        return (app.hitId(x y))
+    }
+
+    ; A finger lands: mark whatever is under it as pressed, and remember the id
+    ; so the release can activate the same control even if the finger moved a
+    ; little first.
+    fn pressAt:boolean (x:double y:double) {
+        lastPageX = x
+        lastPageY = y
+        dragged = 0.0
+        ; A finger down catches a glide where it is.
+        app.scrollHalt()
+        lastPanMs = nowMs
+        if (app.scrollbarGrab(x y)) {
+            barDrag = true
+            barY = y
+            pressedId = ""
+            return true
+        }
+        def id:string (this.hitAt(x y))
+        pressedId = id
+        app.setPressed(id)
+        return ((strlen id) > 0)
+    }
+
+    ; The finger lifts. The control under it is activated -- the demo decides
+    ; what that means -- and the pressed mark comes off either way. A field
+    ; takes the focus, so the host knows to raise the keyboard.
+    fn releasePress:boolean () {
+        if barDrag {
+            barDrag = false
+            app.scrollbarRelease()
+            return true
+        }
+        ; If the finger was moving, the page carries on: the app decides from
+        ; the speed it tracked whether that was a throw, and `tick` does the
+        ; rest.
+        def threw:boolean (app.scrollRelease())
+        def id:string pressedId
+        pressedId = ""
+        app.setPressed("")
+        if threw {
+            return true
+        }
+        if ((strlen id) == 0) {
+            return true
+        }
+        if (app.hasField(id)) {
+            if ((app.focusedField()) != id) {
+                app.setFocus(id)
+                app.rebuild()
+            }
+            return true
+        }
+        if ((strlen (app.focusedField())) > 0) {
+            app.setFocus("")
+            app.rebuild()
+        }
+        return (app.press(id))
+    }
+
+    fn cancelPress:boolean () {
+        if barDrag {
+            barDrag = false
+            app.scrollbarRelease()
+            return true
+        }
+        def threw:boolean (app.scrollRelease())
+        if ((strlen pressedId) == 0) {
+            return threw
+        }
+        pressedId = ""
+        app.setPressed("")
+        return true
+    }
+
+    ; A pointer that is not pressing: a mouse on a Chromebook, or the
+    ; emulator's. Answers whether the hover actually changed, so a host does
+    ; not repaint on every move.
+    fn hoverAt:boolean (x:double y:double) {
+        def barChanged:boolean (app.scrollbarHover(x y))
+        if (app.overScrollbar()) {
+            if ((strlen (app.hovered)) > 0) {
+                app.setHover("")
+                return true
+            }
+            return barChanged
+        }
+        def id:string (this.hitAt(x y))
+        if (id == (app.hovered)) {
+            return barChanged
+        }
+        app.setHover(id)
+        return true
+    }
+
+    fn clearHover:boolean () {
+        if ((strlen (app.hovered)) == 0) {
+            return false
+        }
+        app.setHover("")
+        return true
+    }
+
+    ; --- the keyboard ---------------------------------------------------------
+
+    ; The field that has the focus, or nothing — the host shows the soft
+    ; keyboard while there is one and hides it when there is none.
+    fn focusedField:string () {
+        return (app.focusedField())
+    }
+
+    ; What the keyboard committed, into the focused field.
+    fn typeText:boolean (text:string) {
+        if ((strlen (app.focusedField())) == 0) {
+            return false
+        }
+        return (app.typeText(text))
+    }
+
+    ; A named key — "Backspace", "Enter", "ArrowLeft"... — as the browser
+    ; names them.
+    fn key:boolean (name:string shift:boolean ctrl:boolean) {
+        return (app.keyWith(name shift ctrl))
+    }
+
+    ; The focused field's text, for a host that mirrors it into the input
+    ; method's own editor.
+    fn fieldStateJson:string () {
+        def tid:string (app.focusedField())
+        if ((strlen tid) == 0) {
+            return "{}"
+        }
+        return (app.fieldStateJson(tid))
+    }
+
+    fn blur:boolean () {
+        if ((strlen (app.focusedField())) == 0) {
+            return false
+        }
+        app.setFocus("")
+        app.rebuild()
+        return true
+    }
+
+    ; --- what the app is doing ------------------------------------------------
+
+    fn sceneName:string () {
+        return (app.sceneName())
+    }
+
+    ; The section the shell is showing: home, calendar, dashboard, chat.
+    fn sectionName:string () {
+        return (app.sectionName())
+    }
+
+    ; A route, as the browser's `?route=` opens one: `/calendar/cal-train`,
+    ; `/new-calendar`, `/summary/yearsheet`.
+    fn openRoute:boolean (route:string) {
+        return (app.openRoute(route))
+    }
+
+    fn styleErrorCount:int () {
+        return (app.styleErrorCount())
+    }
+
+    fn styleErrorAt:string (i:int) {
+        return (app.styleErrorAt(i))
+    }
+
+    ; No `main` here, deliberately. This facade is a LIBRARY: the app's entry
+    ; point is `MainActivity.kt`. A static method named `main` would make the
+    ; compiler emit a program that runs on load, which is not what a library
+    ; is.
+}

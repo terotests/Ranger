@@ -120,9 +120,9 @@ class TabsCtl extends UiCtl {
         }
     }
 
-    fn activate:void (target:string) {
+    fn activate:string (target:string) {
         if disabled {
-            return
+            return ""
         }
         def i:int 0
         while (i < (array_length items)) {
@@ -133,10 +133,11 @@ class TabsCtl extends UiCtl {
                     rovingValue = it.value
                     this.build()
                 }
-                return
+                return ""
             }
             i = (i + 1)
         }
+        return ""
     }
 
     fn keyDown:string (target:string key:string) {
@@ -234,6 +235,9 @@ class TabsCtl extends UiCtl {
         push out rootRow
 
         def listRow:UiRow (UiRow.of((this.listTid()) (EVGA11yRole.tabList()) name))
+        ; On the LIST, not on the root — the root has no role at all.
+        listRow.orientation = "horizontal"
+        listRow.parentTid = tid
         listRow.tabStop = true
         push out listRow
 
@@ -241,6 +245,7 @@ class TabsCtl extends UiCtl {
         while (i < (array_length items)) {
             def it:UiItem (itemAt items i)
             def row:UiRow (UiRow.of((this.tabTid(it.value)) (EVGA11yRole.tab()) it.name))
+            row.parentTid = (this.listTid())
             if (it.value == value) {
                 row.state = "active"
                 row.selected = (EVGA11yTri.yes())
@@ -254,6 +259,8 @@ class TabsCtl extends UiCtl {
             }
             if it.disabled {
                 row.tabStop = false
+            } {
+                row.focusable = true
             }
             push out row
             i = (i + 1)
@@ -263,6 +270,7 @@ class TabsCtl extends UiCtl {
         while (j < (array_length items)) {
             def it2:UiItem (itemAt items j)
             def prow:UiRow (UiRow.of((this.panelTid(it2.value)) (EVGA11yRole.tabPanel()) ""))
+            prow.parentTid = tid
             if (it2.value == value) {
                 prow.state = "active"
             } {

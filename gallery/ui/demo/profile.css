@@ -1,0 +1,281 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+ *
+ * The label-left form. One rule carries the whole layout claim: `.pf-label`
+ * has a stated width and `.pf-row` centres its two children against each
+ * other, so every control's left edge is on one column and a tall row and a
+ * short row both read straight.
+ */
+
+.pf-page {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  padding: 24px;
+  background-color: #fafafa;
+  width: 780px;
+  height: 800px;
+}
+
+.pf-card {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  border-radius: 16px;
+  border: 1px solid #e4e4e7;
+  background-color: #ffffff;
+  width: 700px;
+}
+
+.pf-head {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  border-bottom: 1px solid #f4f4f5;
+  padding: 20px 24px 20px 24px;
+}
+
+.pf-head-text {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+}
+
+.pf-title { color: #09090b; font-size: 18px; font-weight: 600; height: 26px; }
+.pf-sub { color: #71717a; font-size: 13px; height: 20px; }
+
+/* A spacer that eats the slack. `justify-content: space-between` on the parent
+ * would also push the FIRST child away from the leading edge on the rows that
+ * have only one thing in them, which is not what any of these want. */
+.pf-spacer { flex: 1; }
+
+.pf-badge {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  border-radius: 8px;
+  background-color: #fef3c7;
+  padding: 5px 10px 5px 10px;
+}
+
+.pf-badge-text { color: #92400e; font-size: 12px; font-weight: 500; height: 18px; }
+
+.pf-body {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  padding: 8px 24px 8px 24px;
+}
+
+/* THE CLAIM. A row is a label and a control side by side, centred against each
+ * other — the rows are deliberately different heights (a box is 40, the photo
+ * row 48, the switch row 24) and a layout that only worked when they matched
+ * would have nowhere to hide. */
+.pf-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  padding: 10px 0 10px 0;
+}
+
+/* The stated width is what puts every control's left edge on one column. It is
+ * a number in ONE place; a label that sized to its own text would give nine
+ * different columns and read as nine unrelated rows. */
+.pf-label {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  width: 220px;
+}
+
+.pf-label-text { color: #18181b; font-size: 14px; font-weight: 500; height: 20px; }
+.pf-help { color: #a1a1aa; font-size: 12px; height: 18px; }
+
+.pf-ctl {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  width: 372px;
+}
+
+.pf-box {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  position: relative;
+  border-radius: 10px;
+  border: 1px solid #e4e4e7;
+  background-color: #ffffff;
+  padding: 0 12px 0 12px;
+  height: 38px;
+}
+
+.pf-box-off { background-color: #fafafa; border-color: #f4f4f5; }
+
+.pf-text { color: #18181b; font-family: Arial; font-size: 13px; height: 18px; }
+.pf-ghost { color: #a1a1aa; font-family: Arial; font-size: 13px; height: 18px; }
+.pf-icon { color: #a1a1aa; font-family: Arial; font-size: 13px; height: 18px; }
+
+.pf-caret {
+  position: absolute;
+  top: 10px;
+  width: 2px;
+  height: 18px;
+  background-color: #2563eb;
+}
+
+.pf-band {
+  position: absolute;
+  top: 10px;
+  height: 18px;
+  background-color: #dbeafe;
+}
+
+/* The photo row and the switch row: a control that is several things in a
+ * line rather than one box. */
+.pf-switch-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.pf-avatar {
+  border-radius: 20px;
+  background-color: #d4d4d8;
+  width: 40px;
+  height: 40px;
+}
+
+.pf-btn {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  border-radius: 8px;
+  border: 1px solid #e4e4e7;
+  background-color: #ffffff;
+  padding: 8px 12px 8px 12px;
+}
+
+.pf-btn-text { color: #18181b; font-size: 13px; font-weight: 500; height: 18px; }
+.pf-btn-icon { color: #52525b; font-family: Arial; font-size: 12px; height: 18px; }
+
+/* The select's closed trigger. Shaped like a box because it IS one to a
+ * pointer; the chevron is what says it opens, and `aria-haspopup` is what says
+ * the same thing to a reader. */
+.pf-trigger {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  border-radius: 10px;
+  border: 1px solid #e4e4e7;
+  background-color: #ffffff;
+  padding: 0 12px 0 12px;
+  height: 38px;
+}
+
+.pf-chevron { color: #71717a; font-family: Arial; font-size: 13px; height: 18px; }
+
+/* The switch: a track with a knob pushed to one end. The state is a POSITION,
+ * which is why `justify-content` carries it and there is no second glyph to
+ * draw or not draw. */
+.pf-switch {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-start;
+  border-radius: 12px;
+  background-color: #d4d4d8;
+  padding: 0 3px 0 3px;
+  width: 38px;
+  height: 22px;
+  transition: background-color 140ms ease-out;
+}
+
+.pf-switch-on { background-color: #18181b; justify-content: flex-end; }
+
+.pf-knob {
+  border-radius: 9px;
+  background-color: #ffffff;
+  width: 18px;
+  height: 18px;
+}
+
+.pf-switch-label { color: #18181b; font-size: 14px; height: 20px; }
+
+.pf-foot {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  border-top: 1px solid #f4f4f5;
+  padding: 16px 24px 16px 24px;
+}
+
+.pf-foot-text { color: #71717a; font-size: 13px; height: 20px; }
+
+.pf-foot-btns {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.pf-btn-ghost { }
+.pf-btn-solid { background-color: #18181b; border-color: #18181b; }
+.pf-btn-text-solid { color: #ffffff; }
+
+.pf-note { color: #71717a; font-size: 12px; padding: 14px 0 0 0; width: 730px; height: 34px; }
+
+/* --- the select, open ------------------------------------------------------
+ *
+ * The surface is a SIBLING of the trigger, not a child, so the wrapper is what
+ * holds the two and the overlay pass anchors one to the other. The wrapper
+ * itself must not add a box: it is `display: block` with no padding so the
+ * closed row measures exactly as it did before the list existed. */
+.pf-selwrap {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.pf-listbox {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  border-radius: 10px;
+  border: 1px solid #e4e4e7;
+  background-color: #ffffff;
+  padding: 4px 4px 4px 4px;
+  width: 220px;
+}
+
+.pf-option {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  border-radius: 6px;
+  padding: 0 8px 0 8px;
+  height: 32px;
+  cursor: pointer;
+}
+
+/* The KEYBOARD's cursor, which is not the same thing as the chosen value —
+ * arrowing through a list must not look like choosing. The tick says chosen;
+ * this says where the cursor is. */
+.pf-option-active { background-color: #f4f4f5; }
+
+.pf-opttxt { color: #0a0a0a; font-family: Arial; font-size: 13px; height: 18px; }
+.pf-optmark { color: #0a0a0a; font-family: Arial; font-size: 13px; height: 18px; width: 12px; }

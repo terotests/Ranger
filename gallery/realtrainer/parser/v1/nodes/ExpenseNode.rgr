@@ -1,0 +1,58 @@
+Import "../V1Json.rgr"
+Import "AstNode.rgr"
+
+class ExpenseNode {
+    Extends(AstNode)
+
+    def expenseType:string "general"
+    def hasNamedEntry:boolean false
+    def namedEntryName:string ""
+    def amountRaw:string ""
+    def currency:string ""
+    def hasVatPercent:boolean false
+    def vatPercentRaw:string ""
+    def hasVatAmount:boolean false
+    def vatAmountRaw:string ""
+    def hasDescription:boolean false
+    def description:string ""
+
+    Constructor () {
+        type = "expense"
+    }
+
+    fn toJSONString@(override):string () {
+        def fields:[string]
+        CompactV1Json.addStringField(fields "type" type)
+        if (hasNamedEntry) {
+            def entryFields:[string]
+            CompactV1Json.addStringField(entryFields "type" "entry")
+            CompactV1Json.addStringField(entryFields "name" namedEntryName)
+            CompactV1Json.addRawField(fields "expenseType" (CompactV1Json.jsonObject(entryFields)))
+        } {
+            CompactV1Json.addStringField(fields "expenseType" expenseType)
+        }
+        if ((strlen amountRaw) > 0) {
+            CompactV1Json.addRawField(fields "amount" amountRaw)
+            CompactV1Json.addStringField(fields "currency" currency)
+        } {
+            CompactV1Json.addRawField(fields "amount" "null")
+            CompactV1Json.addRawField(fields "currency" "null")
+        }
+        if (hasVatPercent) {
+            CompactV1Json.addRawField(fields "vatPercent" vatPercentRaw)
+        } {
+            CompactV1Json.addRawField(fields "vatPercent" "null")
+        }
+        if (hasVatAmount) {
+            CompactV1Json.addRawField(fields "vatAmount" vatAmountRaw)
+        } {
+            CompactV1Json.addRawField(fields "vatAmount" "null")
+        }
+        if (hasDescription) {
+            CompactV1Json.addStringField(fields "description" description)
+        } {
+            CompactV1Json.addRawField(fields "description" "null")
+        }
+        return (CompactV1Json.jsonObject(fields))
+    }
+}

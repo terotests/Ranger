@@ -1,0 +1,335 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+ *
+ * The dialog and the window, as an EVG stylesheet.
+ *
+ * Class-first: every class here is one DialogDemo.rgr or WindowCtl.rgr writes,
+ * and neither carries appearance of its own. `ui-dialog-*` is the modal's
+ * chrome and `ui-window-*` the movable one's — the same class writes both, and
+ * the sheet is where they stop looking alike.
+ *
+ * EVGStyleSheet matches ONE class token per selector, so a variant is its own
+ * token on the same element rather than a compound rule.
+ */
+
+.dg-page {
+  display: flex;
+  flex-direction: column;
+  background-color: #f4f4f5;
+  padding: 24px;
+  width: 900px;
+  height: 560px;
+}
+
+/* --- the page underneath -------------------------------------------------------
+   Something worth softening. A scrim over a blank page proves nothing about a
+   blur, so there is a list of names under it with hard edges and colour. */
+.dg-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid #e4e4e7;
+  border-radius: 12px;
+  background-color: #ffffff;
+  padding: 18px 20px;
+  width: 810px;
+}
+
+.dg-sheet-head {
+  color: #18181b;
+  font-size: 16px;
+  font-weight: bold;
+  height: 24px;
+}
+
+.dg-sheet-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  height: 34px;
+}
+
+.dg-swatch {
+  border-radius: 999px;
+  background-color: #a78bfa;
+  width: 22px;
+  height: 22px;
+}
+
+.dg-sheet-cell { color: #18181b; font-size: 14px; width: 240px; height: 20px; }
+.dg-sheet-role { color: #71717a; width: 120px; }
+
+/* --- the scrim -------------------------------------------------------------------
+   Both at once, and on purpose. The blur is what a backend may not have; the
+   dim is what it falls back to. Painted in that order, a target with no blur
+   still darkens the page instead of showing nothing at all. */
+.ui-dialog-scrim {
+  background-color: rgba(9, 9, 11, 0.45);
+  backdrop-filter: blur(10px);
+}
+
+/* --- the modal ---------------------------------------------------------------- */
+.ui-dialog-content {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-radius: 14px;
+  background-color: #ffffff;
+  padding: 22px 24px;
+  width: 420px;
+}
+
+.ui-dialog-titlebar {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  height: 30px;
+}
+
+/* A modal's handle is not one: it holds the title and answers nothing.
+ * The card is 420 wide with 24px of padding, so the row has 372 to share
+ * between this and the 28px close button — 336 + 28 leaves eight to spare.
+ * At 380 the close button wrapped onto a second line and landed on top of
+ * the description. */
+.ui-dialog-handle {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  width: 336px;
+  height: 30px;
+}
+
+.ui-dialog-title {
+  color: #09090b;
+  font-size: 19px;
+  font-weight: bold;
+  width: 330px;
+  height: 26px;
+}
+
+.ui-dialog-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: #52525b;
+  font-size: 17px;
+  width: 28px;
+  height: 28px;
+  text-align: center;
+  transition: background-color 120ms ease-out;
+}
+
+.ui-dialog-close:hover { background-color: #f4f4f5; }
+
+.ui-dialog-description {
+  color: #71717a;
+  font-size: 14px;
+  width: 372px;
+  height: 40px;
+}
+
+.ui-dialog-body { display: flex; flex-direction: column; width: 372px; }
+
+/* --- the movable window ---------------------------------------------------------
+   A window is a dialog with a smaller frame and a title bar you can hold. The
+   shadow is heavier than the modal's: nothing dims behind it, so the shadow is
+   the only thing lifting it off the page. */
+.ui-window-content {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #d4d4d8;
+  border-radius: 12px;
+  background-color: #ffffff;
+  width: 300px;
+}
+
+/* The handle. It looks like one — a strip with its own fill and its own
+ * cursor-worth of affordance — because a title bar that looks like a heading
+ * is a title bar nobody tries to drag. */
+/* The strip across the top: a container, and not itself a control. The HANDLE
+ * inside it is the button, and the close button is its sibling — a button may
+ * not contain another one, which axe calls `nested-interactive` and which is
+ * what the first version of this was. */
+.ui-window-titlebar {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  /* TOP CORNERS ONLY. It was 11px on all four, so the strip curved away from
+   * the body underneath it and left two little notches in the middle of the
+   * window — a bar that is flush at the bottom cannot be written with one
+   * radius, which is why EVG has four now. */
+  border-radius: 11px 11px 0 0;
+  background-color: #fafafa;
+  padding: 0 8px 0 0;
+  height: 40px;
+}
+
+/* Everything left of the close button, so the whole bar is grabbable. The
+ * window is 300 wide with a 1px border, so the head has 298; its own 8px of
+ * right padding leaves 290, and the close button takes 26 of those. 264 is
+ * the rest, exactly — at 258 there was a six-pixel dead strip in the middle
+ * of the title bar that looked like a gap and grabbed nothing. */
+.ui-window-handle {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  border-radius: 11px 0 0 0;
+  /* The affordance the comment above the bar has been claiming all along.
+   * `cursor` is a real inherited property in EVG now, so the title on the bar
+   * does not have to repeat it. */
+  cursor: move;
+  padding: 0 0 0 14px;
+  width: 264px;
+  height: 40px;
+  transition: background-color 120ms ease-out;
+}
+
+.ui-window-handle:hover  { background-color: #f4f4f5; }
+.ui-window-handle:active { background-color: #e4e4e7; }
+.ui-window-handle:focus  { background-color: #ede9fe; }
+
+/* Held. Set by the controller rather than by `:active`, because a drag
+ * continues while the pointer is outside the bar and `:active` does not. */
+.ui-window-handle-dragging { background-color: #ddd6fe; }
+
+.ui-window-title {
+  color: #18181b;
+  font-size: 14px;
+  font-weight: bold;
+  width: 246px;
+  height: 20px;
+}
+
+.ui-window-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: #52525b;
+  font-size: 16px;
+  width: 26px;
+  height: 26px;
+  text-align: center;
+  transition: background-color 120ms ease-out;
+}
+
+.ui-window-close:hover { background-color: #e4e4e7; }
+
+/* 14px each side, the same indent the handle gives the title — so the rows
+ * below line up with the window's name instead of starting at its border.
+ * 298 inside the border less 28 of padding leaves 270. */
+.ui-window-body {
+  display: flex;
+  flex-direction: column;
+  padding: 12px 14px;
+  width: 270px;
+}
+
+/* The demo's own body class, on both windows: what is inside is the caller's
+ * business, and the frame does not style it. */
+.dg-body { display: flex; flex-direction: column; }
+
+/* --- the form ---------------------------------------------------------------------- */
+.dg-form { display: flex; flex-direction: column; gap: 14px; width: 372px; }
+
+.dg-field { display: flex; flex-direction: column; gap: 6px; }
+
+.dg-label { color: #09090b; font-size: 14px; font-weight: bold; height: 20px; }
+
+.dg-input {
+  display: flex;
+  align-items: center;
+  border: 1px solid #e4e4e7;
+  border-radius: 8px;
+  background-color: #ffffff;
+  padding: 0 12px;
+  width: 370px;
+  height: 40px;
+  transition: border-color 120ms ease-out;
+}
+
+.dg-input:hover { border-color: #d4d4d8; }
+.dg-input:focus { border-color: #a1a1aa; }
+
+.dg-input-text { color: #18181b; font-size: 14px; width: 340px; height: 20px; }
+
+.dg-foot {
+  display: flex;
+  flex-direction: row;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 10px 0 0 0;
+  width: 372px;
+  height: 50px;
+}
+
+.dg-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  height: 40px;
+  transition: background-color 120ms ease-out, transform 120ms ease-out;
+}
+
+.dg-button:active { transform: scale(0.97); }
+
+.dg-button-ghost {
+  border: 1px solid #e4e4e7;
+  background-color: #ffffff;
+  width: 96px;
+}
+
+.dg-button-ghost:hover { background-color: #f4f4f5; }
+
+.dg-button-solid {
+  background-color: #18181b;
+  width: 138px;
+}
+
+.dg-button-solid:hover { background-color: #3f3f46; }
+
+.dg-button-text {
+  color: #18181b;
+  font-size: 14px;
+  width: 130px;
+  height: 20px;
+  text-align: center;
+}
+
+/* On the dark button. A separate token rather than a descendant selector,
+ * which EVGStyleSheet cannot express. */
+.dg-button-text-on-solid { color: #ffffff; }
+
+/* --- what is in the movable window ------------------------------------------------- */
+.dg-mini { display: flex; flex-direction: column; gap: 8px; width: 268px; }
+
+.dg-mini-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  height: 28px;
+}
+
+.dg-mini-cell { color: #3f3f46; font-size: 13px; width: 170px; height: 20px; }
+
+.dg-chip {
+  border-radius: 999px;
+  background-color: #f4f4f5;
+  color: #3f3f46;
+  font-size: 12px;
+  padding: 2px 10px;
+  width: 74px;
+  height: 20px;
+  text-align: center;
+}
+
+.dg-hint {
+  color: #a1a1aa;
+  font-size: 12px;
+  padding: 8px 0 2px 0;
+  width: 262px;
+  height: 20px;
+}

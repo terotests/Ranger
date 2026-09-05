@@ -84,6 +84,7 @@ host.notifyPath = (path) => { /* sync view model + re-render */ };
 - [`LICENSING.md`](LICENSING.md) - MIT compiler vs AGPL gallery
 - [`TARGET_NOTES.md`](TARGET_NOTES.md) - what each target language supports and where it falls short
 - [`PLAN_FORMATS.md`](PLAN_FORMATS.md) — the architecture for reading more than three file formats: the layer stack, the internal models, and the phased roadmap after DOCX/XLSX/PPTX. Phase 1 is `.odp` beside `.pptx`, run as the experiment that proves or disproves the shared scene
+- [`PLAN_API_DOCS.md`](PLAN_API_DOCS.md) — the design for `doc { … }` declarations: API metadata attached to a Ranger declaration that never restates what the compiler already knows, the `no doc` / `doc` / `doc public` visibility rule, a canonical **ApiIR** that names a logical module and no namespace, and the outputs built from it — native doc comments and annotations per target (XML doc, TSDoc, DocC, KDoc, rustdoc, Javadoc, dartdoc, Doxygen, docstrings), and the language × platform split that separates C# from Unity and Dart from Flutter
 - [`CHANGELOG.md`](CHANGELOG.md) - version history
 - [`AGENTS.md`](AGENTS.md) — git/PR rules and Ranger gotchas for AI agents; links the [FAQ](https://terotests.github.io/Ranger/docs/faq/)
 - `ai/` — short offline notes for assistants (`README.md`, `QUICKREF.md`, `GRAMMAR.md`, `INTROSPECTION.md`); prefer the docs site when online
@@ -243,6 +244,57 @@ port is a facade, one walk over the display list, and two implementations of an
 eight-method surface — the second being Java2D, so a deck renders to PNGs on
 any JVM and the port can be checked without a device.
 
+## Calling other programs, and building an iOS app with no Xcode project
+
+Ranger can run another command line program:
+
+```ranger
+Import "lib/Shell.rgr"
+
+def sh:Shell (new Shell)
+def argv:[string]
+push argv "rev-parse"
+push argv "HEAD"
+def r:ShellResult (sh.capture("git" argv))
+if (r.ok()) {
+    print (r.outText())
+}
+```
+
+One compiler primitive is behind that — `run_process_result`, which answers
+`([exit code, stdout, stderr])` and can either capture the child's output or let
+it stream to this program's own. It takes a working directory and extra
+environment entries, passes the arguments as a **vector** so nothing inside one
+is ever re-read by a shell, and has a backend on thirteen targets.
+[`lib/Shell.rgr`](lib/Shell.rgr) is the API over it: a result object, a log of
+every command line, and a **dry run** that records instead of executing.
+
+That dry run is what makes a build driver testable, and
+[`lib/apple/`](lib/apple/README.md) is the driver it was built for:
+`AppleTarget`, `AppleAppSpec`, `AppleToolchain` and `AppleAppBuilder` turn a
+list of Swift files into an installed, running iOS, iPadOS or watchOS app using
+`xcrun`, `swiftc`, `plutil`, `codesign` and `simctl` — **no `.xcodeproj`, no
+`xcodebuild`, and nothing that opens Xcode.** 151 checks assert the plan it
+produces (which program, which arguments, in which order) and they run on
+JavaScript, Python, Go, Rust, C++, Java and PHP, on any machine.
+
+[`gallery/ui/ios`](gallery/ui/ios/README.md) is the whole of it worked through:
+the `gallery/ui` dashboard demo compiled to Swift, painted with CoreGraphics,
+and built for an iPhone, an iPad and an Apple Watch by a **Ranger program**.
+
+```bash
+npm run shell:test      # the process operator and lib/Shell, on this machine
+npm run apple:test      # the Apple build driver, without a Mac
+npm run ui:ios:plan     # the entire iOS build, printed and not run
+npm run ui:ios:verify   # the port's own logic — 82 checks, no Mac
+npm run ui:ios:run      # ...and on a Mac, the app on a simulator
+npm run ui:ios:device   # ...or on the iPhone or iPad on the cable
+```
+
+`ui:ios:device` is one command because the three things a device build needs —
+the connected device, a codesigning identity and a matching provisioning
+profile — are all already on the machine, so they are found rather than typed.
+
 ## Target-specific notes
 
 Swift 6, Rust, the C++ static analysis optimizer, HTTP servers on the Go
@@ -397,7 +449,14 @@ Options: -<option>=<value>
   -o=<value>             output file, default is "output.<language>"
   -classdoc=<value>      write class documentation .md file
   -operatordoc=<value>   write operator documention into .md file
+  -apidoc=<value>        write the API documentation artifacts into this subdirectory
+  -apiformat=<value>     which API artifacts to write: json, markdown, report (default json,markdown)
+  -csnamespace=<value>   C# namespace for the generated types
+  -ktpackage=<value>     Kotlin package for the generated types
 Flags: -<flag>
+  -apipackage    Write the packaging the target ecosystem expects (package.json for npm, .csproj and docfx.json for NuGet)
+  -apistrict     An undocumented public declaration or parameter is an error, not a warning
+  -keep-examples Emit the functions named by `example`. They are type checked either way; by default they are left out
   -forever       Leave the main program into eternal loop (Go, Swift)
   -allowti       Allow type inference at target lang (creates slightly smaller code)
   -plugins-only  ignore built-in language output and use only plugins
@@ -742,6 +801,126 @@ Hello.SomeStaticFn()   ; calling a static function of a class
 [Program structure](https://terotests.github.io/Ranger/docs/language/structure/)
 covers `class`, `record`, `systemclass`, `Import`, `Extend` and `Enum` in one
 table, and explains how blocks are passed to operators.
+
+## API documentation: the `doc { }` tail
+
+A declaration can carry a `doc { … }` block as its **tail**, after the body. The
+signature stays clean and the documentation is visibly an attachment to the
+declaration rather than a part of the program. It is compiler metadata, not a
+comment: `;` still documents the implementation, `doc` documents the interface.
+
+```
+class EVGA11yTree {
+    def focusId:string "" doc {
+        public
+        description "The identifier of the currently focused node."
+    }
+
+    fn find:EVGA11yNode ( id:string ) {
+        ...
+    } doc {
+        public
+        description "Finds an accessibility node by its stable identifier."
+        param id "The stable accessibility identifier."
+        returns "The matching node."
+        since "1.2"
+        see EVGA11yNode
+    }
+
+    fn rebuildIndex:void () {
+    } doc {
+        description "Rebuilds the lookup index. Not part of the public API."
+    }
+} doc {
+    public
+    description "A platform independent accessibility tree."
+}
+```
+
+**The block never restates what the compiler already knows.** There is no
+`param x int` and no `returns void`: the types come from the signature, and a
+`param` line that carries a type is a compile error. What the doc block carries
+is what no analysis can recover — prose, audience, version history and
+cross-references.
+
+**Documentation is the API declaration.** There is no `export fn` keyword:
+
+```
+no doc block            -> internal, undocumented
+doc { … }               -> documented, internal
+doc { public … }        -> exported public API
+```
+
+An undocumented function has no spelling for `public`. The block is checked
+against the signature it documents, which is the point of it being structured:
+a `param` that names no parameter, a `param` documented twice, a `returns` on a
+void function and a public member of an internal class are all compile errors.
+
+Entries: `public`, `internal`, `description`, `param`, `returns`, `throws`,
+`since`, `deprecated { since use description }`, `see`, `example`, `category`,
+`experimental`, `platform`, and `target <name> { … }` for markup that only one
+language has.
+
+**`example` names a function, not a string.** The sample is compiled and type
+checked with the rest of the program, rendered into each target's doc comment
+in *that target's* syntax — `const g = new Greeter()` on JavaScript,
+`g.greet(name : "world")` on Swift — and then left out of the emitted code.
+`-keep-examples` puts it back.
+
+```ranger
+fn greet:string ( name:string ) {
+    ...
+} doc {
+    public
+    description "Builds a greeting for a name."
+    example greetExample
+}
+
+class GreeterExamples {
+    sfn greetExample:void () {
+        def g:Greeter (new Greeter())
+        print (g.greet("world"))
+    }
+}
+```
+
+The compiler writes the documentation into the generated code in the target's
+own form and, with `-apidoc=<dir>`, a target-independent `api.json`, a Markdown
+reference and an `api.txt` report of the public surface. `-apipackage` adds the
+packaging the ecosystem expects:
+
+```bash
+# an npm package documentation.js renders with no configuration
+rgrc -es6 a11y.rgr -d=out -o=index.js -nodemodule \
+  -apidoc=docs -apipackage -name=evg-a11y -version=1.2.0 -license=MIT
+
+# a NuGet project whose XML documentation DocFX reads
+rgrc -l=csharp a11y.rgr -d=out -o=EvgA11y.cs \
+  -apidoc=docs -apipackage -name=Evg.A11y -version=1.2.0 -license=MIT
+
+# a pub package `dart doc` renders. The layout matters: dart doc reads lib/
+# and skips lib/src/, so `public` decides what the documentation shows.
+rgrc -l=dart a11y.rgr -d=pkg/lib/src -o=evg_a11y_impl.dart \
+  -apidoc=docs -apipackage -name=evg_a11y -version=1.2.0
+```
+
+Six targets carry the documentation into the generated code today:
+
+| Target | Comment form | Packaging | Doc tool |
+| --- | --- | --- | --- |
+| JavaScript | JSDoc (`@param {string} id`, `@public` / `@private`) | `package.json` | documentation.js |
+| C# | XML docs (`<summary>`, `<param>`, `<seealso cref>`, `[System.Obsolete]`) | `.csproj`, `docfx.json` | DocFX, Sandcastle |
+| Kotlin | KDoc (`@param`, `@return`, `@see`, `@Deprecated(… ReplaceWith)`) | `build.gradle.kts` | Dokka |
+| Swift | DocC (`- Parameter`, `- Returns`, `> Since:`, `@available`) | `Package.swift`, `.docc` catalog | DocC |
+| Python | Google docstrings (`Args:`, `Returns:`, `.. versionadded::`) | `pyproject.toml`, `__all__` | pdoc, Sphinx |
+| Dart | dartdoc (`/// [id] …`, `[Symbol]`, `@Deprecated`) | `pubspec.yaml`, generated `export … show` | `dart doc` |
+
+Each also gets a namespace, package or export surface from the doc blocks. On
+Dart and Python `public` writes the export list itself — a barrel file and
+`__all__` are exactly the kind of list that rots when a person maintains it. A
+class with no doc block is not opted into the API model and compiles exactly as
+it did before. Design and the remaining targets:
+[`PLAN_API_DOCS.md`](PLAN_API_DOCS.md).
 
 ## Types
 

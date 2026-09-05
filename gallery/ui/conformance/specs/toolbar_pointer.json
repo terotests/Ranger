@@ -1,0 +1,4 @@
+{ "name":"toolbar_pointer","component":"toolbar","behaviours":["toolbar-role","roving-focus"],
+  "fixture":{"controls":[{"type":"toolbar","tid":"tb","name":"Format","items":[
+    {"value":"b","name":"Bold"},{"value":"u","name":"Under"}]}]},
+  "steps":[{"click":"tb-b"},{"click":"tb-u"}] }

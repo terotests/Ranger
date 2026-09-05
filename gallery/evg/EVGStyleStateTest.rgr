@@ -1,0 +1,407 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EVGStyleStateTest — CSS that reacts, and CSS that moves
+; ==============================================================================
+;
+; Two things a stylesheet has to be able to say about a control that is being
+; used, and neither of them existed here:
+;
+;   `.btn:hover { … }`   the look of a thing under the pointer, decided by the
+;                        sheet rather than by the controller writing a second
+;                        class. A controller that has to know about hover is a
+;                        controller that has to know about presentation.
+;   `transition: …`      and the look CHANGING over time rather than snapping.
+;                        Not decoration: an instant colour swap reads as a
+;                        glitch, and the reason every real toolkit has this.
+;
+; Everything below runs without a browser. A pseudo-class is a flag on the
+; element and a rule that asks for it; a transition is a clock the caller
+; advances. Both are therefore testable exactly, which is the only reason to
+; put them in the engine rather than in a page.
+; ==============================================================================
+
+Import "EVGElement.rgr"
+Import "EVGUnit.rgr"
+Import "EVGStyleSheet.rgr"
+Import "EVGTransition.rgr"
+Import "EVGLayout.rgr"
+Import "EVGDisplayList.rgr"
+
+class StyleCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got '" + got + "' want '" + want + "'")
+        }
+        this.ok(name good)
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got " + (to_string got) + " want " + (to_string want))
+        }
+        this.ok(name good)
+    }
+}
+
+class EVGStyleStateTest {
+
+    sfn sheetOf:EVGStyleSheet (css:string) {
+        def s (new EVGStyleSheet())
+        s.parse(css)
+        s.setViewport(800.0 600.0 false)
+        return s
+    }
+
+    sfn button:EVGElement () {
+        def el (EVGElement.createDiv())
+        el.id = "btn"
+        el.className = "btn"
+        return el
+    }
+
+    ; The background as an integer 0..255 per channel, so a check can say what
+    ; it saw rather than "not equal".
+    sfn bgRed:int (el:EVGElement) {
+        if el.backgroundColor {
+            def c:EVGColor (unwrap el.backgroundColor)
+            return (c.red())
+        }
+        return (0 - 1)
+    }
+
+    sfn testHover:void (c:StyleCheck) {
+        print "--- a rule can ask for the pointer ---"
+        def css:string ".btn { background-color: rgb(0,0,0) } .btn:hover { background-color: rgb(255,0,0) }"
+        def s:EVGStyleSheet (EVGStyleStateTest.sheetOf(css))
+        c.eqInt("both rules parsed" (s.getRuleCount()) 2)
+        c.eqInt("and neither was rejected" (s.getErrorCount()) 0)
+
+        def el:EVGElement (EVGStyleStateTest.button())
+        s.applyTree(el "")
+        c.eqInt("at rest it is the base rule" (EVGStyleStateTest.bgRed(el)) 0)
+
+        el.isHovered = true
+        s.applyTree(el "")
+        c.eqInt("under the pointer the hover rule wins" (EVGStyleStateTest.bgRed(el)) 255)
+
+        el.isHovered = false
+        s.applyTree(el "")
+        c.eqInt("and it goes back when the pointer leaves" (EVGStyleStateTest.bgRed(el)) 0)
+    }
+
+    sfn testOrder:void (c:StyleCheck) {
+        print "--- a pseudo rule wins wherever it is written ---"
+        ; The hover rule comes FIRST here. In CSS the later rule of equal
+        ; specificity wins, but `:hover` is more specific than the bare class,
+        ; so it has to win from either position — the version that simply
+        ; applied rules in order got this backwards.
+        def css:string ".btn:hover { background-color: rgb(255,0,0) } .btn { background-color: rgb(0,0,0) }"
+        def s:EVGStyleSheet (EVGStyleStateTest.sheetOf(css))
+        def el:EVGElement (EVGStyleStateTest.button())
+        el.isHovered = true
+        s.applyTree(el "")
+        c.eqInt("even declared before the base rule" (EVGStyleStateTest.bgRed(el)) 255)
+    }
+
+    sfn testStates:void (c:StyleCheck) {
+        print "--- focus, active and disabled are the same mechanism ---"
+        def css:string (".btn { background-color: rgb(0,0,0) }"
+            + " .btn:focus { background-color: rgb(10,0,0) }"
+            + " .btn:active { background-color: rgb(20,0,0) }"
+            + " .btn:disabled { background-color: rgb(30,0,0) }")
+        def s:EVGStyleSheet (EVGStyleStateTest.sheetOf(css))
+        def el:EVGElement (EVGStyleStateTest.button())
+        el.isFocused = true
+        s.applyTree(el "")
+        c.eqInt("focus" (EVGStyleStateTest.bgRed(el)) 10)
+        el.isFocused = false
+        el.isPressed = true
+        s.applyTree(el "")
+        c.eqInt("active" (EVGStyleStateTest.bgRed(el)) 20)
+        el.isPressed = false
+        el.a11yDisabled = true
+        s.applyTree(el "")
+        c.eqInt("disabled" (EVGStyleStateTest.bgRed(el)) 30)
+    }
+
+    sfn testUnknownPseudo:void (c:StyleCheck) {
+        print "--- an unsupported pseudo is reported, not ignored ---"
+        ; Silently dropping it would leave a rule in the file that never fires
+        ; and a developer looking at the wrong thing.
+        def s:EVGStyleSheet (EVGStyleStateTest.sheetOf(".btn:nth-child(2) { background-color: rgb(1,0,0) }"))
+        c.eqInt("no rule was made" (s.getRuleCount()) 0)
+        c.ok("and an error says why" ((s.getErrorCount()) > 0))
+    }
+
+    sfn testUnknownTiming:void (c:StyleCheck) {
+        print "--- an unsupported timing function is reported too ---"
+        def bad:EVGStyleSheet (EVGStyleStateTest.sheetOf(".btn { transition: opacity 200ms spring(1, 2) }"))
+        c.ok("a made-up easing is an error" ((bad.getErrorCount()) > 0))
+        ; And the shape that IS legal has to survive the same check, or the
+        ; report is just noise: a function with commas inside it is normal CSS.
+        def good:EVGStyleSheet (EVGStyleStateTest.sheetOf(".btn { transition: opacity 200ms cubic-bezier(0.4, 0, 0.2, 1) }"))
+        c.eqInt("a real one is not" (good.getErrorCount()) 0)
+        c.eqInt("and the rule survives" (good.getRuleCount()) 1)
+    }
+
+    ; A property declared ONLY under a state has to go away again when the
+    ; state does.
+    ;
+    ; This is the case a stylesheet that mutates the element in place gets
+    ; wrong, and `transform` is where it bites, because nobody writes
+    ; `transform: none` on a base rule the way they always write a base colour.
+    ; The symptom is a row that lifts under the pointer and never comes back
+    ; down — the colour returns, so it looks like a transform bug rather than a
+    ; cascade one.
+    sfn testStateOnlyPropertyReverts:void (c:StyleCheck) {
+        print "--- a state-only property goes away with the state ---"
+        def css:string (".btn { background-color: rgb(0,0,0) }"
+            + " .btn:hover { transform: scale(2) translate(4, 0); opacity: 0.5 }")
+        def s:EVGStyleSheet (EVGStyleStateTest.sheetOf(css))
+        def el:EVGElement (EVGStyleStateTest.button())
+
+        s.applyTree(el "")
+        c.ok("no scale at rest" ((fabs (el.scale - 1.0)) < 0.001))
+
+        el.isHovered = true
+        s.applyTree(el "")
+        c.ok("scaled under the pointer" ((fabs (el.scale - 2.0)) < 0.001))
+        ; EIGHT, not four: `scale(2) translate(4, 0)` scales the translation
+        ; too, because the functions compose. Writing the four here and being
+        ; told otherwise is how that got checked.
+        c.ok("and moved by the SCALED offset" ((fabs (el.translateX - 8.0)) < 0.001))
+        c.ok("and faded" ((fabs (el.opacity - 0.5)) < 0.001))
+
+        el.isHovered = false
+        s.applyTree(el "")
+        c.ok("the scale goes back" ((fabs (el.scale - 1.0)) < 0.001))
+        c.ok("so does the offset" ((fabs el.translateX) < 0.001))
+        c.ok("and the opacity" ((fabs (el.opacity - 1.0)) < 0.001))
+        ; And the base rule is still in charge of what it does declare.
+        c.eqInt("while the base colour is untouched" (EVGStyleStateTest.bgRed(el)) 0)
+    }
+
+    ; `transform-origin` is in the same trap and needs the same treatment: a
+    ; corner pivot set only under `:hover` would otherwise stay the pivot
+    ; forever, and the next rotation would turn about a point nothing on screen
+    ; explains.
+    sfn testStateOnlyOriginReverts:void (c:StyleCheck) {
+        print "--- a state-only transform-origin goes back to the centre ---"
+        def css:string (".btn { background-color: rgb(0,0,0) }"
+            + " .btn:hover { transform-origin: left top }")
+        def s:EVGStyleSheet (EVGStyleStateTest.sheetOf(css))
+        def el:EVGElement (EVGStyleStateTest.button())
+
+        el.isHovered = true
+        s.applyTree(el "")
+        c.ok("the corner while hovered" ((fabs (EVGElement.resolveOrigin(el.transformOriginX 100.0))) < 0.001))
+
+        el.isHovered = false
+        s.applyTree(el "")
+        c.ok("and the centre again after" ((fabs ((EVGElement.resolveOrigin(el.transformOriginX 100.0)) - 50.0)) < 0.001))
+    }
+
+    ; `text-align` was parsed by EVGElement and read by NOTHING — a documented
+    ; attribute that did nothing at all, which is the defect PLAN.md complains
+    ; about by name. It was found by using it: a row of cards whose labels sat
+    ; stubbornly in the top-left corner.
+    ;
+    ; What is checked is the painted position, not the attribute: the whole
+    ; point is that the value now reaches the display list.
+    sfn testTextAlign:void (c:StyleCheck) {
+        print "--- text-align moves the text, not just the attribute ---"
+        def lefts:[double] (EVGStyleStateTest.labelXs("left"))
+        def centres:[double] (EVGStyleStateTest.labelXs("center"))
+        def rights:[double] (EVGStyleStateTest.labelXs("right"))
+        c.ok("a label was painted at all" ((array_length lefts) > 0))
+        if ((array_length lefts) > 0) {
+            def l:double (itemAt lefts 0)
+            def m:double (itemAt centres 0)
+            def r:double (itemAt rights 0)
+            c.ok("centred starts right of left-aligned" (m > (l + 1.0)))
+            c.ok("and right-aligned right of centred" (r > (m + 1.0)))
+            ; Centred is the MIDDLE of the two, not merely somewhere between:
+            ; the slack is halved, so the offset is half the right-aligned one.
+            def half:double ((l + r) / 2.0)
+            c.ok("and centred is exactly half the slack" ((fabs (m - half)) < 1.0))
+        }
+    }
+
+    ; The x of every text command in a 300px-wide box aligned this way.
+    sfn labelXs:[double] (align:string) {
+        def page (new EVGElement())
+        page.setAttribute("width" "400")
+        page.setAttribute("height" "100")
+        def card (new EVGElement())
+        card.setAttribute("width" "300")
+        card.setAttribute("height" "40")
+        card.setAttribute("text-align" align)
+        card.textContent = "hi"
+        page.addChild(card)
+        def lay (new EVGLayout())
+        lay.layout(page)
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(page)
+        def out:[double]
+        def i:int 0
+        while (i < (array_length dl.cmds)) {
+            def cmd:EVGDrawCmd (itemAt dl.cmds i)
+            if (cmd.kind == 3) {
+                push out cmd.x
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; --- transitions -------------------------------------------------------------
+
+    sfn testTransition:void (c:StyleCheck) {
+        print "--- a colour moves instead of jumping ---"
+        def css:string (".btn { background-color: rgb(0,0,0); transition: background-color 200ms }"
+            + " .btn:hover { background-color: rgb(200,0,0) }")
+        def s:EVGStyleSheet (EVGStyleStateTest.sheetOf(css))
+        def el:EVGElement (EVGStyleStateTest.button())
+        def tr (new EVGTransition())
+
+        s.applyTree(el "")
+        tr.reconcile(el)
+        c.eqInt("it starts where the base rule put it" (EVGStyleStateTest.bgRed(el)) 0)
+
+        el.isHovered = true
+        s.applyTree(el "")
+        tr.reconcile(el)
+        ; The target is 200, but no time has passed: a transition that jumps on
+        ; the first frame is not a transition.
+        c.eqInt("the pointer arrives and nothing has moved yet" (EVGStyleStateTest.bgRed(el)) 0)
+
+        tr.advance(el 100.0)
+        c.eqInt("half way through, half way there" (EVGStyleStateTest.bgRed(el)) 100)
+
+        tr.advance(el 100.0)
+        c.eqInt("and at the end it has arrived" (EVGStyleStateTest.bgRed(el)) 200)
+
+        tr.advance(el 500.0)
+        c.eqInt("and stays there" (EVGStyleStateTest.bgRed(el)) 200)
+    }
+
+    sfn testReverseMidFlight:void (c:StyleCheck) {
+        print "--- reversed half way, it goes back from where it IS ---"
+        def css:string (".btn { background-color: rgb(0,0,0); transition: background-color 200ms }"
+            + " .btn:hover { background-color: rgb(200,0,0) }")
+        def s:EVGStyleSheet (EVGStyleStateTest.sheetOf(css))
+        def el:EVGElement (EVGStyleStateTest.button())
+        def tr (new EVGTransition())
+        s.applyTree(el "")
+        tr.reconcile(el)
+        el.isHovered = true
+        s.applyTree(el "")
+        tr.reconcile(el)
+        tr.advance(el 100.0)
+        c.eqInt("half way" (EVGStyleStateTest.bgRed(el)) 100)
+
+        ; The pointer leaves mid-flight. Restarting from the ORIGINAL value
+        ; would snap the colour to 200 and then fade — the flicker every
+        ; hand-rolled version of this has.
+        el.isHovered = false
+        s.applyTree(el "")
+        tr.reconcile(el)
+        c.eqInt("the reversal starts from where it had got to" (EVGStyleStateTest.bgRed(el)) 100)
+        tr.advance(el 100.0)
+        c.eqInt("and lands back at the start" (EVGStyleStateTest.bgRed(el)) 0)
+    }
+
+    sfn testNoTransitionDeclared:void (c:StyleCheck) {
+        print "--- without a transition it is instant, as CSS says ---"
+        def css:string (".btn { background-color: rgb(0,0,0) } .btn:hover { background-color: rgb(200,0,0) }")
+        def s:EVGStyleSheet (EVGStyleStateTest.sheetOf(css))
+        def el:EVGElement (EVGStyleStateTest.button())
+        def tr (new EVGTransition())
+        s.applyTree(el "")
+        tr.reconcile(el)
+        el.isHovered = true
+        s.applyTree(el "")
+        tr.reconcile(el)
+        c.eqInt("there on the first frame" (EVGStyleStateTest.bgRed(el)) 200)
+    }
+
+    sfn testOpacity:void (c:StyleCheck) {
+        print "--- opacity moves too, and it is not a colour ---"
+        def css:string (".btn { opacity: 1; transition: opacity 100ms } .btn:hover { opacity: 0 }")
+        def s:EVGStyleSheet (EVGStyleStateTest.sheetOf(css))
+        def el:EVGElement (EVGStyleStateTest.button())
+        def tr (new EVGTransition())
+        s.applyTree(el "")
+        tr.reconcile(el)
+        el.isHovered = true
+        s.applyTree(el "")
+        tr.reconcile(el)
+        c.eqInt("still opaque on the frame the pointer arrives" (to_int (el.opacity * 100.0)) 100)
+        tr.advance(el 50.0)
+        c.eqInt("half faded" (to_int (el.opacity * 100.0)) 50)
+        tr.advance(el 50.0)
+        c.eqInt("gone" (to_int (el.opacity * 100.0)) 0)
+    }
+
+    sfn testSubtree:void (c:StyleCheck) {
+        print "--- the whole tree is advanced, not one element ---"
+        def css:string (".row { background-color: rgb(0,0,0); transition: background-color 100ms }"
+            + " .row:hover { background-color: rgb(100,0,0) }")
+        def s:EVGStyleSheet (EVGStyleStateTest.sheetOf(css))
+        def page:EVGElement (EVGElement.createDiv())
+        def kid:EVGElement (EVGElement.createDiv())
+        kid.id = "kid"
+        kid.className = "row"
+        page.addChild(kid)
+        def tr (new EVGTransition())
+        s.applyTree(page "")
+        tr.reconcileTree(page)
+        kid.isHovered = true
+        s.applyTree(page "")
+        tr.reconcileTree(page)
+        tr.advanceTree(page 50.0)
+        c.eqInt("a child half way through" (EVGStyleStateTest.bgRed(kid)) 50)
+    }
+
+    sfn main:void () {
+        def c (new StyleCheck())
+        print "=== EVG stylesheet: states and transitions ==="
+        EVGStyleStateTest.testHover(c)
+        EVGStyleStateTest.testOrder(c)
+        EVGStyleStateTest.testStates(c)
+        EVGStyleStateTest.testUnknownPseudo(c)
+        EVGStyleStateTest.testUnknownTiming(c)
+        EVGStyleStateTest.testStateOnlyPropertyReverts(c)
+        EVGStyleStateTest.testStateOnlyOriginReverts(c)
+        EVGStyleStateTest.testTextAlign(c)
+        EVGStyleStateTest.testTransition(c)
+        EVGStyleStateTest.testReverseMidFlight(c)
+        EVGStyleStateTest.testNoTransitionDeclared(c)
+        EVGStyleStateTest.testOpacity(c)
+        EVGStyleStateTest.testSubtree(c)
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed > 0) {
+            print "FAILURES"
+        } {
+            print "ALL PASS"
+        }
+    }
+}

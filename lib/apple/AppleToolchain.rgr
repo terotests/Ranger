@@ -1,0 +1,458 @@
+; SPDX-License-Identifier: MIT
+
+; =============================================================================
+; AppleToolchain.rgr -- Apple's command line tools, as methods.
+; =============================================================================
+;
+; Everything here goes through `xcrun`, which is the one program that knows
+; where the rest of them are. `xcrun swiftc` is not the same as `swiftc`: the
+; first resolves inside the selected developer directory and against the SDK
+; you name, the second is whichever Swift is on PATH and knows nothing about
+; iOS. Building for a device with the wrong one of those is the single most
+; common way a command line iOS build goes wrong, so nothing here calls a tool
+; directly.
+;
+; What this needs installed: Xcode, or the Command Line Tools plus the platform
+; SDKs. Nothing here opens Xcode, and nothing here needs a .xcodeproj.
+;
+; Every call goes through `Shell`, so a driver can be run dry -- the commands
+; are then recorded rather than executed, which is what makes an Apple build
+; pipeline testable on a machine that is not a Mac.
+; =============================================================================
+
+Import "../Shell.rgr"
+Import "AppleTarget.rgr"
+Import "AppleSimulator.rgr"
+Import "AppleDevice.rgr"
+
+class AppleToolchain {
+
+    def sh:Shell
+    ; Cached answers. `xcrun --show-sdk-path` costs about a tenth of a second
+    ; and a build asks for the same SDK several times.
+    def sdkPaths:[string:string]
+    def sdkVersions:[string:string]
+
+    Constructor (shell:Shell) {
+        sh = shell
+    }
+
+    ; Is there a toolchain here at all? Asked first, so "no Xcode installed" is
+    ; one clear sentence rather than a swiftc failure nobody can read.
+    fn isAvailable:boolean () {
+        return (sh.isInstalled("xcrun"))
+    }
+
+    ; Which Xcode (or Command Line Tools) is selected. `xcode-select -p`.
+    fn developerDir:string () {
+        ; Every argument vector in this file is BUILT rather than written as
+        ; an inline literal: a one-element literal is flattened to its element
+        ; on Rust (ISSUES.md #84), and any literal is lost when the call
+        ; taking it is immediately dereferenced (#85). A build driver that only
+        ; compiled on Node would be a poor advertisement for a cross-language
+        ; compiler; this one is checked on seven targets.
+        def argv:[string]
+        push argv "-p"
+        return (sh.text("xcode-select" argv))
+    }
+
+    ; The Swift the toolchain will actually compile with, as one line.
+    fn swiftVersion:string () {
+        def argv:[string]
+        push argv "swift"
+        push argv "--version"
+        def res:ShellResult (sh.capture("xcrun" argv))
+        if (res.failed()) {
+            return ""
+        }
+        return (res.outFirstLine())
+    }
+
+    ; The Mac this build is running on. A simulator runs NATIVE code, so an
+    ; Apple Silicon Mac builds simulator binaries for arm64 and an Intel Mac
+    ; builds them for x86_64 -- getting this from the machine rather than from
+    ; a constant is why a simulator build works on both.
+    fn hostArch:string () {
+        def argv:[string]
+        push argv "-m"
+        def arch:string (sh.text("uname" argv))
+        if ((strlen arch) == 0) {
+            return "arm64"
+        }
+        if (arch == "x86_64") {
+            return "x86_64"
+        }
+        return "arm64"
+    }
+
+    ; The same question as `sdkPath`, with the failure kept. `sdkPath` answers
+    ; "" for anything that went wrong, which is the right shape for a build and
+    ; the wrong one for a diagnostic: an Xcode whose licence has not been
+    ; accepted, one whose platforms have not been downloaded and one that is not
+    ; there all answer "" and have three different fixes. xcrun says which on
+    ; stderr, so a report has to be able to see it.
+    fn probeSdk:ShellResult (sdk:string) {
+        def argv:[string]
+        push argv "--sdk"
+        push argv sdk
+        push argv "--show-sdk-path"
+        return (sh.capture("xcrun" argv))
+    }
+
+    fn probeSwift:ShellResult () {
+        def argv:[string]
+        push argv "swift"
+        push argv "--version"
+        return (sh.capture("xcrun" argv))
+    }
+
+    ; Where the SDK lives. swiftc is given this path, not the SDK name.
+    fn sdkPath:string (sdk:string) {
+        if (has sdkPaths sdk) {
+            return (unwrap (get sdkPaths sdk))
+        }
+        def argv:[string]
+        push argv "--sdk"
+        push argv sdk
+        push argv "--show-sdk-path"
+        def p:string (sh.text("xcrun" argv))
+        set sdkPaths sdk p
+        return p
+    }
+
+    ; The SDK version, which is not the same as the deployment target: the SDK
+    ; is what you build AGAINST, the deployment target is the oldest OS the
+    ; result runs on.
+    fn sdkVersion:string (sdk:string) {
+        if (has sdkVersions sdk) {
+            return (unwrap (get sdkVersions sdk))
+        }
+        def argv:[string]
+        push argv "--sdk"
+        push argv sdk
+        push argv "--show-sdk-version"
+        def v:string (sh.text("xcrun" argv))
+        set sdkVersions sdk v
+        return v
+    }
+
+    ; Is this platform's SDK installed? An Xcode with the iOS platform but not
+    ; the watchOS one is an ordinary installation, not a broken one, so a watch
+    ; build says so instead of failing inside swiftc.
+    fn hasSdk:boolean (sdk:string) {
+        return ((strlen (this.sdkPath(sdk))) > 0)
+    }
+
+    ; --- the simulators -------------------------------------------------------
+
+    fn listSimulators:[AppleSimulator] () {
+        def argv:[string]
+        push argv "simctl"
+        push argv "list"
+        push argv "devices"
+        push argv "available"
+        def res:ShellResult (sh.capture("xcrun" argv))
+        if (res.failed()) {
+            def none:[AppleSimulator]
+            return none
+        }
+        return (AppleSimulatorList.parse(res.out))
+    }
+
+    ; The simulator to install onto: on the platform this target builds for,
+    ; preferring one that is already booted, and preferring `nameWanted` when
+    ; the caller named something.
+    fn pickSimulator@(optional):AppleSimulator (target:AppleTarget nameWanted:string) {
+        def all:[AppleSimulator] (this.listSimulators())
+        def prefix:string "iOS"
+        if (target.isWatch()) {
+            prefix = "watchOS"
+        }
+        def onPlatform:[AppleSimulator] (AppleSimulatorList.onPlatform(all prefix))
+        return (AppleSimulatorList.pick(onPlatform nameWanted))
+    }
+
+    ; Boot it if it is not booted. Booting one that is already up is an error
+    ; from simctl and a no-op in fact, so the state is checked rather than the
+    ; failure ignored.
+    fn bootSimulator:boolean (dev:AppleSimulator) {
+        if (dev.isBooted()) {
+            return true
+        }
+        def argv:[string]
+        push argv "simctl"
+        push argv "boot"
+        push argv dev.udid
+        def res:ShellResult (sh.capture("xcrun" argv))
+        if (res.ok()) {
+            return true
+        }
+        ; "Unable to boot device in current state: Booted" is a race with
+        ; something else having booted it, which is success as far as this is
+        ; concerned.
+        if ((indexOf res.err "current state: Booted") >= 0) {
+            return true
+        }
+        return false
+    }
+
+    ; Bring the Simulator application to the front. Without this the device is
+    ; running and there is no window, which looks exactly like a build that did
+    ; nothing.
+    fn openSimulatorUi:boolean () {
+        def argv:[string]
+        push argv "-a"
+        push argv "Simulator"
+        def res:ShellResult (sh.capture("open" argv))
+        return (res.ok())
+    }
+
+    ; Wait until the device is finished booting. Installing into a device that
+    ; is still starting fails intermittently, which is the worst kind of
+    ; failure to debug.
+    fn waitForBoot:boolean (dev:AppleSimulator) {
+        def argv:[string]
+        push argv "simctl"
+        push argv "bootstatus"
+        push argv dev.udid
+        def res:ShellResult (sh.capture("xcrun" argv))
+        return (res.ok())
+    }
+
+    fn installApp:ShellResult (dev:AppleSimulator appPath:string) {
+        def argv:[string]
+        push argv "simctl"
+        push argv "install"
+        push argv dev.udid
+        push argv appPath
+        return (sh.capture("xcrun" argv))
+    }
+
+    fn launchApp:ShellResult (dev:AppleSimulator bundleId:string) {
+        def argv:[string]
+        push argv "simctl"
+        push argv "launch"
+        push argv "--terminate-running-process"
+        push argv dev.udid
+        push argv bundleId
+        return (sh.capture("xcrun" argv))
+    }
+
+    ; The app's own log, filtered to this bundle. The watch and the phone both
+    ; write here, and it is the only way to see a print() from inside a
+    ; simulator without attaching a debugger.
+    fn streamLog:ShellResult (dev:AppleSimulator bundleId:string) {
+        def predicate:string ("subsystem CONTAINS \"" + bundleId + "\" OR process CONTAINS \"" + bundleId + "\"")
+        def argv:[string]
+        push argv "simctl"
+        push argv "spawn"
+        push argv dev.udid
+        push argv "log"
+        push argv "stream"
+        push argv "--level"
+        push argv "debug"
+        push argv "--predicate"
+        push argv predicate
+        return (sh.run("xcrun" argv))
+    }
+
+    ; --- real devices ---------------------------------------------------------
+
+    ; Attached iPhones and iPads, as raw text. `devicectl` ships with Xcode 15
+    ; and later; older toolchains need a third party installer, which this does
+    ; not pretend to wrap.
+    fn hasDeviceCtl:boolean () {
+        def argv:[string]
+        push argv "devicectl"
+        push argv "--version"
+        def res:ShellResult (sh.capture("xcrun" argv))
+        return (res.ok())
+    }
+
+    ; The iPhones and iPads that are plugged in, parsed.
+    fn listConnectedDevices:[AppleDeviceInfo] () {
+        def res:ShellResult (this.listDevices())
+        if (res.failed()) {
+            def none:[AppleDeviceInfo]
+            return none
+        }
+        return (AppleDeviceList.parse(res.out))
+    }
+
+    ; The one to install onto: connected, and matching `nameWanted` when the
+    ; caller named something.
+    fn pickDevice@(optional):AppleDeviceInfo (nameWanted:string) {
+        def all:[AppleDeviceInfo] (this.listConnectedDevices())
+        return (AppleDeviceList.pick(all nameWanted))
+    }
+
+    fn listDevices:ShellResult () {
+        def argv:[string]
+        push argv "devicectl"
+        push argv "list"
+        push argv "devices"
+        return (sh.capture("xcrun" argv))
+    }
+
+    ; Start it on the device. `devicectl` needs the bundle id, not the path --
+    ; the app is already installed by this point -- and `--console` keeps the
+    ; process attached so its output lands here, which is what a test build on
+    ; a cable is for.
+    fn launchOnDevice:ShellResult (udid:string bundleId:string attach:boolean) {
+        def argv:[string]
+        push argv "devicectl"
+        push argv "device"
+        push argv "process"
+        push argv "launch"
+        push argv "--device"
+        push argv udid
+        if attach {
+            push argv "--console"
+        } {
+            push argv "--terminate-existing"
+        }
+        push argv bundleId
+        if attach {
+            return (sh.run("xcrun" argv))
+        }
+        return (sh.capture("xcrun" argv))
+    }
+
+    fn installOnDevice:ShellResult (udid:string appPath:string) {
+        def argv:[string]
+        push argv "devicectl"
+        push argv "device"
+        push argv "install"
+        push argv "app"
+        push argv "--device"
+        push argv udid
+        push argv appPath
+        return (sh.capture("xcrun" argv))
+    }
+
+    ; Everything the device will say about itself. This is also the cheapest
+    ; way to ask whether a device can be TALKED to at all: it raises the tunnel
+    ; if one is needed, so a failure here is a real connection failure and not
+    ; a stale line in a listing.
+    fn deviceDetails:ShellResult (udid:string) {
+        def argv:[string]
+        push argv "devicectl"
+        push argv "device"
+        push argv "info"
+        push argv "details"
+        push argv "--device"
+        push argv udid
+        return (sh.capture("xcrun" argv))
+    }
+
+    ; The apps already installed. Listing them needs the developer disk image,
+    ; so asking is how the DDI gets mounted on a device that has none: devicectl
+    ; personalises and mounts it, and the answer arrives a few seconds later.
+    ; A build that asks this first therefore fixes the commonest reason an
+    ; install is refused, rather than reporting it.
+    fn listInstalledApps:ShellResult (udid:string) {
+        def argv:[string]
+        push argv "devicectl"
+        push argv "device"
+        push argv "info"
+        push argv "apps"
+        push argv "--device"
+        push argv udid
+        return (sh.capture("xcrun" argv))
+    }
+
+    ; What the USB bus has on it, as raw text. Asked only when devicectl lists
+    ; NOTHING, because it separates "no cable" from "a cable and no pairing" --
+    ; and because it is the one question here that a broken CoreDevice cannot
+    ; get in the way of.
+    fn usbDeviceText:string () {
+        def argv:[string]
+        push argv "SPUSBDataType"
+        def res:ShellResult (sh.capture("system_profiler" argv))
+        if (res.failed()) {
+            return ""
+        }
+        return res.out
+    }
+
+    ; --- signing --------------------------------------------------------------
+
+    ; The identities available for signing a device build. Ad hoc signing needs
+    ; none of them, which is why a simulator build works on a machine with no
+    ; developer account at all.
+    fn signingIdentities:ShellResult () {
+        def argv:[string]
+        push argv "find-identity"
+        push argv "-v"
+        push argv "-p"
+        push argv "codesigning"
+        return (sh.capture("security" argv))
+    }
+
+    fn codesign:ShellResult (identity:string bundlePath:string entitlements:string) {
+        def argv:[string]
+        push argv "--force"
+        push argv "--sign"
+        push argv identity
+        if ((strlen entitlements) > 0) {
+            push argv "--entitlements"
+            push argv entitlements
+        }
+        push argv "--timestamp=none"
+        push argv bundlePath
+        return (sh.capture("codesign" argv))
+    }
+
+    ; --- turning a plist into what the device wants ---------------------------
+
+    ; iOS reads a binary plist perfectly well as XML, so this is optional --
+    ; but converting also VALIDATES, which turns an unparseable plist into a
+    ; build error instead of an app that silently refuses to install.
+    fn convertPlistToBinary:ShellResult (plistPath:string) {
+        def argv:[string]
+        push argv "-convert"
+        push argv "binary1"
+        push argv plistPath
+        return (sh.capture("plutil" argv))
+    }
+
+    fn lintPlist:ShellResult (plistPath:string) {
+        def argv:[string]
+        push argv "-lint"
+        push argv plistPath
+        return (sh.capture("plutil" argv))
+    }
+
+    ; --- asset catalogs -------------------------------------------------------
+
+    ; Compile an .xcassets into the Assets.car an app icon has to be in. Only
+    ; called when the caller has a catalog; an app with no icon builds and runs
+    ; without one.
+    fn compileAssets:ShellResult (catalog:string outDir:string target:AppleTarget) {
+        def platformName:string "iphonesimulator"
+        if (target.isWatch()) {
+            platformName = "watchsimulator"
+            if (target.isSimulator == false) {
+                platformName = "watchos"
+            }
+        } {
+            if (target.isSimulator == false) {
+                platformName = "iphoneos"
+            }
+        }
+        def argv:[string]
+        push argv "actool"
+        push argv catalog
+        push argv "--compile"
+        push argv outDir
+        push argv "--platform"
+        push argv platformName
+        push argv "--minimum-deployment-target"
+        push argv target.minVersion
+        push argv "--app-icon"
+        push argv "AppIcon"
+        push argv "--output-partial-info-plist"
+        push argv (outDir + "/assetcatalog.plist")
+        return (sh.capture("xcrun" argv))
+    }
+}

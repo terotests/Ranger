@@ -829,7 +829,7 @@ class RangerCppClassWriter {
       }
       def elideUnused:boolean (((p.ref_cnt == 0) && (p.is_class_variable == false)) && (initHasSideEffect == false))
       if elideUnused {
-        wr.out("/** unused:  " false)
+        wr.out("/* unused:  " false)
       }
       if ((p.set_cnt > 0) || p.is_class_variable) {
         wr.out("" false)
@@ -890,7 +890,7 @@ class RangerCppClassWriter {
         ;}
       }
       if ((p.ref_cnt == 0) && (p.is_class_variable == true)) {
-        wr.out("     /** note: unused */" false)
+        wr.out("     /* note: unused */" false)
       }
       if elideUnused {
         wr.out("   **/ ;" true)
@@ -941,11 +941,8 @@ class RangerCppClassWriter {
       def method:CodeNode (node.getThird())
       def args:CodeNode (itemAt node.children 3)
 
-      wr.out("(" false)
-      ctx.setInExpr()
-      this.WalkNode( obj ctx wr)
-      ctx.unsetInExpr()
-      wr.out(")->" false)
+      this.writeCallReceiver(obj ctx wr)
+      wr.out("->" false)
       wr.out(method.vref false)
 ;       this.WriteVRef(fc ctx wr)
       wr.out("(" false)
@@ -1136,11 +1133,8 @@ class RangerCppClassWriter {
     ; property access...
       def obj:CodeNode (node.getSecond())
       def prop:CodeNode (node.getThird())
-      wr.out('(' false)
-      ctx.setInExpr()
-      this.WalkNode( obj ctx wr)
-      ctx.unsetInExpr()
-      wr.out(')->' false)
+      this.writeCallReceiver(obj ctx wr)
+      wr.out('->' false)
       this.WalkNode(prop ctx wr)
   }
 
@@ -1319,7 +1313,7 @@ class RangerCppClassWriter {
       ; TODO: optionals...
 
       if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
-        wr.out("/** unused:  " false)
+        wr.out("/* unused:  " false)
       }
       if ((p.set_cnt > 0) || p.is_class_variable) {
         wr.out("" false)
@@ -1335,7 +1329,7 @@ class RangerCppClassWriter {
       wr.out(" " false)
       wr.out(p.compiledName false)
       if ((p.ref_cnt == 0) && (p.is_class_variable == true)) {
-        wr.out("     /** note: unused */" false)
+        wr.out("     /* note: unused */" false)
       }
       if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
         wr.out("   **/ ;" true)
@@ -2256,10 +2250,24 @@ class RangerCppClassWriter {
       wr.out("        }" true)
       wr.out("    }" true)
       wr.out("    size_t count(const K& k) const { return slot_(k) == -1 ? 0 : 1; }" true)
-      wr.out("    iterator find(const K& k) { int32_t s = slot_(k); return s == -1 ? entries.end() : entries.begin() + s; }" true)
-      wr.out("    const_iterator find(const K& k) const { int32_t s = slot_(k); return s == -1 ? entries.end() : entries.begin() + s; }" true)
-      wr.out("    V& at(const K& k) { int32_t s = slot_(k); if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); } return entries[(size_t)s].second; }" true)
-      wr.out("    const V& at(const K& k) const { int32_t s = slot_(k); if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); } return entries[(size_t)s].second; }" true)
+      wr.out("    iterator find(const K& k) {" true)
+      wr.out("        int32_t s = slot_(k);" true)
+      wr.out("        return s == -1 ? entries.end() : entries.begin() + s;" true)
+      wr.out("    }" true)
+      wr.out("    const_iterator find(const K& k) const {" true)
+      wr.out("        int32_t s = slot_(k);" true)
+      wr.out("        return s == -1 ? entries.end() : entries.begin() + s;" true)
+      wr.out("    }" true)
+      wr.out("    V& at(const K& k) {" true)
+      wr.out("        int32_t s = slot_(k);" true)
+      wr.out("        if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); }" true)
+      wr.out("        return entries[(size_t)s].second;" true)
+      wr.out("    }" true)
+      wr.out("    const V& at(const K& k) const {" true)
+      wr.out("        int32_t s = slot_(k);" true)
+      wr.out("        if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); }" true)
+      wr.out("        return entries[(size_t)s].second;" true)
+      wr.out("    }" true)
       wr.out("    // const char* overloads: a literal key probes WITHOUT constructing a" true)
       wr.out("    // std::string temporary. C++17 guarantees hash<string> and" true)
       wr.out("    // hash<string_view> agree on equal character sequences. Instantiated" true)
@@ -2276,10 +2284,24 @@ class RangerCppClassWriter {
       wr.out("        }" true)
       wr.out("    }" true)
       wr.out("    size_t count(const char* k) const { return slot_sv_(k) == -1 ? 0 : 1; }" true)
-      wr.out("    iterator find(const char* k) { int32_t s = slot_sv_(k); return s == -1 ? entries.end() : entries.begin() + s; }" true)
-      wr.out("    const_iterator find(const char* k) const { int32_t s = slot_sv_(k); return s == -1 ? entries.end() : entries.begin() + s; }" true)
-      wr.out("    V& at(const char* k) { int32_t s = slot_sv_(k); if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); } return entries[(size_t)s].second; }" true)
-      wr.out("    const V& at(const char* k) const { int32_t s = slot_sv_(k); if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); } return entries[(size_t)s].second; }" true)
+      wr.out("    iterator find(const char* k) {" true)
+      wr.out("        int32_t s = slot_sv_(k);" true)
+      wr.out("        return s == -1 ? entries.end() : entries.begin() + s;" true)
+      wr.out("    }" true)
+      wr.out("    const_iterator find(const char* k) const {" true)
+      wr.out("        int32_t s = slot_sv_(k);" true)
+      wr.out("        return s == -1 ? entries.end() : entries.begin() + s;" true)
+      wr.out("    }" true)
+      wr.out("    V& at(const char* k) {" true)
+      wr.out("        int32_t s = slot_sv_(k);" true)
+      wr.out("        if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); }" true)
+      wr.out("        return entries[(size_t)s].second;" true)
+      wr.out("    }" true)
+      wr.out("    const V& at(const char* k) const {" true)
+      wr.out("        int32_t s = slot_sv_(k);" true)
+      wr.out("        if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); }" true)
+      wr.out("        return entries[(size_t)s].second;" true)
+      wr.out("    }" true)
       wr.out("    V& operator[](const char* k) {" true)
       wr.out("        int32_t s = slot_sv_(k);" true)
       wr.out("        if (s != -1) { return entries[(size_t)s].second; }" true)

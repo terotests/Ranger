@@ -1,0 +1,505 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ranger tree literals — Radix components</title>
+    <link rel="icon" href="data:," />
+    <style>
+      :root { color-scheme: dark; --bg:#0b1020; --panel:#131a2e; --line:#263049; --ink:#e6ebf5; --dim:#93a0bd; --accent:#8b7bf0; }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; }
+      body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font: 14px/1.55 ui-sans-serif, system-ui, "Noto Sans", sans-serif;
+      }
+      header {
+        display: flex; flex-wrap: wrap; gap: 16px; align-items: baseline;
+        padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--panel);
+      }
+      header h1 { font-size: 14px; margin: 0; font-weight: 600; }
+      header p { margin: 0; color: var(--dim); font-size: 12.5px; }
+      header a { color: var(--accent); }
+      header a.nav { font-size: 12.5px; text-decoration: none; }
+      header a.nav:hover { text-decoration: underline; }
+      main { display: grid; grid-template-columns: 230px 1fr; min-height: calc(100% - 52px); }
+      aside { border-right: 1px solid var(--line); padding: 16px 18px; background: #0e1526; }
+      aside h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .09em; color: var(--dim); margin: 0 0 8px; font-weight: 500; }
+      aside section { margin-bottom: 20px; }
+      aside section[hidden] { display: none; }
+      label { display: flex; gap: 8px; align-items: center; color: var(--dim); font-size: 13px; padding: 3px 0; cursor: pointer; }
+      label:hover { color: var(--ink); }
+      .hint { color: var(--dim); font-size: 12.5px; margin: 2px 0 0; line-height: 1.7; }
+      .stage { padding: 20px; overflow: auto; }
+      /* The canvas and the accessibility mirror share one positioned box: the
+         mirror's elements sit at the rectangles EVG laid out, over the pixels
+         that drew them. */
+      #stage { position: relative; }
+      canvas { display: block; border-radius: 10px; touch-action: none; }
+      #stage .evg-a11y :focus-visible { outline: 2px solid #a5b4fc; outline-offset: -2px; border-radius: 6px; }
+      .note { color: var(--dim); font-size: 12.5px; margin: 16px 0 0; max-width: 78ch; }
+      code { background: #1b2440; padding: 1px 5px; border-radius: 4px; }
+      #err { color: #f87171; white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Ranger tree literals — Radix components</h1>
+      <a class="nav" href="/gallery/ui/web/index.html">← conformance playground</a>
+      <p>
+        Seven <code>treefactory</code> declarations, each naming its own tags over the
+        same <code>EVGElement</code>, painted by EVG's WebGL painter. Three of them
+        rebuild the whole tree on every control; the motion showcase, the table
+        and the dropdown keep theirs,
+        because a transition remembers where a value was and a rebuilt element
+        remembers nothing.
+      </p>
+    </header>
+    <main>
+      <aside>
+        <section>
+          <h2>demo</h2>
+          <div id="demos"></div>
+        </section>
+        <section data-for="menubar">
+          <h2>open menu</h2>
+          <div id="menus"></div>
+        </section>
+        <section data-for="menubar">
+          <h2>submenu</h2>
+          <label><input type="checkbox" id="submenu" checked /> show it</label>
+        </section>
+        <section data-for="menubar">
+          <h2>collisions</h2>
+          <label><input type="checkbox" id="atbottom" /> bar at the bottom</label>
+        </section>
+        <section data-for="menubar">
+          <h2>checkbox items</h2>
+          <div id="checks"></div>
+        </section>
+        <section data-for="menubar">
+          <h2>profile</h2>
+          <div id="profiles"></div>
+        </section>
+        <section data-for="toolbar">
+          <h2>format</h2>
+          <div id="format"></div>
+        </section>
+        <section data-for="toolbar">
+          <h2>align</h2>
+          <div id="align"></div>
+        </section>
+        <section data-for="sortable">
+          <h2>order</h2>
+          <p class="hint" id="order"></p>
+        </section>
+        <section data-for="table">
+          <h2>what to try</h2>
+          <p class="hint">
+            Click a header <strong>three</strong> times: ascending, descending,
+            then back to the order the data arrived in. A two-way toggle can
+            never reach that third state.
+          </p>
+          <p class="hint">
+            <strong>Spend</strong> is numeric, so its first click sorts
+            <em>descending</em> — biggest first is the useful first answer for
+            a quantity, A-to-Z for a name.
+          </p>
+          <p class="hint">
+            The header checkbox is <strong>page-scoped</strong>: select page
+            one, go to page two, and the first page stays selected.
+          </p>
+        </section>
+        <section data-for="tree">
+          <h2>what to try</h2>
+          <p class="hint">
+            Click a row, then use the arrows. <strong>&rarr;</strong> on a
+            closed folder opens it and stays put; on an <em>open</em> one it
+            steps to the first child. Two meanings, one key, decided by the
+            row.
+          </p>
+          <p class="hint">
+            <strong>&rarr; on a leaf is not a no-op</strong> &mdash; it steps
+            down, the same as on an open folder. That is what the library does,
+            and the first reading here said otherwise.
+          </p>
+          <p class="hint">
+            <strong>End</strong> goes to the last <em>visible</em> row, which
+            is the deepest open descendant and not the last top-level item.
+            <strong>Enter</strong> and <strong>Space</strong> toggle a folder
+            and select nothing.
+          </p>
+        </section>
+        <section data-for="dropdown">
+          <h2>what to try</h2>
+          <p class="hint">
+            Open the menu, then <strong>rest the pointer</strong> on
+            <em>Available</em>. The submenu waits 100&nbsp;ms before opening —
+            measured off Radix, and the reason dragging down a menu does not
+            flash every submenu on the way past. Moving away closes it at once.
+          </p>
+          <p class="hint">
+            From the keyboard: <strong>&darr;</strong> to step,
+            <strong>&rarr;</strong> or <strong>Enter</strong> to go in,
+            <strong>&larr;</strong> to come back out, <strong>Esc</strong> to
+            close everything. Arrowing in puts you on the submenu&rsquo;s first
+            item; hovering in leaves you on the row you are pointing at. The
+            asymmetry is Radix&rsquo;s, not ours.
+          </p>
+          <p class="hint">
+            &rarr; on an ordinary row does <strong>nothing</strong>, and
+            neither does &larr; at the top level. A vertical menu&rsquo;s
+            horizontal arrows are for nesting and nothing else.
+          </p>
+        </section>
+        <section data-for="dashboard">
+          <h2>theme</h2>
+          <div id="dashthemes"></div>
+          <p class="hint">
+            One name, handed to <code>applyTree</code>. The sheet holds all
+            three palettes &mdash; <code>@vars marine { --page: &hellip; }</code>
+            beats the unscoped <code>@vars</code> &mdash; and every rule in the
+            file names a role rather than a colour. So nothing in the tree gains
+            or loses a class and nothing moves: a theme is forty-one colours,
+            not a second set of rules. <code>?theme=sunrise</code> lands on one
+            directly.
+          </p>
+        </section>
+        <section data-for="dashboard">
+          <h2>what to try</h2>
+          <p class="hint">
+            <strong>Press a range button</strong>, or focus one and use the
+            arrows. The chart is not a picture: it is a Vega specification run
+            by <strong>Vela</strong>, turned into draw commands, and appended
+            to this page&rsquo;s display list by <code>VlEvgList</code>. Ninety
+            points go in as data and the outline that comes out is the one
+            Vela computed.
+          </p>
+          <p class="hint">
+            There were two routes. An element can carry the SVG in
+            <code>svgSource</code> and <code>EVGDisplayList</code> imports it
+            &mdash; and that drops every <em>label</em>, because the importer
+            walks vector items and a <code>&lt;text&gt;</code> is not one:
+            forty-seven commands of geometry and not one axis tick. A picture
+            with no numbers on its axes still looks like a chart, which is why
+            the gate counts words as well as outlines.
+          </p>
+          <p class="hint">
+            The chart is therefore <em>not in the element tree</em>. It is
+            painted at the box the layout reserved, which is why the
+            placeholder has an id and no children: the tree owns where it goes
+            and Vela owns what is drawn there.
+          </p>
+          <p class="hint">
+            The range is a <strong>radio group</strong> and not a toggle group,
+            and the difference is measured: clicking the chosen item of a
+            toggle group deselects it, and a range picker with no range picked
+            is a chart with nothing to draw.
+          </p>
+        </section>
+        <section data-for="profile">
+          <h2>what to try</h2>
+          <p class="hint">
+            The other form shape: <strong>label to the left</strong>, every
+            control&rsquo;s left edge on one column. The rows are deliberately
+            three different heights &mdash; a text box is 38, the photo row 40,
+            the switch row 22 &mdash; so a layout that only worked when they
+            matched would have nowhere to hide.
+          </p>
+          <p class="hint">
+            <strong>Tab and type.</strong> The clock in the time field is a
+            <em>leading</em> icon and the calendar a trailing one, and the
+            caret has to know: a leading icon moves where the run starts.
+          </p>
+          <p class="hint">
+            The date and time boxes are <em>text fields with an icon</em>.
+            Segmented editing &mdash; where ArrowUp on the month changes the
+            month and not the caret &mdash; is its own contract, and it is not
+            built here rather than half-built.
+          </p>
+        </section>
+        <section data-for="form">
+          <h2>what to try</h2>
+          <p class="hint">
+            <strong>Tab between the fields and type.</strong> The caret and the
+            blue selection band are positioned with
+            <code>measureRun(value[0..i])</code> &mdash; the same measurement
+            the painter makes of the same string, so the bar is between the two
+            characters it claims to be between rather than near them.
+          </p>
+          <p class="hint">
+            The Amount field opens focused with its contents selected, which is
+            the one state that shows a caret <em>and</em> a band at once. The
+            controller was measuring at 14px against text drawn at 13, and the
+            band ran four pixels past the number it was selecting &mdash; the
+            breadcrumb&rsquo;s font-family bug, repeated with the size.
+          </p>
+          <p class="hint">
+            The password&rsquo;s <strong>value is never its glyphs</strong>:
+            <code>value</code> is what a reader and the conformance trace get,
+            <code>glyphText()</code> is what is drawn, and nothing joins them.
+            The eye flips the second and leaves the first alone.
+          </p>
+          <p class="hint">
+            A field in error is described by its <em>error</em> and not also by
+            its hint. Reading both leaves a reader to work out which one still
+            applies &mdash; and the hint&rsquo;s line is where the error goes,
+            so the picture says the same thing.
+          </p>
+        </section>
+        <section data-for="calendar">
+          <h2>what to try</h2>
+          <p class="hint">
+            <strong>Click a day, then click it again.</strong> A single-select
+            calendar <em>toggles</em> &mdash; choosing the chosen day clears it
+            &mdash; and the field above empties to show that it did. Measured
+            against react-day-picker, which is what shadcn&rsquo;s Calendar
+            wraps; guessing here gives you a date you cannot un-set.
+          </p>
+          <p class="hint">
+            <strong>Home and End move within the week, not the month.</strong>
+            From Friday the 1st, Home is April&rsquo;s 26th &mdash; an outside
+            day &mdash; and the caption follows it. That one row of the capture
+            is the reason this component has an oracle at all: &ldquo;Home goes
+            to the 1st&rdquo; is the obvious implementation and it is wrong.
+          </p>
+          <p class="hint">
+            <strong>PageUp from the 31st</strong> lands on the 30th of April,
+            because April has no 31st. The page keys carry the day number and
+            clamp it; subtracting thirty-one days agrees here by luck and
+            disagrees in most other months.
+          </p>
+          <p class="hint">
+            The tab stop at rest is <em>today</em>, not the first of the month
+            &mdash; also measured, and also not what this was first written as.
+            Two behaviours are deliberately <em>not</em> copied: the
+            reference&rsquo;s roving tabindex loses track of focus, and it emits
+            no <code>aria-selected</code>. Both are recorded as divergences and
+            counted as such rather than quietly scored as parity.
+          </p>
+        </section>
+        <section data-for="filters">
+          <h2>what to try</h2>
+          <p class="hint">
+            <strong>Click a value, pick something else, and watch the list
+            under it.</strong> The count and the rows are
+            <code>FilterCtl</code>&rsquo;s answer, not a second one drawn to
+            look like one &mdash; which is the only way to tell a filter bar
+            from a picture of a filter bar.
+          </p>
+          <p class="hint">
+            <strong>Deselect everything in a chip.</strong> It does <em>not</em>
+            empty the list. TanStack drops a filter whose value is empty rather
+            than matching nothing, so a half-built chip shows every row &mdash;
+            and the obvious code goes the other way, because
+            <code>[].includes(x)</code> is false. Measured down both of
+            TanStack&rsquo;s routes, which disagree: that cleanup lives in
+            <code>setColumnFilters</code> and nowhere else, so a bar holding its
+            own rule tree never gets it for free.
+          </p>
+          <p class="hint">
+            <strong>The assignee chip holds four people and draws three.</strong>
+            &ldquo;+1&rdquo; is the overflow rule from the reference screenshot,
+            on the page rather than only in a gate.
+          </p>
+          <p class="hint">
+            <strong>Arrow keys move between chips; Backspace removes the focused
+            one.</strong> The first ArrowRight <em>moves</em> &mdash; the tab
+            stop is already on the first chip, and a version that spent it
+            adopting focus is the defect the controller&rsquo;s gate caught.
+          </p>
+        </section>
+        <section data-for="eventcal">
+          <h2>what to try</h2>
+          <p class="hint">
+            <strong>Look at the three boxes stacked at 16:00.</strong> They all
+            end at the <em>same right edge</em>, and each one is narrower than
+            the last &mdash; 100%, 66.67%, 33.33%. Almost every hand-written
+            calendar gives three overlapping events a third of the width each,
+            and that is a visibly different calendar. Measured from a rendered
+            <code>@schedule-x/calendar</code>, with three events rather than
+            two, because two are 50/50 under either rule.
+          </p>
+          <p class="hint">
+            <strong>The 10:00 event is full width.</strong> It starts exactly
+            when the 09:00 one ends, so it takes that column back rather than
+            opening a fourth. Touching is not overlapping &mdash; a calendar
+            testing with <code>&gt;=</code> squeezes the whole morning to a
+            quarter for no reason a person can see.
+          </p>
+          <p class="hint">
+            <strong>&ldquo;On call&rdquo; runs 23:00 to 01:00 and is in the
+            all-day band, not the grid.</strong> A timed event crossing midnight
+            is promoted to a multi-day span. The plausible guess is two boxes,
+            and the plausible guess is wrong.
+          </p>
+          <p class="hint">
+            <strong>The bands use the other overlap rule.</strong> They stack by
+            first fit over <em>inclusive</em> dates, so two that share a single
+            day cannot share a lane. Two overlap rules in one component, and
+            using either one twice is wrong in one place.
+          </p>
+          <p class="hint">
+            ReUI&rsquo;s own chrome is <em>not</em> drawn here: reui.io is
+            refused by the egress proxy, so its view switcher and its colours
+            were never seen. What is measured is where the events go.
+          </p>
+        </section>
+        <section data-for="timeline">
+          <h2>what to try</h2>
+          <p class="hint">
+            <strong>Click anywhere</strong> to step the timeline on, and watch
+            the rail. The dot and the line do <em>not</em> flip together: at
+            step 3 the third dot is filled and the line under it is still pale,
+            because the two are different predicates &mdash;
+            <code>step &lt;= value</code> for the dot,
+            <code>step &lt; value</code> for the line.
+          </p>
+          <p class="hint">
+            That is the whole finding, and it came off a <em>picture</em> of the
+            reference rather than its source, which could not be reached. The
+            obvious implementation gives both the same flag and draws a dark
+            line under the current step.
+          </p>
+          <p class="hint">
+            The icons are <strong>lucide's own files</strong>, imported whole.
+            <code>stroke="currentColor"</code> resolves to the hosting
+            element's fill, so one copy of the artwork is dark on a pale dot and
+            white on a filled one.
+          </p>
+        </section>
+        <section data-for="dialog">
+          <h2>what to try</h2>
+          <p class="hint">
+            <strong>Drag the Filters window by its title bar.</strong> It is the
+            same class as the dialog beside it with one flag different — and it
+            is the one you can push aside to see what is underneath, which is
+            the thing a modal cannot do.
+          </p>
+          <p class="hint">
+            Tab to the title bar and use the <strong>arrow keys</strong>: a
+            gesture only a pointer can make is a gesture a keyboard cannot make,
+            so the window moves 16&nbsp;px a press.
+          </p>
+          <p class="hint">
+            The page behind the dialog is <strong>blurred, not just dimmed</strong>
+            — <code>backdrop-filter: blur(10px)</code>, painted by copying what
+            is behind the scrim and running the same three-box kernel a browser
+            uses. Both are declared, so a backend without the blur still dims.
+          </p>
+        </section>
+        <section data-for="motion">
+          <h2>what to look at</h2>
+          <p class="hint">
+            The seven dots leave together and arrive together. Everything
+            between is the timing function, and the curve beside each one is
+            sampled from the very function that moves it.
+          </p>
+          <p class="hint">
+            The <strong>cubic-bezier</strong> row goes <em>past</em> its target
+            and comes back — its control points leave 0..1, and a solver that
+            clamps would show a straight arrival instead.
+          </p>
+        </section>
+      </aside>
+      <div class="stage">
+        <div id="stage"><canvas id="c"></canvas></div>
+        <div id="err"></div>
+        <p class="note" data-for="sortable">
+          <strong>Drag a row onto another</strong> and the list reorders — and it is
+          <em>rebuilt</em>, not moved: the page holds an order and hands it over, and the
+          tree literal builds whatever it is given. Click a row and use Space, &uarr;
+          &darr; and Escape for the same thing from the keyboard. The behaviour is the
+          one <code>gallery/ui/src/SortableCtl.rgr</code> is measured against, item for
+          item, with <code>@dnd-kit/sortable</code> as the reference.
+        </p>
+        <p class="note" data-for="table">
+          <strong>The state is not this demo's.</strong> Sorting, page-scoped
+          selection and the paging arithmetic all live in
+          <code>gallery/ui/src/TableCtl.rgr</code>, which the conformance
+          harness measures against <code>@tanstack/react-table</code> — the
+          library ReUI's table is built on. This file is the other half: a
+          <code>treefactory</code> and a stylesheet, and nothing else. The
+          controller decides what is true; the tree literal decides what it
+          looks like.
+        </p>
+        <p class="note" data-for="tree">
+          <strong>The rows are siblings.</strong> There is no group per folder:
+          the visible rows are one flat list and the nesting is carried by
+          <code>aria-level</code> alone, because that is what
+          <code>@headless-tree/core</code> renders and therefore what ReUI's
+          tree renders. The indent is a spacer this demo adds; a reader never
+          sees it and does not need to. Open/closed, focus and every key are
+          <code>gallery/ui/src/TreeCtl.rgr</code>&rsquo;s.
+        </p>
+        <p class="note" data-for="dropdown">
+          <strong>This demo owns no state at all.</strong> Open/closed, the
+          roving focus, the submenu stack, the 100&nbsp;ms hover delay and
+          every key are <code>gallery/ui/src/MenuCtl.rgr</code>&rsquo;s, which
+          five conformance specs measure against
+          <code>@radix-ui/react-dropdown-menu</code>. What is here is a
+          <code>treefactory</code>, a stylesheet, and which icon goes on which
+          row. Compare it with the <em>menubar</em> demo above, whose keyboard
+          is hand-written and matched against nothing.
+        </p>
+        <p class="note" data-for="dialog">
+          <strong>Anything can go inside.</strong> <code>WindowCtl</code> owns a
+          frame and a title bar; <code>bodyEl</code> is an ordinary
+          <code>EVGElement</code> the caller fills, and <code>build()</code>
+          re-makes the chrome around it without touching it. Here one holds a
+          form and the other a small table, from two unrelated tree literals.
+          The older <code>EVGWindow</code> could hold neither: its vocabulary is
+          label, button, radio, checkbox, and one rectangle whose pixels the
+          owner paints by hand.
+        </p>
+        <p class="note" data-for="motion">
+          <strong>Hover the cards at the bottom.</strong> Nothing in
+          <code>MotionDemo.rgr</code> knows what a pointer is: the tree is boxes
+          with class names, and every hover, press and journey on this page is a
+          rule in <code>motion.css</code>. The page&rsquo;s only job is to turn a
+          theme over every 1.7 seconds and to hand the engine the real elapsed
+          time each frame.
+        </p>
+        <p class="note" data-for="motion">
+          <strong>Cross the slow card quickly.</strong> Its transition is 900ms,
+          and leaving half way through does not take another 900ms to come
+          back — a reversal is shortened by how far the value <em>actually</em>
+          got, measured after the easing curve rather than off the clock. On
+          <code>ease-in</code> at the midpoint those differ by nearly a factor of
+          two.
+        </p>
+        <p class="note">
+          <strong>Click it.</strong> The canvas answers the pointer through EVG&rsquo;s own
+          hit testing: a press is resolved against the same laid-out tree that was
+          drawn, topmost first, so a click inside an open panel reaches the panel and
+          not the trigger it covers. Hovering <em>Share</em> opens the submenu; Escape
+          closes; ← and → walk the bar, ↑ and ↓ the rows. The sidebar is a second view
+          of the same state.
+        </p>
+        <p class="note">
+          <strong>And read it.</strong> A canvas hands a screen reader one empty
+          graphic no matter what was drawn into it, so the page also publishes what
+          the frame <em>means</em>: <code>EVGA11yFromTree</code> walks the same
+          elements and emits roles, names, states and rectangles, and
+          <code>evg-a11y.js</code> mirrors those into transparent DOM over the canvas
+          &mdash; which is what a reader actually walks. Nothing is described twice: the
+          roles are on the <code>treefactory</code> tags beside the classes. A reader
+          activating a node is answered by pressing the app at that node&rsquo;s
+          rectangle, so it takes the same path as the mouse.
+        </p>
+        <p class="note">
+          The dropdowns float under their triggers because EVG has overlay
+          surfaces: <code>Content</code> is still the <code>Menu</code>&rsquo;s child, and
+          layout takes it out of the parent&rsquo;s flow, finds the anchor among its own
+          siblings and moves it and its subtree there. A submenu is a
+          <code>Menu</code> like any other &mdash; there is no submenu case in the demo.
+          A surface near an edge flips to the other side of its anchor and slides
+          along the edge to stay on the page. The toolbar&rsquo;s italic and underlined
+          buttons are missing for an unrelated reason: EVG has no
+          <code>font-style</code> and no <code>text-decoration</code>.
+        </p>
+      </div>
+    </main>
+    <script type="module" src="./bundle.js"></script>
+  </body>
+</html>

@@ -1,0 +1,292 @@
+{
+  "tanstack": "8.21.3",
+  "rows": [
+    {
+      "id": "r1",
+      "name": "Ada",
+      "role": "Engineer",
+      "size": 30
+    },
+    {
+      "id": "r2",
+      "name": "Grace",
+      "role": "Admiral",
+      "size": 10
+    },
+    {
+      "id": "r3",
+      "name": "Alan",
+      "role": "Logician",
+      "size": 20
+    },
+    {
+      "id": "r4",
+      "name": "Edsger",
+      "role": "Engineer",
+      "size": 50
+    },
+    {
+      "id": "r5",
+      "name": "Barbara",
+      "role": "Geneticist",
+      "size": 40
+    },
+    {
+      "id": "r6",
+      "name": "Katherine",
+      "role": "Mathematician",
+      "size": 60
+    }
+  ],
+  "sortCycle": [
+    {
+      "click": 0,
+      "sorting": "[]",
+      "isSorted": false,
+      "order": [
+        "r1",
+        "r2",
+        "r3",
+        "r4"
+      ]
+    },
+    {
+      "click": 1,
+      "sorting": "[{\"id\":\"name\",\"desc\":false}]",
+      "isSorted": "asc",
+      "order": [
+        "r1",
+        "r3",
+        "r5",
+        "r4"
+      ]
+    },
+    {
+      "click": 2,
+      "sorting": "[{\"id\":\"name\",\"desc\":true}]",
+      "isSorted": "desc",
+      "order": [
+        "r6",
+        "r2",
+        "r4",
+        "r5"
+      ]
+    },
+    {
+      "click": 3,
+      "sorting": "[]",
+      "isSorted": false,
+      "order": [
+        "r1",
+        "r2",
+        "r3",
+        "r4"
+      ]
+    },
+    {
+      "click": 4,
+      "sorting": "[{\"id\":\"name\",\"desc\":false}]",
+      "isSorted": "asc",
+      "order": [
+        "r1",
+        "r3",
+        "r5",
+        "r4"
+      ]
+    }
+  ],
+  "numericSortCycle": [
+    {
+      "click": 0,
+      "isSorted": false,
+      "order": [
+        "r1",
+        "r2",
+        "r3",
+        "r4"
+      ]
+    },
+    {
+      "click": 1,
+      "isSorted": "desc",
+      "order": [
+        "r6",
+        "r4",
+        "r5",
+        "r1"
+      ]
+    },
+    {
+      "click": 2,
+      "isSorted": "asc",
+      "order": [
+        "r2",
+        "r3",
+        "r1",
+        "r5"
+      ]
+    },
+    {
+      "click": 3,
+      "isSorted": false,
+      "order": [
+        "r1",
+        "r2",
+        "r3",
+        "r4"
+      ]
+    },
+    {
+      "click": 4,
+      "isSorted": "desc",
+      "order": [
+        "r6",
+        "r4",
+        "r5",
+        "r1"
+      ]
+    }
+  ],
+  "firstClickDirection": {
+    "text": "asc",
+    "number": "desc"
+  },
+  "selection": [
+    {
+      "after": "nothing",
+      "selected": [],
+      "selectedCount": 0,
+      "allPageRows": false,
+      "somePageRows": false,
+      "allRows": false
+    },
+    {
+      "after": "one row on page 1",
+      "selected": [
+        "r1"
+      ],
+      "selectedCount": 1,
+      "allPageRows": false,
+      "somePageRows": true,
+      "allRows": false
+    },
+    {
+      "after": "the header box",
+      "selected": [
+        "r1",
+        "r2",
+        "r3",
+        "r4"
+      ],
+      "selectedCount": 4,
+      "allPageRows": true,
+      "somePageRows": false,
+      "allRows": false
+    },
+    {
+      "after": "and again on page 2",
+      "selected": [
+        "r1",
+        "r2",
+        "r3",
+        "r4",
+        "r5",
+        "r6"
+      ],
+      "selectedCount": 6,
+      "allPageRows": true,
+      "somePageRows": false,
+      "allRows": true
+    },
+    {
+      "after": "clearing page 1",
+      "selected": [
+        "r5",
+        "r6"
+      ],
+      "selectedCount": 2,
+      "allPageRows": false,
+      "somePageRows": false,
+      "allRows": false
+    }
+  ],
+  "pagination": [
+    {
+      "after": "start",
+      "pageIndex": 0,
+      "pageCount": 2,
+      "rowsOnPage": 4,
+      "canPrevious": false,
+      "canNext": true,
+      "ids": [
+        "r1",
+        "r2",
+        "r3",
+        "r4"
+      ]
+    },
+    {
+      "after": "next",
+      "pageIndex": 1,
+      "pageCount": 2,
+      "rowsOnPage": 2,
+      "canPrevious": true,
+      "canNext": false,
+      "ids": [
+        "r5",
+        "r6"
+      ]
+    },
+    {
+      "after": "next again, on the last page",
+      "pageIndex": 1,
+      "pageCount": 2,
+      "rowsOnPage": 2,
+      "canPrevious": true,
+      "canNext": false,
+      "ids": [
+        "r5",
+        "r6"
+      ]
+    },
+    {
+      "after": "prev",
+      "pageIndex": 0,
+      "pageCount": 2,
+      "rowsOnPage": 4,
+      "canPrevious": false,
+      "canNext": true,
+      "ids": [
+        "r1",
+        "r2",
+        "r3",
+        "r4"
+      ]
+    },
+    {
+      "after": "prev again, on the first page",
+      "pageIndex": 0,
+      "pageCount": 2,
+      "rowsOnPage": 4,
+      "canPrevious": false,
+      "canNext": true,
+      "ids": [
+        "r1",
+        "r2",
+        "r3",
+        "r4"
+      ]
+    }
+  ],
+  "sortWhilePaged": {
+    "pageIndexBefore": 1,
+    "pageIndexAfterSorting": 0,
+    "ids": [
+      "r1",
+      "r3",
+      "r5",
+      "r4"
+    ],
+    "$comment": "autoResetPageIndex defaults to ON, so re-ordering puts you back on the first page. Page two of the old order means nothing."
+  }
+}

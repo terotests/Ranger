@@ -33,7 +33,17 @@ draws the same SVG byte for byte. A PDF proves the API built a chart once on a
 build machine; this is what proves the API still runs where the reader is.
 `npm run showcase:api` opens it in Chromium and checks all of it — 22 checks.
 
-[`tracer/`](../web/tracer/) is the other live page: upload a JPEG/PNG, tweak
+[`responsive/`](../web/responsive/) is the one whose LAYOUT is what runs. It is
+a page as wide as the browser window, laid out again on every resize by the
+compiled engine — `@media` blocks resolved against the window, `4vw` margins,
+a card grid that goes from four columns to one — and the browser is handed
+finished pixels, not a tree to lay out. Drag the window edge and the whole
+pipeline runs again. `npm run evg:responsive:web:serve` builds it and serves it
+at <http://localhost:8007/>; `npm run evg:responsive:check` asserts the same
+breakpoints in Node, by counting where the boxes landed, and
+`npm run evg:responsive:web:smoke` drives the built page in Chromium.
+
+[`tracer/`](../web/tracer/) is the third live page: upload a JPEG/PNG, tweak
 Potrace-style parameters, and vectorize with the compiled `EvgBitmapTracer`.
 To run it on your own machine, `npm run evg:trace:web:serve` builds the page
 and serves it at <http://localhost:8006/>. Everything happens in the browser —
@@ -44,6 +54,36 @@ whole. Build alone with `npm run evg:trace:web` (output lands in
 `gallery/evg/web/tracer/dist/`); the showcase build ships the same files to
 `/evg/tracer/` on Pages. `npm run evg:trace:web:smoke` opens it in Chromium and
 checks it.
+
+The same tracer runs from a command line, with no page and no browser:
+
+```sh
+npm run evg:trace:cli -- in.png out.svg --preset broken
+npm run evg:trace:cli -- photo.jpg out.svg --colorCount 12 --paletteMute 130
+```
+
+The option names are the fields of `EvgTraceOptions`, so there is nothing extra
+to learn — `--colorCount 12` sets `colorCount`, and an unrecognised name is
+refused rather than ignored. The two paths may come anywhere among the options
+(`in.jpg --colorCount 4 out.svg` works), and an option may be written
+`--name value` or `--name=value`. Presets are `lineart`, `poster`, `photo`, `print`
+and `broken`. PNG and JPEG (baseline and progressive) are decoded by
+[`tools/evg_trace_cli.rgr`](../tools/evg_trace_cli.rgr) itself, so the compiled
+program is one self-contained file with nothing to install.
+
+Because it is Ranger, that file can be any of them:
+
+| | build | run |
+| --- | --- | --- |
+| Node | `npm run evg:trace:cli:run` (already built) | ~0.45 s |
+| Python | `npm run evg:trace:cli:py` → one `.py`, stdlib only | ~4.8 s |
+| C++ | `npm run evg:trace:cli:cpp` → one `.cpp`, then `g++` | ~0.19 s |
+| Rust | `npm run evg:trace:cli:rust` → one `.rs`, then `rustc` | ~0.21 s |
+
+`npm run evg:trace:cli:smoke` builds all four and asserts they produce the
+same SVG byte for byte — which is the claim worth testing, since a difference
+in integer division or float printing between targets would otherwise surface
+as a picture somebody notices months later.
 
 The page does not stop at the trace. *Esikäsittely* edits the bitmap before
 anything is quantized, and *Muokkaa* edits the drawing afterwards: **Tarkennin**

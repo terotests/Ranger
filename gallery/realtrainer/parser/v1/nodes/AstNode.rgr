@@ -1,0 +1,11 @@
+Import "../V1Json.rgr"
+
+class AstNode {
+    def type:string ""
+
+    fn toJSONString@(open):string () {
+        def fields:[string]
+        CompactV1Json.addStringField(fields "type" type)
+        return (CompactV1Json.jsonObject(fields))
+    }
+}

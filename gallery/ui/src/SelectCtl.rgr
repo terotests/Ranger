@@ -1,0 +1,370 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; SelectCtl — measured against @radix-ui/react-select
+; =============================================================================
+; A picker, and the vocabulary is not the one a menu uses. Measured, before it
+; was written (conformance/specs/select_pointer.json):
+;
+;   trigger   role COMBOBOX — even though nothing can be typed into it. That is
+;             what the reference reports and what every platform maps a picker
+;             onto; `button` would lose the fact that it has a value.
+;   value     a box with no role and no name. The chosen label is drawn in it
+;             and announced through the trigger, not through this.
+;   open      content role LISTBOX, items role OPTION with `aria-selected` and
+;             a checked/unchecked state word.
+;   focus     lands on the SELECTED option, not on the list and not on the
+;             first row. A menu announces itself and waits; a select puts you
+;             where you already are.
+;   choose    closes, and focus returns to the trigger.
+;
+; The options are unnamed in the trace because `option` is not one of the roles
+; whose text becomes its name in the DOM snapshot — so the label is compared
+; where it is announced, on the trigger, and nowhere else.
+; =============================================================================
+
+Import "UiCtl.rgr"
+Import "UiTree.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+
+class SelectCtl extends UiCtl {
+    def open:boolean false
+    def items:[UiItem]
+    def value:string ""
+    ; The option focus is on while the list is open. Not the same thing as
+    ; `value`: a select highlights as you arrow and commits when you choose.
+    def activeValue:string ""
+    def triggerEl:EVGElement
+    def valueEl:EVGElement
+    def contentEl:EVGElement
+
+    Constructor () {
+        rootEl = (EVGElement.createDiv())
+        triggerEl = (EVGElement.createDiv())
+        valueEl = (EVGElement.createDiv())
+        contentEl = (EVGElement.createDiv())
+        def empty:[UiItem]
+        items = empty
+    }
+
+    fn addItem:void (itemValue:string itemName:string itemDisabled:boolean) {
+        def it (new UiItem())
+        it.value = itemValue
+        it.name = itemName
+        it.disabled = itemDisabled
+        push items it
+    }
+
+    fn triggerTid:string () {
+        return (tid + "-trigger")
+    }
+
+    fn valueTid:string () {
+        return (tid + "-value")
+    }
+
+    fn contentTid:string () {
+        return (tid + "-content")
+    }
+
+    fn itemTid:string (itemValue:string) {
+        return ((tid + "-item-") + itemValue)
+    }
+
+    fn indexOfValue:int (v:string) {
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            if (it.value == v) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn valueOf:string (target:string) {
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            if (target == (this.itemTid(it.value))) {
+                return it.value
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn labelOf:string (v:string) {
+        def i:int (this.indexOfValue(v))
+        if (i < 0) {
+            return ""
+        }
+        def it:UiItem (itemAt items i)
+        return it.name
+    }
+
+    fn stateWord:string () {
+        if open {
+            return "open"
+        }
+        return "closed"
+    }
+
+    ; --- input -------------------------------------------------------------------
+
+    fn openList:string () {
+        open = true
+        activeValue = value
+        this.build()
+        ; The selected option, not the list and not the first row.
+        if ((strlen value) > 0) {
+            return (this.itemTid(value))
+        }
+        return (this.contentTid())
+    }
+
+    fn closeList:string () {
+        open = false
+        activeValue = ""
+        this.build()
+        return (this.triggerTid())
+    }
+
+    fn activate:string (target:string) {
+        if disabled {
+            return ""
+        }
+        if (target == (this.triggerTid())) {
+            if open {
+                return (this.closeList())
+            }
+            return (this.openList())
+        }
+        def v:string (this.valueOf(target))
+        if ((strlen v) == 0) {
+            return ""
+        }
+        def i:int (this.indexOfValue(v))
+        def it:UiItem (itemAt items i)
+        if it.disabled {
+            return ""
+        }
+        value = v
+        return (this.closeList())
+    }
+
+    fn keyDown:string (target:string key:string) {
+        if disabled {
+            return ""
+        }
+        if (key == "Escape") {
+            if open {
+                return (this.closeList())
+            }
+            return ""
+        }
+        if (UiCtl.activatesOn(key)) {
+            return (this.activate(target))
+        }
+        if (open == false) {
+            return ""
+        }
+        def step:int 0
+        if (key == "ArrowDown") {
+            step = 1
+        }
+        if (key == "ArrowUp") {
+            step = -1
+        }
+        if (step == 0) {
+            return ""
+        }
+        ; An arrow moves the HIGHLIGHT, not the value. Measured, and it caught
+        ; the obvious wrong version: writing the value on every arrow made a
+        ; select announce a new choice for each step, and the reference does
+        ; not commit until Enter or a click. `activeValue` is where focus is;
+        ; `value` is what has been chosen.
+        def start:string activeValue
+        if ((strlen start) == 0) {
+            start = value
+        }
+        def from:int (this.indexOfValue(start))
+        if (from < 0) {
+            from = 0
+        }
+        def at:int (from + step)
+        while ((at >= 0) && (at < (array_length items))) {
+            def it:UiItem (itemAt items at)
+            if (it.disabled == false) {
+                activeValue = it.value
+                this.build()
+                return (this.itemTid(it.value))
+            }
+            at = (at + step)
+        }
+        return ""
+    }
+
+    ; --- the tree -----------------------------------------------------------------
+
+    fn build:void () {
+        def word:string (this.stateWord())
+        def root:EVGElement (unwrap rootEl)
+        root.id = tid
+        root.className = "ui-select"
+        UiTree.clearChildren(root)
+
+        def trig:EVGElement (unwrap triggerEl)
+        trig.id = (this.triggerTid())
+        trig.className = "ui-select-trigger"
+        if disabled {
+            UiTree.addClass(trig "ui-select-trigger-disabled")
+        }
+        UiTree.setState(trig "ui-select-trigger" word)
+        UiTree.clearChildren(trig)
+        UiTree.anchor(trig)
+
+        def val:EVGElement (unwrap valueEl)
+        val.id = (this.valueTid())
+        val.className = "ui-select-value"
+        UiTree.leafText(val (this.labelOf(value)))
+        trig.addChild(val)
+        root.addChild(trig)
+
+        if (open == false) {
+            return
+        }
+        def content:EVGElement (unwrap contentEl)
+        content.id = (this.contentTid())
+        content.className = "ui-select-content"
+        UiTree.setState(content "ui-select-content" word)
+        UiTree.surface(content "bottom" "start")
+        UiTree.clearChildren(content)
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            def el:EVGElement (unwrap it.el)
+            el.id = (this.itemTid(it.value))
+            el.className = "ui-select-item"
+            if it.disabled {
+                UiTree.addClass(el "ui-select-item-disabled")
+            }
+            def itemWord:string "unchecked"
+            if (it.value == value) {
+                itemWord = "checked"
+            }
+            UiTree.setState(el "ui-select-item" itemWord)
+            UiTree.leafText(el it.name)
+            content.addChild(el)
+            i = (i + 1)
+        }
+        root.addChild(content)
+    }
+
+    fn tids:[string] () {
+        def a:[string]
+        push a tid
+        push a (this.triggerTid())
+        push a (this.valueTid())
+        push a (this.contentTid())
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            push a (this.itemTid(it.value))
+            i = (i + 1)
+        }
+        return a
+    }
+
+    fn isFocusable:boolean (target:string) {
+        if disabled {
+            return false
+        }
+        if (target == (this.triggerTid())) {
+            return true
+        }
+        if (open == false) {
+            return false
+        }
+        def v:string (this.valueOf(target))
+        if ((strlen v) == 0) {
+            return false
+        }
+        def i:int (this.indexOfValue(v))
+        def it:UiItem (itemAt items i)
+        return (it.disabled == false)
+    }
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+        def word:string (this.stateWord())
+
+        def trigRow:UiRow (UiRow.of((this.triggerTid()) (EVGA11yRole.comboBox()) name))
+        trigRow.state = word
+        trigRow.disabled = disabled
+        trigRow.focusable = (disabled == false)
+        trigRow.tabStop = (disabled == false)
+        if open {
+            trigRow.expanded = (EVGA11yTri.yes())
+        } {
+            trigRow.expanded = (EVGA11yTri.no())
+        }
+        push out trigRow
+
+        ; The value box carries no role and no name: what is chosen is
+        ; announced through the trigger, and a second name here would have a
+        ; reader say it twice.
+        def valRow:UiRow (UiRow.of((this.valueTid()) (EVGA11yRole.none()) ""))
+        valRow.parentTid = (this.triggerTid())
+        push out valRow
+
+        if (open == false) {
+            return out
+        }
+        def contentRow:UiRow (UiRow.of((this.contentTid()) (EVGA11yRole.listBox()) ""))
+        contentRow.state = word
+        contentRow.focusable = true
+        ; MODAL, and measured rather than assumed: with the list open the
+        ; reference hides the trigger and its value from the accessibility
+        ; tree along with the rest of the page. A picker takes the screen over
+        ; while it is choosing, exactly as a dialog does — which is why this is
+        ; one flag and not a second mechanism.
+        contentRow.modal = true
+        push out contentRow
+
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:UiItem (itemAt items i)
+            def row:UiRow (UiRow.of((this.itemTid(it.value)) (EVGA11yRole.option()) ""))
+            row.parentTid = (this.contentTid())
+            row.disabled = it.disabled
+            row.focusable = (it.disabled == false)
+            ; The state word follows the VALUE — what has been chosen — and it
+            ; keeps saying so while the highlight moves.
+            if (it.value == value) {
+                row.state = "checked"
+            } {
+                row.state = "unchecked"
+            }
+            ; `aria-selected`, though, follows selected AND focused together.
+            ; That is the reference's rule and it is a strange one: arrow off
+            ; the chosen row and NOTHING is selected, because the row that is
+            ; chosen is no longer the row you are on. Measured — the obvious
+            ; version, where selected tracks the value, disagreed on exactly
+            ; this step — and copied rather than corrected, because the
+            ; harness compares what the reference does.
+            def isChosen:boolean (it.value == value)
+            def isFocused:boolean (it.value == activeValue)
+            if (isChosen && isFocused) {
+                row.selected = (EVGA11yTri.yes())
+            } {
+                row.selected = (EVGA11yTri.no())
+            }
+            push out row
+            i = (i + 1)
+        }
+        return out
+    }
+}

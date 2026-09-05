@@ -204,7 +204,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       def nn:CodeNode (itemAt node.children 1)
       def p:RangerAppParamDesc nn.paramDesc
       if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
-        wr.out("/** unused:  " false)
+        wr.out("/* unused:  " false)
       }
       wr.out(("$this->" + p.compiledName) false)
       if ((array_length node.children) > 2) {
@@ -227,7 +227,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       }
       wr.out(";" false)
       if ((p.ref_cnt == 0) && (p.is_class_variable == true)) {
-        wr.out("     /** note: unused */" false)
+        wr.out("     /* note: unused */" false)
       }
       wr.newline()
     }
@@ -237,7 +237,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       def nn:CodeNode (itemAt node.children 1)
       def p:RangerAppParamDesc nn.paramDesc
       if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
-        wr.out("/** unused:  " false)
+        wr.out("/* unused:  " false)
       }
       wr.out(("$" + p.compiledName) false)
       if ((array_length node.children) > 2) {
@@ -258,7 +258,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
         }
       }
       if ((p.ref_cnt == 0) && (p.is_class_variable == true)) {
-        wr.out("     /** note: unused */" false)
+        wr.out("     /* note: unused */" false)
       }
       if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
         wr.out("   **/ ;" true)
@@ -318,13 +318,13 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
   fn CreatePropertyGet(node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
       def obj:CodeNode (node.getSecond())
       def prop:CodeNode (node.getThird())
-      wr.out('(' false)
-      ctx.setInExpr()
-      this.WalkNode( obj ctx wr)
-      ctx.unsetInExpr()
-      wr.out(')' false)
+      this.writeCallReceiver(obj ctx wr)
+      ; The property name comes from the resolved descriptor, not from the
+      ; source spelling: `def async` is declared as `self._async` on Python and
+      ; writing `prop.vref` here spelled it the old way. Every other writer
+      ; walks the node, which reads the descriptor list GetProperty attaches.
       wr.out('->' false)
-      wr.out(prop.vref false)
+      this.WalkNode(prop ctx wr)
   }
   
   fn CreateLambdaCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {

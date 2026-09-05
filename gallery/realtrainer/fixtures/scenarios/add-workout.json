@@ -1,0 +1,42 @@
+{
+  "_": "\"Lisää harjoitus\" on the phone: the modal, its input typed into, sent. On the reference the send goes to the AI; here the machine saves. The trace is compared up to the send.",
+  "id": "add-workout-open-type-save",
+  "area": "parsinta",
+  "machine": "addWorkoutDialog",
+  "source": "frontend/src/machines/addWorkoutDialogMachine.ts",
+  "reference": {
+    "route": "/calendar/cal-plan?week=2026-02-09"
+  },
+  "setup": [
+    {
+      "page": "390x844",
+      "why": "a phone, upright"
+    },
+    {
+      "route": "/calendar/cal-plan?week=2026-02-09"
+    }
+  ],
+  "steps": [
+    {
+      "id": "rt-add",
+      "role": "button",
+      "name": "Lisää harjoitus",
+      "state": "open"
+    },
+    {
+      "id": "rt-add-field",
+      "role": "textbox",
+      "name": "Luo harjoitusohjelma, esim. \"viikon peruskuntojakso\"",
+      "type": "Exercise Maastaveto|3x5@100kg",
+      "state": "open"
+    },
+    {
+      "id": "rt-sheet-cancel",
+      "role": "button",
+      "name": "",
+      "state": "closed",
+      "why": "the close button carries no name in the original",
+      "nth": 0
+    }
+  ]
+}

@@ -1,0 +1,47 @@
+{
+ "name": "sortable_pointer",
+ "component": "sortable",
+ "behaviours": [
+  "sortable-roledescription",
+  "sortable-pointer-reorder",
+  "sortable-pressed-while-dragging",
+  "sortable-announces"
+ ],
+ "fixture": {
+  "controls": [
+   {
+    "type": "sortable",
+    "tid": "sr",
+    "name": "Tasks",
+    "items": [
+     {
+      "value": "a",
+      "name": "Alpha"
+     },
+     {
+      "value": "b",
+      "name": "Beta"
+     },
+     {
+      "value": "c",
+      "name": "Gamma"
+     }
+    ]
+   }
+  ]
+ },
+ "steps": [
+  {
+   "press": "sr-item-a"
+  },
+  {
+   "dragover": "sr-item-c"
+  },
+  {
+   "release": true
+  }
+ ],
+ "observe": [
+  "announce"
+ ]
+}

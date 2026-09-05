@@ -1,0 +1,492 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EvgResponsiveDemo — one page, laid out by EVG, at whatever width the window is
+; ==============================================================================
+;
+; Every other EVG page in this repository is laid out ONCE, at a size somebody
+; typed: a sheet of A4 for the PDF, 420×320 for the conformance playground,
+; `boxmodel.json` at whatever it was exported at. That is a fair test of the
+; layout, and no test at all of the part CSS calls responsive — `@media`, `vw`,
+; percentages, a grid that changes how many columns it has.
+;
+; So this one is laid out on every frame, at the width of the browser window,
+; and NOTHING about it is precomputed. Drag the window and the whole pipeline
+; runs again:
+;
+;   1. build the tree             (this file, `build()`)
+;   2. state the viewport         `EVGStyleSheet.setViewport(w, h, coarse)`
+;   3. resolve the cascade        `applyTree` — the `@media` blocks that match
+;                                 this width contribute, the others do not
+;   4. lay out                    `EVGLayout.layout` with `setPageSize(w, h)`,
+;                                 which is also what `vw` / `vh` resolve to
+;   5. flatten to draw commands   `EVGDisplayList.build`
+;
+; The page is then painted by `gallery/evg/html/evg-html.js` — the SVG backend,
+; 500 lines, which knows about rectangles, glyph runs and clips and nothing at
+; all about CSS. The browser never lays anything out. It is handed absolute
+; pixels that EVG computed.
+;
+; --- WHAT IS ACTUALLY BEING DEMONSTRATED --------------------------------------
+;
+; The tree below has no width, no colour and no size anywhere in it. It is a
+; list of names. Every number on the screen comes from `defaultCss()`, and the
+; three `@media` blocks in it are the entire difference between the wide layout
+; and the phone one:
+;
+;   > 1080px   sidebar beside the content, cards four across
+;   ≤ 1080px   cards three across
+;   ≤  820px   sidebar above the content, cards two across
+;   ≤  560px   one card per row, smaller type, tighter padding
+;
+; The badge in the top bar is the one thing this file computes rather than
+; declares, because it is reporting the input: it says what the host told the
+; stylesheet the viewport was. Everything else is the cascade's answer.
+; ==============================================================================
+
+Import "../../EVGElement.rgr"
+Import "../../EVGUnit.rgr"
+Import "../../EVGBox.rgr"
+Import "../../EVGLayout.rgr"
+Import "../../EVGStyleSheet.rgr"
+Import "../../EVGDisplayList.rgr"
+
+; The tags this page is built from. Names only — a tag carries a class and,
+; for the text nodes, `elementType 1`, and never a visual attribute.
+treefactory Rp {
+    child addChild
+    text  textContent
+
+    tag Page     EVGElement (props (className "page"))
+
+    tag Bar      EVGElement (props (className "bar"))
+    tag Brand    EVGElement (props (className "brand") (elementType 1))
+    tag BarTitle EVGElement (props (className "bar-title") (elementType 1))
+    tag Spacer   EVGElement (props (className "spacer"))
+    tag Badge    EVGElement (props (className "badge") (elementType 1))
+
+    tag Hero     EVGElement (props (className "hero"))
+    tag HeroH    EVGElement (props (className "hero-h") (elementType 1))
+    tag HeroP    EVGElement (props (className "hero-p") (elementType 1))
+
+    tag Chips    EVGElement (props (className "chips"))
+    tag ChipW    EVGElement (props (className "chip chip-wide") (elementType 1))
+    tag ChipL    EVGElement (props (className "chip chip-lap") (elementType 1))
+    tag ChipT    EVGElement (props (className "chip chip-tab") (elementType 1))
+    tag ChipP    EVGElement (props (className "chip chip-phone") (elementType 1))
+
+    tag Body     EVGElement (props (className "body"))
+    tag Side     EVGElement (props (className "side"))
+    tag SideH    EVGElement (props (className "side-h") (elementType 1))
+    tag NavList  EVGElement (props (className "nav"))
+    tag NavItem  EVGElement (props (className "nav-item") (elementType 1))
+    tag Main     EVGElement (props (className "main"))
+
+    tag SecH     EVGElement (props (className "sec-h") (elementType 1))
+    tag Cards    EVGElement (props (className "cards"))
+    tag Card     EVGElement (props (className "card"))
+    tag CardTag  EVGElement (props (className "card-tag") (elementType 1))
+    tag CardH    EVGElement (props (className "card-h") (elementType 1))
+    tag CardP    EVGElement (props (className "card-p") (elementType 1))
+
+    tag Stats    EVGElement (props (className "stats"))
+    tag Stat     EVGElement (props (className "stat"))
+    tag StatN    EVGElement (props (className "stat-n") (elementType 1))
+    tag StatL    EVGElement (props (className "stat-l") (elementType 1))
+
+    tag Foot     EVGElement (props (className "foot"))
+    tag FootT    EVGElement (props (className "foot-t") (elementType 1))
+}
+
+class EvgResponsiveDemo {
+
+    ; The surface, as the host reports it. `vw` / `vh` and every `@media` bound
+    ; are resolved against exactly these two numbers — a Ranger program has no
+    ; window to ask, so the host has to say.
+    def pageW:double 1200.0
+    def pageH:double 800.0
+    ; A finger rather than a mouse, for `@media (pointer: coarse)`.
+    def coarse:boolean false
+
+    def css:string ""
+
+    ; What the last render worked out, so a caller can report it without
+    ; parsing the JSON back.
+    def lastHeight:double 0.0
+    def lastCommands:int 0
+    def lastErrors:int 0
+
+    Constructor () {
+        css = (EvgResponsiveDemo.defaultCss())
+    }
+
+    fn setViewport:void (w:double h:double c:boolean) {
+        pageW = w
+        pageH = h
+        coarse = c
+    }
+
+    ; The page's own stylesheet, so the demo can show it and let it be edited.
+    fn stylesheet:string () {
+        return css
+    }
+
+    fn setStylesheet:void (text:string) {
+        css = text
+    }
+
+    fn contentHeight:double () {
+        return lastHeight
+    }
+
+    fn commandCount:int () {
+        return lastCommands
+    }
+
+    fn cssErrorCount:int () {
+        return lastErrors
+    }
+
+    ; ------------------------------------------------------------------------
+    ; The stylesheet. Every number on the page is in here.
+    ; ------------------------------------------------------------------------
+    sfn defaultCss:string () {
+        def s:string ""
+
+        ; --- the page ---------------------------------------------------------
+        ; `font-family` is declared once and inherits from here. It is a
+        ; GENERIC on purpose: `SimpleTextMeasurer`'s advances were measured off
+        ; a browser's sans fallback, so naming that same fallback is what makes
+        ; the width EVG computed and the width the browser paints the same
+        ; number. A named face nobody has installed would silently be measured
+        ; as one thing and drawn as another.
+        s = s + ".page { display: flex; flex-direction: column; width: 100vw;"
+        s = s + " font-family: sans-serif;"
+        s = s + " background-color: #f6f7fb; padding-bottom: 28px }\n"
+
+        ; --- top bar ----------------------------------------------------------
+        s = s + ".bar { display: flex; flex-direction: row; align-items: center;"
+        s = s + " gap: 12px; padding: 18px 32px; background-color: #10162b }\n"
+        s = s + ".brand { font-size: 15px; font-weight: 700; color: #ffffff }\n"
+        s = s + ".bar-title { font-size: 13px; color: #8ea0c8 }\n"
+        s = s + ".spacer { flex: 1 }\n"
+        s = s + ".badge { font-size: 12px; font-weight: 600; color: #06122e;"
+        s = s + " background-color: #7cc4ff; border-radius: 999px;"
+        s = s + " padding: 6px 14px }\n"
+
+        ; --- hero -------------------------------------------------------------
+        ; `padding-left: 4vw` is the viewport unit doing the work a percentage
+        ; cannot: it is a share of the PAGE, not of this element's parent.
+        s = s + ".hero { display: flex; flex-direction: column; gap: 10px;"
+        s = s + " padding-top: 30px; padding-bottom: 26px;"
+        s = s + " padding-left: 4vw; padding-right: 4vw;"
+        s = s + " background-color: #ffffff }\n"
+        s = s + ".hero-h { font-size: 30px; font-weight: 700; color: #10162b;"
+        s = s + " line-height: 1.2 }\n"
+        s = s + ".hero-p { font-size: 14px; color: #55617e; line-height: 1.5 }\n"
+
+        ; --- the breakpoint chips --------------------------------------------
+        ; Four chips, one per band. They are grey here, and each `@media` block
+        ; below lights its own one up — so the page says which rules are firing
+        ; without anything in the tree knowing how wide the window is.
+        s = s + ".chips { display: flex; flex-direction: row; flex-wrap: wrap;"
+        s = s + " gap: 8px; padding-top: 6px }\n"
+        s = s + ".chip { font-size: 12px; color: #7a869f;"
+        s = s + " background-color: #eef0f6; border-radius: 6px;"
+        s = s + " padding: 6px 10px }\n"
+        s = s + ".chip-wide { color: #06122e; background-color: #b9e2ff }\n"
+
+        ; --- the body split ---------------------------------------------------
+        s = s + ".body { display: flex; flex-direction: row; gap: 24px;"
+        s = s + " padding-top: 26px;"
+        s = s + " padding-left: 4vw; padding-right: 4vw }\n"
+        s = s + ".side { display: flex; flex-direction: column; gap: 8px;"
+        s = s + " width: 240px; padding: 16px; background-color: #ffffff;"
+        s = s + " border-radius: 12px }\n"
+        s = s + ".side-h { font-size: 11px; font-weight: 700; color: #8b95ad;"
+        s = s + " padding-bottom: 4px }\n"
+        ; `width: 100%` rather than nothing. EVG's `align-items` default on a
+        ; column is `flex-start`, not `stretch`, so an auto cross size here is
+        ; fit-content — which is not what a list of rows in a fixed-width
+        ; sidebar means. Saying the percentage says it.
+        s = s + ".nav { display: flex; flex-direction: column; gap: 6px;"
+        s = s + " width: 100% }\n"
+        ; `min-width` so the rows are a consistent size — and so that no label
+        ; sits on the wrap threshold. A shrink-to-fit box comes out at exactly
+        ; its own text's width, and the content width is that number minus the
+        ; padding it was added to, which for some strings loses a ulp and wraps
+        ; a label that fits. See gallery/evg/ISSUES.md, "shrink-to-fit text".
+        s = s + ".nav-item { font-size: 13px; color: #26314c;"
+        s = s + " background-color: #f2f4fa; border-radius: 8px;"
+        s = s + " min-width: 104px; padding: 9px 12px }\n"
+        s = s + ".main { display: flex; flex-direction: column; gap: 18px;"
+        s = s + " flex: 1 }\n"
+        s = s + ".sec-h { font-size: 16px; font-weight: 700; color: #10162b }\n"
+
+        ; --- the card grid ----------------------------------------------------
+        s = s + ".cards { display: grid;"
+        s = s + " grid-template-columns: repeat(4, 1fr); gap: 16px }\n"
+        s = s + ".card { display: flex; flex-direction: column; gap: 8px;"
+        s = s + " padding: 16px; background-color: #ffffff;"
+        s = s + " border-radius: 12px; border-width: 1px; border-color: #e3e7f1 }\n"
+        s = s + ".card-tag { font-size: 11px; font-weight: 700; color: #2f7fd0 }\n"
+        s = s + ".card-h { font-size: 15px; font-weight: 700; color: #10162b }\n"
+        s = s + ".card-p { font-size: 13px; color: #55617e; line-height: 1.45 }\n"
+
+        ; --- the stat strip ---------------------------------------------------
+        ; `flex-wrap: wrap` with a minimum width is the other way a layout
+        ; answers a narrow window: no rule fires, the line simply runs out.
+        s = s + ".stats { display: flex; flex-direction: row; flex-wrap: wrap;"
+        s = s + " gap: 12px }\n"
+        s = s + ".stat { display: flex; flex-direction: column; gap: 4px;"
+        s = s + " flex: 1; min-width: 150px; padding: 14px 16px;"
+        s = s + " background-color: #10162b; border-radius: 12px }\n"
+        s = s + ".stat-n { font-size: 22px; font-weight: 700; color: #ffffff }\n"
+        s = s + ".stat-l { font-size: 12px; color: #8ea0c8 }\n"
+
+        ; --- footer -----------------------------------------------------------
+        s = s + ".foot { display: flex; flex-direction: row;"
+        s = s + " padding-top: 22px;"
+        s = s + " padding-left: 4vw; padding-right: 4vw }\n"
+        s = s + ".foot-t { font-size: 12px; color: #8b95ad; line-height: 1.5 }\n"
+
+        ; ======================================================================
+        ; The breakpoints. This is the whole responsive behaviour of the page.
+        ; ======================================================================
+
+        ; Laptop: one column out of the card grid.
+        s = s + "@media (max-width: 1080px) {\n"
+        s = s + "  .cards { grid-template-columns: repeat(3, 1fr) }\n"
+        s = s + "  .hero-h { font-size: 26px }\n"
+        s = s + "  .chip-wide { color: #7a869f; background-color: #eef0f6 }\n"
+        s = s + "  .chip-lap { color: #06122e; background-color: #b9e2ff }\n"
+        s = s + "}\n"
+
+        ; Tablet: the sidebar stops being a sidebar. One declaration —
+        ; `flex-direction: column` on the split — moves it above the content,
+        ; and `width: auto` lets it fill the line it now has to itself.
+        s = s + "@media (max-width: 820px) {\n"
+        s = s + "  .body { flex-direction: column; gap: 18px }\n"
+        s = s + "  .side { width: auto }\n"
+        s = s + "  .nav { flex-direction: row; flex-wrap: wrap }\n"
+        s = s + "  .cards { grid-template-columns: repeat(2, 1fr) }\n"
+        s = s + "  .chip-lap { color: #7a869f; background-color: #eef0f6 }\n"
+        s = s + "  .chip-tab { color: #06122e; background-color: #b9e2ff }\n"
+        s = s + "}\n"
+
+        ; Phone: one card per row, and the type and padding come down with it.
+        s = s + "@media (max-width: 560px) {\n"
+        s = s + "  .bar { padding-left: 18px; padding-right: 18px }\n"
+        s = s + "  .bar-title { font-size: 12px }\n"
+        s = s + "  .hero { padding-top: 22px; padding-bottom: 20px }\n"
+        s = s + "  .hero-h { font-size: 21px }\n"
+        s = s + "  .hero-p { font-size: 13px }\n"
+        s = s + "  .cards { grid-template-columns: repeat(1, 1fr); gap: 12px }\n"
+        s = s + "  .stat { min-width: 120px }\n"
+        s = s + "  .chip-tab { color: #7a869f; background-color: #eef0f6 }\n"
+        s = s + "  .chip-phone { color: #06122e; background-color: #b9e2ff }\n"
+        s = s + "}\n"
+
+        ; A finger needs a bigger target than a mouse does. Nothing on this page
+        ; is clickable, but the rule is here because it is the third thing a
+        ; media query can ask about and it costs one block to prove it works.
+        s = s + "@media (pointer: coarse) {\n"
+        s = s + "  .nav-item { padding-top: 13px; padding-bottom: 13px }\n"
+        s = s + "}\n"
+
+        return s
+    }
+
+    ; ------------------------------------------------------------------------
+    ; The tree. Names, and not one number.
+    ; ------------------------------------------------------------------------
+
+    fn card:EVGElement (tag:string title:string body:string) {
+        def c (tree Rp (Card))
+        c.addChild((tree Rp (CardTag tag)))
+        c.addChild((tree Rp (CardH title)))
+        c.addChild((tree Rp (CardP body)))
+        return c
+    }
+
+    fn stat:EVGElement (value:string label:string) {
+        def s (tree Rp (Stat))
+        s.addChild((tree Rp (StatN value)))
+        s.addChild((tree Rp (StatL label)))
+        return s
+    }
+
+    fn navItem:EVGElement (label:string) {
+        return (tree Rp (NavItem label))
+    }
+
+    ; What the badge says. This is the ONE thing the tree is told about the
+    ; window, and it is reporting the input rather than reacting to it.
+    fn badgeText:string () {
+        def w:int (to_int pageW)
+        def h:int (to_int pageH)
+        def band:string "wide"
+        if (pageW <= 1080.0) { band = "laptop" }
+        if (pageW <= 820.0) { band = "tablet" }
+        if (pageW <= 560.0) { band = "phone" }
+        return (((((to_string w) + " × ") + (to_string h)) + " px · ") + band)
+    }
+
+    fn build:EVGElement () {
+        def page (tree Rp (Page))
+
+        ; --- bar --------------------------------------------------------------
+        def bar (tree Rp (Bar))
+        bar.addChild((tree Rp (Brand "EVG")))
+        bar.addChild((tree Rp (BarTitle "responsive layout, laid out on every frame")))
+        bar.addChild((tree Rp (Spacer)))
+        bar.addChild((tree Rp (Badge (this.badgeText()))))
+        page.addChild(bar)
+
+        ; --- hero -------------------------------------------------------------
+        def hero (tree Rp (Hero))
+        hero.addChild((tree Rp (HeroH "Sama puu, sama tyylitiedosto, mikä tahansa leveys")))
+        hero.addChild((tree Rp (HeroP ("Selain ei aseta tällä sivulla mitään. EVG saa ikkunan koon, "
+            + "ratkaisee @media-säännöt sitä vasten, laskee laatikot ja antaa SVG-piirtäjälle "
+            + "valmiit pikselit. Muuta ikkunan kokoa — koko putki ajetaan uudelleen."))))
+
+        def chips (tree Rp (Chips))
+        chips.addChild((tree Rp (ChipW "> 1080px · 4 saraketta")))
+        chips.addChild((tree Rp (ChipL "≤ 1080px · 3 saraketta")))
+        chips.addChild((tree Rp (ChipT "≤ 820px · sivupalkki ylös")))
+        chips.addChild((tree Rp (ChipP "≤ 560px · 1 sarake")))
+        hero.addChild(chips)
+        page.addChild(hero)
+
+        ; --- body -------------------------------------------------------------
+        def body (tree Rp (Body))
+
+        def side (tree Rp (Side))
+        side.addChild((tree Rp (SideH "MOOTTORI")))
+        def nav (tree Rp (NavList))
+        nav.addChild((this.navItem("Layout")))
+        nav.addChild((this.navItem("Stylesheet")))
+        nav.addChild((this.navItem("Text engine")))
+        nav.addChild((this.navItem("Display list")))
+        nav.addChild((this.navItem("Hit test")))
+        nav.addChild((this.navItem("A11y tree")))
+        side.addChild(nav)
+        body.addChild(side)
+
+        def main (tree Rp (Main))
+        main.addChild((tree Rp (SecH "Mitä leveys muuttaa")))
+
+        def cards (tree Rp (Cards))
+        cards.addChild((this.card("GRID" "Sarakkeet"
+            "grid-template-columns vaihtuu neljästä yhteen. Sama solulista, eri raidat.")))
+        cards.addChild((this.card("FLEX" "Suunta"
+            "Sivupalkin ja sisällön jako on flex-rivi, joka kääntyy sarakkeeksi 820 pikselissä.")))
+        cards.addChild((this.card("VW" "Marginaali"
+            "Reunojen padding on 4vw eli osuus sivusta, ei vanhemmasta. Se kapenee ikkunan mukana.")))
+        cards.addChild((this.card("WRAP" "Rivitys"
+            "Tilastorivi ei kysy leveyttä keneltäkään: min-width ja flex-wrap katkaisevat rivin itse.")))
+        cards.addChild((this.card("TEXT" "Katkot"
+            "Teksti mitataan samalla moottorilla joka sen piirtää, joten rivitys on se mikä näkyy.")))
+        cards.addChild((this.card("MEDIA" "Ehdot"
+            "@media on ehto säännöille, ei uusi valitsin: spesifisyys säilyy ennallaan.")))
+        cards.addChild((this.card("POINTER" "Osoitin"
+            "(pointer: coarse) kasvattaa navin kohteet sormelle. Isäntä kertoo kumpi on käytössä.")))
+        cards.addChild((this.card("SAMA" "Yksi puu"
+            "Tämä sivu kelpaa sellaisenaan PDF:ksi ja PNG:ksi. Vain sivun koko on eri.")))
+        main.addChild(cards)
+
+        def stats (tree Rp (Stats))
+        stats.addChild((this.stat("3" "@media-lohkoa")))
+        stats.addChild((this.stat("0" "kovaa pikseliä puussa")))
+        stats.addChild((this.stat("1" "tyylitiedosto")))
+        stats.addChild((this.stat("6" "piirtokohdetta")))
+        main.addChild(stats)
+
+        body.addChild(main)
+        page.addChild(body)
+
+        ; --- foot -------------------------------------------------------------
+        def foot (tree Rp (Foot))
+        foot.addChild((tree Rp (FootT ("gallery/evg/web/responsive — puu rakennetaan, tyylit "
+            + "ratkaistaan ja laatikot lasketaan uudelleen jokaisella koon muutoksella."))))
+        page.addChild(foot)
+
+        return page
+    }
+
+    ; How tall the page turned out.
+    ;
+    ; NOT `root.calculatedHeight`: `EVGLayout` gives a root with no stated
+    ; height the page height, because a document's root IS the page — which is
+    ; right for paper and wrong for a window, where the content is free to be
+    ; taller than the viewport and scroll. So the answer is the lowest edge any
+    ; child reached, plus the root's own bottom padding, and the caller sizes
+    ; the surface to that.
+    fn measuredHeight:double (root:EVGElement) {
+        def bottom:double 0.0
+        def i:int 0
+        def n:int (root.getChildCount())
+        while (i < n) {
+            def c:EVGElement (root.getChild(i))
+            def b:double (c.calculatedY + c.calculatedHeight)
+            if (b > bottom) {
+                bottom = b
+            }
+            i = (i + 1)
+        }
+        ; The RESOLVED box, not the declared unit: `paddingBottom` is still the
+        ; `28px` the sheet wrote, and `box` is what layout made of it.
+        def box:EVGBox root.box
+        bottom = (bottom + box.paddingBottomPx)
+        if (bottom < pageH) {
+            bottom = pageH
+        }
+        return bottom
+    }
+
+    ; ------------------------------------------------------------------------
+    ; One frame: tree, cascade, layout, draw commands, JSON.
+    ; ------------------------------------------------------------------------
+    fn render:string () {
+        def root:EVGElement (this.build())
+
+        def sheet (new EVGStyleSheet())
+        sheet.parse(css)
+        lastErrors = (array_length sheet.errors)
+        ; The viewport is stated, not guessed: with none, a conditional rule
+        ; does not apply at all.
+        sheet.setViewport(pageW pageH coarse)
+        sheet.applyTree(root "")
+
+        def lay (new EVGLayout())
+        lay.setPageSize(pageW pageH)
+        lay.layout(root)
+
+        ; A second pass, and only when the content came out taller than the
+        ; window. `EVGLayout` gives an unstated root the PAGE height, so the
+        ; first pass leaves the page background 900px tall under 1800px of
+        ; cards; stating the measured height and laying out again paints it to
+        ; the bottom. The page SIZE is not touched, so `vw`, `vh` and every
+        ; `@media` bound still mean the window and not the document.
+        def tall:double (this.measuredHeight(root))
+        if (tall > pageH) {
+            root.height = (EVGUnit.px(tall))
+            lay.layout(root)
+        }
+
+        def dl (new EVGDisplayList())
+        ; The list must break paragraphs exactly where layout broke them.
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(root)
+
+        lastHeight = (this.measuredHeight(root))
+        lastCommands = (dl.count())
+
+        def json:string "{\"width\":"
+        json = json + (EVGDisplayList.num(pageW))
+        json = json + ",\"height\":" + (EVGDisplayList.num(lastHeight))
+        json = json + ",\"cssErrors\":" + (to_string lastErrors)
+        json = json + ",\"list\":" + (dl.toJson()) + "}"
+        return json
+    }
+}

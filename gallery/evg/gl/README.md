@@ -15,10 +15,18 @@ colours resolved to 0–255 + alpha, no tree and no units left.
 
 ```
 JSX + CSS ──► EVG layout ──► display list ──┬─► WebGL 2      (evg-webgl.js)
+                                            ├─► SVG / DOM    (../html/evg-html.js)
                                             ├─► SDL2 + GL    (C++ target)
                                             ├─► PDF, PNG, HTML (existing)
                                             └─► framebuffer  (v2 game UI)
 ```
+
+The SVG backend is the second consumer of this seam and the evidence that the
+seam is one: it is 500 lines, it shares no code with this file, and the two are
+differenced pixel for pixel over the same frames — 0.022% on a sheet built to
+exercise every command kind, 0.000% on every slide of the .pptx deck. See
+[`gallery/pptx/web/html/`](../../pptx/web/html/README.md), which is the slide
+editor with this painter swapped out for that one and nothing else changed.
 
 Everything above the seam is the code the PDF is made with. Everything below
 knows only about quads, glyph runs and scissor rectangles.

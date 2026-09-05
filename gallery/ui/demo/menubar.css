@@ -1,0 +1,143 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+ *
+ * The Radix menubar example's look, as an EVG stylesheet. Class-first: every
+ * class here is one the tree literal in MenubarDemo.rgr writes, and the
+ * literal itself carries no appearance at all.
+ *
+ * EVGStyleSheet matches ONE class token per selector, so the compound classes
+ * the demo writes ("mb-item mb-item-disabled") are matched by their own token
+ * rather than by a compound selector. That limit is in gallery/ui/PLAN.md.
+ */
+
+.mb-page {
+  display: flex;
+  flex-direction: column;
+  background-color: #6d5ce7;
+  padding: 40px;
+  width: 1240px;
+  height: 560px;
+}
+
+/* The same page with the bar pushed to the bottom edge. Nothing else changes:
+   the menus then have no room below their triggers, and the overlay pass flips
+   them so they open upwards. It is here to make that visible rather than only
+   tested. */
+.mb-page-bottom {
+  justify-content: flex-end;
+}
+
+/* --- the bar ---------------------------------------------------------------- */
+
+.mb-root {
+  display: flex;
+  flex-direction: row;
+  /* EVG's default is `wrap`, and it decides whether to wrap from the child's
+     width BEFORE that child's own fit-content shrink has happened — so every
+     menu still looked full-width at the moment the row was deciding, and each
+     one wrapped onto its own line. */
+  flex-wrap: nowrap;
+  background-color: #ffffff;
+  border-radius: 8px;
+  padding: 4px;
+  width: 320px;
+  height: 44px;
+}
+
+/* fit-content, so a menu is as wide as its trigger and the four sit side by
+   side. Without it every one of them is as wide as the whole bar, the first
+   fills the row, and the rest wrap underneath — which is exactly what the bar
+   did before this existed. */
+.mb-menu { display: flex; flex-direction: column; width: fit-content; }
+.mb-dropdown-row { display: flex; flex-direction: row; gap: 14px; margin-top: 10px; }
+
+.mb-trigger {
+  color: #4c2889;
+  font-size: 15px;
+  font-weight: 600;
+  padding: 9px 14px;
+  border-radius: 6px;
+}
+.mb-trigger-open { background-color: #ece7fd; }
+
+/* --- a dropdown ------------------------------------------------------------- */
+
+.mb-content {
+  display: flex;
+  flex-direction: column;
+  background-color: #ffffff;
+  border-radius: 8px;
+  padding: 6px;
+  width: 300px;
+}
+
+.mb-subcontent {
+  display: flex;
+  flex-direction: column;
+  background-color: #ffffff;
+  border-radius: 8px;
+  padding: 6px;
+  width: 200px;
+}
+
+/* No fixed height: a label longer than its column wraps, and a row that cannot
+   grow would paint the second line over the row beneath it. */
+.mb-item {
+  display: flex;
+  flex-direction: row;
+  padding: 7px 10px;
+  border-radius: 4px;
+}
+.mb-item-inset { padding: 7px 10px; }
+
+/* Fixed, not `fill`: EVG's `fill` resolves to the parent's full width rather
+ * than to what the siblings leave, so a filled label pushes the shortcut onto
+ * the next line. Measured, and the reason these are numbers. */
+.mb-label { color: #4c2889; font-size: 14px; width: 200px; }
+.mb-shortcut { color: #9d8bd4; font-size: 13px; text-align: right; width: 60px; }
+.mb-indicator { color: #4c2889; font-size: 13px; width: 22px; }
+
+/* Disabled is the one state visible in a still picture, and the reference makes
+ * it grey rather than translucent, so this does too. */
+.mb-label-disabled { color: #b3a7d9; }
+
+.mb-separator {
+  background-color: #e6e0fb;
+  height: 1px;
+  width: 100%;
+  margin-top: 5px;
+  margin-bottom: 5px;
+}
+
+.mb-content-narrow { width: 230px; }
+.mb-content-wide { width: 300px; }
+/* An inset row spends 22px on the indicator, so its label is narrower by that
+ * much or the row wraps and the tick lands on its own line. */
+.mb-label-inset { width: 176px; }
+
+/* --- the pointer -------------------------------------------------------------
+   None of this existed. The page had a menubar that opened on a click and
+   looked identical whether or not anything was under the cursor, which is the
+   first thing that makes a canvas UI read as a picture of a UI.
+
+   The transitions go on the BASE rules and not on `:hover`, because a
+   transition describes the property and not the direction — declared only
+   under `:hover` a trigger tints in and snaps out.
+
+   Kept in the purple the rest of this sheet uses: `#ece7fd` is what an OPEN
+   menu already tints its trigger, so hover is a lighter step of the same
+   colour rather than a new one. */
+.mb-trigger,
+.mb-item,
+.mb-row {
+  transition: background-color 130ms ease-out, transform 130ms ease-out;
+}
+
+.mb-trigger:hover { background-color: #f4f1fe; }
+.mb-item:hover,
+.mb-row:hover { background-color: #f4f1fe; }
+
+/* Pressed is a step darker AND a small squeeze, so a click registers even on
+   a trigger that was already tinted by being open. */
+.mb-trigger:active,
+.mb-item:active,
+.mb-row:active { background-color: #ded4fb; transform: scale(0.97); }

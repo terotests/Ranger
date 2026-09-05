@@ -1,0 +1,2166 @@
+/**
+ * The demo page.
+ *
+ * Every control rebuilds the tree: the page holds a handful of plain values,
+ * hands them to whichever demo is selected, and paints whatever comes back.
+ * There is no diff and nothing is patched — a tree literal builds, and building
+ * again is how a change is shown.
+ *
+ * Three things come out of that one tree, and this file is mostly about keeping
+ * them the same thing:
+ *
+ *   displayListJson()   what to draw
+ *   hitId(x, y)         what is under the pointer — topmost, so a click inside
+ *                       an open panel reaches the panel and not the trigger it
+ *                       covers
+ *   a11yJson()          what it MEANS, mirrored into real DOM over the canvas,
+ *                       because a canvas hands a screen reader one empty
+ *                       graphic no matter what was drawn into it
+ *
+ * A reader activating a mirrored node is answered by pressing the app at that
+ * node's rectangle — the same path a mouse takes, so there is no second set of
+ * commands to keep in step and a button that moved is still pressed where it
+ * now is.
+ */
+
+import { renderDisplayList } from "../../evg/gl/evg-webgl.js";
+import { createA11yMirror, pressAtCentre } from "../../evg/gl/evg-a11y.js";
+import { createTextInputBridge } from "../../evg/gl/evg-textinput.js";
+// Dev tools for a canvas. Loaded always and attached only when the page is
+// asked for it with `?inspect=1`, so a demo that nobody is inspecting pays
+// one import and no work at all.
+import { attach as attachInspector } from "../../evg/inspect/evg-inspect.js";
+import { MenubarDemo, ToolbarDemo, SortableDemo, MotionDemo, TableDemo, DropdownDemo, DialogDemo, TreeDemo, TimelineDemo, ResizeDemo, FormDemo, ProfileDemo, DashboardDemo, CalendarDemo, FilterDemo, EventCalDemo, MessageDemo, ControlsDemo } from "./generated-host.js";
+// The whole modules too: `keptTree` needs EVGStyleSheet, EVGLayout and the
+// rest out of the same bundle the tree was built by. Two copies of a class
+// are two classes.
+import * as MenubarModule from "../bin/MenubarDemo.cjs";
+import * as ToolbarModule from "../bin/ToolbarDemo.cjs";
+import * as SortableModule from "../bin/SortableDemo.cjs";
+import { MENUBAR_CSS, TOOLBAR_CSS, SORTABLE_CSS, MOTION_CSS, TABLE_CSS, DROPDOWN_CSS, DIALOG_CSS, TREE_CSS, TIMELINE_CSS, RESIZE_CSS, FORM_CSS, PROFILE_CSS, DASHBOARD_CSS, CALENDAR_CSS, FILTERS_CSS, EVENTCAL_CSS, MESSAGE_CSS, CONTROLS_CSS } from "./generated.js";
+
+// The default stage width. A demo wider than this says so — the dashboard
+// grew to 1336 when its sidebar arrived, and a stage that stays 1240 does not
+// report the extra, it crops it.
+const W = 1240;
+
+const CHECK_ITEMS = ["Always Show Bookmarks Bar", "Always Show Full URLs"];
+const PROFILES = ["Andy", "Benoît", "Luis"];
+const MENUS = ["File", "Edit", "View", "Profiles"];
+const SUB_ROWS = { File: "row-Share", Edit: "row-Find" };
+const SUB_SURFACE = { File: "menu-share-content", Edit: "menu-find-content" };
+
+const SORTABLE_IDS = ["demo", "spec", "video", "audio", "extra"];
+
+const state = {
+  which: "menubar",
+  // The sortable's whole state: an order, and what is being carried. There is
+  // no move and no animation — the tree is rebuilt from this list, which is
+  // the claim the rest of this directory makes about tree literals.
+  order: SORTABLE_IDS.slice(),
+  dragging: "",
+  // Where the carried row would land if the pointer let go now, and where its
+  // floating copy currently is. The ORDER is not touched until the drop — see
+  // `dragSortable`.
+  over: "",
+  previewX: 0,
+  previewY: 0,
+  // Only a POINTER drag floats a copy. A keyboard pick-up moves the row with
+  // the arrow keys and never leaves the list, so there is nothing following
+  // anything and a preview would be a lie about where the row is.
+  floating: false,
+  open: "File",
+  submenu: true,
+  // The bar at the bottom edge, where the menus have no room below their
+  // triggers and the overlay pass flips them upwards.
+  atBottom: false,
+  checked: ["Always Show Full URLs"],
+  profile: "Luis",
+  bold: true,
+  italic: false,
+  underline: false,
+  align: "center",
+  // A row asked for by a key press that has not been built yet — see
+  // `settlePendingRow`.
+  pendingRow: "",
+  // The app's focus, and the app's alone. The mirror never reports focus back:
+  // a mirror that does gets into a loop with the app that is setting it.
+  focus: "",
+};
+
+
+/**
+ * A kept tree for a demo that otherwise rebuilds.
+ *
+ * The three original demos here rebuild on every change, and that is the claim
+ * the directory makes: reordering is rebuilding. It is still true — but it made
+ * them inert. A tree rebuilt between two frames has different ELEMENTS in it,
+ * and hover is a flag on an element while a transition is a memory held by one.
+ * So the demos had no hover colour, no press feedback and no motion at all, and
+ * the page could not have given them any.
+ *
+ * The fix is to be precise about what "a change" is. DATA — the order, which
+ * menu is open, whether the bar is at the bottom — is rebuilt, exactly as
+ * before. HOVER IS NOT DATA. It is a presentational state the stylesheet owns,
+ * so it sets a flag on the tree that is already there, and the transition
+ * machinery has the identity it needs.
+ *
+ * `key` is what decides which of the two happened: a string of everything the
+ * builder is handed except the stylesheet.
+ */
+function keptTree(mod, css, label, size) {
+  const sheet = new mod.EVGStyleSheet();
+  sheet.parse(css);
+  const transitions = new mod.EVGTransition();
+  let root = null;
+  let key = null;
+  let hovered = "";
+  let pressed = "";
+
+  // Hover and press are the element's own business, read off the one id under
+  // the pointer. Nothing walks up the tree: a row is hovered, its label is not.
+  const mark = (el) => {
+    const own = el.id !== "";
+    el.isHovered = own && el.id === hovered;
+    el.isPressed = own && el.id === pressed;
+    for (let i = 0; i < el.children.length; i++) mark(el.children[i]);
+  };
+
+  // Kept across frames, so a frame that changes nothing geometric can reuse
+  // the positions rather than recompute them. There is no "is this the same
+  // tree" check: a freshly built tree has no element the sheet has written to
+  // and a reconciled one has had every element overwritten, so either reports
+  // itself layout-dirty and lays out without being asked.
+  let lay = null;
+
+  const laidOut = () => {
+    sheet.setViewport(size[0], size[1], false);
+    mark(root);
+    sheet.applyTree(root, "");
+    // The sheet has written what it WANTS; this leaves on the element what is
+    // actually showing, which for a property in flight is neither end.
+    transitions.reconcileTree(root);
+    if (!lay) {
+      lay = new mod.EVGLayout();
+      lay.setPageSize(size[0], size[1]);
+      lay.layout(root);
+      return lay;
+    }
+    // The invalidation decision. `layoutClean()` is true when nothing the
+    // sheet wrote this pass can have moved a box — a hover that changes a
+    // colour, a transform, an opacity. On a large page that is most of the
+    // frame; see gallery/evg/EVGInvalidateTest.rgr for what it is allowed to
+    // mean and the one thing it cannot see (a bare `textContent` edit, which
+    // nothing here does: text comes from a rebuild).
+    if (!sheet.layoutClean()) lay.layout(root);
+    return lay;
+  };
+
+  const reconciler = new mod.EVGReconcile();
+
+  return {
+    /** Rebuild only if the data changed. */
+    sync(nextKey, build) {
+      if (nextKey === key) return;
+      key = nextKey;
+      root = build();
+    },
+    /**
+     * Rebuild EVERY time, and keep the elements.
+     *
+     * `sync` above is the old answer to a problem that has a real one now: a
+     * tree built from scratch has different elements in every position, so
+     * anything an element remembers — a flight, most of all — is gone, and the
+     * only way to keep it was to not rebuild. `EVGReconcile` matches the new
+     * children against the live ones by key and moves the elements instead of
+     * replacing them, so a rebuild is once again the way to say what changed.
+     *
+     * The first call has nothing to reconcile against and simply takes the
+     * tree.
+     */
+    rebuild(build) {
+      const next = build();
+      if (!root) {
+        root = next;
+        return;
+      }
+      reconciler.resetStats();
+      reconciler.reconcile(root, next);
+    },
+    /** How the last rebuild went, for a page that wants to prove it works. */
+    reconcileStats: () => reconciler.stats,
+    setHover(id) {
+      if (id === hovered) return false;
+      hovered = id;
+      return true;
+    },
+    setPressed(id) {
+      pressed = id;
+    },
+    tick(dt) {
+      transitions.advanceTree(root, dt);
+      return transitions.busy(root);
+    },
+    busy: () => transitions.busy(root),
+    /**
+     * The kept tree itself, for the one thing a rebuild cannot express: a
+     * value that changes on every pointer move. Putting it in the sync key
+     * rebuilds the tree sixty times a second, and then NOTHING on the page can
+     * animate — every element is new every frame, so every flight establishes
+     * at its destination. Measured before it was believed: the rows making
+     * room for a dragged item were at their final positions 40ms after the
+     * pointer crossed, having travelled through nothing.
+     */
+    root: () => root,
+    list() {
+      const lay = laidOut();
+      const dl = new mod.EVGDisplayList();
+      dl.setTextEngine(lay.getTextEngine());
+      dl.build(root);
+      return dl.toJson();
+    },
+    hit(x, y) {
+      laidOut();
+      return new mod.EVGHitTest().idAt(root, x, y);
+    },
+    a11y(gen, focus) {
+      laidOut();
+      return new mod.EVGA11yFromTree().build(root, label, gen, focus).toJson();
+    },
+  };
+}
+
+let generation = 0;
+
+/**
+ * The motion showcase, and the one demo on this page that does NOT rebuild.
+ *
+ * A transition is a property of an ELEMENT — it remembers where the colour was
+ * when the pointer arrived. Rebuild the tree and that memory is gone, so every
+ * transition would establish itself at its destination and nothing would ever
+ * move. This host is therefore built once and kept, and the page only sets
+ * flags on it. Everything else here still rebuilds, which is the claim the
+ * other three demos exist to make.
+ */
+let lastHover = "";
+let lastTableHover = "";
+const motion = new MotionDemo();
+motion.init(MOTION_CSS);
+
+/**
+ * The table, and the second demo here that keeps its tree.
+ *
+ * A PRESS changes the data and rebuilds; the pointer moving does not, so it
+ * only sets a flag. That is the same split `keptTree` makes for the other
+ * three, and the reason both of them can animate at all.
+ *
+ * Its state is `TableCtl`'s — the controller the conformance harness measures
+ * against TanStack — so the demo owns the look and nothing else. Writing the
+ * sort cycle again here would be writing an untested second copy of the only
+ * hard part of a table.
+ */
+const table = new TableDemo();
+table.init(TABLE_CSS);
+
+/**
+ * The dropdown menu, and the third demo here that keeps its tree.
+ *
+ * The one whose state is not its own AT ALL. `MenuCtl` — the controller the
+ * conformance harness measures against @radix-ui/react-dropdown-menu — owns
+ * open/closed, the roving focus, the submenu stack and every key; this file
+ * routes the pointer and the keyboard into it and paints what it says. So the
+ * demo's keyboard is not a demo keyboard: it is the measured one, and the
+ * menubar demo above it (which has its own, written by hand and matched
+ * against nothing) is the counter-example this exists to retire.
+ *
+ * It is also the first demo with a clock the CONTROLLER owns: a submenu opens
+ * 100ms after the pointer settles on its row, so `tick` has to keep running
+ * while that wait is outstanding even though nothing is moving on screen.
+ */
+const dropdown = new DropdownDemo();
+dropdown.init(DROPDOWN_CSS);
+let lastDropdownHover = "";
+
+/**
+ * The dialog and the window — the same class twice, with one flag different.
+ *
+ * This is the demo with a gesture the others do not have: the window's title
+ * bar is DRAGGED, and a drag is not a click. The pointer handlers below ask
+ * the controller whether a press starts one, and while it has, every move is
+ * a delta rather than a position — which is what lets the window be picked up
+ * anywhere along its bar and not jump.
+ *
+ * Both windows start open, because a page whose demo is two closed triggers
+ * shows nothing.
+ */
+let dialog = new DialogDemo();
+dialog.init(DIALOG_CSS);
+dialog.openWindow();
+dialog.openModal();
+let lastDialogHover = "";
+// Where the pointer was when the drag began, in page pixels. The controller
+// only ever hears "this much further", so the subtracting happens here.
+let dialogDragAt = null;
+
+/**
+ * The tree. Every arrow, Home, End, Enter and Space on this page is answered
+ * by `TreeCtl` — the same controller three conformance specs run against — so
+ * the demo owns the look and not one rule of the behaviour.
+ */
+const treeview = new TreeDemo();
+treeview.init(TREE_CSS);
+
+// The timeline. The one demo on this page with no controller behind it,
+// because there is nothing to control: a list of records and one integer.
+const timeline = new TimelineDemo();
+timeline.init(TIMELINE_CSS);
+
+// Nested resizable panels, with a breadcrumb in the left one that gives way as
+// the panel narrows. The one demo here whose CONTENT depends on its own size.
+const resize = new ResizeDemo();
+resize.init(RESIZE_CSS);
+let form = new FormDemo();
+form.init(FORM_CSS);
+let lastFormHover = "";
+let profile = new ProfileDemo();
+profile.init(PROFILE_CSS);
+let lastProfileHover = "";
+// The calendar. `CalendarCtl` answers every key and every click here — the
+// same controller `ui:calendar:check` runs against react-day-picker — so this
+// demo owns the look and not one rule of the month arithmetic.
+const calendar = new CalendarDemo();
+calendar.init(CALENDAR_CSS);
+
+// The filter bar. `FilterCtl` decides every predicate here — the same
+// controller `ui:filters:check` runs against @tanstack/table-core — and the
+// list of matching tasks under the chips is that controller's answer, not a
+// second opinion drawn to look like one.
+const filters = new FilterDemo();
+filters.init(FILTERS_CSS);
+let lastFiltersHover = "";
+
+// The event calendar. Where each box sits is `EventCalCtl`'s answer, measured
+// against a rendered @schedule-x/calendar; this page turns its fractions into
+// pixels and nothing else.
+const eventcal = new EventCalDemo();
+eventcal.init(EVENTCAL_CSS);
+let lastEventcalHover = "";
+
+// The chat transcript. It had a headless render entry and its own gate and was
+// never in this file at all — so it passed every check while being absent from
+// the only place a person looks. That is the same shape of hole as a
+// controller with no surface, one level up.
+const message = new MessageDemo();
+message.init(MESSAGE_CSS);
+let lastMessageHover = "";
+
+// A stepper, a progress bar and a number field on one panel. They are together
+// because the INTERACTION is the thing worth showing: filling the field
+// completes the step, which moves the bar and enables Next.
+let controls = new ControlsDemo();
+controls.init(CONTROLS_CSS);
+let lastControlsHover = "";
+let lastCalendarHover = "";
+const dashboard = new DashboardDemo();
+dashboard.init(DASHBOARD_CSS);
+let lastDashHover = "";
+let lastResizeHover = "";
+let lastTreeHover = "";
+let lastTimelineHover = "";
+
+// One kept tree per demo. The builders they are handed are the same static
+// `page()` functions the PNG snapshots and the accessibility audit call, so
+// there is one description of each demo and not two.
+const HOSTS = {
+  menubar: keptTree(MenubarModule, MENUBAR_CSS, "Menubar demo", [W, 560]),
+  toolbar: keptTree(ToolbarModule, TOOLBAR_CSS, "Toolbar demo", [W, 320]),
+  sortable: keptTree(SortableModule, SORTABLE_CSS, "Sortable demo", [W, 560]),
+};
+
+// Six demos, six factories, one page. Each one says how tall it is and
+// answers the same three questions — what to draw, what is under the pointer,
+// and what it all MEANS. Three of them answer by rebuilding their tree from
+// `args()`; the motion showcase, the table and the dropdown answer from a tree
+// they keep, because a transition cannot survive being rebuilt. Behind these
+// thunks the difference stops mattering to the rest of the page.
+const DEMOS = {
+  menubar: {
+    height: 560,
+    args: () => [MENUBAR_CSS, state.checked, state.profile, state.open, state.submenu, state.atBottom],
+    module: MenubarDemo,
+    // Through the kept tree, so a hover does not rebuild and a
+    // transition has something to remember.
+    sync: () => HOSTS.menubar.sync(JSON.stringify([state.checked, state.profile, state.open, state.submenu, state.atBottom]), () => MenubarDemo.page(state.checked, state.profile, state.open, state.submenu, state.atBottom)),
+    list: () => HOSTS.menubar.list(),
+    hit: (x, y) => HOSTS.menubar.hit(x, y),
+    a11y: (gen, focus) => HOSTS.menubar.a11y(gen, focus),
+    host: () => HOSTS.menubar,
+    animated: true,
+    press: pressMenubar,
+    hover: hoverMenubar,
+    key: keyMenubar,
+  },
+  toolbar: {
+    height: 320,
+    args: () => [
+      TOOLBAR_CSS, state.bold, state.italic, state.underline, state.align,
+      "Edited 2 hours ago",
+    ],
+    module: ToolbarDemo,
+    // Through the kept tree, so a hover does not rebuild and a
+    // transition has something to remember.
+    sync: () => HOSTS.toolbar.sync(JSON.stringify([state.bold, state.italic, state.underline, state.align, "Edited 2 hours ago"]), () => ToolbarDemo.page(state.bold, state.italic, state.underline, state.align, "Edited 2 hours ago")),
+    list: () => HOSTS.toolbar.list(),
+    hit: (x, y) => HOSTS.toolbar.hit(x, y),
+    a11y: (gen, focus) => HOSTS.toolbar.a11y(gen, focus),
+    host: () => HOSTS.toolbar,
+    animated: true,
+    press: pressToolbar,
+    hover: () => false,
+    key: () => false,
+  },
+  table: {
+    height: () => table.heightPx(),
+    list: () => table.displayListJson(),
+    hit: (x, y) => table.hit ? table.hit(x, y) : table.hitId(x, y),
+    a11y: (gen, focus) => table.a11yJson(gen, focus),
+    press: (id) => table.press(id),
+    hover: (id) => {
+      if (id === lastTableHover) return false;
+      lastTableHover = id;
+      table.setHover(id);
+      return true;
+    },
+    key: () => false,
+    host: () => ({
+      tick: (dt) => table.tick(dt),
+      busy: () => table.busyNow(),
+      setHover: (id) => {
+        if (id === lastTableHover) return false;
+        lastTableHover = id;
+        table.setHover(id);
+        return true;
+      },
+      setPressed: (id) => table.setPressed(id),
+      root: () => null,
+    }),
+    animated: true,
+  },
+
+  dropdown: {
+    height: () => dropdown.heightPx(),
+    list: () => dropdown.displayListJson(),
+    hit: (x, y) => dropdown.hitId(x, y),
+    a11y: (gen, focus) => dropdown.a11yJson(gen, focus),
+    press: (id) => dropdown.press(id),
+    hover: (id) => {
+      if (id === lastDropdownHover) return false;
+      lastDropdownHover = id;
+      dropdown.setHover(id);
+      return true;
+    },
+    // Straight through to MenuCtl. Every arrow, Enter and Escape on this demo
+    // is answered by the controller five conformance specs are run against —
+    // which is the whole point of the demo owning no state.
+    key: (k) => dropdown.key(k),
+    host: () => ({
+      tick: (dt) => dropdown.tick(dt),
+      busy: () => dropdown.busyNow(),
+      setHover: (id) => {
+        if (id === lastDropdownHover) return false;
+        lastDropdownHover = id;
+        dropdown.setHover(id);
+        return true;
+      },
+      setPressed: (id) => dropdown.setPressed(id),
+      root: () => null,
+    }),
+    animated: true,
+  },
+
+  tree: {
+    height: () => treeview.heightPx(),
+    list: () => treeview.displayListJson(),
+    hit: (x, y) => treeview.hitId(x, y),
+    a11y: (gen, focus) => treeview.a11yJson(gen, focus),
+    // The gesture protocol, same three as the dialog and the sortable. The
+    // press only ARMS a drag: `TreeDemo` starts one on the first move past a
+    // threshold, so a press that never travels ends as an ordinary click and
+    // still opens the folder under it.
+    press: (id) => treeview.beginPress(id, grabPointer.x, grabPointer.y),
+    drag: (id, ev) => treeview.dragMove(ev.offsetX, ev.offsetY),
+    drop: () => treeview.dragDrop(),
+    hover: (id) => {
+      if (id === lastTreeHover) return false;
+      lastTreeHover = id;
+      treeview.setHover(id);
+      return true;
+    },
+    // Straight through to TreeCtl, like the dropdown's.
+    key: (k) => treeview.key(k),
+    host: () => ({
+      // `openOnDropDelay` lives on this clock. A folder held under a drag
+      // opens after 800ms, and the only place that time exists is the frame
+      // loop — so the tick asks, and says whether anything changed.
+      tick: (dt) => {
+        const opened = treeview.dragHold(dt);
+        const busy = treeview.tick(dt);
+        return opened || busy;
+      },
+      // A drag held perfectly still still needs frames: nothing is moving, but
+      // 800ms of nothing is what opens a folder. Without this the loop stops
+      // the moment the pointer does and the delay never runs out.
+      busy: () => treeview.busyNow() || treeview.dragWaiting(),
+      setHover: (id) => {
+        if (id === lastTreeHover) return false;
+        lastTreeHover = id;
+        treeview.setHover(id);
+        return true;
+      },
+      setPressed: (id) => treeview.setPressed(id),
+      root: () => null,
+    }),
+    animated: true,
+  },
+
+  // The timeline. Presentational: a press steps the value on and the picture
+  // is redrawn from it, which is the only interaction there is — the reference
+  // has none at all, and a page with a value in it and no way to change it
+  // cannot show that the value is what draws the picture.
+  resizable: {
+    height: () => resize.heightPx(),
+    list: () => resize.displayListJson(),
+    hit: (x, y) => resize.hitId(x, y),
+    a11y: (gen, focus) => resize.a11yJson(gen, focus),
+    // The gesture protocol again: press arms, move drags, release drops.
+    press: (id) => resize.beginPress(id, grabPointer.x, grabPointer.y),
+    drag: (id, ev) => resize.dragMove(ev.offsetX, ev.offsetY),
+    drop: () => resize.dragDrop(),
+    hover: (id) => {
+      if (id === lastResizeHover) return false;
+      lastResizeHover = id;
+      resize.setHover(id);
+      return true;
+    },
+    key: (k) => resize.key(k),
+    host: () => ({
+      tick: (dt) => resize.tick(dt),
+      busy: () => resize.busyNow(),
+      setHover: (id) => {
+        if (id === lastResizeHover) return false;
+        lastResizeHover = id;
+        resize.setHover(id);
+        return true;
+      },
+      setPressed: (id) => resize.setPressed(id),
+      root: () => null,
+    }),
+    animated: true,
+  },
+
+  // The form. A press moves focus and, on a field, puts the caret where the
+  // pointer landed — which is the one interaction here that is a measurement
+  // rather than a state change, and the reason the press carries an x.
+  form: {
+    height: () => form.heightPx(),
+    list: () => form.displayListJson(),
+    hit: (x, y) => form.hitId(x, y),
+    a11y: (gen, focus) => form.a11yJson(gen, focus),
+    // Shift+click extends rather than collapses — measured, [2,10] from a
+    // caret at 2 and a click at 10.
+    cursorAt: (x, y) => form.cursorAt(x, y),
+    // The platform owns the editing; see evg-textinput.js.
+    textSession: {
+      focused: () => form.focusedField(),
+      state: (tid) => JSON.parse(form.fieldStateJson(tid)),
+      apply: (tid, v, a, b) => form.applyEdit(tid, v, a, b),
+    },
+    press: (id, x, y, ev) => form.beginSelection(id, x, !!(ev && ev.shiftKey)),
+    // `drag`/`drop` put the pointer under CAPTURE, which is the whole reason
+    // they are declared: without it a selection that starts inside the box
+    // and travels past its edge stops the moment `hitAt` names something
+    // else. The browser clamps instead of collapsing — [3,23] dragging right
+    // off the end — and `indexAtX` clamps the same way, so the x is passed
+    // through wherever the pointer has got to.
+    drag: (id, ev) => form.extendSelection(ev.offsetX),
+    drop: () => form.endSelection(),
+    dblclick: (id, x) => form.selectWordAt(id, x),
+    hover: (id) => {
+      if (id === lastFormHover) return false;
+      lastFormHover = id;
+      form.setHover(id);
+      return true;
+    },
+    // Shift and Control matter here and nowhere else: Shift+Arrow extends the
+    // selection a plain Arrow collapses, and Ctrl+Arrow moves by a word. A
+    // printable key goes through the same door — `keyWith` treats any
+    // single-character unmodified key as an insertion — so there is no
+    // separate typing hook to keep in step with this one.
+    keyWith: (k, shift, ctrl) => form.keyWith(k, shift, ctrl),
+    key: (k) => form.key(k),
+    host: () => ({
+      setHover: (id) => {
+        if (id === lastFormHover) return false;
+        lastFormHover = id;
+        form.setHover(id);
+        return true;
+      },
+      setPressed: (id) => form.setPressed(id),
+      root: () => null,
+    }),
+  },
+
+  // The label-left form. Same shape as the invoice's entry; the difference is
+  // in the layout, not the wiring.
+  profile: {
+    height: () => profile.heightPx(),
+    list: () => profile.displayListJson(),
+    hit: (x, y) => profile.hitId(x, y),
+    a11y: (gen, focus) => profile.a11yJson(gen, focus),
+    cursorAt: (x, y) => profile.cursorAt(x, y),
+    textSession: {
+      focused: () => profile.focusedField(),
+      state: (tid) => JSON.parse(profile.fieldStateJson(tid)),
+      apply: (tid, v, a, b) => profile.applyEdit(tid, v, a, b),
+    },
+    press: (id, x, y, ev) => profile.beginSelection(id, x, !!(ev && ev.shiftKey)),
+    drag: (id, ev) => profile.extendSelection(ev.offsetX),
+    drop: () => profile.endSelection(),
+    dblclick: (id, x) => profile.selectWordAt(id, x),
+    hover: (id) => {
+      if (id === lastProfileHover) return false;
+      lastProfileHover = id;
+      profile.setHover(id);
+      return true;
+    },
+    keyWith: (k, shift, ctrl) => profile.keyWith(k, shift, ctrl),
+    key: (k) => profile.key(k),
+    host: () => ({
+      setHover: (id) => {
+        if (id === lastProfileHover) return false;
+        lastProfileHover = id;
+        profile.setHover(id);
+        return true;
+      },
+      setPressed: (id) => profile.setPressed(id),
+      root: () => null,
+    }),
+  },
+
+  // Four cards and a chart that is really drawn: the display list this hands
+  // back has the page's own commands and Vela's in it, which is the whole
+  // point of the page.
+  dashboard: {
+    // A touch on the surface, in page pixels. The press that works a control
+    // is the same press that starts the ripple — the button never learns that
+    // anything happened, which is the point: the effect is over the finished
+    // picture and knows nothing about the tree that drew it.
+    ripple: (x, y) => dashboard.ripple(x, y),
+    // A finger dragged across the surface leaves a WAKE — one source every
+    // few pixels, not one that follows the pointer, because a wake is a row
+    // of sources and a source that moves has no history.
+    rippleTo: (x, y) => dashboard.rippleDragTo(x, y),
+    rippleEnd: () => dashboard.rippleRelease(),
+    animated: true,
+    scroll: (dy) => dashboard.scrollBy(dy),
+    width: () => dashboard.widthPx(),
+    height: () => dashboard.heightPx(),
+    list: () => dashboard.displayListJson(),
+    hit: (x, y) => dashboard.hitId(x, y),
+    a11y: (gen, focus) => dashboard.a11yJson(gen, focus),
+    // The fourth channel. Nothing else in this entry changes: the panel reads
+    // it and the page does not know the panel exists.
+    inspect: () => dashboard,
+    // The file this demo's stylesheet was built from. Named here rather than
+    // derived from `state.which`, because a demo whose sheet is not a file on
+    // disk must not claim to be live-editable.
+    css: "dashboard.css",
+    press: (id) => dashboard.press(id),
+    hover: (id) => {
+      if (id === lastDashHover) return false;
+      lastDashHover = id;
+      dashboard.setHover(id);
+      return true;
+    },
+    key: (k) => dashboard.key(k),
+    host: () => ({
+      tick: (dt) => dashboard.tick(dt),
+      busy: () => dashboard.busyNow(),
+      setHover: (id) => {
+        if (id === lastDashHover) return false;
+        lastDashHover = id;
+        dashboard.setHover(id);
+        return true;
+      },
+      setPressed: (id) => dashboard.setPressed(id),
+      root: () => null,
+    }),
+  },
+
+  calendar: {
+    height: () => calendar.heightPx(),
+    list: () => calendar.displayListJson(),
+    hit: (x, y) => calendar.hitId(x, y),
+    a11y: (gen, focus) => calendar.a11yJson(gen, focus),
+    press: (id) => calendar.press(id),
+    // The year panel is a real scroller: twenty-one years is taller than the
+    // grid, and reaching one without the calendar growing a page is the whole
+    // point of it. Returns false while the panel is shut, which the page reads
+    // as "not mine" and scrolls itself instead.
+    scroll: (dy) => calendar.scrollBy(dy),
+    hover: (id) => {
+      if (id === lastCalendarHover) return false;
+      lastCalendarHover = id;
+      calendar.setHover(id);
+      return true;
+    },
+    key: (k) => calendar.key(k),
+    host: () => ({
+      tick: (dt) => calendar.tick(dt),
+      busy: () => calendar.busyNow(),
+      setHover: (id) => {
+        if (id === lastCalendarHover) return false;
+        lastCalendarHover = id;
+        calendar.setHover(id);
+        return true;
+      },
+      setPressed: (id) => calendar.setPressed(id),
+      root: () => null,
+    }),
+    animated: true,
+  },
+
+  filters: {
+    height: () => filters.heightPx(),
+    list: () => filters.displayListJson(),
+    hit: (x, y) => filters.hitId(x, y),
+    a11y: (gen, focus) => filters.a11yJson(gen, focus),
+    // The id the hit test returned, passed through unchanged. The text field
+    // lost a whole feature here once by dropping what it was given, so this
+    // stays a pass-through and the demo decides what a click on that id means.
+    press: (id) => filters.press(id),
+    hover: (id) => {
+      if (id === lastFiltersHover) return false;
+      lastFiltersHover = id;
+      filters.setHover(id);
+      return true;
+    },
+    key: (k) => filters.key(k),
+    host: () => ({
+      tick: (dt) => filters.tick(dt),
+      busy: () => filters.busyNow(),
+      setHover: (id) => {
+        if (id === lastFiltersHover) return false;
+        lastFiltersHover = id;
+        filters.setHover(id);
+        return true;
+      },
+      setPressed: (id) => filters.setPressed(id),
+      root: () => null,
+    }),
+  },
+
+  eventcal: {
+    height: () => eventcal.heightPx(),
+    list: () => eventcal.displayListJson(),
+    hit: (x, y) => eventcal.hitId(x, y),
+    a11y: (gen, focus) => eventcal.a11yJson(gen, focus),
+    press: (id) => eventcal.press(id),
+    hover: (id) => {
+      if (id === lastEventcalHover) return false;
+      lastEventcalHover = id;
+      eventcal.setHover(id);
+      return true;
+    },
+    key: (k) => eventcal.key(k),
+    host: () => ({
+      tick: (dt) => eventcal.tick(dt),
+      busy: () => eventcal.busyNow(),
+      setHover: (id) => {
+        if (id === lastEventcalHover) return false;
+        lastEventcalHover = id;
+        eventcal.setHover(id);
+        return true;
+      },
+      setPressed: (id) => eventcal.setPressed(id),
+      root: () => null,
+    }),
+  },
+
+  message: {
+    height: () => message.heightPx(),
+    list: () => message.displayListJson(),
+    hit: (x, y) => message.hitId(x, y),
+    a11y: (gen, focus) => message.a11yJson(gen, focus),
+    press: (id) => message.press(id),
+    hover: (id) => {
+      if (id === lastMessageHover) return false;
+      lastMessageHover = id;
+      message.setHover(id);
+      return true;
+    },
+    key: (k) => message.key(k),
+    host: () => ({
+      tick: (dt) => message.tick(dt),
+      busy: () => message.busyNow(),
+      setHover: (id) => {
+        if (id === lastMessageHover) return false;
+        lastMessageHover = id;
+        message.setHover(id);
+        return true;
+      },
+      setPressed: (id) => message.setPressed(id),
+      root: () => null,
+    }),
+  },
+
+  controls: {
+    height: () => controls.heightPx(),
+    list: () => controls.displayListJson(),
+    hit: (x, y) => controls.hitId(x, y),
+    a11y: (gen, focus) => controls.a11yJson(gen, focus),
+    // `pressAt`, not `press`: a slider needs the x. The four on this page were
+    // drawn from a controller that has answered `dragBoundsTid` /
+    // `valueAtFraction` / `keyDown` since it was measured against Radix, and
+    // the page handed it an id and threw the coordinate away — so a press on a
+    // track returned false and every slider was a picture. `pressAt` falls
+    // through to `press` for everything that is not a slider.
+    press: (id, x) => controls.pressAt(id, x),
+    // A slider is a GESTURE, so this demo joins the drag path: the press picks
+    // up the track, the move carries the value, the release puts it down.
+    drag: (id, ev) => controls.dragTo(id, ev.offsetX),
+    drop: () => controls.dragEnd(),
+    hover: (id) => {
+      if (id === lastControlsHover) return false;
+      lastControlsHover = id;
+      controls.setHover(id);
+      return true;
+    },
+    key: (k) => controls.key(k),
+    // `keyWith` is the door this page already has for a demo that reads
+    // modifiers — `key` is only ever called with one argument, so a handler
+    // taking an event would silently never see Shift. And Shift is where the
+    // LARGE STEP lives, the least guessable thing the number field measured:
+    // wiring it through `key` would have left it unreachable on the page while
+    // every demo assertion still passed, because those call the controller
+    // directly. That is the text field's dropped coordinate exactly.
+    keyWith: (k, shift) => (shift ? controls.keyWithShift(k) : controls.key(k)),
+    host: () => ({
+      tick: (dt) => controls.tick(dt),
+      busy: () => controls.busyNow(),
+      setHover: (id) => {
+        if (id === lastControlsHover) return false;
+        lastControlsHover = id;
+        controls.setHover(id);
+        return true;
+      },
+      setPressed: (id) => controls.setPressed(id),
+      root: () => null,
+    }),
+    animated: true,
+  },
+
+  timeline: {
+    height: () => timeline.heightPx(),
+    list: () => timeline.displayListJson(),
+    hit: (x, y) => timeline.hitId(x, y),
+    a11y: (gen, focus) => timeline.a11yJson(gen, focus),
+    press: (id) => timeline.press(id),
+    hover: (id) => {
+      if (id === lastTimelineHover) return false;
+      lastTimelineHover = id;
+      timeline.setHover(id);
+      return true;
+    },
+    key: (k) => timeline.key(k),
+    host: () => ({
+      tick: (dt) => timeline.tick(dt),
+      busy: () => timeline.busyNow(),
+      setHover: (id) => {
+        if (id === lastTimelineHover) return false;
+        lastTimelineHover = id;
+        timeline.setHover(id);
+        return true;
+      },
+      setPressed: (id) => timeline.setPressed(id),
+      root: () => null,
+    }),
+    animated: true,
+  },
+
+  dialog: {
+    cursorAt: (x, y) => dialog.cursorAt(x, y),
+    height: () => dialog.heightPx(),
+    list: () => dialog.displayListJson(),
+    hit: (x, y) => dialog.hitId(x, y),
+    a11y: (gen, focus) => dialog.a11yJson(gen, focus),
+    // The page's gesture protocol: `press` picks something up and says so,
+    // `drag` carries it, `drop` puts it down. The sortable uses the same three.
+    //
+    // A press that is NOT the window's title bar has to do the ordinary thing
+    // instead, and do it here: once a demo has a `drag`, the page stops calling
+    // its plain click path and this is the only handler a button will get.
+    press: (id) => {
+      if (dialog.beginDrag(id)) {
+        // `grabPointer` is set by the pointerdown handler just before this
+        // runs, so the press point is already recorded and needs no argument.
+        dialogDragAt = { x: grabPointer.x, y: grabPointer.y };
+        return true;
+      }
+      dialog.press(id);
+      return false;
+    },
+    // Deltas, not positions. The controller never learns where it was picked
+    // up, so a window grabbed by the right end of its bar does not jump left.
+    drag: (id, ev) => {
+      if (!dialogDragAt) return false;
+      dialog.dragBy(ev.offsetX - dialogDragAt.x, ev.offsetY - dialogDragAt.y);
+      dialogDragAt = { x: ev.offsetX, y: ev.offsetY };
+      return true;
+    },
+    drop: () => {
+      dialogDragAt = null;
+      dialog.endDrag();
+      return true;
+    },
+    hover: (id) => {
+      if (id === lastDialogHover) return false;
+      lastDialogHover = id;
+      dialog.setHover(id);
+      return true;
+    },
+    key: (k) => dialog.key(k),
+    host: () => ({
+      tick: (dt) => dialog.tick(dt),
+      busy: () => dialog.busyNow(),
+      setHover: (id) => {
+        if (id === lastDialogHover) return false;
+        lastDialogHover = id;
+        dialog.setHover(id);
+        return true;
+      },
+      setPressed: (id) => dialog.setPressed(id),
+      root: () => null,
+    }),
+    animated: true,
+  },
+
+  motion: {
+    height: () => motion.heightPx(),
+    // Persistent: the three thunks below go to the kept host rather than
+    // rebuilding a tree from arguments.
+    list: () => motion.displayListJson(),
+    hit: (x, y) => motion.hitId(x, y),
+    a11y: (gen, focus) => motion.a11yJson(gen, focus),
+    press: () => false,
+    hover: (id) => {
+      if (id === lastHover) return false;
+      lastHover = id;
+      motion.setHover(id);
+      return true;
+    },
+    key: () => false,
+    // The only demo with a clock. `flip` is what the self-running panels
+    // travel between; the page turns it over and the stylesheet does the rest.
+    animated: true,
+  },
+  sortable: {
+    height: 560,
+    args: () => [SORTABLE_CSS, state.order, state.dragging],
+    module: SortableDemo,
+    // Rebuilt from the whole state on every frame of a drag, target and
+    // preview position included, and reconciled into the live tree.
+    //
+    // This is the one place in the gallery where the declarative claim is
+    // actually being made at 60Hz. It used to be three things: a `sync` whose
+    // key deliberately left out the target and the preview position, a
+    // hand-written `applyShift` that re-aimed the existing rows, and a
+    // `movePreview` that reached in and set two attributes. All three existed
+    // because a rebuilt row was a NEW row with no flight, so the gap appeared
+    // instead of opening. With keys it is one call.
+    sync: () => {
+      HOSTS.sortable.rebuild(() =>
+        SortableDemo.dragPage(
+          state.order,
+          state.dragging,
+          state.over,
+          state.previewX,
+          state.previewY,
+          state.floating,
+        ),
+      );
+    },
+    list: () => HOSTS.sortable.list(),
+    hit: (x, y) => HOSTS.sortable.hit(x, y),
+    a11y: (gen, focus) => HOSTS.sortable.a11y(gen, focus),
+    host: () => HOSTS.sortable,
+    animated: true,
+    press: pressSortable,
+    hover: () => false,
+    key: keySortable,
+    // The one demo with a gesture rather than a press: the pointer has to
+    // travel before anything moves, exactly as it does in dnd-kit.
+    drag: dragSortable,
+    drop: dropSortable,
+  },
+};
+
+/**
+ * Put the floating copy under the pointer, by mutating the element rather than
+ * rebuilding the tree around it.
+ *
+ * It is found by its class and not by an id, because it deliberately has none:
+ * hit testing scans the display list backwards, and an id here would put the
+ * preview under the cursor so the row beneath it could never be found. The
+ * preview is a picture; the list is what answers.
+ */
+// Handles for a browser check driving this page from outside; the playground
+// exposes its host for the same reason. A drag and a keyboard walk are both
+// things whose CORRECTNESS is a sequence of internal states, and reading them
+// off the pixels would test the screenshot rather than the behaviour.
+window.__sortRoot = () => HOSTS.sortable.root();
+window.__sortState = () => ({ dragging: state.dragging, over: state.over, order: state.order });
+window.__mbState = () => ({ open: state.open, focus: state.focus, which: state.which });
+// The dropdown's state is MenuCtl's, so this reads the controller rather than
+// the page: what is open, where focus is, and how deep the submenu stack goes.
+window.__dlgState = () => ({
+  summary: dialog.summary(),
+  dragging: dialog.isDragging(),
+});
+window.__ddState = () => ({
+  open: dropdown.model.open,
+  focus: dropdown.focused,
+  depth: dropdown.model.openPath.length,
+  status: dropdown.status,
+  theme: dropdown.theme,
+});
+// The text fields, for `input-bench.mjs`. A field's value and selection live
+// in the demo's `InputCtl`, and the bench compares them step by step with a
+// real <input> given the same clicks and keys — so it needs the model's own
+// answer, not the pixels and not the proxy's. `null` for a field the current
+// demo has no editing session for, which the bench reports as exactly that.
+window.__fieldState = (tid) => {
+  const d = demo();
+  return d.textSession ? d.textSession.state(tid) : null;
+};
+window.__focusedField = () => {
+  const d = demo();
+  return d.textSession ? d.textSession.focused() : "";
+};
+
+// --- the sortable's gesture ---------------------------------------------------
+// Reordering is `arrayMove`, not a swap: the item is taken out and put back at
+// the new index, so dragging the first onto the third gives 2, 3, 1. A swap
+// would give 3, 2, 1, and it is the first thing a hand-written sortable gets
+// wrong.
+
+function idOfRow(hit) {
+  return hit && hit.startsWith("sr-row-") ? hit.slice("sr-row-".length) : "";
+}
+
+function arrayMove(list, from, to) {
+  const out = list.slice();
+  const [moved] = out.splice(from, 1);
+  out.splice(to, 0, moved);
+  return out;
+}
+
+// Where the row was when it was picked up, and where the pointer was. The
+// preview's position is the first plus how far the second has travelled — so
+// the row stays exactly under the part of it that was grabbed, rather than
+// jumping its own centre to the cursor.
+let grab = null;
+let grabPointer = { x: 0, y: 0 };
+
+function pressSortable(id) {
+  const value = idOfRow(id);
+  if (!value) return false;
+  state.dragging = value;
+  state.over = value;
+  state.floating = true;
+  state.focus = id;
+  // `left`/`top` are measured from the PARENT's content box, and the preview's
+  // parent is the padded page — so a page-absolute rectangle put it forty
+  // pixels down and right of the row it is a copy of. The list's own corner is
+  // that content origin, so subtracting it needs no knowledge of the padding.
+  const node = lastTree && lastTree.byId && lastTree.byId.get(id);
+  const list = lastTree && lastTree.byId && lastTree.byId.get("sr-list");
+  if (node && node.b && list && list.b) {
+    grab = { x: node.b[0] - list.b[0], y: node.b[1] - list.b[1] };
+    state.previewX = grab.x;
+    state.previewY = grab.y;
+  }
+  return true;
+}
+
+/**
+ * A pointer move during a drag.
+ *
+ * The ORDER IS NOT TOUCHED. That is the change, and it is what dnd-kit does:
+ * reordering live means rebuilding the list on every move, and the rows then
+ * teleport into their new places with nothing to watch. Instead the target is
+ * recorded, the rows between here and there are shifted a place by the
+ * stylesheet, and the array is rearranged once, on the drop.
+ */
+function dragSortable(id, ev) {
+  let changed = false;
+  if (grab && ev) {
+    const px = grab.x + (ev.offsetX - grabPointer.x);
+    const py = grab.y + (ev.offsetY - grabPointer.y);
+    if (px !== state.previewX || py !== state.previewY) {
+      state.previewX = px;
+      state.previewY = py;
+      changed = true;
+    }
+  }
+  const over = idOfRow(id);
+  if (over && state.dragging && over !== state.over) {
+    state.over = over;
+    changed = true;
+  }
+  return changed;
+}
+
+function dropSortable() {
+  if (!state.dragging) return false;
+  const from = state.order.indexOf(state.dragging);
+  const to = state.order.indexOf(state.over);
+  // One `arrayMove`, at the end. The rows are already sitting where this puts
+  // them, so the swap is invisible — which is the point of having shifted them.
+  if (from >= 0 && to >= 0 && from !== to) state.order = arrayMove(state.order, from, to);
+  state.dragging = "";
+  state.over = "";
+  state.floating = false;
+  grab = null;
+  return true;
+}
+
+// Space picks up and drops, arrows move, Escape puts it back — the same
+// keyboard the conformance harness measures `SortableCtl` against.
+function keySortable(key) {
+  const focused = idOfRow(state.focus);
+  if (!focused) return false;
+  if (key === " " || key === "Enter") {
+    state.dragging = state.dragging ? "" : focused;
+    state.floating = false;
+    state.over = "";
+    return true;
+  }
+  if (key === "Escape") {
+    if (!state.dragging) return false;
+    state.dragging = "";
+    state.floating = false;
+    state.over = "";
+    return true;
+  }
+  if (!state.dragging) return false;
+  const step = key === "ArrowDown" ? 1 : key === "ArrowUp" ? -1 : 0;
+  if (!step) return false;
+  const at = state.order.indexOf(state.dragging);
+  const next = at + step;
+  if (next < 0 || next >= state.order.length) return false;
+  state.order = arrayMove(state.order, at, next);
+  return true;
+}
+
+const canvas = document.getElementById("c");
+const stage = document.getElementById("stage");
+const errEl = document.getElementById("err");
+
+function demo() {
+  return DEMOS[state.which];
+}
+
+function hitAt(x, y) {
+  const d = demo();
+  if (d.sync) d.sync();
+  return d.hit(x, y);
+}
+
+// --- what a press means ------------------------------------------------------
+// Each returns true when something changed, so a press on empty space does not
+// repaint the page for nothing.
+
+function pressMenubar(id) {
+  for (const label of MENUS) {
+    if (id === `trigger-${label}`) {
+      state.open = state.open === label ? "" : label;
+      state.focus = id;
+      return true;
+    }
+  }
+  // A row that opens a submenu toggles it, and nothing else about it is
+  // special: it is a row in a menu that happens to have a menu beside it.
+  if (id === SUB_ROWS[state.open]) {
+    state.submenu = !state.submenu;
+    state.focus = id;
+    return true;
+  }
+  if (id.startsWith("row-")) {
+    const label = id.slice(4);
+    state.focus = id;
+    if (label === "New Incognito Window") return true; // disabled: focus only
+    if (CHECK_ITEMS.includes(label)) {
+      state.checked = state.checked.includes(label)
+        ? state.checked.filter((x) => x !== label)
+        : state.checked.concat(label);
+      return true;
+    }
+    if (PROFILES.includes(label)) {
+      state.profile = label;
+      return true;
+    }
+    // Any other row is a command. It has none, so it does what a menu does
+    // after one: it closes.
+    state.open = "";
+    return true;
+  }
+  // Anywhere else — including the page behind the menu — closes.
+  if (state.open) {
+    state.open = "";
+    return true;
+  }
+  return false;
+}
+
+function pressToolbar(id) {
+  const toggles = { "tb-bold": "bold", "tb-italic": "italic", "tb-underline": "underline" };
+  if (toggles[id]) {
+    state[toggles[id]] = !state[toggles[id]];
+    state.focus = id;
+    return true;
+  }
+  if (id.startsWith("tb-align-")) {
+    state.align = id.slice("tb-align-".length);
+    state.focus = id;
+    return true;
+  }
+  if (id === "share") {
+    state.focus = id;
+    return true;
+  }
+  return false;
+}
+
+// A submenu opens when the pointer is over the row that owns it and closes when
+// it leaves both the row and the surface — the surface included, or crossing
+// into it would close the thing you are reaching for.
+function hoverMenubar(id) {
+  const row = SUB_ROWS[state.open];
+  if (!row) return false;
+  const inside = id === row || isInside(id, SUB_SURFACE[state.open]);
+  if (inside === state.submenu) return false;
+  state.submenu = inside;
+  return true;
+}
+
+function isInside(id, surfaceId) {
+  if (!id || !surfaceId) return false;
+  if (id === surfaceId) return true;
+  // The rows of a submenu are its children in the accessible tree, which is the
+  // same tree the picture came from — so "is this inside the submenu" is a
+  // question the app can already answer without a second structure.
+  const tree = lastTree;
+  if (!tree) return false;
+  let node = tree.byId.get(id);
+  while (node) {
+    if (node.id === surfaceId) return true;
+    node = node.p ? tree.byId.get(node.p) : null;
+  }
+  return false;
+}
+
+// --- keys --------------------------------------------------------------------
+
+/**
+ * The menubar keyboard, as WAI-ARIA's menubar pattern describes it.
+ *
+ * What was here handled two of the eight keys and gave up. The hole that
+ * mattered was that every branch began `if (!state.open) return false` — so
+ * pressing Escape, or arriving with nothing open, left the component
+ * completely dead to the keyboard. A pointer user would never find it; a
+ * keyboard user finds nothing else.
+ *
+ * The pattern in full:
+ *
+ *   ON THE BAR       Left/Right walk the triggers and wrap. They only OPEN a
+ *                    menu if one was already open, which is what lets you look
+ *                    along the bar without pulling menus down.
+ *                    Down opens and lands on the first row, Up on the last.
+ *                    Enter and Space open and land on the first.
+ *                    Home/End jump to the ends of the bar.
+ *
+ *   IN A MENU        Up/Down walk the rows and wrap, skipping the disabled
+ *                    ones — a row you cannot use is a row the cursor should
+ *                    not stop on.
+ *                    Right opens a submenu when the row has one, and otherwise
+ *                    moves to the next menu. Left closes a submenu and returns
+ *                    to the row that owns it, and otherwise moves to the
+ *                    previous menu. That double meaning is the pattern's, and
+ *                    it is why Right on `Share` used to jump to Edit.
+ *                    Home/End jump to the ends of the menu.
+ *                    Enter and Space do what a click does.
+ *                    Escape closes one level and puts focus back where it came
+ *                    from, which is the part that makes it recoverable.
+ */
+function rowsIn(surface) {
+  if (!lastTree || !surface) return [];
+  return lastTree.nodes
+    .filter((n) => n.p === surface && n.focusable && !n.disabled)
+    .map((n) => n.id);
+}
+
+const menuSurface = (label) => `menu-${String(label).toLowerCase()}-content`;
+
+function focusableRows() {
+  return rowsIn(menuSurface(state.open));
+}
+
+/** Is the keyboard inside the open menu's submenu? */
+function inSubmenu() {
+  const sub = SUB_SURFACE[state.open];
+  return !!sub && state.submenu && rowsIn(sub).includes(state.focus);
+}
+
+/** The rows the cursor is currently walking: a submenu's, or the menu's. */
+function currentRows() {
+  return inSubmenu() ? rowsIn(SUB_SURFACE[state.open]) : focusableRows();
+}
+
+function keyMenubar(key) {
+  // An empty focus means "on the bar", which is where a Tab into the component
+  // lands and where the page starts. Normalising here rather than at load
+  // matters: writing a focus into the state before the user has pressed
+  // anything would take the browser's focus off whatever they were on.
+  const focus = state.focus || `trigger-${state.open || MENUS[0]}`;
+  const onTrigger = focus.startsWith("trigger-");
+  const label = onTrigger ? focus.slice("trigger-".length) : state.open;
+  const at = Math.max(0, MENUS.indexOf(label));
+
+  const goToTrigger = (i) => {
+    const next = MENUS[(i + MENUS.length) % MENUS.length];
+    // Only follow with the menu if one was already down. Walking the bar with
+    // everything closed should not start opening things.
+    if (state.open) state.open = next;
+    state.focus = `trigger-${next}`;
+    return true;
+  };
+
+  const openMenu = (name, which) => {
+    state.open = name;
+    state.submenu = false;
+    const rows = rowsIn(menuSurface(name));
+    // The tree for a menu that is not open yet has no rows in it, so the
+    // landing place is decided on the next frame instead. Focusing the trigger
+    // is not a fallback nobody sees: it is where a menu opened by a pointer
+    // leaves the cursor too.
+    state.focus = rows.length
+      ? rows[which === "last" ? rows.length - 1 : 0]
+      : `trigger-${name}`;
+    state.pendingRow = rows.length ? "" : which || "first";
+    return true;
+  };
+
+  if (key === "Escape") {
+    if (inSubmenu()) {
+      state.submenu = false;
+      state.focus = SUB_ROWS[state.open] || `trigger-${state.open}`;
+      return true;
+    }
+    if (state.open) {
+      state.focus = `trigger-${state.open}`;
+      state.open = "";
+      return true;
+    }
+    return false;
+  }
+
+  if (key === "Enter" || key === " ") {
+    if (onTrigger) return openMenu(label, "first");
+    return pressMenubar(state.focus);
+  }
+
+  if (key === "Home" || key === "End") {
+    if (onTrigger) return goToTrigger(key === "Home" ? 0 : MENUS.length - 1);
+    const rows = currentRows();
+    if (!rows.length) return false;
+    state.focus = key === "Home" ? rows[0] : rows[rows.length - 1];
+    return true;
+  }
+
+  if (key === "ArrowDown" || key === "ArrowUp") {
+    if (onTrigger) return openMenu(label, key === "ArrowDown" ? "first" : "last");
+    const rows = currentRows();
+    if (!rows.length) return false;
+    const i = rows.indexOf(state.focus);
+    const step = key === "ArrowDown" ? 1 : rows.length - 1;
+    state.focus = rows[(i < 0 ? 0 : (i + step) % rows.length)];
+    return true;
+  }
+
+  if (key === "ArrowRight") {
+    // A row that owns a submenu opens it rather than leaving the menu. This is
+    // the case that used to jump to the next menu instead.
+    if (!onTrigger && state.focus === SUB_ROWS[state.open]) {
+      state.submenu = true;
+      const rows = rowsIn(SUB_SURFACE[state.open]);
+      if (rows.length) state.focus = rows[0];
+      else state.pendingRow = "first";
+      return true;
+    }
+    return goToTrigger(at + 1);
+  }
+
+  if (key === "ArrowLeft") {
+    if (inSubmenu()) {
+      state.submenu = false;
+      state.focus = SUB_ROWS[state.open] || `trigger-${state.open}`;
+      return true;
+    }
+    return goToTrigger(at - 1);
+  }
+
+  return false;
+}
+
+/**
+ * Land on the row a key asked for once the tree that holds it exists.
+ *
+ * Opening a menu and choosing a row inside it are one keystroke but two
+ * frames: the rows are read off the accessible tree, and the tree for a menu
+ * that was closed a moment ago has none. So the request is remembered and
+ * settled after the paint that built them.
+ */
+function settlePendingRow() {
+  if (!state.pendingRow || state.which !== "menubar") return false;
+  const rows = state.submenu && SUB_SURFACE[state.open]
+    ? rowsIn(SUB_SURFACE[state.open])
+    : focusableRows();
+  if (!rows.length) return false;
+  state.focus = state.pendingRow === "last" ? rows[rows.length - 1] : rows[0];
+  state.pendingRow = "";
+  return true;
+}
+
+// --- painting ----------------------------------------------------------------
+
+let lastTree = null;
+let mirror = null;
+
+// The point, not just the id.
+//
+// This function used to hand the demo `hitAt(x, y)` and throw the coordinates
+// away, which is fine for a button and is exactly wrong for a text field: a
+// click has to land on a CHARACTER, and only the x knows which. `FormDemo`
+// had been able to answer that since the field was written, the offline check
+// called it directly and passed, and the page never asked. Every other demo's
+// `press` takes one argument and ignores the extras.
+function press(x, y, ev) {
+  const id = hitAt(x, y);
+  if (demo().press(id, x, y, ev)) paint();
+  syncTextSession();
+}
+
+function paint() {
+  try {
+    errEl.textContent = "";
+    const d = demo();
+    if (d.sync) d.sync();
+    const H = typeof d.height === "function" ? d.height() : d.height;
+    const W2 = typeof d.width === "function" ? d.width() : W;
+    const listJson = d.list();
+    // The last frame's display list, for anything driving this page from
+    // outside: a browser check needs the COLOUR a control was painted, and
+    // only the list knows that. The playground exposes its host for the same
+    // reason.
+    window.__lastList = listJson;
+    const list = JSON.parse(listJson);
+    const doc = { width: W2, height: H, list };
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    canvas.style.width = W2 + "px";
+    canvas.style.height = H + "px";
+    canvas.width = Math.round(W2 * dpr);
+    canvas.height = Math.round(H * dpr);
+    stage.style.width = W2 + "px";
+    stage.style.height = H + "px";
+    const gl = canvas.getContext("webgl2", {
+      antialias: true,
+      premultipliedAlpha: false,
+      stencil: true,
+      preserveDrawingBuffer: true,
+    });
+    if (!gl) throw new Error("WebGL 2 is not available in this browser");
+    document.fonts.ready.then(() =>
+      Promise.all(
+        doc.list.cmds
+          .filter((c) => c.text)
+          .map((c) => document.fonts.load(`${c.size}px "${c.font}"`)),
+      ).then(() => renderDisplayList(gl, doc, { dpr })),
+    );
+    // What the renderer did with this frame, published beside the list for the
+    // same reason: something outside the page needs to be able to ask, and a
+    // check that only reads the display list cannot tell whether the picture
+    // went through a post-pass.
+    window.__lastStats = renderDisplayList(gl, doc, { dpr });
+
+    // The same tree, said out loud. `gen` rises every paint so the mirror
+    // knows the frame changed; it keeps its elements by id, which is why a
+    // reader's cursor survives a repaint.
+    generation += 1;
+    const treeJson = d.a11y(generation, state.focus);
+    // Alongside `__lastList`, and for the same reason: something driving this
+    // page from outside needs the VALUE of a field, and only the accessible
+    // tree carries it. Scraping the draw commands for a known string works
+    // right up until the thing under test removes that string — which is
+    // exactly what selecting a word and typing over it does.
+    window.__lastA11y = treeJson;
+    const tree = JSON.parse(treeJson);
+    tree.byId = new Map(tree.nodes.map((n) => [n.id, n]));
+    lastTree = tree;
+    mirror.update(tree);
+    syncControls();
+    inspectorTick();
+  } catch (e) {
+    errEl.textContent = String((e && e.stack) || e);
+  }
+}
+
+// --- the inspector -----------------------------------------------------------
+//
+// `?inspect=1` and nothing else. The panel is generic — it knows nothing about
+// this page — so all this does is hand it four functions off whichever demo is
+// showing, and tell it when the picture changed.
+//
+// The refresh is throttled rather than run per frame: a hover repaints, and
+// re-walking a 470-element tree at 60Hz would make the panel the reason the
+// page is slow. Anything faster than this interval is invisible to a person
+// reading a tree anyway.
+const INSPECT_MS = 400;
+let inspector = null;
+let inspectorFor = "";
+let inspectorAt = 0;
+
+function inspectorAdapter() {
+  const d = demo();
+  const app = d && typeof d.inspect === "function" ? d.inspect() : null;
+  if (!app || typeof app.inspectJson !== "function") return null;
+  const adapter = {
+    label: "EVG · " + state.which,
+    tree: () => app.inspectJson(generation),
+    node: (path) => app.inspectNodeJson(path),
+    hit: (x, y) => app.inspectHitPath(x, y),
+    frame: () => app.inspectFrameJson(),
+  };
+  if (typeof app.inspectForce === "function") {
+    adapter.force = (path, bits) => { app.inspectForce(path, bits); paint(); };
+  }
+  if (d.css && typeof app.inspectCss === "function") {
+    adapter.css = () => ({
+      name: d.css,
+      href: "/gallery/ui/demo/" + d.css,
+      text: app.inspectCss(),
+      errors: JSON.parse(app.inspectStyleErrors()),
+    });
+    adapter.setCss = (text) => { lastSentCss = text; app.inspectSetCss(text); paint(); };
+    // Saving means putting the text back where the input came from. The watch
+    // then picks it up like any other save, which is why `lastSentCss` exists:
+    // the page that wrote it does not need to re-apply its own text.
+    adapter.saveCss = async (text) => {
+      lastSentCss = text;
+      const r = await fetch("/gallery/ui/demo/" + d.css, { method: "PUT", body: text });
+      if (!r.ok) throw new Error("save failed: " + r.status + " " + (await r.text()));
+    };
+  }
+  return adapter;
+}
+
+// --- live CSS from disk -------------------------------------------------------
+//
+// `serve.mjs` watches gallery/ui/demo/*.css and says which one changed. This
+// end fetches it and hands it to the app, which re-parses and re-cascades the
+// way it did at `init` — the sheet is the app's INPUT, so there is nothing to
+// patch and nothing to hold over its head.
+//
+// Editing the file and editing it in the panel are therefore the SAME
+// operation arriving by two routes, and neither can drift from the other.
+let cssStream = null;
+// The last text this page handed to the app, so the save it just made does not
+// come back round the loop as a change to apply again.
+let lastSentCss = null;
+
+function watchCss() {
+  if (cssStream) return;
+  const q = new URLSearchParams(location.search).get("inspect");
+  if (q === null || q === "0" || q === "false") return;
+  cssStream = new EventSource("/evg/css/events");
+  cssStream.onmessage = async (ev) => {
+    let msg;
+    try { msg = JSON.parse(ev.data); } catch { return; }
+    const d = demo();
+    if (!d || d.css !== msg.file) return;          // a sheet this demo does not use
+    const app = typeof d.inspect === "function" ? d.inspect() : null;
+    if (!app || typeof app.inspectSetCss !== "function") return;
+    try {
+      const text = await (await fetch(msg.href + "?t=" + Date.now())).text();
+      if (text === lastSentCss) return;              // our own save, coming back
+      lastSentCss = text;
+      app.inspectSetCss(text);
+      paint();
+      if (inspector) inspector.refresh();
+      console.log(`css reloaded: ${msg.file} (${text.length} bytes)`);
+    } catch (e) {
+      errEl.textContent = "css reload failed: " + e.message;
+    }
+  };
+  // A dropped stream is not an error worth shouting about — EventSource
+  // reconnects on its own, and the server says `retry: 1000`.
+  cssStream.onerror = () => {};
+}
+
+function inspectorTick() {
+  const q = new URLSearchParams(location.search).get("inspect");
+  if (q === null || q === "0" || q === "false") return;
+  const adapter = inspectorAdapter();
+  if (!adapter) {
+    // A demo that publishes no inspect channel is not an error: the panel is
+    // taken down and the page carries on. Saying which demos have it would be
+    // this file keeping a second list of that fact.
+    if (inspector) { inspector.detach(); inspector = null; inspectorFor = ""; }
+    return;
+  }
+  watchCss();
+  if (!inspector || inspectorFor !== state.which) {
+    if (inspector) inspector.detach();
+    inspector = attachInspector({ surface: canvas, app: adapter });
+    inspectorFor = state.which;
+    inspectorAt = performance.now();
+    window.__inspector = inspector;
+    return;
+  }
+  const now = performance.now();
+  if (now - inspectorAt < INSPECT_MS) return;
+  inspectorAt = now;
+  inspector.refresh();
+}
+
+// --- the page ----------------------------------------------------------------
+
+function radios(host, name, values, get, set) {
+  host.replaceChildren(
+    ...values.map((v) => {
+      const label = document.createElement("label");
+      const input = document.createElement("input");
+      input.type = "radio";
+      input.name = name;
+      input.value = v;
+      input.checked = get() === v;
+      input.addEventListener("change", () => {
+        set(v);
+        paint();
+      });
+      label.append(input, document.createTextNode(v));
+      return label;
+    }),
+  );
+}
+
+function boxes(host, values, has, toggle) {
+  host.replaceChildren(
+    ...values.map((v) => {
+      const label = document.createElement("label");
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.value = v;
+      input.checked = has(v);
+      input.addEventListener("change", () => {
+        toggle(v);
+        paint();
+      });
+      label.append(input, document.createTextNode(v));
+      return label;
+    }),
+  );
+}
+
+// The sidebar is a second view of the same state, so a click on the canvas has
+// to move it too — otherwise the panel says "File" while the screen shows View.
+function syncControls() {
+  for (const input of document.querySelectorAll("#menus input")) {
+    input.checked = input.value === state.open;
+  }
+  for (const input of document.querySelectorAll("#profiles input")) {
+    input.checked = input.value === state.profile;
+  }
+  for (const input of document.querySelectorAll("#checks input")) {
+    input.checked = state.checked.includes(input.value);
+  }
+  for (const input of document.querySelectorAll("#format input")) {
+    input.checked = state[input.value];
+  }
+  for (const input of document.querySelectorAll("#align input")) {
+    input.checked = input.value === state.align;
+  }
+  document.getElementById("submenu").checked = state.submenu;
+  document.getElementById("atbottom").checked = state.atBottom;
+  // The order, as a second view of the same state — the sidebar is where you
+  // check that what you dragged is what the page now holds.
+  document.getElementById("order").textContent = state.order.join(" → ");
+}
+
+function syncPanels() {
+  for (const el of document.querySelectorAll("[data-for]")) {
+    el.hidden = el.dataset.for !== state.which;
+  }
+}
+
+// `?demo=dashboard` lands on one directly. A page with eighteen demos and one
+// entry point makes every link to it a click instruction; a check that wants
+// the dashboard should not have to press a radio to get there.
+const DEMO_NAMES = ["menubar", "toolbar", "sortable", "table", "tree", "timeline", "resizable", "form", "calendar", "filters", "eventcal", "message", "controls", "profile", "dashboard", "dropdown", "dialog", "motion"];
+const wanted = new URLSearchParams(location.search).get("demo");
+if (wanted && DEMO_NAMES.includes(wanted)) state.which = wanted;
+
+// The dashboard's palettes. The name on the left is what the radio says and
+// what `?theme=` takes; the name on the right is the name the sheet's `@vars`
+// blocks are written under, and "" is the unscoped palette — the light theme
+// the page was built as. Adding a fourth is a `@vars <name>` block in
+// `dashboard.css` and one line here: forty-one colours, no rules.
+const DASH_THEMES = { default: "", marine: "marine", sunrise: "sunrise" };
+const askedTheme = new URLSearchParams(location.search).get("theme");
+if (askedTheme && askedTheme in DASH_THEMES) dashboard.setTheme(DASH_THEMES[askedTheme]);
+
+radios(
+  document.getElementById("demos"),
+  "demo",
+  DEMO_NAMES,
+  () => state.which,
+  (v) => {
+    state.which = v;
+    state.focus = "";
+    syncPanels();
+    syncMotionClock();
+    syncTextSession();
+  },
+);
+boxes(
+  document.getElementById("format"),
+  ["bold", "italic", "underline"],
+  (v) => state[v],
+  (v) => {
+    state[v] = !state[v];
+  },
+);
+radios(
+  document.getElementById("align"),
+  "align",
+  ["left", "center", "right"],
+  () => state.align,
+  (v) => {
+    state.align = v;
+  },
+);
+radios(
+  document.getElementById("menus"),
+  "menu",
+  MENUS,
+  () => state.open,
+  (v) => {
+    state.open = v;
+  },
+);
+// Colours only: the theme repaints and moves nothing, so switching it leaves
+// every measured position on the page the number it was.
+radios(
+  document.getElementById("dashthemes"),
+  "dashtheme",
+  Object.keys(DASH_THEMES),
+  () => Object.keys(DASH_THEMES).find((k) => DASH_THEMES[k] === dashboard.themeName()),
+  (v) => {
+    dashboard.setTheme(DASH_THEMES[v]);
+  },
+);
+radios(
+  document.getElementById("profiles"),
+  "profile",
+  PROFILES,
+  () => state.profile,
+  (v) => {
+    state.profile = v;
+  },
+);
+boxes(
+  document.getElementById("checks"),
+  CHECK_ITEMS,
+  (v) => state.checked.includes(v),
+  (v) => {
+    state.checked = state.checked.includes(v)
+      ? state.checked.filter((x) => x !== v)
+      : state.checked.concat(v);
+  },
+);
+document.getElementById("submenu").addEventListener("change", (e) => {
+  state.submenu = e.target.checked;
+  paint();
+});
+document.getElementById("atbottom").addEventListener("change", (e) => {
+  state.atBottom = e.target.checked;
+  paint();
+});
+
+// --- input -------------------------------------------------------------------
+
+// The canvas is where the picture is, so the canvas is where a press lands.
+// `offsetX/offsetY` are already in the page's own coordinates because the
+// canvas is laid out at exactly the size the display list was built for.
+/**
+ * What the pointer is standing on, said by the cursor.
+ *
+ * A canvas has one cursor for the whole surface, so the page has to change it
+ * by hand — and without that a button in here looked exactly like the
+ * background, which is the first thing that makes a canvas UI feel like a
+ * picture rather than an interface. `activate` is the accessible tree's own
+ * word for "this can be pressed", so there is no second list of what counts.
+ */
+// What the pointer looks like here.
+//
+// A demo that says so in its stylesheet wins: `cursor` is a real inherited
+// property in EVG, so a title bar declares `cursor: move` once and every word
+// on it answers the same. Anything else falls back to the old rule — a node
+// you can activate gets a pointer — which is all most of the page needs.
+//
+// And while something is held, the cursor belongs to the GESTURE and not to
+// whatever happens to be under the pointer, which may be nothing at all once
+// the drag has left the bar behind.
+function setCursor(id, x, y) {
+  const d = demo();
+  // A gesture keeps the cursor it started with. `grabbing` is the fallback for
+  // a drag whose handle declared nothing; a bar that says `move` should go on
+  // saying `move` while it is being moved, not change its mind halfway.
+  if (held) {
+    canvas.style.cursor = grabCursor || "grabbing";
+    return;
+  }
+  if (d.cursorAt && x !== undefined) {
+    const c = d.cursorAt(x, y);
+    if (c) { canvas.style.cursor = c; return; }
+  }
+  const node = id && lastTree && lastTree.byId && lastTree.byId.get(id);
+  canvas.style.cursor = node && node.activate ? "pointer" : "default";
+}
+
+let held = false;
+let grabCursor = "";
+// Focusable by script, NOT by Tab: clicking the picture should take the focus
+// off whatever sidebar control put it there, and the tab order belongs to the
+// accessibility mirror, which is the thing a reader actually walks.
+canvas.tabIndex = -1;
+canvas.style.outline = "none";
+
+canvas.addEventListener("pointerdown", (ev) => {
+  // The thing you clicked gets the focus. Without this the sidebar radio that
+  // chose the demo keeps it, and on a page whose keys go to `window` that is
+  // indistinguishable from a demo that ignores the keyboard.
+  canvas.focus({ preventScroll: true });
+  ev.preventDefault();
+  const d = demo();
+  const h = d.host && d.host();
+  if (h) h.setPressed(hitAt(ev.offsetX, ev.offsetY));
+  // The surface reacts to the touch, wherever it landed and whatever it hit.
+  if (d.ripple) { d.ripple(ev.offsetX, ev.offsetY); animate(); }
+  if (d.drag) {
+    // A demo with a gesture: the press picks up, the move carries, the release
+    // puts down. Nothing happens on a press that never travels.
+    grabPointer = { x: ev.offsetX, y: ev.offsetY };
+    grabCursor = d.cursorAt ? d.cursorAt(ev.offsetX, ev.offsetY) : "";
+    held = d.press(hitAt(ev.offsetX, ev.offsetY), ev.offsetX, ev.offsetY, ev);
+    if (held) {
+      canvas.setPointerCapture(ev.pointerId);
+      paint();
+    }
+    syncTextSession();
+    return;
+  }
+  press(ev.offsetX, ev.offsetY, ev);
+});
+canvas.addEventListener("pointermove", (ev) => {
+  const d = demo();
+  const id = hitAt(ev.offsetX, ev.offsetY);
+  setCursor(id, ev.offsetX, ev.offsetY);
+  // `ev.buttons` rather than a flag of our own: the pointer can go down
+  // outside the canvas and come back, and the browser already knows.
+  if (d.rippleTo && ev.buttons) { d.rippleTo(ev.offsetX, ev.offsetY); animate(); }
+  if (held && d.drag) {
+    if (d.drag(id, ev)) {
+      paint();
+      // The gap opening is a transition like any other, and a transition needs
+      // FRAMES. This branch returns early, so without this the flights were
+      // started and never advanced: the classes were right, the rules were
+      // right, and every row sat at zero progress for the whole drag.
+      if (d.animated) animate();
+    }
+    return;
+  }
+  // Two different things, and both have to happen. `d.hover` is the demo's own
+  // BEHAVIOUR — hovering Share opens the submenu — and `setHover` is the
+  // presentational flag the stylesheet reads. A demo with no hover behaviour
+  // still gets the second one, which is why the toolbar and the sortable now
+  // light up at all.
+  let changed = d.hover(id);
+  const h = d.host && d.host();
+  if (h && h.setHover(id)) changed = true;
+  if (changed) {
+    paint();
+    // A hover starts a transition, and a transition needs frames.
+    if (d.animated) animate();
+  }
+});
+// Double-click, from the browser's own event rather than a click count of our
+// own: it owns the interval and the slop radius, and re-deriving either turns
+// a slow double-click into two carets.
+//
+// A `pointerdown` cannot answer this — measured, its `detail` is 0 here while
+// `click` and `dblclick` carry 1 and 2. (And `preventDefault()` on the
+// pointerdown does NOT suppress them, which was the reason given for reading
+// the count instead; that reason was wrong.)
+canvas.addEventListener("dblclick", (ev) => {
+  const d = demo();
+  if (!d.dblclick) return;
+  if (d.dblclick(hitAt(ev.offsetX, ev.offsetY), ev.offsetX, ev.offsetY)) paint();
+  syncTextSession();
+});
+canvas.addEventListener("pointerup", () => {
+  const d = demo();
+  if (d.rippleEnd) d.rippleEnd();
+  const h = d.host && d.host();
+  if (h) {
+    h.setPressed("");
+    paint();
+    if (d.animated) animate();
+  }
+  if (!held || !d.drop) return;
+  held = false;
+  if (d.drop()) paint();
+  syncTextSession();
+});
+canvas.addEventListener("pointerleave", () => {
+  const d = demo();
+  setCursor("");
+  let changed = d.hover("");
+  const h = d.host && d.host();
+  if (h && h.setHover("")) changed = true;
+  if (changed) {
+    paint();
+    if (d.animated) animate();
+  }
+});
+// The wheel, for a demo that has somewhere to scroll to. `passive: false`
+// because a page that scrolls its own canvas must be able to stop the window
+// from scrolling underneath it — and `scroll` returning false (already at an
+// end) lets the window have the gesture back, which is what a nested scroll
+// area is supposed to do.
+canvas.addEventListener("wheel", (ev) => {
+  const d = demo();
+  if (!d.scroll) return;
+  if (!d.scroll(ev.deltaY)) return;
+  ev.preventDefault();
+  paint();
+}, { passive: false });
+
+// Keys are the window's: the mirror element that has the focus is inside this
+// page, and the canvas is only focusable by script.
+//
+// WHAT THIS GUARD IS FOR, and what it was doing instead. A key belongs to the
+// demo unless the reader is typing into a real control on the page. It used to
+// bail for ANY `HTMLInputElement`, and the page's only inputs are the
+// sidebar's radios and checkboxes — so picking a demo left focus on the radio
+// that picked it, and every keystroke after that was dropped. Click a field on
+// the Profile page, type, and nothing happens; the demo never saw a key. A
+// checkbox does not consume text, so it must not swallow one.
+const TYPES_TEXT = new Set([
+  "text", "search", "email", "url", "tel", "password", "number", "date",
+  "datetime-local", "month", "week", "time",
+]);
+const consumesText = (el) =>
+  el instanceof HTMLTextAreaElement ||
+  (el instanceof HTMLInputElement && TYPES_TEXT.has(el.type)) ||
+  (el instanceof HTMLElement && el.isContentEditable);
+
+window.addEventListener("keydown", (ev) => {
+  if (consumesText(ev.target)) return;
+  const d0 = demo();
+  // A demo that reads modifiers gets them; the rest keep the one-argument
+  // door they have always had.
+  const took = d0.keyWith
+    ? d0.keyWith(ev.key, ev.shiftKey, ev.ctrlKey || ev.metaKey)
+    : d0.key(ev.key);
+  if (!took) return;
+  ev.preventDefault();
+  paint();
+  // A key that opened a menu asked for a row inside it, and the rows only
+  // exist once that paint has built them. One more pass settles it.
+  if (settlePendingRow()) paint();
+});
+
+// The text-input session. A real, transparent <input> over the focused field:
+// the browser does the editing and Ranger mirrors it, so IME, dead keys, the
+// clipboard, undo, emoji and a phone's on-screen keyboard all work without a
+// line of code each. See evg-textinput.js for what was measured first.
+const textInput = createTextInputBridge({
+  host: stage,
+  canvas,
+  onEdit: ({ value, selStart, selEnd }) => {
+    const d = demo();
+    const s = d.textSession;
+    if (!s) return;
+    const tid = textInput.activeTid();
+    if (!tid) return;
+    if (!s.apply(tid, value, selStart, selEnd)) return;
+    paint();
+    // The model may have REFUSED part of it — a number field will not take
+    // letters, and the platform has no idea. Push the corrected value back
+    // into the session, but only when it actually differs: writing to the
+    // proxy's `value` for no reason disturbs the browser's own undo history,
+    // which is one of the things this bridge exists to inherit.
+    const after = s.state(tid);
+    if (after && after.value !== value) textInput.sync(after);
+  },
+  // Keys the APPLICATION owns rather than the field. Everything else — every
+  // arrow, Home, End, Ctrl+Arrow, Backspace over an emoji — stays with the
+  // proxy on purpose: those are precisely the platform rules this exists to
+  // borrow, and intercepting them here would be reimplementing them again.
+  onKey: (k) => {
+    if (k.key !== "Tab" && k.key !== "Escape" && k.key !== "Enter") return false;
+    const d = demo();
+    const took = d.keyWith ? d.keyWith(k.key, k.shiftKey, k.ctrlKey || k.metaKey) : false;
+    // Focus may have moved to another field, or off the fields entirely.
+    syncTextSession();
+    if (took) paint();
+    return took;
+  },
+});
+
+/**
+ * Hand the keyboard to whichever field the demo now says is focused, or take
+ * it back. Called after anything that can move focus — a click, a Tab, a
+ * demo switch — because the demo owns focus and the bridge only follows it.
+ */
+function syncTextSession() {
+  const d = demo();
+  const s = d.textSession;
+  if (!s) {
+    textInput.blurField();
+    return;
+  }
+  const tid = s.focused();
+  if (!tid) {
+    textInput.blurField();
+    return;
+  }
+  const st = s.state(tid);
+  if (!st) {
+    textInput.blurField();
+    return;
+  }
+  if (textInput.activeTid() === tid) {
+    // Same field, but Ranger may have moved the caret itself — a click, a
+    // drag, a double-click. The proxy has to agree or the next keystroke
+    // edits at the old place.
+    textInput.sync(st);
+    return;
+  }
+  textInput.focusField(tid, st);
+}
+
+// A demo rebuilt from scratch, for `input-bench.mjs`. The bench runs twenty
+// scenarios against every field and each has to start from the page as loaded
+// — the objects above live for the life of the page, so after one scenario has
+// typed into a field the next would read "Ada ZXLovelace". Reloading works and
+// costs a 10 MB bundle per scenario; this costs a constructor. Only the pages
+// with text fields, and those four are `let` for exactly this reason.
+window.__resetDemo = (name) => {
+  if (name === "form") { form = new FormDemo(); form.init(FORM_CSS); lastFormHover = ""; }
+  else if (name === "profile") { profile = new ProfileDemo(); profile.init(PROFILE_CSS); lastProfileHover = ""; }
+  else if (name === "controls") { controls = new ControlsDemo(); controls.init(CONTROLS_CSS); lastControlsHover = ""; }
+  else if (name === "dialog") {
+    dialog = new DialogDemo(); dialog.init(DIALOG_CSS); dialog.openWindow(); dialog.openModal();
+    lastDialogHover = ""; dialogDragAt = null;
+  } else return false;
+  held = false;
+  textInput.blurField();
+  canvas.focus({ preventScroll: true });
+  paint();
+  return true;
+};
+
+mirror = createA11yMirror(stage, {
+  canvas,
+  label: "Ranger tree literal demos",
+  // A reader pressed something: press the app in the middle of the rectangle
+  // the reader was given. Not a table from node ids to commands — there is
+  // nothing to keep in step, and the rectangle is the one that was drawn.
+  onActivate: (node) => pressAtCentre(node, press),
+});
+
+// --- the motion showcase's clock ---------------------------------------------
+//
+// Two loops, and they are different things.
+//
+// `animate` is the frame loop: while anything is in flight it advances the
+// engine by the REAL elapsed time and repaints, and it stops the moment
+// nothing is moving. Handing it the real dt rather than a fixed step is what
+// makes a dropped frame shorten the animation instead of stretching it.
+//
+// `flip` is the demonstration itself: the self-running panels travel between
+// two ends, so something has to turn the page over. It is a theme change and
+// nothing else — no element gains or loses a class.
+let animating = 0;
+let flipTimer = 0;
+
+/** Whatever the selected demo keeps a clock for. */
+function clockOf() {
+  const d = demo();
+  if (d.host) return d.host();
+  return { tick: (dt) => motion.tick(dt), busy: () => motion.busyNow() };
+}
+
+function animate() {
+  if (animating) return;
+  const clock = clockOf();
+  let last = performance.now();
+  const step = () => {
+    const now = performance.now();
+    const dt = now - last;
+    last = now;
+    clock.tick(dt);
+    paint();
+    animating = clock.busy() ? requestAnimationFrame(step) : 0;
+  };
+  animating = requestAnimationFrame(step);
+}
+
+function startFlipping() {
+  stopFlipping();
+  // Long enough for the slowest row (900ms plus the 360ms delay) to arrive and
+  // be looked at before it leaves again.
+  flipTimer = setInterval(() => {
+    motion.setFlipped(!motion.isFlipped());
+    paint();
+    animate();
+  }, 1700);
+}
+
+function stopFlipping() {
+  if (flipTimer) clearInterval(flipTimer);
+  flipTimer = 0;
+  if (animating) cancelAnimationFrame(animating);
+  animating = 0;
+}
+
+function syncMotionClock() {
+  if (state.which === "motion") startFlipping();
+  else stopFlipping();
+}
+
+syncPanels();
+syncMotionClock();
+paint();

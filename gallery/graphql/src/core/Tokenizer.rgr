@@ -1,0 +1,707 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; GqlTokenizer - GraphQL text in, tokens out.
+; ==============================================================================
+;
+; Follows the GraphQL October 2021 lexical grammar:
+;
+;     SourceCharacter, Ignored (BOM / WhiteSpace / LineTerminator / Comment /
+;     Comma), Punctuator, Name, IntValue, FloatValue, StringValue
+;
+; Block strings (`"""…"""`) are de-indented here, because the value the AST
+; carries is the spec's BlockStringValue, not the raw source.
+; ==============================================================================
+
+Import "Token.rgr"
+
+class GqlTokenizer {
+    def tokens:[GqlToken]
+    def error:string ""
+    def commentCount:int 0
+    ; graphql-js has maxTokens for the same reason: a document that is only
+    ; punctuation can be huge without being nested, and the host should say
+    ; no rather than allocate until it dies.
+    def maxTokens:int 1000000
+    def curLine:int 1
+    def curCol:int 1
+
+    Constructor () {
+    }
+
+    sfn isDigit:boolean (c:int) {
+        if (c < 48) {
+            return false
+        }
+        return (c <= 57)
+    }
+
+    sfn isNameStart:boolean (c:int) {
+        if (c == 95) {
+            return true
+        }
+        if (c >= 65) {
+            if (c <= 90) {
+                return true
+            }
+        }
+        if (c >= 97) {
+            if (c <= 122) {
+                return true
+            }
+        }
+        return false
+    }
+
+    sfn isNameCont:boolean (c:int) {
+        if (GqlTokenizer.isNameStart(c)) {
+            return true
+        }
+        return (GqlTokenizer.isDigit(c))
+    }
+
+    sfn hexVal:int (c:int) {
+        if (c >= 48) {
+            if (c <= 57) {
+                return (c - 48)
+            }
+        }
+        if (c >= 65) {
+            if (c <= 70) {
+                return (c - 55)
+            }
+        }
+        if (c >= 97) {
+            if (c <= 102) {
+                return (c - 87)
+            }
+        }
+        return -1
+    }
+
+    sfn isHex:boolean (c:int) {
+        return ((GqlTokenizer.hexVal(c)) >= 0)
+    }
+
+    fn pushTok:void (kind:int text:string raw:string isBlock:boolean start:int line:int col:int) {
+        if ((array_length tokens) >= maxTokens) {
+            this.failLex("too many tokens" line col)
+            return
+        }
+        def t:GqlToken (new GqlToken)
+        t.kind = kind
+        t.text = text
+        t.raw = raw
+        t.isBlock = isBlock
+        t.start = start
+        t.line = line
+        t.col = col
+        push tokens t
+    }
+
+    ; Walk a consumed span and keep line/col honest. A block string owns its
+    ; own newlines: adding `consumed` to `col` and never touching `line` puts
+    ; every later token on the description's first line.
+    fn bump:void (src:string from:int to:int) {
+        def k:int from
+        while (k < to) {
+            def c:int (charAt src k)
+            if (c == 10) {
+                curLine = (curLine + 1)
+                curCol = 1
+                k = (k + 1)
+            } {
+                if (c == 13) {
+                    k = (k + 1)
+                    if (k < to) {
+                        if ((charAt src k) == 10) {
+                            k = (k + 1)
+                        }
+                    }
+                    curLine = (curLine + 1)
+                    curCol = 1
+                } {
+                    curCol = (curCol + 1)
+                    k = (k + 1)
+                }
+            }
+        }
+    }
+
+    fn failLex:void (message:string line:int col:int) {
+        if ((strlen error) > 0) {
+            return
+        }
+        error = (message + " at " + (to_string line) + ":" + (to_string col))
+    }
+
+    fn tokenize:[GqlToken] (src:string) {
+        clear tokens
+        error = ""
+        commentCount = 0
+        def n:int (strlen src)
+        def i:int 0
+        curLine = 1
+        curCol = 1
+        ; UTF-8 BOM as the three bytes EF BB BF, or a lone FEFF if the host
+        ; already decoded it to one character. Either way it is Ignored.
+        if (n >= 3) {
+            if ((charAt src 0) == 239) {
+                if ((charAt src 1) == 187) {
+                    if ((charAt src 2) == 191) {
+                        i = 3
+                    }
+                }
+            }
+        }
+        if (i == 0) {
+            if (n > 0) {
+                if ((charAt src 0) == 65279) {
+                    i = 1
+                }
+            }
+        }
+        while (i < n) {
+            if ((strlen error) > 0) {
+                i = n
+            } {
+                def c:int (charAt src i)
+                if (c == 10) {
+                    curLine = (curLine + 1)
+                    curCol = 1
+                    i = (i + 1)
+                } {
+                    if (c == 13) {
+                        i = (i + 1)
+                        if (i < n) {
+                            if ((charAt src i) == 10) {
+                                i = (i + 1)
+                            }
+                        }
+                        curLine = (curLine + 1)
+                        curCol = 1
+                    } {
+                        if (c == 9) {
+                            i = (i + 1)
+                            curCol = (curCol + 1)
+                        } {
+                            if (c == 32) {
+                                i = (i + 1)
+                                curCol = (curCol + 1)
+                            } {
+                                if (c == 44) {
+                                    i = (i + 1)
+                                    curCol = (curCol + 1)
+                                } {
+                                    if (c == 35) {
+                                        def j:int (i + 1)
+                                        while (j < n) {
+                                            def hc:int (charAt src j)
+                                            if (hc == 10) {
+                                                break
+                                            }
+                                            if (hc == 13) {
+                                                break
+                                            }
+                                            j = (j + 1)
+                                        }
+                                        commentCount = (commentCount + 1)
+                                        curCol = (curCol + (j - i))
+                                        i = j
+                                    } {
+                                        def consumed:int (this.scanOne(src i n curLine curCol))
+                                        if (consumed <= 0) {
+                                            if ((strlen error) == 0) {
+                                                this.failLex(("unexpected character " + (strfromcode c)) curLine curCol)
+                                            }
+                                            i = n
+                                        } {
+                                            def next:int (i + consumed)
+                                            this.bump(src i next)
+                                            i = next
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        this.pushTok(0 "" "" false n curLine curCol)
+        return tokens
+    }
+
+    fn scanOne:int (src:string start:int n:int line:int col:int) {
+        def c:int (charAt src start)
+        ; `...` is one punctuator, not three dots.
+        if (c == 46) {
+            if ((start + 2) < n) {
+                if ((charAt src (start + 1)) == 46) {
+                    if ((charAt src (start + 2)) == 46) {
+                        this.pushTok(5 "..." "..." false start line col)
+                        return 3
+                    }
+                }
+            }
+            this.failLex("unexpected '.'" line col)
+            return 0
+        }
+        if (GqlTokenizer.isNameStart(c)) {
+            def j:int start
+            while (j < n) {
+                if ((GqlTokenizer.isNameCont((charAt src j))) == false) {
+                    break
+                }
+                j = (j + 1)
+            }
+            def word:string (substring src start j)
+            this.pushTok(1 word word false start line col)
+            return (j - start)
+        }
+        if (c == 34) {
+            return (this.scanString(src start n line col))
+        }
+        if (c == 45) {
+            return (this.scanNumber(src start n line col))
+        }
+        if (GqlTokenizer.isDigit(c)) {
+            return (this.scanNumber(src start n line col))
+        }
+        if (GqlTokenizer.isSinglePunct(c)) {
+            def p:string (strfromcode c)
+            this.pushTok(5 p p false start line col)
+            return 1
+        }
+        return 0
+    }
+
+    sfn isSinglePunct:boolean (c:int) {
+        if (c == 33) {
+            return true
+        }
+        if (c == 36) {
+            return true
+        }
+        if (c == 38) {
+            return true
+        }
+        if (c == 40) {
+            return true
+        }
+        if (c == 41) {
+            return true
+        }
+        if (c == 58) {
+            return true
+        }
+        if (c == 61) {
+            return true
+        }
+        if (c == 64) {
+            return true
+        }
+        if (c == 91) {
+            return true
+        }
+        if (c == 93) {
+            return true
+        }
+        if (c == 123) {
+            return true
+        }
+        if (c == 124) {
+            return true
+        }
+        if (c == 125) {
+            return true
+        }
+        return false
+    }
+
+    fn scanNumber:int (src:string start:int n:int line:int col:int) {
+        def i:int start
+        if ((charAt src i) == 45) {
+            i = (i + 1)
+            if (i >= n) {
+                this.failLex("invalid number" line col)
+                return 0
+            }
+            if ((GqlTokenizer.isDigit((charAt src i))) == false) {
+                this.failLex("invalid number" line col)
+                return 0
+            }
+        }
+        def first:int (charAt src i)
+        if (first == 48) {
+            i = (i + 1)
+            if (i < n) {
+                if (GqlTokenizer.isDigit((charAt src i))) {
+                    this.failLex("invalid integer, leading zero" line col)
+                    return 0
+                }
+            }
+        } {
+            if (GqlTokenizer.isDigit(first)) {
+                while (i < n) {
+                    if ((GqlTokenizer.isDigit((charAt src i))) == false) {
+                        break
+                    }
+                    i = (i + 1)
+                }
+            } {
+                this.failLex("invalid number" line col)
+                return 0
+            }
+        }
+        def isFloat:boolean false
+        if (i < n) {
+            if ((charAt src i) == 46) {
+                if ((i + 1) < n) {
+                    if (GqlTokenizer.isDigit((charAt src (i + 1)))) {
+                        isFloat = true
+                        i = (i + 1)
+                        while (i < n) {
+                            if ((GqlTokenizer.isDigit((charAt src i))) == false) {
+                                break
+                            }
+                            i = (i + 1)
+                        }
+                    }
+                }
+            }
+        }
+        if (i < n) {
+            def e:int (charAt src i)
+            if (e == 101) {
+                isFloat = true
+                i = (this.scanExponent(src i n line col))
+                if (i <= 0) {
+                    return 0
+                }
+            } {
+                if (e == 69) {
+                    isFloat = true
+                    i = (this.scanExponent(src i n line col))
+                    if (i <= 0) {
+                        return 0
+                    }
+                }
+            }
+        }
+        def text:string (substring src start i)
+        def kind:int 2
+        if isFloat {
+            kind = 3
+        }
+        this.pushTok(kind text text false start line col)
+        return (i - start)
+    }
+
+    ; Returns the index just past the exponent, or 0 on error.
+    fn scanExponent:int (src:string at:int n:int line:int col:int) {
+        def i:int (at + 1)
+        if (i >= n) {
+            this.failLex("invalid float exponent" line col)
+            return 0
+        }
+        def s:int (charAt src i)
+        if (s == 43) {
+            i = (i + 1)
+        } {
+            if (s == 45) {
+                i = (i + 1)
+            }
+        }
+        if (i >= n) {
+            this.failLex("invalid float exponent" line col)
+            return 0
+        }
+        if ((GqlTokenizer.isDigit((charAt src i))) == false) {
+            this.failLex("invalid float exponent" line col)
+            return 0
+        }
+        while (i < n) {
+            if ((GqlTokenizer.isDigit((charAt src i))) == false) {
+                break
+            }
+            i = (i + 1)
+        }
+        return i
+    }
+
+    fn scanString:int (src:string start:int n:int line:int col:int) {
+        if ((start + 2) < n) {
+            if ((charAt src (start + 1)) == 34) {
+                if ((charAt src (start + 2)) == 34) {
+                    return (this.scanBlockString(src start n line col))
+                }
+            }
+        }
+        def i:int (start + 1)
+        def out:string ""
+        while (i < n) {
+            def c:int (charAt src i)
+            if (c == 10) {
+                this.failLex("unterminated string" line col)
+                return 0
+            }
+            if (c == 13) {
+                this.failLex("unterminated string" line col)
+                return 0
+            }
+            if (c == 34) {
+                i = (i + 1)
+                def raw:string (substring src start i)
+                this.pushTok(4 out raw false start line col)
+                return (i - start)
+            }
+            if (c == 92) {
+                if ((i + 1) >= n) {
+                    this.failLex("unterminated string escape" line col)
+                    return 0
+                }
+                def e:int (charAt src (i + 1))
+                if (e == 34) {
+                    out = (out + (strfromcode 34))
+                    i = (i + 2)
+                } {
+                    if (e == 92) {
+                        out = (out + (strfromcode 92))
+                        i = (i + 2)
+                    } {
+                        if (e == 47) {
+                            out = (out + (strfromcode 47))
+                            i = (i + 2)
+                        } {
+                            if (e == 98) {
+                                out = (out + (strfromcode 8))
+                                i = (i + 2)
+                            } {
+                                if (e == 102) {
+                                    out = (out + (strfromcode 12))
+                                    i = (i + 2)
+                                } {
+                                    if (e == 110) {
+                                        out = (out + (strfromcode 10))
+                                        i = (i + 2)
+                                    } {
+                                        if (e == 114) {
+                                            out = (out + (strfromcode 13))
+                                            i = (i + 2)
+                                        } {
+                                            if (e == 116) {
+                                                out = (out + (strfromcode 9))
+                                                i = (i + 2)
+                                            } {
+                                                if (e == 117) {
+                                                    if ((i + 5) >= n) {
+                                                        this.failLex("invalid unicode escape" line col)
+                                                        return 0
+                                                    }
+                                                    def h1:int (GqlTokenizer.hexVal((charAt src (i + 2))))
+                                                    def h2:int (GqlTokenizer.hexVal((charAt src (i + 3))))
+                                                    def h3:int (GqlTokenizer.hexVal((charAt src (i + 4))))
+                                                    def h4:int (GqlTokenizer.hexVal((charAt src (i + 5))))
+                                                    if (h1 < 0) {
+                                                        this.failLex("invalid unicode escape" line col)
+                                                        return 0
+                                                    }
+                                                    if (h2 < 0) {
+                                                        this.failLex("invalid unicode escape" line col)
+                                                        return 0
+                                                    }
+                                                    if (h3 < 0) {
+                                                        this.failLex("invalid unicode escape" line col)
+                                                        return 0
+                                                    }
+                                                    if (h4 < 0) {
+                                                        this.failLex("invalid unicode escape" line col)
+                                                        return 0
+                                                    }
+                                                    def cp:int (((((h1 * 16) + h2) * 16) + h3) * 16)
+                                                    cp = (cp + h4)
+                                                    out = (out + (strfromcode cp))
+                                                    i = (i + 6)
+                                                } {
+                                                    this.failLex("invalid string escape" line col)
+                                                    return 0
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } {
+                out = (out + (strfromcode c))
+                i = (i + 1)
+            }
+        }
+        this.failLex("unterminated string" line col)
+        return 0
+    }
+
+    fn scanBlockString:int (src:string start:int n:int line:int col:int) {
+        def i:int (start + 3)
+        def rawInner:string ""
+        while (i < n) {
+            if ((i + 2) < n) {
+                if ((charAt src i) == 34) {
+                    if ((charAt src (i + 1)) == 34) {
+                        if ((charAt src (i + 2)) == 34) {
+                            def raw:string (substring src start (i + 3))
+                            def value:string (GqlTokenizer.blockValue(rawInner))
+                            this.pushTok(4 value raw true start line col)
+                            return ((i + 3) - start)
+                        }
+                    }
+                }
+            }
+            ; `\"""` is an escaped triple-quote inside a block string.
+            if ((charAt src i) == 92) {
+                if ((i + 3) < n) {
+                    if ((charAt src (i + 1)) == 34) {
+                        if ((charAt src (i + 2)) == 34) {
+                            if ((charAt src (i + 3)) == 34) {
+                                rawInner = (rawInner + "\"\"\"")
+                                i = (i + 4)
+                            } {
+                                rawInner = (rawInner + (strfromcode 92))
+                                i = (i + 1)
+                            }
+                        } {
+                            rawInner = (rawInner + (strfromcode 92))
+                            i = (i + 1)
+                        }
+                    } {
+                        rawInner = (rawInner + (strfromcode 92))
+                        i = (i + 1)
+                    }
+                } {
+                    rawInner = (rawInner + (strfromcode 92))
+                    i = (i + 1)
+                }
+            } {
+                rawInner = (rawInner + (strfromcode (charAt src i)))
+                i = (i + 1)
+            }
+        }
+        this.failLex("unterminated block string" line col)
+        return 0
+    }
+
+    ; GraphQL spec BlockStringValue: split lines, strip the common indent of
+    ; every line after the first, then drop leading and trailing blank lines.
+    sfn blockValue:string (raw:string) {
+        def lines:[string] (GqlTokenizer.splitLines(raw))
+        def n:int (array_length lines)
+        def common:int -1
+        def i:int 1
+        while (i < n) {
+            def line:string (itemAt lines i)
+            if ((GqlTokenizer.isBlankLine(line)) == false) {
+                def ws:int (GqlTokenizer.leadingWs(line))
+                if (common < 0) {
+                    common = ws
+                } {
+                    if (ws < common) {
+                        common = ws
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if (common > 0) {
+            def j:int 1
+            while (j < n) {
+                def ln:string (itemAt lines j)
+                def drop:int common
+                def avail:int (strlen ln)
+                if (drop > avail) {
+                    drop = avail
+                }
+                set lines j (substring ln drop avail)
+                j = (j + 1)
+            }
+        }
+        def start:int 0
+        while (start < n) {
+            if ((GqlTokenizer.isBlankLine((itemAt lines start))) == false) {
+                break
+            }
+            start = (start + 1)
+        }
+        def end:int n
+        while (end > start) {
+            if ((GqlTokenizer.isBlankLine((itemAt lines (end - 1)))) == false) {
+                break
+            }
+            end = (end - 1)
+        }
+        def out:string ""
+        def k:int start
+        while (k < end) {
+            if (k > start) {
+                out = (out + (strfromcode 10))
+            }
+            out = (out + (itemAt lines k))
+            k = (k + 1)
+        }
+        return out
+    }
+
+    sfn splitLines:[string] (s:string) {
+        def lines:[string]
+        def n:int (strlen s)
+        def i:int 0
+        def start:int 0
+        while (i < n) {
+            def c:int (charAt s i)
+            if (c == 10) {
+                push lines (substring s start i)
+                i = (i + 1)
+                start = i
+            } {
+                if (c == 13) {
+                    push lines (substring s start i)
+                    i = (i + 1)
+                    if (i < n) {
+                        if ((charAt s i) == 10) {
+                            i = (i + 1)
+                        }
+                    }
+                    start = i
+                } {
+                    i = (i + 1)
+                }
+            }
+        }
+        push lines (substring s start n)
+        return lines
+    }
+
+    sfn leadingWs:int (line:string) {
+        def n:int (strlen line)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt line i)
+            if (c == 9) {
+                i = (i + 1)
+            } {
+                if (c == 32) {
+                    i = (i + 1)
+                } {
+                    return i
+                }
+            }
+        }
+        return i
+    }
+
+    sfn isBlankLine:boolean (line:string) {
+        return ((GqlTokenizer.leadingWs(line)) == (strlen line))
+    }
+}

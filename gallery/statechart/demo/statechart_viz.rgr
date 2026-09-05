@@ -1,0 +1,260 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; statechart_viz.rgr — a machine file in, a picture out
+; ============================================================================
+;
+;   npm run statechart:viz                          every fixture machine
+;   npm run statechart:viz -- <file.machine.json>   one of them
+;   npm run statechart:viz -- <file> --run E1 E2 …  and then send it events
+;
+; The third form is the one that earns the module. Give it a machine and a
+; sequence of events and it draws WHERE THAT SEQUENCE LEFT IT: the active state
+; and its ancestors highlighted, the transitions leaving it in the accent
+; colour. "Where am I, and what happens if I press this" is the question a UI
+; state machine is actually asked, and a JSON file answers it worst.
+;
+; It writes SVG, PDF, HTML and the graph as JSON into gallery/statechart/out/,
+; so a run is both the demo and a smoke test of every backend at once.
+; ============================================================================
+
+Import "../viz/StatechartGraph.rgr"
+Import "../src/StatechartJson.rgr"
+Import "../../rangerflow/export/FlowExport.rgr"
+Import "../../rangerflow/layout/LayeredLayout.rgr"
+Import "../../rangerflow/layout/EdgeLanes.rgr"
+Import "../../rangerflow/layout/OrientedPorts.rgr"
+Import "../../rangerflow/layout/ReadableRouter.rgr"
+
+class StatechartVizDemo {
+    def outDir:string "gallery/statechart/out"
+    def fontsDir:string "gallery/pdf_writer/assets/fonts"
+
+    Constructor () {
+    }
+
+    sfn main:void () {
+        def d (new StatechartVizDemo)
+        def files:[string]
+        def events:[string]
+        def reading@(mutable):string "files"
+        def argCount:int (shell_arg_cnt)
+        def i@(mutable):int 0
+        while (i < argCount) {
+            def a:string (shell_arg i)
+            if (a == "--run") {
+                reading = "events"
+            } {
+                if ((strlen a) > 0) {
+                    if (reading == "events") {
+                        push events a
+                    } {
+                        push files a
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if ((array_length files) == 0) {
+            push files "gallery/statechart/fixtures/machines/trafficLight.machine.json"
+            push files "gallery/statechart/fixtures/machines/checkout.machine.json"
+        }
+        for files f:string k {
+            d.render(f events)
+        }
+    }
+
+    fn render:void (path:string events:[string]) {
+        def textOpt:string (?? (read_file "." path) "")
+        if ((strlen textOpt) == 0) {
+            print ("  no machine at " + path)
+            return
+        }
+        def chart:Statechart (StatechartJson.load(textOpt))
+        def viz:StatechartGraph (StatechartGraph.of(chart))
+
+        def stem@(mutable):string (("statechart-" + chart.id))
+        ; A sequence given, so the picture is of a RUN and not of a machine:
+        ; walk it with the same runner the app uses and draw where it stopped.
+        if ((array_length events) > 0) {
+            def r (new ScRunner)
+            r.start(chart)
+            for events e:string i {
+                r.send((StatechartVizDemo.eventOf(e)))
+                ; The host owes nothing here: a demo drives a machine whose
+                ; named actions are the application's, and a name with no host
+                ; behind it must not stall the runner.
+                r.resume()
+            }
+            viz.active = r.state
+            stem = ((stem + "-") + (StatechartVizDemo.slug(r.state)))
+            print ((("== " + chart.id) + " — ") + ((to_string (array_length events)) + " events sent"))
+            print (("  in " + r.state))
+        } {
+            print (("== " + chart.id))
+        }
+
+        def g:FlowGraph (viz.build())
+        print ((((("  graph  " + (to_string (g.nodeCount()))) + " states, ") + (to_string (g.edgeCount()))) + " transitions"))
+
+        def lay:LayeredLayout (LayeredLayout.of(g))
+        lay.direction = "LR"
+        ; Roomy on purpose. A back-edge is routed round the outside, and a lane
+        ; with no room to sit in ends up drawn along the flank of the box it is
+        ; entering, which reads as a line that missed rather than one that
+        ; arrived.
+        lay.layerGap = 86.0
+        lay.nodeGap = 76.0
+        lay.run()
+        ; Before any routing: which side each edge leaves and arrives on. The
+        ; router honours the handles and cannot invent a good one.
+        StatechartGraph.faceEdges(g)
+        ; Then one router for every edge — see ReadableRouter. Sockets and
+        ; perpendicular stubs are its first two steps, so the port rule is
+        ; measured before it runs and gated at zero after.
+        def faults0:int (OrientedPorts.faults(g))
+        def rr (new ReadableRouter)
+        def routed:int (rr.route(g))
+        def faults1:int (OrientedPorts.faults(g))
+        print ((("  ports   " + (to_string faults0)) + " ends not leaving square → ") + (to_string faults1))
+        ; Labels: measured at the naive place first — the middle of the route,
+        ; which is where two routes running beside each other have their
+        ; middles beside each other — then placed beside their own edge, and
+        ; the routes that ran through one are routed again around it.
+        def before:int (StatechartGraph.clutter(g))
+        rr.placeLabels(g)
+        rr.finish(g)
+        def after:int (StatechartGraph.clutter(g))
+        print ((("  labels  " + (to_string before)) + " sitting on something → ") + (to_string after))
+        ; …and the rules the router optimises for, as numbers the gate holds.
+        def line1:string ((("  routes  " + (to_string routed)) + " routed · ") + (to_string (EdgeOverlap.edgeCrossings(g))))
+        def line2:string (((line1 + " crossings, ") + (to_string (ReadableRouter.crossingsAtBend(g rr.junctionRadius)))) + " at a bend · ")
+        def line3:string ((line2 + (to_string (ReadableRouter.parallelClose(g rr.minParallelGap)))) + " parallel pairs under 12px · ")
+        def line4:string ((line3 + (to_string (ReadableRouter.haloTurns(g rr.nodeClearance)))) + " turns in a halo · ")
+        def line5:string ((line4 + (to_string (EdgeOverlap.nodeCrossings(g)))) + " through a box · ")
+        print ((line5 + (to_string (ReadableRouter.labelHits(g)))) + " labels on another edge")
+
+        def v:FlowView (FlowView.of(g))
+        v.notation = "plain"
+        this.writeAll(v g stem (("Statechart — " + chart.id)))
+    }
+
+    ; `SET_CARD:card=4242` — an event and the fields it carries. Guards read
+    ; the context and the context is filled from events, so a run given only
+    ; event NAMES stalls at the first guard: `PAY [hasCard]` with no card is a
+    ; correct answer to the wrong question.
+    ;
+    ; Values are strings unless they are `true`, `false` or a number, which is
+    ; JSON's own reading of a bare word and the one a reader expects.
+    sfn eventOf:ScEvent (spec:string) {
+        def parts:[string] (StatechartVizDemo.splitOn(spec 58))
+        def e:ScEvent (ScEvent.of((itemAt parts 0)))
+        if ((array_length parts) < 2) {
+            return e
+        }
+        def fields:[string] (StatechartVizDemo.splitOn((itemAt parts 1) 44))
+        for fields f:string i {
+            def kv:[string] (StatechartVizDemo.splitOn(f 61))
+            if ((array_length kv) > 1) {
+                e.with((itemAt kv 0) (StatechartVizDemo.valueOf((itemAt kv 1))))
+            }
+        }
+        return e
+    }
+
+    sfn valueOf:ScVal (text:string) {
+        if (text == "true")  { return (ScValOps.bool(true)) }
+        if (text == "false") { return (ScValOps.bool(false)) }
+        if (StatechartVizDemo.looksNumeric(text)) {
+            return (ScValOps.num((?? (to_double text) 0.0)))
+        }
+        return (ScValOps.str(text))
+    }
+
+    sfn looksNumeric:boolean (text:string) {
+        def len:int (strlen text)
+        if (len == 0) {
+            return false
+        }
+        def digits@(mutable):int 0
+        def i@(mutable):int 0
+        while (i < len) {
+            def ch:int (charAt text i)
+            if (ch >= 48) {
+                if (ch <= 57) {
+                    digits = (digits + 1)
+                }
+            }
+            if (ch == 45) { } {
+                if (ch == 46) { } {
+                    if (ch < 48) { return false }
+                    if (ch > 57) { return false }
+                }
+            }
+            i = (i + 1)
+        }
+        return (digits > 0)
+    }
+
+    ; No `split` in the language, so one here. Only the FIRST separator counts
+    ; for `:` — `SET_CARD:card=4242` has one, and a value may not.
+    sfn splitOn:[string] (text:string sep:int) {
+        def out:[string]
+        def run@(mutable):string ""
+        def i@(mutable):int 0
+        def len:int (strlen text)
+        while (i < len) {
+            def ch:int (charAt text i)
+            if (ch == sep) {
+                push out run
+                run = ""
+            } {
+                run = (run + (substring text i (i + 1)))
+            }
+            i = (i + 1)
+        }
+        push out run
+        return out
+    }
+
+    ; "reviewing.multiAction" is not a filename anywhere worth having.
+    sfn slug:string (path:string) {
+        def out@(mutable):string ""
+        def i@(mutable):int 0
+        def len:int (strlen path)
+        while (i < len) {
+            def ch:int (charAt path i)
+            if (ch == 46) {
+                out = (out + "-")
+            } {
+                out = (out + (substring path i (i + 1)))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn writeAll:void (v:FlowView g:FlowGraph stem:string title:string) {
+        if ((dir_exists outDir) == false) {
+            create_dir outDir
+        }
+        def ex (new FlowExport)
+        ex.loadFonts(fontsDir)
+        ex.mode = "page"
+        ex.pageWidth = 1190.0
+        ex.pageHeight = 842.0
+        ex.margin = 28.0
+
+        def svgPath:string (((outDir + "/") + stem) + ".svg")
+        ex.writeSvg(v svgPath)
+        print ("  wrote " + svgPath)
+
+        def htmlPath:string (((outDir + "/") + stem) + ".html")
+        ex.writeHtml(v htmlPath title)
+        print ("  wrote " + htmlPath)
+
+        def jsonPath:string (((outDir + "/") + stem) + ".graph.json")
+        write_file "." jsonPath (FlowGraphJson.toJson(g))
+        print ("  wrote " + jsonPath)
+    }
+}

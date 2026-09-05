@@ -31,6 +31,15 @@
 #                PowerPoint, charts, Word, Excel, diagrams, and the generated
 #                API pages). It is built HERE rather than into /docs/ because
 #                it quotes AGPL comments and the language documentation is MIT.
+#   /realtrainer/ -> the RealTrainer port: a phone app drawn by EVG's WebGL
+#                painter, measured screen by screen against the original. The
+#                page is the window — one tree, and the stylesheet's @media
+#                blocks fold the rail or the bottom bar at 768px — so it is
+#                the phone app on a phone and the desktop app on a desktop.
+#   /figma/   -> the Figma .fig / .deck reader: upload a file in the tab,
+#                parse it (ZIP → kiwi → node tree) and draw it with EVG.
+#                Timed against OpenFig on the same bytes when that library
+#                is present; the sample deck is built from Ranger.
 #   /docs/    -> the language documentation. The operator reference is generated
 #                from compiler/Lang.rgr and lib/*.rgr by docs/tools, and the
 #                examples on it are compiled by the compiler built in this job,
@@ -68,6 +77,10 @@ on:
       - "docs/**"
       - "gallery/evg/**"
       - "gallery/vela/**"
+      # The RealTrainer page at /realtrainer/ is built from these, and from
+      # the controls in gallery/ui it is drawn with.
+      - "gallery/realtrainer/**"
+      - "gallery/ui/**"
       # These carry the deck editor, the API playground, and the Office
       # reference at /office/reference/ — so a change to a facade republishes
       # the docs without docs/ (the MIT language site) being touched.
@@ -80,6 +93,8 @@ on:
       - "gallery/odf/**"
       - "gallery/xml/**"
       - "gallery/pdf_writer/src/**"
+      - "gallery/figma/**"
+      - "gallery/zip/**"
       - ".github/workflows/deploy-pages.yml"
   # A published release republishes the site, so the documentation on
   # /docs/ always describes the released compiler.
@@ -187,6 +202,20 @@ jobs:
       - name: Build the EVG showcase
         run: node gallery/evg/showcase/build.mjs --out "$GITHUB_WORKSPACE/_site/evg"
 
+      # ---- RealTrainer at /realtrainer/ -----------------------------------
+      # The app compiled to JavaScript and bundled with the painter; the page
+      # loads one script. `rt:build` needs the compiler built above, and the
+      # bundler comes with the conformance host's dependencies.
+      - name: Install conformance-host dependencies (esbuild)
+        run: npm run ui:conformance:install
+      - name: Build RealTrainer
+        run: |
+          npm run rt:build --silent
+          node gallery/realtrainer/web/build.mjs --out "$GITHUB_WORKSPACE/_site/realtrainer"
+          test -s "$GITHUB_WORKSPACE/_site/realtrainer/index.html"
+          test -s "$GITHUB_WORKSPACE/_site/realtrainer/bundle.js"
+          grep -q "RealTrainerDemo" "$GITHUB_WORKSPACE/_site/realtrainer/bundle.js"
+
       # ---- .pptx API playground at /office/ -------------------------------
       # The published API and the slide editor in one page: the code writes a
       # deck, the editor opens the BYTES it produced. A build here proves the
@@ -248,8 +277,43 @@ jobs:
       # Paste a Vega or Vega-Lite specification and see what the Ranger
       # runtime draws. The script it loads is compiled from the same sources
       # the C++ build uses, so the page shows this commit's own renderer.
+      # The chart API at /vela/api/ is built by each ecosystem's OWN tool --
+      # documentation.js, pdoc, Dokka and dartdoc -- over the packages `-apipackage`
+      # writes. That is the test PLAN_API_DOCS.md 7.3 sets: the target's own
+      # tool reads Ranger's output with no Ranger plugin. So the toolchains are
+      # installed here rather than the pages being rendered by us.
+      #
+      # Dokka resolves the Kotlin compiler and its own plugin from mavenCentral
+      # through gradle, which is already on the runner. pdoc and documentation.js
+      # are one install each.
+      - name: Install the documentation toolchains
+        run: |
+          npm install --no-save --no-audit --no-fund documentation
+          python3 -m pip install --quiet --disable-pip-version-check pdoc
+
+      # Dart for dartdoc; gradle for Dokka is already on the runner.
+      #
+      # .NET and DocFX are NOT installed: C# is out of the API pipeline for
+      # now. DocFX ran here, exited 0 and wrote _site/api/*.html with no
+      # _site/index.html, so --require failed the whole deploy over a page
+      # nobody could see. See the note in build-api-docs.mjs.
+      - uses: dart-lang/setup-dart@v1
+
       - name: Build the Vela page
         run: bash gallery/vela/web/build.sh --out "$GITHUB_WORKSPACE/_site/vela"
+
+      # --require fails the build when a toolchain is missing. Without it a
+      # runner that lost one would publish a smaller site and say nothing --
+      # the same silent-skip failure the formatter's own gate exists to avoid.
+      - name: Check every API toolchain ran
+        run: |
+          node gallery/vela/web/build-api-docs.mjs \
+            --out "$GITHUB_WORKSPACE/_site/vela/api" --require
+          test -s "$GITHUB_WORKSPACE/_site/vela/api/index.html"
+          test -s "$GITHUB_WORKSPACE/_site/vela/api/javascript/index.html"
+          test -s "$GITHUB_WORKSPACE/_site/vela/api/python/vela_chart.html"
+          test -s "$GITHUB_WORKSPACE/_site/vela/api/kotlin/index.html"
+          test -s "$GITHUB_WORKSPACE/_site/vela/api/dart/index.html"
 
       # ---- PPTX playground at /pptx/ --------------------------------------
       # The viewer and editor with no server behind them: the page fetches a
@@ -275,6 +339,31 @@ jobs:
           # pressed — which is the failure mode this whole step exists for.
           test -s "$GITHUB_WORKSPACE/_site/pptx/sample.odp"
           grep -q "PptxWeb" "$GITHUB_WORKSPACE/_site/pptx/pptx_web.js"
+
+      # ---- Fig reader at /figma/ ------------------------------------------
+      # Upload a .fig / .deck in the tab. ZIP + kiwi + EVG, no server.
+      - name: Build the Fig reader
+        run: bash gallery/figma/web/standalone/build.sh --out "$GITHUB_WORKSPACE/_site/figma"
+
+      - name: Check the Fig reader has an engine
+        run: |
+          test -s "$GITHUB_WORKSPACE/_site/figma/fig_web.js"
+          test -s "$GITHUB_WORKSPACE/_site/figma/standalone.mjs"
+          test -s "$GITHUB_WORKSPACE/_site/figma/gl/evg-webgl.js"
+          test -s "$GITHUB_WORKSPACE/_site/figma/vendor/fzstd.mjs"
+          grep -q "FigWeb" "$GITHUB_WORKSPACE/_site/figma/fig_web.js"
+          grep -q "installZstd" "$GITHUB_WORKSPACE/_site/figma/standalone.mjs"
+
+      # Does the engine agree with ITSELF? The frame is published twice — as
+      # JSON, where every field arrives with its name, and as packed
+      # Int32Arrays, which are positional and can be misread in silence. This
+      # needs no toolchain and takes a second, so it runs here rather than
+      # after the Emscripten install below: a decoder that has the record's
+      # shape wrong fails the parity step at the end of this job with a
+      # RangeError a hundred fields downstream of the cause, which is exactly
+      # how the 24-to-26 stride change was found, the hard way.
+      - name: Check the frame survives being packed
+        run: node gallery/pptx/web/host/scene-binary-check.mjs
 
       # ---- The same editor, as WebAssembly, at /pptx-wasm/ ----------------
       # Ranger -> C++ -> Emscripten -> WASM. This is the only route that

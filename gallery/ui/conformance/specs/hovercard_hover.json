@@ -1,0 +1,6 @@
+{ "name":"hovercard_hover","component":"hover-card",
+  "behaviours":["hover-opens","hover-closes","link-trigger","content-no-role","content-unmounted"],
+  "fixture":{"controls":[
+    {"type":"hovercard","tid":"hc","name":"Card","body":"Card body"},
+    {"type":"toggle","tid":"out","name":"Outside"}]},
+  "steps":[{"hover":"hc-trigger"},{"unhover":true}] }

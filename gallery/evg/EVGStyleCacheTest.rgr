@@ -1,0 +1,419 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EVGStyleCacheTest — the cache against the thing it replaced
+; ==============================================================================
+;
+; `EVGStyleSheet.applyTo` resolved every element from scratch: five full scans
+; of the rule list, per element, per frame. On a 1600-row table that was 178ms
+; of a 252ms frame — more than layout and display-list construction together —
+; to produce eighteen distinct answers.
+;
+; It is a plan now, built once per (class string, theme, interaction state) and
+; replayed. The risk of that is not that it is slow; it is that it is WRONG in
+; some corner — a state rule that should have been cleared, an inline attribute
+; that should have won, a theme that should have changed the answer — and wrong
+; in a way that looks like a design decision rather than a bug.
+;
+; So the old implementation is kept as `applyToDirect` and this compares them.
+; Not property by property: the same tree is built twice, styled both ways, and
+; the DISPLAY LISTS are compared. That is field-agnostic — a property the cache
+; gets wrong changes what is painted, and a property that changes nothing
+; painted changes nothing at all — and it is the same argument `EVGReconcileTest`
+; makes for its invariant.
+;
+; The fixture is deliberately awkward. It has:
+;
+;   * elements sharing a class string, so the cache is exercised
+;   * every combination of hover / focus / active / disabled, because those four
+;     bits are the whole of what the key encodes about an element
+;   * two themes
+;   * INLINE attributes on some elements and not others — the one thing that is
+;     not in the key, and therefore the one thing a shared plan could get wrong
+;   * a `@media` block, so the viewport is part of the answer
+;   * state rules whose properties have to be cleared when the state goes away
+; ==============================================================================
+
+Import "EVGElement.rgr"
+Import "EVGUnit.rgr"
+Import "EVGStyleSheet.rgr"
+Import "EVGLayout.rgr"
+Import "EVGDisplayList.rgr"
+Import "EVGColor.rgr"
+
+class StyleCacheCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got  " + got)
+            print ("       want " + want)
+        }
+        this.ok(name good)
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.eqStr(name (to_string got) (to_string want))
+    }
+}
+
+class EVGStyleCacheTest {
+
+    sfn sheetText:string () {
+        return (""
+            ; A PALETTE, and one name the dark theme moves. `var()` is resolved
+            ; where a value becomes an element's, and there are two such places
+            ; — the plan builder and the direct scan this suite compares it
+            ; against. A variable understood by one and not the other would
+            ; show up here as the cache being wrong, which is the only reason
+            ; the fixture carries variables at all.
+            + "@vars { --ink: #111111; --fill: #cccccc; }"
+            + "@vars dark { --ink: #eeeeee; --fill: #222222; }"
+            + ".page { display: flex; flex-direction: column; width: 400px; }"
+            + ".box { width: 100px; height: 20px; background-color: var(--fill);"
+            + "       opacity: 1; transform: none; color: var(--ink); }"
+            + ".box:hover  { background-color: #ff0000; opacity: 0.5; }"
+            + ".box:focus  { background-color: #00ff00; transform: scale(1.2); }"
+            + ".box:active { background-color: #0000ff; }"
+            + ".box:disabled { opacity: 0.25; }"
+            + ".wide { width: 220px; }"
+            + ".tall { height: 40px; }"
+            ; `.theme-<name> .class` is the ONLY descendant form this sheet
+            ; supports. The first version of this fixture wrote `.dark .box`,
+            ; which is not that — it became a parse error, no theme rule
+            ; existed, and the mutation that removed the theme from the cache
+            ; key passed. `testFixtureParses` below is what stops that
+            ; happening again.
+            + ".theme-dark .box { border-radius: 4px; }"
+            ; A class whose STATE rule sets a property its base rule does not.
+            ; That is the only case where clearing the state properties matters
+            ; — where the base rule re-writes the property anyway, dropping the
+            ; clear changes nothing, and the mutation for it survived.
+            + ".plain { width: 60px; height: 10px; }"
+            + ".plain:hover { opacity: 0.35; }"
+            + "@media (max-width: 300px) { .box { width: 50px; } }"
+            + ".ink { color: #333333; font-size: 13px; }")
+    }
+
+    ; One element. `variant` picks the class string, `state` the four bits, and
+    ; `inline` says whether the element carries an inline attribute the sheet
+    ; must not overwrite.
+    sfn box:EVGElement (i:int variant:int state:int inline:boolean) {
+        def el (EVGElement.createDiv())
+        el.id = ("b" + (to_string i))
+        def cls:string "box"
+        if (variant == 1) { cls = "box wide" }
+        if (variant == 2) { cls = "box tall" }
+        if (variant == 3) { cls = "box wide tall" }
+        if (variant == 4) { cls = "ink" }
+        if (variant == 5) { cls = "plain" }
+        el.className = cls
+        if ((state % 2) == 1)  { el.isHovered = true }
+        if ((state % 4) >= 2)  { el.isFocused = true }
+        if ((state % 8) >= 4)  { el.isPressed = true }
+        if (state >= 8)        { el.a11yDisabled = true }
+        if inline {
+            ; The one fact a shared plan does not know. An element with this set
+            ; must keep it however many siblings share its class.
+            el.setAttribute("background-color" "#123456")
+            el.markInline("background-color")
+        }
+        el.textContent = ("n" + (to_string i))
+        return el
+    }
+
+    sfn page:EVGElement () {
+        def p (EVGElement.createDiv())
+        p.className = "page"
+        p.id = "page"
+        def i:int 0
+        ; 6 variants x 16 states x inline on/off, and every one of them shares
+        ; a plan key with several others.
+        while (i < 192) {
+            def variant:int (i % 6)
+            def state:int ((to_int (i / 6)) % 16)
+            def inline:boolean (((to_int (i / 96)) % 2) == 1)
+            p.addChild((EVGStyleCacheTest.box(i variant state inline)))
+            i = (i + 1)
+        }
+        return p
+    }
+
+    sfn paintOf:string (root:EVGElement theme:string w:double cached:boolean) {
+        def s (new EVGStyleSheet())
+        s.parse((EVGStyleCacheTest.sheetText()))
+        s.setViewport(w 600.0 false)
+        if cached {
+            s.applyTree(root theme)
+        } {
+            s.applyTreeDirect(root theme)
+        }
+        def lay (new EVGLayout())
+        lay.setPageSize(w 600.0)
+        lay.layout(root)
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(root)
+        return (dl.toJson())
+    }
+
+    sfn sameBothWays:void (c:StyleCacheCheck label:string theme:string w:double) {
+        def a:EVGElement (EVGStyleCacheTest.page())
+        def b:EVGElement (EVGStyleCacheTest.page())
+        c.eqStr((label + ": the cache paints what the scan painted")
+            (EVGStyleCacheTest.paintOf(a theme w true))
+            (EVGStyleCacheTest.paintOf(b theme w false)))
+    }
+
+    ; The fixture has to parse. This is not ceremony: the first version wrote
+    ; `.dark .box`, which this sheet does not support, so the theme rule silently
+    ; became an error and the mutation that dropped the theme from the cache key
+    ; could not be caught. A test whose fixture does not contain the thing it is
+    ; testing passes for the wrong reason.
+    sfn testFixtureParses:void (c:StyleCacheCheck) {
+        print "--- the fixture is what it says it is ---"
+        def s (new EVGStyleSheet())
+        s.parse((EVGStyleCacheTest.sheetText()))
+        def n:int (s.getErrorCount())
+        def i:int 0
+        while (i < n) {
+            print ("       " + (s.getError(i)))
+            i = (i + 1)
+        }
+        c.eqInt("the stylesheet has no errors" n 0)
+        c.ok("and it has rules with states, themes and media in it" ((s.getRuleCount()) >= 10))
+    }
+
+    ; The fixture's theme has to CHANGE something, or "cached == direct under
+    ; the dark theme" is a comparison of two identical pictures. It used to be
+    ; carried by a theme-scoped rule; now most of it is a palette, and this is
+    ; what says the palette still moves the page.
+    sfn testThemeMatters:void (c:StyleCacheCheck) {
+        print "--- and the fixture's theme is worth comparing ---"
+        def a:EVGElement (EVGStyleCacheTest.page())
+        def b:EVGElement (EVGStyleCacheTest.page())
+        c.ok("the dark theme paints something else"
+            ((EVGStyleCacheTest.paintOf(a "" 400.0 true)) != (EVGStyleCacheTest.paintOf(b "dark" 400.0 true))))
+    }
+
+    sfn testAgreement:void (c:StyleCacheCheck) {
+        print "--- cached == resolved from scratch ---"
+        EVGStyleCacheTest.sameBothWays(c "default theme, wide surface" "" 400.0)
+        ; A theme changes which rules apply, and the theme is in the key.
+        EVGStyleCacheTest.sameBothWays(c "dark theme" "dark" 400.0)
+        ; A narrow surface turns the `@media` rule on. The viewport is NOT in
+        ; the key — it invalidates the whole cache instead — and this is what
+        ; says that decision holds.
+        EVGStyleCacheTest.sameBothWays(c "narrow surface, media rule on" "" 280.0)
+        EVGStyleCacheTest.sameBothWays(c "narrow and dark" "dark" 280.0)
+    }
+
+    ; The cache has to survive a viewport change ON ONE SHEET, which is the
+    ; case `sameBothWays` cannot see because it builds a fresh sheet each time.
+    sfn testViewportInvalidates:void (c:StyleCacheCheck) {
+        print "--- one sheet, two surfaces ---"
+        def s (new EVGStyleSheet())
+        s.parse((EVGStyleCacheTest.sheetText()))
+
+        def wide:EVGElement (EVGStyleCacheTest.page())
+        s.setViewport(400.0 600.0 false)
+        s.applyTree(wide "")
+        def wideFirst:EVGElement (itemAt wide.children 0)
+        def wideW:string (to_string wideFirst.width.value)
+
+        ; Same sheet, narrower surface: the media rule now applies, and every
+        ; plan built a moment ago is a guess.
+        def narrow:EVGElement (EVGStyleCacheTest.page())
+        s.setViewport(280.0 600.0 false)
+        s.applyTree(narrow "")
+        def narrowFirst:EVGElement (itemAt narrow.children 0)
+        def narrowW:string (to_string narrowFirst.width.value)
+
+        c.eqStr("the wide surface gives the base width" wideW "100")
+        c.eqStr("and the narrow one the media width" narrowW "50")
+
+        ; And back again, to catch a cache that only invalidates one way.
+        def wideAgain:EVGElement (EVGStyleCacheTest.page())
+        s.setViewport(400.0 600.0 false)
+        s.applyTree(wideAgain "")
+        def againFirst:EVGElement (itemAt wideAgain.children 0)
+        c.eqStr("and back to the base width" (to_string againFirst.width.value) "100")
+    }
+
+    ; The state bits are the key's whole knowledge of an element, so an element
+    ; that changes state must get a different plan — and going back must give
+    ; back the base value, which is what `planStateClears` is for.
+    ; Two themes through ONE sheet.
+    ;
+    ; `testAgreement` cannot see this: it builds a fresh sheet for every case,
+    ; so each cache only ever holds one theme and the key never needs to carry
+    ; it. Dropping the theme from the key passed every check until this existed.
+    sfn testThemeOnOneSheet:void (c:StyleCacheCheck) {
+        print "--- one sheet, two themes ---"
+        def s (new EVGStyleSheet())
+        s.parse((EVGStyleCacheTest.sheetText()))
+        s.setViewport(400.0 600.0 false)
+
+        def plain (EVGElement.createDiv())
+        plain.className = "box"
+        s.applyTree(plain "")
+        def plainC:EVGColor plain.backgroundColor
+
+        ; Same sheet, same class, different theme. `.theme-dark .box` paints it
+        ; a different colour, and the plan built a moment ago is not this one.
+        def dark (EVGElement.createDiv())
+        dark.className = "box"
+        s.applyTree(dark "dark")
+        def darkC:EVGColor dark.backgroundColor
+
+        ; And back, to catch a cache that only notices the change one way.
+        def plain2 (EVGElement.createDiv())
+        plain2.className = "box"
+        s.applyTree(plain2 "")
+        def plain2C:EVGColor plain2.backgroundColor
+
+        c.eqStr("the unscoped theme gives the base colour" (plainC.toHexString()) "#CCCCCC")
+        c.eqStr("the dark theme gives its own" (darkC.toHexString()) "#222222")
+        c.eqStr("and going back gives the base again" (plain2C.toHexString()) "#CCCCCC")
+    }
+
+    ; An inline attribute outranks every rule.
+    ;
+    ; `testAgreement` cannot see this either, for a different reason: it
+    ; compares the cache against the direct path, and both call `hasInline`.
+    ; Breaking `hasInline` breaks BOTH equally and the two display lists still
+    ; agree — a differential oracle is blind to whatever the two sides share.
+    sfn testInlineWins:void (c:StyleCacheCheck) {
+        print "--- and an inline attribute still outranks the sheet ---"
+        def s (new EVGStyleSheet())
+        s.parse((EVGStyleCacheTest.sheetText()))
+        s.setViewport(400.0 600.0 false)
+
+        ; Two siblings sharing a class and therefore a plan. One has an inline
+        ; colour; the other must not catch it, and it must not lose its own.
+        def bare (EVGElement.createDiv())
+        bare.className = "box"
+        def inked (EVGElement.createDiv())
+        inked.className = "box"
+        inked.setAttribute("background-color" "#123456")
+        inked.markInline("background-color")
+
+        def page (EVGElement.createDiv())
+        page.className = "page"
+        page.addChild(bare)
+        page.addChild(inked)
+        s.applyTree(page "")
+
+        def bareC:EVGColor bare.backgroundColor
+        def inkedC:EVGColor inked.backgroundColor
+        c.eqStr("the plain sibling takes the rule's colour" (bareC.toHexString()) "#CCCCCC")
+        c.eqStr("and the inline one keeps its own" (inkedC.toHexString()) "#123456")
+
+        ; Through a state change too, because the state clears write the
+        ; INITIAL value and must not walk over an inline one either.
+        inked.isHovered = true
+        s.applyTree(page "")
+        def hovC:EVGColor inked.backgroundColor
+        c.eqStr("even hovered, where a state rule would have set it" (hovC.toHexString()) "#123456")
+    }
+
+    sfn testStateFlips:void (c:StyleCacheCheck) {
+        print "--- a state goes on, and comes off again ---"
+        def s (new EVGStyleSheet())
+        s.parse((EVGStyleCacheTest.sheetText()))
+        s.setViewport(400.0 600.0 false)
+
+        def el (EVGElement.createDiv())
+        el.className = "box"
+        s.applyTree(el "")
+        def baseC:EVGColor el.backgroundColor
+        def base:string (baseC.toHexString())
+
+        el.isHovered = true
+        s.applyTree(el "")
+        def hovC:EVGColor el.backgroundColor
+        def hovered:string (hovC.toHexString())
+
+        el.isHovered = false
+        s.applyTree(el "")
+        def backC:EVGColor el.backgroundColor
+        def back:string (backC.toHexString())
+
+        c.eqStr("at rest it is the base colour" base "#CCCCCC")
+        c.eqStr("hovered it is the state colour" hovered "#FF0000")
+        c.eqStr("and leaving the state puts the base back" back "#CCCCCC")
+
+        ; The case the one above cannot see. `.box` declares `background-color`
+        ; itself, so leaving `:hover` would restore it even with the state
+        ; clears removed entirely — the base rule rewrites it on the way past.
+        ; `.plain` declares no opacity, so the ONLY thing that puts opacity
+        ; back to 1 is the clear.
+        def pl (EVGElement.createDiv())
+        pl.className = "plain"
+        s.applyTree(pl "")
+        def plBase:string (to_string pl.opacity)
+        pl.isHovered = true
+        s.applyTree(pl "")
+        def plHover:string (to_string pl.opacity)
+        pl.isHovered = false
+        s.applyTree(pl "")
+        def plBack:string (to_string pl.opacity)
+        c.eqStr("a property only a state rule sets starts at its initial" plBase "1")
+        c.eqStr("the state sets it" plHover "0.35")
+        c.eqStr("and leaving the state clears it back" plBack "1")
+    }
+
+    ; The cache has to actually cache. A version that misses every time is
+    ; correct and pointless, and every check above would still pass.
+    sfn testItCaches:void (c:StyleCacheCheck) {
+        print "--- and it answers from the plan ---"
+        def s (new EVGStyleSheet())
+        s.parse((EVGStyleCacheTest.sheetText()))
+        s.setViewport(400.0 600.0 false)
+        def p:EVGElement (EVGStyleCacheTest.page())
+        s.applyTree(p "")
+        ; 193 styled elements, and at most 6 variants x 16 states = 96 distinct
+        ; keys among them (plus the page). Printed rather than asserted at a
+        ; round number, because the ratio is the whole claim.
+        print (("       " + (to_string s.planMisses)) + " scans, " + (to_string s.planHits) + " answered from a plan")
+        c.ok("it scanned no more often than there are distinct keys" (s.planMisses <= 97))
+        c.ok("and answered from a plan for everything else" (s.planHits >= 90))
+
+        ; A second pass over the same tree must scan nothing at all.
+        def before:int s.planMisses
+        s.applyTree(p "")
+        c.eqInt("a second pass over the same tree scans nothing" (s.planMisses - before) 0)
+    }
+
+    sfn main:void () {
+        def c (new StyleCacheCheck())
+        print "=== EVG resolved-style cache ==="
+        EVGStyleCacheTest.testFixtureParses(c)
+        EVGStyleCacheTest.testThemeMatters(c)
+        EVGStyleCacheTest.testAgreement(c)
+        EVGStyleCacheTest.testViewportInvalidates(c)
+        EVGStyleCacheTest.testThemeOnOneSheet(c)
+        EVGStyleCacheTest.testInlineWins(c)
+        EVGStyleCacheTest.testStateFlips(c)
+        EVGStyleCacheTest.testItCaches(c)
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed > 0) {
+            print "FAILURES"
+        } {
+            print "ALL PASS"
+        }
+    }
+}

@@ -1,0 +1,298 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EVGA11yFromTree — the accessible tree, derived from the element tree
+; ==============================================================================
+;
+; A canvas contributes one empty graphic to the browser's accessibility tree no
+; matter what was drawn into it, so an EVG app has to publish what the frame
+; MEANS as well as what it looks like. The question is where that second
+; description comes from.
+;
+; `UiHost` writes it by hand: each controller declares a row, and the host turns
+; the rows into nodes. That is right for a controller, which knows things the
+; tree does not — which item is focused, what a key will do next.
+;
+; It is wrong for everything else. An app that builds an element tree and then
+; describes it a second time has two descriptions to keep in step, and the one
+; nobody can see is the one that rots. So this walks the SAME tree the picture
+; came from: an element with a `role` is a node, its rectangle is where it was
+; laid out, and its name is what it says. Nothing is written twice, and an
+; element that moves takes its accessible rectangle with it.
+;
+; The rules, and each one is the browser's:
+;
+;   * only an element with a role is in the tree. Boxes are boxes.
+;   * a node's parent is the nearest ANCESTOR WITH A ROLE, not its element
+;     parent, so the layout boxes in between do not show up as groups.
+;   * a name given with `aria-label` wins; otherwise the name is the text of
+;     the descendants that have no role of their own. That is why a row of
+;     Label + Shortcut announces as "New Tab ⌘ T" and not as three nodes.
+;   * an overlay surface is an ordinary child. It never left the tree, which is
+;     the entire reason this still works when a menu opens.
+; ==============================================================================
+
+Import "EVGElement.rgr"
+Import "EVGA11yTree.rgr"
+
+class EVGA11yFromTree {
+    def tree:EVGA11yTree
+    def unnamed:int 0
+
+    Constructor () {
+        tree = (new EVGA11yTree())
+    }
+
+    ; ARIA spelling in, EVGA11yRole out. An unknown role is `none`, which keeps
+    ; the element out of the tree rather than inventing a meaning for it.
+    sfn roleCode:int (name:string) {
+        if (name == "group")            { return (EVGA11yRole.group()) }
+        if (name == "text")             { return (EVGA11yRole.text()) }
+        if (name == "heading")          { return (EVGA11yRole.heading()) }
+        if (name == "button")           { return (EVGA11yRole.button()) }
+        if (name == "checkbox")         { return (EVGA11yRole.checkbox()) }
+        if (name == "radio")            { return (EVGA11yRole.radio()) }
+        if (name == "textbox")          { return (EVGA11yRole.textField()) }
+        if (name == "img")              { return (EVGA11yRole.image()) }
+        if (name == "link")             { return (EVGA11yRole.link()) }
+        ; A landmark. Missing until a demo used one, and the LINT is what said
+        ; so — an unrecognised role drops the element AND everything under it,
+        ; a silent hole with no symptom on screen. FOURTH time this table has
+        ; been one role short; the `notes` list exists because of the first two.
+        ; `list`, `listitem` and `separator` were already here, further down.
+        ;
+        ; So the fourth time it is completed rather than extended: the whole
+        ; select family goes in together, not just the `combobox` the profile
+        ; demo happened to need, because `listbox` and `option` are the two
+        ; roles that will be wanted the moment that select can be opened and
+        ; finding out then would be the fifth time.
+        if (name == "navigation")       { return (EVGA11yRole.navigation()) }
+        if (name == "form")             { return (EVGA11yRole.form()) }
+        ; FIFTH time, and the table family is now finished too: a thead and a
+        ; tbody are `rowgroup`s, and without them the whole body of a table
+        ; built from roles is missing from the tree while the picture is
+        ; perfect.
+        if (name == "rowgroup")         { return (EVGA11yRole.rowGroup()) }
+        if (name == "log")              { return (EVGA11yRole.log()) }
+        if (name == "combobox")         { return (EVGA11yRole.comboBox()) }
+        if (name == "listbox")          { return (EVGA11yRole.listBox()) }
+        if (name == "option")           { return (EVGA11yRole.option()) }
+        if (name == "grid")             { return (EVGA11yRole.grid()) }
+        if (name == "group")            { return (EVGA11yRole.group()) }
+        if (name == "tabpanel")         { return (EVGA11yRole.tabPanel()) }
+        if (name == "tablist")          { return (EVGA11yRole.tabList()) }
+        if (name == "tab")              { return (EVGA11yRole.tab()) }
+        if (name == "toolbar")          { return (EVGA11yRole.toolbar()) }
+        if (name == "menu")             { return (EVGA11yRole.menu()) }
+        if (name == "menubar")          { return (EVGA11yRole.menuBar()) }
+        if (name == "menuitem")         { return (EVGA11yRole.menuItem()) }
+        if (name == "menuitemcheckbox") { return (EVGA11yRole.menuItemCheckbox()) }
+        if (name == "menuitemradio")    { return (EVGA11yRole.menuItemRadio()) }
+        if (name == "separator")        { return (EVGA11yRole.separator()) }
+        if (name == "dialog")           { return (EVGA11yRole.dialog()) }
+        if (name == "alertdialog")      { return (EVGA11yRole.alertDialog()) }
+        if (name == "tooltip")          { return (EVGA11yRole.tooltip()) }
+        if (name == "status")           { return (EVGA11yRole.status()) }
+        if (name == "region")           { return (EVGA11yRole.region()) }
+        if (name == "banner")           { return (EVGA11yRole.banner()) }
+        if (name == "main")             { return (EVGA11yRole.mainContent()) }
+        if (name == "paragraph")        { return (EVGA11yRole.paragraph()) }
+        if (name == "list")             { return (EVGA11yRole.list()) }
+        if (name == "listitem")         { return (EVGA11yRole.listItem()) }
+        if (name == "table")            { return (EVGA11yRole.table()) }
+        if (name == "row")              { return (EVGA11yRole.row()) }
+        if (name == "columnheader")     { return (EVGA11yRole.columnHeader()) }
+        if (name == "rowheader")        { return (EVGA11yRole.rowHeader()) }
+        if (name == "cell")             { return (EVGA11yRole.tableCell()) }
+        if (name == "gridcell")         { return (EVGA11yRole.cell()) }
+        if (name == "switch")           { return (EVGA11yRole.switchControl()) }
+        if (name == "radiogroup")       { return (EVGA11yRole.radioGroup()) }
+        if (name == "slider")           { return (EVGA11yRole.slider()) }
+        if (name == "progressbar")      { return (EVGA11yRole.progressBar()) }
+        if (name == "tree")             { return (EVGA11yRole.tree()) }
+        if (name == "treeitem")         { return (EVGA11yRole.treeItem()) }
+        return (EVGA11yRole.none())
+    }
+
+    ; The text of everything below `el` that has no role of its own, joined with
+    ; spaces. Stopping at a role is what makes this a NAME and not a transcript
+    ; of the subtree: a menu's name is its trigger, not every row inside it.
+    fn contentText:string (el:EVGElement) {
+        def out:string ""
+        def i:int 0
+        while (i < (array_length el.children)) {
+            def kid:EVGElement (itemAt el.children i)
+            if (((strlen kid.role) == 0) && ((kid.a11yHidden) == false)) {
+                def t:string (trim kid.textContent)
+                if ((strlen t) > 0) {
+                    if ((strlen out) > 0) {
+                        out = (out + " ")
+                    }
+                    out = (out + t)
+                }
+                def below:string (this.contentText(kid))
+                if ((strlen below) > 0) {
+                    if ((strlen out) > 0) {
+                        out = (out + " ")
+                    }
+                    out = (out + below)
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn nameOf:string (el:EVGElement) {
+        if ((strlen el.a11yLabel) > 0) {
+            return el.a11yLabel
+        }
+        ; Name from content is for the things a reader stops ON — a button, a
+        ; heading, a cell. A landmark or a container is named only by what it
+        ; was given: a header named after every word inside it, or a main
+        ; region named after the whole page, is a name that says nothing, and
+        ; the browser's tree leaves them empty for the same reason.
+        if (EVGA11yFromTree.namedOnlyByLabel(el.role)) {
+            return ""
+        }
+        def own:string (trim el.textContent)
+        if ((strlen own) > 0) {
+            return own
+        }
+        return (this.contentText(el))
+    }
+
+    sfn namedOnlyByLabel:boolean (role:string) {
+        ; A combobox is not named from its content either: what is inside
+        ; it is its VALUE, and a value read out as the name is a select that
+        ; introduces itself as "vk". Its name is a label, or nothing.
+        if (role == "combobox")   { return true }
+        if (role == "banner")     { return true }
+        if (role == "main")       { return true }
+        if (role == "navigation") { return true }
+        if (role == "region")     { return true }
+        if (role == "dialog")     { return true }
+        if (role == "group")      { return true }
+        if (role == "list")       { return true }
+        if (role == "form")       { return true }
+        if (role == "log")        { return true }
+        return false
+    }
+
+    ; An id is required — a reader keeps its cursor on one, and a tree whose ids
+    ; change every frame loses it.
+    ;
+    ; An element without one is named by its PATH: the parent it hangs off and
+    ; where it sits under it. Not a running counter, which would renumber every
+    ; unnamed node in the frame the moment an earlier subtree gained one. Give
+    ; anything a reader will sit on a real id; this is for the separators.
+    fn idOf:string (el:EVGElement parentId:string index:int) {
+        if ((strlen el.id) > 0) {
+            return el.id
+        }
+        unnamed = (unnamed + 1)
+        return ((((parentId + "/") + el.role) + "@") + (to_string index))
+    }
+
+    fn walk:void (el:EVGElement parentId:string index:int) {
+        el.settleShift()
+        ; Decoration, and everything under it. Not "skip the node but keep the
+        ; children": `aria-hidden` prunes the whole branch, and a chevron with
+        ; a label inside it would otherwise put the label back.
+        if el.a11yHidden {
+            return
+        }
+        ; `display: none` is not in the accessible tree either — a bar the
+        ; stylesheet folded away at a breakpoint is not a bar a reader can
+        ; still press.
+        if (el.isHidden()) {
+            return
+        }
+        def nextParent:string parentId
+        def code:int (EVGA11yFromTree.roleCode(el.role))
+        ; A role this builder does not know is REPORTED, not dropped. Dropping
+        ; it takes the element and everything under it out of the accessible
+        ; tree, and the audit that follows then passes over the hole — the
+        ; whole tree demo reduced to one node and called clean. There is no
+        ; safe silent default here: guessing `group` would invent structure,
+        ; and skipping is what caused this.
+        if ((strlen el.role) > 0) {
+            if (code == (EVGA11yRole.none())) {
+                def t0:EVGA11yTree (unwrap tree)
+                push t0.notes (("role not understood by EVGA11yFromTree: \"" + el.role) + "\" — the element and everything under it is missing from this tree")
+            }
+        }
+        if (code != (EVGA11yRole.none())) {
+            def id:string (this.idOf(el parentId index))
+            def t:EVGA11yTree (unwrap tree)
+            def n:EVGA11yNode (t.node(id parentId code))
+            n.name = (this.nameOf(el))
+            n.roleDescription = el.a11yRoleDescription
+            n.description = el.a11yDescription
+            n.hasPopup = el.a11yHasPopup
+            n.rowCount = el.a11yRowCount
+            n.rowIndex = el.a11yRowIndex
+            n.disabled = el.a11yDisabled
+            n.checked = el.a11yChecked
+            n.pressed = el.a11yPressed
+            n.expanded = el.a11yExpanded
+            n.sorted = el.a11ySorted
+            n.orientation = el.a11yOrientation
+            n.current = el.a11yCurrent
+            n.value = el.a11yValue
+            n.required = el.a11yRequired
+            n.invalid = el.a11yInvalid
+            n.readOnly = el.a11yReadOnly
+            n.hasValueNow = el.a11yHasValue
+            n.valueNow = el.a11yValueNow
+            n.hasValueRange = el.a11yHasRange
+            n.valueMin = el.a11yValueMin
+            n.valueMax = el.a11yValueMax
+            if (el.a11ySelected == 2) {
+                n.selected = true
+            }
+            n.focusable = el.a11yFocusable
+            n.modal = el.a11yModal
+            if el.a11yFocusable {
+                n.actActivate = true
+            }
+            if (el.a11yExpanded > 0) {
+                n.actExpand = true
+            }
+            n.posInSet = el.a11yPosInSet
+            n.setSize = el.a11ySetSize
+            n.level = el.a11yLevel
+            t.place(n
+                (to_int el.calculatedX)
+                (to_int el.calculatedY)
+                (to_int el.calculatedWidth)
+                (to_int el.calculatedHeight))
+            nextParent = id
+        }
+        def i:int 0
+        while (i < (array_length el.children)) {
+            this.walk((itemAt el.children i) nextParent i)
+            i = (i + 1)
+        }
+    }
+
+    ; `root` must be LAID OUT: the rectangles are what touch exploration, a
+    ; magnifier and "route the mouse to the focus" all use, and an unlaid tree
+    ; reports every node at (0,0,0,0).
+    fn build:EVGA11yTree (root:EVGElement appName:string generation:int focusId:string) {
+        tree = (new EVGA11yTree())
+        unnamed = 0
+        def t:EVGA11yTree (unwrap tree)
+        t.generation = generation
+        def rootNode:EVGA11yNode (t.node("root" "" (EVGA11yRole.group())))
+        rootNode.name = appName
+        t.place(rootNode
+            (to_int root.calculatedX)
+            (to_int root.calculatedY)
+            (to_int root.calculatedWidth)
+            (to_int root.calculatedHeight))
+        this.walk(root "root" 0)
+        t.setFocus(focusId)
+        return t
+    }
+}

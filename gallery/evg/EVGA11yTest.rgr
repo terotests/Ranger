@@ -18,6 +18,10 @@
 
 Import "EVGA11yTree.rgr"
 Import "EVGWindow.rgr"
+Import "EVGA11yFromTree.rgr"
+Import "EVGElement.rgr"
+Import "EVGUnit.rgr"
+Import "EVGLayout.rgr"
 
 class A11yCheck {
     def passed:int 0
@@ -70,6 +74,79 @@ class EVGA11yTest {
         return w
     }
 
+    ; A menubar as an element tree: a bar, a trigger, and the panel that hangs
+    ; off it — with roles on the elements and nothing describing them twice.
+    sfn menubarTree:EVGElement () {
+        def page:EVGElement (EVGElement.createDiv())
+        page.id = "page"
+        page.setAttribute("width" "800px")
+        page.setAttribute("height" "600px")
+
+        def bar:EVGElement (EVGElement.createDiv())
+        bar.id = "bar"
+        bar.setAttribute("role" "menubar")
+        bar.setAttribute("aria-label" "Main")
+        bar.setAttribute("display" "flex")
+        bar.setAttribute("flex-direction" "row")
+        bar.setAttribute("flex-wrap" "nowrap")
+        bar.setAttribute("height" "40px")
+
+        def menu:EVGElement (EVGElement.createDiv())
+        menu.id = "menu-file"
+        menu.setAttribute("display" "flex")
+        menu.setAttribute("flex-direction" "column")
+        menu.setAttribute("width" "fit-content")
+
+        def trigger:EVGElement (EVGElement.createDiv())
+        trigger.id = "trigger-file"
+        trigger.setAttribute("role" "menuitem")
+        trigger.setAttribute("aria-expanded" "true")
+        trigger.setAttribute("aria-focusable" "true")
+        trigger.setAttribute("overlay-anchor-role" "true")
+        trigger.setAttribute("width" "60px")
+        trigger.setAttribute("height" "30px")
+        trigger.textContent = "File"
+
+        def content:EVGElement (EVGElement.createDiv())
+        content.id = "menu-file-content"
+        content.setAttribute("role" "menu")
+        content.setAttribute("aria-label" "File")
+        content.setAttribute("overlay" "true")
+        content.setAttribute("overlay-side" "bottom")
+        content.setAttribute("width" "200px")
+        content.setAttribute("height" "80px")
+
+        ; A row whose name is not on the row: it is on the two boxes inside it,
+        ; which is how every real menu is built.
+        def row:EVGElement (EVGElement.createDiv())
+        row.id = "row-new-tab"
+        row.setAttribute("role" "menuitem")
+        row.setAttribute("aria-focusable" "true")
+        row.setAttribute("height" "30px")
+        def label:EVGElement (EVGElement.createDiv())
+        label.textContent = "New Tab"
+        def shortcut:EVGElement (EVGElement.createDiv())
+        shortcut.textContent = "⌘ T"
+        row.addChild(label)
+        row.addChild(shortcut)
+
+        def check:EVGElement (EVGElement.createDiv())
+        check.id = "row-urls"
+        check.setAttribute("role" "menuitemcheckbox")
+        check.setAttribute("aria-checked" "true")
+        check.setAttribute("aria-focusable" "true")
+        check.setAttribute("height" "30px")
+        check.textContent = "Always Show Full URLs"
+
+        content.addChild(row)
+        content.addChild(check)
+        menu.addChild(trigger)
+        menu.addChild(content)
+        bar.addChild(menu)
+        page.addChild(bar)
+        return page
+    }
+
     sfn main:void () {
         def c:A11yCheck (new A11yCheck)
 
@@ -100,6 +177,76 @@ class EVGA11yTest {
         c.ok("the new one is focused" b.focused)
         c.ok("the old one is not" (f.focused == false))
         c.eqStr("and the tree agrees" t.focusId "app/ok")
+
+        print "== aria-hidden prunes decoration out of the tree AND the name =="
+        ; A menu row with a label and a chevron beside it. The chevron is drawn
+        ; for the eye and says nothing a reader needs: `aria-expanded` on the
+        ; row already carries "there is more this way". Without the flag the row
+        ; announces as "Share >", which a reader says out loud as "Share
+        ; greater-than".
+        def deco (new EVGElement())
+        deco.setAttribute("width" "300")
+        deco.setAttribute("height" "100")
+        def rowEl (new EVGElement())
+        rowEl.setAttribute("role" "menuitem")
+        rowEl.setAttribute("width" "280")
+        rowEl.setAttribute("height" "30")
+        def labelEl (new EVGElement())
+        labelEl.textContent = "Share"
+        rowEl.addChild(labelEl)
+        def chevron (new EVGElement())
+        chevron.textContent = ">"
+        chevron.setAttribute("aria-hidden" "true")
+        rowEl.addChild(chevron)
+        deco.addChild(rowEl)
+
+        def dl (new EVGLayout())
+        dl.layout(deco)
+        def db (new EVGA11yFromTree())
+        def dt:EVGA11yTree (db.build(deco "Decoration" 1 ""))
+        def found:string ""
+        def di:int 0
+        while (di < (dt.count())) {
+            def nd:EVGA11yNode (dt.at(di))
+            if ((EVGA11yRole.ariaName(nd.role)) == "menuitem") {
+                found = nd.name
+            }
+            di = (di + 1)
+        }
+        c.eqStr("the chevron is not part of the name" found "Share")
+
+        ; And the whole BRANCH goes, not just the element. A glyph with no role
+        ; makes no node either way, so proving the prune needs something that
+        ; would otherwise have been reported: a hidden wrapper with a real
+        ; button inside it. `aria-hidden` in a browser removes both, and a
+        ; button a reader is told about but cannot see is worse than one it is
+        ; not told about at all.
+        def ghostWrap (new EVGElement())
+        ghostWrap.setAttribute("aria-hidden" "true")
+        ghostWrap.setAttribute("width" "100")
+        ghostWrap.setAttribute("height" "30")
+        def ghostBtn (new EVGElement())
+        ghostBtn.setAttribute("role" "button")
+        ghostBtn.setAttribute("width" "80")
+        ghostBtn.setAttribute("height" "20")
+        ghostBtn.textContent = "Invisible"
+        ghostWrap.addChild(ghostBtn)
+        deco.addChild(ghostWrap)
+
+        def dl2 (new EVGLayout())
+        dl2.layout(deco)
+        def db2 (new EVGA11yFromTree())
+        def dt2:EVGA11yTree (db2.build(deco "Decoration" 2 ""))
+        def hiddenSeen:boolean false
+        def dj:int 0
+        while (dj < (dt2.count())) {
+            def nd2:EVGA11yNode (dt2.at(dj))
+            if (nd2.name == "Invisible") {
+                hiddenSeen = true
+            }
+            dj = (dj + 1)
+        }
+        c.ok("a button inside hidden decoration is not reported" (hiddenSeen == false))
 
         print "== roles are spelled the way ARIA spells them =="
         c.eqStr("button" (EVGA11yRole.ariaName((EVGA11yRole.button()))) "button")
@@ -189,6 +336,46 @@ class EVGA11yTest {
         c.ok("spells roles in ARIA" (EVGA11yTest.hasSub(js "\"role\":\"textbox\"")))
         c.ok("says nothing about unchecked things" ((EVGA11yTest.hasSub(js "\"checked\"")) == false))
 
+        print "== an accessible tree derived from the element tree =="
+        ; The point of this section: NOTHING below was described twice. The
+        ; roles are on the elements that draw the menu, and the rectangles are
+        ; the ones layout computed.
+        def page:EVGElement (EVGA11yTest.menubarTree())
+        def lay (new EVGLayout())
+        lay.setPageSize(800.0 600.0)
+        lay.layout(page)
+        def b (new EVGA11yFromTree())
+        def dt:EVGA11yTree (b.build(page "Ranger UI" 7 "trigger-file"))
+
+        def bar:EVGA11yNode (EVGA11yTest.nodeById(dt "bar"))
+        c.eqStr("the bar is a menubar" (EVGA11yRole.ariaName(bar.role)) "menubar")
+        c.eqStr("named by its label" bar.name "Main")
+        ; The element parent of the trigger is `menu-file`, which has no role.
+        ; A tree that reported it would hand a reader a group that is not there.
+        def trig:EVGA11yNode (EVGA11yTest.nodeById(dt "trigger-file"))
+        c.eqStr("the trigger hangs off the menubar, not off the layout box"
+            trig.parentId "bar")
+        c.eqInt("and says it is open" trig.expanded 2)
+        c.ok("and can be focused" trig.focusable)
+
+        def row:EVGA11yNode (EVGA11yTest.nodeById(dt "row-new-tab"))
+        ; The row itself has no text. Its name comes from the boxes inside it,
+        ; exactly as an HTML name comes from an element's contents.
+        c.eqStr("a row is named by what it contains" row.name "New Tab ⌘ T")
+        def chk:EVGA11yNode (EVGA11yTest.nodeById(dt "row-urls"))
+        c.eqStr("a checkbox row is a menuitemcheckbox"
+            (EVGA11yRole.ariaName(chk.role)) "menuitemcheckbox")
+        c.eqInt("and it is ticked" chk.checked 2)
+
+        ; The surface is out of flow and was MOVED by the overlay pass. Its
+        ; accessible rectangle has to be where it ended up: a magnifier and
+        ; touch exploration both use it, and this is the case a hand-written
+        ; parallel tree gets wrong first.
+        def menuNode:EVGA11yNode (EVGA11yTest.nodeById(dt "menu-file-content"))
+        c.ok("the surface reports the rectangle it was moved to" (menuNode.y > 30))
+        c.eqInt("focus is where the caller put it" (EVGA11yTest.focusedCount(dt)) 1)
+        c.lintsClean("a derived tree" dt)
+
         print ""
         print ("passed " + (to_string c.passed) + ", failed " + (to_string c.failed))
         if (c.failed > 0) {
@@ -196,6 +383,32 @@ class EVGA11yTest {
         } {
             print "OK"
         }
+    }
+
+    sfn nodeById:EVGA11yNode (t:EVGA11yTree id:string) {
+        def i:int 0
+        while (i < (t.count())) {
+            def n:EVGA11yNode (t.at(i))
+            if (n.id == id) {
+                return n
+            }
+            i = (i + 1)
+        }
+        ; An empty node rather than a crash: a wrong id then fails the
+        ; assertion that asked for it, and says which one.
+        return (new EVGA11yNode)
+    }
+
+    sfn focusedCount:int (t:EVGA11yTree) {
+        def n:int 0
+        def i:int 0
+        while (i < (t.count())) {
+            if ((t.at(i)).focused) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
     }
 
     sfn hasSub:boolean (hay:string needle:string) {
