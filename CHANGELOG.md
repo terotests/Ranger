@@ -7,506 +7,926 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-- **The dashboard on Android stopped responding.** Every frame of
-  `DashboardDemo.display()` ran the whole stylesheet cascade, laid the whole
-  tree out and parsed and ran the chart's Vela spec again, and the Android host
-  asks for a frame on every pointer event — so a drag was a full layout plus a
-  chart per report, on an emulator's cold ART, until the input queue passed the
-  five seconds the platform allows and declared the app gone. The demo now keeps
-  its layout: a scroll moves the scrolled subtree by the difference
-  (`EVGLayout.scrollOnlyFrom`, the realtrainer's shortcut), a hover or a press
-  runs the sheet and lays out only if the sheet says a box could have moved, and
-  the chart's commands are kept until the spec's text changes. In Node a warm
-  frame went from 22-80ms to 5-9ms and a scroll frame from 33ms to 7ms; the
-  dashboard gate compares the shortcut's frames with a full layout's at nine
-  offsets and they are identical. On the device side the first frame is
-  computed off the main thread behind the page's own background, the ripple
-  shader is off by default on an emulator, and a fling now drops the cached
-  frame — it had been advancing the offset while the screen showed the frame
-  from before it.
-
-
-- **The page was fitted to its canvas rather than to what it draws, and came
-  out a quarter smaller than it needed to be.** The demo is a 980x760
-  composition, and the fit scaled that whole rectangle into the window. But the
-  scenes do not fill it: measured on the display list, the words stop at y=607
-  on the loading screen, y=586 on the dashboard and y=346 on the session --
-  which uses less than half its canvas. The rest is the full-height rail and
-  the panel behind it, and fitting that empty remainder is what made the page
-  small on a phone.
-
-  The fit is now against the content. On an iPhone 16 Pro in landscape that is
-  20% bigger on the loading screen, 10% on the sign-in page, 25% on the
-  dashboard and 69% on the session. Nothing is cut off, by construction:
-  fitting the content box is what guarantees it, where before the guarantee
-  came from fitting a canvas that was mostly empty.
-
-  Decoration below the last line is allowed to run off the bottom of the
-  screen, which is what a full-height rail should do -- ending partway up with
-  a gap beneath it is the thing that looked wrong. The content box is measured
-  from the display list, which is in page coordinates and so does not depend on
-  the scale; a tab change that moves it refits, with a threshold so the page
-  does not twitch on rounding noise.
-
-  `check_rt_ios.rgr` asserts the invariant this rests on: every word of every
-  scene is on screen, on every device the port claims to support, notch and
-  home indicator included.
-
-  Two earlier attempts are worth recording as measured dead ends. Filling the
-  width and letting the reader pan hides real content -- the page has no
-  scrollbar and no cut-off row, so nothing announces that it continues. And
-  containing the canvas is what this replaces. What CSS cannot do here is
-  unchanged: the stylesheet's viewport is the fixed 980x760 canvas on every
-  target, so a `@media` query would be answering questions about a rectangle
-  that never changes size.
-
 ### Added
 
-- **`RANGER_PROFILE` reports where a frame's time went, on the device.** With
-  it set in the launched process's environment the host logs, every 60 frames,
-  the milliseconds spent laying the page out and building the display list
-  against the milliseconds spent turning that list into pixels, plus the
-  command count. Guessing which of the two is slow from the outside is how an
-  afternoon disappears.
+- **A view of the drawing, not the picture: `Pisteet`.** A button in the SVG
+  pane draws the trace's own geometry over it — every anchor, every segment,
+  every handle — because the rendered picture cannot answer the question you
+  actually have about a tracer, which is whether the outline is any good. A
+  shape that looks clean at 100 % can be forty points long where four would do,
+  and a curve fitted through raster stairs looks smooth until its handles
+  zig-zag in front of you.
 
-### Fixed
+  Straight segments are blue, curves amber, control handles grey; an anchor is
+  **red where the outline turns a corner** and **green where it runs smoothly
+  through** (within 15°). Shapes lying under other shapes are drawn too — it is
+  the document, not the visible surface. The panel carries its own zoom to
+  1600 %, and the marks are non-scaling strokes, so a node is the same size on
+  screen at every magnification.
 
-- **Both native painters ignored a rotation's origin, which drew RealTrainer's
-  loading spinner as one small bar.** The ring is twelve 8x26 blades fanned
-  into a circle by `transform: rotate(Ndeg)` about
-  `transform-origin: 4px 54px` -- a point 41px BELOW each blade's own centre.
-  `EvgPainter` turned every command about its own box centre instead, so all
-  twelve spun in place and landed on top of each other.
+  The numbers beside it are the quality reading: paths, rings and anchors;
+  straights against curves; corners against smooth points; total outline length
+  and **anchors per 100 units of it**; the median segment and how many fall
+  under a pixel; crumb rings under 4 units across; and the path data in
+  kilobytes and bytes per anchor. On the beach photograph at 20 colours that is
+  13 742 points over 187 286 units of outline — 7.3 points per 100 units, 100 %
+  curves, 188 crumb rings, 45.7 bytes a point.
 
-  `EVGDisplayList` has carried `rotOriginX`/`rotOriginY` and a `hasRotOrigin`
-  flag for exactly this, and says so: the centre is "right for a lone rotated
-  label and wrong for everything else: a box, its text and its children have to
-  turn about ONE point or they come apart", and "a backend that ignores these
-  two fields keeps the old behaviour exactly". Both native backends were
-  ignoring them -- the WebGL painter reads them, which is why the browser drew
-  the ring correctly and neither Apple nor Android did. Fixed in both; the
-  surfaces' `rotate(degrees:px:py:)` already took the pivot.
+  The overlay is a separate SVG laid over the drawing rather than nodes added
+  to it, because the wand's graph, the exporter and the shape count all walk
+  `querySelectorAll("path")` and an inspector that added paths would lie to
+  every one of them.
 
-- **A face cache that was thrown away sixty times a second.**
-  `CoreGraphicsEvgSurface` wraps the `CGContext` handed to `draw(_:)`, which is
-  a different object every frame, so the surface is built per frame -- and it
-  owned the `CTFont` cache. Its own comment explains what that costs: a page
-  draws around 190 text runs a frame and asks for about six distinct faces, and
-  "making a `CTFont` per run is the difference between a frame and a stutter".
-  The faces now outlive the surface, which is what the cache was for. All three
-  Apple hosts were affected.
+- **Zoom actually zooms.** `#outStage.zoomed svg` had `max-width: none` but the
+  stage is a flexbox, and a flex item shrinks to fit however wide you ask it to
+  be: the picture stayed exactly the same size at 800 %. It needs `flex: none`
+  as well. This fixes the wand's zoom too, which had never magnified anything.
 
-### Added
+- **Cylinder continuity: a limb is a cylinder, and now the wand can follow one.**
+  The cut leaves a limb in stripes — a foot below the shadow across the shin,
+  the white of a flagpole below the black band, the next stripe of a zebra's
+  tail — and nothing in the tidy-up puts them back, because the tidy-up only
+  ever drops. `wandCylinders` runs last, after the cut, the fence and the hole
+  filling, as a **resolver over a finished answer**. A cylinder here means a
+  *direction*: a piece whose edge runs on where the answer's edge was going,
+  and that stays attached while it does.
 
-- **A fit mode for the RealTrainer port, and the one platform-specific
-  decision in it.** Contain -- the whole 980x760 composition on screen -- is
-  right on an iPad, where the window's shape is close enough that it gives up
-  about 12%. On a phone it is not: a 19.5:9 window against a 1.29:1 page leaves
-  roughly 40% of the screen empty and halves the size of the text. A phone now
-  spends the whole width on the page and pans down it, starting at the top
-  rather than opening with the heading already scrolled off. Both fits are in
-  `rt_ios.rgr` where `check_rt_ios.rgr` drives them; only the choice between
-  them is in Swift, which is the same division `ui_ios.rgr` makes for the
-  watch.
+  Three tests, each learnt from a picture of the rule getting it wrong:
 
-### Fixed
+  - **paisunta** — it keeps its cross-section; the seam is about as wide as the
+    widest part of it. "Suppeneva."
+  - **rosoisuus** — its outline against the outline a smooth cylinder of the
+    same area and length would have. A strip scores 1 whatever its aspect
+    ratio; a shape that interlocks with what it lies against scores several,
+    because every notch is paid for twice. Without it the rule took the torn
+    band down the right of the portrait, which is nothing but notches.
+  - **osuus** — how much of that outline is the seam. The horizon stripe on the
+    beach picture is a *perfectly* smooth cylinder, long and straight and even,
+    resting against the man's arm along a hundredth of its own outline. Nothing
+    about its shape says no; the seam does.
 
-- **Every Swift string operation was O(n) where every other target's is O(1),
-  which made EVG's linear scans quadratic.** The RealTrainer port ran visibly
-  slower on an iPhone than the same Ranger does on an Android emulator, with a
-  lag between a tap and the page responding. It is not the painter and not the
-  demo: it is that `strlen`, `charAt`, `substring`, `indexOf` and
-  `lastIndexOf` were written against Swift's `String`, which indexes by
-  GRAPHEME CLUSTER and walks from `startIndex` for every one of them.
+  And two things about the unit matter as much as the tests. **A piece, not a
+  path**: one traced path shows up in dozens of places at once — on the beach
+  picture a single path covers both arms, the shorts and the face — so a
+  candidate is one connected piece of a path's leftover area, and what is added
+  is that piece, clipped. **A group, not a piece**: one band across a shin is
+  three cells deep, it meanders, its outline is four times a cylinder's; the
+  leg appears only once several are stacked. The group grows from a piece that
+  touches the answer, taking the neighbour that leaves it smoothest, and it is
+  allowed to walk *through* rough states, keeping the best passing group it
+  saw. Pruning on roughness at every step forbade the whole case.
 
-  EVG scans strings the way anything parsing text does --
-  `while (i < (strlen s)) { def c:char (charAt s i) ... }` -- and that loop is
-  O(n) on Kotlin, Java, JavaScript and C#, where `s.length` and `s[i]` are
-  constant time. On Swift it was O(n squared). Measured on the same page:
+  | asetus | ranta | muotokuva |
+  |---|---|---|
+  | pois | 0.649 | 0.811 |
+  | yksi pala kerrallaan | 0.583 | 0.802 |
+  | ryhmiä, ei sileysehtoja | 0.588 | 0.788 |
+  | ryhmiä + rosoisuus 1.5 + osuus | 0.671 | 0.805 |
+  | ryhmiä + rosoisuus 3 + osuus | **0.718** | 0.797 |
 
-  | | charAt calls | characters walked |
-  | --- | --- | --- |
-  | parsing the 28 KB stylesheet | 84 057 | **1 250 993 706** |
-  | one frame of the dashboard | 68 392 | **4 608 275** |
+  On the beach picture the leg comes down to the foot: recall 0.658 → 0.783 and
+  the answer reaches **99 % of what the trace can express**, up from 90 %, with
+  all twenty jittered hands at 99 % where they used to sit flat at 90 %. The
+  synthetic bench goes 91 → 92 % of ceiling on one stroke and 94 → 95 % with a
+  counter-stroke; steering goes 56 → 89 → 84 % to 58 → 92 → 87 %. The portrait
+  pays 0.014, and pays it interestingly: it finds 6 671 px more of the man, the
+  hair among it, and brings drapery with it, because a drape fold is a
+  cylinder. A stroke costs 0.71 s → 1.24 s on the portrait.
 
-  The first column is the work Kotlin does. The second is what Swift was doing.
+  A fourth test was tried and dropped: whether the seam is one seam or a hundred
+  nips. It never bound, because a group with a shredded seam has already failed
+  `rosoisuus`. So was a lower bound on how far a group runs from its seam: a
+  band across a shin is wider than it is deep, and the bound threw out exactly
+  the case the idea is about.
 
-  Ranger's string is a sequence of UTF-16 code units -- that is what `charAt`
-  and `strlen` mean on JavaScript, Kotlin, Java and C#. Swift's UTF-16 view is
-  the matching model AND the one the standard library keeps *breadcrumbs* for,
-  so that offsetting into it is amortised constant time; it exists for NSString
-  bridging. The six operators now go through small helpers over `s.utf16`,
-  installed once per file as a polyfill. Swift is both faster and more
-  consistent with the other targets than it was.
+- **A clip could let something in.** The SVG holds more than the z-buffer does:
+  under every visible shape lies whatever it covers, and some of that is chosen
+  too. Cut a hole in the shape on top — which is what every clip does — and the
+  thing beneath walks into the answer with nothing to stop it. On the beach
+  picture that was 10 177 px of sea from a single path and 25 249 px in all,
+  none of which the wand's own raster model knew about. `wandClipToSelection`
+  now remembers the box each clip empties and clips every selected element
+  painted under it; the leak falls to the area the caller actually meant to
+  add. This was latent long before the cylinder rule — it only needed something
+  that clips a covering path.
 
-### Added
+  Two harnesses come with all this. `tracer/cyl.mjs` prints every leftover
+  piece that touches the answer with its ratios and the truth beside it — it is
+  what established, before any tuning, that the coherence pass is *not* what
+  cuts the foot off (it drops 30 px of the person on the beach picture and 8 px
+  on the portrait, against 17 063 px of background). `tracer/cylshot.mjs` draws
+  the answer without the rule, with it, and what the rule alone changed, and
+  with `--sweep` prints the table above in place. `npm run evg:trace:web:cyl`
+  and `:cylshot` after `photo.mjs --write`.
 
-- **`gallery/realtrainer` runs on an iPad, from the same Ranger.**
-  `ranger/rt_ios.rgr` imports `RealTrainerDemo.rgr` unchanged and compiles to
-  19 000 lines of Swift holding the EVG controllers, the cascade, the layout
-  engine, the display list and the demo. Nothing about the app is written twice
-  for Apple; `gallery/evg/apple` paints it, as it paints the dashboard.
+- **The wand's brush gives evidence instead of drawing a border.** Drag over
+  the thing you want and the regions under the brush become *certain
+  foreground*; ⌥-drag and they become *certain background*; everything else is
+  **UNKNOWN**, and that word is the change. From the certain pieces the tool
+  learns what the object looks like and what it stands in front of — in CIE
+  Lab, sampled from the **photograph** rather than from the flattened trace,
+  and as several colours rather than one, because a person is navy and skin and
+  white shirt at once. Then every unknown region is asked which model it
+  resembles, a min-cut balances that against how hard it would be to tear it
+  from its neighbours, and the answer is a membership rather than an outline.
+  Every stroke re-runs the whole classification, so correcting it feels like
+  teaching rather than like tuning.
 
-  The facade is not a copy of the dashboard's, because the two pages are not
-  the same shape. The dashboard is a DOCUMENT -- a fixed width that scrolls, so
-  it is scaled by a ratio of widths and its height becomes whatever the
-  viewport is worth at that scale. RealTrainer is a COMPOSITION -- 980x760,
-  designed whole, with nothing to scroll -- and scaling it that way would
-  re-lay it out into a shape its author never drew. So it is CONTAINED:
-  `min(w-ratio, h-ratio)`, centred, letterboxed, and the same size on every
-  screen. That difference is the whole reason there are two facades rather than
-  a flag on one, and it is in Ranger rather than in the `UIView` for the reason
-  the port exists -- `check_rt_ios.rgr` drives all 55 of its rules on Node.
+      E(x) = Σ D_i(x_i) + λ Σ W_ij [x_i ≠ x_j]
 
-  `RealTrainerDemo` grew a `display():EVGDisplayList` beside its
-  `displayListJson()`, which now calls it. A browser host has to parse
-  something anyway; a host sharing a process with the demo should not
-  serialise a display list only to parse it back.
+  `D` is the colour models plus how far the region sits from a hint in the
+  region graph; `W` is shared boundary × colour similarity × edge weakness,
+  with the edge strength read from the bitmap — so two regions that run
+  together for a long way, look alike and have no edge in the photograph
+  between them are expensive to separate, while a real edge is a cheap cut.
+  The question is only asked in the neighbourhood of the hints (twelve region
+  hops), which is most of what keeps a selection from leaking across a picture,
+  and only what hangs together with something the user actually pointed at
+  survives.
 
-- **The Apple build driver builds any gallery demo, not just the dashboard.**
-  Everything that was specific to one demo -- its Ranger entry point, where the
-  Swift lands, the bundle id, which hand-written host drives it, which
-  stylesheet is packaged -- is now an `IosApp` record rather than constants in
-  `IosBuild`, and `--app=KEY` picks one. A port is an entry in that registry
-  plus a facade and a view, not a second copy of the build. `ui:ios:smoke`
-  drives the second app end to end through the same fake toolchain, so a change
-  that breaks it for RealTrainer cannot pass by being tested on the dashboard
-  alone. A target a port has no host for -- a watch, for this one -- says so
-  instead of building a bundle that cannot run.
+  **Background examples nobody has to give**: whatever runs along the edge of
+  the picture, because the object is what the photographer framed. They teach
+  the model without constraining it, and they are the single biggest thing in
+  the measurements — on the composite of two different pictures one loose
+  stroke goes from IoU 0.649 to 0.977 with them.
 
-### Fixed
+  Reported against a ceiling and a spread, because neither can be left out.
+  The **ceiling** is what any method that picks whole regions could possibly
+  score: label every traced region by majority vote against the truth. It is
+  not 1.0, because the tracing does not follow the silhouette — it is 0.79,
+  0.96 and 0.85 on the three composites. And **one stroke is not a
+  measurement**: six plausible strokes over the same figure spread 0.18 to 0.36
+  IoU apart. Medians of six, and what they are worth against the ceiling:
 
-- **`gallery/evg`: a grid flag nothing read.** `EVGLayout.layoutGrid` set
-  `usingSubgrid = true` when a column template inherited its tracks from the
-  enclosing grid, and then never looked at it. The subgrid effect is carried
-  entirely by rewriting `colSpec` into the parent's pixel tracks, and the rows
-  branch a few lines down does the same job with no flag at all -- so this was
-  a leftover from an earlier shape of the code, not a guard someone forgot to
-  finish. Removed.
+  | composite | ceiling | six strokes | median | of ceiling |
+  |---|---|---|---|---|
+  | photo bg, flat figure | 0.788 | 0.43 – 0.79 | 0.754 | 96% |
+  | drawn bg, flat figure | 0.959 | 0.80 – 0.98 | 0.976 | 102% |
+  | one photo, both sides | 0.845 | 0.53 – 0.79 | 0.758 | 90% |
 
-  This one was the source's own, not the compiler's: `swiftc` is simply the
-  first target that says "written to, but never read" out loud. Worth keeping
-  it that way rather than teaching the writer to drop a dead store silently --
-  the warning found real dead code, and eliding it would have hidden exactly
-  that. It was the only one in 46 000 generated lines.
+  The 102% is the ceiling estimate's own error — a majority vote is not quite
+  optimal at the boundary — and it puts the accuracy of these numbers at a
+  couple of points, which is worth knowing before reading anything into a
+  difference of one.
 
-### Added
+  **A correction to an earlier entry.** The geometric lasso's 0.894 on the
+  first composite sits *above* that composite's 0.788 ceiling, which no
+  whole-region method can do. It is not wrong, it is flattered: the lasso
+  clips *inside* regions along the drawn line, and the test's line is generated
+  by wobbling the ground-truth silhouette. It is scored against a line that
+  already knows the answer, and the brush is not. The lasso's numbers are
+  comparable to each other and not to the brush's.
 
-- **Four more things swiftc could not build, and the last of the warnings.**
-  Each was a gap in a mechanism that already existed rather than something
-  needing a new one:
+  What it does not survive is a corrective ⌥ stroke on a colour the object also
+  wears: ⌥ over a flag whose navy is the suit's navy takes the suit with it
+  (IoU 0.567 → 0.367). Where the negative colour is the object's own, the
+  correction works as intended — 0.312 → 0.620 on the other composite.
 
-  - **A parameter named `where`.** `reserved_words` in `compiler/Lang.rgr` is
-    the compiler's table for exactly this, and it renames a word once, in
-    `assignParamCompiledName` / `defineVariable`, so the declaration, the uses
-    and the call-site argument label all move together. The `swift6` block held
-    four entries, filled in as errors were hit -- and `where`, which opens a
-    generic constraint in Swift, was not among them, so
-    `bootstrapCI(values : values, where : where)` did not parse. The block is
-    now the whole of Swift's keyword list, taken from the one
-    `scripts/reserved_probe.py` already carries rather than guessed at. Five
-    words actually occur in gallery/ui: `init`, `open`, `where`, `guard`,
-    `any`.
-  - **A public class with internal witnesses.** A class the docs mark `public`
-    came out as `public final class VlJson : Hashable` with a non-public
-    `hash(into:)` and `==`, which Swift rejects: a protocol witness has to be
-    at least as visible as the conforming type. Those two members are
-    synthesized by the writer, not written by the author, so their visibility
-    is not a separate decision -- it is the class's, and it is now read once
-    and used for all three.
-  - **An expression swiftc gave up on.** "The compiler is unable to type-check
-    this expression in reasonable time" on a six-term concatenation, because
-    the inline Swift for `strfromcode` and `charAt` was a tower of generic
-    initialisers -- `String(UnicodeScalar(UInt32(Int(s[s.index(...)]…)))
-    ?? …)` -- and the overload search across six of them exploded. Both now
-    call one monomorphic helper installed through `create_polyfill`, the same
-    way the C++ target has always emitted `r_str_from_code`. The line went from
-    roughly 900 characters of nested generics to a plain concatenation of
-    calls.
-  - **A loop item nobody reads.** The index was elided and the item was not,
-    because `swift_rc` asked `ref_cnt`, and the loop assigns the ITEM from the
-    list on every iteration -- so its counter is never 0 even when the body
-    ignores it. It now walks the loop body, which is how `go_for_bind` has
-    always decided the same thing. This fixes swift3 as well.
+  **The obvious fix was built and measured and does not work.** An
+  area-weighted mixture instead of nearest-example: k-means in Lab weighted by
+  each region's visible mass, so a small ⌥ stroke cannot outvote a large
+  foreground. Tried at k = 2, 3, 4, 6, 8, and as one component per example with
+  the mass as its weight. Mean IoU against the region ceiling, averaged over
+  the three composites and six strokes each:
 
-- **`swiftc` reported the Swift target's real errors underneath about four
-  hundred warnings.** Compiling `gallery/ui` to Swift printed screen after
-  screen of "immutable value 'gi' was never used", "variable 'sorted' was never
-  mutated" and "result of call to 'readUInt16(offset:)' is unused" -- so many
-  that finding the errors among them meant scrolling. Every one of them was the
-  compiler's own doing, and each has a real fix:
+  | model | of ceiling |
+  |---|---|
+  | nearest example (shipped) | 0.85 |
+  | mixture, k=8 | 0.82 |
+  | one component per example, mass-weighted | 0.82 |
+  | mixture, k=6 | 0.80 |
+  | mixture, k=4 | 0.76 |
+  | mixture, k=2 | 0.69 |
 
-  - **`char` is now `Int`, not `UInt8`.** Ranger's `char` IS an integer code
-    unit: Lang.rgr defines `==`, `<`, `>` and the rest across `char` and `int`
-    in both directions, and `(charAt s i)` answers an `int` the source
-    routinely stores in a `char`. Every other target maps both to one integer
-    type. Swift was the one where `let ch : UInt8 = Int(...)` and `let n : Int
-    = ch` are hard errors -- 22 of them in `SVGPathParser` alone. Buffers stay
-    `[UInt8]`, since `buffer_set` already wraps the value; only the scalar
-    changed. `charAt` on a charbuffer had no Swift 6 template at all and fell
-    through to the JavaScript one, emitting `.charCodeAt(...)` into Swift; it
-    has one now.
-  - **A loop binding the body never reads is written `_`.** `for x in list`
-    binds an index whether or not anyone wants it, and Swift warns on each. The
-    swift3 template already had `swift_rc`, which writes `_` when a name's
-    ref_cnt is 0; swift6 did not, and the item name needs it just as much.
-  - **A local is `let` unless the body writes to it.** Arrays, maps and buffers
-    were declared `var` unconditionally, because `.append` does not bump
-    set_cnt -- but StaticAnalyzer's `is_mutating` answers exactly that
-    question, and now that the pass runs for Swift the writer can ask it. A
-    Ranger class is a Swift class, so `p.x = 1` writes through a `let` binding
-    perfectly well; only the value types (collections, buffers, String) and a
-    local handed to an `inout` parameter as `&x` need `var`.
+  It converges back to nearest-example as k grows, which is the tell: there are
+  only eight to thirty examples, and folding them into six discards modes that
+  are real — a person is navy and skin and white shirt at once, and those are
+  not six things. Nor does it fix the failure it was for. Damping a background
+  cluster by how well the foreground already explains it (a colour both sides
+  wear discriminates nothing, so it should not vote) was built too, and moved
+  the flag case 0.271 → 0.268. With identical colours no colour model can
+  separate them; what separates them is where they are, not what they look
+  like, so the next thing to try is the geodesic candidate distance rather than
+  a better palette.
 
-  Both of the last two rest on ASKING THE TYPE, not on matching its name. The
-  writer used to carry a list of the strings "buffer", "charbuffer",
-  "int_buffer" and "double_buffer", because a parameter declared `b:buffer`
-  reaches it with `value_type` unset. The resolved type was there the whole
-  time in `eval_type`, which the flow phase fills in
-  (`nameNode.eval_type = (nameNode.typeNameAsType(ctx))`); the list is gone,
-  and so is the one inside StaticAnalyzer, which as a side effect now answers
-  for `charbuffer` too. `paramNeedsInout` also had a second, local rule beside
-  the analysis -- `set_cnt > 0` on a value collection. It answered a strictly
-  smaller question than the pass does; gallery/ui compiles byte for byte
-  identical without it, and one question now has one answer.
-  - **A call kept for its side effect says so.** `def x:int (readUInt16 off)`
-    where nothing reads `x` becomes a bare value-returning call, which Swift
-    warns about; it is written `_ = ...` now.
+  Two more from the same list measured as **no effect at all**, and are not in
+  the code: a texture term (per-region Lab variance as a fourth axis) and
+  normalizing the shared boundary by the smaller region's perimeter. Both are
+  reasonable and both moved nothing on any composite.
 
-  The regenerated 46 000-line file holds zero `let` locals that are then
-  mutated, zero `var` locals that are never mutated, zero unread loop bindings,
-  and zero assignments to a `let` parameter.
+  Repeating a run moves the mean by up to 0.04, so a difference inside that is
+  a tie however good the story around it sounds. `ablate.mjs` runs a list of
+  settings through the same six strokes and reports min, median and mean, and
+  exists because two of the changes above were nearly shipped on a story.
 
-- **Swift `inout` is now inferred across call chains, not just at the function
-  that does the mutating.** The previous fix looked at one function at a time:
-  a parameter got `inout` if that body assigned to it. That is not where the
-  requirement ends. `put16(b:buffer ...)` writes into `b`, so `putLoca` -- which
-  only passes its own `out` along -- has to take `out` `inout` as well, and so
-  does `writeLoca` above it. Fixing one level exposed the next, and hand
-  annotation was chasing a moving target: the shape is transitive and the fix
-  has to be too.
+- **What a stroke is worth, made an invariant.** A region's hint is decided by
+  coverage and nothing else:
 
-  The Rust and C++ targets had already answered exactly this question.
-  `StaticAnalyzer` marks a mutated array, map or buffer parameter, then runs a
-  fixpoint (`propagateArgMutRef`, `analyzeClassTransitiveMutBorrow`) that
-  carries the requirement from a callee's parameter to whatever the caller
-  passed in, repeating until nothing changes. Swift now uses that pass instead
-  of a second, weaker rule of its own.
+      positive[i] = cells covered by positive strokes
+      negative[i] = cells covered by ⌥ strokes
+      |positive − negative| / (positive + negative) < 0.1  → UNKNOWN
+      otherwise the larger one wins
 
-  It uses a marker of its own inside it -- `needs_swift_inout` beside
-  `needs_cpp_reference` and `rust_borrow_type` -- because the two languages
-  disagree about objects: a class instance is a reference in Swift and needs no
-  `inout`, but is a value in C++ and needs `&`. The value types are the ones
-  that carry it: `[T]`, `[K:V]`, the four buffers, and `String`. Each marker
-  still propagates independently, so Rust and C++ inference is unchanged.
+  The second line is the new half. A region the two strokes covered about
+  equally has been told two different things, and forcing it to a side spends a
+  certainty nobody has; left unknown, the min-cut decides it on the evidence
+  around it, which is what the min-cut is for. A band up to 0.1 costs nothing
+  measurable and 0.2 costs nine points, so a tenth is where it sits.
 
-  The static analysis pass, which ran only for `cpp` and `rust`, now runs for
-  `swift6` as well. `gallery/ui` compiled to Swift -- 46 000 lines -- holds zero
-  `let` parameters passed as `&x`, `writeLoca` included, with no `@(mutates)`
-  annotations anywhere in the source; the compiler still reproduces itself byte
-  for byte.
+- **The unit was wrong, and how much that is worth.** The audit said the two
+  errors were not the min-cut's to decide, so the question became what unit
+  would let it decide them. Measured: if the thing chosen is a **connected
+  piece of a path** rather than the path, the portrait's ceiling goes from
+  **0.741 to 0.921**, and to 0.838 at a 16 px floor for 2 178 nodes against the
+  1 373 there were. The tracer's base surface is one path visible in 732
+  islands, and splitting it is the difference between having to take the man's
+  chest with the flag's holes and being able to choose.
 
-  A reassigned `string` parameter went the other way and stopped being `inout`.
-  Ranger has no operator that writes into a string in place, so `s = (s + "x")`
-  rebinds a local name and every other target reads it that way; Swift alone
-  was writing the new value back to the caller, and demanding a `var` at every
-  call site to do it. It gets the same `var` copy an `int` gets.
+  It is implemented, and it is off. `WAND_PIECE` is the smallest island that
+  gets to be its own node; at 1e9 there are none and the wand chooses paths as
+  before. Turned on at 64 px, against ceilings computed in the same unit:
 
-- **The Swift target could not compile a function that assigns to its own
-  parameter, and silently mis-compiled one that mutates a `buffer`
-  parameter.** A Swift parameter is a `let`, and Ranger lets a body assign to
-  one -- `if (x < 0) { x = 0 }` is the ordinary way to clamp an argument, and
-  every other target takes it because their parameters are mutable bindings.
-  Kotlin already solved this by renaming the parameter and opening the body
-  with a `var` copy; Swift now does the same through Swift's two-name parameter
-  form, so the CALL is unchanged: `func f(x x__p: Int)` is still `f(x: 1)`.
+  | | paths | pieces |
+  |---|---|---|
+  | the drawn line, mean of ceiling | 95% | **97%** |
+  | `8-neighbour`, drawn line | 0.844 | **0.937** |
+  | `4-gradient`, drawn line | 0.858 | **0.926** |
+  | the page's smoke test | 0.859 | **0.892** |
+  | the beach photograph | 0.649 | **0.735** |
+  | the portrait | 0.812 of 0.741 | **0.820** of 0.832 |
+  | **steerability** | 74% → 95% → 96% | **42% → 57% → 56%** |
+  | **the portrait, twenty hands** | 100% throughout | **median 24%**, p90 99% |
 
-  The second half was worse than a build failure. `paramNeedsInout` already
-  existed and already handled `[T]` and `[K:V]`, but a `buffer` parameter
-  reaches it with its `value_type` unset and only its NAME saying what it is,
-  so `sfn put16 (b:buffer at:int v:int)` came out as a `let [UInt8]` its own
-  body assigned into. Swift arrays are VALUE types: had that compiled, the
-  callee would have written into a copy and every caller would have seen
-  nothing. `buffer`, `charbuffer`, `int_buffer` and `double_buffer` are
-  recognised now and get `inout` + `&` like every other collection.
+  The last two rows are why it is off. A finer graph is a graph that needs more
+  evidence per stroke, and the evidence it needs — a boundary term that tells a
+  real edge from an invented one, and a soft prior for a region with a cheap
+  path to the frame — is not written. Turning it on now would trade one error
+  for another, which is the one thing this bench exists to prevent.
 
-  Found by compiling `gallery/ui` to Swift for the iOS port -- 46 000 lines
-  that reach the raster and TrueType stack. `swiftc` reported 24 errors across
-  seven functions; the generated file now holds zero assignments to a `let`
-  parameter, and the compiler still reproduces itself byte for byte.
+  Two things did ship from the work. The ceiling is now measured in the unit
+  the tool actually chooses, which raises it honestly — `5-shared` from 0.313
+  to 0.653, `4-gradient` from 0.853 to 0.911 — and makes several old "100% of
+  ceiling" readings the 96–99% they always were. And the clipping is one path
+  now instead of three: whatever set the selection, the document is clipped to
+  exactly it. On the measurements that ends level — the colour click identical,
+  the drawn line from a mean IoU of 0.884 to 0.894, the brush 0.847 to 0.848 —
+  with the smoke test, both photographs and every steer number unchanged.
 
-- **`npm run ui:ios:check` now says which of four look-alike states a Mac is
-  in, instead of a list of "not installed".** They fail identically and have
-  four different fixes: only the Command Line Tools installed (they carry no
-  platform SDK, no simulator runtime and no `devicectl`, while `xcrun` reports
-  fine, which is what makes it confusing); Xcode installed but not the SELECTED
-  developer directory, which is one `xcode-select -s` and not an hour of
-  downloading, so the report checks whether `/Applications/Xcode.app` is there
-  before telling anyone to install it; Xcode selected but its licence not
-  accepted or its first launch never finished; and the iOS platform never
-  downloaded, which Xcode 15 and later leave out of the initial install. The
-  report now also prints **what `xcrun` itself said** — `sdkPath` answers "" for
-  every one of those, which is the right shape for a build and the wrong one for
-  a diagnostic.
+  Along the way, one thing that did **not** work, recorded so it is not tried
+  twice: making the boundary term robust by taking a quantile of the gradient
+  along a shared edge instead of its mean. The median is identical on every
+  metric and the upper quartile is worse; the right-hand leak does not move by
+  a pixel at any setting, because it is a hint and not a decision. The audit
+  had said so.
 
-- A device build with `--run` on a machine with no `devicectl` said "no device
-  is connected", which sent the reader to look for a cable problem they did not
-  have. It says that `devicectl` is not there.
+- **The wand explains itself, and takes corrections by hand.** Two errors on
+  the same picture needed opposite repairs — the right side had to shrink and
+  the hair had to grow — and no single slider tells them apart, so the tool now
+  says why it decided what it did, and lets the hand overrule it.
 
-- **`npm run ui:ios:smoke` — the iOS build driver, run for real, on a machine
-  that is not a Mac.** `--dry-run` checks the plan and cannot check the code
-  that runs: the directories the driver makes, the plist it writes, the profile
-  it decodes. That code went untested until the real thing was run on a Mac and
-  died on `mkdir` for a directory that already existed. A stand-in `xcrun`,
-  `security`, `plutil`, `codesign`, `open` and `xcode-select` on PATH now
-  exercise everything around those tools — a device found and a paired-absent
-  one skipped, an identity and a profile discovered, the five files in the
-  bundle, `--no-build` not compiling, and the whole thing **twice**, because the
-  second run over its own output is where the interesting bugs are.
+  **Näytä** switches the stage between four things. *Lopputulos* is the tool.
+  *Varmuus* colours every piece by what flipping it would cost, with its
+  neighbours left where the cut put them: warm for kept, cool for left out,
+  pale for a coin toss, yellow for a hint that is not up for debate. It is the
+  number that decides what to do next — a piece near zero is one small piece of
+  evidence from going the other way, and one that costs thousands is a decision
+  the model is sure of and no slider will move. *Palat* gives every region its
+  own hue, which is how a shape scattered over 732 islands became visible as
+  one thing. *Rasterisärmät* shows how strong the picture's own edge is around
+  each region. Clicking a piece in any of them prints its numbers: its size,
+  whether it is a hint, what flipping it costs, the neighbour weight for and
+  against, the mean edge around it and its contact with the frame.
 
-- A device that is not plugged in is now said **before** `swiftc`, not after.
-  It was resolved early enough to pick a profile with and then not acted on, so
-  a missing phone cost a full 46 000-line Swift compile before the message.
+  **+ and −** paint the answer directly, in discs of 4, 10, 20 or 50 px. Not
+  hints — a hint is an argument the min-cut weighs, and these are the answer
+  itself — so they are applied after it, they survive the next stroke, and the
+  regions are *clipped* to what was painted, so the SVG really is rebuilt round
+  it rather than merely hidden. **Zoom** takes the stage to 800% and lets it
+  scroll, which needs nothing from the pointer code: it reads the element's own
+  bounding rect, so a bigger element is simply a finer one.
 
-- **`npm run ui:ios:device` — one command from Ranger source to a running app
-  on the iPhone or iPad on the cable.** A device build needs three things a
-  simulator build does not, and typing them is what made it a three-flag
-  command: they are all on the machine already, so `lib/apple/AppleSigning.rgr`
-  and `lib/apple/AppleDevice.rgr` find them. The **device** from
-  `xcrun devicectl list devices`, taking the first CONNECTED one — a
-  paired-but-absent device is listed and is not a candidate, and an install
-  onto one fails four seconds later. The **identity** from
-  `security find-identity -v -p codesigning`, preferring an Apple Development
-  certificate, because this is testing on a cable and a distribution
-  certificate cannot do it. The **profile** from the `.mobileprovision` files
-  Xcode leaves behind — in both the directory it used before Xcode 16 and the
-  one it uses now — matched on the bundle id *and* on this device being listed
-  in it, with an exact bundle id beating a wildcard because the exact one is
-  what Xcode made for this app. `--identity` and `--profile` still win when
-  given.
+  Also: `Lisävärit`, `Sulautus` and `Koko` sat unscoped beside the wand's own
+  controls and read as if they belonged to it. They belong to the refine brush
+  and change nothing about what the wand selects. They are scoped to that tool
+  now and named for what they do — *Omat sävyt*, *Reunan sulautus*, *Tarkentimen
+  koko*.
 
-  Then `devicectl device install app` and `devicectl device process launch`,
-  which is two commands where a simulator needs five: there is nothing to boot
-  and no window to bring forward. `--console` keeps the process attached with
-  its output coming back, which is the whole point of a test build on a cable —
-  a device has no console you can otherwise see.
+- **Before changing the algorithm, ask whether the algorithm can decide it.**
+  `npm run evg:trace:web:audit` attributes every wrong pixel to the region that
+  drew it, and prints beside it everything the energy is made of: the region's
+  own truth split, whether the cut took it, its contact with the frame, its
+  distance to each colour model, its depth from a hint, and the pairwise weight
+  it carries to selected and to unselected neighbours. Run against the
+  portrait's two errors it settles the question in one table, and the answer is
+  **no** for both.
 
-  What it cannot do is CREATE a provisioning profile: that is a conversation
-  with Apple's developer portal and the only command line tool that has it is
-  `xcodebuild -allowProvisioningUpdates`, which is the thing this driver exists
-  to avoid. The error says so in as many words, with the one-time Xcode step
-  that fixes it.
+  **The right-hand leak, 13 385 px.** Two regions carry 85% of it, and both are
+  hard hints — the user's own stroke covered them:
 
-  Both new parsers are pure functions over the text their tool prints, so both
-  are checked on a machine with nothing plugged in: a device name with a space
-  in it, a two-word state, a header row, an unavailable runtime, a 42-character
-  fingerprint that is not one. `npm run apple:test` is 151 assertions now, on
-  the same seven target languages.
+  | id | seen | of it figure | of it background | its share of the leak |
+  |---|---|---|---|---|
+  | 0 | 96 933 | 50 852 px | **14 713 px** | 8 957 px |
+  | 1 | 97 185 | 55 807 px | 5 211 px | 921 px |
 
-- **`--no-build`**, for parity with the Android port: `--no-ranger` skips the
-  Ranger→Swift compile, `--no-build` skips `swiftc` too and reinstalls the
-  `.app` that is already there — the 46 000 lines that make a re-run slow when
-  nothing but the device changed.
+  Region 0 is the tracer's base surface: 78% the man, 22% the desk behind him,
+  one node in the graph. It must be taken or left whole, and it is a constraint
+  besides. No unary, no pairwise, no prior can separate those two things — that
+  is the tracer's job, or the clip's. The nine other regions between them carry
+  1 757 px, and only there is the min-cut actually choosing: region 158 is 94%
+  background and its own colour model says foreground (`dF` 14.8 against `dB`
+  19.1), which is a model error worth 282 px.
 
-- **Ranger can call other command line programs, and the first thing it does
-  with that is build an iOS app.** One new compiler primitive,
-  `run_process_result (program args cwd capture env)`, answers
-  `([exit code, stdout, stderr])` — three strings, because an array of strings
-  is a shape every target already has and a record would need a systemclass and
-  a type mapping per language. It either captures the child's output or lets it
-  stream to this program's own, takes a working directory, and merges extra
-  `"NAME=VALUE"` entries over the environment rather than replacing it, so a
-  child never loses `PATH`. Arguments go as a **vector**: there is no shell in
-  between, so nothing inside an argument is re-read as a redirection, a glob or
-  a second command.
+  **The hair, 6 213 px.** The regions responsible are mixed the same way —
+  429 is 6 240 px of hair and 5 567 px of the window behind it, 295 is 733
+  against 6 388 — and their colour models say background by a wide margin
+  (`dF` 22.3 against `dB` 14.9). Four regions are genuinely usable, pure hair
+  and nothing else: 1276, 1168, 1178 and 1343, **381 px between them**. Those
+  the selector really does lose, and the audit says why — their two distances
+  are a tie (19.43 against 19.36) and the neighbour term decides it, 626 to 1.6
+  against.
 
-  Thirteen backends. `spawnSync` on Node, `subprocess` on Python, `os/exec` on
-  Go, `ProcessBuilder` on Kotlin and Java, `System.Diagnostics.Process` on C#,
-  `std::process::Command` on Rust, `Foundation.Process` on Swift,
-  `Process.runSync` on Dart, `proc_open` on PHP, and `popen`/`system` on C++,
-  which is the one target with no portable spawn and therefore the one that
-  quotes the vector back into a shell word list. Where output is captured,
-  stderr is drained on its own thread or queue — reading stdout to the end
-  first deadlocks the moment a compiler fills the error pipe, which is exactly
-  the case this was built for.
+  So of 19 598 px of error on this picture, about **2 100 px is the selector's
+  to win**; the rest is regions that are half one thing and half the other.
+  Tuning the energy would have moved a tenth of the error and been reported as
+  progress. The portrait's numbers are now kept apart for the same reason —
+  precision, recall, and the two errors separately — so that a change cannot
+  trade 6 000 px of missing hair for 6 000 px of extra background and read as
+  an improvement in IoU.
 
-  [`lib/Shell.rgr`](lib/Shell.rgr) (MIT) is the API over it: a result object
-  instead of three strings read out by index, a remembered working directory, a
-  log of every command line asked for, and a **dry run** that records instead
-  of executing. `npm run shell:test` — 44 assertions that really do start child
-  processes — passes on **JavaScript, Python, Go, Rust, C++, Java and PHP**.
+- **The harness could not see a clip, and read a collapse that was not there.**
+  Every scorer drew the answer path by path, filling each shape's `d` with
+  `Path2D` — which ignores `clip-path`. That was harmless until the wand began
+  clipping a region it keeps only part of. Then a background shape kept for
+  **95 of its 71 107 cells** scored as though all 71 107 were selected, and the
+  bench reported a twenty-point collapse while the cut on screen was clean. All
+  three scorers now rasterise the SVG itself, so what is measured is what is
+  drawn. The numbers in the entry below were measured with the blind scorer;
+  read against the corrected one that build scores 95% / 98% on the bench and
+  0.788 on the portrait.
 
-- **`lib/apple/` — an iOS, iPadOS and watchOS app builder, with no Xcode
-  project.** An `.app` is a directory with an executable and a property list in
-  it; `swiftc` can build an iOS executable directly, and everything above that
-  is project bookkeeping a program can do instead. `AppleTarget` names the four
-  decisions Xcode hides behind a scheme pop-up (the SDK, the triple with its
-  deployment target and `-simulator` environment, the device families, the
-  signing identity), `AppleAppSpec` writes the Info.plist, `AppleSimulator`
-  reads `xcrun simctl list devices` as a pure function over its text, and
-  `AppleAppBuilder` runs the pipeline: SDK lookup, bundle, plist,
-  `plutil -lint`, `swiftc`, resources, entitlements read **out of** the
-  provisioning profile, `codesign`, then `simctl boot`/`install`/`launch`.
-  Nothing calls `xcodebuild` and nothing opens Xcode.
+- **Holes the answer closes over belong to it.** A face out of a photograph is
+  freckled with them and so is a patterned tie — every speck the tracer could
+  not name falls to a shape that is not selected. On the portrait there were
+  **1 380 enclosed holes, 8 041 px between them**. They are filled now, but only
+  the small ones: the gap between a figure's legs is enclosed too and is not
+  part of the figure, so the limit is 2% of the body, measured against the body
+  rather than in pixels so it means the same on a thumbnail and a photograph.
+  It leaves 2 809 px, none of them larger than a freckle.
 
-  Because every step goes through a `Shell`, the whole thing runs **dry** —
-  which is how `npm run apple:test` asserts 151 things about the plan (which
-  program, which arguments, in which order, including that the plist is linted
-  before an hour of compiling and that signing happens after the binary is in
-  the bundle) on a machine that is not a Mac. Those 151 checks pass on seven
-  target languages.
+- **Close before eroding.** The body is found by eroding until hair-thin joins
+  snap — and hair is not a solid band but a mesh of strands a cell or two
+  apart, so eroding it directly wiped it out. The body then stopped at the
+  forehead, its hull came to a point above the brow, and a man with a full head
+  of hair had a fence drawn round him that excluded it. Growing the mask before
+  shrinking it welds the strands into something an erosion can bite and leaves
+  a solid shape's outline where it was.
 
-- **[`gallery/ui/ios`](gallery/ui/ios/README.md) — the dashboard demo on
-  iPhone, iPad and Apple Watch.** The same `DashboardDemo.rgr` the browser
-  page, the gates and the Android port run, compiled to Swift 6 (46 039 lines,
-  one file) and painted with CoreGraphics through the new
-  [`gallery/evg/apple`](gallery/evg/apple/README.md) — an `EvgSurface` protocol,
-  an `EvgPainter` transliterated from the Android one, and a single `CGContext`
-  backend that serves UIKit, SwiftUI and watchOS alike.
+  Everything measured against the previous build with the corrected scorer, so
+  the comparison is honest in both columns:
 
-  Three things are the port's own and all three are in Ranger rather than in
-  Swift, so that nothing without a Mac is unable to check them. The **safe
-  area**: an Android surface is the screen and an iPhone's is not, so the page
-  is fitted into the window less the notch and the home indicator, and a
-  window-to-page conversion that skipped that would be wrong by the height of
-  the status bar everywhere on the page. The **readable fit**: 1336 page pixels
-  across a 45mm watch is a scale of 0.148, which is a photograph of a dashboard
-  rather than a dashboard, so a watch gets a floor on the scale and pans. And
-  the **crown**, which reports a rotation rather than a distance and therefore
-  does not go through the scale the way a finger does.
+  | | before | after |
+  |---|---|---|
+  | bench, one stroke | 95% | **96%** |
+  | bench + one ⌥ | 98% | 98% |
+  | jitter worst / median | 88% / 95% | 88% / **96%** |
+  | steerability | 56% → 89% → 84% | unchanged |
+  | the beach photograph | 0.617 (94%) | **0.649 (99%)** |
+  | the portrait | 0.788 (100%) | **0.812 (100%)**, precision 0.893 |
+  | the portrait, cut out | 36 pieces | **29** (3 over 40 px), largest 99.5% |
 
-  The build itself is `ranger/build_ios.rgr` — a Ranger program, not a shell
-  script — and `npm run ui:ios:plan` prints the ten commands it would run.
-  `npm run ui:ios:verify` drives the port on Node: 82 checks covering the fit,
-  the insets, presses at window coordinates, scrolling, the keys, the pinch,
-  the watch, the crown, and a ripple clock that cannot get stuck. The Swift
-  hosts themselves are written but **not compiled here** — Swift for Apple
-  platforms needs a Mac, and the README says so rather than implying otherwise.
-  The first `swiftc` run on a Mac found two things: `public` on host types whose
-  generated counterparts are `internal` (everything builds into one module, so
-  `public` bought nothing), and the two compiler defects above.
+  Two things are still wrong on the portrait and both are named rather than
+  hidden. **The hair is not selected at all** — dumping the selection's cells
+  shows it black before any of this post-processing runs, so it is the cut that
+  misses it and not the tidying that eats it, and it is worth about five points
+  of recall. And 401 px still hangs off the shoulder, inside the body's hull
+  and joined to it, where the jacket's own edge says it should not be.
 
-- **EVG on a smartwatch, as a number instead of an opinion.**
-  `gallery/watch_evg/bench` runs three real watch screens — a dial with sixty
-  minute ticks, a Wear list of chips, and a workout view — through EVG's whole
-  pipeline on a 454×454 panel, phase by phase, on **four** targets from one
-  source: Kotlin on a JVM (the Wear OS language, with a C1-only run as the
-  ART-quality bracket), C++ ahead-of-time and reference-counted (the watchOS
-  proxy), and JavaScript on Node. The Kotlin run paints through
-  `gallery/evg/android`, the same painter and surface the `ui` and `pptx`
-  Android ports compile into their APKs, and writes the three PNGs.
+- **The answer has to cohere, and one shape was 732 islands.** Cutting the
+  portrait out showed what no score had: the man, both flags, and 356 loose
+  fragments, with **9.5% of the cut area outside its largest piece**. Tidiness
+  could not touch it — it scores a piece by area against outline and a
+  9 844-pixel flag pays for itself at any radius — so three steps now run after
+  the cut, all of them drop-only.
 
-  The answer is **no, EVG is not too heavy**: the busiest screen is 0.91 ms for
-  a full declarative rebuild and 0.12 ms retained on the pessimistic bracket,
-  which scales to roughly 9 ms and 1.2 ms on a Cortex-A53/A55 watch core
-  against a 16.7 ms budget. Three conditions come with it — do not rebuild
-  declaratively at 60 fps on the little cores, keep paint on the platform's
-  hardware canvas, and mind the cold frame, which on a JIT target is five
-  hundred times the steady state. Every harness reports a `calibrate` figure so
-  the estimates can be replaced by measurements from a real device.
-  See `gallery/watch_evg/WATCH_PERFORMANCE.md`.
+  1. **The body.** Erode the selection until hair-thin joins snap, take the
+     pieces that still hold a hint, and call the largest of them the body.
+  2. **The fence.** Its convex hull. Generous on purpose: it swallows the gap
+     under an arm and the notch between two fingers, so whatever falls outside
+     it was never plausible.
+  3. **Ownership.** Grow the eroded cores back through the selection, all at
+     once, each cell going to whichever core reaches it first. Two blobs joined
+     by a neck part at the neck, which is where a person would part them.
+
+  That took the strays from 18 713 px to 9 497, and then stopped, and the
+  reason it stopped is the interesting half. The flag beside his shoulder was
+  not joined to the suit by a thread. **It was the same path element** — and
+  not because the tracer had merged them. It was the *base surface* the tracer
+  draws under the whole stack, which on a photograph shows through wherever
+  nothing else was painted: on this portrait that one path is visible in **732
+  separate islands totalling 65 565 px**, a fifth of the frame, and among them
+  are the man's own chest and the holes inside the flag. One node in the graph,
+  so taking it takes the flag and dropping it takes his chest, and no work on
+  the selection could decide that — the question was being asked one level too
+  high.
+
+  So a region that is partly kept is now **clipped** rather than dropped, using
+  the same mechanism a drawn line already uses to cut a shape it crosses. Those
+  clips are torn up and redrawn on every stroke: left standing, a region clipped
+  to yesterday's body cannot be given back by today's correction, and
+  steerability fell from 95% to 75% for exactly that reason before they were
+  made transient.
+
+  | the portrait, cut out | before | after |
+  |---|---|---|
+  | pieces | 358 | **36** (3 over 40 px) |
+  | largest piece | 90.5% | **99.4%** |
+  | everything else | 18 713 px | **1 020 px** |
+  | brush IoU | 0.733 | **0.759**, precision 0.818 |
+  | twenty hands, worst | 97% | **100%** |
+
+  The synthetic bench does not move (95% on one stroke, 99% corrected), nor
+  does the beach picture, nor jitter (89% worst, 95% median), and steerability
+  is 74% → 95% → 96%. What is left on the portrait is the hair, which was never
+  selected and is a recall problem rather than a stray one, and 1 020 px of
+  fragments beside his shoulder.
+
+- **Two photographs, and they found what the drawings could not.**
+  `npm run evg:trace:web:photo` runs the wand against two photographs that are
+  committed with the repository. The first is a beach photograph — a man in a yoga pose, thin limbs, a gap
+  between the legs, a sky that is six blues, sand that blows out, and a dark
+  mat lying against his feet in his own colour. The truth is built from the
+  picture without the tracer (the background is blue, or bright and
+  colourless; the man is what is left, then a majority filter and the largest
+  blob), and it was checked by looking at it: it rounds off the loose hair and
+  cuts the feet where they meet the mat, and is right everywhere else.
+  `--write` saves it so the next person can look too. Unlike the photo
+  composites this replaces, the fixture is in the repository, so the number is
+  reproducible rather than a claim.
+
+  The man is **6.8% of the frame**. That is much harder than the synthetic set,
+  where the figures are a third of it.
+
+  **The first find was a bias in my own formula.** The area-weighted mixture
+  normalised each model by *its own* total area, so belonging to the smaller
+  model was cheaper — and the background is 93% of a photograph while the
+  object is 7%. The brush, being 26 units wide, caught a little sand at the
+  man's feet; those regions joined the foreground model, and every other sand
+  region then found itself a better match for the small model than for the
+  large one it also belonged to. The tool selected the man and the entire
+  shore: **0.170, at a precision of 0.178**. Both models now share
+  one normaliser, which is the class prior the formula was missing: the
+  background's size counts in its favour. Of 59 886 wrongly selected pixels,
+  46 983 were regions that touch the frame and sit in the background model
+  already — after the fix, none.
+
+  **The second was that a hint could not be outvoted.** Softening the
+  constraint had been tried before and reverted, because on the synthetic
+  bench it changed no score at any strength. With the class prior in place the
+  photograph shows what the bench could not: at `WAND_HINT` 0.2–0.4 all twenty
+  jittered hands reach 100% of ceiling, and above 0.6 the worst of them falls
+  to 70%. A hint that landed correctly is still never in danger — everything
+  around it agrees — and one that landed on the wrong side of a foot is now a
+  strong opinion rather than an axiom.
+
+  | | |
+  |---|---|
+  | ceiling (720 shapes) | 0.657 |
+  | a click | 0.514 (78%) |
+  | a drawn outline | 0.700 (100%) |
+  | **a brush stroke down the man** | **0.716 (100%), precision 0.965** |
+  | twenty hands, worst | **100%** |
+  | a stroke that runs on into the ground | 0.463 (70%), precision 0.546 |
+
+  Neither change moves the synthetic bench at all — 95% on one stroke, 99% with
+  a correction, before and after — and the jitter worst case improves from 86%
+  to 89%. What they cost is steerability's first stroke, 77% to 74%, and the
+  small dab, 84% to 81%; the corrected answer is 95%. Twice now a change has
+  measured as nothing on eleven drawings and as everything on one photograph,
+  which is the argument for keeping the photograph in the suite.
+
+  **The second picture is the official portrait**, and it is the opposite
+  problem: a navy suit against a dark room, red drapes, a blown-out window, and
+  a navy flag beside him **in the suit's own colour**. He is 51% of the frame
+  and touches three edges of it.
+
+  Its truth took two goes, and the first was wrong in a way worth recording.
+  The polygon was drawn as the silhouette, by eye — and a suit's shoulders are
+  widest immediately below the collar rather than sloping down from the neck,
+  so it cut the corner of both and left a wedge of jacket outside the truth. On
+  row 240 it put the right edge at x=330 where the jacket runs to x=398.
+  Capping the outward search at eight pixels then made that unrecoverable, and
+  every portrait number came out understated. It was visible at a glance in the
+  overlay, which is the argument for saving these and looking at them.
+
+  The polygon is now a *fence*: it only has to contain the man and stay out of
+  the flags, and the edge itself is read from the picture row by row, from where
+  the colour test flips. That test needed a third rule as well — a drape in deep
+  shadow is too dark for the red test and too warm for the bright one, and
+  without it the flag and the suit are one unbroken run from x=33 to x=409 on
+  row 520, which no scan can separate. What remains is a band a few pixels wide
+  where shadowed cloth and shadowed drape are nearly the same colour, worth
+  perhaps 1–2% of the mask, and the numbers should be read knowing it.
+
+  | | first truth | corrected |
+  |---|---|---|
+  | ceiling (1373 shapes) | 0.687 | **0.741** |
+  | a click | 0.098 (14%) | 0.093 (13%) |
+  | a drawn outline | 0.741 (100%) | 0.796 (100%) |
+  | **a brush stroke down the suit** | 0.701 (100%) | **0.733 (99%)** |
+  | twenty hands, worst | 98% | 97% |
+
+  The conclusion is the one the first pass reached, and the ceiling is still the
+  whole story: `halki` is 40 945 px and the largest straddling shape **65 565
+  px**, a fifth of the frame. It is the suit and the flag as one shape. They are
+  the same navy and they touch, so this is not the palette merge the weak-edge
+  case was — more colours barely move it, 0.687 at 20 and 0.721 at 48 — but a
+  connected region of one colour that happens to be two things. Splitting that
+  needs the tracer to cut a region at a faint internal edge, which is the same
+  idea as the contact test one level down, and is not written yet. Until it is,
+  the wand on this picture selects the man and both flags, which is exactly what
+  its ceiling says it must.
+
+  **And one finding that is not a bug.** The last row of the table is the same
+  tool with the same settings and a stroke that carries on past the hips into
+  the gap between the legs — 15% of its length on the ground rather than the
+  man. The brush is 26 units wide and the man's shin is about twenty, so it
+  paints sand either way; sized to the subject (16 or 10) the careless stroke
+  scores 100% too. But a narrower brush costs the synthetic set — one small dab
+  falls from 84% to 66% — because there the figures are large. The right width
+  follows the *subject*, which the user can see and the tool cannot, so the
+  default is unchanged at 26 and this is written down rather than tuned away.
+
+- **The tracer merged away the edge the selection needed.** `minColorDelta`
+  collapses palette entries closer together than it — written for the case
+  where asking for more colours than the picture holds splits one region
+  between two near-identical swatches — and it asks only how close two colours
+  are. That is the wrong question on its own. Two colours that close can also
+  be a figure and the background beside it, separated by a real but faint edge,
+  and merging those destroys the only boundary in the picture. On `9-weakedge`
+  it did exactly that: the traced ceiling was **0.559** and one shape covered a
+  third of the frame with 44% of it figure. Nothing downstream can recover
+  that, and no setting escaped it — the ceiling is identical at 8, 14, 24, 40
+  and 64 colours.
+
+  So the merge now also asks how the two swatches *sit* in the picture. For
+  each candidate pair it counts adjacent pixels: `contact / min(area)` is about
+  2 for two swatches dithered through each other and a few thousandths for two
+  blocks that merely share a border — three orders of magnitude apart, which is
+  why one threshold anywhere between works. Swatches that are mixed still
+  merge, which is the case the setting was written for; swatches that lie side
+  by side do not.
+
+  | | before | after |
+  |---|---|---|
+  | `9-weakedge` ceiling | 0.559 | **0.974** |
+  | its pixels lost to straddling shapes | 19 551 | **581** |
+  | its largest straddling shape | 43 090 px | **95 px** |
+  | `4-gradient` ceiling | 0.743 | **0.853** |
+  | the sample photograph | 15 layers, 614 KB | 15 layers, 619 KB |
+
+  The photograph is the point of that last row: the near-duplicate swatches a
+  photograph produces are interleaved by its own grain, so they still collapse,
+  and the output is within one per cent of what it was. It costs about 100 ms
+  on a 320×221 picture, which is one pass over the pixels per merge.
+
+  Where it does change things is a **noiseless synthetic ramp**, whose bands
+  are clean blocks lying side by side and so no longer merge: `4-gradient` goes
+  from 146 shapes to 301, and the tracer's own suite caught it — the picture in
+  `testOverlayRecoversASwallowedShape` keeps three tones where it used to keep
+  two. That test asserts a limitation through a layer count, and the count is
+  what moved: the three fills are #999999, #A3A3A3 and #AFAFAF, evenly spaced
+  tones of the ramp, so the swallowed block did **not** come back and the
+  bound was widened rather than the claim rewritten. Worth stating plainly,
+  because the first reading of that failure was that the change had fixed the
+  very thing the test documents, and printing the fills is what showed it had
+  not.
+
+- **A better trace exposed what the low ceiling had been hiding.** With the
+  weak edge actually in the trace, the selector had to decide it — and did not.
+  `9-weakedge` read 100% of ceiling before and **71%** after, on a higher
+  absolute score (0.598 → 0.687): it had never been right, the ceiling had just
+  been too low to tell. The cause was the neighbour term. The band beside the
+  flank is a long shared boundary, a close colour and a weak gradient, which is
+  the definition of glue, and `PAIR_WEIGHT` was tuned back when such boundaries
+  were not in the trace at all.
+
+  Retuned from 26 to 6. It is a real trade and both directions are recorded:
+
+  | PAIR_WEIGHT | 0 | 4 | **6** | 10 | 26 |
+  |---|---|---|---|---|---|
+  | brush, one stroke, of ceiling | 95% | 95% | **95%** | 94% | 92% |
+  | brush + one ⌥ | 99% | 99% | **99%** | 98% | 95% |
+  | jitter median | 95% | 95% | **95%** | 94% | 92% |
+  | jitter, worst of 20 hands | 82% | 86% | **86%** | 86% | 89% |
+  | one small dab | 79% | 81% | **84%** | 85% | 85% |
+  | steerability, first stroke | 77% | 77% | **77%** | 77% | 85% |
+  | steerability, corrected | 98% | 96% | **96%** | 95% | 95% |
+
+  Low is better on one stroke and at the median; high is better for a meagre
+  stroke and for the worst hand. `9-weakedge` shows the shape of it exactly: at
+  26 it was a flat 71% for every one of twenty hands — capped — and at 6 the
+  median is 100% and the worst 37%. Six keeps the accuracy and gives back some
+  of the steadiness, and the correction path is 99% either way, which is what
+  the tool is actually judged on.
+
+  Where it leaves the set: `9-weakedge` 0.990 on one stroke against a 0.974
+  ceiling, `4-gradient` 88%, and the two known ones — `10-interleave` at 61%
+  on one stroke and 97% with a correction, `6-limbs` at 100%.
+
+- **The gap between the legs stays out.** `6-limbs` was a flat 97% of ceiling
+  for every selector and every one of twenty hands — the signature of a
+  systematic loss rather than a hard picture — and the loss was the hole
+  through the figure. The cause was one expression. `wandEncloseSmart` closes a
+  hole only if it does not plainly look like the background it is surrounded
+  by, and it measured that against the **manual ⌥ hints alone**: with a
+  positive-only stroke there are none, the distance to background was infinity,
+  the guard could never fire, and every enclosed hole was swallowed whole. It
+  now measures against the same model the cut uses — manual hints plus the
+  frame examples, through the area-weighted mixture. **97% → 100%** (0.963
+  against a ceiling of 0.947), on one stroke and with no ⌥ at all.
+
+  A softer fix was tried first and reverted, which is worth recording because
+  it was not wrong, only redundant. A hint is an axiom — a region the brush
+  covered is foreground and nothing outvotes it — and a brush has width, so
+  drawn down a figure with a gap it covers the gap: 100% of one background
+  region and 37% of another on this picture. Making the constraint finite did
+  exactly what it was meant to, taking the answer straight out of the min-cut
+  from 0.881 to **0.931**. But it moved no final score at any strength from 0.4
+  to infinity, because what put the gap back was the enclosure and not the
+  constraint. So the constraint stays hard, which is the property the whole
+  interaction rests on — what you point at is selected, always — and the fix
+  sits where the fault was.
+
+- **`9-weakedge` is the tracer's, and now the bench says so.** The picture is
+  one region: a single traced shape of **43 090 px, 44% of it figure**, a third
+  of the whole image, spanning the flank and the background beside it. No
+  method that picks whole regions can split it, which is why every selector
+  sits at 100% of a 0.574 ceiling and why the worst of twenty hands is 69%.
+  More colours do not help — the ceiling is identical at 8, 14, 24, 40 and 64,
+  because the two sides differ by a few units of Lab and quantisation merges
+  them at every k.
+
+  So the ceiling row gets two columns that explain it instead of leaving it to
+  be shrugged at. **`halki`** is the pixels lost because some shape straddles
+  the boundary — its minority side is unrecoverable whichever way the shape is
+  labelled — and **`isoin`** is the largest straddling shape, which says
+  whether that error is spread or concentrated. `9-weakedge` reads 19 551 and
+  43 090: one merged shape. `6-limbs` reads 1 204 and 68: specks. `5-shared`,
+  the worst ceiling in the set at 0.313, reads 34 431 and 34 728.
+
+- **Two more harness faults, and a claim corrected.** The bench and the steer
+  run each built the stroke themselves, and had already drifted apart once, so
+  the builder is now one exported function.
+
+  It samples densely and then **smooths**, and both halves are the measurement.
+  With four anchors the straight run between two of them cuts the corner
+  wherever the figure narrows, and the stroke spent **17% of its length outside
+  the limbed figure**. But the exact centre of every row of a dense sampling is
+  not a hand either: the longest run of a slotted row is the narrow strip
+  beside the slot, so a dense unsmoothed stroke whipped across the notches
+  twelve times. Sampled densely and smoothed, the limbed stroke is fully inside
+  the figure.
+
+  The second fault was hiding behind the first. The steer run's deliberately
+  meagre stroke was written as *the first two anchor points* — a twelfth of a
+  five-point stroke and a hundredth of a twenty-five-point one — so densifying
+  the stroke silently turned it into a dot and steerability from 90% into 48%.
+  It is a fraction of the stroke now.
+
+  **The correction:** `10-interleave`'s "53% → 97% on one stroke", recorded
+  above, was flattered by the coarse stroke. Under the smoothed one — a line
+  down the middle of a comb, which crosses the notches as any line must — the
+  honest numbers, measured against the same stroke with the pointing rule
+  switched off, are **47% → 61%** on one stroke and **73% → 97%** with one ⌥.
+  The rule still earns its place; the headline was the harness talking.
+
+  Where the numbers stand after all of it, on the smoothed stroke:
+
+  | | |
+  |---|---|
+  | brush, one stroke, mean of ceiling | 96% |
+  | brush + one ⌥ | **100%** |
+  | jitter, worst of 20 hands, mean | 93% |
+  | jitter, median | 96% |
+  | steerability | 89% → **100%** → 99% |
+
+  Eight of eleven pictures are at 100% of ceiling on all twenty hands. The
+  three that are not are `6-limbs` (97% worst, 100% median), `9-weakedge`
+  (69% worst — the merged region above) and `10-interleave` (61% median, 97%
+  at p90, and 97% with one correction).
+
+- **A big region's colour is better evidence than a speck's.** The model was
+  nearest-seed: the colour of the closest region the user pointed at. That is
+  multimodal by construction, which is why it beat a clustered GMM at every k
+  from 2 to 6, but it gives a twenty-cell speck the same vote as a
+  forty-thousand-cell torso — and on the background side the seeds come from
+  the frame, where the sizes differ by three orders of magnitude. The seeds are
+  now the components of a mixture with π proportional to area:
+
+      D(i) = −log Σ_j π_j exp(−d_ij² / 2σ²)
+
+  Read through its dominant component that is exactly
+  `d_eff² = d² + 2σ²·ln(total area / this seed's area)` — the same colour is
+  further away when it is only a thousandth of what the user pointed at — and
+  it is returned as a distance rather than a likelihood so everything
+  downstream keeps its units and its tuning. σ = 0 is nearest-seed exactly, so
+  the old model is a point on the sweep rather than a thing to remember, and
+  the sweep was run against it: σ = 1 reproduces the previous numbers to within
+  a point, σ = 6 is the best of 1 / 6 / 8 / 10 / 16.
+
+- **Solve, relearn, solve.** The first pass has only what the user gave it.
+  Once it has an answer, every region in that answer is an example of the thing
+  it was just called, the models are re-estimated from all of them, and it
+  solves again. The user's hints stay hard constraints throughout, so the loop
+  revises its guesses and never its instructions, and a pass that changes
+  nothing ends it — which the second pass always is, so a third is not run.
+  Costs about 3 ms on the bench's largest picture (25 ms against 22 ms at 353
+  shapes).
+
+  It was written with a weight making a relearned example count for less than
+  one the user gave, and that weight measured **exactly nothing**: 1.0, 1.6,
+  2.5 and 8.0 give identical numbers on every metric. The reason is structural
+  and worth keeping — a multiplicative penalty on a colour distance vanishes
+  precisely where these examples act, because a region is claimed by the
+  relearned model when its colour nearly matches one of them, and eight times
+  near zero is still near zero. The parameter is gone. What holds the loop
+  steady is the area weighting above, which is not multiplicative in the
+  distance.
+
+  Together, the two changes pay back the whole cost of the pointing rule and
+  more:
+
+  | | before both | mixture | + relearn |
+  |---|---|---|---|
+  | one small dab | 84% | 98% | **100%** |
+  | steerability, first stroke | 76% | 90% | 90% |
+  | steerability, after one correction | 100% | 100% | 100% |
+  | jitter, worst of 20 hands, mean | 90% | 96% | **97%** |
+  | jitter, median | 100% | 100% | 100% |
+  | brush, mean of ceiling over 11 pictures | 99% | 99% | 99% |
+
+  Nine of the eleven pictures now score 100% of ceiling on **all twenty** jitter
+  variants; the two that do not are `6-limbs` at a flat 97% and `9-weakedge`,
+  whose worst hand is 69% and whose ceiling is 0.574 because the tracer cannot
+  hold that boundary either. `11-edgetouch` went from 97% to 100%, which is the
+  frame prior being outvoted by area on a picture where the object touches the
+  frame — the case the prior was always going to get wrong on its own.
+
+- **Crossing something is not pointing at it.** The invariant above counted
+  every region a stroke passed over. That is fine while the object is convex
+  and fails the moment it is not: on the interleaved picture — a figure with
+  six notches cut into it, so a stroke down the middle alternates between the
+  figure and the background every fifteen pixels — a single positive stroke put
+  **2611 cells of an 86 000-cell background region** under positive evidence,
+  thirty times the old floor of thirty cells, and that one region was the whole
+  of the picture's error. The brush scored **53% of ceiling where the lasso
+  scored 94%**.
+
+  Two guesses were wrong before the right one. The neighbour term was not too
+  strong: sweeping `PAIR_WEIGHT` through 26 / 12 / 6 / 3 moved the score from
+  0.500 to 0.501. The harness was not aiming the stroke into a notch either;
+  it was, and fixing that (`rowCentre`, the centre of a row's longest unbroken
+  run rather than the average of its inside pixels) changed nothing. What
+  settled it was `window.__wandLast`, a window onto the four stages of the
+  decision, and a table of every region's coverage against the truth. In that
+  table the two kinds of region do not overlap at all: **every part of the
+  figure was covered at 0.13 or more of its area, every part of the background
+  at 0.06 or less.**
+
+  So the hint filter now asks two questions and takes either:
+
+      coverage  the stroke covered ≥ 10% of the region
+      share     the region holds ≥ 10% of the stroke
+
+  Either is enough; a region with neither was crossed on the way to something
+  else. Both halves are load-bearing and each was tried alone first. Coverage
+  alone throws away the small dab — a careful stroke covers two per cent of a
+  large shape and means it entirely — and steerability fell from 93% to 61%.
+  Share alone throws away the specks a brush swallows whole on a noisy
+  picture, whose share is a thousandth each; anchoring the coverage test on
+  them instead put the brush average at **32%**. Swept: `share` is the
+  sensitive one (0.25 costs 30 points of jitter), `coverage` is flat anywhere
+  between 0.06 and 0.10.
+
+  | | before | after |
+  |---|---|---|
+  | `10-interleave`, one stroke | 53% | **97%** |
+  | brush, mean of ceiling over 11 pictures | 95% | **99%** |
+  | jitter, worst of 20 hands, mean | 68% | **89%** |
+  | jitter, median | 92% | **99%** |
+  | one small dab | 88% | 83% |
+  | steerability, first stroke | 93% | 75% |
+  | steerability, after one correction | 98% | **99%** |
+
+  The two costs are real and are the trade the rule makes: fewer seeds mean
+  less reach, so a deliberately meagre first stroke now claims less. It is
+  worth it — the corrected answer is better, not worse, and a tool is judged on
+  where a correction lands rather than on where the first guess did.
+
+- **The rest of the eight-case list, built and measured.** Two more pictures
+  and three more scenarios, so every case is a named thing that runs rather
+  than a description.
+
+  **A same-coloured object right next door, with a gap** (`8-neighbour`): the
+  gap holds. Every selector scores 100% of a 0.827 ceiling — the ceiling is
+  what it is because the tracer merges some of the neighbour's speckle, not
+  because the selection reaches across.
+
+  **A long weak edge** (`9-weakedge`): the figure's left flank differs from the
+  background beside it by a few units of Lab for the whole height of the body.
+  The ceiling falls to **0.574** — the tracing itself cannot hold that boundary
+  — and every selector sits at 100% of it. A colour click falls to 41%. This is
+  the clearest case in the set for the three-way split: nothing here is the
+  selector's fault, and the fix belongs in the tracer.
+
+  Three scenarios, in `steer.mjs`:
+
+  | | mean of ceiling |
+  |---|---|
+  | one small dab and nothing else | 96% |
+  | a stroke on the wrong thing | 46% |
+  | …then ⌥ over it | 0% |
+  | …then a right stroke | **100%** |
+  | a stroke, plus a small ⌥ over the same place | 100% |
+  | the same two, the other way round | 0% |
+
+  Recovery is complete: a first stroke on the wrong object, taken back and
+  replaced, ends where a right first stroke would have. And the coverage
+  invariant holds in both directions — a small ⌥ over a place a large positive
+  stroke claimed changes nothing at all, and the same pair reversed gives the
+  background, which is what "the stroke that covered more of it is the one that
+  pointed at it" has to mean if it means anything.
+
+- **Two things a single-stroke score cannot say, measured:**
+  `npm run evg:trace:web:steer`.
+
+  **The same intent, twenty different hands** — the stroke shifted up to 7 px,
+  shortened to as little as 55%, tilted up to 12°. The median is 100% of the
+  ceiling on every picture, and the worst case is **67%** on average and 37% at
+  its worst. For a tool that is the number that matters: robustness beats a
+  best case, and the spread is where the next work is.
+
+  **Steerability**, which is the metric a semi-automatic tool lives by: a first
+  stroke is allowed to be wrong if one correction reliably moves it the right
+  way. The harness plays the user — after each answer it finds the largest
+  remaining error and aims the next stroke at it. Starting from a deliberately
+  meagre stroke at 95% of ceiling: a corrective *positive* stroke gains **+8
+  and +13** points where there is room and costs nothing where there is not. A
+  corrective **⌥ stroke still hurts** — −12, −14 and −1 on three pictures, even
+  aimed at an error that is genuinely the selector's to fix. Additive steering
+  works; subtractive steering does not yet, and that is now a number rather
+  than an impression.
+
+  Two of the harness's own mistakes had to go before either reading meant
+  anything: corrective strokes were being aimed in pixels where the code
+  expected fractions, so every one of them landed off the picture and read as
+  "corrections do nothing"; and the aim has to skip errors the ceiling itself
+  makes, because an error the best possible region labelling shares is not the
+  selector's to fix and ⌥ at one cost 28 points.
+
+- **Seven generated pictures, graded, with their answers — and every selector
+  run through all of them.** `npm run evg:trace:web:bench`. Harder than a few
+  flat shapes, easier than a photograph, and generated rather than committed so
+  they are the same every run. Six share one silhouette so difficulty moves
+  along a single axis — what the two sides look like — and the seventh changes
+  the shape instead.
+
+  | picture | ceiling | click | lasso | brush | brush + ⌥ |
+  |---|---|---|---|---|---|
+  | one colour each side | 0.993 | 100% | 100% | 100% | 100% |
+  | both sides multi-toned | 0.976 | 55% | 100% | 100% | 100% |
+  | speckled: each side carries the other's colours | 0.913 | 57% | 100% | 100% | 100% |
+  | background gradient walks through the figure's tone | 0.743 | 71% | 100% | 100% | 100% |
+  | one palette, both sides, different arrangement | 0.313 | 77% | 100% | 100% | 100% |
+  | thin limbs and a hole | 0.947 | 57% | 97% | 97% | 97% |
+  | a decoy touching the figure, in its colours | 0.887 | 61% | 100% | 100% | 98% |
+  | **mean of ceiling** | | **68%** | **100%** | **100%** | **99%** |
+
+  Read the ceiling first. Where it is 0.31 the tracing has already merged
+  figure and background and no selector can do better; where it is 0.89 the
+  decoy has been partly merged into the figure it touches, which is a limit of
+  the pipeline and not of the selection. A colour click at 68% is the honest
+  number for one click on a many-toned object, and is why the brush exists.
+
+  The bench found a real bug on its first honest run: **a corrective ⌥ stroke
+  over pure background destroyed the selection** — 0.95 → 0.47 on the speckled
+  picture, and worse on three others. Not the hard constraint, not the colour
+  model: the stroke was *deleting positive hints*, because a stroke marked
+  every region it touched and a long ⌥ stroke brushes the edge of something a
+  positive stroke had claimed properly. Hints are kept as how much of each
+  region every kind of stroke has covered now, and the stroke that covered more
+  of a region is the one that pointed at it. That took ⌥ from 68% to 99%.
+
+  Two things were tried in between and are not in the code, because they did
+  not fix it and one of them cost elsewhere: excluding background examples
+  whose colour the foreground also wears (a colour both sides wear discriminates
+  nothing, so it should not vote — sound, and worth 0.001 here, while costing
+  0.11 on a photographic composite), and making a ⌥ stroke's constraint soft.
+  The isolating run is what settled it: with hint deletion switched off and
+  everything else unchanged, the number came back in full.
+
+  The geometric lasso is still there, as a mode: it answers a different
+  question ("which pieces are inside this line?") and answers it well.
 
 - **A "Taikasauva" in the edit mode: pick an object out of the drawing and cut
   the rest away.** Click a shape and the selection grows outward from it across
@@ -553,6 +973,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   exists. `npm run evg:trace:web:smoke` now builds a composite of its own and
   fails below 0.8.
 
+  A **"Siisteys"** control scores what the line picked out — area against
+  outline, both on the z-buffer — and drops the pieces that fail to pay their
+  way. A piece of area a carries an outline near 4·√a, so it goes when
+  a < 16·λ²: λ is a noise width in pixels and nothing more. Specks leave by
+  arithmetic rather than by a special case, a sharp corner costs nothing
+  because a corner is not extra length, and a limb survives, because trimming a
+  protrusion w cells wide only pays once λ > w/2. On the three composites it
+  holds accuracy and shortens the outline: on the hardest, IoU 0.861 → 0.873
+  with 5% less outline.
+
+  It only ever **drops**, and that restraint is the whole of what was learned
+  building it. Letting the same score *grow* the selection was tried three
+  ways — hill-climbing on area, on the net of inside against outside, and an
+  exact min-cut with the outline discounted wherever the picture's own colours
+  change. Hill-climbing on area swallows everything bigger than sixteen pixels
+  square (precision 0.97 → 0.76). The net version is stable but unrecoverably
+  sensitive to where it starts: from a generous start it keeps the whole
+  background, from a careful one it throws the suit away, and λ tips it from
+  one to the other with nothing in between. The min-cut settles that — the
+  energy is submodular, the graph is one node per shape, the exact answer costs
+  a millisecond — and it still keeps the background, because it is right to:
+  a curtain piece more than half inside a generous outline *is* a piece more
+  than half inside, and ending the region at the suit in front of it is the
+  cheaper cut. A line can say where the object is; it cannot say what, inside
+  it, is not the object, and no boundary term recovers that.
+
   Everything works on what is **visible**, and that is the whole design. A
   traced picture is stacked: a lower layer's shape is the union of itself and
   everything painted on top of it. On a test image of a box with a ball
@@ -594,120 +1040,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **`create_dir` meant four different things on four targets, and every one of
-  them failed only on the SECOND run** — which is the shape of every build
-  script. `es6` was `mkdirSync` with no `recursive`, so a directory that already
-  existed was an EEXIST stack trace; `php` was `mkdir` with no recursive flag, a
-  warning and no parents; `go` was `os.Mkdir` rather than `os.MkdirAll`; `java7`
-  was `File.mkdir` rather than `File.mkdirs`; and the C++ polyfill made one
-  level. Seven targets already did the right thing — make the path, parents and
-  all, and say nothing when it is there — and the other four do now.
-  `tests/create-dir.test.ts` checks it on ES6, Python and Go, cleaning the
-  directory out of each target's own run cwd first: a leftover tree from the
-  previous passing run is exactly what makes a broken `create_dir` look fixed.
-  Found by running the iOS build driver twice on a Mac.
-- `write_file` did not import `java.io.FileNotFoundException` on the java7
-  target, and its own polyfill catches it — so any Ranger program that writes a
-  file failed to compile on Java with "cannot find symbol". Found by compiling
-  `lib/apple` to all seven targets.
-- The `exit` operator narrowed its argument on Go and Rust, and gained a
-  `swift6` template. `os.Exit(int64)` does not compile, `std::process::exit`
-  wants an `i32`, and swift6 was falling through to the `*` template — which is
-  JavaScript.
-- `env_var` gained `java7`, `swift3` and `swift6` templates. It had `kotlin` and
-  not `java7`, so any Ranger program reading an environment variable failed type
-  analysis on the Java target.
-
-- **EVG laid out every element by formatting a debug message nobody read.**
-  `EVGLayout.log` takes an already-built string and discards it unless `debug`
-  is on, and one of its call sites is per-element in `layoutElement` — so every
-  element of every layout pass formatted four doubles into a message that went
-  nowhere. On the C++ target, where a double becomes a string through
-  `ostringstream`, `callgrind` put 47% of the layout phase's instructions
-  inside `vsnprintf`: 2,654 double→string conversions for one layout of an
-  82-element tree. Seven sites now build their string inside `if debug`.
-  Layout of that tree: **75× faster in C++** (2.107 ms → 0.028 ms), 2.4× in
-  Kotlin, 1.3× in JavaScript.
-
-- **`EVGStyleSheet.stripComments` was quadratic on every immutable-string
-  target.** It appended one character at a time, which on Kotlin, Swift, C# or
-  Java copies the whole accumulator per character — O(n²) for an n-byte
-  stylesheet. V8 hid it entirely by concatenating with a rope, so only the JVM
-  and native builds paid. It now appends whole slices between comments, with
-  byte-identical output on 19 cases including both real stylesheets in the
-  repository. Parsing a 6 KB sheet: **12× faster in Kotlin** (14.18 ms →
-  1.20 ms), 6.8× in C++, 1.7× in JavaScript — and together with the layout fix,
-  a cold first frame that is roughly half what it was.
-
-- **An element's gradient never reached the display list.** `hasGrad`, the
-  `gd`/`c2` fields of `toJson` and the WebGL shader's two-stop mix have all
-  been there for a long time, and nothing ever wrote one from an *element*: the
-  walk in `EVGDisplayList` read `backgroundColor` and no more. So
-  `background: linear-gradient(…)` came out flat when there was a
-  `background-color` beside it, and emitted no rectangle at all when there was
-  not — a box that simply did not appear. `applyGradient` is the walk that was
-  missing. Two directions and two stops is what the list can carry, so an angle
-  is snapped to the nearer axis and the stops are swapped when it points the
-  other way (exact for the four right angles); a radial gradient is left flat
-  rather than turned into a lie about its shape, and the RGU1
-  `gradient-from`/`gradient-to`/`gradient-dir` trio is passed through as it
-  stands. `EVGJsonTest` now covers the walk as well as the serializer, which is
-  the half it could not see.
-
-- **The Rust backend hoists a self call the argument only *contains*.** One
-  written directly as an argument — `this.dist(this.near(x))` — was already
-  lifted into a local, because both calls borrow `self` and Rust allows only
-  one such borrow at a time (E0499). One reached through anything else was not:
-  the check looked at the argument's own head, so `itemAt outR (this
-  .nearestIndex(…))` hid the call behind an index and the generated code did
-  not compile. Only the nested call moves out now, into a local of its own,
-  which is what rustc's own advice on the error says: an index stays the place
-  it names and nothing is moved out of it.
-
-  Nothing that opens a scope is searched, and the search stops at that branch
-  rather than stepping over it. A loop body is the case that matters — `for xs
-  item { this.markAsyncFrom(item visited) }` becomes a closure taking `item`,
-  so the call in it borrows `self` when the closure runs, not at the call site,
-  and a `let` lifted out of it lands where `item` does not exist. Hoisting into
-  loop bodies took the compiler's own Rust rendering from 6 errors to 119.
-
-- **The compiler's own Rust rendering compiles with no rustc errors.** It had
-  stood at 6, all one defect: a field read whose object is an EXPRESSION rather
-  than a name. `(node.getSecond()).vref` reads a String out of a `Ref` exactly
-  as `head.vref` does, but it is a property node with no dotted path, so every
-  test that decides "this read has to be cloned" turned it away and the String
-  moved out of the borrow (E0507). Three places asked that question and each
-  now recognises the shape: a local's initializer, a call argument, and the
-  temporary an operator hoists its operand into — the last of which was not
-  taking ownership of anything it hoisted. `rustc -O` builds the 81 000-line
-  rendering, and that binary compiles the compiler's own sources to output
-  byte-identical to the JavaScript build's.
-
-- **A union-typed field keeps its variant wrap when the right side goes to a
-  temporary.** `body = (new EvalValue.Map(…))` stores a member into a slot of
-  the family type, and Rust wants the enum variant around it. The wrap was
-  written at the assignment, so a right side pre-evaluated into a local — which
-  is what a receiverless method does, to keep a `borrow_mut()` from spanning
-  the right side — left the assignment with only `= <name>` to write, and the
-  bare member went into the slot: "expected `union_EvalValue`, found
-  `EvalValue_Map`". The wrap travels with the value into the temporary now. It
-  fixed 13 of the 14 Rust shape tests, which were failing on this one cause.
-
-- **A program may name a class `Cell`.** The Rust preamble imported
-  `std::cell::Cell` into every generated program, so a class of that name
-  collided with it — "the name `Cell` is defined multiple times" — and every
-  later mention resolved to the std type instead, with `value` suddenly a
-  private field and a missing generic argument. The std type is spelled in full
-  at its two use sites now, as the pool header already did with `UnsafeCell`,
-  so nothing is brought into scope to be shadowed. It also drops an unused
-  import from every generated program that has no interior cell at all — the
-  `evg-trace` Rust build now compiles with no warnings rather than one.
-
-- **`evg-trace` builds for Rust.** The tracer's palette refinement is where the
-  nested-call shape above came from, so `-l=rust` produced a program rustc
-  rejected. `npm run evg:trace:cli:rust` now builds it, and the smoke test
-  checks four targets rather than three: Node, Python, C++ and Rust all return
-  byte-for-byte the same SVG.
+- **The wand's z-buffer swallowed empty background.** The one-pixel seams
+  antialiasing leaves between shapes are closed by taking an assigned
+  neighbour, and closing them in place rather than from a snapshot let a
+  newly filled cell seed the next one in scan order — so a run of unassigned
+  cells filled to its end. Unassigned is not only seams: where a picture has
+  no shape at all, which is any background the tracer left out, the whole
+  empty region went to the first shape the scan met. On a test image of a box
+  and a ball it made the ball's visible area twice the ball, and a lasso drawn
+  round it selected nothing.
 
 ### Changed
 

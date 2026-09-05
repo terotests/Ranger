@@ -74,8 +74,20 @@
 
   .stage {
     background: var(--stage); min-height: 280px; display: flex; align-items: center; justify-content: center;
-    padding: 16px; overflow: auto;
+    padding: 16px; overflow: auto; position: relative;
   }
+  /* The geometry inspector lies over the drawing, never in it. */
+  .geomlayer { position: absolute; pointer-events: none; overflow: visible; }
+  .geomstats {
+    position: absolute; top: 10px; right: 10px; pointer-events: auto;
+    background: rgba(16,19,24,0.88); color: #e8eaed; border: 1px solid #2a3038;
+    border-radius: 6px; padding: 8px 10px; font-size: 11.5px; line-height: 1.55;
+    white-space: pre; font-variant-numeric: tabular-nums; letter-spacing: 0;
+    text-transform: none;
+  }
+  .geomzoom { display: flex; align-items: center; gap: 6px; margin-bottom: 6px;
+              padding-bottom: 6px; border-bottom: 1px solid #2a3038; }
+  .geomzoom select { font: inherit; }
   .stage img, .stage svg { max-width: 100%; height: auto; display: block; }
   /* Transparency needs something behind it to read against; the cream stage
      looks exactly like a painted cream background. */
@@ -112,6 +124,11 @@
      inline display of their own. */
   .editbar .wand-only { display: none !important; }
   .editbar.wand .wand-only { display: inline-flex !important; }
+  /* Same for the refine brush. These three sat unscoped beside the wand's own
+     controls and read as if they were the wand's — they are not; they change
+     nothing about what the wand selects. */
+  .editbar .refine-only { display: none !important; }
+  .editbar.refine .refine-only { display: inline-flex !important; }
   .tool { padding: 5px 12px; font-size: 12.5px; }
   .tool.active { background: var(--accent); border-color: var(--accent); color: #10131a; font-weight: 600; }
   /* Hit-testing wants the whole shape, not just its painted middle, and a
@@ -123,6 +140,13 @@
   #outStage.editing.refining svg path:hover { stroke: none; }
   #outStage.editing.smoothing svg path { cursor: grab; }
   #outStage.editing.smoothing svg path:hover { stroke: none; }
+  /* Zoomed in, the stage stops centring and starts scrolling, and the SVG is
+     allowed past the pane's width. The pointer mapping needs nothing: it reads
+     the element's own bounding rect, so a bigger element is simply finer. */
+  #outStage.zoomed { align-items: flex-start; justify-content: flex-start; }
+  /* A flex item shrinks to fit however wide you ask it to be, so zooming did
+     nothing until this: the picture has to be allowed to overflow the stage. */
+  #outStage.zoomed svg { max-width: none; flex: none; }
   #outStage.editing.wanding svg path { cursor: crosshair; }
   #outStage.editing.wanding svg path.wand-off { opacity: .12; }
   .split {
@@ -420,6 +444,7 @@
         </div>
         <div class="pane">
           <div class="head">SVG<span class="grow"></span>
+            <button type="button" class="tool" id="geomToggle" disabled title="Näytä mistä piirros on tehty: pisteet, suorat ja kaaret, ja kaarien kahvat. Punainen piste on kulma, vihreä pehmeä. Myös muiden alle jäävien muotojen reunat piirretään — se on dokumentti, ei näkyvä pinta. Luvut kertovat kuinka tiheään pisteitä on, eli jäljityksen laadun suoraan luettuna.">Pisteet</button>
             <button type="button" class="tool" id="editToggle" disabled>Muokkaa</button>
           </div>
           <div class="stage empty" id="outStage">—</div>
@@ -435,21 +460,67 @@
         <button type="button" class="tool" id="toolPick">Poimi väri</button>
         <span class="sep"></span>
         <span class="note" id="toolHelp"></span>
+        <label class="note wand-only" style="display:flex;align-items:center;gap:6px" title="Äly: sivellin antaa vihjeitä eikä piirrä rajaa — vedä kohteen yli, ⌥ vedä sen yli mikä ei kuulu mukaan. Lasso: veto on geometrinen raja, ja viivan sisään jäävät palaset otetaan.">Veto
+          <select id="wandMode" style="width:88px">
+            <option value="smart" selected>äly</option>
+            <option value="lasso">lasso</option>
+          </select>
+        </label>
+        <label class="note wand-only" style="display:flex;align-items:center;gap:6px" title="Kuinka leveä siveltimen jälki on, eli kuinka monta palaa yksi veto merkitsee.">Sivellin
+          <input id="wandBrush" type="range" min="6" max="90" step="2" value="26" style="width:70px">
+          <span class="val" id="v-wandBrush">26</span>
+        </label>
+        <label class="note wand-only" style="display:flex;align-items:center;gap:6px" title="Kuinka anteliaasti epävarmat palat luetaan kohteeseen. Vasemmalla otetaan vain se mikä muistuttaa vihjeitä selvästi, oikealla myös se mikä muistuttaa niitä hieman.">Kantama
+          <input id="wandReach" type="range" min="0" max="100" step="5" value="50" style="width:80px">
+          <span class="val" id="v-wandReach">50</span>
+        </label>
         <label class="note wand-only" style="display:flex;align-items:center;gap:6px" title="Kuinka kaukana napsautetusta sävystä valinta saa vielä kasvaa. 0 ottaa vain saman värin, iso luku vie yli sävyrajojen.">Sieto
           <input id="wandTol" type="range" min="0" max="180" step="4" value="40" style="width:80px">
           <span class="val" id="v-wandTol">40</span>
         </label>
+        <label class="note wand-only" style="display:flex;align-items:center;gap:6px" title="Kuinka rosoisia palasia valinta saa pitää. Palanen jonka reunaviivaa on paljon suhteessa sen pinta-alaan pudotetaan; luku on kohinan leveys pikseleinä. Terävät kulmat ja pitkät suorat eivät maksa mitään, vain rosoisuus maksaa.">Siisteys
+          <input id="wandTidy" type="range" min="0" max="24" step="1" value="4" style="width:80px">
+          <span class="val" id="v-wandTidy">4</span>
+        </label>
         <label class="note wand-only" style="display:flex;align-items:center;gap:6px" title="Rajaa kuvan reunat valitun kohteen ympärille, jolloin tuloksesta tulee ikonin kokoinen."><input type="checkbox" id="wandCrop" checked> rajaa reunoihin</label>
         <button type="button" class="tool wand-only" id="wandCut">Eristä</button>
-        <label class="note" style="display:flex;align-items:center;gap:6px" title="Kuinka monta omaa väriä tarkennettu paikka saa keksiä reunaltaan kiinnitettyjen lisäksi. Pieni luku pitää sauman näkymättömänä.">Lisävärit
+        <span class="sep wand-only"></span>
+        <label class="note wand-only" style="display:flex;align-items:center;gap:6px" title="Maalaa alueita suoraan valintaan tai pois siitä. Toisin kuin sivellinvihje, tämä ei ole ehdotus algoritmille vaan päätös: se rajaa muodot juuri siihen mitä maalasit, ja SVG rakennetaan uudelleen sen mukaan.">Maalaa
+          <button type="button" class="tool" id="wandPlus" style="padding:5px 10px">+</button>
+          <button type="button" class="tool" id="wandMinus" style="padding:5px 10px">−</button>
+          <select id="wandPaintSize" title="Siveltimen halkaisija kuvapisteinä">
+            <option value="4">4 px</option>
+            <option value="10" selected>10 px</option>
+            <option value="20">20 px</option>
+            <option value="50">50 px</option>
+          </select>
+        </label>
+        <label class="note wand-only" style="display:flex;align-items:center;gap:6px" title="Suurenna tulosta tarkempaa maalausta varten. Vieritä lavaa liikkuaksesi kuvassa.">Zoom
+          <select id="wandZoom">
+            <option value="1">100 %</option>
+            <option value="2">200 %</option>
+            <option value="3">300 %</option>
+            <option value="5">500 %</option>
+            <option value="8">800 %</option>
+          </select>
+        </label>
+        <label class="note wand-only" style="display:flex;align-items:center;gap:6px" title="Mitä ruudulla näytetään. Lopputulos on valinta sellaisenaan; muut näyttävät mihin päätös perustuu. Varmuus on se, kuinka paljon energiaa palan kääntäminen toiselle puolelle maksaisi — melkein valkoinen tarkoittaa että pala oli tasapelissä ja pieni lisäevidenssi kääntäisi sen.">Näytä
+          <select id="wandView">
+            <option value="result">lopputulos</option>
+            <option value="conf">varmuus</option>
+            <option value="regions">palat</option>
+            <option value="edges">rasterisärmät</option>
+          </select>
+        </label>
+        <label class="note refine-only" style="display:flex;align-items:center;gap:6px" title="Kuinka monta omaa sävyä tarkennettu paikka saa keksiä reunaltaan kiinnitettyjen lisäksi. Pieni luku pitää sauman näkymättömänä. Ei vaikuta taikasauvan valintaan.">Omat sävyt
           <input id="refineExtra" type="range" min="0" max="16" step="1" value="4" style="width:70px">
           <span class="val" id="v-refineExtra">4</span>
         </label>
-        <label class="note" style="display:flex;align-items:center;gap:6px" title="Kuinka voimakkaasti reunan muodot palautetaan ympäröiviin sävyihin">Sulautus
+        <label class="note refine-only" style="display:flex;align-items:center;gap:6px" title="Kuinka voimakkaasti tarkennetun laikun reunamuodot sulautetaan ympäröiviin sävyihin, jottei sauma näy. Ei vaikuta taikasauvan valintaan.">Reunan sulautus
           <input id="edgeBlend" type="range" min="0" max="120" step="4" value="90" style="width:70px">
           <span class="val" id="v-edgeBlend">90</span>
         </label>
-        <label class="note" style="display:flex;align-items:center;gap:6px">Koko
+        <label class="note refine-only" style="display:flex;align-items:center;gap:6px" title="Tarkentimen siveltimen leveys pikseleinä.">Tarkentimen koko
           <input id="refineSize" type="range" min="12" max="120" step="4" value="40" style="width:90px">
           <span class="val" id="v-refineSize">40</span>px
         </label>
@@ -1175,6 +1246,8 @@
   var editToggle = $("editToggle"), editbar = $("editbar");
   var toolMerge = $("toolMerge"), toolRefine = $("toolRefine"), toolPick = $("toolPick");
   var toolWand = $("toolWand"), wandTol = $("wandTol"), wandCrop = $("wandCrop");
+  var wandTidyEl = $("wandTidy"), wandMode = $("wandMode");
+  var wandBrush = $("wandBrush"), wandReach = $("wandReach");
   var editColor = $("editColor"), refineSize = $("refineSize"), editNote = $("editNote");
 
   // A traced layer is one path holding every ring of its color, so clicking it
@@ -1271,6 +1344,294 @@
 
   function outSvg() { return outStage.querySelector("svg"); }
 
+  // ------------------------------------------------------- what the SVG is
+  //
+  // Every number in the parameter column is about the picture. This one is
+  // about the *drawing*: where the points are, which segments are straight and
+  // which are curved, where the handles point, and which corners the tracer
+  // decided are corners. It is the view a draughtsman asks for before saying
+  // whether an outline is any good, and it answers the questions the rendered
+  // picture cannot — a shape that looks clean at 100 % can be forty points
+  // long where four would do, and a curve fitted through raster stairs looks
+  // smooth until you see its handles zig-zag.
+  //
+  // It is drawn into a *separate* overlay SVG rather than into the drawing,
+  // because everything else in this file — the wand's graph, the exporter, the
+  // shape count in the status line — walks `svg.querySelectorAll("path")`, and
+  // an inspector that adds paths to the document would lie to all of them.
+  var geomShown = false;
+
+  // Anchors within this many degrees of straight-through count as smooth; the
+  // rest are corners. Fifteen is where a fitted curve's own rounding stops
+  // mattering and a real corner starts.
+  var GEOM_SMOOTH_DEG = 15;
+
+  function geomNums(s) {
+    var m = s.match(/-?\d*\.?\d+(?:[eE][-+]?\d+)?/g);
+    return m ? m.map(Number) : [];
+  }
+
+  // One path's `d`, walked into segments and anchors. Handles what this tracer
+  // writes (M, L, C, Z) and what an imported or hand-edited file might bring
+  // with it; an arc is counted as a curve and drawn as itself.
+  function geomWalk(d, sink) {
+    var chunks = d.match(/[MmLlHhVvCcSsQqTtAaZz][^MmLlHhVvCcSsQqTtAaZz]*/g);
+    if (!chunks) return;
+    var x = 0, y = 0, sx = 0, sy = 0, nodes = null, lastC = null;
+    function node(nx, ny) { return { x: nx, y: ny, inD: null, outD: null }; }
+    function flush(closed) {
+      if (!nodes || !nodes.length) { nodes = null; return; }
+      if (closed && nodes.length > 1) {
+        var first = nodes[0], last = nodes[nodes.length - 1];
+        // A closed ring's first and last point are the same point.
+        if (Math.abs(first.x - last.x) < 1e-6 && Math.abs(first.y - last.y) < 1e-6) {
+          first.inD = last.inD; nodes.pop();
+        } else { first.inD = { x: first.x - last.x, y: first.y - last.y }; }
+      }
+      sink.ring(nodes, closed);
+      nodes = null;
+    }
+    for (var ci = 0; ci < chunks.length; ci++) {
+      var c = chunks[ci], op = c[0], rel = op >= "a", up = op.toUpperCase();
+      var n = geomNums(c), k = 0;
+      if (up === "Z") { flush(true); x = sx; y = sy; lastC = null; continue; }
+      do {
+        var ax = x, ay = y, nx, ny, c1, c2;
+        if (up === "M") {
+          nx = n[k++]; ny = n[k++];
+          if (rel) { nx += x; ny += y; }
+          flush(false);
+          nodes = [node(nx, ny)];
+          sx = nx; sy = ny; x = nx; y = ny; lastC = null;
+          up = "L";                                  // implicit lineto after M
+          continue;
+        }
+        if (up === "H") { nx = rel ? x + n[k++] : n[k++]; ny = y; }
+        else if (up === "V") { nx = x; ny = rel ? y + n[k++] : n[k++]; }
+        else if (up === "L") { nx = n[k++]; ny = n[k++]; if (rel) { nx += x; ny += y; } }
+        else if (up === "C" || up === "S" || up === "Q" || up === "T") {
+          if (up === "C") {
+            c1 = { x: n[k++], y: n[k++] }; c2 = { x: n[k++], y: n[k++] };
+            nx = n[k++]; ny = n[k++];
+            if (rel) { c1.x += x; c1.y += y; c2.x += x; c2.y += y; nx += x; ny += y; }
+          } else if (up === "S") {
+            c2 = { x: n[k++], y: n[k++] }; nx = n[k++]; ny = n[k++];
+            if (rel) { c2.x += x; c2.y += y; nx += x; ny += y; }
+            c1 = lastC ? { x: 2*x - lastC.x, y: 2*y - lastC.y } : { x: x, y: y };
+          } else if (up === "Q") {
+            var q = { x: n[k++], y: n[k++] }; nx = n[k++]; ny = n[k++];
+            if (rel) { q.x += x; q.y += y; nx += x; ny += y; }
+            c1 = { x: x + 2*(q.x - x)/3, y: y + 2*(q.y - y)/3 };
+            c2 = { x: nx + 2*(q.x - nx)/3, y: ny + 2*(q.y - ny)/3 };
+            lastC = q;
+          } else {                                    // T, a mirrored quadratic
+            nx = n[k++]; ny = n[k++];
+            if (rel) { nx += x; ny += y; }
+            var q2 = lastC ? { x: 2*x - lastC.x, y: 2*y - lastC.y } : { x: x, y: y };
+            c1 = { x: x + 2*(q2.x - x)/3, y: y + 2*(q2.y - y)/3 };
+            c2 = { x: nx + 2*(q2.x - nx)/3, y: ny + 2*(q2.y - ny)/3 };
+            lastC = q2;
+          }
+        } else if (up === "A") {
+          k += 5; nx = n[k++]; ny = n[k++];
+          if (rel) { nx += x; ny += y; }
+        } else { break; }
+        if (!nodes) nodes = [node(ax, ay)];
+        var to = node(nx, ny), from = nodes[nodes.length - 1];
+        if (c1) {
+          from.outD = { x: c1.x - ax, y: c1.y - ay };
+          to.inD = { x: nx - c2.x, y: ny - c2.y };
+          sink.curve(ax, ay, c1, c2, nx, ny);
+          if (up === "C" || up === "S") lastC = c2;
+        } else {
+          from.outD = { x: nx - ax, y: ny - ay };
+          to.inD = { x: nx - ax, y: ny - ay };
+          sink.line(ax, ay, nx, ny);
+          lastC = null;
+        }
+        nodes.push(to);
+        x = nx; y = ny;
+      } while (k < n.length);
+    }
+    flush(false);
+  }
+
+  // The whole drawing, measured and drawn at once.
+  function geomScan(paths) {
+    var line = [], curve = [], hand = [], corner = [], smooth = [], ctrl = [];
+    var S = { rings: 0, anchors: 0, lines: 0, curves: 0, corners: 0,
+              len: 0, short: 0, tiny: 0, lens: [], crumbs: 0, bytes: 0 };
+    var dot = function (a, px, py) { a.push("M" + px.toFixed(2) + " " + py.toFixed(2) + "l0 0"); };
+    var cosLimit = Math.cos((180 - GEOM_SMOOTH_DEG) * Math.PI / 180);
+    var sink = {
+      line: function (ax, ay, bx, by) {
+        line.push("M" + ax.toFixed(2) + " " + ay.toFixed(2) + "L" + bx.toFixed(2) + " " + by.toFixed(2));
+        var L = Math.hypot(bx - ax, by - ay);
+        S.lines++; S.len += L; S.lens.push(L);
+        if (L < 1) S.short++;
+        if (L < 0.35) S.tiny++;
+      },
+      curve: function (ax, ay, c1, c2, bx, by) {
+        curve.push("M" + ax.toFixed(2) + " " + ay.toFixed(2)
+          + "C" + c1.x.toFixed(2) + " " + c1.y.toFixed(2)
+          + " " + c2.x.toFixed(2) + " " + c2.y.toFixed(2)
+          + " " + bx.toFixed(2) + " " + by.toFixed(2));
+        hand.push("M" + ax.toFixed(2) + " " + ay.toFixed(2) + "L" + c1.x.toFixed(2) + " " + c1.y.toFixed(2));
+        hand.push("M" + bx.toFixed(2) + " " + by.toFixed(2) + "L" + c2.x.toFixed(2) + " " + c2.y.toFixed(2));
+        dot(ctrl, c1.x, c1.y); dot(ctrl, c2.x, c2.y);
+        // Chord and control polygon bracket the true length; their mean is
+        // within a percent of it for anything this shallow, and it costs no
+        // DOM at all.
+        var chord = Math.hypot(bx - ax, by - ay);
+        var poly = Math.hypot(c1.x - ax, c1.y - ay) + Math.hypot(c2.x - c1.x, c2.y - c1.y)
+                 + Math.hypot(bx - c2.x, by - c2.y);
+        var L2 = (chord + poly) / 2;
+        S.curves++; S.len += L2; S.lens.push(L2);
+        if (L2 < 1) S.short++;
+        if (L2 < 0.35) S.tiny++;
+      },
+      ring: function (nodes) {
+        S.rings++;
+        var rx0 = 1e9, ry0 = 1e9, rx1 = -1e9, ry1 = -1e9;
+        for (var q = 0; q < nodes.length; q++) {
+          if (nodes[q].x < rx0) rx0 = nodes[q].x; if (nodes[q].x > rx1) rx1 = nodes[q].x;
+          if (nodes[q].y < ry0) ry0 = nodes[q].y; if (nodes[q].y > ry1) ry1 = nodes[q].y;
+        }
+        if (Math.hypot(rx1 - rx0, ry1 - ry0) < 4) S.crumbs++;
+        for (var i = 0; i < nodes.length; i++) {
+          var nd = nodes[i];
+          S.anchors++;
+          var hard = true;
+          if (nd.inD && nd.outD) {
+            var a = Math.hypot(nd.inD.x, nd.inD.y), b = Math.hypot(nd.outD.x, nd.outD.y);
+            if (a > 1e-9 && b > 1e-9) {
+              var cos = (nd.inD.x * nd.outD.x + nd.inD.y * nd.outD.y) / (a * b);
+              hard = cos < Math.cos(GEOM_SMOOTH_DEG * Math.PI / 180);
+            }
+          }
+          if (hard) S.corners++;
+          dot(hard ? corner : smooth, nd.x, nd.y);
+        }
+      },
+    };
+    for (var i = 0; i < paths.length; i++) {
+      var dd = paths[i].getAttribute("d") || "";
+      S.bytes += dd.length;
+      geomWalk(dd, sink);
+    }
+    S.lens.sort(function (a, b) { return a - b; });
+    S.median = S.lens.length ? S.lens[S.lens.length >> 1] : 0;
+    return { line: line, curve: curve, hand: hand, corner: corner, smooth: smooth,
+             ctrl: ctrl, stats: S };
+  }
+
+  function geomClear() {
+    var old = outStage.querySelector(".geomlayer");
+    if (old) old.remove();
+    var note = outStage.querySelector(".geomstats");
+    if (note) note.remove();
+  }
+
+  function geomSync() {
+    var svg = outSvg(), ov = outStage.querySelector(".geomlayer");
+    if (!svg || !ov) return;
+    // An SVG element has no offsetLeft — that is an HTML property — so the box
+    // is measured, and the stage's own scroll is added back because the layer
+    // is positioned inside it and scrolls with the picture.
+    var r = svg.getBoundingClientRect(), b = outStage.getBoundingClientRect();
+    ov.style.left = (r.left - b.left + outStage.scrollLeft) + "px";
+    ov.style.top = (r.top - b.top + outStage.scrollTop) + "px";
+    ov.style.width = r.width + "px";
+    ov.style.height = r.height + "px";
+  }
+
+  function geomDraw() {
+    geomClear();
+    var svg = outSvg();
+    if (!svg) return;
+    // The wand has a zoom of its own and it is the same zoom; pick up whatever
+    // it left the picture at rather than showing a stale 100 %.
+    var wide = /^(\d+)%$/.exec(svg.style.width || "");
+    if (wide) geomZoom = Math.max(1, Math.round(+wide[1] / 100));
+    var paths = wandPaths(svg);
+    var t0 = performance.now();
+    var G = geomScan(paths), S = G.stats;
+    var ov = document.createElementNS(SVGNS, "svg");
+    ov.setAttribute("class", "geomlayer");
+    ov.setAttribute("viewBox", svg.getAttribute("viewBox") || "");
+    ov.setAttribute("preserveAspectRatio", svg.getAttribute("preserveAspectRatio") || "xMidYMid meet");
+    var add = function (d, stroke, w, cap, alpha) {
+      if (!d.length) return;
+      var p = document.createElementNS(SVGNS, "path");
+      p.setAttribute("d", d.join(""));
+      p.setAttribute("fill", "none");
+      p.setAttribute("stroke", stroke);
+      p.setAttribute("stroke-width", w);
+      p.setAttribute("vector-effect", "non-scaling-stroke");
+      if (cap) p.setAttribute("stroke-linecap", cap);
+      if (alpha) p.setAttribute("stroke-opacity", alpha);
+      ov.appendChild(p);
+    };
+    // Order matters: the outline underneath, the handles over it, the points
+    // on top, because the points are what you are counting.
+    add(G.line, "#4ea3ff", 1, null, 0.85);
+    add(G.curve, "#ffb454", 1, null, 0.6);
+    add(G.hand, "#8b94a2", 0.6, null, 0.45);
+    // A zero-length subpath with a round cap is a dot whose size is the stroke
+    // width — and a non-scaling stroke keeps it the same on screen at 100 % and
+    // at 800 %, which is the whole point of zooming in on a node.
+    add(G.ctrl, "#8b94a2", 2.2, "round", 0.55);
+    add(G.smooth, "#5ddc9b", 3.2, "round");
+    add(G.corner, "#ff5d5d", 3.6, "round");
+    outStage.appendChild(ov);
+    geomSync();
+
+    var per = S.len > 0 ? (100 * S.anchors / S.len) : 0;
+    var note = document.createElement("div");
+    note.className = "geomstats";
+    var row = document.createElement("div");
+    row.className = "geomzoom";
+    row.appendChild(document.createTextNode("Zoom "));
+    var sel = document.createElement("select");
+    [1, 2, 4, 8, 16].forEach(function (z) {
+      var o = document.createElement("option");
+      o.value = z; o.textContent = (z * 100) + " %";
+      if (z === geomZoom) o.selected = true;
+      sel.appendChild(o);
+    });
+    sel.addEventListener("change", function () { geomSetZoom(+sel.value); });
+    row.appendChild(sel);
+    note.appendChild(row);
+    var body = document.createElement("div");
+    note.appendChild(body);
+    body.textContent =
+      paths.length + " polkua · " + S.rings + " rengasta · " + S.anchors + " pistettä\n"
+      + S.lines + " suoraa · " + S.curves + " kaarta ("
+      + Math.round(100 * S.curves / Math.max(1, S.lines + S.curves)) + " %)\n"
+      + S.corners + " kulmaa · " + (S.anchors - S.corners) + " pehmeää pistettä\n"
+      + "reunaviivaa " + Math.round(S.len) + " yks · piste / 100 yks " + per.toFixed(1) + "\n"
+      + "mediaanijakso " + S.median.toFixed(2) + " yks · alle 1 yks " + S.short
+      + " (" + Math.round(100 * S.short / Math.max(1, S.lines + S.curves)) + " %)\n"
+      + "alle 0,35 yks " + S.tiny + " · sirpalerenkaita " + S.crumbs + "\n"
+      + "polkudataa " + (S.bytes / 1024).toFixed(1) + " kt · "
+      + (S.anchors ? (S.bytes / S.anchors).toFixed(1) : "0") + " t / piste · "
+      + Math.round(performance.now() - t0) + " ms";
+    outStage.appendChild(note);
+  }
+
+  var geomZoom = 1;
+  function geomSetZoom(z) {
+    geomZoom = z;
+    var svg = outSvg();
+    if (!svg) return;
+    outStage.classList.toggle("zoomed", z > 1);
+    svg.style.width = z > 1 ? (z * 100) + "%" : "";
+    geomSync();
+  }
+
+  function geomRefresh() { if (geomShown) geomDraw(); }
+
+
   // Every edit path already reports what it did here, so this is where the
   // status line's live half gets refreshed too. Debounced, because the smooth
   // brush says something on every dab and serializing half a megabyte of SVG a
@@ -1294,10 +1655,13 @@
     outStage.classList.toggle("smoothing", !picking && editTool === "smooth");
     outStage.classList.toggle("wanding", !picking && editTool === "wand");
     editbar.classList.toggle("wand", editTool === "wand" && !picking);
+    editbar.classList.toggle("refine", editTool === "refine" && !picking);
     $("toolHelp").textContent = picking ? "Napsauta muotoa poimiaksesi sen värin."
       : editTool === "merge" ? "Napsauta muotoja: ne saavat valitun värin ja sulautuvat naapureihinsa."
       : editTool === "refine" ? "Vedä alueen yli: se vektoroidaan uudelleen omalla paletillaan."
-      : editTool === "wand" ? "Napsauta kohdetta, tai piirrä sen ympäri suurin piirtein — valinta napsahtaa kuvan omiin rajoihin. ⇧ lisää, ⌥ poistaa. Eristä leikkaa muun pois."
+      : editTool === "wand" ? (wandMode.value === "smart"
+        ? "Vedä siveltimellä kohteen yli — se antaa vihjeitä, ei piirrä rajaa. ⌥ vedä sen yli mikä ei kuulu mukaan. Napsautus valitsee saman sävyn. Eristä leikkaa muun pois."
+        : "Piirrä kohteen ympäri: viivan sisään jäävät palaset otetaan. Napsautus valitsee saman sävyn. ⇧ lisää, ⌥ poistaa.")
       : "Vedä ääriviivan yli: kulmat pyöristyvät, pienet muodot katoavat.";
   }
 
@@ -1329,6 +1693,33 @@
   // a blend cannot survive that, and the few boundary pixels it discards are
   // boundary pixels.
   var WAND_RASTER = 768;
+  // How far from a hint the question is even asked, how strongly neighbours
+  // hold together, and the two scales that say what "similar colour" and "a
+  // real edge" mean. Tuned against composites whose answer is known.
+  // PAIR_WEIGHT is how much the neighbour term weighs against the evidence.
+  // The cleanup has a constant of its own that also used to be called lambda,
+  // and is a radius in pixels; it is called one now. Two different quantities
+  // under one letter is how "let's tune lambda" becomes a question nobody can
+  // answer.
+  //
+  // PAIR_WEIGHT was 26 and is 6, because the tracer changed under it. It was
+  // tuned when the merge collapsed weak edges, so the boundaries it glued
+  // across were not in the trace anyway; once they are, gluing across them is
+  // the selector's largest single error. The knob is a genuine trade and the
+  // numbers are in the changelog: low is better on one stroke and at the
+  // median, high is better for a meagre stroke and for the worst hand of
+  // twenty. Six keeps most of the accuracy and gives back some of the
+  // steadiness, and the correction path — which is the thing the tool is
+  // actually judged on — is 99% either way.
+  var WAND_HOPS = 12, PAIR_WEIGHT = 6, WAND_SIGMA_C = 14, WAND_SIGMA_E = 26;
+  var WAND_FAR = 0.6;
+  // Manual evidence must outweigh a guess. The frame prior is a good prior and
+  // a false rule — a portrait crop touches the bottom edge, a full-bleed
+  // illustration touches all four — so an example taken from the frame counts
+  // as this much further away than one the user pointed at. Below the
+  // measurement's own noise on the composites, which have no manual background
+  // strokes; it is here on the argument, not on a number.
+  var WAND_AUTO_BG = 1.35;
   var WAND_KEY = 0x9E3779;
   var SVGNS = "http://www.w3.org/2000/svg";
   var wandSel = null, wandGraph = null, wandSeq = 0;
@@ -1337,6 +1728,217 @@
   // raster of each clip so the enclosure rule and the crop box see the same
   // picture the viewer will.
   var wandClipOf = new Map(), wandClipEls = new Map(), wandClipRaster = new Map();
+  // Clips a drawn line made are part of the answer and stay. Clips the coherence
+  // step made are a conclusion from the hints given so far, so they are torn up
+  // and redrawn on every stroke — left standing, a region clipped to yesterday's
+  // body cannot be given back by today's correction, and steerability went from
+  // 95% to 75% for exactly that reason.
+  var wandAutoClips = new Set();
+  function wandClearAutoClips() {
+    wandAutoClips.forEach(function (cid) {
+      var el = wandClipEls.get(cid);
+      if (el && el.parentNode) el.parentNode.removeChild(el);
+      wandClipEls.delete(cid);
+      wandClipRaster.delete(cid);
+    });
+    wandClipOf.forEach(function (cid, i) { if (wandAutoClips.has(cid)) wandClipOf.delete(i); });
+    wandAutoClips = new Set();
+  }
+  // What the user has pointed at, and what they have pointed away from. These
+  // accumulate across strokes: the flow is draw, look, add the hand it missed,
+  // ⌥ the curtain it took, and every stroke re-runs the whole classification.
+  //
+  // Kept as how much of each region every kind of stroke has covered, not as
+  // two sets, because the two can disagree about the same region and the
+  // answer is not "whoever spoke last". A ⌥ stroke along the top of a picture
+  // brushes the edge of something a positive stroke had claimed properly, and
+  // taking the hint away for that cost half the selection: measured on a
+  // speckled picture, a corrective stroke over pure background took it from
+  // 0.95 to 0.47, and putting the hint back was the whole of the difference.
+  // The stroke that covered more of the region is the one that pointed at it.
+  var wandFgTouch = new Map(), wandBgTouch = new Map();
+  var wandFg = new Set(), wandBg = new Set();
+  // Region → what flipping it would cost. Filled by the cut; read by the views.
+  var wandCost = new Map();
+  // What the hand painted, over and above what the algorithm decided. Two
+  // rasters the size of the wand's own grid: one of cells forced in, one of
+  // cells forced out. They are not hints — a hint is an argument the min-cut
+  // weighs, and these are the answer itself — so they are applied after it,
+  // every time, and they survive the next stroke.
+  var wandAddMask = null, wandCutMask = null, wandPaintMode = null;
+
+  // The invariant, in one place, because it is the rule the whole interaction
+  // rests on and it was wrong once:
+  //
+  //     positive[i] = cells covered by positive strokes
+  //     negative[i] = cells covered by ⌥ strokes
+  //
+  // — counted only over the regions each stroke actually pointed at, which is
+  // the first half of the invariant and lives in wandUnderStroke. A stroke
+  // crosses things on its way; crossing is not pointing.
+  //
+  //     positive > negative, and clearly so  → FG
+  //     negative > positive, and clearly so  → BG
+  //     otherwise                            → UNKNOWN
+  //
+  // "Clearly" is the second half and it matters as much as the first. A region
+  // the two strokes covered about equally has been pointed at twice and told
+  // two different things; forcing it to a side spends a certainty nobody has.
+  // Left unknown, the min-cut decides it on the evidence around it, which is
+  // what the min-cut is for. Measured: a band up to 0.1 costs nothing on the
+  // bench, 0.2 costs nine points — past a tenth it starts discarding hints
+  // that were not really contested.
+  var WAND_CONFIDENT = 0.1;
+
+  // How much of a region a stroke has to cover, or how much of the stroke a
+  // region has to hold, before the stroke counts as pointing at it. Either
+  // one. Both swept on the bench and on the jitter run; see wandUnderStroke.
+  var WAND_POINTED_COV = 0.1;
+  var WAND_POINTED_SHARE = 0.1;
+
+  // The width of one mixture component, in Lab units; see labMixture. It sets
+  // how much a seed's size is allowed to speak: at σ the area term is worth
+  // 2σ²·ln(share), so a small σ is nearly nearest-seed and a large one lets a
+  // big region shout down a small one of the same colour.
+  var WAND_SIGMA_M = 6;
+
+  // How many solve-and-relearn passes. Two: a third changes nothing, because
+  // the second already converges on every picture in the bench. See wandSmart.
+  //
+  // There is deliberately no weight here making a relearned example count for
+  // less than one the user gave. It was written that way first and measured
+  // exactly nothing — 1.0, 1.6, 2.5 and 8.0 give identical numbers on every
+  // metric — and the reason is structural: a multiplicative penalty on a
+  // colour distance vanishes exactly where these examples act. A region is
+  // claimed by the relearned model when its colour nearly matches one of them,
+  // the distance is then near zero, and eight times near zero is still near
+  // zero. What actually holds the loop steady is the area weighting in
+  // labMixture, which is not multiplicative in the distance.
+  var WAND_PASSES = 2;
+
+  // What a hint is worth, as a multiple of the strongest ordinary evidence a
+  // region can carry. It was infinity — a region the brush covered was
+  // foreground and nothing could say otherwise — which is right for a brush
+  // that paints pixels and wrong for one that lands on whole regions. The
+  // brush has a width, and a stroke down a standing figure reaches the feet,
+  // where it catches the sand around them. Those regions became hard
+  // constraints, the colour model learned from them that sand is the object,
+  // and the whole beach followed: on the photograph the brush scored 0.170
+  // with a precision of 0.178, having selected the man and 60 000 px of
+  // shore. Nothing downstream could refuse it, because a constraint is not
+  // evidence and cannot be outvoted.
+  //
+  // Finite, it can be. A hint that landed correctly is still never in danger —
+  // nothing outvotes it, because everything around it agrees — and one that
+  // landed on the wrong side of a foot is now a strong opinion rather than an
+  // axiom. Tried once before on the synthetic bench alone, where it changed no
+  // score at any strength, and reverted for it; the photograph is what showed
+  // that the bench could not see this.
+  var WAND_HINT = 0.3;
+
+  var WAND_PASSES = 2;
+
+  // A hint is an axiom: a region the user's brush covered is foreground and
+  // nothing outvotes it. Making it finite was tried, because the brush has a
+  // width and drawn down a figure with a gap between the legs it covers the
+  // gap — on the limbed picture it covered 100% of one background region and
+  // 37% of another. Softening it did exactly what it was meant to: straight
+  // out of the min-cut the answer went from 0.881 to 0.931. It changed no
+  // final score at any strength from 0.4 to infinity, because what was putting
+  // the gap back was the enclosure below and not the constraint. So the
+  // constraint stays hard, which is the property the interaction rests on —
+  // what you point at is selected, always — and the fix lives where the fault
+  // was.
+
+  // How plainly an enclosed hole has to look like the background before it is
+  // let go again. Zero keeps every hole the enclosure found, infinity keeps
+  // none of them and turns the enclosure off; the whole rule sits on this one
+  // number, which is why it is a number and not two code paths.
+  var WAND_ENCLOSE = 0.6;
+  function wandSettle() {
+    wandFg = new Set();
+    wandBg = new Set();
+    var seen = new Set();
+    wandFgTouch.forEach(function (v, i) { seen.add(i); });
+    wandBgTouch.forEach(function (v, i) { seen.add(i); });
+    seen.forEach(function (i) {
+      var f = wandFgTouch.get(i) || 0, b = wandBgTouch.get(i) || 0;
+      if (f + b <= 0) return;
+      if (Math.abs(f - b) / (f + b) < WAND_CONFIDENT) return;   // contested
+      if (f > b) wandFg.add(i); else wandBg.add(i);
+    });
+    window.__settle = { touched: seen.size, fg: wandFg.size, bg: wandBg.size,
+      sample: Array.from(seen).slice(0, 6).map(function (i) {
+        return [i, wandFgTouch.get(i) || 0, wandBgTouch.get(i) || 0]; }) };
+  }
+
+  // Which regions a stroke passed over. The brush is a path, not a polygon —
+  // what it touches is a hint, not a border.
+  function wandUnderStroke(g, pts, radius) {
+    var hit = new Map();
+    var cv = document.createElement("canvas");
+    cv.width = g.cw; cv.height = g.ch;
+    var cx = cv.getContext("2d", { willReadFrequently: true });
+    cx.setTransform(g.sc, 0, 0, g.sc, -g.vb[0] * g.sc, -g.vb[1] * g.sc);
+    cx.strokeStyle = "#fff";
+    cx.lineWidth = radius * 2;
+    cx.lineCap = "round";
+    cx.lineJoin = "round";
+    cx.beginPath();
+    cx.moveTo(pts[0].x, pts[0].y);
+    for (var i = 1; i < pts.length; i++) cx.lineTo(pts[i].x, pts[i].y);
+    if (pts.length === 1) cx.lineTo(pts[0].x + 0.01, pts[0].y);
+    cx.stroke();
+    var d = cx.getImageData(0, 0, g.cw, g.ch).data;
+    var n = g.cw * g.ch, touched = new Int32Array(g.n);
+    for (var p = 0; p < n; p++) {
+      if (d[p * 4 + 3] <= 128) continue;
+      var id = g.ids[p];
+      if (id) touched[id - 1]++;
+    }
+    // What the stroke pointed at. A count of covered cells says nothing on its
+    // own: a brush crossing a comb covers the background between the teeth
+    // too, and on the interleaved picture that put 2611 cells of an
+    // 86000-cell background region under a positive stroke — thirty times the
+    // old floor of 30 cells, and the whole of that picture's error.
+    //
+    // Two different things can make a region worth calling pointed at, and a
+    // rule needs both or it fails one way or the other:
+    //
+    //   coverage  the stroke went over a good part of the region. This is what
+    //             a long sweep down a figure does, and it is also the only
+    //             thing that saves a speck the brush swallows whole.
+    //   share     the region holds a good part of the stroke. This is what a
+    //             short careful dab into a large shape does — it covers two
+    //             per cent of it and means it entirely.
+    //
+    // Either one is enough. A region with neither was crossed on the way to
+    // something else. Measuring only coverage threw away small strokes
+    // (steerability 93% to 61%); measuring only share threw away the specks.
+    var total = 0;
+    for (var k = 0; k < g.n; k++) total += touched[k];
+    for (var k2 = 0; k2 < g.n; k2++) {
+      if (touched[k2] < 12) continue;              // a grazed corner
+      var cov = g.seen[k2] > 0 ? touched[k2] / g.seen[k2] : 0;
+      var share = total > 0 ? touched[k2] / total : 0;
+      if (cov < WAND_POINTED_COV && share < WAND_POINTED_SHARE) continue;
+      hit.set(k2, touched[k2]);
+    }
+    return hit;
+  }
+
+  // sRGB to CIE Lab, D65. Colour distance in RGB says a dark navy and a dark
+  // brown are neighbours; in Lab it says what a person would say.
+  function rgbLab(r, g, b) {
+    function lin(v) { v /= 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }
+    var R = lin(r), G = lin(g), B = lin(b);
+    var x = (0.4124 * R + 0.3576 * G + 0.1805 * B) / 0.95047;
+    var y = (0.2126 * R + 0.7152 * G + 0.0722 * B);
+    var z = (0.0193 * R + 0.1192 * G + 0.9505 * B) / 1.08883;
+    function f(t) { return t > 0.008856 ? Math.pow(t, 1 / 3) : (7.787 * t) + 16 / 116; }
+    var fx = f(x), fy = f(y), fz = f(z);
+    return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
+  }
 
   function wandRgb(fill) {
     if (!/^#[0-9a-f]{6}$/i.test(fill || "")) return [0, 0, 0];
@@ -1406,7 +2008,7 @@
       return cx.getImageData(0, 0, cw, ch).data;
     }
     var A = pass(1), B = pass(WAND_KEY);
-    var n = cw * ch, ids = new Int32Array(n), seen = new Int32Array(els.length);
+    var n = cw * ch, ids = new Int32Array(n);
     for (var p = 0; p < n; p++) {
       var o = p * 4;
       var a = A[o] | (A[o + 1] << 8) | (A[o + 2] << 16);
@@ -1414,32 +2016,235 @@
       var b = B[o] | (B[o + 1] << 8) | (B[o + 2] << 16);
       if ((Math.imul(a, WAND_KEY) & 0xffffff) !== b) continue;   // an antialiased blend
       ids[p] = a;
-      seen[a - 1]++;
+    }
+    // The blends leave a one-pixel seam of unassigned cells between every pair
+    // of shapes, and an unassigned cell is a hole in everything measured from
+    // this buffer — an outline length most of all, which would count every
+    // seam in the picture as roughness. Two passes of taking an assigned
+    // neighbour close them.
+    //
+    // From a snapshot, so a pass reaches exactly one cell. Filled in place it
+    // does not: a newly filled cell is a source for the next one in scan
+    // order, so a run of unassigned cells fills to its end — and unassigned is
+    // not only seams. Where a picture has no shape at all, which is any
+    // background the tracer left out, the whole empty region was swallowed by
+    // the first shape the scan met. It showed up as a ball whose visible area
+    // was twice the ball.
+    for (var fp = 0; fp < 2; fp++) {
+      var src = ids.slice();
+      for (var q = 0; q < n; q++) {
+        if (src[q]) continue;
+        var qx = q % cw, qy = (q / cw) | 0;
+        var got = (qx > 0 && src[q - 1]) || (qx + 1 < cw && src[q + 1])
+          || (qy > 0 && src[q - cw]) || (qy + 1 < ch && src[q + cw]) || 0;
+        if (got) ids[q] = got;
+      }
+    }
+    // ------------------------------------------------- a piece, not a path
+    //
+    // Up to here `ids` names the path that drew each cell, and the wand treated
+    // one path as one thing to take or leave. On a photograph that is the wrong
+    // unit. The tracer draws a base surface under the whole stack and it shows
+    // through wherever nothing else was painted: on the official portrait that
+    // single path is visible in 732 separate islands — a fifth of the frame —
+    // and among them are the man's chest and the gaps inside the flag beside
+    // him. One node in the graph, so taking it takes the flag and dropping it
+    // takes his chest, and no evidence can tell them apart because they share
+    // one colour, one area and one set of neighbours.
+    //
+    // So the node is a *connected piece* of a path, not the path. Measured on
+    // that portrait, the ceiling — what any method choosing whole units could
+    // score — goes from 0.741 to 0.921. All 58 136 pieces is more graph than
+    // the picture is worth, and it is not needed: pieces under WAND_PIECE cells
+    // fall back into their path's largest piece, which at sixteen keeps 0.838
+    // for 2 178 nodes against the 1 373 there were.
+    var nodeOf, nUnits;
+    if (WAND_PIECE >= 1e9) {
+      // Off: a node is a path, exactly as before, invisible paths included, so
+      // nothing downstream can shift under it.
+      nodeOf = new Int32Array(els.length);
+      for (var ni = 0; ni < els.length; ni++) nodeOf[ni] = ni;
+      nUnits = els.length;
+    } else {
+    var piece = new Int32Array(n), pieceOf = [], pieceSize = [], pstack = [];
+    for (var ps = 0; ps < n; ps++) {
+      if (!ids[ps] || piece[ps]) continue;
+      var me = ids[ps], node = pieceOf.length, cnt = 0;
+      pieceOf.push(me - 1); pieceSize.push(0);
+      piece[ps] = node + 1; pstack.push(ps);
+      while (pstack.length) {
+        var pq = pstack.pop(); cnt++;
+        var px2 = pq % cw, py2 = (pq / cw) | 0;
+        if (px2 > 0 && ids[pq-1] === me && !piece[pq-1]) { piece[pq-1] = node + 1; pstack.push(pq-1); }
+        if (px2 < cw-1 && ids[pq+1] === me && !piece[pq+1]) { piece[pq+1] = node + 1; pstack.push(pq+1); }
+        if (py2 > 0 && ids[pq-cw] === me && !piece[pq-cw]) { piece[pq-cw] = node + 1; pstack.push(pq-cw); }
+        if (py2 < ch-1 && ids[pq+cw] === me && !piece[pq+cw]) { piece[pq+cw] = node + 1; pstack.push(pq+cw); }
+      }
+      pieceSize[node] = cnt;
+    }
+    var floor = WAND_PIECE * sc * sc;   // the floor is in image pixels
+    var biggest = new Int32Array(els.length).fill(-1);
+    for (var pn = 0; pn < pieceOf.length; pn++) {
+      var owner = pieceOf[pn];
+      if (biggest[owner] < 0 || pieceSize[pn] > pieceSize[biggest[owner]]) biggest[owner] = pn;
+    }
+    var remap = new Int32Array(pieceOf.length), keptN = 0;
+    for (var pn2 = 0; pn2 < pieceOf.length; pn2++) {
+      remap[pn2] = (pieceSize[pn2] >= floor || biggest[pieceOf[pn2]] === pn2) ? keptN++ : -1;
+    }
+    for (var pn3 = 0; pn3 < pieceOf.length; pn3++) {
+      if (remap[pn3] < 0) remap[pn3] = remap[biggest[pieceOf[pn3]]];
+    }
+    nodeOf = new Int32Array(keptN);
+    for (var pn4 = 0; pn4 < pieceOf.length; pn4++) nodeOf[remap[pn4]] = pieceOf[pn4];
+    for (var pc = 0; pc < n; pc++) ids[pc] = piece[pc] ? remap[piece[pc] - 1] + 1 : 0;
+    nUnits = keptN;
+    }
+
+    // What each piece owns on screen, as a count and as the cells themselves.
+    // The cells are what lets a piece be weighed without walking the frame.
+    var seen = new Int32Array(nUnits);
+    for (var p2 = 0; p2 < n; p2++) if (ids[p2]) seen[ids[p2] - 1]++;
+    var cells = new Array(nUnits), fillAt = new Int32Array(nUnits);
+    for (var e = 0; e < nUnits; e++) cells[e] = new Int32Array(seen[e]);
+    for (var p3 = 0; p3 < n; p3++) {
+      var id3 = ids[p3];
+      if (id3) cells[id3 - 1][fillAt[id3 - 1]++] = p3;
+    }
+
+    // What each region looks like *in the photograph*, not in the trace. The
+    // vectorizer flattens a region to one fill; the bitmap under it still knows
+    // whether that region is skin, or cloth, or the wall behind them, and that
+    // is the evidence a foreground model is built from. Sampled once here, in
+    // CIE Lab, where distance means something like difference.
+    var srcW = sourceBitmap ? sourceBitmap.w : 0;
+    var srcH = sourceBitmap ? sourceBitmap.h : 0;
+    var src = srcW ? workingPixels() : null;
+    var lum = new Float32Array(n);
+    var labL = new Float32Array(nUnits), labA = new Float32Array(nUnits),
+        labB = new Float32Array(nUnits), labN = new Int32Array(nUnits);
+    if (src) {
+      for (var cy = 0; cy < ch; cy++) {
+        for (var cx2 = 0; cx2 < cw; cx2++) {
+          var cell = cy * cw + cx2;
+          var ux = Math.min(srcW - 1, Math.max(0, Math.round(vb[0] + (cx2 + 0.5) / sc)));
+          var uy = Math.min(srcH - 1, Math.max(0, Math.round(vb[1] + (cy + 0.5) / sc)));
+          var so = (uy * srcW + ux) * 4;
+          var sr = src[so], sg = src[so + 1], sb = src[so + 2];
+          lum[cell] = 0.299 * sr + 0.587 * sg + 0.114 * sb;
+          var idc = ids[cell];
+          if (!idc) continue;
+          // Every fourth cell: a region's colour does not need every pixel of
+          // it, and this runs over the whole buffer.
+          if ((cell & 3) !== 0) continue;
+          var lab = rgbLab(sr, sg, sb);
+          labL[idc - 1] += lab[0]; labA[idc - 1] += lab[1]; labB[idc - 1] += lab[2];
+          labN[idc - 1]++;
+        }
+      }
+      for (var e2 = 0; e2 < nUnits; e2++) {
+        if (!labN[e2]) { var f = wandRgb(els[nodeOf[e2]].getAttribute("fill"));
+          var lf = rgbLab(f[0], f[1], f[2]);
+          labL[e2] = lf[0]; labA[e2] = lf[1]; labB[e2] = lf[2]; continue; }
+        labL[e2] /= labN[e2]; labA[e2] /= labN[e2]; labB[e2] /= labN[e2];
+      }
     }
     // Who touches whom, as seen rather than as drawn: two shapes are
     // neighbours when they meet in the z-buffer, so a boundary buried under a
     // third shape does not count as contact.
-    var nb = new Array(els.length);
-    function link(x, y) {
+    var nb = new Array(nUnits), share = new Map();
+    function link(x, y, ca, cb) {
       if (x === y || !x || !y) return;
       var s = nb[x - 1] || (nb[x - 1] = new Set());
       s.add(y - 1);
       s = nb[y - 1] || (nb[y - 1] = new Set());
       s.add(x - 1);
+      // How long two regions run alongside each other, and how hard the
+      // photograph pushes back along that line. A boundary the picture itself
+      // draws is a cheap place to cut; one invented by the quantizer is not.
+      var key = x < y ? x * 100000 + y : y * 100000 + x;
+      var rec = share.get(key);
+      if (!rec) { rec = { len: 0, edge: 0, hist: new Uint16Array(32) }; share.set(key, rec); }
+      rec.len++;
+      var d = Math.abs(lum[ca] - lum[cb]);
+      rec.edge += d;
+      rec.hist[Math.min(31, d / 8) | 0]++;
     }
     for (var yy = 0; yy < ch; yy++) {
       var row = yy * cw;
       for (var xx = 0; xx < cw; xx++) {
         var id = ids[row + xx];
-        if (xx + 1 < cw) link(id, ids[row + xx + 1]);
-        if (yy + 1 < ch) link(id, ids[row + cw + xx]);
+        if (xx + 1 < cw) link(id, ids[row + xx + 1], row + xx, row + xx + 1);
+        if (yy + 1 < ch) link(id, ids[row + cw + xx], row + xx, row + cw + xx);
       }
     }
+    // How hard the photograph pushes back along a shared boundary. The mean of
+    // it was the first answer and it is the wrong statistic: a boundary the
+    // quantizer invented through a patch of texture collects a few large jumps
+    // and reads as a real edge, while a real edge crossed by a highlight reads
+    // as less of one. A quantile ignores both. WAND_EDGE_Q picks which — 0.5 is
+    // the median, 0.75 the upper quartile, 1 the maximum, and 0 falls back to
+    // the mean so the two can be compared.
+    share.forEach(function (rec) {
+      rec.edge /= rec.len;
+      if (WAND_EDGE_Q <= 0) { rec.hist = null; return; }
+      var want = Math.max(1, Math.round(rec.len * WAND_EDGE_Q)), acc = 0, b = 0;
+      for (; b < 32; b++) { acc += rec.hist[b]; if (acc >= want) break; }
+      rec.edge = Math.min(31, b) * 8 + 4;
+      rec.hist = null;
+    });
     return { svg: svg, els: els, index: index, rgb: rgb, mats: mats, ids: ids,
-             cw: cw, ch: ch, sc: sc, vb: vb, nb: nb, seen: seen, n: els.length };
+             cells: cells, cw: cw, ch: ch, sc: sc, vb: vb, nb: nb, share: share,
+             seen: seen, labL: labL, labA: labA, labB: labB, n: nUnits,
+             elOf: nodeOf, nEls: els.length };
   }
 
-  function wandInvalidate() { wandGraph = null; }
+  function wandInvalidate() { wandGraph = null; wandAddMask = null; wandCutMask = null; }
+
+  // Stamp a disc of the chosen size into one of the two rasters.
+  function wandPaintStroke(g, pts, mode) {
+    var n = g.cw * g.ch;
+    if (!wandAddMask) { wandAddMask = new Uint8Array(n); wandCutMask = new Uint8Array(n); }
+    var into = mode === "add" ? wandAddMask : wandCutMask;
+    var other = mode === "add" ? wandCutMask : wandAddMask;
+    var rPx = (+document.getElementById("wandPaintSize").value) / 2;
+    var r = Math.max(1, rPx * g.sc), r2 = r * r;
+    function disc(cx, cy) {
+      var x0 = Math.max(0, Math.floor(cx - r)), x1 = Math.min(g.cw - 1, Math.ceil(cx + r));
+      var y0 = Math.max(0, Math.floor(cy - r)), y1 = Math.min(g.ch - 1, Math.ceil(cy + r));
+      for (var y = y0; y <= y1; y++) for (var x = x0; x <= x1; x++) {
+        var dx = x - cx, dy = y - cy;
+        if (dx * dx + dy * dy > r2) continue;
+        var p = y * g.cw + x;
+        into[p] = 1; other[p] = 0;      // the last stroke over a cell wins
+      }
+    }
+    for (var i = 0; i < pts.length; i++) {
+      var cx = (pts[i].x - g.vb[0]) * g.sc, cy = (pts[i].y - g.vb[1]) * g.sc;
+      disc(cx, cy);
+      if (i + 1 < pts.length) {
+        var nx = (pts[i+1].x - g.vb[0]) * g.sc, ny = (pts[i+1].y - g.vb[1]) * g.sc;
+        var d = Math.hypot(nx - cx, ny - cy), steps = Math.ceil(d / Math.max(1, r * 0.5));
+        for (var k = 1; k < steps; k++) disc(cx + (nx - cx) * k / steps, cy + (ny - cy) * k / steps);
+      }
+    }
+  }
+
+  // Make the picture be the answer plus the hand's corrections. Regions are
+  // clipped to it, so the SVG really is rebuilt around what was painted rather
+  // than merely hidden.
+  function wandManualApply(g) {
+    if (!wandSel || (!wandAddMask && !wandCutMask)) return;
+    var n = g.cw * g.ch;
+    var eff = wandCells(g, wandSel);
+    var mask = new Uint8Array(n);
+    for (var p = 0; p < n; p++) {
+      var on = eff[p] || (wandAddMask && wandAddMask[p]);
+      if (wandCutMask && wandCutMask[p]) on = 0;
+      mask[p] = on ? 1 : 0;
+    }
+    wandApplyMask(g, wandSel, mask, true);
+  }
 
   function wandClear() {
     if (wandGraph) {
@@ -1452,6 +2257,10 @@
     wandClipOf = new Map();
     wandClipEls = new Map();
     wandClipRaster = new Map();
+    wandFgTouch = new Map();
+    wandBgTouch = new Map();
+    wandFg = new Set();
+    wandBg = new Set();
     wandSel = null;
   }
 
@@ -1462,7 +2271,7 @@
     for (var p = 0; p < n; p++) {
       var id = g.ids[p];
       if (!id || !sel.has(id - 1)) continue;
-      var clip = wandClipOf.get(id - 1);
+      var clip = wandClipOf.get(g.elOf[id - 1]);
       if (clip !== undefined) {
         var r = wandClipRaster.get(clip);
         if (r && !r[p]) continue;
@@ -1473,8 +2282,12 @@
   }
 
   function wandReady(svg) {
+    // Against the path count, not the node count: a node is a piece of a path
+    // now, and comparing the wrong one rebuilt the graph on every call — which
+    // cleared the hints between strokes, so a ⌥ stroke arrived to find the
+    // positive one gone and the selection emptied.
     if (wandGraph && wandGraph.svg === svg &&
-        wandGraph.n === wandPaths(svg).length) return wandGraph;
+        wandGraph.nEls === wandPaths(svg).length) return wandGraph;
     wandClear();
     wandGraph = wandBuild(svg);
     return wandGraph;
@@ -1523,24 +2336,432 @@
   // from: chaining tolerance from neighbour to neighbour walks a portrait's
   // cheek into the wall behind it one imperceptible step at a time.
   function wandGrow(g, seed, tol) {
-    var want = g.rgb[seed], lim = tol * tol;
+    var want = g.rgb[g.elOf[seed]], lim = tol * tol;
     // A colour flood answers for whole shapes, so a shape it reaches stops
     // being clipped by whatever line was drawn before.
-    var hit = new Set([seed]), queue = [seed];
+    // Pieces of one path carry one colour, so the flood crosses between them
+    // even where they do not touch: picking a shade is a statement about
+    // colour and not about where the colour happens to sit. Without this the
+    // flood stopped at the first island of a scattered path — a colour click
+    // fell from 65% of ceiling to 44%.
+    var byEl = new Array(g.nEls);
+    for (var u = 0; u < g.n; u++) {
+      var e = g.elOf[u];
+      (byEl[e] || (byEl[e] = [])).push(u);
+    }
+    var hit = new Set(), queue = [];
+    function take(i) {
+      if (hit.has(i)) return;
+      hit.add(i); queue.push(i);
+      var mates = byEl[g.elOf[i]];
+      for (var m = 0; m < mates.length; m++) {
+        if (hit.has(mates[m])) continue;
+        hit.add(mates[m]); queue.push(mates[m]);
+      }
+    }
+    take(seed);
     while (queue.length) {
       var near = g.nb[queue.pop()];
       if (!near) continue;
       near.forEach(function (j) {
         if (hit.has(j)) return;
-        var a = g.rgb[j];
+        var a = g.rgb[g.elOf[j]];
         var dr = a[0] - want[0], dg = a[1] - want[1], db = a[2] - want[2];
         if (dr * dr + dg * dg + db * db > lim) return;
-        hit.add(j);
-        queue.push(j);
+        take(j);
       });
     }
     wandEnclose(g, hit);
     return hit;
+  }
+
+  // ------------------------------------------------------------- smart select
+  //
+  // The question a magic wand is really asked is "do these pieces belong to
+  // the same thing?", and no amount of geometry answers it. Scoring a region
+  // by area against outline finds a tidy shape; a curtain behind a person is a
+  // tidy shape. An exact solver on that energy solves the wrong question
+  // perfectly — which is what the min-cut experiment showed, and it showed the
+  // solver was already good enough.
+  //
+  // So the brush stops drawing a selection and starts giving evidence. What it
+  // touches is foreground, for certain; what ⌥ touches is background, for
+  // certain; everything else is UNKNOWN, and that word is the whole change.
+  // From the certain pieces we learn what the object looks like and what it
+  // stands in front of — in Lab, sampled from the photograph rather than from
+  // the flattened trace, and as *several* colours rather than one, because a
+  // person is navy and skin and white shirt at once. Then every unknown region
+  // is asked which model it resembles, the min-cut balances that against how
+  // hard it would be to tear it away from its neighbours, and the answer is a
+  // membership rather than an outline.
+  //
+  //     E(x) = Σ D_i(x_i)  +  λ Σ W_ij [x_i ≠ x_j]
+  //
+  //     D_i  — does this region look like the foreground model or the
+  //            background one, weighted by how much of it there is
+  //     W_ij — shared boundary × colour similarity × edge weakness, so two
+  //            regions that run together for a long way, look alike, and have
+  //            no edge in the photograph between them are expensive to
+  //            separate — and a strong edge in the bitmap is a cheap cut
+  function labDist(g, i, l, a, b) {
+    var dl = g.labL[i] - l, da = g.labA[i] - a, db = g.labB[i] - b;
+    return Math.sqrt(dl * dl + da * da + db * db);
+  }
+
+  // The model is the seeds themselves: nearest seed colour, which is
+  // multimodal by construction and needs no clustering to be so.
+  function labNearest(g, i, seeds, penalty) {
+    var best = 1e9;
+    seeds.forEach(function (j) {
+      var d = labDist(g, i, g.labL[j], g.labA[j], g.labB[j]);
+      if (penalty) d *= penalty(j);
+      if (d < best) best = d;
+    });
+    return best;
+  }
+
+  // The same model, but each seed weighted by how much of the picture it is.
+  // Nearest-seed gives a twenty-cell speck the same vote as a forty-thousand
+  // cell torso, and on the background side the seeds come from the frame,
+  // where the sizes differ by three orders of magnitude. So the seeds are the
+  // components of a mixture, π_j proportional to area:
+  //
+  //     D(i) = −log Σ_j π_j exp(−d_ij² / 2σ²)
+  //
+  // Read through the dominant component that is exactly
+  //
+  //     d_eff² = d² + 2σ² · ln(total area / this seed's area)
+  //
+  // — the same colour is further away when it is only a thousandth of what the
+  // user pointed at — and the result is returned as a distance rather than a
+  // likelihood so that everything downstream of it keeps its units and its
+  // tuning. A clustered GMM was tried first, at every k from 2 to 6, and
+  // measured worse than nearest-seed at all of them; this is the same idea
+  // without the clustering, which is what one region per component already is.
+  // `norm` is the total area of *both* models, not of this one, and that is
+  // the whole of the class prior. Normalising each model by its own total
+  // makes belonging to the smaller one cheaper — and the background is 93% of
+  // a photograph while the object is 7%. On the beach picture the brush caught
+  // a little sand at the man's feet; those regions joined the foreground
+  // model, and every other sand region then found itself a better match for
+  // the small model than for the large one it also belonged to. The tool
+  // selected the man and the whole shore. Shared, the background's size counts
+  // in its favour, which is what a prior is.
+  function labMixture(g, i, seeds, norm, penalty) {
+    var s2 = 2 * WAND_SIGMA_M * WAND_SIGMA_M;
+    var es = [], best = Infinity;
+    seeds.forEach(function (j) {
+      var w = g.seen[j] > 0 ? g.seen[j] : 1;
+      var d = labDist(g, i, g.labL[j], g.labA[j], g.labB[j]);
+      if (penalty) d *= penalty(j);
+      var e = d * d / s2 - Math.log(w);
+      es.push(e);
+      if (e < best) best = e;
+    });
+    if (!es.length) return 40;
+    var sum = 0;
+    for (var k = 0; k < es.length; k++) sum += Math.exp(-(es[k] - best));
+    var nll = best - Math.log(sum) + Math.log(norm > 0 ? norm : 1);
+    return WAND_SIGMA_M * Math.sqrt(2 * Math.max(0, nll));
+  }
+
+  // The shared normaliser: how much picture the two models stand on together.
+  function labNorm(g, a, b) {
+    var tot = 0, seen = new Set();
+    a.forEach(function (j) { if (!seen.has(j)) { seen.add(j); tot += g.seen[j] > 0 ? g.seen[j] : 1; } });
+    b.forEach(function (j) { if (!seen.has(j)) { seen.add(j); tot += g.seen[j] > 0 ? g.seen[j] : 1; } });
+    return tot;
+  }
+
+  // Only the neighbourhood of the seeds is at stake. A click on a hand has no
+  // business deciding anything about a logo in the far corner, and bounding
+  // the graph is most of what keeps a selection from leaking across a picture.
+  function wandNear(g, seeds, hops) {
+    var depth = new Map(), front = [];
+    seeds.forEach(function (i) { depth.set(i, 0); front.push(i); });
+    for (var h = 0; h < hops && front.length; h++) {
+      var next = [];
+      front.forEach(function (i) {
+        var near = g.nb[i];
+        if (!near) return;
+        near.forEach(function (j) {
+          if (depth.has(j) || !g.seen[j]) return;
+          depth.set(j, h + 1);
+          next.push(j);
+        });
+      });
+      front = next;
+    }
+    return depth;
+  }
+
+  // Background examples nobody had to give. Whatever runs along the edge of
+  // the picture is background almost by definition — the object is what the
+  // photographer framed — and without them a single stroke has a model of the
+  // foreground and nothing at all to compare it against, so every unknown
+  // region looks like foreground by default. These teach the model; they are
+  // not constraints, so a stroke can still claim a region that touches the
+  // frame.
+  function wandBorderExamples(g) {
+    var out = new Set(), cw = g.cw, ch = g.ch;
+    function take(p) { var id = g.ids[p]; if (id) out.add(id - 1); }
+    for (var x = 0; x < cw; x++) { take(x); take((ch - 1) * cw + x); }
+    for (var y = 0; y < ch; y++) { take(y * cw); take(y * cw + cw - 1); }
+    return out;
+  }
+
+  function wandSmart(g, fg, bg, reach) {
+    if (!fg.size) return new Set();
+    var depth = wandNear(g, fg, WAND_HOPS);
+    var cand = new Set(depth.keys());
+    bg.forEach(function (i) { if (g.seen[i]) cand.add(i); });
+    // The model the unknowns are compared against: what the user pointed away
+    // from, plus the frame, minus anything they pointed at.
+    var frame = new Set();
+    wandBorderExamples(g).forEach(function (i) { if (!fg.has(i)) frame.add(i); });
+    var list = Array.from(cand);
+    var slot = new Map();
+    list.forEach(function (i, k) { slot.set(i, k); });
+    // How far the selection is willing to reach: the same evidence, read
+    // generously or meanly. It moves the threshold, not the geometry.
+    var lean = Math.pow(2, 1 - 2 * reach);
+
+    // One solve, against whatever the models currently say. Everything that
+    // does not change between passes — the candidate set, the neighbourhood
+    // depths, the pairwise weights — is computed once, above.
+    function cut(fgModel, bgModel, weightOf, hint) {
+      // Everything the energy is made of, when someone is asking. Kept behind a
+      // flag because it is one array per edge and the graph has thousands.
+      var audit = window.__wandAuditOn ? { unary: [], pair: [] } : null;
+      var unary = new Map(), around = new Map();
+      var norm = labNorm(g, fgModel, bgModel);
+      var N = list.length, S = N, T = N + 1, V = N + 2;
+      var head = new Int32Array(V).fill(-1);
+      var to = [], next = [], cap = [];
+      function edge(a, b, c, c2) {
+        to.push(b); cap.push(c); next.push(head[a]); head[a] = to.length - 1;
+        to.push(a); cap.push(c2); next.push(head[b]); head[b] = to.length - 1;
+      }
+      for (var k = 0; k < N; k++) {
+        var i = list[k], area = g.seen[i];
+        if (fg.has(i)) { edge(S, k, area * hint, 0); continue; }
+        if (bg.has(i)) { edge(k, T, area * hint, 0); continue; }
+        var dF = labMixture(g, i, fgModel, norm, weightOf);
+        var dB = bgModel.size ? labMixture(g, i, bgModel, norm, weightOf) : 40;
+        // Colour is not the whole of the evidence. A region the same shade as
+        // something the user pointed at, but a dozen regions away from it, is
+        // more likely to be a different thing that happens to match — the
+        // background of this composite is the same man's face, and colour
+        // alone cannot tell it from his hand. Distance in the region graph can.
+        var far = (depth.has(i) ? depth.get(i) : WAND_HOPS) / WAND_HOPS;
+        var sum = dF + dB + 1e-6;
+        var toBg = area * (dB / sum) * (1 - WAND_FAR * far);
+        var toFg = area * (dF / sum) * lean;
+        edge(S, k, toBg, 0);   // cost of calling it background
+        edge(k, T, toFg, 0);   // cost of calling it foreground
+        unary.set(i, [toFg, toBg]);   // [cost of keeping it, cost of dropping it]
+        if (audit) audit.unary.push([i, area, +dF.toFixed(2), +dB.toFixed(2),
+          depth.has(i) ? depth.get(i) : -1, +toBg.toFixed(1), +toFg.toFixed(1)]);
+      }
+      if (audit) {
+        fg.forEach(function (i) { audit.unary.push([i, g.seen[i], 0, 99, 0, 1e9, 0]); });
+        bg.forEach(function (i) { audit.unary.push([i, g.seen[i], 99, 0, -1, 0, 1e9]); });
+      }
+      g.share.forEach(function (rec, key) {
+        var a2 = ((key / 100000) | 0) - 1, b2 = (key % 100000) - 1;
+        if (!slot.has(a2) || !slot.has(b2)) return;
+        var dc = labDist(g, a2, g.labL[b2], g.labA[b2], g.labB[b2]);
+        var w = PAIR_WEIGHT * rec.len
+          * Math.exp(-(dc * dc) / (2 * WAND_SIGMA_C * WAND_SIGMA_C))
+          * Math.exp(-rec.edge / WAND_SIGMA_E);
+        if (audit) audit.pair.push([a2, b2, +w.toFixed(2), rec.len, +rec.edge.toFixed(2), +dc.toFixed(1)]);
+        if (!around.has(a2)) around.set(a2, []);
+        if (!around.has(b2)) around.set(b2, []);
+        around.get(a2).push([b2, w]); around.get(b2).push([a2, w]);
+        if (w > 1e-6) edge(slot.get(a2), slot.get(b2), w, w);
+      });
+
+      // Dinic. Small graph, plain arrays.
+      var level = new Int32Array(V), it = new Int32Array(V), queue = new Int32Array(V);
+      function bfs() {
+        level.fill(-1);
+        var qh = 0, qt = 0;
+        queue[qt++] = S; level[S] = 0;
+        while (qh < qt) {
+          var v = queue[qh++];
+          for (var e = head[v]; e !== -1; e = next[e]) {
+            if (cap[e] > 1e-9 && level[to[e]] < 0) { level[to[e]] = level[v] + 1; queue[qt++] = to[e]; }
+          }
+        }
+        return level[T] >= 0;
+      }
+      function dfs(v, f) {
+        if (v === T) return f;
+        for (; it[v] !== -1; it[v] = next[it[v]]) {
+          var e = it[v], u = to[e];
+          if (cap[e] <= 1e-9 || level[u] !== level[v] + 1) continue;
+          var d = dfs(u, Math.min(f, cap[e]));
+          if (d > 1e-9) { cap[e] -= d; cap[e ^ 1] += d; return d; }
+        }
+        return 0;
+      }
+      var guard = 0;
+      while (bfs() && guard++ < 400) {
+        for (var v = 0; v < V; v++) it[v] = head[v];
+        while (dfs(S, 1e18) > 1e-9) { /* push */ }
+      }
+      bfs();
+      var out = new Set();
+      for (var q = 0; q < N; q++) if (level[q] >= 0) out.add(list[q]);
+      if (audit) { audit.cut = Array.from(out); window.__wandAudit = audit; }
+
+      // What it would cost to move each region to the other side, with its
+      // neighbours left where the cut put them. Not the true ΔE of a re-solve,
+      // but the local one, and that is the number worth looking at: a region
+      // sitting near zero was a coin toss the evidence barely decided, and a
+      // little more evidence would move it. One that costs thousands is a
+      // decision the model is sure of, and no slider will change it — the model
+      // is simply wrong about that region, which is a different repair.
+      wandCost = new Map();
+      for (var ci = 0; ci < N; ci++) {
+        var cr = list[ci], mine = out.has(cr);
+        if (fg.has(cr) || bg.has(cr)) { wandCost.set(cr, Infinity); continue; }
+        var u = unary.get(cr);
+        if (!u) continue;
+        // unary: paying the other label's cost instead of this one's
+        var d = mine ? (u[1] - u[0]) : (u[0] - u[1]);
+        // pairwise: every neighbour that agrees now would start disagreeing,
+        // and every one that disagrees would stop
+        var ns = around.get(cr);
+        if (ns) for (var ni = 0; ni < ns.length; ni++) {
+          var oj = ns[ni][0], ow = ns[ni][1];
+          if (!slot.has(oj)) continue;
+          d += out.has(oj) === mine ? ow : -ow;
+        }
+        wandCost.set(cr, d);
+      }
+      return out;
+    }
+
+    // The frame prior is a good prior and a false rule — a portrait crop
+    // touches the bottom edge, a full-bleed illustration touches all four — so
+    // an example taken from it counts as further away than one the user
+    // pointed at, and manual evidence wins. Regions the previous pass merely
+    // decided are weaker still, for the same reason and more so.
+    var fgModel = new Set(fg), bgModel = new Set(bg);
+    frame.forEach(function (i) { bgModel.add(i); });
+    var weight = new Map();
+    frame.forEach(function (i) { if (!bg.has(i)) weight.set(i, WAND_AUTO_BG); });
+
+    // Solve, relearn, solve. The first pass has only what the user gave it;
+    // once it has an answer, every region in the answer is an example of the
+    // thing it was called, and the models are re-estimated from all of them
+    // before solving again. The user's own hints stay hard constraints
+    // throughout, so the loop can revise its guesses and never its
+    // instructions, and a pass that changes nothing ends it.
+    var sel = null;
+    for (var pass = 0; pass < WAND_PASSES; pass++) {
+      var got = cut(fgModel, bgModel, function (j) { return weight.get(j) || 1; }, WAND_HINT);
+      if (sel && got.size === sel.size && Array.from(got).every(function (i) { return sel.has(i); })) {
+        sel = got; break;
+      }
+      sel = got;
+      if (pass + 1 >= WAND_PASSES) break;
+      fgModel = new Set(fg);
+      bgModel = new Set(bg);
+      frame.forEach(function (i) { bgModel.add(i); });
+      weight = new Map();
+      frame.forEach(function (i) { if (!bg.has(i)) weight.set(i, WAND_AUTO_BG); });
+      list.forEach(function (i) {
+        if (fg.has(i) || bg.has(i)) return;
+        if (sel.has(i)) fgModel.add(i);
+        else bgModel.add(i);
+      });
+    }
+
+    // A hint is strong evidence and not an axiom, so in principle the cut can
+    // refuse every one of them. If it does there is nothing to grow from and
+    // the user pointed at nothing for no visible reason, which is a worse
+    // answer than a wrong one: solve once more with the hints nailed down.
+    var anySeed = false;
+    fg.forEach(function (i) { if (sel.has(i)) anySeed = true; });
+    if (!anySeed) sel = cut(fgModel, bgModel, function (j) { return weight.get(j) || 1; }, 1e9);
+
+    // Only what hangs together with something the user actually pointed at.
+    var keep = new Set(), stack = [];
+    fg.forEach(function (i) { if (sel.has(i)) { keep.add(i); stack.push(i); } });
+    while (stack.length) {
+      var near = g.nb[stack.pop()];
+      if (!near) continue;
+      near.forEach(function (j) {
+        if (!sel.has(j) || keep.has(j)) return;
+        keep.add(j);
+        stack.push(j);
+      });
+    }
+    return keep;
+  }
+
+  // ------------------------------------------------------- tidying the edge
+  //
+  // Score what the line picked out by  area − λ · outline, both measured on
+  // the z-buffer, and drop the pieces that fail to pay their way. A piece of
+  // area a carries an outline near 4·√a, so it goes when a < 16·λ²: λ is a
+  // noise width in pixels and nothing more. Specks leave by arithmetic rather
+  // than by a special case, a sharp corner costs nothing because a corner is
+  // not extra length, and a real limb survives, because trimming a protrusion
+  // w cells wide only pays once λ > w/2.
+  //
+  // Dropping only, never adding, and that restraint is the whole of what was
+  // learned building this. Letting the same score *grow* the selection was
+  // tried three ways — hill-climbing on area, on the net of inside against
+  // outside, and finally an exact min-cut with the outline discounted where
+  // the picture's own colours change. All three swallow the background: a
+  // curtain piece more than half inside a generous outline is, to any of
+  // them, a piece more than half inside, and ending the region at the suit in
+  // front of it is the cheaper cut. The measurements are in the changelog. A
+  // line can say where the object is; it cannot say what, inside it, is not
+  // the object, and no boundary term recovers that.
+  function wandTrim(g, sel, cleanupRadius) {
+    var lam = cleanupRadius;
+    if (lam <= 0 || !sel.size) return sel;
+    var n = g.cw * g.ch, cw = g.cw, ch = g.ch, inR = new Uint8Array(n);
+    sel.forEach(function (i) {
+      var c = g.cells[i];
+      for (var k = 0; k < c.length; k++) inR[c[k]] = 1;
+    });
+    // What the selection's outline loses if this piece leaves. Only the
+    // piece's own cells can change it, so the cost is the piece, never the
+    // picture.
+    function worth(i) {
+      var c = g.cells[i], mine = i + 1, freed = 0;
+      for (var k = 0; k < c.length; k++) {
+        var p = c[k], x = p % cw, y = (p / cw) | 0;
+        for (var q = 0; q < 4; q++) {
+          var m = q === 0 ? (x > 0 ? p - 1 : -1)
+            : q === 1 ? (x + 1 < cw ? p + 1 : -1)
+            : q === 2 ? (y > 0 ? p - cw : -1)
+            : (y + 1 < ch ? p + cw : -1);
+          if (m < 0) { freed += 1; continue; }        // the frame is an edge
+          if (g.ids[m] === mine) continue;            // inside this piece
+          freed += inR[m] ? -1 : 1;
+        }
+      }
+      return c.length - lam * freed;                  // keep it while positive
+    }
+    // Sweeps, because dropping one piece can expose the next.
+    for (var sweep = 0; sweep < 6; sweep++) {
+      var went = 0;
+      Array.from(sel).forEach(function (i) {
+        if (!g.cells[i].length || worth(i) >= 0) return;
+        sel.delete(i);
+        var c = g.cells[i];
+        for (var k = 0; k < c.length; k++) inR[c[k]] = 0;
+        went++;
+      });
+      if (!went || !sel.size) break;
+    }
+    return sel;
   }
 
   // The hand-drawn version. A photograph has no color boundary that agrees
@@ -1599,39 +2820,184 @@
       svg.appendChild(cp);
       wandClipEls.set(cid, cp);
       wandClipRaster.set(cid, mark);
-      part.forEach(function (k) { wandClipOf.set(k, cid); });
+      part.forEach(function (k) { wandClipOf.set(g.elOf[k], cid); });
     }
+    wandTrim(g, hit, +wandTidyEl.value);
     wandEnclose(g, hit);
+    // A path with pieces inside the line and pieces outside it, and none
+    // straddling it, gets no clip from the rule above and used to be drawn
+    // whole. Those, and only those, are clipped to the line and to the pieces
+    // that were kept.
+    var eTot = new Int32Array(g.nEls), eKeep = new Int32Array(g.nEls);
+    for (var cp2 = 0; cp2 < g.cw * g.ch; cp2++) {
+      var idc = g.ids[cp2];
+      if (!idc) continue;
+      var ec = g.elOf[idc - 1];
+      eTot[ec]++;
+      if (hit.has(idc - 1)) eKeep[ec]++;
+    }
+    for (var em = 0; em < g.nEls; em++) {
+      if (!eTot[em] || eKeep[em] === 0 || eKeep[em] === eTot[em]) continue;
+      if (wandClipOf.has(em)) continue;      // the line already cut this one
+      wandClipElement(g, em, mark, hit);
+    }
     return hit;
   }
 
+  // The views. "lopputulos" is the tool; the other three are the tool
+  // explaining itself, and they exist because two errors on the same picture
+  // needed opposite repairs and no single slider could tell them apart. The
+  // fill is overridden rather than the shape hidden, so the geometry, the
+  // z-order and the clips stay exactly what they are.
+  function wandViewMode() {
+    var el = document.getElementById("wandView");
+    return el ? el.value : "result";
+  }
+  function wandRestoreFill(el) {
+    var f = el.getAttribute("data-fill");
+    if (f !== null) { el.setAttribute("fill", f); el.removeAttribute("data-fill"); }
+  }
+  function wandOverrideFill(el, colour) {
+    if (el.getAttribute("data-fill") === null) el.setAttribute("data-fill", el.getAttribute("fill") || "");
+    el.setAttribute("fill", colour);
+  }
   function wandPaint() {
     if (!wandGraph) return;
-    wandGraph.els.forEach(function (el, i) {
-      el.classList.toggle("wand-off", !!wandSel && !wandSel.has(i));
-      var clip = wandSel && wandSel.has(i) ? wandClipOf.get(i) : undefined;
-      if (clip === undefined) el.removeAttribute("clip-path");
-      else el.setAttribute("clip-path", "url(#" + clip + ")");
+    var view = wandViewMode(), g = wandGraph;
+    // Confidence is read against the largest cost on the picture, so the scale
+    // says something on a poster and on an icon alike.
+    var top = 0;
+    if (view === "conf") wandCost.forEach(function (v) {
+      if (isFinite(v) && Math.abs(v) > top) top = Math.abs(v);
     });
+    // A path can now hold several pieces, and they need not agree. An element
+    // is off when none of its pieces is chosen, clipped when some are.
+    var any = new Uint8Array(g.nEls);
+    if (wandSel) wandSel.forEach(function (i) { any[g.elOf[i]] = 1; });
+    // For the debug views, the piece under each element's largest area decides
+    // its colour — the views are about pieces, and this is the honest summary
+    // a single fill can give.
+    var pick = new Int32Array(g.nEls).fill(-1), best = new Int32Array(g.nEls);
+    for (var u = 0; u < g.n; u++) {
+      var e0 = g.elOf[u];
+      if (g.seen[u] > best[e0]) { best[e0] = g.seen[u]; pick[e0] = u; }
+    }
+    g.els.forEach(function (el, e) {
+      var i = pick[e];
+      el.classList.toggle("wand-off", view === "result" && !!wandSel && !any[e]);
+      var clip = wandSel && any[e] ? wandClipOf.get(e) : undefined;
+      // The clip stays on wherever the view is about what was *chosen* — a
+      // path kept for one of its twenty pieces is not a path kept. It comes
+      // off for "palat", where the whole shape is the thing being shown.
+      var wantClip = clip !== undefined && (view === "result" || view === "conf");
+      if (!wantClip) el.removeAttribute("clip-path");
+      else el.setAttribute("clip-path", "url(#" + clip + ")");
+      if (view === "result" || i < 0) { if (view === "result") wandRestoreFill(el); return; }
+      if (view === "regions") {
+        var h = (Math.imul(i + 1, 2654435761) >>> 0) % 360;
+        wandOverrideFill(el, "hsl(" + h + " 70% " + (wandSel && wandSel.has(i) ? 55 : 22) + "%)");
+        return;
+      }
+      if (view === "edges") {
+        var sum = 0, len = 0;
+        var near = g.nb[i] || [];
+        near.forEach(function (j) {
+          var key = (Math.min(i, j) + 1) * 100000 + (Math.max(i, j) + 1);
+          var rec = g.share.get(key);
+          if (!rec) return;
+          sum += rec.edge * rec.len; len += rec.len;
+        });
+        var eStr = len ? sum / len : 0;
+        var t = Math.max(0, Math.min(1, eStr / 60));
+        wandOverrideFill(el, "hsl(" + Math.round(30 + 200 * t) + " 80% " + Math.round(12 + 55 * t) + "%)");
+        return;
+      }
+      var c = wandCost.has(i) ? wandCost.get(i) : null;
+      if (c === null) { wandOverrideFill(el, "#15171c"); return; }
+      if (!isFinite(c)) { wandOverrideFill(el, "#ffd54a"); return; }
+      var strength = top > 0 ? Math.min(1, Math.abs(c) / top) : 0;
+      var keep = wandSel && wandSel.has(i);
+      var light = Math.round(96 - 52 * Math.sqrt(strength));
+      wandOverrideFill(el, "hsl(" + (keep ? 8 : 210) + " " + Math.round(20 + 70 * Math.sqrt(strength))
+        + "% " + light + "%)");
+    });
+  }
+
+  // Clicking a shape while a debug view is up says why it went where it went.
+  function wandExplain(i) {
+    var g = wandGraph;
+    if (!g) return;
+    var c = wandCost.has(i) ? wandCost.get(i) : null;
+    var near = g.nb[i] || [], wSame = 0, wOther = 0, edgeSum = 0, edgeLen = 0;
+    var keep = !!(wandSel && wandSel.has(i));
+    near.forEach(function (j) {
+      var key = (Math.min(i, j) + 1) * 100000 + (Math.max(i, j) + 1);
+      var rec = g.share.get(key);
+      if (!rec) return;
+      var dc = labDist(g, i, g.labL[j], g.labA[j], g.labB[j]);
+      var w = PAIR_WEIGHT * rec.len
+        * Math.exp(-(dc * dc) / (2 * WAND_SIGMA_C * WAND_SIGMA_C))
+        * Math.exp(-rec.edge / WAND_SIGMA_E);
+      if (!!(wandSel && wandSel.has(j)) === keep) wSame += w; else wOther += w;
+      edgeSum += rec.edge * rec.len; edgeLen += rec.len;
+    });
+    var frame = 0, cw = g.cw, ch = g.ch;
+    function touch(p) { if (g.ids[p] === i + 1) frame++; }
+    for (var x = 0; x < cw; x++) { touch(x); touch((ch - 1) * cw + x); }
+    for (var y = 0; y < ch; y++) { touch(y * cw); touch(y * cw + cw - 1); }
+    setEditNote("pala " + i + " · " + g.seen[i] + " solua · "
+      + (wandFg.has(i) ? "VIHJE kohde" : wandBg.has(i) ? "VIHJE tausta" : keep ? "mukana" : "pois")
+      + " · kääntäminen maksaisi " + (c === null ? "—" : !isFinite(c) ? "∞ (vihje)" : Math.round(c))
+      + " · naapurit puolesta " + Math.round(wSame) + " vastaan " + Math.round(wOther)
+      + " · särmä " + (edgeLen ? (edgeSum / edgeLen).toFixed(1) : "—")
+      + " · kehyskosketus " + frame + " solua");
   }
 
   function wandMerge(g, grown, ev, clipped) {
     if (!wandSel || (!ev.shiftKey && !ev.altKey)) wandSel = new Set();
     grown.forEach(function (i) {
-      if (ev.altKey) { wandSel.delete(i); wandClipOf.delete(i); return; }
+      if (ev.altKey) { wandSel.delete(i); return; }
       wandSel.add(i);
-      if (!clipped) wandClipOf.delete(i);
     });
+    if (!clipped) {
+      // A colour flood answers for whole shapes, so a shape it reaches stops
+      // being clipped by whatever line was drawn before — the lasso's clip
+      // included, which is not an auto clip and would otherwise survive.
+      grown.forEach(function (i) { wandClipOf.delete(g.elOf[i]); });
+      wandClipToSelection(g, wandSel);
+    }
     wandPaint();
-    setEditNote(wandSel.size + " / " + g.n + " muotoa valittu. ⇧ lisää, ⌥ poistaa, Eristä leikkaa muun pois.");
+    setEditNote(wandSel.size + " / " + g.n + " palaa valittu. ⇧ lisää, ⌥ poistaa, Eristä leikkaa muun pois.");
   }
 
   function wandClick(el, ev) {
     var svg = outSvg();
     if (!svg) return;
     var g = wandReady(svg);
-    var seed = g.index.get(el);
-    if (seed === undefined) return;
+    // Which *piece* was clicked. The element is not enough any more: one path
+    // can be scattered over the picture and the piece under the pointer is the
+    // thing meant.
+    var e = g.index.get(el);
+    if (e === undefined) return;
+    var u = toUser(ev, svg);
+    var cx = Math.round((u.x - g.vb[0]) * g.sc), cy = Math.round((u.y - g.vb[1]) * g.sc);
+    var seed = -1;
+    // The piece under the pointer, but only if it belongs to the path that was
+    // clicked: a click can arrive without coordinates, and a pointer can be a
+    // pixel off the shape it hit. Otherwise the path's largest piece stands for
+    // it.
+    if (cx >= 0 && cy >= 0 && cx < g.cw && cy < g.ch) {
+      var hit = g.ids[cy * g.cw + cx];
+      if (hit && g.elOf[hit - 1] === e) seed = hit - 1;
+    }
+    if (seed < 0) {
+      var big = -1;
+      for (var q = 0; q < g.n; q++) if (g.elOf[q] === e && (big < 0 || g.seen[q] > g.seen[big])) big = q;
+      seed = big;
+    }
+    if (seed < 0) return;
+    // In a debug view a click is a question, not a command.
+    if (wandViewMode() !== "result") { wandExplain(seed); return; }
     wandMerge(g, wandGrow(g, seed, +wandTol.value), ev, false);
   }
 
@@ -1639,7 +3005,870 @@
     var svg = outSvg();
     if (!svg) return;
     var g = wandReady(svg);
-    wandMerge(g, wandLassoSelect(g, pts), ev, true);
+    if (wandMode.value === "lasso") {
+      wandMerge(g, wandLassoSelect(g, pts), ev, true);
+      return;
+    }
+    wandSmartStroke(g, pts, ev.altKey);
+  }
+
+  // A stroke of evidence. Positive by default, negative with ⌥, and the whole
+  // classification is redone from every hint given so far — which is what
+  // makes correcting it feel like teaching rather than like tuning.
+  function wandSmartStroke(g, pts, negative) {
+    var touched = wandUnderStroke(g, pts, +wandBrush.value / 2);
+    if (!touched.size) { setEditNote("Sivellin ei osunut mihinkään."); return; }
+    var into = negative ? wandBgTouch : wandFgTouch;
+    touched.forEach(function (cells, i) { into.set(i, (into.get(i) || 0) + cells); });
+    wandSettle();
+    wandResolve(g);
+  }
+
+  function wandResolve(g) {
+    if (!wandFg.size) {
+      wandSel = new Set();
+      wandPaint();
+      setEditNote("Vedä siveltimellä kohteen yli. ⌥ merkitsee mitä EI oteta mukaan.");
+      return;
+    }
+    var t0 = performance.now();
+    var sel = wandSmart(g, wandFg, wandBg, +wandReach.value / 100);
+    var raw = new Set(sel);
+    wandTrim(g, sel, +wandTidyEl.value);
+    wandCohere(g, sel, wandFg);
+    wandEncloseSmart(g, sel);
+    wandFillHoles(g, sel);
+    wandCylinders(g, sel);
+    wandSel = sel;
+    wandManualApply(g);
+    wandSel = sel;
+    wandPaint();
+    // A window onto the decision, for the benchmarks. Every failure in this
+    // tool so far has been diagnosed by asking which of the four stages lost
+    // the ground — the hints, the cut, the tidy-up or the enclosure — and
+    // guessing at it from the score alone cost more than one wrong hypothesis.
+    window.__wandLast = {
+      n: g.n, seen: Array.prototype.slice.call(g.seen),
+      fg: Array.from(wandFg), bg: Array.from(wandBg),
+      fgTouch: Array.from(wandFgTouch), bgTouch: Array.from(wandBgTouch),
+      raw: Array.from(raw), sel: Array.from(sel),
+      frame: Array.from(wandBorderExamples(g)),
+      frameLen: (function () {
+        var cw = g.cw, ch = g.ch, out = {};
+        function touch(p) { var id = g.ids[p]; if (id) out[id-1] = (out[id-1] || 0) + 1; }
+        for (var x = 0; x < cw; x++) { touch(x); touch((ch-1)*cw + x); }
+        for (var y = 0; y < ch; y++) { touch(y*cw); touch(y*cw + cw - 1); }
+        return out;
+      })(),
+    };
+    setEditNote(sel.size + " / " + g.n + " muotoa · " + wandFg.size + " vihjettä"
+      + (wandBg.size ? " ja " + wandBg.size + " vastavihjettä" : "")
+      + " · " + Math.round(performance.now() - t0) + " ms. ⌥ poistaa, Eristä leikkaa muun pois.");
+  }
+
+  // The enclosure rule, but no longer allowed to decide membership on its own.
+  // A hole in the selection gets a hand up, not a free pass: the gap between an
+  // arm and a body is enclosed too, and it is not part of the arm.
+  // ------------------------------------------------- the answer has to cohere
+  //
+  // Three steps after the cut, in this order, all of them drop-only. Without
+  // them the portrait came out as the man plus both flags plus 356 loose
+  // fragments: the navy flag beside his shoulder is the suit's own colour, and
+  // it touches him, so neither colour nor adjacency can refuse it. Tidiness
+  // cannot either — it scores a piece by area against outline and a
+  // 9 844-pixel flag pays for itself at any radius.
+  //
+  //   1. the body   erode the selection until hair-thin joins snap, take the
+  //                 pieces that still hold a hint, and call the largest of
+  //                 them the body. Eroding is the whole point: the flag is
+  //                 joined to the shoulder by a seam a pixel or two wide, and
+  //                 to anything that only asks "are these connected" it is
+  //                 part of him.
+  //   2. the fence  the body's convex hull. Generous on purpose — it swallows
+  //                 the gap under an arm and the notch between two fingers —
+  //                 so whatever falls outside it was never plausible.
+  //   3. what is left has to hang together with a hint in the picture, not in
+  //                 the region graph, because a seam one cell wide is
+  //                 adjacency to the graph and a gap to the eye.
+  //
+  // Closing holes comes after all three: doing it first welds a stray to the
+  // body and then every test believes it.
+  var WAND_SNAP = 4, WAND_CLOSE = 5;
+  // The smallest island, in image pixels, that gets to be its own node — and
+  // 1e9 means none of them, which is the default and is why the wand still
+  // chooses whole paths.
+  //
+  // Splitting is measured and it is not a small thing. The unit is wrong: the
+  // tracer's base surface is one path visible in 732 islands on the official
+  // portrait, and the ceiling — what any method choosing whole units could
+  // score — goes from 0.741 to 0.921 with every island its own node, or 0.838
+  // at a 16 px floor for 2 178 nodes against 1 373. Turned on at 64 px the
+  // drawn line goes from 99% of the old ceiling to 97% of a much higher one
+  // (8-neighbour 0.844 to 0.937, 4-gradient 0.858 to 0.926), the page's smoke
+  // test from 0.859 to 0.892, the beach photograph from 0.649 to 0.735, and
+  // the portrait from 0.812 to 0.820 against a ceiling of 0.832 rather than
+  // 0.741.
+  //
+  // What it costs is steadiness, and that is why it is off. Steerability falls
+  // from 74% → 95% → 96% to 42% → 57% → 56%, and the portrait's twenty hands
+  // split in two: a p90 of 99% and a median of 24%. A finer graph is a graph
+  // that needs more evidence per stroke, and the evidence it needs — a
+  // boundary term that knows a real edge from an invented one, and a soft
+  // prior for a region with a cheap path to the frame — is not written yet.
+  // Turning this on before that would trade one error for another, which is
+  // the one thing this bench exists to prevent.
+  var WAND_PIECE = 1e9;
+  var WAND_EDGE_Q = 0;
+
+  function wandDilate(mask, cw, ch, r) {
+    var cur = mask;
+    for (var pass = 0; pass < r; pass++) {
+      var next = new Uint8Array(cur.length);
+      for (var y = 0; y < ch; y++) {
+        var row = y * cw;
+        for (var x = 0; x < cw; x++) {
+          var p = row + x;
+          if (cur[p]
+            || (x > 0 && cur[p-1]) || (x < cw-1 && cur[p+1])
+            || (y > 0 && cur[p-cw]) || (y < ch-1 && cur[p+cw])) next[p] = 1;
+        }
+      }
+      cur = next;
+    }
+    return cur;
+  }
+
+  function wandErode(mask, cw, ch, r) {
+    var cur = mask;
+    for (var pass = 0; pass < r; pass++) {
+      var next = new Uint8Array(cur.length);
+      for (var y = 1; y < ch - 1; y++) {
+        var row = y * cw;
+        for (var x = 1; x < cw - 1; x++) {
+          var p = row + x;
+          if (cur[p] && cur[p-1] && cur[p+1] && cur[p-cw] && cur[p+cw]) next[p] = 1;
+        }
+      }
+      cur = next;
+    }
+    return cur;
+  }
+
+  // Connected pieces of a mask, with which of them hold a hint and how big
+  // each is.
+  function wandPieces(g, mask, fg) {
+    var cw = g.cw, ch = g.ch, n = cw * ch;
+    var comp = new Int32Array(n).fill(-1), stack = [];
+    var seeded = [], sizes = [], nc = 0;
+    for (var s = 0; s < n; s++) {
+      if (!mask[s] || comp[s] >= 0) continue;
+      var id = nc++;
+      comp[s] = id; stack.push(s);
+      var count = 0, hasSeed = false;
+      while (stack.length) {
+        var q = stack.pop(); count++;
+        var rid = g.ids[q];
+        if (rid && fg.has(rid - 1)) hasSeed = true;
+        var x = q % cw, y = (q / cw) | 0;
+        if (x > 0 && mask[q-1] && comp[q-1] < 0) { comp[q-1] = id; stack.push(q-1); }
+        if (x < cw-1 && mask[q+1] && comp[q+1] < 0) { comp[q+1] = id; stack.push(q+1); }
+        if (y > 0 && mask[q-cw] && comp[q-cw] < 0) { comp[q-cw] = id; stack.push(q-cw); }
+        if (y < ch-1 && mask[q+cw] && comp[q+cw] < 0) { comp[q+cw] = id; stack.push(q+cw); }
+      }
+      seeded.push(hasSeed); sizes.push(count);
+    }
+    return { comp: comp, seeded: seeded, sizes: sizes, n: nc };
+  }
+
+  // Make the answer be exactly `mask`, region by region. A region wholly inside
+  // it is selected plain; one wholly outside is dropped; one that is partly in
+  // is *clipped* rather than dropped, because of one shape in particular.
+  //
+  // The tracer draws a base surface under the whole stack, and on a photograph
+  // it shows through wherever nothing else was painted. On the official
+  // portrait that one path is visible in **732 separate islands** totalling
+  // 65 565 pixels — a fifth of the frame — and among them are the man's own
+  // chest and the gaps inside the flag beside him. One node in the graph, so
+  // taking it takes the flag and dropping it takes his chest. No amount of work
+  // on the selection can decide that, because the question is being asked one
+  // level too high: a shape scattered over 732 islands is not one thing. The
+  // clip is the same mechanism a drawn line already uses to cut a shape it
+  // crosses.
+  function wandApplyMask(g, sel, mask, grow) {
+    var cw = g.cw, ch = g.ch, n = cw * ch;
+    var tot = new Int32Array(g.n), inm = new Int32Array(g.n);
+    for (var p = 0; p < n; p++) {
+      var id = g.ids[p];
+      if (!id) continue;
+      tot[id-1]++;
+      if (mask[p]) inm[id-1]++;
+    }
+    for (var i = 0; i < g.n; i++) {
+      var had = sel.has(i);
+      // A region with no cell of its own is one the z-buffer never sees: it
+      // lies entirely under other shapes. Leaving it in the answer is
+      // harmless right up to the moment something above it is clipped, and
+      // then it appears out of nowhere — 10 177 px of it on the beach picture
+      // the first time a rule clipped a covering path. It shows nothing while
+      // it is covered, so dropping it costs nothing and stops the surprise.
+      if (!tot[i]) { if (had) sel.delete(i); continue; }
+      if (!inm[i]) { if (had) sel.delete(i); continue; }
+      if (!had && !grow) continue;
+      if (!had) {
+        sel.add(i);
+        if (window.__addLog) window.__addLog.push([i, tot[i], inm[i]]);
+      }
+    }
+    // The clip is per element, because that is what the document has: several
+    // pieces of one path can be kept and others dropped, and the difference
+    // has to be expressed as a shape the SVG can carry.
+    wandClipToSelection(g, sel, mask);
+  }
+
+  // Whatever set the selection, the document has to show exactly it. A path
+  // holding several pieces is clipped to the ones chosen — without this the
+  // colour click and the drawn line painted a whole path for one piece of it,
+  // and the lasso fell from 99% of ceiling to 86%.
+  function wandClipToSelection(g, sel, mask) {
+    if (!sel) return;
+    var n = g.cw * g.ch;
+    if (!mask) { mask = new Uint8Array(n); mask.fill(1); }
+    var eTot = new Int32Array(g.nEls), eKeep = new Int32Array(g.nEls);
+    // Where a clip takes area *away* is the interesting part, because the SVG
+    // has more in it than the z-buffer does: under every visible shape lies
+    // whatever it covers, and some of that is chosen too. Cut a hole in the
+    // shape on top and the thing beneath walks into the answer — 10 177 px of
+    // sea on the beach picture, the first time a rule clipped a covering path.
+    // So remember the box each clip empties, and clip everything selected that
+    // is painted under it as well.
+    var lx0 = new Int32Array(g.nEls).fill(1e9), ly0 = new Int32Array(g.nEls).fill(1e9);
+    var lx1 = new Int32Array(g.nEls).fill(-1), ly1 = new Int32Array(g.nEls).fill(-1);
+    for (var p = 0; p < n; p++) {
+      var id = g.ids[p];
+      if (!id) continue;
+      var e = g.elOf[id - 1];
+      eTot[e]++;
+      if (mask[p] && sel.has(id - 1)) eKeep[e]++;
+      else if (sel.has(id - 1)) {
+        var px = p % g.cw, py = (p / g.cw) | 0;
+        if (px < lx0[e]) lx0[e] = px; if (px > lx1[e]) lx1[e] = px;
+        if (py < ly0[e]) ly0[e] = py; if (py > ly1[e]) ly1[e] = py;
+      }
+    }
+    var need = new Uint8Array(g.nEls);
+    for (var e2 = 0; e2 < g.nEls; e2++) {
+      if (!eTot[e2] || !eKeep[e2] || eKeep[e2] === eTot[e2]) continue;
+      need[e2] = 1;
+    }
+    // and everything selected that lies under one of those holes and is
+    // painted earlier, which is what "under" means in an SVG
+    var box = wandElBoxes(g);
+    for (var e3 = 0; e3 < g.nEls; e3++) {
+      if (!need[e3] || lx1[e3] < 0) continue;
+      for (var e4 = 0; e4 < e3; e4++) {
+        if (need[e4] || !eKeep[e4]) continue;
+        var b = box[e4];
+        if (!b) continue;
+        if (b[2] < lx0[e3] || b[0] > lx1[e3] || b[3] < ly0[e3] || b[1] > ly1[e3]) continue;
+        need[e4] = 1;
+      }
+    }
+    for (var e5 = 0; e5 < g.nEls; e5++) {
+      if (!eTot[e5]) continue;
+      if (need[e5]) wandClipElement(g, e5, mask, sel);
+      else if (eKeep[e5] === 0 || eKeep[e5] === eTot[e5]) wandDropAutoClip(e5);
+    }
+  }
+
+  // Each element's box in raster cells, worked out once per trace. It is the
+  // painted box, not the visible one: what a shape covers is exactly what can
+  // reappear when the shape above it is cut.
+  function wandElBoxes(g) {
+    if (g.boxes) return g.boxes;
+    var boxes = [];
+    for (var e = 0; e < g.nEls; e++) {
+      var el = g.els[e], b = null;
+      try { b = el.getBBox(); } catch (err) { b = null; }
+      if (!b || !isFinite(b.width)) { boxes.push(null); continue; }
+      boxes.push([Math.floor((b.x - g.vb[0]) * g.sc), Math.floor((b.y - g.vb[1]) * g.sc),
+                  Math.ceil((b.x + b.width - g.vb[0]) * g.sc),
+                  Math.ceil((b.y + b.height - g.vb[1]) * g.sc)]);
+    }
+    g.boxes = boxes;
+    return boxes;
+  }
+
+  function wandDropAutoClip(e) {
+    var cid = wandClipOf.get(e);
+    if (cid === undefined || !wandAutoClips.has(cid)) return;
+    var el = wandClipEls.get(cid);
+    if (el && el.parentNode) el.parentNode.removeChild(el);
+    wandClipEls.delete(cid); wandClipRaster.delete(cid);
+    wandAutoClips.delete(cid); wandClipOf.delete(e);
+  }
+
+  // The kept cells of one element, as rows of rectangles in user space.
+  function wandClipElement(g, e, mask, sel) {
+    wandDropAutoClip(e);
+    var cw = g.cw, ch = g.ch, n = cw * ch, d = [];
+    var keepCell = new Uint8Array(n);
+    for (var p = 0; p < n; p++) {
+      var id = g.ids[p];
+      if (!id || g.elOf[id - 1] !== e) continue;
+      if (mask[p] && sel.has(id - 1)) keepCell[p] = 1;
+    }
+    for (var y = 0; y < ch; y++) {
+      var row = y * cw, run = -1;
+      for (var x = 0; x <= cw; x++) {
+        var on = x < cw && keepCell[row + x];
+        if (on && run < 0) run = x;
+        if (!on && run >= 0) {
+          var ux = g.vb[0] + run / g.sc, uy = g.vb[1] + y / g.sc;
+          d.push("M" + ux.toFixed(2) + " " + uy.toFixed(2)
+            + "h" + ((x - run) / g.sc).toFixed(2)
+            + "v" + (1 / g.sc).toFixed(2)
+            + "h" + (-(x - run) / g.sc).toFixed(2) + "z");
+          run = -1;
+        }
+      }
+    }
+    if (!d.length) return;
+    var cid = "wandclip" + (++wandSeq);
+    var cp = document.createElementNS(SVGNS, "clipPath");
+    cp.setAttribute("id", cid);
+    cp.setAttribute("clipPathUnits", "userSpaceOnUse");
+    var pe = document.createElementNS(SVGNS, "path");
+    pe.setAttribute("d", d.join(""));
+    cp.appendChild(pe);
+    g.svg.appendChild(cp);
+    wandClipEls.set(cid, cp);
+    wandAutoClips.add(cid);
+    wandClipRaster.set(cid, keepCell);
+    wandClipOf.set(e, cid);
+  }
+
+  // A hole the answer closes over is part of it. The face comes out of a
+  // photograph freckled with them — 1 380 of them on the portrait, 8 041 cells
+  // between them — and so does a patterned tie, because every speck the tracer
+  // could not name falls to a shape that is not selected. They are only holes
+  // if the answer surrounds them entirely, and only small ones are filled: the
+  // gap between a figure's legs is enclosed too, and it is not part of the
+  // figure. Measured against the body rather than in pixels, so it means the
+  // same on a thumbnail and on a photograph.
+  var WAND_HOLE = 0.01;
+  function wandFillHoles(g, sel) {
+    if (!sel.size) return;
+    var cw = g.cw, ch = g.ch, n = cw * ch;
+    var eff = wandCells(g, sel);
+    var body = 0;
+    for (var p0 = 0; p0 < n; p0++) if (eff[p0]) body++;
+    if (!body) return;
+    var limit = body * WAND_HOLE;
+
+    // Background you can walk to from the frame is not a hole.
+    var outside = new Uint8Array(n), stack = [];
+    for (var x0 = 0; x0 < cw; x0++) {
+      if (!eff[x0]) { outside[x0] = 1; stack.push(x0); }
+      var bq = (ch-1)*cw + x0;
+      if (!eff[bq] && !outside[bq]) { outside[bq] = 1; stack.push(bq); }
+    }
+    for (var y0 = 0; y0 < ch; y0++) {
+      var lq = y0*cw, rq = y0*cw + cw - 1;
+      if (!eff[lq] && !outside[lq]) { outside[lq] = 1; stack.push(lq); }
+      if (!eff[rq] && !outside[rq]) { outside[rq] = 1; stack.push(rq); }
+    }
+    while (stack.length) {
+      var q = stack.pop(), qx = q % cw, qy = (q / cw) | 0;
+      if (qx > 0 && !eff[q-1] && !outside[q-1]) { outside[q-1] = 1; stack.push(q-1); }
+      if (qx < cw-1 && !eff[q+1] && !outside[q+1]) { outside[q+1] = 1; stack.push(q+1); }
+      if (qy > 0 && !eff[q-cw] && !outside[q-cw]) { outside[q-cw] = 1; stack.push(q-cw); }
+      if (qy < ch-1 && !eff[q+cw] && !outside[q+cw]) { outside[q+cw] = 1; stack.push(q+cw); }
+    }
+
+    // Each enclosed hole, kept if it is small against the body.
+    var mask = new Uint8Array(n);
+    for (var p1 = 0; p1 < n; p1++) mask[p1] = eff[p1];
+    var seen = new Uint8Array(n), run = [];
+    var filled = 0, nHoles = 0, skipped = 0, nBig = 0;
+    for (var s = 0; s < n; s++) {
+      if (eff[s] || outside[s] || seen[s]) continue;
+      run.length = 0;
+      var cells = [s];
+      seen[s] = 1;
+      while (cells.length) {
+        var c = cells.pop(); run.push(c);
+        var cx = c % cw, cy = (c / cw) | 0;
+        if (cx > 0 && !eff[c-1] && !outside[c-1] && !seen[c-1]) { seen[c-1]=1; cells.push(c-1); }
+        if (cx < cw-1 && !eff[c+1] && !outside[c+1] && !seen[c+1]) { seen[c+1]=1; cells.push(c+1); }
+        if (cy > 0 && !eff[c-cw] && !outside[c-cw] && !seen[c-cw]) { seen[c-cw]=1; cells.push(c-cw); }
+        if (cy < ch-1 && !eff[c+cw] && !outside[c+cw] && !seen[c+cw]) { seen[c+cw]=1; cells.push(c+cw); }
+      }
+      if (run.length <= limit) { filled += run.length; nHoles++;
+        for (var k = 0; k < run.length; k++) mask[run[k]] = 1; }
+      else { skipped += run.length; nBig++; }
+    }
+    var before = sel.size;
+    window.__addLog = [];
+    wandApplyMask(g, sel, mask, true);
+    window.__fill = { body: body, limit: limit, filled: filled, holes: nHoles,
+                      skipped: skipped, big: nBig, added: sel.size - before,
+                      log: window.__addLog.slice(0, 12) };
+    window.__addLog = null;
+  }
+
+  // ------------------------------------------------------ a limb is a cylinder
+  //
+  // The coherence pass above only ever drops, and it has to: everything it
+  // knows says the flag beside the shoulder is not the man. But the cut leaves
+  // a limb in stripes — a foot below the shadow across the shin, the white of
+  // a flagpole below the black band, the next stripe of a zebra's tail — and
+  // nothing above puts those back.
+  //
+  // A cylinder here means a *direction*: a piece that has an edge running on
+  // in the direction the answer's edge was going, and that stays attached
+  // while it does. Three things have to hold, and each of them was learnt from
+  // a picture of the rule getting it wrong.
+  //
+  //   paisunta      it keeps its cross-section — the seam is about as wide as
+  //                 the widest part of it. "Suppeneva."
+  //   rosoisuus     its outline against the outline a smooth cylinder of the
+  //                 same area and length would have. A strip scores 1 whatever
+  //                 its aspect ratio; a shape that interlocks with what it
+  //                 lies against scores several, because every notch is paid
+  //                 for twice. Without it the rule took the torn band down the
+  //                 right of the portrait, which is nothing but notches.
+  //   osuus         how much of that outline is the seam. The horizon stripe
+  //                 on the beach picture is a *perfectly* smooth cylinder —
+  //                 long, straight, even — resting against the man's arm along
+  //                 a hundredth of its own outline. Nothing about its shape
+  //                 says no; the seam does.
+  //
+  // Two things about the unit matter as much as the tests.
+  //
+  // **A piece, not a path.** One traced path is visible in dozens of places at
+  // once — on the beach picture a single path shows up on both arms, the
+  // shorts and the face — so the path is meaningless here. A candidate is one
+  // *connected piece* of one path's leftover area, and what is added is that
+  // piece, clipped, not the path it belongs to.
+  //
+  // **A group, not a piece.** One band across a shin is not a smooth anything:
+  // it is three cells deep, it meanders, its outline is four times a
+  // cylinder's. The leg only appears once several of them are stacked. So the
+  // group grows from a piece that touches the answer, taking at each step the
+  // neighbour that leaves it smoothest, and — this is the part that took two
+  // tries — it is allowed to walk *through* rough states on the way, keeping
+  // the best passing group it saw. Pruning on the union's roughness at every
+  // step forbids exactly the case the whole idea is about.
+  //
+  // What it is worth, one brush stroke against the truth masks:
+  //
+  //     asetus                              ranta          muotokuva
+  //     pois                                0.649          0.811
+  //     yksi pala kerrallaan                0.549          0.810
+  //     ryhmiä, ei sileysehtoja             0.439          0.795
+  //     ryhmiä + rosoisuus 1.5 + osuus      0.671          0.805
+  //     ryhmiä + rosoisuus 3 + osuus 0.15   0.718          0.797   ← tämä
+  //
+  // On the beach picture the leg comes down to the foot: recall 0.658 → 0.783,
+  // and the answer reaches **99 % of what the trace can express**, from 90 %.
+  // Twenty jittered hands all land at 99 % — it was 90 % flat. The synthetic
+  // bench goes 91 → 92 % of ceiling on one stroke and 94 → 95 % with a
+  // counter-stroke, and steering goes 56 → 89 → 84 % to 58 → 92 → 87 %.
+  //
+  // The portrait pays 0.014 of IoU, and pays it in an interesting way: it
+  // *finds* 6 500 px more of the man, the hair among it, and brings 11 400 px
+  // of drapery with it. That trade is the honest state of the rule, not a bug
+  // to be tuned away: a drape fold is a cylinder.
+  //
+  // It costs a stroke real time — 0.71 s to 1.24 s on the portrait, 0.26 s to
+  // 0.34 s on the beach picture — because every candidate group is measured
+  // whole at every step of its growth.
+  //
+  // It runs last, after the cut, the tidy-up, the fence and the hole filling:
+  // a resolver over a finished answer, not another opinion inside the energy.
+  var WAND_CYL = { long: 0, fan: 1.5, area: 0.2, min: 8,
+                   rag: 3, share: 0.15, parts: 8, slack: 0.15, patience: 2 };
+
+  function wandCylinders(g, sel) {
+    var C = window.__cylSet || WAND_CYL;
+    if (!sel.size || C.long >= 1e9) return;
+    var cw = g.cw, ch = g.ch, n = cw * ch, p, x, y, i, k;
+    var eff = wandCells(g, sel);
+
+    // the body: the largest connected piece of the answer as it stands
+    var comp = new Int32Array(n).fill(-1), stack = [], nc = 0, bodyId = -1, bodyN = 0;
+    for (var s0 = 0; s0 < n; s0++) {
+      if (!eff[s0] || comp[s0] >= 0) continue;
+      var bid = nc++, count = 0;
+      comp[s0] = bid; stack.push(s0);
+      while (stack.length) {
+        var q = stack.pop(); count++;
+        var qx = q % cw, qy = (q / cw) | 0;
+        if (qx > 0 && eff[q-1] && comp[q-1] < 0) { comp[q-1] = bid; stack.push(q-1); }
+        if (qx < cw-1 && eff[q+1] && comp[q+1] < 0) { comp[q+1] = bid; stack.push(q+1); }
+        if (qy > 0 && eff[q-cw] && comp[q-cw] < 0) { comp[q-cw] = bid; stack.push(q-cw); }
+        if (qy < ch-1 && eff[q+cw] && comp[q+cw] < 0) { comp[q+cw] = bid; stack.push(q+cw); }
+      }
+      if (count > bodyN) { bodyN = count; bodyId = bid; }
+    }
+    if (bodyId < 0) return;
+
+    // the segments: connected pieces of one region that the answer left out.
+    // One region at a time, because a piece of the base surface and a piece of
+    // the shadow beside it are different things even where they touch — and
+    // because the whole point of what follows is to put them back together
+    // deliberately rather than by accident.
+    var cand = new Int32Array(n).fill(-1), area = [], frame = [], cn = 0;
+    for (var s1 = 0; s1 < n; s1++) {
+      if (eff[s1] || !g.ids[s1] || cand[s1] >= 0) continue;
+      var cid = cn++, reg = g.ids[s1], an = 0, fr = 0;
+      cand[s1] = cid; stack.push(s1);
+      while (stack.length) {
+        var q2 = stack.pop(); an++;
+        var ax = q2 % cw, ay = (q2 / cw) | 0;
+        if (ax === 0 || ay === 0 || ax === cw-1 || ay === ch-1) fr++;
+        if (ax > 0 && !eff[q2-1] && g.ids[q2-1] === reg && cand[q2-1] < 0) { cand[q2-1] = cid; stack.push(q2-1); }
+        if (ax < cw-1 && !eff[q2+1] && g.ids[q2+1] === reg && cand[q2+1] < 0) { cand[q2+1] = cid; stack.push(q2+1); }
+        if (ay > 0 && !eff[q2-cw] && g.ids[q2-cw] === reg && cand[q2-cw] < 0) { cand[q2-cw] = cid; stack.push(q2-cw); }
+        if (ay < ch-1 && !eff[q2+cw] && g.ids[q2+cw] === reg && cand[q2+cw] < 0) { cand[q2+cw] = cid; stack.push(q2+cw); }
+      }
+      area.push(an); frame.push(fr);
+    }
+    if (!cn) return;
+
+    // the cells of each segment, laid end to end so a group can be walked
+    var at = new Int32Array(cn + 1);
+    for (p = 0; p < n; p++) if (cand[p] >= 0) at[cand[p] + 1]++;
+    for (i = 0; i < cn; i++) at[i+1] += at[i];
+    var cells = new Int32Array(at[cn]), cur = Int32Array.from(at);
+    for (p = 0; p < n; p++) if (cand[p] >= 0) cells[cur[cand[p]]++] = p;
+
+    // The outline, and how much of it is shared with the body, both counted in
+    // *edges* rather than cells: a cell wedged into a notch touches on three
+    // sides and one on a flat run touches on one, and the difference between
+    // those two is exactly what tells a seam from a snag. The same pass
+    // records which segments border which, which is what makes a group
+    // possible at all.
+    var perim = new Int32Array(cn), cont = new Int32Array(cn), seam = new Uint8Array(n);
+    var nb = [], nbEdge = [];
+    for (i = 0; i < cn; i++) { nb.push([]); nbEdge.push([]); }
+    var link = function (a, b) {
+      var l = nb[a], j = l.indexOf(b);
+      if (j < 0) { l.push(b); nbEdge[a].push(1); } else nbEdge[a][j]++;
+    };
+    for (p = 0; p < n; p++) {
+      var c = cand[p];
+      if (c < 0) continue;
+      x = p % cw; y = (p / cw) | 0;
+      for (var d = 0; d < 4; d++) {
+        var inside = d === 0 ? x > 0 : d === 1 ? x < cw-1 : d === 2 ? y > 0 : y < ch-1;
+        if (!inside) { perim[c]++; continue; }
+        var q3 = d === 0 ? p-1 : d === 1 ? p+1 : d === 2 ? p-cw : p+cw;
+        if (cand[q3] === c) continue;
+        perim[c]++;
+        if (comp[q3] === bodyId) { cont[c]++; seam[p] = 1; }
+        else if (cand[q3] >= 0) link(c, cand[q3]);
+      }
+    }
+
+    // how far every unselected cell lies from the body's edge, walked through
+    // the unselected area itself — so a group's length is measured along the
+    // limb rather than across the picture
+    var dist = new Int32Array(n).fill(-1), queue = new Int32Array(at[cn]), qh = 0, qt = 0;
+    for (p = 0; p < n; p++) if (seam[p]) { dist[p] = 0; queue[qt++] = p; }
+    while (qh < qt) {
+      var q4 = queue[qh++], t = dist[q4] + 1;
+      var bx = q4 % cw, by = (q4 / cw) | 0;
+      if (bx > 0 && cand[q4-1] >= 0 && dist[q4-1] < 0) { dist[q4-1] = t; queue[qt++] = q4-1; }
+      if (bx < cw-1 && cand[q4+1] >= 0 && dist[q4+1] < 0) { dist[q4+1] = t; queue[qt++] = q4+1; }
+      if (by > 0 && cand[q4-cw] >= 0 && dist[q4-cw] < 0) { dist[q4-cw] = t; queue[qt++] = q4-cw; }
+      if (by < ch-1 && cand[q4+cw] >= 0 && dist[q4+cw] < 0) { dist[q4+cw] = t; queue[qt++] = q4+cw; }
+    }
+
+    // ------------------------------------------------------------ the shape
+    //
+    // Everything above is bookkeeping. This is the rule: what does a group of
+    // segments have to look like to be the rest of a limb?
+    //
+    //   pituus / jänne   it runs away from its seam rather than along it
+    //   levein / kaula   it keeps its cross-section — "suppeneva"
+    //   rosoisuus        its outline against the outline a smooth cylinder of
+    //                    the same area and length would have. A strip scores 1
+    //                    whatever its aspect ratio; a shape that interlocks
+    //                    with what it lies against scores several, because
+    //                    every notch is paid for twice. This is what throws
+    //                    out the torn band down the right of the portrait.
+    //   osuus            how much of its outline is the seam. A piece joined
+    //                    along a real border shares a good part of it; one
+    //                    merely resting against the body shares almost none.
+    //
+    // A fourth was tried and dropped: whether that seam is *one* seam or a
+    // hundred separate nips, as the longest continuous run over the whole of
+    // it. It never bound — at 0.5 and at 0.8 it changed nothing on either
+    // photograph — because a group rough enough to have a shredded seam has
+    // already failed `rosoisuus`.
+    var inGroup = new Uint8Array(cn);
+    var statsOf = function (group) {
+      var A = 0, P = 0, contN = 0, band = [], deep = 0;
+      var sx0 = cw, sx1 = 0, sy0 = ch, sy1 = 0, seamN = 0;
+      for (var m = 0; m < group.length; m++) {
+        var gi = group[m];
+        A += area[gi]; P += perim[gi]; contN += cont[gi];
+        for (var e = 0; e < nb[gi].length; e++) {
+          if (group.indexOf(nb[gi][e]) >= 0) P -= nbEdge[gi][e];   // once from each side
+        }
+        for (var ci = at[gi]; ci < at[gi+1]; ci++) {
+          var cp = cells[ci], dt = dist[cp];
+          if (dt < 0) continue;
+          band[dt] = (band[dt] || 0) + 1;
+          if (dt > deep) deep = dt;
+          if (seam[cp]) { seamN++;
+            var px = cp % cw, py = (cp / cw) | 0;
+            if (px < sx0) sx0 = px; if (px > sx1) sx1 = px;
+            if (py < sy0) sy0 = py; if (py > sy1) sy1 = py; }
+        }
+      }
+      if (!seamN) return null;
+      var span = Math.hypot(sx1 - sx0 + 1, sy1 - sy0 + 1);
+      var neck = band[0] || 1, widest = 0;
+      for (var t2 = 1; t2 <= deep; t2++) if ((band[t2] || 0) > widest) widest = band[t2] || 0;
+      var ideal = 2 * (deep + A / Math.max(1, deep));
+      return { area: A, perim: P, cont: contN, deep: deep,
+        long: deep / span, fan: widest / neck, rag: P / ideal,
+        share: contN / P };
+    };
+    var ok = function (st) {
+      return st && st.long >= C.long && st.fan <= C.fan
+        && st.rag <= C.rag && st.share >= C.share;
+    };
+
+    // Grow, because one segment is usually not the answer. The shadow across a
+    // shin is two or three bands of its own and none of them is a smooth
+    // anything on its own; together they are a leg. So start from a segment
+    // that touches the body and keep adding the neighbour that leaves the
+    // group *smoothest*, stopping when the best available one would make it
+    // rougher than it already is.
+    // Why a segment was refused is worth keeping: window.__cylWhy collects it
+    // for every segment that touches the answer at all, which is how you find
+    // out that a leg was thrown out by a size cap rather than by its shape.
+    var why = window.__cylWhy || null;
+    var note = function (reason, seedId, group, st) {
+      if (!why) return;
+      var A = 0, x0 = cw, x1 = 0, y0 = ch, y1 = 0;
+      for (var wm = 0; wm < group.length; wm++) {
+        A += area[group[wm]];
+        for (var wc = at[group[wm]]; wc < at[group[wm]+1]; wc++) {
+          var wp = cells[wc], wx = wp % cw, wy = (wp / cw) | 0;
+          if (wx < x0) x0 = wx; if (wx > x1) x1 = wx;
+          if (wy < y0) y0 = wy; if (wy > y1) y1 = wy;
+        }
+      }
+      why.push({ reason: reason, seed: seedId, parts: group.length, area: A,
+        long: st ? +st.long.toFixed(2) : null, fan: st ? +st.fan.toFixed(2) : null,
+        rag: st ? +st.rag.toFixed(2) : null, share: st ? +st.share.toFixed(3) : null,
+        box: [x0, y0, x1, y1], cw: cw, ch: ch });
+    };
+
+    var order = [];
+    for (i = 0; i < cn; i++) {
+      if (!cont[i]) continue;
+      if (frame[i]) { note("kehys", i, [i], null); continue; }
+      if (area[i] < C.min) { note("pieni", i, [i], null); continue; }
+      order.push(i);
+    }
+    order.sort(function (a, b) { return cont[b] - cont[a]; });
+    var take = new Uint8Array(cn), any = false, budget = 6000;
+    for (var oi = 0; oi < order.length && budget > 0; oi++) {
+      var seed = order[oi];
+      if (inGroup[seed]) continue;
+      var group = [seed], st = statsOf(group);
+      if (!st) continue;
+      // Grow towards smoothness, and let it pass *through* rough states on the
+      // way. This is the whole of the second idea: one band across a shin is
+      // not a smooth anything — it is three cells deep, it meanders, its
+      // outline is four times a cylinder's — and the group only becomes a leg
+      // once several of them are stacked. Pruning on the union's roughness at
+      // every step forbids exactly that, so the walk is greedy on roughness
+      // and the *best passing group seen along the way* is what is kept.
+      var bestSt = null, bestGroup = null, capped = false, worse = 0;
+      for (var step = 0; step <= C.parts && budget > 0; step++) {
+        if (ok(st) && (!bestSt || st.rag < bestSt.rag)) { bestSt = st; bestGroup = group.slice(); }
+        if (step === C.parts) break;
+        var pick = -1, pickSt = null;
+        for (var m3 = 0; m3 < group.length; m3++) {
+          var lst = nb[group[m3]];
+          for (var e2 = 0; e2 < lst.length; e2++) {
+            var j = lst[e2];
+            if (inGroup[j] || frame[j] || group.indexOf(j) >= 0) continue;
+            if (st.area + area[j] > C.area * bodyN) { capped = true; continue; }
+            budget--;
+            var tst = statsOf(group.concat([j]));
+            if (!tst) continue;
+            if (!pickSt || tst.rag < pickSt.rag) { pick = j; pickSt = tst; }
+          }
+        }
+        if (pick < 0) break;
+        worse = pickSt.rag > st.rag + C.slack ? worse + 1 : 0;
+        if (worse > C.patience) break;
+        group.push(pick); st = pickSt;
+      }
+      if (!bestSt) {
+        note(st.long < C.long ? "lyhyt" : st.fan > C.fan ? "paisuu"
+           : st.rag > C.rag ? "rosoinen" : "irrallinen", seed, group, st);
+        continue;
+      }
+      note(capped ? "ok (katkaisi katto)" : "ok", seed, bestGroup, bestSt);
+      for (var m4 = 0; m4 < bestGroup.length; m4++) { inGroup[bestGroup[m4]] = 1; take[bestGroup[m4]] = 1; }
+      any = true;
+      if (window.__cylProbe) window.__cylProbe.push([bestGroup.length, bestSt.area,
+        +bestSt.long.toFixed(2), +bestSt.fan.toFixed(2), +bestSt.rag.toFixed(2),
+        +bestSt.share.toFixed(3)]);
+    }
+    if (!any) return;
+    var keep = Uint8Array.from(eff);
+    for (p = 0; p < n; p++) if (cand[p] >= 0 && take[cand[p]]) keep[p] = 1;
+    wandApplyMask(g, sel, keep, true);
+    if (window.__cylKeepOut) {
+      var was = 0, now = 0, wants = 0, got = wandCells(g, sel);
+      for (p = 0; p < n; p++) { if (eff[p]) was++; if (keep[p]) wants++; if (got[p]) now++; }
+      window.__cylKeepOut = { was: was, wants: wants, now: now };
+    }
+  }
+
+  function wandCohere(g, sel, fg) {
+    wandClearAutoClips();
+    if (!sel.size) return;
+    var cw = g.cw, ch = g.ch, n = cw * ch;
+
+    // 1 — the body
+    var eff = wandCells(g, sel);
+    // Close before eroding. Hair is not a solid band but a mesh of strands a
+    // cell or two apart, and eroding it directly wipes it out: the body then
+    // stopped at the forehead, its hull came to a point above the brow, and the
+    // whole head of hair fell outside a fence drawn around a man who has one.
+    // Closing first — grow, then shrink — welds the strands into something an
+    // erosion can bite, and leaves a solid shape's outline where it was.
+    var thin = wandErode(wandDilate(eff, cw, ch, WAND_CLOSE), cw, ch, WAND_CLOSE + WAND_SNAP);
+    var core = wandPieces(g, thin, fg);
+    var bodyId = -1, bodyN = 0;
+    for (var c = 0; c < core.n; c++) {
+      if (core.seeded[c] && core.sizes[c] > bodyN) { bodyN = core.sizes[c]; bodyId = c; }
+    }
+    if (bodyId < 0) return;               // the stroke is thinner than the erosion
+
+    // 2 — the fence: the body's convex hull. Columns' extreme cells are enough,
+    // since the hull of a shape is the hull of its silhouette.
+    var pts = [];
+    for (var x = 0; x < cw; x++) {
+      var lo = -1, hi = -1;
+      for (var y = 0; y < ch; y++) if (core.comp[y*cw + x] === bodyId) { if (lo < 0) lo = y; hi = y; }
+      if (lo >= 0) { pts.push([x, lo]); if (hi !== lo) pts.push([x, hi]); }
+    }
+    if (pts.length >= 3) {
+      pts.sort(function (a, b) { return a[0] - b[0] || a[1] - b[1]; });
+      var cross = function (o, a, b) {
+        return (a[0]-o[0]) * (b[1]-o[1]) - (a[1]-o[1]) * (b[0]-o[0]);
+      };
+      var lower = [], upper = [], k;
+      for (k = 0; k < pts.length; k++) {
+        while (lower.length >= 2 && cross(lower[lower.length-2], lower[lower.length-1], pts[k]) <= 0) lower.pop();
+        lower.push(pts[k]);
+      }
+      for (k = pts.length - 1; k >= 0; k--) {
+        while (upper.length >= 2 && cross(upper[upper.length-2], upper[upper.length-1], pts[k]) <= 0) upper.pop();
+        upper.push(pts[k]);
+      }
+      lower.pop(); upper.pop();
+      var hull = lower.concat(upper);
+      if (hull.length >= 3) {
+        var loX = new Int32Array(ch).fill(1e9), hiX = new Int32Array(ch).fill(-1);
+        for (var e = 0; e < hull.length; e++) {
+          var a2 = hull[e], b2 = hull[(e + 1) % hull.length];
+          var yA = Math.min(a2[1], b2[1]), yB = Math.max(a2[1], b2[1]);
+          for (var yy = yA; yy <= yB; yy++) {
+            var t = (b2[1] === a2[1]) ? 0 : (yy - a2[1]) / (b2[1] - a2[1]);
+            var xx = Math.round(a2[0] + (b2[0] - a2[0]) * t);
+            if (xx < loX[yy]) loX[yy] = xx;
+            if (xx > hiX[yy]) hiX[yy] = xx;
+          }
+        }
+        var inHull = new Uint8Array(n);
+        for (var y2 = 0; y2 < ch; y2++) {
+          if (hiX[y2] < 0) continue;
+          var base = y2 * cw;
+          for (var x2 = loX[y2]; x2 <= hiX[y2]; x2++) inHull[base + x2] = 1;
+        }
+        wandApplyMask(g, sel, inHull, false);
+      }
+    }
+
+    // 3 — and what is left belongs to the body rather than merely touching it.
+    //
+    // Plain connectedness is not enough and this is the case that shows why:
+    // the flag behind his shoulder is not joined to the suit by a thread, it
+    // lies against it for two hundred rows. Erosion snaps a thread; it cannot
+    // part two things that genuinely lean on each other, and the hull cannot
+    // either, because the flag sits inside the span of his own shoulders.
+    //
+    // So grow the eroded cores back into the selection, all of them at once,
+    // each cell going to whichever core reaches it first. Two blobs joined by a
+    // neck are divided at the neck, which is where a person would divide them,
+    // and a region whose cells mostly land on a core the user never pointed at
+    // is not part of the answer.
+    if (!sel.size) return;
+    var eff2 = wandCells(g, sel);
+    var thin2 = wandErode(wandDilate(eff2, cw, ch, WAND_CLOSE), cw, ch, WAND_CLOSE + WAND_SNAP);
+    var cores = wandPieces(g, thin2, fg);
+    if (!cores.n) return;
+    var anySeed = false;
+    for (var c2 = 0; c2 < cores.n; c2++) if (cores.seeded[c2]) anySeed = true;
+    if (!anySeed) return;
+    var owner = new Int32Array(n).fill(-1);
+    var queue = new Int32Array(n), qh = 0, qt = 0;
+    for (var p2 = 0; p2 < n; p2++) {
+      if (cores.comp[p2] >= 0) { owner[p2] = cores.comp[p2]; queue[qt++] = p2; }
+    }
+    while (qh < qt) {
+      var q2 = queue[qh++], own = owner[q2];
+      var qx = q2 % cw, qy = (q2 / cw) | 0;
+      if (qx > 0 && eff2[q2-1] && owner[q2-1] < 0) { owner[q2-1] = own; queue[qt++] = q2-1; }
+      if (qx < cw-1 && eff2[q2+1] && owner[q2+1] < 0) { owner[q2+1] = own; queue[qt++] = q2+1; }
+      if (qy > 0 && eff2[q2-cw] && owner[q2-cw] < 0) { owner[q2-cw] = own; queue[qt++] = q2-cw; }
+      if (qy < ch-1 && eff2[q2+cw] && owner[q2+cw] < 0) { owner[q2+cw] = own; queue[qt++] = q2+cw; }
+    }
+    var keep = new Uint8Array(n);
+    for (var p3 = 0; p3 < n; p3++) {
+      var o2 = owner[p3];
+      if (o2 >= 0 && cores.seeded[o2]) keep[p3] = 1;
+    }
+    wandApplyMask(g, sel, keep, false);
+  }
+
+  function wandEncloseSmart(g, sel) {
+    if (!sel.size) return;
+    var before = new Set(sel);
+    wandEnclose(g, sel);
+    if (sel.size === before.size) return;
+    // Against the same background model the cut used, and not just against the
+    // manual hints. Read only those, a picture with no ⌥ stroke at all has no
+    // background model, dB was infinity, and the guard below could never fire:
+    // every enclosed hole was swallowed whole. That was the limbed picture's
+    // last systematic error — the min-cut had already thrown the gap between
+    // the legs out, correctly, and this put it back.
+    var bgModel = new Set(wandBg);
+    wandBorderExamples(g).forEach(function (i) { if (!wandFg.has(i)) bgModel.add(i); });
+    var weight = new Map();
+    bgModel.forEach(function (j) { weight.set(j, wandBg.has(j) ? 1 : WAND_AUTO_BG); });
+    sel.forEach(function (i) {
+      if (before.has(i)) return;
+      var norm = labNorm(g, wandFg, bgModel);
+      var dF = labMixture(g, i, wandFg, norm);
+      var dB = bgModel.size ? labMixture(g, i, bgModel, norm, function (j) {
+        return weight.get(j) || 1;
+      }) : 1e9;
+      // Surrounded, and not plainly the background it is surrounded by.
+      if (dB < dF * WAND_ENCLOSE) sel.delete(i);
+    });
   }
 
   // The cut. Everything outside the selection leaves the document, which is
@@ -1652,9 +3881,12 @@
       setEditNote("Valitse ensin kohde taikasauvalla."); return;
     }
     var g = wandGraph, keep = [], drop = [], lowest = -1;
-    for (var i = 0; i < g.n; i++) {
+    // A path is kept when any of its pieces is; the clip already says which.
+    var anyEl = new Uint8Array(g.nEls);
+    wandSel.forEach(function (i) { anyEl[g.elOf[i]] = 1; });
+    for (var i = 0; i < g.nEls; i++) {
       var el = g.els[i];
-      if (wandSel.has(i)) { keep.push({ el: el, i: i }); if (lowest < 0) lowest = i; }
+      if (anyEl[i]) { keep.push({ el: el, i: i }); if (lowest < 0) lowest = i; }
       else if (el.parentNode) drop.push({ el: el, i: i, parent: el.parentNode, next: el.nextSibling });
     }
     if (!drop.length) { setEditNote("Koko kuva on valittu — ei mitään leikattavaa."); return; }
@@ -1664,7 +3896,7 @@
     // result now, so they stop belonging to the live selection and start
     // belonging to the undo step.
     wandGraph.els.forEach(function (el, i) {
-      if (wandClipOf.has(i) && wandSel.has(i)) entry.clipped.push(el);
+      if (wandClipOf.has(i) && anyEl[i]) entry.clipped.push(el);
     });
     wandClipEls.forEach(function (el) { entry.clipEls.push(el); });
 
@@ -1790,7 +4022,7 @@
     editStack.push(entry);
     // Not wandClear: that would take the clips off the shapes that now need
     // them. Only the selection's own marks go.
-    g.els.forEach(function (el) { el.classList.remove("wand-off"); });
+    g.els.forEach(function (el) { el.classList.remove("wand-off"); wandRestoreFill(el); });
     wandSel = null;
     wandClipOf = new Map();
     wandClipEls = new Map();
@@ -1829,6 +4061,50 @@
   toolRefine.addEventListener("click", function () { editTool = "refine"; picking = false; wandClear(); refreshEditUi(); });
   $("toolSmooth").addEventListener("click", function () { editTool = "smooth"; picking = false; wandClear(); refreshEditUi(); });
   toolWand.addEventListener("click", function () { editTool = "wand"; picking = false; refreshEditUi(); });
+  [toolMerge, toolRefine, $("toolSmooth")].forEach(function (b) {
+    b.addEventListener("click", function () {
+      // A debug view is the wand's; putting the wand away puts the colours back.
+      if (wandGraph) wandGraph.els.forEach(wandRestoreFill);
+    });
+  });
+  function wandSetPaint(mode) {
+    wandPaintMode = wandPaintMode === mode ? null : mode;
+    $("wandPlus").classList.toggle("active", wandPaintMode === "add");
+    $("wandMinus").classList.toggle("active", wandPaintMode === "cut");
+    setEditNote(wandPaintMode
+      ? (wandPaintMode === "add" ? "Maalaa mukaan otettavat alueet." : "Maalaa pois jätettävät alueet.")
+        + " Halkaisija " + $("wandPaintSize").value + " px. Napsauta painiketta uudelleen lopettaaksesi."
+      : "Sivellin antaa taas vihjeitä. ⌥ merkitsee mitä ei oteta mukaan.");
+  }
+  $("wandPlus").addEventListener("click", function () { wandSetPaint("add"); });
+  $("wandMinus").addEventListener("click", function () { wandSetPaint("cut"); });
+  $("geomToggle").addEventListener("click", function () {
+    geomShown = !geomShown;
+    $("geomToggle").classList.toggle("active", geomShown);
+    if (geomShown) geomDraw();
+    else { geomClear(); geomSetZoom(1); }
+  });
+  window.addEventListener("resize", function () { if (geomShown) geomSync(); });
+
+  $("wandZoom").addEventListener("change", function () {
+    var z = +$("wandZoom").value, svg = outSvg();
+    outStage.classList.toggle("zoomed", z > 1);
+    if (!svg) return;
+    if (z > 1) svg.style.width = (z * 100) + "%";
+    else svg.style.width = "";
+    geomZoom = z;
+    if (geomShown) { geomSync(); var gs = outStage.querySelector(".geomstats select");
+      if (gs) gs.value = String(z); }
+  });
+  $("wandView").addEventListener("change", function () {
+    // Leaving a debug view has to put every fill back, or the picture stays
+    // false-coloured for good.
+    if (wandGraph && wandViewMode() === "result") wandGraph.els.forEach(wandRestoreFill);
+    wandPaint();
+    setEditNote(wandViewMode() === "result"
+      ? "Lopputulos. Vedä siveltimellä kohteen yli, ⌥ merkitsee mitä ei oteta mukaan."
+      : "Näytetään päätöksen perusteet. Napsauta palaa niin se kertoo omat lukunsa.");
+  });
   toolPick.addEventListener("click", function () { picking = !picking; refreshEditUi(); });
   var edgeBlend = $("edgeBlend"), refineExtra = $("refineExtra");
   // Not bindRange: that one re-traces the image, and re-tracing replaces the
@@ -1839,13 +4115,28 @@
     refineSize.addEventListener("input", sync);
     sync();
     [[edgeBlend, "v-edgeBlend"], [refineExtra, "v-refineExtra"],
-     [wandTol, "v-wandTol"]].forEach(function (pair) {
+     [wandTol, "v-wandTol"], [wandTidyEl, "v-wandTidy"],
+     [wandBrush, "v-wandBrush"], [wandReach, "v-wandReach"]].forEach(function (pair) {
       var lab2 = $(pair[1]);
       function sync2() { lab2.textContent = String(pair[0].value); }
       pair[0].addEventListener("input", sync2);
       sync2();
     });
   })();
+
+  [wandReach, wandTidyEl].forEach(function (el) {
+    // The hints have not changed, so the question has not changed — only the
+    // answer. Re-solving on the spot is what makes these feel like readings of
+    // the same evidence rather than like a new gesture.
+    el.addEventListener("change", function () {
+      var svg = outSvg();
+      if (editOn && editTool === "wand" && wandFg.size && svg) wandResolve(wandReady(svg));
+    });
+  });
+  wandMode.addEventListener("change", function () {
+    wandClear();
+    refreshEditUi();
+  });
 
   $("wandCut").addEventListener("click", wandApply);
 
@@ -2535,6 +4826,7 @@
       ev.preventDefault();
       lassoAte = 0;
       lassoPts = [toUser(ev, svg)];
+      lassoPts.paint = wandPaintMode;
       lassoEl = document.createElementNS(SVGNS, "path");
       lassoEl.setAttribute("fill", "none");
       lassoEl.setAttribute("stroke", "#ff2ec4");
@@ -2568,7 +4860,26 @@
   });
   ["pointerup", "pointerleave", "pointercancel"].forEach(function (t) {
     outStage.addEventListener(t, function (ev) {
-      if (lassoPts) { lassoAte = lassoEnd(ev) ? performance.now() : 0; return; }
+      if (lassoPts) {
+        if (lassoPts.paint) {
+          var pts = lassoPts, svgP = outSvg();
+          lassoPts = null;
+          if (lassoEl && lassoEl.parentNode) lassoEl.parentNode.removeChild(lassoEl);
+          lassoEl = null;
+          if (svgP && wandSel) {
+            var gp = wandReady(svgP);
+            wandPaintStroke(gp, pts, pts.paint);
+            wandManualApply(gp);
+            wandPaint();
+            setEditNote((pts.paint === "add" ? "Maalattu mukaan" : "Maalattu pois")
+              + " · " + wandSel.size + " muotoa. Sivellin " + $("wandPaintSize").value + " px.");
+          }
+          lassoAte = performance.now();
+          return;
+        }
+        lassoAte = lassoEnd(ev) ? performance.now() : 0;
+        return;
+      }
       if (!brushing) return;
       if (editTool === "refine") { brushing = false; refineFinish(); }
       else endStroke();
@@ -2733,6 +5044,8 @@
         outStage.innerHTML = svg;
         dlBtn.disabled = !svg;
         editToggle.disabled = !svg;
+        $("geomToggle").disabled = !svg;
+        geomRefresh();
 
         var layers = tr.getLayers ? tr.getLayers() : [];
         var layerN = tr.layerCount ? tr.layerCount() : (layers ? layers.length : 0);
@@ -2792,6 +5105,8 @@
         outStage.textContent = "—";
         dlBtn.disabled = true;
         editToggle.disabled = true;
+        $("geomToggle").disabled = true;
+        geomClear();
       } finally {
         busy = false;
         runBtn.disabled = !sourceBitmap;

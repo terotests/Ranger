@@ -89,9 +89,11 @@ The page does not stop at the trace. *Esikäsittely* edits the bitmap before
 anything is quantized, and *Muokkaa* edits the drawing afterwards: **Tarkennin**
 re-vectorizes what you drag over with a palette taken from that spot alone,
 **Yhdistä** gives a shape the color in the picker, **Pehmennä** takes the
-corners out of an outline, and **Taikasauva** picks an object out — click
-to grow a selection by color, or draw a rough outline by hand and let the
-shapes decide where the edge really is — and then cuts everything else away,
+corners out of an outline, and **Taikasauva** picks an object out — drag over
+the thing you want and the brush gives evidence rather than drawing a border
+(⌥ says what does not belong, and every stroke re-runs the classification),
+click to grow by colour, or switch it to lasso and draw a rough outline — and
+then cuts everything else away,
 leaving the object alone on transparency, which is how you get an icon out of a
 photograph. Every one of them is one undo step per gesture, and *Palauta* goes
 back to the trace.
