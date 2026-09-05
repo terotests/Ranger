@@ -15,9 +15,13 @@ Two-player or vs-computer chess for the Ranger game engine (480×270).
 
 | Input | Action |
 |-------|--------|
-| Arrows | Move cursor (after select: jump between legal squares only) |
-| Space / Action | Select own piece, move, or capture enemy under cursor |
+| D-pad / arrows | Move cursor (after select: jump between legal squares only) |
+| A / Space | Select own piece, move, or capture enemy under cursor |
 | B / Select | Cancel selection |
+
+**Kaksinpeli (hotseat, one board):** white = WASD + gamepad 0, black = arrows +
+gamepad 1. Only the side to move steers the cursor, so two pads do not fight.
+Vs computer / menu: either pad can navigate.
 
 ## Run
 
