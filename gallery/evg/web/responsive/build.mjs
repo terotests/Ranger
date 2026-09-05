@@ -84,6 +84,7 @@ fs.copyFileSync(path.join(HERE, "index.html"), path.join(OUT, "index.html"));
 // page is a directory of four files that can be served from anywhere.
 fs.copyFileSync(path.join(ROOT, "gallery/evg/html/evg-html.js"), path.join(OUT, "evg-html.js"));
 fs.copyFileSync(path.join(ROOT, "gallery/evg/gl/evg-measure.js"), path.join(OUT, "evg-measure.js"));
+fs.copyFileSync(path.join(ROOT, "gallery/evg/html/evg-dom.js"), path.join(OUT, "evg-dom.js"));
 
 fs.rmSync(STAGE, { recursive: true, force: true });
 process.stdout.write("Wrote responsive page to " + path.relative(ROOT, OUT) + "\n");

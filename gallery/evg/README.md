@@ -622,6 +622,7 @@ painter that knows about quads, glyph runs and scissor rectangles.
 | **PNG / raster** | `gallery/pdf_writer/src/raster/EVGRasterRenderer.rgr` | anti-aliased scanline fill, the same one that paints the glyphs |
 | **HTML** | `gallery/pdf_writer/src/core/EVGHTMLRenderer.rgr` | the debug view: absolutely positioned boxes and an inline `<svg>` |
 | **SVG / DOM** | [`html/evg-html.js`](html/evg-html.js) | 500 lines, in the browser, from the display list |
+| **Retained DOM** | [`html/evg-dom.js`](html/evg-dom.js) | one node per element, patched from the host tree's ops — the nodes survive a frame |
 | **WebGL 2** | [`gl/evg-webgl.js`](gl/evg-webgl.js) | one instanced quad per command; rounded corners from a distance field |
 | **SDL2 + OpenGL** | `gallery/evg/gl/evg_gl_host.rgr` | the same list through the C++ target |
 | **Android / AWT** | [`android/`](android/) | `EvgPainter.kt` walks the list once; `EvgSurface` is Canvas or Graphics2D |
@@ -714,6 +715,31 @@ The cost is that a host cannot read the app synchronously; the RealTrainer
 check measures what that costs a press (pointer-down to the frame that showed
 it) on both browser hosts, and prints it.
 
+## The host tree
+
+The display list is deliberately dumb — no identity, so a painter is small
+— and that is exactly what a host that wants to KEEP nodes cannot use.
+[`EVGHostTree`](EVGHostTree.rgr) is the fifth list beside the four above,
+derived from the same laid-out tree by the same rule, and it says what
+changed rather than what to draw:
+
+```
+CREATE  path parentPath index    a node, with everything a host needs
+UPDATE  path bits                 GEOMETRY | PAINT | TEXT | A11Y | SCROLL
+MOVE    path parentPath index     the same node, elsewhere
+REMOVE  path
+```
+
+The identity is the inspector's path (`0/3/k:share`), so a keyed reorder is
+a MOVE and not a rebuild. Geometry is parent-relative at scroll 0, so a
+scroll is one SCROLL bit on the container and no op on its children — a
+compositor moves them. Text is the engine's lines, one run per line at the
+display list's offsets, so the host breaks nothing itself and print parity
+holds. [`html/evg-dom.js`](html/evg-dom.js) is the first host on it: a DOM
+node per element, patched; `npm run evg:dom:check` asks Chromium whether
+every node is where the engine put it and whether a resize updated the
+nodes rather than remaking them. PLAN_NATIVE_HOSTS.md S2 and S3.
+
 ## Retained trees
 
 A document is laid out once. An application is laid out sixty times a second,
@@ -753,6 +779,7 @@ and the difference is what these are for.
 | `EVGTransition.rgr` | properties arriving at their values over time |
 | `EVGDisplayList.rgr` | the flat command list, JSON and binary |
 | `EVGCommands.rgr` | everything an application can do, by name |
+| `EVGHostTree.rgr` | the fifth list: what changed, for a host that keeps nodes |
 
 **Text**
 
@@ -810,6 +837,8 @@ npm run evg:json:test           # the display list's JSON
 npm run evg:hostmeasurer:test   # a platform's one function reaches every layout
 npm run evg:measure:web         # ...and in Chromium the browser is the one measuring
 npm run evg:binary:check        # the list reads the same off the object and off toBinary()
+npm run evg:hosttree:test       # the host tree says only what changed
+npm run evg:dom:check           # ...and the DOM painter puts the nodes where it said, and keeps them
 npm run evg:responsive:check    # the responsive page at four widths
 
 # oracles — the same question, asked of a browser

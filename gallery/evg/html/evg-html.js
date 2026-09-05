@@ -27,6 +27,9 @@
  * which is a GPU effect with no DOM equivalent, and it gains selectable text,
  * resolution independence, and a picture that survives being printed.
  *
+ * (That sibling now exists: `evg-dom.js` reads `EVGHostTree`, the list that
+ * carries identity, and keeps its nodes. This file stays what it is.)
+ *
  * WHAT IS DELIBERATELY NOT HERE. Element identity. A draw command carries no
  * id — `EVGDrawCmd` has geometry and paint and nothing else — so every frame
  * rebuilds every node, and a CSS transition, a focus ring or a native `<input>`
