@@ -1,0 +1,281 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EVGHostMeasurerTest — does a platform's one function reach every layout?
+; ==============================================================================
+;
+; `EVGHostTextMeasurer` is the seam PLAN_NATIVE_HOSTS.md S0 adds: a platform
+; hands over one function and every layout in the process measures with it.
+; This drives the Ranger half with a made-up platform — widths and vertical
+; metrics nothing like the table's, so a layout that still used the table
+; is caught by the numbers — and asks:
+;
+;   * does a layout built after `EVGDefaultMeasurer.install` measure with it,
+;     with no call on the layout itself, and one built after `clear` not;
+;   * does the `-Bold` suffix `effectiveFontFamily` writes reach the host as
+;     a flag, with the family stripped;
+;   * is the platform asked for a face's vertical metrics ONCE per face and
+;     never per run, and for a width once per distinct run through the
+;     engine's cache;
+;   * does `line-height: normal` become the face's own line box;
+;   * does an unattached measurer fall back to the table, and does attaching
+;     later move `measureKey` so an engine re-measures;
+;   * does a text node in a real layout wrap where the host's widths say.
+;
+;   npm run evg:hostmeasurer:test
+; ==============================================================================
+
+Import "EVGHostTextMeasurer.rgr"
+Import "EVGTextEngine.rgr"
+Import "EVGLayout.rgr"
+Import "EVGElement.rgr"
+Import "EVGUnit.rgr"
+
+class EVGHostMeasurerTest {
+    def passed:int 0
+    def failed:int 0
+    ; What the fake platform was asked, for the assertions on call counts
+    ; and on what reached it.
+    def lastFamily:string ""
+    def lastBold:boolean false
+    def lastText:string ""
+
+    sfn m@(main):void () {
+        def t (new EVGHostMeasurerTest())
+        t.run()
+    }
+
+    fn ok:void (what:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS  " + what)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL  " + what)
+        }
+    }
+
+    fn near:void (what:string a:double b:double) {
+        def d:double (a - b)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        this.ok((what + " (" + (to_string a) + " vs " + (to_string b) + ")") (d < 0.001))
+    }
+
+    ; The made-up platform: every glyph is 0.7em wide (0.9em bold), the
+    ; ascent 1.0em, the descent 0.3em, the gap 0.2em — so the normal line box
+    ; is 1.5em where the table says 1.15, and no width agrees with the table.
+    fn fakePlatform:EVGHostTextMeasurer () {
+        def hm (new EVGHostTextMeasurer())
+        hm.attach((fn:double (kind:int text:string family:string size:double bold:boolean italic:boolean) {
+            lastFamily = family
+            lastBold = bold
+            lastText = text
+            if (kind == 0) {
+                def per:double 0.7
+                if bold {
+                    per = 0.9
+                }
+                return ((to_double (strlen text)) * size * per)
+            }
+            if (kind == 1) {
+                return (size * 1.0)
+            }
+            if (kind == 2) {
+                return (size * 0.3)
+            }
+            return (size * 0.2)
+        }) "fake")
+        return hm
+    }
+
+    fn run:void () {
+        print "=== EVGHostTextMeasurer ==="
+        this.testDefaultReachesFreshLayouts()
+        this.testBoldSuffix()
+        this.testFaceCacheAndRunCache()
+        this.testLineHeight()
+        this.testUnattachedFallsBackThenAttaches()
+        this.testWrapInRealLayout()
+        this.testHasFace()
+        EVGDefaultMeasurer.uninstall()
+        print ""
+        print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
+        if (failed > 0) {
+            print "FAILURES"
+        } {
+            print "ALL PASS"
+        }
+    }
+
+    fn testDefaultReachesFreshLayouts:void () {
+        print "-- the default reaches a layout that never heard of it"
+        EVGDefaultMeasurer.uninstall()
+        def before (new EVGLayout())
+        def te0:EVGTextEngine (before.getTextEngine())
+        def m0:EVGTextMetrics (te0.measureRun("abcd" "sans-serif" 10.0))
+        this.ok("without an install a layout measures with the table" (m0.width < 28.0))
+
+        def hm:EVGHostTextMeasurer (this.fakePlatform())
+        EVGDefaultMeasurer.install(hm)
+        this.ok("isInstalled" (EVGDefaultMeasurer.isInstalled()))
+        def lay (new EVGLayout())
+        def te:EVGTextEngine (lay.getTextEngine())
+        def m:EVGTextMetrics (te.measureRun("abcd" "sans-serif" 10.0))
+        this.near("a fresh layout measures with the host" m.width 28.0)
+        this.ok("and reports itself font-accurate" (te.measurer.isFontAccurate()))
+
+        def eng (new EVGTextEngine())
+        def m2:EVGTextMetrics (eng.measureRun("ab" "sans-serif" 10.0))
+        this.near("a fresh engine too" m2.width 14.0)
+
+        EVGDefaultMeasurer.uninstall()
+        def after (new EVGLayout())
+        def te2:EVGTextEngine (after.getTextEngine())
+        def m3:EVGTextMetrics (te2.measureRun("abcd" "sans-serif" 10.0))
+        this.ok("after clear a new layout is back on the table" (m3.width < 28.0))
+        this.near("and the old one keeps the host it was built with" ((te.measureRun("abcd" "sans-serif" 10.0)).width) 28.0)
+    }
+
+    fn testBoldSuffix:void () {
+        print "-- the -Bold suffix reaches the host as a flag"
+        def hm:EVGHostTextMeasurer (this.fakePlatform())
+        def m:EVGTextMetrics (hm.measureText("ab" "Inter-Bold" 10.0))
+        this.ok("family stripped" (lastFamily == "Inter"))
+        this.ok("bold set" lastBold)
+        this.near("bold width" m.width 18.0)
+        def m2:EVGTextMetrics (hm.measureText("ab" "Inter" 10.0))
+        this.ok("plain family unchanged" (lastFamily == "Inter"))
+        this.ok("bold clear" (lastBold == false))
+        this.near("plain width" m2.width 14.0)
+        this.ok("a family that merely ends in Bold is not stripped twice" ((EVGHostTextMeasurer.baseFamily("Bold")) == "Bold"))
+        def el (EVGElement.createSpan())
+        el.setAttribute("font-family" "Inter")
+        el.setAttribute("font-weight" "bold")
+        this.ok("effectiveFontFamily is Family-Bold" ((el.effectiveFontFamily()) == "Inter-Bold"))
+    }
+
+    fn testFaceCacheAndRunCache:void () {
+        print "-- the platform is asked per face and per distinct run, not per call"
+        def hm:EVGHostTextMeasurer (this.fakePlatform())
+        def eng (new EVGTextEngine())
+        eng.setMeasurer(hm)
+        def i:int 0
+        while (i < 50) {
+            eng.measureRun("hello" "sans-serif" 12.0)
+            eng.measureRun("hello world" "sans-serif" 12.0)
+            i = (i + 1)
+        }
+        this.ok("three vertical calls for one face" (hm.faceCalls == 3))
+        this.ok("two width calls for two runs through the engine" (hm.widthCalls == 2))
+        eng.measureRun("hello" "sans-serif-Bold" 12.0)
+        this.ok("a bold face is a second face" (hm.faceCalls == 6))
+        eng.measureRun("hello" "sans-serif" 13.0)
+        this.ok("a size is a third" (hm.faceCalls == 9))
+        this.ok("the empty run costs no width call" (((hm.measureText("" "sans-serif" 12.0)).width) == 0.0))
+        this.ok("and asked the host for nothing" (hm.widthCalls == 4))
+    }
+
+    fn testLineHeight:void () {
+        print "-- line-height: normal is the face's line box"
+        def hm:EVGHostTextMeasurer (this.fakePlatform())
+        this.near("ascent + descent + gap" (hm.getLineHeight("sans-serif" 10.0)) 15.0)
+        def m:EVGTextMetrics (hm.measureText("x" "sans-serif" 10.0))
+        this.near("ascent" m.ascent 10.0)
+        this.near("descent" m.descent 3.0)
+        this.near("the run carries the same line height" m.lineHeight 15.0)
+        ; A host that does not know the gap says so with a negative number.
+        def noGap (new EVGHostTextMeasurer())
+        noGap.attach((fn:double (kind:int text:string family:string size:double bold:boolean italic:boolean) {
+            if (kind == 3) {
+                return (0.0 - 1.0)
+            }
+            if (kind == 0) {
+                return (size * (to_double (strlen text)))
+            }
+            return (size * 0.5)
+        }) "nogap")
+        this.near("an unknown gap is zero, not negative" (noGap.getLineHeight("sans-serif" 10.0)) 10.0)
+    }
+
+    fn testUnattachedFallsBackThenAttaches:void () {
+        print "-- unattached measures like the table; attaching moves the key"
+        def hm (new EVGHostTextMeasurer())
+        def table (new SimpleTextMeasurer())
+        def a:EVGTextMetrics (hm.measureText("Päiväkirja" "sans-serif" 14.0))
+        def b:EVGTextMetrics (table.measureText("Päiväkirja" "sans-serif" 14.0))
+        this.near("width as the table" a.width b.width)
+        this.near("line height as the table" (hm.getLineHeight("sans-serif" 14.0)) (table.getLineHeight("sans-serif" 14.0)))
+        this.ok("not font-accurate before attach" ((hm.isFontAccurate()) == false))
+        this.ok("no face before attach" ((hm.hasFace("sans-serif")) == false))
+        def k0:string (hm.measureKey())
+        def eng (new EVGTextEngine())
+        eng.setMeasurer(hm)
+        def w0:double ((eng.measureRun("hello" "sans-serif" 10.0)).width)
+        hm.attach((fn:double (kind:int text:string family:string size:double bold:boolean italic:boolean) {
+            if (kind == 0) {
+                return (size * 2.0 * (to_double (strlen text)))
+            }
+            return (size * 0.5)
+        }) "late")
+        def k1:string (hm.measureKey())
+        this.ok("the key moved" (k0 != k1))
+        this.ok("the key names the host" ((indexOf k1 "late") >= 0))
+        def w1:double ((eng.measureRun("hello" "sans-serif" 10.0)).width)
+        this.ok("the engine measured again without clearCache" (w1 != w0))
+        this.near("with the host's width" w1 100.0)
+        hm.invalidate()
+        this.ok("invalidate moves the key again" ((hm.measureKey()) != k1))
+    }
+
+    fn testWrapInRealLayout:void () {
+        print "-- a text node wraps where the host's widths say"
+        ; 0.7em a glyph at 10px is 7px; "aaaa bbbb cccc" is 14 glyphs = 98px.
+        ; In a 60px box the host wraps it into three lines; the table
+        ; (0.556em) fits "aaaa bbbb" in 50px and makes two.
+        def hm:EVGHostTextMeasurer (this.fakePlatform())
+        EVGDefaultMeasurer.install(hm)
+        def root (EVGElement.createDiv())
+        root.setAttribute("width" "60px")
+        root.setAttribute("height" "200px")
+        def span (EVGElement.createSpan())
+        span.setAttribute("width" "60px")
+        span.setAttribute("font-size" "10px")
+        span.setAttribute("font-family" "sans-serif")
+        span.textContent = "aaaa bbbb cccc"
+        root.addChild(span)
+        def lay (new EVGLayout())
+        lay.setPageSize(60.0 200.0)
+        lay.layout(root)
+        ; Three lines of the face's 15px line box.
+        this.near("three lines at the host's line height" span.calculatedHeight 45.0)
+        def te:EVGTextEngine (lay.getTextEngine())
+        this.ok("the engine counts three" ((te.lineCount("aaaa bbbb cccc" "sans-serif" 10.0 60.0)) == 3))
+        EVGDefaultMeasurer.uninstall()
+        def lay2 (new EVGLayout())
+        def root2 (EVGElement.createDiv())
+        root2.setAttribute("width" "60px")
+        root2.setAttribute("height" "200px")
+        def span2 (EVGElement.createSpan())
+        span2.setAttribute("width" "60px")
+        span2.setAttribute("font-size" "10px")
+        span2.setAttribute("font-family" "sans-serif")
+        span2.textContent = "aaaa bbbb cccc"
+        root2.addChild(span2)
+        lay2.setPageSize(60.0 200.0)
+        lay2.layout(root2)
+        this.ok("the table makes fewer" (span2.calculatedHeight < 45.0))
+    }
+
+    fn testHasFace:void () {
+        print "-- hasFace: a substituting host has every face, a strict one names them"
+        def hm:EVGHostTextMeasurer (this.fakePlatform())
+        this.ok("resolvesAll by default" (hm.hasFace("Whatever")))
+        hm.setResolvesAll(false)
+        this.ok("strict: unknown family has no face" ((hm.hasFace("Whatever")) == false))
+        hm.addKnownFamily("Inter")
+        this.ok("strict: a known family has one" (hm.hasFace("Inter")))
+        this.ok("strict: and its bold" (hm.hasFace("Inter-Bold")))
+    }
+}

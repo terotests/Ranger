@@ -1,6 +1,8 @@
 package fi.ranger.realtrainer.desktop
 
 import fi.ranger.evg.AwtEvgSurface
+import fi.ranger.evg.AwtFaces
+import fi.ranger.evg.AwtTextMeasurer
 import fi.ranger.evg.EvgPainter
 import fi.ranger.evg.RecordingSurface
 import fi.ranger.rgr.EVGElement
@@ -29,6 +31,13 @@ object CheckRealTrainer {
 
     private var passed = 0
     private var failed = 0
+
+    /**
+     * The JDK's own sans, measured AND painted: `AwtTextMeasurer` is installed
+     * from this before any page is made, and every surface below paints with
+     * it, so the check asserts about one face rather than two.
+     */
+    private val faces = AwtFaces(emptyMap())
 
     private fun ok(what: String, cond: Boolean, detail: String = "") {
         if (cond) {
@@ -61,6 +70,7 @@ object CheckRealTrainer {
         val seed = read(root, "gallery/realtrainer/fixtures/reference/seed.json")
         val out = File(root, "tmp/rt-android").apply { mkdirs() }
 
+        AwtTextMeasurer.install(faces)
         fun fresh(w: Double, h: Double): RtAndroid {
             val app = RtAndroid()
             app.start(w, h, css, compact, plan, chat, seed)
@@ -189,7 +199,7 @@ object CheckRealTrainer {
         // No font files: EVG measured this page with its own estimate, as the
         // browser build does, so the platform's sans is the honest choice on
         // both surfaces.
-        val rec = RecordingSurface(AwtEvgSurface(g, emptyMap(), emptyMap()))
+        val rec = RecordingSurface(AwtEvgSurface(g, emptyMap(), faces))
         EvgPainter.paint(list, rec)
         g.dispose()
         ImageIO.write(img, "png", File(dir, name))

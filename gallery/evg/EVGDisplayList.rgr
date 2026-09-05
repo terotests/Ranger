@@ -2274,7 +2274,7 @@ class EVGDisplayList {
     ; JSON path for every fixture by `pptx/web/host/scene-binary-check.mjs`.
     ; Growing this number is safe; a reader that wants the new fields opts in.
     sfn stride:int () {
-        return 27
+        return 36
     }
 
     ; A value in hundredths, which is the precision `num` writes and therefore
@@ -2360,6 +2360,14 @@ class EVGDisplayList {
             if c2.hasRotOrigin {
                 flags = (flags + 32)
             }
+            ; Slots 27-29 mean something: the other three corners.
+            if c2.perCorner {
+                flags = (flags + 64)
+            }
+            ; Slots 31-35 mean something: a drop shadow.
+            if c2.hasShadow {
+                flags = (flags + 128)
+            }
             int_buffer_set recs (base + 9) flags
             int_buffer_set recs (base + 10) c2.gradDir
             int_buffer_set recs (base + 11) (EVGDisplayList.packRgb(c2.r2 c2.g2 c2.b2))
@@ -2372,6 +2380,26 @@ class EVGDisplayList {
             ; radius cannot otherwise take. Contrast slot 24/25, where zero is
             ; a legal place to turn about and the flag is the only way to tell.
             int_buffer_set recs (base + 26) (EVGDisplayList.fixed(c2.backdropBlur))
+            ; --- what a host that keeps the frame across a thread needs ------
+            ;
+            ; The record grew from 27 to 36 when the list started crossing to
+            ; a painter on another thread (PLAN_NATIVE_HOSTS.md S1): a painter
+            ; fed from this buffer alone could not draw the three corners a
+            ; box rounds differently, could not tell a scroll layer's clip
+            ; from any other clip, and lost every shadow. The JSON bridge
+            ; carries the first two already; the shadow neither bridge did.
+            ; A reader derives the width from the buffer (ISSUES #4) and
+            ; reads the slots it knows, so the pptx decoder, which reads 23,
+            ; is untouched by this.
+            int_buffer_set recs (base + 27) (EVGDisplayList.fixed(c2.radiusTR))
+            int_buffer_set recs (base + 28) (EVGDisplayList.fixed(c2.radiusBR))
+            int_buffer_set recs (base + 29) (EVGDisplayList.fixed(c2.radiusBL))
+            int_buffer_set recs (base + 30) c2.layer
+            int_buffer_set recs (base + 31) (EVGDisplayList.fixed(c2.shadowX))
+            int_buffer_set recs (base + 32) (EVGDisplayList.fixed(c2.shadowY))
+            int_buffer_set recs (base + 33) (EVGDisplayList.fixed(c2.shadowBlur))
+            int_buffer_set recs (base + 34) (EVGDisplayList.packRgb(c2.shadowR c2.shadowG c2.shadowB))
+            int_buffer_set recs (base + 35) (EVGDisplayList.fixed(c2.shadowA))
             ; A command with no text names none of the three text strings, and
             ; `toJson` writes none of them either — so the reader must be able
             ; to tell "no text" from "empty text", which -1 says and 0 would

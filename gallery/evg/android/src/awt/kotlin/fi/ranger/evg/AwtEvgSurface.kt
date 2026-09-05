@@ -3,7 +3,6 @@ package fi.ranger.evg
 import java.awt.AlphaComposite
 import java.awt.BasicStroke
 import java.awt.Color
-import java.awt.Font
 import java.awt.GradientPaint
 import java.awt.Graphics2D
 import java.awt.RenderingHints
@@ -35,18 +34,26 @@ class AwtEvgSurface(
     private val g: Graphics2D,
     /** The deck's own picture parts, by package path. */
     private val images: Map<String, ByteArray>,
-    /** TrueType files to draw with, by the family name EVG measured under. */
-    fontFiles: Map<String, File>,
+    /**
+     * The faces to draw with — the SAME [AwtFaces] the measurer was installed
+     * with ([AwtTextMeasurer.install]), so what the layout measured is what
+     * is painted. The secondary constructor takes the files and makes its
+     * own, for a host that measures with the table.
+     */
+    private val faces: AwtFaces,
 ) : EvgSurface {
+
+    constructor(
+        g: Graphics2D,
+        images: Map<String, ByteArray>,
+        /** TrueType files to draw with, by the family name EVG measured under. */
+        fontFiles: Map<String, File>,
+    ) : this(g, images, AwtFaces(fontFiles))
 
     private val stack = ArrayDeque<State>()
     private val imageCache = HashMap<String, BufferedImage?>()
-    private val fontCache = HashMap<FontKey, Font>()
-    private val baseFonts = HashMap<String, Font>()
-    private var fallback: Font = Font(Font.SANS_SERIF, Font.PLAIN, 12)
 
     private data class State(val clip: Shape?, val transform: AffineTransform)
-    private data class FontKey(val family: String, val size: Int, val bold: Boolean, val italic: Boolean)
 
     init {
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
@@ -54,11 +61,6 @@ class AwtEvgSurface(
         g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY)
         g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE)
         g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR)
-        for ((family, file) in fontFiles) {
-            val f = runCatching { Font.createFont(Font.TRUETYPE_FONT, file) }.getOrNull() ?: continue
-            baseFonts[family.lowercase()] = f
-            if (baseFonts.size == 1) fallback = f
-        }
     }
 
     override fun save() {
@@ -227,16 +229,8 @@ class AwtEvgSurface(
         g.composite = old
     }
 
-    private fun fontFor(family: String, sizePx: Float, bold: Boolean, italic: Boolean): Font {
-        val key = FontKey(family.lowercase(), Math.round(sizePx * 4), bold, italic)
-        return fontCache.getOrPut(key) {
-            val base = baseFonts[family.lowercase()] ?: fallback
-            var style = Font.PLAIN
-            if (bold) style = style or Font.BOLD
-            if (italic) style = style or Font.ITALIC
-            base.deriveFont(style, sizePx)
-        }
-    }
+    private fun fontFor(family: String, sizePx: Float, bold: Boolean, italic: Boolean): Font =
+        faces.font(family, sizePx, bold, italic)
 
     private fun awt(argb: Int): Color = Color(argb, true)
 

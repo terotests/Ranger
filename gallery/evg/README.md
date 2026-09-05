@@ -27,6 +27,7 @@ This file is the reference for the engine itself. The other documents here are:
 | [`PLAN_CSS_LAYOUT_AND_FONTS.md`](PLAN_CSS_LAYOUT_AND_FONTS.md) | Why the CSS subset is the shape it is, and what is deliberately missing |
 | [`PLAN_VECTOR_IR.md`](PLAN_VECTOR_IR.md) | The vector layer: paths, strokes, `viewBox`, SVG import |
 | [`PLAN_ACCESSIBILITY.md`](PLAN_ACCESSIBILITY.md) | The second list a frame publishes — what it *means* |
+| [`PLAN_NATIVE_HOSTS.md`](PLAN_NATIVE_HOSTS.md) | A spike: DOM, SwiftUI and Compose as hosts rather than painters — what the platform can do better than a canvas, where native layout stops, and the engine off the UI thread |
 | [`ISSUES.md`](ISSUES.md) | Known defects, with the measurements that found them |
 | [`showcase/README.md`](showcase/README.md) | The gallery, and how it is built |
 | [`gl/README.md`](gl/README.md) | The display-list seam and the GPU backend |
@@ -527,10 +528,40 @@ decides how honest the answer is:
 | `SimpleTextMeasurer` | a measured advance table, one entry per printable character, taken from a browser's sans fallback | headless work, and the browser demos |
 | `TTFTextMeasurer` | the TTF the output will embed, kerned from the face's own GPOS pairs | print |
 | `EVGContextMeasurer` | the host renderer's own loaded faces | an interactive app that paints through `UIContext` |
+| `EVGHostTextMeasurer` | **the platform that will paint** — canvas `measureText`, CoreText, Skia's `Paint`, Java2D — through one function the host hands over | every screen app; see below |
 
 `isFontAccurate()` is how the engine knows the difference: a measurer that never
 opens a font must not silently drive print layout, and `EVGTextEngine` asks
 before letting a document that names custom faces through.
+
+**The platform measures, EVG breaks the lines.** A screen app draws with a face
+the platform chose, and the table is a snapshot of one browser's sans; where
+the two differ a caret lands beside its glyphs and a label clips its box.
+[`EVGHostTextMeasurer`](EVGHostTextMeasurer.rgr) closes that with **one
+function** a host provides — `metric(kind text family size bold italic)`: a
+run's width, or a face's ascent, descent and line gap — and keeps everything
+else in Ranger: the per-face cache, the `-Bold` convention
+`effectiveFontFamily` writes the weight in, the cache key, and the fallback to
+the table until the platform attaches. The lines are still broken here, one
+run per line, so a PDF and a screen that share a face still break in the same
+place. The hosts are a page each:
+
+| Platform | File | Installed by |
+| --- | --- | --- |
+| browser | [`gl/evg-measure.js`](gl/evg-measure.js) — canvas `measureText`, the painters' own `fontSpec`, the gap off a `line-height: normal` probe; works in a Worker | `gallery/ui/demo`, `gallery/realtrainer/web`, `gallery/ui/web`, `web/responsive` |
+| Apple | [`apple/Sources/CoreTextMeasurer.swift`](apple/Sources/CoreTextMeasurer.swift) — the `CTFont` the surface draws with, `CTLineGetTypographicBounds` | `ui/ios`, its watch app, `realtrainer/ios` |
+| Android | [`android/src/android/…/AndroidTextMeasurer.kt`](android/src/android/kotlin/fi/ranger/evg/AndroidTextMeasurer.kt) — the `FaceSet`'s `Typeface` through a `Paint`; [`AwtTextMeasurer.kt`](android/src/awt/kotlin/fi/ranger/evg/AwtTextMeasurer.kt) is the Java2D twin the desktop checks use | `ui/android`, `realtrainer/android`, both `CheckDashboard`-style checks |
+
+They reach every layout through **`EVGDefaultMeasurer`** (in
+`EVGTextMeasurer.rgr`): a process-wide default that `EVGLayout` and
+`EVGTextEngine` read in their constructors, so the twenty-five `new
+EVGLayout()`s in the gallery pick it up without being told. A host installs
+before the app is constructed — the demos keep a layout from the moment they
+exist — and `setMeasurer` still overrides it, which is how print keeps the TTF
+one. `npm run evg:hostmeasurer:test` drives the Ranger half with a made-up
+platform, and `npm run evg:measure:web` opens two built pages in Chromium and
+asks whether a run measured through EVG is the width the painter's canvas
+gives the same font shorthand; PLAN_NATIVE_HOSTS.md S0 is where it came from.
 
 The vertical metrics are measured, not rounded: the sans fallback's ascent is
 `0.905em` and its descent `0.212em`, summing to `1.117em` — no real face sums to
@@ -564,8 +595,13 @@ Three ways out:
 * **`toJson()`** — what a browser gets. Gradients and shadows do not survive it,
   so a JSON-fed backend cannot draw them.
 * **`toBinary()`** — an `EVGSceneBinary` with an interned string pool, for a
-  native host. Its record width is published in the format rather than agreed in
-  advance; see ISSUES #4 for why that sentence is there.
+  native host, and for a browser host whose engine is in a Worker. Its record
+  width is published in the format rather than agreed in advance; see ISSUES
+  #4 for why that sentence is there. The record is 36 ints: since the list
+  started crossing a thread it also carries the other three corners, the
+  scroll layer a clip opens, and the shadow — which no JSON ever did.
+  [`gl/evg-binary.js`](gl/evg-binary.js) reads it back into the JSON's shape,
+  and `npm run evg:binary:check` holds it to the object reader.
 * **the objects** — which is what a Kotlin or Swift host does, and why those
   painters can draw gradients, shadows and multi-ring paths that a JSON one
   cannot.
@@ -586,6 +622,7 @@ painter that knows about quads, glyph runs and scissor rectangles.
 | **PNG / raster** | `gallery/pdf_writer/src/raster/EVGRasterRenderer.rgr` | anti-aliased scanline fill, the same one that paints the glyphs |
 | **HTML** | `gallery/pdf_writer/src/core/EVGHTMLRenderer.rgr` | the debug view: absolutely positioned boxes and an inline `<svg>` |
 | **SVG / DOM** | [`html/evg-html.js`](html/evg-html.js) | 500 lines, in the browser, from the display list |
+| **Retained DOM** | [`html/evg-dom.js`](html/evg-dom.js) | one node per element, patched from the host tree's ops — the nodes survive a frame |
 | **WebGL 2** | [`gl/evg-webgl.js`](gl/evg-webgl.js) | one instanced quad per command; rounded corners from a distance field |
 | **SDL2 + OpenGL** | `gallery/evg/gl/evg_gl_host.rgr` | the same list through the C++ target |
 | **Android / AWT** | [`android/`](android/) | `EvgPainter.kt` walks the list once; `EvgSurface` is Canvas or Graphics2D |
@@ -654,6 +691,61 @@ different things and the DOM makes the distinction.
 
 ---
 
+## The engine off the UI thread
+
+Nothing above the display list needs a window, so on every platform the app
+can run on a thread of its own and hand the UI thread frames to paint
+(PLAN_NATIVE_HOSTS.md S1). The shape is the same three times: the host makes
+the app, then never touches it directly again — every call is posted to the
+engine in order, a call that changed the page produces a frame there, and the
+UI thread keeps the last frame and paints it. Three verbs: `post` (no
+answer), `ask` (an answer, later, on the UI thread), and `sync` for the one
+read a platform insists on at once (`canBecomeFirstResponder`,
+`onCheckIsTextEditor`).
+
+| Platform | The harness | A host on it |
+| --- | --- | --- |
+| browser | [`gl/evg-engine.js`](gl/evg-engine.js): a Worker, frames as transferred `EVGSceneBinary`, input batched into the frame request | `gallery/realtrainer/web/main-worker.js` (`?engine=worker`) |
+| Apple | [`apple/Sources/EvgEngineQueue.swift`](apple/Sources/EvgEngineQueue.swift): a serial `DispatchQueue`, frames delivered to the main thread | `gallery/realtrainer/ios` |
+| Android / JVM | [`android/src/main/…/EvgEngineThread.kt`](android/src/main/kotlin/fi/ranger/evg/EvgEngineThread.kt): a single-thread executor, `onMain` is `View.post` | `gallery/realtrainer/android` |
+
+Frames are coalesced — a burst of posts makes one build after the last — and
+a kept list that only scrolled crosses as its layers' shifts, not as a list.
+The cost is that a host cannot read the app synchronously; the RealTrainer
+check measures what that costs a press (pointer-down to the frame that showed
+it) on both browser hosts, and prints it.
+
+## The host tree
+
+The display list is deliberately dumb — no identity, so a painter is small
+— and that is exactly what a host that wants to KEEP nodes cannot use.
+[`EVGHostTree`](EVGHostTree.rgr) is the fifth list beside the four above,
+derived from the same laid-out tree by the same rule, and it says what
+changed rather than what to draw:
+
+```
+CREATE  path parentPath index    a node, with everything a host needs
+UPDATE  path bits                 GEOMETRY | PAINT | TEXT | A11Y | SCROLL
+MOVE    path parentPath index     the same node, elsewhere
+REMOVE  path
+```
+
+The identity is the inspector's path (`0/3/k:share`), so a keyed reorder is
+a MOVE and not a rebuild. Geometry is parent-relative at scroll 0, so a
+scroll is one SCROLL bit on the container and no op on its children — a
+compositor moves them. Text is the engine's lines, one run per line at the
+display list's offsets, so the host breaks nothing itself and print parity
+holds. [`html/evg-dom.js`](html/evg-dom.js) is the first host on it: a DOM
+node per element, patched; `npm run evg:dom:check` asks Chromium whether
+every node is where the engine put it and whether a resize updated the
+nodes rather than remaking them, and `npm run rt:dom` asks the same of
+RealTrainer, scene change and scroll included. Both are live on the site:
+[the responsive page](https://terotests.github.io/Ranger/evg/responsive/?painter=dom)
+and [RealTrainer](https://terotests.github.io/Ranger/realtrainer/?painter=dom)
+as `?painter=dom` (the SVG painter is the responsive page's default, and
+`?engine=worker` on RealTrainer runs the engine in a Worker).
+PLAN_NATIVE_HOSTS.md S2 and S3.
+
 ## Retained trees
 
 A document is laid out once. An application is laid out sixty times a second,
@@ -693,6 +785,7 @@ and the difference is what these are for.
 | `EVGTransition.rgr` | properties arriving at their values over time |
 | `EVGDisplayList.rgr` | the flat command list, JSON and binary |
 | `EVGCommands.rgr` | everything an application can do, by name |
+| `EVGHostTree.rgr` | the fifth list: what changed, for a host that keeps nodes |
 
 **Text**
 
@@ -701,6 +794,7 @@ and the difference is what these are for.
 | `EVGTextEngine.rgr` | line breaking, the engine layout and painting share |
 | `EVGTextMeasurer.rgr` | the measurer interface and the measured advance table |
 | `EVGContextMeasurer.rgr` | measurement through a host's own renderer |
+| `EVGHostTextMeasurer.rgr` | measurement through the platform that will paint, from one host function |
 | `EVGTextFit.rgr` | text that stays inside its box |
 | `EVGGrapheme.rgr` `EVGCodepoint.rgr` | what "one character" means |
 
@@ -746,6 +840,11 @@ npm run evg:component:test      # instances that outlive the tree
 npm run evg:timing:test         # easing and transition timing
 npm run evg:a11y:test           # the accessibility tree
 npm run evg:json:test           # the display list's JSON
+npm run evg:hostmeasurer:test   # a platform's one function reaches every layout
+npm run evg:measure:web         # ...and in Chromium the browser is the one measuring
+npm run evg:binary:check        # the list reads the same off the object and off toBinary()
+npm run evg:hosttree:test       # the host tree says only what changed
+npm run evg:dom:check           # ...and the DOM painter puts the nodes where it said, and keeps them
 npm run evg:responsive:check    # the responsive page at four widths
 
 # oracles — the same question, asked of a browser

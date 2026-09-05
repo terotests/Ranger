@@ -83,7 +83,14 @@ const ok = (name, cond, detail) => {
 console.log("--- the page loads ---");
 // The desktop demo at its own size: without `page` the page is the window,
 // and this check measures the loader's card at 470px.
-await page.goto(`http://127.0.0.1:${port}/gallery/realtrainer/web/index.html?page=980x760&gl=preserve`, { waitUntil: "networkidle" });
+// `--engine=worker` drives the page with the Ranger app in a Worker
+// (gallery/evg/gl/evg-engine.js) — same page, same painter, same checks —
+// which is how that host is held to this one.
+const engineAt = args.indexOf("--engine");
+const engine = engineAt >= 0 ? args[engineAt + 1] : "";
+const engineParam = engine ? `&engine=${engine}` : "";
+console.log(`--- the engine ${engine === "worker" ? "in a Worker" : "on the main thread"} ---`);
+await page.goto(`http://127.0.0.1:${port}/gallery/realtrainer/web/index.html?page=980x760&gl=preserve${engineParam}`, { waitUntil: "networkidle" });
 await page.waitForFunction("window.__lastStats !== undefined", null, { timeout: 20000 }).catch(() => {});
 ok("no error on first paint", problems.length === 0, [...new Set(problems)].join("; "));
 const size = await page.evaluate(() => {
@@ -229,6 +236,12 @@ await page.waitForTimeout(200);
 ok("the click opens the dashboard",
    (await page.evaluate("window.__app.sceneName()")) === "dashboard",
    await page.evaluate("window.__app.sceneName()"));
+// What the host costs a press: pointer-down to the frame that showed it, as
+// the host itself measured it. With the engine in a Worker this includes
+// the hop each way; with it on the main thread it is the layout and the
+// draw. Printed, not asserted — a number to watch, and the check is not the
+// place to decide how many milliseconds a Chromium without a GPU may take.
+console.log(`  (pointer-down to the frame that showed it: ${(await page.evaluate("window.__latency")).toFixed(1)} ms)`);
 
 const dashCmds = await listNow();
 // The calendar is a grid of 108px cells; the dashboard tab has none, which is

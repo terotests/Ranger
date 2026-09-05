@@ -27,6 +27,7 @@ open class View(context: Context, attrs: AttributeSet? = null) {
     open fun requestFocus(): Boolean = false
     open fun setRenderEffect(effect: android.graphics.RenderEffect?) {}
     open fun postOnAnimation(action: Runnable) {}
+    open fun onDetachedFromWindow() {}
     open fun post(action: Runnable): Boolean = true
     open fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean = false
     open fun postInvalidateOnAnimation() {}

@@ -11,6 +11,15 @@
 // What is left here is what only UIKit can do: unpacking a `UITouch`, running
 // a display link, and turning a `CGContext` over to the painter.
 //
+// THE ENGINE IS NOT ON THIS THREAD. `app` is made here and then never touched
+// from the main thread again: every call goes through `EvgEngineQueue`
+// (gallery/evg/apple), which runs it on the engine's own serial queue, in
+// order, and hands back a frame — the display list and the three viewport
+// numbers the painter needs — when a call changed the page. `draw` paints the
+// last frame it was given and reads the app for nothing, so a layout that
+// takes twelve milliseconds blocks neither the touch nor the display link.
+// (PLAN_NATIVE_HOSTS.md S1.)
+//
 // This is NOT `DashboardView`, and the difference is one line of drawing: the
 // dashboard is a scrolling document and translates by its scroll offset, while
 // this is a fixed 980x760 composition that is centred and letterboxed. Sharing
@@ -20,14 +29,41 @@
 
 import UIKit
 
+/// What the painter needs, read on the engine queue beside the list so the
+/// main thread reads the app for nothing.
+struct RtFrame {
+    let list: EVGDisplayList
+    let offsetX: Double
+    let offsetY: Double
+    let scale: Double
+    /// How long the layout and the list took, on the queue.
+    let buildMs: Double
+}
+
 final class RealTrainerView: UIView {
 
+    /// CoreText measures the page's text before anything is laid out: a
+    /// stored property, declared above `app`, because Swift initialises
+    /// them in order and the app makes its first layout when it is made.
+    private let textMeasurer = CoreTextMeasurer.install()
     let app = RtIos()
 
-    /// The frame, cached. `RtIos.frame()` lays the page out and builds the
-    /// display list, which is the right cost for a page that changed and the
-    /// wrong one for a redraw that changed nothing.
-    private var cachedFrame: EVGDisplayList?
+    /// The engine queue. Every call to `app` below goes through it.
+    private lazy var engine = EvgEngineQueue<RtIos, RtFrame>(
+        app: app,
+        build: { a in
+            let t0 = CACurrentMediaTime()
+            let list = a.frame()
+            return RtFrame(
+                list: list, offsetX: a.offsetX(), offsetY: a.offsetY(), scale: a.scale(),
+                buildMs: (CACurrentMediaTime() - t0) * 1000.0
+            )
+        },
+        deliver: { [weak self] f in self?.frameArrived(f) }
+    )
+
+    /// The last frame the engine handed over. `draw` paints this and only this.
+    private var frame: RtFrame?
 
     /// The clock. This app is never idle by design — the loading screen's ring
     /// turns, the session's dial counts down, and a hover fades over 160ms — so
@@ -103,14 +139,15 @@ final class RealTrainerView: UIView {
     /// browser page styles the same tree from.
     func start(css: String, compact: String, plan: String, chat: String, seed: String) {
         if started { return }
-        app.start(
-            w: Double(bounds.width), h: Double(bounds.height),
-            css: css, compact: compact, planMachine: plan, chatMachine: chat, seed: seed
-        )
-        applySafeArea()
+        let w = Double(bounds.width), h = Double(bounds.height)
+        let i = safeAreaInsets
+        engine.post { a in
+            a.start(w: w, h: h, css: css, compact: compact, planMachine: plan, chatMachine: chat, seed: seed)
+            a.setSafeArea(top: Double(i.top), bottom: Double(i.bottom), left: Double(i.left), right: Double(i.right))
+            return true
+        }
         started = true
         startClock()
-        invalidate()
     }
 
     deinit {
@@ -120,33 +157,30 @@ final class RealTrainerView: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         guard started else { return }
-        app.resize(w: Double(bounds.width), h: Double(bounds.height))
-        applySafeArea()
-        invalidate()
+        let w = Double(bounds.width), h = Double(bounds.height)
+        let i = safeAreaInsets
+        engine.post { a in
+            a.resize(w: w, h: h)
+            a.setSafeArea(top: Double(i.top), bottom: Double(i.bottom), left: Double(i.left), right: Double(i.right))
+            return true
+        }
     }
 
     override func safeAreaInsetsDidChange() {
         super.safeAreaInsetsDidChange()
         guard started else { return }
-        applySafeArea()
-        invalidate()
-    }
-
-    private func applySafeArea() {
         let i = safeAreaInsets
-        app.setSafeArea(
-            top: Double(i.top),
-            bottom: Double(i.bottom),
-            left: Double(i.left),
-            right: Double(i.right)
-        )
+        engine.post { a in
+            a.setSafeArea(top: Double(i.top), bottom: Double(i.bottom), left: Double(i.left), right: Double(i.right))
+            return true
+        }
     }
 
-    /// The page changed, so the cached frame is a frame of a page that no
-    /// longer exists.
-    func invalidate() {
-        cachedFrame = nil
+    /// A frame came off the engine queue: keep it, and draw.
+    private func frameArrived(_ f: RtFrame) {
+        frame = f
         setNeedsDisplay()
+        if profiling { profile(f) }
     }
 
     // MARK: - the clock
@@ -169,37 +203,33 @@ final class RealTrainerView: UIView {
         // one step.
         if dt <= 0 { dt = 1.0 / 60.0 }
         if dt > 0.064 { dt = 0.064 }
-        if app.tick(dtMs: dt * 1000.0) {
-            invalidate()
-        }
+        let ms = dt * 1000.0
+        engine.post { a in a.tick(dtMs: ms) }
     }
 
     // MARK: - drawing
 
     /// Frame timings, on the device, when asked for. Set RANGER_PROFILE in the
-    /// launched process's environment and every 60 painted frames the host
-    /// reports where the time went — laying the page out and building the
-    /// display list, against turning that list into pixels. Guessing which of
-    /// the two is slow from the outside is how an afternoon disappears.
+    /// launched process's environment and every 60 frames the host reports
+    /// where the time went — laying the page out and building the display
+    /// list, on the engine queue, against turning that list into pixels, on
+    /// this thread. Guessing which of the two is slow from the outside is how
+    /// an afternoon disappears.
     ///
     ///     npm run rt:ios:run -- --console          # simulator, output here
     ///     SIMCTL_CHILD_RANGER_PROFILE=1 npm run rt:ios:run -- --console
     private let profiling = ProcessInfo.processInfo.environment["RANGER_PROFILE"] != nil
     private var profFrames = 0
-    private var profBuild: CFTimeInterval = 0
-    private var profPaint: CFTimeInterval = 0
+    private var profBuild: Double = 0
+    private var profPaint: Double = 0
+
+    private func profile(_ f: RtFrame) {
+        profBuild += f.buildMs
+    }
 
     override func draw(_ rect: CGRect) {
-        guard started, let ctx = UIGraphicsGetCurrentContext() else { return }
+        guard started, let f = frame, let ctx = UIGraphicsGetCurrentContext() else { return }
 
-        let t0 = profiling ? CACurrentMediaTime() : 0
-        let list: EVGDisplayList
-        if let cached = cachedFrame {
-            list = cached
-        } else {
-            list = app.frame()
-            cachedFrame = list
-        }
         let t1 = profiling ? CACurrentMediaTime() : 0
 
         ctx.saveGState()
@@ -207,28 +237,27 @@ final class RealTrainerView: UIView {
         // assumes them: to the page's corner — which already has the safe area
         // and the letterbox in it — and then the scale. `toPageX` is the exact
         // inverse, and the two have to agree or a finger lands somewhere the
-        // page is not.
-        ctx.translateBy(x: CGFloat(app.offsetX()), y: CGFloat(app.offsetY()))
-        let scale = CGFloat(app.scale())
+        // page is not. Both numbers came with the frame, read on the queue.
+        ctx.translateBy(x: CGFloat(f.offsetX), y: CGFloat(f.offsetY))
+        let scale = CGFloat(f.scale)
         ctx.scaleBy(x: scale, y: scale)
         // The list is NOT rasterised at a fixed size: the context is scaled and
         // the numbers are left alone, so text and vector shapes are drawn
         // *through* the scale rather than blown up from a bitmap made at some
         // other size. That is why a pinch stays sharp.
-        EvgPainter.paint(list, into: CoreGraphicsEvgSurface(context: ctx))
+        EvgPainter.paint(f.list, into: CoreGraphicsEvgSurface(context: ctx))
         ctx.restoreGState()
 
         if profiling {
             let t2 = CACurrentMediaTime()
-            profBuild += t1 - t0
-            profPaint += t2 - t1
+            profPaint += (t2 - t1) * 1000.0
             profFrames += 1
             if profFrames == 60 {
-                let build = profBuild * 1000.0 / 60.0
-                let paint = profPaint * 1000.0 / 60.0
+                let build = profBuild / 60.0
+                let paint = profPaint / 60.0
                 NSLog(String(
-                    format: "ranger: %.2f ms/frame — layout+list %.2f, paint %.2f, %d commands",
-                    build + paint, build, paint, list.cmds.count
+                    format: "ranger: layout+list %.2f ms/frame (engine queue), paint %.2f ms/frame (main), %d commands",
+                    build, paint, f.list.cmds.count
                 ))
                 profFrames = 0
                 profBuild = 0
@@ -243,49 +272,48 @@ final class RealTrainerView: UIView {
         super.touchesBegan(touches, with: event)
         guard started, let t = touches.first else { return }
         let p = t.location(in: self)
-        if app.pressAt(x: Double(p.x), y: Double(p.y)) {
-            invalidate()
-        }
+        let x = Double(p.x), y = Double(p.y)
+        engine.post { a in a.pressAt(x: x, y: y) }
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         super.touchesEnded(touches, with: event)
         guard started else { return }
-        if app.releasePress() {
-            invalidate()
-        }
+        engine.post { a in a.releasePress() }
         syncKeyboard()
     }
 
     /// The keyboard follows the focus: a tap on a field takes it and the
     /// keyboard rises; a tap anywhere else drops it and the keyboard goes.
+    /// Asked after the release above, on the queue, so the answer is the
+    /// focus the release left.
     private func syncKeyboard() {
-        if app.focusedField().isEmpty {
-            if isFirstResponder { resignFirstResponder() }
-        } else if !isFirstResponder {
-            becomeFirstResponder()
+        engine.ask({ a in a.focusedField() }) { [weak self] field in
+            guard let self = self else { return }
+            if field.isEmpty {
+                if self.isFirstResponder { self.resignFirstResponder() }
+            } else if !self.isFirstResponder {
+                self.becomeFirstResponder()
+            }
         }
     }
 
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
         super.touchesCancelled(touches, with: event)
         guard started else { return }
-        if app.cancelPress() {
-            invalidate()
-        }
+        engine.post { a in a.cancelPress() }
     }
 
     // MARK: - gestures
 
     @objc private func onPan(_ g: UIPanGestureRecognizer) {
-        guard started, app.canPan() else { return }
+        guard started else { return }
         switch g.state {
         case .changed:
             let d = g.translation(in: self)
             g.setTranslation(.zero, in: self)
-            if app.panBy(dx: Double(d.x), dy: Double(d.y)) {
-                invalidate()
-            }
+            let dx = Double(d.x), dy = Double(d.y)
+            engine.post { a in a.canPan() && a.panBy(dx: dx, dy: dy) }
         default:
             break
         }
@@ -300,17 +328,14 @@ final class RealTrainerView: UIView {
         // The factor is RELATIVE — what the fingers did since the last report —
         // because that is what the facade's pinch takes, and it is what keeps
         // the point under the fingers still.
-        if app.pinch(factor: Double(g.scale), focusX: Double(focus.x), focusY: Double(focus.y)) {
-            invalidate()
-        }
+        let factor = Double(g.scale), fx = Double(focus.x), fy = Double(focus.y)
+        engine.post { a in a.pinch(factor: factor, focusX: fx, focusY: fy) }
         g.scale = 1.0
     }
 
     @objc private func onDoubleTap(_ g: UITapGestureRecognizer) {
         guard started else { return }
-        if app.resetZoom() {
-            invalidate()
-        }
+        engine.post { a in a.resetZoom() }
     }
 
     // MARK: - hover
@@ -320,13 +345,10 @@ final class RealTrainerView: UIView {
         switch g.state {
         case .began, .changed:
             let p = g.location(in: self)
-            if app.hoverAt(x: Double(p.x), y: Double(p.y)) {
-                invalidate()
-            }
+            let x = Double(p.x), y = Double(p.y)
+            engine.post { a in a.hoverAt(x: x, y: y) }
         default:
-            if app.clearHover() {
-                invalidate()
-            }
+            engine.post { a in a.clearHover() }
         }
     }
 }
@@ -337,19 +359,23 @@ final class RealTrainerView: UIView {
 /// text-input bridge sends it: the text as typed, a Backspace as the key it
 /// is. The page draws its own field and its own caret.
 extension RealTrainerView: UIKeyInput {
-    override var canBecomeFirstResponder: Bool { started && !app.focusedField().isEmpty }
+    /// The one read UIKit wants an answer to on the spot, so it waits for the
+    /// queue: whether a field has the focus.
+    override var canBecomeFirstResponder: Bool {
+        started && engine.sync { a in !a.focusedField().isEmpty }
+    }
 
     var hasText: Bool { true }
 
     func insertText(_ text: String) {
         if text == "\n" {
-            if app.key(name: "Enter", shift: false, ctrl: false) { invalidate() }
+            engine.post { a in a.key(name: "Enter", shift: false, ctrl: false) }
             return
         }
-        if app.typeText(text: text) { invalidate() }
+        engine.post { a in a.typeText(text: text) }
     }
 
     func deleteBackward() {
-        if app.key(name: "Backspace", shift: false, ctrl: false) { invalidate() }
+        engine.post { a in a.key(name: "Backspace", shift: false, ctrl: false) }
     }
 }

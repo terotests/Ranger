@@ -31,6 +31,8 @@ be kept in step.
 | `Sources/EvgPainter.swift` | 213 | The walk: a display list in, surface calls out |
 | `Sources/CoreGraphicsEvgSurface.swift` | 291 | Boxes, borders, paths, images and CoreText, on a `CGContext` |
 | `Sources/RecordingSurface.swift` | 110 | Draws nothing, counts everything |
+| `Sources/CoreTextMeasurer.swift` | 70 | CoreText measures the text the layout is made with — the same `CTFont` the surface draws with |
+| `Sources/EvgEngineQueue.swift` | 110 | The engine on its own serial queue: `post`, `ask`, `sync`, and frames coalesced and delivered to the main thread |
 
 ## What the painter is careful about
 
@@ -76,12 +78,14 @@ watchOS, so this is the same file there. The family name from the display list
 picks between a monospace face, a serif and the platform's own sans; bold and
 italic go through `CTFontCreateCopyWithSymbolicTraits`.
 
-No font files are bundled. `gallery/ui` lays out with EVG's own width estimate —
-the same one the browser demo uses — so a real TrueType file here would make the
-picture *less* like the one the demo is checked against, not more. That is the
-same call [`gallery/ui/android`](../../ui/android/README.md) made and the
-opposite of the one the pptx port made, for the opposite reason: a deck is
-measured against the faces it was authored in.
+No font files are bundled, and none are needed for the layout to be honest:
+`CoreTextMeasurer.install()` — one stored property in each host, declared
+above the app so it runs first — hands EVG's `EVGHostTextMeasurer` a function
+that measures a run with the SAME `CTFont` `EvgFontCache` gives the surface,
+`CTLineGetTypographicBounds` and all. So the page is laid out with the face it
+is drawn with, rather than with the table it used to guess from. The pptx port
+still bundles the deck's own faces, for the opposite reason: a deck is measured
+against the faces it was authored in.
 
 ## What is checked, and where
 

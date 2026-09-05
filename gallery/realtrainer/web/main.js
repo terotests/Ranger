@@ -14,10 +14,15 @@
 // same picture.
 
 import { prepareDisplayList } from "../../evg/gl/evg-webgl.js";
+import { createDomPainter } from "../../evg/html/evg-dom.js";
 import { listOf, shiftsOf } from "../../evg/gl/evg-list.js";
 import { createA11yMirror, pressAtCentre } from "../../evg/gl/evg-a11y.js";
 import { createTextInputBridge } from "../../evg/gl/evg-textinput.js";
-import { RealTrainerDemo } from "./generated-host.js";
+import { RealTrainerDemo, RealTrainerModule } from "./generated-host.js";
+// The browser measures the text: every layout the app builds asks canvas
+// `measureText` in the face the painter draws with, instead of the advance
+// table. Installed before the app is constructed — the app keeps a layout.
+import { installCanvasMeasurer } from "../../evg/gl/evg-measure.js";
 import { REALTRAINER_CSS, REALTRAINER_COMPACT, REALTRAINER_PLAN_MACHINE, REALTRAINER_CHAT_MACHINE, REALTRAINER_SEED } from "./generated.js";
 
 const stage = document.getElementById("stage");
@@ -25,6 +30,9 @@ const canvas = document.getElementById("c");
 const errEl = document.getElementById("err");
 const fpsEl = document.getElementById("fps");
 const sceneEl = document.getElementById("scene");
+
+const fontMeasure = installCanvasMeasurer(RealTrainerModule);
+window.__fontMeasure = fontMeasure;
 
 const app = new RealTrainerDemo();
 app.init(REALTRAINER_CSS, REALTRAINER_COMPACT);
@@ -122,14 +130,40 @@ sizeCanvas();
 // hand the frame to the compositor and has to copy it instead, every frame.
 // `?gl=noaa` turns multisampling off, for measuring what it costs on a GPU
 // that minds it; the paths' edges are what it smooths.
+// `?painter=dom` paints the page as DOM nodes that survive a frame —
+// `gallery/evg/html/evg-dom.js` on the host tree (`app.hostJson()`) — under a
+// transparent canvas that still takes the pointer, so every handler below
+// is the same one the WebGL page uses. The default is the WebGL painter.
+const painterMode = params.get("painter") || "gl";
+let domPainter = null;
+if (painterMode === "dom") {
+  const domRoot = document.createElement("div");
+  domRoot.id = "dom";
+  domRoot.style.position = "absolute";
+  domRoot.style.left = "0";
+  domRoot.style.top = "0";
+  domRoot.style.width = "100%";
+  domRoot.style.background = "#ffffff";
+  // The nodes are a picture: the canvas above them takes the pointer, as it
+  // always did, and an overlay's z-index stays inside this root's own
+  // stacking context rather than climbing over the canvas.
+  domRoot.style.zIndex = "0";
+  domRoot.style.pointerEvents = "none";
+  stage.insertBefore(domRoot, canvas);
+  canvas.style.position = "relative";
+  canvas.style.zIndex = "1";
+  canvas.style.background = "transparent";
+  domPainter = createDomPainter(domRoot);
+  window.__evgDom = domPainter;
+}
 const glMode = params.get("gl") || "";
-const gl = canvas.getContext("webgl2", {
+const gl = painterMode === "dom" ? null : canvas.getContext("webgl2", {
   antialias: glMode !== "noaa",
   premultipliedAlpha: false,
   stencil: true,
   preserveDrawingBuffer: glMode === "preserve",
 });
-if (!gl) {
+if (!gl && !domPainter) {
   errEl.textContent = "WebGL 2 is not available in this browser.";
 }
 
@@ -202,7 +236,28 @@ function dropFrame() {
   frameList = null;
 }
 
+// Input-to-paint latency: the time from the last pointer down to the frame
+// that showed it, published for the check that compares this host to the
+// one whose engine is in a Worker.
+let inputAt = 0;
+window.__latency = 0;
+
 function paint() {
+  if (domPainter) {
+    try {
+      errEl.textContent = "";
+      const host = JSON.parse(app.hostJson());
+      window.__lastHost = domPainter.apply({ width: app.widthPx(), height: app.heightPx(), host });
+      if (inputAt) {
+        window.__latency = performance.now() - inputAt;
+        inputAt = 0;
+      }
+      sceneEl.textContent = app.sceneName();
+    } catch (e) {
+      errEl.textContent = String((e && e.stack) || e);
+    }
+    return;
+  }
   if (!gl) return;
   try {
     errEl.textContent = "";
@@ -217,6 +272,10 @@ function paint() {
       frameSeq = seq;
     }
     window.__lastStats = frame.draw(shiftsOf(dl));
+    if (inputAt) {
+      window.__latency = performance.now() - inputAt;
+      inputAt = 0;
+    }
     sceneEl.textContent = app.sceneName();
   } catch (e) {
     errEl.textContent = String((e && e.stack) || e);
@@ -226,7 +285,7 @@ function paint() {
 // The accessibility tree. `now` is the frame's clock; pass nothing to mean
 // "this one matters, do it" — a press, a focus, an edit.
 function syncMirror(now) {
-  if (!gl) return;
+  if (!gl && !domPainter) return;
   if (now !== undefined && now < mirrorDue) return;
   mirrorDue = (now === undefined ? performance.now() : now) + MIRROR_MIN_GAP_MS;
   try {
@@ -349,6 +408,7 @@ function syncTextSession() {
 let drag = null;
 canvas.addEventListener("pointerdown", (ev) => {
   const [x, y] = at(ev);
+  inputAt = performance.now();
   // The scrollbar's thumb takes the press: the moves that follow drag the
   // page by the thumb, not by the finger, and nothing under it is pressed.
   if (app.scrollbarGrab(x, y)) {
@@ -519,6 +579,10 @@ function step(now) {
 // The first frame waits for the faces the list names, so the wordmark is not
 // measured in one font and drawn in another.
 document.fonts.ready.then(() => {
+  // The faces are in: forget what was measured with the fallback and lay
+  // the page out again with the real ones.
+  fontMeasure.refresh();
+  app.rebuild();
   paintAll();
   requestAnimationFrame(step);
 });

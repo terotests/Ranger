@@ -1,6 +1,8 @@
 package fi.ranger.watch.bench
 
 import fi.ranger.evg.AwtEvgSurface
+import fi.ranger.evg.AwtFaces
+import fi.ranger.evg.AwtTextMeasurer
 import fi.ranger.evg.EvgPainter
 import fi.ranger.evg.RecordingSurface
 import fi.ranger.rgr.EVGElement
@@ -93,6 +95,9 @@ object WatchBenchMain {
     private fun sheet(css: String): EVGStyleSheet = WatchBench.sheetFor(css)
 
     /** Bytes the tree and its display list hold on to, after a settled heap. */
+    /** The JDK's sans, measured and painted: one face for both. */
+    private val faces = AwtFaces(emptyMap())
+
     private fun retainedKb(css: String, s: Scene): Long {
         val rt = Runtime.getRuntime()
         fun settle(): Long {
@@ -203,7 +208,7 @@ object WatchBenchMain {
             val g = img.createGraphics()
             g.color = Color.BLACK
             g.fillRect(0, 0, w, h)
-            EvgPainter.paint(dl, AwtEvgSurface(g, emptyMap(), emptyMap()))
+            EvgPainter.paint(dl, AwtEvgSurface(g, emptyMap(), faces))
             g.dispose()
         }
 
@@ -212,7 +217,7 @@ object WatchBenchMain {
             val g = img.createGraphics()
             g.color = Color.BLACK
             g.fillRect(0, 0, w, h)
-            val rec = RecordingSurface(AwtEvgSurface(g, emptyMap(), emptyMap()))
+            val rec = RecordingSurface(AwtEvgSurface(g, emptyMap(), faces))
             val drawn = EvgPainter.paint(dl, rec)
             g.dispose()
             ImageIO.write(img, "png", File(png, "watch_${s.name}.png"))
@@ -241,6 +246,11 @@ object WatchBenchMain {
         }
         val cssText = css.readText()
         val out = if (wantPng) File(root, "tmp/watch-bench").apply { mkdirs() } else null
+        // Java2D measures the text every scene below is laid out with — the
+        // same faces the surfaces paint with — so the layout column is the
+        // cost of measuring a real face, which is what a Wear OS host pays
+        // through `AndroidTextMeasurer`, and not the cost of the table.
+        AwtTextMeasurer.install(faces)
 
         // --- the cold frame, before anything at all is warm ---------------------
         // This has to be first and it has to be once. A watch app is launched,

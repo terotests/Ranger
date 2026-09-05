@@ -48,6 +48,7 @@ Import "../../EVGElement.rgr"
 Import "../../EVGUnit.rgr"
 Import "../../EVGBox.rgr"
 Import "../../EVGLayout.rgr"
+Import "../../EVGHostTree.rgr"
 Import "../../EVGStyleSheet.rgr"
 Import "../../EVGDisplayList.rgr"
 
@@ -115,6 +116,13 @@ class EvgResponsiveDemo {
     def lastHeight:double 0.0
     def lastCommands:int 0
     def lastErrors:int 0
+
+    ; The host tree (`EVGHostTree`), kept across renders: `renderHost` says
+    ; what changed since the last one, keyed by the inspector's path, so a
+    ; host that keeps DOM nodes patches them. The tree literal builds every
+    ; element anew each render and the ops still come out empty for a page
+    ; that did not change — identity is the PATH, not the object.
+    def host:EVGHostTree (new EVGHostTree())
 
     Constructor () {
         css = (EvgResponsiveDemo.defaultCss())
@@ -487,6 +495,37 @@ class EvgResponsiveDemo {
         json = json + ",\"height\":" + (EVGDisplayList.num(lastHeight))
         json = json + ",\"cssErrors\":" + (to_string lastErrors)
         json = json + ",\"list\":" + (dl.toJson()) + "}"
+        return json
+    }
+
+    ; The same frame, as the ops a host that keeps nodes applies — the
+    ; retained DOM painter (`html/evg-dom.js`) reads this. Same tree, same
+    ; cascade, same layout; the display list is not built, because nothing
+    ; below the seam is asked for.
+    fn renderHost:string () {
+        def root:EVGElement (this.build())
+        def sheet (new EVGStyleSheet())
+        sheet.parse(css)
+        lastErrors = (array_length sheet.errors)
+        sheet.setViewport(pageW pageH coarse)
+        sheet.applyTree(root "")
+        def lay (new EVGLayout())
+        lay.setPageSize(pageW pageH)
+        lay.layout(root)
+        def tall:double (this.measuredHeight(root))
+        if (tall > pageH) {
+            root.height = (EVGUnit.px(tall))
+            lay.layout(root)
+        }
+        host.setTextEngine((lay.getTextEngine()))
+        host.build(root)
+        lastHeight = (this.measuredHeight(root))
+        lastCommands = host.count
+        def json:string "{\"width\":"
+        json = json + (EVGDisplayList.num(pageW))
+        json = json + ",\"height\":" + (EVGDisplayList.num(lastHeight))
+        json = json + ",\"cssErrors\":" + (to_string lastErrors)
+        json = json + ",\"host\":" + (host.toJson()) + "}"
         return json
     }
 }

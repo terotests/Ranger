@@ -1,0 +1,834 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EVGHostTree — the fifth list: what CHANGED, for a host that keeps nodes
+; ==============================================================================
+;
+; PLAN_NATIVE_HOSTS.md, decision D2 and stage S2. Four descriptions already
+; come out of one laid-out tree, on the same pass and by the same rule —
+; derived, never a second opinion:
+;
+;     EVGDisplayList   what to draw           EVGHitTest   what is under here
+;     EVGA11yFromTree  what it means          EVGInspect   what it is
+;
+; None of them lets a host KEEP anything. A draw command carries no
+; identity, so a DOM painter rebuilds every node every frame and a CSS
+; transition, a focus ring, a caret or a native <input> has nothing to
+; attach to — `html/evg-html.js` says so in its own header, and says it is
+; a property of the seam, not of that file. This is the seam beside it.
+;
+; `build(root)` walks the laid-out tree and emits OPS against the tree it
+; described last time:
+;
+;     CREATE  path parentPath index   a node, with everything a host needs
+;     UPDATE  path bits                what changed on a node that exists
+;     MOVE    path parentPath index    the same node, under another parent
+;                                      or at another index
+;     REMOVE  path                     gone
+;
+; The path is the address, not the identity: an element of another type,
+; tag, id, or clipping at an address the last build described is a REMOVE
+; of the old node and a CREATE of the new one, its subtree with it — a host
+; that kept a node per address would otherwise be asked to turn a box into
+; a scroller in place.
+;
+; `bits` say which of five things moved, so a host writes only those:
+;
+;     GEOMETRY 1   the rectangle       PAINT 2   colours, radii, opacity, …
+;     TEXT     4   the lines           A11Y  8   role, name, states
+;     SCROLL  16   the offset of a scroll container
+;
+; THE IDENTITY is `EVGInspect`'s path — `0/3/k:share` — and for the same
+; reason: a keyed child keeps its path across a reorder, so a list the app
+; reorders by key MOVES nodes rather than remaking them, and an unkeyed
+; child's path is structural, which is honest about what a host can keep.
+; `EVGReconcile` decides what "the same element" is; this reads the answer.
+;
+; THE GEOMETRY IS PARENT-RELATIVE AND UNSCROLLED. `EVGLayout` translates a
+; scroll container's children by -scrollTop, so their page rectangles change
+; on every scroll frame. A host that positions children inside their parent
+; wants coordinates that do not: `x - parent.x + parent.scrollLeft`, the
+; place the child would be at scroll 0. A scroll is then one SCROLL bit on
+; the container, which a DOM host turns into one transform on a layer and a
+; CoreAnimation or Compose host into one offset — the compositor moves the
+; children and the engine never touches them. The page rectangle is still
+; on the op (`pageX`, `pageY`), for a host that wants it.
+;
+; THE TEXT IS THE ENGINE'S LINES. One run per line, at the offsets the
+; display list would draw them, from the same `EVGTextEngine` — so a DOM
+; host sets `white-space: pre` on each and the browser breaks nothing
+; itself. That is what keeps a PDF and the screen breaking in the same
+; place, and it is the whole of D3.
+;
+; WHAT THIS DOES NOT DO. It does not flatten paths: a host that has a path
+; renderer (`<path d>`, `CGPath`, Compose's `Path`) wants the source, and
+; a host that has none reads the display list. It does not emit the
+; accessibility tree: `EVGA11yFromTree` is that, and this carries the few
+; fields a host writes on the node itself. And it changes nothing below the
+; display list; a host that reads that keeps reading it.
+;
+; COST. A hash string per element per build, compared against the shadow.
+; That is the honest first version — measurable, and the style cache's
+; `nothingChanged()` and the element's `paintStamp` are where a second
+; version skips the walk. The bits are exact whatever the cost.
+; ==============================================================================
+
+Import "EVGElement.rgr"
+Import "EVGColor.rgr"
+Import "EVGTextEngine.rgr"
+Import "EVGDisplayList.rgr"
+
+; What the tree said about a node last time, so this time can say what moved.
+class EVGHostShadow {
+    def path:string ""
+    def parentPath:string ""
+    def index:int 0
+    def geom:string ""
+    def paint:string ""
+    def text:string ""
+    def a11y:string ""
+    def scroll:string ""
+    ; What kind of element sat at this address: type, tag, id, clipping.
+    ; Another one there is another node, not an update of this one.
+    def identity:string ""
+    def seen:boolean false
+
+    Constructor () {
+    }
+}
+
+; One op. A CREATE carries every field; an UPDATE carries every field too and
+; `bits` says which a host has to read; a MOVE carries the new place; a
+; REMOVE carries the path.
+class EVGHostOp {
+    def kind:int 0
+    def path:string ""
+    def parentPath:string ""
+    def index:int 0
+    def bits:int 0
+    def elementType:int 0
+    def tagName:string ""
+    def id:string ""
+    def key:string ""
+    ; The class list, for a host whose own stylesheet may style or
+    ; transition the node by it.
+    def className:string ""
+
+    ; --- geometry, parent-relative and unscrolled; and on the page -----------
+    def x:double 0.0
+    def y:double 0.0
+    def w:double 0.0
+    def h:double 0.0
+    def pageX:double 0.0
+    def pageY:double 0.0
+
+    ; --- paint ------------------------------------------------------------------
+    def hasBg:boolean false
+    def bgR:int 0
+    def bgG:int 0
+    def bgB:int 0
+    def bgA:double 1.0
+    def hasGrad:boolean false
+    def gradDir:int 0
+    def g2R:int 0
+    def g2G:int 0
+    def g2B:int 0
+    def g2A:double 1.0
+    def borderW:double 0.0
+    def brR:int 0
+    def brG:int 0
+    def brB:int 0
+    def brA:double 1.0
+    def rTL:double 0.0
+    def rTR:double 0.0
+    def rBR:double 0.0
+    def rBL:double 0.0
+    def opacity:double 1.0
+    def clips:boolean false
+    def rotate:double 0.0
+    def transformSpec:string ""
+    ; The transform's origin inside the box, and its scale and shift — what
+    ; the display list turns the commands about. A host writes them as one
+    ; `transform` and one `transform-origin`.
+    def originX:double 0.0
+    def originY:double 0.0
+    def scale:double 1.0
+    def translateX:double 0.0
+    def translateY:double 0.0
+    def cursor:string ""
+    def backdropBlur:double 0.0
+    def hasShadow:boolean false
+    def shX:double 0.0
+    def shY:double 0.0
+    def shBlur:double 0.0
+    def shR:int 0
+    def shG:int 0
+    def shB:int 0
+    def shA:double 0.0
+    def isOverlay:boolean false
+
+    ; --- text ---------------------------------------------------------------------
+    def lines:[string]
+    def lineX:[double]
+    def lineY:[double]
+    def lineH:double 0.0
+    def fontFamily:string ""
+    def fontSize:double 0.0
+    def fontWeight:string ""
+    def textAlign:string ""
+    def textR:int 0
+    def textG:int 0
+    def textB:int 0
+    def textA:double 1.0
+
+    ; --- image ---------------------------------------------------------------------
+    def src:string ""
+    def objectFit:string ""
+
+    ; --- path -----------------------------------------------------------------------
+    def d:string ""
+    def svgSource:string ""
+    def viewBox:string ""
+    def hasFill:boolean false
+    def fillR:int 0
+    def fillG:int 0
+    def fillB:int 0
+    def fillA:double 1.0
+    def hasStroke:boolean false
+    def stR:int 0
+    def stG:int 0
+    def stB:int 0
+    def stA:double 1.0
+    def strokeWidth:double 0.0
+    def fillRule:string ""
+    def dash:string ""
+
+    ; --- meaning ---------------------------------------------------------------------
+    def role:string ""
+    def label:string ""
+    def a11yState:string ""
+
+    ; --- scroll -----------------------------------------------------------------------
+    def scrollable:boolean false
+    def scrollTop:double 0.0
+    def scrollLeft:double 0.0
+
+    Constructor () {
+    }
+
+    fn kindName:string () {
+        if (kind == 0) { return "create" }
+        if (kind == 1) { return "update" }
+        if (kind == 2) { return "move" }
+        return "remove"
+    }
+}
+
+class EVGHostTree {
+    sfn CREATE:int () { return 0 }
+    sfn UPDATE:int () { return 1 }
+    sfn MOVE:int () { return 2 }
+    sfn REMOVE:int () { return 3 }
+
+    sfn GEOMETRY:int () { return 1 }
+    sfn PAINT:int () { return 2 }
+    sfn TEXT:int () { return 4 }
+    sfn A11Y:int () { return 8 }
+    sfn SCROLL:int () { return 16 }
+
+    def textEngine:EVGTextEngine (new EVGTextEngine())
+    ; The shadow: what was said last build, by path.
+    def shadowIndex:[string:int]
+    def shadows:[EVGHostShadow]
+    ; What this build said.
+    def ops:[EVGHostOp]
+    ; How many nodes the tree has, and the tally of this build.
+    def count:int 0
+    def created:int 0
+    def updated:int 0
+    def moved:int 0
+    def removed:int 0
+    def builds:int 0
+    ; What the walk is building into, replaced whole at the end.
+    def nextIndex:[string:int]
+    def nextShadows:[EVGHostShadow]
+
+    Constructor () {
+    }
+
+    ; The same engine the layout used, so the lines are the layout's lines.
+    fn setTextEngine:void (e:EVGTextEngine) {
+        textEngine = e
+    }
+
+    ; Forget the shadow: the next build creates everything again. For a host
+    ; that threw its nodes away.
+    fn reset:void () {
+        def si:[string:int]
+        shadowIndex = si
+        def ss:[EVGHostShadow]
+        shadows = ss
+    }
+
+    fn opCount:int () {
+        return (array_length ops)
+    }
+
+    fn opAt:EVGHostOp (i:int) {
+        return (itemAt ops i)
+    }
+
+    ; --- the walk -------------------------------------------------------------
+
+    fn build:void (root:EVGElement) {
+        def o:[EVGHostOp]
+        ops = o
+        def ni:[string:int]
+        nextIndex = ni
+        def ns:[EVGHostShadow]
+        nextShadows = ns
+        created = 0
+        updated = 0
+        moved = 0
+        removed = 0
+        count = 0
+        def i:int 0
+        while (i < (array_length shadows)) {
+            def s:EVGHostShadow (itemAt shadows i)
+            s.seen = false
+            i = (i + 1)
+        }
+        def none@(optional):EVGElement
+        this.visit(root none "0" "" 0 false)
+        ; Whatever the walk did not reach is gone. Deepest first, so a host
+        ; that removes a parent before its children is never asked for a
+        ; child of a node it dropped.
+        def j:int ((array_length shadows) - 1)
+        while (j >= 0) {
+            def s2:EVGHostShadow (itemAt shadows j)
+            if (s2.seen == false) {
+                def op (new EVGHostOp())
+                op.kind = 3
+                op.path = s2.path
+                op.parentPath = s2.parentPath
+                push ops op
+                removed = (removed + 1)
+            }
+            j = (j - 1)
+        }
+        shadowIndex = nextIndex
+        shadows = nextShadows
+        builds = (builds + 1)
+    }
+
+    ; `fresh`: the parent was just made, so this node is made too whatever
+    ; the last build said at its address — the old subtree went with the
+    ; old parent.
+    fn visit:void (el:EVGElement parent@(optional):EVGElement path:string parentPath:string index:int fresh:boolean) {
+        if (el.isHidden()) {
+            return
+        }
+        count = (count + 1)
+        def op:EVGHostOp (this.describe(el parent path parentPath index))
+        def geom:string (EVGHostTree.geomKey(op))
+        def paint:string (EVGHostTree.paintKey(op))
+        def text:string (EVGHostTree.textKey(op))
+        def a11y:string (EVGHostTree.a11yKey(op))
+        def scroll:string (EVGHostTree.scrollKey(op))
+        def identity:string (EVGHostTree.identityKey(op))
+        def hit@(optional):int (get shadowIndex path)
+        def shadow (new EVGHostShadow())
+        def make:boolean fresh
+        if (null? hit) {
+            make = true
+        } {
+            def old:EVGHostShadow (itemAt shadows (unwrap hit))
+            old.seen = true
+            if (old.identity != identity) {
+                ; Another element at this address: the old node goes, with
+                ; its subtree, before the new one is made. What the old
+                ; subtree had that the new one does not is unseen and is
+                ; removed at the end — a no-op for a host that dropped it
+                ; with the parent.
+                if (fresh == false) {
+                    def rm (new EVGHostOp())
+                    rm.kind = 3
+                    rm.path = path
+                    rm.parentPath = old.parentPath
+                    push ops rm
+                    removed = (removed + 1)
+                }
+                make = true
+            }
+        }
+        if make {
+            op.kind = 0
+            op.bits = 31
+            push ops op
+            created = (created + 1)
+        } {
+            def old:EVGHostShadow (itemAt shadows (unwrap hit))
+            if ((old.parentPath != parentPath) || (old.index != index)) {
+                def mv (new EVGHostOp())
+                mv.kind = 2
+                mv.path = path
+                mv.parentPath = parentPath
+                mv.index = index
+                push ops mv
+                moved = (moved + 1)
+            }
+            def bits:int 0
+            if (old.geom != geom) { bits = (bits + 1) }
+            if (old.paint != paint) { bits = (bits + 2) }
+            if (old.text != text) { bits = (bits + 4) }
+            if (old.a11y != a11y) { bits = (bits + 8) }
+            if (old.scroll != scroll) { bits = (bits + 16) }
+            if (bits > 0) {
+                op.kind = 1
+                op.bits = bits
+                push ops op
+                updated = (updated + 1)
+            }
+        }
+        shadow.path = path
+        shadow.parentPath = parentPath
+        shadow.index = index
+        shadow.geom = geom
+        shadow.paint = paint
+        shadow.text = text
+        shadow.a11y = a11y
+        shadow.scroll = scroll
+        shadow.identity = identity
+        shadow.seen = true
+        push nextShadows shadow
+        set nextIndex path ((array_length nextShadows) - 1)
+
+        def i:int 0
+        def n:int (el.getChildCount())
+        while (i < n) {
+            def kid:EVGElement (el.getChild(i))
+            def seg:string (to_string i)
+            if ((strlen kid.key) > 0) {
+                seg = ("k:" + kid.key)
+            }
+            def kidPath:string ((path + "/") + seg)
+            def me@(optional):EVGElement el
+            this.visit(kid me kidPath path i make)
+            i = (i + 1)
+        }
+    }
+
+    ; --- describing a node ------------------------------------------------------
+
+    fn describe:EVGHostOp (el:EVGElement parent@(optional):EVGElement path:string parentPath:string index:int) {
+        def op (new EVGHostOp())
+        op.path = path
+        op.parentPath = parentPath
+        op.index = index
+        op.elementType = el.elementType
+        op.tagName = el.tagName
+        op.id = el.id
+        op.key = el.key
+        op.className = el.className
+
+        ; Geometry: on the page, and inside the parent at scroll 0.
+        def x:double el.calculatedX
+        def y:double el.calculatedY
+        def w:double el.calculatedWidth
+        def h:double el.calculatedHeight
+        op.pageX = x
+        op.pageY = y
+        op.w = w
+        op.h = h
+        if parent {
+            def p:EVGElement (unwrap parent)
+            op.x = ((x - p.calculatedX) + p.scrollLeft)
+            op.y = ((y - p.calculatedY) + p.scrollTop)
+        } {
+            op.x = x
+            op.y = y
+        }
+
+        ; Radii, resolved the way the display list resolves them — against the
+        ; box's own width, and scaled down together when they would overlap.
+        def bx:EVGBox el.box
+        def uTL:EVGUnit bx.borderRadiusTL
+        def uTR:EVGUnit bx.borderRadiusTR
+        def uBR:EVGUnit bx.borderRadiusBR
+        def uBL:EVGUnit bx.borderRadiusBL
+        def uAll:EVGUnit bx.borderRadius
+        def rTL:double (EVGDisplayList.radiusPx((uTL.isSet && (uTL.isPercent())) uTL.value bx.borderRadiusTLPx w))
+        def rTR:double (EVGDisplayList.radiusPx((uTR.isSet && (uTR.isPercent())) uTR.value bx.borderRadiusTRPx w))
+        def rBR:double (EVGDisplayList.radiusPx((uBR.isSet && (uBR.isPercent())) uBR.value bx.borderRadiusBRPx w))
+        def rBL:double (EVGDisplayList.radiusPx((uBL.isSet && (uBL.isPercent())) uBL.value bx.borderRadiusBLPx w))
+        if ((bx.hasPerCornerRadius()) == false) {
+            def uni:double (EVGDisplayList.radiusPx((uAll.isSet && (uAll.isPercent())) uAll.value bx.borderRadiusPx w))
+            rTL = uni
+            rTR = uni
+            rBR = uni
+            rBL = uni
+        }
+        def f:double 1.0
+        f = (EVGDisplayList.sideFactor(f w (rTL + rTR)))
+        f = (EVGDisplayList.sideFactor(f h (rTR + rBR)))
+        f = (EVGDisplayList.sideFactor(f w (rBL + rBR)))
+        f = (EVGDisplayList.sideFactor(f h (rTL + rBL)))
+        if (f < 1.0) {
+            rTL = (rTL * f)
+            rTR = (rTR * f)
+            rBR = (rBR * f)
+            rBL = (rBL * f)
+        }
+        op.rTL = rTL
+        op.rTR = rTR
+        op.rBR = rBR
+        op.rBL = rBL
+
+        ; Background and gradient, through the display list's own readers.
+        if el.backgroundColor {
+            def b0:EVGColor (unwrap el.backgroundColor)
+            if b0.isSet {
+                op.hasBg = true
+                op.bgR = (b0.red())
+                op.bgG = (b0.green())
+                op.bgB = (b0.blue())
+                op.bgA = (b0.alpha())
+            }
+        }
+        if (EVGDisplayList.hasLinearGradient(el)) {
+            def gc (new EVGDrawCmd())
+            EVGDisplayList.applyGradient(gc el)
+            op.hasGrad = true
+            op.hasBg = true
+            op.gradDir = gc.gradDir
+            op.bgR = gc.r
+            op.bgG = gc.g
+            op.bgB = gc.b
+            op.bgA = gc.a
+            op.g2R = gc.r2
+            op.g2G = gc.g2
+            op.g2B = gc.b2
+            op.g2A = gc.a2
+        }
+        op.borderW = (el.effectiveBorderWidthPx())
+        if (op.borderW > 0.0) {
+            def bc:EVGColor (el.effectiveBorderColor())
+            op.brR = (bc.red())
+            op.brG = (bc.green())
+            op.brB = (bc.blue())
+            op.brA = (bc.alpha())
+        }
+        op.opacity = el.opacity
+        op.clips = (el.clipsContent())
+        op.rotate = el.rotate
+        op.transformSpec = el.transformSpec
+        op.originX = (EVGElement.resolveOrigin(el.transformOriginX w))
+        op.originY = (EVGElement.resolveOrigin(el.transformOriginY h))
+        op.scale = el.scale
+        op.translateX = el.translateX
+        op.translateY = el.translateY
+        op.cursor = el.cursor
+        op.backdropBlur = el.backdropBlur
+        op.isOverlay = el.isOverlay
+        if el.shadowColor {
+            def sc:EVGColor (unwrap el.shadowColor)
+            if sc.isSet {
+                op.hasShadow = true
+                op.shR = (sc.red())
+                op.shG = (sc.green())
+                op.shB = (sc.blue())
+                op.shA = (sc.alpha())
+                if el.shadowRadius.isSet { op.shBlur = el.shadowRadius.pixels }
+                if el.shadowOffsetX.isSet { op.shX = el.shadowOffsetX.pixels }
+                if el.shadowOffsetY.isSet { op.shY = el.shadowOffsetY.pixels }
+            }
+        }
+
+        ; Text: the engine's lines, at the display list's offsets.
+        if ((strlen el.textContent) > 0) {
+            def face:string (el.effectiveFontFamily())
+            def fs:double el.inheritedFontSize
+            if el.fontSize.isSet {
+                fs = el.fontSize.pixels
+            }
+            if (fs <= 0.0) {
+                fs = 14.0
+            }
+            def lh:double el.lineHeight
+            if (lh <= 0.0) {
+                lh = ((textEngine.lineHeightFor(face fs)) / fs)
+            }
+            if (lh <= 0.0) {
+                lh = 1.2
+            }
+            def avail:double (el.box.getInnerWidth(w))
+            def lines:[string] (textEngine.breakToStrings(el.textContent face fs avail))
+            op.lines = lines
+            def lx:[double]
+            def ly:[double]
+            def li:int 0
+            while (li < (array_length lines)) {
+                def indent:double 0.0
+                if ((el.textAlign == "center") || (el.textAlign == "right")) {
+                    def m:EVGTextMetrics (textEngine.measureRun((itemAt lines li) face fs))
+                    def slack:double (avail - m.width)
+                    if (slack > 0.0) {
+                        if (el.textAlign == "center") {
+                            indent = (slack / 2.0)
+                        } {
+                            indent = slack
+                        }
+                    }
+                }
+                push lx (el.box.paddingLeftPx + indent)
+                push ly (el.box.paddingTopPx + ((to_double li) * (fs * lh)))
+                li = (li + 1)
+            }
+            op.lineX = lx
+            op.lineY = ly
+            op.lineH = (fs * lh)
+            op.fontFamily = face
+            op.fontSize = fs
+            if ((strlen el.fontWeight) > 0) {
+                if (el.fontWeight != "normal") {
+                    op.fontWeight = el.fontWeight
+                }
+            }
+            op.textAlign = el.textAlign
+            if el.color {
+                def tc:EVGColor (unwrap el.color)
+                op.textR = (tc.red())
+                op.textG = (tc.green())
+                op.textB = (tc.blue())
+                op.textA = (tc.alpha())
+            }
+        }
+
+        ; Image
+        op.src = el.src
+        op.objectFit = el.objectFit
+
+        ; Path: the source, for a host with a path renderer.
+        if (el.tagName == "path") {
+            op.d = el.svgPath
+            op.svgSource = el.svgSource
+            op.viewBox = el.viewBox
+            op.fillRule = el.fillRule
+            op.strokeWidth = el.strokeWidth
+            op.dash = el.strokeDashArray
+            if el.fillColor {
+                def fc:EVGColor (unwrap el.fillColor)
+                if fc.isSet {
+                    op.hasFill = true
+                    op.fillR = (fc.red())
+                    op.fillG = (fc.green())
+                    op.fillB = (fc.blue())
+                    op.fillA = (fc.alpha())
+                }
+            }
+            if el.strokeColor {
+                def stc:EVGColor (unwrap el.strokeColor)
+                if stc.isSet {
+                    op.hasStroke = true
+                    op.stR = (stc.red())
+                    op.stG = (stc.green())
+                    op.stB = (stc.blue())
+                    op.stA = (stc.alpha())
+                }
+            }
+        }
+
+        ; Meaning: what a host writes on the node itself. The accessibility
+        ; TREE stays `EVGA11yFromTree`'s.
+        op.role = el.role
+        op.label = el.a11yLabel
+        op.a11yState = (EVGHostTree.stateOf(el))
+
+        ; Scroll
+        op.scrollable = (el.clipsContent())
+        op.scrollTop = el.scrollTop
+        op.scrollLeft = el.scrollLeft
+        return op
+    }
+
+    sfn stateOf:string (el:EVGElement) {
+        def s@(mutable):string ""
+        if el.a11yDisabled { s = (s + "d") }
+        if el.a11yHidden { s = (s + "h") }
+        if el.a11yFocusable { s = (s + "f") }
+        if el.isFocused { s = (s + "F") }
+        if el.isHovered { s = (s + "H") }
+        if el.isPressed { s = (s + "P") }
+        s = (s + ":" + (to_string el.a11yChecked) + ":" + (to_string el.a11yExpanded))
+        s = (s + ":" + (to_string el.a11yPressed) + ":" + (to_string el.a11ySelected))
+        s = (s + ":" + el.a11yValue + ":" + el.a11yDescription)
+        return s
+    }
+
+    ; --- the keys a shadow keeps ------------------------------------------------------
+
+    sfn geomKey:string (op:EVGHostOp) {
+        return ((EVGDisplayList.num(op.x)) + "," + (EVGDisplayList.num(op.y)) + ","
+            + (EVGDisplayList.num(op.w)) + "," + (EVGDisplayList.num(op.h)))
+    }
+
+    sfn colorKey:string (r:int g:int b:int a:double) {
+        return ((to_string r) + "." + (to_string g) + "." + (to_string b) + "." + (EVGDisplayList.num(a)))
+    }
+
+    sfn paintKey:string (op:EVGHostOp) {
+        def s@(mutable):string ""
+        if op.hasBg { s = (s + "bg" + (EVGHostTree.colorKey(op.bgR op.bgG op.bgB op.bgA))) }
+        if op.hasGrad { s = (s + "gr" + (to_string op.gradDir) + (EVGHostTree.colorKey(op.g2R op.g2G op.g2B op.g2A))) }
+        if (op.borderW > 0.0) { s = (s + "b" + (EVGDisplayList.num(op.borderW)) + (EVGHostTree.colorKey(op.brR op.brG op.brB op.brA))) }
+        s = (s + "r" + (EVGDisplayList.num(op.rTL)) + "," + (EVGDisplayList.num(op.rTR)) + "," + (EVGDisplayList.num(op.rBR)) + "," + (EVGDisplayList.num(op.rBL)))
+        s = (s + "o" + (EVGDisplayList.num(op.opacity)))
+        if op.clips { s = (s + "c") }
+        if op.isOverlay { s = (s + "O") }
+        if (op.rotate != 0.0) { s = (s + "rot" + (EVGDisplayList.num(op.rotate))) }
+        if (op.scale != 1.0) { s = (s + "sc" + (EVGDisplayList.num(op.scale))) }
+        if ((op.translateX != 0.0) || (op.translateY != 0.0)) { s = (s + "tr" + (EVGDisplayList.num(op.translateX)) + "," + (EVGDisplayList.num(op.translateY))) }
+        s = (s + "o" + (EVGDisplayList.num(op.originX)) + "," + (EVGDisplayList.num(op.originY)))
+        s = (s + op.transformSpec + "|" + op.cursor)
+        if (op.backdropBlur > 0.0) { s = (s + "bb" + (EVGDisplayList.num(op.backdropBlur))) }
+        if op.hasShadow { s = (s + "sh" + (EVGDisplayList.num(op.shX)) + "," + (EVGDisplayList.num(op.shY)) + "," + (EVGDisplayList.num(op.shBlur)) + (EVGHostTree.colorKey(op.shR op.shG op.shB op.shA))) }
+        if ((strlen op.src) > 0) { s = (s + "img" + op.src + op.objectFit) }
+        if ((strlen op.d) > 0) { s = (s + "d" + op.d) }
+        if ((strlen op.svgSource) > 0) { s = (s + "svg" + (to_string (strlen op.svgSource))) }
+        if ((strlen op.viewBox) > 0) { s = (s + "vb" + op.viewBox) }
+        if op.hasFill { s = (s + "f" + (EVGHostTree.colorKey(op.fillR op.fillG op.fillB op.fillA))) }
+        if op.hasStroke { s = (s + "s" + (EVGHostTree.colorKey(op.stR op.stG op.stB op.stA)) + (EVGDisplayList.num(op.strokeWidth)) + op.dash) }
+        s = (s + op.fillRule + "|" + op.className)
+        return s
+    }
+
+    sfn textKey:string (op:EVGHostOp) {
+        def s@(mutable):string ""
+        def i:int 0
+        while (i < (array_length op.lines)) {
+            s = (s + (itemAt op.lines i) + "\n" + (EVGDisplayList.num((itemAt op.lineX i))) + "," + (EVGDisplayList.num((itemAt op.lineY i))) + "\n")
+            i = (i + 1)
+        }
+        if (i > 0) {
+            s = (s + op.fontFamily + "|" + (EVGDisplayList.num(op.fontSize)) + "|" + op.fontWeight + "|" + op.textAlign
+                + "|" + (EVGDisplayList.num(op.lineH)) + "|" + (EVGHostTree.colorKey(op.textR op.textG op.textB op.textA)))
+        }
+        return s
+    }
+
+    sfn a11yKey:string (op:EVGHostOp) {
+        return (op.id + "|" + op.role + "|" + op.label + "|" + op.a11yState)
+    }
+
+    ; What makes a node the node it is at its address. The path says where;
+    ; this says what, and a change of it is a remake, not an update.
+    sfn identityKey:string (op:EVGHostOp) {
+        def s:string ((to_string op.elementType) + "|" + op.tagName + "|" + op.id)
+        if op.clips { s = (s + "|c") }
+        return s
+    }
+
+    sfn scrollKey:string (op:EVGHostOp) {
+        if (op.scrollable == false) {
+            return ""
+        }
+        return ((EVGDisplayList.num(op.scrollTop)) + "," + (EVGDisplayList.num(op.scrollLeft)))
+    }
+
+    ; --- JSON -------------------------------------------------------------------------
+    ;
+    ; What a DOM host reads. Every op is written whole on CREATE and UPDATE;
+    ; `bits` says what a host has to look at, and a host that looks at all of
+    ; it is merely slower.
+
+    sfn q:string (v:string) {
+        return (EVGDisplayList.jsonString(v))
+    }
+
+    sfn color:string (r:int g:int b:int a:double) {
+        return ("[" + (to_string r) + "," + (to_string g) + "," + (to_string b) + "," + (EVGDisplayList.num(a)) + "]")
+    }
+
+    fn toJson:string () {
+        def out@(mutable):string ("{\"evghost\":1,\"build\":" + (to_string builds) + ",\"count\":" + (to_string count))
+        out = (out + ",\"created\":" + (to_string created) + ",\"updated\":" + (to_string updated))
+        out = (out + ",\"moved\":" + (to_string moved) + ",\"removed\":" + (to_string removed) + ",\"ops\":[")
+        def i:int 0
+        while (i < (array_length ops)) {
+            def op:EVGHostOp (itemAt ops i)
+            if (i > 0) {
+                out = (out + ",")
+            }
+            out = (out + (this.opJson(op)))
+            i = (i + 1)
+        }
+        out = (out + "]}")
+        return out
+    }
+
+    fn opJson:string (op:EVGHostOp) {
+        def s@(mutable):string ("{\"op\":\"" + (op.kindName()) + "\",\"path\":" + (EVGHostTree.q(op.path)))
+        if (op.kind == 3) {
+            return (s + "}")
+        }
+        s = (s + ",\"parent\":" + (EVGHostTree.q(op.parentPath)) + ",\"index\":" + (to_string op.index))
+        if (op.kind == 2) {
+            return (s + "}")
+        }
+        s = (s + ",\"bits\":" + (to_string op.bits) + ",\"type\":" + (to_string op.elementType) + ",\"tag\":" + (EVGHostTree.q(op.tagName)))
+        if ((strlen op.id) > 0) { s = (s + ",\"id\":" + (EVGHostTree.q(op.id))) }
+        if ((strlen op.key) > 0) { s = (s + ",\"key\":" + (EVGHostTree.q(op.key))) }
+        if ((strlen op.className) > 0) { s = (s + ",\"cls\":" + (EVGHostTree.q(op.className))) }
+        s = (s + ",\"x\":" + (EVGDisplayList.num(op.x)) + ",\"y\":" + (EVGDisplayList.num(op.y)))
+        s = (s + ",\"w\":" + (EVGDisplayList.num(op.w)) + ",\"h\":" + (EVGDisplayList.num(op.h)))
+        s = (s + ",\"px\":" + (EVGDisplayList.num(op.pageX)) + ",\"py\":" + (EVGDisplayList.num(op.pageY)))
+        if op.hasBg { s = (s + ",\"bg\":" + (EVGHostTree.color(op.bgR op.bgG op.bgB op.bgA))) }
+        if op.hasGrad { s = (s + ",\"gd\":" + (to_string op.gradDir) + ",\"bg2\":" + (EVGHostTree.color(op.g2R op.g2G op.g2B op.g2A))) }
+        if (op.borderW > 0.0) { s = (s + ",\"bw\":" + (EVGDisplayList.num(op.borderW)) + ",\"bc\":" + (EVGHostTree.color(op.brR op.brG op.brB op.brA))) }
+        if (((op.rTL > 0.0) || (op.rTR > 0.0)) || ((op.rBR > 0.0) || (op.rBL > 0.0))) {
+            s = (s + ",\"rc\":[" + (EVGDisplayList.num(op.rTL)) + "," + (EVGDisplayList.num(op.rTR)) + "," + (EVGDisplayList.num(op.rBR)) + "," + (EVGDisplayList.num(op.rBL)) + "]")
+        }
+        if (op.opacity < 1.0) { s = (s + ",\"opacity\":" + (EVGDisplayList.num(op.opacity))) }
+        if op.clips { s = (s + ",\"clip\":true") }
+        if op.isOverlay { s = (s + ",\"overlay\":true") }
+        if (op.rotate != 0.0) { s = (s + ",\"rot\":" + (EVGDisplayList.num(op.rotate))) }
+        if (op.scale != 1.0) { s = (s + ",\"scale\":" + (EVGDisplayList.num(op.scale))) }
+        if ((op.translateX != 0.0) || (op.translateY != 0.0)) { s = (s + ",\"tx\":" + (EVGDisplayList.num(op.translateX)) + ",\"ty\":" + (EVGDisplayList.num(op.translateY))) }
+        if (((op.rotate != 0.0) || (op.scale != 1.0)) || ((op.translateX != 0.0) || (op.translateY != 0.0))) { s = (s + ",\"origin\":[" + (EVGDisplayList.num(op.originX)) + "," + (EVGDisplayList.num(op.originY)) + "]") }
+        if ((strlen op.transformSpec) > 0) { s = (s + ",\"transform\":" + (EVGHostTree.q(op.transformSpec))) }
+        if ((strlen op.cursor) > 0) { s = (s + ",\"cursor\":" + (EVGHostTree.q(op.cursor))) }
+        if (op.backdropBlur > 0.0) { s = (s + ",\"bb\":" + (EVGDisplayList.num(op.backdropBlur))) }
+        if op.hasShadow {
+            s = (s + ",\"sh\":{\"x\":" + (EVGDisplayList.num(op.shX)) + ",\"y\":" + (EVGDisplayList.num(op.shY)) + ",\"blur\":" + (EVGDisplayList.num(op.shBlur)) + ",\"c\":" + (EVGHostTree.color(op.shR op.shG op.shB op.shA)) + "}")
+        }
+        if ((array_length op.lines) > 0) {
+            s = (s + ",\"text\":{\"lines\":[")
+            def i:int 0
+            while (i < (array_length op.lines)) {
+                if (i > 0) { s = (s + ",") }
+                s = (s + "[" + (EVGHostTree.q((itemAt op.lines i))) + "," + (EVGDisplayList.num((itemAt op.lineX i))) + "," + (EVGDisplayList.num((itemAt op.lineY i))) + "]")
+                i = (i + 1)
+            }
+            s = (s + "],\"lh\":" + (EVGDisplayList.num(op.lineH)) + ",\"font\":" + (EVGHostTree.q(op.fontFamily)) + ",\"size\":" + (EVGDisplayList.num(op.fontSize)))
+            if ((strlen op.fontWeight) > 0) { s = (s + ",\"weight\":" + (EVGHostTree.q(op.fontWeight))) }
+            s = (s + ",\"align\":" + (EVGHostTree.q(op.textAlign)) + ",\"c\":" + (EVGHostTree.color(op.textR op.textG op.textB op.textA)) + "}")
+        }
+        if ((strlen op.src) > 0) { s = (s + ",\"src\":" + (EVGHostTree.q(op.src)) + ",\"fit\":" + (EVGHostTree.q(op.objectFit))) }
+        if (op.tagName == "path") {
+            s = (s + ",\"shape\":{\"d\":" + (EVGHostTree.q(op.d)) + ",\"viewBox\":" + (EVGHostTree.q(op.viewBox)) + ",\"rule\":" + (EVGHostTree.q(op.fillRule)))
+            if ((strlen op.svgSource) > 0) { s = (s + ",\"svg\":" + (EVGHostTree.q(op.svgSource))) }
+            if op.hasFill { s = (s + ",\"fill\":" + (EVGHostTree.color(op.fillR op.fillG op.fillB op.fillA))) }
+            if op.hasStroke { s = (s + ",\"stroke\":" + (EVGHostTree.color(op.stR op.stG op.stB op.stA)) + ",\"sw\":" + (EVGDisplayList.num(op.strokeWidth))) }
+            if ((strlen op.dash) > 0) { s = (s + ",\"dash\":" + (EVGHostTree.q(op.dash))) }
+            s = (s + "}")
+        }
+        if (((strlen op.role) > 0) || ((strlen op.label) > 0)) {
+            s = (s + ",\"role\":" + (EVGHostTree.q(op.role)) + ",\"label\":" + (EVGHostTree.q(op.label)))
+        }
+        s = (s + ",\"state\":" + (EVGHostTree.q(op.a11yState)))
+        if op.scrollable {
+            s = (s + ",\"scroll\":[" + (EVGDisplayList.num(op.scrollLeft)) + "," + (EVGDisplayList.num(op.scrollTop)) + "]")
+        }
+        return (s + "}")
+    }
+}

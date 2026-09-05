@@ -661,3 +661,60 @@ class SimpleTextMeasurer {
         return metrics
     }
 }
+
+; ==============================================================================
+; EVGDefaultMeasurer — the measurer a layout gets when nobody handed it one
+; ==============================================================================
+;
+; Twenty-five places in the gallery say `new EVGLayout()` and never call
+; `setMeasurer`: every demo, the RealTrainer page, the pptx chrome. Each of
+; them measured with a fresh `SimpleTextMeasurer`, which is the table. For a
+; platform to measure for ALL of them — PLAN_NATIVE_HOSTS.md S0 — there has
+; to be one place a host can put the measurer it made, and this is it: a
+; process-wide default that `EVGLayout` and `EVGTextEngine` consult in their
+; constructors. An app that installs a measurer explicitly (`setMeasurer`,
+; the TTF one for print) is unaffected; it overrides the default the way it
+; always did.
+;
+; It is a singleton per compiled module, which is what a host wants: a page
+; that bundles several generated modules installs into each, because two
+; copies of a class are two classes (`gallery/ui/demo/main.js` says so).
+;
+; The default is read at CONSTRUCTION. A layout built before the host
+; installed keeps the table; that is why a host installs before `start` —
+; and why `EVGHostTextMeasurer` can be installed unattached and attached
+; later, so the order of "install" and "the platform is ready" does not
+; matter, only the order of "install" and "build the first layout".
+class EVGDefaultMeasurer @singleton(true) {
+    def current@(optional):EVGTextMeasurer
+    def installs:int 0
+
+    sfn install:void (m:EVGTextMeasurer) {
+        def r:EVGDefaultMeasurer (EVGDefaultMeasurer.__singleton())
+        r.current = m
+        r.installs = (r.installs + 1)
+    }
+
+    sfn uninstall:void () {
+        def r:EVGDefaultMeasurer (EVGDefaultMeasurer.__singleton())
+        def none@(optional):EVGTextMeasurer
+        r.current = none
+    }
+
+    sfn isInstalled:boolean () {
+        def r:EVGDefaultMeasurer (EVGDefaultMeasurer.__singleton())
+        return (!null? r.current)
+    }
+
+    ; What a new layout or engine measures with: the installed measurer, or a
+    ; fresh table when there is none — exactly what the constructors made
+    ; before this existed.
+    sfn measurer:EVGTextMeasurer () {
+        def r:EVGDefaultMeasurer (EVGDefaultMeasurer.__singleton())
+        if (!null? r.current) {
+            return (unwrap r.current)
+        }
+        def m (new SimpleTextMeasurer())
+        return m
+    }
+}

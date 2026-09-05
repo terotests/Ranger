@@ -1,3 +1,5 @@
 bundle.js
+bundle-worker.js
+worker-bundle.js
 generated.js
 generated-host.js

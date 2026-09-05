@@ -27,6 +27,9 @@
  * which is a GPU effect with no DOM equivalent, and it gains selectable text,
  * resolution independence, and a picture that survives being printed.
  *
+ * (That sibling now exists: `evg-dom.js` reads `EVGHostTree`, the list that
+ * carries identity, and keeps its nodes. This file stays what it is.)
+ *
  * WHAT IS DELIBERATELY NOT HERE. Element identity. A draw command carries no
  * id — `EVGDrawCmd` has geometry and paint and nothing else — so every frame
  * rebuilds every node, and a CSS transition, a focus ring or a native `<input>`
@@ -80,8 +83,15 @@ export function setFontFallback(families) {
 }
 
 /** One place that turns a TEXT command into a CSS font shorthand. */
+// The family a command names, less the `-Bold` suffix `effectiveFontFamily`
+// writes for a bold element: a convention the TTF measurers read as "the
+// bold face", and a browser reads as a family nobody has. The weight arrives
+// on its own and is what the browser is given. `gl/evg-measure.js` strips
+// the same suffix, so the layout and this painter ask for one face.
+const familyOf = (c) => (c.font && c.font.endsWith("-Bold") ? c.font.slice(0, -5) : c.font || "");
+
 function fontSpec(c) {
-  return `${c.italic ? "italic " : ""}${c.weight ? c.weight + " " : ""}${c.size}px "${c.font}", ${fallbackStack}`;
+  return `${c.italic ? "italic " : ""}${c.weight ? c.weight + " " : ""}${c.size}px "${familyOf(c)}", ${fallbackStack}`;
 }
 
 // Face metrics per font spec. `fontBoundingBox*` is a property of the FACE at
@@ -446,7 +456,7 @@ export function renderDisplayList(target, doc, opts = {}) {
         // by default, and EVG emits a run's leading and trailing space as part
         // of the run it measured. Without it an indented line starts flush.
         let a = `x="${n(c.x)}" y="${n(baselineOf(c))}" fill="${rgba(c.c)}"` +
-                ` font-family="&quot;${esc(c.font)}&quot;, ${esc(fallbackStack)}"` +
+                ` font-family="&quot;${esc(familyOf(c))}&quot;, ${esc(fallbackStack)}"` +
                 ` font-size="${n(c.size)}"`;
         if (c.weight) a += ` font-weight="${esc(c.weight)}"`;
         if (c.italic) a += ` font-style="italic"`;

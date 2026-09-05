@@ -59,16 +59,41 @@
   <button data-w="420">420</button>
   <span class="sep">|</span>
   <button id="btnCoarse" aria-pressed="false">pointer: coarse</button>
+  <span class="sep">|</span>
+  <button id="btnSvg" data-painter="svg" title="evg-html.js: the display list as <svg>, rebuilt every frame">svg</button>
+  <button id="btnDom" data-painter="dom" title="evg-dom.js: a DOM node per element, kept and patched from the host tree">dom</button>
 </div>
 
 <script src="./evg_responsive_demo.js"></script>
 <script type="module">
 import { renderDisplayList } from "./evg-html.js";
+import { createDomPainter } from "./evg-dom.js";
+import { installCanvasMeasurer } from "./evg-measure.js";
+
+// The browser measures the text the page is laid out with — the same face
+// `evg-html.js` sets on its <text> nodes — rather than the advance table.
+const fontMeasure = installCanvasMeasurer(globalThis.EvgResponsiveModule);
+window.__fontMeasure = fontMeasure;
 
 const stage = document.getElementById("stage");
 const errBox = document.getElementById("err");
 
 const demo = new EvgResponsiveDemo();
+
+// `?painter=dom` keeps a DOM node per element and patches it from the host
+// tree's ops (gallery/evg/html/evg-dom.js); the default paints the display
+// list as <svg> and rebuilds it every frame.
+const painterMode = new URLSearchParams(location.search).get("painter") || "svg";
+const domPainter = painterMode === "dom" ? createDomPainter(stage) : null;
+window.__evgDom = domPainter;
+for (const b of document.querySelectorAll("#hud button[data-painter]")) {
+  b.setAttribute("aria-pressed", String(b.dataset.painter === painterMode));
+  b.addEventListener("click", (e) => {
+    const u = new URL(location.href);
+    u.searchParams.set("painter", e.currentTarget.dataset.painter);
+    location.href = u.toString();
+  });
+}
 
 /** null = follow the window; a number = pretend the window is that wide. */
 let forcedWidth = null;
@@ -88,20 +113,27 @@ function paint(force) {
 
   demo.setViewport(w, h, coarse);
   const t0 = performance.now();
-  const doc = JSON.parse(demo.render());
+  let doc, stats = null, commands = 0;
+  if (domPainter) {
+    doc = JSON.parse(demo.renderHost());
+    stats = domPainter.apply(doc);
+    commands = doc.host.count;
+  } else {
+    doc = JSON.parse(demo.render());
+    renderDisplayList(stage, doc);
+    commands = doc.list.cmds.length;
+  }
   const ms = performance.now() - t0;
 
-  renderDisplayList(stage, doc);
-
   document.getElementById("hudW").textContent = String(w);
-  document.getElementById("hudCmds").textContent = String(doc.list.cmds.length);
+  document.getElementById("hudCmds").textContent = String(commands);
   document.getElementById("hudMs").textContent = ms.toFixed(1);
 
   // What a browser check needs, and what is worth seeing in a console: the
   // numbers the layout produced, not the picture it produced them for.
   window.__evgResponsive = {
-    width: w, height: doc.height, coarse,
-    commands: doc.list.cmds.length, cssErrors: doc.cssErrors, ms,
+    width: w, height: doc.height, coarse, painter: painterMode,
+    commands, cssErrors: doc.cssErrors, ms, host: stats,
   };
 }
 

@@ -91,6 +91,12 @@
       </aside>
     </main>
     <div id="err"></div>
-    <script type="module" src="./bundle.js"></script>
+    <script type="module">
+      // `?engine=worker` runs the Ranger app in a Worker and paints its frames
+      // here (gallery/evg/gl/evg-engine.js); the default keeps it on this
+      // thread. Same app, same painter, same checks.
+      const engine = new URLSearchParams(location.search).get("engine");
+      import(engine === "worker" ? "./bundle-worker.js" : "./bundle.js");
+    </script>
   </body>
 </html>

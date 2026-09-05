@@ -16,11 +16,19 @@ import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
 import fi.ranger.evg.AndroidEvgSurface
+import fi.ranger.evg.AndroidTextMeasurer
+import fi.ranger.evg.EvgEngineThread
 import fi.ranger.evg.EvgPainter
 import fi.ranger.evg.FaceSet
 import fi.ranger.evg.ImageStore
 import fi.ranger.rgr.EVGDisplayList
 import fi.ranger.rgr.RtAndroid
+
+/**
+ * What the painter needs, read on the engine thread beside the list so the
+ * UI thread reads the app for nothing.
+ */
+class RtFrame(val list: EVGDisplayList, val scale: Double)
 
 /**
  * The RealTrainer demo, on screen.
@@ -29,6 +37,15 @@ import fi.ranger.rgr.RtAndroid
  * behind its Android facade, compiled to Kotlin — and the whole of this class
  * is the five things it cannot do: own a surface, receive touches, know what a
  * second is, know how big it is, and talk to the input method.
+ *
+ * **The engine is not on this thread.** `app` is made here and then never
+ * touched from the UI thread again: every call goes through [EvgEngineThread]
+ * (`gallery/evg/android`), which runs it on the engine's own thread, in
+ * order, and hands back a frame — the display list and the scale the painter
+ * needs — when a call changed the page. [onDraw] paints the last frame it was
+ * given and reads the app for nothing, so a layout that takes twelve
+ * milliseconds blocks neither the touch nor the animation clock.
+ * (PLAN_NATIVE_HOSTS.md S1.)
  *
  * What a gesture *means* is deliberately not decided here. The press that
  * survives a small move, the drag that drops it, the field that takes the
@@ -53,7 +70,30 @@ class RealTrainerView @JvmOverloads constructor(
     attrs: AttributeSet? = null,
 ) : View(context, attrs) {
 
+    private val faces = FaceSet(
+        Typeface.DEFAULT,
+        Typeface.DEFAULT_BOLD,
+        Typeface.create(Typeface.DEFAULT, Typeface.ITALIC),
+        Typeface.create(Typeface.DEFAULT, Typeface.BOLD_ITALIC),
+    )
+
+    /**
+     * Skia measures the page's text before anything is laid out: declared
+     * above `app`, because Kotlin initialises properties in order and the
+     * app makes its first layout when it is made. The same [FaceSet] the
+     * surface paints with, so the width measured is the width drawn.
+     */
+    private val textMeasurer = AndroidTextMeasurer.install(faces)
+
     val app = RtAndroid()
+
+    /** The engine thread. Every call to [app] below goes through it. */
+    private val engine = EvgEngineThread<RtAndroid, RtFrame>(
+        app,
+        { a -> RtFrame(a.frame(), a.scale()) },
+        { r -> post(r) },
+        { f -> frameArrived(f) },
+    )
 
     /** The five texts, read out of the assets by the activity. */
     var css: String = ""
@@ -78,26 +118,11 @@ class RealTrainerView @JvmOverloads constructor(
     private val images = ImageStore()
 
     /**
-     * The platform's own sans, in four styles. The page lays out with EVG's
-     * own estimate, the same one the browser build uses, and no font file
-     * would make the estimate truer — so the platform's face is the honest
-     * choice, as it is on the AWT surface the desktop check paints with.
+     * The last frame the engine handed over. [onDraw] paints this and only
+     * this; it is replaced when the next one arrives and never dropped, so
+     * the screen shows the page as it was until it can show it as it is.
      */
-    private val faces = FaceSet(
-        Typeface.DEFAULT,
-        Typeface.DEFAULT_BOLD,
-        Typeface.create(Typeface.DEFAULT, Typeface.ITALIC),
-        Typeface.create(Typeface.DEFAULT, Typeface.BOLD_ITALIC),
-    )
-
-    /**
-     * The last frame, kept until something changes it. `RtAndroid.frame()`
-     * lays the page out and runs the charts; that is the right cost for a page
-     * that changed and the wrong one for a repaint an animation asked for.
-     * Every path below that touches the page goes through [changed], which is
-     * the only thing that drops this.
-     */
-    private var frame: EVGDisplayList? = null
+    private var frame: RtFrame? = null
 
     // --- the fling ------------------------------------------------------------
     // A velocity that decays, in dp of FINGER travel per second: the facade's
@@ -132,7 +157,9 @@ class RealTrainerView @JvmOverloads constructor(
              * itself when a press has become a drag.
              */
             override fun onScroll(e1: MotionEvent?, e2: MotionEvent, dx: Float, dy: Float): Boolean {
-                if (app.panBy((-dx / density).toDouble(), (-dy / density).toDouble())) changed()
+                val fx = (-dx / density).toDouble()
+                val fy = (-dy / density).toDouble()
+                engine.post { a -> a.panBy(fx, fy) }
                 return false
             }
 
@@ -149,22 +176,37 @@ class RealTrainerView @JvmOverloads constructor(
         val dw = (w / density).toDouble().coerceAtLeast(1.0)
         val dh = (h / density).toDouble().coerceAtLeast(1.0)
         if (!started) {
-            app.start(dw, dh, css, compact, plan, chat, seed)
             started = true
-            for (i in 0 until app.styleErrorCount()) Log.w(TAG, "css: " + app.styleErrorAt(i))
+            val c = css
+            val k = compact
+            val p = plan
+            val ch = chat
+            val s = seed
+            engine.ask({ a ->
+                a.start(dw, dh, c, k, p, ch, s)
+                (0 until a.styleErrorCount()).map { a.styleErrorAt(it) }
+            }) { errors ->
+                for (e in errors) Log.w(TAG, "css: $e")
+            }
         } else {
-            app.resize(dw, dh)
+            engine.post { a -> a.resize(dw, dh); true }
         }
         changed()
     }
 
+    /** A frame came off the engine thread: keep it, and draw. */
+    private fun frameArrived(f: RtFrame) {
+        frame = f
+        invalidate()
+    }
+
     override fun onDraw(canvas: Canvas) {
-        if (!started) return
+        val f = frame ?: return
         canvas.drawColor(Color.rgb(250, 250, 250))
         val saved = canvas.save()
-        val s = (density * app.scale()).toFloat()
+        val s = (density * f.scale).toFloat()
         canvas.scale(s, s)
-        EvgPainter.paint(frameNow(), AndroidEvgSurface(canvas, images, faces))
+        EvgPainter.paint(f.list, AndroidEvgSurface(canvas, images, faces))
         canvas.restoreToCount(saved)
 
         advanceFling()
@@ -173,7 +215,8 @@ class RealTrainerView @JvmOverloads constructor(
     /**
      * One frame of a fling, and only while one is in flight. The decay is per
      * second rather than per frame, so a 120 Hz panel and a 60 Hz one come to
-     * rest after the same distance.
+     * rest after the same distance. The pan itself is the engine's; whether
+     * it still moved comes back a message later and ends the fling if not.
      */
     private fun advanceFling() {
         if (flingDpPerSec == 0f) {
@@ -184,12 +227,14 @@ class RealTrainerView @JvmOverloads constructor(
         val dt = if (lastFrameNanos == 0L) 0f else (now - lastFrameNanos) / 1_000_000_000f
         lastFrameNanos = now
         if (dt > 0f && dt < 1f) {
-            val moved = app.panBy(0.0, (flingDpPerSec * dt).toDouble())
+            val travel = (flingDpPerSec * dt).toDouble()
+            engine.ask({ a -> a.panBy(0.0, travel) }) { moved ->
+                if (moved) engine.invalidate() else flingDpPerSec = 0f
+            }
             flingDpPerSec *= Math.pow(0.15, dt.toDouble()).toFloat()
             // Under 40dp/s is a page that has stopped, and a page that has hit
             // the end of its travel has stopped whatever the number says.
-            if (!moved || Math.abs(flingDpPerSec) < 40f) flingDpPerSec = 0f
-            frame = null
+            if (Math.abs(flingDpPerSec) < 40f) flingDpPerSec = 0f
         }
         if (flingDpPerSec != 0f) postInvalidateOnAnimation()
     }
@@ -210,7 +255,7 @@ class RealTrainerView @JvmOverloads constructor(
                 flingDpPerSec = 0f
                 requestFocus()
                 if (logTouches) logTouch(event, x, y)
-                app.pressAt(x, y)
+                engine.post { a -> a.pressAt(x, y); true }
                 changed()
             }
             MotionEvent.ACTION_MOVE -> {
@@ -218,12 +263,12 @@ class RealTrainerView @JvmOverloads constructor(
                 // is dropped by the facade once the travel says so.
             }
             MotionEvent.ACTION_UP -> {
-                app.releasePress()
+                engine.post { a -> a.releasePress(); true }
                 syncKeyboard()
                 changed()
             }
             MotionEvent.ACTION_CANCEL -> {
-                app.cancelPress()
+                engine.post { a -> a.cancelPress(); true }
                 changed()
             }
             else -> return true
@@ -241,23 +286,35 @@ class RealTrainerView @JvmOverloads constructor(
 
     /**
      * The soft keyboard is shown while a field has the focus and hidden when
-     * none has: the facade decides which, on every release.
+     * none has: the facade decides which, on every release. Asked after the
+     * release, on the engine thread, so the answer is the focus the release
+     * left.
      */
     private fun syncKeyboard() {
-        val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager ?: return
-        if (app.focusedField().isNotEmpty()) {
-            requestFocus()
-            imm.restartInput(this)
-            imm.showSoftInput(this, 0)
-        } else {
-            imm.hideSoftInputFromWindow(windowToken, 0)
+        engine.ask({ a -> a.focusedField() }) { field ->
+            val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+            if (imm != null) {
+                if (field.isNotEmpty()) {
+                    requestFocus()
+                    imm.restartInput(this)
+                    imm.showSoftInput(this, 0)
+                } else {
+                    imm.hideSoftInputFromWindow(windowToken, 0)
+                }
+            }
         }
     }
 
-    override fun onCheckIsTextEditor(): Boolean = started && app.focusedField().isNotEmpty()
+    /**
+     * The one read the platform wants an answer to on the spot, so it waits
+     * for the engine thread: whether a field has the focus.
+     */
+    private fun focusedFieldNow(): String = if (started) engine.sync { a -> a.focusedField() } else ""
+
+    override fun onCheckIsTextEditor(): Boolean = focusedFieldNow().isNotEmpty()
 
     override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection? {
-        if (!started || app.focusedField().isEmpty()) return null
+        if (focusedFieldNow().isEmpty()) return null
         // Plain text, no suggestions: the field is drawn by the page, and a
         // composing region the page cannot show is text the person cannot
         // see. Every commit lands in the field as it is typed.
@@ -268,24 +325,32 @@ class RealTrainerView @JvmOverloads constructor(
                 val s = text?.toString() ?: return true
                 if (s.isEmpty()) return true
                 if (s == "\n") {
-                    if (app.key("Enter", false, false)) changed()
-                } else if (app.typeText(s)) {
-                    changed()
+                    engine.post { a -> a.key("Enter", false, false) }
+                } else {
+                    engine.post { a -> a.typeText(s) }
                 }
+                changed()
                 return true
             }
 
             override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
-                var n = beforeLength
-                while (n > 0) {
-                    if (app.key("Backspace", false, false)) changed()
-                    n--
+                val before = beforeLength
+                val after = afterLength
+                engine.post { a ->
+                    var any = false
+                    var n = before
+                    while (n > 0) {
+                        if (a.key("Backspace", false, false)) any = true
+                        n--
+                    }
+                    var m = after
+                    while (m > 0) {
+                        if (a.key("Delete", false, false)) any = true
+                        m--
+                    }
+                    any
                 }
-                var m = afterLength
-                while (m > 0) {
-                    if (app.key("Delete", false, false)) changed()
-                    m--
-                }
+                changed()
                 return true
             }
 
@@ -317,19 +382,24 @@ class RealTrainerView @JvmOverloads constructor(
             KeyEvent.KEYCODE_SPACE -> " "
             else -> ""
         }
+        val shift = event.isShiftPressed
+        val ctrl = event.isCtrlPressed
         if (name.isNotEmpty()) {
-            if (name == " " && app.focusedField().isNotEmpty()) {
-                if (app.typeText(" ")) changed()
-            } else if (app.key(name, event.isShiftPressed, event.isCtrlPressed)) {
-                changed()
+            // A space is typed into a field and is a key everywhere else; the
+            // engine decides which, beside the focus it holds.
+            engine.post { a ->
+                if (name == " " && a.focusedField().isNotEmpty()) a.typeText(" ") else a.key(name, shift, ctrl)
             }
+            changed()
             if (name == "Escape" || name == "Enter") syncKeyboard()
             return true
         }
         // A printable key on a hardware keyboard, into the focused field.
         val ch = event.unicodeChar
-        if (ch > 0 && app.focusedField().isNotEmpty()) {
-            if (app.typeText(String(Character.toChars(ch)))) changed()
+        if (ch > 0) {
+            val text = String(Character.toChars(ch))
+            engine.post { a -> a.focusedField().isNotEmpty() && a.typeText(text) }
+            changed()
             return true
         }
         return super.onKeyDown(keyCode, event)
@@ -340,31 +410,32 @@ class RealTrainerView @JvmOverloads constructor(
      * spaces — the event's physical pixels, the dp the facade is told about,
      * and the page's own, which here is the same as dp — and a host that
      * mixes two of them draws a page that looks right and answers a finger
-     * somewhere else.
+     * somewhere else. The hit test is the engine's, so the line is written
+     * from its thread.
      */
     private fun logTouch(event: MotionEvent, x: Double, y: Double) {
-        Log.d(
-            TAG,
-            "down ev=(${event.x}, ${event.y})px view=${width}x${height}px density=$density" +
-                " page=${app.pageWidth()}x${app.pageHeight()} dp=($x, $y)" +
-                " hit=${app.hitAt(x, y)} section=${app.sectionName()}",
-        )
+        val ex = event.x
+        val ey = event.y
+        val vw = width
+        val vh = height
+        engine.post { a ->
+            Log.d(
+                TAG,
+                "down ev=($ex, $ey)px view=${vw}x${vh}px density=$density" +
+                    " page=${a.pageWidth()}x${a.pageHeight()} dp=($x, $y)" +
+                    " hit=${a.hitAt(x, y)} section=${a.sectionName()}",
+            )
+            false
+        }
     }
 
     /**
-     * The page changed: the frame it was drawn from is no longer the page, the
-     * screen is no longer the frame, and the clock has something to advance.
+     * The page changed: a frame is owed, and the clock has something to
+     * advance. The frame on screen stays until the new one arrives.
      */
     private fun changed() {
-        frame = null
-        invalidate()
+        engine.invalidate()
         startTicking()
-    }
-
-    private fun frameNow(): EVGDisplayList {
-        val f = frame ?: app.frame()
-        frame = f
-        return f
     }
 
     private fun startTicking() {
@@ -385,15 +456,21 @@ class RealTrainerView @JvmOverloads constructor(
         // frame's worth, not a second: a clamped clock is what keeps an
         // animation from jumping to its end after the app was in the
         // background.
-        val moved = app.tick(Math.min(dt, 64.0))
-        if (moved) {
-            frame = null
-            invalidate()
-            ticking = true
-            postOnAnimation(tick)
-        } else {
-            tickNanos = 0L
+        val step = Math.min(dt, 64.0)
+        engine.ask({ a -> a.tick(step) }) { moved ->
+            if (moved) {
+                engine.invalidate()
+                ticking = true
+                postOnAnimation(tick)
+            } else {
+                tickNanos = 0L
+            }
         }
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        engine.close()
     }
 
     private companion object {

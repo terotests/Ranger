@@ -8,6 +8,7 @@ an `<svg>` full of absolute coordinates that EVG computed.
 npm run evg:responsive:web:serve    # build and serve on http://localhost:8007/
 npm run evg:responsive:check        # the same layout at four widths, no browser
 npm run evg:responsive:web:smoke    # the built page, driven in Chromium
+npm run evg:dom:check               # the same page painted as retained DOM (?painter=dom), checked
 npm run evg:responsive:web          # build only -> dist/
 ```
 
@@ -66,6 +67,7 @@ strip toggles what the host reports, and the sidebar's rows grow for a finger.
 | `index.html` | the stage, the resize observer and the controls |
 | `build.mjs` | compiles the demo to a browser IIFE and copies the painter beside it |
 | `smoke.mjs` | serves `dist/` and drives it in Chromium |
+| `dom-check.mjs` | the same page through `html/evg-dom.js` — a DOM node per element, patched from `EVGHostTree`'s ops — asked whether every node is where the engine put it and whether a resize kept them |
 
 ## What it found
 

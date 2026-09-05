@@ -431,7 +431,10 @@ function indexHtml(entries, warnings) {
     your window. The <code>@media</code> blocks, <code>vw</code> lengths and the
     card grid are resolved by the compiled engine in the browser, and the
     browser is handed finished pixels &mdash; drag the window edge and watch the
-    whole pipeline run again.
+    whole pipeline run again. <a href="responsive/?painter=dom">The same page as
+    retained DOM</a>: one node per element, kept across frames and patched from
+    the engine's own diff (<code>EVGHostTree</code>) &mdash; open the dev tools
+    and the picture is a tree you can read.
   </div>
   <div class="note">
     <strong>Bitmap tracer, live.</strong>

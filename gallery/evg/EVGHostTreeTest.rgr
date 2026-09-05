@@ -1,0 +1,447 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EVGHostTreeTest — does the fifth list say only what changed?
+; ==============================================================================
+;
+; `EVGHostTree` describes a laid-out tree to a host that keeps nodes, as ops
+; against what it said last time. What has to be true of it, and is asked here:
+;
+;   * the first build CREATES every node, parents before children, at the
+;     inspector's paths, and every rectangle it reports is a rectangle the
+;     display list drew for the same element;
+;   * a build over a tree that did not change emits NOTHING;
+;   * a colour changes: one UPDATE, PAINT alone; a height changes: the rows
+;     below it get GEOMETRY alone;
+;   * a keyed reorder through `EVGReconcile` MOVES nodes and remakes none;
+;   * a row taken out is one REMOVE; a row added is one CREATE;
+;   * a scroll is one SCROLL bit on the container and no op on its children,
+;     because their geometry is parent-relative at scroll 0;
+;   * text that changes is a TEXT bit, and the lines are the engine's lines;
+;   * the JSON carries what a DOM host reads.
+;
+;   npm run evg:hosttree:test
+; ==============================================================================
+
+Import "EVGElement.rgr"
+Import "EVGUnit.rgr"
+Import "EVGStyleSheet.rgr"
+Import "EVGLayout.rgr"
+Import "EVGDisplayList.rgr"
+Import "EVGReconcile.rgr"
+Import "EVGHostTree.rgr"
+
+class EVGHostTreeTest {
+    def passed:int 0
+    def failed:int 0
+    def sheet:EVGStyleSheet (new EVGStyleSheet())
+
+    sfn m@(main):void () {
+        def t (new EVGHostTreeTest())
+        t.run()
+    }
+
+    fn ok:void (what:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS  " + what)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL  " + what)
+        }
+    }
+
+    fn eq:void (what:string got:int want:int) {
+        this.ok((what + " (" + (to_string got) + " vs " + (to_string want) + ")") (got == want))
+    }
+
+    ; --- the fixture --------------------------------------------------------------
+    ; A column of keyed rows with text, and a scroll box with tall content.
+
+    sfn css:string () {
+        return (""
+            + ".page { display: flex; flex-direction: column; width: 300px; height: 400px; gap: 4px; padding: 10px; background-color: #ffffff; }"
+            + ".row { width: 200px; height: 24px; font-size: 12px; color: #111111; border-radius: 4px; }"
+            + ".row-a { background-color: #ff0000; }"
+            + ".row-b { background-color: #00ff00; }"
+            + ".row-c { background-color: #0000ff; }"
+            + ".row-d { background-color: #ffff00; }"
+            + ".scroller { width: 200px; height: 60px; overflow: hidden; background-color: #eeeeee; }"
+            + ".tall { width: 180px; height: 300px; background-color: #cccccc; }")
+    }
+
+    sfn row:EVGElement (name:string) {
+        def el (EVGElement.createDiv())
+        el.className = ("row row-" + name)
+        el.id = ("row-" + name)
+        el.key = name
+        el.role = "listitem"
+        el.textContent = ("Row " + name)
+        return el
+    }
+
+    sfn page:EVGElement (names:string) {
+        def el (EVGElement.createDiv())
+        el.className = "page"
+        el.id = "page"
+        def i:int 0
+        while (i < (strlen names)) {
+            el.addChild((EVGHostTreeTest.row((substring names i (i + 1)))))
+            i = (i + 1)
+        }
+        def sc (EVGElement.createDiv())
+        sc.className = "scroller"
+        sc.id = "scroller"
+        sc.key = "scroller"
+        def tall (EVGElement.createDiv())
+        tall.className = "tall"
+        tall.id = "tall"
+        sc.addChild(tall)
+        el.addChild(sc)
+        return el
+    }
+
+    fn layout:EVGLayout (root:EVGElement) {
+        sheet.setViewport(300.0 400.0 false)
+        sheet.applyTree(root "")
+        def lay (new EVGLayout())
+        lay.setPageSize(300.0 400.0)
+        lay.layout(root)
+        return lay
+    }
+
+    fn opsOfKind:int (t:EVGHostTree kind:int) {
+        def n:int 0
+        def i:int 0
+        while (i < (t.opCount())) {
+            if (((t.opAt(i)).kind) == kind) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    fn opFor@(optional):EVGHostOp (t:EVGHostTree path:string) {
+        def i:int 0
+        while (i < (t.opCount())) {
+            def op:EVGHostOp (t.opAt(i))
+            if (op.path == path) {
+                def found@(optional):EVGHostOp op
+                return found
+            }
+            i = (i + 1)
+        }
+        def none@(optional):EVGHostOp
+        return none
+    }
+
+    fn run:void () {
+        print "=== EVGHostTree ==="
+        sheet.parse((EVGHostTreeTest.css()))
+        this.testFirstBuild()
+        this.testNothingChanged()
+        this.testPaintAlone()
+        this.testGeometryBelow()
+        this.testKeyedReorder()
+        this.testRemoveAndAdd()
+        this.testAnotherElementAtTheAddress()
+        this.testScrollIsOneBit()
+        this.testText()
+        this.testJson()
+        print ""
+        print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
+        if (failed > 0) {
+            print "FAILURES"
+        } {
+            print "ALL PASS"
+        }
+    }
+
+    fn testFirstBuild:void () {
+        print "-- the first build creates everything, at the inspector's paths"
+        def root:EVGElement (EVGHostTreeTest.page("abc"))
+        def lay:EVGLayout (this.layout(root))
+        def t (new EVGHostTree())
+        t.setTextEngine((lay.getTextEngine()))
+        t.build(root)
+        ; page + 3 rows + scroller + tall = 6
+        this.eq("six nodes" t.count 6)
+        this.eq("six creates" t.created 6)
+        this.eq("and nothing else" (t.opCount()) 6)
+        this.ok("the root is 0" (((t.opAt(0)).path) == "0"))
+        this.ok("a keyed row is k:" (((t.opAt(1)).path) == "0/k:a"))
+        this.ok("its parent is the root" (((t.opAt(1)).parentPath) == "0"))
+        this.ok("the tall box is under the scroller" (((t.opAt(5)).path) == "0/k:scroller/0"))
+        this.ok("a row is a listitem" (((t.opAt(1)).role) == "listitem"))
+        ; Every rectangle is one the display list drew.
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(root)
+        def matched:int 0
+        def i:int 0
+        while (i < (t.opCount())) {
+            def op:EVGHostOp (t.opAt(i))
+            def j:int 0
+            while (j < (array_length dl.cmds)) {
+                def c:EVGDrawCmd (itemAt dl.cmds j)
+                if (c.kind == 0) {
+                    if ((c.x == op.pageX) && (c.y == op.pageY)) {
+                        if ((c.w == op.w) && (c.h == op.h)) {
+                            matched = (matched + 1)
+                            j = (array_length dl.cmds)
+                        }
+                    }
+                }
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+        this.eq("every node's page rectangle is a rectangle the list drew" matched 6)
+        ; Parent-relative: the first row sits at the page's padding.
+        def a:EVGHostOp (t.opAt(1))
+        this.ok("the first row is at the padding, inside its parent" ((a.x == 10.0) && (a.y == 10.0)))
+        this.ok("and on the page too, because the page is at 0" ((a.pageX == 10.0) && (a.pageY == 10.0)))
+        this.ok("the second row is a row and a gap below" (((t.opAt(2)).y) == 38.0))
+    }
+
+    fn testNothingChanged:void () {
+        print "-- a tree that did not change says nothing"
+        def root:EVGElement (EVGHostTreeTest.page("abc"))
+        def lay:EVGLayout (this.layout(root))
+        def t (new EVGHostTree())
+        t.setTextEngine((lay.getTextEngine()))
+        t.build(root)
+        this.layout(root)
+        t.build(root)
+        this.eq("no ops" (t.opCount()) 0)
+        this.eq("still six nodes" t.count 6)
+    }
+
+    fn testPaintAlone:void () {
+        print "-- a colour is PAINT and nothing else"
+        def root:EVGElement (EVGHostTreeTest.page("abc"))
+        def lay:EVGLayout (this.layout(root))
+        def t (new EVGHostTree())
+        t.setTextEngine((lay.getTextEngine()))
+        t.build(root)
+        def b:EVGElement (root.getChild(1))
+        b.setAttribute("background-color" "#123456")
+        this.layout(root)
+        t.build(root)
+        this.eq("one op" (t.opCount()) 1)
+        def op:EVGHostOp (t.opAt(0))
+        this.ok("an update" (op.kind == 1))
+        this.ok("on row b" (op.path == "0/k:b"))
+        this.eq("PAINT alone" op.bits 2)
+        this.ok("with the new colour" ((op.bgR == 18) && (op.bgG == 52)))
+    }
+
+    fn testGeometryBelow:void () {
+        print "-- a height moves the rows below it: GEOMETRY alone"
+        def root:EVGElement (EVGHostTreeTest.page("abc"))
+        def lay:EVGLayout (this.layout(root))
+        def t (new EVGHostTree())
+        t.setTextEngine((lay.getTextEngine()))
+        t.build(root)
+        def a:EVGElement (root.getChild(0))
+        a.setAttribute("height" "40px")
+        this.layout(root)
+        t.build(root)
+        ; a grew; b, c and the scroller moved down; the tall box did not move
+        ; inside the scroller. Four ops.
+        this.eq("four ops" (t.opCount()) 4)
+        def opA@(optional):EVGHostOp (this.opFor(t "0/k:a"))
+        def opB@(optional):EVGHostOp (this.opFor(t "0/k:b"))
+        def opTall@(optional):EVGHostOp (this.opFor(t "0/k:scroller/0"))
+        this.ok("a has an op" (!null? opA))
+        this.ok("b has an op" (!null? opB))
+        this.ok("the tall box, inside its parent, has none" (null? opTall))
+        if opB {
+            def ob:EVGHostOp (unwrap opB)
+            this.eq("b: GEOMETRY alone" ob.bits 1)
+            this.ok("b moved down by 16" (ob.y == 54.0))
+        }
+    }
+
+    fn testKeyedReorder:void () {
+        print "-- a keyed reorder moves nodes and remakes none"
+        def live:EVGElement (EVGHostTreeTest.page("abc"))
+        def lay:EVGLayout (this.layout(live))
+        def t (new EVGHostTree())
+        t.setTextEngine((lay.getTextEngine()))
+        t.build(live)
+        def next:EVGElement (EVGHostTreeTest.page("cab"))
+        def rec (new EVGReconcile())
+        rec.reconcile(live next)
+        this.layout(live)
+        t.build(live)
+        this.eq("nothing created" t.created 0)
+        this.eq("nothing removed" t.removed 0)
+        this.ok("some moved" (t.moved > 0))
+        def opC@(optional):EVGHostOp (this.opFor(t "0/k:c"))
+        this.ok("c has ops" (!null? opC))
+        ; The row that moved to the top also moved on the page: a MOVE and a
+        ; GEOMETRY update, both on the same path.
+        def moves:int (this.opsOfKind(t 2))
+        this.ok("moves are MOVE ops" (moves == t.moved))
+    }
+
+    fn testRemoveAndAdd:void () {
+        print "-- a row taken out is one REMOVE; one put in is one CREATE"
+        def live:EVGElement (EVGHostTreeTest.page("abc"))
+        def lay:EVGLayout (this.layout(live))
+        def t (new EVGHostTree())
+        t.setTextEngine((lay.getTextEngine()))
+        t.build(live)
+        def rec (new EVGReconcile())
+        rec.reconcile(live (EVGHostTreeTest.page("ac")))
+        this.layout(live)
+        t.build(live)
+        this.eq("one removed" t.removed 1)
+        this.eq("none created" t.created 0)
+        def gone@(optional):EVGHostOp (this.opFor(t "0/k:b"))
+        this.ok("and it is b" (!null? gone))
+        if gone {
+            this.ok("as a REMOVE" (((unwrap gone).kind) == 3))
+        }
+        def rec2 (new EVGReconcile())
+        rec2.reconcile(live (EVGHostTreeTest.page("acd")))
+        this.layout(live)
+        t.build(live)
+        this.eq("one created" t.created 1)
+        this.eq("none removed" t.removed 0)
+        def made@(optional):EVGHostOp (this.opFor(t "0/k:d"))
+        this.ok("and it is d" (!null? made))
+    }
+
+    fn testAnotherElementAtTheAddress:void () {
+        print "-- another element at an address is a REMOVE and a CREATE, its children made with it"
+        ; Two pages whose first child sits at the same unkeyed address, `0/0`,
+        ; and is a different thing on each: a row on one, a scroller with a
+        ; child on the other. The way an app's scenes share a page.
+        def one:EVGElement (EVGElement.createDiv())
+        one.className = "page"
+        one.id = "page"
+        def r:EVGElement (EVGHostTreeTest.row("a"))
+        r.key = ""
+        one.addChild(r)
+        def lay:EVGLayout (this.layout(one))
+        def t (new EVGHostTree())
+        t.setTextEngine((lay.getTextEngine()))
+        t.build(one)
+        this.eq("the row page: two created" t.created 2)
+
+        def two:EVGElement (EVGElement.createDiv())
+        two.className = "page"
+        two.id = "page"
+        def sc (EVGElement.createDiv())
+        sc.className = "scroller"
+        sc.id = "scroller"
+        def tall (EVGElement.createDiv())
+        tall.className = "tall"
+        tall.id = "tall"
+        sc.addChild(tall)
+        two.addChild(sc)
+        this.layout(two)
+        t.build(two)
+        this.eq("the scroller page: one removed" t.removed 1)
+        this.eq("two created" t.created 2)
+        this.eq("none updated" t.updated 0)
+        ; The order a host needs: the old node gone before the new one is put
+        ; at its address, and the child after its parent.
+        def kinds:string ""
+        def i:int 0
+        while (i < (t.opCount())) {
+            def op:EVGHostOp (t.opAt(i))
+            if (op.path == "0/0") { kinds = (kinds + (to_string op.kind)) }
+            if (op.path == "0/0/0") { kinds = (kinds + "k" + (to_string op.kind)) }
+            i = (i + 1)
+        }
+        this.ok(("REMOVE 0/0, CREATE 0/0, CREATE 0/0/0, in that order (" + kinds + ")") (kinds == "30k0"))
+        def made@(optional):EVGHostOp (this.opFor(t "0/0/0"))
+        if made {
+            this.ok("and the child is the tall one" (((unwrap made).id) == "tall"))
+        }
+        ; And the same tree again says nothing.
+        t.build(two)
+        this.eq("built again: nothing" (t.opCount()) 0)
+    }
+
+    fn testScrollIsOneBit:void () {
+        print "-- a scroll is one SCROLL bit on the container, nothing on its children"
+        def root:EVGElement (EVGHostTreeTest.page("abc"))
+        def lay:EVGLayout (this.layout(root))
+        def t (new EVGHostTree())
+        t.setTextEngine((lay.getTextEngine()))
+        t.build(root)
+        def sc:EVGElement (root.getChild(3))
+        this.ok("the scroller clips" (sc.clipsContent()))
+        sc.scrollTop = 40.0
+        this.layout(root)
+        t.build(root)
+        this.eq("one op" (t.opCount()) 1)
+        def op:EVGHostOp (t.opAt(0))
+        this.ok("on the scroller" (op.path == "0/k:scroller"))
+        this.eq("SCROLL alone" op.bits 16)
+        this.ok("carrying the offset" (op.scrollTop == 40.0))
+        ; The tall box did move on the page — by -40 — and the host tree said
+        ; nothing about it, because inside its parent it did not.
+        def tall:EVGElement (sc.getChild(0))
+        this.ok("the child moved on the page" (tall.calculatedY == (sc.calculatedY - 40.0)))
+    }
+
+    fn testText:void () {
+        print "-- text is the engine's lines, and a change is TEXT"
+        def root:EVGElement (EVGHostTreeTest.page("abc"))
+        def lay:EVGLayout (this.layout(root))
+        def t (new EVGHostTree())
+        t.setTextEngine((lay.getTextEngine()))
+        t.build(root)
+        def a:EVGHostOp (t.opAt(1))
+        this.eq("one line" (array_length a.lines) 1)
+        this.ok("the line is the text" (((itemAt a.lines 0)) == "Row a"))
+        this.ok("at the padding" (((itemAt a.lineX 0)) == 0.0))
+        this.ok("a font and a size" (((strlen a.fontFamily) > 0) && (a.fontSize == 12.0)))
+        def b:EVGElement (root.getChild(1))
+        b.textContent = "Row b, with a good deal more to say than fits on one line of a two hundred pixel row"
+        this.layout(root)
+        t.build(root)
+        def opB@(optional):EVGHostOp (this.opFor(t "0/k:b"))
+        this.ok("b has an op" (!null? opB))
+        if opB {
+            def ob:EVGHostOp (unwrap opB)
+            this.eq("TEXT alone" ob.bits 4)
+            def te:EVGTextEngine (lay.getTextEngine())
+            def want:int (te.lineCount(b.textContent (b.effectiveFontFamily()) 12.0 200.0))
+            this.ok("as many lines as the engine breaks" (((array_length ob.lines) == want) && (want > 1)))
+            this.ok("each a line height apart" (((itemAt ob.lineY 1)) == ob.lineH))
+        }
+    }
+
+    fn testJson:void () {
+        print "-- the JSON carries what a DOM host reads"
+        def root:EVGElement (EVGHostTreeTest.page("ab"))
+        def lay:EVGLayout (this.layout(root))
+        def t (new EVGHostTree())
+        t.setTextEngine((lay.getTextEngine()))
+        t.build(root)
+        def j:string (t.toJson())
+        this.ok("a create" ((indexOf j "\"op\":\"create\"") >= 0))
+        this.ok("a keyed path" ((indexOf j "\"path\":\"0/k:a\"") >= 0))
+        this.ok("a background" ((indexOf j "\"bg\":[255,0,0,1.00]") >= 0))
+        this.ok("text lines" ((indexOf j "\"text\":{\"lines\":[[\"Row a\",0.00,0.00]]") >= 0))
+        this.ok("a role" ((indexOf j "\"role\":\"listitem\"") >= 0))
+        this.ok("a scroll box" ((indexOf j "\"clip\":true") >= 0))
+        this.ok("its offset" ((indexOf j "\"scroll\":[0.00,0.00]") >= 0))
+        this.ok("the tally" ((indexOf j "\"created\":5") >= 0))
+        root.getChild(0).scrollTop = 0.0
+        def sc:EVGElement (root.getChild(2))
+        sc.scrollTop = 12.0
+        this.layout(root)
+        t.build(root)
+        def j2:string (t.toJson())
+        this.ok("an update" ((indexOf j2 "\"op\":\"update\"") >= 0))
+        this.ok("with the SCROLL bit" ((indexOf j2 "\"bits\":16") >= 0))
+    }
+}

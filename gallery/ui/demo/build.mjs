@@ -32,7 +32,8 @@ function requireDom(name) {
   }
 }
 
-for (const name of ["FilterDemo", "EventCalDemo", "MessageDemo", "ControlsDemo", "MenubarDemo", "ToolbarDemo", "SortableDemo", "MotionDemo", "TableDemo", "DropdownDemo", "DialogDemo", "TreeDemo", "TimelineDemo", "ResizeDemo", "FormDemo", "ProfileDemo", "DashboardDemo", "CalendarDemo"]) {
+const DEMOS = ["FilterDemo", "EventCalDemo", "MessageDemo", "ControlsDemo", "MenubarDemo", "ToolbarDemo", "SortableDemo", "MotionDemo", "TableDemo", "DropdownDemo", "DialogDemo", "TreeDemo", "TimelineDemo", "ResizeDemo", "FormDemo", "ProfileDemo", "DashboardDemo", "CalendarDemo"];
+for (const name of DEMOS) {
   if (!fs.existsSync(path.join(UI, "bin", name + ".cjs"))) {
     console.error(`compiled ${name} missing — run \`npm run ui:demo:build\` first`);
     process.exit(3);
@@ -61,7 +62,16 @@ fs.writeFileSync(
     'export { FilterDemo } from "../bin/FilterDemo.cjs";\n' +
     'export { EventCalDemo } from "../bin/EventCalDemo.cjs";\n' +
     'export { MessageDemo } from "../bin/MessageDemo.cjs";\n' +
-    'export { ControlsDemo } from "../bin/ControlsDemo.cjs";\n',
+    'export { ControlsDemo } from "../bin/ControlsDemo.cjs";\n' +
+    // The whole modules too, as a list: the browser's text measurer is
+    // installed into every one of them (`gallery/evg/gl/evg-measure.js`),
+    // because two copies of a class are two classes and each compiled demo
+    // has its own `EVGDefaultMeasurer`.
+    // (`export * as` makes no local binding, so the list below could not
+    // name them; an import that is then re-exported does.)
+    DEMOS.map((n) => `import * as ${n}Module from "../bin/${n}.cjs";\n`).join("") +
+    `export { ${DEMOS.map((n) => n + "Module").join(", ")} };\n` +
+    `export const MODULES = [${DEMOS.map((n) => n + "Module").join(", ")}];\n`,
 );
 
 const css = (f) => JSON.stringify(fs.readFileSync(path.join(HERE, f), "utf8"));
