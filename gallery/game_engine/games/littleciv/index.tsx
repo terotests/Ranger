@@ -1,6 +1,6 @@
 /// <reference path="../../scripting/game.d.ts" />
 //
-// LittleCiv — turn-based civ demo with a large fogged world + LPC units.
+// LittleCiv — turn-based civ demo with a large world + LPC units.
 // Genre inspiration: Civilization / Freeciv. LPC art: Universal LPC (see assets/).
 //
 // Run: npm run engine:game-sdl:run:littleciv
@@ -409,9 +409,6 @@ function sprites() {
     list.push(tileSheet(tileId(i)));
     i = i + 1;
   }
-  // Full-tile yellow aim highlight + thinner gold selection under the unit.
-  list.push({ id: aimId(), kind: "rect", w: TILE - 2, h: TILE - 2, r: 255, g: 220, b: 40 });
-  list.push({ id: selRingId(), kind: "rect", w: TILE - 6, h: TILE - 6, r: 255, g: 255, b: 180 });
   list.push(pieceSheet(cursorId(), 2, 1));
   i = 0;
   while (i < MAX_CITIES) {
@@ -439,6 +436,9 @@ function sprites() {
     list.push(lpcSheet(unitId(SLOT_AI_WARRIOR0 + i), "assets/warrior_ai.png"));
     i = i + 1;
   }
+  // Draw order: highlights last so the yellow aim tile stays visible on top.
+  list.push({ id: selRingId(), kind: "rect", w: TILE - 4, h: TILE - 4, r: 255, g: 255, b: 180 });
+  list.push({ id: aimId(), kind: "rect", w: TILE - 2, h: TILE - 2, r: 255, g: 220, b: 40 });
   return list;
 }
 
@@ -956,10 +956,7 @@ function buildEntities(units, cities, sel, explored, camCol, camRow, aim, slide)
     }
     const wc = camCol + vc;
     const wr = camRow + vr;
-    let frame = 4;
-    if (isExplored(explored, wc, wr) == 1) {
-      frame = terrainFrame(cellAt(wc, wr));
-    }
+    const frame = terrainFrame(cellAt(wc, wr));
     // Sheet sprites are feet-anchored: feet at tile bottom → art fills the cell.
     entities[tileId(i)] = {
       x: ORIGIN_X + vc * TILE + (TILE / 2),
@@ -975,12 +972,7 @@ function buildEntities(units, cities, sel, explored, camCol, camRow, aim, slide)
   while (i < MAX_CITIES) {
     if (i < cities.length && cities[i].alive == 1) {
       const c = cities[i];
-      let show = 0;
-      if (c.owner == OWNER_PLAYER) { show = 1; }
-      if (c.owner != OWNER_PLAYER) {
-        if (inSightOfPlayer(c.col, c.row, units, cities) == 1) { show = 1; }
-      }
-      if (show == 1 && inView(c.col, c.row, camCol, camRow) == 1) {
+      if (inView(c.col, c.row, camCol, camRow) == 1) {
         let p0 = 0;
         if (c.owner == OWNER_AI) { p0 = 1; }
         entities[cityId(i)] = {
@@ -1003,12 +995,7 @@ function buildEntities(units, cities, sel, explored, camCol, camRow, aim, slide)
   while (i < MAX_UNITS) {
     if (i < units.length && units[i].alive == 1) {
       const u = units[i];
-      let show = 0;
-      if (u.owner == OWNER_PLAYER) { show = 1; }
-      if (u.owner != OWNER_PLAYER) {
-        if (inSightOfPlayer(u.col, u.row, units, cities) == 1) { show = 1; }
-      }
-      if (show == 1 && inView(u.col, u.row, camCol, camRow) == 1) {
+      if (inView(u.col, u.row, camCol, camRow) == 1) {
         let ux = screenX(u.col, camCol);
         let uy = screenFeetY(u.row, camRow);
         // Slide lerp while moving into the aimed tile.
@@ -1452,9 +1439,10 @@ function update(props) {
     if (slide.t >= SLIDE_MAX) {
       const dc = slide.tc - slide.fc;
       const dr = slide.tr - slide.fr;
-      const moved = tryMoveUnit(units, cities, slide.unit, dc, dr, seed);
+      const movedUnit = slide.unit;
+      const moved = tryMoveUnit(units, cities, movedUnit, dc, dr, seed);
+      const moveAim = faceFromDelta(dc, dr);
       slide = emptySlide();
-      aim = -1;
       if (moved.ok == 1) {
         units = moved.units;
         cities = moved.cities;
@@ -1469,15 +1457,30 @@ function update(props) {
             events = [soundEvent("lose")];
             sel = firstMovableUnit(units, OWNER_PLAYER, 0);
           }
+          aim = -1;
           msgT = 100;
         } else {
           events = [soundEvent("blip")];
-          msg = "Moved";
+          if (movedUnit >= 0 && movedUnit < units.length) {
+            const uAfter = units[movedUnit];
+            if (uAfter.alive == 1 && uAfter.moves > 0) {
+              aim = moveAim;
+              msg = "Moved — Space again or re-aim";
+            } else {
+              aim = -1;
+              msg = "Moved — no moves left";
+            }
+          } else {
+            aim = -1;
+            msg = "Moved";
+          }
           msgT = 40;
         }
         const outcome = checkWinner(cities);
         if (outcome == "win") { screen = "win"; }
         if (outcome == "lose") { screen = "lose"; }
+      } else {
+        aim = -1;
       }
     }
     const camS = withCam(units, cities, sel, explored, aim, slide);
@@ -1525,8 +1528,10 @@ function update(props) {
     }
   }
 
-  // Arrows aim (do not move yet).
-  const keyed = aimFromKeys(up && idleUnit == 0, down, left, right);
+  // Arrows aim (held keys — works right after a slide without re-tapping).
+  let aimUpKey = 0;
+  if (idleUnit == 0) { aimUpKey = pad.up; }
+  const keyed = aimFromKeys(aimUpKey, pad.down, pad.left, pad.right);
   if (keyed >= 0 && sel >= 0 && sel < units.length && units[sel].alive == 1) {
     if (units[sel].moves > 0) {
       aim = keyed;
