@@ -27,6 +27,7 @@ This file is the reference for the engine itself. The other documents here are:
 | [`PLAN_CSS_LAYOUT_AND_FONTS.md`](PLAN_CSS_LAYOUT_AND_FONTS.md) | Why the CSS subset is the shape it is, and what is deliberately missing |
 | [`PLAN_VECTOR_IR.md`](PLAN_VECTOR_IR.md) | The vector layer: paths, strokes, `viewBox`, SVG import |
 | [`PLAN_ACCESSIBILITY.md`](PLAN_ACCESSIBILITY.md) | The second list a frame publishes — what it *means* |
+| [`PLAN_NATIVE_HOSTS.md`](PLAN_NATIVE_HOSTS.md) | A spike: DOM, SwiftUI and Compose as hosts rather than painters — what the platform can do better than a canvas, where native layout stops, and the engine off the UI thread |
 | [`ISSUES.md`](ISSUES.md) | Known defects, with the measurements that found them |
 | [`showcase/README.md`](showcase/README.md) | The gallery, and how it is built |
 | [`gl/README.md`](gl/README.md) | The display-list seam and the GPU backend |
