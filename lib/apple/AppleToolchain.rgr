@@ -228,13 +228,23 @@ class AppleToolchain {
         return (sh.capture("xcrun" argv))
     }
 
-    fn launchApp:ShellResult (dev:AppleSimulator bundleId:string) {
+    ; `--console` keeps the process attached so its output lands here: a
+    ; Swift trap prints its "Fatal error" and, in a debug build, the file
+    ; and line to stderr, which an app that is launched and let go takes
+    ; with it. The command then runs until the app exits.
+    fn launchApp:ShellResult (dev:AppleSimulator bundleId:string attach:boolean) {
         def argv:[string]
         push argv "simctl"
         push argv "launch"
+        if attach {
+            push argv "--console"
+        }
         push argv "--terminate-running-process"
         push argv dev.udid
         push argv bundleId
+        if attach {
+            return (sh.run("xcrun" argv))
+        }
         return (sh.capture("xcrun" argv))
     }
 

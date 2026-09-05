@@ -291,7 +291,9 @@ class AppleAppBuilder {
     ; Boot a simulator if needed, install, launch. `nameWanted` is a substring
     ; of a device name ("iPad Pro"), a UDID, or "" for whatever is already
     ; running.
-    fn runOnSimulator:AppleBuildResult (spec:AppleAppSpec target:AppleTarget nameWanted:string) {
+    ; `attach` keeps the launched app's output here — see
+    ; `AppleToolchain.launchApp`.
+    fn runOnSimulator:AppleBuildResult (spec:AppleAppSpec target:AppleTarget nameWanted:string attach:boolean) {
         def res:AppleBuildResult (new AppleBuildResult)
         res.appPath = (this.bundlePath(spec target))
 
@@ -309,7 +311,7 @@ class AppleAppBuilder {
             fake.udid = "DRY-RUN-UDID"
             fake.state = "Shutdown"
             fake.runtime = "iOS"
-            return (this.installAndLaunch(spec fake res))
+            return (this.installAndLaunch(spec fake res attach))
         }
 
         def picked@(optional):AppleSimulator (tools.pickSimulator(target nameWanted))
@@ -327,7 +329,7 @@ class AppleAppBuilder {
         }
         def dev:AppleSimulator (unwrap picked)
         this.say("* simulator   " + (dev.describe()))
-        return (this.installAndLaunch(spec dev res))
+        return (this.installAndLaunch(spec dev res attach))
     }
 
     ; A real iPhone or iPad on a cable. Two commands where the simulator needs
@@ -384,7 +386,7 @@ class AppleAppBuilder {
         return res
     }
 
-    fn installAndLaunch:AppleBuildResult (spec:AppleAppSpec dev:AppleSimulator res:AppleBuildResult) {
+    fn installAndLaunch:AppleBuildResult (spec:AppleAppSpec dev:AppleSimulator res:AppleBuildResult attach:boolean) {
         if ((tools.bootSimulator(dev)) == false) {
             res.fail("could not boot the simulator " + dev.name + " (" + dev.udid + ").")
             return res
@@ -402,7 +404,10 @@ class AppleAppBuilder {
         }
         this.say("* installed   " + res.appPath)
 
-        def launch:ShellResult (tools.launchApp(dev spec.bundleId))
+        if attach {
+            this.say("* attached    " + spec.bundleId + " (its output follows; the command ends when the app does)")
+        }
+        def launch:ShellResult (tools.launchApp(dev spec.bundleId attach))
         res.note("launch " + spec.bundleId)
         if (launch.failed()) {
             res.fail("simctl could not launch " + spec.bundleId + ".\n" + (launch.describeFailure()))

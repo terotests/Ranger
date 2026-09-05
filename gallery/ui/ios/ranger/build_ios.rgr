@@ -184,8 +184,9 @@ class IosBuildOptions {
     ; Ranger->Swift compile; this skips swiftc as well, which is the 46k lines
     ; that make a re-run slow when nothing but the device changed.
     def skipBuild:boolean false
-    ; Keep the launched process attached so its output comes back here. A
-    ; device has no console you can otherwise see.
+    ; Keep the launched process attached so its output comes back here: a
+    ; device has no console you can otherwise see, and a simulator app that
+    ; traps takes its "Fatal error" with it unless something is listening.
     def console:boolean false
     def verbose:boolean false
     def onlyPhone:boolean false
@@ -724,7 +725,7 @@ class IosBuild {
 
         if o.doRun {
             if target.isSimulator {
-                def ran:AppleBuildResult (builder.runOnSimulator(spec target o.device))
+                def ran:AppleBuildResult (builder.runOnSimulator(spec target o.device o.console))
                 if (ran.ok == false) {
                     print ""
                     print ran.message

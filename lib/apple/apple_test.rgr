@@ -311,7 +311,7 @@ class AppleTest {
 
         def spec:AppleAppSpec (this.buildSpec())
         def target:AppleTarget (AppleTarget.iosSimulator("arm64"))
-        def res:AppleBuildResult (builder.runOnSimulator(spec target "iPad Pro"))
+        def res:AppleBuildResult (builder.runOnSimulator(spec target "iPad Pro" false))
         this.check("dry run reaches launch" res.ok)
 
         def plan:string (join sh.commands "\n")
@@ -322,6 +322,18 @@ class AppleTest {
         this.checkHas("launches by bundle id" plan "xcrun simctl launch --terminate-running-process")
         this.checkHas("launches the right app" plan "fi.ranger.dashboard")
 
+        ; `--console` attaches the launch on a simulator too, so a trap's
+        ; "Fatal error" lands where the build's output does.
+        def sh3:Shell (new Shell)
+        sh3.dryRun = true
+        def tools3:AppleToolchain (new AppleToolchain (sh3))
+        def b3:AppleAppBuilder (new AppleAppBuilder (sh3 tools3))
+        b3.verbose = false
+        def attached:AppleBuildResult (b3.runOnSimulator(spec target "iPad Pro" true))
+        this.check("an attached dry run reaches launch" attached.ok)
+        def plan3:string (join sh3.commands "\n")
+        this.checkHas("--console attaches the simulator launch" plan3 "xcrun simctl launch --console --terminate-running-process")
+
         ; A device target has no simulator to run on, and saying so is better
         ; than booting something unrelated.
         def sh2:Shell (new Shell)
@@ -330,7 +342,7 @@ class AppleTest {
         def b2:AppleAppBuilder (new AppleAppBuilder (sh2 tools2))
         b2.verbose = false
         def devTarget:AppleTarget (AppleTarget.iosDevice("Someone"))
-        def devRes:AppleBuildResult (b2.runOnSimulator(spec devTarget ""))
+        def devRes:AppleBuildResult (b2.runOnSimulator(spec devTarget "" false))
         this.check("a device target is refused" (devRes.ok == false))
         this.checkHas("and says why" devRes.message "device target")
     }
