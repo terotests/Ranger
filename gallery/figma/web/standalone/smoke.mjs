@@ -5,7 +5,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { installZstd } from "./zstd.mjs";
-import { figmaClipboard, figmaClipboardHtml, figmaClipboardName } from "./clipboard.mjs";
+import { figmaClipboard, figmaClipboardHtml, figmaClipboardName, FIG_FILE_RE } from "./clipboard.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dist = join(here, "dist");
@@ -165,4 +165,73 @@ if (!pasted.includes("Card")) {
   console.error("pasted frame missing", pasted);
   process.exit(1);
 }
-console.log("paste ok — frames", pasteFrames.join(", "), "· loose layers →", pages[0].name);
+const clipStats = JSON.parse(web.stats());
+// The copied layers are orphans by nature — they still point at the page
+// they were copied from. Every one of them has to end up on a page, or it
+// is parsed and never drawn, which is what a half-empty paste looks like.
+if (clipStats.orphans < 1 || clipStats.adopted !== clipStats.orphans) {
+  console.error("loose layers were not all placed", clipStats.orphans, clipStats.adopted);
+  process.exit(1);
+}
+if (clipStats.unrooted !== 0) {
+  console.error("clipboard sample had nodes naming no parent", clipStats.unrooted);
+  process.exit(1);
+}
+console.log("paste ok — frames", pasteFrames.join(", "), "· loose layers →", pages[0].name,
+  "· orphans", clipStats.orphans, "adopted", clipStats.adopted);
+
+// A whole document pasted keeps its own page and invents none: the "Pasted"
+// page is for layers with nowhere to go, not for every paste.
+if (pasteStats.orphans !== 0 || pasteStats.adopted !== 0) {
+  console.error("a whole document pasted grew a Pasted page", pasteStats.orphans, pasteStats.adopted);
+  process.exit(1);
+}
+
+// ---- What a browser can do to the clipboard HTML on the way here --------
+// Each of these is a real paste that must still parse; a regression here is
+// a paste that does nothing on one browser and works on another.
+const variants = {
+  "single quotes": html.replace(/"/g, "'"),
+  "named entities": html.replace(/<!--/g, "&lt;!--").replace(/-->/g, "--&gt;"),
+  "numeric entities": html.replace(/<!--/g, "&#60;!--").replace(/-->/g, "--&#62;"),
+  "hex entities": html.replace(/<!--/g, "&#x3C;!--").replace(/-->/g, "--&#x3E;"),
+  "wrapped base64": html.replace(/(\(figma\))([A-Za-z0-9+/=]+)/, (m, a, b) => a + b.replace(/(.{40})/g, "$1\n")),
+};
+for (const [name, variant] of Object.entries(variants)) {
+  const got = figmaClipboard(variant);
+  if (got.buffer?.byteLength !== canvas.byteLength) {
+    console.error("clipboard variant did not parse:", name, got.reason);
+    process.exit(1);
+  }
+}
+
+// Base64 comes in groups of four. A payload cut short would otherwise decode
+// to fewer bytes with no complaint, and the parser would fail far from here.
+const cut = html.replace(/(data-buffer="<!--\(figma\))([A-Za-z0-9+/=]+)(--)/, (m, a, b, c) => a + b.slice(0, b.length - 3) + c);
+const cutClip = figmaClipboard(cut);
+if (cutClip.buffer !== null || !/truncated/.test(cutClip.reason)) {
+  console.error("a truncated buffer was accepted", cutClip.reason);
+  process.exit(1);
+}
+
+// The debug block is what the page shows when a paste draws nothing, so it
+// has to be filled in whether the paste worked or not.
+const okDebug = figmaClipboard(html).debug;
+if (okDebug.bytes !== canvas.byteLength || !okDebug.hasMetadata || okDebug.meta?.fileKey !== "abc123") {
+  console.error("paste debug is missing what it saw", okDebug);
+  process.exit(1);
+}
+if (!okDebug.prelude.startsWith("fig-")) {
+  console.error("paste debug did not read the prelude", okDebug.prelude);
+  process.exit(1);
+}
+const badDebug = figmaClipboard("<p>plain html</p>").debug;
+if (badDebug.hasFigmaMarker !== false || badDebug.htmlChars !== 17) {
+  console.error("rejected paste debug is wrong", badDebug);
+  process.exit(1);
+}
+if (!FIG_FILE_RE.test("a.fig") || !FIG_FILE_RE.test("A.DECK") || FIG_FILE_RE.test("a.figx")) {
+  console.error("FIG_FILE_RE does not name the files the page opens");
+  process.exit(1);
+}
+console.log("clipboard variants ok —", Object.keys(variants).join(", "), "· truncation caught · debug filled");

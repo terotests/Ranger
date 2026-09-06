@@ -191,6 +191,14 @@ class FigDoc {
     def canvasBytes:buffer (buffer_alloc 0)
     ; True when the bytes came without a ZIP — a clipboard paste.
     def pasted:boolean false
+    ; Nodes whose parent did not come along, and nodes that name no parent
+    ; at all. A paste is made of the first kind; the second is a message
+    ; shape we did not expect. Both are counted so the page can say what it
+    ; saw when a paste draws less than was copied.
+    def orphanCount:int 0
+    def unrootedCount:int 0
+    ; How many of those the "Pasted" page took in.
+    def adoptedCount:int 0
     def ok:boolean true
     def err:string ""
 
@@ -493,9 +501,24 @@ class FigModel {
                     def p:FigNode (unwrap parent)
                     push p.children nd3
                 }
+            } {
+                ; No parentIndex at all. The DOCUMENT is like this by
+                ; design and is picked up below; anything else names no
+                ; place in the tree and would be dropped in silence, so a
+                ; paste keeps it and every document counts it.
+                if ((nd3.isPage()) == false) {
+                    if (nd3.typeName == "DOCUMENT") {
+                    } {
+                        doc.unrootedCount = (doc.unrootedCount + 1)
+                        if doc.pasted {
+                            push orphans nd3
+                        }
+                    }
+                }
             }
             nj = (nj + 1)
         }
+        doc.orphanCount = (array_length orphans)
         def nk:int 0
         while (nk < (array_length doc.nodes)) {
             def nd4:FigNode (itemAt doc.nodes nk)
@@ -527,9 +550,22 @@ class FigModel {
                 nl = (nl + 1)
             }
         }
-        if (((array_length doc.pages) == 0) && ((array_length orphans) > 0)) {
-            ; No page came with the nodes: give them one, so the viewer has
-            ; a canvas to fit and the scene graph a root.
+        ; Nodes with nowhere to hang need a page, or they are parsed and
+        ; then never drawn. That is the normal shape of a paste — the
+        ; copied layers still point at the page they were copied from,
+        ; which did not come along — so a paste always gets the page, even
+        ; when some other page rode along with the bytes, and it goes
+        ; first because the copied layers are what the paste is about.
+        def wantPage:boolean false
+        if ((array_length orphans) > 0) {
+            if ((array_length doc.pages) == 0) {
+                wantPage = true
+            }
+            if doc.pasted {
+                wantPage = true
+            }
+        }
+        if wantPage {
             def page (new FigNode())
             page.id = "paste:0"
             page.typeName = "CANVAS"
@@ -541,8 +577,16 @@ class FigModel {
                 push page.children orphan
                 oi = (oi + 1)
             }
+            doc.adoptedCount = (array_length orphans)
             push doc.nodes page
-            push doc.pages page
+            def merged:[FigNode]
+            push merged page
+            def mi:int 0
+            while (mi < (array_length doc.pages)) {
+                push merged (itemAt doc.pages mi)
+                mi = (mi + 1)
+            }
+            doc.pages = merged
         }
         doc.treeMs = ((wall_clock_ms) - t0)
     }

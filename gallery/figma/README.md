@@ -83,9 +83,11 @@ npm run figma:inspect       # dump the bundled sample
 npm run figma:bench         # Ranger vs openfig-core (if installed)
 ```
 
-Drop a real `.fig` on the page, open one the page can fetch —
-`?file=fixtures/health.fig&page=0&frame=1` — copy layers in Figma and
-paste them onto the page (⌘V), or:
+The page opens on `fixtures/health.fig`, the Figma export shipped beside
+it. Drop your own `.fig` on it, open one the page can fetch —
+`?file=fixtures/health.fig&page=0&frame=1` — ask for the generated deck
+with `?file=sample`, copy layers in Figma and paste them onto the page
+(⌘V), or:
 
 ```bash
 node gallery/figma/bin/fig_cli.js inspect path/to/file.fig
@@ -101,6 +103,21 @@ the HTML; the parser reads the bytes as they are. The pasted nodes still
 name the page they came from, which is not in the payload, so the tree
 builder gives them a page called **Pasted**. Images referenced by hash
 are not in the payload and paint as grey boxes.
+
+Every paste writes a report — to the Selected pane, to the console, and
+to `window.__lastPaste` — with what the clipboard carried (types, HTML
+size, base64 size, decoded bytes, the eight-byte prelude, the figmeta)
+and what the engine made of it (nodes, pages, `orphans` / `adopted`,
+draw commands, per-stage milliseconds, warnings). `adopted` below
+`orphans` means layers were read and never drawn; a prelude that is not
+`fig-kiwi` means the base64 decoded to something else. A payload whose
+base64 is not a whole number of four-character groups is rejected as
+truncated rather than decoded short in silence.
+
+The HTML a browser hands over is not the HTML Figma wrote: quotes may
+change and the `<!--` `-->` around each span may arrive as named,
+decimal or hex entities. All of those shapes are parsed, and the smoke
+test pastes each one.
 
 ## What it draws
 
