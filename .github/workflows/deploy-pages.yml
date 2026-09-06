@@ -369,6 +369,14 @@ jobs:
           grep -q "FigWeb" "$GITHUB_WORKSPACE/_site/figma/fig_web.js"
           grep -q "installZstd" "$GITHUB_WORKSPACE/_site/figma/standalone.mjs"
 
+      # The steps above only prove the files are there. This one runs the
+      # engine: health.fig end to end, and the clipboard path — a paste is
+      # the one input nobody can test by opening the deployed page, since
+      # it needs Figma at the other end of the clipboard. The build above
+      # left dist/ in place, which is what the smoke test loads.
+      - name: Check the Fig reader parses and pastes
+        run: node gallery/figma/web/standalone/smoke.mjs
+
       # Does the engine agree with ITSELF? The frame is published twice — as
       # JSON, where every field arrives with its name, and as packed
       # Int32Arrays, which are positional and can be misread in silence. This

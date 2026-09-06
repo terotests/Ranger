@@ -104,6 +104,21 @@ name the page they came from, which is not in the payload, so the tree
 builder gives them a page called **Pasted**. Images referenced by hash
 are not in the payload and paint as grey boxes.
 
+Every paste writes a report — to the Selected pane, to the console, and
+to `window.__lastPaste` — with what the clipboard carried (types, HTML
+size, base64 size, decoded bytes, the eight-byte prelude, the figmeta)
+and what the engine made of it (nodes, pages, `orphans` / `adopted`,
+draw commands, per-stage milliseconds, warnings). `adopted` below
+`orphans` means layers were read and never drawn; a prelude that is not
+`fig-kiwi` means the base64 decoded to something else. A payload whose
+base64 is not a whole number of four-character groups is rejected as
+truncated rather than decoded short in silence.
+
+The HTML a browser hands over is not the HTML Figma wrote: quotes may
+change and the `<!--` `-->` around each span may arrive as named,
+decimal or hex entities. All of those shapes are parsed, and the smoke
+test pastes each one.
+
 ## What it draws
 
 | Figma | SceneNode | EVG |

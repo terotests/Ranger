@@ -4,7 +4,7 @@
  */
 import { renderDisplayList, loadImages } from "./gl/evg-webgl.js";
 import { installZstd } from "./zstd.mjs";
-import { figmaClipboard, figmaClipboardName, readFigmaClipboard } from "./clipboard.mjs";
+import { figmaClipboard, figmaClipboardName, readFigmaClipboard, FIG_FILE_RE } from "./clipboard.mjs";
 
 window.__pageStarted = true;
 
@@ -296,19 +296,64 @@ window.addEventListener("resize", () => draw());
 
 // ⌘V / Ctrl+V straight from Figma: the copied nodes arrive as fig-kiwi bytes
 // inside text/html, and a .fig file copied from the desktop comes as a file.
+
+/** Everything known about the last paste, in one place: what the clipboard
+ *  carried, what came out of the base64, and what the engine made of it.
+ *  A paste that silently draws nothing is the failure this exists for, so
+ *  the report is written to the Selected pane and to window.__lastPaste
+ *  rather than only to the console. */
+function pasteReport(clip, stage) {
+  const report = { stage, reason: clip.reason || "", clipboard: clip.debug || {} };
+  if (clip.buffer) report.clipboard.bytes = clip.buffer.byteLength;
+  if (stage === "drawn") {
+    try {
+      const st = JSON.parse(web.stats());
+      report.engine = {
+        pasted: st.pasted, prelude: st.prelude, version: st.version, zstd: st.zstd,
+        nodes: st.nodes, pages: st.pages, blobs: st.blobs, images: st.images,
+        // A paste is orphans by nature: the copied layers point at the page
+        // they came from. adopted < orphans would be layers read and never
+        // drawn, which is what a half-empty paste looks like from here.
+        orphans: st.orphans, unrooted: st.unrooted, adopted: st.adopted,
+        cmds: st.cmds, ms: st.ms,
+      };
+      report.frames = JSON.parse(web.frames()).map((f) => f.name);
+      report.warnings = JSON.parse(web.warnings());
+    } catch (err) {
+      report.engine = { error: String(err.message || err) };
+    }
+  }
+  window.__lastPaste = report;
+  if (propsEl) propsEl.textContent = "paste report\n" + JSON.stringify(report, null, 2);
+  console[stage === "drawn" ? "log" : "warn"]("[figma-viewer] paste", report);
+  return report;
+}
+
 async function openClip(clip) {
   if (!clip.buffer) {
-    statusEl.textContent = "paste: " + (clip.reason || "nothing usable");
+    const r = pasteReport(clip, "rejected");
+    const types = (r.clipboard.types || []).join(", ");
+    statusEl.textContent = "paste: " + (clip.reason || "nothing usable") + (types ? " · types: " + types : "");
     return false;
   }
   statusEl.textContent = "paste: " + clip.buffer.byteLength + " bytes from Figma, parsing…";
   try {
     await openBuffer(clip.buffer, figmaClipboardName(clip.meta));
   } catch (err) {
+    clip.reason = String(err.message || err);
+    pasteReport(clip, "failed");
     statusEl.textContent = "paste failed: " + (err.message || err);
     console.error("[figma-viewer] paste", err);
     return false;
   }
+  const r = pasteReport(clip, "drawn");
+  const e = r.engine || {};
+  // Counts, not "ok": they are what says whether the paste arrived whole.
+  statusEl.textContent = "paste: " + clip.buffer.byteLength + " bytes · "
+    + (e.nodes || 0) + " nodes · " + (e.pages || 0) + " pages · "
+    + (r.frames || []).length + " frames"
+    + (e.orphans ? " · " + e.adopted + "/" + e.orphans + " loose layers placed" : "")
+    + ((r.warnings || []).length ? " · " + r.warnings.length + " warnings" : "");
   return true;
 }
 
@@ -318,7 +363,7 @@ window.addEventListener("paste", async (e) => {
     statusEl.textContent = "paste: the event carried no clipboardData";
     return;
   }
-  const file = Array.from(dt.files || []).find((f) => /\.(fig|deck|jam)$/i.test(f.name));
+  const file = Array.from(dt.files || []).find((f) => FIG_FILE_RE.test(f.name));
   if (file) {
     e.preventDefault();
     await openBuffer(await file.arrayBuffer(), file.name);
@@ -326,10 +371,11 @@ window.addEventListener("paste", async (e) => {
   }
   const html = dt.getData("text/html");
   const clip = figmaClipboard(html);
+  clip.debug.types = Array.from(dt.types || []);
   if (!clip.buffer) {
     // Say what came instead, so a paste that does nothing can be explained.
-    statusEl.textContent = "paste: " + clip.reason + " · types: " + Array.from(dt.types || []).join(", ");
-    console.warn("[figma-viewer] paste did not carry a Figma buffer", { types: Array.from(dt.types || []), html: (html || "").slice(0, 400) });
+    clip.debug.htmlHead = (html || "").slice(0, 400);
+    await openClip(clip);
     return;
   }
   e.preventDefault();
@@ -341,6 +387,9 @@ if (pasteEl) {
     try {
       await openClip(await readFigmaClipboard());
     } catch (err) {
+      // NotAllowedError when the read was not granted: that is the answer,
+      // not a bug, and the page has to say which it was.
+      pasteReport({ buffer: null, reason: String(err.name || "") + ": " + (err.message || err), debug: {} }, "rejected");
       statusEl.textContent = "paste: " + (err.message || err);
     }
   });

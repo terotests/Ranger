@@ -382,6 +382,12 @@ class FigApp {
         o = (o + ",\"nodes\":" + (to_string (array_length doc.nodes)))
         o = (o + ",\"pages\":" + (to_string (array_length doc.pages)))
         o = (o + ",\"blobs\":" + (to_string (array_length doc.blobs)))
+        ; What the tree could not place. On a paste these are the copied
+        ; layers and "adopted" should match; anywhere else a non-zero
+        ; count is content the viewer parsed and did not draw.
+        o = (o + ",\"orphans\":" + (to_string doc.orphanCount))
+        o = (o + ",\"unrooted\":" + (to_string doc.unrootedCount))
+        o = (o + ",\"adopted\":" + (to_string doc.adoptedCount))
         o = (o + ",\"images\":" + (to_string (array_length doc.images)))
         o = (o + ",\"schemaTypes\":" + (to_string doc.schemaCount))
         o = (o + ",\"cmds\":" + (to_string cmdCount))
