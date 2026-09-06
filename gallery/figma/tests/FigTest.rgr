@@ -245,6 +245,18 @@ class FigTest {
         ; its alignment says, so neither stroke warning applies to it.
         this.check("an exact stroke is not reported" ((FigTest.hasSub(warns "ExactStroke")) == false))
         this.check("a guessed stroke is reported" (FigTest.hasSub(warns "GuessedStroke")))
+        ; The two reports that answer "nothing is warned about and it still
+        ; looks wrong". The census has to name the types actually in the
+        ; scene, and the unread list has to leave out fields the converter
+        ; does read — a list that includes them is noise nobody can use.
+        def census:string (app.censusJson())
+        this.check("census names a type in the scene" (FigTest.hasSub(census "\"type\":\"FRAME\"")))
+        this.check("census counts what draws nothing" (FigTest.hasSub(census "drawNothing")))
+        this.check("census counts missing images" (FigTest.hasSub(census "imagesMissing")))
+        def unread:string (app.unreadJson())
+        this.check("unread leaves out fillPaints" ((FigTest.hasSub(unread "\"field\":\"fillPaints\"")) == false))
+        this.check("unread leaves out transform" ((FigTest.hasSub(unread "\"field\":\"transform\"")) == false))
+        this.check("unread leaves out symbolData" ((FigTest.hasSub(unread "\"field\":\"symbolData\"")) == false))
     }
 
     fn testFixtures:void () {

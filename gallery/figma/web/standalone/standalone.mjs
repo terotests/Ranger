@@ -27,6 +27,8 @@ const zoomInEl = document.getElementById("zoomin");
 const zoomOutEl = document.getElementById("zoomout");
 const warnsEl = document.getElementById("warns");
 const warnLinkEl = document.getElementById("warnlink");
+const unreadEl = document.getElementById("unread");
+const unreadLinkEl = document.getElementById("unreadlink");
 const mainEl = document.querySelector("main");
 
 
@@ -236,11 +238,61 @@ function warningSummary() {
   return { total: list.length, groups, lines };
 }
 
+/** Fields the file carries that the converter never reads. The warnings
+ *  above can only name a case someone thought of; when a page looks wrong
+ *  and nothing is reported, what is missing is what nobody wrote a warning
+ *  for, so this is the list to read next. */
+function unreadSummary() {
+  let list = [];
+  try { list = JSON.parse(web.unread()); } catch { /* keep */ }
+  const named = list.filter((u) => u.note);
+  const lines = list.map(
+    (u) => String(u.count).padStart(6) + "  " + u.field + (u.note ? "\n          " + u.note : "")
+      + "\n          e.g. " + u.id + " " + JSON.stringify(u.name)
+  );
+  return { total: list.length, named: named.length, lines };
+}
+
+/** The scene by node type, and how much of it puts nothing on the canvas.
+ *  A type whose nodes mostly draw nothing is where the page is losing its
+ *  content, and it names a type rather than a layer. */
+function censusSummary() {
+  let c = { types: [], imagesMissing: 0 };
+  try { c = JSON.parse(web.census()); } catch { /* keep */ }
+  const types = [...c.types].sort((a, b) => b.drawNothing - a.drawNothing || b.nodes - a.nodes);
+  const empty = types.reduce((n, t) => n + t.drawNothing, 0);
+  const total = types.reduce((n, t) => n + t.nodes, 0);
+  const lines = types.map(
+    (t) => String(t.nodes).padStart(6) + "  " + t.type.padEnd(20) +
+      (t.drawNothing ? t.drawNothing + " of them draw nothing" : "")
+  );
+  return { empty, total, imagesMissing: c.imagesMissing, lines };
+}
+
+function diagnosticsText() {
+  const c = censusSummary();
+  const u = unreadSummary();
+  const out = [];
+  out.push("the scene by node type — " + c.total + " nodes, " + c.empty + " of which put nothing on the canvas");
+  if (c.imagesMissing) out.push(c.imagesMissing + " image fills have no bytes in the file and paint as grey boxes");
+  out.push(c.lines.join("\n"));
+  out.push("");
+  out.push("fields this file carries that the reader does not look at");
+  out.push("(" + u.named + " of " + u.total + " are known to change what you see)");
+  out.push(u.total ? u.lines.join("\n\n") : "  none — the reader looks at every field in this file");
+  return out.join("\n");
+}
+
 function reportWarnings() {
   const w = warningSummary();
   window.__figWarnings = w.lines;
   if (warnsEl) warnsEl.textContent = String(w.total);
   if (w.total) console.warn("[figma-viewer] " + w.total + " unsupported:\n  " + w.lines.join("\n  "));
+  const u = unreadSummary();
+  const c = censusSummary();
+  window.__figUnread = u.lines;
+  window.__figCensus = c;
+  if (unreadEl) unreadEl.textContent = String(c.empty);
   return w;
 }
 
@@ -537,6 +589,13 @@ if (warnLinkEl) {
         ? "unsupported (" + w.total + ")\n\n" + w.lines.join("\n\n")
         : "nothing unsupported in this file";
     }
+  });
+}
+
+if (unreadLinkEl) {
+  unreadLinkEl.addEventListener("click", (ev) => {
+    ev.preventDefault();
+    if (propsEl) propsEl.textContent = diagnosticsText();
   });
 }
 

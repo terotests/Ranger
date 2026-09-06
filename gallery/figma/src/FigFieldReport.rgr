@@ -1,0 +1,308 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; What this file carries that the reader never looks at.
+;
+; A warning can only report a case someone thought of. When a page comes
+; out looking wrong and nothing is reported, the thing that is missing is
+; by definition the thing nobody wrote a warning for — so this asks the
+; question the other way round: walk every field the decoder found in the
+; file, subtract the ones the converter reads, and count what is left.
+;
+; The list is data, not a judgement. Most of what turns up is bookkeeping
+; that has no picture attached (`overrideKey`, `pluginData`). The ones
+; that do change what you see are named in `noteFor` and sorted first.
+
+Import "FigModel.rgr"
+Import "KiwiValue.rgr"
+
+class FigFieldUse {
+    def name:string ""
+    def count:int 0
+    def exampleId:string ""
+    def exampleName:string ""
+    def note:string ""
+
+    Constructor () {
+    }
+}
+
+class FigFieldReport {
+    def uses:[FigFieldUse]
+
+    Constructor () {
+    }
+
+    ; Every node field the converter reads. Anything not here is either
+    ; unread or does not exist; the report says which by counting.
+    sfn known:[string] () {
+        def k:[string]
+        push k "guid"
+        push k "type"
+        push k "name"
+        push k "phase"
+        push k "parentIndex"
+        push k "size"
+        push k "transform"
+        push k "visible"
+        push k "opacity"
+        push k "cornerRadius"
+        push k "rectangleTopLeftCornerRadius"
+        push k "rectangleTopRightCornerRadius"
+        push k "rectangleBottomRightCornerRadius"
+        push k "rectangleBottomLeftCornerRadius"
+        push k "fillPaints"
+        push k "strokePaints"
+        push k "strokeWeight"
+        push k "strokeAlign"
+        push k "borderStrokeWeightsIndependent"
+        push k "fillGeometry"
+        push k "strokeGeometry"
+        push k "effects"
+        push k "clipsContent"
+        push k "frameMaskDisabled"
+        push k "backgroundColor"
+        push k "backgroundEnabled"
+        push k "backgroundOpacity"
+        push k "textData"
+        push k "derivedTextData"
+        push k "characters"
+        push k "fontSize"
+        push k "fontName"
+        push k "fontFamily"
+        push k "fontStyle"
+        push k "fontWeight"
+        push k "fontMetaData"
+        push k "letterSpacing"
+        push k "lineHeight"
+        push k "textAlignHorizontal"
+        push k "textAlignVertical"
+        push k "textAutoResize"
+        push k "textCase"
+        push k "stackMode"
+        push k "stackSpacing"
+        push k "stackHorizontalPadding"
+        push k "stackVerticalPadding"
+        push k "stackPaddingRight"
+        push k "stackPaddingBottom"
+        push k "stackPrimaryAlignItems"
+        push k "stackCounterAlignItems"
+        push k "stackPrimarySizing"
+        push k "stackCounterSizing"
+        push k "stackPositioning"
+        push k "stackChildAlignSelf"
+        push k "stackChildPrimaryGrow"
+        push k "primaryAxisAlignItems"
+        push k "counterAxisAlignItems"
+        push k "primaryAxisSizingMode"
+        push k "counterAxisSizingMode"
+        push k "paddingLeft"
+        push k "paddingRight"
+        push k "paddingTop"
+        push k "paddingBottom"
+        push k "layoutAlign"
+        push k "layoutGrow"
+        push k "layoutPositioning"
+        push k "symbolData"
+        push k "symbolID"
+        push k "symbolId"
+        push k "overriddenSymbolID"
+        push k "derivedSymbolData"
+        push k "windingRule"
+        return k
+    }
+
+    ; The unread fields that change what you see, said plainly. Anything
+    ; not named here is reported by its own name and nothing more.
+    sfn noteFor:string (field:string) {
+        if (field == "mask") {
+            return "this layer masks the ones beside it — the reader draws them all"
+        }
+        if (field == "maskType") {
+            return "an alpha or luminance mask, not applied"
+        }
+        if (field == "maskIsOutline") {
+            return "an outline mask, not applied"
+        }
+        if (field == "blendMode") {
+            return "multiply, overlay and the rest — everything is drawn normal"
+        }
+        if (field == "styleOverrideTable") {
+            return "per-character text styling (a bold word, a coloured span) — the whole string takes one style"
+        }
+        if (field == "textTruncation") {
+            return "text that should be cut with an ellipsis is drawn in full"
+        }
+        if (field == "maxLines") {
+            return "a line limit on text, not applied"
+        }
+        if (field == "arcData") {
+            return "an arc or pie wedge — drawn as its whole ellipse"
+        }
+        if (field == "dashPattern") {
+            return "a dashed stroke, drawn solid (unless strokeGeometry came with it)"
+        }
+        if (field == "strokeCap") {
+            return "line caps, drawn butt (unless strokeGeometry came with it)"
+        }
+        if (field == "strokeJoin") {
+            return "line joins, drawn miter (unless strokeGeometry came with it)"
+        }
+        if (field == "vectorData") {
+            return "the editable vector network; the shape is drawn from the flattened path beside it, and is missing only where the file has none"
+        }
+        if (field == "vectorNetworkBlob") {
+            return "the editable vector network; the shape is drawn from the flattened path beside it, and is missing only where the file has none"
+        }
+        if (field == "booleanOperation") {
+            return "a union or subtract; drawn from its flattened path, and missing where the file has none"
+        }
+        if (field == "stackWrap") {
+            return "an Auto Layout that wraps onto more rows — children keep the positions the file stored, so a resize would not re-wrap"
+        }
+        if (field == "stackCounterSpacing") {
+            return "the gap between rows of a wrapping Auto Layout"
+        }
+        if (field == "borderTopWeight") {
+            return "one side of a per-side stroke; the sides are drawn at one weight"
+        }
+        if (field == "borderBottomWeight") {
+            return "one side of a per-side stroke; the sides are drawn at one weight"
+        }
+        if (field == "borderLeftWeight") {
+            return "one side of a per-side stroke; the sides are drawn at one weight"
+        }
+        if (field == "borderRightWeight") {
+            return "one side of a per-side stroke; the sides are drawn at one weight"
+        }
+        if (field == "horizontalConstraint") {
+            return "how the layer resizes with its parent; it is drawn at the position the file stored, so this only matters if something resizes"
+        }
+        if (field == "verticalConstraint") {
+            return "how the layer resizes with its parent; it is drawn at the position the file stored, so this only matters if something resizes"
+        }
+        if (field == "opacityBlendMode") {
+            return "a blend mode on the layer's opacity — everything is drawn normal"
+        }
+        if (field == "paragraphSpacing") {
+            return "space between paragraphs, not applied"
+        }
+        if (field == "paragraphIndent") {
+            return "paragraph indent, not applied"
+        }
+        if (field == "hyperlink") {
+            return "a link on the text, which is not drawn"
+        }
+        if (field == "counterAxisSpacing") {
+            return "the gap between rows of a wrapping Auto Layout"
+        }
+        if (field == "transitionNodeID") {
+            return "a prototype link, which is not drawn"
+        }
+        if (field == "styleId") {
+            return "a shared style; its values are copied onto the node, so usually harmless"
+        }
+        if (field == "textStyleId") {
+            return "a shared text style; its values are copied onto the node"
+        }
+        if (field == "gridStyleId") {
+            return "a layout grid, which is not drawn"
+        }
+        if (field == "layoutGrids") {
+            return "a layout grid, which is not drawn"
+        }
+        return ""
+    }
+
+    fn find:FigFieldUse (name:string) {
+        def i:int 0
+        while (i < (array_length uses)) {
+            def u:FigFieldUse (itemAt uses i)
+            if (u.name == name) {
+                return u
+            }
+            i = (i + 1)
+        }
+        def fresh (new FigFieldUse())
+        fresh.name = name
+        fresh.note = (FigFieldReport.noteFor(name))
+        push uses fresh
+        return fresh
+    }
+
+    sfn isKnown:boolean (name:string k:[string]) {
+        def i:int 0
+        while (i < (array_length k)) {
+            if ((itemAt k i) == name) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; Count once per node, then filter the distinct names. Filtering as we
+    ; go would compare every field of every node against the whole known
+    ; list, which on a large file is tens of millions of string compares.
+    fn scan:void (doc:FigDoc) {
+        def i:int 0
+        while (i < (array_length doc.nodes)) {
+            def nd:FigNode (itemAt doc.nodes i)
+            def raw:KiwiValue nd.raw
+            def f:int 0
+            while (f < (array_length raw.fieldNames)) {
+                def fname:string (itemAt raw.fieldNames f)
+                def u:FigFieldUse (this.find(fname))
+                u.count = (u.count + 1)
+                if ((strlen u.exampleId) == 0) {
+                    u.exampleId = nd.id
+                    u.exampleName = nd.name
+                }
+                f = (f + 1)
+            }
+            i = (i + 1)
+        }
+        def k:[string] (FigFieldReport.known())
+        def keep:[FigFieldUse]
+        def j:int 0
+        while (j < (array_length uses)) {
+            def u2:FigFieldUse (itemAt uses j)
+            if ((FigFieldReport.isKnown(u2.name k)) == false) {
+                push keep u2
+            }
+            j = (j + 1)
+        }
+        uses = keep
+        FigFieldReport.sortUses(uses)
+    }
+
+    ; Named ones first, then by how many nodes carry them.
+    sfn sortUses:void (list:[FigFieldUse]) {
+        def n:int (array_length list)
+        def i:int 0
+        while (i < n) {
+            def best:int i
+            def j:int (i + 1)
+            while (j < n) {
+                if (FigFieldReport.before((itemAt list j) (itemAt list best))) {
+                    best = j
+                }
+                j = (j + 1)
+            }
+            if (best != i) {
+                def tmp:FigFieldUse (itemAt list i)
+                set list i (itemAt list best)
+                set list best tmp
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn before:boolean (a:FigFieldUse b:FigFieldUse) {
+        def an:boolean ((strlen a.note) > 0)
+        def bn:boolean ((strlen b.note) > 0)
+        if (an != bn) {
+            return an
+        }
+        return (a.count > b.count)
+    }
+}
