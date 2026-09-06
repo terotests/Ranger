@@ -80,7 +80,16 @@ const open = (route, w, h, compact, css) => {
   // `document` is not a route: it is the scene the parsed diary draws in, and
   // the one that gets long.
   if (route === "#document") app.setScene("document");
-  else app.openRoute(route);
+  // Nor is `stats`: it is the Tilastot tab of the home section, and the one
+  // page in the app whose CHARTS are drawn outside the tree walk — appended
+  // after it, from the boxes the layout placed. Nothing else exercises
+  // `emitCharts`, and it is where a curve floated over the page during a
+  // scroll and snapped into its card when it stopped.
+  else if (route === "#stats") {
+    app.openRoute("/calendar/cal-train");
+    app.press("rt-nav-home");
+    app.press("rt-home-tab-stats");
+  } else app.openRoute(route);
   app.display();
   settle(app);
   return app;
@@ -101,6 +110,7 @@ const ROUTES = [
   "/yearsheet/y1",
   "/new-calendar",
   "#document",
+  "#stats",
 ];
 // The long-diary pass runs the document scene again with forty times the
 // content, where most of it really is off the screen.
@@ -630,6 +640,26 @@ console.log("--- what a rebuild keeps ---");
 //
 // The swipe is six samples of the same distance, a frame apart, and the glide
 // afterwards is driven by `tick` exactly as a host drives it.
+// The stats route is only worth its place if it really draws charts — a page
+// that had none would compare clean and prove nothing about `emitCharts`.
+{
+  const app = open("#stats", 390, 844);
+  const curves = listOf(app.display()).cmds.filter(
+    (c) => (c.k === 6 || c.k === 7) && c.pts && c.pts.length > 40,
+  );
+  ok("the stats page draws curves outside the walk", curves.length >= 3,
+     curves.length + " curves");
+  // And they arrive with the card, not when the scroll stops: scroll a card
+  // in from below the fold and the curve has to be there on that frame.
+  const before = curves.length;
+  for (let i = 0; i < 6; i += 1) { app.scrollDocument(200); app.tick(16.7); app.display(); }
+  const after = listOf(app.display()).cmds.filter(
+    (c) => (c.k === 6 || c.k === 7) && c.pts && c.pts.length > 40,
+  ).length;
+  ok("and they are still there six screens down", after >= 1,
+     `${before} then ${after}`);
+}
+
 console.log("");
 console.log("--- the throw ---");
 const swipe = (perFrame) => {
