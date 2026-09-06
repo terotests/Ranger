@@ -30,14 +30,14 @@ import { createTextInputBridge } from "../../evg/gl/evg-textinput.js";
 // asked for it with `?inspect=1`, so a demo that nobody is inspecting pays
 // one import and no work at all.
 import { attach as attachInspector } from "../../evg/inspect/evg-inspect.js";
-import { MenubarDemo, ToolbarDemo, SortableDemo, MotionDemo, TableDemo, DropdownDemo, DialogDemo, TreeDemo, TimelineDemo, ResizeDemo, FormDemo, ProfileDemo, DashboardDemo, CalendarDemo, FilterDemo, EventCalDemo, MessageDemo, ControlsDemo } from "./generated-host.js";
+import { MenubarDemo, ToolbarDemo, SortableDemo, MotionDemo, TableDemo, DropdownDemo, DialogDemo, TreeDemo, TimelineDemo, ResizeDemo, FormDemo, ProfileDemo, DashboardDemo, CalendarDemo, FilterDemo, EventCalDemo, MessageDemo, ControlsDemo, OtpDemo } from "./generated-host.js";
 // The whole modules too: `keptTree` needs EVGStyleSheet, EVGLayout and the
 // rest out of the same bundle the tree was built by. Two copies of a class
 // are two classes.
 import * as MenubarModule from "../bin/MenubarDemo.cjs";
 import * as ToolbarModule from "../bin/ToolbarDemo.cjs";
 import * as SortableModule from "../bin/SortableDemo.cjs";
-import { MENUBAR_CSS, TOOLBAR_CSS, SORTABLE_CSS, MOTION_CSS, TABLE_CSS, DROPDOWN_CSS, DIALOG_CSS, TREE_CSS, TIMELINE_CSS, RESIZE_CSS, FORM_CSS, PROFILE_CSS, DASHBOARD_CSS, CALENDAR_CSS, FILTERS_CSS, EVENTCAL_CSS, MESSAGE_CSS, CONTROLS_CSS } from "./generated.js";
+import { MENUBAR_CSS, TOOLBAR_CSS, SORTABLE_CSS, MOTION_CSS, TABLE_CSS, DROPDOWN_CSS, DIALOG_CSS, TREE_CSS, TIMELINE_CSS, RESIZE_CSS, FORM_CSS, PROFILE_CSS, DASHBOARD_CSS, CALENDAR_CSS, FILTERS_CSS, EVENTCAL_CSS, MESSAGE_CSS, CONTROLS_CSS, OTP_CSS } from "./generated.js";
 
 // The default stage width. A demo wider than this says so — the dashboard
 // grew to 1336 when its sidebar arrived, and a stage that stays 1240 does not
@@ -359,6 +359,13 @@ let lastMessageHover = "";
 // completes the step, which moves the bar and enables Next.
 let controls = new ControlsDemo();
 controls.init(CONTROLS_CSS);
+
+// The one-time code. `OtpCtl` is measured against input-otp — the library
+// behind shadcn's Input OTP — in `ui:otp:check`; this page draws the slots and
+// wires Verify to a complete code.
+let otp = new OtpDemo();
+otp.init(OTP_CSS);
+let lastOtpHover = "";
 let lastControlsHover = "";
 let lastCalendarHover = "";
 const dashboard = new DashboardDemo();
@@ -697,6 +704,36 @@ const DEMOS = {
     }),
   },
 
+  otp: {
+    height: () => otp.heightPx(),
+    list: () => otp.displayListJson(),
+    hit: (x, y) => otp.hitId(x, y),
+    a11y: (gen, focus) => otp.a11yJson(gen, focus),
+    press: (id) => otp.press(id),
+    hover: (id) => {
+      if (id === lastOtpHover) return false;
+      lastOtpHover = id;
+      otp.setHover(id);
+      return true;
+    },
+    key: (k) => otp.key(k),
+    // Shift+Tab walks back; Ctrl+A selects every slot.
+    keyWith: (k, shift, ctrl) => otp.keyWith(k, shift, ctrl),
+    host: () => ({
+      tick: (dt) => otp.tick(dt),
+      busy: () => otp.busyNow(),
+      setHover: (id) => {
+        if (id === lastOtpHover) return false;
+        lastOtpHover = id;
+        otp.setHover(id);
+        return true;
+      },
+      setPressed: (id) => otp.setPressed(id),
+      root: () => null,
+    }),
+    animated: true,
+  },
+
   calendar: {
     height: () => calendar.heightPx(),
     list: () => calendar.displayListJson(),
@@ -715,6 +752,9 @@ const DEMOS = {
       return true;
     },
     key: (k) => calendar.key(k),
+    // Shift reaches the date field: Shift+Tab walks its segments backwards
+    // and back from the grid into the year.
+    keyWith: (k, shift, ctrl) => calendar.keyWith(k, shift, ctrl),
     host: () => ({
       tick: (dt) => calendar.tick(dt),
       busy: () => calendar.busyNow(),
@@ -1716,7 +1756,7 @@ function syncPanels() {
 // `?demo=dashboard` lands on one directly. A page with eighteen demos and one
 // entry point makes every link to it a click instruction; a check that wants
 // the dashboard should not have to press a radio to get there.
-const DEMO_NAMES = ["menubar", "toolbar", "sortable", "table", "tree", "timeline", "resizable", "form", "calendar", "filters", "eventcal", "message", "controls", "profile", "dashboard", "dropdown", "dialog", "motion"];
+const DEMO_NAMES = ["menubar", "toolbar", "sortable", "table", "tree", "timeline", "resizable", "form", "calendar", "filters", "eventcal", "message", "controls", "otp", "profile", "dashboard", "dropdown", "dialog", "motion"];
 const wanted = new URLSearchParams(location.search).get("demo");
 if (wanted && DEMO_NAMES.includes(wanted)) state.which = wanted;
 
@@ -2081,6 +2121,7 @@ window.__resetDemo = (name) => {
   if (name === "form") { form = new FormDemo(); form.init(FORM_CSS); lastFormHover = ""; }
   else if (name === "profile") { profile = new ProfileDemo(); profile.init(PROFILE_CSS); lastProfileHover = ""; }
   else if (name === "controls") { controls = new ControlsDemo(); controls.init(CONTROLS_CSS); lastControlsHover = ""; }
+  else if (name === "otp") { otp = new OtpDemo(); otp.init(OTP_CSS); lastOtpHover = ""; }
   else if (name === "dialog") {
     dialog = new DialogDemo(); dialog.init(DIALOG_CSS); dialog.openWindow(); dialog.openModal();
     lastDialogHover = ""; dialogDragAt = null;

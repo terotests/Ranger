@@ -46,12 +46,18 @@
   height: 18px;
 }
 
+/* The `mm/dd/yyyy` editor: three segments and two slashes, DateFieldCtl's
+ * elements dressed by this sheet. A segment is a leaf so its text is the
+ * segment; the one the keyboard is in carries `ui-datefield-seg-focus`, written
+ * by the controller, and is drawn as a filled pill the way the native control
+ * highlights its active segment. */
 .cd-box {
   display: flex;
   flex-direction: row;
   flex-wrap: nowrap;
   align-items: center;
-  padding: 0 12px;
+  gap: 2px;
+  padding: 0 10px;
   width: 320px;
   height: 38px;
   border: 1px solid #d4d4d8;
@@ -59,22 +65,25 @@
   background-color: #ffffff;
 }
 
-.cd-box-text {
+.ui-datefield-seg {
   color: #18181b;
   font-size: 14px;
-  width: 294px;
-  height: 20px;
+  height: 22px;
+  padding: 2px 4px;
+  border-radius: 4px;
 }
 
-/* Pale, and a different class from the value — a placeholder that looked like
- * a value would make an empty field read as a filled one. The box's accessible
- * name stays "Date" either way, so a reader is not told the hint is the
- * answer. */
-.cd-box-hint {
-  color: #a1a1aa;
+/* Pale, and a different class from a value — an empty segment must not read
+ * as a filled one. */
+.ui-datefield-hint { color: #a1a1aa; }
+
+.ui-datefield-seg-focus { background-color: #dbeafe; color: #1e3a8a; }
+
+.ui-datefield-sep {
+  color: #71717a;
   font-size: 14px;
-  width: 294px;
-  height: 20px;
+  height: 22px;
+  padding: 2px 0;
 }
 
 /* --- the card -------------------------------------------------------------- */

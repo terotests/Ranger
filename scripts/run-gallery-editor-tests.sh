@@ -163,6 +163,17 @@ SUITES=(
   # which moves the progress bar by exactly a quarter of its track. No
   # single-component gate can see that.
   ui:controls:demo
+  # The segmented date field, against Chromium's own <input type="date">: the
+  # two-digit buffer's three exits, wrapping arrows, the empty year stepping to
+  # this year, and Backspace emptying a segment without moving.
+  ui:datefield:check
+  # The one-time code, against input-otp (shadcn's Input OTP): the selection is
+  # never a bare caret inside the value, so typing in the middle replaces, and
+  # a letter into a digits field is refused whole.
+  ui:otp:check
+  # And the code drawn: slots, the dash, the caret in the first empty slot, and
+  # Verify lighting when the sixth digit lands.
+  ui:otp:demo
   # The progress bar, against BOTH shadcn references at once. They disagree in
   # fourteen places and the big one is not small: Radix refuses to report an
   # out-of-range value and goes indeterminate, Base UI clamps. This follows

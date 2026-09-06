@@ -1,0 +1,618 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; DateFieldCtl — the `mm/dd/yyyy` editor, measured against the browser's own
+; =============================================================================
+; A person asked for a date EDIT rather than a date shown as text: three
+; segments, arrows that step the one the keyboard is in, digits that fill it and
+; move on, Backspace that empties it. shadcn has no such component — its Date
+; Picker is a calendar in a popover behind a button, and "picker with input"
+; parses free text; Radix and Base UI have none either. The one segmented date
+; editor everybody has used is `<input type="date">`, so that is the oracle.
+; `conformance/oracle/datefield.json` holds what Chromium does, read through the
+; accessibility tree, and `datefield_check.mjs` replays every scenario of it
+; against this class.
+;
+; --- WHAT THE MEASUREMENT SAID THAT A GUESS WOULD NOT -------------------------
+;
+;   THE TWO-DIGIT BUFFER HAS THREE EXITS. A typed digit joins the digits typed
+;   since the segment was entered; the segment ADVANCES when the number is at
+;   or over the maximum ("1" then "3" in the month gives 12 and moves to the
+;   day), when another digit could not fit ("0" then "5" gives 05 and moves,
+;   "1" then "1" gives 11 and moves), or when two digits are in ("0" then "0"
+;   gives 01 and moves — the clamp is to the MINIMUM, not to nothing). A lone
+;   "1" in the month stays, showing 01, waiting for the second digit.
+;
+;   A LONE ZERO SHOWS NOTHING. "0" typed into an empty month leaves the month
+;   reading empty; the zero is remembered and the next digit completes it.
+;
+;   THE YEAR HAS NO SECOND EXIT IN PRACTICE. It accumulates: 2, 20, 202, 2026,
+;   20267, 202678 — shown padded to four and never advancing, because there is
+;   nowhere to go. Its maximum is Chromium's 275760.
+;
+;   ARROWS WRAP, month 12 up to 01 and day 01 down to 31 — and the day's range
+;   is a FIXED 1..31 whatever the month says, so February 31 is reachable and
+;   the field's VALUE is simply empty until the date is possible again.
+;
+;   AN EMPTY SEGMENT STEPS TO AN END: Up gives 01, Down gives the maximum — and
+;   the empty YEAR gives the CURRENT year for either arrow.
+;
+;   BACKSPACE AND DELETE EMPTY THE SEGMENT AND STAY. They never move left, and
+;   a second press does nothing.
+;
+;   ANY ARROW OR A CLEAR RESETS THE BUFFER: "1", ArrowUp, "2" gives 02 (the "2"
+;   starts fresh), and Backspace then "1" then "1" gives 11.
+;
+;   HOME, END, PAGEUP, PAGEDOWN, SPACE, ENTER AND LETTERS DO NOTHING — listed
+;   and refused here on purpose, so nothing falls through to a caller.
+;
+;   TAB MOVES BY SEGMENT and leaves at the ends; ArrowRight at the year and
+;   ArrowLeft at the month stay. The value is an ISO date only when all three
+;   segments hold something and the day exists in that month.
+;
+; Segment order is a locale decision; en-US mm/dd/yyyy is what shadcn's demos
+; show and what the oracle was captured in. `UiDate` supplies the calendar
+; arithmetic so the calendar and this field cannot disagree about February.
+; =============================================================================
+
+Import "UiCtl.rgr"
+Import "UiTree.rgr"
+Import "UiDate.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+
+class DateFieldCtl extends UiCtl {
+    ; 0 means EMPTY for all three — no valid month, day or year is 0.
+    def month:int 0
+    def day:int 0
+    def year:int 0
+
+    ; Which segment holds the keyboard: 0 month, 1 day, 2 year.
+    def seg:int 0
+    def focused:boolean false
+
+    ; The digits typed into the current segment since it was entered. Cleared
+    ; by arrows, by Backspace and Delete, and by leaving the segment. `-1` is
+    ; "nothing typed yet", because "0" typed is a real buffer that shows "".
+    def buffer:int -1
+    def bufferLen:int 0
+
+    ; What the empty year steps to. Set by the host from its clock; the oracle
+    ; was captured with the browser's.
+    def todayYear:int 2026
+
+    ; Placeholders drawn in an empty segment, as the native control does.
+    def monthHint:string "mm"
+    def dayHint:string "dd"
+    def yearHint:string "yyyy"
+
+    def segEls:[EVGElement]
+
+    Constructor () {
+        push segEls (EVGElement.createSpan())
+        push segEls (EVGElement.createSpan())
+        push segEls (EVGElement.createSpan())
+    }
+
+    ; --- the value --------------------------------------------------------------
+
+    fn setDate:void (y:int m:int d:int) {
+        year = y
+        month = m
+        day = d
+        buffer = -1
+        bufferLen = 0
+    }
+
+    ; From "yyyy-mm-dd"; anything else empties the field.
+    fn setIso:void (s:string) {
+        def dash1:int (indexOf s "-")
+        if (dash1 <= 0) {
+            this.clear()
+            return
+        }
+        def rest:string (substring s (dash1 + 1) (strlen s))
+        def dash2:int (indexOf rest "-")
+        if (dash2 <= 0) {
+            this.clear()
+            return
+        }
+        def y:int (DateFieldCtl.digitsOf((substring s 0 dash1)))
+        def m:int (DateFieldCtl.digitsOf((substring rest 0 dash2)))
+        def d:int (DateFieldCtl.digitsOf((substring rest (dash2 + 1) (strlen rest))))
+        if ((m < 1) || (m > 12)) {
+            this.clear()
+            return
+        }
+        if ((d < 1) || (d > 31)) {
+            this.clear()
+            return
+        }
+        if (y < 1) {
+            this.clear()
+            return
+        }
+        this.setDate(y m d)
+    }
+
+    fn clear:void () {
+        year = 0
+        month = 0
+        day = 0
+        buffer = -1
+        bufferLen = 0
+    }
+
+    sfn digitsOf:int (s:string) {
+        def v:int 0
+        def i:int 0
+        while (i < (strlen s)) {
+            def c:int (charAt s i)
+            if ((c < 48) || (c > 57)) {
+                return -1
+            }
+            v = ((v * 10) + (c - 48))
+            i = (i + 1)
+        }
+        if ((strlen s) == 0) {
+            return -1
+        }
+        return v
+    }
+
+    ; All three filled AND the day exists in that month — MEASURED: 31 with the
+    ; month stepped to February shows "02" and "31" and a `value` of "".
+    fn isComplete:boolean () {
+        if ((month == 0) || (day == 0)) {
+            return false
+        }
+        if (year == 0) {
+            return false
+        }
+        return (day <= (UiDate.daysInMonth(year month)))
+    }
+
+    ; "yyyy-mm-dd" when complete, "" otherwise. The year is padded to four and
+    ; grows past it, as the oracle's "20267-05-20" does.
+    fn isoValue:string () {
+        if (this.isComplete()) {
+        } {
+            return ""
+        }
+        return (DateFieldCtl.pad4(year)) + "-" + (UiDate.pad2(month)) + "-" + (UiDate.pad2(day))
+    }
+
+    sfn pad4:string (n:int) {
+        def s:string (to_string n)
+        while ((strlen s) < 4) {
+            s = "0" + s
+        }
+        return s
+    }
+
+    ; --- what each segment shows ------------------------------------------------
+
+    fn segValue:int (i:int) {
+        if (i == 0) {
+            return month
+        }
+        if (i == 1) {
+            return day
+        }
+        return year
+    }
+
+    fn setSeg:void (i:int v:int) {
+        if (i == 0) {
+            month = v
+            return
+        }
+        if (i == 1) {
+            day = v
+            return
+        }
+        year = v
+    }
+
+    fn segMax:int (i:int) {
+        if (i == 0) {
+            return 12
+        }
+        if (i == 1) {
+            return 31
+        }
+        return 275760
+    }
+
+    ; The text the segment shows: "" when empty (the demo draws the hint), two
+    ; digits for month and day, four or more for the year.
+    fn shown:string (i:int) {
+        def v:int (this.segValue(i))
+        if (v == 0) {
+            return ""
+        }
+        if (i == 2) {
+            return (DateFieldCtl.pad4(v))
+        }
+        return (UiDate.pad2(v))
+    }
+
+    fn hint:string (i:int) {
+        if (i == 0) {
+            return monthHint
+        }
+        if (i == 1) {
+            return dayHint
+        }
+        return yearHint
+    }
+
+    fn segName:string (i:int) {
+        if (i == 0) {
+            return "Month"
+        }
+        if (i == 1) {
+            return "Day"
+        }
+        return "Year"
+    }
+
+    fn segTid:string (i:int) {
+        if (i == 0) {
+            return tid + "-month"
+        }
+        if (i == 1) {
+            return tid + "-day"
+        }
+        return tid + "-year"
+    }
+
+    ; Which segment a test id names; -1 for the box itself or a stranger.
+    fn segOf:int (target:string) {
+        def i:int 0
+        while (i < 3) {
+            if (target == (this.segTid(i))) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; --- focus ---------------------------------------------------------------------
+
+    fn focusSeg:void (i:int) {
+        seg = i
+        focused = true
+        buffer = -1
+        bufferLen = 0
+    }
+
+    fn blur:void () {
+        focused = false
+        buffer = -1
+        bufferLen = 0
+    }
+
+    ; The segment focus should land on when the box is entered from `back`
+    ; (Shift+Tab arrives at the year, Tab at the month).
+    fn enterFrom:string (back:boolean) {
+        if back {
+            this.focusSeg(2)
+        } {
+            this.focusSeg(0)
+        }
+        return (this.segTid(seg))
+    }
+
+    ; Tab inside the box: the next segment's tid, or "" when the box is left —
+    ; MEASURED: Tab from the year and Shift+Tab from the month go to the
+    ; neighbouring control.
+    fn tabFrom:string (target:string back:boolean) {
+        def i:int (this.segOf(target))
+        if (i < 0) {
+            i = seg
+        }
+        if back {
+            if (i == 0) {
+                this.blur()
+                return ""
+            }
+            this.focusSeg(i - 1)
+            return (this.segTid(seg))
+        }
+        if (i == 2) {
+            this.blur()
+            return ""
+        }
+        this.focusSeg(i + 1)
+        return (this.segTid(seg))
+    }
+
+    ; --- arrows ------------------------------------------------------------------
+
+    ; MEASURED: wraps within the fixed range; an empty segment goes to an end,
+    ; and the empty year to this year for either direction.
+    fn stepSeg:void (i:int up:boolean) {
+        def v:int (this.segValue(i))
+        def mx:int (this.segMax(i))
+        buffer = -1
+        bufferLen = 0
+        if (v == 0) {
+            if (i == 2) {
+                this.setSeg(i todayYear)
+                return
+            }
+            if up {
+                this.setSeg(i 1)
+            } {
+                this.setSeg(i mx)
+            }
+            return
+        }
+        if up {
+            if (v >= mx) {
+                this.setSeg(i 1)
+            } {
+                this.setSeg(i (v + 1))
+            }
+            return
+        }
+        if (v <= 1) {
+            this.setSeg(i mx)
+        } {
+            this.setSeg(i (v - 1))
+        }
+    }
+
+    ; --- typing -------------------------------------------------------------------
+
+    ; One digit into the current segment. Returns whether the segment advanced.
+    fn typeDigit:boolean (d:int) {
+        def i:int seg
+        def mx:int (this.segMax(i))
+        if (buffer < 0) {
+            buffer = d
+            bufferLen = 1
+        } {
+            buffer = ((buffer * 10) + d)
+            bufferLen = (bufferLen + 1)
+        }
+        def v:int buffer
+        ; Exit one: at or over the maximum — clamp and move on.
+        if (v >= mx) {
+            this.setSeg(i mx)
+            return (this.advance())
+        }
+        ; Exit two: another digit would not fit.
+        if ((v * 10) > mx) {
+            this.setSeg(i v)
+            return (this.advance())
+        }
+        ; Exit three: the segment's width is used up. Month and day are two
+        ; digits; the year is six (275760) and reaches exit one first.
+        def width:int 2
+        if (i == 2) {
+            width = 6
+        }
+        if (bufferLen >= width) {
+            if (v < 1) {
+                v = 1
+            }
+            this.setSeg(i v)
+            return (this.advance())
+        }
+        ; Still waiting: show what is there so far — 0 shows as empty.
+        this.setSeg(i v)
+        return false
+    }
+
+    fn advance:boolean () {
+        buffer = -1
+        bufferLen = 0
+        if (seg < 2) {
+            seg = (seg + 1)
+            return true
+        }
+        return false
+    }
+
+    ; --- the keyboard, as the host delivers it ------------------------------------
+
+    fn keyDown:string (target:string key:string) {
+        return (this.keyDownWith(target key false false))
+    }
+
+    fn keyDownWith:string (target:string key:string shift:boolean ctrl:boolean) {
+        def i:int (this.segOf(target))
+        if (i >= 0) {
+            if (i != seg) {
+                this.focusSeg(i)
+            }
+        }
+        focused = true
+        if (key == "ArrowRight") {
+            if (seg < 2) {
+                this.focusSeg(seg + 1)
+            } {
+                buffer = -1
+                bufferLen = 0
+            }
+            return (this.segTid(seg))
+        }
+        if (key == "ArrowLeft") {
+            if (seg > 0) {
+                this.focusSeg(seg - 1)
+            } {
+                buffer = -1
+                bufferLen = 0
+            }
+            return (this.segTid(seg))
+        }
+        if (key == "ArrowUp") {
+            this.stepSeg(seg true)
+            return (this.segTid(seg))
+        }
+        if (key == "ArrowDown") {
+            this.stepSeg(seg false)
+            return (this.segTid(seg))
+        }
+        if ((key == "Backspace") || (key == "Delete")) {
+            this.setSeg(seg 0)
+            buffer = -1
+            bufferLen = 0
+            return (this.segTid(seg))
+        }
+        if (key == "Tab") {
+            return (this.tabFrom((this.segTid(seg)) shift))
+        }
+        ; MEASURED to do nothing, and refused here so nothing falls through.
+        if (key == "Home") {
+            return (this.segTid(seg))
+        }
+        if (key == "End") {
+            return (this.segTid(seg))
+        }
+        if (key == "PageUp") {
+            return (this.segTid(seg))
+        }
+        if (key == "PageDown") {
+            return (this.segTid(seg))
+        }
+        if (key == "Enter") {
+            return (this.segTid(seg))
+        }
+        if (key == " ") {
+            return (this.segTid(seg))
+        }
+        return ""
+    }
+
+    ; A printable character: digits are taken, everything else refused.
+    fn typeChar:boolean (target:string ch:string) {
+        def i:int (this.segOf(target))
+        if (i >= 0) {
+            if (i != seg) {
+                this.focusSeg(i)
+            }
+        }
+        if ((strlen ch) != 1) {
+            return false
+        }
+        def c:int (charAt ch 0)
+        if ((c < 48) || (c > 57)) {
+            return false
+        }
+        focused = true
+        this.typeDigit(c - 48)
+        return true
+    }
+
+    ; The segment focus is in after the last key or character.
+    fn focusTid:string () {
+        if focused {
+            return (this.segTid(seg))
+        }
+        return ""
+    }
+
+    ; --- the pointer ----------------------------------------------------------------
+
+    ; A click on a segment focuses it; a click on the box itself goes to the
+    ; month, which is where a Tab lands too.
+    fn activate:string (target:string) {
+        def i:int (this.segOf(target))
+        if (i < 0) {
+            i = 0
+        }
+        this.focusSeg(i)
+        return (this.segTid(seg))
+    }
+
+    fn onFocus:void (target:string) {
+        def i:int (this.segOf(target))
+        if (i >= 0) {
+            this.focusSeg(i)
+        }
+    }
+
+    ; --- the tree -----------------------------------------------------------------
+
+    fn tids:[string] () {
+        def a:[string]
+        push a tid
+        push a (this.segTid(0))
+        push a (this.segTid(1))
+        push a (this.segTid(2))
+        return a
+    }
+
+    fn isFocusable:boolean (target:string) {
+        if disabled {
+            return false
+        }
+        return ((this.segOf(target)) >= 0)
+    }
+
+    fn build:void () {
+        def root:EVGElement (unwrap rootEl)
+        root.id = tid
+        root.className = "ui-datefield"
+        if disabled {
+            UiTree.addClass(root "ui-datefield-disabled")
+        }
+        UiTree.clearChildren(root)
+        def i:int 0
+        while (i < 3) {
+            if (i > 0) {
+                def sepId:string (tid + "-sep" + (to_string i))
+                root.addChild((UiTree.label(sepId "ui-datefield-sep" "/")))
+            }
+            def el:EVGElement (itemAt segEls i)
+            el.id = (this.segTid(i))
+            el.className = "ui-datefield-seg"
+            def s:string (this.shown(i))
+            if ((strlen s) == 0) {
+                UiTree.addClass(el "ui-datefield-hint")
+                UiTree.leafText(el (this.hint(i)))
+            } {
+                UiTree.leafText(el s)
+            }
+            if focused {
+                if (i == seg) {
+                    UiTree.addClass(el "ui-datefield-seg-focus")
+                }
+            }
+            root.addChild(el)
+            i = (i + 1)
+        }
+    }
+
+    ; The box is a group named by the field; each segment is a text field named
+    ; Month, Day or Year whose text is what it shows — the shape Chromium
+    ; publishes (as spinbuttons, which the role catalogue here does not have;
+    ; the roledescription carries the word).
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+        def g:UiRow (UiRow.of(tid (EVGA11yRole.group()) name))
+        g.roleDescription = "Date field"
+        g.hasText = true
+        g.text = (this.isoValue())
+        push out g
+        def i:int 0
+        while (i < 3) {
+            def r:UiRow (UiRow.of((this.segTid(i)) (EVGA11yRole.textField()) (this.segName(i))))
+            r.parentTid = tid
+            r.roleDescription = "spinbutton"
+            r.focusable = true
+            r.tabStop = (i == 0)
+            r.hasText = true
+            r.text = (this.shown(i))
+            r.placeholder = (this.hint(i))
+            r.disabled = disabled
+            push out r
+            i = (i + 1)
+        }
+        return out
+    }
+}

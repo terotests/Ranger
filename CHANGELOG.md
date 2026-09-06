@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A segmented date field, measured against the browser's own.** The
+  calendar demo's date box was a formatted label; a person asked for the
+  `__/__/____` editor, and shadcn has none to measure (its Date Picker is a
+  calendar in a popover), so the oracle is Chromium's `<input type="date">`,
+  read segment by segment through the accessibility tree. `DateFieldCtl`
+  reproduces what it does rather than what one would guess: "1" then "3" in
+  the month is 12 and moves on, "0" then "0" is 01, a lone zero shows nothing,
+  the year takes five and six digits and never advances, ArrowUp on 12 wraps
+  to 01, the empty year steps to this year, February 31 is reachable and the
+  value is empty until it is possible, Backspace empties a segment and stays.
+  `ui:datefield:check` replays all 26 recorded scenarios; the calendar fills
+  the field and a typed date moves the calendar.
+- **A one-time code field, measured against input-otp.** `OtpCtl` reproduces
+  the library behind shadcn's Input OTP, whose whole behaviour is a hidden
+  text input plus a normalisation of its selection: a caret on a character
+  becomes a range over it so typing inside replaces, Backspace on a middle
+  slot leaves the slot before it active, a full field keeps its last slot
+  active and the seventh digit replaces the sixth, a letter into a digits
+  field is refused whole, focus lands at the end wherever the pointer was.
+  `ui:otp:check` replays 33 scenarios; one rule is deliberately not copied and
+  asserted the other way round — a click on a focused field selects the slot
+  clicked, where the reference's caret in its invisible squeezed text made
+  slot 0 select slot 3. A new `otp` demo page draws it (`ui:otp:demo`), and
+  the input bench lists both fields as measured elsewhere rather than scoring
+  their selection rules against a plain `<input>`.
+
 ### Fixed
 
 - **Keyboard focus was invisible on the demo forms and the calendar.** Not one

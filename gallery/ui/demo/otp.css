@@ -1,0 +1,136 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+ *
+ * A one-time code, as an EVG stylesheet: shadcn's Input OTP shapes — a row of
+ * 36px slots, a dash between groups, the active slot ringed — around
+ * OtpCtl's elements. Which slot is active, which shows the caret and what each
+ * holds are the controller's answers, measured against input-otp; this sheet
+ * only says what those answers look like.
+ *
+ * Class-first, one token per selector, no descendant selectors.
+ */
+
+.ot-page {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  padding: 24px;
+  background-color: #fafafa;
+  width: 620px;
+  min-height: 520px;
+}
+
+.ot-card {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 14px;
+  border-radius: 14px;
+  border: 1px solid #e4e4e7;
+  background-color: #ffffff;
+  padding: 24px;
+  width: 372px;
+}
+
+.ot-title { color: #09090b; font-size: 17px; font-weight: 600; height: 24px; }
+.ot-sub { color: #71717a; font-size: 12px; height: 18px; }
+
+.ot-field {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 6px;
+}
+
+.ot-label { color: #3f3f46; font-size: 12px; font-weight: 500; height: 18px; }
+
+/* The status under the code — "3 of 6", "Code complete" — is a live region so
+ * a reader hears the count change without leaving the field. */
+.ot-status { color: #71717a; font-size: 12px; height: 18px; }
+.ot-status-done { color: #15803d; font-size: 12px; height: 18px; }
+
+/* --- the slots ------------------------------------------------------------ */
+
+.ui-otp {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  height: 40px;
+}
+
+.ui-otp-slot {
+  width: 36px;
+  height: 36px;
+  border: 1px solid #e4e4e7;
+  border-radius: 6px;
+  background-color: #ffffff;
+  color: #18181b;
+  font-size: 16px;
+  text-align: center;
+  padding: 9px 0 0 0;
+}
+
+/* The active slot: the reference draws a 2px ring OUTSIDE the box so nothing
+ * moves. A colour change here for the same reason — a wider border would
+ * shift the row. */
+.ui-otp-slot-active { border-color: #18181b; background-color: #f4f4f5; }
+
+/* The fake caret slot: active, empty, and the bar drawn as text. */
+.ui-otp-slot-caret { color: #2563eb; }
+
+.ui-otp-sep {
+  color: #71717a;
+  font-size: 16px;
+  width: 14px;
+  height: 20px;
+  text-align: center;
+}
+
+.ui-otp-disabled { }
+
+/* --- buttons --------------------------------------------------------------- */
+
+.ot-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.ot-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  padding-left: 16px;
+  padding-right: 16px;
+  border-width: 1px;
+  border-color: #e4e4e7;
+  border-radius: 8px;
+  background-color: #ffffff;
+  cursor: pointer;
+}
+.ot-btn:hover { background-color: #f4f4f5; }
+.ot-btn:focus { border-color: #18181b; }
+
+.ot-btn-primary { background-color: #0a0a0a; border-color: #0a0a0a; }
+.ot-btn-primary:hover { background-color: #27272a; }
+.ot-btn-primary:focus { border-color: #2563eb; }
+
+/* Verify while the code is short: visibly not yet, rather than only refused. */
+.ot-btn-off { background-color: #fafafa; cursor: default; }
+
+.ot-btntxt { font-size: 13px; color: #0a0a0a; height: 18px; }
+.ot-btntxt-primary { font-size: 13px; color: #ffffff; height: 18px; }
+.ot-btntxt-off { font-size: 13px; color: #a1a1aa; height: 18px; }
+
+.ot-result { color: #15803d; font-size: 13px; height: 18px; }
+
+.ot-note {
+  color: #71717a;
+  font-size: 12px;
+  width: 560px;
+  height: 36px;
+}

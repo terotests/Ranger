@@ -270,12 +270,57 @@
             disagrees in most other months.
           </p>
           <p class="hint">
+            <strong>Type into the date field.</strong> It is a
+            <code>mm/dd/yyyy</code> editor now, not a label: &ldquo;1&rdquo; then
+            &ldquo;3&rdquo; in the month gives 12 and moves to the day, ArrowUp
+            on 12 wraps to 01, Backspace empties a segment without moving, and a
+            complete date turns the grid to its month with the day chosen.
+            Measured against Chromium&rsquo;s own <code>&lt;input
+            type="date"&gt;</code>, segment by segment through the
+            accessibility tree, in <code>ui:datefield:check</code>.
+          </p>
+          <p class="hint">
             The tab stop at rest is <em>today</em>, not the first of the month
             &mdash; also measured, and also not what this was first written as.
             Two behaviours are deliberately <em>not</em> copied: the
             reference&rsquo;s roving tabindex loses track of focus, and it emits
             no <code>aria-selected</code>. Both are recorded as divergences and
             counted as such rather than quietly scored as parity.
+          </p>
+        </section>
+        <section data-for="otp">
+          <h2>what to try</h2>
+          <p class="hint">
+            <strong>Click a slot and type six digits.</strong> The active slot
+            is ringed, the first empty one carries the caret, and Verify lights
+            when the sixth digit lands. A seventh digit <em>replaces</em> the
+            sixth rather than being refused &mdash; measured against
+            <code>input-otp</code>, the library behind shadcn&rsquo;s Input OTP.
+          </p>
+          <p class="hint">
+            <strong>Home, then a digit.</strong> The selection in this component
+            is never a bare caret inside the value: a caret on a character
+            becomes a range over it, so typing there replaces and moves on.
+            Backspace on a middle slot leaves the slot <em>before</em> it active,
+            because a caret that moved left settles on the character to its
+            left. Both are the reference&rsquo;s rules, reproduced.
+          </p>
+          <p class="hint">
+            <strong>A letter into the code does nothing</strong>; the invite
+            field below takes any character. Tab leaves the code and Shift+Tab
+            comes back at the end, wherever you left from &mdash; the
+            reference&rsquo;s focus handler puts it there. One thing is
+            deliberately not copied: a click on a slot while the field already
+            has focus selects <em>that</em> slot here; the reference lets the
+            browser place a caret in its invisible squeezed text and the capture
+            shows slot 0 clicked selecting slot 3.
+          </p>
+          <p class="hint">
+            Not wired on this page: the clipboard. The controller&rsquo;s paste
+            is measured (a code over a half-filled field, a code with
+            punctuation refused whole, a long one cut to fit), but this field
+            has no text-input session yet, so Ctrl+V on the canvas does not
+            reach it.
           </p>
         </section>
         <section data-for="filters">

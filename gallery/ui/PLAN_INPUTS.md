@@ -387,15 +387,46 @@ was mirrored inside a void `<input>` and reached no reader. Four fields stay
 red honestly: the calendar's date box, the controls page's quantity, and the
 dialog's two inputs are drawn as textboxes and open no editing session.
 
-Textarea, date picker and OTP are in the catalogue as MISSING. That is the
-list for P5b and Phase 4, and the bench is where they will be scored.
+Textarea is in the catalogue as MISSING; that is Phase 4. The date field and
+the OTP were, and are components now — see P5b.
 
-### P5b — `PasswordCtl` and `OtpCtl`
+### P5b — `DateFieldCtl` and `OtpCtl` (done), `PasswordCtl` (open)
 
-The two remaining Radix components. `PasswordCtl` is `InputCtl` plus a reveal
-toggle whose position does not depend on the value — the demo has now done
-this by hand twice and should stop. `OtpCtl` is split code entry: N boxes, one
-value, paste spreading across them, backspace walking back.
+**`DateFieldCtl`** — the `mm/dd/yyyy` editor a person asked for in place of
+the calendar's formatted label. shadcn has no date FIELD (its Date Picker is a
+calendar in a popover), nor do Radix or Base UI, so the oracle is the one
+segmented date editor everybody has used: Chromium's `<input type="date">`,
+read through the accessibility tree, where each segment is a spinbutton with
+a valuetext and a focused flag (`conformance/oracle/datefield_oracle.mjs`,
+26 scenarios). What it said that a guess would not: the two-digit buffer has
+three exits (at or over the maximum, another digit would not fit, two digits
+in — "0" then "0" is 01), a lone zero shows nothing, the year accumulates
+past four digits and never advances, arrows wrap and the day's range is a
+fixed 1..31 so February 31 is reachable and the value is simply empty, the
+empty year steps to the current year for either arrow, Backspace and Delete
+empty a segment and stay. `ui:datefield:check` replays every scenario. The
+calendar demo's box is this field, linked both ways.
+
+**`OtpCtl`** — measured against input-otp, the library behind shadcn's Input
+OTP (`otp_oracle.mjs`, 35 scenarios). The whole component is a hidden text
+input plus a normalisation of its selection after every change, and that is
+what is reproduced: a caret on a character becomes a range over it, so typing
+inside replaces; which side a caret settles on depends on the direction it
+moved, so Backspace on a middle slot leaves the slot before it active; a full
+field keeps its last slot active and the seventh digit replaces the sixth; a
+letter into a digits field is refused whole; focus lands at the end wherever
+the pointer was. One divergence on purpose: a click on an already-focused
+field selects the slot clicked — the reference lets the browser place a caret
+in its invisible squeezed text and the capture shows slot 0 selecting slot 3.
+`ui:otp:check` replays 33 scenarios and asserts the two held out the other way
+round. The demo is `demo/OtpDemo.rgr`.
+
+**Still open:** `PasswordCtl` — `InputCtl` plus a reveal toggle whose position
+does not depend on the value; the demo has now done this by hand twice. And
+the OTP's clipboard on the page: `OtpCtl.paste` is measured, but the field has
+no text-input session, so Ctrl+V on the canvas does not reach it. Giving it
+one is the same bridge the text fields use, with `applyEdit` settling the
+selection the way the controller's `settle` does.
 
 ### P6 — the editor consumes them
 
