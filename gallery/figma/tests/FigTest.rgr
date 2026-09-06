@@ -234,6 +234,24 @@ class FigTest {
             def borrowed2:SceneNode (itemAt nested.children 0)
             this.eqStr("nested drew the component's child" borrowed2.name "CompRect")
         }
+        ; The change the designer made inside the instance. Reading the
+        ; component but not this is what leaves a whole file showing
+        ; placeholder text — the component's own "Title text" everywhere.
+        def titled:SceneNode (shapes.childNamed("TitledInstance"))
+        this.eqInt("the instance drew the component's text" (array_length titled.children) 1)
+        if ((array_length titled.children) > 0) {
+            def drawn:SceneNode (itemAt titled.children 0)
+            this.eqStr("and the override replaced the placeholder" drawn.text.characters "The real text")
+            this.check("and the overridden fill came with it" ((array_length drawn.fills) > 0))
+        }
+        ; The component itself keeps its own text: an override belongs to
+        ; the instance, not to what it was made from.
+        def master:SceneNode (shapes.childNamed("CardWithTitle"))
+        if ((array_length master.children) > 0) {
+            def masterText:SceneNode (itemAt master.children 0)
+            this.eqStr("the component keeps its placeholder" masterText.text.characters "Title text")
+        }
+
         ; An instance of a single-shape component borrows nothing and
         ; loses nothing, so it is not reported.
         def leafInst:SceneNode (shapes.childNamed("LeafInstance"))

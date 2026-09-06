@@ -141,11 +141,31 @@ spellings being read is what made a real export come out empty:
 | `symbolID` on the node | the REST API, and this repository's sample |
 | `overriddenSymbolID` | an instance swapped for a different component |
 
-All three are read, in that order. Overrides (`derivedSymbolData`, the
-instance's resolved subtree with its own text and colours) are **not**
-applied: an overridden instance shows the component's own content, which
-is a wrong string rather than a missing subtree. Expansion stops at
-fifteen levels, so a cycle is a warning and not a hang.
+All three are read, in that order. Expansion stops at fifteen levels, so
+a cycle is a warning and not a hang.
+
+### Overrides
+
+Everything the designer changed inside an instance — the text above all —
+is stored on the instance as `derivedSymbolData`: one `NodeChange` per
+overridden node, carrying only the fields that differ and a `guidPath`
+naming its node in the component. Reading the component but not these
+leaves every instance showing the component's own placeholder, which is
+what makes a real file read as a blank template: "Title text" wherever
+there should be content.
+
+An override is applied by merging its fields over the component node's own
+and running the ordinary reader on the result, so an overridden node goes
+through the same conversion as any other and nothing is reimplemented per
+field. The node keeps its identity and its place in the tree; a derived
+entry's `guid` and `parentIndex` describe the copy, not the original. The
+component itself is untouched — two instances of it can say different
+things.
+
+The diagnostics count them: overrides seen, applied, and how many named a
+node their component does not have. Seen above applied means the
+placeholders are still showing and the reason is a path that did not
+match, which is a different fault from having no overrides at all.
 
 ## Moving around
 

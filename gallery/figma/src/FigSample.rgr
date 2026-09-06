@@ -118,6 +118,13 @@ class FigSample {
         s.addField(symd "symbolID" "GUID" 1 false)
         s.addField(node "symbolData" "SymbolData" 36 false)
         s.addField(node "strokeGeometry" "Path" 37 true)
+        ; What an instance carries instead of the changes the designer
+        ; made inside it: one NodeChange per overridden node, each naming
+        ; its node in the component by a path of guids.
+        def gp:KiwiDef (s.addMessage("GUIDPath"))
+        s.addField(gp "guids" "GUID" 1 true)
+        s.addField(node "guidPath" "GUIDPath" 39 false)
+        s.addField(node "derivedSymbolData" "Node" 40 true)
         s.addField(node "borderStrokeWeightsIndependent" "bool" 38 false)
         def blob:KiwiDef (s.addMessage("Blob"))
         s.addField(blob "bytes" "byte" 1 true)
@@ -547,6 +554,38 @@ class FigSample {
         fInst2.put("fillPaints" (FigSample.paints(0.97 0.97 0.98)))
         fInst2.put("symbolID" (FigSample.guid(3 36)))
         nodes.pushItem(fInst2)
+        ; A component with text in it, and an instance that changes that
+        ; text. Reading the component but not the change is what leaves a
+        ; real file showing the designer's placeholder everywhere.
+        def tComp:KiwiValue (FigSample.node(3 46 "COMPONENT" "CardWithTitle" 0 3 "Y" 220.0 80.0 1380.0 800.0))
+        tComp.put("fillPaints" (FigSample.paints(0.97 0.97 0.98)))
+        nodes.pushItem(tComp)
+        def tTitle:KiwiValue (FigSample.node(3 47 "TEXT" "Title" 3 46 "!" 180.0 24.0 20.0 20.0))
+        def tTd:KiwiValue (KiwiValue.fromObject())
+        tTd.put("characters" (KiwiValue.fromString("Title text")))
+        tTitle.put("textData" tTd)
+        tTitle.put("fontSize" (KiwiValue.fromDouble(18.0)))
+        nodes.pushItem(tTitle)
+        def tInst:KiwiValue (FigSample.node(3 48 "INSTANCE" "TitledInstance" 0 3 "Z" 220.0 80.0 1620.0 800.0))
+        tInst.put("fillPaints" (FigSample.paints(0.97 0.97 0.98)))
+        def tSym:KiwiValue (KiwiValue.fromObject())
+        tSym.put("symbolID" (FigSample.guid(3 46)))
+        tInst.put("symbolData" tSym)
+        def overrides:KiwiValue (KiwiValue.fromArray())
+        def ov:KiwiValue (KiwiValue.fromObject())
+        def ovPath:KiwiValue (KiwiValue.fromObject())
+        def ovGuids:KiwiValue (KiwiValue.fromArray())
+        ovGuids.pushItem((FigSample.guid(3 47)))
+        ovPath.put("guids" ovGuids)
+        ov.put("guidPath" ovPath)
+        def ovTd:KiwiValue (KiwiValue.fromObject())
+        ovTd.put("characters" (KiwiValue.fromString("The real text")))
+        ov.put("textData" ovTd)
+        ov.put("fillPaints" (FigSample.paints(0.05 0.4 0.75)))
+        overrides.pushItem(ov)
+        tInst.put("derivedSymbolData" overrides)
+        nodes.pushItem(tInst)
+
         ; A component that is a single shape — an icon, a divider — is a
         ; normal thing to have. Its instance has nothing to borrow and
         ; nothing is missing, so it must not be reported as unsupported.
