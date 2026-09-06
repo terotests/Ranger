@@ -447,12 +447,15 @@ class SceneDocument {
         print ("[figma-viewer] Unsupported " + feature + " node: " + id + " \"" + name + "\"")
     }
 
+    ; Warnings are collected, not printed. A file whose components are
+    ; everywhere produces one per instance, and a converter that writes a
+    ; console line each time buries the file it was reading in its own
+    ; output. The caller reads `warnings` and says it once.
     fn collectWarns:void (n:SceneNode) {
         def i:int 0
         while (i < (array_length n.warnings)) {
             def w:SceneWarn (itemAt n.warnings i)
             push warnings w
-            print ("[figma-viewer] Unsupported " + w.feature + " node: " + w.nodeId + " \"" + w.nodeName + "\"")
             i = (i + 1)
         }
         def c:int 0

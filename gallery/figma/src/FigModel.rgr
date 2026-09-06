@@ -61,6 +61,10 @@ class FigNode {
     def strokeBlobs:[int]
     def strokeEvenOdd:boolean false
     def children:[FigNode]
+    ; An INSTANCE names the component it is an instance of and carries no
+    ; children of its own: the content lives in that component's subtree.
+    ; Empty on every other kind of node.
+    def symbolId:string ""
     def raw:KiwiValue (new KiwiValue())
     def removed:boolean false
 
@@ -332,6 +336,16 @@ class FigModel {
         if (pidx.isObject()) {
             nd.parentId = (FigModel.guidOf((pidx.child("guid"))))
             nd.position = (pidx.childString("position" ""))
+        }
+        def sym:KiwiValue (v.child("symbolID"))
+        if (sym.isObject()) {
+            nd.symbolId = (FigModel.guidOf(sym))
+        } {
+            ; The sample and a JSON import write the REST API's spelling.
+            def sym2:KiwiValue (v.child("symbolId"))
+            if (sym2.isObject()) {
+                nd.symbolId = (FigModel.guidOf(sym2))
+            }
         }
         nd.visible = (v.childBool("visible" true))
         nd.opacity = (v.childDouble("opacity" 1.0))

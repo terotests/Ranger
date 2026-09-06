@@ -124,6 +124,33 @@ change and the `<!--` `-->` around each span may arrive as named,
 decimal or hex entities. All of those shapes are parsed, and the smoke
 test pastes each one.
 
+## Instances
+
+An `INSTANCE` carries no children. It names a component by guid in
+`symbolID`, and Figma draws that component's subtree in its place. A
+reader that stops at the node draws an empty box wherever a file uses
+components — which is most files — so `FigToScene` looks the component up
+and converts its children under the instance's transform. Overrides
+(`derivedSymbolData`) are not applied: an overridden instance shows the
+component's own text and colours, which is a wrong string rather than a
+missing subtree. Expansion stops at fifteen levels.
+
+## When something does not draw
+
+The footer counts what the reader could not draw, and the count is a link
+that lists the layers by id and name. Nothing is printed per node — a file
+whose components are everywhere produces one warning per instance, and a
+console line each would bury the file being read. What the categories mean:
+
+| warning | what you see |
+| --- | --- |
+| `instance names a component that is not in the file` | an empty box — the component is in a library this file does not carry |
+| `instance names no component` | an empty box — the node has neither children nor a `symbolID` |
+| `instances nested more than 15 deep` | the outer instances draw, the innermost do not |
+| `boolean operation without geometry` | the shape is missing; Figma did not export a flattened path for it |
+| `strokeAlign OUTSIDE` / `per-side stroke weights` | the stroke is drawn, in the wrong place or at one weight |
+| `letterSpacing` | the text draws, tracking ignored |
+
 ## What it draws
 
 | Figma | SceneNode | EVG |

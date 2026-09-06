@@ -19,12 +19,36 @@ Import "../KiwiValue.rgr"
 class FigToScene {
     def doc:FigDoc (new FigDoc())
     def outDoc:SceneDocument (new SceneDocument())
+    ; Node ids, for resolving an instance to the component it names. A map
+    ; rather than a scan: a file with a thousand instances over ten
+    ; thousand nodes would otherwise walk the node list a thousand times.
+    def byId:[string:FigNode]
+    def indexed:boolean false
+    ; How deep instance expansion currently is. A component that contains
+    ; an instance is normal; a cycle is not, and without a bound it is a
+    ; hang rather than a warning.
+    def instanceDepth:int 0
 
     Constructor () {
     }
 
+    fn indexNodes:void () {
+        if indexed {
+            return
+        }
+        indexed = true
+        def i:int 0
+        while (i < (array_length doc.nodes)) {
+            def nd:FigNode (itemAt doc.nodes i)
+            set byId nd.id nd
+            i = (i + 1)
+        }
+    }
+
     fn convertDoc:SceneDocument (src:FigDoc) {
         doc = src
+        indexed = false
+        instanceDepth = 0
         outDoc = (new SceneDocument())
         outDoc.name = src.fileName
         outDoc.source = "figma"
@@ -105,11 +129,61 @@ class FigToScene {
             }
             i = (i + 1)
         }
-        if ((t == "INSTANCE") && ((array_length sn.children) == 0)) {
-            sn.warn("instance without resolved children")
+        ; An instance's content is not in its own subtree. The node names a
+        ; component by guid and Figma draws that component's children under
+        ; the instance's transform, so a reader that stops here draws an
+        ; empty box wherever a file uses components — which is most files.
+        if ((array_length sn.children) == 0) {
+            if ((strlen nd.symbolId) > 0) {
+                this.expandInstance(nd sn)
+            } {
+                if (t == "INSTANCE") {
+                    sn.warn("instance names no component")
+                }
+            }
         }
         this.strokeFromGeometry(nd sn)
         return sn
+    }
+
+    ; Draw the named component's children in the instance's place. The
+    ; children are positioned relative to their parent, and the instance
+    ; supplies that parent, so they need no adjustment — an override that
+    ; changes one of them is not applied, which is a wrong colour or string
+    ; rather than a missing subtree.
+    fn expandInstance:void (nd:FigNode sn:SceneNode) {
+        this.indexNodes()
+        def master@(optional):FigNode (get byId nd.symbolId)
+        if (null? master) {
+            sn.warn("instance names a component that is not in the file")
+            return
+        }
+        if (instanceDepth > 15) {
+            sn.warn("instances nested more than 15 deep — not expanding further")
+            return
+        }
+        def m:FigNode (unwrap master)
+        if (m.id == nd.id) {
+            sn.warn("instance names itself")
+            return
+        }
+        if ((array_length m.children) == 0) {
+            sn.warn("instance names a component with no children")
+            return
+        }
+        instanceDepth = (instanceDepth + 1)
+        def i:int 0
+        while (i < (array_length m.children)) {
+            def ch:FigNode (itemAt m.children i)
+            if ch.removed {
+            } {
+                if ch.visible {
+                    push sn.children (this.convertNode(ch))
+                }
+            }
+            i = (i + 1)
+        }
+        instanceDepth = (instanceDepth - 1)
     }
 
     ; The stroke as Figma drew it. A file carries `strokeGeometry`: the
