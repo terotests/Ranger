@@ -72,6 +72,16 @@ class FigWeb {
         return (app.warningsJson())
     }
 
+    ; Fields this file carries that the converter never reads.
+    fn unread:string () {
+        return (app.unreadJson())
+    }
+
+    ; Nodes per Figma type, and how many of them draw nothing.
+    fn census:string () {
+        return (app.censusJson())
+    }
+
     fn pageCount:int () {
         return (app.pageCount())
     }

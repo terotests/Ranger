@@ -165,6 +165,29 @@ Wheel deltas are normalised before use: Firefox reports lines and Chrome
 pixels, one notch arriving as 3 or as 100, and a line is counted as 33
 pixels so that a notch is 1.16x in both.
 
+## When the page looks wrong and nothing is reported
+
+A warning can only name a case someone thought of, so when a page comes
+out unlike Figma and the unsupported count is zero, what is missing is by
+definition what nobody wrote a warning for. The **draw nothing** link in
+the footer asks it the other way round and shows two things.
+
+**The scene by node type**, and how many nodes of each type put nothing on
+the canvas — no fill, stroke, path, image or text, and no children either.
+A type whose nodes mostly draw nothing is where the content is being lost,
+and it names a type rather than a layer, which is what makes it worth
+counting. Image fills whose bytes are not in the file are counted too;
+those paint as grey boxes.
+
+**Fields this file carries that the reader never looks at.** Every field
+the decoder found, minus the ones the converter reads, counted across the
+file with an example layer. The ones known to change what you see are
+named in plain language and sorted first — masks, blend modes, per-
+character text styling, arcs, dash patterns — and the rest are listed by
+name, because the useful one is often the one nobody has thought about
+yet. `gallery/figma/src/FigFieldReport.rgr` holds both the list of fields
+the converter reads and the notes.
+
 ## When something does not draw
 
 The footer counts what the reader could not draw, and the count is a link

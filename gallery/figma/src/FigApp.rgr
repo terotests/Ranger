@@ -6,6 +6,7 @@
 Import "FigParser.rgr"
 Import "FigSample.rgr"
 Import "KiwiValue.rgr"
+Import "FigFieldReport.rgr"
 Import "convert/FigToScene.rgr"
 Import "evg/SceneToEVG.rgr"
 Import "scene/SceneNode.rgr"
@@ -493,6 +494,102 @@ class FigApp {
         o = (o + ",\"scene\":" + (sn.toJson()))
         o = (o + ",\"evg\":\"" + (this.esc(evgDump)) + "\"")
         return (o + "}")
+    }
+
+    ; A census of the scene by Figma node type: how many of each, and how
+    ; many of those put nothing on the canvas — no fill, no stroke, no
+    ; path, no image, no text, and no children either. A type whose nodes
+    ; mostly draw nothing is where a page that "does not look like Figma"
+    ; is losing its content, and it points at a type rather than at a
+    ; layer, which is what makes it worth counting.
+    fn censusJson:string () {
+        def types:[string]
+        def totals:[int]
+        def empties:[int]
+        def missingImages:int 0
+        def imageNodes:int 0
+        def i:int 0
+        while (i < (array_length sceneDoc.pages)) {
+            missingImages = (missingImages + (this.censusWalk((itemAt sceneDoc.pages i) types totals empties)))
+            i = (i + 1)
+        }
+        def o:string "{\"types\":["
+        def j:int 0
+        while (j < (array_length types)) {
+            if (j > 0) {
+                o = (o + ",")
+            }
+            o = (o + "{\"type\":\"" + (this.esc((itemAt types j))) + "\"")
+            o = (o + ",\"nodes\":" + (to_string (itemAt totals j)))
+            o = (o + ",\"drawNothing\":" + (to_string (itemAt empties j)) + "}")
+            j = (j + 1)
+        }
+        o = (o + "],\"imagesMissing\":" + (to_string missingImages))
+        return (o + "}")
+    }
+
+    ; Returns how many image references had no bytes behind them.
+    fn censusWalk:int (n:SceneNode types:[string] totals:[int] empties:[int]) {
+        def missing:int 0
+        def key:string n.sourceType
+        if ((strlen key) == 0) {
+            key = n.kind
+        }
+        def at:int (0 - 1)
+        def i:int 0
+        while (i < (array_length types)) {
+            if ((itemAt types i) == key) {
+                at = i
+            }
+            i = (i + 1)
+        }
+        if (at < 0) {
+            push types key
+            push totals 0
+            push empties 0
+            at = ((array_length types) - 1)
+        }
+        set totals at ((itemAt totals at) + 1)
+        if ((array_length n.children) == 0) {
+            if (FigToScene.drawsNothing(n)) {
+                set empties at ((itemAt empties at) + 1)
+            }
+        }
+        if ((strlen n.imageRef) > 0) {
+            if ((assets.hasImage(n.imageRef)) == false) {
+                missing = (missing + 1)
+            }
+        }
+        def c:int 0
+        while (c < (array_length n.children)) {
+            missing = (missing + (this.censusWalk((itemAt n.children c) types totals empties)))
+            c = (c + 1)
+        }
+        return missing
+    }
+
+    ; Everything the file carries that the converter never reads, counted.
+    ; A warning can only report a case someone thought of; when a page comes
+    ; out wrong and nothing is reported, what is missing is by definition
+    ; what nobody wrote a warning for. This asks it the other way round.
+    fn unreadJson:string () {
+        def rep (new FigFieldReport())
+        rep.scan(doc)
+        def o:string "["
+        def i:int 0
+        while (i < (array_length rep.uses)) {
+            if (i > 0) {
+                o = (o + ",")
+            }
+            def u:FigFieldUse (itemAt rep.uses i)
+            o = (o + "{\"field\":\"" + (this.esc(u.name)) + "\"")
+            o = (o + ",\"count\":" + (to_string u.count))
+            o = (o + ",\"note\":\"" + (this.esc(u.note)) + "\"")
+            o = (o + ",\"id\":\"" + (this.esc(u.exampleId)) + "\"")
+            o = (o + ",\"name\":\"" + (this.esc(u.exampleName)) + "\"}")
+            i = (i + 1)
+        }
+        return (o + "]")
     }
 
     fn warningsJson:string () {
