@@ -147,6 +147,24 @@ applied: an overridden instance shows the component's own content, which
 is a wrong string rather than a missing subtree. Expansion stops at
 fifteen levels, so a cycle is a warning and not a hang.
 
+## Moving around
+
+Drag with any button to pan, scroll to zoom, or use the `−` / `+` buttons;
+the readout between them shows the zoom and is the button that returns to
+100%. Zoom is anchored on the pointer, so the point under the cursor stays
+where it is instead of the page sliding toward the origin.
+
+Input is applied once per animation frame, not once per event. Both
+`setView` and `draw` are expensive — the first rebuilds the display list
+in Ranger, the second serialises the whole scene to JSON and back — and a
+wheel flick arrives far faster than a frame, so applying each event as it
+landed made the queue grow while the same work was redone. Forty wheel
+events in one task now cost one rebuild and one paint.
+
+Wheel deltas are normalised before use: Firefox reports lines and Chrome
+pixels, one notch arriving as 3 or as 100, and a line is counted as 33
+pixels so that a notch is 1.16x in both.
+
 ## When something does not draw
 
 The footer counts what the reader could not draw, and the count is a link

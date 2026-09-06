@@ -32,6 +32,13 @@
         border-radius: 6px; padding: 6px 10px; font: inherit;
       }
       button { cursor: pointer; }
+      /* One control, three buttons: the readout is the reset. */
+      .zoom { display: inline-flex; align-items: stretch; }
+      .zoom button { border-radius: 0; margin: 0; }
+      .zoom button:first-child { border-radius: 6px 0 0 6px; }
+      .zoom button:last-child { border-radius: 0 6px 6px 0; }
+      .zoom button + button { border-left: 0; }
+      #zoomlab { min-width: 4.5em; font-variant-numeric: tabular-nums; }
       button:hover { border-color: var(--accent); }
       button.primary { background: #1d4ed8; border-color: #2563eb; }
       main { display: grid; grid-template-columns: 260px 1fr 300px; min-height: 0; }
@@ -71,9 +78,12 @@
         <label>Page <select id="page"></select></label>
         <label>Frame <select id="frame"></select></label>
         <button id="fit" type="button">Fit</button>
-        <button id="zoom100" type="button">100%</button>
+        <span class="zoom">
+          <button id="zoomout" type="button" title="Zoom out (or scroll on the canvas)">&minus;</button>
+          <button id="zoomlab" type="button" title="Back to 100%">100%</button>
+          <button id="zoomin" type="button" title="Zoom in (or scroll on the canvas)">+</button>
+        </span>
         <label><input id="debug" type="checkbox" /> Debug</label>
-        <span id="zoomlab" class="k" style="margin:0">100%</span>
       </div>
     </header>
     <main>
@@ -86,7 +96,7 @@
       </section>
       <aside class="pane">
         <div class="k">Selected</div>
-        <pre id="props" class="props">click a layer or the canvas · drag to pan · scroll to zoom</pre>
+        <pre id="props" class="props">click a layer or the canvas · drag to pan · scroll or +/&minus; to zoom</pre>
       </aside>
     </main>
     <footer>

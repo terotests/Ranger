@@ -20,10 +20,11 @@ const frameEl = document.getElementById("frame");
 const fileEl = document.getElementById("file");
 const sampleEl = document.getElementById("sample");
 const fitEl = document.getElementById("fit");
-const zoom100El = document.getElementById("zoom100");
 const debugEl = document.getElementById("debug");
 const pasteEl = document.getElementById("paste");
 const zoomlabEl = document.getElementById("zoomlab");
+const zoomInEl = document.getElementById("zoomin");
+const zoomOutEl = document.getElementById("zoomout");
 const warnsEl = document.getElementById("warns");
 const warnLinkEl = document.getElementById("warnlink");
 const mainEl = document.querySelector("main");
@@ -108,6 +109,79 @@ async function draw() {
   renderDisplayList(gl, doc, { dpr, images });
   cmdsEl.textContent = String(doc.list?.cmds?.length || 0);
   window.__figDoc = doc;
+}
+
+// Interactive input arrives faster than a frame, and a frame is not cheap:
+// setView rebuilds the display list in Ranger and draw() serialises the
+// whole scene to JSON and back. Applying every wheel event as it lands is
+// what made zooming stutter — the queue grows while the work is being
+// redone. So input records where the view should be, and one animation
+// frame moves it there and paints once.
+let pendingView = null;
+let framePending = false;
+let painting = false;
+let repaintWanted = false;
+
+/** Where the view is, counting anything input has asked for but that has
+ *  not been applied yet. */
+function viewNow() {
+  if (pendingView) return pendingView;
+  return { x: web.viewX(), y: web.viewY(), sc: web.viewScale() };
+}
+
+const MIN_ZOOM = 0.05;
+const MAX_ZOOM = 16;
+
+function setViewSoon(x, y, sc) {
+  pendingView = { x, y, sc: Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, sc)) };
+  showZoom(pendingView.sc);
+  scheduleFrame();
+}
+
+function scheduleFrame() {
+  if (framePending) return;
+  framePending = true;
+  requestAnimationFrame(async () => {
+    framePending = false;
+    if (pendingView) {
+      web.setView(pendingView.x, pendingView.y, pendingView.sc);
+      pendingView = null;
+    }
+    if (painting) {
+      // A paint is still in flight; come back after it rather than
+      // starting a second one over the same GL context.
+      repaintWanted = true;
+      return;
+    }
+    painting = true;
+    try {
+      await draw();
+    } finally {
+      painting = false;
+      if (repaintWanted) {
+        repaintWanted = false;
+        scheduleFrame();
+      }
+    }
+  });
+}
+
+function showZoom(sc) {
+  if (zoomlabEl) zoomlabEl.textContent = Math.round((sc || 1) * 100) + "%";
+}
+
+/** Zoom keeping one point on the screen where it is. Without an anchor a
+ *  zoom pulls the page toward the origin and every step has to be undone
+ *  with a pan. The scene is laid out in CSS pixels, so the anchor is too. */
+function zoomAbout(factor, clientX, clientY) {
+  const r = canvas.getBoundingClientRect();
+  const px = clientX == null ? r.width / 2 : clientX - r.left;
+  const py = clientY == null ? r.height / 2 : clientY - r.top;
+  const now = viewNow();
+  const next = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, now.sc * factor));
+  if (next === now.sc) return;
+  const k = next / now.sc;
+  setViewSoon(px - (px - now.x) * k, py - (py - now.y) * k, next);
 }
 
 function fillSelect(el, items, extra) {
@@ -207,7 +281,7 @@ function refreshChrome() {
       propsEl.textContent = JSON.stringify(props, null, 2);
     }
   } catch { propsEl.textContent = ""; }
-  if (zoomlabEl) zoomlabEl.textContent = Math.round((web.viewScale() || 1) * 100) + "%";
+  showZoom(web.viewScale());
 }
 
 async function compareOpenFig(bytes) {
@@ -262,7 +336,14 @@ fileEl.addEventListener("change", async () => {
 
 sampleEl.addEventListener("click", () => openSample());
 fitEl.addEventListener("click", () => { web.fit(); refreshChrome(); draw(); });
-if (zoom100El) zoom100El.addEventListener("click", () => { web.zoom100(); refreshChrome(); draw(); });
+// A step per press, about the middle of the canvas — the same factor a
+// notch of the wheel gives, so the two agree.
+const STEP = 1.25;
+if (zoomInEl) zoomInEl.addEventListener("click", () => zoomAbout(STEP, null, null));
+if (zoomOutEl) zoomOutEl.addEventListener("click", () => zoomAbout(1 / STEP, null, null));
+if (zoomlabEl) {
+  zoomlabEl.addEventListener("click", () => { web.zoom100(); refreshChrome(); draw(); });
+}
 if (debugEl) debugEl.addEventListener("change", () => { web.setDebug(debugEl.checked); refreshChrome(); draw(); });
 
 pageEl.addEventListener("change", () => {
@@ -317,12 +398,11 @@ canvas.addEventListener("pointermove", (ev) => {
   if (!drag.moved && Math.abs(dx) + Math.abs(dy) < DRAG_SLOP) return;
   drag.moved = true;
   canvas.style.cursor = "grabbing";
-  // The canvas backing store is bigger than its CSS box on a HiDPI screen,
-  // and the view is in backing-store pixels, so the pointer's travel has
-  // to be scaled or the page slides at the wrong speed.
-  const dpr = canvas.width / Math.max(1, canvas.getBoundingClientRect().width);
-  web.setView(drag.ox + dx * dpr, drag.oy + dy * dpr, web.viewScale());
-  draw();
+  // setViewport is given the canvas's CSS size, so the scene is laid out
+  // in CSS pixels and the pan is too: the pointer's travel goes in as it
+  // comes. Scaling it by the device pixel ratio, as this did, made the
+  // page slide at twice the cursor's speed on a HiDPI screen.
+  setViewSoon(drag.ox + dx, drag.oy + dy, viewNow().sc);
 });
 function endDrag(ev) {
   if (!drag || ev.pointerId !== drag.id) return;
@@ -336,9 +416,13 @@ canvas.addEventListener("pointerup", endDrag);
 canvas.addEventListener("pointercancel", endDrag);
 canvas.addEventListener("wheel", (ev) => {
   ev.preventDefault();
-  const sc = web.viewScale() * (ev.deltaY > 0 ? 0.9 : 1.1);
-  web.setView(web.viewX(), web.viewY(), sc);
-  draw();
+  // Firefox reports wheel deltas in lines and Chrome in pixels: one notch
+  // of the same wheel arrives as 3 there and as 100 here. Counting a line
+  // as 33 pixels makes a notch a notch in both, which is the point — a
+  // line's real height would make Firefox scroll at half speed.
+  const perUnit = ev.deltaMode === 1 ? 33 : ev.deltaMode === 2 ? 400 : 1;
+  const dy = Math.max(-240, Math.min(240, ev.deltaY * perUnit));
+  zoomAbout(Math.exp(-dy * 0.0015), ev.clientX, ev.clientY);
 }, { passive: false });
 
 ["dragenter", "dragover"].forEach((t) => {
