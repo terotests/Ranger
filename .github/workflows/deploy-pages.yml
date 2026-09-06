@@ -362,12 +362,15 @@ jobs:
           test -s "$GITHUB_WORKSPACE/_site/figma/fig_web.js"
           test -s "$GITHUB_WORKSPACE/_site/figma/standalone.mjs"
           test -s "$GITHUB_WORKSPACE/_site/figma/gl/evg-webgl.js"
-          test -s "$GITHUB_WORKSPACE/_site/figma/vendor/fzstd.mjs"
           # The page opens this by itself, so a missing fixture is a blank
           # viewer on the first paint rather than a 404 anyone would notice.
           test -s "$GITHUB_WORKSPACE/_site/figma/fixtures/health.fig"
           grep -q "FigWeb" "$GITHUB_WORKSPACE/_site/figma/fig_web.js"
-          grep -q "installZstd" "$GITHUB_WORKSPACE/_site/figma/standalone.mjs"
+          # zstd is decoded in Ranger now (gallery/zstd), so the page ships
+          # no vendored decoder and installs no host hook. A vendor/
+          # directory reappearing here means someone put one back.
+          test ! -e "$GITHUB_WORKSPACE/_site/figma/vendor"
+          ! grep -q "installZstd" "$GITHUB_WORKSPACE/_site/figma/standalone.mjs"
 
       # The steps above only prove the files are there. This one runs the
       # engine: health.fig end to end, and the clipboard path — a paste is

@@ -2,7 +2,8 @@
 /**
  * Time the Ranger decoder against fzstd — the library gallery/figma had to
  * vendor before this existed — and against Node's own zstd, on the same
- * bytes.
+ * bytes. fzstd is no longer in this repository; `npm i fzstd` puts that
+ * column back, and the bench runs without it.
  *
  *   npm run zstd:bench
  *   npm run zstd:bench -- gallery/zstd/fixtures/prose-l19.zst
@@ -27,9 +28,7 @@ execSync(
 const bundleSrc = readFileSync(join(root, "gallery/zstd/bin/ZstdBench.js"), "utf8");
 const rangerRun = (0, eval)(bundleSrc + "; ZstdBench.run");
 
-const { decompress: fzstd } = await import(
-  join(root, "gallery/figma/web/vendor/fzstd.mjs")
-).catch(() => ({ decompress: null }));
+const { decompress: fzstd } = await import("fzstd").catch(() => ({ decompress: null }));
 
 const files = process.argv.slice(2);
 const targets = files.length

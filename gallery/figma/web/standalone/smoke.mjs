@@ -4,7 +4,6 @@
 import { readFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { installZstd } from "./zstd.mjs";
 import { figmaClipboard, figmaClipboardHtml, figmaClipboardName, FIG_FILE_RE } from "./clipboard.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -15,8 +14,6 @@ if (!existsSync(js)) {
   process.exit(1);
 }
 
-// A Figma export is zstd inside the ZIP; the page installs the same hook.
-installZstd();
 // The page has no require(). The bundle must still define FigWeb.
 const src = readFileSync(js, "utf8");
 const FigWeb = (0, eval)(src + "; FigWeb");
@@ -234,22 +231,42 @@ if (!FIG_FILE_RE.test("a.fig") || !FIG_FILE_RE.test("A.DECK") || FIG_FILE_RE.tes
   console.error("FIG_FILE_RE does not name the files the page opens");
   process.exit(1);
 }
-// A target with no zstd decoder: the operator's fallback hands back an
-// empty buffer rather than throwing, and only the schema chunk was checked
-// for that. Simulate it through the same hook the page installs.
-const realZstd = globalThis.__figZstdDecompress;
-globalThis.__figZstdDecompress = () => new Uint8Array(0);
-const starved = new FigWeb();
-starved.setViewport(1200, 800);
-const again = readFileSync(figPath);
-const ab2 = again.buffer.slice(again.byteOffset, again.byteOffset + again.byteLength);
-ab2._view = new DataView(ab2);
-const opened = starved.openBytes(ab2, "health.fig");
-globalThis.__figZstdDecompress = realZstd;
-if (opened || !/zstd/.test(starved.error())) {
-  console.error("an empty zstd result was taken for a document:", opened, starved.error());
+// health.fig's message chunk is zstd, and nothing on this page installs a
+// zstd host: the decoder that read it is the Ranger one in gallery/zstd.
+// If a hook ever comes back, this says so rather than quietly using it.
+if (typeof globalThis.__figZstdDecompress === "function") {
+  console.error("something installed a zstd host hook — the page should not need one");
   process.exit(1);
 }
-console.log("no-zstd target ok —", starved.error());
+const zstdWeb = new FigWeb();
+zstdWeb.setViewport(1200, 800);
+const fresh = readFileSync(figPath);
+const freshAb = fresh.buffer.slice(fresh.byteOffset, fresh.byteOffset + fresh.byteLength);
+freshAb._view = new DataView(freshAb);
+if (!zstdWeb.openBytes(freshAb, "health.fig")) {
+  console.error("health.fig failed on a fresh engine:", zstdWeb.error());
+  process.exit(1);
+}
+const zstdStats = JSON.parse(zstdWeb.stats());
+if (zstdStats.zstd !== true) {
+  console.error("health.fig did not go through zstd, so this proves nothing", zstdStats.zstd);
+  process.exit(1);
+}
+
+// A corrupt message chunk must fail rather than decode to an empty
+// document: the schema chunk was checked for that and the message was not.
+// Half way in is inside the zstd stream; nearer the ends is an image blob
+// or ZIP padding, which the reader is right to shrug at.
+const broken = readFileSync(figPath);
+const brokenAb = broken.buffer.slice(broken.byteOffset, broken.byteOffset + broken.byteLength);
+new Uint8Array(brokenAb)[brokenAb.byteLength >> 1] ^= 0xff;
+brokenAb._view = new DataView(brokenAb);
+const brokenWeb = new FigWeb();
+brokenWeb.setViewport(1200, 800);
+if (brokenWeb.openBytes(brokenAb, "broken.fig")) {
+  console.error("a corrupted .fig was opened as if it were fine");
+  process.exit(1);
+}
+console.log("zstd ok — read in Ranger, no host hook; a corrupted chunk is refused:", brokenWeb.error());
 
 console.log("clipboard variants ok —", Object.keys(variants).join(", "), "· truncation caught · debug filled");
