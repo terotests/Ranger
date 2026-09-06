@@ -257,7 +257,7 @@ function unreadSummary() {
  *  A type whose nodes mostly draw nothing is where the page is losing its
  *  content, and it names a type rather than a layer. */
 function censusSummary() {
-  let c = { types: [], imagesMissing: 0 };
+  let c = { types: [], imagesMissing: 0, overridesSeen: 0, overridesUsed: 0, overridesUnplaced: 0 };
   try { c = JSON.parse(web.census()); } catch { /* keep */ }
   const types = [...c.types].sort((a, b) => b.drawNothing - a.drawNothing || b.nodes - a.nodes);
   const empty = types.reduce((n, t) => n + t.drawNothing, 0);
@@ -266,7 +266,13 @@ function censusSummary() {
     (t) => String(t.nodes).padStart(6) + "  " + t.type.padEnd(20) +
       (t.drawNothing ? t.drawNothing + " of them draw nothing" : "")
   );
-  return { empty, total, imagesMissing: c.imagesMissing, lines };
+  return {
+    empty, total, lines,
+    imagesMissing: c.imagesMissing,
+    overridesSeen: c.overridesSeen,
+    overridesUsed: c.overridesUsed,
+    overridesUnplaced: c.overridesUnplaced,
+  };
 }
 
 function diagnosticsText() {
@@ -275,6 +281,13 @@ function diagnosticsText() {
   const out = [];
   out.push("the scene by node type — " + c.total + " nodes, " + c.empty + " of which put nothing on the canvas");
   if (c.imagesMissing) out.push(c.imagesMissing + " image fills have no bytes in the file and paint as grey boxes");
+  if (c.overridesSeen) {
+    out.push(
+      c.overridesSeen + " instance overrides in the file, " + c.overridesUsed + " applied"
+        + (c.overridesUnplaced ? ", " + c.overridesUnplaced + " naming no node in their component" : "")
+        + (c.overridesUsed ? "" : " — instances are showing their component's own text")
+    );
+  }
   out.push(c.lines.join("\n"));
   out.push("");
   out.push("fields this file carries that the reader does not look at");

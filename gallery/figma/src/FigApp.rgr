@@ -525,6 +525,13 @@ class FigApp {
             j = (j + 1)
         }
         o = (o + "],\"imagesMissing\":" + (to_string missingImages))
+        ; What the instances brought with them. `seen` above `used` means
+        ; overrides arrived and were not matched to a node in the
+        ; component — the placeholder text would still be showing, and
+        ; that is a different fault from having no overrides at all.
+        o = (o + ",\"overridesSeen\":" + (to_string converter.overridesSeen))
+        o = (o + ",\"overridesUsed\":" + (to_string converter.overridesUsed))
+        o = (o + ",\"overridesUnplaced\":" + (to_string converter.overridesUnmatched))
         return (o + "}")
     }
 

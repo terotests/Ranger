@@ -49,6 +49,9 @@ class FigToScene {
         doc = src
         indexed = false
         instanceDepth = 0
+        overridesSeen = 0
+        overridesUsed = 0
+        overridesUnmatched = 0
         outDoc = (new SceneDocument())
         outDoc.name = src.fileName
         outDoc.source = "figma"
@@ -63,7 +66,21 @@ class FigToScene {
         return outDoc
     }
 
-    fn convertNode:SceneNode (nd:FigNode) {
+    fn convertNode:SceneNode (source:FigNode) {
+        def nd:FigNode source
+        if ((array_length overrideIds) > 0) {
+            def over:KiwiValue (this.findOverride(source.id))
+            if (over.isObject()) {
+                overridesUsed = (overridesUsed + 1)
+                def merged:FigNode (FigModel.nodeFrom((FigToScene.mergeOverride(source.raw over))))
+                merged.id = source.id
+                merged.parentId = source.parentId
+                merged.position = source.position
+                merged.typeName = source.typeName
+                merged.children = source.children
+                nd = merged
+            }
+        }
         def t:string nd.typeName
         def sn (new SceneNode())
         sn.id = nd.id
@@ -158,6 +175,102 @@ class FigToScene {
         return sn
     }
 
+    ; --- instance overrides ---------------------------------------------
+    ;
+    ; An instance draws its component's subtree, and everything the designer
+    ; changed inside that instance — the text above all — is stored on the
+    ; instance as derivedSymbolData: one NodeChange per overridden node,
+    ; carrying only the fields that differ and a guidPath naming the node in
+    ; the component it belongs to. Without them every instance shows the
+    ; component's own placeholder, which is what makes a real file read as a
+    ; blank template.
+    ;
+    ; The override is applied by merging its fields over the component
+    ; node's own and running the ordinary reader on the result, so an
+    ; overridden node goes through exactly the same conversion as any other
+    ; and nothing has to be reimplemented per field.
+
+    def overrideIds:[string]
+    def overrideVals:[KiwiValue]
+    def overridesSeen:int 0
+    def overridesUsed:int 0
+    def overridesUnmatched:int 0
+
+    ; The node an override belongs to is the last guid on its path: the
+    ; earlier ones are the instances it is nested inside.
+    sfn overrideTarget:string (change:KiwiValue) {
+        def path:KiwiValue (change.child("guidPath"))
+        if (path.isObject()) {
+            def guids:KiwiValue (path.child("guids"))
+            if (guids.isArray()) {
+                def n:int (guids.itemCount())
+                if (n > 0) {
+                    return (FigModel.guidOf((guids.item((n - 1)))))
+                }
+            }
+        }
+        def key:KiwiValue (change.child("overrideKey"))
+        if (key.isObject()) {
+            return (FigModel.guidOf(key))
+        }
+        return ""
+    }
+
+    fn findOverride:KiwiValue (id:string) {
+        def i:int 0
+        while (i < (array_length overrideIds)) {
+            if ((itemAt overrideIds i) == id) {
+                return (itemAt overrideVals i)
+            }
+            i = (i + 1)
+        }
+        return (new KiwiValue())
+    }
+
+    ; The component node's fields with the override's laid over them. The
+    ; node keeps its own identity and its place in the tree — a derived
+    ; entry's guid and parentIndex describe the copy, not the original.
+    sfn mergeOverride:KiwiValue (base:KiwiValue over:KiwiValue) {
+        def out:KiwiValue (KiwiValue.fromObject())
+        def i:int 0
+        while (i < (array_length base.fieldNames)) {
+            out.put((itemAt base.fieldNames i) (itemAt base.fieldVals i))
+            i = (i + 1)
+        }
+        def j:int 0
+        while (j < (array_length over.fieldNames)) {
+            def name:string (itemAt over.fieldNames j)
+            if (FigToScene.isIdentityField(name)) {
+            } {
+                out.put(name (itemAt over.fieldVals j))
+            }
+            j = (j + 1)
+        }
+        return out
+    }
+
+    sfn isIdentityField:boolean (name:string) {
+        if (name == "guid") {
+            return true
+        }
+        if (name == "guidPath") {
+            return true
+        }
+        if (name == "guidPathTag") {
+            return true
+        }
+        if (name == "overrideKey") {
+            return true
+        }
+        if (name == "parentIndex") {
+            return true
+        }
+        if (name == "overrideLevel") {
+            return true
+        }
+        return (name == "type")
+    }
+
     ; Whether this node puts anything on the canvas by itself.
     sfn drawsNothing:boolean (sn:SceneNode) {
         if ((array_length sn.fills) > 0) {
@@ -209,6 +322,31 @@ class FigToScene {
             }
             return
         }
+        ; The overrides in force while this instance's subtree is built.
+        ; Kept and restored so a nested instance's overrides do not leak
+        ; out into the one that contains it.
+        def keptIds:[string] overrideIds
+        def keptVals:[KiwiValue] overrideVals
+        def freshIds:[string]
+        def freshVals:[KiwiValue]
+        overrideIds = freshIds
+        overrideVals = freshVals
+        def derived:KiwiValue (nd.raw.child("derivedSymbolData"))
+        if (derived.isArray()) {
+            def d:int 0
+            while (d < (derived.itemCount())) {
+                def change:KiwiValue (derived.item(d))
+                overridesSeen = (overridesSeen + 1)
+                def target:string (FigToScene.overrideTarget(change))
+                if ((strlen target) > 0) {
+                    push overrideIds target
+                    push overrideVals change
+                } {
+                    overridesUnmatched = (overridesUnmatched + 1)
+                }
+                d = (d + 1)
+            }
+        }
         instanceDepth = (instanceDepth + 1)
         def i:int 0
         while (i < (array_length m.children)) {
@@ -222,6 +360,8 @@ class FigToScene {
             i = (i + 1)
         }
         instanceDepth = (instanceDepth - 1)
+        overrideIds = keptIds
+        overrideVals = keptVals
     }
 
     ; The stroke as Figma drew it. A file carries `strokeGeometry`: the
