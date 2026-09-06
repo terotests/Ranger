@@ -34,6 +34,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   slot 0 select slot 3. A new `otp` demo page draws it (`ui:otp:demo`), and
   the input bench lists both fields as measured elsewhere rather than scoring
   their selection rules against a plain `<input>`.
+- **A view of the drawing, not the picture: `Pisteet`.** A button in the SVG
+  pane of `/evg/tracer/` draws the trace's own geometry over it — every
+  anchor, every segment, every handle — because the rendered picture cannot
+  answer whether the outline is any good. A shape that looks clean at 100 %
+  can be forty points long where four would do, and a curve fitted through
+  raster stairs looks smooth until its handles zig-zag in front of you.
+  Straight segments are blue, curves amber, control handles grey; an anchor
+  is red where the outline turns a corner and green where it runs smoothly
+  through (within 15°). Shapes lying under other shapes are drawn too — it is
+  the document, not the visible surface. The overlay is a separate SVG laid
+  over the drawing rather than nodes added to it, because the wand, the
+  exporter and the shape count all walk `querySelectorAll("path")`. Its own
+  zoom goes to 1600 %, and the marks are non-scaling strokes, so a node stays
+  the same size on screen. Zooming actually magnifies: `#outStage.zoomed svg`
+  needs `flex: none` as well as `max-width: none`, because the stage is a
+  flexbox and a flex item otherwise shrinks to fit.
+
+### Changed
+
+- **Close palette swatches merge only when they are mixed.**
+  `mergeCloseSwatches` still collapses entries closer than `minColorDelta`,
+  but it now also asks how the two swatches sit in the picture
+  (`swatchContact`). Contact / min(area) is about 2 for two swatches dithered
+  through each other and a few thousandths for two blocks that merely share a
+  border; above 0.35 they still merge, below it they do not. Distances go
+  through `dist2` / `dist2Limit`, so the same rule holds in RGB and in OKLab.
+  A noiseless synthetic ramp keeps one extra band (`evg:trace:test` widened
+  the overlay bound from 2 layers to 3); a photograph's near-duplicates are
+  interleaved by grain and still collapse. `testCloseSwatchesMergeOnlyWhenMixed`
+  locks both colour spaces: two greys ten units apart stay two colours when
+  they sit side by side and collapse to one when they are dithered.
 
 ### Fixed
 
@@ -49,6 +80,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   routes the arrows and Space to `RadioGroupCtl`, which had the rule all along
   and was never asked. `input-bench` gained a `ring` column that fails a field
   whose border does not change when it takes focus.
+- **The tracer page's refine sliders sat unscoped beside the wand.**
+  *Lisävärit*, *Sulautus* and *Koko* were on the edit bar for every tool and
+  read as if they steered the wand; they only affect the refine brush. They
+  are `refine-only` now and named for what they do — *Omat sävyt*, *Reunan
+  sulautus*, *Tarkentimen koko*.
 - **Text ran on as a flat line where the glyphs stopped.** The WebGL painter's
   text atlas is sized on the first frame from the widest run it holds; a later
   run wider than that whole texture was placed at x=0, uploaded up to the
