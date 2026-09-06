@@ -346,17 +346,32 @@ if (pasteEl) {
   });
 }
 
+/** The .fig the page opens by itself: a real Figma export, shipped beside the
+ *  page by the build. `?file=` picks another; `?file=sample` opens the deck
+ *  Ranger builds in memory. */
+const DEFAULT_FILE = "fixtures/health.fig";
+
 /** Open a file the page can fetch: `?file=fixtures/health.fig`, with an
  *  optional `&page=N` and `&frame=N` to start on one page or frame.
- *  Relative to the page; no `file` opens the bundled sample. */
+ *  Relative to the page; no `file` opens DEFAULT_FILE, and a page served
+ *  without the fixtures directory falls back to the built sample. */
 async function openUrl(url, page, frame) {
-  if (url) {
+  if (url === "sample") {
+    await openSample();
+  } else if (url) {
     statusEl.textContent = "fetching " + url + "…";
     const res = await fetch(url);
     if (!res.ok) throw new Error(url + ": " + res.status);
     await openBuffer(await res.arrayBuffer(), url.split("/").pop());
   } else {
-    await openSample();
+    try {
+      const res = await fetch(DEFAULT_FILE);
+      if (!res.ok) throw new Error(DEFAULT_FILE + ": " + res.status);
+      await openBuffer(await res.arrayBuffer(), DEFAULT_FILE.split("/").pop());
+    } catch (err) {
+      console.warn("[figma-viewer] " + DEFAULT_FILE + " did not load, building the sample instead", err);
+      await openSample();
+    }
   }
   if (Number.isFinite(page)) web.setPage(page);
   if (Number.isFinite(frame)) web.setFrame(frame);

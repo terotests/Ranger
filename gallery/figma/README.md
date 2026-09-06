@@ -83,9 +83,11 @@ npm run figma:inspect       # dump the bundled sample
 npm run figma:bench         # Ranger vs openfig-core (if installed)
 ```
 
-Drop a real `.fig` on the page, open one the page can fetch —
-`?file=fixtures/health.fig&page=0&frame=1` — copy layers in Figma and
-paste them onto the page (⌘V), or:
+The page opens on `fixtures/health.fig`, the Figma export shipped beside
+it. Drop your own `.fig` on it, open one the page can fetch —
+`?file=fixtures/health.fig&page=0&frame=1` — ask for the generated deck
+with `?file=sample`, copy layers in Figma and paste them onto the page
+(⌘V), or:
 
 ```bash
 node gallery/figma/bin/fig_cli.js inspect path/to/file.fig

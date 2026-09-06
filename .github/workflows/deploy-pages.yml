@@ -41,8 +41,11 @@
 #                ?engine=worker runs the app in a Worker (evg-engine.js).
 #                /evg/responsive/?painter=dom is the same painter on the
 #                responsive page.
-#   /figma/   -> the Figma .fig / .deck reader: upload a file in the tab,
-#                parse it (ZIP → kiwi → node tree) and draw it with EVG.
+#   /figma/   -> the Figma .fig / .deck reader: it opens on a real Figma
+#                export (fixtures/health.fig) and takes any other file you
+#                upload or paste in the tab, parsing it (ZIP → kiwi → node
+#                tree) and drawing it with EVG. ?file=sample opens the deck
+#                Ranger builds in memory instead.
 #                Timed against OpenFig on the same bytes when that library
 #                is present; the sample deck is built from Ranger.
 #   /docs/    -> the language documentation. The operator reference is generated
@@ -360,6 +363,9 @@ jobs:
           test -s "$GITHUB_WORKSPACE/_site/figma/standalone.mjs"
           test -s "$GITHUB_WORKSPACE/_site/figma/gl/evg-webgl.js"
           test -s "$GITHUB_WORKSPACE/_site/figma/vendor/fzstd.mjs"
+          # The page opens this by itself, so a missing fixture is a blank
+          # viewer on the first paint rather than a 404 anyone would notice.
+          test -s "$GITHUB_WORKSPACE/_site/figma/fixtures/health.fig"
           grep -q "FigWeb" "$GITHUB_WORKSPACE/_site/figma/fig_web.js"
           grep -q "installZstd" "$GITHUB_WORKSPACE/_site/figma/standalone.mjs"
 
