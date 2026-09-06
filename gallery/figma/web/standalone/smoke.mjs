@@ -99,6 +99,30 @@ if (warns.length) {
   console.error("health.fig: unexpected warnings", warns);
   process.exit(1);
 }
+
+// An instance carries no children: it names a component, and Figma draws
+// that component's subtree in its place. A reader that stops at the node
+// draws an empty box wherever a file uses components, which is most files.
+// On its own engine: the checks below still need health.fig open here.
+const instWeb = new FigWeb();
+instWeb.setViewport(1200, 800);
+if (!instWeb.openSample()) {
+  console.error("sample failed:", instWeb.error());
+  process.exit(1);
+}
+instWeb.setPage(2);
+const sampleWarns = JSON.parse(instWeb.warnings());
+if (sampleWarns.some((w) => /instance/i.test(w.feature))) {
+  console.error("the sample's linked instance did not resolve", sampleWarns);
+  process.exit(1);
+}
+// LinkedInstance has no children of its own and names CardComponent, so
+// the component's child has to turn up under it in what the page draws.
+if (!/CompRect/.test(instWeb.tree()) || !instWeb.evgDump().includes("3:40")) {
+  console.error("the linked instance is not in the tree the page draws");
+  process.exit(1);
+}
+console.log("instances ok — a component's subtree is drawn in its instance");
 console.log("health.fig ok — frames", frames.join(", "), "cmds", hc.length, "paths", paths);
 
 // A paste: the same fig-kiwi bytes wrapped the way Figma's clipboard wraps

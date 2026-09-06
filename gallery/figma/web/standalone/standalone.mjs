@@ -24,6 +24,8 @@ const zoom100El = document.getElementById("zoom100");
 const debugEl = document.getElementById("debug");
 const pasteEl = document.getElementById("paste");
 const zoomlabEl = document.getElementById("zoomlab");
+const warnsEl = document.getElementById("warns");
+const warnLinkEl = document.getElementById("warnlink");
 const mainEl = document.querySelector("main");
 
 
@@ -139,6 +141,35 @@ function renderTree(node, into, depth) {
   for (const ch of node.children || []) renderTree(ch, into, depth + 1);
 }
 
+/** Warnings from the last conversion, grouped by what was unsupported.
+ *  One summary rather than a console line per node: a file built out of
+ *  components produces one warning per instance, and the list is only
+ *  useful in aggregate. */
+function warningSummary() {
+  let list = [];
+  try { list = JSON.parse(web.warnings()); } catch { /* keep */ }
+  const groups = new Map();
+  for (const w of list) {
+    const g = groups.get(w.feature) || [];
+    g.push(w);
+    groups.set(w.feature, g);
+  }
+  const lines = [];
+  for (const [feature, nodes] of [...groups].sort((a, b) => b[1].length - a[1].length)) {
+    const sample = nodes.slice(0, 5).map((n) => n.id + " " + JSON.stringify(n.name)).join(", ");
+    lines.push(nodes.length + "x " + feature + " — " + sample + (nodes.length > 5 ? ", …" : ""));
+  }
+  return { total: list.length, groups, lines };
+}
+
+function reportWarnings() {
+  const w = warningSummary();
+  window.__figWarnings = w.lines;
+  if (warnsEl) warnsEl.textContent = String(w.total);
+  if (w.total) console.warn("[figma-viewer] " + w.total + " unsupported:\n  " + w.lines.join("\n  "));
+  return w;
+}
+
 function refreshChrome() {
   let stats = {};
   try { stats = JSON.parse(web.stats()); } catch { /* keep */ }
@@ -202,6 +233,7 @@ async function openBuffer(ab, name) {
   }
   collectImages();
   refreshChrome();
+  reportWarnings();
   msEl.textContent = rangerMs.toFixed(1);
   await draw();
   compareOpenFig(ab);
@@ -217,6 +249,7 @@ async function openSample() {
   }
   collectImages();
   refreshChrome();
+  reportWarnings();
   await draw();
   ofmsEl.textContent = "–";
 }
@@ -246,32 +279,61 @@ frameEl.addEventListener("change", () => {
   draw();
 });
 
-canvas.addEventListener("click", (ev) => {
+function selectAt(clientX, clientY) {
   const r = canvas.getBoundingClientRect();
   const doc = window.__figDoc || {};
   const sw = doc.width || 1200;
   const sh = doc.height || 800;
-  const x = (ev.clientX - r.left) * (sw / Math.max(1, r.width));
-  const y = (ev.clientY - r.top) * (sh / Math.max(1, r.height));
+  const x = (clientX - r.left) * (sw / Math.max(1, r.width));
+  const y = (clientY - r.top) * (sh / Math.max(1, r.height));
   const id = web.hit(x, y);
   if (id) web.select(id);
   refreshChrome();
   draw();
-});
+}
 
+// Dragging the canvas pans it, with any button. A page bigger than the
+// window is the normal case — the fit button is not a substitute for
+// moving around — and a modifier nobody is told about is the same as no
+// panning at all. A press that does not travel is still a selection, so
+// the two share the gesture: the drag decides which it was on release.
+const DRAG_SLOP = 4;
 let drag = null;
 canvas.addEventListener("pointerdown", (ev) => {
-  if (ev.button !== 1 && !ev.shiftKey) return;
-  drag = { x: ev.clientX, y: ev.clientY, ox: web.viewX(), oy: web.viewY() };
+  drag = {
+    id: ev.pointerId,
+    x: ev.clientX,
+    y: ev.clientY,
+    ox: web.viewX(),
+    oy: web.viewY(),
+    moved: false,
+  };
   canvas.setPointerCapture(ev.pointerId);
 });
 canvas.addEventListener("pointermove", (ev) => {
-  if (!drag) return;
+  if (!drag || ev.pointerId !== drag.id) return;
+  const dx = ev.clientX - drag.x;
+  const dy = ev.clientY - drag.y;
+  if (!drag.moved && Math.abs(dx) + Math.abs(dy) < DRAG_SLOP) return;
+  drag.moved = true;
+  canvas.style.cursor = "grabbing";
+  // The canvas backing store is bigger than its CSS box on a HiDPI screen,
+  // and the view is in backing-store pixels, so the pointer's travel has
+  // to be scaled or the page slides at the wrong speed.
   const dpr = canvas.width / Math.max(1, canvas.getBoundingClientRect().width);
-  web.setView(drag.ox + (ev.clientX - drag.x) * dpr, drag.oy + (ev.clientY - drag.y) * dpr, web.viewScale());
+  web.setView(drag.ox + dx * dpr, drag.oy + dy * dpr, web.viewScale());
   draw();
 });
-canvas.addEventListener("pointerup", () => { drag = null; });
+function endDrag(ev) {
+  if (!drag || ev.pointerId !== drag.id) return;
+  const wasDrag = drag.moved;
+  drag = null;
+  canvas.style.cursor = "grab";
+  if (canvas.hasPointerCapture(ev.pointerId)) canvas.releasePointerCapture(ev.pointerId);
+  if (!wasDrag && ev.button === 0) selectAt(ev.clientX, ev.clientY);
+}
+canvas.addEventListener("pointerup", endDrag);
+canvas.addEventListener("pointercancel", endDrag);
 canvas.addEventListener("wheel", (ev) => {
   ev.preventDefault();
   const sc = web.viewScale() * (ev.deltaY > 0 ? 0.9 : 1.1);
@@ -379,6 +441,20 @@ window.addEventListener("paste", async (e) => {
   e.preventDefault();
   await openClip(clip);
 });
+
+// The count in the footer is the headline; the list is what says which
+// layers and why, so it goes where a reader can read it.
+if (warnLinkEl) {
+  warnLinkEl.addEventListener("click", (ev) => {
+    ev.preventDefault();
+    const w = warningSummary();
+    if (propsEl) {
+      propsEl.textContent = w.total
+        ? "unsupported (" + w.total + ")\n\n" + w.lines.join("\n\n")
+        : "nothing unsupported in this file";
+    }
+  });
+}
 
 if (pasteEl) {
   pasteEl.addEventListener("click", async () => {

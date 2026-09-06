@@ -215,6 +215,19 @@ class FigTest {
         def hero:SceneNode (card.childNamed("Hero"))
         this.eqStr("hero kind" hero.kind "rect")
         this.check("hero has fill" ((array_length hero.fills) > 0))
+        ; An instance draws the component it names. This is the shape a
+        ; real export uses — no children of its own, a symbolID — and
+        ; without the lookup the node is an empty box.
+        app.setPage(2)
+        def shapes:SceneNode (app.currentPage())
+        def linked:SceneNode (shapes.childNamed("LinkedInstance"))
+        this.eqStr("linked instance is a container" linked.kind "container")
+        this.eqInt("linked instance drew the component" (array_length linked.children) 1)
+        if ((array_length linked.children) > 0) {
+            def borrowed:SceneNode (itemAt linked.children 0)
+            this.eqStr("and drew its child" borrowed.name "CompRect")
+        }
+        this.check("no instance warnings" ((strlen (app.warningsJson())) < 4))
     }
 
     fn testFixtures:void () {

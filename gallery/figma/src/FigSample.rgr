@@ -109,6 +109,8 @@ class FigSample {
         s.addField(node "primaryAxisAlignItems" "string" 32 false)
         s.addField(node "counterAxisAlignItems" "string" 33 false)
         s.addField(node "fillGeometry" "Path" 34 true)
+        ; What an INSTANCE names instead of carrying children.
+        s.addField(node "symbolID" "GUID" 35 false)
         def blob:KiwiDef (s.addMessage("Blob"))
         s.addField(blob "bytes" "byte" 1 true)
         def msg:KiwiDef (s.addMessage("Message"))
@@ -529,6 +531,14 @@ class FigSample {
         def ir:KiwiValue (FigSample.node(3 39 "RECTANGLE" "InstRect" 3 38 "!" 160.0 48.0 20.0 16.0))
         ir.put("fillPaints" (FigSample.paints(0.078 0.722 0.651)))
         nodes.pushItem(ir)
+        ; The shape a real Figma export uses: an instance with no children
+        ; of its own, naming the component whose subtree it draws. Without
+        ; that lookup this node paints an empty box, which is what every
+        ; file built out of components did.
+        def fInst2:KiwiValue (FigSample.node(3 40 "INSTANCE" "LinkedInstance" 0 3 "S" 200.0 80.0 540.0 800.0))
+        fInst2.put("fillPaints" (FigSample.paints(0.97 0.97 0.98)))
+        fInst2.put("symbolID" (FigSample.guid(3 36)))
+        nodes.pushItem(fInst2)
         def blobs:KiwiValue (KiwiValue.fromArray())
         def blob0:KiwiValue (KiwiValue.fromObject())
         blob0.put("bytes" (KiwiValue.fromBytes((FigSample.triangleBlob()))))
