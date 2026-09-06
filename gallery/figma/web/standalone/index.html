@@ -4,7 +4,10 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Ranger Fig — read a .fig in the browser</title>
-    <meta name="description" content="Upload a Figma .fig or .deck. It is parsed in this tab (ZIP → kiwi → node tree) and drawn with EVG. Nothing is uploaded." />
+    <!-- Without this the browser asks for /favicon.ico at the origin root,
+         which is not this site's root, and the 404 lands in the console. -->
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <meta name="description" content="Read a Figma .fig or .deck. It is parsed in this tab (ZIP → kiwi → node tree) and drawn with EVG. Nothing is uploaded." />
     <style>
       :root {
         --bg: #12141a;

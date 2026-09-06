@@ -61,6 +61,9 @@ if [ "$(cd "$OUT" && pwd)" != "$(cd "$STAGE" && pwd)" ]; then
 fi
 
 cp "$WEB/index.html" "$OUT/index.html"
+# The page links this; without it the browser falls back to /favicon.ico at
+# the origin root and logs a 404 the page cannot answer for.
+cp playground/public/favicon.svg "$OUT/favicon.svg"
 cp "$WEB/standalone.mjs" "$OUT/standalone.mjs"
 cp "$WEB/zstd.mjs" "$OUT/zstd.mjs"
 cp "$WEB/clipboard.mjs" "$OUT/clipboard.mjs"
