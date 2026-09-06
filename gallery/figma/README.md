@@ -126,14 +126,26 @@ test pastes each one.
 
 ## Instances
 
-An `INSTANCE` carries no children. It names a component by guid in
-`symbolID`, and Figma draws that component's subtree in its place. A
-reader that stops at the node draws an empty box wherever a file uses
-components — which is most files — so `FigToScene` looks the component up
-and converts its children under the instance's transform. Overrides
-(`derivedSymbolData`) are not applied: an overridden instance shows the
-component's own text and colours, which is a wrong string rather than a
-missing subtree. Expansion stops at fifteen levels.
+An `INSTANCE` carries no children. It names a component by guid and Figma
+draws that component's subtree in its place, so a reader that stops at the
+node draws an empty box wherever a file uses components — which is most
+files. `FigToScene` looks the component up and converts its children under
+the instance's transform.
+
+Where the guid is depends on who wrote the file, and only one of the
+spellings being read is what made a real export come out empty:
+
+| | |
+| --- | --- |
+| `symbolData.symbolID` | what a Figma export writes — nested, not on the node |
+| `symbolID` on the node | the REST API, and this repository's sample |
+| `overriddenSymbolID` | an instance swapped for a different component |
+
+All three are read, in that order. Overrides (`derivedSymbolData`, the
+instance's resolved subtree with its own text and colours) are **not**
+applied: an overridden instance shows the component's own content, which
+is a wrong string rather than a missing subtree. Expansion stops at
+fifteen levels, so a cycle is a warning and not a hang.
 
 ## When something does not draw
 
@@ -145,7 +157,9 @@ console line each would bury the file being read. What the categories mean:
 | warning | what you see |
 | --- | --- |
 | `instance names a component that is not in the file` | an empty box — the component is in a library this file does not carry |
-| `instance names no component` | an empty box — the node has neither children nor a `symbolID` |
+| `instance whose symbolData names no component` | an empty box — the block is there and holds no guid |
+| `instance with only derived data (overrides), which is not read yet` | an empty box — the content is in `derivedSymbolData` and nothing else |
+| `instance with no symbol fields at all` | an empty box — the node names nothing |
 | `instances nested more than 15 deep` | the outer instances draw, the innermost do not |
 | `boolean operation without geometry` | the shape is missing; Figma did not export a flattened path for it |
 | `strokeAlign OUTSIDE` / `per-side stroke weights` | the stroke is drawn, in the wrong place or at one weight |

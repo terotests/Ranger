@@ -109,8 +109,14 @@ class FigSample {
         s.addField(node "primaryAxisAlignItems" "string" 32 false)
         s.addField(node "counterAxisAlignItems" "string" 33 false)
         s.addField(node "fillGeometry" "Path" 34 true)
-        ; What an INSTANCE names instead of carrying children.
+        ; What an INSTANCE names instead of carrying children. A Figma
+        ; export nests it (`symbolData.symbolID`); the REST API and older
+        ; readers put it on the node. Both are in the sample because both
+        ; are in the wild and only one of them was being read.
         s.addField(node "symbolID" "GUID" 35 false)
+        def symd:KiwiDef (s.addMessage("SymbolData"))
+        s.addField(symd "symbolID" "GUID" 1 false)
+        s.addField(node "symbolData" "SymbolData" 36 false)
         def blob:KiwiDef (s.addMessage("Blob"))
         s.addField(blob "bytes" "byte" 1 true)
         def msg:KiwiDef (s.addMessage("Message"))
@@ -539,6 +545,15 @@ class FigSample {
         fInst2.put("fillPaints" (FigSample.paints(0.97 0.97 0.98)))
         fInst2.put("symbolID" (FigSample.guid(3 36)))
         nodes.pushItem(fInst2)
+        ; The shape a Figma export actually writes: the guid is inside a
+        ; symbolData block, not on the node. Reading only the flat spelling
+        ; left every instance in a real file empty.
+        def fInst3:KiwiValue (FigSample.node(3 41 "INSTANCE" "NestedInstance" 0 3 "T" 200.0 80.0 800.0 800.0))
+        fInst3.put("fillPaints" (FigSample.paints(0.97 0.97 0.98)))
+        def symBlock:KiwiValue (KiwiValue.fromObject())
+        symBlock.put("symbolID" (FigSample.guid(3 36)))
+        fInst3.put("symbolData" symBlock)
+        nodes.pushItem(fInst3)
         def blobs:KiwiValue (KiwiValue.fromArray())
         def blob0:KiwiValue (KiwiValue.fromObject())
         blob0.put("bytes" (KiwiValue.fromBytes((FigSample.triangleBlob()))))

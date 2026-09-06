@@ -138,7 +138,19 @@ class FigToScene {
                 this.expandInstance(nd sn)
             } {
                 if (t == "INSTANCE") {
-                    sn.warn("instance names no component")
+                    ; Say which shape the node was in. An instance with a
+                    ; symbolData block that named nothing is a different
+                    ; problem from one with no symbol fields at all, and
+                    ; the two need different fixes.
+                    if nd.hadSymbolData {
+                        sn.warn("instance whose symbolData names no component")
+                    } {
+                        if nd.hasDerivedData {
+                            sn.warn("instance with only derived data (overrides), which is not read yet")
+                        } {
+                            sn.warn("instance with no symbol fields at all")
+                        }
+                    }
                 }
             }
         }
@@ -155,6 +167,8 @@ class FigToScene {
         this.indexNodes()
         def master@(optional):FigNode (get byId nd.symbolId)
         if (null? master) {
+            ; Usually a library component: the instance names it, the file
+            ; does not carry it, and Figma resolves it from the library.
             sn.warn("instance names a component that is not in the file")
             return
         }
