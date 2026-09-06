@@ -162,10 +162,18 @@ entry's `guid` and `parentIndex` describe the copy, not the original. The
 component itself is untouched — two instances of it can say different
 things.
 
-The diagnostics count them: overrides seen, applied, and how many named a
-node their component does not have. Seen above applied means the
-placeholders are still showing and the reason is a path that did not
-match, which is a different fault from having no overrides at all.
+The key is the whole path, not the last guid on it. A file made of
+components nests them several deep, and most overrides name a node inside
+a nested instance rather than one of the component's own children, so the
+key has to say which instance it went through: `J/Y` for node `Y` inside
+nested instance `J`. Entries go into one table for the document, keyed by
+where the node sits inside the outermost instance, and a nested expansion
+adds to that table rather than replacing it — an earlier version replaced
+it and placed 115 overrides out of 25,672.
+
+The diagnostics count them: overrides seen, applied, and the difference.
+Seen above applied means placeholders are still showing because a path
+did not match, which needs a different fix from having no overrides.
 
 ## Moving around
 

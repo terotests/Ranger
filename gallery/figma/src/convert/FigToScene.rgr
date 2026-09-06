@@ -51,7 +51,7 @@ class FigToScene {
         instanceDepth = 0
         overridesSeen = 0
         overridesUsed = 0
-        overridesUnmatched = 0
+        pathPrefix = ""
         outDoc = (new SceneDocument())
         outDoc.name = src.fileName
         outDoc.source = "figma"
@@ -68,10 +68,12 @@ class FigToScene {
 
     fn convertNode:SceneNode (source:FigNode) {
         def nd:FigNode source
-        if ((array_length overrideIds) > 0) {
-            def over:KiwiValue (this.findOverride(source.id))
-            if (over.isObject()) {
+        if ((strlen pathPrefix) > 0) {
+            def hit@(optional):KiwiValue (get overrides (pathPrefix + source.id))
+            if (null? hit) {
+            } {
                 overridesUsed = (overridesUsed + 1)
+                def over:KiwiValue (unwrap hit)
                 def merged:FigNode (FigModel.nodeFrom((FigToScene.mergeOverride(source.raw over))))
                 merged.id = source.id
                 merged.parentId = source.parentId
@@ -190,22 +192,37 @@ class FigToScene {
     ; overridden node goes through exactly the same conversion as any other
     ; and nothing has to be reimplemented per field.
 
-    def overrideIds:[string]
-    def overrideVals:[KiwiValue]
+    ; Overrides are keyed by where the node sits inside the outermost
+    ; instance: the guids of the instances descended through, then the
+    ; node's own. A file made of components nests them several deep, and
+    ; most overrides name a node inside a nested instance rather than one
+    ; of the component's own children — so the key has to carry the whole
+    ; path. Matching on the last guid alone, and worse, dropping the outer
+    ; instance's table on entering a nested one, placed 115 of 25,672.
+    def overrides:[string:KiwiValue]
+    def pathPrefix:string ""
     def overridesSeen:int 0
     def overridesUsed:int 0
-    def overridesUnmatched:int 0
 
-    ; The node an override belongs to is the last guid on its path: the
-    ; earlier ones are the instances it is nested inside.
-    sfn overrideTarget:string (change:KiwiValue) {
+    ; "J/Y" for a node Y inside a nested instance J. An entry with no path
+    ; but an overrideKey names one node directly.
+    sfn overridePath:string (change:KiwiValue) {
         def path:KiwiValue (change.child("guidPath"))
         if (path.isObject()) {
             def guids:KiwiValue (path.child("guids"))
             if (guids.isArray()) {
                 def n:int (guids.itemCount())
-                if (n > 0) {
-                    return (FigModel.guidOf((guids.item((n - 1)))))
+                def out:string ""
+                def i:int 0
+                while (i < n) {
+                    if (i > 0) {
+                        out = (out + "/")
+                    }
+                    out = (out + (FigModel.guidOf((guids.item(i)))))
+                    i = (i + 1)
+                }
+                if ((strlen out) > 0) {
+                    return out
                 }
             }
         }
@@ -214,17 +231,6 @@ class FigToScene {
             return (FigModel.guidOf(key))
         }
         return ""
-    }
-
-    fn findOverride:KiwiValue (id:string) {
-        def i:int 0
-        while (i < (array_length overrideIds)) {
-            if ((itemAt overrideIds i) == id) {
-                return (itemAt overrideVals i)
-            }
-            i = (i + 1)
-        }
-        return (new KiwiValue())
     }
 
     ; The component node's fields with the override's laid over them. The
@@ -322,31 +328,26 @@ class FigToScene {
             }
             return
         }
-        ; The overrides in force while this instance's subtree is built.
-        ; Kept and restored so a nested instance's overrides do not leak
-        ; out into the one that contains it.
-        def keptIds:[string] overrideIds
-        def keptVals:[KiwiValue] overrideVals
-        def freshIds:[string]
-        def freshVals:[KiwiValue]
-        overrideIds = freshIds
-        overrideVals = freshVals
+        ; Everything inside this instance hangs off its own key, so the
+        ; entries can go in one table for the whole document and a nested
+        ; expansion adds to it rather than replacing it.
+        def childPrefix:string ((pathPrefix + nd.id) + "/")
         def derived:KiwiValue (nd.raw.child("derivedSymbolData"))
         if (derived.isArray()) {
             def d:int 0
             while (d < (derived.itemCount())) {
                 def change:KiwiValue (derived.item(d))
                 overridesSeen = (overridesSeen + 1)
-                def target:string (FigToScene.overrideTarget(change))
-                if ((strlen target) > 0) {
-                    push overrideIds target
-                    push overrideVals change
-                } {
-                    overridesUnmatched = (overridesUnmatched + 1)
+                def rel:string (FigToScene.overridePath(change))
+                if ((strlen rel) > 0) {
+                    def full:string (childPrefix + rel)
+                    set overrides full change
                 }
                 d = (d + 1)
             }
         }
+        def keptPrefix:string pathPrefix
+        pathPrefix = childPrefix
         instanceDepth = (instanceDepth + 1)
         def i:int 0
         while (i < (array_length m.children)) {
@@ -360,8 +361,7 @@ class FigToScene {
             i = (i + 1)
         }
         instanceDepth = (instanceDepth - 1)
-        overrideIds = keptIds
-        overrideVals = keptVals
+        pathPrefix = keptPrefix
     }
 
     ; The stroke as Figma drew it. A file carries `strokeGeometry`: the

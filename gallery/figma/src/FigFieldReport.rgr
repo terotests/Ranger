@@ -28,6 +28,11 @@ class FigFieldUse {
 
 class FigFieldReport {
     def uses:[FigFieldUse]
+    ; A map, not a scan. Thirty thousand nodes with thirty fields each,
+    ; looked up against a couple of hundred names, is a hundred and eighty
+    ; million string compares — the report would take longer than the parse
+    ; it is meant to explain.
+    def index:[string:FigFieldUse]
 
     Constructor () {
     }
@@ -214,18 +219,16 @@ class FigFieldReport {
     }
 
     fn find:FigFieldUse (name:string) {
-        def i:int 0
-        while (i < (array_length uses)) {
-            def u:FigFieldUse (itemAt uses i)
-            if (u.name == name) {
-                return u
-            }
-            i = (i + 1)
+        def hit@(optional):FigFieldUse (get index name)
+        if (null? hit) {
+        } {
+            return (unwrap hit)
         }
         def fresh (new FigFieldUse())
         fresh.name = name
         fresh.note = (FigFieldReport.noteFor(name))
         push uses fresh
+        set index name fresh
         return fresh
     }
 
