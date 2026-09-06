@@ -414,6 +414,33 @@ console.log("--- what a reader gets ---");
   ok("which is a selection", c.hasSelection());
 }
 
+console.log("--- the radios take the keyboard, and the focus is drawn ---");
+{
+  // Reported: Tab reached the radios and the arrows did nothing, and nothing
+  // on the page said where the focus was. Both are the same omission — the
+  // keys were never routed to RadioGroupCtl, and no state was written where
+  // a stylesheet could draw it.
+  const d = new M.FormDemo(); d.init(CSS); d.displayListJson();
+  d.setFocus("fm-delivery-post"); d.rebuild(); d.displayListJson();
+  const ringOf = (tid) => { const r = one(d, tid); return r && r.el.children.map((k) => k.className || "").join(" "); };
+  ok("the focused radio's ring carries the focus class", /fm-ring-focus/.test(ringOf("fm-delivery-post")), ringOf("fm-delivery-post"));
+  ok("and an unfocused one does not", !/focus/.test(ringOf("fm-delivery-email")), ringOf("fm-delivery-email"));
+  ok("ArrowRight moves the focus to the next radio", d.keyWith("ArrowRight", false, false) && d.focused === "fm-delivery-email", d.focused);
+  d.displayListJson();
+  ok("the chosen radio's dot carries the focus class", /fm-dot-focus/.test(ringOf("fm-delivery-email")), ringOf("fm-delivery-email"));
+  ok("ArrowRight again skips the disabled item and wraps", d.keyWith("ArrowRight", false, false) && d.focused === "fm-delivery-post", d.focused);
+  ok("ArrowLeft comes back", d.keyWith("ArrowLeft", false, false) && d.focused === "fm-delivery-email", d.focused);
+  ok("ArrowUp is the previous key too", d.keyWith("ArrowUp", false, false) && d.focused === "fm-delivery-post", d.focused);
+  ok("Space chooses the focused radio", d.keyWith(" ", false, false) && d.delivery.value === "post", d.delivery.value);
+  ok("and the choice moved the dot", /fm-dot-focus/.test(ringOf("fm-delivery-post")) && !/fm-dot/.test(ringOf("fm-delivery-email")), ringOf("fm-delivery-email"));
+  // Focus on a box is a state the sheet reads: the element says it is focused.
+  d.setFocus("fm-invoice"); d.rebuild(); d.displayListJson();
+  const inv = one(d, "fm-invoice");
+  ok("the readonly field reports focus to the sheet", inv && inv.el.isFocused === true);
+  const nm = one(d, "fm-name");
+  ok("and the others do not", nm && nm.el.isFocused === false);
+}
+
 console.log("");
 console.log("passed=" + passed + " failed=" + failed);
 if (failed > 0) { console.log("FAILURES"); process.exit(1); }

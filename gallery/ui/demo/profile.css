@@ -117,6 +117,16 @@
 
 .pf-box-off { background-color: #fafafa; border-color: #f4f4f5; }
 
+/* FOCUS. The invoice form's finding, on this page too: not one `:focus` rule,
+ * so Tab walked the ring and drew nothing. The border carries it, as there —
+ * the 1px grey turns dark on a box, a button and the select's trigger; the
+ * switch's ring is on its knob, by a class the demo writes, because a border
+ * on the track would push the knob in from the end it has to reach. */
+.pf-box:focus     { border-color: #18181b; }
+.pf-btn:focus     { border-color: #18181b; }
+.pf-trigger:focus { border-color: #18181b; }
+.pf-knob-focus    { border: 2px solid #52525b; }
+
 .pf-text { color: #18181b; font-family: Arial; font-size: 13px; height: 18px; }
 .pf-ghost { color: #a1a1aa; font-family: Arial; font-size: 13px; height: 18px; }
 .pf-icon { color: #a1a1aa; font-family: Arial; font-size: 13px; height: 18px; }

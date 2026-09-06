@@ -7,7 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A segmented date field, measured against the browser's own.** The
+  calendar demo's date box was a formatted label; a person asked for the
+  `__/__/____` editor, and shadcn has none to measure (its Date Picker is a
+  calendar in a popover), so the oracle is Chromium's `<input type="date">`,
+  read segment by segment through the accessibility tree. `DateFieldCtl`
+  reproduces what it does rather than what one would guess: "1" then "3" in
+  the month is 12 and moves on, "0" then "0" is 01, a lone zero shows nothing,
+  the year takes five and six digits and never advances, ArrowUp on 12 wraps
+  to 01, the empty year steps to this year, February 31 is reachable and the
+  value is empty until it is possible, Backspace empties a segment and stays.
+  `ui:datefield:check` replays all 26 recorded scenarios; the calendar fills
+  the field and a typed date moves the calendar.
+- **A one-time code field, measured against input-otp.** `OtpCtl` reproduces
+  the library behind shadcn's Input OTP, whose whole behaviour is a hidden
+  text input plus a normalisation of its selection: a caret on a character
+  becomes a range over it so typing inside replaces, Backspace on a middle
+  slot leaves the slot before it active, a full field keeps its last slot
+  active and the seventh digit replaces the sixth, a letter into a digits
+  field is refused whole, focus lands at the end wherever the pointer was.
+  `ui:otp:check` replays 33 scenarios; one rule is deliberately not copied and
+  asserted the other way round — a click on a focused field selects the slot
+  clicked, where the reference's caret in its invisible squeezed text made
+  slot 0 select slot 3. A new `otp` demo page draws it (`ui:otp:demo`), and
+  the input bench lists both fields as measured elsewhere rather than scoring
+  their selection rules against a plain `<input>`.
+
 ### Fixed
+
+- **Keyboard focus was invisible on the demo forms and the calendar.** Not one
+  of `form.css`, `profile.css` and `calendar.css` had a `:focus` rule, so Tab
+  moved the focus and drew nothing: a Tab into the readonly invoice number,
+  which draws no caret, looked like a Tab that did nothing, and so did every
+  Tab after it through the radios and the buttons; on the calendar the arrows
+  moved the focused day, as the hint says, and no rule drew the day they had
+  reached. Focus is drawn now — the border turns dark on a box, a button and
+  the select's trigger, the radio's ring and the switch's knob carry a class
+  the demo writes, the calendar's day gets a 2px ring — and the invoice form
+  routes the arrows and Space to `RadioGroupCtl`, which had the rule all along
+  and was never asked. `input-bench` gained a `ring` column that fails a field
+  whose border does not change when it takes focus.
+- **Text ran on as a flat line where the glyphs stopped.** The WebGL painter's
+  text atlas is sized on the first frame from the widest run it holds; a later
+  run wider than that whole texture was placed at x=0, uploaded up to the
+  edge, and kept a slot whose u1 ran past 1.0 — and CLAMP_TO_EDGE answered
+  every sample beyond the edge with the last column of ink, a streak in the
+  text's colour. Seen on the timeline's descriptions on a Retina display,
+  whose wider face outgrew the 512px atlas a menubar's short runs had sized.
+  A run wider than the shelf is refused and the atlas rebuilt at the width it
+  needs; a run wider than the card's largest texture is cut where the texture
+  ends, with the quad cut to match.
+- **A chosen calendar day turned hover-grey under the pointer.** A pseudo-class
+  outranks a plain class in `EVGStyleSheet` as in CSS, so `.cd-day:hover` beat
+  `.cd-day-selected` however the two were ordered; the day just clicked read as
+  not chosen until the pointer left it.
+
 
 - **The dashboard on Android stopped responding.** Every frame of
   `DashboardDemo.display()` ran the whole stylesheet cascade, laid the whole

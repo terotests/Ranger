@@ -67,12 +67,13 @@ the page instead of round it.
 | `graph` | one Backspace removes a whole ZWJ family; ArrowLeft over a decomposed é steps 2 where Backspace removes 1 |
 | `ime` | a live composition through the DevTools protocol, then its commit |
 
-And six things a native `<input>` has no answer for, or answers where the
+And seven things a native `<input>` has no answer for, or answers where the
 comparison cannot see, asserted on the page alone:
 
 | column | what is asserted |
 |---|---|
 | `proxy` | a focused field hands the keyboard to a real hidden `<input>` of the right `type` and `maxlength`; the cursor over the text is the I-beam |
+| `ring` | a focused field is drawn as one: the box's border command changes colour when the field takes focus |
 | `place` | when the field is emptied the placeholder is drawn, the value is `""` and the mirror says so; when a key is typed the placeholder is gone |
 | `mask` | a password draws one bullet per character and never the text; the tree carries no value; the eye is a `button` with `aria-pressed`, pressing it reveals the text and pressing again masks it |
 | `mirro` | the mirror is a native `<input>` with the field's label, value, `aria-required`, `aria-invalid`, `aria-readonly` and `aria-description`, and its value agrees with the model's |
@@ -96,12 +97,27 @@ measurement, and the place to add a variant when one turns up.
 
 Missing, as of this writing, and each for a stated reason in the file: a
 disabled text field, an input group, a clearable input, sizes, a file input,
-**every textarea variant**, the date picker in a popover, a typed date, a date
-and time, a time picker, a segmented date field, **OTP**, and a tag input.
-The textarea and the date picker are the two the request named, and the
-honest answer is that neither exists as a component yet: `InputCtl` is
-single-line, and the calendar fills a field it does not let you type into.
-Writing them is the next work; this file is where they will be scored.
+**every textarea variant**, the date picker in a popover, a date and time, a
+time picker, a paste into the OTP, and a tag input. The textarea is the one
+the request named that still has no component: `InputCtl` is single-line.
+
+Two that were missing at the first writing are components now, each with an
+oracle of its own rather than a row in this matrix:
+
+- **The segmented date field.** The calendar's box is `DateFieldCtl`'s
+  `mm/dd/yyyy` editor, measured against Chromium's own `<input type="date">`
+  through the accessibility tree (`ui:datefield:check`, 26 recorded
+  scenarios replayed step for step). Typing a complete date moves the
+  calendar; picking a day fills the segments.
+- **The one-time code.** `OtpCtl`, measured against input-otp — the library
+  behind shadcn's Input OTP — on its own demo page (`ui:otp:check`, 33
+  scenarios replayed, two held out and asserted the other way round).
+
+The bench lists both under **textboxes measured by their own oracle** and
+scores neither against a plain `<input>`: their selection rules are the
+measured divergence from one. A textbox whose `aria-roledescription` is
+`spinbutton` or `One-time code` is skipped by that attribute, so a third such
+component is skipped the day it publishes the same word.
 
 ## What the first run found
 
@@ -160,14 +176,29 @@ place the fault was:
   relative to it.
 
 **Rows that are red because the field is a picture.** `cd-box` on the
-calendar, `cx-num` on the controls page, `dlg-input-name` and
+calendar (since replaced by the date field above, and gone from the matrix),
+`cx-num` on the controls page, `dlg-input-name` and
 `dlg-input-username` in the dialog: each is published as a textbox, and none
 opens an editing session. A click does not focus, typing goes nowhere, and
-there is no selection to report. `cx-num` is the closest to real — its
-`NumberCtl` is measured against Base UI and its `−`/`+` and arrow keys work —
-but a person who clicks in it and types is told nothing. These stay red in
-the baseline. They are the shape of the complaint, and the bench is the
-instrument that shows it per field rather than as a feeling.
+there is no selection to report — including the `ring` column: the box's
+border cannot change with focus if focus never arrives. `cx-num` is the
+closest to real — its `NumberCtl` is measured against Base UI and its `−`/`+`
+and arrow keys work — but a person who clicks in it and types is told
+nothing. These stay red in the baseline. They are the shape of the complaint,
+and the bench is the instrument that shows it per field rather than as a
+feeling.
+
+**A second round, from a person at the page.** Tab from Find a customer
+"did nothing": it moved the focus to the readonly Invoice number, which draws
+no caret, and `form.css` had no `:focus` rule for anything — so a Tab into it,
+and every Tab after it through the radios and the buttons, changed the model
+and changed nothing on screen. The arrows on the radios did nothing because
+no key was routed to `RadioGroupCtl`. The profile page and the calendar had
+the same omission: the calendar's arrows moved the focused day, as the hint
+under the grid says, and no rule drew the day they had reached. All three
+sheets now draw focus, the radios take the arrows and Space, and the `ring`
+column above is the bench's way of never missing it again: a field whose
+border does not change when it takes focus is red.
 
 ## The score, first run and now
 
@@ -175,9 +206,12 @@ instrument that shows it per field rather than as a feeling.
 |---|---|---|---|
 | first run, before any fix | 158 | 69 | 3074 / 3864 (79.6%) |
 | recorded baseline, after the fixes above | 202 | 28 | 3555 / 4064 (87.5%) |
+| with the `ring` column, after the focus work | 217 | 29 | 3555 / 4064 (87.5%) |
+| after the date box left the matrix, session-less fields fail `ring` too | 213 | 24 | 3555 / 4064 (87.5%) |
 
-The 28 that remain are the four fields that open no editing session, seven
-scenarios each. The observation count rose because the fixes made the
+The 24 that remain are the three fields that open no editing session — seven
+scenarios each, plus `ring`, because a click does not focus them so the
+border does not change. The observation count rose because the fixes made the
 `placeholder` column applicable to the fields that publish one.
 
 ## The baseline
@@ -206,6 +240,8 @@ file must say what the pages do, not what they did when someone last looked.
 - **Drag-and-drop of selected text.** A press inside a selection starts a text
   drag in the browser; the scenarios collapse the selection between drags
   rather than assert a behaviour this side does not have.
-- **Textarea, date picker, OTP.** Nothing here measures a component that does
-  not exist; the catalogue says they are missing and the matrix will grow a
-  row the day one publishes itself as a textbox.
+- **Textarea.** Nothing here measures a component that does not exist; the
+  catalogue says it is missing and the matrix will grow a row the day one
+  publishes itself as a textbox.
+- **The date field and the OTP.** Measured by `ui:datefield:check` and
+  `ui:otp:check` against their own references, listed here, not scored here.

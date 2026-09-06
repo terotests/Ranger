@@ -256,6 +256,13 @@ font — the matrix, the catalogue of shadcn/reui variants it covers and does
 not, and what its first run found are in
 [`demo/INPUT_BENCH.md`](demo/INPUT_BENCH.md).
 
+Two fields are listed by the bench and scored elsewhere, because their rules
+are the measured divergence from a plain `<input>`: the calendar's date box is
+`DateFieldCtl`, a `mm/dd/yyyy` editor replayed against Chromium's own
+`<input type="date">` (`npm run ui:datefield:check`), and the one-time code
+page is `OtpCtl`, replayed against input-otp (`npm run ui:otp:check`,
+`npm run ui:otp:demo`).
+
 ## Class-first styling, inline still allowed
 
 A controller never names a colour. It writes class names, and an
@@ -328,6 +335,8 @@ utility-class theme needs compound and attribute selectors; `gallery/css`'s
 | `src/ToolbarCtl.rgr` | Roving focus over a row of buttons, no selection |
 | `src/DialogCtl.rgr` | Modal: opens, takes focus, Escape closes and gives it back |
 | `src/PresentationCtl.rgr` | Label, separator, progress, aspect ratio, icon button, avatar |
+| `src/DateFieldCtl.rgr` | The `mm/dd/yyyy` segmented editor — Chromium's own `<input type="date">` |
+| `src/OtpCtl.rgr` | One-time code: one value, N slots, the selection normalised — `input-otp` |
 | `src/UiHost.rgr` | Root tree, focus, stylesheet, input routing, the trace |
 | `conformance/` | The catalogue, specs, both adapters, the diff, the scorecard, the inventory and the audit |
 | `web/` | The browser playground (`npm run ui:web`) |

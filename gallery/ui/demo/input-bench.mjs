@@ -185,6 +185,9 @@ const demoNames = async () => {
   return page.evaluate(() => [...document.querySelectorAll("#demos input[type=radio]")].map((r) => r.value));
 };
 
+const MEASURED_ELSEWHERE = new Set(["spinbutton", "One-time code"]);
+const elsewhere = [];
+
 async function discover() {
   const fields = [];
   for (const demo of await demoNames()) {
@@ -192,6 +195,16 @@ async function discover() {
     const tree = await a11y();
     for (const n of tree.nodes || []) {
       if (n.role !== "textbox") continue;
+      // A textbox whose roledescription names a component with an oracle of
+      // its own is not a text field and is not scored against one: the date
+      // field's segments (`spinbutton`, Chromium's own date input in
+      // ui:datefield:check) and the one-time code (`One-time code`, input-otp
+      // in ui:otp:check) normalise their selection on purpose, and every
+      // divergence from a plain <input> here would be the measured rule.
+      if (MEASURED_ELSEWHERE.has(n.roledesc)) {
+        elsewhere.push(`${demo}/${n.id} (${n.roledesc})`);
+        continue;
+      }
       if (ONLY.length && !ONLY.includes(n.id)) continue;
       // A toggle drawn inside the field — the password's eye — is the field's
       // child in the tree, and the masking scenario needs to know it is there.
@@ -459,6 +472,32 @@ const CHECKED = [
       const cur = await page.evaluate(() => document.querySelector("#stage canvas").style.cursor);
       if (cur !== "text") out.push(`cursor over the text is "${cur}", not "text"`);
       return out;
+    },
+  },
+  {
+    key: "ring", label: "a focused field is drawn as one",
+    // The invoice form had no `:focus` rule at all: Tab moved the focus, the
+    // caret was the only sign of it, and a readonly field draws no caret. The
+    // BORDER command of the box is what a person sees change, so that is what
+    // is compared — its colour before the click and after.
+    applies: (f) => !(f.state && f.state.disabled) && !f.node.disabled,
+    check: async (f, d) => {
+      const borderOf = async () => {
+        const all = await cmds();
+        const b = all.find((c) => c.k === 1 && Math.abs(c.x - f.box.x) < 1 && Math.abs(c.y - f.box.y) < 1 && Math.abs(c.w - f.box.w) < 1);
+        return b ? JSON.stringify(b.c) : null;
+      };
+      // Focused first, then not: a page may open with this very field focused
+      // — the invoice form starts on Amount, the profile on Full Name — so
+      // "before the click" is not reliably the unfocused picture. Tab moves the
+      // focus on; the border must differ between the two states.
+      await d.click(f.mid);
+      const focused = await borderOf();
+      await d.key("Tab");
+      const unfocused = await borderOf();
+      if (!focused) return ["no border command found on the box"];
+      if (focused === unfocused) return [`the box is drawn the same focused and not: border ${focused}`];
+      return [];
     },
   },
   {
@@ -840,6 +879,10 @@ if (fs.existsSync(CATALOGUE)) {
     }
   }
   console.log(`  ${covered} of ${covered + missing} variants have a field on these pages; ${missing} have none.`);
+}
+if (elsewhere.length) {
+  console.log("\n--- textboxes measured by their own oracle, not scored here ---");
+  for (const e of elsewhere) console.log(`  ${e}`);
 }
 
 // --- the baseline -----------------------------------------------------------

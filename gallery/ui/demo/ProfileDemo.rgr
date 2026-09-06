@@ -485,7 +485,15 @@ class ProfileDemo {
         } {
             sw.a11yChecked = (EVGA11yTri.no())
         }
-        sw.addChild((tree Pf (Knob)))
+        ; The focus ring is on the KNOB, not the track: a border on the track
+        ; would sit inside its fixed size and push the knob two pixels in,
+        ; which the gate measures as the knob no longer reaching the end. The
+        ; knob has no id, so the demo writes the class where the knob is drawn.
+        def knob (tree Pf (Knob))
+        if (focused == "pf-hire") {
+            UiTree.addClass(knob "pf-knob-focus")
+        }
+        sw.addChild(knob)
         wrap.addChild(sw)
         wrap.addChild((tree Pf (SwLabel hire.name)))
         return wrap
