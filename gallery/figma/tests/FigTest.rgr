@@ -227,6 +227,13 @@ class FigTest {
             def borrowed:SceneNode (itemAt linked.children 0)
             this.eqStr("and drew its child" borrowed.name "CompRect")
         }
+        ; And the nested spelling a Figma export writes.
+        def nested:SceneNode (shapes.childNamed("NestedInstance"))
+        this.eqInt("nested symbolData resolved" (array_length nested.children) 1)
+        if ((array_length nested.children) > 0) {
+            def borrowed2:SceneNode (itemAt nested.children 0)
+            this.eqStr("nested drew the component's child" borrowed2.name "CompRect")
+        }
         this.check("no instance warnings" ((strlen (app.warningsJson())) < 4))
     }
 

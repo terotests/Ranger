@@ -65,6 +65,14 @@ class FigNode {
     ; children of its own: the content lives in that component's subtree.
     ; Empty on every other kind of node.
     def symbolId:string ""
+    ; Whether the node carried a symbolData block at all. An instance with
+    ; no symbol of any kind is a different problem from one whose component
+    ; is in a library the file does not include, and the warning has to be
+    ; able to tell them apart.
+    def hadSymbolData:boolean false
+    ; Figma also stores the instance's resolved subtree, overrides applied.
+    ; Not read yet — recorded so the page can say the file has it.
+    def hasDerivedData:boolean false
     def raw:KiwiValue (new KiwiValue())
     def removed:boolean false
 
@@ -337,14 +345,41 @@ class FigModel {
             nd.parentId = (FigModel.guidOf((pidx.child("guid"))))
             nd.position = (pidx.childString("position" ""))
         }
-        def sym:KiwiValue (v.child("symbolID"))
-        if (sym.isObject()) {
-            nd.symbolId = (FigModel.guidOf(sym))
-        } {
-            ; The sample and a JSON import write the REST API's spelling.
+        ; Where a Figma export keeps it: NodeChange.symbolData.symbolID,
+        ; nested, not at the top level. `symbolID` on the node itself is
+        ; what the REST API and this repository's sample write, and
+        ; `overriddenSymbolID` is what an instance that was swapped for
+        ; another component carries.
+        def symData:KiwiValue (v.child("symbolData"))
+        if (symData.isObject()) {
+            nd.hadSymbolData = true
+            def inner:KiwiValue (symData.child("symbolID"))
+            if (inner.isObject()) {
+                nd.symbolId = (FigModel.guidOf(inner))
+            }
+        }
+        if ((strlen nd.symbolId) == 0) {
+            def sym:KiwiValue (v.child("symbolID"))
+            if (sym.isObject()) {
+                nd.symbolId = (FigModel.guidOf(sym))
+            }
+        }
+        if ((strlen nd.symbolId) == 0) {
             def sym2:KiwiValue (v.child("symbolId"))
             if (sym2.isObject()) {
                 nd.symbolId = (FigModel.guidOf(sym2))
+            }
+        }
+        if ((strlen nd.symbolId) == 0) {
+            def sym3:KiwiValue (v.child("overriddenSymbolID"))
+            if (sym3.isObject()) {
+                nd.symbolId = (FigModel.guidOf(sym3))
+            }
+        }
+        def derived:KiwiValue (v.child("derivedSymbolData"))
+        if (derived.isArray()) {
+            if ((derived.itemCount()) > 0) {
+                nd.hasDerivedData = true
             }
         }
         nd.visible = (v.childBool("visible" true))
