@@ -234,7 +234,17 @@ class FigTest {
             def borrowed2:SceneNode (itemAt nested.children 0)
             this.eqStr("nested drew the component's child" borrowed2.name "CompRect")
         }
-        this.check("no instance warnings" ((strlen (app.warningsJson())) < 4))
+        ; An instance of a single-shape component borrows nothing and
+        ; loses nothing, so it is not reported.
+        def leafInst:SceneNode (shapes.childNamed("LeafInstance"))
+        this.eqInt("leaf instance has no borrowed children" (array_length leafInst.children) 0)
+        this.check("leaf instance still paints" ((array_length leafInst.fills) > 0))
+        def warns:string (app.warningsJson())
+        this.check("a leaf instance is not reported" ((FigTest.hasSub(warns "LeafInstance")) == false))
+        ; A stroke whose own outline came with the file is exact, whatever
+        ; its alignment says, so neither stroke warning applies to it.
+        this.check("an exact stroke is not reported" ((FigTest.hasSub(warns "ExactStroke")) == false))
+        this.check("a guessed stroke is reported" (FigTest.hasSub(warns "GuessedStroke")))
     }
 
     fn testFixtures:void () {

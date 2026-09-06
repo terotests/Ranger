@@ -147,6 +147,24 @@ applied: an overridden instance shows the component's own content, which
 is a wrong string rather than a missing subtree. Expansion stops at
 fifteen levels, so a cycle is a warning and not a hang.
 
+## Moving around
+
+Drag with any button to pan, scroll to zoom, or use the `−` / `+` buttons;
+the readout between them shows the zoom and is the button that returns to
+100%. Zoom is anchored on the pointer, so the point under the cursor stays
+where it is instead of the page sliding toward the origin.
+
+Input is applied once per animation frame, not once per event. Both
+`setView` and `draw` are expensive — the first rebuilds the display list
+in Ranger, the second serialises the whole scene to JSON and back — and a
+wheel flick arrives far faster than a frame, so applying each event as it
+landed made the queue grow while the same work was redone. Forty wheel
+events in one task now cost one rebuild and one paint.
+
+Wheel deltas are normalised before use: Firefox reports lines and Chrome
+pixels, one notch arriving as 3 or as 100, and a line is counted as 33
+pixels so that a notch is 1.16x in both.
+
 ## When something does not draw
 
 The footer counts what the reader could not draw, and the count is a link
@@ -157,12 +175,13 @@ console line each would bury the file being read. What the categories mean:
 | warning | what you see |
 | --- | --- |
 | `instance names a component that is not in the file` | an empty box — the component is in a library this file does not carry |
+| `instance names a component with no children, and has nothing of its own to draw` | an empty box — and only reported when the instance really draws nothing; an instance of a single-shape component is normal and silent |
 | `instance whose symbolData names no component` | an empty box — the block is there and holds no guid |
 | `instance with only derived data (overrides), which is not read yet` | an empty box — the content is in `derivedSymbolData` and nothing else |
 | `instance with no symbol fields at all` | an empty box — the node names nothing |
 | `instances nested more than 15 deep` | the outer instances draw, the innermost do not |
 | `boolean operation without geometry` | the shape is missing; Figma did not export a flattened path for it |
-| `strokeAlign OUTSIDE` / `per-side stroke weights` | the stroke is drawn, in the wrong place or at one weight |
+| `strokeAlign OUTSIDE` / `per-side stroke weights` | the stroke is drawn, in the wrong place or at one weight — reported only when the file did not bring `strokeGeometry`, since with it the stroke is exact |
 | `letterSpacing` | the text draws, tracking ignored |
 
 ## What it draws
