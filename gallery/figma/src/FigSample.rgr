@@ -586,6 +586,47 @@ class FigSample {
         tInst.put("derivedSymbolData" overrides)
         nodes.pushItem(tInst)
 
+        ; A component inside a component, and an override that reaches
+        ; through both. This is the shape a real file is made of and the
+        ; one that was failing: the path names the nested instance first
+        ; and the node inside it second, so a reader matching on the last
+        ; guid alone, or dropping the outer table on the way in, places
+        ; almost nothing.
+        def inner:KiwiValue (FigSample.node(3 50 "COMPONENT" "InnerCard" 0 3 "a" 200.0 40.0 1860.0 800.0))
+        inner.put("fillPaints" (FigSample.paints(0.95 0.95 0.96)))
+        nodes.pushItem(inner)
+        def innerText:KiwiValue (FigSample.node(3 51 "TEXT" "InnerTitle" 3 50 "!" 180.0 24.0 10.0 8.0))
+        def innerTd:KiwiValue (KiwiValue.fromObject())
+        innerTd.put("characters" (KiwiValue.fromString("Inner placeholder")))
+        innerText.put("textData" innerTd)
+        nodes.pushItem(innerText)
+        def wrapper:KiwiValue (FigSample.node(3 52 "COMPONENT" "WrapperCard" 0 3 "b" 220.0 60.0 2100.0 800.0))
+        wrapper.put("fillPaints" (FigSample.paints(0.92 0.94 0.98)))
+        nodes.pushItem(wrapper)
+        def nestedInst:KiwiValue (FigSample.node(3 53 "INSTANCE" "InnerInstance" 3 52 "!" 200.0 40.0 10.0 10.0))
+        def nestedSym:KiwiValue (KiwiValue.fromObject())
+        nestedSym.put("symbolID" (FigSample.guid(3 50)))
+        nestedInst.put("symbolData" nestedSym)
+        nodes.pushItem(nestedInst)
+        def outer:KiwiValue (FigSample.node(3 54 "INSTANCE" "NestedOverride" 0 3 "c" 220.0 60.0 2340.0 800.0))
+        def outerSym:KiwiValue (KiwiValue.fromObject())
+        outerSym.put("symbolID" (FigSample.guid(3 52)))
+        outer.put("symbolData" outerSym)
+        def deepOverrides:KiwiValue (KiwiValue.fromArray())
+        def deep:KiwiValue (KiwiValue.fromObject())
+        def deepPath:KiwiValue (KiwiValue.fromObject())
+        def deepGuids:KiwiValue (KiwiValue.fromArray())
+        deepGuids.pushItem((FigSample.guid(3 53)))
+        deepGuids.pushItem((FigSample.guid(3 51)))
+        deepPath.put("guids" deepGuids)
+        deep.put("guidPath" deepPath)
+        def deepTd:KiwiValue (KiwiValue.fromObject())
+        deepTd.put("characters" (KiwiValue.fromString("Deep real text")))
+        deep.put("textData" deepTd)
+        deepOverrides.pushItem(deep)
+        outer.put("derivedSymbolData" deepOverrides)
+        nodes.pushItem(outer)
+
         ; A component that is a single shape — an icon, a divider — is a
         ; normal thing to have. Its instance has nothing to borrow and
         ; nothing is missing, so it must not be reported as unsupported.

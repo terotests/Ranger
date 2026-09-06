@@ -252,6 +252,31 @@ class FigTest {
             this.eqStr("the component keeps its placeholder" masterText.text.characters "Title text")
         }
 
+        ; An override that reaches through a nested instance. Its path
+        ; names the nested instance and then the node inside it, so this
+        ; only works if the whole path is the key and the outer table
+        ; survives the descent.
+        def nested2:SceneNode (shapes.childNamed("NestedOverride"))
+        this.eqInt("the outer instance drew the wrapper" (array_length nested2.children) 1)
+        if ((array_length nested2.children) > 0) {
+            def innerInst:SceneNode (itemAt nested2.children 0)
+            this.eqInt("the nested instance drew its component" (array_length innerInst.children) 1)
+            if ((array_length innerInst.children) > 0) {
+                def deepText:SceneNode (itemAt innerInst.children 0)
+                this.eqStr("and the override reached two levels down" deepText.text.characters "Deep real text")
+            }
+        }
+        ; The same component drawn without that outer instance keeps its
+        ; own text: the override belongs to one instance, not to the file.
+        def plainWrapper:SceneNode (shapes.childNamed("WrapperCard"))
+        if ((array_length plainWrapper.children) > 0) {
+            def plainInner:SceneNode (itemAt plainWrapper.children 0)
+            if ((array_length plainInner.children) > 0) {
+                def plainText:SceneNode (itemAt plainInner.children 0)
+                this.eqStr("an untouched instance keeps the placeholder" plainText.text.characters "Inner placeholder")
+            }
+        }
+
         ; An instance of a single-shape component borrows nothing and
         ; loses nothing, so it is not reported.
         def leafInst:SceneNode (shapes.childNamed("LeafInstance"))

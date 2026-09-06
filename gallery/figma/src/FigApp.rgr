@@ -531,7 +531,7 @@ class FigApp {
         ; that is a different fault from having no overrides at all.
         o = (o + ",\"overridesSeen\":" + (to_string converter.overridesSeen))
         o = (o + ",\"overridesUsed\":" + (to_string converter.overridesUsed))
-        o = (o + ",\"overridesUnplaced\":" + (to_string converter.overridesUnmatched))
+        o = (o + ",\"overridesUnplaced\":" + (to_string (converter.overridesSeen - converter.overridesUsed)))
         return (o + "}")
     }
 

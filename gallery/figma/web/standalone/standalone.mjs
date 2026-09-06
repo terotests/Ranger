@@ -279,6 +279,20 @@ function diagnosticsText() {
   const c = censusSummary();
   const u = unreadSummary();
   const out = [];
+  // Where the time went, so a slow file can be blamed on the stage that
+  // is actually slow rather than on the reader as a whole.
+  try {
+    const st = JSON.parse(web.stats());
+    const ms = st.ms || {};
+    const stage = (name, v) => name + " " + Number(v || 0).toFixed(0) + "ms";
+    out.push(
+      "parsed in " + Number(ms.total || 0).toFixed(0) + "ms — " +
+        [stage("zip", ms.zip), stage("inflate", ms.inflate), stage("zstd", ms.zstd),
+         stage("schema", ms.schema), stage("decode", ms.decode), stage("tree", ms.tree)].join(", ")
+    );
+    out.push(st.nodes + " nodes in the file, " + st.cmds + " draw commands out of them");
+    out.push("");
+  } catch { /* keep */ }
   out.push("the scene by node type — " + c.total + " nodes, " + c.empty + " of which put nothing on the canvas");
   if (c.imagesMissing) out.push(c.imagesMissing + " image fills have no bytes in the file and paint as grey boxes");
   if (c.overridesSeen) {
