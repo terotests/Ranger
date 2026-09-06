@@ -188,3 +188,6 @@ gallery/statechart/out/
 # `StatechartJson.cjs` stay tracked: those are the module itself, and the
 # parity harness loads them.
 gallery/statechart/bin/statechart_viz.js
+
+# Compiled Ranger bundles for the zstd decoder — rebuilt by npm run zstd:test.
+gallery/zstd/bin/

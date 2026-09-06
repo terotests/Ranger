@@ -1,0 +1,73 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; Command line front end for the decoder.
+;
+;   node gallery/zstd/bin/zstd_tool.js decompress in.zst out
+;   node gallery/zstd/bin/zstd_tool.js info in.zst
+
+Import "ZstdDecoder.rgr"
+
+class ZstdTool {
+    sfn splitPath:[string] (path:string) {
+        ; buffer_read_file takes a directory and a name, so a path has to
+        ; be broken at its last separator.
+        def dir:string "."
+        def name:string path
+        def i:int ((strlen path) - 1)
+        def cut:int (0 - 1)
+        while (i >= 0) {
+            def ch:string (substring path i (i + 1))
+            if (ch == "/") {
+                if (cut < 0) {
+                    cut = i
+                }
+            }
+            i = (i - 1)
+        }
+        if (cut >= 0) {
+            dir = (substring path 0 cut)
+            name = (substring path (cut + 1) (strlen path))
+        }
+        def parts:[string]
+        push parts dir
+        push parts name
+        return parts
+    }
+
+    sfn m@(main):void () {
+        def n:int (shell_arg_cnt)
+        if (n < 2) {
+            print "usage: zstd_tool decompress <in.zst> <out>"
+            print "       zstd_tool info <in.zst>"
+            return
+        }
+        def command:string (shell_arg 0)
+        def inPath:string (shell_arg 1)
+        def parts:[string] (ZstdTool.splitPath(inPath))
+        def packed:buffer (buffer_read_file (itemAt parts 0) (itemAt parts 1))
+        if ((buffer_length packed) < 1) {
+            print ("cannot read " + inPath)
+            return
+        }
+        def z (new Zstd())
+        def t0:double (wall_clock_ms)
+        def out:buffer (z.decompress(packed))
+        def ms:double ((wall_clock_ms) - t0)
+        if (z.ok == false) {
+            print ("failed: " + z.err)
+            return
+        }
+        print ((to_string (buffer_length packed)) + " bytes -> " + (to_string (buffer_length out)) + " bytes in " + (to_string ms) + " ms")
+        print ((to_string z.framesRead) + " frame(s), " + (to_string z.blocksRead) + " block(s)")
+        if (command == "decompress") {
+            if (n < 3) {
+                print "decompress needs an output path"
+                return
+            }
+            def outPath:string (shell_arg 2)
+            def outParts:[string] (ZstdTool.splitPath(outPath))
+            buffer_write_file (itemAt outParts 0) (itemAt outParts 1) out
+            print ("wrote " + outPath)
+        }
+    }
+}

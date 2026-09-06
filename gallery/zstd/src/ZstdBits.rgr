@@ -1,0 +1,172 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; Bit readers for Zstandard (RFC 8878).
+;
+; Zstd uses two different bit orders and it is the first thing to get right:
+;
+;   FORWARD, LSB first — the FSE table headers in a block. Bits fill each
+;   byte from its low bit up, and bytes are read in address order. This is
+;   the same order DEFLATE uses.
+;
+;   BACKWARD, MSB first — every FSE and Huffman payload. The encoder wrote
+;   the stream so that it is read from the LAST byte toward the first. The
+;   final byte carries a marker: its highest set bit is not data, it says
+;   where the data ends. A last byte of zero is therefore invalid.
+;
+; Both readers keep an absolute bit index rather than a shift register, so
+; nothing here depends on a 64-bit word — the decoder compiles to targets
+; whose int is 32 bits.
+
+class ZstdForwardBits {
+    def data:buffer (buffer_alloc 0)
+    def start:int 0
+    def endByte:int 0
+    def bitPos:int 0
+    def ok:boolean true
+
+    Constructor () {
+    }
+
+    fn init:void (buf:buffer offset:int length:int) {
+        data = buf
+        start = offset
+        endByte = (offset + length)
+        bitPos = 0
+        ok = true
+    }
+
+    fn bitAt:int (idx:int) {
+        def byteIndex:int (start + (bit_shr idx 3))
+        if (byteIndex >= endByte) {
+            ok = false
+            return 0
+        }
+        def b:int (buffer_get data byteIndex)
+        return (bit_and (bit_shr b (bit_and idx 7)) 1)
+    }
+
+    ; Look at the next n bits without moving. LSB of the result is the next
+    ; bit in the stream.
+    fn peek:int (n:int) {
+        def v:int 0
+        def i:int 0
+        def scale:int 1
+        while (i < n) {
+            v = (v + (scale * (this.bitAt((bitPos + i)))))
+            scale = (scale * 2)
+            i = (i + 1)
+        }
+        return v
+    }
+
+    fn consume:void (n:int) {
+        bitPos = (bitPos + n)
+    }
+
+    fn read:int (n:int) {
+        def v:int (this.peek(n))
+        this.consume(n)
+        return v
+    }
+
+    ; How many whole bytes were touched. The FSE header ends on a byte
+    ; boundary and the literals or sequences that follow start there.
+    fn bytesUsed:int () {
+        return (bit_shr (bitPos + 7) 3)
+    }
+}
+
+class ZstdReverseBits {
+    def data:buffer (buffer_alloc 0)
+    def start:int 0
+    def bitPos:int 0
+    def ok:boolean true
+    def err:string ""
+
+    Constructor () {
+    }
+
+    ; The marker bit in the last byte is consumed here, not by the caller.
+    fn init:boolean (buf:buffer offset:int length:int) {
+        data = buf
+        start = offset
+        ok = true
+        err = ""
+        if (length < 1) {
+            ok = false
+            err = "empty bitstream"
+            return false
+        }
+        def last:int (buffer_get buf (offset + length - 1))
+        if (last == 0) {
+            ok = false
+            err = "bitstream ends in a zero byte (no end marker)"
+            return false
+        }
+        def h:int 7
+        while ((bit_and (bit_shr last h) 1) == 0) {
+            h = (h - 1)
+        }
+        bitPos = (((length - 1) * 8) + h)
+        return true
+    }
+
+    fn bitAt:int (idx:int) {
+        def b:int (buffer_get data (start + (bit_shr idx 3)))
+        return (bit_and (bit_shr b (bit_and idx 7)) 1)
+    }
+
+    ; Read n bits from above the cursor. The bit nearest the end of the
+    ; stream is the most significant one returned.
+    fn read:int (n:int) {
+        if (n == 0) {
+            return 0
+        }
+        if (n > 30) {
+            ok = false
+            err = ("a read of " + (to_string n) + " bits does not fit an int")
+            return 0
+        }
+        bitPos = (bitPos - n)
+        if (bitPos < 0) {
+            ok = false
+            err = "bitstream underrun"
+            bitPos = 0
+            return 0
+        }
+        def v:int 0
+        def i:int (n - 1)
+        while (i >= 0) {
+            v = ((v * 2) + (this.bitAt((bitPos + i))))
+            i = (i - 1)
+        }
+        return v
+    }
+
+    ; Huffman needs to look at a fixed window and then consume only as much
+    ; of it as the code turned out to be. Bits below the start of the stream
+    ; read as zero: the last code in a stream is allowed to be shorter than
+    ; the window, and libzstd's readers pad the same way.
+    fn peek:int (n:int) {
+        def v:int 0
+        def i:int (n - 1)
+        while (i >= 0) {
+            def idx:int ((bitPos - n) + i)
+            def b:int 0
+            if (idx >= 0) {
+                b = (this.bitAt(idx))
+            }
+            v = ((v * 2) + b)
+            i = (i - 1)
+        }
+        return v
+    }
+
+    fn skip:void (n:int) {
+        bitPos = (bitPos - n)
+    }
+
+    fn exhausted:boolean () {
+        return (bitPos <= 0)
+    }
+}

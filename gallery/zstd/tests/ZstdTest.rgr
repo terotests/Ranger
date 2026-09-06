@@ -1,0 +1,259 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; The decoder against a corpus another implementation produced. The
+; fixtures come from Node's own zstd (gallery/zstd/tools/make-fixtures.mjs);
+; a decoder checked only against its own encoder proves nothing.
+
+Import "../src/ZstdDecoder.rgr"
+
+class ZstdTest {
+    def passed:int 0
+    def failed:int 0
+    def caseName:[string]
+    def caseLen:[int]
+    def caseSum:[int]
+
+    sfn main:void () {
+        def t (new ZstdTest())
+        t.run()
+    }
+
+    fn check:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS  " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL  " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.check((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+
+    ; Where the two buffers first differ, or -1 when they do not.
+    sfn firstDiff:int (a:buffer b:buffer) {
+        def n:int (buffer_length a)
+        if ((buffer_length b) < n) {
+            n = (buffer_length b)
+        }
+        def i:int 0
+        while (i < n) {
+            if ((buffer_get a i) != (buffer_get b i)) {
+                return i
+            }
+            i = (i + 1)
+        }
+        if ((buffer_length a) != (buffer_length b)) {
+            return n
+        }
+        return (0 - 1)
+    }
+
+    ; to_int has a template for PHP and nothing else, so a decimal string
+    ; is read here rather than converted.
+    sfn parseInt:int (text:string) {
+        def digits:string "0123456789"
+        def value:int 0
+        def n:int (strlen text)
+        def i:int 0
+        while (i < n) {
+            def ch:string (substring text i (i + 1))
+            def d:int 0
+            while (d < 10) {
+                if ((substring digits d (d + 1)) == ch) {
+                    value = ((value * 10) + d)
+                }
+                d = (d + 1)
+            }
+            i = (i + 1)
+        }
+        return value
+    }
+
+    ; Adler-32, because every intermediate stays inside a signed 32-bit
+    ; int and the number in manifest.txt therefore means the same thing on
+    ; every target.
+    sfn adler32:int (data:buffer) {
+        def a:int 1
+        def b:int 0
+        def n:int (buffer_length data)
+        def i:int 0
+        while (i < n) {
+            a = ((a + (buffer_get data i)) % 65521)
+            b = ((b + a) % 65521)
+            i = (i + 1)
+        }
+        return ((b * 65536) + a)
+    }
+
+    ; manifest.txt says what each case has to decode to: a length and that
+    ; checksum. Big cases are checked by those alone — storing the bytes
+    ; for every one of them would be two megabytes of fixtures — and the
+    ; small ones also keep a .raw so a failure names a byte.
+    fn loadManifest:void () {
+        def raw:buffer (buffer_read_file "gallery/zstd/fixtures" "manifest.txt")
+        def text:string (buffer_to_string raw)
+        def lines:[string] (strsplit text "\n")
+        def i:int 0
+        while (i < (array_length lines)) {
+            def line:string (itemAt lines i)
+            if ((strlen line) > 2) {
+                def parts:[string] (strsplit line " ")
+                if ((array_length parts) == 3) {
+                    def key:string (itemAt parts 0)
+                    def lenText:string (itemAt parts 1)
+                    def sumText:string (itemAt parts 2)
+                    def lenValue:int (ZstdTest.parseInt(lenText))
+                    def sumValue:int (ZstdTest.parseInt(sumText))
+                    push caseName key
+                    push caseLen lenValue
+                    push caseSum sumValue
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn roundTrip:void (name:string) {
+        def packed:buffer (buffer_read_file "gallery/zstd/fixtures" (name + ".zst"))
+        if ((buffer_length packed) < 1) {
+            this.check((name + ": fixture is missing") false)
+            return
+        }
+        def z (new Zstd())
+        def got:buffer (z.decompress(packed))
+        if (z.ok == false) {
+            this.check((name + ": " + z.err) false)
+            return
+        }
+        def row:int (0 - 1)
+        def k:int 0
+        while (k < (array_length caseName)) {
+            if ((itemAt caseName k) == name) {
+                row = k
+            }
+            k = (k + 1)
+        }
+        if (row < 0) {
+            this.check((name + ": manifest.txt does not know this case") false)
+            return
+        }
+        def expectLen:int (itemAt caseLen row)
+        def expectSum:int (itemAt caseSum row)
+        if ((buffer_length got) != expectLen) {
+            this.check((name + " came back " + (to_string (buffer_length got)) + " bytes, want " + (to_string expectLen)) false)
+            return
+        }
+        def sum:int (ZstdTest.adler32(got))
+        if (sum != expectSum) {
+            ; Where a .raw was kept, say which byte went wrong.
+            def want:buffer (buffer_read_file "gallery/zstd/fixtures" (name + ".raw"))
+            if ((buffer_length want) == expectLen) {
+                def diff:int (ZstdTest.firstDiff(got want))
+                this.check((name + " differs at byte " + (to_string diff)) false)
+            } {
+                this.check((name + " has the right length but checksum " + (to_string sum) + ", want " + (to_string expectSum)) false)
+            }
+            return
+        }
+        this.check((name + " (" + (to_string expectLen) + " bytes)") true)
+    }
+
+    fn eachLevel:void (name:string) {
+        this.roundTrip(name)
+        this.roundTrip(name + "-l9")
+        this.roundTrip(name + "-l19")
+    }
+
+    fn testBits:void () {
+        print "--- bit readers ---"
+        ; 0b1011 written the way a backward stream carries it: the marker is
+        ; the highest set bit of the last byte.
+        def b:buffer (buffer_alloc 1)
+        buffer_set b 0 27
+        def rev (new ZstdReverseBits())
+        this.check("reverse init" (rev.init(b 0 1)))
+        this.eqInt("marker skipped" rev.bitPos 4)
+        this.eqInt("top two bits" (rev.read(2)) 2)
+        this.eqInt("next two bits" (rev.read(2)) 3)
+        this.check("stream is spent" (rev.exhausted()))
+        def f (new ZstdForwardBits())
+        f.init(b 0 1)
+        this.eqInt("forward low three" (f.read(3)) 3)
+        this.eqInt("forward next two" (f.read(2)) 3)
+    }
+
+    fn testDefaultTables:void () {
+        print "--- predefined tables ---"
+        def ll (new ZstdFseTable())
+        this.check("literal lengths build" (ll.build((ZstdTables.defaultLiteralCounts()) 35 6)))
+        this.eqInt("literal length states" ll.size 64
+        )
+        def of (new ZstdFseTable())
+        this.check("offsets build" (of.build((ZstdTables.defaultOffsetCounts()) 28 5)))
+        this.eqInt("offset states" of.size 32)
+        def ml (new ZstdFseTable())
+        this.check("match lengths build" (ml.build((ZstdTables.defaultMatchCounts()) 52 6)))
+        this.eqInt("match length states" ml.size 64)
+    }
+
+    fn testCorpus:void () {
+        print "--- round trips ---"
+        this.eachLevel("empty")
+        this.eachLevel("one")
+        this.eachLevel("rle")
+        this.eachLevel("random")
+        this.eachLevel("short")
+        this.eachLevel("prose")
+        this.eachLevel("runs")
+        this.eachLevel("multiblock")
+        ; The stream this project exists for: the message chunk of a real
+        ; Figma export, which is what gallery/figma had to reach for a
+        ; JavaScript library to read.
+        this.roundTrip("figma-message")
+        ; Frame shapes the levels above never produce. Each is somewhere a
+        ; decoder loses its place in the byte stream rather than decoding
+        ; anything wrongly, so each is its own case.
+        this.roundTrip("checksum")
+        this.roundTrip("nosize")
+        this.roundTrip("twoframes")
+        this.roundTrip("skippable")
+    }
+
+    fn testRefusals:void () {
+        print "--- refusals ---"
+        def junk:buffer (buffer_alloc 8)
+        def i:int 0
+        while (i < 8) {
+            buffer_set junk i 7
+            i = (i + 1)
+        }
+        def z (new Zstd())
+        def out:buffer (z.decompress(junk))
+        this.check("bytes that are not a frame are refused" (z.ok == false))
+        def truncated:buffer (buffer_read_file "gallery/zstd/fixtures" "prose.zst")
+        def half:buffer (buffer_alloc (bit_shr (buffer_length truncated) 1))
+        buffer_copy half 0 truncated 0 (buffer_length half)
+        def z2 (new Zstd())
+        def out2:buffer (z2.decompress(half))
+        this.check("a truncated frame is refused" (z2.ok == false))
+    }
+
+    fn run:void () {
+        print "=== ZstdTest ==="
+        this.loadManifest()
+        this.testBits()
+        this.testDefaultTables()
+        this.testCorpus()
+        this.testRefusals()
+        print ""
+        print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
+        if (failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

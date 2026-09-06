@@ -1,0 +1,252 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; Huffman decoding for the literals of a compressed block. RFC 8878 §4.2.
+;
+; The table is sent as a weight per symbol, not a code length: weight w
+; means the symbol's code is `maxBits + 1 - w` bits long, and it owns
+; `1 << (w - 1)` of the table's slots. The weights themselves arrive either
+; as raw nibbles or FSE-coded, which is why this file needs the FSE one.
+;
+; The last symbol's weight is never sent. The weights are a power-of-two
+; sum by construction, so the decoder computes what is missing — and a
+; stream whose weights already fill the table exactly is corrupt.
+
+Import "ZstdBits.rgr"
+Import "ZstdFSE.rgr"
+
+class ZstdHuffTable {
+    def maxBits:int 0
+    def size:int 0
+    def symbols:[int]
+    def bitsUsed:[int]
+    def ok:boolean true
+    def err:string ""
+
+    Constructor () {
+    }
+
+    fn fail:boolean (message:string) {
+        ok = false
+        err = message
+        return false
+    }
+
+    ; `weights` holds one entry per symbol except the last, which is
+    ; derived here.
+    fn buildFromWeights:boolean (weights:[int] count:int) {
+        if (count < 1) {
+            return (this.fail("a Huffman table with no symbols"))
+        }
+        def total:int 0
+        def i:int 0
+        while (i < count) {
+            def w:int (itemAt weights i)
+            if (w > 0) {
+                total = (total + (bit_shl 1 (w - 1)))
+            }
+            i = (i + 1)
+        }
+        if (total == 0) {
+            return (this.fail("every literal weight is zero"))
+        }
+        maxBits = ((ZstdFseTable.highestBit(total)) + 1)
+        if (maxBits > 11) {
+            return (this.fail("a Huffman code of " + (to_string maxBits) + " bits is longer than the format allows"))
+        }
+        size = (bit_shl 1 maxBits)
+        def rest:int (size - total)
+        if (rest <= 0) {
+            return (this.fail("the weights already fill the table, leaving the last symbol nothing"))
+        }
+        ; The gap has to be one whole power of two, or the weights were not
+        ; a valid table to begin with.
+        def lastWeight:int ((ZstdFseTable.highestBit(rest)) + 1)
+        if ((bit_shl 1 (lastWeight - 1)) != rest) {
+            return (this.fail("the weights leave a gap that is not a power of two"))
+        }
+        def all:[int]
+        i = 0
+        while (i < count) {
+            push all (itemAt weights i)
+            i = (i + 1)
+        }
+        push all lastWeight
+        def n:int (count + 1)
+        if (n > 256) {
+            return (this.fail("more than 256 literal symbols"))
+        }
+        ; Slots are handed out weight by weight, lightest first, and in
+        ; symbol order inside a weight.
+        def rankStart:[int]
+        i = 0
+        while (i <= maxBits) {
+            push rankStart 0
+            i = (i + 1)
+        }
+        def rankCount:[int]
+        i = 0
+        while (i <= maxBits) {
+            push rankCount 0
+            i = (i + 1)
+        }
+        i = 0
+        while (i < n) {
+            def wi:int (itemAt all i)
+            if (wi > 0) {
+                if (wi > maxBits) {
+                    return (this.fail("a weight above the table's own depth"))
+                }
+                set rankCount wi ((itemAt rankCount wi) + 1)
+            }
+            i = (i + 1)
+        }
+        def next:int 0
+        def r:int 1
+        while (r <= maxBits) {
+            set rankStart r next
+            next = (next + ((itemAt rankCount r) * (bit_shl 1 (r - 1))))
+            r = (r + 1)
+        }
+        if (next != size) {
+            return (this.fail("the weights cover " + (to_string next) + " of " + (to_string size) + " table slots"))
+        }
+        i = 0
+        while (i < size) {
+            push symbols 0
+            push bitsUsed 0
+            i = (i + 1)
+        }
+        i = 0
+        while (i < n) {
+            def w2:int (itemAt all i)
+            if (w2 > 0) {
+                def span:int (bit_shl 1 (w2 - 1))
+                def nb:int ((maxBits + 1) - w2)
+                def at:int (itemAt rankStart w2)
+                def k:int 0
+                while (k < span) {
+                    set symbols (at + k) i
+                    set bitsUsed (at + k) nb
+                    k = (k + 1)
+                }
+                set rankStart w2 (at + span)
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; One symbol from a backward bitstream: look at maxBits, then step over
+    ; only the bits this code actually used.
+    fn decode:int (bits:ZstdReverseBits) {
+        def idx:int (bits.peek(maxBits))
+        bits.skip((itemAt bitsUsed idx))
+        return (itemAt symbols idx)
+    }
+}
+
+; Reading the weight list that precedes the literals.
+class ZstdHuffWeights {
+    def weights:[int]
+    def count:int 0
+    def bytesUsed:int 0
+    def ok:boolean true
+    def err:string ""
+
+    Constructor () {
+    }
+
+    fn fail:boolean (message:string) {
+        ok = false
+        err = message
+        return false
+    }
+
+    fn read:boolean (data:buffer offset:int available:int) {
+        if (available < 1) {
+            return (this.fail("no room for a Huffman header"))
+        }
+        def header:int (buffer_get data offset)
+        if (header >= 128) {
+            ; Raw nibbles, high one first, two symbols per byte.
+            count = (header - 127)
+            def need:int (bit_shr (count + 1) 1)
+            if ((1 + need) > available) {
+                return (this.fail("the raw weight list runs past the end of the block"))
+            }
+            def i:int 0
+            while (i < count) {
+                def b:int (buffer_get data ((offset + 1) + (bit_shr i 1)))
+                if ((bit_and i 1) == 0) {
+                    push weights (bit_shr b 4)
+                } {
+                    push weights (bit_and b 15)
+                }
+                i = (i + 1)
+            }
+            bytesUsed = (1 + need)
+            return true
+        }
+        ; FSE-coded weights: the header byte is the compressed size.
+        def compressedSize:int header
+        if ((1 + compressedSize) > available) {
+            return (this.fail("the coded weight list runs past the end of the block"))
+        }
+        def nc (new ZstdNCount())
+        if ((nc.read(data (offset + 1) compressedSize 255 6)) == false) {
+            return (this.fail("weight table: " + nc.err))
+        }
+        def table (new ZstdFseTable())
+        if ((table.build(nc.counts nc.maxSymbol nc.accuracyLog)) == false) {
+            return (this.fail("weight table: " + table.err))
+        }
+        def payloadAt:int ((offset + 1) + nc.bytesUsed)
+        def payloadLen:int (compressedSize - nc.bytesUsed)
+        if (payloadLen < 1) {
+            return (this.fail("the weight list has a table but no payload"))
+        }
+        def bits (new ZstdReverseBits())
+        if ((bits.init(data payloadAt payloadLen)) == false) {
+            return (this.fail("weight list: " + bits.err))
+        }
+        ; Two states share one stream, alternating. Both start at zero and
+        ; read the accuracy log as their first "state transition", so the
+        ; initialisation is just the first turn of the loop. The stream
+        ; ends where a read would reach below its first bit, and the symbol
+        ; that read would have produced is not part of the list.
+        def st1:int 0
+        def st2:int 0
+        def nb1:int table.accuracyLog
+        def nb2:int table.accuracyLog
+        count = 0
+        def running:boolean true
+        while running {
+            if ((bits.bitPos - nb1) < 0) {
+                running = false
+            } {
+                st1 = (st1 + (bits.read(nb1)))
+                push weights (itemAt table.symbols st1)
+                count = (count + 1)
+                if ((bits.bitPos - nb2) < 0) {
+                    running = false
+                } {
+                    st2 = (st2 + (bits.read(nb2)))
+                    push weights (itemAt table.symbols st2)
+                    count = (count + 1)
+                    nb1 = (itemAt table.bitsNeeded st1)
+                    st1 = (itemAt table.baseState st1)
+                    nb2 = (itemAt table.bitsNeeded st2)
+                    st2 = (itemAt table.baseState st2)
+                }
+            }
+            if (count > 255) {
+                return (this.fail("more than 255 coded weights"))
+            }
+        }
+        if (count < 1) {
+            return (this.fail("the coded weight list decoded to nothing"))
+        }
+        bytesUsed = (1 + compressedSize)
+        return true
+    }
+}

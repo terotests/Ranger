@@ -1,0 +1,12 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; The decoder as a function the bench harness calls from JavaScript.
+
+Import "../src/ZstdDecoder.rgr"
+
+class ZstdBench {
+    sfn run:buffer (packed:buffer) {
+        def z (new Zstd())
+        return (z.decompress(packed))
+    }
+}
