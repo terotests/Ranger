@@ -157,12 +157,13 @@ console line each would bury the file being read. What the categories mean:
 | warning | what you see |
 | --- | --- |
 | `instance names a component that is not in the file` | an empty box — the component is in a library this file does not carry |
+| `instance names a component with no children, and has nothing of its own to draw` | an empty box — and only reported when the instance really draws nothing; an instance of a single-shape component is normal and silent |
 | `instance whose symbolData names no component` | an empty box — the block is there and holds no guid |
 | `instance with only derived data (overrides), which is not read yet` | an empty box — the content is in `derivedSymbolData` and nothing else |
 | `instance with no symbol fields at all` | an empty box — the node names nothing |
 | `instances nested more than 15 deep` | the outer instances draw, the innermost do not |
 | `boolean operation without geometry` | the shape is missing; Figma did not export a flattened path for it |
-| `strokeAlign OUTSIDE` / `per-side stroke weights` | the stroke is drawn, in the wrong place or at one weight |
+| `strokeAlign OUTSIDE` / `per-side stroke weights` | the stroke is drawn, in the wrong place or at one weight — reported only when the file did not bring `strokeGeometry`, since with it the stroke is exact |
 | `letterSpacing` | the text draws, tracking ignored |
 
 ## What it draws

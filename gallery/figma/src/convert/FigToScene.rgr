@@ -158,6 +158,23 @@ class FigToScene {
         return sn
     }
 
+    ; Whether this node puts anything on the canvas by itself.
+    sfn drawsNothing:boolean (sn:SceneNode) {
+        if ((array_length sn.fills) > 0) {
+            return false
+        }
+        if ((array_length sn.strokes) > 0) {
+            return false
+        }
+        if ((strlen sn.pathData) > 0) {
+            return false
+        }
+        if ((strlen sn.imageRef) > 0) {
+            return false
+        }
+        return ((strlen sn.text.characters) == 0)
+    }
+
     ; Draw the named component's children in the instance's place. The
     ; children are positioned relative to their parent, and the instance
     ; supplies that parent, so they need no adjustment — an override that
@@ -182,7 +199,14 @@ class FigToScene {
             return
         }
         if ((array_length m.children) == 0) {
-            sn.warn("instance names a component with no children")
+            ; A component can legitimately be a single shape — an icon, a
+            ; divider, a spacer — and an export copies its paint onto the
+            ; instance. There is nothing to borrow and nothing missing, so
+            ; this is only worth saying when the instance would otherwise
+            ; draw nothing at all.
+            if (FigToScene.drawsNothing(sn)) {
+                sn.warn("instance names a component with no children, and has nothing of its own to draw")
+            }
             return
         }
         instanceDepth = (instanceDepth + 1)
@@ -396,7 +420,14 @@ class FigToScene {
             } {
                 if (s.align == "OUTSIDE") {
                     s.align = "outside"
-                    sn.warn("strokeAlign OUTSIDE (drawn as center)")
+                    ; Only an approximation when the file did not bring the
+                    ; stroke's own outline. With strokeGeometry the stroke
+                    ; is drawn exactly as Figma computed it — alignment,
+                    ; caps and joins already baked in — and warning about
+                    ; it says something was lost when nothing was.
+                    if ((array_length nd.strokeBlobs) == 0) {
+                        sn.warn("strokeAlign OUTSIDE (drawn as center)")
+                    }
                 } {
                     s.align = "center"
                 }
@@ -406,7 +437,9 @@ class FigToScene {
         }
         if ((array_length sn.strokes) > 0) {
             if (nd.raw.childBool("borderStrokeWeightsIndependent" false)) {
-                sn.warn("per-side stroke weights (drawn as one)")
+                if ((array_length nd.strokeBlobs) == 0) {
+                    sn.warn("per-side stroke weights (drawn as one)")
+                }
             }
         }
     }

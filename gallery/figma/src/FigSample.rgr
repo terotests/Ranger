@@ -117,6 +117,8 @@ class FigSample {
         def symd:KiwiDef (s.addMessage("SymbolData"))
         s.addField(symd "symbolID" "GUID" 1 false)
         s.addField(node "symbolData" "SymbolData" 36 false)
+        s.addField(node "strokeGeometry" "Path" 37 true)
+        s.addField(node "borderStrokeWeightsIndependent" "bool" 38 false)
         def blob:KiwiDef (s.addMessage("Blob"))
         s.addField(blob "bytes" "byte" 1 true)
         def msg:KiwiDef (s.addMessage("Message"))
@@ -545,6 +547,38 @@ class FigSample {
         fInst2.put("fillPaints" (FigSample.paints(0.97 0.97 0.98)))
         fInst2.put("symbolID" (FigSample.guid(3 36)))
         nodes.pushItem(fInst2)
+        ; A component that is a single shape — an icon, a divider — is a
+        ; normal thing to have. Its instance has nothing to borrow and
+        ; nothing is missing, so it must not be reported as unsupported.
+        def leaf:KiwiValue (FigSample.node(3 42 "COMPONENT" "LeafComponent" 0 3 "U" 60.0 60.0 1060.0 800.0))
+        leaf.put("fillPaints" (FigSample.paints(0.9 0.4 0.2)))
+        nodes.pushItem(leaf)
+        def leafInst:KiwiValue (FigSample.node(3 43 "INSTANCE" "LeafInstance" 0 3 "V" 60.0 60.0 1140.0 800.0))
+        leafInst.put("fillPaints" (FigSample.paints(0.9 0.4 0.2)))
+        def leafSym:KiwiValue (KiwiValue.fromObject())
+        leafSym.put("symbolID" (FigSample.guid(3 42)))
+        leafInst.put("symbolData" leafSym)
+        nodes.pushItem(leafInst)
+        ; An outside-aligned stroke whose own outline came with the file.
+        ; Nothing is approximated here, so nothing is reported.
+        def exact:KiwiValue (FigSample.node(3 44 "RECTANGLE" "ExactStroke" 0 3 "W" 60.0 60.0 1220.0 800.0))
+        exact.put("strokePaints" (FigSample.paints(0.1 0.1 0.1)))
+        exact.put("strokeWeight" (KiwiValue.fromDouble(4.0)))
+        exact.put("strokeAlign" (KiwiValue.fromString("OUTSIDE")))
+        exact.put("borderStrokeWeightsIndependent" (KiwiValue.fromBool(true)))
+        def sgeom:KiwiValue (KiwiValue.fromArray())
+        def sg0:KiwiValue (KiwiValue.fromObject())
+        sg0.put("commandsBlob" (KiwiValue.fromInt(0)))
+        sgeom.pushItem(sg0)
+        exact.put("strokeGeometry" sgeom)
+        nodes.pushItem(exact)
+        ; The same stroke without that outline: an approximation, and said.
+        def guessed:KiwiValue (FigSample.node(3 45 "RECTANGLE" "GuessedStroke" 0 3 "X" 60.0 60.0 1300.0 800.0))
+        guessed.put("strokePaints" (FigSample.paints(0.1 0.1 0.1)))
+        guessed.put("strokeWeight" (KiwiValue.fromDouble(4.0)))
+        guessed.put("strokeAlign" (KiwiValue.fromString("OUTSIDE")))
+        nodes.pushItem(guessed)
+
         ; The shape a Figma export actually writes: the guid is inside a
         ; symbolData block, not on the node. Reading only the flat spelling
         ; left every instance in a real file empty.
