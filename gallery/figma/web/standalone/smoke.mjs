@@ -234,4 +234,22 @@ if (!FIG_FILE_RE.test("a.fig") || !FIG_FILE_RE.test("A.DECK") || FIG_FILE_RE.tes
   console.error("FIG_FILE_RE does not name the files the page opens");
   process.exit(1);
 }
+// A target with no zstd decoder: the operator's fallback hands back an
+// empty buffer rather than throwing, and only the schema chunk was checked
+// for that. Simulate it through the same hook the page installs.
+const realZstd = globalThis.__figZstdDecompress;
+globalThis.__figZstdDecompress = () => new Uint8Array(0);
+const starved = new FigWeb();
+starved.setViewport(1200, 800);
+const again = readFileSync(figPath);
+const ab2 = again.buffer.slice(again.byteOffset, again.byteOffset + again.byteLength);
+ab2._view = new DataView(ab2);
+const opened = starved.openBytes(ab2, "health.fig");
+globalThis.__figZstdDecompress = realZstd;
+if (opened || !/zstd/.test(starved.error())) {
+  console.error("an empty zstd result was taken for a document:", opened, starved.error());
+  process.exit(1);
+}
+console.log("no-zstd target ok —", starved.error());
+
 console.log("clipboard variants ok —", Object.keys(variants).join(", "), "· truncation caught · debug filled");

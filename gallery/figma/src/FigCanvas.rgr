@@ -84,6 +84,19 @@ class FigCanvas {
             this.fail("schema inflate produced no bytes")
             return false
         }
+        ; The schema is checked above; the message was not, and it is the
+        ; half that can arrive empty without anything having thrown. On a
+        ; target with no zstd the operator's fallback hands back an empty
+        ; buffer by design, and the kiwi decoder then reads a document with
+        ; no nodes in it and reports success. Say which codec came up short.
+        if ((buffer_length messageRaw) == 0) {
+            if usedZstd {
+                this.fail("zstd produced no bytes: this target has no zstd decoder for the message chunk")
+            } {
+                this.fail("message inflate produced no bytes")
+            }
+            return false
+        }
         return true
     }
 

@@ -28,7 +28,23 @@ This is the OpenFig pipeline written in Ranger, so the two can be timed on
 the same bytes. OpenFig is
 [`openfig-cli`](https://github.com/OpenFig-org/openfig-cli) /
 [`openfig-core`](https://github.com/OpenFig-org/openfig-core). Zstd on the
-JavaScript target is [fzstd](https://github.com/101arrowz/fzstd) (MIT).
+JavaScript target is [fzstd](https://github.com/101arrowz/fzstd) 0.1.1
+(MIT) — `web/vendor/fzstd.mjs` is that release's `esm/index.mjs`
+verbatim, vendored because the page has no bundler and a browser cannot
+resolve a bare specifier.
+
+Zstd is the one step that is not Ranger. The ZIP around a `.fig` and the
+DEFLATE inside it are (`gallery/zip`, `Inflate.rgr`), and the schema
+chunk is always DEFLATE; only the message chunk of a Figma export is
+zstd, and that is a different algorithm from DEFLATE, not a mode of it.
+So `FigZstd.rgr` hands the step to the host: the page and the Node bench
+install `globalThis.__figZstdDecompress`, Node 22+ falls back to
+`zlib.zstdDecompressSync`, and **every other target gets the operator's
+`*` fallback, an empty buffer** — a real export cannot be read there.
+Writing zstd in Ranger would drop the vendored file and make the reader
+work on every target; the machinery is Huffman (which `Inflate.rgr`
+already has a form of) plus FSE, which is the part that does not exist
+in this repo yet.
 
 ## EVG support (used, not extended)
 
