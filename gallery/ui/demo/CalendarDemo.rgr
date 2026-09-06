@@ -36,6 +36,7 @@
 ; =============================================================================
 
 Import "../src/CalendarCtl.rgr"
+Import "../src/DateFieldCtl.rgr"
 Import "../src/UiDate.rgr"
 Import "../../evg/EVGElement.rgr"
 Import "../../evg/EVGUnit.rgr"
@@ -54,9 +55,6 @@ treefactory Cal {
     tag Page      EVGElement (props (className "cd-page"))
     tag Field     EVGElement (props (className "cd-field"))
     tag FieldLbl  EVGElement (props (className "cd-field-label") (elementType 1))
-    tag Box       EVGElement (props (className "cd-box") (role "textbox"))
-    tag BoxText   EVGElement (props (className "cd-box-text") (elementType 1))
-    tag BoxHint   EVGElement (props (className "cd-box-hint") (elementType 1))
     tag Card      EVGElement (props (className "cd-card"))
     tag Nav       EVGElement (props (className "cd-nav") (role "navigation") (a11yLabel "Navigation bar"))
     tag NavBtn    EVGElement (props (className "cd-navbtn") (role "button"))
@@ -98,6 +96,14 @@ treefactory Cal {
 class CalendarDemo {
 
     def model:CalendarCtl (new CalendarCtl())
+    ; The `mm/dd/yyyy` editor above the grid. Measured against Chromium's own
+    ; <input type="date"> in `ui:datefield:check`; this page only wires it to
+    ; the calendar, both ways.
+    def field:DateFieldCtl (new DateFieldCtl())
+    ; The selection the field was last told about, so a calendar click that
+    ; changes nothing does not wipe a half-typed date.
+    def fieldSelDay:int 0
+    def fieldHasSel:boolean false
     def root@(optional):EVGElement
     def sheet@(optional):EVGStyleSheet
     def transitions:EVGTransition (new EVGTransition())
@@ -131,21 +137,86 @@ class CalendarDemo {
         model.reverseYears = true
         model.build()
 
+        field.tid = "cd-box"
+        field.name = "Date"
+        field.todayYear = 2026
+        this.fieldFromModel()
+
         root = (this.page())
     }
 
-    ; --- what the field says -------------------------------------------------
+    ; --- the field and the grid, kept in step ------------------------------------
 
-    ; "Wednesday, May 20th, 2026" if a day is chosen. The long form rather than
-    ; an ISO string because this is the human-facing half; the ISO string is
-    ; what `CalendarCtl` addresses cells by, and the two are not the same job.
-    fn fieldText:string () {
-        if (model.hasSelection == false) {
-            return ""
+    ; The calendar chose (or un-chose) a day: the segments show it. Only when
+    ; the selection actually changed, so pressing a month arrow while the year
+    ; is half typed leaves the typing alone.
+    fn fieldFromModel:void () {
+        if ((model.hasSelection == fieldHasSel) && (model.selectedDay == fieldSelDay)) {
+            return
         }
-        def p:[int] ([] _:int ( 0 0 0 ))
-        UiDate.fromDays(model.selectedDay p)
-        return (UiDate.longLabel((itemAt p 0) (itemAt p 1) (itemAt p 2)))
+        fieldHasSel = model.hasSelection
+        fieldSelDay = model.selectedDay
+        if model.hasSelection {
+            def p:[int] ([] _:int ( 0 0 0 ))
+            UiDate.fromDays(model.selectedDay p)
+            field.setDate((itemAt p 0) (itemAt p 1) (itemAt p 2))
+        } {
+            field.clear()
+        }
+    }
+
+    ; The field changed: a complete date is the calendar's selection and the
+    ; grid turns to its month; an incomplete one is no date, as the native
+    ; control's `value` is "" until all three segments hold something possible.
+    fn modelFromField:void () {
+        if (field.isComplete()) {
+            model.setSelected(field.year field.month field.day)
+            model.setMonth(field.year field.month)
+            model.focusDay = model.selectedDay
+            model.hasFocusDay = true
+        } {
+            model.clearSelected()
+        }
+        fieldHasSel = model.hasSelection
+        fieldSelDay = model.selectedDay
+        model.build()
+    }
+
+    fn inField:boolean (target:string) {
+        if (target == field.tid) {
+            return true
+        }
+        return ((field.segOf(target)) >= 0)
+    }
+
+    ; The field's own element, dressed for this page: the segments and slashes
+    ; are the controller's, the box and the roles are the page's.
+    fn fieldBox:EVGElement () {
+        field.build()
+        def box:EVGElement (unwrap field.rootEl)
+        box.className = "cd-box"
+        box.role = "group"
+        box.a11yLabel = "Date"
+        box.a11yRoleDescription = "Date field"
+        def i:int 0
+        while (i < 3) {
+            def seg:EVGElement (itemAt field.segEls i)
+            seg.role = "textbox"
+            seg.a11yLabel = (field.segName(i))
+            seg.a11yRoleDescription = "spinbutton"
+            seg.a11yFocusable = true
+            seg.a11yValue = (field.shown(i))
+            i = (i + 1)
+        }
+        def k:int 0
+        while (k < (box.getChildCount())) {
+            def kid:EVGElement (box.getChild(k))
+            if (kid.className == "ui-datefield-sep") {
+                kid.a11yHidden = true
+            }
+            k = (k + 1)
+        }
+        return box
     }
 
     ; --- the look ------------------------------------------------------------
@@ -301,19 +372,9 @@ class CalendarDemo {
     fn page:EVGElement () {
         def page (tree Cal (Page))
 
-        def field (tree Cal (Field (FieldLbl "Date")))
-        def chosen:string (this.fieldText())
-        def box (tree Cal (Box (props (id "cd-box") (a11yLabel "Date"))))
-        if (chosen == "") {
-            ; A placeholder is not a value and must not read as one: it is
-            ; drawn pale, and the box's accessible name stays "Date" so a
-            ; reader is never told the hint is the answer.
-            box.addChild((tree Cal (BoxHint "Pick a day")))
-        } {
-            box.addChild((tree Cal (BoxText chosen)))
-        }
-        field.addChild(box)
-        page.addChild(field)
+        def fieldWrap (tree Cal (Field (FieldLbl "Date")))
+        fieldWrap.addChild((this.fieldBox()))
+        page.addChild(fieldWrap)
 
         def card (tree Cal (Card))
         def nav (tree Cal
@@ -414,8 +475,17 @@ class CalendarDemo {
     ; --- events --------------------------------------------------------------
 
     fn press:boolean (target:string) {
+        if (this.inField(target)) {
+            focused = (field.activate(target))
+            this.rebuild()
+            return true
+        }
+        if (this.inField(focused)) {
+            field.blur()
+        }
         def wasOpen:boolean model.yearPanelOpen
         model.activate(target)
+        this.fieldFromModel()
         ; Opening the panel parks it on the year you are on. Without this it
         ; opens at the top — which with `reverseYears` is a year twenty out,
         ; and the control that exists to save you scrolling starts by making
@@ -431,6 +501,52 @@ class CalendarDemo {
     }
 
     fn key:boolean (k:string) {
+        return (this.keyWith(k false false))
+    }
+
+    fn keyWith:boolean (k:string shift:boolean ctrl:boolean) {
+        ; The field first: a segment under focus takes digits, arrows,
+        ; Backspace and Tab, and the rules are the browser's own date input's.
+        if (this.inField(focused)) {
+            if (k == "Tab") {
+                def next:string (field.tabFrom(focused shift))
+                if (next == "") {
+                    if shift {
+                        focused = ""
+                    } {
+                        ; Out of the year and onto the grid's resting day.
+                        focused = (model.dayTid((model.currentFocusDay())))
+                    }
+                } {
+                    focused = next
+                }
+                this.rebuild()
+                return true
+            }
+            if ((strlen k) == 1) {
+                field.typeChar(focused k)
+                focused = (field.focusTid())
+                this.modelFromField()
+                this.rebuild()
+                return true
+            }
+            def to:string (field.keyDownWith(focused k shift ctrl))
+            if (to != "") {
+                focused = to
+            }
+            this.modelFromField()
+            this.rebuild()
+            return true
+        }
+        ; Shift+Tab from the grid goes back into the field, at the year.
+        if (k == "Tab") {
+            if shift {
+                focused = (field.enterFrom(true))
+                this.rebuild()
+                return true
+            }
+            return false
+        }
         ; A key belongs to the day that has focus. Nothing else on this page
         ; takes one, so an unfocused page arms the resting day rather than
         ; swallowing the press — otherwise the first arrow key does nothing
@@ -443,6 +559,7 @@ class CalendarDemo {
         if (landed != "") {
             focused = landed
         }
+        this.fieldFromModel()
         this.rebuild()
         return true
     }

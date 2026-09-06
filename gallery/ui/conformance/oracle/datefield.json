@@ -1,0 +1,1793 @@
+{
+  "note": "Captured by datefield_oracle.mjs from Chromium's own <input type=\"date\"> in en-US, read through the accessibility tree: each segment is a spinbutton named Month, Day or Year whose valuetext is what it shows and whose focused flag says where the keyboard is. `value` is the input's committed value. Every scenario starts by tabbing in from the element before the field.",
+  "browser": "Chromium 141.0.7390.37",
+  "locale": "en-US",
+  "order": [
+    "tab_in_empty",
+    "arrows_on_empty",
+    "month_wraps",
+    "day_wraps",
+    "year_steps",
+    "type_month_one_three",
+    "type_month_zero_five",
+    "type_over_filled",
+    "backspace",
+    "delete",
+    "impossible_day",
+    "home_end_page",
+    "letters",
+    "tab_out",
+    "shift_tab_back",
+    "year_partial",
+    "space_enter",
+    "arrows_on_empty_day_year",
+    "arrows_on_empty_day_down_first",
+    "day_three_two",
+    "day_three_one",
+    "zeros",
+    "month_one_then_arrow",
+    "arrow_then_type",
+    "year_long",
+    "backspace_then_type"
+  ],
+  "scenarios": {
+    "tab_in_empty": {
+      "start": {
+        "value": "",
+        "segs": {
+          "month": "",
+          "day": "",
+          "year": ""
+        },
+        "focus": "month"
+      },
+      "steps": [
+        {
+          "key": "ArrowRight",
+          "value": "",
+          "segs": {
+            "month": "",
+            "day": "",
+            "year": ""
+          },
+          "focus": "day"
+        },
+        {
+          "key": "ArrowRight",
+          "value": "",
+          "segs": {
+            "month": "",
+            "day": "",
+            "year": ""
+          },
+          "focus": "year"
+        },
+        {
+          "key": "ArrowRight",
+          "value": "",
+          "segs": {
+            "month": "",
+            "day": "",
+            "year": ""
+          },
+          "focus": "year"
+        },
+        {
+          "key": "ArrowLeft",
+          "value": "",
+          "segs": {
+            "month": "",
+            "day": "",
+            "year": ""
+          },
+          "focus": "day"
+        },
+        {
+          "key": "ArrowLeft",
+          "value": "",
+          "segs": {
+            "month": "",
+            "day": "",
+            "year": ""
+          },
+          "focus": "month"
+        },
+        {
+          "key": "ArrowLeft",
+          "value": "",
+          "segs": {
+            "month": "",
+            "day": "",
+            "year": ""
+          },
+          "focus": "month"
+        },
+        {
+          "key": "ArrowLeft",
+          "value": "",
+          "segs": {
+            "month": "",
+            "day": "",
+            "year": ""
+          },
+          "focus": "month"
+        }
+      ]
+    },
+    "arrows_on_empty": {
+      "start": {
+        "value": "",
+        "segs": {
+          "month": "",
+          "day": "",
+          "year": ""
+        },
+        "focus": "month"
+      },
+      "steps": [
+        {
+          "key": "ArrowUp",
+          "value": "",
+          "segs": {
+            "month": "01",
+            "day": "",
+            "year": ""
+          },
+          "focus": "month"
+        },
+        {
+          "key": "ArrowUp",
+          "value": "",
+          "segs": {
+            "month": "02",
+            "day": "",
+            "year": ""
+          },
+          "focus": "month"
+        },
+        {
+          "key": "ArrowDown",
+          "value": "",
+          "segs": {
+            "month": "01",
+            "day": "",
+            "year": ""
+          },
+          "focus": "month"
+        },
+        {
+          "key": "ArrowDown",
+          "value": "",
+          "segs": {
+            "month": "12",
+            "day": "",
+            "year": ""
+          },
+          "focus": "month"
+        },
+        {
+          "key": "ArrowDown",
+          "value": "",
+          "segs": {
+            "month": "11",
+            "day": "",
+            "year": ""
+          },
+          "focus": "month"
+        }
+      ]
+    },
+    "month_wraps": {
+      "start": {
+        "value": "2026-12-20",
+        "segs": {
+          "month": "12",
+          "day": "20",
+          "year": "2026"
+        },
+        "focus": "month"
+      },
+      "steps": [
+        {
+          "key": "ArrowUp",
+          "value": "2026-01-20",
+          "segs": {
+            "month": "01",
+            "day": "20",
+            "year": "2026"
+          },
+          "focus": "month"
+        },
+        {
+          "key": "ArrowUp",
+          "value": "2026-02-20",
+          "segs": {
+            "month": "02",
+            "day": "20",
+            "year": "2026"
+          },
+          "focus": "month"
+        },
+        {
+          "key": "ArrowDown",
+          "value": "2026-01-20",
+          "segs": {
+            "month": "01",
+            "day": "20",
+            "year": "2026"
+          },
+          "focus": "month"
+        },
+        {
+          "key": "ArrowDown",
+          "value": "2026-12-20",
+          "segs": {
+            "month": "12",
+            "day": "20",
+            "year": "2026"
+          },
+          "focus": "month"
+        },
+        {
+          "key": "ArrowDown",
+          "value": "2026-11-20",
+          "segs": {
+            "month": "11",
+            "day": "20",
+            "year": "2026"
+          },
+          "focus": "month"
+        }
+      ]
+    },
+    "day_wraps": {
+      "start": {
+        "value": "2026-01-31",
+        "segs": {
+          "month": "01",
+          "day": "31",
+          "year": "2026"
+        },
+        "focus": "month"
+      },
+      "steps": [
+        {
+          "key": "ArrowRight",
+          "value": "2026-01-31",
+          "segs": {
+            "month": "01",
+            "day": "31",
+            "year": "2026"
+          },
+          "focus": "day"
+        },
+        {
+          "key": "ArrowUp",
+          "value": "2026-01-01",
+          "segs": {
+            "month": "01",
+            "day": "01",
+            "year": "2026"
+          },
+          "focus": "day"
+        },
+        {
+          "key": "ArrowUp",
+          "value": "2026-01-02",
+          "segs": {
+            "month": "01",
+            "day": "02",
+            "year": "2026"
+          },
+          "focus": "day"
+        },
+        {
+          "key": "ArrowDown",
+          "value": "2026-01-01",
+          "segs": {
+            "month": "01",
+            "day": "01",
+            "year": "2026"
+          },
+          "focus": "day"
+        },
+        {
+          "key": "ArrowDown",
+          "value": "2026-01-31",
+          "segs": {
+            "month": "01",
+            "day": "31",
+            "year": "2026"
+          },
+          "focus": "day"
+        },
+        {
+          "key": "ArrowDown",
+          "value": "2026-01-30",
+          "segs": {
+            "month": "01",
+            "day": "30",
+            "year": "2026"
+          },
+          "focus": "day"
+        }
+      ]
+    },
+    "year_steps": {
+      "start": {
+        "value": "2026-05-20",
+        "segs": {
+          "month": "05",
+          "day": "20",
+          "year": "2026"
+        },
+        "focus": "month"
+      },
+      "steps": [
+        {
+          "key": "ArrowRight",
+          "value": "2026-05-20",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": "2026"
+          },
+          "focus": "day"
+        },
+        {
+          "key": "ArrowRight",
+          "value": "2026-05-20",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": "2026"
+          },
+          "focus": "year"
+        },
+        {
+          "key": "ArrowUp",
+          "value": "2027-05-20",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": "2027"
+          },
+          "focus": "year"
+        },
+        {
+          "key": "ArrowUp",
+          "value": "2028-05-20",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": "2028"
+          },
+          "focus": "year"
+        },
+        {
+          "key": "ArrowDown",
+          "value": "2027-05-20",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": "2027"
+          },
+          "focus": "year"
+        },
+        {
+          "key": "ArrowDown",
+          "value": "2026-05-20",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": "2026"
+          },
+          "focus": "year"
+        },
+        {
+          "key": "ArrowDown",
+          "value": "2025-05-20",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": "2025"
+          },
+          "focus": "year"
+        }
+      ]
+    },
+    "type_month_one_three": {
+      "start": {
+        "value": "",
+        "segs": {
+          "month": "",
+          "day": "",
+          "year": ""
+        },
+        "focus": "month"
+      },
+      "steps": [
+        {
+          "type": "1",
+          "value": "",
+          "segs": {
+            "month": "01",
+            "day": "",
+            "year": ""
+          },
+          "focus": "month"
+        },
+        {
+          "type": "3",
+          "value": "",
+          "segs": {
+            "month": "12",
+            "day": "",
+            "year": ""
+          },
+          "focus": "day"
+        },
+        {
+          "type": "1",
+          "value": "",
+          "segs": {
+            "month": "12",
+            "day": "01",
+            "year": ""
+          },
+          "focus": "day"
+        },
+        {
+          "type": "2",
+          "value": "",
+          "segs": {
+            "month": "12",
+            "day": "12",
+            "year": ""
+          },
+          "focus": "year"
+        },
+        {
+          "type": "0",
+          "value": "",
+          "segs": {
+            "month": "12",
+            "day": "12",
+            "year": ""
+          },
+          "focus": "year"
+        },
+        {
+          "type": "2",
+          "value": "0002-12-12",
+          "segs": {
+            "month": "12",
+            "day": "12",
+            "year": "0002"
+          },
+          "focus": "year"
+        },
+        {
+          "type": "6",
+          "value": "0026-12-12",
+          "segs": {
+            "month": "12",
+            "day": "12",
+            "year": "0026"
+          },
+          "focus": "year"
+        }
+      ]
+    },
+    "type_month_zero_five": {
+      "start": {
+        "value": "",
+        "segs": {
+          "month": "",
+          "day": "",
+          "year": ""
+        },
+        "focus": "month"
+      },
+      "steps": [
+        {
+          "type": "0",
+          "value": "",
+          "segs": {
+            "month": "",
+            "day": "",
+            "year": ""
+          },
+          "focus": "month"
+        },
+        {
+          "type": "5",
+          "value": "",
+          "segs": {
+            "month": "05",
+            "day": "",
+            "year": ""
+          },
+          "focus": "day"
+        },
+        {
+          "type": "2",
+          "value": "",
+          "segs": {
+            "month": "05",
+            "day": "02",
+            "year": ""
+          },
+          "focus": "day"
+        },
+        {
+          "type": "0",
+          "value": "",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": ""
+          },
+          "focus": "year"
+        },
+        {
+          "type": "2",
+          "value": "0002-05-20",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": "0002"
+          },
+          "focus": "year"
+        },
+        {
+          "type": "0",
+          "value": "0020-05-20",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": "0020"
+          },
+          "focus": "year"
+        },
+        {
+          "type": "2",
+          "value": "0202-05-20",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": "0202"
+          },
+          "focus": "year"
+        },
+        {
+          "type": "6",
+          "value": "2026-05-20",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": "2026"
+          },
+          "focus": "year"
+        },
+        {
+          "type": "7",
+          "value": "20267-05-20",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": "20267"
+          },
+          "focus": "year"
+        }
+      ]
+    },
+    "type_over_filled": {
+      "start": {
+        "value": "2026-05-20",
+        "segs": {
+          "month": "05",
+          "day": "20",
+          "year": "2026"
+        },
+        "focus": "month"
+      },
+      "steps": [
+        {
+          "type": "1",
+          "value": "2026-01-20",
+          "segs": {
+            "month": "01",
+            "day": "20",
+            "year": "2026"
+          },
+          "focus": "month"
+        },
+        {
+          "type": "1",
+          "value": "2026-11-20",
+          "segs": {
+            "month": "11",
+            "day": "20",
+            "year": "2026"
+          },
+          "focus": "day"
+        },
+        {
+          "type": "0",
+          "value": "",
+          "segs": {
+            "month": "11",
+            "day": "",
+            "year": "2026"
+          },
+          "focus": "day"
+        },
+        {
+          "type": "9",
+          "value": "2026-11-09",
+          "segs": {
+            "month": "11",
+            "day": "09",
+            "year": "2026"
+          },
+          "focus": "year"
+        },
+        {
+          "type": "1",
+          "value": "0001-11-09",
+          "segs": {
+            "month": "11",
+            "day": "09",
+            "year": "0001"
+          },
+          "focus": "year"
+        },
+        {
+          "type": "9",
+          "value": "0019-11-09",
+          "segs": {
+            "month": "11",
+            "day": "09",
+            "year": "0019"
+          },
+          "focus": "year"
+        },
+        {
+          "type": "9",
+          "value": "0199-11-09",
+          "segs": {
+            "month": "11",
+            "day": "09",
+            "year": "0199"
+          },
+          "focus": "year"
+        },
+        {
+          "type": "9",
+          "value": "1999-11-09",
+          "segs": {
+            "month": "11",
+            "day": "09",
+            "year": "1999"
+          },
+          "focus": "year"
+        }
+      ]
+    },
+    "backspace": {
+      "start": {
+        "value": "2026-05-20",
+        "segs": {
+          "month": "05",
+          "day": "20",
+          "year": "2026"
+        },
+        "focus": "month"
+      },
+      "steps": [
+        {
+          "key": "ArrowRight",
+          "value": "2026-05-20",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": "2026"
+          },
+          "focus": "day"
+        },
+        {
+          "key": "ArrowRight",
+          "value": "2026-05-20",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": "2026"
+          },
+          "focus": "year"
+        },
+        {
+          "key": "Backspace",
+          "value": "",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": ""
+          },
+          "focus": "year"
+        },
+        {
+          "key": "Backspace",
+          "value": "",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": ""
+          },
+          "focus": "year"
+        },
+        {
+          "key": "Backspace",
+          "value": "",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": ""
+          },
+          "focus": "year"
+        },
+        {
+          "key": "Backspace",
+          "value": "",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": ""
+          },
+          "focus": "year"
+        },
+        {
+          "key": "Backspace",
+          "value": "",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": ""
+          },
+          "focus": "year"
+        }
+      ]
+    },
+    "delete": {
+      "start": {
+        "value": "2026-05-20",
+        "segs": {
+          "month": "05",
+          "day": "20",
+          "year": "2026"
+        },
+        "focus": "month"
+      },
+      "steps": [
+        {
+          "key": "Delete",
+          "value": "",
+          "segs": {
+            "month": "",
+            "day": "20",
+            "year": "2026"
+          },
+          "focus": "month"
+        },
+        {
+          "key": "Delete",
+          "value": "",
+          "segs": {
+            "month": "",
+            "day": "20",
+            "year": "2026"
+          },
+          "focus": "month"
+        },
+        {
+          "key": "ArrowRight",
+          "value": "",
+          "segs": {
+            "month": "",
+            "day": "20",
+            "year": "2026"
+          },
+          "focus": "day"
+        },
+        {
+          "key": "Delete",
+          "value": "",
+          "segs": {
+            "month": "",
+            "day": "",
+            "year": "2026"
+          },
+          "focus": "day"
+        }
+      ]
+    },
+    "impossible_day": {
+      "start": {
+        "value": "2026-01-31",
+        "segs": {
+          "month": "01",
+          "day": "31",
+          "year": "2026"
+        },
+        "focus": "month"
+      },
+      "steps": [
+        {
+          "key": "ArrowUp",
+          "value": "",
+          "segs": {
+            "month": "02",
+            "day": "31",
+            "year": "2026"
+          },
+          "focus": "month"
+        },
+        {
+          "key": "ArrowUp",
+          "value": "2026-03-31",
+          "segs": {
+            "month": "03",
+            "day": "31",
+            "year": "2026"
+          },
+          "focus": "month"
+        },
+        {
+          "key": "ArrowRight",
+          "value": "2026-03-31",
+          "segs": {
+            "month": "03",
+            "day": "31",
+            "year": "2026"
+          },
+          "focus": "day"
+        },
+        {
+          "key": "ArrowUp",
+          "value": "2026-03-01",
+          "segs": {
+            "month": "03",
+            "day": "01",
+            "year": "2026"
+          },
+          "focus": "day"
+        }
+      ]
+    },
+    "home_end_page": {
+      "start": {
+        "value": "2026-05-20",
+        "segs": {
+          "month": "05",
+          "day": "20",
+          "year": "2026"
+        },
+        "focus": "month"
+      },
+      "steps": [
+        {
+          "key": "Home",
+          "value": "2026-05-20",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": "2026"
+          },
+          "focus": "month"
+        },
+        {
+          "key": "End",
+          "value": "2026-05-20",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": "2026"
+          },
+          "focus": "month"
+        },
+        {
+          "key": "PageUp",
+          "value": "2026-05-20",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": "2026"
+          },
+          "focus": "month"
+        },
+        {
+          "key": "PageDown",
+          "value": "2026-05-20",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": "2026"
+          },
+          "focus": "month"
+        },
+        {
+          "key": "ArrowRight",
+          "value": "2026-05-20",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": "2026"
+          },
+          "focus": "day"
+        },
+        {
+          "key": "PageUp",
+          "value": "2026-05-20",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": "2026"
+          },
+          "focus": "day"
+        },
+        {
+          "key": "ArrowRight",
+          "value": "2026-05-20",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": "2026"
+          },
+          "focus": "year"
+        },
+        {
+          "key": "PageUp",
+          "value": "2026-05-20",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": "2026"
+          },
+          "focus": "year"
+        },
+        {
+          "key": "PageDown",
+          "value": "2026-05-20",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": "2026"
+          },
+          "focus": "year"
+        }
+      ]
+    },
+    "letters": {
+      "start": {
+        "value": "2026-05-20",
+        "segs": {
+          "month": "05",
+          "day": "20",
+          "year": "2026"
+        },
+        "focus": "month"
+      },
+      "steps": [
+        {
+          "type": "a",
+          "value": "2026-05-20",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": "2026"
+          },
+          "focus": "month"
+        },
+        {
+          "type": "x",
+          "value": "2026-05-20",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": "2026"
+          },
+          "focus": "month"
+        },
+        {
+          "key": "ArrowRight",
+          "value": "2026-05-20",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": "2026"
+          },
+          "focus": "day"
+        },
+        {
+          "type": "b",
+          "value": "2026-05-20",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": "2026"
+          },
+          "focus": "day"
+        }
+      ]
+    },
+    "tab_out": {
+      "start": {
+        "value": "2026-05-20",
+        "segs": {
+          "month": "05",
+          "day": "20",
+          "year": "2026"
+        },
+        "focus": "month"
+      },
+      "steps": [
+        {
+          "key": "Tab",
+          "value": "2026-05-20",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": "2026"
+          },
+          "focus": "day"
+        },
+        {
+          "key": "Tab",
+          "value": "2026-05-20",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": "2026"
+          },
+          "focus": "year"
+        },
+        {
+          "key": "Tab",
+          "value": "2026-05-20",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": "2026"
+          },
+          "focus": ""
+        }
+      ]
+    },
+    "shift_tab_back": {
+      "start": {
+        "value": "2026-05-20",
+        "segs": {
+          "month": "05",
+          "day": "20",
+          "year": "2026"
+        },
+        "focus": "month"
+      },
+      "steps": [
+        {
+          "key": "ArrowRight",
+          "value": "2026-05-20",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": "2026"
+          },
+          "focus": "day"
+        },
+        {
+          "key": "ArrowRight",
+          "value": "2026-05-20",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": "2026"
+          },
+          "focus": "year"
+        },
+        {
+          "key": "Shift+Tab",
+          "value": "2026-05-20",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": "2026"
+          },
+          "focus": "day"
+        },
+        {
+          "key": "Shift+Tab",
+          "value": "2026-05-20",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": "2026"
+          },
+          "focus": "month"
+        },
+        {
+          "key": "Shift+Tab",
+          "value": "2026-05-20",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": "2026"
+          },
+          "focus": "before"
+        }
+      ]
+    },
+    "year_partial": {
+      "start": {
+        "value": "",
+        "segs": {
+          "month": "",
+          "day": "",
+          "year": ""
+        },
+        "focus": "month"
+      },
+      "steps": [
+        {
+          "type": "0",
+          "value": "",
+          "segs": {
+            "month": "",
+            "day": "",
+            "year": ""
+          },
+          "focus": "month"
+        },
+        {
+          "type": "5",
+          "value": "",
+          "segs": {
+            "month": "05",
+            "day": "",
+            "year": ""
+          },
+          "focus": "day"
+        },
+        {
+          "type": "2",
+          "value": "",
+          "segs": {
+            "month": "05",
+            "day": "02",
+            "year": ""
+          },
+          "focus": "day"
+        },
+        {
+          "type": "0",
+          "value": "",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": ""
+          },
+          "focus": "year"
+        },
+        {
+          "type": "2",
+          "value": "0002-05-20",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": "0002"
+          },
+          "focus": "year"
+        },
+        {
+          "type": "0",
+          "value": "0020-05-20",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": "0020"
+          },
+          "focus": "year"
+        },
+        {
+          "key": "ArrowUp",
+          "value": "0021-05-20",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": "0021"
+          },
+          "focus": "year"
+        },
+        {
+          "key": "ArrowDown",
+          "value": "0020-05-20",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": "0020"
+          },
+          "focus": "year"
+        }
+      ]
+    },
+    "space_enter": {
+      "start": {
+        "value": "2026-05-20",
+        "segs": {
+          "month": "05",
+          "day": "20",
+          "year": "2026"
+        },
+        "focus": "month"
+      },
+      "steps": [
+        {
+          "key": " ",
+          "value": "2026-05-20",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": "2026"
+          },
+          "focus": "month"
+        },
+        {
+          "key": "Enter",
+          "value": "2026-05-20",
+          "segs": {
+            "month": "05",
+            "day": "20",
+            "year": "2026"
+          },
+          "focus": "month"
+        }
+      ]
+    },
+    "arrows_on_empty_day_year": {
+      "start": {
+        "value": "",
+        "segs": {
+          "month": "",
+          "day": "",
+          "year": ""
+        },
+        "focus": "month"
+      },
+      "steps": [
+        {
+          "key": "ArrowRight",
+          "value": "",
+          "segs": {
+            "month": "",
+            "day": "",
+            "year": ""
+          },
+          "focus": "day"
+        },
+        {
+          "key": "ArrowUp",
+          "value": "",
+          "segs": {
+            "month": "",
+            "day": "01",
+            "year": ""
+          },
+          "focus": "day"
+        },
+        {
+          "key": "ArrowDown",
+          "value": "",
+          "segs": {
+            "month": "",
+            "day": "31",
+            "year": ""
+          },
+          "focus": "day"
+        },
+        {
+          "key": "ArrowDown",
+          "value": "",
+          "segs": {
+            "month": "",
+            "day": "30",
+            "year": ""
+          },
+          "focus": "day"
+        },
+        {
+          "key": "ArrowRight",
+          "value": "",
+          "segs": {
+            "month": "",
+            "day": "30",
+            "year": ""
+          },
+          "focus": "year"
+        },
+        {
+          "key": "ArrowUp",
+          "value": "",
+          "segs": {
+            "month": "",
+            "day": "30",
+            "year": "2026"
+          },
+          "focus": "year"
+        },
+        {
+          "key": "ArrowDown",
+          "value": "",
+          "segs": {
+            "month": "",
+            "day": "30",
+            "year": "2025"
+          },
+          "focus": "year"
+        },
+        {
+          "key": "ArrowDown",
+          "value": "",
+          "segs": {
+            "month": "",
+            "day": "30",
+            "year": "2024"
+          },
+          "focus": "year"
+        }
+      ]
+    },
+    "arrows_on_empty_day_down_first": {
+      "start": {
+        "value": "",
+        "segs": {
+          "month": "",
+          "day": "",
+          "year": ""
+        },
+        "focus": "month"
+      },
+      "steps": [
+        {
+          "key": "ArrowRight",
+          "value": "",
+          "segs": {
+            "month": "",
+            "day": "",
+            "year": ""
+          },
+          "focus": "day"
+        },
+        {
+          "key": "ArrowDown",
+          "value": "",
+          "segs": {
+            "month": "",
+            "day": "31",
+            "year": ""
+          },
+          "focus": "day"
+        }
+      ]
+    },
+    "day_three_two": {
+      "start": {
+        "value": "",
+        "segs": {
+          "month": "",
+          "day": "",
+          "year": ""
+        },
+        "focus": "month"
+      },
+      "steps": [
+        {
+          "key": "ArrowRight",
+          "value": "",
+          "segs": {
+            "month": "",
+            "day": "",
+            "year": ""
+          },
+          "focus": "day"
+        },
+        {
+          "type": "3",
+          "value": "",
+          "segs": {
+            "month": "",
+            "day": "03",
+            "year": ""
+          },
+          "focus": "day"
+        },
+        {
+          "type": "2",
+          "value": "",
+          "segs": {
+            "month": "",
+            "day": "31",
+            "year": ""
+          },
+          "focus": "year"
+        }
+      ]
+    },
+    "day_three_one": {
+      "start": {
+        "value": "",
+        "segs": {
+          "month": "",
+          "day": "",
+          "year": ""
+        },
+        "focus": "month"
+      },
+      "steps": [
+        {
+          "key": "ArrowRight",
+          "value": "",
+          "segs": {
+            "month": "",
+            "day": "",
+            "year": ""
+          },
+          "focus": "day"
+        },
+        {
+          "type": "3",
+          "value": "",
+          "segs": {
+            "month": "",
+            "day": "03",
+            "year": ""
+          },
+          "focus": "day"
+        },
+        {
+          "type": "1",
+          "value": "",
+          "segs": {
+            "month": "",
+            "day": "31",
+            "year": ""
+          },
+          "focus": "year"
+        },
+        {
+          "type": "5",
+          "value": "",
+          "segs": {
+            "month": "",
+            "day": "31",
+            "year": "0005"
+          },
+          "focus": "year"
+        }
+      ]
+    },
+    "zeros": {
+      "start": {
+        "value": "",
+        "segs": {
+          "month": "",
+          "day": "",
+          "year": ""
+        },
+        "focus": "month"
+      },
+      "steps": [
+        {
+          "type": "0",
+          "value": "",
+          "segs": {
+            "month": "",
+            "day": "",
+            "year": ""
+          },
+          "focus": "month"
+        },
+        {
+          "type": "0",
+          "value": "",
+          "segs": {
+            "month": "01",
+            "day": "",
+            "year": ""
+          },
+          "focus": "day"
+        },
+        {
+          "type": "0",
+          "value": "",
+          "segs": {
+            "month": "01",
+            "day": "",
+            "year": ""
+          },
+          "focus": "day"
+        },
+        {
+          "type": "7",
+          "value": "",
+          "segs": {
+            "month": "01",
+            "day": "07",
+            "year": ""
+          },
+          "focus": "year"
+        }
+      ]
+    },
+    "month_one_then_arrow": {
+      "start": {
+        "value": "",
+        "segs": {
+          "month": "",
+          "day": "",
+          "year": ""
+        },
+        "focus": "month"
+      },
+      "steps": [
+        {
+          "type": "1",
+          "value": "",
+          "segs": {
+            "month": "01",
+            "day": "",
+            "year": ""
+          },
+          "focus": "month"
+        },
+        {
+          "key": "ArrowRight",
+          "value": "",
+          "segs": {
+            "month": "01",
+            "day": "",
+            "year": ""
+          },
+          "focus": "day"
+        },
+        {
+          "type": "2",
+          "value": "",
+          "segs": {
+            "month": "01",
+            "day": "02",
+            "year": ""
+          },
+          "focus": "day"
+        }
+      ]
+    },
+    "arrow_then_type": {
+      "start": {
+        "value": "",
+        "segs": {
+          "month": "",
+          "day": "",
+          "year": ""
+        },
+        "focus": "month"
+      },
+      "steps": [
+        {
+          "type": "1",
+          "value": "",
+          "segs": {
+            "month": "01",
+            "day": "",
+            "year": ""
+          },
+          "focus": "month"
+        },
+        {
+          "key": "ArrowUp",
+          "value": "",
+          "segs": {
+            "month": "02",
+            "day": "",
+            "year": ""
+          },
+          "focus": "month"
+        },
+        {
+          "type": "2",
+          "value": "",
+          "segs": {
+            "month": "02",
+            "day": "",
+            "year": ""
+          },
+          "focus": "day"
+        }
+      ]
+    },
+    "year_long": {
+      "start": {
+        "value": "",
+        "segs": {
+          "month": "",
+          "day": "",
+          "year": ""
+        },
+        "focus": "month"
+      },
+      "steps": [
+        {
+          "type": "1",
+          "value": "",
+          "segs": {
+            "month": "01",
+            "day": "",
+            "year": ""
+          },
+          "focus": "month"
+        },
+        {
+          "type": "2",
+          "value": "",
+          "segs": {
+            "month": "12",
+            "day": "",
+            "year": ""
+          },
+          "focus": "day"
+        },
+        {
+          "type": "1",
+          "value": "",
+          "segs": {
+            "month": "12",
+            "day": "01",
+            "year": ""
+          },
+          "focus": "day"
+        },
+        {
+          "type": "2",
+          "value": "",
+          "segs": {
+            "month": "12",
+            "day": "12",
+            "year": ""
+          },
+          "focus": "year"
+        },
+        {
+          "type": "2",
+          "value": "0002-12-12",
+          "segs": {
+            "month": "12",
+            "day": "12",
+            "year": "0002"
+          },
+          "focus": "year"
+        },
+        {
+          "type": "0",
+          "value": "0020-12-12",
+          "segs": {
+            "month": "12",
+            "day": "12",
+            "year": "0020"
+          },
+          "focus": "year"
+        },
+        {
+          "type": "2",
+          "value": "0202-12-12",
+          "segs": {
+            "month": "12",
+            "day": "12",
+            "year": "0202"
+          },
+          "focus": "year"
+        },
+        {
+          "type": "6",
+          "value": "2026-12-12",
+          "segs": {
+            "month": "12",
+            "day": "12",
+            "year": "2026"
+          },
+          "focus": "year"
+        },
+        {
+          "type": "7",
+          "value": "20267-12-12",
+          "segs": {
+            "month": "12",
+            "day": "12",
+            "year": "20267"
+          },
+          "focus": "year"
+        },
+        {
+          "type": "8",
+          "value": "202678-12-12",
+          "segs": {
+            "month": "12",
+            "day": "12",
+            "year": "202678"
+          },
+          "focus": "year"
+        },
+        {
+          "key": "Backspace",
+          "value": "",
+          "segs": {
+            "month": "12",
+            "day": "12",
+            "year": ""
+          },
+          "focus": "year"
+        },
+        {
+          "type": "1",
+          "value": "0001-12-12",
+          "segs": {
+            "month": "12",
+            "day": "12",
+            "year": "0001"
+          },
+          "focus": "year"
+        }
+      ]
+    },
+    "backspace_then_type": {
+      "start": {
+        "value": "2026-05-20",
+        "segs": {
+          "month": "05",
+          "day": "20",
+          "year": "2026"
+        },
+        "focus": "month"
+      },
+      "steps": [
+        {
+          "key": "Backspace",
+          "value": "",
+          "segs": {
+            "month": "",
+            "day": "20",
+            "year": "2026"
+          },
+          "focus": "month"
+        },
+        {
+          "type": "1",
+          "value": "2026-01-20",
+          "segs": {
+            "month": "01",
+            "day": "20",
+            "year": "2026"
+          },
+          "focus": "month"
+        },
+        {
+          "type": "1",
+          "value": "2026-11-20",
+          "segs": {
+            "month": "11",
+            "day": "20",
+            "year": "2026"
+          },
+          "focus": "day"
+        }
+      ]
+    }
+  }
+}

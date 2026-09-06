@@ -77,6 +77,7 @@ const DEMOS = [
   ["MenubarDemo", "menubar.css"],
   ["MessageDemo", "message.css"],
   ["MotionDemo", "motion.css"],
+  ["OtpDemo", "otp.css"],
   ["ProfileDemo", "profile.css"],
   ["ResizeDemo", "resize.css"],
   ["SortableDemo", "sortable.css"],

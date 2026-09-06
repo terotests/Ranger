@@ -185,6 +185,9 @@ const demoNames = async () => {
   return page.evaluate(() => [...document.querySelectorAll("#demos input[type=radio]")].map((r) => r.value));
 };
 
+const MEASURED_ELSEWHERE = new Set(["spinbutton", "One-time code"]);
+const elsewhere = [];
+
 async function discover() {
   const fields = [];
   for (const demo of await demoNames()) {
@@ -192,6 +195,16 @@ async function discover() {
     const tree = await a11y();
     for (const n of tree.nodes || []) {
       if (n.role !== "textbox") continue;
+      // A textbox whose roledescription names a component with an oracle of
+      // its own is not a text field and is not scored against one: the date
+      // field's segments (`spinbutton`, Chromium's own date input in
+      // ui:datefield:check) and the one-time code (`One-time code`, input-otp
+      // in ui:otp:check) normalise their selection on purpose, and every
+      // divergence from a plain <input> here would be the measured rule.
+      if (MEASURED_ELSEWHERE.has(n.roledesc)) {
+        elsewhere.push(`${demo}/${n.id} (${n.roledesc})`);
+        continue;
+      }
       if (ONLY.length && !ONLY.includes(n.id)) continue;
       // A toggle drawn inside the field — the password's eye — is the field's
       // child in the tree, and the masking scenario needs to know it is there.
@@ -866,6 +879,10 @@ if (fs.existsSync(CATALOGUE)) {
     }
   }
   console.log(`  ${covered} of ${covered + missing} variants have a field on these pages; ${missing} have none.`);
+}
+if (elsewhere.length) {
+  console.log("\n--- textboxes measured by their own oracle, not scored here ---");
+  for (const e of elsewhere) console.log(`  ${e}`);
 }
 
 // --- the baseline -----------------------------------------------------------

@@ -1,0 +1,421 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; OtpDemo — a one-time code, drawn, and the invite code beside it
+; =============================================================================
+; shadcn's Input OTP: six slots, a dash after the third, the active slot
+; ringed, a caret in the first empty one. `OtpCtl` owns every rule — which slot
+; is active after a click, what Backspace deletes, that the seventh digit
+; replaces the sixth, that a letter is refused whole — and is measured against
+; input-otp in `ui:otp:check`. This page owns the look and the wiring: a code
+; that completes lights Verify, and the status line says how far along it is.
+;
+; TWO FIELDS, because the interesting Tab is the one that leaves: a Tab out of
+; the code has to land on something, and Shift+Tab back into it has to land
+; where the reference's focus handler puts it (the end, whatever slot the
+; keyboard left from). The second field takes any character, with a length of
+; four, so "digits only" is visibly a setting and not the component.
+;
+; NOT WIRED HERE: the clipboard. The controller's `paste` is measured (a code
+; over a half-filled field, a code with punctuation, a code too long), but the
+; page has no text-input session for this field, so Ctrl+V on the canvas does
+; not reach it. `PLAN_INPUTS.md` records it.
+; =============================================================================
+
+Import "../src/OtpCtl.rgr"
+Import "../src/UiTree.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGStyleSheet.rgr"
+Import "../../evg/EVGTransition.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+Import "../../evg/EVGA11yFromTree.rgr"
+Import "../../evg/EVGHitTest.rgr"
+
+treefactory Ot {
+    child addChild
+    text  textContent
+
+    tag Page      EVGElement (props (className "ot-page"))
+    tag Card      EVGElement (props (className "ot-card"))
+    tag Title     EVGElement (props (className "ot-title") (elementType 1))
+    tag Sub       EVGElement (props (className "ot-sub") (elementType 1))
+    tag Field     EVGElement (props (className "ot-field"))
+    tag Label     EVGElement (props (className "ot-label") (elementType 1))
+    tag Status    EVGElement (props (className "ot-status") (role "status") (elementType 1))
+    tag StatusOk  EVGElement (props (className "ot-status-done") (role "status") (elementType 1))
+    tag Row       EVGElement (props (className "ot-row"))
+    tag Btn       EVGElement (props (className "ot-btn") (role "button"))
+    tag BtnTxt    EVGElement (props (className "ot-btntxt") (elementType 1) (a11yHidden true))
+    tag Result    EVGElement (props (className "ot-result") (role "status") (elementType 1))
+    tag Note      EVGElement (props (className "ot-note") (elementType 1))
+}
+
+class OtpDemo {
+
+    def code:OtpCtl (new OtpCtl())
+    def invite:OtpCtl (new OtpCtl())
+    def root@(optional):EVGElement
+    def sheet@(optional):EVGStyleSheet
+    def transitions:EVGTransition (new EVGTransition())
+    def layout@(optional):EVGLayout
+    def hovered:string ""
+    def pressed:string ""
+    def focused:string ""
+    def verified:string ""
+    def pageW:double 620.0
+    def pageH:double 520.0
+
+    Constructor () {
+    }
+
+    fn init:void (css:string) {
+        def s (new EVGStyleSheet())
+        s.parse(css)
+        sheet = s
+
+        code.tid = "ot-code"
+        code.name = "One-time code"
+        code.maxLength = 6
+        code.digitsOnly = true
+        code.groupSize = 3
+
+        invite.tid = "ot-invite"
+        invite.name = "Invite code"
+        invite.maxLength = 4
+        invite.digitsOnly = false
+
+        root = (this.page())
+    }
+
+    ; --- which field a tid belongs to ---------------------------------------------
+
+    fn fieldOf:OtpCtl (target:string) {
+        if (target == invite.tid) {
+            return invite
+        }
+        if ((invite.slotOf(target)) >= 0) {
+            return invite
+        }
+        return code
+    }
+
+    fn inField:boolean (target:string) {
+        if ((target == code.tid) || (target == invite.tid)) {
+            return true
+        }
+        if ((code.slotOf(target)) >= 0) {
+            return true
+        }
+        return ((invite.slotOf(target)) >= 0)
+    }
+
+    ; The tab ring: the two fields and the two buttons, Verify only when it
+    ; can be pressed.
+    fn ring:[string] () {
+        def r:[string]
+        push r code.tid
+        push r invite.tid
+        push r "ot-resend"
+        if (code.isFull()) {
+            push r "ot-verify"
+        }
+        return r
+    }
+
+    fn tab:boolean (back:boolean) {
+        def r:[string] (this.ring())
+        def n:int (array_length r)
+        def at:int (0 - 1)
+        def i:int 0
+        while (i < n) {
+            if ((itemAt r i) == focused) {
+                at = i
+            }
+            i = (i + 1)
+        }
+        def next:int (at + 1)
+        if back {
+            next = (at - 1)
+        }
+        if (next < 0) {
+            next = (n - 1)
+        }
+        if (next >= n) {
+            next = 0
+        }
+        code.blur()
+        invite.blur()
+        focused = (itemAt r next)
+        if (this.inField(focused)) {
+            ; MEASURED: focus lands at the end, from either direction.
+            def f:OtpCtl (this.fieldOf(focused))
+            f.focus()
+        }
+        this.rebuild()
+        return true
+    }
+
+    ; --- the look -------------------------------------------------------------------
+
+    ; The controller's element, dressed: one textbox whose value is the code,
+    ; slots hidden from a reader (shadcn's are plain divs too), the fake caret
+    ; drawn as a bar in its slot.
+    fn fieldBox:EVGElement (c:OtpCtl) {
+        c.build()
+        def box:EVGElement (unwrap c.rootEl)
+        box.role = "textbox"
+        box.a11yLabel = c.name
+        box.a11yRoleDescription = "One-time code"
+        box.a11yFocusable = true
+        box.a11yValue = c.value
+        def k:int 0
+        while (k < (box.getChildCount())) {
+            def kid:EVGElement (box.getChild(k))
+            kid.a11yHidden = true
+            def i:int (c.slotOf(kid.id))
+            if (i >= 0) {
+                if (c.hasFakeCaret(i)) {
+                    kid.textContent = "|"
+                }
+            }
+            k = (k + 1)
+        }
+        return box
+    }
+
+    fn statusText:string () {
+        if (code.isFull()) {
+            return "Code complete"
+        }
+        return (to_string (code.length())) + " of 6 digits"
+    }
+
+    fn page:EVGElement () {
+        def page (tree Ot (Page))
+        def card (tree Ot (Card (Title "Verify your sign-in") (Sub "Enter the six-digit code we sent to a…@example.com.")))
+
+        def f1 (tree Ot (Field (Label "One-time code")))
+        f1.addChild((this.fieldBox(code)))
+        if (code.isFull()) {
+            f1.addChild((tree Ot (StatusOk (props (id "ot-status")) (this.statusText()))))
+        } {
+            f1.addChild((tree Ot (Status (props (id "ot-status")) (this.statusText()))))
+        }
+        card.addChild(f1)
+
+        def f2 (tree Ot (Field (Label "Invite code (optional, any four characters)")))
+        f2.addChild((this.fieldBox(invite)))
+        card.addChild(f2)
+
+        def row (tree Ot (Row))
+        def verify (tree Ot (Btn (props (id "ot-verify") (a11yLabel "Verify"))))
+        def verifyTxt (tree Ot (BtnTxt "Verify"))
+        if (code.isFull()) {
+            verify.className = "ot-btn ot-btn-primary"
+            verifyTxt.className = "ot-btntxt ot-btntxt-primary"
+        } {
+            verify.className = "ot-btn ot-btn-off"
+            verifyTxt.className = "ot-btntxt ot-btntxt-off"
+            verify.a11yDisabled = true
+        }
+        verify.addChild(verifyTxt)
+        def resend (tree Ot (Btn (props (id "ot-resend") (a11yLabel "Resend code")) (BtnTxt "Resend code")))
+        row.addChild(verify)
+        row.addChild(resend)
+        card.addChild(row)
+        if ((strlen verified) > 0) {
+            card.addChild((tree Ot (Result (props (id "ot-result")) verified)))
+        }
+        page.addChild(card)
+        page.addChild((tree Ot (Note "Click a slot and type. The seventh digit replaces the sixth, a letter is refused, Backspace on a middle slot leaves the one before it active — input-otp's rules, measured.")))
+        return page
+    }
+
+    ; --- events -----------------------------------------------------------------------
+
+    fn press:boolean (target:string) {
+        if (this.inField(target)) {
+            def f:OtpCtl (this.fieldOf(target))
+            if (f.tid == code.tid) {
+                invite.blur()
+            } {
+                code.blur()
+            }
+            focused = (f.activate(target))
+            this.rebuild()
+            return true
+        }
+        code.blur()
+        invite.blur()
+        if (target == "ot-verify") {
+            focused = target
+            if (code.isFull()) {
+                verified = "Verified " + code.value
+            }
+            this.rebuild()
+            return true
+        }
+        if (target == "ot-resend") {
+            focused = target
+            code.clear()
+            verified = ""
+            this.rebuild()
+            return true
+        }
+        focused = ""
+        this.rebuild()
+        return true
+    }
+
+    fn key:boolean (k:string) {
+        return (this.keyWith(k false false))
+    }
+
+    fn keyWith:boolean (k:string shift:boolean ctrl:boolean) {
+        if (k == "Tab") {
+            return (this.tab(shift))
+        }
+        if (this.inField(focused)) {
+            def f:OtpCtl (this.fieldOf(focused))
+            if ((strlen k) == 1) {
+                if ctrl {
+                    f.keyDownWith(f.tid k shift ctrl)
+                } {
+                    f.typeChar(f.tid k)
+                }
+                this.rebuild()
+                return true
+            }
+            f.keyDownWith(f.tid k shift ctrl)
+            this.rebuild()
+            return true
+        }
+        if ((focused == "ot-verify") || (focused == "ot-resend")) {
+            if ((k == "Enter") || (k == " ")) {
+                return (this.press(focused))
+            }
+        }
+        return false
+    }
+
+    fn setHover:void (id:string) {
+        hovered = id
+    }
+
+    fn setPressed:void (id:string) {
+        pressed = id
+    }
+
+    fn setFocus:void (id:string) {
+        focused = id
+    }
+
+    fn rebuild:void () {
+        root = (this.page())
+    }
+
+    fn markStates:void (el:EVGElement) {
+        el.isHovered = false
+        el.isPressed = false
+        el.isFocused = false
+        if ((strlen el.id) > 0) {
+            if (el.id == hovered) {
+                el.isHovered = true
+            }
+            if (el.id == pressed) {
+                el.isPressed = true
+            }
+            if (el.id == focused) {
+                el.isFocused = true
+            }
+        }
+        def i:int 0
+        while (i < (el.getChildCount())) {
+            this.markStates((el.getChild(i)))
+            i = (i + 1)
+        }
+    }
+
+    fn laidOut:EVGLayout () {
+        def r:EVGElement (unwrap root)
+        def s:EVGStyleSheet (unwrap sheet)
+        s.setViewport(pageW pageH false)
+        this.markStates(r)
+        s.applyTree(r "")
+        def t:EVGTransition transitions
+        t.reconcileTree(r)
+        if layout {
+            def lay:EVGLayout (unwrap layout)
+            if ((s.layoutClean()) == false) {
+                lay.layout(r)
+            }
+            return lay
+        }
+        def fresh (new EVGLayout())
+        fresh.setPageSize(pageW pageH)
+        layout = fresh
+        fresh.layout(r)
+        return fresh
+    }
+
+    fn displayListJson:string () {
+        def lay:EVGLayout (this.laidOut())
+        def r:EVGElement (unwrap root)
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(r)
+        return (dl.toJson())
+    }
+
+    fn hitId:string (px:double py:double) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def hit (new EVGHitTest())
+        return (hit.idAt(r px py))
+    }
+
+    fn a11yJson:string (generation:int focusId:string) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "One-time code demo" generation focusId))
+        return (t.toJson())
+    }
+
+    fn a11yProblems:[string] () {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "One-time code demo" 1 ""))
+        return (t.lint())
+    }
+
+    fn styleErrorCount:int () {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (s.getErrorCount())
+    }
+
+    fn styleErrorAt:string (i:int) {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (s.getError(i))
+    }
+
+    fn tick:boolean (dtMs:double) {
+        def r:EVGElement (unwrap root)
+        def t:EVGTransition transitions
+        t.advanceTree(r dtMs)
+        return (t.busy(r))
+    }
+
+    fn busyNow:boolean () {
+        def r:EVGElement (unwrap root)
+        def t:EVGTransition transitions
+        return (t.busy(r))
+    }
+
+    fn heightPx:double () {
+        return pageH
+    }
+}

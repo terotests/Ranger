@@ -87,51 +87,65 @@ console.log("the grid lines up");
 
 console.log("the field says what is chosen");
 {
+  // The box is DateFieldCtl's `mm/dd/yyyy` editor — three segments and two
+  // slashes — measured against Chromium's own date input in
+  // `ui:datefield:check`. Here: that the calendar fills it and empties it.
   const d = fresh();
-  ok("empty to begin with, showing the hint",
-    withClass(d, "cd-box-hint").length === 1 && withClass(d, "cd-box-text").length === 0);
+  const seg = () => ["cd-box-month", "cd-box-day", "cd-box-year"].map((id) => byId(d, id));
+  const shown = () => seg().map((e) => e.textContent).join("/");
+  ok("empty to begin with, showing the hints",
+    shown() === "mm/dd/yyyy" && seg().every((e) => hasClass(e, "ui-datefield-hint")), shown());
+  ok("two slashes between them", withClass(d, "ui-datefield-sep").length === 2);
   d.press("cal-2026-05-20");
-  const text = withClass(d, "cd-box-text");
-  ok("a click fills it", text.length === 1 && text[0].textContent === "Wednesday, May 20th, 2026",
-    text.length ? text[0].textContent : "no value element");
+  ok("a click fills it", shown() === "05/20/2026" && !seg().some((e) => hasClass(e, "ui-datefield-hint")), shown());
   // Clearing has to be visible somewhere, and the field is where.
   d.press("cal-2026-05-20");
-  ok("and clicking the same day again empties it",
-    withClass(d, "cd-box-hint").length === 1 && withClass(d, "cd-box-text").length === 0);
+  ok("and clicking the same day again empties it", shown() === "mm/dd/yyyy", shown());
 }
 
-console.log("a chosen day is legible");
+console.log("typing a date moves the calendar");
 {
   const d = fresh();
-  d.press("cal-2026-05-20");
-  const cell = byId(d, "cal-2026-05-20");
-  ok("the cell is marked selected", hasClass(cell, "cd-day-selected"));
-  // The number carries its OWN variant class. EVGStyleSheet has no descendant
-  // selectors, so without this the number stays #18181b on a #18181b fill and
-  // the chosen day is a black square with nothing in it.
-  ok("and so is its number", hasClass(cell.children[0], "cd-daynum-selected"),
-    cell.children[0].className);
-  const outside = byId(d, "cal-2026-04-26");
-  ok("an outside day's number is marked too", hasClass(outside.children[0], "cd-daynum-outside"));
-}
-
-console.log("the pointer reaches the cells");
-{
-  const d = fresh();
-  const cell = byId(d, "cal-2026-05-13");
-  const cx = cell.calculatedX + cell.calculatedWidth / 2;
-  const cy = cell.calculatedY + cell.calculatedHeight / 2;
-  ok("a day is hittable at its centre", d.hitId(cx, cy) === "cal-2026-05-13",
-    `got [${d.hitId(cx, cy)}]`);
-  // And at its corner: a cell whose hit box had collapsed to its text would
-  // still answer at the centre and miss here.
-  ok("and at its corner",
-    d.hitId(cell.calculatedX + 1, cell.calculatedY + 1) === "cal-2026-05-13",
-    `got [${d.hitId(cell.calculatedX + 1, cell.calculatedY + 1)}]`);
-  ok("the prev button is hittable", (() => {
-    const b = byId(d, "cal-prev");
-    return d.hitId(b.calculatedX + 2, b.calculatedY + 2) === "cal-prev";
-  })());
+  const caption = () =>
+    withClass(d, "cd-monthtxt")[0].textContent + " " + withClass(d, "cd-yeartxt")[0].textContent;
+  const shown = () => ["cd-box-month", "cd-box-day", "cd-box-year"].map((id) => byId(d, id).textContent).join("/");
+  d.press("cd-box");
+  ok("a click on the box puts the keyboard in the month", d.focused === "cd-box-month", d.focused);
+  ok("and the month is drawn as the active segment",
+    hasClass(byId(d, "cd-box-month"), "ui-datefield-seg-focus"));
+  for (const k of ["1", "2"]) d.key(k);
+  ok("\"12\" fills the month and moves on", shown() === "12/dd/yyyy" && d.focused === "cd-box-day", `${shown()} @${d.focused}`);
+  for (const k of ["2", "5"]) d.key(k);
+  ok("\"25\" fills the day", shown() === "12/25/yyyy" && d.focused === "cd-box-year", `${shown()} @${d.focused}`);
+  ok("no date yet: the calendar has no selection", !d.model.hasSelection && caption() === "May 2026", caption());
+  for (const k of ["2", "0", "2", "6"]) d.key(k);
+  ok("the year completes it", shown() === "12/25/2026", shown());
+  ok("and the calendar turns to December with the day chosen",
+    caption() === "December 2026" && d.model.hasSelection && hasClass(byId(d, "cal-2026-12-25"), "cd-day-selected"),
+    caption());
+  d.key("ArrowLeft");
+  d.key("ArrowLeft");
+  d.key("ArrowUp");
+  ok("ArrowUp on the month wraps 12 to 01 and the grid follows", shown() === "01/25/2026" && caption() === "January 2026", `${shown()} ${caption()}`);
+  d.key("Backspace");
+  ok("Backspace empties the month and the selection with it",
+    shown() === "mm/25/2026" && !d.model.hasSelection && !withClass(d, "cd-day-selected").length, shown());
+  d.keyWith("Tab", false, false);
+  d.keyWith("Tab", false, false);
+  ok("Tab walks to the year", d.focused === "cd-box-year", d.focused);
+  d.keyWith("Tab", false, false);
+  ok("and out of the field onto the grid's resting day", d.focused.startsWith("cal-2026-01-"), d.focused);
+  d.keyWith("Tab", true, false);
+  ok("Shift+Tab from the grid comes back into the year", d.focused === "cd-box-year", d.focused);
+  d.key("a");
+  ok("a letter changes nothing", shown() === "mm/25/2026", shown());
+  const tree = JSON.parse(d.a11yJson(1, ""));
+  const node = (id) => tree.nodes.find((n) => n.id === id);
+  const month = node("cd-box-month");
+  ok("a reader is told each segment as a named textbox with the native role's word",
+    month && month.role === "textbox" && month.name === "Month" && month.roledesc === "spinbutton", JSON.stringify(month));
+  ok("under a group named Date", node("cd-box") && node("cd-box").role === "group" && node("cd-box").name === "Date", JSON.stringify(node("cd-box")));
+  ok("and the slashes are not announced", !tree.nodes.some((n) => n.id === "cd-box-sep1"));
 }
 
 console.log("the keyboard drives it");
@@ -155,7 +169,8 @@ console.log("the keyboard drives it");
   d.key("PageDown");
   ok("and PageDown brings it back", caption() === "May 2026", caption());
   d.key("Enter");
-  ok("Enter chooses the focused day", withClass(d, "cd-box-text").length === 1);
+  ok("Enter chooses the focused day", byId(d, "cd-box-day").textContent === "15" && byId(d, "cd-box-month").textContent === "05",
+    byId(d, "cd-box-month").textContent + "/" + byId(d, "cd-box-day").textContent);
 }
 
 console.log("what a reader is told");

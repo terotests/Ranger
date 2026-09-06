@@ -1,0 +1,503 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; OtpCtl — a one-time code field, measured against input-otp
+; =============================================================================
+; shadcn's Input OTP is a styled wrapper around guilhermerodz/input-otp: ONE
+; hidden text `<input>` laid over a row of drawn slots. The slots are a picture
+; of the input's value and SELECTION — the "active" slot is the character the
+; selection covers — and everything a person sees is the browser's text editing
+; plus the library's normalisation of that selection after every change.
+; `conformance/oracle/otp.json` holds what the library does in Chromium, and
+; `otp_check.mjs` replays every scenario of it against this class.
+;
+; --- WHAT THE MEASUREMENT SAID THAT A GUESS WOULD NOT -------------------------
+;
+;   THE SELECTION IS NEVER A BARE CARET INSIDE THE VALUE. A caret that lands on
+;   a character becomes a range of one over it, so typing there REPLACES:
+;   "123456" with Home pressed shows the first slot active, and "9" gives
+;   "923456" with the second slot active. Only the END of a part-filled value
+;   holds a caret, and it draws as the fake caret in the first empty slot.
+;
+;   WHICH SIDE THE RANGE FALLS ON DEPENDS ON THE DIRECTION OF TRAVEL. A caret
+;   that moved LEFT from a range settles on the character to its left; one that
+;   moved right, or arrived from a collapsed caret, settles on the character to
+;   its right. That is why Backspace on a middle slot leaves the slot BEFORE it
+;   active, and Delete does too — the library's rule, reproduced in `settle`.
+;
+;   A FULL FIELD KEEPS ITS LAST SLOT ACTIVE, so the seventh digit of a six-digit
+;   code replaces the sixth rather than being refused.
+;
+;   FOCUS LANDS AT THE END, wherever the pointer was — the library's focus
+;   handler selects [min(len, max-1), len]. (A click while ALREADY focused lands
+;   where the browser's caret placement in the invisible squeezed text says,
+;   which the capture shows to be arbitrary: slot 0 clicked selects slot 3. That
+;   part is not copied — see `clickSlot`.)
+;
+;   A CHARACTER THE PATTERN REFUSES IS REFUSED WHOLE. "a" into a digits field
+;   changes nothing, selection included; a paste of "12-34" is dropped entirely
+;   rather than filtered to "1234".
+;
+;   A PASTE REPLACES THE SELECTION AND IS CUT TO FIT: "12" plus "9876" is
+;   "129876"; "00" over a selected last slot is "123450".
+;
+;   `onComplete` FIRES EACH TIME the value reaches its length from below: fill,
+;   Backspace, fill again is two.
+;
+;   CTRL+A SELECTS EVERYTHING — every slot active — and a digit then replaces
+;   the lot; Backspace empties it. Home and End are the first and last slot.
+; =============================================================================
+
+Import "UiCtl.rgr"
+Import "UiTree.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+
+class OtpCtl extends UiCtl {
+    def value:string ""
+    def maxLength:int 6
+    ; shadcn's REGEXP_ONLY_DIGITS; false takes any character.
+    def digitsOnly:boolean true
+    ; Slots per group, 0 for one run; shadcn's demo shows 3 + 3 with a dash.
+    def groupSize:int 0
+
+    def focused:boolean false
+    def selStart:int 0
+    def selEnd:int 0
+    ; The selection before the last change, which decides which side a caret
+    ; settles on — the library keeps the same three numbers.
+    def prevStart:int 0
+    def prevEnd:int 0
+    def hasPrev:boolean false
+
+    ; How many times the value has reached `maxLength` from below.
+    def completeCount:int 0
+
+    def slotEls:[EVGElement]
+
+    Constructor () {
+    }
+
+    fn length:int () {
+        return (strlen value)
+    }
+
+    fn isFull:boolean () {
+        return ((strlen value) >= maxLength)
+    }
+
+    ; --- the value -------------------------------------------------------------------
+
+    fn accepts:boolean (s:string) {
+        if digitsOnly {
+        } {
+            return true
+        }
+        def i:int 0
+        while (i < (strlen s)) {
+            def c:int (charAt s i)
+            if ((c < 48) || (c > 57)) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; Set from outside: the selection goes where a focus would put it.
+    fn setValue:void (s:string) {
+        def v:string s
+        if ((strlen v) > maxLength) {
+            v = (substring v 0 maxLength)
+        }
+        def wasFull:boolean (this.isFull())
+        value = v
+        if (this.isFull()) {
+            if wasFull {
+            } {
+                completeCount = (completeCount + 1)
+            }
+        }
+        this.selectEnd()
+    }
+
+    fn clear:void () {
+        value = ""
+        this.selectEnd()
+    }
+
+    fn charAtSlot:string (i:int) {
+        if (i < (strlen value)) {
+            return (strfromcode (charAt value i))
+        }
+        return ""
+    }
+
+    ; --- the selection, as the library keeps it ---------------------------------
+
+    fn remember:void () {
+        prevStart = selStart
+        prevEnd = selEnd
+        hasPrev = true
+    }
+
+    ; MEASURED: the focus handler's [min(len, max-1), len].
+    fn selectEnd:void () {
+        def len:int (strlen value)
+        def a:int len
+        if (a > (maxLength - 1)) {
+            a = (maxLength - 1)
+        }
+        if (len == 0) {
+            a = 0
+        }
+        selStart = a
+        selEnd = len
+        this.remember()
+    }
+
+    ; The browser put a bare caret at `w`; settle it the way input-otp's
+    ; selectionchange handler does. A range is left alone.
+    fn settle:void (w:int) {
+        def len:int (strlen value)
+        def a:int w
+        def b:int w
+        if (len == 0) {
+            selStart = 0
+            selEnd = 0
+            this.remember()
+            return
+        }
+        ; A caret at the end of a part-filled value stays a caret.
+        if ((w == len) && (len < maxLength)) {
+            selStart = w
+            selEnd = w
+            this.remember()
+            return
+        }
+        if (w == 0) {
+            a = 0
+            b = 1
+        } {
+            if (w >= maxLength) {
+                a = (maxLength - 1)
+                b = maxLength
+            } {
+                def shift:int 0
+                if hasPrev {
+                    def backward:boolean (w < prevEnd)
+                    def prevWasCaret:boolean ((prevStart == prevEnd) && (prevStart < maxLength))
+                    if backward {
+                        if prevWasCaret {
+                        } {
+                            shift = -1
+                        }
+                    }
+                }
+                a = (w + shift)
+                b = (w + shift + 1)
+            }
+        }
+        selStart = a
+        selEnd = b
+        this.remember()
+    }
+
+    fn selectRange:void (a:int b:int) {
+        selStart = a
+        selEnd = b
+        this.remember()
+    }
+
+    ; --- editing ----------------------------------------------------------------------
+
+    ; Replace the selection with `s`, cut to what fits, refused whole when the
+    ; pattern says no. Returns whether the value changed.
+    fn insert:boolean (s:string) {
+        def len:int (strlen value)
+        def head:string (substring value 0 selStart)
+        def tail:string (substring value selEnd len)
+        def room:int (maxLength - ((strlen head) + (strlen tail)))
+        def ins:string s
+        if ((strlen ins) > room) {
+            if (room < 0) {
+                room = 0
+            }
+            ins = (substring ins 0 room)
+        }
+        if ((strlen ins) == 0) {
+            return false
+        }
+        def next:string (head + ins + tail)
+        if (this.accepts(next)) {
+        } {
+            return false
+        }
+        def wasFull:boolean (len >= maxLength)
+        value = next
+        if ((strlen value) >= maxLength) {
+            if wasFull {
+            } {
+                completeCount = (completeCount + 1)
+            }
+        }
+        this.settle((strlen head) + (strlen ins))
+        return true
+    }
+
+    fn typeChar:boolean (target:string ch:string) {
+        focused = true
+        return (this.insert(ch))
+    }
+
+    fn paste:boolean (s:string) {
+        focused = true
+        return (this.insert(s))
+    }
+
+    ; The browser's Backspace: a range is removed; a caret takes the character
+    ; before it. Then the caret settles.
+    fn backspace:void () {
+        def len:int (strlen value)
+        if (selStart != selEnd) {
+            value = (substring value 0 selStart) + (substring value selEnd len)
+            this.settle(selStart)
+            return
+        }
+        if (selStart == 0) {
+            return
+        }
+        value = (substring value 0 (selStart - 1)) + (substring value selStart len)
+        this.settle(selStart - 1)
+    }
+
+    ; Delete: a range is removed; a caret takes the character after it, and at
+    ; the end there is none.
+    fn deleteForward:void () {
+        def len:int (strlen value)
+        if (selStart != selEnd) {
+            value = (substring value 0 selStart) + (substring value selEnd len)
+            this.settle(selStart)
+            return
+        }
+        if (selStart >= len) {
+            return
+        }
+        value = (substring value 0 selStart) + (substring value (selStart + 1) len)
+        this.settle(selStart)
+    }
+
+    ; --- the keyboard -------------------------------------------------------------
+
+    fn keyDown:string (target:string key:string) {
+        return (this.keyDownWith(target key false false))
+    }
+
+    fn keyDownWith:string (target:string key:string shift:boolean ctrl:boolean) {
+        focused = true
+        def len:int (strlen value)
+        if (key == "ArrowLeft") {
+            if (selStart != selEnd) {
+                this.settle(selStart)
+            } {
+                if (selStart > 0) {
+                    this.settle(selStart - 1)
+                }
+            }
+            return tid
+        }
+        if (key == "ArrowRight") {
+            if (selStart != selEnd) {
+                this.settle(selEnd)
+            } {
+                if (selStart < len) {
+                    this.settle(selStart + 1)
+                }
+            }
+            return tid
+        }
+        if (key == "Home") {
+            this.settle(0)
+            return tid
+        }
+        if (key == "End") {
+            this.settle(len)
+            return tid
+        }
+        if (key == "Backspace") {
+            this.backspace()
+            return tid
+        }
+        if (key == "Delete") {
+            this.deleteForward()
+            return tid
+        }
+        if (key == "a") {
+            if ctrl {
+                this.selectRange(0 len)
+                return tid
+            }
+        }
+        if (key == "Tab") {
+            this.blur()
+            return ""
+        }
+        return ""
+    }
+
+    ; --- focus and the pointer -------------------------------------------------
+
+    fn focus:void () {
+        focused = true
+        this.selectEnd()
+    }
+
+    fn blur:void () {
+        focused = false
+    }
+
+    fn onFocus:void (target:string) {
+        this.focus()
+    }
+
+    ; A click. Not focused: focus, which lands at the end — MEASURED, whatever
+    ; slot was under the pointer. Already focused: SPECIFIED to select the slot
+    ; clicked when it holds a character and the end otherwise; the reference
+    ; lets the browser place a caret in its invisible squeezed text, and the
+    ; capture shows slot 0 clicked selecting slot 3, which no one intends.
+    fn clickSlot:string (i:int) {
+        if focused {
+        } {
+            this.focus()
+            return tid
+        }
+        def len:int (strlen value)
+        if ((i >= 0) && (i < len)) {
+            this.selectRange(i (i + 1))
+        } {
+            this.selectEnd()
+        }
+        return tid
+    }
+
+    fn activate:string (target:string) {
+        def i:int (this.slotOf(target))
+        return (this.clickSlot(i))
+    }
+
+    fn slotTid:string (i:int) {
+        return tid + "-slot" + (to_string i)
+    }
+
+    fn slotOf:int (target:string) {
+        def i:int 0
+        while (i < maxLength) {
+            if (target == (this.slotTid(i))) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; --- what the slots show ------------------------------------------------------
+    ;
+    ; MEASURED: active is the selection's cover, or the caret's slot; the fake
+    ; caret is drawn in an active slot with no character.
+
+    fn isActive:boolean (i:int) {
+        if focused {
+        } {
+            return false
+        }
+        if (selStart == selEnd) {
+            return (i == selStart)
+        }
+        return ((i >= selStart) && (i < selEnd))
+    }
+
+    fn hasFakeCaret:boolean (i:int) {
+        if (this.isActive(i)) {
+            return (i >= (strlen value))
+        }
+        return false
+    }
+
+    ; --- the tree -------------------------------------------------------------------
+
+    fn tids:[string] () {
+        def a:[string]
+        push a tid
+        def i:int 0
+        while (i < maxLength) {
+            push a (this.slotTid(i))
+            i = (i + 1)
+        }
+        return a
+    }
+
+    fn isFocusable:boolean (target:string) {
+        if disabled {
+            return false
+        }
+        return (target == tid)
+    }
+
+    fn build:void () {
+        def root:EVGElement (unwrap rootEl)
+        root.id = tid
+        root.className = "ui-otp"
+        if disabled {
+            UiTree.addClass(root "ui-otp-disabled")
+        }
+        if focused {
+            UiTree.addClass(root "ui-otp-focus")
+        }
+        UiTree.clearChildren(root)
+        while ((array_length slotEls) < maxLength) {
+            push slotEls (EVGElement.createSpan())
+        }
+        def i:int 0
+        while (i < maxLength) {
+            if (groupSize > 0) {
+                if (i > 0) {
+                    if ((i % groupSize) == 0) {
+                        def sepId:string (tid + "-sep" + (to_string i))
+                        root.addChild((UiTree.label(sepId "ui-otp-sep" "-")))
+                    }
+                }
+            }
+            def el:EVGElement (itemAt slotEls i)
+            el.id = (this.slotTid(i))
+            el.className = "ui-otp-slot"
+            UiTree.leafText(el (this.charAtSlot(i)))
+            if (this.isActive(i)) {
+                UiTree.addClass(el "ui-otp-slot-active")
+            }
+            if (this.hasFakeCaret(i)) {
+                UiTree.addClass(el "ui-otp-slot-caret")
+            }
+            root.addChild(el)
+            i = (i + 1)
+        }
+    }
+
+    ; One text field, as the reference's one hidden input: its text is the
+    ; whole code and its selection is the active range. The slots are drawing,
+    ; not nodes — shadcn's are plain divs too.
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+        def r:UiRow (UiRow.of(tid (EVGA11yRole.textField()) name))
+        r.roleDescription = "One-time code"
+        r.focusable = true
+        r.tabStop = true
+        r.hasText = true
+        r.text = value
+        r.hasSelection = focused
+        r.selStart = selStart
+        r.selEnd = selEnd
+        r.disabled = disabled
+        push out r
+        return out
+    }
+}

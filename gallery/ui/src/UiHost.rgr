@@ -29,6 +29,8 @@ Import "QuestionnaireCtl.rgr"
 Import "FilterCtl.rgr"
 Import "EventCalCtl.rgr"
 Import "NumberCtl.rgr"
+Import "DateFieldCtl.rgr"
+Import "OtpCtl.rgr"
 Import "StepperCtl.rgr"
 Import "PresentationCtl.rgr"
 Import "ToolbarCtl.rgr"
@@ -339,6 +341,25 @@ class UiHost {
         def c (new InputCtl())
         c.tid = tid
         c.name = name
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addDateField:DateFieldCtl (tid:string name:string) {
+        def c (new DateFieldCtl())
+        c.tid = tid
+        c.name = name
+        c.build()
+        this.add(c)
+        return c
+    }
+
+    fn addOtp:OtpCtl (tid:string name:string length:int) {
+        def c (new OtpCtl())
+        c.tid = tid
+        c.name = name
+        c.maxLength = length
         c.build()
         this.add(c)
         return c

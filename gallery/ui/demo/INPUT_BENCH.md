@@ -97,12 +97,27 @@ measurement, and the place to add a variant when one turns up.
 
 Missing, as of this writing, and each for a stated reason in the file: a
 disabled text field, an input group, a clearable input, sizes, a file input,
-**every textarea variant**, the date picker in a popover, a typed date, a date
-and time, a time picker, a segmented date field, **OTP**, and a tag input.
-The textarea and the date picker are the two the request named, and the
-honest answer is that neither exists as a component yet: `InputCtl` is
-single-line, and the calendar fills a field it does not let you type into.
-Writing them is the next work; this file is where they will be scored.
+**every textarea variant**, the date picker in a popover, a date and time, a
+time picker, a paste into the OTP, and a tag input. The textarea is the one
+the request named that still has no component: `InputCtl` is single-line.
+
+Two that were missing at the first writing are components now, each with an
+oracle of its own rather than a row in this matrix:
+
+- **The segmented date field.** The calendar's box is `DateFieldCtl`'s
+  `mm/dd/yyyy` editor, measured against Chromium's own `<input type="date">`
+  through the accessibility tree (`ui:datefield:check`, 26 recorded
+  scenarios replayed step for step). Typing a complete date moves the
+  calendar; picking a day fills the segments.
+- **The one-time code.** `OtpCtl`, measured against input-otp — the library
+  behind shadcn's Input OTP — on its own demo page (`ui:otp:check`, 33
+  scenarios replayed, two held out and asserted the other way round).
+
+The bench lists both under **textboxes measured by their own oracle** and
+scores neither against a plain `<input>`: their selection rules are the
+measured divergence from one. A textbox whose `aria-roledescription` is
+`spinbutton` or `One-time code` is skipped by that attribute, so a third such
+component is skipped the day it publishes the same word.
 
 ## What the first run found
 
@@ -161,7 +176,8 @@ place the fault was:
   relative to it.
 
 **Rows that are red because the field is a picture.** `cd-box` on the
-calendar, `cx-num` on the controls page, `dlg-input-name` and
+calendar (since replaced by the date field above, and gone from the matrix),
+`cx-num` on the controls page, `dlg-input-name` and
 `dlg-input-username` in the dialog: each is published as a textbox, and none
 opens an editing session. A click does not focus, typing goes nowhere, and
 there is no selection to report. `cx-num` is the closest to real — its
@@ -220,6 +236,8 @@ file must say what the pages do, not what they did when someone last looked.
 - **Drag-and-drop of selected text.** A press inside a selection starts a text
   drag in the browser; the scenarios collapse the selection between drags
   rather than assert a behaviour this side does not have.
-- **Textarea, date picker, OTP.** Nothing here measures a component that does
-  not exist; the catalogue says they are missing and the matrix will grow a
-  row the day one publishes itself as a textbox.
+- **Textarea.** Nothing here measures a component that does not exist; the
+  catalogue says it is missing and the matrix will grow a row the day one
+  publishes itself as a textbox.
+- **The date field and the OTP.** Measured by `ui:datefield:check` and
+  `ui:otp:check` against their own references, listed here, not scored here.
