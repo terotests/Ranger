@@ -27,8 +27,13 @@ Figma types. A later SVG / Sketch / custom UI importer can emit the same
 This is the OpenFig pipeline written in Ranger, so the two can be timed on
 the same bytes. OpenFig is
 [`openfig-cli`](https://github.com/OpenFig-org/openfig-cli) /
-[`openfig-core`](https://github.com/OpenFig-org/openfig-core). Zstd on the
-JavaScript target is [fzstd](https://github.com/101arrowz/fzstd) (MIT).
+[`openfig-core`](https://github.com/OpenFig-org/openfig-core).
+
+Ranger throughout: the ZIP around a `.fig` and the DEFLATE inside it are
+`gallery/zip`, and the zstd the message chunk of a Figma export uses is
+`gallery/zstd`. There is no host hook and no vendored decoder, so the
+reader works on every target the compiler emits rather than only on
+JavaScript.
 
 ## EVG support (used, not extended)
 
@@ -188,5 +193,5 @@ gallery/figma/
   fixtures/                  sample.fig (generated), health.fig (Figma export)
 ```
 
-**License: AGPL-3.0-or-later** (this directory is under `gallery/`).
-`web/vendor/fzstd.mjs` stays MIT (`LICENSE-fzstd`).
+**License: AGPL-3.0-or-later** (this directory is under `gallery/`), with
+no third-party code left in it.

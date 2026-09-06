@@ -1,0 +1,266 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; FSE (Finite State Entropy) — the tANS coder Zstandard uses for its
+; sequence codes and for Huffman weights. This is the piece DEFLATE has no
+; equivalent of, and the reason `gallery/zip` cannot be reused here.
+;
+; A table maps a state to (symbol, how many bits to read, where the state
+; goes next). Decoding is: read the symbol at the current state, then read
+; that many bits and add them to the stored base state. The bits come from
+; a ZstdReverseBits, because the encoder wrote them back to front.
+
+Import "ZstdBits.rgr"
+
+class ZstdFseTable {
+    def accuracyLog:int 0
+    def size:int 0
+    def symbols:[int]
+    def bitsNeeded:[int]
+    def baseState:[int]
+    def ok:boolean true
+    def err:string ""
+
+    Constructor () {
+    }
+
+    sfn highestBit:int (v:int) {
+        def n:int 0
+        def x:int v
+        while (x > 1) {
+            x = (bit_shr x 1)
+            n = (n + 1)
+        }
+        return n
+    }
+
+    fn fail:boolean (message:string) {
+        ok = false
+        err = message
+        return false
+    }
+
+    ; A single symbol, no bits, state never moves.
+    fn buildRle:boolean (symbol:int) {
+        accuracyLog = 0
+        size = 1
+        push symbols symbol
+        push bitsNeeded 0
+        push baseState 0
+        return true
+    }
+
+    ; RFC 8878 §4.1.1. Symbols with a normalized count of -1 ("less than
+    ; one") are laid out from the top of the table downward; the rest are
+    ; spread across the remaining slots with a stride that visits every one.
+    fn build:boolean (counts:[int] maxSymbol:int log:int) {
+        if (log < 1) {
+            return (this.fail("accuracy log 0 is not a table"))
+        }
+        if (log > 12) {
+            return (this.fail("accuracy log " + (to_string log) + " is above the format's maximum"))
+        }
+        accuracyLog = log
+        size = (bit_shl 1 log)
+        def mask:int (size - 1)
+        def tableSymbol:[int]
+        def i:int 0
+        while (i < size) {
+            push tableSymbol 0
+            push symbols 0
+            push bitsNeeded 0
+            push baseState 0
+            i = (i + 1)
+        }
+        ; The low-probability symbols sit at the end, one slot each.
+        def highThreshold:int (size - 1)
+        def s:int 0
+        while (s <= maxSymbol) {
+            if ((itemAt counts s) == (0 - 1)) {
+                set tableSymbol highThreshold s
+                highThreshold = (highThreshold - 1)
+            }
+            s = (s + 1)
+        }
+        def step:int (((bit_shr size 1) + (bit_shr size 3)) + 3)
+        def pos:int 0
+        s = 0
+        while (s <= maxSymbol) {
+            def c:int (itemAt counts s)
+            if (c > 0) {
+                def k:int 0
+                while (k < c) {
+                    set tableSymbol pos s
+                    pos = (bit_and (pos + step) mask)
+                    while (pos > highThreshold) {
+                        pos = (bit_and (pos + step) mask)
+                    }
+                    k = (k + 1)
+                }
+            }
+            s = (s + 1)
+        }
+        if (pos != 0) {
+            return (this.fail("the spread did not return to state 0 — the counts do not sum to the table size"))
+        }
+        ; Each symbol's states are numbered in the order they appear, and
+        ; that number says how many bits the state consumes.
+        def nextState:[int]
+        def j:int 0
+        while (j <= maxSymbol) {
+            def cj:int (itemAt counts j)
+            if (cj == (0 - 1)) {
+                push nextState 1
+            } {
+                push nextState cj
+            }
+            j = (j + 1)
+        }
+        def u:int 0
+        while (u < size) {
+            def sym:int (itemAt tableSymbol u)
+            if (sym > maxSymbol) {
+                return (this.fail("state " + (to_string u) + " names a symbol outside the alphabet"))
+            }
+            def ns:int (itemAt nextState sym)
+            set nextState sym (ns + 1)
+            def nb:int (accuracyLog - (ZstdFseTable.highestBit(ns)))
+            set symbols u sym
+            set bitsNeeded u nb
+            set baseState u (((bit_shl ns nb)) - size)
+            u = (u + 1)
+        }
+        return true
+    }
+}
+
+; One decoder position in a table. Sequences run three of these at once.
+class ZstdFseState {
+    def table:ZstdFseTable (new ZstdFseTable())
+    def state:int 0
+
+    Constructor () {
+    }
+
+    fn attach:void (t:ZstdFseTable) {
+        table = t
+        state = 0
+    }
+
+    fn initState:void (bits:ZstdReverseBits) {
+        state = (bits.read(table.accuracyLog))
+    }
+
+    fn symbol:int () {
+        return (itemAt table.symbols state)
+    }
+
+    fn advance:void (bits:ZstdReverseBits) {
+        def nb:int (itemAt table.bitsNeeded state)
+        def base:int (itemAt table.baseState state)
+        state = (base + (bits.read(nb)))
+    }
+}
+
+; Reading a table's normalized counts out of a block header. The counts are
+; a forward, LSB-first bitstream whose width shrinks as the remaining
+; probability mass does.
+class ZstdNCount {
+    def counts:[int]
+    def maxSymbol:int 0
+    def accuracyLog:int 0
+    def bytesUsed:int 0
+    def ok:boolean true
+    def err:string ""
+
+    Constructor () {
+    }
+
+    fn fail:boolean (message:string) {
+        ok = false
+        err = message
+        return false
+    }
+
+    fn read:boolean (data:buffer offset:int length:int maxSymbolValue:int maxLog:int) {
+        def bits (new ZstdForwardBits())
+        bits.init(data offset length)
+        def i:int 0
+        while (i <= maxSymbolValue) {
+            push counts 0
+            i = (i + 1)
+        }
+        accuracyLog = ((bits.read(4)) + 5)
+        if (accuracyLog > maxLog) {
+            return (this.fail("accuracy log " + (to_string accuracyLog) + " is above the " + (to_string maxLog) + " this table allows"))
+        }
+        def remaining:int ((bit_shl 1 accuracyLog) + 1)
+        def threshold:int (bit_shl 1 accuracyLog)
+        def nbBits:int (accuracyLog + 1)
+        def charnum:int 0
+        def previous0:boolean false
+        while ((remaining > 1) && (charnum <= maxSymbolValue)) {
+            if previous0 {
+                ; A run of zero-probability symbols, coded as repeats of
+                ; three with an escape at fifteen.
+                def n0:int charnum
+                while ((bits.peek(16)) == 65535) {
+                    n0 = (n0 + 24)
+                    bits.consume(16)
+                }
+                while ((bits.peek(2)) == 3) {
+                    n0 = (n0 + 3)
+                    bits.consume(2)
+                }
+                n0 = (n0 + (bits.peek(2)))
+                bits.consume(2)
+                if (n0 > maxSymbolValue) {
+                    return (this.fail("a run of zeroes walks past the end of the alphabet"))
+                }
+                while (charnum < n0) {
+                    set counts charnum 0
+                    charnum = (charnum + 1)
+                }
+                previous0 = false
+            }
+            def maxCount:int (((2 * threshold) - 1) - remaining)
+            def v:int (bits.peek(nbBits))
+            def low:int (bit_and v (threshold - 1))
+            def count:int 0
+            if (low < maxCount) {
+                count = low
+                bits.consume(nbBits - 1)
+            } {
+                count = (bit_and v ((2 * threshold) - 1))
+                if (count >= threshold) {
+                    count = (count - maxCount)
+                }
+                bits.consume(nbBits)
+            }
+            count = (count - 1)
+            if (count < 0) {
+                remaining = (remaining + count)
+            } {
+                remaining = (remaining - count)
+            }
+            if (charnum > maxSymbolValue) {
+                return (this.fail("more symbols than the alphabet holds"))
+            }
+            set counts charnum count
+            charnum = (charnum + 1)
+            previous0 = (count == 0)
+            while (remaining < threshold) {
+                nbBits = (nbBits - 1)
+                threshold = (bit_shr threshold 1)
+            }
+            if (bits.ok == false) {
+                return (this.fail("the table header ran past the end of the block"))
+            }
+        }
+        if (remaining != 1) {
+            return (this.fail("the counts do not add up to the table size"))
+        }
+        maxSymbol = (charnum - 1)
+        bytesUsed = (bits.bytesUsed())
+        return true
+    }
+}

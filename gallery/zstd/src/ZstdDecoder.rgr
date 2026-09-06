@@ -1,0 +1,789 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; Zstandard decompression (RFC 8878), in Ranger, for every target the
+; compiler emits — no host hook, no vendored JavaScript.
+;
+; A frame is a header and then blocks. A compressed block is a literals
+; section, which is a Huffman-coded (or raw, or run-length) blob of bytes,
+; and a sequences section, which says how to interleave those literals with
+; matches copied from what has already been produced. Everything entropy
+; coded is read backwards; see ZstdBits.rgr.
+;
+; Not implemented, and named rather than silently ignored: dictionaries.
+; The frame checksum is parsed and skipped rather than verified.
+
+Import "ZstdBits.rgr"
+Import "ZstdFSE.rgr"
+Import "ZstdHuff.rgr"
+Import "ZstdTables.rgr"
+
+; The output is also the window a match copies from, so it is one flat
+; buffer that grows rather than a ring.
+class ZstdSink {
+    def buf:buffer (buffer_alloc 0)
+    def cap:int 0
+    def len:int 0
+
+    Constructor () {
+    }
+
+    fn reset:void (hint:int) {
+        def c:int hint
+        if (c < 4096) {
+            c = 4096
+        }
+        buf = (buffer_alloc c)
+        cap = c
+        len = 0
+    }
+
+    fn ensure:void (extra:int) {
+        def need:int (len + extra)
+        if (need <= cap) {
+            return
+        }
+        def newCap:int (cap * 2)
+        if (newCap < need) {
+            newCap = need
+        }
+        def grown:buffer (buffer_alloc newCap)
+        buffer_copy grown 0 buf 0 len
+        buf = grown
+        cap = newCap
+    }
+
+    fn pushByte:void (b:int) {
+        this.ensure(1)
+        buffer_set buf len b
+        len = (len + 1)
+    }
+
+    fn pushRange:void (src:buffer offset:int count:int) {
+        this.ensure(count)
+        buffer_copy buf len src offset count
+        len = (len + count)
+    }
+
+    ; A match. The copy has to run byte by byte: zstd allows an offset
+    ; smaller than the length, and the overlap is how it encodes a run.
+    fn copyMatch:void (distance:int count:int) {
+        this.ensure(count)
+        def from:int (len - distance)
+        def i:int 0
+        while (i < count) {
+            buffer_set buf (len + i) (buffer_get buf (from + i))
+            i = (i + 1)
+        }
+        len = (len + count)
+    }
+
+    fn take:buffer () {
+        ; The size goes through a local: buffer_alloc inlines its argument
+        ; inside a function expression, where a field reference loses its
+        ; receiver.
+        def size:int len
+        def result:buffer (buffer_alloc size)
+        buffer_copy result 0 buf 0 size
+        return result
+    }
+}
+
+; What a block may inherit from the one before it: the literals table for a
+; Treeless_Literals_Block, the three sequence tables for Repeat_Mode, and
+; the recent offsets.
+class ZstdFrameState {
+    def huff:ZstdHuffTable (new ZstdHuffTable())
+    def haveHuff:boolean false
+    def llTable:ZstdFseTable (new ZstdFseTable())
+    def ofTable:ZstdFseTable (new ZstdFseTable())
+    def mlTable:ZstdFseTable (new ZstdFseTable())
+    def haveTables:boolean false
+    def rep0:int 1
+    def rep1:int 4
+    def rep2:int 8
+
+    Constructor () {
+    }
+
+    fn reset:void () {
+        haveHuff = false
+        haveTables = false
+        rep0 = 1
+        rep1 = 4
+        rep2 = 8
+    }
+}
+
+class Zstd {
+    def ok:boolean true
+    def err:string ""
+    def sink:ZstdSink (new ZstdSink())
+    def state:ZstdFrameState (new ZstdFrameState())
+    def literals:buffer (buffer_alloc 0)
+    def literalCount:int 0
+    def llBase:[int]
+    def llBits:[int]
+    def mlBase:[int]
+    def mlBits:[int]
+    def framesRead:int 0
+    def blocksRead:int 0
+
+    Constructor () {
+        llBase = (ZstdTables.literalBaselines())
+        llBits = (ZstdTables.literalExtraBits())
+        mlBase = (ZstdTables.matchBaselines())
+        mlBits = (ZstdTables.matchExtraBits())
+    }
+
+    fn fail:boolean (message:string) {
+        ok = false
+        err = message
+        return false
+    }
+
+    sfn u16:int (data:buffer at:int) {
+        return ((buffer_get data at) + ((buffer_get data (at + 1)) * 256))
+    }
+
+    sfn u24:int (data:buffer at:int) {
+        return ((Zstd.u16(data at)) + ((buffer_get data (at + 2)) * 65536))
+    }
+
+    sfn u32:int (data:buffer at:int) {
+        return ((Zstd.u24(data at)) + ((buffer_get data (at + 3)) * 16777216))
+    }
+
+    ; 0x184D2A50 .. 0x184D2A5F, little-endian. Compared byte by byte
+    ; because a 32-bit magic does not fit a signed int on every target.
+    sfn isSkippable:boolean (data:buffer at:int) {
+        if (((buffer_length data) - at) < 4) {
+            return false
+        }
+        def b0:int (buffer_get data at)
+        if (b0 < 80) {
+            return false
+        }
+        if (b0 > 95) {
+            return false
+        }
+        if ((buffer_get data (at + 1)) != 42) {
+            return false
+        }
+        if ((buffer_get data (at + 2)) != 77) {
+            return false
+        }
+        return ((buffer_get data (at + 3)) == 24)
+    }
+
+    sfn isFrame:boolean (data:buffer at:int) {
+        if (((buffer_length data) - at) < 4) {
+            return false
+        }
+        if ((buffer_get data at) != 40) {
+            return false
+        }
+        if ((buffer_get data (at + 1)) != 181) {
+            return false
+        }
+        if ((buffer_get data (at + 2)) != 47) {
+            return false
+        }
+        return ((buffer_get data (at + 3)) == 253)
+    }
+
+    ; The public entry point: every frame in `src`, concatenated.
+    fn decompress:buffer (src:buffer) {
+        ok = true
+        err = ""
+        framesRead = 0
+        blocksRead = 0
+        def n:int (buffer_length src)
+        sink.reset(n * 4)
+        def at:int 0
+        while (at < n) {
+            if ((n - at) < 4) {
+                this.fail("trailing bytes that are not a frame")
+                return (sink.take())
+            }
+            if (Zstd.isSkippable(src at)) {
+                if (((n - at) - 8) < 0) {
+                    this.fail("a skippable frame with no size")
+                    return (sink.take())
+                }
+                def skipLen:int (Zstd.u32(src (at + 4)))
+                at = ((at + 8) + skipLen)
+            } {
+                if ((Zstd.isFrame(src at)) == false) {
+                    this.fail("not a Zstandard frame at byte " + (to_string at))
+                    return (sink.take())
+                }
+                def after:int (this.readFrame(src at n))
+                if (ok == false) {
+                    return (sink.take())
+                }
+                at = after
+                framesRead = (framesRead + 1)
+            }
+        }
+        return (sink.take())
+    }
+
+    ; Returns the offset just past the frame.
+    fn readFrame:int (data:buffer start:int limit:int) {
+        state.reset()
+        def at:int (start + 4)
+        if (at >= limit) {
+            this.fail("the frame stops after its magic number")
+            return limit
+        }
+        def descriptor:int (buffer_get data at)
+        at = (at + 1)
+        def contentSizeFlag:int (bit_shr descriptor 6)
+        def singleSegment:boolean ((bit_and (bit_shr descriptor 5) 1) == 1)
+        def hasChecksum:boolean ((bit_and (bit_shr descriptor 2) 1) == 1)
+        def dictIdFlag:int (bit_and descriptor 3)
+        if ((bit_and (bit_shr descriptor 3) 1) == 1) {
+            this.fail("the frame sets a reserved header bit")
+            return limit
+        }
+        if (singleSegment) {
+        } {
+            at = (at + 1)
+        }
+        if (dictIdFlag == 1) {
+            at = (at + 1)
+        }
+        if (dictIdFlag == 2) {
+            at = (at + 2)
+        }
+        if (dictIdFlag == 3) {
+            at = (at + 4)
+        }
+        if (dictIdFlag != 0) {
+            this.fail("this frame needs a dictionary, which is not supported")
+            return limit
+        }
+        def contentBytes:int 0
+        if (contentSizeFlag == 0) {
+            if (singleSegment) {
+                contentBytes = 1
+            }
+        }
+        if (contentSizeFlag == 1) {
+            contentBytes = 2
+        }
+        if (contentSizeFlag == 2) {
+            contentBytes = 4
+        }
+        if (contentSizeFlag == 3) {
+            contentBytes = 8
+        }
+        at = (at + contentBytes)
+        if (at > limit) {
+            this.fail("the frame header runs past the end of the input")
+            return limit
+        }
+        def lastBlock:boolean false
+        while (lastBlock == false) {
+            if ((at + 3) > limit) {
+                this.fail("a block header runs past the end of the input")
+                return limit
+            }
+            def h0:int (buffer_get data at)
+            lastBlock = ((bit_and h0 1) == 1)
+            def blockType:int (bit_and (bit_shr h0 1) 3)
+            def blockSize:int ((bit_shr h0 3) + ((Zstd.u16(data (at + 1))) * 32))
+            at = (at + 3)
+            if (blockType == 3) {
+                this.fail("block " + (to_string blocksRead) + " has the reserved type")
+                return limit
+            }
+            if (blockType == 1) {
+                ; A run of one byte, blockSize long.
+                if ((at + 1) > limit) {
+                    this.fail("an RLE block with no byte")
+                    return limit
+                }
+                def rleByte:int (buffer_get data at)
+                sink.ensure(blockSize)
+                def r:int 0
+                while (r < blockSize) {
+                    sink.pushByte(rleByte)
+                    r = (r + 1)
+                }
+                at = (at + 1)
+            } {
+                if ((at + blockSize) > limit) {
+                    this.fail("block " + (to_string blocksRead) + " runs past the end of the input")
+                    return limit
+                }
+                if (blockType == 0) {
+                    sink.pushRange(data at blockSize)
+                } {
+                    if ((this.readCompressedBlock(data at blockSize)) == false) {
+                        return limit
+                    }
+                }
+                at = (at + blockSize)
+            }
+            blocksRead = (blocksRead + 1)
+        }
+        if (hasChecksum) {
+            at = (at + 4)
+        }
+        if (at > limit) {
+            this.fail("the frame checksum runs past the end of the input")
+            return limit
+        }
+        return at
+    }
+
+    ; --- literals -------------------------------------------------------
+
+    fn ensureLiterals:void (count:int) {
+        if ((buffer_length literals) < count) {
+            literals = (buffer_alloc (count + 1024))
+        }
+        literalCount = count
+    }
+
+    ; One Huffman-coded stream into literals[outAt .. outAt+count).
+    fn decodeHuffStream:boolean (data:buffer offset:int length:int outAt:int count:int) {
+        if (length < 1) {
+            return (this.fail("a literal stream with no bytes"))
+        }
+        def bits (new ZstdReverseBits())
+        if ((bits.init(data offset length)) == false) {
+            return (this.fail("literals: " + bits.err))
+        }
+        def table:ZstdHuffTable state.huff
+        def produced:int 0
+        while ((bits.bitPos > 0) && (produced < count)) {
+            def idx:int (bits.peek(table.maxBits))
+            def nb:int (itemAt table.bitsUsed idx)
+            if (nb == 0) {
+                return (this.fail("a literal code of zero bits — the table is corrupt"))
+            }
+            bits.skip(nb)
+            buffer_set literals (outAt + produced) (itemAt table.symbols idx)
+            produced = (produced + 1)
+        }
+        if (produced != count) {
+            return (this.fail("a literal stream produced " + (to_string produced) + " of " + (to_string count) + " bytes"))
+        }
+        if (bits.bitPos != 0) {
+            return (this.fail("a literal stream ended with " + (to_string bits.bitPos) + " bits unread"))
+        }
+        return true
+    }
+
+    fn decodeHuffLiterals:boolean (data:buffer offset:int compressedSize:int regenSize:int fourStreams:boolean) {
+        if (fourStreams == false) {
+            return (this.decodeHuffStream(data offset compressedSize 0 regenSize))
+        }
+        if (compressedSize < 6) {
+            return (this.fail("four literal streams but no jump table"))
+        }
+        def s1:int (Zstd.u16(data offset))
+        def s2:int (Zstd.u16(data (offset + 2)))
+        def s3:int (Zstd.u16(data (offset + 4)))
+        def used:int (((6 + s1) + s2) + s3)
+        if (used > compressedSize) {
+            return (this.fail("the literal jump table describes more bytes than the section holds"))
+        }
+        def s4:int (compressedSize - used)
+        def part:int (bit_shr (regenSize + 3) 2)
+        def at1:int (offset + 6)
+        def at2:int (at1 + s1)
+        def at3:int (at2 + s2)
+        def at4:int (at3 + s3)
+        if ((this.decodeHuffStream(data at1 s1 0 part)) == false) {
+            return false
+        }
+        if ((this.decodeHuffStream(data at2 s2 part part)) == false) {
+            return false
+        }
+        if ((this.decodeHuffStream(data at3 s3 (part * 2) part)) == false) {
+            return false
+        }
+        return (this.decodeHuffStream(data at4 s4 (part * 3) (regenSize - (part * 3))))
+    }
+
+    ; Returns how many bytes of the block the literals section used, or -1.
+    fn readLiterals:int (data:buffer offset:int available:int) {
+        if (available < 1) {
+            this.fail("a compressed block with no literals header")
+            return (0 - 1)
+        }
+        def b0:int (buffer_get data offset)
+        def litType:int (bit_and b0 3)
+        def sizeFormat:int (bit_and (bit_shr b0 2) 3)
+        def regenSize:int 0
+        def compressedSize:int 0
+        def headerBytes:int 1
+        def fourStreams:boolean false
+        if (litType < 2) {
+            if ((bit_and sizeFormat 1) == 1) {
+                if (sizeFormat == 1) {
+                    regenSize = ((bit_shr b0 4) + ((buffer_get data (offset + 1)) * 16))
+                    headerBytes = 2
+                } {
+                    regenSize = (((bit_shr b0 4) + ((buffer_get data (offset + 1)) * 16)) + ((buffer_get data (offset + 2)) * 4096))
+                    headerBytes = 3
+                }
+            } {
+                regenSize = (bit_shr b0 3)
+                headerBytes = 1
+            }
+        } {
+            fourStreams = (sizeFormat != 0)
+            if (sizeFormat < 2) {
+                def b1:int (buffer_get data (offset + 1))
+                def b2:int (buffer_get data (offset + 2))
+                regenSize = ((bit_shr b0 4) + ((bit_and b1 63) * 16))
+                compressedSize = ((bit_shr b1 6) + (b2 * 4))
+                headerBytes = 3
+            }
+            if (sizeFormat == 2) {
+                def c1:int (buffer_get data (offset + 1))
+                def c2:int (buffer_get data (offset + 2))
+                def c3:int (buffer_get data (offset + 3))
+                regenSize = (((bit_shr b0 4) + (c1 * 16)) + ((bit_and c2 3) * 4096))
+                compressedSize = ((bit_shr c2 2) + (c3 * 64))
+                headerBytes = 4
+            }
+            if (sizeFormat == 3) {
+                def d1:int (buffer_get data (offset + 1))
+                def d2:int (buffer_get data (offset + 2))
+                def d3:int (buffer_get data (offset + 3))
+                def d4:int (buffer_get data (offset + 4))
+                regenSize = (((bit_shr b0 4) + (d1 * 16)) + ((bit_and d2 63) * 4096))
+                compressedSize = (((bit_shr d2 6) + (d3 * 4)) + (d4 * 1024))
+                headerBytes = 5
+            }
+        }
+        if (headerBytes > available) {
+            this.fail("the literals header runs past the end of the block")
+            return (0 - 1)
+        }
+        this.ensureLiterals(regenSize)
+        def at:int (offset + headerBytes)
+        if (litType == 0) {
+            if ((headerBytes + regenSize) > available) {
+                this.fail("raw literals run past the end of the block")
+                return (0 - 1)
+            }
+            def i:int 0
+            while (i < regenSize) {
+                buffer_set literals i (buffer_get data (at + i))
+                i = (i + 1)
+            }
+            return (headerBytes + regenSize)
+        }
+        if (litType == 1) {
+            if ((headerBytes + 1) > available) {
+                this.fail("an RLE literals section with no byte")
+                return (0 - 1)
+            }
+            def v:int (buffer_get data at)
+            def j:int 0
+            while (j < regenSize) {
+                buffer_set literals j v
+                j = (j + 1)
+            }
+            return (headerBytes + 1)
+        }
+        ; Compressed (2) reads a new table; treeless (3) reuses the one the
+        ; previous block left behind.
+        def payloadAt:int at
+        def payloadSize:int compressedSize
+        if (litType == 2) {
+            def weights (new ZstdHuffWeights())
+            if ((weights.read(data at (available - headerBytes))) == false) {
+                this.fail("literals: " + weights.err)
+                return (0 - 1)
+            }
+            def table (new ZstdHuffTable())
+            if ((table.buildFromWeights(weights.weights weights.count)) == false) {
+                this.fail("literals: " + table.err)
+                return (0 - 1)
+            }
+            state.huff = table
+            state.haveHuff = true
+            payloadAt = (at + weights.bytesUsed)
+            payloadSize = (compressedSize - weights.bytesUsed)
+        } {
+            if (state.haveHuff == false) {
+                this.fail("a treeless literals block with no table to reuse")
+                return (0 - 1)
+            }
+        }
+        if (payloadSize < 1) {
+            this.fail("the literals section has a table but no coded bytes")
+            return (0 - 1)
+        }
+        if ((headerBytes + compressedSize) > available) {
+            this.fail("the coded literals run past the end of the block")
+            return (0 - 1)
+        }
+        if ((this.decodeHuffLiterals(data payloadAt payloadSize regenSize fourStreams)) == false) {
+            return (0 - 1)
+        }
+        return (headerBytes + compressedSize)
+    }
+
+    ; --- sequences ------------------------------------------------------
+
+    ; One of the three code tables, by its two-bit mode. Returns the number
+    ; of bytes read from the block, or -1.
+    fn readSeqTable:int (data:buffer offset:int available:int mode:int which:int) {
+        def table (new ZstdFseTable())
+        if (mode == 0) {
+            def counts:[int]
+            def maxSymbol:int 0
+            def log:int 0
+            if (which == 0) {
+                counts = (ZstdTables.defaultLiteralCounts())
+                maxSymbol = 35
+                log = 6
+            }
+            if (which == 1) {
+                counts = (ZstdTables.defaultOffsetCounts())
+                maxSymbol = 28
+                log = 5
+            }
+            if (which == 2) {
+                counts = (ZstdTables.defaultMatchCounts())
+                maxSymbol = 52
+                log = 6
+            }
+            if ((table.build(counts maxSymbol log)) == false) {
+                this.fail("the predefined table did not build: " + table.err)
+                return (0 - 1)
+            }
+            this.storeSeqTable(table which)
+            return 0
+        }
+        if (mode == 1) {
+            if (available < 1) {
+                this.fail("an RLE sequence table with no symbol")
+                return (0 - 1)
+            }
+            table.buildRle((buffer_get data offset))
+            this.storeSeqTable(table which)
+            return 1
+        }
+        if (mode == 2) {
+            def maxSymbolValue:int 35
+            def maxLog:int 9
+            if (which == 1) {
+                maxSymbolValue = 31
+                maxLog = 8
+            }
+            if (which == 2) {
+                maxSymbolValue = 52
+                maxLog = 9
+            }
+            def nc (new ZstdNCount())
+            if ((nc.read(data offset available maxSymbolValue maxLog)) == false) {
+                this.fail("sequence table: " + nc.err)
+                return (0 - 1)
+            }
+            if ((table.build(nc.counts nc.maxSymbol nc.accuracyLog)) == false) {
+                this.fail("sequence table: " + table.err)
+                return (0 - 1)
+            }
+            this.storeSeqTable(table which)
+            return nc.bytesUsed
+        }
+        ; mode 3: keep what the previous block built.
+        if (state.haveTables == false) {
+            this.fail("a sequence table asks to repeat one that was never sent")
+            return (0 - 1)
+        }
+        return 0
+    }
+
+    fn storeSeqTable:void (table:ZstdFseTable which:int) {
+        if (which == 0) {
+            state.llTable = table
+        }
+        if (which == 1) {
+            state.ofTable = table
+        }
+        if (which == 2) {
+            state.mlTable = table
+        }
+    }
+
+    fn readCompressedBlock:boolean (data:buffer offset:int size:int) {
+        def used:int (this.readLiterals(data offset size))
+        if (used < 0) {
+            return false
+        }
+        def at:int (offset + used)
+        def left:int (size - used)
+        if (left < 1) {
+            return (this.fail("a compressed block with literals but no sequence count"))
+        }
+        def n0:int (buffer_get data at)
+        at = (at + 1)
+        left = (left - 1)
+        def nbSeq:int n0
+        if (n0 == 0) {
+            ; No sequences: the literals are the block.
+            sink.pushRange(literals 0 literalCount)
+            return true
+        }
+        if (n0 == 255) {
+            if (left < 2) {
+                return (this.fail("a long sequence count with no room for it"))
+            }
+            nbSeq = ((Zstd.u16(data at)) + 32512)
+            at = (at + 2)
+            left = (left - 2)
+        } {
+            if (n0 > 127) {
+                if (left < 1) {
+                    return (this.fail("a two-byte sequence count with no room for it"))
+                }
+                nbSeq = (((n0 - 128) * 256) + (buffer_get data at))
+                at = (at + 1)
+                left = (left - 1)
+            }
+        }
+        if (left < 1) {
+            return (this.fail("no symbol-mode byte after the sequence count"))
+        }
+        def modes:int (buffer_get data at)
+        at = (at + 1)
+        left = (left - 1)
+        if ((bit_and modes 3) != 0) {
+            return (this.fail("the symbol-mode byte sets its reserved bits"))
+        }
+        ; Literal lengths, then offsets, then match lengths — the order the
+        ; tables appear in the block.
+        def which:int 0
+        while (which < 3) {
+            def shift:int (6 - (which * 2))
+            def mode:int (bit_and (bit_shr modes shift) 3)
+            def took:int (this.readSeqTable(data at left mode which))
+            if (took < 0) {
+                return false
+            }
+            at = (at + took)
+            left = (left - took)
+            which = (which + 1)
+        }
+        state.haveTables = true
+        if (left < 1) {
+            return (this.fail("the sequence tables leave no bitstream"))
+        }
+        return (this.runSequences(data at left nbSeq))
+    }
+
+    fn runSequences:boolean (data:buffer offset:int length:int nbSeq:int) {
+        def bits (new ZstdReverseBits())
+        if ((bits.init(data offset length)) == false) {
+            return (this.fail("sequences: " + bits.err))
+        }
+        def llT:ZstdFseTable state.llTable
+        def ofT:ZstdFseTable state.ofTable
+        def mlT:ZstdFseTable state.mlTable
+        ; Initial states, in the order the encoder wrote them.
+        def llState:int (bits.read(llT.accuracyLog))
+        def ofState:int (bits.read(ofT.accuracyLog))
+        def mlState:int (bits.read(mlT.accuracyLog))
+        def litAt:int 0
+        def seq:int 0
+        while (seq < nbSeq) {
+            def llCode:int (itemAt llT.symbols llState)
+            def llNext:int (itemAt llT.bitsNeeded llState)
+            def llBaseState:int (itemAt llT.baseState llState)
+            def mlCode:int (itemAt mlT.symbols mlState)
+            def mlNext:int (itemAt mlT.bitsNeeded mlState)
+            def mlBaseState:int (itemAt mlT.baseState mlState)
+            def ofCode:int (itemAt ofT.symbols ofState)
+            def ofNext:int (itemAt ofT.bitsNeeded ofState)
+            def ofBaseState:int (itemAt ofT.baseState ofState)
+            if (llCode > 35) {
+                return (this.fail("a literal-length code outside the alphabet"))
+            }
+            if (mlCode > 52) {
+                return (this.fail("a match-length code outside the alphabet"))
+            }
+            if (ofCode > 30) {
+                return (this.fail("an offset code of " + (to_string ofCode) + " bits does not fit an int"))
+            }
+            ; Values: offset, then match length, then literal length.
+            def offValue:int ((bit_shl 1 ofCode) + (bits.read(ofCode)))
+            def matchLen:int ((itemAt mlBase mlCode) + (bits.read((itemAt mlBits mlCode))))
+            def litLen:int ((itemAt llBase llCode) + (bits.read((itemAt llBits llCode))))
+            ; States: literal length, then match length, then offset.
+            if ((seq + 1) < nbSeq) {
+                llState = (llBaseState + (bits.read(llNext)))
+                mlState = (mlBaseState + (bits.read(mlNext)))
+                ofState = (ofBaseState + (bits.read(ofNext)))
+            }
+            if (bits.ok == false) {
+                return (this.fail("sequences: " + bits.err))
+            }
+            ; Offset values 1..3 name one of the three recent offsets
+            ; instead of a distance, and a zero literal length shifts which
+            ; one they mean.
+            def offset2:int 0
+            if (offValue > 3) {
+                offset2 = (offValue - 3)
+                state.rep2 = state.rep1
+                state.rep1 = state.rep0
+                state.rep0 = offset2
+            } {
+                def idx:int offValue
+                if (litLen != 0) {
+                    idx = (idx - 1)
+                }
+                if (idx == 0) {
+                    offset2 = state.rep0
+                } {
+                    if (idx == 3) {
+                        offset2 = (state.rep0 - 1)
+                    } {
+                        if (idx == 1) {
+                            offset2 = state.rep1
+                        } {
+                            offset2 = state.rep2
+                        }
+                    }
+                    if (idx > 1) {
+                        state.rep2 = state.rep1
+                    }
+                    state.rep1 = state.rep0
+                    state.rep0 = offset2
+                }
+            }
+            if ((litAt + litLen) > literalCount) {
+                return (this.fail("a sequence asks for more literals than the block holds"))
+            }
+            if (litLen > 0) {
+                sink.pushRange(literals litAt litLen)
+                litAt = (litAt + litLen)
+            }
+            if (offset2 < 1) {
+                return (this.fail("a match with a zero offset"))
+            }
+            if (offset2 > sink.len) {
+                return (this.fail("a match reaching " + (to_string offset2) + " bytes back, before the start of the output"))
+            }
+            sink.copyMatch(offset2 matchLen)
+            seq = (seq + 1)
+        }
+        if (bits.bitPos != 0) {
+            return (this.fail("the sequence bitstream ended with " + (to_string bits.bitPos) + " bits unread"))
+        }
+        ; Whatever literals the sequences did not name are appended.
+        if (litAt < literalCount) {
+            sink.pushRange(literals litAt (literalCount - litAt))
+        }
+        return true
+    }
+}

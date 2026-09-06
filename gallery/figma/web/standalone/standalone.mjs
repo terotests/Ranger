@@ -3,7 +3,6 @@
  * OpenFig-core is loaded only for the live parse-time comparison.
  */
 import { renderDisplayList, loadImages } from "./gl/evg-webgl.js";
-import { installZstd } from "./zstd.mjs";
 import { figmaClipboard, figmaClipboardName, readFigmaClipboard, FIG_FILE_RE } from "./clipboard.mjs";
 
 window.__pageStarted = true;
@@ -27,7 +26,6 @@ const pasteEl = document.getElementById("paste");
 const zoomlabEl = document.getElementById("zoomlab");
 const mainEl = document.querySelector("main");
 
-installZstd();
 
 const gl = canvas.getContext("webgl2", { antialias: true, premultipliedAlpha: false, stencil: true });
 if (!gl) {

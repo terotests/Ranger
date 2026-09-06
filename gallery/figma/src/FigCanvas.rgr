@@ -4,7 +4,7 @@
 ; Chunk 0 is always raw deflate (kiwi schema). Chunk 1 is zstd or raw deflate.
 
 Import "../../zip/Inflate.rgr"
-Import "FigZstd.rgr"
+Import "../../zstd/src/ZstdDecoder.rgr"
 Import "FigDeflate.rgr"
 
 class FigChunk {
@@ -72,8 +72,13 @@ class FigCanvas {
         if (FigCanvas.isZstd(c1.bytes)) {
             usedZstd = true
             def t1:double (wall_clock_ms)
-            messageRaw = (fig_zstd_decompress c1.bytes)
+            def zs (new Zstd())
+            messageRaw = (zs.decompress(c1.bytes))
             zstdMs = ((wall_clock_ms) - t1)
+            if (zs.ok == false) {
+                this.fail("zstd: " + zs.err)
+                return false
+            }
         } {
             def t2:double (wall_clock_ms)
             def inf2 (new Inflate())
@@ -82,6 +87,19 @@ class FigCanvas {
         }
         if ((buffer_length schemaRaw) == 0) {
             this.fail("schema inflate produced no bytes")
+            return false
+        }
+        ; The schema is checked above; the message was not, and it is the
+        ; half that can arrive empty without anything having thrown. On a
+        ; target with no zstd the operator's fallback hands back an empty
+        ; buffer by design, and the kiwi decoder then reads a document with
+        ; no nodes in it and reports success. Say which codec came up short.
+        if ((buffer_length messageRaw) == 0) {
+            if usedZstd {
+                this.fail("zstd produced no bytes: this target has no zstd decoder for the message chunk")
+            } {
+                this.fail("message inflate produced no bytes")
+            }
             return false
         }
         return true
