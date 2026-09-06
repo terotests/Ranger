@@ -184,6 +184,15 @@ class VlEvgList {
             def col:EVGColor (EVGColor.parse(cmd.fill))
             def cf (new EVGDrawCmd)
             cf.kind = 6
+            ; WHERE IT IS, as well as what it is. Every painter reads a path
+            ; out of `pts`, which are already page coordinates, so this was
+            ; left at zero — and then a kept display list that MOVES a scroll
+            ; layer moved it, leaving a command whose `y` said one thing and
+            ; whose points said another. `EVGDisplayList.walkSvgDocument` has
+            ; always set the origin here for exactly the same shape of
+            ; command; this is that convention, applied to a chart.
+            cf.x = ox
+            cf.y = oy
             cf.r = (col.red())
             cf.g = (col.green())
             cf.b = (col.blue())
@@ -196,6 +205,8 @@ class VlEvgList {
             def scol:EVGColor (EVGColor.parse(cmd.stroke))
             def cs (new EVGDrawCmd)
             cs.kind = 7
+            cs.x = ox
+            cs.y = oy
             cs.thickness = (cmd.strokeWidth * scale)
             if (cs.thickness < 0.75) {
                 cs.thickness = 0.75

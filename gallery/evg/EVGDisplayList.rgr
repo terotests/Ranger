@@ -517,6 +517,132 @@ class EVGDisplayList {
         this.addCmd(c)
     }
 
+    ; --- COMMANDS APPENDED AFTER THE WALK, INSIDE A SCROLL ---------------------
+    ;
+    ; The walk puts a scroll container's commands inside its layer, so a kept
+    ; list moves them — see `refreshLayers`. Something APPENDED AFTERWARDS is
+    ; not inside anything: an application drawing a chart into a box the
+    ; layout placed cannot do it until the layout has placed it, so it comes
+    ; after the whole tree is down.
+    ;
+    ; Those commands used to sit at the position they were built at while the
+    ; kept list moved the page around them. On a scrolling diary that is a
+    ; chart's line floating over the page, on top of everything, snapping into
+    ; its card the moment the scroll stopped and the list was built again.
+    ;
+    ; This opens a clip that is A LAYER OF THE SAME CONTAINER: what is
+    ; appended between it and `addLayerClipEnd` moves exactly as the
+    ; container's own content moves, and stops being valid at exactly the
+    ; moment the container's content does — the cull range is the same one.
+    ; When the container has no layer in this list, because it does not scroll
+    ; or the list was built with culling off, this is an ordinary clip, which
+    ; is the right answer in both cases.
+    fn addLayerClip:void (el:EVGElement x:double y:double w:double h:double) {
+        def src:int (this.contentLayerFor(el))
+        def cp (new EVGDrawCmd())
+        cp.kind = 4
+        cp.x = x
+        cp.y = y
+        cp.w = w
+        cp.h = h
+        if (src >= 0) {
+            cp.layer = ((array_length layerEls) + 1)
+            push layerStack (array_length layerEls)
+            push layerEls el
+            ; Built now, so the offset it was built at is the offset now.
+            push layerTop el.scrollTop
+            push layerLeft el.scrollLeft
+            push layerShiftX 0.0
+            push layerShiftY 0.0
+            push layerClip (array_length cmds)
+            push layerFirst ((array_length cmds) + 1)
+            push layerLast ((array_length cmds) + 1)
+            ; The same range the content was built for, so the two go stale
+            ; together and one rebuild answers for both.
+            push layerCullL (itemAt layerCullL src)
+            push layerCullT (itemAt layerCullT src)
+            push layerCullR (itemAt layerCullR src)
+            push layerCullB (itemAt layerCullB src)
+            push layerKind 0
+            push layerScale 1.0
+            push layerPct 0
+            push layerLabel (0 - 1)
+        }
+        this.addCmd(cp)
+    }
+
+    fn addLayerClipEnd:void () {
+        if ((array_length layerStack) > 0) {
+            def done:int (itemAt layerStack ((array_length layerStack) - 1))
+            set layerLast done (array_length cmds)
+            removeLast layerStack
+        }
+        def pp (new EVGDrawCmd())
+        pp.kind = 5
+        this.addCmd(pp)
+    }
+
+    ; Is this rectangle inside what the list was BUILT FOR — the overscan
+    ; range of `el`'s scroll layer, not merely the part of it on the screen?
+    ;
+    ; The difference is what a kept list lives on. `emitCharts` and anything
+    ; else appending after the walk has to ask the same question the walk
+    ; asked, or it emits only what is visible NOW and the kept list has
+    ; nothing to show for a card that scrolls in: the card arrives complete
+    ; except for the one thing drawn outside the walk, which appears when the
+    ; list is next built — when the scroll stops.
+    ;
+    ; With no layer for `el` there is nothing kept and nothing to overscan, so
+    ; the answer is the plain overlap with the element's own box.
+    fn layerCovers:boolean (el:EVGElement x:double y:double w:double h:double) {
+        def i:int (this.contentLayerFor(el))
+        if (i < 0) {
+            if ((y + h) < el.calculatedY) {
+                return false
+            }
+            if (y > (el.calculatedY + el.calculatedHeight)) {
+                return false
+            }
+            if ((x + w) < el.calculatedX) {
+                return false
+            }
+            if (x > (el.calculatedX + el.calculatedWidth)) {
+                return false
+            }
+            return true
+        }
+        if ((y + h) < (itemAt layerCullT i)) {
+            return false
+        }
+        if (y > (itemAt layerCullB i)) {
+            return false
+        }
+        if ((x + w) < (itemAt layerCullL i)) {
+            return false
+        }
+        if (x > (itemAt layerCullR i)) {
+            return false
+        }
+        return true
+    }
+
+    ; The layer this element's CONTENT was built into, or -1. `layerFor` above
+    ; answers with whichever layer of the element comes first; a scroll
+    ; container has two — its content and its scrollbar thumb — and only the
+    ; content's range is the one an appended command belongs in.
+    fn contentLayerFor:int (el:EVGElement) {
+        def i:int 0
+        while (i < (array_length layerEls)) {
+            if ((itemAt layerKind i) == 0) {
+                if ((itemAt layerEls i) == el) {
+                    return i
+                }
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
 
     ; The element's imported document, parsed once and kept on the element
     ; — see `EVGElement.svgDoc`. Every frame that draws the element asked

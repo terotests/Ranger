@@ -2732,6 +2732,15 @@ class RealTrainerDemo {
     ; A training calendar's Home, as `HomeView` has it: the three tabs and,
     ; on Päiväkirja, every workout of the calendar as a card, newest first.
     fn diaryFeed:void (home:EVGElement) {
+        ; THE FEED IS NOT ARRIVING ON THE OTHER TABS. `feedMore` says the diary
+        ; has cards still to build, and `tick` builds a chunk and rebuilds the
+        ; tree for every frame it is true. It used to be cleared only where the
+        ; diary's own loop sets it — below the two returns — so switching to
+        ; Harjoitteet or Tilastot while the feed was still coming left it true
+        ; for good: every frame on those tabs rebuilt the whole page and laid
+        ; it out again, forever, and a scroll there could never take the
+        ; shortcut. Cleared here, before either tab can return.
+        feedMore = false
         def tabs (tree Rt (Row (props (className "rt-ex-btns rt-home-tabs"))))
         tabs.addChild((this.homeTabBtn("rt-home-tab-diary" "Päiväkirja" (homeTab == "diary"))))
         tabs.addChild((this.homeTabBtn("rt-home-tab-drills" "Harjoitteet" (homeTab == "drills"))))
@@ -2747,7 +2756,6 @@ class RealTrainerDemo {
         }
         def feed (tree Rt (Col (props (className "rt-home-feed"))))
         def sorted:[RtSeedEntry] (RealTrainerDemo.sortByDateDesc((seed.selectedEntries())))
-        feedMore = false
         for sorted e:RtSeedEntry i {
             if (i >= feedShown) {
                 if ((this.hasCard(e i "home")) == false) {
@@ -3613,14 +3621,30 @@ class RealTrainerDemo {
             def w:int (to_int box.calculatedWidth)
             def h:int (to_int box.calculatedHeight)
             if ((w < 10) || (h < 10)) { continue }
-            ; Out of the main area entirely: nothing to draw.
-            if ((box.calculatedY + box.calculatedHeight) < main.calculatedY) { continue }
-            if (box.calculatedY > (main.calculatedY + main.calculatedHeight)) { continue }
+            ; Outside what the LIST WAS BUILT FOR: nothing to draw. Not
+            ; "outside the screen" — that was the test here, and it is the
+            ; wrong one for a list that is kept and moved. A card an overscan
+            ; below the fold is built into the list complete; its curve was
+            ; not, because the curve is emitted here and here only asked
+            ; whether the card was visible. So the card scrolled in without
+            ; its chart and the chart appeared when the scroll stopped and the
+            ; list was built again. `layerCovers` asks the question the walk
+            ; asked.
+            if ((dl.layerCovers(main box.calculatedX box.calculatedY box.calculatedWidth box.calculatedHeight)) == false) { continue }
             def list:VlCommandList (this.chartCommands(def0 w h))
-            dl.addClip(main.calculatedX main.calculatedY main.calculatedWidth main.calculatedHeight)
+            ; INSIDE THE SCROLL, not merely on top of it. These commands are
+            ; appended after the whole tree is down — a chart cannot be drawn
+            ; until the layout has placed its card — so nothing about the walk
+            ; puts them in the scrolled container's layer, and a kept list
+            ; moved the page out from under them: the curve floated over the
+            ; document during a scroll and snapped into its card when the
+            ; scroll stopped and the list was built again.
+            ; `addLayerClip` makes the clip a layer of `main`, so they move
+            ; with it and go stale with it. See `EVGDisplayList.addLayerClip`.
+            dl.addLayerClip(main main.calculatedX main.calculatedY main.calculatedWidth main.calculatedHeight)
             def bridge (new VlEvgList())
             bridge.emit(dl list tr box.calculatedX box.calculatedY 1.0)
-            dl.addClipEnd()
+            dl.addLayerClipEnd()
         }
     }
 
