@@ -180,11 +180,13 @@ calendar (since replaced by the date field above, and gone from the matrix),
 `cx-num` on the controls page, `dlg-input-name` and
 `dlg-input-username` in the dialog: each is published as a textbox, and none
 opens an editing session. A click does not focus, typing goes nowhere, and
-there is no selection to report. `cx-num` is the closest to real — its
-`NumberCtl` is measured against Base UI and its `−`/`+` and arrow keys work —
-but a person who clicks in it and types is told nothing. These stay red in
-the baseline. They are the shape of the complaint, and the bench is the
-instrument that shows it per field rather than as a feeling.
+there is no selection to report — including the `ring` column: the box's
+border cannot change with focus if focus never arrives. `cx-num` is the
+closest to real — its `NumberCtl` is measured against Base UI and its `−`/`+`
+and arrow keys work — but a person who clicks in it and types is told
+nothing. These stay red in the baseline. They are the shape of the complaint,
+and the bench is the instrument that shows it per field rather than as a
+feeling.
 
 **A second round, from a person at the page.** Tab from Find a customer
 "did nothing": it moved the focus to the readonly Invoice number, which draws
@@ -205,9 +207,11 @@ border does not change when it takes focus is red.
 | first run, before any fix | 158 | 69 | 3074 / 3864 (79.6%) |
 | recorded baseline, after the fixes above | 202 | 28 | 3555 / 4064 (87.5%) |
 | with the `ring` column, after the focus work | 217 | 29 | 3555 / 4064 (87.5%) |
+| after the date box left the matrix, session-less fields fail `ring` too | 213 | 24 | 3555 / 4064 (87.5%) |
 
-The 29 that remain are the four fields that open no editing session, seven
-scenarios each, plus the calendar's date box with no focus ring. The observation count rose because the fixes made the
+The 24 that remain are the three fields that open no editing session — seven
+scenarios each, plus `ring`, because a click does not focus them so the
+border does not change. The observation count rose because the fixes made the
 `placeholder` column applicable to the fields that publish one.
 
 ## The baseline
