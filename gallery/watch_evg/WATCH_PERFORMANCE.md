@@ -315,4 +315,29 @@ In the order the measurements suggest:
 
 ---
 
+## Re-run (2026-09-02, this cloud agent)
+
+Same harnesses on a 4× Intel Xeon cloud host after #797 landed. `calibrate(2e6)`
+≈ **4.2 ms** across Kotlin C1/C2, C++, and Node on this machine (the published
+tables above came from a different host where calibrate was ~5.7–8.4 ms). Verdict
+unchanged — numbers here are **faster** than the tables above, so the Wear ×10 /
+watchOS ×3×2 estimates remain conservative.
+
+**Kotlin C2** — face rebuild **0.17 ms**, retained **0.038 ms**, paint **0.51 ms**, cold **40 ms**
+
+**Kotlin C1 (ART bracket)** — face rebuild **0.45 ms**, retained **0.079 ms**, paint **0.52 ms**, cold **34 ms**
+
+**C++ AOT** — face rebuild **0.24 ms**, retained **0.041 ms**, cold **0.66 ms**
+
+**Node** — face rebuild **0.21 ms**, retained **0.055 ms**, cold **17 ms**
+
+Scaled at the same factors as above: Wear little-core face rebuild ≈ **4.5 ms**
+(C1×10), watchOS ≈ **1.4 ms** (C++×3×2 Swift). Still well inside 16.7 ms.
+
+Also fixed `run-jvm.sh` so a symlinked `kotlinc` on PATH still finds
+`kotlin-stdlib.jar` (otherwise the harness dies with `NoClassDefFoundError:
+kotlin/jvm/internal/Intrinsics`).
+
+---
+
 **License: AGPL-3.0-or-later** (Gallery).
