@@ -1462,6 +1462,12 @@ class ComponentEngine {
     ; switch for differential runs.
     def bcEnabled:boolean true
     def bcPrograms:[BcProgram]
+    ; Atom id of the "__argscope__" marker, minted on first use. argMapName
+    ; probes this literal on EVERY member access of an object, so hashing the
+    ; 12-char name per probe was 401,000 hashes on the `object` bench row --
+    ; the largest single caller of EvAtomTable::idOf. An id is stable for the
+    ; life of the table, so one mint serves every later probe. -1 = not minted.
+    def argScopeAtom:int (0 - 1)
     def bcStack:[EvHandle]
     def bcSp:int 0
     ; Phase 5 (BYTECODE.md): tagged slots. A VM slot i is (bcTags[i], payload):
@@ -10011,7 +10017,10 @@ class ComponentEngine {
         if (false == (obj.isObject())) {
             return ""
         }
-        if (false == (obj.hasOwnData("__argscope__"))) {
+        if (argScopeAtom < 0) {
+            argScopeAtom = ((EvAtomTable.__singleton()).idOf("__argscope__"))
+        }
+        if (false == (obj.hasOwnDataAtom(argScopeAtom))) {
             return ""
         }
         def idx:int (this.canonicalArrayIndex(key))
