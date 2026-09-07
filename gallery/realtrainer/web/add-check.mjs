@@ -141,6 +141,40 @@ console.log("--- the save that fails, and the retry ---");
 }
 
 console.log("");
+console.log("--- the wait is drawn, not only written ---");
+{
+  // A request that takes most of a second and says so only in words is a
+  // screen a person taps twice. The send button's chevron becomes a turning
+  // ring while the request is in flight — the loading screen's ring at a
+  // twentieth of its size, turned by a transform written onto the element
+  // once a frame, so the angle is the app's clock and this can read it.
+  const app = open();
+  const blades = () =>
+    JSON.parse(app.displayListJson()).cmds.filter((c) => c.k === 0 && c.w === 3 && c.h === 6);
+  ok("nothing is spinning before the send", blades().length === 0);
+
+  app.press("rt-home-field");
+  type(app, TEXT);
+  app.press("rt-home-send");
+  app.tick(16.7);
+  app.display();
+  ok("the button holds a ring while it waits", blades().length === 8, blades().length + " blades");
+
+  // TURNING, and by the frame time: a dropped frame turns it further rather
+  // than slowing it down, which is the same rule the loader's ring follows.
+  const angleNow = () => Math.round(blades()[0].rot || 0);
+  const a0 = angleNow();
+  for (let i = 0; i < 10; i += 1) { app.tick(16.7); app.display(); }
+  const a1 = angleNow();
+  ok("and it turns", a1 !== a0, `${a0}deg then ${a1}deg`);
+  ok("the frame says it moved", app.tick(16.7) === true);
+
+  settle(app, 1200);
+  ok("and it is gone once the answer is in", blades().length === 0, blades().length + " blades");
+  ok("the chevron is back", shows(app, "Maastaveto"));
+}
+
+console.log("");
 console.log("--- the field is one line, whatever is in it ---");
 {
   // An `<input>` never wraps: it scrolls. The plan calendar's placeholder is

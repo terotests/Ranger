@@ -117,6 +117,9 @@ treefactory Rt {
     tag Card     EVGElement (props (className "rt-card") (role "region") (a11yLabel "RealTrainer"))
     tag Ring     EVGElement (props (className "rt-ring") (id "rt-ring") (role "img") (a11yLabel "Ladataan"))
     tag Blade    EVGElement (props (className "rt-blade") (a11yHidden true))
+    ; The loader's ring, small enough to sit in a button — see `.rt-spin`.
+    tag Spin     EVGElement (props (className "rt-spin") (role "img") (a11yLabel "Tallennetaan"))
+    tag SpinBlade EVGElement (props (className "rt-spin-blade") (a11yHidden true))
     tag Word     EVGElement (props (className "rt-word"))
     tag WordA    EVGElement (props (className "rt-word-a") (elementType 1))
     tag WordB    EVGElement (props (className "rt-word-b") (elementType 1))
@@ -795,6 +798,10 @@ class RealTrainerDemo {
     def homeField:InputCtl (new InputCtl())
     def homeDialog:AddWorkoutDialog (new AddWorkoutDialog())
     def homeBackend:RtBackendSim (new RtBackendSim())
+    ; How long the request in flight has been in flight, for the spinner in
+    ; the send button. Its own clock and not `elapsedMs`, which is the loading
+    ; screen's and stops when that screen does.
+    def saveSpinMs:double 0.0
     ; The edit sheet's fields: the general feedback and one per weekday.
     def editField:InputCtl (new InputCtl())
     def dayFields:[InputCtl]
@@ -1274,6 +1281,19 @@ class RealTrainerDemo {
     }
 
     ; --- scene one: the loader ------------------------------------------------
+
+    ; A spinner the size of a button's glyph. Eight blades rather than the
+    ; ring's twelve: at twenty pixels across, twelve is a smudge.
+    sfn spinner:EVGElement (id:string) {
+        def ring (tree Rt (Spin))
+        ring.id = id
+        def i:int 0
+        while (i < 8) {
+            ring.addChild((tree Rt (SpinBlade (props (className ("rt-spin-blade rt-spin-blade-" + (to_string i)))))))
+            i = (i + 1)
+        }
+        return ring
+    }
 
     sfn ring:EVGElement () {
         def ring (tree Rt (Ring))
@@ -2732,7 +2752,17 @@ class RealTrainerDemo {
         def box (this.fieldBox(homeField))
         box.className = (box.className + " rt-home-box")
         entry.addChild(box)
-        def send (this.iconBtn("rt-home-send" "Lähetä" (RtIcons.chevronRight("#ffffff"))))
+        ; THE BUTTON IS THE WAIT. While the request is in flight the chevron
+        ; is a turning ring instead — a request that takes most of a second
+        ; and says so only in words is a screen a person taps twice.
+        def send@(mutable):EVGElement (this.iconBtn("rt-home-send" "Lähetä" (RtIcons.chevronRight("#ffffff"))))
+        if (homeDialog.state == "saving") {
+            def b (tree Rt (IconBtn))
+            b.id = "rt-home-send"
+            b.a11yLabel = "Tallennetaan"
+            b.addChild((RealTrainerDemo.spinner("rt-home-spin")))
+            send = b
+        }
         send.className = "rt-icon-btn rt-send-btn"
         ; Nothing to send, or a send already in flight: the button says so
         ; rather than taking a press that would do nothing.
@@ -2816,6 +2846,29 @@ class RealTrainerDemo {
         homeDialog.open(forDay seed.calendarId)
     }
 
+    ; Turn the send button's ring. Written straight onto the element, the way
+    ; the loading screen's ring is turned: a transform per frame rather than
+    ; an animation the stylesheet owns, so the angle is the app's clock and a
+    ; headless check can read it.
+    fn spinSave:void () {
+        if (homeDialog.state != "saving") {
+            return
+        }
+        def r:EVGElement (unwrap root)
+        def found@(optional):EVGElement (RealTrainerDemo.byId(r "rt-home-spin"))
+        if found {
+            def g:EVGElement (unwrap found)
+            def deg@(mutable):double ((saveSpinMs * spinDegPerSec) / 1000.0)
+            while (deg >= 360.0) {
+                deg = (deg - 360.0)
+            }
+            g.setAttribute("transform" (("rotate(" + (to_string deg)) + "deg)"))
+            g.markInline("transform")
+            layoutDirty = true
+            boxesDirty = true
+        }
+    }
+
     ; Is there something to send, and is the line free to send it?
     fn homeSendable:boolean () {
         if (homeDialog.state == "saving") {
@@ -2835,6 +2888,7 @@ class RealTrainerDemo {
         def started:boolean (homeDialog.send("START_SAVING" ""))
         if (started) {
             homeDialog.error = ""
+            saveSpinMs = 0.0
             homeBackend.begin(homeDialog.inputText)
         }
         return started
@@ -6825,6 +6879,12 @@ class RealTrainerDemo {
                 this.rebuild()
                 return true
             }
+        }
+        ; Still waiting: the button's ring turns and the frame is not idle.
+        if (homeDialog.state == "saving") {
+            saveSpinMs = (saveSpinMs + dtMs)
+            this.spinSave()
+            return true
         }
         if (backend.tick(dtMs)) {
             ; The save that the dialog started is the save that answers it.
