@@ -145,6 +145,139 @@ console.log("--- the arrangement the bug was reported in ---");
     13 * H.EVGTextMeasurer.normalLineHeightEm(), 0.05);
 }
 
+// --- `line-height` is three different computations, not one ------------------
+//
+// CSS lets it be written three ways and keeps them apart: `normal` is the
+// FACE's own line box, a NUMBER is that many times the font size, and a
+// LENGTH is itself. EVG held one double and ran everything through
+// `to_double`, which stops at the first character it cannot use — so `24px`
+// came back 24 and was used as a multiplier. A 14px run got a 336-pixel line
+// box, and a line sitting at the top of a box twelve times too tall reads, on
+// the screen, as a line that has fallen to the bottom of everything near it.
+console.log("--- line-height as a number, a length and a percentage ---");
+{
+  const boxOf = (lineHeight, rootPx) => {
+    const sheet = new H.EVGStyleSheet();
+    sheet.parse(
+      `.page{display:flex;flex-direction:column;flex-wrap:nowrap;width:400px;height:300px;font-size:${rootPx}px}` +
+      ".t{font-size:14px" + (lineHeight ? ";line-height:" + lineHeight : "") + "}",
+    );
+    const page = H.EVGElement.createDiv();
+    page.className = "page";
+    const t = H.EVGElement.createDiv();
+    t.className = "t";
+    t.textContent = "Hxg";
+    page.addChild(t);
+    sheet.applyTree(page, "");
+    const l = new H.EVGLayout();
+    l.setPageSize(400, 300);
+    l.layout(page);
+    return t.calculatedHeight;
+  };
+  const NORMAL = 14 * SANS.normalLineBoxEm;
+  near("unset is the face's own line box", boxOf("", 16), NORMAL);
+  near("`normal` says the same", boxOf("normal", 16), NORMAL);
+  near("a number multiplies the font size", boxOf("1.5", 16), 21);
+  near("and so does a percentage, against the font size", boxOf("150%", 16), 21);
+  near("a length in px is itself, NOT a multiplier", boxOf("24px", 16), 24);
+  near("`em` is against this element's own size", boxOf("2em", 16), 28);
+  near("`rem` is against the root's", boxOf("1.5rem", 16), 24);
+  // The half-leading goes negative here, and the line still owns its box.
+  near("a number under one gives a box smaller than the face", boxOf("0.8", 16), 11.2);
+}
+
+// --- the text starts inside the border, not on it ----------------------------
+//
+// `getInnerWidth` takes the border off as well as the padding, and the
+// layout's own `calculatedBaseline` is measured from the border edge and adds
+// both. The display list added only the padding, so a text element with a
+// border drew its text one border-width high and one left — over its own top
+// border, and measured against a width that assumed it started inside it.
+// EVG disagreeing with EVG, which is the kind of divergence that survives
+// longest because both halves look right on their own.
+console.log("--- a border on a text element ---");
+{
+  const build = (borderPx) => {
+    const sheet = new H.EVGStyleSheet();
+    sheet.parse(
+      ".page{display:flex;flex-direction:column;flex-wrap:nowrap;width:400px;height:300px}" +
+      ".t{font-size:14px;height:60px;padding:5px 7px" +
+      (borderPx ? `;border-width:${borderPx}px;border-color:#fff` : "") + "}",
+    );
+    const page = H.EVGElement.createDiv();
+    page.className = "page";
+    const t = H.EVGElement.createDiv();
+    t.className = "t";
+    t.textContent = "Hxg";
+    page.addChild(t);
+    sheet.applyTree(page, "");
+    const l = new H.EVGLayout();
+    l.setPageSize(400, 300);
+    l.layout(page);
+    const dl = new H.EVGDisplayList();
+    dl.setTextEngine(l.getTextEngine());
+    dl.build(page);
+    const cmd = JSON.parse(dl.toJson()).cmds.find((c) => c.k === 3);
+    return { baseline: t.calculatedBaseline, lineTop: cmd.y, lineLeft: cmd.x, lineBox: cmd.h };
+  };
+  for (const bw of [0, 3]) {
+    const got = build(bw);
+    near(`border ${bw}px: the line starts below the border and the padding`,
+      got.lineTop, bw + 5);
+    near(`border ${bw}px: and to the right of both`, got.lineLeft, bw + 7);
+    // THE ONE THAT MATTERS: the layout's baseline and the painter's are the
+    // same point. The painter puts the baseline a half-leading and an ascent
+    // below the line box's top; the layout computes it from the border edge.
+    const half = (got.lineBox - (SANS.ascentEm + SANS.descentEm) * 14) / 2;
+    near(`border ${bw}px: the layout's baseline is the painter's`,
+      got.lineTop + half + SANS.ascentEm * 14, got.baseline);
+  }
+}
+
+// --- a shrink-wrapped box cannot break its own content -----------------------
+//
+// A text element with no stated width shrink-wraps: the layout measures the
+// run, adds the padding and the border, and that sum is the box. The breaker
+// then works with the box MINUS the same padding and border, and
+// `(w + chrome) - chrome` is not always `w` in binary floating point. For some
+// strings it lands a few parts in a quadrillion low, and a line measured to
+// fit exactly is then a hair too wide and goes onto a second line. ISSUES.md
+// #7, reported as five labels of a sidebar on one line and the sixth on two.
+console.log("--- the round trip a shrink-wrapped box makes ---");
+{
+  const eng = new H.EVGTextEngine();
+  const WORDS = [
+    "Overview", "Text engine", "Display list", "Style sheet", "Hit testing",
+    "Accessibility", "Layout", "Transitions", "Scroll layers", "Vertical rhythm",
+    "Kerning pairs", "Harjoituspäiväkirja", "Johdetut arvot", "porraskävely",
+    "Viimeisimmät arviot", "Hermostokuorma", "Kontrastivoima", "Alkulämmittely",
+    "Takakyykky", "Penkkipunnerrus", "Loppuverryttely",
+  ];
+  let lossy = 0;
+  let broke = 0;
+  let all = 0;
+  let firstBreak = "";
+  for (const w of WORDS)
+    for (const fs of [11, 12, 13, 14, 15, 16, 17, 24])
+      for (const pad of [4, 6, 8, 10, 12, 16, 20, 24])
+        for (const bw of [0, 1, 2, 3]) {
+          const content = eng.maxLineWidth(w, "sans-serif", fs);
+          const inner = content + pad * 2 + bw * 2 - pad * 2 - bw * 2;
+          all += 1;
+          if (inner < content) lossy += 1;
+          if (eng.lineCount(w, "sans-serif", fs, inner) !== 1) {
+            broke += 1;
+            if (!firstBreak) firstBreak = `"${w}" at ${fs}px, ${pad}px padding, ${bw}px border`;
+          }
+        }
+  // The check is only worth its place if the arrangement it covers really is
+  // the lossy one: say how many of the round trips come back short.
+  ok("the round trip really does lose width for some strings", lossy > 0,
+     `${lossy} of ${all}`);
+  ok("and not one of them breaks inside its own box", broke === 0,
+     `${broke} of ${all} broke — first ${firstBreak}`);
+}
+
 console.log("");
 console.log("passed=" + passed + " failed=" + failed);
 if (failed > 0) { console.log("FAILURES"); process.exit(1); }

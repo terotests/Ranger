@@ -581,16 +581,24 @@ class EVGLayout {
                 ; thing that knows about faces. It used to be a flat 1.2, which
                 ; is a number people type and not one a browser computes: the
                 ; sans fallback's normal is 1.15em and monospace's is 1.164.
-                def lineSpacing:double 0.0
-                if (element.lineHeight > 0.0) {
-                    lineSpacing = (fontSize * element.lineHeight)
-                } {
-                    lineSpacing = (textEngine.lineHeightFor((element.effectiveFontFamily()) fontSize))
-                }
+                ; One answer for the line box, shared with the display list:
+                ; `line-height` is a number, a length or `normal`, and only
+                ; `EVGElement.lineBoxFor` knows which. `normal` is the FACE's
+                ; box and so comes from the engine that knows about faces.
+                def lineSpacing:double (element.lineBoxFor(fontSize
+                    (textEngine.lineHeightFor((element.effectiveFontFamily()) fontSize))))
                 
                 ; Line count comes from the shared wrap, not a second estimate,
                 ; so the height reserved here matches the lines paint will draw.
-                def availableWidth:double (width - element.box.paddingLeftPx - element.box.paddingRightPx)
+                ; THE SAME WIDTH THE PAINTER BREAKS AT. `getInnerWidth` takes
+                ; off the border as well as the padding, and it is what
+                ; `EVGDisplayList` hands the breaker; this took off only the
+                ; padding. A bordered text element was therefore counted at
+                ; one width here and broken at another there — the height was
+                ; reserved for the wrap the layout imagined and the painter
+                ; drew a different one, which is a box the last line falls out
+                ; of.
+                def availableWidth:double (element.box.getInnerWidth(width))
                 def lineCount:int (textEngine.lineCount(textContent (element.effectiveFontFamily()) fontSize availableWidth))
 
                 contentHeight = (lineSpacing * (to_double lineCount))

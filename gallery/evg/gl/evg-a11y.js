@@ -82,7 +82,21 @@ function elementFor(role) {
   return document.createElement("div");
 }
 
-function styleBase(el) {
+/**
+ * NOTHING HERE MAY PAINT. The canvas underneath already drew all of it, so a
+ * mirror node that puts one pixel on the screen is a second copy of the page
+ * — and, because the mirror is rebuilt on its own schedule rather than every
+ * frame, a second copy AT AN OLDER SCROLL OFFSET. Two pages superimposed.
+ *
+ * `color: transparent` is not enough to promise that, and the gap is exactly
+ * where it hurts: the mirror makes NATIVE controls, because a real <button>
+ * and a real <input> are what readers understand and what the text bridge
+ * edits in — and a native control on iOS is painted through
+ * `-webkit-text-fill-color` and `-webkit-appearance`, neither of which
+ * `color` reaches. Everything a UA can decide to draw is turned off here by
+ * name, and `evg:a11y:paint` holds the list.
+ */
+export function styleBase(el) {
   const s = el.style;
   s.position = "absolute";
   s.margin = "0";
@@ -96,6 +110,18 @@ function styleBase(el) {
   s.overflow = "hidden";
   s.whiteSpace = "pre";
   s.outline = "none";
+  // The three a native control paints itself with, which `color` does not
+  // reach: the fill iOS uses for button and input text, the platform chrome
+  // it would draw around them, and the caret that blinks in a text field
+  // even when its text is invisible.
+  s.webkitTextFillColor = "transparent";
+  s.webkitAppearance = "none";
+  s.appearance = "none";
+  s.caretColor = "transparent";
+  // And the two that paint outside the box, so they are not clipped away by
+  // `overflow: hidden` above.
+  s.textShadow = "none";
+  s.boxShadow = "none";
   // The canvas underneath already drew all of this. Nothing here should paint,
   // and nothing here should take a click away from it.
   s.pointerEvents = "none";
