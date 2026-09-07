@@ -1169,9 +1169,14 @@
      "state": ""
     },
     {
-     "role": "button",
-     "name": "",
+     "role": "textbox",
+     "name": "Kirjoita merkintä... esim. \"treeni 60min\"",
      "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lähetä",
+     "state": "disabled"
     },
     {
      "role": "button",
