@@ -2162,6 +2162,12 @@
   background-color: #1c1c1c;
   cursor: pointer;
 }
+/* A FIELD IS ONE LINE. An `<input>` never wraps whatever is in it — it
+ * scrolls — and the quick entry on Home has a placeholder longer than its
+ * box: without this it broke onto a second line and fell out of the bottom of
+ * a 40-pixel row. `white-space` is inherited, so the run and the ghost inside
+ * the field obey it without saying so themselves. */
+.rt-field { white-space: nowrap; overflow: hidden; }
 .rt-field-focused { border-color: #f97316; }
 .rt-field-text { color: #f2f2f2; font-family: Arial; font-size: 13px; height: 18px; }
 .rt-field-ghost { color: #7a7a7a; font-family: Arial; font-size: 13px; height: 18px; }
@@ -2224,6 +2230,46 @@
 .rt-icon-btn:hover { background-color: #262626; }
 .rt-send-btn { background-color: #f97316; }
 .rt-send-off { background-color: #3a2416; }
+
+/* THE WAIT, DRAWN. A request that takes most of a second and says so only in
+ * words is a screen a person taps twice. This is the loader's ring at a
+ * twentieth of its size and in the button's own ink: eight blades around one
+ * centre, each a step further round and a step fainter, and the whole ring
+ * turned a few degrees on every frame by `spinSave` — the same mechanism the
+ * loading screen's ring uses, which is a transform written onto the element
+ * rather than an animation the stylesheet owns.
+ *
+ * The centre is (10, 10): a blade is 3 wide at margin-left 8.5, and its
+ * transform-origin is (1.5, 9) from its own top-left, which is 1 + 9 = 10
+ * down and 8.5 + 1.5 = 10 across. */
+.rt-spin {
+  display: grid;
+  grid-template-columns: 20px;
+  grid-template-rows: 20px;
+  width: 20px;
+  height: 20px;
+}
+
+.rt-spin-blade {
+  grid-column: 1;
+  grid-row: 1;
+  width: 3px;
+  height: 6px;
+  margin-left: 8.5px;
+  margin-top: 1px;
+  border-radius: 1.5px;
+  transform-origin: 1.5px 9px;
+  background-color: #ffffff;
+}
+
+.rt-spin-blade-0 { transform: rotate(0deg); opacity: 1.00; }
+.rt-spin-blade-1 { transform: rotate(45deg); opacity: 0.89; }
+.rt-spin-blade-2 { transform: rotate(90deg); opacity: 0.78; }
+.rt-spin-blade-3 { transform: rotate(135deg); opacity: 0.67; }
+.rt-spin-blade-4 { transform: rotate(180deg); opacity: 0.56; }
+.rt-spin-blade-5 { transform: rotate(225deg); opacity: 0.45; }
+.rt-spin-blade-6 { transform: rotate(270deg); opacity: 0.34; }
+.rt-spin-blade-7 { transform: rotate(315deg); opacity: 0.23; }
 
 .rt-chat-hd { color: #f2f2f2; font-family: Arial; font-weight: bold; font-size: 18px; height: 24px; }
 .rt-chat-tools { display: flex; flex-direction: row; flex-wrap: wrap; gap: 6px; }

@@ -2193,7 +2193,11 @@ class EVGDisplayList {
                 lineBox = (fs * 1.2)
             }
             def avail:double (el.box.getInnerWidth(w))
-            def lines:[string] (textEngine.breakToStrings(el.textContent face fs avail))
+            ; The same width the layout counted the lines at — see
+            ; `EVGElement.wrapWidth`, which is zero for a `white-space` that
+            ; does not wrap. `avail` itself is still the box, because that is
+            ; what `text-align` centres inside.
+            def lines:[string] (textEngine.breakToStrings(el.textContent face fs (el.wrapWidth(avail))))
             def tr:int 0
             def tg:int 0
             def tb:int 0
@@ -2241,7 +2245,7 @@ class EVGDisplayList {
                 ; look right on their own.
                 def bw:double el.box.borderWidthPx
                 c4.x = (((x + bw) + el.box.paddingLeftPx) + indent)
-                c4.y = (((y + bw) + el.box.paddingTopPx) + ((to_double li) * lineBox))
+                c4.y = ((((y + bw) + el.box.paddingTopPx) + el.textShiftY) + ((to_double li) * lineBox))
                 c4.w = avail
                 c4.h = lineBox
                 c4.text = (itemAt lines li)

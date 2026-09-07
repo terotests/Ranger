@@ -278,6 +278,159 @@ console.log("--- the round trip a shrink-wrapped box makes ---");
      `${broke} of ${all} broke — first ${firstBreak}`);
 }
 
+// --- a flex container's own text is an anonymous flex item -------------------
+//
+// An element that is a flex container and carries text of its own does not lay
+// that text out as a block. CSS wraps it in an ANONYMOUS FLEX ITEM, and from
+// then on `align-items` and `justify-content` place it like any other item.
+//
+// That is the pill idiom, written that way everywhere:
+//
+//   .pill { display: flex; align-items: center; height: 34px; padding: 0 12px }
+//
+// with the label as the element's own text. EVG placed the line at the top of
+// the content box and never consulted `align-items`, so the label sat against
+// the pill's top edge with all the slack under it.
+//
+// The check is the EQUIVALENCE, which is stronger than any number: the
+// element's own text has to land exactly where the same text in a child of the
+// same container lands. A browser cannot tell those two apart and neither may
+// EVG. The block cases are here to say the anonymous item is only a flex
+// container's — a block's line boxes still start at the top of its content box.
+console.log("--- a flex container's own text ---");
+{
+  const lineTop = (containerCss, nested) => {
+    const sheet = new H.EVGStyleSheet();
+    sheet.parse(
+      ".page{display:flex;flex-direction:column;flex-wrap:nowrap;width:400px;height:300px}" +
+      ".pill{" + containerCss + "}" +
+      ".inner{font-size:15px}",
+    );
+    const page = H.EVGElement.createDiv();
+    page.className = "page";
+    const pill = H.EVGElement.createDiv();
+    pill.className = "pill";
+    if (nested) {
+      const t = H.EVGElement.createDiv();
+      t.className = "inner";
+      t.textContent = "10min";
+      pill.addChild(t);
+    } else {
+      pill.textContent = "10min";
+    }
+    page.addChild(pill);
+    sheet.applyTree(page, "");
+    const l = new H.EVGLayout();
+    l.setPageSize(400, 300);
+    l.layout(page);
+    const dl = new H.EVGDisplayList();
+    dl.setTextEngine(l.getTextEngine());
+    dl.build(page);
+    const c = JSON.parse(dl.toJson()).cmds.find((x) => x.k === 3);
+    return { y: c.y, box: c.h, baseline: pill.calculatedBaseline, pillH: pill.calculatedHeight };
+  };
+
+  const FLEX = "display:flex;flex-wrap:nowrap;height:34px;padding:0 12px;font-size:15px";
+  const CASES = [
+    ["align-items: center", FLEX + ";flex-direction:row;align-items:center"],
+    ["align-items: flex-end", FLEX + ";flex-direction:row;align-items:flex-end"],
+    ["align-items: flex-start", FLEX + ";flex-direction:row;align-items:flex-start"],
+    ["no align-items at all", FLEX + ";flex-direction:row"],
+    ["column, justify-content: center", FLEX + ";flex-direction:column;justify-content:center"],
+    ["column, justify-content: flex-end", FLEX + ";flex-direction:column;justify-content:flex-end"],
+  ];
+  for (const [name, css] of CASES) {
+    const own = lineTop(css, false);
+    const kid = lineTop(css, true);
+    near(`${name}: the container's own text lands where a child's does`,
+      own.y, kid.y, 0.02);
+  }
+
+  // The slack really is there to be shared — otherwise every case above would
+  // pass by having none — and a centred line has half of it above.
+  const centred = lineTop(CASES[0][1], false);
+  near("and centring puts half the slack above the line",
+    centred.y, (centred.pillH - centred.box) / 2, 0.02);
+  ok("which is slack worth sharing", centred.pillH - centred.box > 10,
+     `${(centred.pillH - centred.box).toFixed(1)}px`);
+
+  // The layout's baseline moves with it, or `align-items: baseline` on the row
+  // around the pill would line the pill up by a baseline the painter does not
+  // draw at.
+  const half = (centred.box - (SANS.ascentEm + SANS.descentEm) * 15) / 2;
+  near("the layout's baseline is still the painter's",
+    centred.y + half + SANS.ascentEm * 15, centred.baseline, 0.02);
+
+  // A BLOCK is not a flex container: its line boxes start at the top of its
+  // content box whatever `align-items` says, which is the rule the fix must
+  // not have widened.
+  const block = lineTop("height:34px;padding:0 12px;font-size:15px;align-items:center", false);
+  near("a block ignores align-items and starts at the top", block.y, 0);
+}
+
+// --- `white-space: nowrap` ---------------------------------------------------
+//
+// Two values matter here: `normal`, which wraps at the box's width, and
+// `nowrap`, which does not wrap at all — the line is as long as the text and
+// the box clips it if it clips anything. A ONE-LINE FIELD is the reason: an
+// `<input>` never wraps whatever is in it, it scrolls.
+//
+// It is INHERITED, as CSS has it, so a field says it once and the run and the
+// placeholder inside it obey without saying so themselves. And the layout and
+// the display list have to agree about the count, or the box is sized for one
+// wrap and painted with another.
+console.log("--- white-space ---");
+{
+  const wrap = (ws, nested) => {
+    const sheet = new H.EVGStyleSheet();
+    sheet.parse(
+      ".page{display:flex;flex-direction:column;flex-wrap:nowrap;width:400px;height:300px}" +
+      ".box{width:80px;font-size:13px" + (ws ? ";white-space:" + ws : "") + "}" +
+      ".run{font-size:13px}",
+    );
+    const page = H.EVGElement.createDiv();
+    page.className = "page";
+    const box = H.EVGElement.createDiv();
+    box.className = "box";
+    const TEXT = "one two three four five";
+    if (nested) {
+      const run = H.EVGElement.createDiv();
+      run.className = "run";
+      run.textContent = TEXT;
+      box.addChild(run);
+    } else {
+      box.textContent = TEXT;
+    }
+    page.addChild(box);
+    sheet.applyTree(page, "");
+    const l = new H.EVGLayout();
+    l.setPageSize(400, 300);
+    l.layout(page);
+    const dl = new H.EVGDisplayList();
+    dl.setTextEngine(l.getTextEngine());
+    dl.build(page);
+    const runs = JSON.parse(dl.toJson()).cmds.filter((c) => c.k === 3);
+    const el = nested ? box.getChild(0) : box;
+    return { drawn: runs.length, boxH: el.calculatedHeight, lineBox: runs[0].h };
+  };
+
+  const normal = wrap("", false);
+  ok("a narrow box wraps by default", normal.drawn > 1, normal.drawn + " lines");
+  // The height the layout reserved is the height the lines drawn need: the
+  // two sides counting differently is a box the last line falls out of.
+  near("and its height is the lines it drew", normal.boxH, normal.drawn * normal.lineBox);
+
+  const flat = wrap("nowrap", false);
+  ok("`nowrap` does not wrap", flat.drawn === 1, flat.drawn + " lines");
+  near("and its height is one line", flat.boxH, flat.lineBox);
+
+  // INHERITED: the box says it, the run inside obeys.
+  const inherited = wrap("nowrap", true);
+  ok("a child inherits it", inherited.drawn === 1, inherited.drawn + " lines");
+  const inheritedNormal = wrap("", true);
+  ok("and inherits `normal` too", inheritedNormal.drawn > 1, inheritedNormal.drawn + " lines");
+}
+
 console.log("");
 console.log("passed=" + passed + " failed=" + failed);
 if (failed > 0) { console.log("FAILURES"); process.exit(1); }

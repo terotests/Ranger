@@ -117,6 +117,9 @@ treefactory Rt {
     tag Card     EVGElement (props (className "rt-card") (role "region") (a11yLabel "RealTrainer"))
     tag Ring     EVGElement (props (className "rt-ring") (id "rt-ring") (role "img") (a11yLabel "Ladataan"))
     tag Blade    EVGElement (props (className "rt-blade") (a11yHidden true))
+    ; The loader's ring, small enough to sit in a button — see `.rt-spin`.
+    tag Spin     EVGElement (props (className "rt-spin") (role "img") (a11yLabel "Tallennetaan"))
+    tag SpinBlade EVGElement (props (className "rt-spin-blade") (a11yHidden true))
     tag Word     EVGElement (props (className "rt-word"))
     tag WordA    EVGElement (props (className "rt-word-a") (elementType 1))
     tag WordB    EVGElement (props (className "rt-word-b") (elementType 1))
@@ -773,6 +776,32 @@ class RealTrainerDemo {
     def chatField:InputCtl (new InputCtl())
     def planField:InputCtl (new InputCtl())
     def addField:InputCtl (new InputCtl())
+    ; --- THE QUICK ENTRY ON HOME ---------------------------------------------
+    ;
+    ; The row at the top of Home is not a picture of a text field: it IS one,
+    ; and the whole of adding a workout starts by pressing it. Typing goes
+    ; into a machine, the send button hands the text to a backend that is not
+    ; there, and what comes back — after a measured number of milliseconds —
+    ; either lands a card at the top of the feed or leaves the text where it
+    ; was with an error over it.
+    ;
+    ; It is the SAME machine the sheet uses (`AddWorkoutDialog`), a second
+    ; instance of it, because the states an inline composer needs are the
+    ; states a dialog needs and they have already been checked against the
+    ; XState original — `rt:machine` covers the transitions, including the
+    ; ignores that matter here: a keystroke while saving does nothing, and an
+    ; ERROR keeps what was typed rather than throwing it away.
+    ;
+    ; Its own backend, so a save started here and a save started in the sheet
+    ; cannot be mistaken for each other, and so a check can arm a failure on
+    ; one without arming it on both.
+    def homeField:InputCtl (new InputCtl())
+    def homeDialog:AddWorkoutDialog (new AddWorkoutDialog())
+    def homeBackend:RtBackendSim (new RtBackendSim())
+    ; How long the request in flight has been in flight, for the spinner in
+    ; the send button. Its own clock and not `elapsedMs`, which is the loading
+    ; screen's and stops when that screen does.
+    def saveSpinMs:double 0.0
     ; The edit sheet's fields: the general feedback and one per weekday.
     def editField:InputCtl (new InputCtl())
     def dayFields:[InputCtl]
@@ -989,6 +1018,13 @@ class RealTrainerDemo {
         addField.tid = "rt-add-field"
         addField.placeholder = "Luo harjoitusohjelma, esim. \"viikon peruskuntojakso\""
         addField.name = addField.placeholder
+        homeField.tid = "rt-home-field"
+        ; The placeholder is the calendar's — see `homeSection`, which sets it
+        ; before drawing, because it says a different thing for a plan.
+        homeField.placeholder = "Kirjoita merkintä..."
+        homeField.name = homeField.placeholder
+        homeDialog.today = today
+        homeBackend.latencyMs = 700.0
         editField.tid = "rt-plan-edit-field"
         editField.placeholder = "Esim. pidä torstai kevyenä, lisää polven kuntoutusta, vältä kahta kovaa päivää peräkkäin"
         editField.name = editField.placeholder
@@ -1245,6 +1281,19 @@ class RealTrainerDemo {
     }
 
     ; --- scene one: the loader ------------------------------------------------
+
+    ; A spinner the size of a button's glyph. Eight blades rather than the
+    ; ring's twelve: at twenty pixels across, twelve is a smudge.
+    sfn spinner:EVGElement (id:string) {
+        def ring (tree Rt (Spin))
+        ring.id = id
+        def i:int 0
+        while (i < 8) {
+            ring.addChild((tree Rt (SpinBlade (props (className ("rt-spin-blade rt-spin-blade-" + (to_string i)))))))
+            i = (i + 1)
+        }
+        return ring
+    }
 
     sfn ring:EVGElement () {
         def ring (tree Rt (Ring))
@@ -2338,9 +2387,13 @@ class RealTrainerDemo {
         chat.cancel()
     }
 
-    ; The trace's `fail` step: the next request fails.
+    ; The trace's `fail` step: the next request fails. BOTH backends, because
+    ; "the next request" is whichever one is made next and the quick entry on
+    ; Home is one of them — a demo that can only be made to fail in the sheet
+    ; is a demo whose other error state nobody has looked at.
     fn armFailure:void () {
         backend.failNext = true
+        homeBackend.failNext = true
     }
 
     ; An accept may have moved the machine into `processing`; if it did, the
@@ -2686,33 +2739,84 @@ class RealTrainerDemo {
         def home (tree Rt (Col (props (className "rt-home"))))
         def entry (tree Rt (ModalRow))
         entry.addChild((this.iconBtn("rt-home-image" "Lisää kuva" (RtIcons.penLine("#999999")))))
-        def box (tree Rt (HomeBox))
         def ghost@(mutable):string "Kirjoita merkintä... esim. \"maanantai: juoksu 45min\""
         if (seed.calendarType != "plan") {
             ghost = "Kirjoita merkintä... esim. \"treeni 60min\""
         }
-        box.addChild((tree Rt (FieldGhost ghost)))
+        homeField.placeholder = ghost
+        homeField.name = ghost
+        ; The field IS the box: `HomeBox` used to be a `.rt-field` with a
+        ; ghost inside it, and putting a real field in that would have been a
+        ; field inside a field — two borders, two paddings. `rt-home-box` is
+        ; only the growing.
+        def box (this.fieldBox(homeField))
+        box.className = (box.className + " rt-home-box")
         entry.addChild(box)
-        def send (this.iconBtn("rt-home-send" "" (RtIcons.chevronRight("#ffffff"))))
+        ; THE BUTTON IS THE WAIT. While the request is in flight the chevron
+        ; is a turning ring instead — a request that takes most of a second
+        ; and says so only in words is a screen a person taps twice.
+        def send@(mutable):EVGElement (this.iconBtn("rt-home-send" "Lähetä" (RtIcons.chevronRight("#ffffff"))))
+        if (homeDialog.state == "saving") {
+            def b (tree Rt (IconBtn))
+            b.id = "rt-home-send"
+            b.a11yLabel = "Tallennetaan"
+            b.addChild((RealTrainerDemo.spinner("rt-home-spin")))
+            send = b
+        }
         send.className = "rt-icon-btn rt-send-btn"
+        ; Nothing to send, or a send already in flight: the button says so
+        ; rather than taking a press that would do nothing.
+        if (this.homeSendable() == false) {
+            send.a11yDisabled = true
+            send.className = "rt-icon-btn rt-send-btn rt-send-off"
+        }
         entry.addChild(send)
         home.addChild(entry)
+        ; What the backend is doing, where the person is looking. The error
+        ; stays until the next send, and the text stays with it.
+        if (homeDialog.state == "saving") {
+            def wait (tree Rt (Row (props (className "rt-home-center"))))
+            wait.addChild((tree Rt (ChatPara (props (id "rt-home-saving") (className "rt-home-empty")) "Tallennetaan…")))
+            home.addChild(wait)
+        }
+        if ((strlen homeDialog.error) > 0) {
+            def bad (tree Rt (Row (props (className "rt-home-center"))))
+            bad.addChild((tree Rt (SheetErr (props (id "rt-home-error")) homeDialog.error)))
+            home.addChild(bad)
+        }
         if (seed.calendarType != "plan") {
             this.diaryFeed(home)
             body.addChild(home)
             return
         }
-        def empty (tree Rt (Row (props (className "rt-home-center"))))
-        empty.addChild((tree Rt (ChatPara (props (id "rt-home-empty") (className "rt-home-empty")) "Ei tulevia tapahtumia")))
-        home.addChild(empty)
-        ; The selected calendar's past entries, counted on the button — or,
-        ; with none, the hint the original shows a new calendar.
+        ; WHAT IS COMING, which used to be the words "Ei tulevia tapahtumia"
+        ; and nothing else — printed whether or not anything was coming. So a
+        ; plan calendar could be written into from the row above and answer
+        ; that it had nothing, with the entry sitting in the store. The list
+        ; is derived now and the sentence is what is left when it is empty.
         def mine:[RtSeedEntry] (seed.selectedEntries())
+        def soon:[RtSeedEntry]
         def past@(mutable):int 0
         for mine e:RtSeedEntry i {
             if ((RtWeek.daysOf(e.date)) < (RtWeek.daysOf(today))) {
                 past = (past + 1)
+            } {
+                push soon e
             }
+        }
+        if ((array_length soon) == 0) {
+            def empty (tree Rt (Row (props (className "rt-home-center"))))
+            empty.addChild((tree Rt (ChatPara (props (id "rt-home-empty") (className "rt-home-empty")) "Ei tulevia tapahtumia")))
+            home.addChild(empty)
+        } {
+            def coming (tree Rt (Col (props (className "rt-home-feed"))))
+            def sorted:[RtSeedEntry] (RealTrainerDemo.sortByDateDesc(soon))
+            for sorted e:RtSeedEntry i {
+                def card:EVGElement (this.cardFor(e i "soon"))
+                card.className = "rt-entry rt-entry-home"
+                coming.addChild(card)
+            }
+            home.addChild(coming)
         }
         if (past > 0) {
             def pastRow (tree Rt (Row (props (className "rt-home-center"))))
@@ -2727,6 +2831,98 @@ class RealTrainerDemo {
             home.addChild(hint)
         }
         body.addChild(home)
+    }
+
+    ; --- ADDING A WORKOUT FROM HOME -------------------------------------------
+    ;
+    ; The composer is open whenever there is anything to compose. `open` on a
+    ; machine already open is ignored — that is the machine's own rule, and
+    ; it is why this can be called on every keystroke without a flag beside
+    ; it saying whether it has been called before.
+    fn homeCompose:void () {
+        def forDay@(mutable):string today
+        if ((strlen dayIso) > 0) { forDay = dayIso }
+        homeDialog.today = forDay
+        homeDialog.open(forDay seed.calendarId)
+    }
+
+    ; Turn the send button's ring. Written straight onto the element, the way
+    ; the loading screen's ring is turned: a transform per frame rather than
+    ; an animation the stylesheet owns, so the angle is the app's clock and a
+    ; headless check can read it.
+    fn spinSave:void () {
+        if (homeDialog.state != "saving") {
+            return
+        }
+        def r:EVGElement (unwrap root)
+        def found@(optional):EVGElement (RealTrainerDemo.byId(r "rt-home-spin"))
+        if found {
+            def g:EVGElement (unwrap found)
+            def deg@(mutable):double ((saveSpinMs * spinDegPerSec) / 1000.0)
+            while (deg >= 360.0) {
+                deg = (deg - 360.0)
+            }
+            g.setAttribute("transform" (("rotate(" + (to_string deg)) + "deg)"))
+            g.markInline("transform")
+            layoutDirty = true
+            boxesDirty = true
+        }
+    }
+
+    ; Is there something to send, and is the line free to send it?
+    fn homeSendable:boolean () {
+        if (homeDialog.state == "saving") {
+            return false
+        }
+        return ((strlen homeField.value) > 0)
+    }
+
+    ; The send. The machine moves first and the backend is only asked if it
+    ; did: a press that the machine ignores must not start a request.
+    fn homeSend:boolean () {
+        if ((this.homeSendable()) == false) {
+            return false
+        }
+        this.homeCompose()
+        homeDialog.send("SET_INPUT_TEXT" homeField.value)
+        def started:boolean (homeDialog.send("START_SAVING" ""))
+        if (started) {
+            homeDialog.error = ""
+            saveSpinMs = 0.0
+            homeBackend.begin(homeDialog.inputText)
+        }
+        return started
+    }
+
+    ; What came back. `saved` lands the entry at the top of the feed, the way
+    ; the store's `addEntry` does when the request answers; `failed` puts the
+    ; message over the composer and LEAVES THE TEXT, because a failed save
+    ; that threw away what was typed would be a second failure.
+    fn homeSettled:boolean () {
+        if (homeDialog.state != "saving") {
+            return false
+        }
+        if (homeBackend.state == "saved") {
+            addedSeq = (addedSeq + 1)
+            def onDay:string homeDialog.targetDate
+            seed.addEntry(("added-" + (to_string addedSeq)) seed.calendarId onDay
+                (("[" + onDay) + ("]\n" + homeDialog.inputText)))
+            homeDialog.send("SAVE_COMPLETE" "")
+            homeField.setValue("")
+            focused = ""
+            ; Every card of the feed is rebuilt around the new one, so the
+            ; ones kept from the last frame are not this frame's.
+            feedShown = feedChunk
+            return true
+        }
+        homeDialog.send("ERROR" homeBackend.message)
+        ; THE NEXT request fails, not every one after it. `armFailure` is a
+        ; one-shot and the simulator does not clear it itself, so the failure
+        ; is spent where it is consumed — otherwise a retry could never
+        ; succeed and the state after an error would be unreachable.
+        homeBackend.failNext = false
+        homeBackend.clear()
+        return true
     }
 
     ; A training calendar's Home, as `HomeView` has it: the three tabs and,
@@ -5883,6 +6079,7 @@ class RealTrainerDemo {
         push a chatField
         push a planField
         push a addField
+        push a homeField
         push a editField
         for dayFields f:InputCtl i {
             push a f
@@ -5970,6 +6167,14 @@ class RealTrainerDemo {
         if (c.tid == "rt-add-field") {
             addDialog.send("SET_INPUT_TEXT" c.value)
         }
+        if (c.tid == "rt-home-field") {
+            ; The composer opens on the first character rather than on the
+            ; press: a field somebody tapped and left alone has started
+            ; nothing, and `SET_INPUT_TEXT` is ignored while a save is in
+            ; flight, which is the machine's answer and not this one's.
+            this.homeCompose()
+            homeDialog.send("SET_INPUT_TEXT" c.value)
+        }
         if (c.tid == "rt-plan-edit-field") {
             plan.setFeedback(c.value)
         }
@@ -5995,6 +6200,9 @@ class RealTrainerDemo {
         }
         if (addDialog.inputText != addField.value) {
             addField.setValue(addDialog.inputText)
+        }
+        if (homeDialog.inputText != homeField.value) {
+            homeField.setValue(homeDialog.inputText)
         }
         if ((plan.text("editGeneralFeedback")) != editField.value) {
             editField.setValue((plan.text("editGeneralFeedback")))
@@ -6047,6 +6255,17 @@ class RealTrainerDemo {
             return (this.calMenuKey(k shift))
         }
         if ((this.hasField(focused)) == false) {
+            return false
+        }
+        ; ENTER SENDS THE QUICK ENTRY, which is what a one-line composer with
+        ; a send button beside it does everywhere. Shift+Enter is not a
+        ; newline here because the row is one line; it falls through to the
+        ; field, which ignores it.
+        if ((focused == "rt-home-field") && ((k == "Enter") && (shift == false))) {
+            if (this.homeSend()) {
+                this.rebuild()
+                return true
+            }
             return false
         }
         def c:InputCtl (this.fieldFor(focused))
@@ -6652,6 +6871,21 @@ class RealTrainerDemo {
             this.rebuild()
             return true
         }
+        ; The quick entry's own backend, and its own machine — see
+        ; `homeCompose`. Asked before the sheet's, because the sheet is a
+        ; modal over this and the two cannot be waiting at once.
+        if (homeBackend.tick(dtMs)) {
+            if (this.homeSettled()) {
+                this.rebuild()
+                return true
+            }
+        }
+        ; Still waiting: the button's ring turns and the frame is not idle.
+        if (homeDialog.state == "saving") {
+            saveSpinMs = (saveSpinMs + dtMs)
+            this.spinSave()
+            return true
+        }
         if (backend.tick(dtMs)) {
             ; The save that the dialog started is the save that answers it.
             if (addDialog.state == "saving") {
@@ -7096,6 +7330,16 @@ class RealTrainerDemo {
             if (scene != "app") { forDay = "2026-02-09" }
             addDialog.today = forDay
             return (addDialog.open(forDay seed.calendarId))
+        }
+        ; The quick entry on Home, which is NOT the sheet: the sheet is a
+        ; modal and this is the row under the buttons. Above the guard below,
+        ; because that guard is the sheet's and this row is reachable exactly
+        ; when the sheet is not.
+        if (id == "rt-home-send") {
+            return (this.homeSend())
+        }
+        if (id == "rt-home-image") {
+            return false
         }
         if (addDialog.isOpen() == false) {
             return false

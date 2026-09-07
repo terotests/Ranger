@@ -377,9 +377,14 @@
      "state": ""
     },
     {
-     "role": "button",
-     "name": "",
+     "role": "textbox",
+     "name": "Kirjoita merkintä... esim. \"maanantai: juoksu 45min\"",
      "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lähetä",
+     "state": "disabled"
     },
     {
      "role": "paragraph",
@@ -474,9 +479,14 @@
      "state": ""
     },
     {
-     "role": "button",
-     "name": "",
+     "role": "textbox",
+     "name": "Kirjoita merkintä... esim. \"maanantai: juoksu 45min\"",
      "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Lähetä",
+     "state": "disabled"
     },
     {
      "role": "paragraph",
