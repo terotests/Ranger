@@ -128,6 +128,14 @@ class EVGTextEngine {
         runStore = rs
     }
 
+    ; The slack a line is allowed over the width it is being broken into: a
+    ; millionth of a pixel, which is a hundred million times the error a
+    ; shrink-wrap round trip introduces and a millionth of the smallest thing
+    ; anyone can see.
+    sfn fitEpsilon:double () {
+        return 0.000001
+    }
+
     ; How many wraps and how many metrics are kept before the lot is dropped.
     ; A page of text is a few hundred distinct strings; this is room for a
     ; document's worth of them at several widths without ever growing without
@@ -286,7 +294,26 @@ class EVGTextEngine {
                         testLine = currentLine + " " + word
                     }
                     def testWidth:double (measurer.measureTextWidth(testLine fontFamily fontSize))
-                    if ((testWidth > maxWidth) && (tokensOnLine > 0)) {
+                    ; A HAIR OF TOLERANCE, and it is not a fudge — it is what
+                    ; stops a box from breaking its own content.
+                    ;
+                    ; A text element with no stated width shrink-wraps: the
+                    ; layout measures the run, adds the padding and the border,
+                    ; and that sum is the box. The breaker then works with the
+                    ; box MINUS the same padding and border, and
+                    ; `(w + chrome) - chrome` is not always `w` in binary
+                    ; floating point. For some strings it lands a few parts in
+                    ; a quadrillion low, and the line that was measured to fit
+                    ; exactly is then one part in a quadrillion too wide and
+                    ; goes onto a second line. `gallery/evg/web/responsive`
+                    ; had six labels in a column, five on one line and
+                    ; `Display list` on two, for exactly this reason — see
+                    ; ISSUES.md #7.
+                    ;
+                    ; A micron of a pixel cannot change any wrap a person
+                    ; asked for; it can only undo a round trip that should
+                    ; have been the identity.
+                    if (((testWidth - maxWidth) > (EVGTextEngine.fitEpsilon())) && (tokensOnLine > 0)) {
                         this.pushLine(out currentLine fontFamily fontSize)
                         currentLine = word
                         tokensOnLine = 1

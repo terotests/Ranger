@@ -421,10 +421,27 @@ comparison fails, check the baseline before the change.
 
 ## Issue #7: shrink-to-fit text can wrap inside the box its own width produced
 
-**Status:** Open
+**Status:** Resolved (September 5, 2026)
 **Severity:** Low (cosmetic; a label that fits is drawn on two lines)
 **Found:** September 2, 2026
 **Component:** `EVGLayout.rgr` / `EVGTextEngine.rgr`
+
+### Resolution
+
+`EVGTextEngine.breakLines` allows a line `EVGTextEngine.fitEpsilon()` — a
+millionth of a pixel — over the width it is breaking into. The error a
+shrink-wrap round trip introduces is about seven parts in a quadrillion, so
+the tolerance is a hundred million times it and a millionth of the smallest
+thing anyone can see: it cannot change a wrap a person asked for, and it can
+only undo a round trip that should have been the identity.
+
+Covered by `evg:textbox:check` — "the round trip a shrink-wrapped box makes",
+which sweeps twenty-one strings across eight sizes, eight paddings and four
+border widths, asserts that some of those round trips really do come back
+short (or the check would be proving nothing), and that not one of the 5632
+labels breaks inside its own box. Before the fix, 310 of them did.
+
+The report below is kept for history.
 
 ### What happens
 
@@ -520,3 +537,72 @@ a bound** must not then be tested against that bound with an exact comparison.
 Subtraction and addition do not cancel in floating point, so any "does what I
 just computed still fit in what I computed it from" test needs a tolerance —
 sized below what a painter can draw and above the error being cancelled.
+
+## Issue #9: `line-height` written as a length was read as a multiplier
+
+**Status:** Resolved (September 5, 2026)
+**Severity:** High (text drawn far outside its own box)
+**Found:** September 5, 2026 — reported as "vertical align sometimes goes to
+the bottom", from a phone screenshot of a duration pill
+**Component:** `EVGElement.rgr` / `EVGLayout.rgr` / `EVGDisplayList.rgr`
+
+### What happened
+
+CSS gives `line-height` three ways to be written and keeps them apart:
+`normal` is the face's own line box, a NUMBER is that many times the font
+size, and a LENGTH is itself. `EVGElement` held one double and put every
+value through `to_double`, which stops at the first character it cannot use —
+so `24px` came back `24` and was used as a multiplier.
+
+Measured, on a 12px pill with `height: 20px` and `line-height: 16px`:
+
+```
+before   line box 192px   baseline 102.2   — the text drawn 82px BELOW the pill
+after    line box  16px   baseline  14.2   — inside it
+```
+
+A line box twelve times too tall does not look twelve times too tall, because
+the painter puts the baseline a half-leading below its top: it looks like a
+line that has fallen to the bottom of everything near it, and only in the
+places whose stylesheet writes a length. Which is what "sometimes" meant.
+
+### The fix
+
+`EVGElement.lineHeightUnit` holds a stated LENGTH as an `EVGUnit`, beside the
+number; `EVGElement.lineBoxFor` is the single place that tells the three
+apart, and both the layout (which reserves the height) and the display list
+(which steps the lines) call it rather than each computing their own. A
+percentage resolves against the element's own font size — CSS 2.1 §10.8.1,
+the one percentage in the box model that does not look at the containing
+block — `em` against its own size and `rem` against the root's.
+
+Covered by `evg:textbox:check`, "line-height as a number, a length and a
+percentage": eight cases across `normal`, unset, `1.5`, `150%`, `24px`,
+`2em`, `1.5rem` and `0.8`.
+
+## Issue #10: a text element drew its text on top of its own border
+
+**Status:** Resolved (September 5, 2026)
+**Severity:** Medium
+**Found:** September 5, 2026, while measuring the above
+**Component:** `EVGDisplayList.rgr` / `EVGLayout.rgr`
+
+### What happened
+
+`EVGDisplayList` started a text run at `x + paddingLeft`, `y + paddingTop` —
+the border was missing from both. But the width it broke the run into is
+`EVGBox.getInnerWidth`, which takes the border off, and the layout's own
+`calculatedBaseline` is measured from the border edge and adds border AND
+padding. So a text element with a border drew its text one border-width high
+and one left, over its own top border, and measured against a width that
+assumed it started inside it.
+
+EVG disagreeing with EVG, in three places that each looked right alone. The
+layout's wrap width had the mirror-image of the same slip: it subtracted the
+paddings and not the border, so a bordered element counted its lines at one
+width and was broken at another — the height reserved for a wrap the layout
+imagined, and the painter drawing a different one.
+
+Covered by `evg:textbox:check`, "a border on a text element", which asserts
+the run starts inside both and — the one that matters — that the layout's
+baseline and the painter's are the same point.

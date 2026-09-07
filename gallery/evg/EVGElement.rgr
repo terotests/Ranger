@@ -482,6 +482,22 @@ class EVGElement {
     ; and monospace's 1.164, so every text box in the gallery was four per
     ; cent taller than the same declarations give in a browser.
     def lineHeight:double 0.0
+    ; `line-height` WRITTEN AS A LENGTH, which is a different thing from
+    ; written as a number and CSS keeps them apart on purpose: `1.5` is one
+    ; and a half times whatever font size the element ends up with, `24px` is
+    ; twenty-four pixels whatever the font size is, and `150%` is computed
+    ; once against this element's own size and then inherited as that
+    ; computed value.
+    ;
+    ; It used to be one double, so `line-height: 24px` went through
+    ; `to_double`, came out 24, and was used as a MULTIPLIER: a 14px run got a
+    ; 336-pixel line box. The text then sat at the top of a line box twelve
+    ; times too tall — which reads, on the screen, as a line that has fallen
+    ; to the bottom of everything around it.
+    ;
+    ; Unset means the number above (or `normal`, which is zero there). See
+    ; `lineBoxFor`, which is the only thing that should read either.
+    def lineHeightUnit:EVGUnit
     def textAlign:string "left"
     def color:EVGColor
     ; What to paint glyphs that came from a FALLBACK face — emoji, in
@@ -1013,6 +1029,7 @@ class EVGElement {
         emojiColor = (EVGColor.noColor())
         
         fontSize = (EVGUnit.unset())
+        lineHeightUnit = (EVGUnit.unset())
         
         shadowRadius = (EVGUnit.unset())
         shadowColor = (EVGColor.noColor())
@@ -1269,6 +1286,39 @@ class EVGElement {
     ; a rail away at a breakpoint, and what `@media` is for.
     fn isHidden:boolean () {
         return (display == "none")
+    }
+
+    ; THE LINE BOX, in pixels, and the only thing that should read
+    ; `lineHeight` or `lineHeightUnit`. CSS gives three ways to write it and
+    ; they are three different computations:
+    ;
+    ;   `normal`   the FACE's own line box — `normalPx`, which the caller got
+    ;              from the text engine because only it knows about faces
+    ;   a number   that many times this element's font size
+    ;   a length   itself, with `%` and `em` against this element's OWN font
+    ;              size (not its parent's, which is what a percentage means
+    ;              everywhere else and does not mean here) and `rem` against
+    ;              the root's
+    ;
+    ; The layout reserves the height by this and the display list steps the
+    ; lines by it, so there is one answer and both sides read it.
+    fn lineBoxFor:double (fontSize:double normalPx:double) {
+        if lineHeightUnit.isSet {
+            def u:EVGUnit lineHeightUnit
+            u.setContext(rootFontSize viewportW viewportH)
+            ; The parent size a `line-height` percentage resolves against IS
+            ; the font size. CSS 2.1 10.8.1, and it is the one percentage in
+            ; the box model that does not look at the containing block.
+            u.resolve(fontSize fontSize)
+            if (u.pixels > 0.0) {
+                return u.pixels
+            }
+            return 0.0
+        }
+        if (lineHeight > 0.0) {
+            return (fontSize * lineHeight)
+        }
+        return normalPx
     }
 
     ; Is this element's drawn output somewhere its layout box does not say?
@@ -2441,6 +2491,7 @@ class EVGElement {
         fontFamily = other.fontFamily
         fontWeight = other.fontWeight
         lineHeight = other.lineHeight
+        lineHeightUnit = other.lineHeightUnit
         textAlign = other.textAlign
         color = other.color
         emojiColor = other.emojiColor
@@ -3422,9 +3473,30 @@ class EVGElement {
             return
         }
         if ((name == "line-height") || (name == "lineHeight")) {
-            def val@(optional):double (to_double value)
-            if val {
-                lineHeight = (unwrap val)
+            ; `normal` is the face's own line box, which is what zero means
+            ; here — see `lineHeight`.
+            def t:string (trim value)
+            if (t == "normal") {
+                lineHeight = 0.0
+                lineHeightUnit = (EVGUnit.unset())
+                return
+            }
+            ; A BARE NUMBER is a multiplier and a length is not. `to_double`
+            ; stops at the first character it cannot use, so "24px" would come
+            ; back 24 and be indistinguishable from "24" — which is exactly
+            ; how a 14px run got a 336-pixel line box.
+            if (EVGUnit.isNumeric(t)) {
+                def val@(optional):double (to_double t)
+                if val {
+                    lineHeight = (unwrap val)
+                    lineHeightUnit = (EVGUnit.unset())
+                }
+                return
+            }
+            def u:EVGUnit (EVGUnit.parse(t))
+            if u.isSet {
+                lineHeightUnit = u
+                lineHeight = 0.0
             }
             return
         }

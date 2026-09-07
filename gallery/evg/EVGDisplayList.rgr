@@ -2183,14 +2183,14 @@ class EVGDisplayList {
                 fs = 14.0
             }
             ; The same rule the layout reserved the space by, so the line the
-            ; painter draws lands where the box was sized for it. Zero means
-            ; `normal`, which is the FACE's line box and not 1.2.
-            def lh:double el.lineHeight
-            if (lh <= 0.0) {
-                lh = ((textEngine.lineHeightFor(face fs)) / fs)
-            }
-            if (lh <= 0.0) {
-                lh = 1.2
+            ; painter draws lands where the box was sized for it — and it is
+            ; the same CALL, not the same formula written twice.
+            ; `EVGElement.lineBoxFor` is where `normal`, a number and a length
+            ; are told apart; `normal` is the FACE's line box and not 1.2, and
+            ; a length is not a multiplier.
+            def lineBox:double (el.lineBoxFor(fs (textEngine.lineHeightFor(face fs))))
+            if (lineBox <= 0.0) {
+                lineBox = (fs * 1.2)
             }
             def avail:double (el.box.getInnerWidth(w))
             def lines:[string] (textEngine.breakToStrings(el.textContent face fs avail))
@@ -2230,10 +2230,20 @@ class EVGDisplayList {
                         }
                     }
                 }
-                c4.x = ((x + el.box.paddingLeftPx) + indent)
-                c4.y = ((y + el.box.paddingTopPx) + ((to_double li) * (fs * lh)))
+                ; THE BORDER, as well as the padding. `avail` above is
+                ; `getInnerWidth`, which takes both off — and the layout's own
+                ; `calculatedBaseline` is measured from the border edge and
+                ; adds both. This did not, so a text element with a border
+                ; drew its text one border-width high and one left: over its
+                ; own top border, and measured against a width that assumed it
+                ; started inside it. EVG disagreeing with EVG, which is the
+                ; kind of divergence that survives longest because both halves
+                ; look right on their own.
+                def bw:double el.box.borderWidthPx
+                c4.x = (((x + bw) + el.box.paddingLeftPx) + indent)
+                c4.y = (((y + bw) + el.box.paddingTopPx) + ((to_double li) * lineBox))
                 c4.w = avail
-                c4.h = (fs * lh)
+                c4.h = lineBox
                 c4.text = (itemAt lines li)
                 c4.fontFamily = face
                 c4.fontSize = fs
