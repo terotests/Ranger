@@ -660,6 +660,61 @@ console.log("--- what a rebuild keeps ---");
      `${before} then ${after}`);
 }
 
+// --- the kept list against a fresh build of the same tree --------------------
+//
+// `rt:scroll` above holds the scroll SHORTCUT against a full re-layout. This
+// holds the KEPT LIST against a fresh build — a different claim, and the one
+// a page that draws two copies of itself would break. `display` hands back
+// the same build while only a scroll happened, with its layers moved; a fresh
+// build of the SAME TREE at the SAME offset is what that is supposed to be
+// worth, and `setCulling` forces one without touching the tree.
+//
+// Only what the viewport can see is compared, and that is not a weakening: a
+// kept list legitimately carries less overscan than a build centred on the
+// new offset — spending that margin is the whole point of keeping it. What it
+// may not do is differ anywhere a person can look.
+console.log("");
+console.log("--- the kept list against a fresh build ---");
+{
+  const W = 390;
+  const Hh = 844;
+  const app = open("/calendar/cal-train", W, Hh);
+  app.press("rt-nav-home");
+  settle(app);
+  const ink = (dl) =>
+    listOf(dl).cmds
+      .filter((c) => c.k === 3 && c.y < Hh && c.y + (c.h || 0) > 0 && c.x < W && c.x + (c.w || 0) > 0)
+      .map((c) => `${c.text}@${Math.round(c.x)},${Math.round(c.y)}`)
+      .join("\n");
+  let seen = 0;
+  let differed = 0;
+  let firstDiff = null;
+  const at = (delta) => {
+    app.scrollDocument(delta);
+    app.tick(16.7);
+    const kept = ink(app.display());
+    app.setCulling(true); // marks the list dirty; the tree is untouched
+    const fresh = ink(app.display());
+    seen += 1;
+    if (kept === fresh) return;
+    differed += 1;
+    if (firstDiff) return;
+    const a = kept.split("\n");
+    const b = fresh.split("\n");
+    for (let i = 0; i < Math.max(a.length, b.length); i += 1)
+      if (a[i] !== b[i]) { firstDiff = { delta, i, kept: a[i], fresh: b[i] }; break; }
+  };
+  for (let i = 0; i < 20; i += 1) at(60);
+  for (let i = 0; i < 20; i += 1) at(-60);
+  for (let i = 0; i < 10; i += 1) at(500);
+  for (let i = 0; i < 10; i += 1) at(-500);
+  ok(`${seen} kept frames draw what a fresh build of the same tree draws`,
+     differed === 0,
+     firstDiff
+       ? `${differed} differed — first at delta=${firstDiff.delta}: kept "${firstDiff.kept}" vs fresh "${firstDiff.fresh}"`
+       : "");
+}
+
 console.log("");
 console.log("--- the throw ---");
 const swipe = (perFrame) => {
