@@ -2759,17 +2759,34 @@ class RealTrainerDemo {
             body.addChild(home)
             return
         }
-        def empty (tree Rt (Row (props (className "rt-home-center"))))
-        empty.addChild((tree Rt (ChatPara (props (id "rt-home-empty") (className "rt-home-empty")) "Ei tulevia tapahtumia")))
-        home.addChild(empty)
-        ; The selected calendar's past entries, counted on the button — or,
-        ; with none, the hint the original shows a new calendar.
+        ; WHAT IS COMING, which used to be the words "Ei tulevia tapahtumia"
+        ; and nothing else — printed whether or not anything was coming. So a
+        ; plan calendar could be written into from the row above and answer
+        ; that it had nothing, with the entry sitting in the store. The list
+        ; is derived now and the sentence is what is left when it is empty.
         def mine:[RtSeedEntry] (seed.selectedEntries())
+        def soon:[RtSeedEntry]
         def past@(mutable):int 0
         for mine e:RtSeedEntry i {
             if ((RtWeek.daysOf(e.date)) < (RtWeek.daysOf(today))) {
                 past = (past + 1)
+            } {
+                push soon e
             }
+        }
+        if ((array_length soon) == 0) {
+            def empty (tree Rt (Row (props (className "rt-home-center"))))
+            empty.addChild((tree Rt (ChatPara (props (id "rt-home-empty") (className "rt-home-empty")) "Ei tulevia tapahtumia")))
+            home.addChild(empty)
+        } {
+            def coming (tree Rt (Col (props (className "rt-home-feed"))))
+            def sorted:[RtSeedEntry] (RealTrainerDemo.sortByDateDesc(soon))
+            for sorted e:RtSeedEntry i {
+                def card:EVGElement (this.cardFor(e i "soon"))
+                card.className = "rt-entry rt-entry-home"
+                coming.addChild(card)
+            }
+            home.addChild(coming)
         }
         if (past > 0) {
             def pastRow (tree Rt (Row (props (className "rt-home-center"))))

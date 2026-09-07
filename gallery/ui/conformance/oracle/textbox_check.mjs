@@ -368,6 +368,69 @@ console.log("--- a flex container's own text ---");
   near("a block ignores align-items and starts at the top", block.y, 0);
 }
 
+// --- `white-space: nowrap` ---------------------------------------------------
+//
+// Two values matter here: `normal`, which wraps at the box's width, and
+// `nowrap`, which does not wrap at all — the line is as long as the text and
+// the box clips it if it clips anything. A ONE-LINE FIELD is the reason: an
+// `<input>` never wraps whatever is in it, it scrolls.
+//
+// It is INHERITED, as CSS has it, so a field says it once and the run and the
+// placeholder inside it obey without saying so themselves. And the layout and
+// the display list have to agree about the count, or the box is sized for one
+// wrap and painted with another.
+console.log("--- white-space ---");
+{
+  const wrap = (ws, nested) => {
+    const sheet = new H.EVGStyleSheet();
+    sheet.parse(
+      ".page{display:flex;flex-direction:column;flex-wrap:nowrap;width:400px;height:300px}" +
+      ".box{width:80px;font-size:13px" + (ws ? ";white-space:" + ws : "") + "}" +
+      ".run{font-size:13px}",
+    );
+    const page = H.EVGElement.createDiv();
+    page.className = "page";
+    const box = H.EVGElement.createDiv();
+    box.className = "box";
+    const TEXT = "one two three four five";
+    if (nested) {
+      const run = H.EVGElement.createDiv();
+      run.className = "run";
+      run.textContent = TEXT;
+      box.addChild(run);
+    } else {
+      box.textContent = TEXT;
+    }
+    page.addChild(box);
+    sheet.applyTree(page, "");
+    const l = new H.EVGLayout();
+    l.setPageSize(400, 300);
+    l.layout(page);
+    const dl = new H.EVGDisplayList();
+    dl.setTextEngine(l.getTextEngine());
+    dl.build(page);
+    const runs = JSON.parse(dl.toJson()).cmds.filter((c) => c.k === 3);
+    const el = nested ? box.getChild(0) : box;
+    return { drawn: runs.length, boxH: el.calculatedHeight, lineBox: runs[0].h };
+  };
+
+  const normal = wrap("", false);
+  ok("a narrow box wraps by default", normal.drawn > 1, normal.drawn + " lines");
+  // The height the layout reserved is the height the lines drawn need: the
+  // two sides counting differently is a box the last line falls out of.
+  near("and its height is the lines it drew", normal.boxH, normal.drawn * normal.lineBox);
+
+  const flat = wrap("nowrap", false);
+  ok("`nowrap` does not wrap", flat.drawn === 1, flat.drawn + " lines");
+  near("and its height is one line", flat.boxH, flat.lineBox);
+
+  // INHERITED: the box says it, the run inside obeys.
+  const inherited = wrap("nowrap", true);
+  ok("a child inherits it", inherited.drawn === 1, inherited.drawn + " lines");
+  const inheritedNormal = wrap("", true);
+  ok("and inherits `normal` too", inheritedNormal.drawn > 1, inheritedNormal.drawn + " lines");
+}
+
 console.log("");
 console.log("passed=" + passed + " failed=" + failed);
 if (failed > 0) { console.log("FAILURES"); process.exit(1); }

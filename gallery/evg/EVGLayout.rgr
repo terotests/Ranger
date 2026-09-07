@@ -598,7 +598,7 @@ class EVGLayout {
                 ; reserved for the wrap the layout imagined and the painter
                 ; drew a different one, which is a box the last line falls out
                 ; of.
-                def availableWidth:double (element.box.getInnerWidth(width))
+                def availableWidth:double (element.wrapWidth((element.box.getInnerWidth(width))))
                 def lineCount:int (textEngine.lineCount(textContent (element.effectiveFontFamily()) fontSize availableWidth))
 
                 contentHeight = (lineSpacing * (to_double lineCount))

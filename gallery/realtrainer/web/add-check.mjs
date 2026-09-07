@@ -47,14 +47,14 @@ const ok = (name, cond, detail) => {
 
 // Home, on the training calendar, with the feed settled: the screen the row
 // sits on.
-const open = () => {
+const open = (calendar) => {
   const app = new RealTrainerDemo();
   app.init(rd("web", "realtrainer.css"), rd("fixtures", "session.compact"));
   app.loadPlanMachine(rd("fixtures", "machines", "planDialog.machine.json"));
   app.loadChatMachine(rd("fixtures", "machines", "chat.machine.json"));
   app.loadReference(rd("fixtures", "reference", "seed.json"));
   app.setPageSize(390, 844);
-  app.openRoute("/calendar/cal-train");
+  app.openRoute("/calendar/" + (calendar || "cal-train"));
   app.press("rt-nav-home");
   let spun = 0;
   while (app.building() && spun < 300) { app.tick(16.7); spun += 1; }
@@ -137,6 +137,43 @@ console.log("--- the save that fails, and the retry ---");
   settle(app, 1200);
   ok("the retry lands the card", drawn(app).some((t) => t.includes("Kahvakuula")));
   ok("and the error is gone", shows(app, "epäonnistui") === false);
+  ok("and the composer is empty", shows(app, "Kirjoita merkintä"));
+}
+
+console.log("");
+console.log("--- the field is one line, whatever is in it ---");
+{
+  // An `<input>` never wraps: it scrolls. The plan calendar's placeholder is
+  // the longer of the two and does not fit its box, and before `white-space`
+  // it broke onto a second line and fell out of the bottom of a 40px row.
+  for (const [cal, ghost] of [["cal-plan", "maanantai"], ["cal-train", "treeni 60min"]]) {
+    const app = open(cal);
+    const runs = drawn(app).filter((t) => t.startsWith("Kirjoita") || t.includes(ghost));
+    ok(`${cal}: the placeholder is one run, not two`, runs.length === 1, runs.join(" / "));
+  }
+  const app = open("cal-plan");
+  app.press("rt-home-field");
+  // Longer than the box by a wide margin, and still one line.
+  const LONG = "maanantai pitkä juoksulenkki metsässä ja sen jälkeen venyttelyt";
+  type(app, LONG);
+  const runs = drawn(app).filter((t) => t.includes("juoksulenkki"));
+  ok("and so is a value longer than the box", runs.length === 1, runs.join(" / "));
+}
+
+console.log("");
+console.log("--- a plan calendar answers with what is coming ---");
+{
+  // "Ei tulevia tapahtumia" used to be printed whether or not anything was
+  // coming, so a plan calendar could be written into and answer that it had
+  // nothing, with the entry sitting in the store.
+  const app = open("cal-plan");
+  ok("it starts with nothing coming", shows(app, "Ei tulevia tapahtumia"));
+  app.press("rt-home-field");
+  type(app, "Exercise Aitajuoksu|6x60m");
+  ok("the send starts", app.press("rt-home-send"));
+  settle(app, 1200);
+  ok("the entry is on Home", shows(app, "Aitajuoksu"));
+  ok("and the sentence is gone", shows(app, "Ei tulevia tapahtumia") === false);
   ok("and the composer is empty", shows(app, "Kirjoita merkintä"));
 }
 

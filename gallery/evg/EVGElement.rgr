@@ -520,6 +520,19 @@ class EVGElement {
     ; `lineBoxFor`, which is the only thing that should read either.
     def lineHeightUnit:EVGUnit
     def textAlign:string "left"
+    ; `white-space`, of which two values matter here: `normal`, which wraps at
+    ; the box's width, and `nowrap`, which does not wrap at all — the line is
+    ; as long as the text and the box clips it if it clips anything.
+    ;
+    ; A ONE-LINE FIELD IS THE REASON. A text input is one line whatever is in
+    ; it: an `<input>` never wraps, it scrolls. Without this, a placeholder
+    ; longer than its box broke onto a second line and fell out of the bottom
+    ; of a 40-pixel row — which is what the quick entry on Home did with the
+    ; longer of its two placeholders.
+    ;
+    ; INHERITED, as CSS has it, so `white-space: nowrap` on the field reaches
+    ; the run inside it without every child having to say so.
+    def whiteSpace:string "normal"
     def color:EVGColor
     ; What to paint glyphs that came from a FALLBACK face — emoji, in
     ; practice — when they should not be the colour of the text around them.
@@ -1342,6 +1355,21 @@ class EVGElement {
         return normalPx
     }
 
+    ; The width a line is broken into, for this element's own text: the box's
+    ; content width, or ZERO — which `EVGTextEngine` reads as "do not wrap" —
+    ; when `white-space` says the text is one line. One answer, so the layout
+    ; that reserves the height and the display list that draws the lines
+    ; cannot disagree about how many there are.
+    fn wrapWidth:double (contentWidth:double) {
+        if (whiteSpace == "nowrap") {
+            return 0.0
+        }
+        if (whiteSpace == "pre") {
+            return 0.0
+        }
+        return contentWidth
+    }
+
     ; Is this element's drawn output somewhere its layout box does not say?
     ; A transform moves the pixels after the boxes are placed, so the answer
     ; decides whether the subtree can be culled at all — see `paintUnbounded`.
@@ -1584,6 +1612,11 @@ class EVGElement {
         ; parent links.
         if ((strlen cursor) == 0) {
             cursor = parentEl.cursor
+        }
+        ; `white-space` is inherited, which is what lets a one-line field say
+        ; `nowrap` once and have the run inside it obey.
+        if (whiteSpace == "normal") {
+            whiteSpace = parentEl.whiteSpace
         }
         fontSizeBase = parentEl.inheritedFontSize
         rootFontSize = parentEl.rootFontSize
@@ -2514,6 +2547,7 @@ class EVGElement {
         lineHeight = other.lineHeight
         lineHeightUnit = other.lineHeightUnit
         textAlign = other.textAlign
+        whiteSpace = other.whiteSpace
         color = other.color
         emojiColor = other.emojiColor
         textContent = other.textContent
@@ -3491,6 +3525,10 @@ class EVGElement {
         }
         if ((name == "text-align") || (name == "textAlign")) {
             textAlign = value
+            return
+        }
+        if ((name == "white-space") || (name == "whiteSpace")) {
+            whiteSpace = (trim value)
             return
         }
         if ((name == "line-height") || (name == "lineHeight")) {
