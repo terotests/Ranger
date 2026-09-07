@@ -95,6 +95,13 @@ export function createTextInputBridge({ host, canvas, onEdit, onComposition, onK
       background: "transparent",
       color: "transparent",
       caretColor: "transparent",
+      // SIXTEEN PIXELS, for iOS. Safari zooms the page in when it focuses a
+      // text field that computes to less than 16px, and this proxy is what
+      // takes the keyboard for every drawn field. It inherited whatever the
+      // host had, which on a phone-sized page is smaller than that. The
+      // proxy is transparent and clipped to the field's box, so the size is
+      // invisible and only Safari's decision depends on it.
+      fontSize: "16px",
       zIndex: "1",
       // It must not take the pointer. Ranger does every hit test and places
       // every caret; the proxy only needs the keyboard, and it is sitting

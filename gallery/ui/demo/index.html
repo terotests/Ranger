@@ -35,7 +35,11 @@
          mirror's elements sit at the rectangles EVG laid out, over the pixels
          that drew them. */
       #stage { position: relative; }
-      canvas { display: block; border-radius: 10px; touch-action: none; }
+      /* `pinch-zoom` rather than `none`: the app wants the one-finger drag,
+       * the browser keeps the pinch. `none` takes both, and a page a phone
+       * has zoomed into — it does that when it focuses a small text field —
+       * then cannot be pinched back out over the canvas. */
+      canvas { display: block; border-radius: 10px; touch-action: pinch-zoom; }
       #stage .evg-a11y :focus-visible { outline: 2px solid #a5b4fc; outline-offset: -2px; border-radius: 6px; }
       .note { color: var(--dim); font-size: 12.5px; margin: 16px 0 0; max-width: 78ch; }
       code { background: #1b2440; padding: 1px 5px; border-radius: 4px; }
