@@ -1,0 +1,27 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; The decoder's node list, for the parity harness to hold against another
+; reader's parse of the same bytes.
+
+Import "../src/FigApp.rgr"
+
+class ParityDump {
+    sfn nodes:string (bytes:buffer) {
+        def app (new FigApp())
+        if ((app.openBytes(bytes "parity.fig")) == false) {
+            return ("{\"error\":\"" + app.err + "\"}")
+        }
+        return (app.rawNodesJson())
+    }
+
+    ; The scene the converter built out of those nodes, by type. Held
+    ; against the decoded counts it says what the converter drops, which
+    ; is a different question from what the decoder misses.
+    sfn scene:string (bytes:buffer) {
+        def app (new FigApp())
+        if ((app.openBytes(bytes "parity.fig")) == false) {
+            return ("{\"error\":\"" + app.err + "\"}")
+        }
+        return (app.censusJson())
+    }
+}

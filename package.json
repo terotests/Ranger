@@ -614,6 +614,7 @@
     "figma:web": "bash gallery/figma/web/standalone/build.sh",
     "figma:web:serve": "bash gallery/figma/web/standalone/build.sh && python3 -m http.server -d gallery/figma/web/standalone/dist 8010",
     "figma:web:test": "bash gallery/figma/web/standalone/build.sh && node gallery/figma/web/standalone/smoke.mjs",
+    "figma:parity": "node gallery/figma/bench/parity.mjs",
     "figma:bench": "node gallery/figma/bench/compare.mjs",
     "evg:a11y:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/EVGA11yTest.rgr -d=./gallery/evg/bin -o=EVGA11yTest.js -nodecli && node ./gallery/evg/bin/EVGA11yTest.js",
     "ui:table:check": "npm run ui:build --silent && node gallery/ui/conformance/oracle/table_check.mjs",

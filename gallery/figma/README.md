@@ -193,6 +193,33 @@ Wheel deltas are normalised before use: Firefox reports lines and Chrome
 pixels, one notch arriving as 3 or as 100, and a line is counted as 33
 pixels so that a notch is 1.16x in both.
 
+## Held against another reader
+
+```bash
+npm i openfig-core                    # not a dependency of this repository
+npm run figma:parity -- path/to/file.fig
+```
+
+Both readers take the same bytes and the report says where they part.
+openfig-core is a parser, not a renderer, so the comparison is of what
+came out of the kiwi message — which is the question worth answering
+first, because it splits the problem in two: a node or a field only one of
+them has is a decoding fault, and one they both decoded that only one of
+them draws is the converter's.
+
+It reports nodes only one reader has, types that disagree, boxes that
+disagree, text that disagrees, and every field openfig decoded on a node
+that this reader did not. Then, from this reader alone, decoded against
+drawn by node type — a type that is decoded and does not reach the scene
+is the converter losing it, and that is what a page missing its content
+looks like from here.
+
+On `health.fig` the two agree on all 415 nodes, their types, their boxes
+and their text, with no field decoded by one and not the other.
+
+Nothing leaves the machine, and layer names and text are printed, so run
+it on a file you are allowed to look at.
+
 ## When the page looks wrong and nothing is reported
 
 A warning can only name a case someone thought of, so when a page comes

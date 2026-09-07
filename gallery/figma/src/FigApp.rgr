@@ -496,6 +496,42 @@ class FigApp {
         return (o + "}")
     }
 
+    ; The decoder's own output, node by node: what came out of the kiwi
+    ; message before any of the scene conversion. This is what another
+    ; reader's parse can be held against — a difference here is a decode
+    ; fault, and a difference only further down is the converter's.
+    fn rawNodesJson:string () {
+        def o:string "["
+        def i:int 0
+        while (i < (array_length doc.nodes)) {
+            if (i > 0) {
+                o = (o + ",")
+            }
+            def nd:FigNode (itemAt doc.nodes i)
+            o = (o + "{\"id\":\"" + (this.esc(nd.id)) + "\"")
+            o = (o + ",\"type\":\"" + (this.esc(nd.typeName)) + "\"")
+            o = (o + ",\"name\":\"" + (this.esc(nd.name)) + "\"")
+            o = (o + ",\"parent\":\"" + (this.esc(nd.parentId)) + "\"")
+            o = (o + ",\"w\":" + (to_string nd.w))
+            o = (o + ",\"h\":" + (to_string nd.h))
+            o = (o + ",\"x\":" + (to_string nd.m02))
+            o = (o + ",\"y\":" + (to_string nd.m12))
+            o = (o + ",\"text\":\"" + (this.esc(nd.characters)) + "\"")
+            o = (o + ",\"fields\":[")
+            def f:int 0
+            while (f < (array_length nd.raw.fieldNames)) {
+                if (f > 0) {
+                    o = (o + ",")
+                }
+                o = (o + "\"" + (this.esc((itemAt nd.raw.fieldNames f))) + "\"")
+                f = (f + 1)
+            }
+            o = (o + "]}")
+            i = (i + 1)
+        }
+        return (o + "]")
+    }
+
     ; A census of the scene by Figma node type: how many of each, and how
     ; many of those put nothing on the canvas — no fill, no stroke, no
     ; path, no image, no text, and no children either. A type whose nodes
