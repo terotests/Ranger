@@ -278,6 +278,96 @@ console.log("--- the round trip a shrink-wrapped box makes ---");
      `${broke} of ${all} broke — first ${firstBreak}`);
 }
 
+// --- a flex container's own text is an anonymous flex item -------------------
+//
+// An element that is a flex container and carries text of its own does not lay
+// that text out as a block. CSS wraps it in an ANONYMOUS FLEX ITEM, and from
+// then on `align-items` and `justify-content` place it like any other item.
+//
+// That is the pill idiom, written that way everywhere:
+//
+//   .pill { display: flex; align-items: center; height: 34px; padding: 0 12px }
+//
+// with the label as the element's own text. EVG placed the line at the top of
+// the content box and never consulted `align-items`, so the label sat against
+// the pill's top edge with all the slack under it.
+//
+// The check is the EQUIVALENCE, which is stronger than any number: the
+// element's own text has to land exactly where the same text in a child of the
+// same container lands. A browser cannot tell those two apart and neither may
+// EVG. The block cases are here to say the anonymous item is only a flex
+// container's — a block's line boxes still start at the top of its content box.
+console.log("--- a flex container's own text ---");
+{
+  const lineTop = (containerCss, nested) => {
+    const sheet = new H.EVGStyleSheet();
+    sheet.parse(
+      ".page{display:flex;flex-direction:column;flex-wrap:nowrap;width:400px;height:300px}" +
+      ".pill{" + containerCss + "}" +
+      ".inner{font-size:15px}",
+    );
+    const page = H.EVGElement.createDiv();
+    page.className = "page";
+    const pill = H.EVGElement.createDiv();
+    pill.className = "pill";
+    if (nested) {
+      const t = H.EVGElement.createDiv();
+      t.className = "inner";
+      t.textContent = "10min";
+      pill.addChild(t);
+    } else {
+      pill.textContent = "10min";
+    }
+    page.addChild(pill);
+    sheet.applyTree(page, "");
+    const l = new H.EVGLayout();
+    l.setPageSize(400, 300);
+    l.layout(page);
+    const dl = new H.EVGDisplayList();
+    dl.setTextEngine(l.getTextEngine());
+    dl.build(page);
+    const c = JSON.parse(dl.toJson()).cmds.find((x) => x.k === 3);
+    return { y: c.y, box: c.h, baseline: pill.calculatedBaseline, pillH: pill.calculatedHeight };
+  };
+
+  const FLEX = "display:flex;flex-wrap:nowrap;height:34px;padding:0 12px;font-size:15px";
+  const CASES = [
+    ["align-items: center", FLEX + ";flex-direction:row;align-items:center"],
+    ["align-items: flex-end", FLEX + ";flex-direction:row;align-items:flex-end"],
+    ["align-items: flex-start", FLEX + ";flex-direction:row;align-items:flex-start"],
+    ["no align-items at all", FLEX + ";flex-direction:row"],
+    ["column, justify-content: center", FLEX + ";flex-direction:column;justify-content:center"],
+    ["column, justify-content: flex-end", FLEX + ";flex-direction:column;justify-content:flex-end"],
+  ];
+  for (const [name, css] of CASES) {
+    const own = lineTop(css, false);
+    const kid = lineTop(css, true);
+    near(`${name}: the container's own text lands where a child's does`,
+      own.y, kid.y, 0.02);
+  }
+
+  // The slack really is there to be shared — otherwise every case above would
+  // pass by having none — and a centred line has half of it above.
+  const centred = lineTop(CASES[0][1], false);
+  near("and centring puts half the slack above the line",
+    centred.y, (centred.pillH - centred.box) / 2, 0.02);
+  ok("which is slack worth sharing", centred.pillH - centred.box > 10,
+     `${(centred.pillH - centred.box).toFixed(1)}px`);
+
+  // The layout's baseline moves with it, or `align-items: baseline` on the row
+  // around the pill would line the pill up by a baseline the painter does not
+  // draw at.
+  const half = (centred.box - (SANS.ascentEm + SANS.descentEm) * 15) / 2;
+  near("the layout's baseline is still the painter's",
+    centred.y + half + SANS.ascentEm * 15, centred.baseline, 0.02);
+
+  // A BLOCK is not a flex container: its line boxes start at the top of its
+  // content box whatever `align-items` says, which is the rule the fix must
+  // not have widened.
+  const block = lineTop("height:34px;padding:0 12px;font-size:15px;align-items:center", false);
+  near("a block ignores align-items and starts at the top", block.y, 0);
+}
+
 console.log("");
 console.log("passed=" + passed + " failed=" + failed);
 if (failed > 0) { console.log("FAILURES"); process.exit(1); }

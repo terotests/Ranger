@@ -616,6 +616,9 @@ class EVGLayout {
                 ; 0.905 and moved every tightly-led line down by the difference.
                 def metrics:EVGTextMetrics (textEngine.measureRun(textContent (element.effectiveFontFamily()) fontSize))
                 def leading:double ((lineSpacing - (metrics.ascent + metrics.descent)) / 2.0)
+                ; `textShiftY` is written below, once the height is final —
+                ; it is a share of the slack and there is no slack until then
+                ; — so the baseline is completed there as well.
                 element.calculatedBaseline = (element.box.paddingTopPx + element.box.borderWidthPx + leading + metrics.ascent)
                 element.calculatedDescent = metrics.descent
                 element.hasBaseline = true
@@ -654,6 +657,39 @@ class EVGLayout {
         
         element.calculatedHeight = height
         element.calculatedInnerHeight = (element.box.getInnerHeight(height))
+        ; THE ANONYMOUS FLEX ITEM. An element that is a flex container and
+        ; carries text of its own does not lay that text out as a block: CSS
+        ; wraps it in an item, and `align-items` (across a row) or
+        ; `justify-content` (along a column) then places it. This is the pill
+        ; — `display:flex; align-items:center` with the label as the element's
+        ; own text — whose label sat against the top edge because the line box
+        ; started at the content top and nothing ever asked where it should
+        ; go. Written once here; `EVGElement.textShiftY` says the rest.
+        element.textShiftY = 0.0
+        if ((strlen element.textContent) > 0) {
+            if ((element.getChildCount()) == 0) {
+                if (element.display == "flex") {
+                    def slack:double (element.calculatedInnerHeight - contentHeight)
+                    if (slack > 0.0) {
+                        ; A row's cross axis is the vertical one; a column's
+                        ; main axis is.
+                        def how@(mutable):string element.alignItems
+                        if ((element.flexDirection == "column") || (element.flexDirection == "column-reverse")) {
+                            how = element.justifyContent
+                        }
+                        if ((how == "center") || (how == "safe center")) {
+                            element.textShiftY = (slack / 2.0)
+                        }
+                        if ((how == "flex-end") || (how == "end")) {
+                            element.textShiftY = slack
+                        }
+                    }
+                }
+            }
+            if (element.hasBaseline && (element.textShiftY != 0.0)) {
+                element.calculatedBaseline = (element.calculatedBaseline + element.textShiftY)
+            }
+        }
         element.calculatedPage = currentPage
         element.isLayoutComplete = true
 

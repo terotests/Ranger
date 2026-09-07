@@ -453,6 +453,27 @@ class EVGElement {
     ; It was 11% of a scroll frame doing exactly that.
     def paintHasEffect:boolean false
 
+    ; --- WHERE THE ELEMENT'S OWN TEXT SITS INSIDE IT --------------------------
+    ;
+    ; Normally nowhere: a block's line boxes start at the top of its content
+    ; box and that is the end of it. But an element that is a FLEX CONTAINER
+    ; and carries text of its own does not lay that text out as a block —
+    ; CSS wraps it in an ANONYMOUS FLEX ITEM, and from then on `align-items`
+    ; and `justify-content` place it like any other item.
+    ;
+    ; That is the pill idiom, and it is written that way everywhere:
+    ;
+    ;   .pill { display: flex; align-items: center; height: 34px; padding: 0 12px }
+    ;
+    ; with the label as the element's own text. EVG placed the line at the top
+    ; of the content box and never consulted `align-items`, so the label sat
+    ; against the pill's top edge instead of in the middle of it.
+    ;
+    ; The layout writes the offset here and the display list adds it to every
+    ; line, so the box's height and the painter's baseline agree — as they
+    ; must, because `calculatedBaseline` includes it too.
+    def textShiftY:double 0.0
+
     ; Typography (inherited)
     def fontSize:EVGUnit
     ; fontSize starts UNSET: an element is born without one so that "the author

@@ -2241,7 +2241,7 @@ class EVGDisplayList {
                 ; look right on their own.
                 def bw:double el.box.borderWidthPx
                 c4.x = (((x + bw) + el.box.paddingLeftPx) + indent)
-                c4.y = (((y + bw) + el.box.paddingTopPx) + ((to_double li) * lineBox))
+                c4.y = ((((y + bw) + el.box.paddingTopPx) + el.textShiftY) + ((to_double li) * lineBox))
                 c4.w = avail
                 c4.h = lineBox
                 c4.text = (itemAt lines li)

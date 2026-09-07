@@ -606,3 +606,56 @@ imagined, and the painter drawing a different one.
 Covered by `evg:textbox:check`, "a border on a text element", which asserts
 the run starts inside both and — the one that matters — that the layout's
 baseline and the painter's are the same point.
+
+## Issue #11: a flex container's own text ignored `align-items`
+
+**Status:** Resolved (September 5, 2026)
+**Severity:** Medium (a pill's label sits against its top edge)
+**Found:** September 5, 2026 — reported as "the minute still shows wrong",
+from a phone screenshot of a `10min` pill
+**Component:** `EVGLayout.rgr` / `EVGElement.rgr` / `EVGDisplayList.rgr`
+
+### What happened
+
+An element that is a flex container and carries text of its OWN does not lay
+that text out as a block. CSS wraps it in an ANONYMOUS FLEX ITEM, and from
+then on `align-items` and `justify-content` place it like any other item.
+
+That is the pill idiom, and it is written that way everywhere:
+
+```css
+.pill { display: flex; align-items: center; height: 34px; padding: 0 12px }
+```
+
+with the label as the element's own text. EVG placed the line box at the top
+of the content box and never consulted `align-items`. Measured on that pill,
+the space above and below the digits:
+
+```
+before   above  3.0   below 20.2      the label against the top edge
+after    above 11.4   below 11.8      where the same text in a child sits
+```
+
+`gallery/realtrainer`'s stylesheet has a hundred and nine rules with
+`align-items: center`, so the shape is not rare.
+
+### The fix
+
+`EVGLayout` writes `EVGElement.textShiftY` once the box's height is final —
+the offset is a share of the slack and there is no slack until then — and the
+display list adds it to every line. `calculatedBaseline` includes it too, or
+an `align-items: baseline` row around the pill would line the pill up by a
+baseline the painter does not draw at.
+
+`align-items` across a row, `justify-content` along a column, and a BLOCK is
+untouched: its line boxes still start at the top of its content box whatever
+`align-items` says.
+
+### The check
+
+`evg:textbox:check`, "a flex container's own text", asserts the EQUIVALENCE
+rather than any number: the element's own text has to land exactly where the
+same text in a child of the same container lands. A browser cannot tell those
+two apart and neither may EVG. Six alignments, plus that the slack really is
+there to be shared, that the layout's baseline is still the painter's, and
+that a block ignores `align-items`.
