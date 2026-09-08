@@ -276,6 +276,108 @@ class EVGDisplayList {
     ; commands, and each one that encoded them for itself encoded them slightly
     ; differently. They live here, where `cmds` does, so a dialog, a grid and a
     ; chart put the same bytes in the list.
+    ; ------------------------------------------------------------ the ring ----
+    ; WHERE THE KEYBOARD IS. `EVGFocus` decides which element has the focus;
+    ; this is what makes it visible, and it is in the list rather than in a
+    ; host so a renderer gets the ring for the same reason it gets a border.
+    ; An id nothing in the tree carries draws nothing, which is what a focus
+    ; that outlived its element should look like.
+    def focusRingId@(mutable):string ""
+    def focusRingR@(mutable):int 125
+    def focusRingG@(mutable):int 211
+    def focusRingB@(mutable):int 252
+    def focusRingA@(mutable):double 1.0
+    def focusRingWidth@(mutable):double 2.0
+    ; Outside the box, the way a browser's outline sits outside the border.
+    def focusRingPad@(mutable):double 2.0
+
+    fn setFocusRing:void (id:string) {
+        focusRingId = id
+    }
+
+    fn setFocusRingStyle:void (r:int g:int b:int alpha:double width:double pad:double) {
+        focusRingR = r
+        focusRingG = g
+        focusRingB = b
+        focusRingA = alpha
+        focusRingWidth = width
+        focusRingPad = pad
+    }
+
+    ; Last of all, so it is over everything and outside every clip: a ring
+    ; half-hidden by the panel the focused button sits in is a ring that does
+    ; not say where the keyboard is.
+    fn paintFocusRing:void (root:EVGElement) {
+        if ((strlen focusRingId) == 0) {
+            return
+        }
+        def found@(optional):EVGElement (EVGDisplayList.ringTarget(root focusRingId))
+        if found {
+            this.ringAround((unwrap found))
+        }
+    }
+
+    fn ringAround:void (el:EVGElement) {
+        if (el.calculatedWidth <= 0.0) {
+            return
+        }
+        if (el.calculatedHeight <= 0.0) {
+            return
+        }
+        def col:EVGColor (EVGColor.rgba(focusRingR focusRingG focusRingB focusRingA))
+        def c:EVGDrawCmd (new EVGDrawCmd)
+        c.kind = 1
+        c.x = (el.calculatedX - focusRingPad)
+        c.y = (el.calculatedY - focusRingPad)
+        c.w = (el.calculatedWidth + (focusRingPad * 2.0))
+        c.h = (el.calculatedHeight + (focusRingPad * 2.0))
+        c.thickness = focusRingWidth
+        ; The element's own corner, opened out by however far the ring sits
+        ; off it, so a pill keeps its ends.
+        def rad:double el.box.borderRadiusPx
+        if (rad > 0.0) {
+            c.radius = (rad + focusRingPad)
+        }
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+        this.addCmd(c)
+    }
+
+    ; THE VISIBLE ONE. An id can be in the tree twice — this app draws the same
+    ; navigation as a rail and as a bar, and the stylesheet folds one of them
+    ; away at every width — so a search that takes the first match rings the
+    ; copy that is not on the screen, which is a ring nobody can see. A hidden
+    ; branch is not searched, and a box laid out to nothing is not a target.
+    sfn ringTarget@(optional):EVGElement (el:EVGElement id:string) {
+        def none@(optional):EVGElement
+        if el.a11yHidden {
+            return none
+        }
+        if (el.display == "none") {
+            return none
+        }
+        if (el.id == id) {
+            if (el.calculatedWidth > 0.0) {
+                if (el.calculatedHeight > 0.0) {
+                    def hit@(optional):EVGElement el
+                    return hit
+                }
+            }
+        }
+        def i:int 0
+        def n:int (el.getChildCount())
+        while (i < n) {
+            def found@(optional):EVGElement (EVGDisplayList.ringTarget((el.getChild(i)) id))
+            if found {
+                return found
+            }
+            i = (i + 1)
+        }
+        return none
+    }
+
     fn addRect:void (x:double y:double w:double h:double col:EVGColor) {
         def c:EVGDrawCmd (new EVGDrawCmd)
         c.kind = 0
@@ -1679,6 +1781,7 @@ class EVGDisplayList {
             i = (i + 1)
         }
         cullOn = false
+        this.paintFocusRing(root)
     }
 
     ; Apply `opacity` to everything this element and its subtree just emitted.

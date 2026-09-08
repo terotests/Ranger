@@ -154,7 +154,7 @@ class EVGLayout {
 
         ; Then the overlays, once everything they anchor to has a rectangle.
         clear overlayErrors
-        this.placeOverlaysIn(root)
+        def anySurface:boolean (this.placeOverlaysIn(root))
 
         ; And where each subtree DRAWS, which is not where its box is: see
         ; `EVGElement.paintTop`. Last, because it is a union over final
@@ -2179,16 +2179,41 @@ class EVGLayout {
     ; real one. Anchor-dependency order falls out of the tree order; there is no
     ; second mechanism for nesting.
 
-    fn placeOverlaysIn:void (el:EVGElement) {
+    ; Every surface in the tree, placed against the anchor it names. This was
+    ; a plain walk of every element on every layout — three milliseconds a
+    ; frame on a long diary, to visit six thousand boxes and find the four
+    ; that are surfaces.
+    ;
+    ; The saving is the one `measurePaintBounds` already makes: a subtree the
+    ; layout KEPT moved whole, so a surface inside it moved with the anchor it
+    ; is placed against and its placement still holds. What the subtree holds
+    ; was counted the last time it was really laid out, and the answer is
+    ; cached on it — `overlayScanned` is false until a real scan, so a subtree
+    ; skipped in a later pass of the same layout is not taken at its word
+    ; before it has been asked once.
+    ;
+    ; Answers whether this subtree holds a surface, which is what lets a
+    ; parent cache it too.
+    fn placeOverlaysIn:boolean (el:EVGElement) {
+        if (el.layoutSkipped && el.overlayScanned) {
+            return el.hasOverlayBelow
+        }
+        def any@(mutable):boolean false
         def i:int 0
         while (i < (array_length el.children)) {
             def c:EVGElement (itemAt el.children i)
             if c.isOverlay {
                 this.placeOverlay(c el)
+                any = true
             }
-            this.placeOverlaysIn(c)
+            if (this.placeOverlaysIn(c)) {
+                any = true
+            }
             i = (i + 1)
         }
+        el.hasOverlayBelow = any
+        el.overlayScanned = true
+        return any
     }
 
     ; The anchor is not named by the author. A surface finds it among its own

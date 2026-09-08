@@ -430,6 +430,14 @@ class EVGElement {
     ; measured, and the measuring pass must not take a skipped subtree's
     ; word for it until they were.
     def boundsFresh:boolean false
+    ; …and the same question for the overlay pass: does this subtree hold a
+    ; surface that has to be placed against an anchor, and has it been asked?
+    ; A subtree the layout kept moved WHOLE — the surface and the anchor it
+    ; sits against went together — so its placement still holds and the pass
+    ; can take the answer it gave last time instead of walking it. See
+    ; `EVGLayout.placeOverlaysIn`.
+    def hasOverlayBelow:boolean false
+    def overlayScanned:boolean false
     def lastParentW:double 0.0
     def lastParentH:double 0.0
     def lastFlex:boolean false
@@ -1133,6 +1141,7 @@ class EVGElement {
         hasIntrinsicMax = false
         layoutSkipped = false
         boundsFresh = false
+        overlayScanned = false
         calculatedX = 0.0
         calculatedY = 0.0
         calculatedWidth = 0.0
@@ -2547,6 +2556,11 @@ class EVGElement {
         lineHeight = other.lineHeight
         lineHeightUnit = other.lineHeightUnit
         textAlign = other.textAlign
+        ; Written by the layout, not by the author — but adopted with the
+        ; rest, because a reconciled element that lost it would draw its own
+        ; text against the top of a box it was centred in until something
+        ; forced a fresh layout.
+        textShiftY = other.textShiftY
         whiteSpace = other.whiteSpace
         color = other.color
         emojiColor = other.emojiColor
@@ -2622,6 +2636,8 @@ class EVGElement {
         shiftDx = other.shiftDx
         shiftDy = other.shiftDy
         keepLayout = other.keepLayout
+        hasOverlayBelow = other.hasOverlayBelow
+        overlayScanned = other.overlayScanned
         hasLayout = other.hasLayout
         layoutClean = other.layoutClean
         layoutSkipped = other.layoutSkipped

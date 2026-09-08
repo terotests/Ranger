@@ -1,0 +1,295 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; EVGFocus — the keyboard, for a renderer that has none
+; =============================================================================
+; A drawn UI has no tab stops. The browser gives them to a page of elements for
+; free; a canvas is one element, and everything inside it is a rectangle the
+; GPU painted. So every EVG app so far has either had no keyboard at all or
+; hand-written one for the single widget that needed it — which is why the
+; arrows do nothing on a screen full of buttons.
+;
+; This is that, once, for every renderer: the elements that say they are
+; focusable, in an order, with a rule for what an arrow key means.
+;
+;   Tab / Shift+Tab     the next and previous in TREE ORDER, wrapping. That is
+;                       the order the page was written in, which is the order
+;                       the a11y mirror publishes and the order a browser
+;                       would use.
+;
+;   the four arrows     SPATIAL. Tree order is wrong for a grid: the thing
+;                       under a button is not the thing after it. So an arrow
+;                       looks at the boxes — where the focus is now, and which
+;                       focusable box lies in that direction — and takes the
+;                       nearest one, measured along the direction moved and
+;                       penalised for drifting sideways.
+;
+;   Home / End          the first and the last.
+;
+; A focusable element is one that says `a11yFocusable` and is not
+; `a11yDisabled` or `a11yHidden`, and has a box with area. A control with no
+; id cannot be focused, because an id is what the host presses.
+;
+; NOTHING HERE DRAWS. `EVGDisplayList.setFocus` puts a ring around whatever id
+; this settles on, so a renderer gets the ring for the same reason it gets a
+; border: it is in the list.
+;
+; The spatial rule, stated once because it is the whole design:
+;
+;     A candidate counts only if its CENTRE is past the current box's edge in
+;     the direction moved. Its cost is the distance along that direction plus
+;     twice the overlap-free gap across it. So a button directly below wins
+;     over one further down, and one directly below wins over one beside it —
+;     which is what "down" means to a person looking at the screen.
+; =============================================================================
+
+Import "EVGElement.rgr"
+
+class EVGFocus {
+    ; The focusable ids, in tree order, and their boxes.
+    def ids:[string]
+    def xs:[double]
+    def ys:[double]
+    def ws:[double]
+    def hs:[double]
+    ; What has the focus, or "" for nothing.
+    def focusId@(mutable):string ""
+
+    Constructor () {
+    }
+
+    ; --- what can be focused ---------------------------------------------------
+
+    fn scan:void (root:EVGElement) {
+        clear ids
+        clear xs
+        clear ys
+        clear ws
+        clear hs
+        this.walk(root)
+    }
+
+    fn walk:void (el:EVGElement) {
+        if el.a11yHidden {
+            return
+        }
+        if (el.display == "none") {
+            return
+        }
+        if (EVGFocus.takes(el)) {
+            push ids el.id
+            push xs el.calculatedX
+            push ys el.calculatedY
+            push ws el.calculatedWidth
+            push hs el.calculatedHeight
+        }
+        def i:int 0
+        def n:int (el.getChildCount())
+        while (i < n) {
+            this.walk((el.getChild(i)))
+            i = (i + 1)
+        }
+    }
+
+    ; An element with no id cannot be focused: the host acts on ids, and a
+    ; focus nobody can press is a focus that goes nowhere.
+    sfn takes:boolean (el:EVGElement) {
+        if (el.a11yFocusable == false) {
+            return false
+        }
+        if el.a11yDisabled {
+            return false
+        }
+        if ((strlen el.id) == 0) {
+            return false
+        }
+        if (el.calculatedWidth <= 0.0) {
+            return false
+        }
+        return (el.calculatedHeight > 0.0)
+    }
+
+    fn count:int () {
+        return (array_length ids)
+    }
+
+    fn idAt:string (i:int) {
+        if (i < 0) {
+            return ""
+        }
+        if (i >= (array_length ids)) {
+            return ""
+        }
+        return (itemAt ids i)
+    }
+
+    fn indexOfId:int (id:string) {
+        def i:int 0
+        def n:int (array_length ids)
+        while (i < n) {
+            if ((itemAt ids i) == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    ; --- moving ----------------------------------------------------------------
+
+    ; Tree order, wrapping. With nothing focused, Tab starts at the first and
+    ; Shift+Tab at the last — the same as a browser entering a page from
+    ; either end.
+    fn step:string (back:boolean) {
+        def n:int (array_length ids)
+        if (n == 0) {
+            return ""
+        }
+        def at:int (this.indexOfId(focusId))
+        if (at < 0) {
+            if back {
+                return (this.idAt((n - 1)))
+            }
+            return (this.idAt(0))
+        }
+        def next@(mutable):int (at + 1)
+        if back {
+            next = (at - 1)
+        }
+        if (next >= n) {
+            next = 0
+        }
+        if (next < 0) {
+            next = (n - 1)
+        }
+        return (this.idAt(next))
+    }
+
+    ; The spatial rule stated at the top. `dx`/`dy` is the direction: one of
+    ; (0,-1) (0,1) (-1,0) (1,0).
+    fn towards:string (dx:double dy:double) {
+        def n:int (array_length ids)
+        if (n == 0) {
+            return ""
+        }
+        def at:int (this.indexOfId(focusId))
+        if (at < 0) {
+            ; Nowhere yet: an arrow enters at the first, like Tab.
+            return (this.idAt(0))
+        }
+        def cx:double ((itemAt xs at) + ((itemAt ws at) / 2.0))
+        def cy:double ((itemAt ys at) + ((itemAt hs at) / 2.0))
+        def best@(mutable):string ""
+        def bestCost@(mutable):double 0.0
+        def i:int 0
+        while (i < n) {
+            if (i != at) {
+                def ox:double ((itemAt xs i) + ((itemAt ws i) / 2.0))
+                def oy:double ((itemAt ys i) + ((itemAt hs i) / 2.0))
+                def along:double (((ox - cx) * dx) + ((oy - cy) * dy))
+                ; Strictly past the centre in the direction moved. Half a
+                ; pixel, so a row of buttons whose centres are one rounding
+                ; apart does not count as "below" itself.
+                if (along > 0.5) {
+                    ; Across is the other axis, which for (0,±1) is x and for
+                    ; (±1,0) is y.
+                    def across@(mutable):double ((ox - cx) * dy)
+                    if (dy == 0.0) {
+                        across = (oy - cy)
+                    } {
+                        across = (ox - cx)
+                    }
+                    if (across < 0.0) {
+                        across = (0.0 - across)
+                    }
+                    def cost:double (along + (across * 2.0))
+                    if ((strlen best) == 0) {
+                        best = (itemAt ids i)
+                        bestCost = cost
+                    } {
+                        if (cost < bestCost) {
+                            best = (itemAt ids i)
+                            bestCost = cost
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return best
+    }
+
+    ; --- the key ---------------------------------------------------------------
+
+    ; One key against a tree. Answers the id the focus moved to, or "" when
+    ; the key is not one of these or there is nowhere to go — a host that gets
+    ; "" must let the key through, because refusing a key you did nothing with
+    ; is how a page stops scrolling.
+    ;
+    ; `scan` runs here so a caller never has to remember to: the tree it is
+    ; given is the tree as it is now, and a focus that survived a rebuild is
+    ; found by id rather than by position.
+    fn key:string (root:EVGElement k:string shift:boolean) {
+        this.scan(root)
+        def to@(mutable):string ""
+        if (k == "Tab") {
+            to = (this.step(shift))
+        }
+        if (k == "ArrowDown") {
+            to = (this.towards(0.0 1.0))
+        }
+        if (k == "ArrowUp") {
+            to = (this.towards(0.0 (0.0 - 1.0)))
+        }
+        if (k == "ArrowRight") {
+            to = (this.towards(1.0 0.0))
+        }
+        if (k == "ArrowLeft") {
+            to = (this.towards((0.0 - 1.0) 0.0))
+        }
+        if (k == "Home") {
+            to = (this.idAt(0))
+        }
+        if (k == "End") {
+            to = (this.idAt(((array_length ids) - 1)))
+        }
+        if ((strlen to) == 0) {
+            return ""
+        }
+        focusId = to
+        return to
+    }
+
+    ; Put the focus somewhere by hand — a press, or a screen that opens with
+    ; something already chosen. An id nothing focusable carries is refused
+    ; rather than remembered, so the ring cannot point at nothing.
+    fn place:boolean (root:EVGElement id:string) {
+        if ((strlen id) == 0) {
+            focusId = ""
+            return true
+        }
+        this.scan(root)
+        if ((this.indexOfId(id)) < 0) {
+            return false
+        }
+        focusId = id
+        return true
+    }
+
+    fn clear:void () {
+        focusId = ""
+    }
+
+    ; The focus after a rebuild: it is kept if the id is still focusable, and
+    ; dropped if it is not — a ring around an element that has gone is worse
+    ; than no ring.
+    fn settle:void (root:EVGElement) {
+        if ((strlen focusId) == 0) {
+            return
+        }
+        this.scan(root)
+        if ((this.indexOfId(focusId)) < 0) {
+            focusId = ""
+        }
+    }
+}

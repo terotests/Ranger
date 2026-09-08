@@ -87,6 +87,7 @@ Import "../../evg/EVGA11yTree.rgr"
 Import "../../evg/EVGA11yFromTree.rgr"
 Import "../../evg/EVGHitTest.rgr"
 Import "../../evg/EVGFling.rgr"
+Import "../../evg/EVGFocus.rgr"
 Import "CompactRows.rgr"
 Import "AddWorkoutDialog.rgr"
 Import "PlanDialogHost.rgr"
@@ -840,6 +841,18 @@ class RealTrainerDemo {
     def saveSpinMs:double 0.0
     ; Set while `entryCard` builds a review's proposal — see there.
     def cardPreview@(mutable):boolean false
+    ; What `markStates` marked, and for which ids. `marksStale` is set by a
+    ; rebuild, because the element under the pointer may be a new object.
+    def markedEls@(mutable):[EVGElement]
+    def markedHover@(mutable):string ""
+    def markedPress@(mutable):string ""
+    def marksStale@(mutable):boolean true
+    ; THE KEYBOARD. Tab walks the tree order, the arrows go by the boxes, and
+    ; the ring is drawn by the display list — see `EVGFocus`. None of that is
+    ; this app's: a drawn UI has no tab stops, so every EVG app needs the same
+    ; thing and this one only has to say where the tree is.
+    def keys:EVGFocus (new EVGFocus())
+
     ; THE PALETTE, by name: "" is the dark one the sheet declares unscoped,
     ; and "ocean" / "sunrise" are the two `@vars` blocks beside it. Nothing
     ; else in the app knows a colour — see `themeName`.
@@ -4406,25 +4419,38 @@ class RealTrainerDemo {
 
     ; Newest first; two on the same day keep the reverse of the file's order,
     ; as the day view lists them.
+    ; THE DATE IS PARSED ONCE PER ENTRY, not once per comparison. `daysOf`
+    ; takes an ISO string apart with three substrings and three number
+    ; conversions, and this called it from inside the inner loop: a
+    ; ninety-workout diary parsed five thousand dates on every rebuild — two
+    ; milliseconds a frame, for an order that had not changed. The key
+    ; travels beside the entry instead.
     sfn sortByDateDesc:[RtSeedEntry] (entries:[RtSeedEntry]) {
         def out@(mutable):[RtSeedEntry]
+        def keys@(mutable):[int]
         def n:int (array_length entries)
         for entries e:RtSeedEntry i {
             def item:RtSeedEntry (itemAt entries ((n - 1) - i))
             def days:int (RtWeek.daysOf(item.date))
             def placed:[RtSeedEntry]
+            def placedKeys:[int]
             def done@(mutable):boolean false
             for out o:RtSeedEntry j {
-                if ((done == false) && ((RtWeek.daysOf(o.date)) < days)) {
+                def ok:int (itemAt keys j)
+                if ((done == false) && (ok < days)) {
                     push placed item
+                    push placedKeys days
                     done = true
                 }
                 push placed o
+                push placedKeys ok
             }
             if (done == false) {
                 push placed item
+                push placedKeys days
             }
             out = placed
+            keys = placedKeys
         }
         return out
     }
@@ -5259,9 +5285,24 @@ class RealTrainerDemo {
         return nav
     }
 
+    ; An SVG source is a STRING, so an icon carries its colour in the tree and
+    ; not in the sheet, and the palette has to be asked here. These three are
+    ; `--accent-soft`'s values in `realtrainer.css` — the one place a colour is
+    ; written twice, and the reason the icons are why a light theme is not
+    ; possible yet.
+    fn accentSoftHex:string () {
+        if (palette == "ocean") {
+            return "#5eead4"
+        }
+        if (palette == "sunrise") {
+            return "#fdba74"
+        }
+        return "#fb923c"
+    }
+
     fn navColor:string (active:boolean) {
         if active {
-            return "#fb923c"
+            return (this.accentSoftHex())
         }
         return "#999999"
     }
@@ -6725,15 +6766,26 @@ class RealTrainerDemo {
         return (this.typeText(ch))
     }
 
+    ; A KEY IS NOT A RELAYOUT. This used to dirty the layout before it knew
+    ; what the key was, so every arrow press restyled and laid out the whole
+    ; tree — 97ms a keystroke on a long diary, for a ring that moved four
+    ; pixels. The two branches that really do change the tree say so
+    ; themselves; moving the ring only redraws.
     fn keyWith:boolean (k:string shift:boolean ctrl:boolean) {
-        layoutDirty = true
-        boxesDirty = true
         if calMenuOpen {
+            layoutDirty = true
+            boxesDirty = true
             return (this.calMenuKey(k shift))
         }
+        ; NO FIELD HAS IT, so the keyboard is the screen's. `EVGFocus` moves
+        ; the ring and this presses what it is round — which is the whole of
+        ; "the arrows work" for every button in the app, none of which knows
+        ; a key exists.
         if ((this.hasField(focused)) == false) {
-            return false
+            return (this.navKey(k shift))
         }
+        layoutDirty = true
+        boxesDirty = true
         ; ENTER SENDS THE QUICK ENTRY, which is what a one-line composer with
         ; a send button beside it does everywhere. Shift+Enter is not a
         ; newline here because the row is one line; it falls through to the
@@ -6762,6 +6814,58 @@ class RealTrainerDemo {
         this.fieldChanged(c)
         this.rebuild()
         return true
+    }
+
+    ; The keyboard when nothing is being typed into. Enter and Space press
+    ; what the ring is round, because a drawn button is a rectangle and no key
+    ; clicks it on its own; the rest is `EVGFocus`.
+    ;
+    ; A key this does nothing with is REFUSED, so the host lets it through —
+    ; taking a key and ignoring it is how a page stops scrolling.
+    fn navKey:boolean (k:string shift:boolean) {
+        ; LAID OUT FIRST. An arrow is decided from the boxes, and a tree that
+        ; was rebuilt by the last key has none until it is laid out — which is
+        ; how the ring got stuck on whatever was focusable before the rebuild.
+        def lay:EVGLayout (this.laidOut())
+        def r:EVGElement (unwrap root)
+        if ((k == "Enter") || (k == " ")) {
+            if ((strlen keys.focusId) == 0) {
+                return false
+            }
+            ; The press may rebuild the tree under the ring; `settle` drops
+            ; the focus only if what it was on has gone.
+            def id:string keys.focusId
+            def took:boolean (this.press(id))
+            def lay2:EVGLayout (this.laidOut())
+            def r2:EVGElement (unwrap root)
+            keys.settle(r2)
+            ; TAKEN EITHER WAY. The key was aimed at the ring, and a Space
+            ; that reaches the page scrolls it — which is worse than a press
+            ; that turned out to change nothing.
+            return true
+        }
+        if (k == "Escape") {
+            if ((strlen keys.focusId) == 0) {
+                return false
+            }
+            keys.clear()
+            listDirty = true
+            return true
+        }
+        def to:string (keys.key(r k shift))
+        if ((strlen to) == 0) {
+            return false
+        }
+        ; ONLY THE LIST. The tree and its boxes are exactly what they were —
+        ; the ring is drawn from `keys.focusId` by the display list — so this
+        ; is a repaint and not a rebuild.
+        listDirty = true
+        return true
+    }
+
+    ; Where the ring is, for a host and for a check.
+    fn focusRingId:string () {
+        return keys.focusId
     }
 
     ; --- what the browser's text session asks ---------------------------------
@@ -7039,6 +7143,9 @@ class RealTrainerDemo {
     fn rebuild:void () {
         layoutDirty = true
         boxesDirty = true
+        ; The tree is about to be built again, so what was marked may be an
+        ; element that is no longer in it — see `markStates`.
+        marksStale = true
         if ((seed.calendarId != cardsCalendar) || (pageW != cardsPageW)) {
             this.forgetCards()
             cardsCalendar = seed.calendarId
@@ -8045,21 +8152,59 @@ class RealTrainerDemo {
         this.fillActivePanel()
     }
 
+    ; TWO IDS, NOT SIX THOUSAND ELEMENTS. This cleared and re-set `isHovered`
+    ; and `isPressed` on every element in the tree on every laid-out frame —
+    ; a walk of the whole diary to say that one button is under the finger.
+    ;
+    ; What is marked is remembered instead, so a frame where neither id moved
+    ; does nothing at all. A rebuild makes the marks stale — the element under
+    ; the pointer may be one of the few the rebuild replaced — and that costs
+    ; one walk, which is what every frame used to cost.
+    ;
+    ; The list, rather than two elements: an id can be in the tree twice. This
+    ; app draws the same navigation as a rail and as a bar and the stylesheet
+    ; folds one away at every width, so a hover has to mark both or the wrong
+    ; copy lights up when the window is resized.
     fn markStates:void (el:EVGElement) {
-        el.isHovered = false
-        el.isPressed = false
+        if (marksStale == false) {
+            if ((markedHover == hovered) && (markedPress == pressed)) {
+                return
+            }
+        }
+        for markedEls m:EVGElement i {
+            m.isHovered = false
+            m.isPressed = false
+        }
+        def fresh:[EVGElement]
+        markedEls = fresh
+        markedHover = hovered
+        markedPress = pressed
+        marksStale = false
+        if (((strlen hovered) == 0) && ((strlen pressed) == 0)) {
+            return
+        }
+        this.markWalk(el)
+    }
+
+    fn markWalk:void (el:EVGElement) {
         if ((strlen el.id) > 0) {
+            def mine@(mutable):boolean false
             if (el.id == hovered) {
                 el.isHovered = true
+                mine = true
             }
             if (el.id == pressed) {
                 el.isPressed = true
+                mine = true
+            }
+            if mine {
+                push markedEls el
             }
         }
         def i:int 0
         while (i < (array_length el.children)) {
             def kid:EVGElement (itemAt el.children i)
-            this.markStates(kid)
+            this.markWalk(kid)
             i = (i + 1)
         }
     }
@@ -8215,6 +8360,7 @@ class RealTrainerDemo {
         if (v < (0.0 - 0.5)) {
             dl.setOverscan((pageH * 3.0) (pageH * 1.0))
         }
+        dl.setFocusRing(keys.focusId)
         dl.build(r)
         this.emitCharts(dl r)
         listBuilds = (listBuilds + 1)
