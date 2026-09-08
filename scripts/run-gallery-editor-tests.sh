@@ -77,6 +77,11 @@ SUITES=(
   evg:stylecache:test
   evg:invalidate:test
   evg:adopt:check
+  # A scroll moves the painter's kept frame with a uniform rather than
+  # rebuilding it, so a draw that forgets the uniform paints where the frame
+  # was BUILT. Needs a GPU to see and there is no oracle for it; this reads
+  # the painter as text.
+  evg:shift:check
   evg:scroll:check
   evg:tags:check
   evg:textbox:check
@@ -282,6 +287,10 @@ SUITES=(
   # state crossed with every event, and the thirteen cells of twenty-one that
   # are IGNORES — the half a hand-port gets wrong while its happy path passes.
   rt:machine
+  # Ranger has no clock: the app takes today as a value and the host hands it
+  # in. This is the arithmetic against dates worked out independently, and the
+  # wiring that lets a host say when now is.
+  rt:clock
   # The statechart runtime on its own account: its own two machines against
   # xstate — one that is the smallest thing still a machine, one that uses
   # everything the runner has — and the drawing it makes of them. Conformance

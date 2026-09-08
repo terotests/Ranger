@@ -1771,6 +1771,14 @@ function buildFrame(gl, doc, opts = {}) {
     gl.bindVertexArray(pathVao);
     gl.useProgram(pathProg);
     gl.uniform2f(pathPageLoc, doc.width, doc.height);
+    // THE LAYER'S SHIFT, which `drawTris` has always set and this did not.
+    // A kept frame is moved by this uniform rather than rebuilt, so a filled
+    // path went on being drawn where it was when the frame was built while
+    // the strokes and the boxes around it moved: on the diary's charts the
+    // area under the curve lagged the curve by a whole scroll. It applies to
+    // both draws below — the rings into the stencil and the quad that covers
+    // them — because it is one uniform on `pathProg`.
+    gl.uniform2f(built.pathShiftLoc, curShift[0], curShift[1]);
     gl.bindBuffer(gl.ARRAY_BUFFER, pathBuf);
 
     gl.enable(gl.STENCIL_TEST);

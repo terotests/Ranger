@@ -57,7 +57,14 @@ const route = params.get("route") || (fit ? "/" : "");
 
 // The worker, and the app inside it.
 const worker = new Worker(new URL("./worker-bundle.js", import.meta.url), { type: "module" });
-const engine = connectEngine(worker, { w: W, h: H, coarse, route });
+/** `YYYY-MM-DD` in the viewer's own timezone — `toISOString()` is UTC, which
+ *  is yesterday here for the first hours of the morning. */
+function localIsoDay(d) {
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+const engine = connectEngine(worker, { w: W, h: H, coarse, route, today: localIsoDay(new Date()) });
 engine.onError((e) => { errEl.textContent = e.during + "\n" + e.message; });
 
 const dpr = Math.min(2, window.devicePixelRatio || 1);

@@ -438,7 +438,14 @@ treefactory Rt {
     tag ThemeDesc EVGElement (props (className "rt-theme-desc") (elementType 1))
     tag ThemeOn  EVGElement (props (className "rt-theme-on") (elementType 1))
 
-    tag Overlay  EVGElement (props (className "rt-overlay"))
+    ; THE SCRIM IS THE MODAL. `a11yModal` is `aria-modal`: while this is up,
+    ; the page behind it is not there. The mirror reads it to hide what is
+    ; under the dialog, and `EVGFocus` reads it to keep the keyboard inside —
+    ; a dialog you have to close is not one Tab may walk out of. Declared on
+    ; the overlay rather than on the sheet because the overlay is the thing
+    ; that covers the page; `Modal` is also used for cards that are not over
+    ; anything.
+    tag Overlay  EVGElement (props (className "rt-overlay") (a11yModal true))
     tag Modal    EVGElement (props (className "rt-modal"))
     tag ModalHead EVGElement (props (className "rt-modal-head"))
     tag ModalTitle EVGElement (props (className "rt-modal-title") (elementType 1) (role "heading"))
@@ -805,7 +812,18 @@ class RealTrainerDemo {
     def calMenuIds:[string]
     def a11yFocus:string ""
     def addedSeq@(mutable):int 0
-    def today:string "2026-09-03"
+    ; TODAY, WHICH RANGER CANNOT ASK FOR. The language has no clock and no
+    ; date type — `UiDate` is the arithmetic and nothing more — and that is
+    ; the right shape: a clock inside a reducer is what makes a state machine
+    ; untestable, which is why `AddWorkoutDialog` takes its "today" as an
+    ; argument too. So the HOST hands it in, and every check keeps the date
+    ; below and stays deterministic.
+    ;
+    ; It has to be handed in, though. This was a bare constant nobody set, so
+    ; the deployed app opened five days in the past: the week arithmetic was
+    ; right — 31.8.2026 really is the Monday of week 36 — and it was drawing
+    ; the wrong week.
+    def today@(mutable):string "2026-09-03"
     ; The text fields: one per dialog that has one in the original, each a
     ; `InputCtl` named by its placeholder as the original's textareas are.
     ; The machine is the source of truth for the value — every edit is sent
@@ -1151,6 +1169,61 @@ class RealTrainerDemo {
     fn loadChatMachine:void (text:string) {
         chat.load(text)
         chatJob.latencyMs = 600.0
+    }
+
+    ; The host's clock, as an ISO day. Answers false for anything that is not
+    ; one, because a date the app cannot parse would silently become 1970 and
+    ; the screen would look plausible.
+    ;
+    ; Call it BEFORE `loadReference`: the seed's entries are anchored to
+    ; today, and a seed already loaded is re-anchored here so the order does
+    ; not matter as much as it reads.
+    fn setToday:boolean (iso:string) {
+        if ((RealTrainerDemo.looksIso(iso)) == false) {
+            return false
+        }
+        if (today == iso) {
+            return false
+        }
+        def wasThisWeek:boolean (weekStart == (RtWeek.mondayOf(today)))
+        today = iso
+        seed.anchor(today)
+        ; The week the calendar is on follows the clock only when it was
+        ; showing the week today is in. A week the person walked to with the
+        ; arrows, or one a route named, is left where it is.
+        if wasThisWeek {
+            weekStart = (RtWeek.mondayOf(today))
+        }
+        this.forgetCards()
+        this.rebuild()
+        return true
+    }
+
+    fn todayIso:string () {
+        return today
+    }
+
+    ; `YYYY-MM-DD`, digits and two dashes. Not a parse — `UiDate` does that —
+    ; a shape check, so a host that hands in "now" or "" is refused.
+    sfn looksIso:boolean (iso:string) {
+        if ((strlen iso) != 10) {
+            return false
+        }
+        def i:int 0
+        while (i < 10) {
+            def c:int (charAt iso i)
+            if ((i == 4) || (i == 7)) {
+                if (c != 45) {
+                    return false
+                }
+            } {
+                if ((c < 48) || (c > 57)) {
+                    return false
+                }
+            }
+            i = (i + 1)
+        }
+        return true
     }
 
     ; The same file the reference recorder seeds from.
@@ -2596,12 +2669,12 @@ class RealTrainerDemo {
     ; bar, the add sheet after it — the reference's tree reads them so.
     fn overlays:void (page:EVGElement) {
         if (plan.isOpen()) {
-            def over2 (tree Rt (Overlay))
+            def over2 (tree Rt (Overlay (props (id "rt-overlay-plan"))))
             over2.addChild((this.planSheet()))
             page.addChild(over2)
         }
         if moreOpen {
-            def over3 (tree Rt (Overlay (props (className "rt-overlay rt-overlay-bottom"))))
+            def over3 (tree Rt (Overlay (props (id "rt-overlay-more") (className "rt-overlay rt-overlay-bottom"))))
             over3.addChild((this.moreSheet()))
             page.addChild(over3)
         }
@@ -2609,7 +2682,7 @@ class RealTrainerDemo {
 
     fn addOverlay:void (page:EVGElement) {
         if (addDialog.isOpen()) {
-            def over (tree Rt (Overlay))
+            def over (tree Rt (Overlay (props (id "rt-overlay-add"))))
             over.addChild((this.addSheet()))
             page.addChild(over)
         }
@@ -2618,14 +2691,14 @@ class RealTrainerDemo {
         ; the request reads the text and comes back with a proposal, and a
         ; person who does not know that taps the button again.
         if (this.savingNow()) {
-            def wov (tree Rt (Overlay))
+            def wov (tree Rt (Overlay (props (id "rt-overlay-wait"))))
             wov.addChild((RealTrainerDemo.waitCard()))
             page.addChild(wov)
         }
         ; The review is over everything the sheet is over, and over the sheet:
         ; it is what the save answered with.
         if review.open {
-            def rev (tree Rt (Overlay))
+            def rev (tree Rt (Overlay (props (id "rt-overlay-review"))))
             rev.addChild((this.reviewSheet()))
             page.addChild(rev)
         }
@@ -4249,10 +4322,20 @@ class RealTrainerDemo {
     ; carries the numbers. Both layers share one explicit domain so the
     ; point sits on the line. Clipped to the main area by hand, as a thing
     ; appended after the walk is outside every clip the walk pushed.
-    fn emitCharts:void (dl:EVGDisplayList r:EVGElement) {
+    ; The charts, handed to the display list AGAINST THEIR CARDS rather than
+    ; appended after the tree — see `EVGDisplayList.paintAt`.
+    ;
+    ; They cannot be built during the walk: a chart needs its card's rectangle
+    ; and the walk is what hands that out. So they are built here, after the
+    ; layout and before the list, and the walk emits each one where its card
+    ; is. Appended at the end instead — which is what this used to do — a curve
+    ; painted over the calendar dropdown and over every open dialog, because
+    ; the end of the list is exactly "after everything"; and it sat outside the
+    ; scrolled container's layer, so a kept list moved the page out from under
+    ; it. The `addLayerClip` here was the patch for the second of those, and
+    ; being in the walk is the answer to both.
+    fn registerCharts:void (dl:EVGDisplayList lay:EVGLayout r:EVGElement) {
         if ((array_length charts) == 0) { return }
-        def main:EVGElement (RealTrainerDemo.findEl(r "rt-ph-main"))
-        if ((strlen main.id) == 0) { return }
         def tr (new UITextRenderer())
         for charts def0:RtChartDef i {
             def box:EVGElement (RealTrainerDemo.findEl(r def0.id))
@@ -4260,30 +4343,14 @@ class RealTrainerDemo {
             def w:int (to_int box.calculatedWidth)
             def h:int (to_int box.calculatedHeight)
             if ((w < 10) || (h < 10)) { continue }
-            ; Outside what the LIST WAS BUILT FOR: nothing to draw. Not
-            ; "outside the screen" — that was the test here, and it is the
-            ; wrong one for a list that is kept and moved. A card an overscan
-            ; below the fold is built into the list complete; its curve was
-            ; not, because the curve is emitted here and here only asked
-            ; whether the card was visible. So the card scrolled in without
-            ; its chart and the chart appeared when the scroll stopped and the
-            ; list was built again. `layerCovers` asks the question the walk
-            ; asked.
-            if ((dl.layerCovers(main box.calculatedX box.calculatedY box.calculatedWidth box.calculatedHeight)) == false) { continue }
             def list:VlCommandList (this.chartCommands(def0 w h))
-            ; INSIDE THE SCROLL, not merely on top of it. These commands are
-            ; appended after the whole tree is down — a chart cannot be drawn
-            ; until the layout has placed its card — so nothing about the walk
-            ; puts them in the scrolled container's layer, and a kept list
-            ; moved the page out from under them: the curve floated over the
-            ; document during a scroll and snapped into its card when the
-            ; scroll stopped and the list was built again.
-            ; `addLayerClip` makes the clip a layer of `main`, so they move
-            ; with it and go stale with it. See `EVGDisplayList.addLayerClip`.
-            dl.addLayerClip(main main.calculatedX main.calculatedY main.calculatedWidth main.calculatedHeight)
+            ; Into a list of its own, then handed over: the bridge writes
+            ; commands, and what is wanted here is the commands.
+            def one (new EVGDisplayList())
+            one.setTextEngine((lay.getTextEngine()))
             def bridge (new VlEvgList())
-            bridge.emit(dl list tr box.calculatedX box.calculatedY 1.0)
-            dl.addLayerClipEnd()
+            bridge.emit(one list tr box.calculatedX box.calculatedY 1.0)
+            dl.paintAt(def0.id one)
         }
     }
 
@@ -6844,7 +6911,20 @@ class RealTrainerDemo {
             ; that turned out to change nothing.
             return true
         }
+        ; ESCAPE IS THE WAY OUT. The keys are trapped inside a dialog now —
+        ; Tab cannot walk out of one — so a dialog that could only be closed
+        ; by finding its × would be a room with the door painted on. Each
+        ; sheet has its own close and this presses the topmost one's.
+        ;
+        ; With no dialog up, Escape drops the ring, which is what it did
+        ; before and is still the right answer for "never mind".
         if (k == "Escape") {
+            if (this.closeTopmost()) {
+                def lay3:EVGLayout (this.laidOut())
+                def r3:EVGElement (unwrap root)
+                keys.settle(r3)
+                return true
+            }
             if ((strlen keys.focusId) == 0) {
                 return false
             }
@@ -6866,6 +6946,40 @@ class RealTrainerDemo {
     ; Where the ring is, for a host and for a check.
     fn focusRingId:string () {
         return keys.focusId
+    }
+
+    ; The dialog the keys are shut inside, or "" — see `EVGFocus`. A host
+    ; needs it to know whether a key of its own is the dialog's, and it must
+    ; be answerable without pressing one, so the tree is walked here.
+    fn focusTrapId:string () {
+        def lay:EVGLayout (this.laidOut())
+        def r:EVGElement (unwrap root)
+        keys.scan(r)
+        return (keys.trapId())
+    }
+
+    ; Close whatever is on top, innermost first — the order they are drawn in,
+    ; reversed. Answers false when nothing is open, which is what lets Escape
+    ; fall through to dropping the ring.
+    fn closeTopmost:boolean () {
+        if calMenuOpen {
+            this.closeCalMenu()
+            this.rebuild()
+            return true
+        }
+        if review.open {
+            return (this.press("rt-review-close"))
+        }
+        if (addDialog.isOpen()) {
+            return (this.press("rt-sheet-cancel"))
+        }
+        if moreOpen {
+            return (this.press("rt-more-close"))
+        }
+        if (plan.isOpen()) {
+            return (this.press("rt-plan-cancel"))
+        }
+        return false
     }
 
     ; --- what the browser's text session asks ---------------------------------
@@ -8361,8 +8475,10 @@ class RealTrainerDemo {
             dl.setOverscan((pageH * 3.0) (pageH * 1.0))
         }
         dl.setFocusRing(keys.focusId)
+        ; BEFORE the build, so the walk emits each chart where its card is —
+        ; see `registerCharts`.
+        this.registerCharts(dl lay r)
         dl.build(r)
-        this.emitCharts(dl r)
         listBuilds = (listBuilds + 1)
         dl.buildSeq = listBuilds
         retained = dl

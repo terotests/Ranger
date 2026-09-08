@@ -81,10 +81,10 @@ const open = (route, w, h, compact, css) => {
   // the one that gets long.
   if (route === "#document") app.setScene("document");
   // Nor is `stats`: it is the Tilastot tab of the home section, and the one
-  // page in the app whose CHARTS are drawn outside the tree walk — appended
-  // after it, from the boxes the layout placed. Nothing else exercises
-  // `emitCharts`, and it is where a curve floated over the page during a
-  // scroll and snapped into its card when it stopped.
+  // page in the app with CHARTS on it. Their commands are built after the
+  // layout and handed to the list against their cards — see `registerCharts`
+  // and `EVGDisplayList.paintAt` — and this is where a curve floated over the
+  // page during a scroll and snapped into its card when it stopped.
   else if (route === "#stats") {
     app.openRoute("/calendar/cal-train");
     app.press("rt-nav-home");
@@ -765,6 +765,50 @@ ok("and it stops", flick.ms > 0 && flick.ms < 4000, flick.ms + "ms");
   ok("a throw is in flight", app.scrollVelocity() !== 0, String(app.scrollVelocity()));
   app.scrollHalt();
   ok("and a finger down catches it", app.scrollVelocity() === 0, String(app.scrollVelocity()));
+}
+
+console.log("");
+console.log("--- and a chart is painted where its card is, not after everything ---");
+{
+  // A chart cannot be built during the walk — it needs its card's rectangle,
+  // and the walk is what hands that out — so it is built after the layout.
+  // Appended to the END of the list, which is what that used to mean, it
+  // paints over whatever is drawn later: the calendar dropdown, and every
+  // open dialog. `paintAt` puts it back where its card is.
+  const app = open("#stats", 390, 900);
+  const cmds = () => JSON.parse(app.displayListJson()).cmds;
+  const wide = (c) => {
+    if (c.k !== 6 && c.k !== 7) return false;
+    const pts = c.pts || [];
+    if (pts.length < 40) return false;
+    const xs = [];
+    for (let i = 0; i < pts.length; i += 2) xs.push(pts[i]);
+    return Math.max(...xs) - Math.min(...xs) > 150;
+  };
+  const firstChart = () => cmds().findIndex(wide);
+  const lastText = (re) => {
+    const list = cmds();
+    let at = -1;
+    list.forEach((c, i) => { if (c.k === 3 && re.test(c.text || "")) at = i; });
+    return at;
+  };
+  ok("the charts are drawn at all", firstChart() >= 0);
+
+  app.press("rt-calsel");
+  settle(app);
+  const menu = lastText(/Ravintopäiväkirja|MINIMONSTER Plan/);
+  ok("the calendar dropdown opened", menu >= 0);
+  ok("and the dropdown is over the chart", firstChart() < menu,
+     `chart at ${firstChart()}, menu at ${menu}`);
+  app.press("rt-calsel");
+  settle(app);
+
+  app.press("rt-add");
+  settle(app);
+  const sheet = lastText(/Lisää kuva|Luo harjoitusohjelma/);
+  ok("the sheet opened", sheet >= 0);
+  ok("and the sheet is over the chart too", firstChart() < sheet,
+     `chart at ${firstChart()}, sheet at ${sheet}`);
 }
 
 console.log("");

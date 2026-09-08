@@ -33,6 +33,10 @@ serveEngine({
     app.init(REALTRAINER_CSS, REALTRAINER_COMPACT);
     app.loadPlanMachine(REALTRAINER_PLAN_MACHINE);
     app.loadChatMachine(REALTRAINER_CHAT_MACHINE);
+    // The clock comes from the page, because a worker has no business
+    // deciding what day it is either — see `RealTrainerDemo.setToday`. Before
+    // the seed, whose entries are anchored to today.
+    if (init.today) app.setToday(init.today);
     app.loadReference(REALTRAINER_SEED);
     app.setPointerCoarse(!!init.coarse);
     if (init.w > 0 && init.h > 0) app.setPageSize(init.w, init.h);

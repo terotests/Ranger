@@ -69,12 +69,17 @@ const ringsOf = (c) => {
   }
   return out;
 };
-const pathData = (rings) =>
+// A FILL is closed and a STROKE is not. The GL painter builds a stroke as one
+// quad per segment between consecutive points and stops at the last, so a `Z`
+// here would draw a line the real painter never draws — and it looks exactly
+// like a second, straight series across the chart, which is a convincing way
+// to be told a bug exists where there is none.
+const pathData = (rings, close) =>
   rings
     .map((r) => {
       let d = `M${n2(r[0])} ${n2(r[1])}`;
       for (let i = 2; i + 1 < r.length; i += 2) d += `L${n2(r[i])} ${n2(r[i + 1])}`;
-      return d + "Z";
+      return close ? d + "Z" : d;
     })
     .join(" ");
 
@@ -103,7 +108,7 @@ function svgOf(cmds, w, h) {
     if (c.k === 6 || c.k === 7) {
       const rings = ringsOf(c);
       if (!rings.length) continue;
-      const d = pathData(rings);
+      const d = pathData(rings, c.k === 6);
       if (c.k === 7) {
         out.push(`<path d="${d}" fill="none" stroke="${rgba(c.c)}" stroke-width="${n2(c.t || 1)}"${spin(c)}/>`);
       } else {

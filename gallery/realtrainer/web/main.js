@@ -34,10 +34,26 @@ const sceneEl = document.getElementById("scene");
 const fontMeasure = installCanvasMeasurer(RealTrainerModule);
 window.__fontMeasure = fontMeasure;
 
+/** `YYYY-MM-DD` in the viewer's own timezone. */
+function localIsoDay(d) {
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
 const app = new RealTrainerDemo();
 app.init(REALTRAINER_CSS, REALTRAINER_COMPACT);
 app.loadPlanMachine(REALTRAINER_PLAN_MACHINE);
 app.loadChatMachine(REALTRAINER_CHAT_MACHINE);
+// THE CLOCK. Ranger has no date type and no `now()` — deliberately: a clock
+// inside a reducer is what makes a state machine untestable, so the app takes
+// today as a value and every headless check hands it a fixed one. Which means
+// the browser has to hand it the real one, and until it did, the deployed page
+// opened five days in the past: right week arithmetic, wrong week.
+//
+// The LOCAL day, not the UTC one. `toISOString()` is UTC, so east of Greenwich
+// it is yesterday for the first hours of the morning and the calendar opens on
+// the wrong day for anyone awake early.
+app.setToday(localIsoDay(new Date()));
 app.loadReference(REALTRAINER_SEED);
 // `?page=390x844&route=/calendar/cal-plan?week=2026-02-09` opens the app the
 // way the reference recorder opens the original: a phone, on a route.

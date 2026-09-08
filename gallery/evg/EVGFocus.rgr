@@ -26,6 +26,22 @@
 ;
 ;   Home / End          the first and the last.
 ;
+; AND A MODAL TRAPS IT. A dialog that has to be closed must not be a dialog
+; the keyboard can walk out of — Tab past its last button and the ring is on
+; the page behind it, over controls the person cannot see the point of and
+; cannot get back from except by walking all the way round.
+;
+; The trap is not something a host remembers to switch on. It is already in
+; the tree: a dialog says `a11yModal`, which is `aria-modal` and what the
+; accessibility mirror reads to hide the page behind it, so the keyboard reads
+; the same declaration. While one is up, the walk starts at that dialog and
+; the page under it does not exist as far as the keys are concerned — and when
+; it closes, the tree stops saying so and the whole page comes back.
+;
+; The INNERMOST one, which here means the last in tree order: overlays are
+; appended, so a review sheet opened over an add sheet is the one after it,
+; and it is the one that traps.
+;
 ; A focusable element is one that says `a11yFocusable` and is not
 ; `a11yDisabled` or `a11yHidden`, and has a box with area. A control with no
 ; id cannot be focused, because an id is what the host presses.
@@ -54,6 +70,9 @@ class EVGFocus {
     def hs:[double]
     ; What has the focus, or "" for nothing.
     def focusId@(mutable):string ""
+    ; The dialog the walk is confined to, when the tree declares one.
+    def trapEl@(mutable+optional):EVGElement
+    def trapped@(mutable):boolean false
 
     Constructor () {
     }
@@ -66,7 +85,53 @@ class EVGFocus {
         clear ys
         clear ws
         clear hs
+        trapped = false
+        def none@(optional):EVGElement
+        trapEl = none
+        this.findModal(root)
+        if trapped {
+            this.walk((unwrap trapEl))
+            return
+        }
         this.walk(root)
+    }
+
+    ; The last modal in tree order that is on the screen — see the note at the
+    ; top. Pre-order and overwriting, so a dialog nested inside another wins
+    ; over the one holding it, and a later sibling wins over an earlier one.
+    fn findModal:void (el:EVGElement) {
+        if el.a11yHidden {
+            return
+        }
+        if (el.display == "none") {
+            return
+        }
+        if el.a11yModal {
+            trapEl = el
+            trapped = true
+        }
+        def i:int 0
+        def n:int (el.getChildCount())
+        while (i < n) {
+            this.findModal((el.getChild(i)))
+            i = (i + 1)
+        }
+    }
+
+    ; The id of the dialog the keys are trapped in, or "" when they are not.
+    ; A dialog with no id still traps — the walk is confined to the element,
+    ; not to its name — so this answers "" for one, which is why a caller that
+    ; wants to know IF there is a trap asks `isTrapped`.
+    fn trapId:string () {
+        if (trapped == false) {
+            return ""
+        }
+        def el:EVGElement (unwrap trapEl)
+        return el.id
+    }
+
+    fn isTrapped:boolean () {
+        return trapped
     }
 
     fn walk:void (el:EVGElement) {

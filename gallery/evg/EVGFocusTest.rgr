@@ -160,6 +160,112 @@ class EVGFocusTest {
         c.eqStr("an arrow from nothing enters" (f.key(root "ArrowDown" false)) "a")
     }
 
+    ; A page with a dialog over it: the grid, and a box holding two buttons
+    ; that says it is modal.
+    sfn withDialog:EVGElement (modal:boolean) {
+        def page:EVGElement (EVGFocusTest.grid())
+        def sheet (new EVGElement())
+        sheet.id = "sheet"
+        sheet.a11yModal = modal
+        sheet.addChild((EVGFocusTest.box("ok" 400.0 400.0 80.0 60.0)))
+        sheet.addChild((EVGFocusTest.box("cancel" 500.0 400.0 80.0 60.0)))
+        page.addChild(sheet)
+        return page
+    }
+
+    sfn testModalTraps:void (c:FocusCheck) {
+        print "--- a dialog traps the keyboard ---"
+        ; The same tree twice: once where the sheet says it is modal and once
+        ; where it does not. Only the declaration differs, which is the claim.
+        def loose:EVGElement (EVGFocusTest.withDialog(false))
+        def f (new EVGFocus())
+        f.scan(loose)
+        c.eqInt("without the declaration everything is reachable" (f.count()) 11)
+        c.ok("and nothing is trapped" ((f.isTrapped()) == false))
+
+        def page:EVGElement (EVGFocusTest.withDialog(true))
+        def g (new EVGFocus())
+        g.scan(page)
+        c.eqInt("with it, only the dialog's own" (g.count()) 2)
+        c.ok("and it says where" ((g.trapId()) == "sheet"))
+        c.eqStr("the first is the dialog's first" (g.idAt(0)) "ok")
+
+        ; ROUND AND ROUND. Tab past the last is the first again, not the page
+        ; behind — walking out is the whole bug.
+        c.eqStr("Tab enters the dialog" (g.key(page "Tab" false)) "ok")
+        c.eqStr("then its other button" (g.key(page "Tab" false)) "cancel")
+        c.eqStr("and wraps back inside it" (g.key(page "Tab" false)) "ok")
+        c.eqStr("Shift+Tab wraps the other way" (g.key(page "Tab" true)) "cancel")
+        c.eqStr("End is the dialog's last" (g.key(page "End" false)) "cancel")
+        c.eqStr("Home is the dialog's first" (g.key(page "Home" false)) "ok")
+        ; An arrow cannot leave either: the grid is above and to the left of
+        ; the sheet, so "up" would land in it if the page were in the walk.
+        c.eqStr("up from the dialog is nothing" (g.key(page "ArrowUp" false)) "")
+        c.eqStr("and the ring is still in it" g.focusId "ok")
+
+        ; A page element cannot be focused BY HAND either, or a press behind
+        ; the dialog would put the ring where the keys cannot follow.
+        c.ok("the page behind cannot be focused" ((g.place(page "e")) == false))
+        c.ok("but the dialog's own can" (g.place(page "cancel")))
+    }
+
+    sfn testTrapLifts:void (c:FocusCheck) {
+        print "--- and lets go when the dialog does ---"
+        ; The sheet is the page's last child — `withDialog` puts it there —
+        ; so it is held rather than searched for.
+        def page:EVGElement (EVGFocusTest.withDialog(true))
+        def sheet:EVGElement (page.getChild(((page.getChildCount()) - 1)))
+        def f (new EVGFocus())
+        f.place(page "cancel")
+        c.eqStr("focused inside it" f.focusId "cancel")
+
+        ; The dialog closes. Nothing is told to lift the trap: the tree stops
+        ; saying it is modal and the walk is the whole page again.
+        sheet.a11yModal = false
+        f.scan(page)
+        c.ok("nothing is trapped now" ((f.isTrapped()) == false))
+        c.eqInt("and the page is reachable" (f.count()) 11)
+
+        ; A dialog that is drawn but hidden does not trap: the mirror hides
+        ; the page behind a dialog that is UP, and a hidden one is not.
+        sheet.a11yModal = true
+        sheet.a11yHidden = true
+        f.scan(page)
+        c.ok("a hidden dialog does not trap" ((f.isTrapped()) == false))
+        sheet.a11yHidden = false
+        sheet.display = "none"
+        f.scan(page)
+        c.ok("nor one folded away by the stylesheet" ((f.isTrapped()) == false))
+    }
+
+    sfn testInnermostTraps:void (c:FocusCheck) {
+        print "--- a dialog over a dialog is the one that traps ---"
+        ; The review sheet over the add sheet: overlays are appended, so the
+        ; later one is the one on top.
+        def page:EVGElement (EVGFocusTest.withDialog(true))
+        def second (new EVGElement())
+        second.id = "review"
+        second.a11yModal = true
+        second.addChild((EVGFocusTest.box("add" 600.0 600.0 80.0 60.0)))
+        page.addChild(second)
+
+        def f (new EVGFocus())
+        f.scan(page)
+        c.ok("the later one traps" ((f.trapId()) == "review"))
+        c.eqInt("and only its own is reachable" (f.count()) 1)
+        c.ok("the sheet under it is not" ((f.place(page "ok")) == false))
+
+        ; …and a dialog INSIDE a dialog, which is the other way it nests.
+        def inner (new EVGElement())
+        inner.id = "confirm"
+        inner.a11yModal = true
+        inner.addChild((EVGFocusTest.box("yes" 620.0 620.0 60.0 40.0)))
+        second.addChild(inner)
+        f.scan(page)
+        c.ok("a nested one wins over the one holding it" ((f.trapId()) == "confirm"))
+        c.eqStr("and it is what a key moves to" (f.key(page "Tab" false)) "yes")
+    }
+
     sfn testWhatCannotBeFocused:void (c:FocusCheck) {
         print "--- what a ring must never point at ---"
         def root (new EVGElement())
@@ -244,6 +350,9 @@ class EVGFocusTest {
         print "=== EVG: the keyboard ==="
         EVGFocusTest.testTreeOrder(c)
         EVGFocusTest.testDirections(c)
+        EVGFocusTest.testModalTraps(c)
+        EVGFocusTest.testTrapLifts(c)
+        EVGFocusTest.testInnermostTraps(c)
         EVGFocusTest.testWhatCannotBeFocused(c)
         EVGFocusTest.testSurvivesARebuild(c)
         EVGFocusTest.testNothingToFocus(c)
