@@ -425,6 +425,18 @@ treefactory Rt {
     tag FieldGhost EVGElement (props (className "rt-field-ghost") (elementType 1))
     tag FieldCaret EVGElement (props (className "rt-field-caret") (a11yHidden true))
     tag FieldSel EVGElement (props (className "rt-field-sel") (a11yHidden true))
+    ; --- the settings screen ------------------------------------------------
+    tag SetCol   EVGElement (props (className "rt-settings"))
+    tag SetHd    EVGElement (props (className "rt-set-hd") (elementType 1) (role "heading") (a11yLevel 1))
+    tag SetSub   EVGElement (props (className "rt-set-sub") (elementType 1) (role "heading") (a11yLevel 2))
+    tag SetNote  EVGElement (props (className "rt-set-note") (elementType 1) (role "paragraph"))
+    tag ThemeCard EVGElement (props (className "rt-theme-card") (role "button") (a11yFocusable true))
+    tag ThemeSwatches EVGElement (props (className "rt-theme-swatches"))
+    tag Swatch   EVGElement (props (className "rt-swatch") (a11yHidden true))
+    tag ThemeName EVGElement (props (className "rt-theme-name") (elementType 1))
+    tag ThemeDesc EVGElement (props (className "rt-theme-desc") (elementType 1))
+    tag ThemeOn  EVGElement (props (className "rt-theme-on") (elementType 1))
+
     tag Overlay  EVGElement (props (className "rt-overlay"))
     tag Modal    EVGElement (props (className "rt-modal"))
     tag ModalHead EVGElement (props (className "rt-modal-head"))
@@ -828,6 +840,10 @@ class RealTrainerDemo {
     def saveSpinMs:double 0.0
     ; Set while `entryCard` builds a review's proposal — see there.
     def cardPreview@(mutable):boolean false
+    ; THE PALETTE, by name: "" is the dark one the sheet declares unscoped,
+    ; and "ocean" / "sunrise" are the two `@vars` blocks beside it. Nothing
+    ; else in the app knows a colour — see `themeName`.
+    def palette@(mutable):string ""
     ; WHAT CAME BACK, and what has been decided about it. A save is not an
     ; insert: the app reads the line and proposes entries, and each is added
     ; or skipped by hand. See `RtReview`.
@@ -2956,8 +2972,68 @@ class RealTrainerDemo {
         if (section == "home") {
             this.homeSection(body)
         }
+        if (section == "settings") {
+            this.settingsSection(body)
+        }
         main.addChild(body)
         return main
+    }
+
+    ; --- Asetukset ------------------------------------------------------------
+    ;
+    ; One setting so far, and it is the one that shows what the stylesheet can
+    ; do: every surface, line and ink in `realtrainer.css` is written once in
+    ; terms of a custom property, and a theme is a second set of VALUES for
+    ; those names. Choosing one here changes a single string; the next style
+    ; pass resolves every `var()` against it.
+    ;
+    ; The swatches are literal colours and not `var()`: a swatch shows a
+    ; palette that is NOT on, and the sheet only resolves the one that is.
+    fn settingsSection:void (body:EVGElement) {
+        def col (tree Rt (SetCol))
+        col.addChild((tree Rt (SetHd "Asetukset")))
+        col.addChild((tree Rt (SetSub "Teema")))
+        col.addChild((tree Rt (SetNote "Väri, ei asettelu: sama ruutu joka teemalla.")))
+        col.addChild((this.themeCard("" "Yö" "Tumma harmaa, oranssi korostus")))
+        col.addChild((this.themeCard("ocean" "Ocean" "Syvä vesi, turkoosi korostus")))
+        col.addChild((this.themeCard("sunrise" "Sunrise" "Lämmin luumu, korallin korostus")))
+        body.addChild(col)
+    }
+
+    fn themeCard:EVGElement (name:string label:string about:string) {
+        def slug@(mutable):string name
+        if ((strlen slug) == 0) {
+            slug = "night"
+        }
+        def card (tree Rt (ThemeCard))
+        card.id = ("rt-theme-" + slug)
+        card.a11yLabel = label
+        def on:boolean (palette == name)
+        if on {
+            card.className = "rt-theme-card rt-theme-card-on"
+            card.a11ySelected = 1
+        }
+        def sw (tree Rt (ThemeSwatches))
+        def k:int 0
+        def kinds:[string]
+        push kinds "bg"
+        push kinds "surface"
+        push kinds "accent"
+        for kinds kind:string ki {
+            def dot (tree Rt (Swatch))
+            dot.className = (("rt-swatch rt-sw-" + slug) + ("-" + kind))
+            sw.addChild(dot)
+        }
+        card.addChild(sw)
+        def col (tree Rt (Col))
+        col.addChild((tree Rt (ThemeName label)))
+        col.addChild((tree Rt (ThemeDesc about)))
+        card.addChild(col)
+        card.addChild((tree Rt (Spacer)))
+        if on {
+            card.addChild((tree Rt (ThemeOn "Käytössä")))
+        }
+        return card
     }
 
     ; Home, as `HomeView` has it: the two actions, the quick entry with its
@@ -6335,6 +6411,14 @@ class RealTrainerDemo {
                 scene = "yearsheet"
                 return true
             }
+            ; Asetukset IS a page in the port now — the theme lives there —
+            ; so the sheet does not just close on the way to nowhere.
+            if ((id == "rt-more-settings") || (id == "rt-more-theme")) {
+                moreOpen = false
+                scene = "app"
+                this.goSection("settings")
+                return true
+            }
             if ((strlen id) > 7) {
                 if ((substring id 0 7) == "rt-nav-") {
                     moreOpen = false
@@ -6370,6 +6454,10 @@ class RealTrainerDemo {
             return true
         }
         if (id == "rt-nav-chat") { return (this.goSection("chat")) }
+        if (id == "rt-nav-settings") { return (this.goSection("settings")) }
+        if (id == "rt-theme-night") { return (this.setPalette("")) }
+        if (id == "rt-theme-ocean") { return (this.setPalette("ocean")) }
+        if (id == "rt-theme-sunrise") { return (this.setPalette("sunrise")) }
         if (id == "rt-nav-more") {
             moreOpen = true
             return true
@@ -7387,11 +7475,34 @@ class RealTrainerDemo {
     ; they sit — `.a .b` is not a selector it has. A theme is: the session
     ; scene asks for "session" and the rules scoped to it apply, and every
     ; other scene asks for "" and they do not.
+    ; TWO THINGS AT ONCE. The session screen scopes a couple of rules to
+    ; itself, and the palette scopes the colours; `EVGStyleSheet` takes a
+    ; space-separated list so neither has to give up the slot.
     fn themeName:string () {
         if (scene == "session") {
+            if ((strlen palette) > 0) {
+                return ("session " + palette)
+            }
             return "session"
         }
-        return ""
+        return palette
+    }
+
+    ; What the settings screen is looking at, and what a check reads.
+    fn themeChosen:string () {
+        return palette
+    }
+
+    ; A palette is not a state machine: it is one value, and setting it to
+    ; what it already is changes nothing. The whole tree is restyled on the
+    ; next pass because every rule that carries a colour carries a `var()`.
+    fn setPalette:boolean (name:string) {
+        if (palette == name) {
+            return false
+        }
+        palette = name
+        this.forgetCards()
+        return true
     }
 
     ; --- what changes every frame ---------------------------------------------

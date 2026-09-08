@@ -881,6 +881,7 @@
     "evg:a11y:paint": "node gallery/evg/gl/a11y-paint-check.mjs",
     "rt:add": "npm run rt:build --silent && node gallery/realtrainer/web/add-check.mjs",
     "rt:scroll": "npm run rt:build --silent && node gallery/realtrainer/web/scroll-check.mjs",
+    "rt:theme": "npm run rt:build --silent && node gallery/realtrainer/web/theme-check.mjs",
     "rt:trace": "npm run rt:build --silent && node gallery/realtrainer/web/trace-check.mjs",
     "rt:trace:record": "npm run rt:build --silent && node gallery/realtrainer/web/trace-check.mjs --record",
     "rt:trace:diff": "node gallery/realtrainer/web/trace-diff.mjs",
