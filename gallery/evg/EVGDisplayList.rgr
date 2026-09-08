@@ -276,6 +276,68 @@ class EVGDisplayList {
     ; commands, and each one that encoded them for itself encoded them slightly
     ; differently. They live here, where `cmds` does, so a dialog, a grid and a
     ; chart put the same bytes in the list.
+    ; ------------------------------------------- commands a host built --------
+    ; Some content is neither a box nor an SVG: a chart is a list of commands a
+    ; host produced for one size and one set of numbers. It cannot be made
+    ; during the walk, because it needs its card's rectangle and the walk is
+    ; what hands that out — so it is made after the layout and handed in here,
+    ; AGAINST THE ELEMENT IT BELONGS TO.
+    ;
+    ; The walk then emits it where that element is. Appended after the tree
+    ; instead — which is what a host has to do without this — it paints over
+    ; every dialog and every dropdown on the page, because "after everything"
+    ; is exactly what the end of the list means. And it lands outside the
+    ; scroll layer's range, so a kept list moves the page out from under it.
+    ;
+    ; Registered BEFORE `build`, which does not clear the registry: a list is
+    ; built once and a fresh one is made for the next frame.
+    def paintIds:[string]
+    def paintStart:[int]
+    def paintCount:[int]
+    def paintPool:[EVGDrawCmd]
+
+    ; Take another list's commands and hold them against `id`. The commands
+    ; are in page coordinates — the host emitted them where the element is —
+    ; so nothing here moves them.
+    fn paintAt:void (id:string from:EVGDisplayList) {
+        if ((strlen id) == 0) {
+            return
+        }
+        push paintIds id
+        push paintStart (array_length paintPool)
+        def n:int (from.count())
+        def i:int 0
+        while (i < n) {
+            push paintPool (from.at(i))
+            i = (i + 1)
+        }
+        push paintCount n
+    }
+
+    fn paintedCount:int () {
+        return (array_length paintIds)
+    }
+
+    ; Emit what was registered for this element, if anything. Called from the
+    ; walk with the element's own clip still open, so a chart is clipped by its
+    ; card the way its children are.
+    fn emitPainted:void (id:string) {
+        def i:int 0
+        def n:int (array_length paintIds)
+        while (i < n) {
+            if ((itemAt paintIds i) == id) {
+                def from:int (itemAt paintStart i)
+                def count:int (itemAt paintCount i)
+                def k:int 0
+                while (k < count) {
+                    this.addCmd((itemAt paintPool (from + k)))
+                    k = (k + 1)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
     ; ------------------------------------------------------------ the ring ----
     ; WHERE THE KEYBOARD IS. `EVGFocus` decides which element has the focus;
     ; this is what makes it visible, and it is in the list rather than in a
@@ -2472,6 +2534,14 @@ class EVGDisplayList {
                 this.walk(kid)
             }
             i = (i + 1)
+        }
+        ; …and after them, whatever a host built for this element — see
+        ; `paintAt`. Inside the clip and inside the scroll layer's range,
+        ; because that is where the element itself is.
+        if ((array_length paintIds) > 0) {
+            if ((strlen el.id) > 0) {
+                this.emitPainted(el.id)
+            }
         }
         cullOn = hadCull
         cullLeft = hadL
