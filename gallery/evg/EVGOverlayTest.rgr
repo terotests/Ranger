@@ -186,6 +186,72 @@ class EVGOverlayTest {
         c.eqInt("and moved sideways with it too" (to_int k2.calculatedX) (to_int s2.calculatedX))
     }
 
+    ; THE PASS THAT SKIPS. `placeOverlaysIn` no longer walks every element:
+    ; a subtree the layout KEPT moved whole, so a surface inside it moved with
+    ; the anchor it sits against, and the pass takes the answer it cached
+    ; rather than descending. That saving is worth nothing if it puts a
+    ; surface in the wrong place, and the way it would fail is quiet — a menu
+    ; that opens where it opened last time — so it is checked directly:
+    ;
+    ;     the same tree, laid out twice, with the kept subtree MOVED between
+    ;     the two, must place the surface where a tree that was never kept
+    ;     places it.
+    ; The same menu, with a spacer of `pad` pixels before it, so the whole
+    ; thing starts further down the page.
+    sfn menuBelow:EVGElement (pad:double) {
+        def page:EVGElement (EVGOverlayTest.box("page" "page" 800.0 600.0))
+        if (pad > 0.0) {
+            page.addChild((EVGOverlayTest.box("spacer" "spacer" 400.0 pad)))
+        }
+        def built:EVGElement (EVGOverlayTest.buildMenu(true))
+        def row:EVGElement (EVGOverlayTest.nodeById(built "row"))
+        page.addChild(row)
+        return page
+    }
+
+    sfn testKeptSubtree:void (c:OverlayCheck) {
+        print "--- a surface inside a subtree the layout kept ---"
+        def page:EVGElement (EVGOverlayTest.menuBelow(0.0))
+        def menu:EVGElement (EVGOverlayTest.nodeById(page "menu"))
+        menu.keepLayout = true
+        menu.layoutClean = true
+        EVGOverlayTest.laidOut(page)
+        ; NUMBERS, not elements: the tree is the same objects on both sides of
+        ; the move, so an element held across it reads the new value.
+        def s1:EVGElement (EVGOverlayTest.nodeById(page "surface"))
+        def t1:EVGElement (EVGOverlayTest.nodeById(page "trigger"))
+        def t1y:double t1.calculatedY
+        def gap1:int (to_int (s1.calculatedY - t1.calculatedY))
+        def dx1:int (to_int (s1.calculatedX - t1.calculatedX))
+        c.ok("it is placed the first time" (gap1 > 0))
+
+        ; Now MOVE it: the row it sits in is pushed down and across, so the
+        ; kept subtree arrives somewhere else. If the skip were wrong the
+        ; surface would keep its old absolute position and the gap would open.
+        def moved:EVGElement (EVGOverlayTest.box("page" "page" 800.0 600.0))
+        moved.addChild((EVGOverlayTest.box("spacer" "spacer" 400.0 70.0)))
+        def keptRow:EVGElement (EVGOverlayTest.nodeById(page "row"))
+        moved.addChild(keptRow)
+        EVGOverlayTest.laidOut(moved)
+        def page2:EVGElement moved
+        def s2:EVGElement (EVGOverlayTest.nodeById(page2 "surface"))
+        def t2:EVGElement (EVGOverlayTest.nodeById(page2 "trigger"))
+        c.ok("the trigger moved down" (t2.calculatedY > t1y))
+        c.eqInt("and the surface kept its distance from it"
+                (to_int (s2.calculatedY - t2.calculatedY)) gap1)
+        c.eqInt("on the other axis too"
+                (to_int (s2.calculatedX - t2.calculatedX)) dx1)
+
+        ; And a tree that never kept anything must agree, which is what makes
+        ; the two paths one behaviour rather than two.
+        def plain:EVGElement (EVGOverlayTest.menuBelow(70.0))
+        EVGOverlayTest.laidOut(plain)
+        def s3:EVGElement (EVGOverlayTest.nodeById(plain "surface"))
+        c.eqInt("the slow path puts it in the same place"
+                (to_int s2.calculatedY) (to_int s3.calculatedY))
+        c.eqInt("and at the same x" (to_int s2.calculatedX) (to_int s3.calculatedX))
+    }
+
     ; The one that makes a submenu ordinary: a surface whose anchor is itself
     ; inside another surface, and therefore has already been moved.
     sfn testNested:void (c:OverlayCheck) {
@@ -538,6 +604,7 @@ class EVGOverlayTest {
         EVGOverlayTest.testOutOfFlow(c)
         EVGOverlayTest.testPlacement(c)
         EVGOverlayTest.testSubtreeTravels(c)
+        EVGOverlayTest.testKeptSubtree(c)
         EVGOverlayTest.testNested(c)
         EVGOverlayTest.testUnanchored(c)
         EVGOverlayTest.testCentered(c)
