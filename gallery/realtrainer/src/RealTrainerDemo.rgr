@@ -87,6 +87,7 @@ Import "../../evg/EVGA11yTree.rgr"
 Import "../../evg/EVGA11yFromTree.rgr"
 Import "../../evg/EVGHitTest.rgr"
 Import "../../evg/EVGFling.rgr"
+Import "../../evg/EVGFocus.rgr"
 Import "CompactRows.rgr"
 Import "AddWorkoutDialog.rgr"
 Import "PlanDialogHost.rgr"
@@ -840,6 +841,12 @@ class RealTrainerDemo {
     def saveSpinMs:double 0.0
     ; Set while `entryCard` builds a review's proposal — see there.
     def cardPreview@(mutable):boolean false
+    ; THE KEYBOARD. Tab walks the tree order, the arrows go by the boxes, and
+    ; the ring is drawn by the display list — see `EVGFocus`. None of that is
+    ; this app's: a drawn UI has no tab stops, so every EVG app needs the same
+    ; thing and this one only has to say where the tree is.
+    def keys:EVGFocus (new EVGFocus())
+
     ; THE PALETTE, by name: "" is the dark one the sheet declares unscoped,
     ; and "ocean" / "sunrise" are the two `@vars` blocks beside it. Nothing
     ; else in the app knows a colour — see `themeName`.
@@ -6740,15 +6747,26 @@ class RealTrainerDemo {
         return (this.typeText(ch))
     }
 
+    ; A KEY IS NOT A RELAYOUT. This used to dirty the layout before it knew
+    ; what the key was, so every arrow press restyled and laid out the whole
+    ; tree — 97ms a keystroke on a long diary, for a ring that moved four
+    ; pixels. The two branches that really do change the tree say so
+    ; themselves; moving the ring only redraws.
     fn keyWith:boolean (k:string shift:boolean ctrl:boolean) {
-        layoutDirty = true
-        boxesDirty = true
         if calMenuOpen {
+            layoutDirty = true
+            boxesDirty = true
             return (this.calMenuKey(k shift))
         }
+        ; NO FIELD HAS IT, so the keyboard is the screen's. `EVGFocus` moves
+        ; the ring and this presses what it is round — which is the whole of
+        ; "the arrows work" for every button in the app, none of which knows
+        ; a key exists.
         if ((this.hasField(focused)) == false) {
-            return false
+            return (this.navKey(k shift))
         }
+        layoutDirty = true
+        boxesDirty = true
         ; ENTER SENDS THE QUICK ENTRY, which is what a one-line composer with
         ; a send button beside it does everywhere. Shift+Enter is not a
         ; newline here because the row is one line; it falls through to the
@@ -6777,6 +6795,58 @@ class RealTrainerDemo {
         this.fieldChanged(c)
         this.rebuild()
         return true
+    }
+
+    ; The keyboard when nothing is being typed into. Enter and Space press
+    ; what the ring is round, because a drawn button is a rectangle and no key
+    ; clicks it on its own; the rest is `EVGFocus`.
+    ;
+    ; A key this does nothing with is REFUSED, so the host lets it through —
+    ; taking a key and ignoring it is how a page stops scrolling.
+    fn navKey:boolean (k:string shift:boolean) {
+        ; LAID OUT FIRST. An arrow is decided from the boxes, and a tree that
+        ; was rebuilt by the last key has none until it is laid out — which is
+        ; how the ring got stuck on whatever was focusable before the rebuild.
+        def lay:EVGLayout (this.laidOut())
+        def r:EVGElement (unwrap root)
+        if ((k == "Enter") || (k == " ")) {
+            if ((strlen keys.focusId) == 0) {
+                return false
+            }
+            ; The press may rebuild the tree under the ring; `settle` drops
+            ; the focus only if what it was on has gone.
+            def id:string keys.focusId
+            def took:boolean (this.press(id))
+            def lay2:EVGLayout (this.laidOut())
+            def r2:EVGElement (unwrap root)
+            keys.settle(r2)
+            ; TAKEN EITHER WAY. The key was aimed at the ring, and a Space
+            ; that reaches the page scrolls it — which is worse than a press
+            ; that turned out to change nothing.
+            return true
+        }
+        if (k == "Escape") {
+            if ((strlen keys.focusId) == 0) {
+                return false
+            }
+            keys.clear()
+            listDirty = true
+            return true
+        }
+        def to:string (keys.key(r k shift))
+        if ((strlen to) == 0) {
+            return false
+        }
+        ; ONLY THE LIST. The tree and its boxes are exactly what they were —
+        ; the ring is drawn from `keys.focusId` by the display list — so this
+        ; is a repaint and not a rebuild.
+        listDirty = true
+        return true
+    }
+
+    ; Where the ring is, for a host and for a check.
+    fn focusRingId:string () {
+        return keys.focusId
     }
 
     ; --- what the browser's text session asks ---------------------------------
@@ -8230,6 +8300,7 @@ class RealTrainerDemo {
         if (v < (0.0 - 0.5)) {
             dl.setOverscan((pageH * 3.0) (pageH * 1.0))
         }
+        dl.setFocusRing(keys.focusId)
         dl.build(r)
         this.emitCharts(dl r)
         listBuilds = (listBuilds + 1)

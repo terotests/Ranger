@@ -336,9 +336,16 @@ function press(x, y) {
 // too: a menu item is a div with a role, not a button, and no key clicks
 // it on its own. The listener is on the document because the key lands on
 // whichever mirror element has the focus.
-const MENU_KEYS = new Set(["ArrowDown", "ArrowUp", "Home", "End", "Tab", "Escape", "Enter", " "]);
+const MENU_KEYS = new Set(["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End", "Tab", "Escape", "Enter", " "]);
+// …and the same keys drive the ring when no menu is open. A drawn UI has no
+// tab stops of its own — the canvas is one element and everything in it is a
+// rectangle — so `EVGFocus` keeps the order and the app draws the ring; this
+// only has to hand the key over and stop the page acting on it as well.
+// Nothing is taken while a text field has the keyboard: there the arrows move
+// a caret, which is the platform's job and not ours.
 document.addEventListener("keydown", (ev) => {
-  if (!app.menuOpen() || !MENU_KEYS.has(ev.key)) return;
+  if (!MENU_KEYS.has(ev.key)) return;
+  if (!app.menuOpen() && app.focusedField()) return;
   if (app.keyWith(ev.key, ev.shiftKey, ev.ctrlKey || ev.metaKey)) {
     ev.preventDefault();
     paintAll();

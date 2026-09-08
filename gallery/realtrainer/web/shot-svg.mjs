@@ -6,6 +6,7 @@
 //   node gallery/realtrainer/web/shot-svg.mjs --out shots/ --theme ocean
 //   node gallery/realtrainer/web/shot-svg.mjs --themes            (all three)
 //   node gallery/realtrainer/web/shot-svg.mjs --section rt-nav-home,rt-nav-more
+//   node gallery/realtrainer/web/shot-svg.mjs --section rt-nav-settings --keys Tab,Tab,Tab,Tab
 //
 // The WebGL backend is what draws this app for real, and it needs a browser.
 // The display list does not: it is the whole frame as data — rects, borders,
@@ -168,6 +169,10 @@ function boot(theme, route, section, w, h) {
   for (const id of section.split(",")) if (id) app.press(id);
   let spun = 0;
   while (app.building() && spun < 400) { app.tick(16.7); spun += 1; }
+  // Keys AFTER the screen has settled, because an arrow is decided from the
+  // boxes and a feed that is still arriving has none yet: --keys Tab,Tab
+  app.display();
+  for (const k of arg("--keys", "").split(",")) if (k) app.keyWith(k, false, false);
   app.display();
   return app;
 }

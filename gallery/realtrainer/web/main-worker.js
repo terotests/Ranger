@@ -241,6 +241,24 @@ const textInput = createTextInputBridge({
   },
 });
 
+// THE RING'S KEYS. A drawn UI has no tab stops — the canvas is one element and
+// everything in it is a rectangle — so `EVGFocus` on the Ranger side keeps the
+// order and the app draws the ring; this hands the key over and stops the page
+// acting on it as well. The engine is behind a worker here, so the answer
+// comes back as a promise and the frame is asked for when it does.
+//
+// Nothing is taken while a text field has the keyboard: there the arrows move
+// a caret, which is the platform's job.
+const NAV_KEYS = new Set(["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End", "Tab", "Escape", "Enter", " "]);
+document.addEventListener("keydown", (ev) => {
+  if (!NAV_KEYS.has(ev.key)) return;
+  if (textInput.activeTid()) return;
+  ev.preventDefault();
+  engine.call("keyWith", ev.key, ev.shiftKey, ev.ctrlKey || ev.metaKey).then((took) => {
+    if (took) changed();
+  });
+});
+
 // Hand the keyboard to the field the app says is focused, or take it back.
 // Two messages: the field, then its state — and the mirror's element for it,
 // which is fetched with the tree if the mirror has not drawn it yet.
