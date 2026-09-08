@@ -150,6 +150,10 @@ function applyReply(r) {
 // --- the accessibility mirror -------------------------------------------------
 
 let generation = 0;
+// WHO HAS THE FOCUS. The field with the text session, if there is one — its
+// <input> is a real element and the reader's cursor belongs in it — and
+// otherwise nobody here: the app answers with its own ring, which is the one
+// focus the pointer and the keyboard now share. See `RealTrainerDemo.a11yJson`.
 let focus = "";
 const MIRROR_MIN_GAP_MS = 250;
 let mirrorDue = 0;
@@ -161,17 +165,26 @@ const mirror = createA11yMirror(stage, {
   tabbable: "all",
   onActivate: (node) => pressAtCentre(node, (x, y) => press(x, y)),
   onFocus: (node) => {
-    focus = node.id;
-    engine.post("@a11yFocus", focus);
     engine.call("hasField", node.id).then((has) => {
       if (has) {
+        focus = node.id;
+        engine.post("@a11yFocus", focus);
         if (state.field !== node.id) {
           engine.post("setFocus", node.id);
           engine.post("rebuild");
         }
-      } else if (state.field) {
-        engine.post("setFocus", "");
-        engine.post("rebuild");
+      } else {
+        // Not a field: the ring is where the focus lives, so the app is told
+        // to move it and the mirror follows the ring on the next tree. A
+        // reader's cursor and the drawn ring in different places is two
+        // focuses on one page.
+        focus = "";
+        engine.post("@a11yFocus", "");
+        engine.post("focusOn", node.id);
+        if (state.field) {
+          engine.post("setFocus", "");
+          engine.post("rebuild");
+        }
       }
       dirty = true;
       syncTextSession();
@@ -230,12 +243,18 @@ const textInput = createTextInputBridge({
     if (after && after.value !== value) textInput.sync(after);
   },
   onKey: (k) => {
+    // Tab leaves the field, and the APP is what moves it — see main.js. The
+    // browser's own tab order is the mirror's, which stops at whatever
+    // happens to be a tab stop; `EVGFocus` picks the next control instead.
     if (k.key === "Tab") {
       textInput.release();
-      engine.post("setFocus", "");
-      engine.post("rebuild");
-      changed();
-      return false;
+      focus = "";
+      engine.post("@a11yFocus", "");
+      engine.call("keyWith", "Tab", k.shiftKey, false).then(() => {
+        changed();
+        syncTextSession();
+      });
+      return true;
     }
     if (k.key !== "Escape" && k.key !== "Enter") return false;
     engine.call("keyWith", k.key, k.shiftKey, k.ctrlKey || k.metaKey).then((took) => {

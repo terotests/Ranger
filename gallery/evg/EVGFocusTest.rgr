@@ -345,6 +345,37 @@ class EVGFocusTest {
         c.eqStr("and Enter is the host's" (f.key(grid "Enter" false)) "")
     }
 
+    sfn testPointerAndKeyboardShareIt:void (c:FocusCheck) {
+        print "--- the pointer moves the focus, the keyboard draws it ---"
+        ; ONE FOCUS, TWO WAYS IN. A click that left the focus alone meant Tab
+        ; carried on from wherever the keys had last been, which is somewhere
+        ; else on the screen — so the pointer moves it too. What the pointer
+        ; does not do is draw a ring: the person can see what they clicked,
+        ; and a ring round every button the mouse touches is not what a focus
+        ; ring is for. Same rule as `:focus-visible`.
+        def grid:EVGElement (EVGFocusTest.grid())
+        def f (new EVGFocus())
+        c.ok("a click takes the focus" (f.pointAt(grid "e")))
+        c.eqStr("and it is where the click was" f.focusId "e")
+        c.eqStr("with nothing to draw" (f.ringId()) "")
+        ; …and the keys carry on from there rather than from the beginning.
+        c.eqStr("Tab goes on from what was clicked" (f.key(grid "Tab" false)) "f")
+        c.eqStr("and now there is a ring" (f.ringId()) "f")
+        ; A click after a key puts the ring away again.
+        c.ok("a click again" (f.pointAt(grid "a")))
+        c.eqStr("and the ring is gone" (f.ringId()) "")
+        c.eqStr("though the focus is not" f.focusId "a")
+        ; Something nothing focusable carries leaves the focus where it was.
+        c.ok("a click on nothing is refused" ((f.pointAt(grid "nope")) == false))
+        c.eqStr("and the focus stays" f.focusId "a")
+        ; A reader that moves its own cursor is not a pointer: `place` shows
+        ; the ring, because there the person cannot see where it went.
+        c.ok("a reader's cursor lands" (f.place(grid "i")))
+        c.eqStr("and is drawn" (f.ringId()) "i")
+        f.clear()
+        c.eqStr("clearing takes both" ((f.ringId()) + f.focusId) "")
+    }
+
     sfn main:void () {
         def c (new FocusCheck())
         print "=== EVG: the keyboard ==="
@@ -356,6 +387,7 @@ class EVGFocusTest {
         EVGFocusTest.testWhatCannotBeFocused(c)
         EVGFocusTest.testSurvivesARebuild(c)
         EVGFocusTest.testNothingToFocus(c)
+        EVGFocusTest.testPointerAndKeyboardShareIt(c)
         print ""
         print (("passed=" + (to_string c.passed)) + " failed=" + (to_string c.failed))
         if (c.failed > 0) {

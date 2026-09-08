@@ -621,7 +621,13 @@ console.log("--- what a rebuild keeps ---");
   ok("and Tab back to the first", app.keyWith("Tab", false, false) && tree().focus === "rt-cal-unipaivakirja");
   ok("Escape closes", app.keyWith("Escape", false, false) && !app.menuOpen());
   ok("and hands the keyboard to the selector", tree().focus === "rt-calsel");
-  ok("once", tree().focus === "");
+  // …and it STAYS there. The hand-over itself is made once — `a11yFocus` is
+  // read and cleared — but the ring is on the selector too, because that is
+  // what was pressed to open the menu, and the ring is what the mirror falls
+  // back to. One focus, whether it is being read for the second time or the
+  // twentieth.
+  ok("and stays there", tree().focus === "rt-calsel", tree().focus);
+  ok("which is where the keys are", app.focusRingId() === "rt-calsel", app.focusRingId());
   ok("Enter on an item picks it", (() => {
     app.press("rt-calsel");
     app.keyWith("ArrowDown", false, false);
