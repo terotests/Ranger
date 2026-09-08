@@ -5259,9 +5259,24 @@ class RealTrainerDemo {
         return nav
     }
 
+    ; An SVG source is a STRING, so an icon carries its colour in the tree and
+    ; not in the sheet, and the palette has to be asked here. These three are
+    ; `--accent-soft`'s values in `realtrainer.css` — the one place a colour is
+    ; written twice, and the reason the icons are why a light theme is not
+    ; possible yet.
+    fn accentSoftHex:string () {
+        if (palette == "ocean") {
+            return "#5eead4"
+        }
+        if (palette == "sunrise") {
+            return "#fdba74"
+        }
+        return "#fb923c"
+    }
+
     fn navColor:string (active:boolean) {
         if active {
-            return "#fb923c"
+            return (this.accentSoftHex())
         }
         return "#999999"
     }

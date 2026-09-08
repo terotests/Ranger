@@ -22,6 +22,7 @@
   --on-accent: #ffffff;
   --knob: #ffffff;
   --good: #22c55e;
+  --accent-off: #3a2416;
 }
 
 /* Ocean: deep water. Cool surfaces, a teal accent, and a line that reads as
@@ -41,6 +42,7 @@
   --on-accent: #04222a;
   --knob: #e8f4f9;
   --good: #38bdf8;
+  --accent-off: #0f3a37;
 }
 
 /* Sunrise: the sky before the sun is up. Warm plum surfaces, a coral accent
@@ -60,6 +62,7 @@
   --on-accent: #2b0d16;
   --knob: #fdeee7;
   --good: #f59e0b;
+  --accent-off: #45222c;
 }
 
 /* SPDX-License-Identifier: AGPL-3.0-or-later
@@ -561,7 +564,7 @@
 }
 
 .rt-notice-head {
-  color: #fdba74;
+  color: var(--accent-soft);
   font-family: Arial;
   font-weight: bold;
   font-size: 15px;
@@ -1091,7 +1094,7 @@
 /* The load, which is the number a person changes between sessions and the one
    they look for first. */
 .rt-stat-weight {
-  color: #f0b46a;
+  color: var(--accent-soft);
   font-weight: bold;
 }
 
@@ -1275,7 +1278,7 @@
 .rt-sheet-btn:hover { background-color: #38415a; }
 
 .rt-sheet-primary {
-  background: linear-gradient(180deg, #fb8a1e, var(--accent-2));
+  background: linear-gradient(180deg, var(--accent-soft), var(--accent-2));
 }
 
 .rt-sheet-btn-text {
@@ -1523,7 +1526,7 @@
   width: 410px;
   height: 48px;
   border-radius: 10px;
-  background: linear-gradient(180deg, #fb8a1e, var(--accent-2));
+  background: linear-gradient(180deg, var(--accent-soft), var(--accent-2));
   cursor: pointer;
 }
 
@@ -1728,7 +1731,7 @@
 
 .ui-radio:hover { background: linear-gradient(180deg, #2c3a4d, #2c3a4d); }
 .ui-radio-state-checked {
-  background: linear-gradient(180deg, #fb8a1e, var(--accent-2));
+  background: linear-gradient(180deg, var(--accent-soft), var(--accent-2));
   color: var(--on-accent);
 }
 .ui-radio-state-checked:hover {
@@ -2318,7 +2321,7 @@
   height: 28px;
 }
 
-.rt-rev-score { color: #f0b46a; font-family: Arial; font-weight: bold; font-size: 22px; height: 28px; }
+.rt-rev-score { color: var(--accent-soft); font-family: Arial; font-weight: bold; font-size: 22px; height: 28px; }
 .rt-rev-score-of { color: var(--ink-mute); font-family: Arial; font-size: 14px; height: 20px; }
 .rt-rev-says { color: #7dd3fc; font-family: Arial; font-size: 15px; line-height: 1.45; }
 
@@ -2400,7 +2403,7 @@
 }
 
 .rt-send-btn { background-color: var(--accent); }
-.rt-send-off { background-color: #3a2416; }
+.rt-send-off { background-color: var(--accent-off); }
 
 /* THE WAIT, DRAWN. A request that takes most of a second and says so only in
  * words is a screen a person taps twice. This is the loader's ring at a
@@ -2794,7 +2797,7 @@
 .rt-comment-btn { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; height: 20px; padding: 0px 6px; border-radius: 6px; border-width: 1px; border-color: #6b6b6b; cursor: pointer; }
 .rt-comment-btn:hover { background-color: var(--surface-3); }
 .rt-comment-btn-text { color: #8a8a8a; font-family: Arial; font-weight: bold; font-size: 11px; height: 14px; }
-.rt-derived { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 6px; padding: 12px; border-radius: 8px; background-color: #1f1f1f; }
+.rt-derived { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 6px; padding: 12px; border-radius: 8px; background-color: var(--surface-3); }
 .rt-derived-items { display: flex; flex-direction: row; flex-wrap: wrap; gap: 12px; }
 .rt-derived-item { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 4px; }
 .rt-derived-val { color: var(--accent); font-family: Arial; font-weight: bold; font-size: 18px; height: 24px; }
@@ -2868,7 +2871,7 @@
 }
 .rt-entry-score { gap: 4px; }
 .rt-entry-star { width: 14px; height: 14px; }
-.rt-entry-score-text { color: #d97706; font-family: Arial; font-weight: bold; font-size: 12px; height: 16px; }
+.rt-entry-score-text { color: var(--accent-soft); font-family: Arial; font-weight: bold; font-size: 12px; height: 16px; }
 .rt-entry-score-of { color: var(--ink-dim); font-family: Arial; font-weight: bold; font-size: 12px; height: 16px; }
 .rt-entry-feedback { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 4px; padding-top: 8px; }
 .rt-entry-feedback-text { color: var(--ink); padding: 0px; }
