@@ -6872,6 +6872,34 @@ class RealTrainerDemo {
                 return false
             }
             listDirty = true
+            ; …and the next stop may be a field as well, in which case the
+            ; keyboard goes straight on into it.
+            this.keyboardTo(to)
+            return true
+        }
+        ; ESCAPE IS THE WAY OUT OF A FIELD TOO. Nothing answered it here, so
+        ; a dialog you were typing in could only be closed by finding its ×
+        ; with the mouse — while the same Escape one Tab later closed it at
+        ; once. A native dialog closes on Escape from inside its own input,
+        ; and with no dialog up this hands the keyboard back to the screen:
+        ; the field lets go, the ring stays on it, and the arrows move the
+        ; ring again instead of a caret.
+        if (k == "Escape") {
+            def from:string focused
+            focused = ""
+            layoutDirty = true
+            boxesDirty = true
+            if (this.closeTopmost()) {
+                def lay:EVGLayout (this.laidOut())
+                def r:EVGElement (unwrap root)
+                keys.settle(r)
+                return true
+            }
+            this.rebuild()
+            def lay2:EVGLayout (this.laidOut())
+            def r2:EVGElement (unwrap root)
+            keys.place(r2 from)
+            listDirty = true
             return true
         }
         layoutDirty = true
@@ -6961,8 +6989,10 @@ class RealTrainerDemo {
         }
         ; ONLY THE LIST. The tree and its boxes are exactly what they were —
         ; the ring is drawn from `keys.focusId` by the display list — so this
-        ; is a repaint and not a rebuild.
+        ; is a repaint and not a rebuild. Unless the ring landed on a field,
+        ; which does rebuild, because the field now has the keyboard.
         listDirty = true
+        this.keyboardTo(to)
         return true
     }
 
@@ -6987,6 +7017,23 @@ class RealTrainerDemo {
         }
         listDirty = true
         return true
+    }
+
+    ; THE RING ON A FIELD IS A CARET. Tab onto a text field and the keyboard
+    ; has to go INTO it, or the ring says "here" and the next letter is
+    ; refused — a field you can reach and cannot type in. A host starts its
+    ; text session from `focusedField`, so saying so is the whole of it.
+    fn keyboardTo:void (id:string) {
+        if ((this.hasField(id)) == false) {
+            return
+        }
+        if (focused == id) {
+            return
+        }
+        focused = id
+        layoutDirty = true
+        boxesDirty = true
+        this.rebuild()
     }
 
     ; The same from a pointer: the keys carry on from what was clicked, and no

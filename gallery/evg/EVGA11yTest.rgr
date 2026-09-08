@@ -381,7 +381,10 @@ class EVGA11yTest {
         if (c.failed > 0) {
             print "FAILED"
         } {
-            print "OK"
+            ; The marker `scripts/run-gallery-editor-tests.sh` greps for: the
+            ; compiler prints `[FAIL]` and still exits 0, so that runner will
+            ; not take a zero exit as a pass — a suite has to SAY it passed.
+            print "ALL PASS"
         }
     }
 

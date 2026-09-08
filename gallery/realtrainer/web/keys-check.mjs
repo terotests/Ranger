@@ -293,6 +293,60 @@ console.log("--- the same in the AI chat, which is where it was noticed ---");
 }
 
 console.log("");
+console.log("--- Tab onto a field hands it the keyboard ---");
+{
+  // Reaching a field and not being able to type in it is a field that is not
+  // reachable. The browser's own tab order used to do this part — the field
+  // IS an <input> in the accessibility mirror, so landing on it started the
+  // session — and once the app took Tab over, the app had to do it too.
+  const app = open("rt-nav-chat");
+  let spun = 0;
+  while (spun < 40 && app.focusRingId() !== "rt-chat-field") { key(app, "Tab"); spun += 1; }
+  ok("Tab reaches the chat field", app.focusRingId() === "rt-chat-field", app.focusRingId());
+  ok("and the field has the keyboard", app.focusedField() === "rt-chat-field",
+     app.focusedField());
+  ok("so a letter goes into it", app.typeChar("j"));
+  const val = () => JSON.parse(app.fieldStateJson("rt-chat-field")).value;
+  ok("and it is in the field", val() === "j", val());
+  ok("Tab leaves again", key(app, "Tab") && app.focusedField() === "", app.focusedField());
+  ok("landing on send", app.focusRingId() === "rt-chat-send", app.focusRingId());
+}
+
+console.log("");
+console.log("--- Escape is the way out of a field as well ---");
+{
+  // A field answered no key the app knew, Escape included, so a dialog you
+  // were typing in could only be closed by finding its × with the mouse —
+  // while the same Escape one Tab later closed it at once. A native dialog
+  // closes on Escape from inside its own input; so does this one.
+  const app = open("rt-nav-home");
+  app.press("rt-add");
+  ok("the sheet is up with a field in it", app.focusTrapId() === "rt-overlay-add",
+     app.focusTrapId());
+  app.press("rt-add-field");
+  ok("and the keyboard is in the field", app.focusedField() === "rt-add-field");
+  app.applyEdit("rt-add-field", "Penkki 3x5", 10, 10);
+  ok("Escape is taken", key(app, "Escape"));
+  ok("and the sheet is gone", app.focusTrapId() === "", app.focusTrapId());
+  ok("with the keyboard let go of", app.focusedField() === "", app.focusedField());
+  ok("and the page walkable again", key(app, "Tab") && app.focusRingId() !== "");
+
+  // With no dialog up it is the field it lets go of, not a screen: the ring
+  // stays on the field so the arrows carry on from there.
+  const chat = open("rt-nav-chat");
+  chat.press("rt-chat-field");
+  chat.applyEdit("rt-chat-field", "Miten meni?", 11, 11);
+  ok("Escape in a plain field is taken", key(chat, "Escape"));
+  ok("the field let go", chat.focusedField() === "", chat.focusedField());
+  ok("and the ring stayed on it", chat.focusRingId() === "rt-chat-field", chat.focusRingId());
+  chat.display();
+  ok("and is drawn now, because a key put it there", rings(chat).length === 1,
+     rings(chat).length + " rings");
+  ok("so Tab carries on from the field", key(chat, "Tab") &&
+     chat.focusRingId() === "rt-chat-send", chat.focusRingId());
+}
+
+console.log("");
 console.log("--- the ring goes with the page ---");
 {
   // The ring is drawn LAST and outside every clip, so that a button in a

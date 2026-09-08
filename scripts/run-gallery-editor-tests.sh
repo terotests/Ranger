@@ -93,6 +93,17 @@ SUITES=(
   evg:color:check
   # How wide text is, which is where a caret gets drawn.
   evg:advance:check
+  # The keyboard as an EVG feature rather than an app's: Tab in tree order,
+  # the arrows by the boxes, what cannot be focused, a dialog the walk cannot
+  # leave, and the rule that the pointer moves the focus without drawing a
+  # ring round it. Every drawn UI needs this and none of them has tab stops
+  # of its own.
+  evg:focus:test
+  # The accessibility tree the mirror is built from — roles, names, states,
+  # the lint that refuses a focusable with no name — and, beside it, the
+  # fourteen ways the mirror's own DOM must not paint or make a phone zoom.
+  evg:a11y:test
+  evg:a11y:paint
   ui:sortable:motion
   ui:table:check
   ui:virtual:check
@@ -291,6 +302,26 @@ SUITES=(
   # in. This is the arithmetic against dates worked out independently, and the
   # wiring that lets a host say when now is.
   rt:clock
+  # THE KEYBOARD, on a screen that is a picture. A canvas is one element, so
+  # the browser has no tab stops to offer and nothing in the app is reachable
+  # by key unless `EVGFocus` makes it so: Tab in tree order, the arrows by the
+  # boxes, a dialog the keys cannot walk out of, Escape out of it and out of a
+  # field, and the ring the pointer moves without drawing. None of it had a
+  # gate here, which is how the composer shipped with a Tab that could not
+  # reach the send button beside it.
+  rt:keys
+  # The scroll: sixty frames of the kept display list held against a full
+  # re-layout of the same tree, plus the culling, the kept cards and the
+  # charts painted where their cards are. The two bugs it has caught since —
+  # a chart that did not move with its layer, a focus ring that did not — were
+  # both invisible in a screenshot and both obvious here.
+  rt:scroll
+  # The quick entry end to end: text in, a proposal, a review, and a diary
+  # entry only for what was agreed to.
+  rt:add
+  # And that a palette is a palette: the same frame, the same commands in the
+  # same places, in every theme the settings page offers.
+  rt:theme
   # The statechart runtime on its own account: its own two machines against
   # xstate — one that is the smallest thing still a machine, one that uses
   # everything the runner has — and the drawing it makes of them. Conformance

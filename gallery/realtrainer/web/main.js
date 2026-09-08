@@ -373,6 +373,11 @@ document.addEventListener("keydown", (ev) => {
     ev.preventDefault();
     paintAll();
     syncMirror();
+    // A Tab that landed on a text field HANDS IT THE KEYBOARD — see
+    // `RealTrainerDemo.keyboardTo` — so the session follows it there, or the
+    // ring sits on a field the next letter does not reach. After the mirror,
+    // because the field's <input> IS a mirror element.
+    syncTextSession();
   }
 });
 
@@ -430,7 +435,10 @@ function syncTextSession() {
     textInput.sync(st);
     return;
   }
-  // The mirror's input for the field, once the mirror has drawn it.
+  // The mirror's input for the field, once the mirror has drawn it — and if
+  // it has not (a Tab that only just moved the focus on to it), the mirror is
+  // brought up to date first, because that element IS the text session.
+  if (!mirror.elementOf(tid)) syncMirror();
   textInput.focusField(tid, st, mirror.elementOf(tid));
 }
 

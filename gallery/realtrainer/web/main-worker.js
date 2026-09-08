@@ -282,6 +282,9 @@ document.addEventListener("keydown", (ev) => {
   ev.preventDefault();
   engine.call("keyWith", ev.key, ev.shiftKey, ev.ctrlKey || ev.metaKey).then((took) => {
     if (took) changed();
+    // A Tab that landed on a text field hands it the keyboard — see
+    // `RealTrainerDemo.keyboardTo` — so the session follows it there.
+    syncTextSession();
   });
 });
 
