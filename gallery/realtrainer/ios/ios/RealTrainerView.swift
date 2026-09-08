@@ -135,13 +135,29 @@ final class RealTrainerView: UIView {
         addGestureRecognizer(hover)
     }
 
+    /// `YYYY-MM-DD` in the DEVICE'S timezone. A UTC day is yesterday here for
+    /// the first hours of the morning, and the calendar would open on it.
+    static func todayIso() -> String {
+        let f = DateFormatter()
+        f.calendar = Calendar(identifier: .gregorian)
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone.current
+        f.dateFormat = "yyyy-MM-dd"
+        return f.string(from: Date())
+    }
+
     /// The demo's own `realtrainer.css`, out of the bundle — the same file the
     /// browser page styles the same tree from.
     func start(css: String, compact: String, plan: String, chat: String, seed: String) {
         if started { return }
         let w = Double(bounds.width), h = Double(bounds.height)
         let i = safeAreaInsets
+        let today = RealTrainerView.todayIso()
         engine.post { a in
+            // The device's clock, before `start`: Ranger has no date type and
+            // no `now()`, so the app takes today as a value — see
+            // `RealTrainerDemo.setToday` — and the seed is anchored to it.
+            _ = a.setToday(iso: today)
             a.start(w: w, h: h, css: css, compact: compact, planMachine: plan, chatMachine: chat, seed: seed)
             a.setSafeArea(top: Double(i.top), bottom: Double(i.bottom), left: Double(i.left), right: Double(i.right))
             return true

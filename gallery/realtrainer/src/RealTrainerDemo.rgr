@@ -805,7 +805,18 @@ class RealTrainerDemo {
     def calMenuIds:[string]
     def a11yFocus:string ""
     def addedSeq@(mutable):int 0
-    def today:string "2026-09-03"
+    ; TODAY, WHICH RANGER CANNOT ASK FOR. The language has no clock and no
+    ; date type — `UiDate` is the arithmetic and nothing more — and that is
+    ; the right shape: a clock inside a reducer is what makes a state machine
+    ; untestable, which is why `AddWorkoutDialog` takes its "today" as an
+    ; argument too. So the HOST hands it in, and every check keeps the date
+    ; below and stays deterministic.
+    ;
+    ; It has to be handed in, though. This was a bare constant nobody set, so
+    ; the deployed app opened five days in the past: the week arithmetic was
+    ; right — 31.8.2026 really is the Monday of week 36 — and it was drawing
+    ; the wrong week.
+    def today@(mutable):string "2026-09-03"
     ; The text fields: one per dialog that has one in the original, each a
     ; `InputCtl` named by its placeholder as the original's textareas are.
     ; The machine is the source of truth for the value — every edit is sent
@@ -1151,6 +1162,61 @@ class RealTrainerDemo {
     fn loadChatMachine:void (text:string) {
         chat.load(text)
         chatJob.latencyMs = 600.0
+    }
+
+    ; The host's clock, as an ISO day. Answers false for anything that is not
+    ; one, because a date the app cannot parse would silently become 1970 and
+    ; the screen would look plausible.
+    ;
+    ; Call it BEFORE `loadReference`: the seed's entries are anchored to
+    ; today, and a seed already loaded is re-anchored here so the order does
+    ; not matter as much as it reads.
+    fn setToday:boolean (iso:string) {
+        if ((RealTrainerDemo.looksIso(iso)) == false) {
+            return false
+        }
+        if (today == iso) {
+            return false
+        }
+        def wasThisWeek:boolean (weekStart == (RtWeek.mondayOf(today)))
+        today = iso
+        seed.anchor(today)
+        ; The week the calendar is on follows the clock only when it was
+        ; showing the week today is in. A week the person walked to with the
+        ; arrows, or one a route named, is left where it is.
+        if wasThisWeek {
+            weekStart = (RtWeek.mondayOf(today))
+        }
+        this.forgetCards()
+        this.rebuild()
+        return true
+    }
+
+    fn todayIso:string () {
+        return today
+    }
+
+    ; `YYYY-MM-DD`, digits and two dashes. Not a parse — `UiDate` does that —
+    ; a shape check, so a host that hands in "now" or "" is refused.
+    sfn looksIso:boolean (iso:string) {
+        if ((strlen iso) != 10) {
+            return false
+        }
+        def i:int 0
+        while (i < 10) {
+            def c:int (charAt iso i)
+            if ((i == 4) || (i == 7)) {
+                if (c != 45) {
+                    return false
+                }
+            } {
+                if ((c < 48) || (c > 57)) {
+                    return false
+                }
+            }
+            i = (i + 1)
+        }
+        return true
     }
 
     ; The same file the reference recorder seeds from.

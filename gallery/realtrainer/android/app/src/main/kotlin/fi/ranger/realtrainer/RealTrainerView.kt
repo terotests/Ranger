@@ -182,7 +182,12 @@ class RealTrainerView @JvmOverloads constructor(
             val p = plan
             val ch = chat
             val s = seed
+            val today = todayIso()
             engine.ask({ a ->
+                // The device's clock, before `start`: Ranger has no date type
+                // and no `now()`, so the app takes today as a value — see
+                // `RealTrainerDemo.setToday` — and the seed is anchored to it.
+                a.setToday(today)
                 a.start(dw, dh, c, k, p, ch, s)
                 (0 until a.styleErrorCount()).map { a.styleErrorAt(it) }
             }) { errors ->
@@ -198,6 +203,18 @@ class RealTrainerView @JvmOverloads constructor(
     private fun frameArrived(f: RtFrame) {
         frame = f
         invalidate()
+    }
+
+    /** `YYYY-MM-DD` in the DEVICE'S timezone. A UTC day is yesterday here for
+     *  the first hours of the morning, and the calendar would open on it. */
+    private fun todayIso(): String {
+        val c = java.util.Calendar.getInstance()
+        return String.format(
+            java.util.Locale.US, "%04d-%02d-%02d",
+            c.get(java.util.Calendar.YEAR),
+            c.get(java.util.Calendar.MONTH) + 1,
+            c.get(java.util.Calendar.DAY_OF_MONTH),
+        )
     }
 
     override fun onDraw(canvas: Canvas) {
