@@ -64,6 +64,12 @@ selected in the browser**, at that moment. Pick a different document and the
 grid is a different answer. The identities are an owner, another owner, an
 admin by custom claim, and nobody at all.
 
+It opens as the **admin**, on the collection with the most in it, with the
+first document already selected — a data browser's job is to show what is in
+there, and a default caller who owns one document of nine makes the tool look
+empty. Switching down to `ada` is then the interesting thing to do rather
+than the state you land in.
+
 ![the query builder, and the answers worth having are the refusals](demo/shots/firesim-console-query.png)
 
 **Query** builds a `where` and an `orderBy` by pressing — the fields and the
@@ -100,8 +106,8 @@ good. Nothing in the workbench knows what a calendar or a workout is.
 ### The two gates
 
 `npm run firesim:demo` drives the same app with a made-up clock and presses
-its controls at the rectangles the accessibility tree reports — 87 assertions,
-no browser. `npm run firesim:demo:frame` loads the page in Chromium and reads
+its controls at the rectangles the accessibility tree reports — 102
+assertions, no browser. `npm run firesim:demo:frame` loads the page in Chromium and reads
 the framebuffer, because a script that 404s, a module that will not parse and
 a WebGL context that is never created all look like a working app to a check
 that never opens one.

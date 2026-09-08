@@ -111,17 +111,18 @@ function press(x, y) {
 // latency. There is no second copy of the number anywhere.
 let dragging = false;
 
+// `fs-latency` IS the track — the app puts the slider's role and id on it
+// rather than on the thumb, precisely so that this measurement is against a
+// box that does not move. The thumb's width is taken off the usable span, so
+// the far right of the track is 1.0 and not "1.0 minus a thumb".
+const THUMB_PX = 14;
+
 function trackFraction(x) {
   const tree = JSON.parse(window.__lastA11y || '{"nodes":[]}');
-  const thumb = tree.nodes.find((n) => n.id === "fs-latency");
-  if (!thumb || !thumb.b) return -1;
-  // The thumb's own rectangle moves with the value, so the TRACK is what the
-  // fraction is measured against: the rail's card is the parent box, and the
-  // track spans it.
-  const track = tree.nodes.find((n) => n.id === "fs-latency-track");
-  const box = track && track.b ? track.b : thumb.b;
-  const left = box[0];
-  const width = Math.max(box[2], 1);
+  const track = tree.nodes.find((n) => n.id === "fs-latency");
+  if (!track || !track.b) return -1;
+  const left = track.b[0] + THUMB_PX / 2;
+  const width = Math.max(track.b[2] - THUMB_PX, 1);
   return Math.min(1, Math.max(0, (x - left) / width));
 }
 
@@ -131,7 +132,7 @@ canvas.addEventListener("pointerdown", (ev) => {
   const y = ev.clientY - rect.top;
   const id = app.hitId(x, y);
   app.setPressed(id);
-  if (id === "fs-latency" || id === "fs-latency-track" || id === "fs-latency-range") {
+  if (id === "fs-latency" || id === "fs-latency-thumb" || id === "fs-latency-range") {
     dragging = true;
     const frac = trackFraction(x);
     if (frac >= 0) app.slideTo(frac);

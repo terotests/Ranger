@@ -81,6 +81,13 @@ section("it opens on a database");
   eq("the sample dataset is loaded", app.datasetName(), "Sample");
   eq("…and it is nine documents", app.storeCount(), 9);
   ok("the three collections are offered", ["orders", "products", "users"].every((c) => named(app, "button").includes(c)), JSON.stringify(named(app, "button").slice(0, 10)));
+  // A browser that opens on an empty pane looks broken, so it opens on the
+  // collection with the most in it, as the caller who can see the most, with
+  // the first document already picked.
+  eq("it opens as the admin", app.whoLabel(), "root");
+  eq("…on the collection with the most in it", app.collectionPathNow(), "products");
+  eq("…with its documents listed", app.docCount(), 3);
+  ok("…and one already selected", app.selectedPath().startsWith("products/"), app.selectedPath());
 }
 
 // =============================================================================
@@ -135,7 +142,7 @@ section("the data browser walks the tree");
   eq("…to the collection it names", app.collectionPathNow(), "users");
   ok("and the root crumb goes all the way", pressByName(app, "button", "the database root"));
   settle(app);
-  eq("…to the first collection at the root", app.collectionPathNow(), "orders");
+  eq("…to the collection the root opens on", app.collectionPathNow(), "products");
 }
 
 // =============================================================================
@@ -145,15 +152,15 @@ section("the rules decide what the browser can see");
   const app = open();
   pressByName(app, "button", "orders");
   settle(app);
-  eq("ada sees her own order", docIds(app), ["o-1001"]);
+  eq("the admin claim sees every order", docIds(app), ["o-1001", "o-1002"]);
 
-  ok("switching identity is a press", pressByName(app, "radio", "alan"));
+  ok("switching identity is a press", pressByName(app, "radio", "ada"));
   settle(app);
-  eq("alan sees his", docIds(app), ["o-1002"]);
+  eq("ada sees her own", docIds(app), ["o-1001"]);
 
-  ok("the admin claim sees both", pressByName(app, "radio", "root"));
+  ok("and alan his", pressByName(app, "radio", "alan"));
   settle(app);
-  eq("…because the claim rides on the token", docIds(app), ["o-1001", "o-1002"]);
+  eq("…because the rule is ownership", docIds(app), ["o-1002"]);
 
   ok("signed out sees nothing", pressByName(app, "radio", "signed out"));
   settle(app);
@@ -229,8 +236,10 @@ section("writing, and the listener that reports it");
   const app = open();
   pressByName(app, "button", "products");
   settle(app);
+  // products is admin-only to write, so ada is refused and root is not.
+  ok("as a non-admin", pressByName(app, "radio", "ada"));
+  settle(app);
   const before = app.docCount();
-  // ada is not an admin, so the rules refuse this.
   ok("adding is a press", pressByName(app, "button", "Add a document"));
   settle(app);
   ok("…and a non-admin is refused", app.noteText().includes("refused"), app.noteText());
@@ -243,7 +252,9 @@ section("writing, and the listener that reports it");
   eq("…the write lands", app.docCount(), before + 1);
   ok("…and the listener is what reported it", app.noteText().includes("added"), app.noteText());
 
-  pressByName(app, "button", "wb-4");
+  const added = docIds(app).find((d) => d.startsWith("wb-"));
+  ok("the new document is there to select", !!added, JSON.stringify(docIds(app)));
+  pressByName(app, "button", added);
   ok("deleting is a press", pressByName(app, "button", "Delete it"));
   settle(app);
   eq("…and the row leaves", app.docCount(), before);
@@ -301,23 +312,22 @@ section("the RealTrainer dataset, as example data");
   settle(app, 16);
   eq("the whole reference seed loads unconverted", app.storeCount(), 747);
   eq("…and the dataset is named", app.datasetName(), "RealTrainer");
-  eq("…and it opens on its first collection", app.collectionPathNow(), "calendars");
-  eq("…with the calendars in it", app.docCount(), 13);
+  eq("…and it opens on the collection with the most in it", app.collectionPathNow(), "entries");
+  ok("a collection of hundreds lists", app.docCount() > 700, String(app.docCount()));
+  ok("…with one already selected", app.selectedPath().startsWith("entries/"), app.selectedPath());
 
-  // Its own rules came with it, and they answer about its own paths.
-  pressByName(app, "button", "cal-plan");
+  // It is seeded as whoever loaded it, so picking a dataset does not empty
+  // the browser — and its own rules came with it.
   pressByName(app, "tab", "Rules");
   const grid = cells(app);
-  ok("the seeded owner may read it", grid.includes("ada get calendars/cal-plan: allowed"), JSON.stringify(grid.slice(0, 4)));
-  ok("…and nobody else may", grid.includes("alan get calendars/cal-plan: denied"));
+  const path = app.selectedPath();
+  ok("the caller who loaded it may read it", grid.includes(`root get ${path}: allowed`), JSON.stringify(grid.slice(0, 4)));
+  ok("…and nobody else may", grid.includes(`alan get ${path}: denied`));
 
-  // And a 733-document collection is browsable.
   pressByName(app, "tab", "Data");
   pressByName(app, "button", "the database root");
-  settle(app);
-  pressByName(app, "button", "entries");
   settle(app, 20);
-  ok("a collection of hundreds lists", app.docCount() > 400, String(app.docCount()));
+  ok("the calendars are there too", named(app, "button").includes("calendars"), JSON.stringify(named(app, "button").slice(0, 8)));
 }
 
 // =============================================================================
@@ -327,9 +337,45 @@ section("a phone");
   const phone = open(390, 844);
   eq("the page lays out on a phone with no style errors", phone.styleErrorCount(), 0);
   eq("…and the accessibility tree is still clean", phone.a11yProblems(), []);
-  ok("…and the browser is still walkable", pressByName(phone, "button", "products"));
+  ok("…and the browser is still walkable", pressByName(phone, "button", "users"));
   settle(phone);
-  eq("…and lists what is there", phone.docCount(), 3);
+  eq("…and lists what is there", phone.docCount(), 2);
+}
+
+// =============================================================================
+section("the two things that were broken");
+// =============================================================================
+{
+  // The slider's role and id are on the TRACK, not the thumb. A drag measured
+  // against the thumb's own rectangle measures against something that has
+  // already moved, which is a slider that snaps to an end on every press.
+  const app = open();
+  const track = nodes(app).find((n) => n.id === "fs-latency");
+  ok("the slider's rectangle is the track's", !!track && track.b[2] > 100, JSON.stringify(track && track.b));
+  const [x, , w] = track.b;
+  const at = (frac) => {
+    const px = x + 7 + (w - 14) * frac;
+    app.slideTo(Math.min(1, Math.max(0, (px - (x + 7)) / (w - 14))));
+    return app.latencyMs();
+  };
+  eq("the left end is nothing", at(0), 0);
+  eq("the middle is the middle", at(0.5), 760);
+  eq("the right end is the maximum", at(1), 1500);
+  ok("the rectangle does not move with the value", nodes(app).find((n) => n.id === "fs-latency").b[0] === x);
+
+  // A listener that gave up for good left the browser frozen on whatever it
+  // had, which is indistinguishable from an empty database.
+  const net = open();
+  const had = net.docCount();
+  pressByName(net, "switch", "Offline");
+  settle(net, 20, 200);
+  ok("offline says the listener went", net.noteText().includes("retrying"), net.noteText());
+  pressByName(net, "switch", "Offline");
+  settle(net, 30, 200);
+  ok("…and it comes back on its own", net.noteText().includes("back"), net.noteText());
+  pressByName(net, "button", "Add a document");
+  settle(net, 20, 200);
+  eq("…and reports what happened while it was away", net.docCount(), had + 1);
 }
 
 process.stdout.write(`\n  ${passed} passed`);
