@@ -2245,6 +2245,202 @@ class CompactWrite {
 }
 
 ; =============================================================================
+; RtRecognise — the sentence a person types, as rows
+; =============================================================================
+; The quick entry takes a SENTENCE — "Juoksu 10km", "treeni 60min" — and the
+; app being ported hands it to a model that comes back with structure. There
+; is no model here, and the point of the screen is not the model: it is what
+; happens either side of it, so this recognises the two shapes the placeholder
+; advertises and passes anything already written in COMPACT straight through.
+;
+; It is deliberately small and deliberately honest about being small. A line
+; it cannot read becomes a `Text` row, which is what the parser would have
+; made of it anyway, and the review then shows a card with that line in it —
+; the person still sees what they are agreeing to.
+; =============================================================================
+
+class RtRecognise {
+    ; The COMPACT body for a typed line, and the title to put over it.
+    def compact@(mutable):string ""
+    def title@(mutable):string ""
+
+    Constructor () {
+    }
+
+    ; Digits, and the unit right after them: `10km`, `10 km`, `45min`. Returns
+    ; the number as written — "10", "2.5" — or "" when the unit is not there.
+    sfn numberBefore:string (text:string unit:string) {
+        def at:int (indexOf text unit)
+        if (at < 0) {
+            return ""
+        }
+        def i@(mutable):int (at - 1)
+        ; A space between the number and its unit is how half of everyone
+        ; writes it.
+        while (i >= 0) {
+            if ((charAt text i) != 32) {
+                break
+            }
+            i = (i - 1)
+        }
+        def end:int (i + 1)
+        while (i >= 0) {
+            def c:int (charAt text i)
+            def digit:boolean ((c >= 48) && (c <= 57))
+            if ((digit || (c == 46)) || (c == 44)) {
+                i = (i - 1)
+            } {
+                break
+            }
+        }
+        def start:int (i + 1)
+        if (start >= end) {
+            return ""
+        }
+        return (substring text start end)
+    }
+
+    ; Is this line already COMPACT? Any row the parser makes sense of says so;
+    ; a line it can only call text or unknown does not.
+    sfn isCompact:boolean (body:string) {
+        def doc:CompactDocument (CompactRowMapper.parseDocument(body))
+        for doc.rows row:CompactRow i {
+            def k:string (CompactStatBuilder.kind(row))
+            if ((k != "text") && (k != "unknown")) {
+                return true
+            }
+        }
+        return false
+    }
+
+    sfn read:RtRecognise (text:string onDay:string) {
+        def out (new RtRecognise())
+        def head:string (("[" + onDay) + "]\n")
+        def line:string (trim text)
+
+        ; Already structured: the person wrote COMPACT, so nothing is
+        ; recognised — it is read, and the title is the first row's name.
+        if (RtRecognise.isCompact((head + line))) {
+            out.compact = (head + line)
+            def doc:CompactDocument (CompactRowMapper.parseDocument(out.compact))
+            for doc.rows row:CompactRow i {
+                if ((strlen out.title) == 0) {
+                    def label:string (CompactStatBuilder.label(row))
+                    if ((strlen label) > 0) {
+                        out.title = label
+                    }
+                }
+            }
+            if ((strlen out.title) == 0) {
+                out.title = "Merkintä"
+            }
+            return out
+        }
+
+        def km:string (RtRecognise.numberBefore(line "km"))
+        def mins:string (RtRecognise.numberBefore(line "min"))
+        if ((strlen km) > 0) {
+            ; A distance is a run. With a time beside it the row carries both,
+            ; which is the shape `Run 3km 18min` has in the fixture.
+            def row@(mutable):string (("Run " + km) + "km")
+            if ((strlen mins) > 0) {
+                row = ((row + " ") + (mins + "min"))
+            }
+            out.compact = (head + row)
+            out.title = "Juoksulenkki"
+            return out
+        }
+        if ((strlen mins) > 0) {
+            out.compact = ((head + "Time ") + (mins + ("min | " + line)))
+            out.title = "Harjoitus"
+            return out
+        }
+        ; Read as nothing in particular: the line itself, which is what the
+        ; parser would have made of it, and the review shows it as that.
+        out.compact = ((head + "Text ") + line)
+        out.title = "Merkintä"
+        return out
+    }
+}
+
+; =============================================================================
+; RtReview — what the backend hands back, and what is done about it
+; =============================================================================
+; A save is not an insert. What the app being ported does with a line of text
+; is READ it and come back with a proposal: a score, a sentence from the
+; coach, and the entries it recognised — each of which the person adds or
+; skips. "Recognized entries (0/1)" is the counter on that screen and it is
+; the whole shape of the step: nothing has been written yet.
+;
+; So this is the response, not a flag. It holds what came back and what has
+; been decided about it, and it is finished when every entry has been.
+; =============================================================================
+
+class RtReviewEntry {
+    def title@(mutable):string ""
+    def date@(mutable):string ""
+    def compact@(mutable):string ""
+    ; The calendar it would go in, and what would be done — the two chips over
+    ; the card: `plan` `ADD`.
+    def kind@(mutable):string ""
+    def op@(mutable):string "ADD"
+    ; Decided means added OR skipped: the counter counts decisions, not adds,
+    ; because a skipped entry is as done with as an added one.
+    def decided@(mutable):boolean false
+    def added@(mutable):boolean false
+
+    Constructor () {
+    }
+}
+
+class RtReview {
+    def open@(mutable):boolean false
+    def points@(mutable):int 0
+    def feedback@(mutable):string ""
+    def entries:[RtReviewEntry]
+
+    Constructor () {
+    }
+
+    fn clear:void () {
+        open = false
+        points = 0
+        feedback = ""
+        def none:[RtReviewEntry]
+        entries = none
+    }
+
+    fn add:void (title:string date:string compact:string kind:string) {
+        def e (new RtReviewEntry())
+        e.title = title
+        e.date = date
+        e.compact = compact
+        e.kind = kind
+        push entries e
+    }
+
+    ; How many have been decided, of how many there are — the numbers in
+    ; "Recognized entries (0/1)".
+    fn decidedCount:int () {
+        def n@(mutable):int 0
+        for entries e:RtReviewEntry i {
+            if e.decided { n = (n + 1) }
+        }
+        return n
+    }
+
+    fn count:int () {
+        return (array_length entries)
+    }
+
+    ; Nothing left to decide. The sheet closes on this and not on the last
+    ; press, so a review that arrives with nothing in it does not stay up.
+    fn done:boolean () {
+        return ((this.decidedCount()) >= (this.count()))
+    }
+}
+
+; =============================================================================
 ; RtBackendSim — a backend that is not there
 ; =============================================================================
 ; No network and no cloud: this demo has neither and does not want either. What

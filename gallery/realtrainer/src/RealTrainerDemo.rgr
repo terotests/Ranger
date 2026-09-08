@@ -332,6 +332,30 @@ treefactory Rt {
     tag EntryTime EVGElement (props (className "rt-entry-time") (elementType 1))
     tag EntryTags EVGElement (props (className "rt-entry-tags"))
     tag EntryTag EVGElement (props (className "rt-entry-tag") (elementType 1))
+    ; --- the review, as the app being ported lays it out ----------------------
+    tag RevBanner EVGElement (props (className "rt-rev-banner"))
+    tag RevScore EVGElement (props (className "rt-rev-score") (elementType 1))
+    tag RevScoreOf EVGElement (props (className "rt-rev-score-of") (elementType 1))
+    tag RevSays  EVGElement (props (className "rt-rev-says") (elementType 1) (role "paragraph"))
+    tag RevCount EVGElement (props (className "rt-rev-count") (elementType 1) (role "heading") (a11yLevel 2))
+    tag RevCard  EVGElement (props (className "rt-rev-card"))
+    tag RevChips EVGElement (props (className "rt-rev-chips"))
+    tag RevKind  EVGElement (props (className "rt-rev-kind") (elementType 1))
+    tag RevOp    EVGElement (props (className "rt-rev-op") (elementType 1))
+    tag RevHead  EVGElement (props (className "rt-rev-head"))
+    tag RevTitle EVGElement (props (className "rt-rev-title") (elementType 1) (role "heading") (a11yLevel 3))
+    tag RevDate  EVGElement (props (className "rt-rev-date") (elementType 1))
+    tag RevBtns  EVGElement (props (className "rt-rev-btns"))
+
+    ; --- the wait, which is a screen and not a line -------------------------
+    ; The answer to a save is a PROPOSAL to read, not a receipt, so the
+    ; request that fetches it takes the screen the way the loading scene
+    ; does: a ring, what is being done, and why it is worth the second.
+    tag Waiter   EVGElement (props (className "rt-waiter"))
+    tag WRing    EVGElement (props (className "rt-wring") (role "img") (a11yLabel "Tarkistetaan"))
+    tag WBlade   EVGElement (props (className "rt-wblade") (a11yHidden true))
+    tag WaitTx   EVGElement (props (className "rt-wait-text") (elementType 1) (role "heading") (a11yLevel 2))
+    tag WaitSub  EVGElement (props (className "rt-wait-sub") (elementType 1) (role "paragraph"))
     tag EntryRowCol EVGElement (props (className "rt-entry-row-col"))
     tag EntrySpec EVGElement (props (className "rt-entry-spec") (elementType 1))
     tag EntryRow EVGElement (props (className "rt-entry-row"))
@@ -802,6 +826,12 @@ class RealTrainerDemo {
     ; the send button. Its own clock and not `elapsedMs`, which is the loading
     ; screen's and stops when that screen does.
     def saveSpinMs:double 0.0
+    ; Set while `entryCard` builds a review's proposal — see there.
+    def cardPreview@(mutable):boolean false
+    ; WHAT CAME BACK, and what has been decided about it. A save is not an
+    ; insert: the app reads the line and proposes entries, and each is added
+    ; or skipped by hand. See `RtReview`.
+    def review:RtReview (new RtReview())
     ; The edit sheet's fields: the general feedback and one per weekday.
     def editField:InputCtl (new InputCtl())
     def dayFields:[InputCtl]
@@ -1301,6 +1331,20 @@ class RealTrainerDemo {
         while (i < 12) {
             def blade (tree Rt (Blade (props (className ("rt-blade rt-blade-" + (to_string i))))))
             ring.addChild(blade)
+            i = (i + 1)
+        }
+        return ring
+    }
+
+    ; The loader's ring at a third of its size, for the wait over Home. The
+    ; twelve `rt-blade-N` classes carry only an angle and an opacity, so both
+    ; rings share them and only the geometry is written twice.
+    sfn waitRing:EVGElement () {
+        def ring (tree Rt (WRing))
+        ring.id = "rt-wait-ring"
+        def i:int 0
+        while (i < 12) {
+            ring.addChild((tree Rt (WBlade (props (className ("rt-wblade rt-blade-" + (to_string i)))))))
             i = (i + 1)
         }
         return ring
@@ -2451,6 +2495,111 @@ class RealTrainerDemo {
             over.addChild((this.addSheet()))
             page.addChild(over)
         }
+        ; THE WAIT IS OVER EVERYTHING TOO. It used to be a grey line under the
+        ; composer, which is a caption on a screen that is doing something —
+        ; the request reads the text and comes back with a proposal, and a
+        ; person who does not know that taps the button again.
+        if (homeDialog.state == "saving") {
+            def wov (tree Rt (Overlay))
+            def card (tree Rt (Waiter (props (id "rt-review-wait"))))
+            card.addChild((RealTrainerDemo.waitRing()))
+            card.addChild((tree Rt (WaitTx (props (id "rt-review-wait-text")) "Tarkistetaan tietoja…")))
+            card.addChild((tree Rt (WaitSub "Luetaan merkintä ja etsitään harjoitukset")))
+            wov.addChild(card)
+            page.addChild(wov)
+        }
+        ; The review is over everything the sheet is over, and over the sheet:
+        ; it is what the save answered with.
+        if review.open {
+            def rev (tree Rt (Overlay))
+            rev.addChild((this.reviewSheet()))
+            page.addChild(rev)
+        }
+    }
+
+    ; --- WHAT THE SAVE ANSWERED WITH -------------------------------------------
+    ;
+    ; Laid out as the app being ported lays it out, top to bottom:
+    ;
+    ;   a banner    the star, the score, "points", and the coach's sentence
+    ;   a count     "Recognized entries (0/1)" — decisions, not adds
+    ;   per entry   two chips (the calendar's kind, and ADD), the title and
+    ;               its date, Add and Skip, and then THE CARD ITSELF — the
+    ;               same card the feed will show, so what is being agreed to
+    ;               is what will appear.
+    ;
+    ; The card is `entryCard` and not a summary of it. A review that showed a
+    ; summary would be a second rendering of the same entry, and the two would
+    ; drift. It is built as a PROPOSAL — see `entryCard`: no header, no
+    ; actions, no comment buttons, because none of those belong to a thing
+    ; that has not been written.
+    fn reviewSheet:EVGElement () {
+        def modal (tree Rt (Modal (props (id "rt-review"))))
+        def head (tree Rt (ModalHead))
+        def title (tree Rt (ModalTitle (props (id "rt-review-head")) "Tarkista merkinnät"))
+        title.a11yLevel = 2
+        head.addChild(title)
+        head.addChild((tree Rt (Spacer)))
+        head.addChild((this.iconBtn("rt-review-close" "Sulje" (RtIcons.x("#f2f2f2")))))
+        modal.addChild(head)
+        def body (tree Rt (ModalBody))
+
+        def banner (tree Rt (RevBanner))
+        def scoreRow (tree Rt (Row (props (className "rt-rev-score-row"))))
+        def star (tree Rt (PhIcon))
+        star.svgSource = (RtIcons.star("#d97706"))
+        star.className = "rt-ph-icon rt-entry-star"
+        scoreRow.addChild(star)
+        def pts:string (to_string review.points)
+        scoreRow.addChild((tree Rt (RevScore (props (id "rt-review-points")) pts)))
+        scoreRow.addChild((tree Rt (RevScoreOf "points")))
+        banner.addChild(scoreRow)
+        banner.addChild((tree Rt (RevSays (props (id "rt-review-says")) review.feedback)))
+        body.addChild(banner)
+
+        def counted:string (("Recognized entries (" + (to_string (review.decidedCount())))
+            + ("/" + ((to_string (review.count())) + ")")))
+        body.addChild((tree Rt (RevCount (props (id "rt-review-count")) counted)))
+
+        for review.entries e:RtReviewEntry i {
+            if e.decided { continue }
+            def card (tree Rt (RevCard (props (id ("rt-review-card-" + (to_string i))))))
+            def chips (tree Rt (RevChips))
+            chips.addChild((tree Rt (RevKind e.kind)))
+            chips.addChild((tree Rt (RevOp e.op)))
+            card.addChild(chips)
+            def hd (tree Rt (RevHead))
+            def glyph (tree Rt (PhIcon))
+            glyph.svgSource = (RtIcons.clipboardList("#e8e2da"))
+            hd.addChild(glyph)
+            def col (tree Rt (Col))
+            col.addChild((tree Rt (RevTitle (props (id ("rt-review-title-" + (to_string i)))) e.title)))
+            def when:string (RealTrainerDemo.fiDatePadded(e.date))
+            col.addChild((tree Rt (RevDate (props (id ("rt-review-date-" + (to_string i)))) when)))
+            hd.addChild(col)
+            card.addChild(hd)
+            def btns (tree Rt (RevBtns))
+            def add (this.exButton(("rt-review-add-" + (to_string i)) "Add" "Add"))
+            add.className = "rt-ex-btn rt-rev-add"
+            def skip (this.exButton(("rt-review-skip-" + (to_string i)) "Skip" "Skip"))
+            skip.className = "rt-ex-btn rt-rev-skip"
+            btns.addChild(add)
+            btns.addChild(skip)
+            card.addChild(btns)
+            ; The card the feed will show, so what is being agreed to is what
+            ; will appear. Its own add button is not drawn here: the two
+            ; buttons above are the decision.
+            def preview (new RtSeedEntry())
+            preview.id = ("rt-review-entry-" + (to_string i))
+            preview.calendarId = seed.calendarId
+            preview.date = e.date
+            preview.compact = e.compact
+            preview.points = review.points
+            card.addChild((this.entryCard(preview (1000 + i) false)))
+            body.addChild(card)
+        }
+        modal.addChild(body)
+        return modal
     }
 
     ; The bar's "Lisää": a sheet from the bottom with the rest of the app in
@@ -2774,11 +2923,6 @@ class RealTrainerDemo {
         home.addChild(entry)
         ; What the backend is doing, where the person is looking. The error
         ; stays until the next send, and the text stays with it.
-        if (homeDialog.state == "saving") {
-            def wait (tree Rt (Row (props (className "rt-home-center"))))
-            wait.addChild((tree Rt (ChatPara (props (id "rt-home-saving") (className "rt-home-empty")) "Tallennetaan…")))
-            home.addChild(wait)
-        }
         if ((strlen homeDialog.error) > 0) {
             def bad (tree Rt (Row (props (className "rt-home-center"))))
             bad.addChild((tree Rt (SheetErr (props (id "rt-home-error")) homeDialog.error)))
@@ -2839,6 +2983,19 @@ class RealTrainerDemo {
     ; machine already open is ignored — that is the machine's own rule, and
     ; it is why this can be called on every keystroke without a flag beside
     ; it saying whether it has been called before.
+    ; The number after a prefix, or -1 when the id does not start with it.
+    sfn indexAfter:int (id:string prefix:string) {
+        if ((RtEntry.hasPrefix(id prefix)) == false) {
+            return (0 - 1)
+        }
+        def tail:string (substring id (strlen prefix) (strlen id))
+        def n@(optional):int (to_int tail)
+        if n {
+            return (unwrap n)
+        }
+        return (0 - 1)
+    }
+
     fn homeCompose:void () {
         def forDay@(mutable):string today
         if ((strlen dayIso) > 0) { forDay = dayIso }
@@ -2854,19 +3011,84 @@ class RealTrainerDemo {
         if (homeDialog.state != "saving") {
             return
         }
+        def deg@(mutable):double ((saveSpinMs * spinDegPerSec) / 1000.0)
+        while (deg >= 360.0) {
+            deg = (deg - 360.0)
+        }
+        ; Both of them, off the same angle: the button's ring under the dim
+        ; and the wait screen's ring over it turn together.
+        this.turnRing("rt-home-spin" deg)
+        this.turnRing("rt-wait-ring" deg)
+    }
+
+    fn turnRing:void (id:string deg:double) {
         def r:EVGElement (unwrap root)
-        def found@(optional):EVGElement (RealTrainerDemo.byId(r "rt-home-spin"))
+        def found@(optional):EVGElement (RealTrainerDemo.byId(r id))
         if found {
             def g:EVGElement (unwrap found)
-            def deg@(mutable):double ((saveSpinMs * spinDegPerSec) / 1000.0)
-            while (deg >= 360.0) {
-                deg = (deg - 360.0)
-            }
             g.setAttribute("transform" (("rotate(" + (to_string deg)) + "deg)"))
             g.markInline("transform")
             layoutDirty = true
             boxesDirty = true
         }
+    }
+
+    ; --- THE REVIEW -----------------------------------------------------------
+    ;
+    ; The response, made up here because there is no backend: a score, a
+    ; sentence from the coach, and the entries recognised in the text. One
+    ; entry per line the parser makes a row of that names something — which
+    ; for a line typed into the quick entry is one.
+    ;
+    ; The title is the first row's own label rather than a heading, because a
+    ; person typing "Juoksu 10km" writes no heading and the app being ported
+    ; invents one from what it read.
+    fn openReview:void (onDay:string text:string) {
+        review.clear()
+        def read:RtRecognise (RtRecognise.read(text onDay))
+        review.points = (RealTrainerDemo.reviewPoints(text))
+        review.feedback = (RealTrainerDemo.reviewFeedback(read.title))
+        review.add(read.title onDay read.compact seed.calendarType)
+        review.open = true
+        this.forgetCards()
+    }
+
+    ; A score out of a hundred, made of the text rather than of nothing: the
+    ; same line always scores the same, which is what lets a check name one.
+    sfn reviewPoints:int (text:string) {
+        def n:int (strlen text)
+        def p:int (55 + (n % 40))
+        if (p > 99) { return 99 }
+        return p
+    }
+
+    sfn reviewFeedback:string (title:string) {
+        return (("\"" + title) + "\" on kirjattu. Muista pitää vauhti rauhallisena, jos tavoitteena on kehittää peruskuntoa (PK)!")
+    }
+
+    ; Add or skip one of them. Adding is what `seed.addEntry` does when the
+    ; request comes back — which is here, and not before, because the person
+    ; had to say so.
+    fn reviewDecide:boolean (i:int keep:boolean) {
+        if (review.open == false) { return false }
+        if (i < 0) { return false }
+        if (i >= (review.count())) { return false }
+        def e:RtReviewEntry (itemAt review.entries i)
+        if e.decided { return false }
+        e.decided = true
+        e.added = keep
+        if keep {
+            addedSeq = (addedSeq + 1)
+            seed.addEntry(("added-" + (to_string addedSeq)) seed.calendarId e.date e.compact)
+            ; Every card of the feed is rebuilt around the new one, so the
+            ; ones kept from the last frame are not this frame's.
+            feedShown = feedChunk
+            this.forgetCards()
+        }
+        if (review.done()) {
+            review.open = false
+        }
+        return true
     }
 
     ; Is there something to send, and is the line free to send it?
@@ -2903,16 +3125,13 @@ class RealTrainerDemo {
             return false
         }
         if (homeBackend.state == "saved") {
-            addedSeq = (addedSeq + 1)
-            def onDay:string homeDialog.targetDate
-            seed.addEntry(("added-" + (to_string addedSeq)) seed.calendarId onDay
-                (("[" + onDay) + ("]\n" + homeDialog.inputText)))
+            ; NOTHING IS WRITTEN YET. The answer is a proposal — a score, a
+            ; sentence and the entries it recognised — and the person adds or
+            ; skips each one. `openReview` is what the screen shows next.
+            this.openReview(homeDialog.targetDate homeDialog.inputText)
             homeDialog.send("SAVE_COMPLETE" "")
             homeField.setValue("")
             focused = ""
-            ; Every card of the feed is rebuilt around the new one, so the
-            ; ones kept from the last frame are not this frame's.
-            feedShown = feedChunk
             return true
         }
         homeDialog.send("ERROR" homeBackend.message)
@@ -4977,7 +5196,7 @@ class RealTrainerDemo {
                 }
             }
         }
-        def card:EVGElement (this.entryCard(e i))
+        def card:EVGElement (this.entryCard(e i true))
         ; The card's layout is kept with the card — see
         ; `EVGElement.keepLayout`: a rebuild for a menu opening lays out the
         ; shell and moves the cards.
@@ -5007,49 +5226,69 @@ class RealTrainerDemo {
         return cardsBuilt
     }
 
-    fn entryCard:EVGElement (e:RtSeedEntry i:int) {
+    ; `live` is false in the review, where the card is a PROPOSAL and not an
+    ; entry: nothing has been written yet, so it carries none of the things
+    ; that are done to a written one. No "Lisää", because the two buttons
+    ; above the card are the decision and a third would be a second answer to
+    ; it; no Compact/JSON/Poista, because there is nothing to delete or
+    ; export; no "Lisää kommentti" under the rows, because a comment would be
+    ; written onto an entry that does not exist. What is left is what the
+    ; person is agreeing to: the rows as they were read.
+    fn entryCard:EVGElement (e:RtSeedEntry i:int live:boolean) {
+        def withAdd:boolean live
+        cardPreview = (live == false)
         def card (tree Rt (EntryCard))
         card.id = ("rt-entry-" + (to_string i))
         def entry:RtEntry (RtEntry.of(e.compact))
         if (RealTrainerDemo.isMeasurement(entry)) {
             this.measurementCard(card entry e i)
+            cardPreview = false
             return card
         }
-        def addRow (tree Rt (ModalRow))
-        addRow.addChild((tree Rt (Spacer)))
-        addRow.addChild((this.exButton(("rt-entry-add-" + (to_string i)) "Lisää" "Lisää")))
-        card.addChild(addRow)
-        ; The header, centred as the blog view centres it: the title, the
-        ; short rule under it, the date, the notes button.
-        def hdRow (tree Rt (Row (props (className "rt-entry-center"))))
-        hdRow.addChild((tree Rt (EntryHd (props (id ("rt-entry-hd-" + (to_string i)))) entry.title)))
-        card.addChild(hdRow)
-        def ruleRow (tree Rt (Row (props (className "rt-entry-center"))))
-        ruleRow.addChild((tree Rt (Col (props (className "rt-entry-rule")))))
-        card.addChild(ruleRow)
-        def timeRow (tree Rt (Row (props (className "rt-entry-center"))))
-        def when@(mutable):string (RealTrainerDemo.fiDatePadded(e.date))
-        if ((strlen entry.time) > 0) { when = ((when + " klo ") + entry.time) }
-        timeRow.addChild((tree Rt (EntryTime when)))
-        card.addChild(timeRow)
-        if (e.points >= 0) {
-            ; The score, as the blog view badges it: the star, the points in
-            ; amber, "/100" muted.
-            def scoreRow (tree Rt (Row (props (className "rt-entry-center rt-entry-score"))))
-            def star (tree Rt (PhIcon))
-            star.svgSource = (RtIcons.star("#d97706"))
-            star.className = "rt-ph-icon rt-entry-star"
-            scoreRow.addChild(star)
-            def pts:string (to_string e.points)
-            scoreRow.addChild((tree Rt (EntryScore (props (id ("rt-entry-score-" + (to_string i)))) pts)))
-            scoreRow.addChild((tree Rt (EntryScoreOf "/100")))
-            card.addChild(scoreRow)
+        if withAdd {
+            def addRow (tree Rt (ModalRow))
+            addRow.addChild((tree Rt (Spacer)))
+            addRow.addChild((this.exButton(("rt-entry-add-" + (to_string i)) "Lisää" "Lisää")))
+            card.addChild(addRow)
         }
-        def notesRow (tree Rt (Row (props (className "rt-entry-center"))))
-        def notes (this.exButton(("rt-entry-notes-" + (to_string i)) "Muistiinpanot" "Muistiinpanot"))
-        notes.className = "rt-ex-btn rt-outline-btn"
-        notesRow.addChild(notes)
-        card.addChild(notesRow)
+        ; THE HEADER IS NOT IN A PROPOSAL. The chips row above the card
+        ; already carries the title and the date, and the banner carries the
+        ; score, so drawing them again here would be the same three facts
+        ; twice on one screen. What is left below is what was READ out of the
+        ; text, which is the thing being agreed to.
+        if live {
+            ; The header, centred as the blog view centres it: the title, the
+            ; short rule under it, the date, the notes button.
+            def hdRow (tree Rt (Row (props (className "rt-entry-center"))))
+            hdRow.addChild((tree Rt (EntryHd (props (id ("rt-entry-hd-" + (to_string i)))) entry.title)))
+            card.addChild(hdRow)
+            def ruleRow (tree Rt (Row (props (className "rt-entry-center"))))
+            ruleRow.addChild((tree Rt (Col (props (className "rt-entry-rule")))))
+            card.addChild(ruleRow)
+            def timeRow (tree Rt (Row (props (className "rt-entry-center"))))
+            def when@(mutable):string (RealTrainerDemo.fiDatePadded(e.date))
+            if ((strlen entry.time) > 0) { when = ((when + " klo ") + entry.time) }
+            timeRow.addChild((tree Rt (EntryTime when)))
+            card.addChild(timeRow)
+            if (e.points >= 0) {
+                ; The score, as the blog view badges it: the star, the points in
+                ; amber, "/100" muted.
+                def scoreRow (tree Rt (Row (props (className "rt-entry-center rt-entry-score"))))
+                def star (tree Rt (PhIcon))
+                star.svgSource = (RtIcons.star("#d97706"))
+                star.className = "rt-ph-icon rt-entry-star"
+                scoreRow.addChild(star)
+                def pts:string (to_string e.points)
+                scoreRow.addChild((tree Rt (EntryScore (props (id ("rt-entry-score-" + (to_string i)))) pts)))
+                scoreRow.addChild((tree Rt (EntryScoreOf "/100")))
+                card.addChild(scoreRow)
+            }
+            def notesRow (tree Rt (Row (props (className "rt-entry-center"))))
+            def notes (this.exButton(("rt-entry-notes-" + (to_string i)) "Muistiinpanot" "Muistiinpanot"))
+            notes.className = "rt-ex-btn rt-outline-btn"
+            notesRow.addChild(notes)
+            card.addChild(notesRow)
+        }
         if ((array_length entry.tags) > 0) {
             def chips (tree Rt (EntryTags))
             chips.className = "rt-entry-tags rt-entry-tags-center"
@@ -5310,14 +5549,17 @@ class RealTrainerDemo {
             foot.addChild((tree Rt (EntryFootTx ((((to_string moves) + " liikettä") + " • Yht. ") + tons))))
         }
         card.addChild(foot)
-        def acts (tree Rt (ModalRow))
-        acts.addChild((this.exButton(("rt-entry-compact-" + (to_string i)) "Compact" "Compact")))
-        acts.addChild((this.exButton(("rt-entry-json-" + (to_string i)) "JSON" "JSON")))
-        acts.addChild((tree Rt (EntryDot "•")))
-        def del (this.exButton(("rt-entry-delete-" + (to_string i)) "Poista" "Poista"))
-        RealTrainerDemo.tintText(del "rt-ex-btn-text rt-danger-text")
-        acts.addChild(del)
-        card.addChild(acts)
+        if live {
+            def acts (tree Rt (ModalRow))
+            acts.addChild((this.exButton(("rt-entry-compact-" + (to_string i)) "Compact" "Compact")))
+            acts.addChild((this.exButton(("rt-entry-json-" + (to_string i)) "JSON" "JSON")))
+            acts.addChild((tree Rt (EntryDot "•")))
+            def del (this.exButton(("rt-entry-delete-" + (to_string i)) "Poista" "Poista"))
+            RealTrainerDemo.tintText(del "rt-ex-btn-text rt-danger-text")
+            acts.addChild(del)
+            card.addChild(acts)
+        }
+        cardPreview = false
         return card
     }
 
@@ -5389,8 +5631,13 @@ class RealTrainerDemo {
 
     ; The comment control under a row, as the blog view hangs it: the ↳ mark
     ; and the small outlined "Lisää kommentti".
+    ; A row of the proposal has no comment button: see `entryCard`. The row
+    ; is still returned, empty, so the caller's shape does not change.
     fn commentUnder:EVGElement (rowId:string) {
         def under (tree Rt (Row (props (className "rt-entry-under"))))
+        if cardPreview {
+            return under
+        }
         under.addChild((this.commentBtn(rowId)))
         return under
     }
@@ -7172,8 +7419,15 @@ class RealTrainerDemo {
         }
         layoutDirty = true
         boxesDirty = true
-        ; A field takes focus, and that is all a press on it does.
+        ; A field takes focus, and that is all a press on it does. NOT UNDER
+        ; THE REVIEW: it is a modal, the composer is beneath it, and a field
+        ; that answers through a dim overlay is a screen with two places to
+        ; type on it. The review has no field of its own, so the whole branch
+        ; steps aside while it is up.
         if (this.hasField(id)) {
+            if review.open {
+                return false
+            }
             def c:InputCtl (this.fieldFor(id))
             focused = c.tid
             this.rebuild()
@@ -7324,6 +7578,26 @@ class RealTrainerDemo {
     ; and the dial.
     ; The dialog answers before the screen under it, which is what a modal is.
     fn pressSheet:boolean (id:string) {
+        ; THE REVIEW ANSWERS FIRST. It is over the sheet, and a modal is a
+        ; modal: while it is up, nothing under it takes a press.
+        if review.open {
+            if (id == "rt-review-close") {
+                ; Closing without deciding SKIPS the rest — nothing was
+                ; written, and leaving the proposal in a drawer nobody can
+                ; open again would be a worse answer than dropping it.
+                review.clear()
+                return true
+            }
+            def add:int (RealTrainerDemo.indexAfter(id "rt-review-add-"))
+            if (add >= 0) {
+                return (this.reviewDecide(add true))
+            }
+            def skip:int (RealTrainerDemo.indexAfter(id "rt-review-skip-"))
+            if (skip >= 0) {
+                return (this.reviewDecide(skip false))
+            }
+            return false
+        }
         if (id == "rt-add") {
             def forDay@(mutable):string today
             if ((strlen dayIso) > 0) { forDay = dayIso }

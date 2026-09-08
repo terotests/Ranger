@@ -2228,6 +2228,113 @@
   cursor: pointer;
 }
 .rt-icon-btn:hover { background-color: #262626; }
+/* --- the review the save answers with -------------------------------------
+ *
+ * The banner is the coach's, tinted the way the app being ported tints it:
+ * a dark teal panel with a rule of its own, the score in amber beside a star
+ * and the sentence under it in the same blue the app writes advice in. */
+.rt-rev-banner {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 12px;
+  border-width: 1px;
+  border-color: #14343f;
+  background-color: #0d2129;
+}
+
+.rt-rev-score-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+}
+
+.rt-rev-score { color: #f0b46a; font-family: Arial; font-weight: bold; font-size: 22px; height: 28px; }
+.rt-rev-score-of { color: #8b8177; font-family: Arial; font-size: 14px; height: 20px; }
+.rt-rev-says { color: #7dd3fc; font-family: Arial; font-size: 15px; line-height: 1.45; }
+
+.rt-rev-count { color: #f2f2f2; font-family: Arial; font-weight: bold; font-size: 16px; height: 22px; }
+
+.rt-rev-card {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  border-width: 1px;
+  border-color: #2a2a2a;
+  background-color: #121212;
+}
+
+.rt-rev-chips {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  height: 22px;
+}
+
+/* The calendar it would go in, and what would be done. Two chips, and the
+ * second is the one that says nothing has happened yet. */
+.rt-rev-kind { color: #8b8177; font-family: Arial; font-size: 13px; height: 18px; }
+.rt-rev-op {
+  color: #cbd5e1;
+  font-family: Arial;
+  font-size: 12px;
+  height: 22px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background-color: #2a2a2a;
+}
+
+.rt-rev-head {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.rt-rev-title { color: #f2f2f2; font-family: Arial; font-weight: bold; font-size: 18px; height: 24px; }
+.rt-rev-date { color: #8b8177; font-family: Arial; font-size: 14px; height: 20px; }
+
+/* Add and Skip, side by side and the same width: the two are one decision
+ * and neither is the default. Green is the one that writes. */
+.rt-rev-btns {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 10px;
+  height: 44px;
+}
+
+/* `.rt-ex-btn` is 30px tall and hugs its label; these are the row's two
+ * halves and a thumb's target, so they say their own height and share the
+ * width. `justify-content: center` puts the label in the middle of the half
+ * it got rather than at its left edge. */
+.rt-rev-add {
+  flex-grow: 1;
+  justify-content: center;
+  height: 44px;
+  border-radius: 10px;
+  background-color: #14351f;
+}
+
+.rt-rev-skip {
+  flex-grow: 1;
+  justify-content: center;
+  height: 44px;
+  border-radius: 10px;
+  background-color: #1c1c1c;
+}
+
 .rt-send-btn { background-color: #f97316; }
 .rt-send-off { background-color: #3a2416; }
 
@@ -2242,6 +2349,45 @@
  * The centre is (10, 10): a blade is 3 wide at margin-left 8.5, and its
  * transform-origin is (1.5, 9) from its own top-left, which is 1 + 9 = 10
  * down and 8.5 + 1.5 = 10 across. */
+/* The wait over Home, while the text is being read. The ring is the loader's
+   at a third of the size and borrows its twelve angle classes, which carry
+   only a rotation and an opacity. */
+.rt-waiter {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 14px;
+  padding: 28px 24px;
+  border-radius: 14px;
+  border-width: 1px;
+  border-color: #2e2e2e;
+  background-color: #121212;
+}
+
+.rt-wring {
+  display: grid;
+  grid-template-columns: 44px;
+  grid-template-rows: 44px;
+  width: 44px;
+  height: 44px;
+}
+
+.rt-wblade {
+  grid-column: 1;
+  grid-row: 1;
+  width: 5px;
+  height: 14px;
+  margin-left: 19.5px;
+  margin-top: 3px;
+  border-radius: 2.5px;
+  transform-origin: 2.5px 19px;
+  background: linear-gradient(180deg, #7dd3fc, #1d4ed8);
+}
+
+.rt-wait-text { color: #f2f2f2; font-family: Arial; font-weight: bold; font-size: 16px; height: 22px; }
+.rt-wait-sub { color: #8b8177; font-family: Arial; font-size: 13px; height: 18px; }
+
 .rt-spin {
   display: grid;
   grid-template-columns: 20px;
