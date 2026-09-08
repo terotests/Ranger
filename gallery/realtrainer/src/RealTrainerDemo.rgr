@@ -1339,6 +1339,14 @@ class RealTrainerDemo {
     ; The loader's ring at a third of its size, for the wait over Home. The
     ; twelve `rt-blade-N` classes carry only an angle and an opacity, so both
     ; rings share them and only the geometry is written twice.
+    sfn waitCard:EVGElement () {
+        def card (tree Rt (Waiter (props (id "rt-review-wait"))))
+        card.addChild((RealTrainerDemo.waitRing()))
+        card.addChild((tree Rt (WaitTx (props (id "rt-review-wait-text")) "Tarkistetaan tietoja…")))
+        card.addChild((tree Rt (WaitSub "Luetaan merkintä ja etsitään harjoitukset")))
+        return card
+    }
+
     sfn waitRing:EVGElement () {
         def ring (tree Rt (WRing))
         ring.id = "rt-wait-ring"
@@ -1928,15 +1936,24 @@ class RealTrainerDemo {
         if ((strlen addDialog.error) > 0) {
             body.addChild((tree Rt (SheetErr addDialog.error)))
         }
-        if (addDialog.state == "saving") {
-            body.addChild((tree Rt (ModalDim (props (id "rt-sheet-state")) "Tallennetaan…")))
-        }
         def tools (tree Rt (ModalRow))
         tools.addChild((this.sheetBtn("rt-sheet-image" "Lisää kuva" "Lisää kuva" false)))
         body.addChild(tools)
         def compose (tree Rt (ChatCompose))
         compose.addChild((this.fieldBox(addField)))
-        def send (this.iconBtn("rt-sheet-save" "" (RtIcons.chevronRight("#ffffff"))))
+        ; THE BUTTON IS THE WAIT, as it is on Home: while the request is in
+        ; flight the chevron is a turning ring. The sheet used to answer with
+        ; the word "Tallennetaan…" in the body and nothing moving.
+        ; No name on it, as the original has it — the trace is compared node
+        ; for node against the app being ported.
+        def send@(mutable):EVGElement (this.iconBtn("rt-sheet-save" "" (RtIcons.chevronRight("#ffffff"))))
+        if (addDialog.state == "saving") {
+            def b (tree Rt (IconBtn))
+            b.id = "rt-sheet-save"
+            b.a11yLabel = "Tarkistetaan"
+            b.addChild((RealTrainerDemo.spinner("rt-sheet-spin")))
+            send = b
+        }
         send.className = "rt-icon-btn rt-send-btn"
         if ((strlen addDialog.inputText) == 0) {
             send.a11yDisabled = true
@@ -2499,13 +2516,9 @@ class RealTrainerDemo {
         ; composer, which is a caption on a screen that is doing something —
         ; the request reads the text and comes back with a proposal, and a
         ; person who does not know that taps the button again.
-        if (homeDialog.state == "saving") {
+        if (this.savingNow()) {
             def wov (tree Rt (Overlay))
-            def card (tree Rt (Waiter (props (id "rt-review-wait"))))
-            card.addChild((RealTrainerDemo.waitRing()))
-            card.addChild((tree Rt (WaitTx (props (id "rt-review-wait-text")) "Tarkistetaan tietoja…")))
-            card.addChild((tree Rt (WaitSub "Luetaan merkintä ja etsitään harjoitukset")))
-            wov.addChild(card)
+            wov.addChild((RealTrainerDemo.waitCard()))
             page.addChild(wov)
         }
         ; The review is over everything the sheet is over, and over the sheet:
@@ -3008,7 +3021,7 @@ class RealTrainerDemo {
     ; an animation the stylesheet owns, so the angle is the app's clock and a
     ; headless check can read it.
     fn spinSave:void () {
-        if (homeDialog.state != "saving") {
+        if ((this.savingNow()) == false) {
             return
         }
         def deg@(mutable):double ((saveSpinMs * spinDegPerSec) / 1000.0)
@@ -3018,6 +3031,7 @@ class RealTrainerDemo {
         ; Both of them, off the same angle: the button's ring under the dim
         ; and the wait screen's ring over it turn together.
         this.turnRing("rt-home-spin" deg)
+        this.turnRing("rt-sheet-spin" deg)
         this.turnRing("rt-wait-ring" deg)
     }
 
@@ -3048,7 +3062,12 @@ class RealTrainerDemo {
         def read:RtRecognise (RtRecognise.read(text onDay))
         review.points = (RealTrainerDemo.reviewPoints(text))
         review.feedback = (RealTrainerDemo.reviewFeedback(read.title))
-        review.add(read.title onDay read.compact seed.calendarType)
+        ; The chip says which calendar it would go in. A scene with no
+        ; calendar behind it — the document demo — would otherwise draw an
+        ; empty chip next to ADD.
+        def kind@(mutable):string seed.calendarType
+        if ((strlen kind) == 0) { kind = "training" }
+        review.add(read.title onDay read.compact kind)
         review.open = true
         this.forgetCards()
     }
@@ -3121,27 +3140,71 @@ class RealTrainerDemo {
     ; message over the composer and LEAVES THE TEXT, because a failed save
     ; that threw away what was typed would be a second failure.
     fn homeSettled:boolean () {
-        if (homeDialog.state != "saving") {
+        return (this.dialogSettled(homeDialog homeBackend homeField))
+    }
+
+    ; ONE ANSWER FOR BOTH COMPOSERS. The quick entry on Home and the "Lisää
+    ; harjoitus" sheet are the SAME MACHINE — two `AddWorkoutDialog`s, three
+    ; states each — behind the same simulated backend, so what a request comes
+    ; back with has to be the same thing on both. It was not: the sheet wrote
+    ; the entry itself, inside `tick`, the moment the backend answered, and
+    ; never saw the review. Two screens that send the same text to the same
+    ; place and do different things with the answer is a UI whose state is not
+    ; the machine's.
+    ;
+    ; NOTHING IS WRITTEN HERE. The answer is a proposal — a score, a sentence
+    ; and the entries it recognised — and the person adds or skips each one.
+    ; `openReview` is what the screen shows next; `reviewDecide` is what
+    ; writes.
+    fn dialogSettled:boolean (dlg:AddWorkoutDialog be:RtBackendSim fld:InputCtl) {
+        if (dlg.state != "saving") {
             return false
         }
-        if (homeBackend.state == "saved") {
-            ; NOTHING IS WRITTEN YET. The answer is a proposal — a score, a
-            ; sentence and the entries it recognised — and the person adds or
-            ; skips each one. `openReview` is what the screen shows next.
-            this.openReview(homeDialog.targetDate homeDialog.inputText)
-            homeDialog.send("SAVE_COMPLETE" "")
-            homeField.setValue("")
+        if (be.state == "saved") {
+            this.openReview(dlg.targetDate dlg.inputText)
+            ; SAVE_COMPLETE resets the context, so the text is read out of it
+            ; above and not after.
+            dlg.send("SAVE_COMPLETE" "")
+            fld.setValue("")
             focused = ""
             return true
         }
-        homeDialog.send("ERROR" homeBackend.message)
+        dlg.send("ERROR" be.message)
         ; THE NEXT request fails, not every one after it. `armFailure` is a
         ; one-shot and the simulator does not clear it itself, so the failure
         ; is spent where it is consumed — otherwise a retry could never
         ; succeed and the state after an error would be unreachable.
-        homeBackend.failNext = false
-        homeBackend.clear()
+        be.failNext = false
+        be.clear()
         return true
+    }
+
+    ; Either composer, in flight. The wait screen and the turning rings are
+    ; drawn off this and not off one of the two dialogs.
+    fn savingNow:boolean () {
+        if (homeDialog.state == "saving") {
+            return true
+        }
+        return (addDialog.state == "saving")
+    }
+
+    ; The sheet's send, which is the quick entry's `homeSend` with the sheet's
+    ; own field and dialog: the machine moves first and the backend is only
+    ; asked if it did.
+    fn sheetSend:boolean () {
+        if (addDialog.state == "saving") {
+            return false
+        }
+        if ((strlen addDialog.inputText) == 0) {
+            return false
+        }
+        def started:boolean (addDialog.send("START_SAVING" ""))
+        if (started) {
+            addDialog.error = ""
+            saveSpinMs = 0.0
+            backend.begin(addDialog.inputText)
+        }
+        return started
     }
 
     ; A training calendar's Home, as `HomeView` has it: the three tabs and,
@@ -6508,12 +6571,23 @@ class RealTrainerDemo {
         ; a send button beside it does everywhere. Shift+Enter is not a
         ; newline here because the row is one line; it falls through to the
         ; field, which ignores it.
-        if ((focused == "rt-home-field") && ((k == "Enter") && (shift == false))) {
-            if (this.homeSend()) {
-                this.rebuild()
-                return true
+        if ((k == "Enter") && (shift == false)) {
+            if (focused == "rt-home-field") {
+                if (this.homeSend()) {
+                    this.rebuild()
+                    return true
+                }
+                return false
             }
-            return false
+            ; The sheet's field is the same composer in a modal, so it takes
+            ; the same key.
+            if (focused == "rt-add-field") {
+                if (this.sheetSend()) {
+                    this.rebuild()
+                    return true
+                }
+                return false
+            }
         }
         def c:InputCtl (this.fieldFor(focused))
         c.keyDownWith(focused k shift ctrl)
@@ -6582,8 +6656,19 @@ class RealTrainerDemo {
                 (Spacer)
                 (AddBtn (AddTx "＋  Lisää harjoitus"))
                 (Note ((to_string (array_length rows)) + " riviä")))))
+        ; The document scene has no overlay layer — the sheet is drawn in the
+        ; flow — so the two screens the sheet leads to are drawn there too.
+        ; They used to be nowhere here, which left the review open and
+        ; unanswerable: a modal nobody can see still blocks every press under
+        ; it.
         if (addDialog.isOpen()) {
             main.addChild((this.addSheet()))
+        }
+        if (this.savingNow()) {
+            main.addChild((RealTrainerDemo.waitCard()))
+        }
+        if review.open {
+            main.addChild((this.reviewSheet()))
         }
         def list (tree Rt (DocList))
         for rows r:CompactRow i {
@@ -7127,30 +7212,21 @@ class RealTrainerDemo {
                 return true
             }
         }
-        ; Still waiting: the button's ring turns and the frame is not idle.
-        if (homeDialog.state == "saving") {
-            saveSpinMs = (saveSpinMs + dtMs)
-            this.spinSave()
-            return true
-        }
         if (backend.tick(dtMs)) {
-            ; The save that the dialog started is the save that answers it.
+            ; The save that the dialog started is the save that answers it —
+            ; and it answers with a proposal, the same one the quick entry
+            ; gets. `backend` is the session screen's too, which is why the
+            ; dialog is asked first whether the answer is its.
             if (addDialog.state == "saving") {
-                if (backend.state == "saved") {
-                    ; The entry the sheet was for, on its day, in the
-                    ; calendar that was open — what the store's addEntry
-                    ; does when the request comes back.
-                    if (scene == "app") {
-                        addedSeq = (addedSeq + 1)
-                        def onDay:string addDialog.targetDate
-                        seed.addEntry(("added-" + (to_string addedSeq)) seed.calendarId onDay (("[" + onDay) + ("]\n" + addDialog.inputText)))
-                    }
-                    addDialog.send("SAVE_COMPLETE" "")
-                } {
-                    addDialog.send("ERROR" backend.message)
-                }
+                def moved:boolean (this.dialogSettled(addDialog backend addField))
             }
             this.rebuild()
+            return true
+        }
+        ; Still waiting: the rings turn and the frame is not idle.
+        if (this.savingNow()) {
+            saveSpinMs = (saveSpinMs + dtMs)
+            this.spinSave()
             return true
         }
         def r:EVGElement (unwrap root)
@@ -7628,14 +7704,7 @@ class RealTrainerDemo {
             return false
         }
         if (id == "rt-sheet-save") {
-            if ((strlen addDialog.inputText) == 0) {
-                return false
-            }
-            def started:boolean (addDialog.send("START_SAVING" ""))
-            if (started) {
-                backend.begin(addDialog.inputText)
-            }
-            return started
+            return (this.sheetSend())
         }
         return false
     }

@@ -333,6 +333,88 @@ console.log("--- the wait turns, and it is the app's clock that turns it ---");
 }
 
 console.log("");
+console.log('--- "Lisää harjoitus" is the same composer in a modal ---');
+{
+  // TWO COMPOSERS, ONE MACHINE. The row on Home and the sheet behind "Lisää
+  // harjoitus" are both an `AddWorkoutDialog` in front of the same simulated
+  // backend, so they must answer alike. They did not: the sheet wrote the
+  // entry itself the moment the backend answered — inside the frame loop,
+  // with no wait screen, no ring and no review — which is a screen whose
+  // state is not the machine's.
+  const app = open();
+  ok("the sheet opens", app.press("rt-add"));
+  ok("with its heading", shows(app, "Lisää harjoitus"));
+  ok("its field is a real one", app.hasField("rt-add-field"));
+  ok("pressing it takes the focus",
+     app.press("rt-add-field") && app.focusedField() === "rt-add-field", app.focusedField());
+  ok("an empty sheet does not send", app.press("rt-sheet-save") === false);
+
+  app.applyEdit("rt-add-field", TEXT, TEXT.length, TEXT.length);
+  ok("the send starts a save", app.press("rt-sheet-save"));
+  ok("and the wait is the same screen", shows(app, "Tarkistetaan tietoja"));
+  // The sheet's chevron turns too, off the same clock as Home's.
+  const blades = () =>
+    JSON.parse(app.displayListJson()).cmds.filter((c) => c.k === 0 && c.w === 3 && c.h === 6);
+  app.tick(16.7);
+  app.display();
+  ok("its button holds a ring", blades().length === 8, blades().length + " blades");
+  // THE IGNORE, on this composer too.
+  app.applyEdit("rt-add-field", TEXT + " ja vielä", 0, 0);
+  ok("a keystroke while saving changes nothing", shows(app, "ja vielä") === false);
+
+  settle(app, 1200);
+  // "Lisää harjoitus" is also the calendar's own button, so the sheet is
+  // recognised by what only it draws.
+  ok("the sheet closed", shows(app, "Lisää kuva") === false);
+  ok("and the answer is a review", shows(app, "Recognized entries (0/1)"));
+  ok("with the same banner", shows(app, "points") && shows(app, "on kirjattu"));
+  ok("Add lands the card", app.press("rt-review-add-0"));
+  app.display();
+  ok("the entry is in the feed", shows(app, "Maastaveto"));
+}
+
+console.log("");
+console.log("--- and it fails and retries the same way ---");
+{
+  const app = open();
+  app.press("rt-add");
+  app.press("rt-add-field");
+  app.applyEdit("rt-add-field", OTHER, OTHER.length, OTHER.length);
+  app.armFailure();
+  ok("the send starts", app.press("rt-sheet-save"));
+  settle(app, 1200);
+  ok("the error is drawn", shows(app, "epäonnistui"));
+  ok("the sheet is still there", shows(app, "Lisää kuva"));
+  // ERROR takes `saving` back to `open` and does NOT clear the input.
+  ok("and the text is still in it", shows(app, "Kahvakuulaheilautus"));
+  ok("nothing came back to review", shows(app, "Recognized entries") === false);
+
+  ok("sending again is taken", app.press("rt-sheet-save"));
+  settle(app, 1200);
+  ok("the retry comes back with a review", shows(app, "Recognized entries (0/1)"));
+  app.press("rt-review-add-0");
+  app.display();
+  ok("and Add lands the card", drawn(app).some((t) => t.includes("Kahvakuula")));
+}
+
+console.log("");
+console.log("--- Enter sends the sheet too ---");
+{
+  const app = open();
+  app.press("rt-add");
+  app.press("rt-add-field");
+  app.applyEdit("rt-add-field", TEXT, TEXT.length, TEXT.length);
+  ok("Enter is taken", app.keyWith("Enter", false, false));
+  ok("and starts the save", shows(app, "Tarkistetaan tietoja"));
+  settle(app, 1200);
+  ok("the review comes back", shows(app, "Recognized entries (0/1)"));
+  ok("Skip drops it", app.press("rt-review-skip-0"));
+  app.display();
+  ok("and nothing was written", drawn(app).filter((t) => t.includes("Maastaveto")).length === 0,
+     drawn(app).filter((t) => t.includes("Maastaveto")).join(" | "));
+}
+
+console.log("");
 console.log("--- the field is one line, whatever is in it ---");
 {
   // An `<input>` never wraps: it scrolls. The plan calendar's placeholder is
