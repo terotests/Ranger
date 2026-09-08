@@ -425,6 +425,18 @@ treefactory Rt {
     tag FieldGhost EVGElement (props (className "rt-field-ghost") (elementType 1))
     tag FieldCaret EVGElement (props (className "rt-field-caret") (a11yHidden true))
     tag FieldSel EVGElement (props (className "rt-field-sel") (a11yHidden true))
+    ; --- the settings screen ------------------------------------------------
+    tag SetCol   EVGElement (props (className "rt-settings"))
+    tag SetHd    EVGElement (props (className "rt-set-hd") (elementType 1) (role "heading") (a11yLevel 1))
+    tag SetSub   EVGElement (props (className "rt-set-sub") (elementType 1) (role "heading") (a11yLevel 2))
+    tag SetNote  EVGElement (props (className "rt-set-note") (elementType 1) (role "paragraph"))
+    tag ThemeCard EVGElement (props (className "rt-theme-card") (role "button") (a11yFocusable true))
+    tag ThemeSwatches EVGElement (props (className "rt-theme-swatches"))
+    tag Swatch   EVGElement (props (className "rt-swatch") (a11yHidden true))
+    tag ThemeName EVGElement (props (className "rt-theme-name") (elementType 1))
+    tag ThemeDesc EVGElement (props (className "rt-theme-desc") (elementType 1))
+    tag ThemeOn  EVGElement (props (className "rt-theme-on") (elementType 1))
+
     tag Overlay  EVGElement (props (className "rt-overlay"))
     tag Modal    EVGElement (props (className "rt-modal"))
     tag ModalHead EVGElement (props (className "rt-modal-head"))
@@ -828,6 +840,10 @@ class RealTrainerDemo {
     def saveSpinMs:double 0.0
     ; Set while `entryCard` builds a review's proposal — see there.
     def cardPreview@(mutable):boolean false
+    ; THE PALETTE, by name: "" is the dark one the sheet declares unscoped,
+    ; and "ocean" / "sunrise" are the two `@vars` blocks beside it. Nothing
+    ; else in the app knows a colour — see `themeName`.
+    def palette@(mutable):string ""
     ; WHAT CAME BACK, and what has been decided about it. A save is not an
     ; insert: the app reads the line and proposes entries, and each is added
     ; or skipped by hand. See `RtReview`.
@@ -1339,6 +1355,14 @@ class RealTrainerDemo {
     ; The loader's ring at a third of its size, for the wait over Home. The
     ; twelve `rt-blade-N` classes carry only an angle and an opacity, so both
     ; rings share them and only the geometry is written twice.
+    sfn waitCard:EVGElement () {
+        def card (tree Rt (Waiter (props (id "rt-review-wait"))))
+        card.addChild((RealTrainerDemo.waitRing()))
+        card.addChild((tree Rt (WaitTx (props (id "rt-review-wait-text")) "Tarkistetaan tietoja…")))
+        card.addChild((tree Rt (WaitSub "Luetaan merkintä ja etsitään harjoitukset")))
+        return card
+    }
+
     sfn waitRing:EVGElement () {
         def ring (tree Rt (WRing))
         ring.id = "rt-wait-ring"
@@ -1928,15 +1952,24 @@ class RealTrainerDemo {
         if ((strlen addDialog.error) > 0) {
             body.addChild((tree Rt (SheetErr addDialog.error)))
         }
-        if (addDialog.state == "saving") {
-            body.addChild((tree Rt (ModalDim (props (id "rt-sheet-state")) "Tallennetaan…")))
-        }
         def tools (tree Rt (ModalRow))
         tools.addChild((this.sheetBtn("rt-sheet-image" "Lisää kuva" "Lisää kuva" false)))
         body.addChild(tools)
         def compose (tree Rt (ChatCompose))
         compose.addChild((this.fieldBox(addField)))
-        def send (this.iconBtn("rt-sheet-save" "" (RtIcons.chevronRight("#ffffff"))))
+        ; THE BUTTON IS THE WAIT, as it is on Home: while the request is in
+        ; flight the chevron is a turning ring. The sheet used to answer with
+        ; the word "Tallennetaan…" in the body and nothing moving.
+        ; No name on it, as the original has it — the trace is compared node
+        ; for node against the app being ported.
+        def send@(mutable):EVGElement (this.iconBtn("rt-sheet-save" "" (RtIcons.chevronRight("#ffffff"))))
+        if (addDialog.state == "saving") {
+            def b (tree Rt (IconBtn))
+            b.id = "rt-sheet-save"
+            b.a11yLabel = "Tarkistetaan"
+            b.addChild((RealTrainerDemo.spinner("rt-sheet-spin")))
+            send = b
+        }
         send.className = "rt-icon-btn rt-send-btn"
         if ((strlen addDialog.inputText) == 0) {
             send.a11yDisabled = true
@@ -2329,24 +2362,64 @@ class RealTrainerDemo {
 
     ; The proposed actions. One proposes a verdict on the whole; several take
     ; a verdict each, and closing the review saves whatever was accepted.
+    ;
+    ; THE SAME REVIEW AS THE QUICK ENTRY'S, because it is the same question:
+    ; here is what was read out of what you wrote, do you want it. It used to
+    ; be a row reading `addWorkout · w1` with two buttons after it — a review
+    ; of an id, which is a review of nothing, and agreeing to a change nobody
+    ; can see. So each proposal is drawn as the card it would become: the two
+    ; chips, the title over its date, the verdict, and the rows themselves.
     fn chatReviewRows:void (box:EVGElement multi:boolean) {
         def acts (tree Rt (ChatActs))
         def n:int (chat.actionCount())
+        def onDay:string (this.chatDay())
         def i@(mutable):int 0
         while (i < n) {
-            def row (tree Rt (ChatAct))
-            row.addChild((tree Rt (ChatActTx (((chat.actionField(i "kind")) + " · ") + (chat.actionField(i "id"))))))
+            def card (tree Rt (RevCard (props (id ("rt-chat-card-" + (to_string i))))))
+            def phrase:string (chat.actionField(i "text"))
+            def read:RtRecognise (RtRecognise.read(phrase onDay))
+            def chips (tree Rt (RevChips))
+            def kind@(mutable):string seed.calendarType
+            if ((strlen kind) == 0) { kind = "training" }
+            chips.addChild((tree Rt (RevKind kind)))
+            chips.addChild((tree Rt (RevOp "ADD")))
             def status:string (chat.actionStatus(i))
-            def word@(mutable):string "odottaa"
-            if (status == "accepted") { word = "hyväksytty" }
-            if (status == "rejected") { word = "hylätty" }
-            row.addChild((tree Rt (ChatActSt word)))
-            row.addChild((tree Rt (Spacer)))
-            if ((strlen status) == 0) {
-                row.addChild((this.sheetBtn(("rt-chat-accept-" + (to_string i)) ("Hyväksy " + (to_string (i + 1))) "Hyväksy" true)))
-                row.addChild((this.sheetBtn(("rt-chat-reject-" + (to_string i)) ("Hylkää " + (to_string (i + 1))) "Hylkää" false)))
+            if ((strlen status) > 0) {
+                def word@(mutable):string "hylätty"
+                if (status == "accepted") { word = "hyväksytty" }
+                chips.addChild((tree Rt (ChatActSt (props (id ("rt-chat-state-" + (to_string i)))) word)))
             }
-            acts.addChild(row)
+            card.addChild(chips)
+            def hd (tree Rt (RevHead))
+            def glyph (tree Rt (PhIcon))
+            glyph.svgSource = (RtIcons.clipboardList("#e8e2da"))
+            hd.addChild(glyph)
+            def col (tree Rt (Col))
+            col.addChild((tree Rt (RevTitle (props (id ("rt-chat-title-" + (to_string i)))) read.title)))
+            col.addChild((tree Rt (RevDate (RealTrainerDemo.fiDatePadded(onDay)))))
+            hd.addChild(col)
+            card.addChild(hd)
+            if ((strlen status) == 0) {
+                def btns (tree Rt (RevBtns))
+                def yes (this.exButton(("rt-chat-accept-" + (to_string i)) ("Hyväksy " + (to_string (i + 1))) "Hyväksy"))
+                yes.className = "rt-ex-btn rt-rev-add"
+                def no (this.exButton(("rt-chat-reject-" + (to_string i)) ("Hylkää " + (to_string (i + 1))) "Hylkää"))
+                no.className = "rt-ex-btn rt-rev-skip"
+                btns.addChild(yes)
+                btns.addChild(no)
+                card.addChild(btns)
+            }
+            ; The card the diary will show, so what is being agreed to is what
+            ; will appear — the quick entry's proposal card, built the same
+            ; way. See `entryCard`: no header, no actions, no comments.
+            def preview (new RtSeedEntry())
+            preview.id = ("rt-chat-entry-" + (to_string i))
+            preview.calendarId = seed.calendarId
+            preview.date = onDay
+            preview.compact = read.compact
+            preview.points = (0 - 1)
+            card.addChild((this.entryCard(preview (2000 + i) false)))
+            acts.addChild(card)
             i = (i + 1)
         }
         box.addChild(acts)
@@ -2358,6 +2431,38 @@ class RealTrainerDemo {
             actions.addChild((this.sheetBtn("rt-chat-accept-all" "Hyväksy kaikki" "Hyväksy kaikki" true)))
         }
         box.addChild(actions)
+    }
+
+    ; The day a proposal would land on: the day being looked at, or today.
+    fn chatDay:string () {
+        if ((strlen dayIso) > 0) {
+            return dayIso
+        }
+        return today
+    }
+
+    ; WHAT WAS ACCEPTED IS WRITTEN. The chat used to run a six-hundred
+    ; millisecond job called "chat", say "Tallennetaan päiväkirjaan…" and
+    ; write nothing at all: a review whose yes did nothing. The machine
+    ; clears `pendingActions` on its `onDone`, so this reads them while the
+    ; save is still in `processing` — before `saveComplete`.
+    fn chatWriteAccepted:void () {
+        def n:int (chat.actionCount())
+        def onDay:string (this.chatDay())
+        def i@(mutable):int 0
+        while (i < n) {
+            if ((chat.actionStatus(i)) == "accepted") {
+                def phrase:string (chat.actionField(i "text"))
+                if ((strlen phrase) > 0) {
+                    def read:RtRecognise (RtRecognise.read(phrase onDay))
+                    addedSeq = (addedSeq + 1)
+                    seed.addEntry(("added-" + (to_string addedSeq)) seed.calendarId onDay read.compact)
+                }
+            }
+            i = (i + 1)
+        }
+        feedShown = feedChunk
+        this.forgetCards()
     }
 
     fn pressChat:boolean (id:string) {
@@ -2499,13 +2604,9 @@ class RealTrainerDemo {
         ; composer, which is a caption on a screen that is doing something —
         ; the request reads the text and comes back with a proposal, and a
         ; person who does not know that taps the button again.
-        if (homeDialog.state == "saving") {
+        if (this.savingNow()) {
             def wov (tree Rt (Overlay))
-            def card (tree Rt (Waiter (props (id "rt-review-wait"))))
-            card.addChild((RealTrainerDemo.waitRing()))
-            card.addChild((tree Rt (WaitTx (props (id "rt-review-wait-text")) "Tarkistetaan tietoja…")))
-            card.addChild((tree Rt (WaitSub "Luetaan merkintä ja etsitään harjoitukset")))
-            wov.addChild(card)
+            wov.addChild((RealTrainerDemo.waitCard()))
             page.addChild(wov)
         }
         ; The review is over everything the sheet is over, and over the sheet:
@@ -2871,8 +2972,68 @@ class RealTrainerDemo {
         if (section == "home") {
             this.homeSection(body)
         }
+        if (section == "settings") {
+            this.settingsSection(body)
+        }
         main.addChild(body)
         return main
+    }
+
+    ; --- Asetukset ------------------------------------------------------------
+    ;
+    ; One setting so far, and it is the one that shows what the stylesheet can
+    ; do: every surface, line and ink in `realtrainer.css` is written once in
+    ; terms of a custom property, and a theme is a second set of VALUES for
+    ; those names. Choosing one here changes a single string; the next style
+    ; pass resolves every `var()` against it.
+    ;
+    ; The swatches are literal colours and not `var()`: a swatch shows a
+    ; palette that is NOT on, and the sheet only resolves the one that is.
+    fn settingsSection:void (body:EVGElement) {
+        def col (tree Rt (SetCol))
+        col.addChild((tree Rt (SetHd "Asetukset")))
+        col.addChild((tree Rt (SetSub "Teema")))
+        col.addChild((tree Rt (SetNote "Väri, ei asettelu: sama ruutu joka teemalla.")))
+        col.addChild((this.themeCard("" "Yö" "Tumma harmaa, oranssi korostus")))
+        col.addChild((this.themeCard("ocean" "Ocean" "Syvä vesi, turkoosi korostus")))
+        col.addChild((this.themeCard("sunrise" "Sunrise" "Lämmin luumu, korallin korostus")))
+        body.addChild(col)
+    }
+
+    fn themeCard:EVGElement (name:string label:string about:string) {
+        def slug@(mutable):string name
+        if ((strlen slug) == 0) {
+            slug = "night"
+        }
+        def card (tree Rt (ThemeCard))
+        card.id = ("rt-theme-" + slug)
+        card.a11yLabel = label
+        def on:boolean (palette == name)
+        if on {
+            card.className = "rt-theme-card rt-theme-card-on"
+            card.a11ySelected = 1
+        }
+        def sw (tree Rt (ThemeSwatches))
+        def k:int 0
+        def kinds:[string]
+        push kinds "bg"
+        push kinds "surface"
+        push kinds "accent"
+        for kinds kind:string ki {
+            def dot (tree Rt (Swatch))
+            dot.className = (("rt-swatch rt-sw-" + slug) + ("-" + kind))
+            sw.addChild(dot)
+        }
+        card.addChild(sw)
+        def col (tree Rt (Col))
+        col.addChild((tree Rt (ThemeName label)))
+        col.addChild((tree Rt (ThemeDesc about)))
+        card.addChild(col)
+        card.addChild((tree Rt (Spacer)))
+        if on {
+            card.addChild((tree Rt (ThemeOn "Käytössä")))
+        }
+        return card
     }
 
     ; Home, as `HomeView` has it: the two actions, the quick entry with its
@@ -3008,7 +3169,7 @@ class RealTrainerDemo {
     ; an animation the stylesheet owns, so the angle is the app's clock and a
     ; headless check can read it.
     fn spinSave:void () {
-        if (homeDialog.state != "saving") {
+        if ((this.savingNow()) == false) {
             return
         }
         def deg@(mutable):double ((saveSpinMs * spinDegPerSec) / 1000.0)
@@ -3018,6 +3179,7 @@ class RealTrainerDemo {
         ; Both of them, off the same angle: the button's ring under the dim
         ; and the wait screen's ring over it turn together.
         this.turnRing("rt-home-spin" deg)
+        this.turnRing("rt-sheet-spin" deg)
         this.turnRing("rt-wait-ring" deg)
     }
 
@@ -3048,7 +3210,12 @@ class RealTrainerDemo {
         def read:RtRecognise (RtRecognise.read(text onDay))
         review.points = (RealTrainerDemo.reviewPoints(text))
         review.feedback = (RealTrainerDemo.reviewFeedback(read.title))
-        review.add(read.title onDay read.compact seed.calendarType)
+        ; The chip says which calendar it would go in. A scene with no
+        ; calendar behind it — the document demo — would otherwise draw an
+        ; empty chip next to ADD.
+        def kind@(mutable):string seed.calendarType
+        if ((strlen kind) == 0) { kind = "training" }
+        review.add(read.title onDay read.compact kind)
         review.open = true
         this.forgetCards()
     }
@@ -3121,27 +3288,71 @@ class RealTrainerDemo {
     ; message over the composer and LEAVES THE TEXT, because a failed save
     ; that threw away what was typed would be a second failure.
     fn homeSettled:boolean () {
-        if (homeDialog.state != "saving") {
+        return (this.dialogSettled(homeDialog homeBackend homeField))
+    }
+
+    ; ONE ANSWER FOR BOTH COMPOSERS. The quick entry on Home and the "Lisää
+    ; harjoitus" sheet are the SAME MACHINE — two `AddWorkoutDialog`s, three
+    ; states each — behind the same simulated backend, so what a request comes
+    ; back with has to be the same thing on both. It was not: the sheet wrote
+    ; the entry itself, inside `tick`, the moment the backend answered, and
+    ; never saw the review. Two screens that send the same text to the same
+    ; place and do different things with the answer is a UI whose state is not
+    ; the machine's.
+    ;
+    ; NOTHING IS WRITTEN HERE. The answer is a proposal — a score, a sentence
+    ; and the entries it recognised — and the person adds or skips each one.
+    ; `openReview` is what the screen shows next; `reviewDecide` is what
+    ; writes.
+    fn dialogSettled:boolean (dlg:AddWorkoutDialog be:RtBackendSim fld:InputCtl) {
+        if (dlg.state != "saving") {
             return false
         }
-        if (homeBackend.state == "saved") {
-            ; NOTHING IS WRITTEN YET. The answer is a proposal — a score, a
-            ; sentence and the entries it recognised — and the person adds or
-            ; skips each one. `openReview` is what the screen shows next.
-            this.openReview(homeDialog.targetDate homeDialog.inputText)
-            homeDialog.send("SAVE_COMPLETE" "")
-            homeField.setValue("")
+        if (be.state == "saved") {
+            this.openReview(dlg.targetDate dlg.inputText)
+            ; SAVE_COMPLETE resets the context, so the text is read out of it
+            ; above and not after.
+            dlg.send("SAVE_COMPLETE" "")
+            fld.setValue("")
             focused = ""
             return true
         }
-        homeDialog.send("ERROR" homeBackend.message)
+        dlg.send("ERROR" be.message)
         ; THE NEXT request fails, not every one after it. `armFailure` is a
         ; one-shot and the simulator does not clear it itself, so the failure
         ; is spent where it is consumed — otherwise a retry could never
         ; succeed and the state after an error would be unreachable.
-        homeBackend.failNext = false
-        homeBackend.clear()
+        be.failNext = false
+        be.clear()
         return true
+    }
+
+    ; Either composer, in flight. The wait screen and the turning rings are
+    ; drawn off this and not off one of the two dialogs.
+    fn savingNow:boolean () {
+        if (homeDialog.state == "saving") {
+            return true
+        }
+        return (addDialog.state == "saving")
+    }
+
+    ; The sheet's send, which is the quick entry's `homeSend` with the sheet's
+    ; own field and dialog: the machine moves first and the backend is only
+    ; asked if it did.
+    fn sheetSend:boolean () {
+        if (addDialog.state == "saving") {
+            return false
+        }
+        if ((strlen addDialog.inputText) == 0) {
+            return false
+        }
+        def started:boolean (addDialog.send("START_SAVING" ""))
+        if (started) {
+            addDialog.error = ""
+            saveSpinMs = 0.0
+            backend.begin(addDialog.inputText)
+        }
+        return started
     }
 
     ; A training calendar's Home, as `HomeView` has it: the three tabs and,
@@ -5372,19 +5583,26 @@ class RealTrainerDemo {
             }
             if (kind == "text") {
                 rows.addChild((tree Rt (EntryPara (props (id ("rt-entry-text-" + rowId))) (CompactStatBuilder.text(row)))))
-                def tacts (tree Rt (Row (props (className "rt-entry-under"))))
-                tacts.addChild((this.iconBtn(("rt-entry-edit-" + rowId) "Muokkaa tekstiä" (RtIcons.penLine("#999999")))))
-                tacts.addChild((this.commentBtn(rowId)))
-                rows.addChild(tacts)
+                if (cardPreview == false) {
+                    def tacts (tree Rt (Row (props (className "rt-entry-under"))))
+                    tacts.addChild((this.iconBtn(("rt-entry-edit-" + rowId) "Muokkaa tekstiä" (RtIcons.penLine("#999999")))))
+                    tacts.addChild((this.commentBtn(rowId)))
+                    rows.addChild(tacts)
+                }
                 continue
             }
             if isMove {
                 moves = (moves + 1)
                 tonnage = (tonnage + (RealTrainerDemo.tonnageOf(row)))
                 def line (tree Rt (EntryRow))
-                def statsBtn (this.iconBtn(("rt-entry-stats-" + rowId) "Näytä tilastot" (RtIcons.barChart("#999999"))))
-                statsBtn.className = "rt-icon-btn rt-entry-stats-btn"
-                line.addChild(statsBtn)
+                ; No history for a lift that has not happened — see
+                ; `entryCard`: a proposal carries none of the things done to
+                ; a written entry.
+                if (cardPreview == false) {
+                    def statsBtn (this.iconBtn(("rt-entry-stats-" + rowId) "Näytä tilastot" (RtIcons.barChart("#999999"))))
+                    statsBtn.className = "rt-icon-btn rt-entry-stats-btn"
+                    line.addChild(statsBtn)
+                }
                 def col (tree Rt (EntryRowCol))
                 def nameRow (tree Rt (Row (props (className "rt-entry-name-row"))))
                 def shown@(mutable):string label
@@ -6193,6 +6411,14 @@ class RealTrainerDemo {
                 scene = "yearsheet"
                 return true
             }
+            ; Asetukset IS a page in the port now — the theme lives there —
+            ; so the sheet does not just close on the way to nowhere.
+            if ((id == "rt-more-settings") || (id == "rt-more-theme")) {
+                moreOpen = false
+                scene = "app"
+                this.goSection("settings")
+                return true
+            }
             if ((strlen id) > 7) {
                 if ((substring id 0 7) == "rt-nav-") {
                     moreOpen = false
@@ -6228,6 +6454,10 @@ class RealTrainerDemo {
             return true
         }
         if (id == "rt-nav-chat") { return (this.goSection("chat")) }
+        if (id == "rt-nav-settings") { return (this.goSection("settings")) }
+        if (id == "rt-theme-night") { return (this.setPalette("")) }
+        if (id == "rt-theme-ocean") { return (this.setPalette("ocean")) }
+        if (id == "rt-theme-sunrise") { return (this.setPalette("sunrise")) }
         if (id == "rt-nav-more") {
             moreOpen = true
             return true
@@ -6508,12 +6738,23 @@ class RealTrainerDemo {
         ; a send button beside it does everywhere. Shift+Enter is not a
         ; newline here because the row is one line; it falls through to the
         ; field, which ignores it.
-        if ((focused == "rt-home-field") && ((k == "Enter") && (shift == false))) {
-            if (this.homeSend()) {
-                this.rebuild()
-                return true
+        if ((k == "Enter") && (shift == false)) {
+            if (focused == "rt-home-field") {
+                if (this.homeSend()) {
+                    this.rebuild()
+                    return true
+                }
+                return false
             }
-            return false
+            ; The sheet's field is the same composer in a modal, so it takes
+            ; the same key.
+            if (focused == "rt-add-field") {
+                if (this.sheetSend()) {
+                    this.rebuild()
+                    return true
+                }
+                return false
+            }
         }
         def c:InputCtl (this.fieldFor(focused))
         c.keyDownWith(focused k shift ctrl)
@@ -6582,8 +6823,19 @@ class RealTrainerDemo {
                 (Spacer)
                 (AddBtn (AddTx "＋  Lisää harjoitus"))
                 (Note ((to_string (array_length rows)) + " riviä")))))
+        ; The document scene has no overlay layer — the sheet is drawn in the
+        ; flow — so the two screens the sheet leads to are drawn there too.
+        ; They used to be nowhere here, which left the review open and
+        ; unanswerable: a modal nobody can see still blocks every press under
+        ; it.
         if (addDialog.isOpen()) {
             main.addChild((this.addSheet()))
+        }
+        if (this.savingNow()) {
+            main.addChild((RealTrainerDemo.waitCard()))
+        }
+        if review.open {
+            main.addChild((this.reviewSheet()))
         }
         def list (tree Rt (DocList))
         for rows r:CompactRow i {
@@ -7097,7 +7349,7 @@ class RealTrainerDemo {
                 chat.chunk(c)
             }
             if (chatSim.produced == "complete") {
-                chat.complete(chatSim.reply chatSim.kinds chatSim.ids)
+                chat.complete(chatSim.reply chatSim.kinds chatSim.ids chatSim.texts)
             }
             if (chatSim.produced == "error") {
                 this.chatFailed()
@@ -7106,6 +7358,7 @@ class RealTrainerDemo {
             return true
         }
         if (chatJob.tick(dtMs)) {
+            this.chatWriteAccepted()
             chat.saveComplete()
             chatJob.clear()
             this.rebuild()
@@ -7127,30 +7380,21 @@ class RealTrainerDemo {
                 return true
             }
         }
-        ; Still waiting: the button's ring turns and the frame is not idle.
-        if (homeDialog.state == "saving") {
-            saveSpinMs = (saveSpinMs + dtMs)
-            this.spinSave()
-            return true
-        }
         if (backend.tick(dtMs)) {
-            ; The save that the dialog started is the save that answers it.
+            ; The save that the dialog started is the save that answers it —
+            ; and it answers with a proposal, the same one the quick entry
+            ; gets. `backend` is the session screen's too, which is why the
+            ; dialog is asked first whether the answer is its.
             if (addDialog.state == "saving") {
-                if (backend.state == "saved") {
-                    ; The entry the sheet was for, on its day, in the
-                    ; calendar that was open — what the store's addEntry
-                    ; does when the request comes back.
-                    if (scene == "app") {
-                        addedSeq = (addedSeq + 1)
-                        def onDay:string addDialog.targetDate
-                        seed.addEntry(("added-" + (to_string addedSeq)) seed.calendarId onDay (("[" + onDay) + ("]\n" + addDialog.inputText)))
-                    }
-                    addDialog.send("SAVE_COMPLETE" "")
-                } {
-                    addDialog.send("ERROR" backend.message)
-                }
+                def moved:boolean (this.dialogSettled(addDialog backend addField))
             }
             this.rebuild()
+            return true
+        }
+        ; Still waiting: the rings turn and the frame is not idle.
+        if (this.savingNow()) {
+            saveSpinMs = (saveSpinMs + dtMs)
+            this.spinSave()
             return true
         }
         def r:EVGElement (unwrap root)
@@ -7231,11 +7475,34 @@ class RealTrainerDemo {
     ; they sit — `.a .b` is not a selector it has. A theme is: the session
     ; scene asks for "session" and the rules scoped to it apply, and every
     ; other scene asks for "" and they do not.
+    ; TWO THINGS AT ONCE. The session screen scopes a couple of rules to
+    ; itself, and the palette scopes the colours; `EVGStyleSheet` takes a
+    ; space-separated list so neither has to give up the slot.
     fn themeName:string () {
         if (scene == "session") {
+            if ((strlen palette) > 0) {
+                return ("session " + palette)
+            }
             return "session"
         }
-        return ""
+        return palette
+    }
+
+    ; What the settings screen is looking at, and what a check reads.
+    fn themeChosen:string () {
+        return palette
+    }
+
+    ; A palette is not a state machine: it is one value, and setting it to
+    ; what it already is changes nothing. The whole tree is restyled on the
+    ; next pass because every rule that carries a colour carries a `var()`.
+    fn setPalette:boolean (name:string) {
+        if (palette == name) {
+            return false
+        }
+        palette = name
+        this.forgetCards()
+        return true
     }
 
     ; --- what changes every frame ---------------------------------------------
@@ -7628,14 +7895,7 @@ class RealTrainerDemo {
             return false
         }
         if (id == "rt-sheet-save") {
-            if ((strlen addDialog.inputText) == 0) {
-                return false
-            }
-            def started:boolean (addDialog.send("START_SAVING" ""))
-            if (started) {
-                backend.begin(addDialog.inputText)
-            }
-            return started
+            return (this.sheetSend())
         }
         return false
     }

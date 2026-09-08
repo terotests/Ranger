@@ -8,6 +8,12 @@
 ;
 ;   .caption                  { ... }   ; class rule, applies in every theme
 ;   .theme-classic .caption   { ... }   ; class rule, only under theme "classic"
+;
+; MORE THAN ONE THEME CAN BE ON. The theme handed to `applyTree` is a
+; space-separated list — "session ocean" — and a rule scoped to any name in
+; it applies. One slot is not enough for an app that scopes some rules to a
+; place and its colours to a palette; with two the palette stops fighting the
+; screen for the slot. A single name is a list of one.
 ;   .a, .b                    { ... }   ; selector lists
 ;   /* comments */
 ;
@@ -949,6 +955,44 @@ class EVGStyleSheet {
     ; declaration beats an unscoped one, and among equals the last one written
     ; wins. A declaration inside a `@media` block that does not hold is not a
     ; candidate at all.
+    ; THE ACTIVE THEME IS A LIST, not a name. `applyTree(root "session ocean")`
+    ; turns on both, and a rule written `.theme-ocean .card` applies because
+    ; `ocean` is one of them. An app needs this the moment it scopes some
+    ; rules to a place — a screen, a print size — and its colours to a
+    ; palette: with one slot the two fight over it and the palette loses.
+    ;
+    ; A single name is a list of one, so every caller that passed one reads
+    ; exactly as it did. Precedence does not change: theme-scoped still beats
+    ; unscoped, and among the scoped ones source order still decides — being
+    ; named earlier in the list buys a rule nothing.
+    sfn themeOn:boolean (ruleTheme:string active:string) {
+        if (ruleTheme == active) {
+            return true
+        }
+        if ((strlen ruleTheme) == 0) {
+            return false
+        }
+        def n:int (strlen active)
+        def start@(mutable):int 0
+        def i@(mutable):int 0
+        while (i <= n) {
+            def sep@(mutable):boolean (i == n)
+            if (sep == false) {
+                sep = ((charAt active i) == 32)
+            }
+            if sep {
+                if (i > start) {
+                    if ((substring active start i) == ruleTheme) {
+                        return true
+                    }
+                }
+                start = (i + 1)
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
     fn lookupVar:string (name:string theme:string) {
         def best:string ""
         def bestScoped:boolean false
@@ -960,7 +1004,7 @@ class EVGStyleSheet {
                 def scoped:boolean ((strlen th) > 0)
                 def applies:boolean true
                 if scoped {
-                    applies = (th == theme)
+                    applies = (EVGStyleSheet.themeOn(th theme))
                 }
                 if applies {
                     def mq:EVGMediaQuery (itemAt varMedia i)
@@ -1604,7 +1648,7 @@ class EVGStyleSheet {
             if (rule.pseudo != 0) {
                 def applies:boolean true
                 if (rule.isThemeScoped()) {
-                    applies = (rule.theme == theme)
+                    applies = (EVGStyleSheet.themeOn(rule.theme theme))
                 }
                 if applies {
                     applies = (rule.media.matches(viewportW viewportH coarsePointer))
@@ -1642,7 +1686,7 @@ class EVGStyleSheet {
             if ((isStateful == stateful) && ((rule.isThemeScoped()) == themeScoped)) {
                 def applies:boolean true
                 if themeScoped {
-                    applies = (rule.theme == theme)
+                    applies = (EVGStyleSheet.themeOn(rule.theme theme))
                 }
                 if applies {
                     applies = (rule.media.matches(viewportW viewportH coarsePointer))
@@ -1699,7 +1743,7 @@ class EVGStyleSheet {
             if (rule.pseudo != 0) {
                 def applies:boolean true
                 if (rule.isThemeScoped()) {
-                    applies = (rule.theme == theme)
+                    applies = (EVGStyleSheet.themeOn(rule.theme theme))
                 }
                 if applies {
                     applies = (rule.media.matches(viewportW viewportH coarsePointer))
@@ -1789,7 +1833,7 @@ class EVGStyleSheet {
             if ((isStateful == stateful) && ((rule.isThemeScoped()) == themeScoped)) {
                 def applies:boolean true
                 if themeScoped {
-                    applies = (rule.theme == theme)
+                    applies = (EVGStyleSheet.themeOn(rule.theme theme))
                 }
                 if applies {
                     applies = (rule.media.matches(viewportW viewportH coarsePointer))

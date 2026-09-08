@@ -402,12 +402,25 @@ app.typeText("Exercise Maastaveto|3x5@100kg");
 ok("typing reaches the machine",
    textsOf(listOf()).includes("Exercise Maastaveto|3x5@100kg"),
    textsOf(listOf()).join("|"));
-ok("saving waits", app.press("rt-sheet-save") === true && textsOf(listOf()).includes("Tallennetaan…"),
+// THE SHEET IS THE QUICK ENTRY IN A MODAL, and it answers the same way: a
+// wait screen with a turning ring, then the proposal the request came back
+// with. It used to write the entry itself the moment the backend answered
+// and never show a review at all — two composers on the same machine doing
+// different things with the same answer.
+ok("saving waits", app.press("rt-sheet-save") === true &&
+   textsOf(listOf()).includes("Tarkistetaan tietoja…"),
    textsOf(listOf()).join("|"));
 app.tick(800);
+sheet = textsOf(listOf());
 ok("and a finished save closes it",
-   !textsOf(listOf()).includes("Tallennetaan…") &&
-     !textsOf(listOf()).includes("Exercise Maastaveto|3x5@100kg"),
+   !sheet.includes("Tarkistetaan tietoja…") &&
+     !sheet.includes("Exercise Maastaveto|3x5@100kg"),
+   sheet.join("|"));
+ok("what came back is a review", sheet.includes("Recognized entries (0/1)"), sheet.join("|"));
+ok("with the two answers on it",
+   sheet.includes("Add") && sheet.includes("Skip"), sheet.join("|"));
+ok("Add is taken", app.press("rt-review-add-0") === true, "no change");
+ok("and closes it", !textsOf(listOf()).includes("Recognized entries (0/1)"),
    textsOf(listOf()).join("|"));
 
 // ERROR takes `saving` back to `open` and does NOT clear the input — a failed
@@ -421,6 +434,8 @@ app.press("rt-sheet-save");
 app.tick(800);
 sheet = textsOf(listOf());
 ok("a failed save says so", sheet.some((t) => t.startsWith("Tallennus epäonnistui")), sheet.join("|"));
+ok("and nothing came back to review",
+   !sheet.includes("Recognized entries (0/1)"), sheet.join("|"));
 ok("and keeps what was typed",
    sheet.includes("Exercise Maastaveto|3x5@100kg"), sheet.join("|"));
 ok("the dialog is still there", sheet.includes("Lisää harjoitus"), sheet.join("|"));

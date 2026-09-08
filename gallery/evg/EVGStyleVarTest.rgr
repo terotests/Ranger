@@ -185,6 +185,40 @@ class EVGStyleVarTest {
         c.eqInt("and says nothing" (s.getErrorCount()) 0)
     }
 
+    sfn testThemeList:void (c:VarCheck) {
+        print "--- more than one theme can be on at once ---"
+        ; The case an app hits the moment it has both: some rules scoped to a
+        ; PLACE — a screen, a print size — and its colours to a PALETTE. With
+        ; one slot the two fight over it.
+        def css:string ("@vars { --paper: rgb(10,0,0); }"
+            + " @vars ocean { --paper: rgb(30,0,0); }"
+            + " .box { background-color: var(--paper); }"
+            + " .theme-session .box { color: rgb(1,0,0); }")
+        def s:EVGStyleSheet (EVGStyleVarTest.sheetOf(css))
+        def el:EVGElement (EVGStyleVarTest.boxWith("box"))
+
+        s.applyTree(el "session")
+        c.eqInt("the screen's rule applies" (EVGStyleVarTest.inkRed(el)) 1)
+        c.eqInt("and the palette is the unscoped one" (EVGStyleVarTest.bgRed(el)) 10)
+
+        ; Both names, and both hold.
+        s.applyTree(el "session ocean")
+        c.eqInt("the screen's rule still applies" (EVGStyleVarTest.inkRed(el)) 1)
+        c.eqInt("and now so does the palette" (EVGStyleVarTest.bgRed(el)) 30)
+
+        ; Order in the list buys nothing, and a name nobody wrote is not an
+        ; error — the same as a single unknown theme.
+        s.applyTree(el "ocean session")
+        c.eqInt("the order of the list does not matter" (EVGStyleVarTest.bgRed(el)) 30)
+        s.applyTree(el "ocean sunset")
+        c.eqInt("an unknown name in the list is ignored" (EVGStyleVarTest.bgRed(el)) 30)
+        c.eqInt("and says nothing" (s.getErrorCount()) 0)
+
+        ; A prefix is not a name: "ocean" must not be found inside "oceanic".
+        s.applyTree(el "oceanic")
+        c.eqInt("a name is a whole token" (EVGStyleVarTest.bgRed(el)) 10)
+    }
+
     sfn testIndirection:void (c:VarCheck) {
         print "--- a variable may be written in terms of another ---"
         def css:string ("@vars { --brand: rgb(70,0,0); --button: var(--brand); }"
@@ -413,6 +447,7 @@ class EVGStyleVarTest {
         EVGStyleVarTest.testSubstitution(c)
         EVGStyleVarTest.testShorthand(c)
         EVGStyleVarTest.testTheme(c)
+        EVGStyleVarTest.testThemeList(c)
         EVGStyleVarTest.testIndirection(c)
         EVGStyleVarTest.testThemeIndirection(c)
         EVGStyleVarTest.testFallback(c)
