@@ -2556,6 +2556,11 @@ class EVGElement {
         lineHeight = other.lineHeight
         lineHeightUnit = other.lineHeightUnit
         textAlign = other.textAlign
+        ; Written by the layout, not by the author — but adopted with the
+        ; rest, because a reconciled element that lost it would draw its own
+        ; text against the top of a box it was centred in until something
+        ; forced a fresh layout.
+        textShiftY = other.textShiftY
         whiteSpace = other.whiteSpace
         color = other.color
         emojiColor = other.emojiColor
