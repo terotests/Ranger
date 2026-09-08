@@ -1,0 +1,207 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; FsWatch — a query that answers again when the answer changes
+; =============================================================================
+; `onSnapshot` is the one Firestore feature an app leans on that a REST
+; simulator cannot inherit: the real thing carries it over a gRPC `Listen`
+; channel, which is not something a plain HTTP surface can pretend to be. So
+; this is the simulator's OWN — it lives under the `firesim/` prefix in the
+; URL space and says so, because the one thing this module has not done is
+; claim Google's shape for something Google does not do that way.
+;
+; A watch is a registered query plus WHAT IT LAST ANSWERED. A poll re-runs the
+; query and diffs:
+;
+;   in the new answer, not the old        → added
+;   in both, with a newer version         → modified
+;   in the old answer, not the new        → removed
+;
+; The diff is against the RESULT SET and not against the store's change log,
+; and that is the whole design decision. A change log tells you which
+; documents were written; it does not tell you that a document nobody touched
+; left the result because someone else's write moved it past the `limit`, or
+; that an edit to an unrelated field made a document start matching a
+; `where`. Those two transitions are exactly what an app renders wrongly when
+; its listener is built on a write log, and they are free here.
+;
+; The rules are applied per document, on every poll, as a `list` — so a
+; listener cannot see what a query could not, and revoking access makes rows
+; leave a live view rather than persist in it.
+; =============================================================================
+
+Import "FsQuery.rgr"
+
+; One row of what changed.
+class FsWatchChange {
+    ; "added" | "modified" | "removed"
+    def kind@(mutable):string "added"
+    def path@(mutable):string ""
+    def version@(mutable):int 0
+    def doc@(optional):FsDocument
+
+    Constructor () {
+        def d:FsDocument (new FsDocument)
+        doc = d
+    }
+
+    fn document:FsDocument () {
+        return (unwrap doc)
+    }
+}
+
+class FsWatch {
+    def id@(mutable):int 0
+    ; A watch is either one document or one query.
+    def docPath@(mutable):string ""
+    def query@(optional):FsQuery
+    def isQuery@(mutable):boolean false
+    ; Who registered it. A watch is answered as that caller, on every poll,
+    ; which is what makes a revoked permission show up as rows leaving.
+    def uid@(mutable):string ""
+    def signedIn@(mutable):boolean false
+    def owner@(mutable):boolean false
+    def claims@(optional):FsValue
+    ; What it last answered: the paths, in order, and the store version each
+    ; was at.
+    def lastPaths:[string]
+    def lastVersions:[int]
+    ; The store version at the last poll — a caller that has seen it can be
+    ; told "nothing at all has happened" without a query being run.
+    def seenVersion@(mutable):int -1
+
+    Constructor () {
+        def q:FsQuery (new FsQuery)
+        def c:FsValue (FsValue.mapV())
+        query = q
+        claims = c
+    }
+
+    fn spec:FsQuery () {
+        return (unwrap query)
+    }
+
+    fn token:FsValue () {
+        return (unwrap claims)
+    }
+
+    fn indexOfPath:int (path:string) {
+        def n:int (array_length lastPaths)
+        def i:int 0
+        while (i < n) {
+            if ((itemAt lastPaths i) == path) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+}
+
+class FsWatchRegistry {
+    def watches:[FsWatch]
+    def nextId@(mutable):int 1
+
+    Constructor () {
+    }
+
+    fn add:FsWatch () {
+        def w:FsWatch (new FsWatch)
+        w.id = nextId
+        nextId = (nextId + 1)
+        push watches w
+        return w
+    }
+
+    fn find:FsWatch (id:int) {
+        for watches w:FsWatch i {
+            if (w.id == id) {
+                return w
+            }
+        }
+        return (new FsWatch)
+    }
+
+    fn hasWatch:boolean (id:int) {
+        for watches w:FsWatch i {
+            if (w.id == id) {
+                return true
+            }
+        }
+        return false
+    }
+
+    fn stop:boolean (id:int) {
+        if (! (this.hasWatch(id))) {
+            return false
+        }
+        def kept:[FsWatch]
+        for watches w:FsWatch i {
+            if (w.id != id) {
+                push kept w
+            }
+        }
+        watches = kept
+        return true
+    }
+
+    fn count:int () {
+        return (array_length watches)
+    }
+
+    ; What changed for this watch since it last answered. `visible` is the
+    ; documents the caller may see NOW — the server runs the query and the
+    ; rules and hands the survivors in.
+    sfn diff:[FsWatchChange] (w:FsWatch visible:[FsDocument]) {
+        def out:[FsWatchChange]
+        def freshPaths:[string]
+        def freshVersions:[int]
+        for visible d:FsDocument i {
+            push freshPaths d.path
+            push freshVersions d.version
+            def at:int (w.indexOfPath(d.path))
+            if (at < 0) {
+                def added:FsWatchChange (new FsWatchChange)
+                added.kind = "added"
+                added.path = d.path
+                added.version = d.version
+                added.doc = d
+                push out added
+            } {
+                if ((itemAt w.lastVersions at) != d.version) {
+                    def changed:FsWatchChange (new FsWatchChange)
+                    changed.kind = "modified"
+                    changed.path = d.path
+                    changed.version = d.version
+                    changed.doc = d
+                    push out changed
+                }
+            }
+        }
+        ; What left. A document that was deleted and one that stopped matching
+        ; are the same event to a view, and both are `removed` on the real
+        ; thing too.
+        def n:int (array_length w.lastPaths)
+        def i:int 0
+        while (i < n) {
+            def was:string (itemAt w.lastPaths i)
+            def still:boolean false
+            for freshPaths p:string pi {
+                if (p == was) {
+                    still = true
+                }
+            }
+            if (! still) {
+                def gone:FsWatchChange (new FsWatchChange)
+                gone.kind = "removed"
+                gone.path = was
+                gone.version = (itemAt w.lastVersions i)
+                push out gone
+            }
+            i = (i + 1)
+        }
+        w.lastPaths = freshPaths
+        w.lastVersions = freshVersions
+        return out
+    }
+}

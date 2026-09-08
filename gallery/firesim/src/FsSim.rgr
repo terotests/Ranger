@@ -1,0 +1,510 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; FsSim — the clock, the wait, and the seed
+; =============================================================================
+; A backend that answers instantly is not a backend. Every screen that has a
+; spinner, a disabled button, a stale-while-revalidating list or a retry was
+; written for the WAIT, and none of those states can be looked at against a
+; mock that returns before the caller has finished the line.
+;
+; So a call here is a HANDLE. It is issued at one moment of the simulated
+; clock and becomes readable at another, and the app moves between them by
+; ticking — the same tick RealTrainer already drives its animation with, which
+; is why the demo needed no new loop to talk to this.
+;
+; The clock is the app's, not the wall's, so:
+;
+;   * a save takes the same milliseconds in the browser, in the headless
+;     check and on a phone;
+;   * a test that wants to see the spinner ticks 100 ms and looks;
+;   * a test that does not care ticks a second and reads the answer;
+;   * nothing sleeps, and a suite of two hundred cases runs in the time it
+;     takes to run the loops.
+;
+; The request is answered when it becomes READY, not when it is issued. Two
+; writes issued in the same millisecond with different latencies land in the
+; order their latencies say, which is the interleaving a real network
+; produces and the one that finds the bug.
+; =============================================================================
+
+Import "FsServer.rgr"
+
+; -----------------------------------------------------------------------------
+; FsLatency — the shape of the wait
+; -----------------------------------------------------------------------------
+class FsLatency {
+    def baseMs@(mutable):double 120.0
+    ; Spread around the base, drawn from a seeded generator so a run repeats.
+    def jitterMs@(mutable):double 0.0
+    ; Per kind, when it is not -1: "read" "write" "query" "auth" "stream"
+    def readMs@(mutable):double -1.0
+    def writeMs@(mutable):double -1.0
+    def queryMs@(mutable):double -1.0
+    def authMs@(mutable):double -1.0
+    ; Nothing reaches the backend: every call fails as it would with no
+    ; network, after the latency, which is where an app's retry lives.
+    def offline@(mutable):boolean false
+    ; The next call fails, whatever it is. A demo that cannot be made to fail
+    ; on purpose is a demo whose error state nobody has looked at.
+    def failNext@(mutable):boolean false
+    ; A share of calls, 0.0 to 1.0, that fail — for a soak run.
+    def failRate@(mutable):double 0.0
+    def seed@(mutable):int 12345
+
+    Constructor () {
+    }
+
+    fn nextRandom:double () {
+        seed = (((seed * 1103515245) + 12345) % 2147483647)
+        if (seed < 0) {
+            seed = (0 - seed)
+        }
+        return ((to_double seed) / 2147483647.0)
+    }
+
+    fn delayFor:double (kind:string) {
+        def base:double baseMs
+        if (kind == "read") {
+            if (readMs >= 0.0) {
+                base = readMs
+            }
+        }
+        if (kind == "write") {
+            if (writeMs >= 0.0) {
+                base = writeMs
+            }
+        }
+        if (kind == "query") {
+            if (queryMs >= 0.0) {
+                base = queryMs
+            }
+        }
+        if (kind == "auth") {
+            if (authMs >= 0.0) {
+                base = authMs
+            }
+        }
+        if (jitterMs <= 0.0) {
+            return base
+        }
+        def r:double (this.nextRandom())
+        return (base + ((r - 0.5) * (2.0 * jitterMs)))
+    }
+
+    fn willFail:boolean () {
+        if (offline) {
+            return true
+        }
+        if (failNext) {
+            failNext = false
+            return true
+        }
+        if (failRate <= 0.0) {
+            return false
+        }
+        def r:double (this.nextRandom())
+        return (r < failRate)
+    }
+}
+
+; -----------------------------------------------------------------------------
+; FsCall — one request, in flight
+; -----------------------------------------------------------------------------
+class FsCall {
+    def id@(mutable):int 0
+    ; "read" "write" "query" "auth" "stream" "admin"
+    def kind@(mutable):string "read"
+    def issuedMs@(mutable):double 0.0
+    def readyMs@(mutable):double 0.0
+    def done@(mutable):boolean false
+    def request@(optional):FsRequest
+    def response@(optional):FsResponse
+    ; How many chunks of a streamed response the caller has taken.
+    def takenChunks@(mutable):int 0
+
+    Constructor () {
+        def q:FsRequest (new FsRequest)
+        def r:FsResponse (new FsResponse)
+        request = q
+        response = r
+    }
+
+    fn req:FsRequest () {
+        return (unwrap request)
+    }
+
+    fn res:FsResponse () {
+        return (unwrap response)
+    }
+
+    ; How many chunks of the stream are readable at `nowMs`.
+    fn chunksReady:int (nowMs:double) {
+        if (! done) {
+            return 0
+        }
+        def r:FsResponse (unwrap response)
+        def count:int 0
+        for r.chunks c:FsChunk i {
+            if ((readyMs + c.atMs) <= nowMs) {
+                count = (count + 1)
+            }
+        }
+        return count
+    }
+
+    ; Whether the whole answer — every chunk of it — has arrived.
+    fn complete:boolean (nowMs:double) {
+        if (! done) {
+            return false
+        }
+        def r:FsResponse (unwrap response)
+        if (! r.streaming) {
+            return true
+        }
+        return ((this.chunksReady(nowMs)) >= (array_length r.chunks))
+    }
+}
+
+; -----------------------------------------------------------------------------
+; FsSeed — a database in one file
+; -----------------------------------------------------------------------------
+; Three shapes, because the useful seed is the one a project already has:
+;
+;   { "documents": { "calendars/cal-plan": { … } } }   paths, spelled out
+;   { "collections": { "calendars": { "cal-plan": { … } } } }
+;   { "calendars": [ { "id": "cal-plan", … } ], "entries": [ … ] }
+;
+; The third is `gallery/realtrainer/fixtures/reference/seed.json` as it
+; stands — the file its reference recorder puts in the Firebase emulator —
+; and it loads here with no conversion. That is the whole point: the seed
+; that makes the real app show a week makes this show the same week.
+; -----------------------------------------------------------------------------
+class FsSeed {
+    ; `ownerUid`, when given, is written as `userId` and `ownerId` on every
+    ; document that does not carry them — which is what a seeder has to do
+    ; anyway for owner-scoped rules to let the user see their own data.
+    sfn load:int (store:FsStore body:VlJson ownerUid:string nowMs:double) {
+        def written:int 0
+        if (body.has("documents")) {
+            def docs:VlJson (body.get("documents"))
+            for docs.keys path:string i {
+                if (FsSeed.put(store path (docs.get(path)) ownerUid nowMs)) {
+                    written = (written + 1)
+                }
+            }
+        }
+        if (body.has("collections")) {
+            def cols:VlJson (body.get("collections"))
+            for cols.keys cname:string ci {
+                def col:VlJson (cols.get(cname))
+                for col.keys id:string di {
+                    def path:string ((cname + "/") + id)
+                    if (FsSeed.put(store path (col.get(id)) ownerUid nowMs)) {
+                        written = (written + 1)
+                    }
+                }
+            }
+        }
+        ; Any other top-level key whose value is an array of objects with an
+        ; `id` is a collection named by that key.
+        for body.keys key:string ki {
+            def skip:boolean false
+            if (key == "documents") {
+                skip = true
+            }
+            if (key == "collections") {
+                skip = true
+            }
+            if (key == "users") {
+                skip = true
+            }
+            if (! skip) {
+                def node:VlJson (body.get(key))
+                if (node.isArray()) {
+                    def n:int (node.count())
+                    def i:int 0
+                    while (i < n) {
+                        def row:VlJson (node.at(i))
+                        if (row.isObject()) {
+                            def id:string (row.stringOr("id" ""))
+                            if ((strlen id) > 0) {
+                                def path:string ((key + "/") + id)
+                                if (FsSeed.put(store path row ownerUid nowMs)) {
+                                    written = (written + 1)
+                                }
+                            }
+                        }
+                        i = (i + 1)
+                    }
+                }
+            }
+        }
+        return written
+    }
+
+    sfn put:boolean (store:FsStore path:string node:VlJson ownerUid:string nowMs:double) {
+        if (! (node.isObject())) {
+            return false
+        }
+        def data:FsValue (FsValue.fromPlain(node))
+        if ((strlen ownerUid) > 0) {
+            if (! (data.hasField("userId"))) {
+                data.setField("userId" (FsValue.strV(ownerUid)))
+            }
+            if (! (data.hasField("ownerId"))) {
+                data.setField("ownerId" (FsValue.strV(ownerUid)))
+            }
+        }
+        def w:FsWrite (new FsWrite)
+        w.op = "set"
+        w.path = path
+        w.data = data
+        def r:FsWriteResult (store.applyWrite(w nowMs))
+        return r.ok
+    }
+}
+
+; -----------------------------------------------------------------------------
+; FsSim
+; -----------------------------------------------------------------------------
+class FsSim {
+    def server@(optional):FsServer
+    def latency@(optional):FsLatency
+    def nowMs@(mutable):double 0.0
+    def calls:[FsCall]
+    def nextCallId@(mutable):int 1
+    ; Counters a test reads instead of guessing: how many calls were made,
+    ; how many failed, and how long they waited in total.
+    def callCount@(mutable):int 0
+    def failCount@(mutable):int 0
+    def waitedMs@(mutable):double 0.0
+
+    Constructor () {
+        def s:FsServer (new FsServer)
+        def l:FsLatency (new FsLatency)
+        server = s
+        latency = l
+    }
+
+    fn backend:FsServer () {
+        return (unwrap server)
+    }
+
+    fn wait:FsLatency () {
+        return (unwrap latency)
+    }
+
+    ; --- the clock -----------------------------------------------------------
+    ; The app's tick. Everything that was due lands, in the order it was due.
+    fn tick:void (deltaMs:double) {
+        nowMs = (nowMs + deltaMs)
+        def running:boolean true
+        while (running) {
+            def next:int (this.nextDue())
+            if (next < 0) {
+                running = false
+            } {
+                def c:FsCall (itemAt calls next)
+                this.settle(c)
+            }
+        }
+    }
+
+    ; The earliest call that is due and not yet settled, so two calls due in
+    ; the same tick land in the order their deadlines say and not in the
+    ; order they were issued.
+    fn nextDue:int () {
+        def best:int -1
+        def bestMs:double 0.0
+        for calls c:FsCall i {
+            if (! c.done) {
+                if (c.readyMs <= nowMs) {
+                    if (best < 0) {
+                        best = i
+                        bestMs = c.readyMs
+                    } {
+                        if (c.readyMs < bestMs) {
+                            best = i
+                            bestMs = c.readyMs
+                        }
+                    }
+                }
+            }
+        }
+        return best
+    }
+
+    fn settle:void (c:FsCall) {
+        def l:FsLatency (unwrap latency)
+        def s:FsServer (unwrap server)
+        c.done = true
+        waitedMs = (waitedMs + (c.readyMs - c.issuedMs))
+        if (l.offline) {
+            c.response = (FsResponse.error(503 "UNAVAILABLE" "the client is offline"))
+            failCount = (failCount + 1)
+            return
+        }
+        if (l.willFail()) {
+            c.response = (FsResponse.error(503 "UNAVAILABLE" "the backend did not answer"))
+            failCount = (failCount + 1)
+            return
+        }
+        def req:FsRequest (c.req())
+        c.response = (s.handle(req c.readyMs))
+        def r:FsResponse (c.res())
+        if (r.status >= 400) {
+            failCount = (failCount + 1)
+        }
+    }
+
+    ; --- issuing -------------------------------------------------------------
+    fn send:int (req:FsRequest) {
+        def l:FsLatency (unwrap latency)
+        def kind:string (FsSim.kindOf(req))
+        def c:FsCall (new FsCall)
+        c.id = nextCallId
+        nextCallId = (nextCallId + 1)
+        c.kind = kind
+        c.issuedMs = nowMs
+        def delay:double (l.delayFor(kind))
+        if (delay < 0.0) {
+            delay = 0.0
+        }
+        c.readyMs = (nowMs + delay)
+        c.request = req
+        push calls c
+        callCount = (callCount + 1)
+        ; `failNext` is consumed when the call SETTLES, not when it is issued,
+        ; so a caller can arm it and then issue.
+        return c.id
+    }
+
+    sfn kindOf:string (req:FsRequest) {
+        def path:string req.path
+        if (FsAiSim.hasSub(path "identitytoolkit")) {
+            return "auth"
+        }
+        if (FsAiSim.hasSub(path "securetoken")) {
+            return "auth"
+        }
+        if (FsAiSim.hasSub(path "accounts:")) {
+            return "auth"
+        }
+        if (FsAiSim.hasSub(path ":runQuery")) {
+            return "query"
+        }
+        if (FsAiSim.hasSub(path "stream")) {
+            return "stream"
+        }
+        if (FsAiSim.hasSub(path "/firesim/")) {
+            return "admin"
+        }
+        if (req.method == "GET") {
+            return "read"
+        }
+        return "write"
+    }
+
+    fn callById:FsCall (id:int) {
+        for calls c:FsCall i {
+            if (c.id == id) {
+                return c
+            }
+        }
+        return (new FsCall)
+    }
+
+    fn ready:boolean (id:int) {
+        def c:FsCall (this.callById(id))
+        return c.done
+    }
+
+    fn responseOf:FsResponse (id:int) {
+        def c:FsCall (this.callById(id))
+        return (c.res())
+    }
+
+    ; The chunks of a streamed answer that have arrived since the last ask —
+    ; which is exactly what a chat screen appends.
+    fn takeChunks:[string] (id:int) {
+        def out:[string]
+        def c:FsCall (this.callById(id))
+        if (! c.done) {
+            return out
+        }
+        def res:FsResponse (c.res())
+        def have:int (c.chunksReady(nowMs))
+        def i:int c.takenChunks
+        while (i < have) {
+            def chunk:FsChunk (itemAt res.chunks i)
+            push out chunk.text
+            i = (i + 1)
+        }
+        c.takenChunks = have
+        return out
+    }
+
+    fn finished:boolean (id:int) {
+        def c:FsCall (this.callById(id))
+        return (c.complete(nowMs))
+    }
+
+    ; Drop the calls that are finished, so a long session does not keep every
+    ; answer it ever received.
+    fn reap:void () {
+        def kept:[FsCall]
+        for calls c:FsCall i {
+            if (! (c.complete(nowMs))) {
+                push kept c
+            }
+        }
+        calls = kept
+    }
+
+    ; --- without the wait ----------------------------------------------------
+    ; Seeding, an admin call and a test that is not about latency all want the
+    ; answer now. This is the same server and the same rules — only the clock
+    ; is skipped.
+    fn sendNow:FsResponse (req:FsRequest) {
+        def s:FsServer (unwrap server)
+        callCount = (callCount + 1)
+        def res:FsResponse (s.handle(req nowMs))
+        if (res.status >= 400) {
+            failCount = (failCount + 1)
+        }
+        return res
+    }
+
+    ; --- convenience ---------------------------------------------------------
+    fn seedJson:int (text:string ownerUid:string) {
+        def parser:VlJsonParser (new VlJsonParser)
+        def body:VlJson (parser.parse(text))
+        def s:FsServer (unwrap server)
+        def st:FsStore (s.db())
+        def written:int (FsSeed.load(st body ownerUid nowMs))
+        ; A seed may carry its accounts too.
+        if (body.has("users")) {
+            def a:FsAuthService (s.accounts())
+            def users:VlJson (body.get("users"))
+            def n:int (users.count())
+            def i:int 0
+            while (i < n) {
+                def u:VlJson (users.at(i))
+                a.signUp((u.stringOr("email" "")) (u.stringOr("password" "password")) (u.stringOr("displayName" "")) nowMs)
+                i = (i + 1)
+            }
+        }
+        return written
+    }
+
+    fn loadRules:string (text:string) {
+        def parsed:FsRules (FsRules.parse(text))
+        def s:FsServer (unwrap server)
+        s.rules = parsed
+        if (parsed.ok()) {
+            return ""
+        }
+        return ((parsed.error + " (line ") + (to_string parsed.errorLine) + ")")
+    }
+}

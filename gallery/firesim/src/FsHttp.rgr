@@ -1,0 +1,345 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; FsHttp — the request and the response, including one that arrives in pieces
+; =============================================================================
+; The simulator is reachable two ways and they are the same code: a host can
+; hand it a request object directly (in a browser page, in an iOS app, in a
+; test), or a tiny Node server can put it on a socket so a real client SDK or
+; `curl` can talk to it. Neither is the primary one; the request object is.
+;
+; A response may STREAM. That is not decoration: the RealTrainer engine's chat
+; asks a model for a reply and draws it as it arrives, and a backend that
+; answers in one piece cannot be used to look at that screen at all. So a
+; response carries chunks, each with the millisecond of the simulated clock it
+; becomes readable at, and the host emits them as the clock reaches them —
+; over SSE on a socket, or by handing them to the app's tick loop in-process.
+; =============================================================================
+
+Import "../../vela/src/VlJson.rgr"
+
+class FsHeaders {
+    def names:[string]
+    def values:[string]
+
+    Constructor () {
+    }
+
+    sfn lower:string (s:string) {
+        def out:string ""
+        def n:int (strlen s)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt s i)
+            def one:string (substring s i (i + 1))
+            if (c >= 65) {
+                if (c <= 90) {
+                    def shifted:string (strfromcode (c + 32))
+                    one = shifted
+                }
+            }
+            out = (out + one)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn set:void (name:string value:string) {
+        def key:string (FsHeaders.lower(name))
+        for names n:string i {
+            if (n == key) {
+                set values i value
+                return
+            }
+        }
+        push names key
+        push values value
+    }
+
+    fn value:string (name:string) {
+        def key:string (FsHeaders.lower(name))
+        for names n:string i {
+            if (n == key) {
+                return (itemAt values i)
+            }
+        }
+        return ""
+    }
+
+    fn hasHeader:boolean (name:string) {
+        def key:string (FsHeaders.lower(name))
+        for names n:string i {
+            if (n == key) {
+                return true
+            }
+        }
+        return false
+    }
+}
+
+class FsRequest {
+    def method@(mutable):string "GET"
+    ; The path with no query string, and with a leading slash.
+    def path@(mutable):string "/"
+    def queryKeys:[string]
+    def queryValues:[string]
+    def headers@(optional):FsHeaders
+    def body@(mutable):string ""
+
+    Constructor () {
+        def h:FsHeaders (new FsHeaders)
+        headers = h
+    }
+
+    fn head:FsHeaders () {
+        return (unwrap headers)
+    }
+
+    fn query:string (name:string) {
+        for queryKeys k:string i {
+            if (k == name) {
+                return (itemAt queryValues i)
+            }
+        }
+        return ""
+    }
+
+    ; Every value under one name — `mask.fieldPaths=a&mask.fieldPaths=b`, which
+    ; is how the REST API says a field mask.
+    fn queryAll:[string] (name:string) {
+        def out:[string]
+        for queryKeys k:string i {
+            if (k == name) {
+                push out (itemAt queryValues i)
+            }
+        }
+        return out
+    }
+
+    fn hasQuery:boolean (name:string) {
+        for queryKeys k:string i {
+            if (k == name) {
+                return true
+            }
+        }
+        return false
+    }
+
+    fn json:VlJson () {
+        if ((strlen body) == 0) {
+            return (VlJson.objectValue())
+        }
+        def parser:VlJsonParser (new VlJsonParser)
+        return (parser.parse(body))
+    }
+
+    ; The bearer token, or "" — `Authorization: Bearer <token>`.
+    fn bearer:string () {
+        def h:FsHeaders (unwrap headers)
+        def raw:string (h.value("authorization"))
+        if ((strlen raw) < 8) {
+            return ""
+        }
+        if ((substring raw 0 7) != "Bearer ") {
+            return ""
+        }
+        return (substring raw 7 (strlen raw))
+    }
+
+    ; `/v1/projects/p/databases/d/documents/x?y=1` split into a URL and its
+    ; query, then percent-decoded.
+    sfn parse:FsRequest (method:string url:string body:string) {
+        def r:FsRequest (new FsRequest)
+        r.method = method
+        r.body = body
+        def cut:int -1
+        def n:int (strlen url)
+        def i:int 0
+        while (i < n) {
+            if ((charAt url i) == 63) {
+                cut = i
+                i = n
+            } {
+                i = (i + 1)
+            }
+        }
+        if (cut < 0) {
+            r.path = (FsRequest.percentDecode(url))
+            return r
+        }
+        r.path = (FsRequest.percentDecode((substring url 0 cut)))
+        def qs:string (substring url (cut + 1) n)
+        def pairs:[string] (strsplit qs "&")
+        for pairs p:string pi {
+            if ((strlen p) > 0) {
+                def eq:int -1
+                def pn:int (strlen p)
+                def k:int 0
+                while (k < pn) {
+                    if ((charAt p k) == 61) {
+                        eq = k
+                        k = pn
+                    } {
+                        k = (k + 1)
+                    }
+                }
+                if (eq < 0) {
+                    push r.queryKeys (FsRequest.percentDecode(p))
+                    push r.queryValues ""
+                } {
+                    push r.queryKeys (FsRequest.percentDecode((substring p 0 eq)))
+                    push r.queryValues (FsRequest.percentDecode((substring p (eq + 1) pn)))
+                }
+            }
+        }
+        return r
+    }
+
+    sfn hexOf:int (c:int) {
+        if (c >= 48) {
+            if (c <= 57) {
+                return (c - 48)
+            }
+        }
+        if (c >= 97) {
+            if (c <= 102) {
+                return ((c - 97) + 10)
+            }
+        }
+        if (c >= 65) {
+            if (c <= 70) {
+                return ((c - 65) + 10)
+            }
+        }
+        return -1
+    }
+
+    sfn percentDecode:string (s:string) {
+        def out:string ""
+        def n:int (strlen s)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt s i)
+            if (c == 43) {
+                out = (out + " ")
+                i = (i + 1)
+            } {
+                if (c == 37) {
+                    if ((i + 2) < n) {
+                        def hi:int (FsRequest.hexOf((charAt s (i + 1))))
+                        def lo:int (FsRequest.hexOf((charAt s (i + 2))))
+                        if (hi >= 0) {
+                            if (lo >= 0) {
+                                def one:string (strfromcode ((hi * 16) + lo))
+                                out = (out + one)
+                                i = (i + 3)
+                            } {
+                                out = (out + "%")
+                                i = (i + 1)
+                            }
+                        } {
+                            out = (out + "%")
+                            i = (i + 1)
+                        }
+                    } {
+                        out = (out + "%")
+                        i = (i + 1)
+                    }
+                } {
+                    out = (out + (substring s i (i + 1)))
+                    i = (i + 1)
+                }
+            }
+        }
+        return out
+    }
+}
+
+; One piece of a streamed body, and the moment of the simulated clock it is
+; readable at, counted from when the response began.
+class FsChunk {
+    def atMs@(mutable):double 0.0
+    def text@(mutable):string ""
+
+    Constructor () {
+    }
+}
+
+class FsResponse {
+    def status@(mutable):int 200
+    def contentType@(mutable):string "application/json"
+    def body@(mutable):string ""
+    def headers@(optional):FsHeaders
+    ; A streamed response has chunks and an empty body until they have all
+    ; arrived; `body` is then their concatenation, so a caller that does not
+    ; care about streaming can read it as one string.
+    def streaming@(mutable):boolean false
+    def chunks:[FsChunk]
+
+    Constructor () {
+        def h:FsHeaders (new FsHeaders)
+        headers = h
+    }
+
+    fn head:FsHeaders () {
+        return (unwrap headers)
+    }
+
+    fn addChunk:void (atMs:double text:string) {
+        def c:FsChunk (new FsChunk)
+        c.atMs = atMs
+        c.text = text
+        push chunks c
+        streaming = true
+    }
+
+    ; The whole stream as one string — what a caller that waited gets.
+    fn joined:string () {
+        if (! streaming) {
+            return body
+        }
+        def out:string ""
+        for chunks c:FsChunk i {
+            out = (out + c.text)
+        }
+        return out
+    }
+
+    fn lastChunkMs:double () {
+        def out:double 0.0
+        for chunks c:FsChunk i {
+            if (c.atMs > out) {
+                out = c.atMs
+            }
+        }
+        return out
+    }
+
+    sfn json:FsResponse (status:int value:VlJson) {
+        def r:FsResponse (new FsResponse)
+        r.status = status
+        def writer:VlJsonWriter (new VlJsonWriter)
+        r.body = (writer.write(value))
+        return r
+    }
+
+    ; The error envelope Google's APIs answer with, which is what a client
+    ; SDK parses to decide whether to retry.
+    sfn error:FsResponse (status:int code:string message:string) {
+        def err:VlJson (VlJson.objectValue())
+        def inner:VlJson (VlJson.objectValue())
+        inner.setMember("code" (VlJson.intValue(status)))
+        inner.setMember("message" (VlJson.stringValue(message)))
+        inner.setMember("status" (VlJson.stringValue(code)))
+        err.setMember("error" inner)
+        return (FsResponse.json(status err))
+    }
+
+    sfn text:FsResponse (status:int contentType:string body:string) {
+        def r:FsResponse (new FsResponse)
+        r.status = status
+        r.contentType = contentType
+        r.body = body
+        return r
+    }
+}

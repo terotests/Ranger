@@ -1,0 +1,65 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// The rules the workbench runs under. A real file in the real language: the
+// permission grid on the Rules tab is this text, parsed, and run by
+// FsRulesEval against whatever path is selected in the data browser, for each
+// identity in turn.
+//
+// Written to be a fair example rather than a permissive one: an owner, a
+// custom claim, a public collection, and a closed default.
+
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function owns(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    // A custom claim, minted onto the token rather than stored in a document,
+    // so an admin check costs no read.
+    function isAdmin() {
+      return signedIn() && request.auth.token.admin == true;
+    }
+
+    // A profile: anyone signed in may read one, its owner and an admin may
+    // write it.
+    match /users/{uid} {
+      allow read:  if signedIn();
+      allow write: if owns(uid) || isAdmin();
+
+      // A subcollection is NOT covered by its parent's rule. This block is
+      // what lets anyone reach it at all.
+      match /sessions/{sessionId} {
+        allow read, write: if owns(uid) || isAdmin();
+      }
+    }
+
+    // A public catalogue: readable by anybody, writable by an admin.
+    match /products/{productId} {
+      allow read:  if true;
+      allow write: if isAdmin();
+    }
+
+    // One rule for a create and an update, which is only writable because
+    // CEL's `||` absorbs the error from the half that reads a document that
+    // is not there yet: on a create `resource` is null.
+    match /orders/{orderId} {
+      allow read:   if owns(resource.data.userId) || isAdmin();
+      allow create: if owns(request.resource.data.userId);
+      allow update: if owns(resource.data.userId) && request.resource.data.userId == resource.data.userId;
+      allow delete: if isAdmin();
+    }
+
+    // Everything else is closed. A collection nobody wrote a rule for is a
+    // collection nobody may read, which is the default worth having.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

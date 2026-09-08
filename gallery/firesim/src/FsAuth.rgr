@@ -1,0 +1,540 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; FsAuth — accounts, without Google
+; =============================================================================
+; The reason this exists is the ask that started the module: run the app with
+; NO Google account, or with six of them, and switch between them in a test
+; without a browser and without a network.
+;
+; It answers the Identity Toolkit REST shapes the Firebase client SDKs use —
+; `accounts:signUp`, `accounts:signInWithPassword`, `accounts:lookup`,
+; `accounts:update`, `accounts:delete`, `token` — and it mints the SAME kind
+; of token the Firebase Auth emulator mints: a JWT with `alg: none` and an
+; empty signature. That matters more than it sounds: a client that decodes
+; its own token to read `uid` or a custom claim (every app does) works
+; unchanged, and a token from here is refused by production, which is exactly
+; the property you want from a test credential.
+;
+; Passwords are stored as written. This is a simulator whose whole database
+; is a JSON file you can print; hashing them would suggest a secrecy that is
+; not there. Never point this at real user data.
+; =============================================================================
+
+Import "FsValue.rgr"
+
+class FsUser {
+    def localId@(mutable):string ""
+    def email@(mutable):string ""
+    def password@(mutable):string ""
+    def displayName@(mutable):string ""
+    def photoUrl@(mutable):string ""
+    def phoneNumber@(mutable):string ""
+    def emailVerified@(mutable):boolean false
+    def disabled@(mutable):boolean false
+    ; "password" | "anonymous" | "google.com" | "apple.com" | …
+    def providerId@(mutable):string "password"
+    def createdAtMs@(mutable):double 0.0
+    def lastLoginAtMs@(mutable):double 0.0
+    def refreshToken@(mutable):string ""
+    ; What `request.auth.token` carries beyond the standard fields.
+    def customClaims@(optional):FsValue
+
+    Constructor () {
+        def c:FsValue (FsValue.mapV())
+        customClaims = c
+    }
+
+    fn claims:FsValue () {
+        return (unwrap customClaims)
+    }
+
+    fn isAnonymous:boolean () {
+        return (providerId == "anonymous")
+    }
+}
+
+; What every auth call answers with: a user and a token, or an error in the
+; shape the Identity Toolkit uses (`EMAIL_NOT_FOUND`, `INVALID_PASSWORD`, …),
+; because that string is what client SDKs turn into `auth/wrong-password`.
+class FsAuthResult {
+    def ok@(mutable):boolean true
+    def code@(mutable):int 200
+    def error@(mutable):string ""
+    def localId@(mutable):string ""
+    def email@(mutable):string ""
+    def idToken@(mutable):string ""
+    def refreshToken@(mutable):string ""
+    def expiresIn@(mutable):int 3600
+    def registered@(mutable):boolean true
+    def displayName@(mutable):string ""
+
+    Constructor () {
+    }
+}
+
+; -----------------------------------------------------------------------------
+; FsBase64 — base64url, for the token
+; -----------------------------------------------------------------------------
+class FsBase64 {
+    sfn alphabet:string () {
+        return "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+    }
+
+    ; UTF-8 bytes of a string. A JWT payload holds e-mail addresses and
+    ; display names, and a name with an ä in it must not change length
+    ; between targets.
+    sfn utf8:[int] (s:string) {
+        def out:[int]
+        def n:int (strlen s)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt s i)
+            if (c < 128) {
+                push out c
+            } {
+                if (c < 2048) {
+                    push out (192 + (idiv c 64))
+                    push out (128 + (c % 64))
+                } {
+                    def isHigh:boolean false
+                    if (c >= 55296) {
+                        if (c <= 56319) {
+                            isHigh = true
+                        }
+                    }
+                    if (isHigh) {
+                        if ((i + 1) < n) {
+                            def low:int (charAt s (i + 1))
+                            def cp:int ((((c - 55296) * 1024) + (low - 56320)) + 65536)
+                            push out (240 + (idiv cp 262144))
+                            push out (128 + ((idiv cp 4096) % 64))
+                            push out (128 + ((idiv cp 64) % 64))
+                            push out (128 + (cp % 64))
+                            i = (i + 1)
+                        }
+                    } {
+                        push out (224 + (idiv c 4096))
+                        push out (128 + ((idiv c 64) % 64))
+                        push out (128 + (c % 64))
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn encode:string (s:string) {
+        def bytes:[int] (FsBase64.utf8(s))
+        def abc:string (FsBase64.alphabet())
+        def out:string ""
+        def n:int (array_length bytes)
+        def i:int 0
+        while (i < n) {
+            def b0:int (itemAt bytes i)
+            def b1:int 0
+            def b2:int 0
+            def have:int 1
+            if ((i + 1) < n) {
+                b1 = (itemAt bytes (i + 1))
+                have = 2
+            }
+            if ((i + 2) < n) {
+                b2 = (itemAt bytes (i + 2))
+                have = 3
+            }
+            def triple:int (((b0 * 65536) + (b1 * 256)) + b2)
+            def c0:int (idiv triple 262144)
+            def c1:int ((idiv triple 4096) % 64)
+            def c2:int ((idiv triple 64) % 64)
+            def c3:int (triple % 64)
+            out = (out + (substring abc c0 (c0 + 1)))
+            out = (out + (substring abc c1 (c1 + 1)))
+            if (have > 1) {
+                out = (out + (substring abc c2 (c2 + 1)))
+            }
+            if (have > 2) {
+                out = (out + (substring abc c3 (c3 + 1)))
+            }
+            i = (i + 3)
+        }
+        return out
+    }
+
+    sfn indexOfChar:int (abc:string c:int) {
+        def n:int (strlen abc)
+        def i:int 0
+        while (i < n) {
+            if ((charAt abc i) == c) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; Enough of a decoder to read a token back, which the tests do and a host
+    ; that wants the claims without a JWT library can.
+    sfn decode:string (s:string) {
+        def abc:string (FsBase64.alphabet())
+        def bytes:[int]
+        def acc:int 0
+        def bits:int 0
+        def n:int (strlen s)
+        def i:int 0
+        while (i < n) {
+            def idx:int (FsBase64.indexOfChar(abc (charAt s i)))
+            if (idx >= 0) {
+                acc = ((acc * 64) + idx)
+                bits = (bits + 6)
+                if (bits >= 8) {
+                    def shift:int (bits - 8)
+                    def div:int 1
+                    def k:int 0
+                    while (k < shift) {
+                        div = (div * 2)
+                        k = (k + 1)
+                    }
+                    def byte:int ((idiv acc div) % 256)
+                    push bytes byte
+                    acc = (acc % div)
+                    bits = shift
+                }
+            }
+            i = (i + 1)
+        }
+        ; Back to text. The payload is JSON, so the UTF-8 walk is the inverse
+        ; of the one above.
+        def out:string ""
+        def bn:int (array_length bytes)
+        def bi:int 0
+        while (bi < bn) {
+            def b:int (itemAt bytes bi)
+            if (b < 128) {
+                out = (out + (FsBase64.charOf(b)))
+                bi = (bi + 1)
+            } {
+                if (b < 224) {
+                    def b1:int 0
+                    if ((bi + 1) < bn) {
+                        b1 = (itemAt bytes (bi + 1))
+                    }
+                    out = (out + (FsBase64.charOf((((b - 192) * 64) + (b1 - 128)))))
+                    bi = (bi + 2)
+                } {
+                    if (b < 240) {
+                        def c1:int 0
+                        def c2:int 0
+                        if ((bi + 1) < bn) {
+                            c1 = (itemAt bytes (bi + 1))
+                        }
+                        if ((bi + 2) < bn) {
+                            c2 = (itemAt bytes (bi + 2))
+                        }
+                        out = (out + (FsBase64.charOf(((((b - 224) * 4096) + ((c1 - 128) * 64)) + (c2 - 128)))))
+                        bi = (bi + 3)
+                    } {
+                        bi = (bi + 4)
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    ; One code unit as a string. Bound to a variable before it is returned,
+    ; because `strfromcode` used directly as an argument does not compile on
+    ; every target (gallery/book's ApplePlist says the same, for the same
+    ; reason).
+    sfn charOf:string (code:int) {
+        def one:string (strfromcode code)
+        return one
+    }
+}
+
+; -----------------------------------------------------------------------------
+; FsAuthService
+; -----------------------------------------------------------------------------
+class FsAuthService {
+    def projectId@(mutable):string "demo-firesim"
+    def users:[FsUser]
+    def nextId@(mutable):int 1
+    ; How long a minted token lasts, in milliseconds of the simulated clock.
+    def tokenLifetimeMs@(mutable):double 3600000.0
+
+    Constructor () {
+    }
+
+    fn findByEmail:int (email:string) {
+        def lower:string (FsAuthService.lower(email))
+        for users u:FsUser i {
+            if ((FsAuthService.lower(u.email)) == lower) {
+                return i
+            }
+        }
+        return -1
+    }
+
+    fn findById:int (localId:string) {
+        for users u:FsUser i {
+            if (u.localId == localId) {
+                return i
+            }
+        }
+        return -1
+    }
+
+    sfn lower:string (s:string) {
+        def out:string ""
+        def n:int (strlen s)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt s i)
+            def one:string (substring s i (i + 1))
+            if (c >= 65) {
+                if (c <= 90) {
+                    one = (FsBase64.charOf((c + 32)))
+                }
+            }
+            out = (out + one)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn userAt:FsUser (index:int) {
+        return (itemAt users index)
+    }
+
+    ; --- accounts ------------------------------------------------------------
+    fn signUp:FsAuthResult (email:string password:string displayName:string nowMs:double) {
+        def res:FsAuthResult (new FsAuthResult)
+        def anonymous:boolean ((strlen email) == 0)
+        if (! anonymous) {
+            if ((strlen password) < 6) {
+                res.ok = false
+                res.code = 400
+                res.error = "WEAK_PASSWORD : Password should be at least 6 characters"
+                return res
+            }
+            if ((this.findByEmail(email)) >= 0) {
+                res.ok = false
+                res.code = 400
+                res.error = "EMAIL_EXISTS"
+                return res
+            }
+        }
+        def u:FsUser (new FsUser)
+        u.localId = ("uid-" + (to_string nextId))
+        nextId = (nextId + 1)
+        u.email = email
+        u.password = password
+        u.displayName = displayName
+        u.createdAtMs = nowMs
+        u.lastLoginAtMs = nowMs
+        u.providerId = "password"
+        if (anonymous) {
+            u.providerId = "anonymous"
+        }
+        u.refreshToken = ("refresh-" + u.localId)
+        push users u
+        return (this.grant(u nowMs))
+    }
+
+    fn signIn:FsAuthResult (email:string password:string nowMs:double) {
+        def res:FsAuthResult (new FsAuthResult)
+        def idx:int (this.findByEmail(email))
+        if (idx < 0) {
+            res.ok = false
+            res.code = 400
+            res.error = "EMAIL_NOT_FOUND"
+            res.registered = false
+            return res
+        }
+        def u:FsUser (itemAt users idx)
+        if (u.disabled) {
+            res.ok = false
+            res.code = 400
+            res.error = "USER_DISABLED"
+            return res
+        }
+        if (u.password != password) {
+            res.ok = false
+            res.code = 400
+            res.error = "INVALID_PASSWORD"
+            return res
+        }
+        u.lastLoginAtMs = nowMs
+        return (this.grant(u nowMs))
+    }
+
+    fn refresh:FsAuthResult (refreshToken:string nowMs:double) {
+        def res:FsAuthResult (new FsAuthResult)
+        for users u:FsUser i {
+            if (u.refreshToken == refreshToken) {
+                return (this.grant(u nowMs))
+            }
+        }
+        res.ok = false
+        res.code = 400
+        res.error = "INVALID_REFRESH_TOKEN"
+        return res
+    }
+
+    fn setClaims:boolean (localId:string claims:FsValue) {
+        def idx:int (this.findById(localId))
+        if (idx < 0) {
+            return false
+        }
+        def u:FsUser (itemAt users idx)
+        u.customClaims = (claims.copy())
+        return true
+    }
+
+    fn setDisabled:boolean (localId:string disabled:boolean) {
+        def idx:int (this.findById(localId))
+        if (idx < 0) {
+            return false
+        }
+        def u:FsUser (itemAt users idx)
+        u.disabled = disabled
+        return true
+    }
+
+    fn deleteUser:boolean (localId:string) {
+        def idx:int (this.findById(localId))
+        if (idx < 0) {
+            return false
+        }
+        def kept:[FsUser]
+        for users u:FsUser i {
+            if (i != idx) {
+                push kept u
+            }
+        }
+        users = kept
+        return true
+    }
+
+    fn wipe:void () {
+        def fresh:[FsUser]
+        users = fresh
+        nextId = 1
+    }
+
+    ; --- tokens --------------------------------------------------------------
+    fn grant:FsAuthResult (u:FsUser nowMs:double) {
+        def res:FsAuthResult (new FsAuthResult)
+        res.localId = u.localId
+        res.email = u.email
+        res.displayName = u.displayName
+        res.refreshToken = u.refreshToken
+        res.idToken = (this.mint(u nowMs))
+        def lifeSec:double (tokenLifetimeMs / 1000.0)
+        res.expiresIn = (floor lifeSec)
+        return res
+    }
+
+    ; The emulator's own token shape: `alg: none`, an empty signature, and
+    ; the claims a Firebase ID token carries. A client SDK reads `user_id`
+    ; and the custom claims out of this without being told it is a fake.
+    fn mint:string (u:FsUser nowMs:double) {
+        def iat:int (floor (nowMs / 1000.0))
+        def exp:int (floor ((nowMs + tokenLifetimeMs) / 1000.0))
+        def payload:VlJson (VlJson.objectValue())
+        payload.setMember("iss" (VlJson.stringValue(("https://securetoken.google.com/" + projectId))))
+        payload.setMember("aud" (VlJson.stringValue(projectId)))
+        payload.setMember("auth_time" (VlJson.intValue(iat)))
+        payload.setMember("user_id" (VlJson.stringValue(u.localId)))
+        payload.setMember("sub" (VlJson.stringValue(u.localId)))
+        payload.setMember("iat" (VlJson.intValue(iat)))
+        payload.setMember("exp" (VlJson.intValue(exp)))
+        if ((strlen u.email) > 0) {
+            payload.setMember("email" (VlJson.stringValue(u.email)))
+            payload.setMember("email_verified" (VlJson.boolValue(u.emailVerified)))
+        }
+        if ((strlen u.displayName) > 0) {
+            payload.setMember("name" (VlJson.stringValue(u.displayName)))
+        }
+        ; The custom claims sit at the top level of the token, which is where
+        ; `request.auth.token.<claim>` reads them from.
+        def claims:FsValue (u.claims())
+        for claims.keys k:string ki {
+            def cv:FsValue (claims.field(k))
+            payload.setMember(k (cv.toPlain()))
+        }
+        def firebase:VlJson (VlJson.objectValue())
+        firebase.setMember("sign_in_provider" (VlJson.stringValue(u.providerId)))
+        def identities:VlJson (VlJson.objectValue())
+        if ((strlen u.email) > 0) {
+            def emails:VlJson (VlJson.arrayValue())
+            push emails.arr (VlJson.stringValue(u.email))
+            identities.setMember("email" emails)
+        }
+        firebase.setMember("identities" identities)
+        payload.setMember("firebase" firebase)
+        def writer:VlJsonWriter (new VlJsonWriter)
+        def head:string (FsBase64.encode((FsToken.header())))
+        def body:string (FsBase64.encode((writer.write(payload))))
+        return ((head + ".") + body + ".")
+    }
+
+    ; The user a token names, or -1. An expired token is refused, so a test
+    ; can move the clock past `tokenLifetimeMs` and see what the app does
+    ; when its credential goes stale — the case nobody tests by hand.
+    fn verify:int (idToken:string nowMs:double) {
+        def parts:[string] (strsplit idToken ".")
+        if ((array_length parts) < 2) {
+            return -1
+        }
+        def json:string (FsBase64.decode((itemAt parts 1)))
+        def parser:VlJsonParser (new VlJsonParser)
+        def payload:VlJson (parser.parse(json))
+        if (! (payload.isObject())) {
+            return -1
+        }
+        def uid:string (payload.stringOr("user_id" ""))
+        def exp:int (payload.intOr("exp" 0))
+        if (exp > 0) {
+            def nowSec:int (floor (nowMs / 1000.0))
+            if (nowSec >= exp) {
+                return -2
+            }
+        }
+        def idx:int (this.findById(uid))
+        if (idx < 0) {
+            return -1
+        }
+        def u:FsUser (itemAt users idx)
+        if (u.disabled) {
+            return -3
+        }
+        return idx
+    }
+
+    ; The claims a verified token carries, as the rules see them.
+    fn claimsOf:FsValue (idToken:string) {
+        def parts:[string] (strsplit idToken ".")
+        def out:FsValue (FsValue.mapV())
+        if ((array_length parts) < 2) {
+            return out
+        }
+        def json:string (FsBase64.decode((itemAt parts 1)))
+        def parser:VlJsonParser (new VlJsonParser)
+        def payload:VlJson (parser.parse(json))
+        if (! (payload.isObject())) {
+            return out
+        }
+        for payload.keys k:string ki {
+            out.setField(k (FsValue.fromPlain((payload.get(k)))))
+        }
+        return out
+    }
+}
+
+class FsToken {
+    sfn header:string () {
+        return "{\"alg\":\"none\",\"typ\":\"JWT\"}"
+    }
+}

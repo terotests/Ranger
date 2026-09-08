@@ -1,0 +1,1261 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; FsServer — the endpoints, answered
+; =============================================================================
+; This is the seam. Everything above it is an app; everything below it is a
+; store, a rules engine and a table of accounts. Swap what is below for the
+; real thing and the app does not change, because what is between them is the
+; REST surface Google publishes and not an interface invented here:
+;
+;   Firestore
+;     GET    /v1/projects/{p}/databases/{d}/documents/{document}
+;     GET    /v1/projects/{p}/databases/{d}/documents/{collection}
+;     POST   /v1/projects/{p}/databases/{d}/documents/{collection}?documentId=
+;     PATCH  /v1/projects/{p}/databases/{d}/documents/{document}
+;     DELETE /v1/projects/{p}/databases/{d}/documents/{document}
+;     POST   …/documents:runQuery          …/documents/{parent}:runQuery
+;     POST   …/documents:commit            …/documents:batchGet
+;     POST   …/documents/{parent}:listCollectionIds
+;
+;   Identity Toolkit
+;     POST   /identitytoolkit.googleapis.com/v1/accounts:signUp
+;     POST   …:signInWithPassword   …:lookup   …:update   …:delete
+;     POST   /securetoken.googleapis.com/v1/token
+;
+;   The emulator's own
+;     DELETE /emulator/v1/projects/{p}/databases/{d}/documents
+;     DELETE /emulator/v1/projects/{p}/accounts
+;
+;   This simulator's own, which is NOT Firebase and says so in its prefix
+;     POST   /firesim/v1/seed        a database in one call
+;     POST   /firesim/v1/latency     the shape of the wait
+;     POST   /firesim/v1/rules       the rules text
+;     POST   /firesim/v1/claims      custom claims on a user
+;     GET    /firesim/v1/state       everything, as JSON
+;
+;   The model
+;     POST   /ai/v1/chat:stream
+;     POST   /v1beta/models/{model}:streamGenerateContent
+;
+; `Authorization: Bearer owner` is the emulator's admin escape and bypasses
+; the rules, which is what a seeder needs and what a test of the rules must
+; never use.
+; =============================================================================
+
+Import "FsStore.rgr"
+Import "FsQuery.rgr"
+Import "FsWatch.rgr"
+Import "FsRulesEval.rgr"
+Import "FsAuth.rgr"
+Import "FsHttp.rgr"
+Import "FsAi.rgr"
+
+; Who is asking.
+class FsSession {
+    def signedIn@(mutable):boolean false
+    def uid@(mutable):string ""
+    def owner@(mutable):boolean false
+    def claims@(optional):FsValue
+    def tokenError@(mutable):string ""
+
+    Constructor () {
+        def c:FsValue (FsValue.mapV())
+        claims = c
+    }
+
+    fn token:FsValue () {
+        return (unwrap claims)
+    }
+}
+
+class FsServer {
+    def store@(optional):FsStore
+    def auth@(optional):FsAuthService
+    def rules@(optional):FsRules
+    def ai@(optional):FsAiSim
+    def watches@(optional):FsWatchRegistry
+    def projectId@(mutable):string "demo-firesim"
+    def databaseId@(mutable):string "(default)"
+    ; Off means every request is allowed — the shape a project has before it
+    ; has written any rules. It is a switch and not a default: the default is
+    ; on, because a simulator that ignores rules teaches nothing about them.
+    def rulesEnabled@(mutable):boolean true
+    ; Deterministic ids for `POST` without a documentId.
+    def idSeed@(mutable):int 20250101
+    ; Every request that has been answered, for a test that wants to see what
+    ; the app actually asked for.
+    def logMethods:[string]
+    def logPaths:[string]
+    def logStatuses:[int]
+    def logging@(mutable):boolean true
+
+    Constructor () {
+        def s:FsStore (new FsStore)
+        def a:FsAuthService (new FsAuthService)
+        def r:FsRules (FsRules.allowAll())
+        def m:FsAiSim (new FsAiSim)
+        def w:FsWatchRegistry (new FsWatchRegistry)
+        watches = w
+        store = s
+        auth = a
+        rules = r
+        ai = m
+    }
+
+    fn db:FsStore () {
+        return (unwrap store)
+    }
+
+    fn accounts:FsAuthService () {
+        return (unwrap auth)
+    }
+
+    fn policy:FsRules () {
+        return (unwrap rules)
+    }
+
+    fn model:FsAiSim () {
+        return (unwrap ai)
+    }
+
+    fn listeners:FsWatchRegistry () {
+        return (unwrap watches)
+    }
+
+    ; --- names ---------------------------------------------------------------
+    fn documentsRoot:string () {
+        return ((("projects/" + projectId) + "/databases/" + databaseId) + "/documents")
+    }
+
+    fn nameOf:string (path:string) {
+        def root:string (this.documentsRoot())
+        if ((strlen path) == 0) {
+            return root
+        }
+        return ((root + "/") + path)
+    }
+
+    ; `projects/p/databases/d/documents/calendars/x` → `calendars/x`
+    sfn pathOfName:string (name:string) {
+        def segs:[string] (FsPath.segments(name))
+        def n:int (array_length segs)
+        def i:int 0
+        while (i < n) {
+            if ((itemAt segs i) == "documents") {
+                def kept:[string]
+                def k:int (i + 1)
+                while (k < n) {
+                    push kept (itemAt segs k)
+                    k = (k + 1)
+                }
+                return (FsPath.joinSegs(kept))
+            }
+            i = (i + 1)
+        }
+        return name
+    }
+
+    ; A document id of the shape Firestore makes, from a counter rather than
+    ; from chance: the same test writes the same ids every run.
+    fn nextId:string () {
+        def abc:string "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+        def out:string ""
+        def i:int 0
+        while (i < 20) {
+            idSeed = (((idSeed * 1103515245) + 12345) % 2147483647)
+            if (idSeed < 0) {
+                idSeed = (0 - idSeed)
+            }
+            def at:int (idSeed % 62)
+            out = (out + (substring abc at (at + 1)))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; --- the wire shapes -----------------------------------------------------
+    fn documentJson:VlJson (doc:FsDocument) {
+        def out:VlJson (VlJson.objectValue())
+        out.setMember("name" (VlJson.stringValue((this.nameOf(doc.path)))))
+        def fields:VlJson (VlJson.objectValue())
+        def data:FsValue (doc.root())
+        for data.keys k:string ki {
+            def v:FsValue (data.field(k))
+            fields.setMember(k (v.toWire()))
+        }
+        out.setMember("fields" fields)
+        out.setMember("createTime" (VlJson.stringValue((FsTime.formatIso(doc.createMs)))))
+        out.setMember("updateTime" (VlJson.stringValue((FsTime.formatIso(doc.updateMs)))))
+        return out
+    }
+
+    sfn fieldsOf:FsValue (body:VlJson) {
+        def out:FsValue (FsValue.mapV())
+        if (! (body.has("fields"))) {
+            return out
+        }
+        def fields:VlJson (body.get("fields"))
+        for fields.keys k:string ki {
+            out.setField(k (FsValue.fromWire((fields.get(k)))))
+        }
+        return out
+    }
+
+    ; --- who is asking -------------------------------------------------------
+    fn sessionOf:FsSession (req:FsRequest nowMs:double) {
+        def s:FsSession (new FsSession)
+        def token:string (req.bearer())
+        if ((strlen token) == 0) {
+            return s
+        }
+        if (token == "owner") {
+            s.owner = true
+            return s
+        }
+        def a:FsAuthService (unwrap auth)
+        def idx:int (a.verify(token nowMs))
+        if (idx == -2) {
+            s.tokenError = "the ID token is expired"
+            return s
+        }
+        if (idx == -3) {
+            s.tokenError = "the user is disabled"
+            return s
+        }
+        if (idx < 0) {
+            s.tokenError = "the ID token is not valid"
+            return s
+        }
+        def u:FsUser (a.userAt(idx))
+        s.signedIn = true
+        s.uid = u.localId
+        s.claims = (a.claimsOf(token))
+        return s
+    }
+
+    ; --- the gate ------------------------------------------------------------
+    fn allow:FsRuleDecision (method:string path:string incoming:FsValue hasIncoming:boolean s:FsSession nowMs:double) {
+        def d:FsRuleDecision (new FsRuleDecision)
+        if (s.owner) {
+            d.allowed = true
+            d.reason = "owner"
+            return d
+        }
+        if (! rulesEnabled) {
+            d.allowed = true
+            d.reason = "rules are off"
+            return d
+        }
+        def c:FsRequestCtx (new FsRequestCtx)
+        c.method = method
+        c.path = path
+        c.databaseId = databaseId
+        c.nowMs = nowMs
+        c.signedIn = s.signedIn
+        c.authUid = s.uid
+        c.token = (s.token())
+        def dbStore:FsStore (unwrap store)
+        if (dbStore.exists(path)) {
+            def existing:FsDocument (dbStore.get(path))
+            c.resourceExists = true
+            c.resourceData = (existing.root())
+        }
+        if (hasIncoming) {
+            c.hasRequestData = true
+            c.requestData = incoming
+        }
+        def rulesFile:FsRules (unwrap rules)
+        return (FsRulesEval.check(rulesFile dbStore c))
+    }
+
+    fn denied:FsResponse (d:FsRuleDecision) {
+        return (FsResponse.error(403 "PERMISSION_DENIED" ("Missing or insufficient permissions: " + d.reason)))
+    }
+
+    ; --- the entry point -----------------------------------------------------
+    fn handle:FsResponse (req:FsRequest nowMs:double) {
+        def res:FsResponse (this.route(req nowMs))
+        if (logging) {
+            push logMethods req.method
+            push logPaths req.path
+            push logStatuses res.status
+        }
+        return res
+    }
+
+    fn route:FsResponse (req:FsRequest nowMs:double) {
+        def segs:[string] (FsPath.segments(req.path))
+        def n:int (array_length segs)
+        if (n == 0) {
+            return (FsResponse.error(404 "NOT_FOUND" "no route"))
+        }
+        def head:string (itemAt segs 0)
+        if (head == "firesim") {
+            return (this.routeAdmin(req segs nowMs))
+        }
+        if (head == "emulator") {
+            return (this.routeEmulator(req segs nowMs))
+        }
+        if (head == "ai") {
+            return (this.routeAi(req segs nowMs))
+        }
+        if (head == "v1beta") {
+            return (this.routeAi(req segs nowMs))
+        }
+        if (head == "identitytoolkit.googleapis.com") {
+            return (this.routeIdentity(req segs 1 nowMs))
+        }
+        if (head == "securetoken.googleapis.com") {
+            return (this.routeIdentity(req segs 1 nowMs))
+        }
+        if (head == "v1") {
+            ; `/v1/accounts:signUp` — the same endpoints without the host in
+            ; the path, which is how the emulator is usually addressed.
+            if (n >= 2) {
+                def second:string (itemAt segs 1)
+                if (FsServer.verbOf(second) != "") {
+                    if (FsServer.nameOfSegment(second) == "accounts") {
+                        return (this.routeIdentity(req segs 0 nowMs))
+                    }
+                    if (FsServer.nameOfSegment(second) == "token") {
+                        return (this.routeIdentity(req segs 0 nowMs))
+                    }
+                }
+                if (second == "token") {
+                    return (this.routeIdentity(req segs 0 nowMs))
+                }
+                if (second == "projects") {
+                    return (this.routeFirestore(req segs nowMs))
+                }
+                if (second == "accounts") {
+                    return (this.routeIdentity(req segs 0 nowMs))
+                }
+            }
+        }
+        return (FsResponse.error(404 "NOT_FOUND" ("no route for " + req.path)))
+    }
+
+    ; `documents:runQuery` → "runQuery"; a segment with no colon → ""
+    sfn verbOf:string (segment:string) {
+        def n:int (strlen segment)
+        def i:int 0
+        while (i < n) {
+            if ((charAt segment i) == 58) {
+                return (substring segment (i + 1) n)
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    sfn nameOfSegment:string (segment:string) {
+        def n:int (strlen segment)
+        def i:int 0
+        while (i < n) {
+            if ((charAt segment i) == 58) {
+                return (substring segment 0 i)
+            }
+            i = (i + 1)
+        }
+        return segment
+    }
+
+    ; --- Firestore -----------------------------------------------------------
+    fn routeFirestore:FsResponse (req:FsRequest segs:[string] nowMs:double) {
+        def n:int (array_length segs)
+        ; /v1/projects/{p}/databases/{d}/documents…
+        if (n < 6) {
+            return (FsResponse.error(404 "NOT_FOUND" ("not a Firestore path: " + req.path)))
+        }
+        def lastIndex:int (n - 1)
+        def verb:string (FsServer.verbOf((itemAt segs lastIndex)))
+        def rest:[string]
+        def i:int 6
+        while (i < n) {
+            def seg:string (itemAt segs i)
+            if (i == lastIndex) {
+                seg = (FsServer.nameOfSegment(seg))
+            }
+            if ((strlen seg) > 0) {
+                push rest seg
+            }
+            i = (i + 1)
+        }
+        ; The `documents` segment itself carries the verb when there is no
+        ; path: `documents:runQuery`.
+        def docSeg:string (itemAt segs 5)
+        if (5 == lastIndex) {
+            verb = (FsServer.verbOf(docSeg))
+        }
+        def target:string (FsPath.joinSegs(rest))
+        def s:FsSession (this.sessionOf(req nowMs))
+        if ((strlen s.tokenError) > 0) {
+            return (FsResponse.error(401 "UNAUTHENTICATED" s.tokenError))
+        }
+        if (verb == "runQuery") {
+            return (this.runQuery(req target s nowMs))
+        }
+        if (verb == "commit") {
+            return (this.commit(req s nowMs))
+        }
+        if (verb == "batchGet") {
+            return (this.batchGet(req s nowMs))
+        }
+        if (verb == "listCollectionIds") {
+            return (this.listCollectionIds(req target s nowMs))
+        }
+        if (req.method == "GET") {
+            if (FsPath.isDocument(target)) {
+                return (this.getDocument(target s nowMs))
+            }
+            return (this.listDocuments(req target s nowMs))
+        }
+        if (req.method == "POST") {
+            return (this.createDocument(req target s nowMs))
+        }
+        if (req.method == "PATCH") {
+            return (this.patchDocument(req target s nowMs))
+        }
+        if (req.method == "DELETE") {
+            return (this.deleteDocument(req target s nowMs))
+        }
+        return (FsResponse.error(405 "INVALID_ARGUMENT" ("method not allowed: " + req.method)))
+    }
+
+    fn getDocument:FsResponse (path:string s:FsSession nowMs:double) {
+        def dbStore:FsStore (unwrap store)
+        def empty:FsValue (FsValue.mapV())
+        def gate:FsRuleDecision (this.allow("get" path empty false s nowMs))
+        if (! gate.allowed) {
+            return (this.denied(gate))
+        }
+        if (! (dbStore.exists(path))) {
+            return (FsResponse.error(404 "NOT_FOUND" ("Document does not exist: " + (this.nameOf(path)))))
+        }
+        def doc:FsDocument (dbStore.get(path))
+        return (FsResponse.json(200 (this.documentJson(doc))))
+    }
+
+    fn listDocuments:FsResponse (req:FsRequest collection:string s:FsSession nowMs:double) {
+        def dbStore:FsStore (unwrap store)
+        def docs:[FsDocument] (dbStore.docsIn(collection))
+        def empty:FsValue (FsValue.mapV())
+        for docs d:FsDocument i {
+            def gate:FsRuleDecision (this.allow("list" d.path empty false s nowMs))
+            if (! gate.allowed) {
+                return (this.denied(gate))
+            }
+        }
+        def out:VlJson (VlJson.objectValue())
+        def list:VlJson (VlJson.arrayValue())
+        def pageSize:int -1
+        if (req.hasQuery("pageSize")) {
+            def raw@(optional):int (str2int (req.query("pageSize")))
+            if (!null? raw) {
+                pageSize = (unwrap raw)
+            }
+        }
+        def written:int 0
+        for docs d:FsDocument i {
+            def room:boolean true
+            if (pageSize >= 0) {
+                room = (written < pageSize)
+            }
+            if (room) {
+                push list.arr (this.documentJson(d))
+                written = (written + 1)
+            }
+        }
+        out.setMember("documents" list)
+        return (FsResponse.json(200 out))
+    }
+
+    fn createDocument:FsResponse (req:FsRequest collection:string s:FsSession nowMs:double) {
+        if (! (FsPath.isCollection(collection))) {
+            return (FsResponse.error(400 "INVALID_ARGUMENT" ("not a collection path: " + collection)))
+        }
+        def id:string (req.query("documentId"))
+        if ((strlen id) == 0) {
+            id = (this.nextId())
+        }
+        def path:string ((collection + "/") + id)
+        def body:VlJson (req.json())
+        def data:FsValue (FsServer.fieldsOf(body))
+        def gate:FsRuleDecision (this.allow("create" path data true s nowMs))
+        if (! gate.allowed) {
+            return (this.denied(gate))
+        }
+        def w:FsWrite (new FsWrite)
+        w.op = "create"
+        w.path = path
+        w.data = data
+        def dbStore:FsStore (unwrap store)
+        def r:FsWriteResult (dbStore.applyWrite(w nowMs))
+        if (! r.ok) {
+            return (FsResponse.error(r.code r.status r.message))
+        }
+        def doc:FsDocument (dbStore.get(path))
+        return (FsResponse.json(200 (this.documentJson(doc))))
+    }
+
+    fn patchDocument:FsResponse (req:FsRequest path:string s:FsSession nowMs:double) {
+        if (! (FsPath.isDocument(path))) {
+            return (FsResponse.error(400 "INVALID_ARGUMENT" ("not a document path: " + path)))
+        }
+        def body:VlJson (req.json())
+        def data:FsValue (FsServer.fieldsOf(body))
+        def dbStore:FsStore (unwrap store)
+        def existed:boolean (dbStore.exists(path))
+        def method:string "create"
+        if (existed) {
+            method = "update"
+        }
+        def gate:FsRuleDecision (this.allow(method path data true s nowMs))
+        if (! gate.allowed) {
+            return (this.denied(gate))
+        }
+        def w:FsWrite (new FsWrite)
+        w.op = "set"
+        w.path = path
+        w.data = data
+        def mask:[string] (req.queryAll("updateMask.fieldPaths"))
+        if ((array_length mask) > 0) {
+            w.merge = true
+            for mask m:string mi {
+                push w.mask m
+            }
+        }
+        ; `currentDocument.exists=true` is the precondition a client sends
+        ; when it means `update` rather than `set`.
+        if (req.hasQuery("currentDocument.exists")) {
+            if ((req.query("currentDocument.exists")) == "true") {
+                w.precondition = "exists"
+            } {
+                w.precondition = "notExists"
+            }
+        }
+        def r:FsWriteResult (dbStore.applyWrite(w nowMs))
+        if (! r.ok) {
+            return (FsResponse.error(r.code r.status r.message))
+        }
+        def doc:FsDocument (dbStore.get(path))
+        return (FsResponse.json(200 (this.documentJson(doc))))
+    }
+
+    fn deleteDocument:FsResponse (req:FsRequest path:string s:FsSession nowMs:double) {
+        def empty:FsValue (FsValue.mapV())
+        def gate:FsRuleDecision (this.allow("delete" path empty false s nowMs))
+        if (! gate.allowed) {
+            return (this.denied(gate))
+        }
+        def w:FsWrite (new FsWrite)
+        w.op = "delete"
+        w.path = path
+        def dbStore:FsStore (unwrap store)
+        def r:FsWriteResult (dbStore.applyWrite(w nowMs))
+        if (! r.ok) {
+            return (FsResponse.error(r.code r.status r.message))
+        }
+        return (FsResponse.json(200 (VlJson.objectValue())))
+    }
+
+    fn listCollectionIds:FsResponse (req:FsRequest parent:string s:FsSession nowMs:double) {
+        def dbStore:FsStore (unwrap store)
+        def ids:[string] (dbStore.collectionIds(parent))
+        def out:VlJson (VlJson.objectValue())
+        def list:VlJson (VlJson.arrayValue())
+        for ids id:string i {
+            push list.arr (VlJson.stringValue(id))
+        }
+        out.setMember("collectionIds" list)
+        return (FsResponse.json(200 out))
+    }
+
+    ; --- queries -------------------------------------------------------------
+    fn runQuery:FsResponse (req:FsRequest parent:string s:FsSession nowMs:double) {
+        def body:VlJson (req.json())
+        if (! (body.has("structuredQuery"))) {
+            return (FsResponse.error(400 "INVALID_ARGUMENT" "runQuery needs a structuredQuery"))
+        }
+        def sq:VlJson (body.get("structuredQuery"))
+        def q:FsQuery (FsServer.queryOf(sq parent))
+        def bad:string (q.validate())
+        if ((strlen bad) > 0) {
+            return (FsResponse.error(400 "INVALID_ARGUMENT" bad))
+        }
+        def dbStore:FsStore (unwrap store)
+        def docs:[FsDocument] (FsQueryRun.run(dbStore q))
+        def empty:FsValue (FsValue.mapV())
+        ; One denial denies the whole query. See the note at the top of
+        ; FsRules: filtering instead would pass a query production rejects.
+        for docs d:FsDocument i {
+            def gate:FsRuleDecision (this.allow("list" d.path empty false s nowMs))
+            if (! gate.allowed) {
+                return (this.denied(gate))
+            }
+        }
+        def out:VlJson (VlJson.arrayValue())
+        def readTime:string (FsTime.formatIso(nowMs))
+        for docs d:FsDocument i {
+            def row:VlJson (VlJson.objectValue())
+            row.setMember("document" (this.documentJson(d)))
+            row.setMember("readTime" (VlJson.stringValue(readTime)))
+            push out.arr row
+        }
+        if ((array_length docs) == 0) {
+            def emptyRow:VlJson (VlJson.objectValue())
+            emptyRow.setMember("readTime" (VlJson.stringValue(readTime)))
+            push out.arr emptyRow
+        }
+        return (FsResponse.json(200 out))
+    }
+
+    ; A `StructuredQuery` as the REST API writes it, read into FsQuery.
+    sfn queryOf:FsQuery (sq:VlJson parent:string) {
+        def q:FsQuery (new FsQuery)
+        q.parent = parent
+        def from:VlJson (sq.get("from"))
+        if ((from.count()) > 0) {
+            def src:VlJson (from.at(0))
+            q.collectionId = (src.stringOr("collectionId" ""))
+            q.allDescendants = (src.boolOr("allDescendants" false))
+        }
+        if (sq.has("where")) {
+            q.where = (FsServer.filterOf((sq.get("where"))))
+        }
+        if (sq.has("orderBy")) {
+            def orders:VlJson (sq.get("orderBy"))
+            def n:int (orders.count())
+            def i:int 0
+            while (i < n) {
+                def o:VlJson (orders.at(i))
+                def field:VlJson (o.get("field"))
+                def dir:string (o.stringOr("direction" "ASCENDING"))
+                push q.orders (FsOrder.by((field.stringOr("fieldPath" "")) (dir == "DESCENDING")))
+                i = (i + 1)
+            }
+        }
+        if (sq.has("limit")) {
+            def lim:VlJson (sq.get("limit"))
+            ; The REST API wraps it as `{"value": 10}` when it comes from a
+            ; generated client, and writes it bare from a hand-built body.
+            if (lim.isObject()) {
+                q.limitCount = (lim.intOr("value" -1))
+            } {
+                q.limitCount = (lim.asInt())
+            }
+        }
+        if (sq.has("offset")) {
+            def off:VlJson (sq.get("offset"))
+            q.offsetCount = (off.asInt())
+        }
+        if (sq.has("startAt")) {
+            def cur:FsCursor (q.startAt())
+            FsServer.cursorOf((sq.get("startAt")) cur true)
+        }
+        if (sq.has("endAt")) {
+            def cur:FsCursor (q.endAt())
+            FsServer.cursorOf((sq.get("endAt")) cur false)
+        }
+        return q
+    }
+
+    sfn cursorOf:void (node:VlJson cur:FsCursor isStart:boolean) {
+        cur.active = true
+        cur.before = (node.boolOr("before" isStart))
+        def values:VlJson (node.get("values"))
+        def n:int (values.count())
+        def i:int 0
+        while (i < n) {
+            push cur.values (FsValue.fromWire((values.at(i))))
+            i = (i + 1)
+        }
+    }
+
+    sfn opOf:string (rest:string) {
+        if (rest == "EQUAL") {
+            return "=="
+        }
+        if (rest == "NOT_EQUAL") {
+            return "!="
+        }
+        if (rest == "LESS_THAN") {
+            return "<"
+        }
+        if (rest == "LESS_THAN_OR_EQUAL") {
+            return "<="
+        }
+        if (rest == "GREATER_THAN") {
+            return ">"
+        }
+        if (rest == "GREATER_THAN_OR_EQUAL") {
+            return ">="
+        }
+        if (rest == "ARRAY_CONTAINS") {
+            return "array-contains"
+        }
+        if (rest == "ARRAY_CONTAINS_ANY") {
+            return "array-contains-any"
+        }
+        if (rest == "IN") {
+            return "in"
+        }
+        if (rest == "NOT_IN") {
+            return "not-in"
+        }
+        if (rest == "IS_NULL") {
+            return "is-null"
+        }
+        if (rest == "IS_NOT_NULL") {
+            return "is-not-null"
+        }
+        if (rest == "IS_NAN") {
+            return "is-nan"
+        }
+        return rest
+    }
+
+    sfn filterOf:FsFilter (node:VlJson) {
+        if (node.has("compositeFilter")) {
+            def comp:VlJson (node.get("compositeFilter"))
+            def out:FsFilter (FsFilter.composite((comp.stringOr("op" "AND"))))
+            def filters:VlJson (comp.get("filters"))
+            def n:int (filters.count())
+            def i:int 0
+            while (i < n) {
+                push out.parts (FsServer.filterOf((filters.at(i))))
+                i = (i + 1)
+            }
+            return out
+        }
+        if (node.has("fieldFilter")) {
+            def ff:VlJson (node.get("fieldFilter"))
+            def field:VlJson (ff.get("field"))
+            return (FsFilter.field((field.stringOr("fieldPath" "")) (FsServer.opOf((ff.stringOr("op" "EQUAL")))) (FsValue.fromWire((ff.get("value"))))))
+        }
+        if (node.has("unaryFilter")) {
+            def uf:VlJson (node.get("unaryFilter"))
+            def field:VlJson (uf.get("field"))
+            return (FsFilter.unary((field.stringOr("fieldPath" "")) (FsServer.opOf((uf.stringOr("op" "IS_NULL"))))))
+        }
+        return (FsFilter.composite("AND"))
+    }
+
+    fn batchGet:FsResponse (req:FsRequest s:FsSession nowMs:double) {
+        def body:VlJson (req.json())
+        def names:VlJson (body.get("documents"))
+        def out:VlJson (VlJson.arrayValue())
+        def dbStore:FsStore (unwrap store)
+        def empty:FsValue (FsValue.mapV())
+        def readTime:string (FsTime.formatIso(nowMs))
+        def n:int (names.count())
+        def i:int 0
+        while (i < n) {
+            def nameNode:VlJson (names.at(i))
+            def path:string (FsServer.pathOfName((nameNode.asString())))
+            def gate:FsRuleDecision (this.allow("get" path empty false s nowMs))
+            if (! gate.allowed) {
+                return (this.denied(gate))
+            }
+            def row:VlJson (VlJson.objectValue())
+            if (dbStore.exists(path)) {
+                def doc:FsDocument (dbStore.get(path))
+                row.setMember("found" (this.documentJson(doc)))
+            } {
+                row.setMember("missing" (VlJson.stringValue((this.nameOf(path)))))
+            }
+            row.setMember("readTime" (VlJson.stringValue(readTime)))
+            push out.arr row
+            i = (i + 1)
+        }
+        return (FsResponse.json(200 out))
+    }
+
+    ; --- commit --------------------------------------------------------------
+    fn commit:FsResponse (req:FsRequest s:FsSession nowMs:double) {
+        def body:VlJson (req.json())
+        def writes:VlJson (body.get("writes"))
+        def n:int (writes.count())
+        def prepared:[FsWrite]
+        def i:int 0
+        while (i < n) {
+            def node:VlJson (writes.at(i))
+            def w:FsWrite (FsServer.writeOf(node))
+            if ((strlen w.path) == 0) {
+                return (FsResponse.error(400 "INVALID_ARGUMENT" "a write needs a document"))
+            }
+            ; The whole batch is checked before any of it is applied. A
+            ; commit that failed halfway would leave a state no transaction
+            ; can produce, and the caller would have no way to tell which
+            ; half landed.
+            if (! (FsPath.isDocument(w.path))) {
+                return (FsResponse.error(400 "INVALID_ARGUMENT" ("not a document path: " + w.path)))
+            }
+            def method:string w.op
+            def dbStore0:FsStore (unwrap store)
+            if (method == "set") {
+                if (dbStore0.exists(w.path)) {
+                    method = "update"
+                } {
+                    method = "create"
+                }
+            }
+            def payload:FsValue (w.payload())
+            def hasBody:boolean true
+            if (w.op == "delete") {
+                hasBody = false
+            }
+            def gate:FsRuleDecision (this.allow(method w.path payload hasBody s nowMs))
+            if (! gate.allowed) {
+                return (this.denied(gate))
+            }
+            push prepared w
+            i = (i + 1)
+        }
+        ; Every write was allowed, so the batch applies as one. A commit that
+        ; failed halfway would leave a state no transaction can produce.
+        def dbStore:FsStore (unwrap store)
+        def results:VlJson (VlJson.arrayValue())
+        for prepared w:FsWrite wi {
+            def r:FsWriteResult (dbStore.applyWrite(w nowMs))
+            if (! r.ok) {
+                return (FsResponse.error(r.code r.status r.message))
+            }
+            def row:VlJson (VlJson.objectValue())
+            row.setMember("updateTime" (VlJson.stringValue((FsTime.formatIso(r.updateMs)))))
+            push results.arr row
+        }
+        def out:VlJson (VlJson.objectValue())
+        out.setMember("writeResults" results)
+        out.setMember("commitTime" (VlJson.stringValue((FsTime.formatIso(nowMs)))))
+        return (FsResponse.json(200 out))
+    }
+
+    sfn writeOf:FsWrite (node:VlJson) {
+        def w:FsWrite (new FsWrite)
+        if (node.has("delete")) {
+            def d:VlJson (node.get("delete"))
+            w.op = "delete"
+            w.path = (FsServer.pathOfName((d.asString())))
+            return w
+        }
+        if (node.has("update")) {
+            def u:VlJson (node.get("update"))
+            w.op = "set"
+            w.path = (FsServer.pathOfName((u.stringOr("name" ""))))
+            w.data = (FsServer.fieldsOf(u))
+        }
+        if (node.has("updateMask")) {
+            def m:VlJson (node.get("updateMask"))
+            def paths:VlJson (m.get("fieldPaths"))
+            def n:int (paths.count())
+            if (n > 0) {
+                w.merge = true
+                def i:int 0
+                while (i < n) {
+                    def p:VlJson (paths.at(i))
+                    push w.mask (p.asString())
+                    i = (i + 1)
+                }
+            }
+        }
+        if (node.has("currentDocument")) {
+            def pre:VlJson (node.get("currentDocument"))
+            if (pre.has("exists")) {
+                def e:VlJson (pre.get("exists"))
+                if (e.asBool()) {
+                    w.precondition = "exists"
+                } {
+                    w.precondition = "notExists"
+                }
+            }
+        }
+        if (node.has("updateTransforms")) {
+            def trs:VlJson (node.get("updateTransforms"))
+            FsServer.readTransforms(trs w)
+        }
+        if (node.has("transform")) {
+            def t:VlJson (node.get("transform"))
+            if ((strlen w.path) == 0) {
+                w.op = "update"
+                w.path = (FsServer.pathOfName((t.stringOr("document" ""))))
+            }
+            def trs:VlJson (t.get("fieldTransforms"))
+            FsServer.readTransforms(trs w)
+        }
+        return w
+    }
+
+    sfn readTransforms:void (trs:VlJson w:FsWrite) {
+        def n:int (trs.count())
+        def i:int 0
+        while (i < n) {
+            def t:VlJson (trs.at(i))
+            def fieldPath:string (t.stringOr("fieldPath" ""))
+            if (t.has("setToServerValue")) {
+                w.addTransform(fieldPath "serverTimestamp" (FsValue.nullV()))
+            }
+            if (t.has("increment")) {
+                w.addTransform(fieldPath "increment" (FsValue.fromWire((t.get("increment")))))
+            }
+            if (t.has("maximum")) {
+                w.addTransform(fieldPath "maximum" (FsValue.fromWire((t.get("maximum")))))
+            }
+            if (t.has("minimum")) {
+                w.addTransform(fieldPath "minimum" (FsValue.fromWire((t.get("minimum")))))
+            }
+            if (t.has("appendMissingElements")) {
+                w.addTransform(fieldPath "arrayUnion" (FsValue.fromWire((t.get("appendMissingElements")))))
+            }
+            if (t.has("removeAllFromArray")) {
+                w.addTransform(fieldPath "arrayRemove" (FsValue.fromWire((t.get("removeAllFromArray")))))
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; --- Identity Toolkit ----------------------------------------------------
+    fn routeIdentity:FsResponse (req:FsRequest segs:[string] offset:int nowMs:double) {
+        def n:int (array_length segs)
+        def lastSeg:string (itemAt segs (n - 1))
+        def verb:string (FsServer.verbOf(lastSeg))
+        def name:string (FsServer.nameOfSegment(lastSeg))
+        def body:VlJson (req.json())
+        def a:FsAuthService (unwrap auth)
+        a.projectId = projectId
+        if (name == "token") {
+            def refreshToken:string (body.stringOr("refresh_token" ""))
+            def r:FsAuthResult (a.refresh(refreshToken nowMs))
+            if (! r.ok) {
+                return (FsResponse.error(r.code r.error r.error))
+            }
+            def out:VlJson (VlJson.objectValue())
+            out.setMember("id_token" (VlJson.stringValue(r.idToken)))
+            out.setMember("refresh_token" (VlJson.stringValue(r.refreshToken)))
+            out.setMember("user_id" (VlJson.stringValue(r.localId)))
+            out.setMember("expires_in" (VlJson.stringValue((to_string r.expiresIn))))
+            return (FsResponse.json(200 out))
+        }
+        if (verb == "signUp") {
+            def r:FsAuthResult (a.signUp((body.stringOr("email" "")) (body.stringOr("password" "")) (body.stringOr("displayName" "")) nowMs))
+            if (! r.ok) {
+                return (FsResponse.error(r.code r.error r.error))
+            }
+            return (FsResponse.json(200 (FsServer.authJson(r "identitytoolkit#SignupNewUserResponse"))))
+        }
+        if (verb == "signInWithPassword") {
+            def r:FsAuthResult (a.signIn((body.stringOr("email" "")) (body.stringOr("password" "")) nowMs))
+            if (! r.ok) {
+                return (FsResponse.error(r.code r.error r.error))
+            }
+            return (FsResponse.json(200 (FsServer.authJson(r "identitytoolkit#VerifyPasswordResponse"))))
+        }
+        if (verb == "lookup") {
+            def idToken:string (body.stringOr("idToken" ""))
+            def idx:int (a.verify(idToken nowMs))
+            if (idx < 0) {
+                return (FsResponse.error(400 "INVALID_ID_TOKEN" "INVALID_ID_TOKEN"))
+            }
+            def u:FsUser (a.userAt(idx))
+            def rec:VlJson (VlJson.objectValue())
+            rec.setMember("localId" (VlJson.stringValue(u.localId)))
+            rec.setMember("email" (VlJson.stringValue(u.email)))
+            rec.setMember("displayName" (VlJson.stringValue(u.displayName)))
+            rec.setMember("emailVerified" (VlJson.boolValue(u.emailVerified)))
+            rec.setMember("disabled" (VlJson.boolValue(u.disabled)))
+            rec.setMember("createdAt" (VlJson.stringValue((to_string (floor u.createdAtMs)))))
+            rec.setMember("lastLoginAt" (VlJson.stringValue((to_string (floor u.lastLoginAtMs)))))
+            def users:VlJson (VlJson.arrayValue())
+            push users.arr rec
+            def out:VlJson (VlJson.objectValue())
+            out.setMember("users" users)
+            return (FsResponse.json(200 out))
+        }
+        if (verb == "update") {
+            def idToken:string (body.stringOr("idToken" ""))
+            def idx:int (a.verify(idToken nowMs))
+            if (idx < 0) {
+                return (FsResponse.error(400 "INVALID_ID_TOKEN" "INVALID_ID_TOKEN"))
+            }
+            def u:FsUser (a.userAt(idx))
+            if (body.has("displayName")) {
+                u.displayName = (body.stringOr("displayName" ""))
+            }
+            if (body.has("photoUrl")) {
+                u.photoUrl = (body.stringOr("photoUrl" ""))
+            }
+            if (body.has("password")) {
+                u.password = (body.stringOr("password" ""))
+            }
+            if (body.has("emailVerified")) {
+                u.emailVerified = (body.boolOr("emailVerified" false))
+            }
+            def out:VlJson (VlJson.objectValue())
+            out.setMember("localId" (VlJson.stringValue(u.localId)))
+            out.setMember("displayName" (VlJson.stringValue(u.displayName)))
+            out.setMember("email" (VlJson.stringValue(u.email)))
+            return (FsResponse.json(200 out))
+        }
+        if (verb == "delete") {
+            def idToken:string (body.stringOr("idToken" ""))
+            def idx:int (a.verify(idToken nowMs))
+            if (idx < 0) {
+                return (FsResponse.error(400 "INVALID_ID_TOKEN" "INVALID_ID_TOKEN"))
+            }
+            def u:FsUser (a.userAt(idx))
+            a.deleteUser(u.localId)
+            return (FsResponse.json(200 (VlJson.objectValue())))
+        }
+        return (FsResponse.error(404 "NOT_FOUND" ("no identity route for " + req.path)))
+    }
+
+    sfn authJson:VlJson (r:FsAuthResult kind:string) {
+        def out:VlJson (VlJson.objectValue())
+        out.setMember("kind" (VlJson.stringValue(kind)))
+        out.setMember("idToken" (VlJson.stringValue(r.idToken)))
+        out.setMember("email" (VlJson.stringValue(r.email)))
+        out.setMember("refreshToken" (VlJson.stringValue(r.refreshToken)))
+        out.setMember("expiresIn" (VlJson.stringValue((to_string r.expiresIn))))
+        out.setMember("localId" (VlJson.stringValue(r.localId)))
+        out.setMember("displayName" (VlJson.stringValue(r.displayName)))
+        out.setMember("registered" (VlJson.boolValue(r.registered)))
+        return out
+    }
+
+    ; --- the emulator's own --------------------------------------------------
+    fn routeEmulator:FsResponse (req:FsRequest segs:[string] nowMs:double) {
+        def n:int (array_length segs)
+        def lastSeg:string (itemAt segs (n - 1))
+        if (req.method != "DELETE") {
+            return (FsResponse.error(405 "INVALID_ARGUMENT" "the emulator routes take DELETE"))
+        }
+        if (lastSeg == "accounts") {
+            def a:FsAuthService (unwrap auth)
+            a.wipe()
+            return (FsResponse.json(200 (VlJson.objectValue())))
+        }
+        if (lastSeg == "documents") {
+            def dbStore:FsStore (unwrap store)
+            dbStore.wipe()
+            return (FsResponse.json(200 (VlJson.objectValue())))
+        }
+        return (FsResponse.error(404 "NOT_FOUND" ("no emulator route for " + req.path)))
+    }
+
+    ; --- the model -----------------------------------------------------------
+    fn routeAi:FsResponse (req:FsRequest segs:[string] nowMs:double) {
+        def n:int (array_length segs)
+        def lastSeg:string (itemAt segs (n - 1))
+        def verb:string (FsServer.verbOf(lastSeg))
+        def body:VlJson (req.json())
+        def prompt:string (FsAiSim.promptOf(body))
+        def m:FsAiSim (unwrap ai)
+        if (verb == "streamGenerateContent") {
+            return (m.streamGemini(prompt (FsServer.nameOfSegment(lastSeg))))
+        }
+        if (verb == "generateContent") {
+            def res:FsResponse (m.streamGemini(prompt (FsServer.nameOfSegment(lastSeg))))
+            def whole:VlJson (VlJson.objectValue())
+            def part:VlJson (VlJson.objectValue())
+            part.setMember("text" (VlJson.stringValue((m.replyFor(prompt)))))
+            def parts:VlJson (VlJson.arrayValue())
+            push parts.arr part
+            def content:VlJson (VlJson.objectValue())
+            content.setMember("parts" parts)
+            content.setMember("role" (VlJson.stringValue("model")))
+            def cand:VlJson (VlJson.objectValue())
+            cand.setMember("content" content)
+            cand.setMember("finishReason" (VlJson.stringValue("STOP")))
+            def cands:VlJson (VlJson.arrayValue())
+            push cands.arr cand
+            whole.setMember("candidates" cands)
+            return (FsResponse.json(200 whole))
+        }
+        if (verb == "stream") {
+            def requestId:string (body.stringOr("requestId" "req-1"))
+            return (m.streamPlain(prompt requestId))
+        }
+        return (FsResponse.error(404 "NOT_FOUND" ("no model route for " + req.path)))
+    }
+
+    ; --- this simulator's own ------------------------------------------------
+    fn routeAdmin:FsResponse (req:FsRequest segs:[string] nowMs:double) {
+        def n:int (array_length segs)
+        def lastSeg:string (itemAt segs (n - 1))
+        def body:VlJson (req.json())
+        if (lastSeg == "rules") {
+            def text:string (body.stringOr("rules" ""))
+            def parsed:FsRules (FsRules.parse(text))
+            rules = parsed
+            def out:VlJson (VlJson.objectValue())
+            out.setMember("ok" (VlJson.boolValue((parsed.ok()))))
+            out.setMember("error" (VlJson.stringValue(parsed.error)))
+            out.setMember("line" (VlJson.intValue(parsed.errorLine)))
+            if (! (parsed.ok())) {
+                return (FsResponse.json(400 out))
+            }
+            return (FsResponse.json(200 out))
+        }
+        if (lastSeg == "claims") {
+            def a:FsAuthService (unwrap auth)
+            def uid:string (body.stringOr("localId" ""))
+            def claims:FsValue (FsValue.fromPlain((body.get("claims"))))
+            def ok:boolean (a.setClaims(uid claims))
+            def out:VlJson (VlJson.objectValue())
+            out.setMember("ok" (VlJson.boolValue(ok)))
+            return (FsResponse.json(200 out))
+        }
+        if (lastSeg == "state") {
+            return (FsResponse.json(200 (this.stateJson())))
+        }
+        if (lastSeg == "watch") {
+            return (this.startWatch(req body nowMs))
+        }
+        if (lastSeg == "poll") {
+            return (this.pollWatch(req body nowMs))
+        }
+        if (lastSeg == "unwatch") {
+            def reg:FsWatchRegistry (unwrap watches)
+            def stopped:boolean (reg.stop((body.intOr("watchId" 0))))
+            def out:VlJson (VlJson.objectValue())
+            out.setMember("stopped" (VlJson.boolValue(stopped)))
+            return (FsResponse.json(200 out))
+        }
+        return (FsResponse.error(404 "NOT_FOUND" ("no firesim route for " + req.path)))
+    }
+
+    ; --- listeners -----------------------------------------------------------
+    ; `POST /firesim/v1/watch` with a `structuredQuery` or a `document`, and
+    ; the first answer is the whole result — the snapshot a view draws before
+    ; anything has changed.
+    fn startWatch:FsResponse (req:FsRequest body:VlJson nowMs:double) {
+        def s:FsSession (this.sessionOf(req nowMs))
+        if ((strlen s.tokenError) > 0) {
+            return (FsResponse.error(401 "UNAUTHENTICATED" s.tokenError))
+        }
+        def reg:FsWatchRegistry (unwrap watches)
+        def w:FsWatch (reg.add())
+        w.uid = s.uid
+        w.signedIn = s.signedIn
+        w.owner = s.owner
+        w.claims = (s.token())
+        if (body.has("structuredQuery")) {
+            w.isQuery = true
+            w.query = (FsServer.queryOf((body.get("structuredQuery")) (body.stringOr("parent" ""))))
+            def q:FsQuery (w.spec())
+            def bad:string (q.validate())
+            if ((strlen bad) > 0) {
+                reg.stop(w.id)
+                return (FsResponse.error(400 "INVALID_ARGUMENT" bad))
+            }
+        } {
+            w.docPath = (FsServer.pathOfName((body.stringOr("document" ""))))
+            if ((strlen w.docPath) == 0) {
+                reg.stop(w.id)
+                return (FsResponse.error(400 "INVALID_ARGUMENT" "a watch needs a structuredQuery or a document"))
+            }
+        }
+        return (this.watchAnswer(w true nowMs))
+    }
+
+    fn pollWatch:FsResponse (req:FsRequest body:VlJson nowMs:double) {
+        def reg:FsWatchRegistry (unwrap watches)
+        def id:int (body.intOr("watchId" 0))
+        if (! (reg.hasWatch(id))) {
+            return (FsResponse.error(404 "NOT_FOUND" ("no such watch: " + (to_string id))))
+        }
+        def w:FsWatch (reg.find(id))
+        return (this.watchAnswer(w false nowMs))
+    }
+
+    ; Re-run the watch and diff. The rules run again on every poll, as a
+    ; `list` — so a permission taken away makes rows LEAVE a live view
+    ; rather than sit there forever.
+    fn watchAnswer:FsResponse (w:FsWatch first:boolean nowMs:double) {
+        def dbStore:FsStore (unwrap store)
+        def reg:FsWatchRegistry (unwrap watches)
+        def out:VlJson (VlJson.objectValue())
+        out.setMember("watchId" (VlJson.intValue(w.id)))
+        out.setMember("version" (VlJson.intValue(dbStore.version)))
+        ; Nothing has been written since the last look, so nothing can have
+        ; changed — and the query is not run at all.
+        if (! first) {
+            if (w.seenVersion == dbStore.version) {
+                out.setMember("changes" (VlJson.arrayValue()))
+                out.setMember("quiet" (VlJson.boolValue(true)))
+                return (FsResponse.json(200 out))
+            }
+        }
+        w.seenVersion = dbStore.version
+        def candidates:[FsDocument]
+        if (w.isQuery) {
+            def q:FsQuery (w.spec())
+            candidates = (FsQueryRun.run(dbStore q))
+        } {
+            if (dbStore.exists(w.docPath)) {
+                push candidates (dbStore.get(w.docPath))
+            }
+        }
+        def session:FsSession (new FsSession)
+        session.uid = w.uid
+        session.signedIn = w.signedIn
+        session.owner = w.owner
+        session.claims = (w.token())
+        def visible:[FsDocument]
+        def empty:FsValue (FsValue.mapV())
+        for candidates d:FsDocument i {
+            def gate:FsRuleDecision (this.allow("list" d.path empty false session nowMs))
+            if (gate.allowed) {
+                push visible d
+            }
+        }
+        def changes:[FsWatchChange] (FsWatchRegistry.diff(w visible))
+        def rows:VlJson (VlJson.arrayValue())
+        for changes c:FsWatchChange ci {
+            def row:VlJson (VlJson.objectValue())
+            row.setMember("type" (VlJson.stringValue(c.kind)))
+            if (c.kind == "removed") {
+                row.setMember("name" (VlJson.stringValue((this.nameOf(c.path)))))
+            } {
+                def doc:FsDocument (c.document())
+                row.setMember("document" (this.documentJson(doc)))
+            }
+            push rows.arr row
+        }
+        out.setMember("changes" rows)
+        out.setMember("quiet" (VlJson.boolValue(false)))
+        return (FsResponse.json(200 out))
+    }
+
+    ; Everything, as one document — what a debugger, a test failure message
+    ; and the browser panel all read.
+    fn stateJson:VlJson () {
+        def out:VlJson (VlJson.objectValue())
+        def dbStore:FsStore (unwrap store)
+        def a:FsAuthService (unwrap auth)
+        out.setMember("projectId" (VlJson.stringValue(projectId)))
+        out.setMember("databaseId" (VlJson.stringValue(databaseId)))
+        out.setMember("version" (VlJson.intValue(dbStore.version)))
+        def docs:VlJson (VlJson.objectValue())
+        for dbStore.paths p:string i {
+            def d:FsDocument (dbStore.get(p))
+            def data:FsValue (d.root())
+            docs.setMember(p (data.toPlain()))
+        }
+        out.setMember("documents" docs)
+        def users:VlJson (VlJson.arrayValue())
+        for a.users u:FsUser ui {
+            def rec:VlJson (VlJson.objectValue())
+            rec.setMember("localId" (VlJson.stringValue(u.localId)))
+            rec.setMember("email" (VlJson.stringValue(u.email)))
+            rec.setMember("displayName" (VlJson.stringValue(u.displayName)))
+            rec.setMember("provider" (VlJson.stringValue(u.providerId)))
+            def claims:FsValue (u.claims())
+            rec.setMember("customClaims" (claims.toPlain()))
+            push users.arr rec
+        }
+        out.setMember("users" users)
+        return out
+    }
+}

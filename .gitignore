@@ -27,6 +27,9 @@ data_folder/
 # The RealTrainer demo's screenshots — the README shows them, and
 # `npm run rt:shots` regenerates them from the running page.
 !gallery/realtrainer/web/shots/*.png
+# The firesim workbench's screenshots — the README shows them, and
+# `npm run firesim:demo:shots` regenerates them from the page in Chromium.
+!gallery/firesim/demo/shots/*.png
 
 # MacOS
 .DS_Store
@@ -191,3 +194,4 @@ gallery/statechart/bin/statechart_viz.js
 
 # Compiled Ranger bundles for the zstd decoder — rebuilt by npm run zstd:test.
 gallery/zstd/bin/
+.firesim-build/

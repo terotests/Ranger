@@ -1,0 +1,114 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; FsSimBridge — the simulator, wired to a client's transport
+; =============================================================================
+; This is the ONE file that knows about both sides, and it exists so that
+; neither of the other two has to. `FsClient` and `FsTransport` compile
+; without the simulator in them, which is what keeps a client build small
+; enough for a watch; `FsSim` compiles without knowing a client exists.
+;
+; The whole deployment switch is which of these two lines an app runs:
+;
+;     bridge.attach(transport sim)      ; the simulator, in this process
+;     transport.baseUrl = "https://firestore.googleapis.com"   ; and a host
+;                                       ; that drains the queue over HTTPS
+;
+; Everything above the transport is identical either way.
+; =============================================================================
+
+Import "FsSim.rgr"
+Import "FsClient.rgr"
+
+class FsSimBridge {
+    def sim@(optional):FsSim
+    def transport@(optional):FsTransport
+    ; The client's call id and the simulator's, side by side.
+    def outerIds:[int]
+    def innerIds:[int]
+    ; 0 in flight, 1 delivered.
+    def closed:[int]
+
+    Constructor () {
+    }
+
+    fn engine:FsSim () {
+        return (unwrap sim)
+    }
+
+    fn queue:FsTransport () {
+        return (unwrap transport)
+    }
+
+    sfn attach:FsSimBridge (t:FsTransport s:FsSim) {
+        def b:FsSimBridge (new FsSimBridge)
+        b.transport = t
+        b.sim = s
+        return b
+    }
+
+    ; One turn of the loop: hand over what the app asked for, move the clock,
+    ; and give back whatever has arrived. An app calls this where it already
+    ; calls `tick`.
+    fn tick:void (deltaMs:double) {
+        this.dispatch()
+        def s:FsSim (unwrap sim)
+        s.tick(deltaMs)
+        this.collect()
+    }
+
+    ; Requests out of the queue and into the simulator.
+    fn dispatch:void () {
+        def t:FsTransport (unwrap transport)
+        def s:FsSim (unwrap sim)
+        def running:boolean true
+        while (running) {
+            def outer:int (t.nextPending())
+            if (outer < 0) {
+                running = false
+            } {
+                def req:FsRequest (FsRequest.parse((t.pendingMethod(outer)) (t.pendingPath(outer)) (t.pendingBody(outer))))
+                def token:string (t.pendingToken(outer))
+                if ((strlen token) > 0) {
+                    def h:FsHeaders (req.head())
+                    h.set("authorization" token)
+                }
+                def inner:int (s.send(req))
+                push outerIds outer
+                push innerIds inner
+                push closed 0
+            }
+        }
+    }
+
+    ; Answers out of the simulator and back into the queue.
+    fn collect:void () {
+        def t:FsTransport (unwrap transport)
+        def s:FsSim (unwrap sim)
+        def n:int (array_length outerIds)
+        def i:int 0
+        while (i < n) {
+            if ((itemAt closed i) == 0) {
+                def outer:int (itemAt outerIds i)
+                def inner:int (itemAt innerIds i)
+                if (s.ready(inner)) {
+                    def res:FsResponse (s.responseOf(inner))
+                    if (res.streaming) {
+                        def pieces:[string] (s.takeChunks(inner))
+                        for pieces piece:string pi {
+                            t.deliverChunk(outer piece)
+                        }
+                        if (s.finished(inner)) {
+                            t.deliverEnd(outer res.status)
+                            set closed i 1
+                        }
+                    } {
+                        t.deliver(outer res.status res.body)
+                        set closed i 1
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+}

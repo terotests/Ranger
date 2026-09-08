@@ -1,0 +1,631 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; FsQuery — a structured query, and the rules it has to obey
+; =============================================================================
+; The interface is the REST API's `StructuredQuery`, not a string: `from`,
+; `where`, `orderBy`, `limit`, `offset` and two cursors. A client that builds
+; one of these builds the same object for the simulator and for Google.
+;
+; The part worth having a simulator for is not running the filters — that is a
+; loop — but REFUSING the queries the real thing refuses. A query that works
+; against a naive in-memory mock and fails in production is worse than no mock,
+; because it moves the failure to the one place nobody can debug it. So:
+;
+;   * An inequality (`<`, `<=`, `>`, `>=`, `!=`, `not-in`) constrains at most
+;     ONE field, unless every inequality field is also ordered first.
+;   * If there is an inequality, the FIRST `orderBy` has to be on that field.
+;   * `array-contains` may appear once; `array-contains-any`, `in` and
+;     `not-in` take at most 30 values and may appear once between them.
+;   * Every result is finally ordered by `__name__`, so paging is total.
+;
+; `validate()` returns the message the real API would return, or "". The
+; simulator answers 400 with it, and the app sees the error in the emulator
+; that it would have seen in production.
+;
+; Not simulated: composite index requirements. The real thing wants an index
+; for most multi-field queries and tells you so with a link. A simulator that
+; guessed at that would be wrong in both directions, so this one runs the
+; query and `indexHint()` reports the index the query WOULD need, for a
+; caller that wants to check its `firestore.indexes.json` against it.
+; =============================================================================
+
+Import "FsStore.rgr"
+
+class FsFilter {
+    ; "field" | "composite" | "unary"
+    def kind@(mutable):string "field"
+    def fieldPath@(mutable):string ""
+    ; "==" "!=" "<" "<=" ">" ">=" "array-contains" "array-contains-any"
+    ; "in" "not-in"  — or, for a unary filter, "is-nan" "is-null"
+    ; "is-not-nan" "is-not-null"
+    def op@(mutable):string "=="
+    def value@(optional):FsValue
+    ; "AND" | "OR"
+    def combine@(mutable):string "AND"
+    def parts:[FsFilter]
+
+    Constructor () {
+        def fresh:FsValue (new FsValue)
+        value = fresh
+    }
+
+    fn arg:FsValue () {
+        return (unwrap value)
+    }
+
+    sfn field:FsFilter (fieldPath:string op:string value:FsValue) {
+        def f:FsFilter (new FsFilter)
+        f.kind = "field"
+        f.fieldPath = fieldPath
+        f.op = op
+        f.value = value
+        return f
+    }
+
+    sfn unary:FsFilter (fieldPath:string op:string) {
+        def f:FsFilter (new FsFilter)
+        f.kind = "unary"
+        f.fieldPath = fieldPath
+        f.op = op
+        return f
+    }
+
+    sfn composite:FsFilter (combine:string) {
+        def f:FsFilter (new FsFilter)
+        f.kind = "composite"
+        f.combine = combine
+        return f
+    }
+
+    fn isInequality:boolean () {
+        if (kind != "field") {
+            return false
+        }
+        if (op == "<") {
+            return true
+        }
+        if (op == "<=") {
+            return true
+        }
+        if (op == ">") {
+            return true
+        }
+        if (op == ">=") {
+            return true
+        }
+        if (op == "!=") {
+            return true
+        }
+        return (op == "not-in")
+    }
+
+    ; Whether this filter holds for one document.
+    fn matches:boolean (doc:FsDocument) {
+        if (kind == "composite") {
+            if (combine == "OR") {
+                for parts p:FsFilter i {
+                    if (p.matches(doc)) {
+                        return true
+                    }
+                }
+                return false
+            }
+            for parts p:FsFilter i {
+                if (! (p.matches(doc))) {
+                    return false
+                }
+            }
+            return true
+        }
+        def left:FsValue (FsQueryRun.docField(doc fieldPath))
+        def present:boolean (FsQueryRun.docHasField(doc fieldPath))
+        if (kind == "unary") {
+            if (op == "is-null") {
+                if (! present) {
+                    return false
+                }
+                return (left.isNull())
+            }
+            if (op == "is-not-null") {
+                if (! present) {
+                    return false
+                }
+                return (! (left.isNull()))
+            }
+            if (op == "is-nan") {
+                return false
+            }
+            return present
+        }
+        def right:FsValue (unwrap value)
+        ; A document without the field takes part in NO comparison — not even
+        ; `!=`. That is Firestore's rule and it surprises people, which is
+        ; exactly why a simulator should keep it.
+        if (! present) {
+            return false
+        }
+        if (op == "==") {
+            return (left.sameAs(right))
+        }
+        if (op == "!=") {
+            return (! (left.sameAs(right)))
+        }
+        if (op == "<") {
+            return ((FsValue.compare(left right)) < 0)
+        }
+        if (op == "<=") {
+            return ((FsValue.compare(left right)) <= 0)
+        }
+        if (op == ">") {
+            return ((FsValue.compare(left right)) > 0)
+        }
+        if (op == ">=") {
+            return ((FsValue.compare(left right)) >= 0)
+        }
+        if (op == "array-contains") {
+            if (! (left.isArray())) {
+                return false
+            }
+            for left.items it:FsValue i {
+                if (it.sameAs(right)) {
+                    return true
+                }
+            }
+            return false
+        }
+        if (op == "array-contains-any") {
+            if (! (left.isArray())) {
+                return false
+            }
+            for left.items it:FsValue i {
+                for right.items want:FsValue wi {
+                    if (it.sameAs(want)) {
+                        return true
+                    }
+                }
+            }
+            return false
+        }
+        if (op == "in") {
+            for right.items want:FsValue wi {
+                if (left.sameAs(want)) {
+                    return true
+                }
+            }
+            return false
+        }
+        if (op == "not-in") {
+            for right.items want:FsValue wi {
+                if (left.sameAs(want)) {
+                    return false
+                }
+            }
+            return true
+        }
+        return false
+    }
+
+    ; Every field filtered on, flattened out of the composites.
+    fn collectFields:void (into:[string] ops:[string]) {
+        if (kind == "composite") {
+            for parts p:FsFilter i {
+                p.collectFields(into ops)
+            }
+            return
+        }
+        push into fieldPath
+        push ops op
+    }
+}
+
+class FsOrder {
+    def fieldPath@(mutable):string ""
+    def descending@(mutable):boolean false
+
+    Constructor () {
+    }
+
+    sfn by:FsOrder (fieldPath:string descending:boolean) {
+        def o:FsOrder (new FsOrder)
+        o.fieldPath = fieldPath
+        o.descending = descending
+        return o
+    }
+}
+
+; A cursor is a position in the ORDER, given as one value per orderBy field.
+class FsCursor {
+    def active@(mutable):boolean false
+    def before@(mutable):boolean true
+    def values:[FsValue]
+
+    Constructor () {
+    }
+}
+
+class FsQuery {
+    ; The collection to read. With `allDescendants` this is a collection id
+    ; matched at any depth (a collection group); without it, `parent` plus
+    ; this id is the collection path.
+    def collectionId@(mutable):string ""
+    def parent@(mutable):string ""
+    def allDescendants@(mutable):boolean false
+    def where@(optional):FsFilter
+    def orders:[FsOrder]
+    def limitCount@(mutable):int -1
+    def offsetCount@(mutable):int 0
+    def startCursor@(optional):FsCursor
+    def endCursor@(optional):FsCursor
+
+    Constructor () {
+        def s:FsCursor (new FsCursor)
+        def e:FsCursor (new FsCursor)
+        startCursor = s
+        endCursor = e
+    }
+
+    fn startAt:FsCursor () {
+        return (unwrap startCursor)
+    }
+
+    fn endAt:FsCursor () {
+        return (unwrap endCursor)
+    }
+
+    fn hasWhere:boolean () {
+        return (!null? where)
+    }
+
+    fn filter:FsFilter () {
+        return (unwrap where)
+    }
+
+    ; --- the rules the real API enforces -------------------------------------
+    fn validate:string () {
+        if ((strlen collectionId) == 0) {
+            return "a query needs a collection"
+        }
+        def fields:[string]
+        def ops:[string]
+        if (this.hasWhere()) {
+            def f:FsFilter (unwrap where)
+            f.collectFields(fields ops)
+        }
+        def ineqFields:[string]
+        def arrayContains:int 0
+        def disjunctions:int 0
+        def n:int (array_length ops)
+        def i:int 0
+        while (i < n) {
+            def op:string (itemAt ops i)
+            def fp:string (itemAt fields i)
+            def isIneq:boolean false
+            if (op == "<") {
+                isIneq = true
+            }
+            if (op == "<=") {
+                isIneq = true
+            }
+            if (op == ">") {
+                isIneq = true
+            }
+            if (op == ">=") {
+                isIneq = true
+            }
+            if (op == "!=") {
+                isIneq = true
+            }
+            if (op == "not-in") {
+                isIneq = true
+            }
+            if (isIneq) {
+                def known:boolean false
+                for ineqFields e:string ei {
+                    if (e == fp) {
+                        known = true
+                    }
+                }
+                if (! known) {
+                    push ineqFields fp
+                }
+            }
+            if (op == "array-contains") {
+                arrayContains = (arrayContains + 1)
+            }
+            if (op == "array-contains-any") {
+                disjunctions = (disjunctions + 1)
+            }
+            if (op == "in") {
+                disjunctions = (disjunctions + 1)
+            }
+            if (op == "not-in") {
+                disjunctions = (disjunctions + 1)
+            }
+            i = (i + 1)
+        }
+        if (arrayContains > 1) {
+            return "only one array-contains filter is allowed per query"
+        }
+        if (disjunctions > 1) {
+            return "only one in, not-in or array-contains-any filter is allowed per query"
+        }
+        if ((array_length ineqFields) > 1) {
+            return "inequality filters are limited to one field per query"
+        }
+        if ((array_length ineqFields) == 1) {
+            if ((array_length orders) > 0) {
+                def firstOrder:FsOrder (itemAt orders 0)
+                if (firstOrder.fieldPath != (itemAt ineqFields 0)) {
+                    return ("the first orderBy must be on the inequality field: " + (itemAt ineqFields 0))
+                }
+            }
+        }
+        def sc:FsCursor (this.startAt())
+        if (sc.active) {
+            if ((array_length sc.values) > ((array_length orders) + 1)) {
+                return "a cursor cannot have more values than the query has orderBy fields"
+            }
+        }
+        def ec:FsCursor (this.endAt())
+        if (ec.active) {
+            if ((array_length ec.values) > ((array_length orders) + 1)) {
+                return "a cursor cannot have more values than the query has orderBy fields"
+            }
+        }
+        return ""
+    }
+
+    ; The composite index this query would need, as
+    ; `collection: field ASC, field DESC` — or "" when a single-field index
+    ; (which Firestore makes for itself) is enough.
+    fn indexHint:string () {
+        def fields:[string]
+        def ops:[string]
+        if (this.hasWhere()) {
+            def f:FsFilter (unwrap where)
+            f.collectFields(fields ops)
+        }
+        def used:int ((array_length fields) + (array_length orders))
+        if (used < 2) {
+            return ""
+        }
+        def out:string (collectionId + ": ")
+        def wrote:int 0
+        for fields fp:string i {
+            if (wrote > 0) {
+                out = (out + ", ")
+            }
+            out = (out + fp)
+            wrote = (wrote + 1)
+        }
+        for orders o:FsOrder oi {
+            if (wrote > 0) {
+                out = (out + ", ")
+            }
+            def dir:string " ASC"
+            if (o.descending) {
+                dir = " DESC"
+            }
+            out = ((out + o.fieldPath) + dir)
+            wrote = (wrote + 1)
+        }
+        return out
+    }
+}
+
+; -----------------------------------------------------------------------------
+; FsQueryRun — running one
+; -----------------------------------------------------------------------------
+class FsQueryRun {
+    sfn docField:FsValue (doc:FsDocument fieldPath:string) {
+        if (fieldPath == "__name__") {
+            return (FsValue.refV(doc.path))
+        }
+        return (doc.field(fieldPath))
+    }
+
+    sfn docHasField:boolean (doc:FsDocument fieldPath:string) {
+        if (fieldPath == "__name__") {
+            return true
+        }
+        def root:FsValue (doc.root())
+        return (FsStore.hasPath(root fieldPath))
+    }
+
+    ; The orders actually applied: the ones asked for, with `__name__` added
+    ; when it is not already there, so the order is total and paging works.
+    sfn effectiveOrders:[FsOrder] (q:FsQuery) {
+        def out:[FsOrder]
+        def sawName:boolean false
+        for q.orders o:FsOrder i {
+            push out (FsOrder.by(o.fieldPath o.descending))
+            if (o.fieldPath == "__name__") {
+                sawName = true
+            }
+        }
+        if (! sawName) {
+            def lastDesc:boolean false
+            def n:int (array_length q.orders)
+            if (n > 0) {
+                def lastOrder:FsOrder (itemAt q.orders (n - 1))
+                lastDesc = lastOrder.descending
+            }
+            push out (FsOrder.by("__name__" lastDesc))
+        }
+        return out
+    }
+
+    sfn compareDocs:int (a:FsDocument b:FsDocument orders:[FsOrder]) {
+        for orders o:FsOrder i {
+            def va:FsValue (FsQueryRun.docField(a o.fieldPath))
+            def vb:FsValue (FsQueryRun.docField(b o.fieldPath))
+            def c:int (FsValue.compare(va vb))
+            if (c != 0) {
+                if (o.descending) {
+                    return (0 - c)
+                }
+                return c
+            }
+        }
+        return 0
+    }
+
+    ; A document against a cursor's values, one order field at a time. Fewer
+    ; values than orders is allowed and means "as far as the values go".
+    sfn compareCursor:int (doc:FsDocument cur:FsCursor orders:[FsOrder]) {
+        def n:int (array_length cur.values)
+        def i:int 0
+        while (i < n) {
+            if (i >= (array_length orders)) {
+                return 0
+            }
+            def o:FsOrder (itemAt orders i)
+            def dv:FsValue (FsQueryRun.docField(doc o.fieldPath))
+            def cv:FsValue (itemAt cur.values i)
+            def c:int (FsValue.compare(dv cv))
+            if (c != 0) {
+                if (o.descending) {
+                    return (0 - c)
+                }
+                return c
+            }
+            i = (i + 1)
+        }
+        return 0
+    }
+
+    sfn mergeSort:[FsDocument] (input:[FsDocument] orders:[FsOrder]) {
+        def n:int (array_length input)
+        if (n < 2) {
+            return input
+        }
+        def mid:int (idiv n 2)
+        def left:[FsDocument]
+        def right:[FsDocument]
+        def i:int 0
+        while (i < mid) {
+            push left (itemAt input i)
+            i = (i + 1)
+        }
+        while (i < n) {
+            push right (itemAt input i)
+            i = (i + 1)
+        }
+        def sl:[FsDocument] (FsQueryRun.mergeSort(left orders))
+        def sr:[FsDocument] (FsQueryRun.mergeSort(right orders))
+        def out:[FsDocument]
+        def li:int 0
+        def ri:int 0
+        def ln:int (array_length sl)
+        def rn:int (array_length sr)
+        while ((li < ln) || (ri < rn)) {
+            if (li >= ln) {
+                push out (itemAt sr ri)
+                ri = (ri + 1)
+            } {
+                if (ri >= rn) {
+                    push out (itemAt sl li)
+                    li = (li + 1)
+                } {
+                    def c:int (FsQueryRun.compareDocs((itemAt sl li) (itemAt sr ri) orders))
+                    if (c <= 0) {
+                        push out (itemAt sl li)
+                        li = (li + 1)
+                    } {
+                        push out (itemAt sr ri)
+                        ri = (ri + 1)
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    sfn run:[FsDocument] (store:FsStore q:FsQuery) {
+        def source:[FsDocument]
+        if (q.allDescendants) {
+            source = (store.docsInGroup(q.collectionId q.parent))
+        } {
+            def collection:string q.collectionId
+            if ((strlen q.parent) > 0) {
+                collection = (q.parent + "/" + q.collectionId)
+            }
+            source = (store.docsIn(collection))
+        }
+        def kept:[FsDocument]
+        def hasFilter:boolean (q.hasWhere())
+        def f:FsFilter (new FsFilter)
+        if (hasFilter) {
+            f = (q.filter())
+        }
+        for source d:FsDocument i {
+            def ok:boolean true
+            if (hasFilter) {
+                ok = (f.matches(d))
+            }
+            ; An orderBy field a document does not carry takes the document
+            ; out of the result. This is the single most surprising thing
+            ; about Firestore ordering and the reason a query "loses" rows.
+            if (ok) {
+                for q.orders o:FsOrder oi {
+                    if (! (FsQueryRun.docHasField(d o.fieldPath))) {
+                        ok = false
+                    }
+                }
+            }
+            if (ok) {
+                push kept d
+            }
+        }
+        def orders:[FsOrder] (FsQueryRun.effectiveOrders(q))
+        def sorted:[FsDocument] (FsQueryRun.mergeSort(kept orders))
+        def afterStart:[FsDocument]
+        def sc:FsCursor (q.startAt())
+        for sorted d:FsDocument i {
+            def ok:boolean true
+            if (sc.active) {
+                def c:int (FsQueryRun.compareCursor(d sc orders))
+                if (sc.before) {
+                    ok = (c >= 0)
+                } {
+                    ok = (c > 0)
+                }
+            }
+            if (ok) {
+                push afterStart d
+            }
+        }
+        def afterEnd:[FsDocument]
+        def ec:FsCursor (q.endAt())
+        for afterStart d:FsDocument i {
+            def ok:boolean true
+            if (ec.active) {
+                def c:int (FsQueryRun.compareCursor(d ec orders))
+                if (ec.before) {
+                    ok = (c < 0)
+                } {
+                    ok = (c <= 0)
+                }
+            }
+            if (ok) {
+                push afterEnd d
+            }
+        }
+        def out:[FsDocument]
+        def idx:int 0
+        for afterEnd d:FsDocument i {
+            if (i >= q.offsetCount) {
+                def room:boolean true
+                if (q.limitCount >= 0) {
+                    room = (idx < q.limitCount)
+                }
+                if (room) {
+                    push out d
+                    idx = (idx + 1)
+                }
+            }
+        }
+        return out
+    }
+}

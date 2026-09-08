@@ -1,0 +1,879 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; FsRulesEval — running the rules against one request
+; =============================================================================
+; The match tree is walked against the full path the rules language sees —
+; `databases/(default)/documents/calendars/cal-plan` — so `{database}` binds
+; the way it does in the file and a rules file copied out of a project needs
+; no editing to run here.
+;
+; A block's `allow` clauses cover the documents at ITS path and no deeper.
+; That is the rule people get wrong: `match /calendars/{id}` does not reach
+; `calendars/{id}/entries/{eid}`, and a simulator that let it would teach the
+; opposite of what deploying teaches.
+;
+; An evaluation ERROR — an undefined variable, a method this subset does not
+; have, a `get()` of a document that is not there — DENIES. That is what the
+; real engine does, and it is the only safe direction for a difference between
+; this subset and the language to fall.
+; =============================================================================
+
+Import "FsRules.rgr"
+Import "FsStore.rgr"
+
+; What one request looks like to the rules.
+class FsRequestCtx {
+    ; "get" | "list" | "create" | "update" | "delete"
+    def method@(mutable):string "get"
+    ; The document path, without the `databases/…/documents` prefix.
+    def path@(mutable):string ""
+    def databaseId@(mutable):string "(default)"
+    def signedIn@(mutable):boolean false
+    def authUid@(mutable):string ""
+    ; The auth token's claims — `request.auth.token.*`.
+    def token@(optional):FsValue
+    ; The document as it is now, and whether it is there at all.
+    def resourceExists@(mutable):boolean false
+    def resourceData@(optional):FsValue
+    ; The document as the write would leave it — `request.resource.data`.
+    def hasRequestData@(mutable):boolean false
+    def requestData@(optional):FsValue
+    def nowMs@(mutable):double 0.0
+
+    Constructor () {
+        def t:FsValue (FsValue.mapV())
+        def r:FsValue (FsValue.mapV())
+        def q:FsValue (FsValue.mapV())
+        token = t
+        resourceData = r
+        requestData = q
+    }
+
+    fn claims:FsValue () {
+        return (unwrap token)
+    }
+
+    fn existing:FsValue () {
+        return (unwrap resourceData)
+    }
+
+    fn incoming:FsValue () {
+        return (unwrap requestData)
+    }
+}
+
+class FsRuleDecision {
+    def allowed@(mutable):boolean false
+    ; Why — the line of the `allow` that granted it, or what went wrong.
+    def reason@(mutable):string "no rule allowed this request"
+    def line@(mutable):int 0
+    ; The match path that answered, for a caller that wants to say which rule
+    ; it was rather than only that it was denied.
+    def rulePath@(mutable):string ""
+
+    Constructor () {
+    }
+}
+
+; -----------------------------------------------------------------------------
+; FsRulesEval
+; -----------------------------------------------------------------------------
+class FsRulesEval {
+    def store@(optional):FsStore
+    def ctx@(optional):FsRequestCtx
+    def funcs:[RuleFunc]
+    def varNames:[string]
+    def varValues:[FsValue]
+    def error@(mutable):string ""
+    ; How deep a user function may call, so a recursive rule ends in an error
+    ; rather than in a stack overflow the host reports as a crash.
+    def depth@(mutable):int 0
+
+    Constructor () {
+    }
+
+    fn db:FsStore () {
+        return (unwrap store)
+    }
+
+    fn request:FsRequestCtx () {
+        return (unwrap ctx)
+    }
+
+    fn fail:void (message:string) {
+        if ((strlen error) > 0) {
+            return
+        }
+        error = message
+    }
+
+    ; --- the environment -----------------------------------------------------
+    fn pushVar:void (name:string value:FsValue) {
+        push varNames name
+        push varValues value
+    }
+
+    fn popVars:void (toCount:int) {
+        def keptNames:[string]
+        def keptValues:[FsValue]
+        def i:int 0
+        while (i < toCount) {
+            push keptNames (itemAt varNames i)
+            push keptValues (itemAt varValues i)
+            i = (i + 1)
+        }
+        varNames = keptNames
+        varValues = keptValues
+    }
+
+    fn lookup:FsValue (name:string) {
+        def n:int (array_length varNames)
+        def i:int (n - 1)
+        while (i >= 0) {
+            if ((itemAt varNames i) == name) {
+                return (itemAt varValues i)
+            }
+            i = (i - 1)
+        }
+        this.fail(("undefined variable: " + name))
+        return (new FsValue)
+    }
+
+    fn hasVar:boolean (name:string) {
+        for varNames v:string i {
+            if (v == name) {
+                return true
+            }
+        }
+        return false
+    }
+
+    ; --- the built-in objects ------------------------------------------------
+    fn buildRequest:FsValue () {
+        def c:FsRequestCtx (unwrap ctx)
+        def req:FsValue (FsValue.mapV())
+        if (c.signedIn) {
+            def auth:FsValue (FsValue.mapV())
+            auth.setField("uid" (FsValue.strV(c.authUid)))
+            def claims:FsValue (c.claims())
+            auth.setField("token" (claims.copy()))
+            req.setField("auth" auth)
+        } {
+            req.setField("auth" (FsValue.nullV()))
+        }
+        def res:FsValue (FsValue.mapV())
+        def body:FsValue (c.incoming())
+        res.setField("data" (body.copy()))
+        res.setField("id" (FsValue.strV((FsPath.idOf(c.path)))))
+        req.setField("resource" res)
+        req.setField("method" (FsValue.strV(c.method)))
+        req.setField("time" (FsValue.timeV(c.nowMs)))
+        req.setField("path" (FsValue.refV((FsRulesEval.fullPath(c.databaseId c.path)))))
+        return req
+    }
+
+    ; `resource` is NULL when the document is not there — which is what makes
+    ; `resource == null` the idiomatic create guard, and what makes
+    ; `resource.data.x` an error on a create rather than a silent empty map.
+    fn buildResource:FsValue () {
+        def c:FsRequestCtx (unwrap ctx)
+        if (! c.resourceExists) {
+            return (FsValue.nullV())
+        }
+        def res:FsValue (FsValue.mapV())
+        def data:FsValue (c.existing())
+        res.setField("data" (data.copy()))
+        res.setField("id" (FsValue.strV((FsPath.idOf(c.path)))))
+        res.setField("__name__" (FsValue.refV((FsRulesEval.fullPath(c.databaseId c.path)))))
+        return res
+    }
+
+    sfn fullPath:string (databaseId:string docPath:string) {
+        return ((("databases/" + databaseId) + "/documents/") + docPath)
+    }
+
+    ; `/databases/(default)/documents/calendars/x` → `calendars/x`, and a path
+    ; already relative is left alone.
+    sfn storePath:string (path:string) {
+        def segs:[string] (FsPath.segments(path))
+        def n:int (array_length segs)
+        if (n >= 3) {
+            if ((itemAt segs 0) == "databases") {
+                if ((itemAt segs 2) == "documents") {
+                    def kept:[string]
+                    def i:int 3
+                    while (i < n) {
+                        push kept (itemAt segs i)
+                        i = (i + 1)
+                    }
+                    return (FsPath.joinSegs(kept))
+                }
+            }
+        }
+        return (FsPath.joinSegs(segs))
+    }
+
+    ; --- evaluating ----------------------------------------------------------
+    fn eval:FsValue (e:RuleExpr) {
+        if ((strlen error) > 0) {
+            return (new FsValue)
+        }
+        if (e.kind == "lit") {
+            return (e.literal())
+        }
+        if (e.kind == "var") {
+            if (e.text == "request") {
+                return (this.buildRequest())
+            }
+            if (e.text == "resource") {
+                return (this.buildResource())
+            }
+            return (this.lookup(e.text))
+        }
+        if (e.kind == "list") {
+            def list:FsValue (FsValue.arrayV())
+            for e.parts p:RuleExpr i {
+                push list.items (this.eval(p))
+            }
+            return list
+        }
+        if (e.kind == "path") {
+            def out:string ""
+            for e.parts p:RuleExpr i {
+                def v:FsValue (this.eval(p))
+                out = ((out + "/") + (v.asString()))
+            }
+            return (FsValue.refV(out))
+        }
+        if (e.kind == "member") {
+            def target:FsValue (this.eval((itemAt e.parts 0)))
+            if (target.isNull()) {
+                this.fail(("property " + e.text + " of a null value"))
+                return (new FsValue)
+            }
+            if (! (target.isMap())) {
+                this.fail(("property " + e.text + " of a value that is not a map"))
+                return (new FsValue)
+            }
+            if (! (target.hasField(e.text))) {
+                ; A missing field is an ERROR in the rules language, not a
+                ; null, which is why every real rules file guards with
+                ; `.keys().hasAll([…])` before reading an optional field.
+                this.fail(("no such property: " + e.text))
+                return (new FsValue)
+            }
+            return (target.field(e.text))
+        }
+        if (e.kind == "index") {
+            def target:FsValue (this.eval((itemAt e.parts 0)))
+            def key:FsValue (this.eval((itemAt e.parts 1)))
+            if (target.isArray()) {
+                return (target.at((key.asInt())))
+            }
+            if (target.isMap()) {
+                def name:string (key.asString())
+                if (! (target.hasField(name))) {
+                    this.fail(("no such key: " + name))
+                    return (new FsValue)
+                }
+                return (target.field(name))
+            }
+            this.fail("indexing a value that is not a list or a map")
+            return (new FsValue)
+        }
+        if (e.kind == "unary") {
+            def v:FsValue (this.eval((itemAt e.parts 0)))
+            if (e.text == "!") {
+                return (FsValue.boolV((! (v.asBool()))))
+            }
+            return (FsValue.doubleV((0.0 - (v.asDouble()))))
+        }
+        if (e.kind == "ternary") {
+            def cond:FsValue (this.eval((itemAt e.parts 0)))
+            if (cond.asBool()) {
+                return (this.eval((itemAt e.parts 1)))
+            }
+            return (this.eval((itemAt e.parts 2)))
+        }
+        if (e.kind == "binary") {
+            return (this.evalBinary(e))
+        }
+        if (e.kind == "call") {
+            return (this.evalCall(e))
+        }
+        if (e.kind == "method") {
+            return (this.evalMethod(e))
+        }
+        this.fail(("unsupported expression: " + e.kind))
+        return (new FsValue)
+    }
+
+    fn evalBinary:FsValue (e:RuleExpr) {
+        def op:string e.text
+        ; `&&` and `||` short-circuit, which is what makes
+        ; `request.auth != null && request.auth.uid == x` safe to write.
+        ; CEL's logical operators ABSORB errors, and rules files depend on it:
+        ; `resource.data.userId == uid || request.resource.data.userId == uid`
+        ; is the ordinary way to write one rule for a create and an update,
+        ; and on a create the left half reads a document that is not there.
+        ; A strict `||` would deny it. So: `x || true` is true even when `x`
+        ; errored, `x && false` is false even when `x` errored, and only a
+        ; combination that does not decide keeps the error.
+        ;
+        ; The left side still short-circuits when it decides the answer,
+        ; because a `get()` on the right is a read that should not happen.
+        if (op == "&&") {
+            def l:FsValue (this.eval((itemAt e.parts 0)))
+            def leftFailed:string error
+            if ((strlen leftFailed) == 0) {
+                if (! (l.asBool())) {
+                    return (FsValue.boolV(false))
+                }
+            }
+            error = ""
+            def r:FsValue (this.eval((itemAt e.parts 1)))
+            def rightFailed:string error
+            if ((strlen rightFailed) == 0) {
+                if (! (r.asBool())) {
+                    return (FsValue.boolV(false))
+                }
+            }
+            if ((strlen leftFailed) > 0) {
+                error = leftFailed
+                return (new FsValue)
+            }
+            if ((strlen rightFailed) > 0) {
+                error = rightFailed
+                return (new FsValue)
+            }
+            error = ""
+            return (FsValue.boolV(true))
+        }
+        if (op == "||") {
+            def l:FsValue (this.eval((itemAt e.parts 0)))
+            def leftFailed:string error
+            if ((strlen leftFailed) == 0) {
+                if (l.asBool()) {
+                    return (FsValue.boolV(true))
+                }
+            }
+            error = ""
+            def r:FsValue (this.eval((itemAt e.parts 1)))
+            def rightFailed:string error
+            if ((strlen rightFailed) == 0) {
+                if (r.asBool()) {
+                    return (FsValue.boolV(true))
+                }
+            }
+            if ((strlen leftFailed) > 0) {
+                error = leftFailed
+                return (new FsValue)
+            }
+            if ((strlen rightFailed) > 0) {
+                error = rightFailed
+                return (new FsValue)
+            }
+            error = ""
+            return (FsValue.boolV(false))
+        }
+        if (op == "is") {
+            def l:FsValue (this.eval((itemAt e.parts 0)))
+            def want:RuleExpr (itemAt e.parts 1)
+            return (FsValue.boolV((FsRulesEval.isType(l want.text))))
+        }
+        def left:FsValue (this.eval((itemAt e.parts 0)))
+        def right:FsValue (this.eval((itemAt e.parts 1)))
+        if ((strlen error) > 0) {
+            return (new FsValue)
+        }
+        if (op == "in") {
+            if (right.isArray()) {
+                for right.items it:FsValue i {
+                    if (it.sameAs(left)) {
+                        return (FsValue.boolV(true))
+                    }
+                }
+                return (FsValue.boolV(false))
+            }
+            if (right.isMap()) {
+                return (FsValue.boolV((right.hasField((left.asString())))))
+            }
+            this.fail("`in` needs a list or a map on the right")
+            return (new FsValue)
+        }
+        if (op == "==") {
+            return (FsValue.boolV((left.sameAs(right))))
+        }
+        if (op == "!=") {
+            return (FsValue.boolV((! (left.sameAs(right)))))
+        }
+        if (op == "+") {
+            if (left.kind == 5) {
+                return (FsValue.strV(((left.asString()) + (right.asString()))))
+            }
+            if (left.isArray()) {
+                def joined:FsValue (FsValue.arrayV())
+                for left.items a:FsValue ai {
+                    push joined.items (a.copy())
+                }
+                for right.items bx:FsValue bi {
+                    push joined.items (bx.copy())
+                }
+                return joined
+            }
+            return (FsRulesEval.arith(left right "+"))
+        }
+        if (op == "-") {
+            return (FsRulesEval.arith(left right "-"))
+        }
+        if (op == "*") {
+            return (FsRulesEval.arith(left right "*"))
+        }
+        if (op == "%") {
+            def la:int (left.asInt())
+            def rb:int (right.asInt())
+            if (rb == 0) {
+                this.fail("modulo by zero")
+                return (new FsValue)
+            }
+            return (FsValue.longV((to_double (la % rb))))
+        }
+        def c:int (FsValue.compare(left right))
+        if (op == "<") {
+            return (FsValue.boolV((c < 0)))
+        }
+        if (op == "<=") {
+            return (FsValue.boolV((c <= 0)))
+        }
+        if (op == ">") {
+            return (FsValue.boolV((c > 0)))
+        }
+        if (op == ">=") {
+            return (FsValue.boolV((c >= 0)))
+        }
+        this.fail(("unsupported operator: " + op))
+        return (new FsValue)
+    }
+
+    sfn arith:FsValue (a:FsValue b:FsValue op:string) {
+        def x:double (a.asDouble())
+        def y:double (b.asDouble())
+        def r:double 0.0
+        if (op == "+") {
+            r = (x + y)
+        }
+        if (op == "-") {
+            r = (x - y)
+        }
+        if (op == "*") {
+            r = (x * y)
+        }
+        def bothInt:boolean false
+        if (a.kind == 2) {
+            if (b.kind == 2) {
+                bothInt = true
+            }
+        }
+        if (bothInt) {
+            return (FsValue.longV(r))
+        }
+        return (FsValue.doubleV(r))
+    }
+
+    sfn isType:boolean (v:FsValue name:string) {
+        if (name == "string") {
+            return (v.kind == 5)
+        }
+        if (name == "int") {
+            return (v.kind == 2)
+        }
+        if (name == "float") {
+            return (v.kind == 3)
+        }
+        if (name == "number") {
+            return (v.isNumeric())
+        }
+        if (name == "bool") {
+            return (v.kind == 1)
+        }
+        if (name == "list") {
+            return (v.kind == 9)
+        }
+        if (name == "map") {
+            return (v.kind == 10)
+        }
+        if (name == "timestamp") {
+            return (v.kind == 4)
+        }
+        if (name == "path") {
+            return (v.kind == 7)
+        }
+        return false
+    }
+
+    fn evalCall:FsValue (e:RuleExpr) {
+        def name:string e.text
+        if (name == "debug") {
+            return (this.eval((itemAt e.parts 0)))
+        }
+        if (name == "exists") {
+            def p:FsValue (this.eval((itemAt e.parts 0)))
+            def db:FsStore (unwrap store)
+            return (FsValue.boolV((db.exists((FsRulesEval.storePath((p.asString())))))))
+        }
+        if (name == "get") {
+            def p:FsValue (this.eval((itemAt e.parts 0)))
+            def db:FsStore (unwrap store)
+            def path:string (FsRulesEval.storePath((p.asString())))
+            if (! (db.exists(path))) {
+                this.fail(("get() of a document that is not there: " + path))
+                return (new FsValue)
+            }
+            def doc:FsDocument (db.get(path))
+            def res:FsValue (FsValue.mapV())
+            def data:FsValue (doc.root())
+            res.setField("data" (data.copy()))
+            res.setField("id" (FsValue.strV((doc.id()))))
+            res.setField("__name__" (FsValue.refV(path)))
+            return res
+        }
+        if (name == "string") {
+            def v:FsValue (this.eval((itemAt e.parts 0)))
+            return (FsValue.strV((v.asString())))
+        }
+        if (name == "int") {
+            def v:FsValue (this.eval((itemAt e.parts 0)))
+            return (FsValue.longV((to_double (v.asInt()))))
+        }
+        if (name == "float") {
+            def v:FsValue (this.eval((itemAt e.parts 0)))
+            return (FsValue.doubleV((v.asDouble())))
+        }
+        if (name == "path") {
+            def v:FsValue (this.eval((itemAt e.parts 0)))
+            return (FsValue.refV((v.asString())))
+        }
+        ; A function the file declared.
+        def n:int (array_length funcs)
+        def i:int (n - 1)
+        while (i >= 0) {
+            def f:RuleFunc (itemAt funcs i)
+            if (f.name == name) {
+                if ((array_length f.params) != (array_length e.parts)) {
+                    this.fail(((("function " + name) + " takes ") + (to_string (array_length f.params))) )
+                    return (new FsValue)
+                }
+                if (depth > 16) {
+                    this.fail(("rules function recursion is too deep at " + name))
+                    return (new FsValue)
+                }
+                def args:[FsValue]
+                for e.parts a:RuleExpr ai {
+                    push args (this.eval(a))
+                }
+                def mark:int (array_length varNames)
+                def pi:int 0
+                while (pi < (array_length f.params)) {
+                    this.pushVar((itemAt f.params pi) (itemAt args pi))
+                    pi = (pi + 1)
+                }
+                depth = (depth + 1)
+                def body:RuleExpr (f.expr())
+                def out:FsValue (this.eval(body))
+                depth = (depth - 1)
+                this.popVars(mark)
+                return out
+            }
+            i = (i - 1)
+        }
+        this.fail(("unknown function: " + name))
+        return (new FsValue)
+    }
+
+    fn evalMethod:FsValue (e:RuleExpr) {
+        def target:FsValue (this.eval((itemAt e.parts 0)))
+        def name:string e.text
+        def args:[FsValue]
+        def n:int (array_length e.parts)
+        def i:int 1
+        while (i < n) {
+            push args (this.eval((itemAt e.parts i)))
+            i = (i + 1)
+        }
+        if ((strlen error) > 0) {
+            return (new FsValue)
+        }
+        if (name == "size") {
+            if (target.kind == 5) {
+                return (FsValue.longV((to_double (strlen target.str))))
+            }
+            return (FsValue.longV((to_double (target.count()))))
+        }
+        if (name == "keys") {
+            def list:FsValue (FsValue.arrayV())
+            for target.keys k:string ki {
+                push list.items (FsValue.strV(k))
+            }
+            return list
+        }
+        if (name == "values") {
+            def list:FsValue (FsValue.arrayV())
+            for target.keys k:string ki {
+                push list.items (target.field(k))
+            }
+            return list
+        }
+        if (name == "get") {
+            if ((array_length args) < 2) {
+                this.fail("get() on a map takes a key and a default")
+                return (new FsValue)
+            }
+            def key:FsValue (itemAt args 0)
+            def keyName:string (key.asString())
+            if (target.hasField(keyName)) {
+                return (target.field(keyName))
+            }
+            return (itemAt args 1)
+        }
+        if (name == "hasAll") {
+            def want:FsValue (itemAt args 0)
+            for want.items w:FsValue wi {
+                if (! (FsRulesEval.holds(target w))) {
+                    return (FsValue.boolV(false))
+                }
+            }
+            return (FsValue.boolV(true))
+        }
+        if (name == "hasAny") {
+            def want:FsValue (itemAt args 0)
+            for want.items w:FsValue wi {
+                if (FsRulesEval.holds(target w)) {
+                    return (FsValue.boolV(true))
+                }
+            }
+            return (FsValue.boolV(false))
+        }
+        if (name == "hasOnly") {
+            def want:FsValue (itemAt args 0)
+            def mine:FsValue (FsRulesEval.membersOf(target))
+            for mine.items m:FsValue mi {
+                def found:boolean false
+                for want.items w:FsValue wi {
+                    if (m.sameAs(w)) {
+                        found = true
+                    }
+                }
+                if (! found) {
+                    return (FsValue.boolV(false))
+                }
+            }
+            return (FsValue.boolV(true))
+        }
+        if (name == "toMillis") {
+            return (FsValue.longV(target.num))
+        }
+        if (name == "lower") {
+            return (FsValue.strV((FsRulesEval.caseShift(target.str true))))
+        }
+        if (name == "upper") {
+            return (FsValue.strV((FsRulesEval.caseShift(target.str false))))
+        }
+        if (name == "split") {
+            def sep:FsValue (itemAt args 0)
+            def parts:[string] (strsplit target.str (sep.asString()))
+            def list:FsValue (FsValue.arrayV())
+            for parts p:string pi {
+                push list.items (FsValue.strV(p))
+            }
+            return list
+        }
+        if (name == "trim") {
+            return (FsValue.strV((trim target.str)))
+        }
+        this.fail(("unsupported method in this rules subset: ." + name + "()"))
+        return (new FsValue)
+    }
+
+    ; What a list or a map holds, as a list — a map answers with its keys,
+    ; because that is what `hasAll` on a map means.
+    sfn membersOf:FsValue (v:FsValue) {
+        if (v.isMap()) {
+            def list:FsValue (FsValue.arrayV())
+            for v.keys k:string ki {
+                push list.items (FsValue.strV(k))
+            }
+            return list
+        }
+        return v
+    }
+
+    sfn holds:boolean (target:FsValue want:FsValue) {
+        if (target.isMap()) {
+            return (target.hasField((want.asString())))
+        }
+        for target.items it:FsValue i {
+            if (it.sameAs(want)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    sfn caseShift:string (s:string toLower:boolean) {
+        def out:string ""
+        def n:int (strlen s)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt s i)
+            def one:string (substring s i (i + 1))
+            if (toLower) {
+                if (c >= 65) {
+                    if (c <= 90) {
+                        one = (FsRulesEval.letterAt((c + 32)))
+                    }
+                }
+            } {
+                if (c >= 97) {
+                    if (c <= 122) {
+                        one = (FsRulesEval.letterAt((c - 32)))
+                    }
+                }
+            }
+            out = (out + one)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn letterAt:string (code:int) {
+        def upper:string "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        def lower:string "abcdefghijklmnopqrstuvwxyz"
+        if (code >= 97) {
+            def idx:int (code - 97)
+            return (substring lower idx (idx + 1))
+        }
+        def idx2:int (code - 65)
+        return (substring upper idx2 (idx2 + 1))
+    }
+
+    ; --- the walk ------------------------------------------------------------
+    sfn check:FsRuleDecision (rules:FsRules store:FsStore c:FsRequestCtx) {
+        def out:FsRuleDecision (new FsRuleDecision)
+        if (! (rules.ok())) {
+            out.reason = (("the rules did not parse: " + rules.error) + " (line " + (to_string rules.errorLine) + ")")
+            return out
+        }
+        def ev:FsRulesEval (new FsRulesEval)
+        ev.store = store
+        ev.ctx = c
+        def full:string (FsRulesEval.fullPath(c.databaseId c.path))
+        def segs:[string] (FsPath.segments(full))
+        def root:RuleMatch (rules.tree())
+        ev.walk(root segs 0 out)
+        if (! out.allowed) {
+            if ((strlen ev.error) > 0) {
+                out.reason = ev.error
+            }
+        }
+        return out
+    }
+
+    ; Match `segs` from `at` against a block's children; a block whose path is
+    ; fully consumed gets its `allow` clauses evaluated.
+    fn walk:void (block:RuleMatch segs:[string] at:int out:FsRuleDecision) {
+        if (out.allowed) {
+            return
+        }
+        def varMark:int (array_length varNames)
+        def funcMark:int (array_length funcs)
+        for block.funcs f:RuleFunc fi {
+            push funcs f
+        }
+        def afterOwn:int (array_length funcs)
+        for block.children child:RuleMatch ci {
+            if (out.allowed) {
+                break
+            }
+            def next:int (this.matchSegments(child segs at))
+            if (next >= 0) {
+                if (next == (array_length segs)) {
+                    this.evalAllows(child out)
+                }
+                if (! out.allowed) {
+                    this.walk(child segs next out)
+                }
+            }
+            this.popVars(varMark)
+            this.popFuncs(afterOwn)
+        }
+        this.popVars(varMark)
+        this.popFuncs(funcMark)
+    }
+
+    fn popFuncs:void (toCount:int) {
+        def kept:[RuleFunc]
+        def i:int 0
+        while (i < toCount) {
+            push kept (itemAt funcs i)
+            i = (i + 1)
+        }
+        funcs = kept
+    }
+
+    ; How far into `segs` this block's path reaches, or -1 when it does not
+    ; match. A `{x=**}` swallows the rest and binds the joined path.
+    fn matchSegments:int (m:RuleMatch segs:[string] at:int) {
+        def i:int at
+        def n:int (array_length segs)
+        for m.segments seg:RuleSeg si {
+            if (seg.kind == "rest") {
+                if (i >= n) {
+                    return -1
+                }
+                def kept:[string]
+                def k:int i
+                while (k < n) {
+                    push kept (itemAt segs k)
+                    k = (k + 1)
+                }
+                this.pushVar(seg.text (FsValue.refV((FsPath.joinSegs(kept)))))
+                return n
+            }
+            if (i >= n) {
+                return -1
+            }
+            def have:string (itemAt segs i)
+            if (seg.kind == "lit") {
+                if (seg.text != have) {
+                    return -1
+                }
+            } {
+                this.pushVar(seg.text (FsValue.strV(have)))
+            }
+            i = (i + 1)
+        }
+        return i
+    }
+
+    fn evalAllows:void (m:RuleMatch out:FsRuleDecision) {
+        def c:FsRequestCtx (unwrap ctx)
+        for m.allows a:RuleAllow ai {
+            if (out.allowed) {
+                break
+            }
+            if (a.covers(c.method)) {
+                error = ""
+                def cond:RuleExpr (a.expr())
+                def v:FsValue (this.eval(cond))
+                if ((strlen error) == 0) {
+                    if (v.asBool()) {
+                        out.allowed = true
+                        out.reason = "allowed"
+                        out.line = a.line
+                    }
+                }
+            }
+        }
+    }
+}

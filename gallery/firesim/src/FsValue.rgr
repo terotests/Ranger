@@ -1,0 +1,909 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; FsValue — a Firestore value, and the wire format it travels in
+; =============================================================================
+; The point of this module is that the SEAM between an app and its backend is
+; the wire protocol, not an interface someone invented for the simulator. A
+; document field is what Firestore's REST API says it is:
+;
+;   { "stringValue": "Kevyt salitreeni" }
+;   { "integerValue": "45" }              — int64, quoted, because JSON has one
+;                                           number type and int64 does not fit
+;   { "timestampValue": "2026-02-09T00:00:00Z" }
+;   { "arrayValue": { "values": [ … ] } }
+;   { "mapValue": { "fields": { … } } }
+;
+; So a client that speaks this speaks to the real thing as well, and the only
+; difference between the simulator and Google is where the bytes go.
+;
+; The value also has to SORT the way Firestore sorts, because `orderBy` on a
+; mixed field is defined by a canonical type order (null < boolean < number <
+; timestamp < string < bytes < reference < geopoint < array < map), not by the
+; host language's idea of comparing a string with a number.
+;
+; An integer and a double compare NUMERICALLY with each other — they share one
+; type order — and that is deliberate in Firestore, not an accident here.
+; =============================================================================
+
+Import "../../vela/src/VlJson.rgr"
+
+; -----------------------------------------------------------------------------
+; FsTime — RFC 3339 in and out, without a host Date
+; -----------------------------------------------------------------------------
+; A timestamp is compared as a number and written as text, so both directions
+; are needed, and neither may call into the host: the same document has to
+; sort the same on Node, on Kotlin and on Swift or the simulator is not one
+; backend but three.
+; -----------------------------------------------------------------------------
+class FsTime {
+    sfn isLeap:boolean (y:int) {
+        if ((y % 4) != 0) {
+            return false
+        }
+        if ((y % 100) != 0) {
+            return true
+        }
+        return ((y % 400) == 0)
+    }
+
+    ; Days since 1970-01-01, negative before it (Howard Hinnant's civil
+    ; algorithm, as gallery/ui's UiDate carries it).
+    sfn toDays:int (y:int m:int d:int) {
+        def yy:int y
+        if (m <= 2) {
+            yy = (yy - 1)
+        }
+        def era:int (idiv yy 400)
+        if (yy < 0) {
+            era = (idiv (yy - 399) 400)
+        }
+        def yoe:int (yy - (era * 400))
+        def mp:int (m + 9)
+        if (m > 2) {
+            mp = (m - 3)
+        }
+        def doy:int ((idiv (((153 * mp) + 2)) 5) + (d - 1))
+        def doe:int ((((yoe * 365) + (idiv yoe 4)) - (idiv yoe 100)) + doy)
+        return (((era * 146097) + doe) - 719468)
+    }
+
+    sfn fromDays:void (days:int out:[int]) {
+        def z:int (days + 719468)
+        def era:int (idiv z 146097)
+        if (z < 0) {
+            era = (idiv (z - 146096) 146097)
+        }
+        def doe:int (z - (era * 146097))
+        def yoe:int (idiv (((doe - (idiv doe 1460)) + (idiv doe 36524)) - (idiv doe 146096)) 365)
+        def y:int (yoe + (era * 400))
+        def doy:int (doe - (((365 * yoe) + (idiv yoe 4)) - (idiv yoe 100)))
+        def mp:int (idiv (((5 * doy) + 2)) 153)
+        def d:int ((doy - (idiv (((153 * mp) + 2)) 5)) + 1)
+        def m:int (mp + 3)
+        if (mp >= 10) {
+            m = (mp - 9)
+        }
+        if (m <= 2) {
+            y = (y + 1)
+        }
+        set out 0 y
+        set out 1 m
+        set out 2 d
+    }
+
+    sfn pad:string (n:int width:int) {
+        def s:string ("" + n)
+        def out:string s
+        while ((strlen out) < width) {
+            out = ("0" + out)
+        }
+        return out
+    }
+
+    ; Digits of `text` from `start`, `count` of them. A field that is not a
+    ; number reads as zero rather than throwing: a malformed timestamp in a
+    ; seed should show up as an epoch date in a test, not as a crash in an
+    ; app that was only listing documents.
+    sfn digits:int (text:string start:int count:int) {
+        def n:int 0
+        def i:int 0
+        def len:int (strlen text)
+        while (i < count) {
+            def at:int (start + i)
+            if (at >= len) {
+                return n
+            }
+            def c:int (charAt text at)
+            if (c < 48) {
+                return n
+            }
+            if (c > 57) {
+                return n
+            }
+            n = ((n * 10) + (c - 48))
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; `2026-02-09T10:30:00.250Z` → epoch milliseconds. A trailing offset other
+    ; than `Z` is honoured (`+02:00`), which is what a hand-written seed tends
+    ; to carry.
+    sfn parseIso:double (text:string) {
+        def len:int (strlen text)
+        if (len < 10) {
+            return 0.0
+        }
+        def y:int (FsTime.digits(text 0 4))
+        def mo:int (FsTime.digits(text 5 2))
+        def d:int (FsTime.digits(text 8 2))
+        def days:int (FsTime.toDays(y mo d))
+        def secs:double ((to_double days) * 86400.0)
+        if (len >= 19) {
+            def hh:int (FsTime.digits(text 11 2))
+            def mi:int (FsTime.digits(text 14 2))
+            def ss:int (FsTime.digits(text 17 2))
+            secs = (secs + (to_double (((hh * 3600) + (mi * 60)) + ss)))
+        }
+        def ms:double (secs * 1000.0)
+        ; Fractional seconds, however many digits were written.
+        def i:int 19
+        if (i < len) {
+            if ((charAt text i) == 46) {
+                def frac:double 0.0
+                def scale:double 100.0
+                i = (i + 1)
+                while (i < len) {
+                    def c:int (charAt text i)
+                    if (c < 48) {
+                        i = len
+                    } {
+                        if (c > 57) {
+                            i = len
+                        } {
+                            frac = (frac + ((to_double (c - 48)) * scale))
+                            scale = (scale / 10.0)
+                            i = (i + 1)
+                        }
+                    }
+                }
+                ms = (ms + frac)
+            }
+        }
+        ; A zone offset moves the instant; `Z` and a missing zone do not.
+        def zi:int (len - 6)
+        if (zi > 10) {
+            def sign:int (charAt text zi)
+            def isPlus:boolean (sign == 43)
+            def isMinus:boolean (sign == 45)
+            if (isPlus || isMinus) {
+                def oh:int (FsTime.digits(text (zi + 1) 2))
+                def om:int (FsTime.digits(text (zi + 4) 2))
+                def off:double (to_double (((oh * 3600) + (om * 60)) * 1000))
+                if (isPlus) {
+                    ms = (ms - off)
+                } {
+                    ms = (ms + off)
+                }
+            }
+        }
+        return ms
+    }
+
+    ; Epoch milliseconds → `2026-02-09T10:30:00.250Z`. Always UTC and always
+    ; with the milliseconds, so two timestamps written by the simulator sort
+    ; as text in the same order they sort as numbers.
+    sfn formatIso:string (ms:double) {
+        def total:double (ms / 1000.0)
+        def secs:int (floor total)
+        def fracMs:double (ms - ((to_double secs) * 1000.0))
+        def milli:int (floor (fracMs + 0.5))
+        if (milli > 999) {
+            milli = 999
+        }
+        if (milli < 0) {
+            milli = 0
+        }
+        def days:int (idiv secs 86400)
+        def rem:int (secs - (days * 86400))
+        if (rem < 0) {
+            days = (days - 1)
+            rem = (rem + 86400)
+        }
+        def p:[int] ([] _:int ( 0 0 0 ))
+        FsTime.fromDays(days p)
+        def hh:int (idiv rem 3600)
+        def mi:int (idiv (rem - (hh * 3600)) 60)
+        def ss:int (rem - ((hh * 3600) + (mi * 60)))
+        def ys:string (FsTime.pad((itemAt p 0) 4))
+        def mos:string (FsTime.pad((itemAt p 1) 2))
+        def ds:string (FsTime.pad((itemAt p 2) 2))
+        def hs:string (FsTime.pad(hh 2))
+        def mis:string (FsTime.pad(mi 2))
+        def sss:string (FsTime.pad(ss 2))
+        def mss:string (FsTime.pad(milli 3))
+        def date:string (ys + "-" + mos + "-" + ds)
+        def time:string (hs + ":" + mis + ":" + sss)
+        return (date + "T" + time + "." + mss + "Z")
+    }
+}
+
+; -----------------------------------------------------------------------------
+; FsValue
+; -----------------------------------------------------------------------------
+; kind: 0 null, 1 boolean, 2 integer, 3 double, 4 timestamp, 5 string,
+;       6 bytes, 7 reference, 8 geopoint, 9 array, 10 map
+; -----------------------------------------------------------------------------
+class FsValue {
+    def kind@(mutable):int 0
+    def b@(mutable):boolean false
+    ; The number for an integer and a double, the epoch milliseconds for a
+    ; timestamp, and the latitude for a geopoint.
+    def num@(mutable):double 0.0
+    ; The text for a string, the base64 for bytes, the document path for a
+    ; reference, and the RFC 3339 text a timestamp came in as.
+    def str@(mutable):string ""
+    def lng@(mutable):double 0.0
+    def items:[FsValue]
+    def keys:[string]
+    def fields:[string:FsValue]
+
+    Constructor () {
+    }
+
+    ; --- construction --------------------------------------------------------
+    sfn nullV:FsValue () {
+        return (new FsValue)
+    }
+
+    sfn boolV:FsValue (value:boolean) {
+        def v:FsValue (new FsValue)
+        v.kind = 1
+        v.b = value
+        return v
+    }
+
+    sfn intV:FsValue (value:int) {
+        def v:FsValue (new FsValue)
+        v.kind = 2
+        v.num = (to_double value)
+        return v
+    }
+
+    sfn longV:FsValue (value:double) {
+        def v:FsValue (new FsValue)
+        v.kind = 2
+        v.num = value
+        return v
+    }
+
+    sfn doubleV:FsValue (value:double) {
+        def v:FsValue (new FsValue)
+        v.kind = 3
+        v.num = value
+        return v
+    }
+
+    sfn timeV:FsValue (epochMs:double) {
+        def v:FsValue (new FsValue)
+        v.kind = 4
+        v.num = epochMs
+        v.str = (FsTime.formatIso(epochMs))
+        return v
+    }
+
+    sfn timeTextV:FsValue (text:string) {
+        def v:FsValue (new FsValue)
+        v.kind = 4
+        v.num = (FsTime.parseIso(text))
+        v.str = text
+        return v
+    }
+
+    sfn strV:FsValue (value:string) {
+        def v:FsValue (new FsValue)
+        v.kind = 5
+        v.str = value
+        return v
+    }
+
+    sfn bytesV:FsValue (base64:string) {
+        def v:FsValue (new FsValue)
+        v.kind = 6
+        v.str = base64
+        return v
+    }
+
+    sfn refV:FsValue (path:string) {
+        def v:FsValue (new FsValue)
+        v.kind = 7
+        v.str = path
+        return v
+    }
+
+    sfn geoV:FsValue (latitude:double longitude:double) {
+        def v:FsValue (new FsValue)
+        v.kind = 8
+        v.num = latitude
+        v.lng = longitude
+        return v
+    }
+
+    sfn arrayV:FsValue () {
+        def v:FsValue (new FsValue)
+        v.kind = 9
+        return v
+    }
+
+    sfn mapV:FsValue () {
+        def v:FsValue (new FsValue)
+        v.kind = 10
+        return v
+    }
+
+    ; --- asking --------------------------------------------------------------
+    fn isNull:boolean () {
+        return (kind == 0)
+    }
+
+    fn isNumeric:boolean () {
+        if (kind == 2) {
+            return true
+        }
+        return (kind == 3)
+    }
+
+    fn isArray:boolean () {
+        return (kind == 9)
+    }
+
+    fn isMap:boolean () {
+        return (kind == 10)
+    }
+
+    fn asString:string () {
+        if (kind == 5) {
+            return str
+        }
+        if (kind == 4) {
+            return str
+        }
+        if (kind == 6) {
+            return str
+        }
+        if (kind == 7) {
+            return str
+        }
+        if (kind == 1) {
+            if (b) {
+                return "true"
+            }
+            return "false"
+        }
+        if (kind == 2) {
+            def n:int (to_int num)
+            return ("" + n)
+        }
+        if (kind == 3) {
+            return (VlJson.numberToText(num false))
+        }
+        return ""
+    }
+
+    fn asDouble:double () {
+        if (kind == 2) {
+            return num
+        }
+        if (kind == 3) {
+            return num
+        }
+        if (kind == 4) {
+            return num
+        }
+        if (kind == 1) {
+            if (b) {
+                return 1.0
+            }
+            return 0.0
+        }
+        return 0.0
+    }
+
+    fn asInt:int () {
+        def d:double (this.asDouble())
+        return (to_int d)
+    }
+
+    fn asBool:boolean () {
+        if (kind == 1) {
+            return b
+        }
+        return false
+    }
+
+    fn count:int () {
+        if (kind == 9) {
+            return (array_length items)
+        }
+        if (kind == 10) {
+            return (array_length keys)
+        }
+        return 0
+    }
+
+    fn at:FsValue (index:int) {
+        if (kind != 9) {
+            return (new FsValue)
+        }
+        if (index < 0) {
+            return (new FsValue)
+        }
+        if (index >= (array_length items)) {
+            return (new FsValue)
+        }
+        return (itemAt items index)
+    }
+
+    fn hasField:boolean (name:string) {
+        if (kind != 10) {
+            return false
+        }
+        return (has fields name)
+    }
+
+    fn field:FsValue (name:string) {
+        if (kind != 10) {
+            return (new FsValue)
+        }
+        if (! (has fields name)) {
+            return (new FsValue)
+        }
+        return (unwrap (get fields name))
+    }
+
+    fn setField:void (name:string value:FsValue) {
+        if (kind != 10) {
+            kind = 10
+        }
+        if (! (has fields name)) {
+            push keys name
+        }
+        set fields name value
+    }
+
+    fn removeField:void (name:string) {
+        if (! (has fields name)) {
+            return
+        }
+        def kept:[string]
+        def fresh:[string:FsValue]
+        for keys k:string ki {
+            if (k != name) {
+                push kept k
+                set fresh k (unwrap (get fields k))
+            }
+        }
+        keys = kept
+        fields = fresh
+    }
+
+    fn addItem:void (value:FsValue) {
+        push items value
+    }
+
+    ; A deep copy. Documents hand values out to callers that may hold them
+    ; while the store keeps writing, and a store whose values can be edited
+    ; from outside is a store with no transactions at all.
+    fn copy:FsValue () {
+        def v:FsValue (new FsValue)
+        v.kind = kind
+        v.b = b
+        v.num = num
+        v.str = str
+        v.lng = lng
+        for items it:FsValue i {
+            push v.items (it.copy())
+        }
+        for keys k:string ki {
+            def child:FsValue (unwrap (get fields k))
+            push v.keys k
+            set v.fields k (child.copy())
+        }
+        return v
+    }
+
+    ; --- ordering ------------------------------------------------------------
+    ; Firestore's canonical order across types. An integer and a double share
+    ; one slot and compare by their numbers.
+    fn typeOrder:int () {
+        if (kind == 0) {
+            return 0
+        }
+        if (kind == 1) {
+            return 1
+        }
+        if (kind == 2) {
+            return 2
+        }
+        if (kind == 3) {
+            return 2
+        }
+        if (kind == 4) {
+            return 3
+        }
+        if (kind == 5) {
+            return 4
+        }
+        if (kind == 6) {
+            return 5
+        }
+        if (kind == 7) {
+            return 6
+        }
+        if (kind == 8) {
+            return 7
+        }
+        if (kind == 9) {
+            return 8
+        }
+        return 9
+    }
+
+    sfn compareText:int (a:string bb:string) {
+        def la:int (strlen a)
+        def lb:int (strlen bb)
+        def n:int la
+        if (lb < n) {
+            n = lb
+        }
+        def i:int 0
+        while (i < n) {
+            def ca:int (charAt a i)
+            def cb:int (charAt bb i)
+            if (ca < cb) {
+                return -1
+            }
+            if (ca > cb) {
+                return 1
+            }
+            i = (i + 1)
+        }
+        if (la < lb) {
+            return -1
+        }
+        if (la > lb) {
+            return 1
+        }
+        return 0
+    }
+
+    sfn compareNum:int (a:double bb:double) {
+        if (a < bb) {
+            return -1
+        }
+        if (a > bb) {
+            return 1
+        }
+        return 0
+    }
+
+    sfn compare:int (a:FsValue bb:FsValue) {
+        def ta:int (a.typeOrder())
+        def tb:int (bb.typeOrder())
+        if (ta != tb) {
+            if (ta < tb) {
+                return -1
+            }
+            return 1
+        }
+        if (ta == 0) {
+            return 0
+        }
+        if (ta == 1) {
+            def na:int 0
+            def nb:int 0
+            if (a.b) {
+                na = 1
+            }
+            if (bb.b) {
+                nb = 1
+            }
+            return (FsValue.compareNum((to_double na) (to_double nb)))
+        }
+        if (ta == 2) {
+            return (FsValue.compareNum(a.num bb.num))
+        }
+        if (ta == 3) {
+            return (FsValue.compareNum(a.num bb.num))
+        }
+        if (ta == 4) {
+            return (FsValue.compareText(a.str bb.str))
+        }
+        if (ta == 5) {
+            return (FsValue.compareText(a.str bb.str))
+        }
+        if (ta == 6) {
+            return (FsValue.compareText(a.str bb.str))
+        }
+        if (ta == 7) {
+            def byLat:int (FsValue.compareNum(a.num bb.num))
+            if (byLat != 0) {
+                return byLat
+            }
+            return (FsValue.compareNum(a.lng bb.lng))
+        }
+        if (ta == 8) {
+            def na:int (array_length a.items)
+            def nb:int (array_length bb.items)
+            def n:int na
+            if (nb < n) {
+                n = nb
+            }
+            def i:int 0
+            while (i < n) {
+                def c:int (FsValue.compare((itemAt a.items i) (itemAt bb.items i)))
+                if (c != 0) {
+                    return c
+                }
+                i = (i + 1)
+            }
+            return (FsValue.compareNum((to_double na) (to_double nb)))
+        }
+        ; A map compares by its keys in order, then by the values under them.
+        def ka:[string] (FsValue.sortedKeys(a))
+        def kb:[string] (FsValue.sortedKeys(bb))
+        def ma:int (array_length ka)
+        def mb:int (array_length kb)
+        def m:int ma
+        if (mb < m) {
+            m = mb
+        }
+        def j:int 0
+        while (j < m) {
+            def ck:int (FsValue.compareText((itemAt ka j) (itemAt kb j)))
+            if (ck != 0) {
+                return ck
+            }
+            def cv:int (FsValue.compare((a.field((itemAt ka j))) (bb.field((itemAt kb j)))))
+            if (cv != 0) {
+                return cv
+            }
+            j = (j + 1)
+        }
+        return (FsValue.compareNum((to_double ma) (to_double mb)))
+    }
+
+    sfn sortedKeys:[string] (v:FsValue) {
+        def out:[string]
+        for v.keys k:string i {
+            push out k
+        }
+        def n:int (array_length out)
+        def i:int 1
+        while (i < n) {
+            def cur:string (itemAt out i)
+            def j:int (i - 1)
+            while (j >= 0) {
+                def other:string (itemAt out j)
+                def c:int (FsValue.compareText(other cur))
+                if (c <= 0) {
+                    break
+                }
+                set out (j + 1) other
+                j = (j - 1)
+            }
+            set out (j + 1) cur
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn sameAs:boolean (other:FsValue) {
+        return ((FsValue.compare(this other)) == 0)
+    }
+
+    ; --- the wire ------------------------------------------------------------
+    ; What Firestore's REST API puts on the wire, and what it accepts back.
+    fn toWire:VlJson () {
+        def out:VlJson (VlJson.objectValue())
+        if (kind == 0) {
+            out.setMember("nullValue" (VlJson.nullValue()))
+            return out
+        }
+        if (kind == 1) {
+            out.setMember("booleanValue" (VlJson.boolValue(b)))
+            return out
+        }
+        if (kind == 2) {
+            def n:int (to_int num)
+            out.setMember("integerValue" (VlJson.stringValue(("" + n))))
+            return out
+        }
+        if (kind == 3) {
+            out.setMember("doubleValue" (VlJson.numberValue(num)))
+            return out
+        }
+        if (kind == 4) {
+            out.setMember("timestampValue" (VlJson.stringValue(str)))
+            return out
+        }
+        if (kind == 5) {
+            out.setMember("stringValue" (VlJson.stringValue(str)))
+            return out
+        }
+        if (kind == 6) {
+            out.setMember("bytesValue" (VlJson.stringValue(str)))
+            return out
+        }
+        if (kind == 7) {
+            out.setMember("referenceValue" (VlJson.stringValue(str)))
+            return out
+        }
+        if (kind == 8) {
+            def geo:VlJson (VlJson.objectValue())
+            geo.setMember("latitude" (VlJson.numberValue(num)))
+            geo.setMember("longitude" (VlJson.numberValue(lng)))
+            out.setMember("geoPointValue" geo)
+            return out
+        }
+        if (kind == 9) {
+            def arr:VlJson (VlJson.arrayValue())
+            for items it:FsValue i {
+                push arr.arr (it.toWire())
+            }
+            def wrap:VlJson (VlJson.objectValue())
+            wrap.setMember("values" arr)
+            out.setMember("arrayValue" wrap)
+            return out
+        }
+        def fieldsOut:VlJson (VlJson.objectValue())
+        for keys k:string ki {
+            def child:FsValue (unwrap (get fields k))
+            fieldsOut.setMember(k (child.toWire()))
+        }
+        def mapWrap:VlJson (VlJson.objectValue())
+        mapWrap.setMember("fields" fieldsOut)
+        out.setMember("mapValue" mapWrap)
+        return out
+    }
+
+    sfn fromWire:FsValue (node:VlJson) {
+        if (! (node.isObject())) {
+            return (new FsValue)
+        }
+        if (node.has("nullValue")) {
+            return (new FsValue)
+        }
+        if (node.has("booleanValue")) {
+            def bv:VlJson (node.get("booleanValue"))
+            return (FsValue.boolV((bv.asBool())))
+        }
+        if (node.has("integerValue")) {
+            def iv:VlJson (node.get("integerValue"))
+            return (FsValue.longV((iv.asDouble())))
+        }
+        if (node.has("doubleValue")) {
+            def dv:VlJson (node.get("doubleValue"))
+            return (FsValue.doubleV((dv.asDouble())))
+        }
+        if (node.has("timestampValue")) {
+            def tv:VlJson (node.get("timestampValue"))
+            return (FsValue.timeTextV((tv.asString())))
+        }
+        if (node.has("stringValue")) {
+            def sv:VlJson (node.get("stringValue"))
+            return (FsValue.strV((sv.asString())))
+        }
+        if (node.has("bytesValue")) {
+            def yv:VlJson (node.get("bytesValue"))
+            return (FsValue.bytesV((yv.asString())))
+        }
+        if (node.has("referenceValue")) {
+            def rv:VlJson (node.get("referenceValue"))
+            return (FsValue.refV((rv.asString())))
+        }
+        if (node.has("geoPointValue")) {
+            def gv:VlJson (node.get("geoPointValue"))
+            return (FsValue.geoV((gv.doubleOr("latitude" 0.0)) (gv.doubleOr("longitude" 0.0))))
+        }
+        if (node.has("arrayValue")) {
+            def av:VlJson (node.get("arrayValue"))
+            def vals:VlJson (av.get("values"))
+            def out:FsValue (FsValue.arrayV())
+            def n:int (vals.count())
+            def i:int 0
+            while (i < n) {
+                push out.items (FsValue.fromWire((vals.at(i))))
+                i = (i + 1)
+            }
+            return out
+        }
+        if (node.has("mapValue")) {
+            def mv:VlJson (node.get("mapValue"))
+            def fs:VlJson (mv.get("fields"))
+            def out:FsValue (FsValue.mapV())
+            for fs.keys k:string ki {
+                out.setField(k (FsValue.fromWire((fs.get(k)))))
+            }
+            return out
+        }
+        return (new FsValue)
+    }
+
+    ; --- plain JSON ----------------------------------------------------------
+    ; The friendly shape a seed file and a debug dump are written in. It is
+    ; LOSSY on purpose — a timestamp comes out as its text and reads back as a
+    ; string unless the field is declared — and it is what makes
+    ; `fixtures/reference/seed.json` loadable as it stands.
+    fn toPlain:VlJson () {
+        if (kind == 0) {
+            return (VlJson.nullValue())
+        }
+        if (kind == 1) {
+            return (VlJson.boolValue(b))
+        }
+        if (kind == 2) {
+            def n:int (to_int num)
+            return (VlJson.intValue(n))
+        }
+        if (kind == 3) {
+            return (VlJson.numberValue(num))
+        }
+        if (kind == 9) {
+            def arr:VlJson (VlJson.arrayValue())
+            for items it:FsValue i {
+                push arr.arr (it.toPlain())
+            }
+            return arr
+        }
+        if (kind == 10) {
+            def obj:VlJson (VlJson.objectValue())
+            for keys k:string ki {
+                def child:FsValue (unwrap (get fields k))
+                obj.setMember(k (child.toPlain()))
+            }
+            return obj
+        }
+        if (kind == 8) {
+            def geo:VlJson (VlJson.objectValue())
+            geo.setMember("latitude" (VlJson.numberValue(num)))
+            geo.setMember("longitude" (VlJson.numberValue(lng)))
+            return geo
+        }
+        return (VlJson.stringValue(str))
+    }
+
+    sfn fromPlain:FsValue (node:VlJson) {
+        if (node.isNull()) {
+            return (new FsValue)
+        }
+        if (node.isBool()) {
+            return (FsValue.boolV((node.asBool())))
+        }
+        if (node.isNumber()) {
+            if (node.isInt) {
+                return (FsValue.longV((node.asDouble())))
+            }
+            return (FsValue.doubleV((node.asDouble())))
+        }
+        if (node.isString()) {
+            return (FsValue.strV((node.asString())))
+        }
+        if (node.isArray()) {
+            def out:FsValue (FsValue.arrayV())
+            def n:int (node.count())
+            def i:int 0
+            while (i < n) {
+                push out.items (FsValue.fromPlain((node.at(i))))
+                i = (i + 1)
+            }
+            return out
+        }
+        def obj:FsValue (FsValue.mapV())
+        for node.keys k:string ki {
+            obj.setField(k (FsValue.fromPlain((node.get(k)))))
+        }
+        return obj
+    }
+}

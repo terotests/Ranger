@@ -481,6 +481,16 @@ demo that cannot be made to fail is a demo whose error state nobody has looked
 at. It runs off the app's clock, so a save takes the same milliseconds in the
 browser and in the headless check, and no test sleeps.
 
+There is now a real one behind that shape as well.
+[`gallery/firesim`](../firesim/README.md) is a Firebase simulated in Ranger —
+a Firestore, the Identity Toolkit, `firestore.rules` parsed and run, and a
+model that streams — answering Google's own REST shapes, so an app moves to a
+real project by changing a base URL. `npm run firesim:realtrainer` puts
+`fixtures/reference/seed.json` into it **unconverted**, asks it back over
+`:runQuery` as a signed-in user through the rules, hands that to this demo in
+place of the file, and requires the same accessibility tree — six scenarios,
+node for node. That is the check that says the data survived a backend.
+
 ## Measured against the library it is a port of
 
 `realtrainer-compact/ui/react` renders COMPACT in React, and this renders it on

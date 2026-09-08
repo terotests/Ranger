@@ -1,0 +1,784 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; FsStore — documents, collections, and the writes that change them
+; =============================================================================
+; Firestore is not a table with rows. It is a tree of alternating collection
+; and document segments — `calendars/cal-plan`, `users/u1/notes/n1` — where a
+; collection is not a thing that exists but a thing that is IMPLIED by the
+; documents under it. So the store keeps documents by their full path and
+; answers questions about collections by looking at those paths; there is no
+; collection record to create, and deleting the last document of a collection
+; makes the collection go away, exactly as it does on the real thing.
+;
+; What is deliberately faithful:
+;
+;   * A collection lists in __name__ order, not insertion order. A test that
+;     passes here because the seed happened to be written in order would fail
+;     against Google.
+;   * A subcollection SURVIVES its parent document being deleted, and a
+;     document can be missing while its subcollections are not. `exists` and
+;     "has children" are two questions.
+;   * `update` on a document that is not there fails. `set` creates it.
+;   * `set` with a merge mask writes only the named fields and leaves the rest.
+;   * The transforms — a server timestamp, an increment, a union or a removal
+;     on an array — are applied by the SERVER, after the write, which is why
+;     they are here and not in the client.
+;
+; Every write bumps one counter and appends to one change log. That log is
+; what a snapshot listener replays, and one counter is what makes "has
+; anything changed since I last looked" a single comparison.
+; =============================================================================
+
+Import "FsValue.rgr"
+
+; -----------------------------------------------------------------------------
+; FsPath — the segment arithmetic, in one place
+; -----------------------------------------------------------------------------
+class FsPath {
+    sfn segments:[string] (path:string) {
+        def out:[string]
+        def parts:[string] (strsplit path "/")
+        for parts p:string i {
+            if ((strlen p) > 0) {
+                push out p
+            }
+        }
+        return out
+    }
+
+    sfn joinSegs:string (segs:[string]) {
+        def out:string ""
+        for segs s:string i {
+            if (i > 0) {
+                out = (out + "/")
+            }
+            out = (out + s)
+        }
+        return out
+    }
+
+    ; A document path has an even number of segments; a collection path an odd
+    ; one. That is the whole type system of a Firestore path.
+    sfn isDocument:boolean (path:string) {
+        def segs:[string] (FsPath.segments(path))
+        def n:int (array_length segs)
+        if (n == 0) {
+            return false
+        }
+        return ((n % 2) == 0)
+    }
+
+    sfn isCollection:boolean (path:string) {
+        def segs:[string] (FsPath.segments(path))
+        def n:int (array_length segs)
+        if (n == 0) {
+            return false
+        }
+        return ((n % 2) == 1)
+    }
+
+    ; `calendars/cal-plan` → `calendars`
+    sfn parentOf:string (path:string) {
+        def segs:[string] (FsPath.segments(path))
+        def n:int (array_length segs)
+        if (n < 2) {
+            return ""
+        }
+        def kept:[string]
+        def i:int 0
+        while (i < (n - 1)) {
+            push kept (itemAt segs i)
+            i = (i + 1)
+        }
+        return (FsPath.joinSegs(kept))
+    }
+
+    ; `calendars/cal-plan` → `cal-plan`
+    sfn idOf:string (path:string) {
+        def segs:[string] (FsPath.segments(path))
+        def n:int (array_length segs)
+        if (n == 0) {
+            return ""
+        }
+        return (itemAt segs (n - 1))
+    }
+
+    ; The collection id a document sits in, whatever its depth:
+    ; `users/u1/notes/n1` → `notes`. This is what a collection-group query
+    ; matches on.
+    sfn collectionIdOf:string (path:string) {
+        def segs:[string] (FsPath.segments(path))
+        def n:int (array_length segs)
+        if (n < 2) {
+            return ""
+        }
+        return (itemAt segs (n - 2))
+    }
+
+    sfn depth:int (path:string) {
+        def segs:[string] (FsPath.segments(path))
+        return (array_length segs)
+    }
+
+    ; Whether `path` sits directly in `collection` — one segment deeper and
+    ; under it, not merely below it somewhere.
+    sfn isDirectChild:boolean (path:string collection:string) {
+        def parent:string (FsPath.parentOf(path))
+        return (parent == collection)
+    }
+
+    sfn beginsWithPath:boolean (path:string prefix:string) {
+        def lp:int (strlen prefix)
+        if (lp == 0) {
+            return true
+        }
+        if ((strlen path) < lp) {
+            return false
+        }
+        if ((substring path 0 lp) != prefix) {
+            return false
+        }
+        if ((strlen path) == lp) {
+            return true
+        }
+        return ((charAt path lp) == 47)
+    }
+}
+
+; -----------------------------------------------------------------------------
+; FsDocument
+; -----------------------------------------------------------------------------
+class FsDocument {
+    def path@(mutable):string ""
+    ; The fields, as a map value — so a document and a nested map are the same
+    ; thing and the field-path walk has one implementation.
+    def data@(mutable):FsValue
+    def createMs@(mutable):double 0.0
+    def updateMs@(mutable):double 0.0
+    ; The store's counter at the last write. A listener that remembers this
+    ; knows whether it has seen this version.
+    def version@(mutable):int 0
+
+    Constructor () {
+        def fresh:FsValue (FsValue.mapV())
+        data = fresh
+    }
+
+    fn id:string () {
+        return (FsPath.idOf(path))
+    }
+
+    ; The fields as a value. A class-typed field is optional in this
+    ; language, and one accessor is better than an `unwrap` at every use.
+    fn root:FsValue () {
+        return (unwrap data)
+    }
+
+    fn field:FsValue (name:string) {
+        def r:FsValue (unwrap data)
+        return (FsStore.readPath(r name))
+    }
+
+    fn copy:FsDocument () {
+        def d:FsDocument (new FsDocument)
+        def r:FsValue (unwrap data)
+        d.path = path
+        d.data = (r.copy())
+        d.createMs = createMs
+        d.updateMs = updateMs
+        d.version = version
+        return d
+    }
+}
+
+; -----------------------------------------------------------------------------
+; FsChange — one entry of the log a listener replays
+; -----------------------------------------------------------------------------
+class FsChange {
+    ; "added" | "modified" | "removed"
+    def kind@(mutable):string ""
+    def path@(mutable):string ""
+    def version@(mutable):int 0
+    def doc@(optional):FsDocument
+
+    Constructor () {
+        def fresh:FsDocument (new FsDocument)
+        doc = fresh
+    }
+
+    fn document:FsDocument () {
+        return (unwrap doc)
+    }
+}
+
+; -----------------------------------------------------------------------------
+; FsWrite — one write, before it is applied
+; -----------------------------------------------------------------------------
+; A commit is a LIST of these, applied together, which is what makes a batch
+; and a transaction the same shape as a single write.
+; -----------------------------------------------------------------------------
+class FsWrite {
+    ; "set" | "update" | "delete" | "create"
+    def op@(mutable):string "set"
+    def path@(mutable):string ""
+    def data@(optional):FsValue
+    ; For `set`: the fields to merge; empty with `merge` set means "every
+    ; field present in data". For `update`: the mask the caller declared, or
+    ; empty for "the fields present".
+    def mask:[string]
+    def merge@(mutable):boolean false
+    ; Field transforms, run after the write: `serverTimestamp`, `increment`,
+    ; `arrayUnion`, `arrayRemove`, `maximum`, `minimum`.
+    def transformPaths:[string]
+    def transformOps:[string]
+    def transformArgs:[FsValue]
+    ; A precondition: "exists" / "notExists" / "" (none), and an update time
+    ; the document has to still carry.
+    def precondition@(mutable):string ""
+
+    Constructor () {
+        def fresh:FsValue (FsValue.mapV())
+        data = fresh
+    }
+
+    ; The body of the write, as a value.
+    fn payload:FsValue () {
+        return (unwrap data)
+    }
+
+    fn addTransform:void (fieldPath:string op:string arg:FsValue) {
+        push transformPaths fieldPath
+        push transformOps op
+        push transformArgs arg
+    }
+}
+
+class FsWriteResult {
+    def ok@(mutable):boolean true
+    def code@(mutable):int 200
+    def status@(mutable):string "OK"
+    def message@(mutable):string ""
+    def path@(mutable):string ""
+    def updateMs@(mutable):double 0.0
+    def version@(mutable):int 0
+
+    Constructor () {
+    }
+}
+
+; -----------------------------------------------------------------------------
+; FsStore
+; -----------------------------------------------------------------------------
+class FsStore {
+    def paths:[string]
+    def docs:[string:FsDocument]
+    def version@(mutable):int 0
+    def changes:[FsChange]
+    ; How much of the log to keep. A listener that is further behind than this
+    ; is told to re-read rather than handed a gap it cannot see.
+    def logLimit@(mutable):int 4096
+    ; The oldest version still in the log.
+    def logBase@(mutable):int 0
+
+    Constructor () {
+    }
+
+    ; --- reading -------------------------------------------------------------
+    fn exists:boolean (path:string) {
+        return (has docs path)
+    }
+
+    ; The document, or an empty one whose `path` is set and whose `version` is
+    ; zero — "not found" is a document that is not there, not a null.
+    fn get:FsDocument (path:string) {
+        if (has docs path) {
+            def d:FsDocument (unwrap (get docs path))
+            return (d.copy())
+        }
+        def missing:FsDocument (new FsDocument)
+        missing.path = path
+        return missing
+    }
+
+    fn count:int () {
+        return (array_length paths)
+    }
+
+    ; Every document directly inside `collection`, in __name__ order.
+    fn docsIn:[FsDocument] (collection:string) {
+        def out:[FsDocument]
+        for paths p:string i {
+            if (FsPath.isDirectChild(p collection)) {
+                def d:FsDocument (unwrap (get docs p))
+                push out (d.copy())
+            }
+        }
+        return (FsStore.sortByPath(out))
+    }
+
+    ; Every document whose collection id is `collectionId`, at any depth —
+    ; a collection-group query. `under` narrows it to one subtree, "" for all.
+    fn docsInGroup:[FsDocument] (collectionId:string under:string) {
+        def out:[FsDocument]
+        for paths p:string i {
+            if ((FsPath.collectionIdOf(p)) == collectionId) {
+                def okUnder:boolean true
+                if ((strlen under) > 0) {
+                    okUnder = (FsPath.beginsWithPath(p under))
+                }
+                if (okUnder) {
+                    def d:FsDocument (unwrap (get docs p))
+                    push out (d.copy())
+                }
+            }
+        }
+        return (FsStore.sortByPath(out))
+    }
+
+    ; The collection ids directly under a document (or under the root, for an
+    ; empty parent). A collection is implied by its documents.
+    fn collectionIds:[string] (parent:string) {
+        def seen:[string:boolean]
+        def out:[string]
+        def wanted:int ((FsPath.depth(parent)) + 1)
+        for paths p:string i {
+            def segs:[string] (FsPath.segments(p))
+            if ((array_length segs) >= wanted) {
+                def okUnder:boolean true
+                if ((strlen parent) > 0) {
+                    okUnder = (FsPath.beginsWithPath(p parent))
+                }
+                if (okUnder) {
+                    def cid:string (itemAt segs (wanted - 1))
+                    if (! (has seen cid)) {
+                        set seen cid true
+                        push out cid
+                    }
+                }
+            }
+        }
+        return (FsStore.sortText(out))
+    }
+
+    sfn sortText:[string] (input:[string]) {
+        def out:[string]
+        for input s:string i {
+            push out s
+        }
+        def n:int (array_length out)
+        def i:int 1
+        while (i < n) {
+            def cur:string (itemAt out i)
+            def j:int (i - 1)
+            while (j >= 0) {
+                def other:string (itemAt out j)
+                def c:int (FsValue.compareText(other cur))
+                if (c <= 0) {
+                    break
+                }
+                set out (j + 1) other
+                j = (j - 1)
+            }
+            set out (j + 1) cur
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn sortByPath:[FsDocument] (input:[FsDocument]) {
+        def out:[FsDocument]
+        for input d:FsDocument i {
+            push out d
+        }
+        def n:int (array_length out)
+        def i:int 1
+        while (i < n) {
+            def cur:FsDocument (itemAt out i)
+            def j:int (i - 1)
+            while (j >= 0) {
+                def other:FsDocument (itemAt out j)
+                def c:int (FsValue.compareText(other.path cur.path))
+                if (c <= 0) {
+                    break
+                }
+                set out (j + 1) other
+                j = (j - 1)
+            }
+            set out (j + 1) cur
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; --- field paths ---------------------------------------------------------
+    ; `a.b.c` walked into a map value. A segment that is missing, or a step
+    ; through something that is not a map, answers null — the same as reading
+    ; an absent field, which is what the rules language and a query both want.
+    sfn readPath:FsValue (root:FsValue fieldPath:string) {
+        def segs:[string] (strsplit fieldPath ".")
+        def cur:FsValue root
+        for segs s:string i {
+            if (! (cur.isMap())) {
+                return (new FsValue)
+            }
+            if (! (cur.hasField(s))) {
+                return (new FsValue)
+            }
+            cur = (cur.field(s))
+        }
+        return cur
+    }
+
+    sfn hasPath:boolean (root:FsValue fieldPath:string) {
+        def segs:[string] (strsplit fieldPath ".")
+        def cur:FsValue root
+        for segs s:string i {
+            if (! (cur.isMap())) {
+                return false
+            }
+            if (! (cur.hasField(s))) {
+                return false
+            }
+            cur = (cur.field(s))
+        }
+        return true
+    }
+
+    ; Writing `a.b.c` creates the maps on the way down, as Firestore does.
+    sfn writePath:void (root:FsValue fieldPath:string value:FsValue) {
+        def segs:[string] (strsplit fieldPath ".")
+        def n:int (array_length segs)
+        if (n == 0) {
+            return
+        }
+        def cur:FsValue root
+        def i:int 0
+        while (i < (n - 1)) {
+            def s:string (itemAt segs i)
+            def nextV:FsValue (cur.field(s))
+            if (! (nextV.isMap())) {
+                nextV = (FsValue.mapV())
+                cur.setField(s nextV)
+            }
+            cur = nextV
+            i = (i + 1)
+        }
+        cur.setField((itemAt segs (n - 1)) value)
+    }
+
+    sfn deletePath:void (root:FsValue fieldPath:string) {
+        def segs:[string] (strsplit fieldPath ".")
+        def n:int (array_length segs)
+        if (n == 0) {
+            return
+        }
+        def cur:FsValue root
+        def i:int 0
+        while (i < (n - 1)) {
+            def s:string (itemAt segs i)
+            if (! (cur.hasField(s))) {
+                return
+            }
+            cur = (cur.field(s))
+            if (! (cur.isMap())) {
+                return
+            }
+            i = (i + 1)
+        }
+        cur.removeField((itemAt segs (n - 1)))
+    }
+
+    ; Every leaf field path a value holds, dotted. `update` with no mask uses
+    ; this, because "the fields present in the body" is what the REST API
+    ; means by an absent mask.
+    sfn leafPaths:[string] (root:FsValue prefix:string) {
+        def out:[string]
+        for root.keys k:string ki {
+            def child:FsValue (root.field(k))
+            def full:string k
+            if ((strlen prefix) > 0) {
+                full = (prefix + "." + k)
+            }
+            if (child.isMap()) {
+                def n:int (child.count())
+                if (n == 0) {
+                    push out full
+                } {
+                    def deeper:[string] (FsStore.leafPaths(child full))
+                    for deeper d:string di {
+                        push out d
+                    }
+                }
+            } {
+                push out full
+            }
+        }
+        return out
+    }
+
+    ; --- writing -------------------------------------------------------------
+    fn applyWrite:FsWriteResult (w:FsWrite nowMs:double) {
+        def res:FsWriteResult (new FsWriteResult)
+        res.path = w.path
+        if (! (FsPath.isDocument(w.path))) {
+            res.ok = false
+            res.code = 400
+            res.status = "INVALID_ARGUMENT"
+            res.message = ("not a document path: " + w.path)
+            return res
+        }
+        def present:boolean (has docs w.path)
+        if (w.precondition == "exists") {
+            if (! present) {
+                res.ok = false
+                res.code = 404
+                res.status = "NOT_FOUND"
+                res.message = ("no document to update: " + w.path)
+                return res
+            }
+        }
+        if (w.precondition == "notExists") {
+            if (present) {
+                res.ok = false
+                res.code = 409
+                res.status = "ALREADY_EXISTS"
+                res.message = ("document already exists: " + w.path)
+                return res
+            }
+        }
+        if (w.op == "delete") {
+            if (! present) {
+                ; Deleting what is not there succeeds, as it does on the real
+                ; thing — the postcondition holds either way.
+                res.updateMs = nowMs
+                res.version = version
+                return res
+            }
+            def gone:FsDocument (unwrap (get docs w.path))
+            ; Not every Ranger target has a "remove this key" operator, so the
+            ; index is rebuilt — as RangerDB's dropTable does.
+            def kept:[string]
+            def fresh:[string:FsDocument]
+            for paths p:string pi {
+                if (p != w.path) {
+                    push kept p
+                    set fresh p (unwrap (get docs p))
+                }
+            }
+            paths = kept
+            docs = fresh
+            version = (version + 1)
+            this.logChange("removed" w.path gone)
+            res.updateMs = nowMs
+            res.version = version
+            return res
+        }
+        if (w.op == "create") {
+            if (present) {
+                res.ok = false
+                res.code = 409
+                res.status = "ALREADY_EXISTS"
+                res.message = ("document already exists: " + w.path)
+                return res
+            }
+        }
+        if (w.op == "update") {
+            if (! present) {
+                res.ok = false
+                res.code = 404
+                res.status = "NOT_FOUND"
+                res.message = ("no document to update: " + w.path)
+                return res
+            }
+        }
+        def doc:FsDocument (new FsDocument)
+        def kindOfChange:string "added"
+        def target:FsValue (FsValue.mapV())
+        if (present) {
+            def existing:FsDocument (unwrap (get docs w.path))
+            doc = (existing.copy())
+            target = (doc.root())
+            kindOfChange = "modified"
+        } {
+            doc.path = w.path
+            doc.createMs = nowMs
+        }
+        def incoming:FsValue (w.payload())
+        if (w.op == "update") {
+            def mask:[string] w.mask
+            if ((array_length mask) == 0) {
+                mask = (FsStore.leafPaths(incoming ""))
+            }
+            for mask m:string mi {
+                if (FsStore.hasPath(incoming m)) {
+                    def v:FsValue (FsStore.readPath(incoming m))
+                    FsStore.writePath(target m (v.copy()))
+                } {
+                    FsStore.deletePath(target m)
+                }
+            }
+        } {
+            if (w.merge) {
+                def mask:[string] w.mask
+                if ((array_length mask) == 0) {
+                    mask = (FsStore.leafPaths(incoming ""))
+                }
+                for mask m:string mi {
+                    if (FsStore.hasPath(incoming m)) {
+                        def v:FsValue (FsStore.readPath(incoming m))
+                        FsStore.writePath(target m (v.copy()))
+                    } {
+                        FsStore.deletePath(target m)
+                    }
+                }
+            } {
+                target = (incoming.copy())
+            }
+        }
+        doc.data = target
+        this.applyTransforms(doc w nowMs)
+        doc.updateMs = nowMs
+        version = (version + 1)
+        doc.version = version
+        if (! present) {
+            push paths w.path
+        }
+        set docs w.path doc
+        this.logChange(kindOfChange w.path doc)
+        res.updateMs = nowMs
+        res.version = version
+        return res
+    }
+
+    fn applyTransforms:void (doc:FsDocument w:FsWrite nowMs:double) {
+        def target:FsValue (doc.root())
+        def n:int (array_length w.transformPaths)
+        def i:int 0
+        while (i < n) {
+            def fieldPath:string (itemAt w.transformPaths i)
+            def op:string (itemAt w.transformOps i)
+            def arg:FsValue (itemAt w.transformArgs i)
+            def cur:FsValue (FsStore.readPath(target fieldPath))
+            if (op == "serverTimestamp") {
+                FsStore.writePath(target fieldPath (FsValue.timeV(nowMs)))
+            }
+            if (op == "increment") {
+                def base:double 0.0
+                if (cur.isNumeric()) {
+                    base = cur.num
+                }
+                def sum:double (base + arg.num)
+                if (arg.kind == 2) {
+                    if (cur.kind != 3) {
+                        FsStore.writePath(target fieldPath (FsValue.longV(sum)))
+                    } {
+                        FsStore.writePath(target fieldPath (FsValue.doubleV(sum)))
+                    }
+                } {
+                    FsStore.writePath(target fieldPath (FsValue.doubleV(sum)))
+                }
+            }
+            if (op == "maximum") {
+                def keepMax:FsValue arg
+                if (cur.isNumeric()) {
+                    if (cur.num > arg.num) {
+                        keepMax = cur
+                    }
+                }
+                FsStore.writePath(target fieldPath (keepMax.copy()))
+            }
+            if (op == "minimum") {
+                def keepMin:FsValue arg
+                if (cur.isNumeric()) {
+                    if (cur.num < arg.num) {
+                        keepMin = cur
+                    }
+                }
+                FsStore.writePath(target fieldPath (keepMin.copy()))
+            }
+            if (op == "arrayUnion") {
+                def base:FsValue (FsValue.arrayV())
+                if (cur.isArray()) {
+                    base = (cur.copy())
+                }
+                for arg.items add:FsValue ai {
+                    def already:boolean false
+                    for base.items ex:FsValue ei {
+                        if (ex.sameAs(add)) {
+                            already = true
+                        }
+                    }
+                    if (! already) {
+                        push base.items (add.copy())
+                    }
+                }
+                FsStore.writePath(target fieldPath base)
+            }
+            if (op == "arrayRemove") {
+                def kept:FsValue (FsValue.arrayV())
+                if (cur.isArray()) {
+                    for cur.items ex:FsValue ei {
+                        def drop:boolean false
+                        for arg.items rm:FsValue ri {
+                            if (ex.sameAs(rm)) {
+                                drop = true
+                            }
+                        }
+                        if (! drop) {
+                            push kept.items (ex.copy())
+                        }
+                    }
+                }
+                FsStore.writePath(target fieldPath kept)
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn logChange:void (kind:string path:string doc:FsDocument) {
+        def ch:FsChange (new FsChange)
+        ch.kind = kind
+        ch.path = path
+        ch.version = version
+        ch.doc = (doc.copy())
+        push changes ch
+        def n:int (array_length changes)
+        if (n > logLimit) {
+            def keep:[FsChange]
+            def drop:int (n - logLimit)
+            for changes c:FsChange i {
+                if (i >= drop) {
+                    push keep c
+                }
+            }
+            changes = keep
+            def firstKept:FsChange (itemAt changes 0)
+            logBase = firstKept.version
+        }
+    }
+
+    ; What changed after `sinceVersion`. A caller further behind than the log
+    ; reaches gets everything the log has and can tell, because `logBase` is
+    ; higher than the version it asked from, that it missed some.
+    fn changesSince:[FsChange] (sinceVersion:int) {
+        def out:[FsChange]
+        for changes c:FsChange i {
+            if (c.version > sinceVersion) {
+                push out c
+            }
+        }
+        return out
+    }
+
+    fn wipe:void () {
+        def freshPaths:[string]
+        def freshDocs:[string:FsDocument]
+        def freshChanges:[FsChange]
+        paths = freshPaths
+        docs = freshDocs
+        changes = freshChanges
+        version = (version + 1)
+        logBase = version
+    }
+}

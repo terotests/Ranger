@@ -1,0 +1,688 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+ *
+ * The console's theme, as an EVG stylesheet.
+ *
+ * Class-first and one token per selector, as gallery/ui's own sheets are: a
+ * selected tab carries `fs-tab-on` rather than inheriting a colour from a
+ * parent, because white-on-white is what assuming it can gets you.
+ *
+ * NO GEOMETRY A CONTROLLER OWNS is in here. The latency range's width and the
+ * progress fill's width are the controllers' percentages, written inline by
+ * FiresimConsole.rgr; a rule here that sized them would be a second,
+ * unmeasured answer competing with the measured one.
+ *
+ * EVG's flex default is `wrap` where CSS's is `nowrap`, so every row that must
+ * not wrap says so.
+ */
+
+.fs-page {
+  display: flex;
+  flex-direction: column;
+  background-color: #0e1116;
+  width: 100%;
+  height: 100%;
+  font-family: sans-serif;
+}
+
+/* --- the header ---------------------------------------------------------- */
+
+.fs-header {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  justify-content: space-between;
+  align-items: center;
+  background-color: #161b22;
+  border-bottom: 1px solid #262d38;
+  padding: 14px 20px;
+  height: 68px;
+}
+
+.fs-brand {
+  font-size: 21px;
+  color: #ff8a3d;
+  height: 26px;
+}
+
+.fs-sub {
+  font-size: 12px;
+  color: #93a1b0;
+  height: 18px;
+}
+
+.fs-stats {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 18px;
+  align-items: center;
+}
+
+.fs-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.fs-statnum {
+  font-size: 17px;
+  color: #e6edf3;
+  height: 21px;
+}
+
+.fs-statlbl {
+  font-size: 10px;
+  color: #6f7f8f;
+  height: 14px;
+}
+
+/* The status bar along the bottom: the last request, and what it answered. */
+.fs-foot {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  width: 100%;
+  background-color: #11161d;
+  border-top: 1px solid #262d38;
+  padding: 0 20px;
+  height: 30px;
+}
+
+.fs-foottxt {
+  color: #6f7f8f;
+  font-size: 11.5px;
+  height: 16px;
+}
+
+/* --- the two columns ----------------------------------------------------- */
+
+.fs-body {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  flex-grow: 1;
+  min-height: 0;
+}
+
+.fs-rail {
+  /* Both columns take the row's height explicitly. EVG stretches a flex
+     item's cross size only when it is asked to, so a column left to its
+     content ends where its content does — which is a panel that stops
+     halfway down a full-screen page. */
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 296px;
+  min-width: 296px;
+  padding: 14px;
+  background-color: #11161d;
+  border-right: 1px solid #262d38;
+  overflow: hidden;
+}
+
+.fs-main {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  flex-grow: 1;
+  min-width: 0;
+  padding: 14px 18px;
+  gap: 12px;
+  overflow: hidden;
+}
+
+/* A phone or a narrow window: the rail goes above the main area rather than
+ * beside it, which is the one layout change worth making — a 296px column on
+ * a 390px screen leaves nothing for the list it is controlling. */
+@media (max-width: 860px) {
+  .fs-body {
+    flex-direction: column;
+  }
+  .fs-rail {
+    width: 100%;
+    min-width: 0;
+    /* Stacked, the rail is as tall as its cards and the main area takes the
+       rest — a 100% height here would push the list off the screen. */
+    height: auto;
+    border-right: 0;
+    border-bottom: 1px solid #262d38;
+  }
+}
+
+/* --- cards --------------------------------------------------------------- */
+
+.fs-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background-color: #161b22;
+  border: 1px solid #262d38;
+  border-radius: 10px;
+  padding: 12px 13px 14px;
+}
+
+.fs-cardttl {
+  font-size: 11px;
+  color: #ff8a3d;
+  height: 16px;
+}
+
+.fs-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 9px;
+}
+
+.fs-col {
+  display: flex;
+  flex-direction: column;
+}
+
+.fs-txt {
+  font-size: 13px;
+  color: #e6edf3;
+  height: 19px;
+}
+
+.fs-dim {
+  font-size: 11.5px;
+  color: #8b98a7;
+  height: 34px;
+}
+
+.fs-mono {
+  font-size: 11.5px;
+  color: #6f7f8f;
+  height: 17px;
+}
+
+/* --- the identity picker -------------------------------------------------- */
+
+.fs-radios {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.fs-radio {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 9px;
+  border-radius: 7px;
+  background-color: #0e1116;
+  border: 1px solid #262d38;
+  height: 34px;
+}
+
+.fs-radio-on {
+  background-color: #1d2937;
+  border: 1px solid #ff8a3d;
+}
+
+.fs-radio:hover {
+  border: 1px solid #3d4a5a;
+}
+
+.fs-radiodot {
+  width: 13px;
+  height: 13px;
+  border-radius: 7px;
+  border: 2px solid #4a5766;
+  background-color: #0e1116;
+}
+
+.fs-radiodot-on {
+  border: 2px solid #ff8a3d;
+  background-color: #ff8a3d;
+}
+
+.fs-radiotxt {
+  font-size: 13px;
+  color: #e6edf3;
+  height: 19px;
+}
+
+/* --- the latency slider --------------------------------------------------- */
+
+.fs-track {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  height: 22px;
+  background-color: #0b0f14;
+  border-radius: 11px;
+  border: 1px solid #262d38;
+  padding: 0 2px;
+}
+
+.fs-range {
+  height: 6px;
+  background-color: #ff8a3d;
+  border-radius: 3px;
+}
+
+.fs-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 7px;
+  background-color: #e6edf3;
+  border: 2px solid #ff8a3d;
+}
+
+.fs-thumb:focus {
+  border: 2px solid #ffd0a8;
+}
+
+/* --- the switches --------------------------------------------------------- */
+
+.fs-switch {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  width: 40px;
+  height: 22px;
+  border-radius: 11px;
+  background-color: #2a333f;
+  padding: 0 3px;
+}
+
+.fs-switch-on {
+  background-color: #ff8a3d;
+  justify-content: flex-end;
+}
+
+.fs-switchknb {
+  width: 16px;
+  height: 16px;
+  border-radius: 8px;
+  background-color: #e6edf3;
+}
+
+.fs-switchknb-on {
+  background-color: #0e1116;
+}
+
+.fs-check {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  border: 1px solid #3d4a5a;
+  background-color: #0b0f14;
+}
+
+.fs-check-on {
+  background-color: #ff8a3d;
+  border: 1px solid #ff8a3d;
+}
+
+.fs-checkmark {
+  font-size: 13px;
+  color: #0e1116;
+  height: 17px;
+}
+
+/* --- buttons -------------------------------------------------------------- */
+
+.fs-btn {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  background-color: #21262d;
+  border: 1px solid #333c48;
+  border-radius: 7px;
+  padding: 0 12px;
+  height: 34px;
+}
+
+.fs-btn:hover {
+  border: 1px solid #ff8a3d;
+}
+
+.fs-btn:active {
+  background-color: #2b323b;
+}
+
+.fs-btntxt {
+  font-size: 13px;
+  color: #e6edf3;
+  height: 19px;
+}
+
+/* --- what is in flight ---------------------------------------------------- */
+
+.fs-bar {
+  height: 6px;
+  background-color: #0b0f14;
+  border-radius: 3px;
+  border: 1px solid #262d38;
+}
+
+.fs-barfill {
+  height: 4px;
+  background-color: #3fb950;
+  border-radius: 2px;
+}
+
+/* --- the tab strip -------------------------------------------------------- */
+
+.fs-tablist {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 6px;
+  height: 38px;
+}
+
+.fs-tab {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  padding: 0 14px;
+  height: 34px;
+  border-radius: 8px;
+  background-color: #161b22;
+  border: 1px solid #262d38;
+}
+
+.fs-tab-on {
+  background-color: #1d2937;
+  border: 1px solid #ff8a3d;
+}
+
+.fs-tab:hover {
+  border: 1px solid #3d4a5a;
+}
+
+.fs-tabtxt {
+  font-size: 13px;
+  color: #e6edf3;
+  height: 19px;
+}
+
+.fs-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex-grow: 1;
+  min-height: 0;
+  background-color: #161b22;
+  border: 1px solid #262d38;
+  border-radius: 10px;
+  padding: 14px 16px;
+  overflow: hidden;
+}
+
+/* --- the data browser ----------------------------------------------------- */
+
+.fs-crumbs {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+}
+
+.fs-crumb {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  padding: 0 8px;
+  height: 24px;
+  border-radius: 6px;
+  background-color: #11161d;
+  border: 1px solid #262d38;
+}
+
+.fs-crumb:hover {
+  border: 1px solid #ff8a3d;
+}
+
+.fs-crumbtxt {
+  font-size: 12px;
+  color: #cfd8e3;
+  height: 17px;
+}
+
+.fs-crumbsep {
+  font-size: 12px;
+  color: #4a5766;
+  height: 17px;
+}
+
+/* Three panes, as a database browser has them: what collections are here,
+   what documents are in the one picked, and what that document holds. */
+.fs-panes {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 10px;
+  flex-grow: 1;
+  min-height: 0;
+}
+
+.fs-pane {
+  display: flex;
+  flex-direction: column;
+  width: 20%;
+  min-width: 0;
+  background-color: #0e1116;
+  border: 1px solid #262d38;
+  border-radius: 8px;
+  padding: 8px 4px 8px 8px;
+  overflow: hidden;
+}
+
+/* The documents pane carries a summary line under each id, and the fields
+   pane carries three columns; neither fits in a fifth of the page. */
+.fs-pane-docs {
+  width: 32%;
+}
+
+.fs-pane-wide {
+  width: 48%;
+}
+
+.fs-panettl {
+  font-size: 10.5px;
+  color: #6f7f8f;
+  height: 20px;
+}
+
+.fs-item {
+  display: flex;
+  flex-direction: column;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid #0e1116;
+}
+
+.fs-item-on {
+  background-color: #1d2937;
+  border: 1px solid #ff8a3d;
+}
+
+.fs-item:hover {
+  border: 1px solid #3d4a5a;
+}
+
+.fs-itemtxt {
+  font-size: 12.5px;
+  color: #e6edf3;
+  height: 18px;
+}
+
+.fs-itemsub {
+  font-size: 10.5px;
+  color: #6f7f8f;
+  height: 15px;
+}
+
+.fs-empty {
+  font-size: 12px;
+  color: #8b98a7;
+  padding: 8px;
+  height: 34px;
+}
+
+/* --- a document's fields --------------------------------------------------- */
+
+.fs-field {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 8px;
+  padding: 4px 8px;
+  height: 24px;
+  border-bottom: 1px solid #1a212a;
+}
+
+.fs-field-head {
+  border-bottom: 1px solid #2c3644;
+}
+
+.fs-fname {
+  font-size: 12px;
+  color: #cfd8e3;
+  width: 26%;
+  height: 17px;
+}
+
+.fs-ftype {
+  font-size: 11px;
+  color: #ff8a3d;
+  width: 18%;
+  height: 17px;
+}
+
+.fs-fvalue {
+  font-size: 12px;
+  color: #93a1b0;
+  width: 52%;
+  height: 17px;
+}
+
+/* --- the permission grid, and the accounts table -------------------------- */
+
+.fs-grid {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #262d38;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.fs-grow {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  border-top: 1px solid #1d232c;
+  height: 30px;
+  align-items: center;
+  padding: 0 10px;
+}
+
+.fs-ghead {
+  font-size: 10.5px;
+  color: #6f7f8f;
+  width: 16%;
+  height: 15px;
+}
+
+.fs-gname {
+  font-size: 12px;
+  color: #e6edf3;
+  width: 16%;
+  height: 17px;
+}
+
+.fs-gcell {
+  font-size: 11.5px;
+  color: #93a1b0;
+  width: 16%;
+  height: 17px;
+}
+
+.fs-gcell-yes {
+  color: #3fb950;
+}
+
+.fs-gcell-no {
+  color: #f85149;
+}
+
+/* --- what just happened ---------------------------------------------------- */
+
+.fs-note {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  width: 100%;
+  border-left: 3px solid #ff8a3d;
+  background-color: #11161d;
+  border-radius: 0 6px 6px 0;
+  padding: 0 12px;
+  height: 30px;
+}
+
+.fs-notetxt {
+  font-size: 12px;
+  color: #cfd8e3;
+  height: 17px;
+}
+
+/* --- the rules file ------------------------------------------------------- */
+
+.fs-code {
+  display: flex;
+  flex-direction: column;
+  background-color: #0b0f14;
+  border: 1px solid #262d38;
+  border-radius: 8px;
+  padding: 8px 12px;
+  overflow: hidden;
+  flex-grow: 1;
+  min-height: 0;
+}
+
+.fs-codeln {
+  font-size: 11px;
+  color: #93a1b0;
+  height: 15px;
+}
+
+/* --- the log -------------------------------------------------------------- */
+
+.fs-logrow {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 10px;
+  height: 22px;
+}
+
+.fs-logcell {
+  font-size: 11.5px;
+  color: #93a1b0;
+  width: 30%;
+  height: 16px;
+}

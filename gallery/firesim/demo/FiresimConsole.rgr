@@ -1,0 +1,2353 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; FiresimConsole — a database workbench over the simulator
+; =============================================================================
+; A backend you cannot see is a backend you have to take on trust. This is the
+; same simulator the checks drive — `gallery/firesim/src`, compiled into this
+; page, not a description of it — with the tool you would actually reach for
+; on top of it: a data browser.
+;
+; It is deliberately NOT an application demo. There is no product in it. What
+; it shows is a DATABASE:
+;
+;   DATA      collections, the documents in them, and a document's fields with
+;             their Firestore TYPES — a subcollection under a document is
+;             pressable, so the tree is walked rather than described. The list
+;             is live: it is an `FsWatch`, polled on the app's own tick, so a
+;             write appears because a listener said it did.
+;   QUERY     a `where` and an `orderBy` built by pressing, run through the
+;             REST API as whoever you are — and the interesting answers are the
+;             REFUSALS, which is what a simulator is for.
+;   RULES     the permission grid for THE PATH SELECTED IN THE BROWSER, every
+;             identity against every method, each cell `FsRulesEval` run
+;             against the real rules file at that moment.
+;   USERS     the accounts, their providers and their custom claims, with one
+;             press to act as any of them.
+;   TRAFFIC   every request the simulator answered, and three buttons that
+;             make one.
+;
+; Two datasets, and neither is built in: a small one written here to show every
+; value type Firestore has, and `gallery/realtrainer`'s own 747-document seed,
+; fetched by the host and loaded through `FsSeed` unconverted — the same file
+; its reference recorder puts into a real Firebase emulator. Each brings its
+; own rules file, because rules are part of a dataset and not part of a tool.
+;
+; Everything is drawn by EVG and controlled by `gallery/ui`'s own controllers.
+; The app owns the clock: `tick(dtMs)` moves the simulator, collects whatever
+; arrived, polls the watch and advances the transitions, so the headless check
+; drives exactly the same app with a made-up clock.
+; =============================================================================
+
+Import "../src/FsSimBridge.rgr"
+Import "../../ui/src/TabsCtl.rgr"
+Import "../../ui/src/RadioGroupCtl.rgr"
+Import "../../ui/src/SliderCtl.rgr"
+Import "../../ui/src/ToggleCtl.rgr"
+Import "../../ui/src/CheckboxCtl.rgr"
+Import "../../ui/src/PresentationCtl.rgr"
+Import "../../ui/src/UiTree.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../evg/EVGStyleSheet.rgr"
+Import "../../evg/EVGTransition.rgr"
+Import "../../evg/EVGA11yTree.rgr"
+Import "../../evg/EVGA11yFromTree.rgr"
+Import "../../evg/EVGHitTest.rgr"
+
+treefactory Fs {
+    child addChild
+    text  textContent
+
+    tag Page      EVGElement (props (className "fs-page"))
+    tag Header    EVGElement (props (className "fs-header") (role "banner"))
+    tag Brand     EVGElement (props (className "fs-brand") (elementType 1))
+    tag Sub       EVGElement (props (className "fs-sub") (elementType 1))
+    tag Stats     EVGElement (props (className "fs-stats") (role "status"))
+    tag Stat      EVGElement (props (className "fs-stat"))
+    tag StatNum   EVGElement (props (className "fs-statnum") (elementType 1) (a11yHidden true))
+    tag StatLbl   EVGElement (props (className "fs-statlbl") (elementType 1) (a11yHidden true))
+
+    tag Body      EVGElement (props (className "fs-body"))
+    tag Rail      EVGElement (props (className "fs-rail") (role "region") (a11yLabel "Controls"))
+    tag Main      EVGElement (props (className "fs-main") (role "main"))
+
+    tag Card      EVGElement (props (className "fs-card"))
+    tag CardTtl   EVGElement (props (className "fs-cardttl") (elementType 1))
+    tag Row       EVGElement (props (className "fs-row"))
+    tag Col       EVGElement (props (className "fs-col"))
+    tag Txt       EVGElement (props (className "fs-txt") (elementType 1))
+    tag Dim       EVGElement (props (className "fs-dim") (elementType 1))
+    tag Mono      EVGElement (props (className "fs-mono") (elementType 1))
+
+    tag Radios    EVGElement (props (className "fs-radios") (role "radiogroup"))
+    tag Radio     EVGElement (props (className "fs-radio") (role "radio"))
+    tag RadioDot  EVGElement (props (className "fs-radiodot"))
+    tag RadioTxt  EVGElement (props (className "fs-radiotxt") (elementType 1) (a11yHidden true))
+
+    tag Track     EVGElement (props (className "fs-track"))
+    tag Range     EVGElement (props (className "fs-range"))
+    tag Thumb     EVGElement (props (className "fs-thumb") (role "slider"))
+
+    tag Switch    EVGElement (props (className "fs-switch") (role "switch"))
+    tag SwitchKnb EVGElement (props (className "fs-switchknb"))
+    tag Check     EVGElement (props (className "fs-check") (role "checkbox"))
+    tag CheckMark EVGElement (props (className "fs-checkmark") (elementType 1) (a11yHidden true))
+
+    tag Btn       EVGElement (props (className "fs-btn") (role "button"))
+    tag BtnTxt    EVGElement (props (className "fs-btntxt") (elementType 1) (a11yHidden true))
+
+    tag Bar       EVGElement (props (className "fs-bar") (role "progressbar"))
+    tag BarFill   EVGElement (props (className "fs-barfill"))
+
+    tag TabList   EVGElement (props (className "fs-tablist") (role "tablist") (a11yLabel "View"))
+    tag Tab       EVGElement (props (className "fs-tab") (role "tab"))
+    tag TabTxt    EVGElement (props (className "fs-tabtxt") (elementType 1) (a11yHidden true))
+    tag Panel     EVGElement (props (className "fs-panel") (role "tabpanel"))
+
+    ; The data browser: a breadcrumb over three columns.
+    tag Crumbs    EVGElement (props (className "fs-crumbs") (role "navigation") (a11yLabel "Path"))
+    tag Crumb     EVGElement (props (className "fs-crumb") (role "button"))
+    tag CrumbTxt  EVGElement (props (className "fs-crumbtxt") (elementType 1) (a11yHidden true))
+    tag CrumbSep  EVGElement (props (className "fs-crumbsep") (elementType 1) (a11yHidden true))
+
+    tag Panes     EVGElement (props (className "fs-panes"))
+    tag Pane      EVGElement (props (className "fs-pane"))
+    tag PaneTtl   EVGElement (props (className "fs-panettl") (elementType 1))
+    tag Item      EVGElement (props (className "fs-item") (role "button"))
+    tag ItemTxt   EVGElement (props (className "fs-itemtxt") (elementType 1) (a11yHidden true))
+    tag ItemSub   EVGElement (props (className "fs-itemsub") (elementType 1) (a11yHidden true))
+    tag Empty     EVGElement (props (className "fs-empty") (elementType 1))
+
+    ; A document's fields: name, type, value.
+    tag Field     EVGElement (props (className "fs-field") (role "row"))
+    tag FName     EVGElement (props (className "fs-fname") (role "cell") (elementType 1))
+    tag FType     EVGElement (props (className "fs-ftype") (role "cell") (elementType 1))
+    tag FValue    EVGElement (props (className "fs-fvalue") (role "cell") (elementType 1))
+
+    ; The permission grid.
+    tag Grid      EVGElement (props (className "fs-grid") (role "table") (a11yLabel "What the rules allow"))
+    tag GRow      EVGElement (props (className "fs-grow") (role "row"))
+    tag GHead     EVGElement (props (className "fs-ghead") (role "columnheader") (elementType 1))
+    tag GName     EVGElement (props (className "fs-gname") (role "rowheader") (elementType 1))
+    tag GCell     EVGElement (props (className "fs-gcell") (role "cell") (elementType 1))
+
+    tag Code      EVGElement (props (className "fs-code"))
+    tag CodeLn    EVGElement (props (className "fs-codeln") (elementType 1))
+
+    tag Note      EVGElement (props (className "fs-note") (role "status"))
+    tag NoteTxt   EVGElement (props (className "fs-notetxt") (elementType 1))
+
+    tag LogRow    EVGElement (props (className "fs-logrow") (role "row"))
+    tag LogCell   EVGElement (props (className "fs-logcell") (role "cell") (elementType 1))
+
+    tag Foot      EVGElement (props (className "fs-foot") (role "status"))
+    tag FootTxt   EVGElement (props (className "fs-foottxt") (elementType 1))
+}
+
+; One identity the workbench can act as.
+class FsWho {
+    def label@(mutable):string ""
+    def uid@(mutable):string ""
+    def token@(mutable):string ""
+    def admin@(mutable):boolean false
+
+    Constructor () {
+    }
+}
+
+class FiresimConsole {
+    ; --- the simulator, in this page ----------------------------------------
+    def sim:FsSim (new FsSim())
+    def transport:FsTransport (new FsTransport())
+    def client:FsClient (new FsClient())
+    def bridge:FsSimBridge (new FsSimBridge())
+
+    ; --- gallery/ui's own controllers ----------------------------------------
+    def tabs:TabsCtl (new TabsCtl())
+    def who:RadioGroupCtl (new RadioGroupCtl())
+    def dataset:RadioGroupCtl (new RadioGroupCtl())
+    def latency:SliderCtl (new SliderCtl())
+    def offline:ToggleCtl (new ToggleCtl())
+    def failNext:CheckboxCtl (new CheckboxCtl())
+    def inflight:ProgressCtl (new ProgressCtl())
+
+    ; --- the page ------------------------------------------------------------
+    def root@(optional):EVGElement
+    def sheet@(optional):EVGStyleSheet
+    def transitions:EVGTransition (new EVGTransition())
+    def layout@(optional):EVGLayout
+    def hovered@(mutable):string ""
+    def pressed@(mutable):string ""
+    def focused@(mutable):string ""
+    def pageW@(mutable):double 1280.0
+    def pageH@(mutable):double 800.0
+
+    ; --- who ------------------------------------------------------------------
+    def identities:[FsWho]
+
+    ; --- where in the tree ----------------------------------------------------
+    ; "" at the root, otherwise the document whose subcollections are listed.
+    def parentDoc@(mutable):string ""
+    def collectionId@(mutable):string ""
+    def docId@(mutable):string ""
+    ; What the listener says is in the selected collection.
+    def docIds:[string]
+    def docSummaries:[string]
+    def watchId@(mutable):int 0
+    def pollDueMs@(mutable):double 0.0
+    def pollEveryMs@(mutable):double 300.0
+
+    ; --- the query builder ----------------------------------------------------
+    def qFieldIndex@(mutable):int 0
+    def qOpIndex@(mutable):int 0
+    def qValueIndex@(mutable):int 0
+    def qOrderIndex@(mutable):int 0
+    def qLimitIndex@(mutable):int 0
+    def qStatus@(mutable):string "not run yet"
+    def qHint@(mutable):string ""
+    def qResults:[string]
+
+    ; --- the rules ------------------------------------------------------------
+    def rulesText@(mutable):string ""
+    def rulesLines:[string]
+    def sampleRules@(mutable):string ""
+
+    ; --- what happened --------------------------------------------------------
+    def note@(mutable):string "ready"
+    def lastLine@(mutable):string "—"
+    def waitingIds:[int]
+    def waitingKinds:[string]
+    def streamCall@(mutable):int -1
+    def streamText@(mutable):string ""
+    def datasetLoaded@(mutable):string "Sample"
+    def pendingDataset@(mutable):string ""
+
+    Constructor () {
+    }
+
+    ; =========================================================================
+    ; Starting up
+    ; =========================================================================
+    fn init:void (css:string rules:string) {
+        def s (new EVGStyleSheet())
+        s.parse(css)
+        sheet = s
+        sampleRules = rules
+
+        def server:FsServer (sim.backend())
+        server.projectId = "firesim-demo"
+        def accounts:FsAuthService (server.accounts())
+        accounts.projectId = "firesim-demo"
+        def wait:FsLatency (sim.wait())
+        wait.baseMs = 200.0
+
+        transport = (FsTransport.toBase(""))
+        client.transport = transport
+        client.projectId = "firesim-demo"
+        bridge = (FsSimBridge.attach(transport sim))
+
+        this.makeAccounts(accounts)
+        this.buildControls()
+        this.useRules(rules)
+        this.seedSample()
+        this.openRoot()
+        root = (this.page())
+    }
+
+    ; Four identities and no sign-up form: an owner, another owner, an admin
+    ; by CUSTOM CLAIM, and nobody at all. This is the whole "run it with no
+    ; Google account, or with six" claim.
+    fn makeAccounts:void (accounts:FsAuthService) {
+        def names:[string] ([] _:string ( "ada" "alan" "root" ))
+        for names n:string i {
+            def email:string (n + "@example.com")
+            def res:FsAuthResult (accounts.signUp(email "password1" n 0.0))
+            def w:FsWho (new FsWho)
+            w.label = n
+            w.uid = res.localId
+            w.token = res.idToken
+            push identities w
+        }
+        ; The third one is an admin, and the claim rides on the TOKEN — an
+        ; admin check in the rules costs no document read.
+        def admin:FsWho (itemAt identities 2)
+        def claims:FsValue (FsValue.mapV())
+        claims.setField("admin" (FsValue.boolV(true)))
+        accounts.setClaims(admin.uid claims)
+        def again:FsAuthResult (accounts.signIn("root@example.com" "password1" 0.0))
+        admin.token = again.idToken
+        admin.admin = true
+
+        def none:FsWho (new FsWho)
+        none.label = "signed out"
+        push identities none
+    }
+
+    fn buildControls:void () {
+        tabs.tid = "fs-tabs"
+        tabs.name = "View"
+        tabs.addItem("data" "Data" "" false)
+        tabs.addItem("query" "Query" "" false)
+        tabs.addItem("rules" "Rules" "" false)
+        tabs.addItem("users" "Users" "" false)
+        tabs.addItem("traffic" "Traffic" "" false)
+        tabs.value = "data"
+        tabs.rovingValue = "data"
+        tabs.build()
+
+        who.tid = "fs-who"
+        who.name = "Acting as"
+        for identities w:FsWho i {
+            who.addItem(w.label w.label false)
+        }
+        def first:FsWho (itemAt identities 0)
+        who.value = first.label
+        who.rovingValue = first.label
+        who.build()
+
+        dataset.tid = "fs-dataset"
+        dataset.name = "Dataset"
+        dataset.addItem("Sample" "Sample" false)
+        dataset.addItem("RealTrainer" "RealTrainer" false)
+        dataset.value = "Sample"
+        dataset.rovingValue = "Sample"
+        dataset.build()
+
+        latency.tid = "fs-latency"
+        latency.name = "Latency"
+        latency.minValue = 0
+        latency.maxValue = 1500
+        latency.step = 20
+        latency.value = 200
+        latency.unitSuffix = " ms"
+        latency.build()
+
+        offline.tid = "fs-offline"
+        offline.name = "Offline"
+        offline.build()
+
+        failNext.tid = "fs-failnext"
+        failNext.name = "Fail the next call"
+        failNext.build()
+
+        inflight.tid = "fs-inflight"
+        inflight.name = "Calls in flight"
+        inflight.maxValue = 4.0
+        inflight.value = 0.0
+        inflight.build()
+
+        this.applyIdentity()
+    }
+
+    fn useRules:void (text:string) {
+        rulesText = text
+        rulesLines = (strsplit text "\n")
+        def err:string (sim.loadRules(text))
+        if ((strlen err) > 0) {
+            note = ("the rules did not parse: " + err)
+        }
+    }
+
+    ; =========================================================================
+    ; The datasets
+    ; =========================================================================
+    ; Written here rather than loaded, because the point of it is the TYPES: a
+    ; string, an integer, a double, a boolean, a timestamp, an array, a nested
+    ; map, a reference, a geopoint and a null, so the field list has something
+    ; to show for each.
+    fn seedSample:void () {
+        def server:FsServer (sim.backend())
+        def store:FsStore (server.db())
+        store.wipe()
+        def ada:FsWho (itemAt identities 0)
+        def alan:FsWho (itemAt identities 1)
+
+        def p1:FsValue (FsValue.mapV())
+        p1.setField("title" (FsValue.strV("Mechanical keyboard")))
+        p1.setField("sku" (FsValue.strV("KB-87-BLUE")))
+        p1.setField("price" (FsValue.doubleV(129.9)))
+        p1.setField("stock" (FsValue.intV(42)))
+        p1.setField("inStock" (FsValue.boolV(true)))
+        def tags:FsValue (FsValue.arrayV())
+        tags.addItem((FsValue.strV("input")))
+        tags.addItem((FsValue.strV("desk")))
+        p1.setField("tags" tags)
+        def dims:FsValue (FsValue.mapV())
+        dims.setField("w" (FsValue.intV(360)))
+        dims.setField("d" (FsValue.intV(135)))
+        dims.setField("h" (FsValue.intV(38)))
+        p1.setField("dimensions" dims)
+        p1.setField("addedAt" (FsValue.timeTextV("2026-01-14T09:12:00.000Z")))
+        p1.setField("discontinuedAt" (FsValue.nullV()))
+        this.put("products/kb-87" p1)
+
+        def p2:FsValue (FsValue.mapV())
+        p2.setField("title" (FsValue.strV("Standing desk")))
+        p2.setField("sku" (FsValue.strV("DSK-160")))
+        p2.setField("price" (FsValue.doubleV(549.0)))
+        p2.setField("stock" (FsValue.intV(3)))
+        p2.setField("inStock" (FsValue.boolV(true)))
+        def tags2:FsValue (FsValue.arrayV())
+        tags2.addItem((FsValue.strV("desk")))
+        tags2.addItem((FsValue.strV("furniture")))
+        p2.setField("tags" tags2)
+        p2.setField("addedAt" (FsValue.timeTextV("2025-11-02T16:40:00.000Z")))
+        p2.setField("warehouse" (FsValue.geoV(60.1699 24.9384)))
+        this.put("products/dsk-160" p2)
+
+        def p3:FsValue (FsValue.mapV())
+        p3.setField("title" (FsValue.strV("Desk lamp")))
+        p3.setField("sku" (FsValue.strV("LMP-04")))
+        p3.setField("price" (FsValue.doubleV(39.5)))
+        p3.setField("stock" (FsValue.intV(0)))
+        p3.setField("inStock" (FsValue.boolV(false)))
+        def tags3:FsValue (FsValue.arrayV())
+        tags3.addItem((FsValue.strV("light")))
+        p3.setField("tags" tags3)
+        p3.setField("addedAt" (FsValue.timeTextV("2026-02-01T08:00:00.000Z")))
+        this.put("products/lmp-04" p3)
+
+        def u1:FsValue (FsValue.mapV())
+        u1.setField("displayName" (FsValue.strV("Ada Lovelace")))
+        u1.setField("email" (FsValue.strV("ada@example.com")))
+        u1.setField("plan" (FsValue.strV("pro")))
+        u1.setField("credits" (FsValue.intV(120)))
+        u1.setField("verified" (FsValue.boolV(true)))
+        u1.setField("createdAt" (FsValue.timeTextV("2025-06-01T10:00:00.000Z")))
+        this.put(("users/" + ada.uid) u1)
+
+        def u2:FsValue (FsValue.mapV())
+        u2.setField("displayName" (FsValue.strV("Alan Turing")))
+        u2.setField("email" (FsValue.strV("alan@example.com")))
+        u2.setField("plan" (FsValue.strV("free")))
+        u2.setField("credits" (FsValue.intV(5)))
+        u2.setField("verified" (FsValue.boolV(false)))
+        u2.setField("createdAt" (FsValue.timeTextV("2026-01-20T12:30:00.000Z")))
+        this.put(("users/" + alan.uid) u2)
+
+        ; A subcollection, so the browser has a tree to walk — and so the
+        ; rules have something to demonstrate: a block on the parent does NOT
+        ; cover this.
+        def s1:FsValue (FsValue.mapV())
+        s1.setField("device" (FsValue.strV("MacBook Pro")))
+        s1.setField("ip" (FsValue.strV("192.0.2.11")))
+        s1.setField("startedAt" (FsValue.timeTextV("2026-02-09T07:55:00.000Z")))
+        this.put((("users/" + ada.uid) + "/sessions/s-9f1") s1)
+        def s2:FsValue (FsValue.mapV())
+        s2.setField("device" (FsValue.strV("iPhone")))
+        s2.setField("ip" (FsValue.strV("192.0.2.44")))
+        s2.setField("startedAt" (FsValue.timeTextV("2026-02-10T18:02:00.000Z")))
+        this.put((("users/" + ada.uid) + "/sessions/s-a02") s2)
+
+        def o1:FsValue (FsValue.mapV())
+        o1.setField("userId" (FsValue.strV(ada.uid)))
+        o1.setField("total" (FsValue.doubleV(169.4)))
+        o1.setField("status" (FsValue.strV("shipped")))
+        o1.setField("placedAt" (FsValue.timeTextV("2026-02-03T11:20:00.000Z")))
+        def line1:FsValue (FsValue.mapV())
+        line1.setField("sku" (FsValue.strV("KB-87-BLUE")))
+        line1.setField("qty" (FsValue.intV(1)))
+        def items:FsValue (FsValue.arrayV())
+        items.addItem(line1)
+        o1.setField("items" items)
+        o1.setField("product" (FsValue.refV("products/kb-87")))
+        this.put("orders/o-1001" o1)
+
+        def o2:FsValue (FsValue.mapV())
+        o2.setField("userId" (FsValue.strV(alan.uid)))
+        o2.setField("total" (FsValue.doubleV(549.0)))
+        o2.setField("status" (FsValue.strV("pending")))
+        o2.setField("placedAt" (FsValue.timeTextV("2026-02-11T09:05:00.000Z")))
+        o2.setField("product" (FsValue.refV("products/dsk-160")))
+        this.put("orders/o-1002" o2)
+
+        datasetLoaded = "Sample"
+        note = "sample dataset loaded: 9 documents, every value type Firestore has"
+    }
+
+    fn put:void (path:string data:FsValue) {
+        def w:FsWrite (new FsWrite)
+        w.op = "set"
+        w.path = path
+        w.data = data
+        def server:FsServer (sim.backend())
+        def store:FsStore (server.db())
+        store.applyWrite(w sim.nowMs)
+    }
+
+    ; A dataset the HOST fetched. `gallery/realtrainer`'s reference seed is
+    ; 747 documents and arrives here as the file it is — the same one its
+    ; recorder puts into a real Firebase emulator — loaded through `FsSeed`
+    ; with no conversion.
+    fn loadDataset:void (name:string json:string rules:string) {
+        def server:FsServer (sim.backend())
+        def store:FsStore (server.db())
+        store.wipe()
+        def owner:FsWho (itemAt identities 0)
+        def written:int (sim.seedJson(json owner.uid))
+        if ((strlen rules) > 0) {
+            this.useRules(rules)
+        }
+        datasetLoaded = name
+        note = ((name + " dataset loaded: ") + (to_string written) + " documents, owned by " + owner.label)
+        this.openRoot()
+        this.rebuild()
+    }
+
+    fn datasetFailed:void (name:string why:string) {
+        note = ((("could not load " + name) + ": ") + why)
+        dataset.value = datasetLoaded
+        dataset.rovingValue = datasetLoaded
+        this.rebuild()
+    }
+
+    ; =========================================================================
+    ; Where in the tree
+    ; =========================================================================
+    fn collectionPath:string () {
+        if ((strlen collectionId) == 0) {
+            return ""
+        }
+        if ((strlen parentDoc) == 0) {
+            return collectionId
+        }
+        return ((parentDoc + "/") + collectionId)
+    }
+
+    fn documentPath:string () {
+        if ((strlen docId) == 0) {
+            return ""
+        }
+        def c:string (this.collectionPath())
+        if ((strlen c) == 0) {
+            return ""
+        }
+        return ((c + "/") + docId)
+    }
+
+    fn collectionsHere:[string] () {
+        def server:FsServer (sim.backend())
+        def store:FsStore (server.db())
+        return (store.collectionIds(parentDoc))
+    }
+
+    fn openRoot:void () {
+        parentDoc = ""
+        docId = ""
+        def ids:[string] (this.collectionsHere())
+        collectionId = ""
+        if ((array_length ids) > 0) {
+            collectionId = (itemAt ids 0)
+        }
+        this.resetQuery()
+        this.startWatch()
+    }
+
+    fn openCollection:void (name:string) {
+        collectionId = name
+        docId = ""
+        this.resetQuery()
+        this.startWatch()
+    }
+
+    ; A subcollection under the selected document: the document becomes the
+    ; parent and the walk continues one level down.
+    fn openSubcollection:void (name:string) {
+        def doc:string (this.documentPath())
+        if ((strlen doc) == 0) {
+            return
+        }
+        parentDoc = doc
+        collectionId = name
+        docId = ""
+        this.startWatch()
+    }
+
+    ; The breadcrumb, as segments. Pressing one truncates the path to it.
+    fn crumbs:[string] () {
+        def out:[string]
+        def full:string (this.collectionPath())
+        if ((strlen full) == 0) {
+            return out
+        }
+        def segs:[string] (FsPath.segments(full))
+        for segs s:string i {
+            push out s
+        }
+        if ((strlen docId) > 0) {
+            push out docId
+        }
+        return out
+    }
+
+    fn openCrumb:void (index:int) {
+        def all:[string] (this.crumbs())
+        def kept:[string]
+        def i:int 0
+        while (i <= index) {
+            push kept (itemAt all i)
+            i = (i + 1)
+        }
+        def n:int (array_length kept)
+        ; An odd number of segments is a collection, an even one a document.
+        if ((n % 2) == 1) {
+            def parentSegs:[string]
+            def k:int 0
+            while (k < (n - 1)) {
+                push parentSegs (itemAt kept k)
+                k = (k + 1)
+            }
+            parentDoc = (FsPath.joinSegs(parentSegs))
+            collectionId = (itemAt kept (n - 1))
+            docId = ""
+        } {
+            def colSegs:[string]
+            def k2:int 0
+            while (k2 < (n - 1)) {
+                push colSegs (itemAt kept k2)
+                k2 = (k2 + 1)
+            }
+            def colPath:string (FsPath.joinSegs(colSegs))
+            def colSegList:[string] (FsPath.segments(colPath))
+            def cn:int (array_length colSegList)
+            def parentSegs2:[string]
+            def k3:int 0
+            while (k3 < (cn - 1)) {
+                push parentSegs2 (itemAt colSegList k3)
+                k3 = (k3 + 1)
+            }
+            parentDoc = (FsPath.joinSegs(parentSegs2))
+            collectionId = (itemAt colSegList (cn - 1))
+            docId = (itemAt kept (n - 1))
+        }
+        this.startWatch()
+    }
+
+    ; =========================================================================
+    ; The listener behind the document list
+    ; =========================================================================
+    fn startWatch:void () {
+        def freshIds:[string]
+        def freshSummaries:[string]
+        docIds = freshIds
+        docSummaries = freshSummaries
+        watchId = 0
+        def path:string (this.collectionPath())
+        if ((strlen path) == 0) {
+            return
+        }
+        def q:FsQuery (new FsQuery)
+        def segs:[string] (FsPath.segments(path))
+        def n:int (array_length segs)
+        q.collectionId = (itemAt segs (n - 1))
+        if (n > 1) {
+            def parentSegs:[string]
+            def i:int 0
+            while (i < (n - 1)) {
+                push parentSegs (itemAt segs i)
+                i = (i + 1)
+            }
+            q.parent = (FsPath.joinSegs(parentSegs))
+        }
+        def id:int (client.watch(q))
+        this.expect(id "watch")
+    }
+
+    fn expect:void (callId:int kind:string) {
+        push waitingIds callId
+        push waitingKinds kind
+    }
+
+    fn collect:void () {
+        def keepIds:[int]
+        def keepKinds:[string]
+        def n:int (array_length waitingIds)
+        def i:int 0
+        while (i < n) {
+            def id:int (itemAt waitingIds i)
+            def kind:string (itemAt waitingKinds i)
+            if (transport.ready(id)) {
+                this.readOne(id kind)
+                transport.forget(id)
+            } {
+                push keepIds id
+                push keepKinds kind
+            }
+            i = (i + 1)
+        }
+        waitingIds = keepIds
+        waitingKinds = keepKinds
+    }
+
+    fn readOne:void (id:int kind:string) {
+        if (kind == "watch") {
+            def got:int (client.readWatchId(id))
+            if (got < 1) {
+                note = ("the listener was refused: " + client.lastError)
+                this.noteCall("POST /firesim/v1/watch")
+                return
+            }
+            watchId = got
+            def first:[FsWatchChange] (client.readChanges(id))
+            this.applyChanges(first)
+            this.noteCall("POST /firesim/v1/watch")
+            return
+        }
+        if (kind == "poll") {
+            def changes:[FsWatchChange] (client.readChanges(id))
+            if (client.lastStatus >= 400) {
+                note = ("the listener stopped: " + client.lastError)
+                return
+            }
+            if ((array_length changes) > 0) {
+                this.applyChanges(changes)
+                def added:int 0
+                def modified:int 0
+                def removed:int 0
+                for changes c:FsWatchChange ci {
+                    if (c.kind == "added") {
+                        added = (added + 1)
+                    }
+                    if (c.kind == "modified") {
+                        modified = (modified + 1)
+                    }
+                    if (c.kind == "removed") {
+                        removed = (removed + 1)
+                    }
+                }
+                note = ((((("listener: " + (to_string added)) + " added, ") + (to_string modified)) + " modified, ") + (to_string removed) + " removed")
+            }
+            return
+        }
+        if (kind == "query") {
+            def docs:[FsDocument] (client.readDocs(id))
+            def fresh:[string]
+            qResults = fresh
+            for docs d:FsDocument di {
+                push qResults (d.id())
+            }
+            if (client.lastStatus >= 400) {
+                qStatus = ((to_string client.lastStatus) + " — " + client.lastError)
+            } {
+                qStatus = ((to_string client.lastStatus) + " — " + (to_string (array_length qResults)) + " document(s)")
+            }
+            this.noteCall("POST …:runQuery")
+            return
+        }
+        if (kind == "get") {
+            def doc:FsDocument (client.readDoc(id))
+            if (client.lastStatus >= 400) {
+                note = ("GET refused: " + client.lastError)
+            } {
+                note = ("GET " + doc.path + " → 200")
+            }
+            this.noteCall("GET …/documents")
+            return
+        }
+        if (kind == "write") {
+            client.readDoc(id)
+            if (client.lastStatus >= 400) {
+                note = ("the write was refused: " + client.lastError)
+            } {
+                note = "written"
+            }
+            this.noteCall("PATCH …/documents")
+            return
+        }
+        if (kind == "delete") {
+            client.readJson(id)
+            if (client.lastStatus >= 400) {
+                note = ("the delete was refused: " + client.lastError)
+            } {
+                note = "deleted"
+            }
+            this.noteCall("DELETE …/documents")
+            return
+        }
+    }
+
+    fn noteCall:string (what:string) {
+        def code:string (to_string client.lastStatus)
+        lastLine = ((what + " → ") + code)
+        return lastLine
+    }
+
+    fn applyChanges:void (changes:[FsWatchChange]) {
+        for changes c:FsWatchChange i {
+            def id:string (FsPath.idOf(c.path))
+            def at:int (this.indexOfDoc(id))
+            if (c.kind == "removed") {
+                if (at >= 0) {
+                    this.dropDoc(id)
+                }
+            } {
+                def doc:FsDocument (c.document())
+                def summary:string (this.summaryOf(doc))
+                if (at >= 0) {
+                    set docSummaries at summary
+                } {
+                    push docIds id
+                    push docSummaries summary
+                }
+            }
+        }
+        this.sortDocs()
+    }
+
+    ; What a document says about itself in one line: its first two scalar
+    ; fields. A list of ids alone is a list of ids.
+    fn summaryOf:string (doc:FsDocument) {
+        def data:FsValue (doc.root())
+        def out:string ""
+        def shown:int 0
+        for data.keys k:string i {
+            def useful:boolean (shown < 2)
+            ; The row already shows the document id; repeating it as a field
+            ; is a line that says nothing twice.
+            if (k == "id") {
+                useful = false
+            }
+            if (useful) {
+                def v:FsValue (data.field(k))
+                def kind:int v.kind
+                if (kind == 9) {
+                    useful = false
+                }
+                if (kind == 10) {
+                    useful = false
+                }
+                if (useful) {
+                    if (shown > 0) {
+                        out = (out + " · ")
+                    }
+                    def text:string (FiresimConsole.shortText((v.asString()) 26))
+                    out = ((out + k) + " " + text)
+                    shown = (shown + 1)
+                }
+            }
+        }
+        if (shown == 0) {
+            def n:int (data.count())
+            out = ((to_string n) + " field(s)")
+        }
+        return out
+    }
+
+    fn indexOfDoc:int (id:string) {
+        def n:int (array_length docIds)
+        def i:int 0
+        while (i < n) {
+            if ((itemAt docIds i) == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn dropDoc:void (id:string) {
+        def keptIds:[string]
+        def keptSummaries:[string]
+        def n:int (array_length docIds)
+        def i:int 0
+        while (i < n) {
+            if ((itemAt docIds i) != id) {
+                push keptIds (itemAt docIds i)
+                push keptSummaries (itemAt docSummaries i)
+            }
+            i = (i + 1)
+        }
+        docIds = keptIds
+        docSummaries = keptSummaries
+    }
+
+    ; Document name order, as a collection lists on the real thing.
+    fn sortDocs:void () {
+        def n:int (array_length docIds)
+        def i:int 1
+        while (i < n) {
+            def curId:string (itemAt docIds i)
+            def curSum:string (itemAt docSummaries i)
+            def j:int (i - 1)
+            while (j >= 0) {
+                def other:string (itemAt docIds j)
+                def c:int (FsValue.compareText(other curId))
+                if (c <= 0) {
+                    break
+                }
+                set docIds (j + 1) other
+                set docSummaries (j + 1) (itemAt docSummaries j)
+                j = (j - 1)
+            }
+            set docIds (j + 1) curId
+            set docSummaries (j + 1) curSum
+            i = (i + 1)
+        }
+    }
+
+    ; =========================================================================
+    ; Values, said out loud
+    ; =========================================================================
+    sfn typeName:string (v:FsValue) {
+        def k:int v.kind
+        if (k == 0) {
+            return "null"
+        }
+        if (k == 1) {
+            return "boolean"
+        }
+        if (k == 2) {
+            return "integer"
+        }
+        if (k == 3) {
+            return "double"
+        }
+        if (k == 4) {
+            return "timestamp"
+        }
+        if (k == 5) {
+            return "string"
+        }
+        if (k == 6) {
+            return "bytes"
+        }
+        if (k == 7) {
+            return "reference"
+        }
+        if (k == 8) {
+            return "geopoint"
+        }
+        if (k == 9) {
+            return "array"
+        }
+        return "map"
+    }
+
+    sfn shortText:string (s:string limit:int) {
+        if ((strlen s) <= limit) {
+            return s
+        }
+        return ((substring s 0 limit) + "…")
+    }
+
+    ; A field's value as one line. An array or a map is printed as the JSON it
+    ; is, cut — the browser shows the SHAPE, and the document is the truth.
+    sfn valueText:string (v:FsValue) {
+        def k:int v.kind
+        if (k == 0) {
+            return "null"
+        }
+        if (k == 9) {
+            def writer:VlJsonWriter (new VlJsonWriter)
+            def text:string (writer.write((v.toPlain())))
+            return (FiresimConsole.shortText(text 72))
+        }
+        if (k == 10) {
+            def writer2:VlJsonWriter (new VlJsonWriter)
+            def text2:string (writer2.write((v.toPlain())))
+            return (FiresimConsole.shortText(text2 72))
+        }
+        if (k == 8) {
+            def lat:string (VlJson.numberToText(v.num false))
+            def lng:string (VlJson.numberToText(v.lng false))
+            return ((lat + ", ") + lng)
+        }
+        if (k == 7) {
+            return ("→ " + v.str)
+        }
+        return (FiresimConsole.shortText((v.asString()) 72))
+    }
+
+    ; =========================================================================
+    ; The query builder
+    ; =========================================================================
+    sfn operators:[string] () {
+        return ([] _:string ( "==" "!=" "<" "<=" ">" ">=" "array-contains" ))
+    }
+
+    sfn limits:[int] () {
+        return ([] _:int ( 0 1 3 10 ))
+    }
+
+    ; The fields a query can name: every field the documents on screen carry.
+    fn queryFields:[string] () {
+        def out:[string]
+        def server:FsServer (sim.backend())
+        def store:FsStore (server.db())
+        def path:string (this.collectionPath())
+        if ((strlen path) == 0) {
+            return out
+        }
+        def docs:[FsDocument] (store.docsIn(path))
+        def shown:int 0
+        for docs d:FsDocument i {
+            if (shown < 6) {
+                def data:FsValue (d.root())
+                for data.keys k:string ki {
+                    def seen:boolean false
+                    for out o:string oi {
+                        if (o == k) {
+                            seen = true
+                        }
+                    }
+                    if (! seen) {
+                        push out k
+                    }
+                }
+                shown = (shown + 1)
+            }
+        }
+        return out
+    }
+
+    ; The values that field actually holds, so the builder can only ask
+    ; questions the data can answer.
+    fn queryValues:[string] () {
+        def out:[string]
+        def fields:[string] (this.queryFields())
+        if ((array_length fields) == 0) {
+            return out
+        }
+        def field:string (itemAt fields (qFieldIndex % (array_length fields)))
+        def server:FsServer (sim.backend())
+        def store:FsStore (server.db())
+        def path:string (this.collectionPath())
+        def docs:[FsDocument] (store.docsIn(path))
+        for docs d:FsDocument i {
+            def v:FsValue (d.field(field))
+            def texts:[string]
+            if (v.isArray()) {
+                for v.items it:FsValue ii {
+                    push texts (it.asString())
+                }
+            } {
+                push texts (v.asString())
+            }
+            for texts t:string ti {
+                if ((strlen t) > 0) {
+                    def seen:boolean false
+                    for out o:string oi {
+                        if (o == t) {
+                            seen = true
+                        }
+                    }
+                    if (! seen) {
+                        if ((array_length out) < 12) {
+                            push out t
+                        }
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    fn resetQuery:void () {
+        qFieldIndex = 0
+        qOpIndex = 0
+        qValueIndex = 0
+        qOrderIndex = 0
+        qLimitIndex = 0
+        qStatus = "not run yet"
+        qHint = ""
+        def fresh:[string]
+        qResults = fresh
+    }
+
+    fn pick:string (list:[string] index:int) {
+        def n:int (array_length list)
+        if (n == 0) {
+            return ""
+        }
+        return (itemAt list (index % n))
+    }
+
+    ; The query as it stands, built from the four wheels. The VALUE is typed
+    ; the way the field is typed, because `"42"` and `42` are different
+    ; questions and Firestore answers them differently.
+    fn buildQuery:FsQuery () {
+        def q:FsQuery (new FsQuery)
+        def path:string (this.collectionPath())
+        def segs:[string] (FsPath.segments(path))
+        def n:int (array_length segs)
+        if (n == 0) {
+            return q
+        }
+        q.collectionId = (itemAt segs (n - 1))
+        if (n > 1) {
+            def parentSegs:[string]
+            def i:int 0
+            while (i < (n - 1)) {
+                push parentSegs (itemAt segs i)
+                i = (i + 1)
+            }
+            q.parent = (FsPath.joinSegs(parentSegs))
+        }
+        def fields:[string] (this.queryFields())
+        def field:string (this.pick(fields qFieldIndex))
+        def values:[string] (this.queryValues())
+        def valueText:string (this.pick(values qValueIndex))
+        def ops:[string] (FiresimConsole.operators())
+        def op:string (this.pick(ops qOpIndex))
+        if ((strlen field) > 0) {
+            if ((strlen valueText) > 0) {
+                q.where = (FsFilter.field(field op (this.typedValue(field valueText))))
+            }
+        }
+        def orders:[string] (this.orderChoices())
+        def order:string (this.pick(orders qOrderIndex))
+        if (order != "(none)") {
+            push q.orders (FsOrder.by(order false))
+        }
+        def lims:[int] (FiresimConsole.limits())
+        def ln:int (array_length lims)
+        def limit:int (itemAt lims (qLimitIndex % ln))
+        if (limit > 0) {
+            q.limitCount = limit
+        }
+        return q
+    }
+
+    fn orderChoices:[string] () {
+        def out:[string]
+        push out "(none)"
+        def fields:[string] (this.queryFields())
+        for fields f:string i {
+            push out f
+        }
+        return out
+    }
+
+    ; The text a wheel shows, typed as the field holding it is typed. A field
+    ; that is an integer in the data is asked about as an integer.
+    fn typedValue:FsValue (field:string text:string) {
+        def server:FsServer (sim.backend())
+        def store:FsStore (server.db())
+        def path:string (this.collectionPath())
+        def docs:[FsDocument] (store.docsIn(path))
+        for docs d:FsDocument i {
+            def v:FsValue (d.field(field))
+            def probe:FsValue v
+            if (v.isArray()) {
+                if ((v.count()) > 0) {
+                    probe = (v.at(0))
+                }
+            }
+            def k:int probe.kind
+            if (k == 2) {
+                def n@(optional):int (str2int text)
+                if (!null? n) {
+                    return (FsValue.intV((unwrap n)))
+                }
+            }
+            if (k == 3) {
+                def d2@(optional):double (to_double text)
+                if (!null? d2) {
+                    return (FsValue.doubleV((unwrap d2)))
+                }
+            }
+            if (k == 1) {
+                return (FsValue.boolV((text == "true")))
+            }
+            if (k == 4) {
+                return (FsValue.timeTextV(text))
+            }
+        }
+        return (FsValue.strV(text))
+    }
+
+    fn runQuery:void () {
+        def q:FsQuery (this.buildQuery())
+        if ((strlen q.collectionId) == 0) {
+            qStatus = "pick a collection first"
+            return
+        }
+        qHint = (q.indexHint())
+        def bad:string (q.validate())
+        if ((strlen bad) > 0) {
+            ; The simulator would answer 400 with exactly this; saying so
+            ; before the call is the same message a second earlier.
+            qStatus = ("400 — " + bad)
+            def fresh:[string]
+            qResults = fresh
+            return
+        }
+        def id:int (client.runQuery(q))
+        this.expect(id "query")
+        qStatus = "running…"
+    }
+
+    ; =========================================================================
+    ; Who is asking
+    ; =========================================================================
+    fn currentWho:FsWho () {
+        for identities w:FsWho i {
+            if (w.label == who.value) {
+                return w
+            }
+        }
+        return (itemAt identities 0)
+    }
+
+    fn applyIdentity:void () {
+        def w:FsWho (this.currentWho())
+        if ((strlen w.token) == 0) {
+            client.signOut()
+            return
+        }
+        client.idToken = w.token
+        client.uid = w.uid
+        client.signedIn = true
+    }
+
+    ; One cell of the grid: the real engine, on the real rules, for that
+    ; identity, on the SELECTED path, right now.
+    fn allowed:boolean (w:FsWho method:string path:string) {
+        def server:FsServer (sim.backend())
+        def store:FsStore (server.db())
+        def c:FsRequestCtx (new FsRequestCtx)
+        c.method = method
+        c.path = path
+        c.databaseId = "(default)"
+        c.nowMs = sim.nowMs
+        if ((strlen w.token) > 0) {
+            c.signedIn = true
+            c.authUid = w.uid
+            def accounts:FsAuthService (server.accounts())
+            c.token = (accounts.claimsOf(w.token))
+        }
+        def incoming:FsValue (FsValue.mapV())
+        if (store.exists(path)) {
+            def doc:FsDocument (store.get(path))
+            c.resourceExists = true
+            c.resourceData = (doc.root())
+            def existing:FsValue (doc.root())
+            incoming = (existing.copy())
+        } {
+            incoming.setField("userId" (FsValue.strV(w.uid)))
+        }
+        c.requestData = incoming
+        c.hasRequestData = true
+        def rulesFile:FsRules (server.policy())
+        def d:FsRuleDecision (FsRulesEval.check(rulesFile store c))
+        return d.allowed
+    }
+
+    sfn methods:[string] () {
+        return ([] _:string ( "get" "list" "create" "update" "delete" ))
+    }
+
+    ; =========================================================================
+    ; The clock
+    ; =========================================================================
+    fn tick:boolean (dtMs:double) {
+        bridge.tick(dtMs)
+        this.collect()
+        this.pumpStream()
+        this.maybePoll(dtMs)
+        def flying:int (array_length waitingIds)
+        if (streamCall >= 0) {
+            flying = (flying + 1)
+        }
+        def wanted:double (to_double flying)
+        if (inflight.value != wanted) {
+            inflight.value = wanted
+            inflight.build()
+            this.rebuild()
+        }
+        def r:EVGElement (unwrap root)
+        def t:EVGTransition transitions
+        t.advanceTree(r dtMs)
+        return true
+    }
+
+    fn maybePoll:void (dtMs:double) {
+        if (watchId <= 0) {
+            return
+        }
+        pollDueMs = (pollDueMs - dtMs)
+        if (pollDueMs > 0.0) {
+            return
+        }
+        pollDueMs = pollEveryMs
+        def id:int (client.poll(watchId))
+        this.expect(id "poll")
+    }
+
+    ; The streaming endpoint, shown for what it is: a response that arrives in
+    ; pieces on the same clock. It is not a chat here; it is proof that the
+    ; simulator answers a stream.
+    fn pumpStream:void () {
+        if (streamCall < 0) {
+            return
+        }
+        def pieces:[string] (client.takeChunks(streamCall))
+        def n:int (array_length pieces)
+        if (n > 0) {
+            streamText = ((streamText + (to_string n)) + " ")
+            note = (("streaming: " + (to_string (strlen streamText))) + " frames so far")
+            this.rebuild()
+        }
+        if (transport.finished(streamCall)) {
+            streamCall = -1
+            note = "the stream closed"
+            this.noteCall("POST /ai/v1/chat:stream")
+            this.rebuild()
+        }
+    }
+
+    ; =========================================================================
+    ; Writing, so the listener has something to report
+    ; =========================================================================
+    fn addDocument:void () {
+        def path:string (this.collectionPath())
+        if ((strlen path) == 0) {
+            note = "pick a collection first"
+            return
+        }
+        def w:FsWho (this.currentWho())
+        def data:FsValue (FsValue.mapV())
+        def n:int ((array_length docIds) + 1)
+        data.setField("createdBy" (FsValue.strV(w.label)))
+        data.setField("userId" (FsValue.strV(w.uid)))
+        data.setField("note" (FsValue.strV(("written from the workbench #" + (to_string n)))))
+        data.setField("createdAt" (FsValue.timeV(sim.nowMs)))
+        def id:string ("wb-" + (to_string n))
+        def full:string ((path + "/") + id)
+        def call:int (client.setDoc(full data))
+        this.expect(call "write")
+    }
+
+    fn deleteSelected:void () {
+        def path:string (this.documentPath())
+        if ((strlen path) == 0) {
+            note = "pick a document first"
+            return
+        }
+        def call:int (client.deleteDoc(path))
+        this.expect(call "delete")
+        docId = ""
+    }
+
+    fn getSelected:void () {
+        def path:string (this.documentPath())
+        if ((strlen path) == 0) {
+            note = "pick a document first"
+            return
+        }
+        def call:int (client.getDoc(path))
+        this.expect(call "get")
+    }
+
+    fn startStream:void () {
+        streamText = ""
+        streamCall = (client.ask("a streamed answer, one frame at a time" "wb-1"))
+        note = "streaming…"
+    }
+
+    ; =========================================================================
+    ; The tree
+    ; =========================================================================
+    fn page:EVGElement () {
+        def page (tree Fs (Page))
+        page.addChild((this.header()))
+        def body (tree Fs (Body))
+        body.addChild((this.rail()))
+        body.addChild((this.main()))
+        page.addChild(body)
+        def foot (tree Fs (Foot (props (id "fs-footer") (a11yLabel ("Last call: " + lastLine)))))
+        foot.addChild((tree Fs (FootTxt lastLine)))
+        page.addChild(foot)
+        return page
+    }
+
+    fn header:EVGElement () {
+        def head (tree Fs (Header))
+        def titles (tree Fs (Col))
+        titles.addChild((tree Fs (Brand "firesim")))
+        titles.addChild((tree Fs (Sub "a Firebase, simulated — the database, its rules and its accounts, in this tab")))
+        head.addChild(titles)
+        def server:FsServer (sim.backend())
+        def store:FsStore (server.db())
+        def accounts:FsAuthService (server.accounts())
+        def stats (tree Fs (Stats (props (a11yLabel (this.statusSentence())))))
+        stats.addChild((this.stat("fs-stat-docs" (to_string (store.count())) "documents")))
+        stats.addChild((this.stat("fs-stat-users" (to_string (array_length accounts.users)) "accounts")))
+        stats.addChild((this.stat("fs-stat-version" (to_string store.version) "version")))
+        stats.addChild((this.stat("fs-stat-calls" (to_string sim.callCount) "calls")))
+        stats.addChild((this.stat("fs-stat-fails" (to_string sim.failCount) "failed")))
+        head.addChild(stats)
+        return head
+    }
+
+    fn statusSentence:string () {
+        def server:FsServer (sim.backend())
+        def store:FsStore (server.db())
+        def a:string ((to_string (store.count())) + " documents, version " + (to_string store.version))
+        return ((a + ", ") + (to_string sim.callCount) + " calls, " + (to_string sim.failCount) + " failed")
+    }
+
+    fn stat:EVGElement (id:string value:string label:string) {
+        def box (tree Fs (Stat (props (id id))))
+        box.addChild((tree Fs (StatNum value)))
+        box.addChild((tree Fs (StatLbl label)))
+        return box
+    }
+
+    fn rail:EVGElement () {
+        def rail (tree Fs (Rail))
+        rail.addChild((this.datasetCard()))
+        rail.addChild((this.whoCard()))
+        rail.addChild((this.waitCard()))
+        return rail
+    }
+
+    fn datasetCard:EVGElement () {
+        def card (tree Fs (Card))
+        card.addChild((tree Fs (CardTtl "Dataset")))
+        card.addChild((tree Fs (Dim "A written-here sample with every value type, or gallery/realtrainer's own 747-document seed — the file its recorder puts into a real emulator.")))
+        def group (tree Fs (Radios (props (id "fs-dataset") (a11yLabel "Dataset"))))
+        def n:int (array_length dataset.items)
+        def i:int 0
+        while (i < n) {
+            def it:UiItem (itemAt dataset.items i)
+            def chosen:boolean (it.value == dataset.value)
+            def item (tree Fs (Radio (props (id ("fs-ds-" + it.value))
+                                            (className (? chosen "fs-radio fs-radio-on" "fs-radio"))
+                                            (a11yLabel it.name))))
+            if chosen {
+                item.a11yChecked = 2
+            } {
+                item.a11yChecked = 1
+            }
+            item.addChild((tree Fs (RadioDot (props (className (? chosen "fs-radiodot fs-radiodot-on" "fs-radiodot"))))))
+            item.addChild((tree Fs (RadioTxt it.name)))
+            group.addChild(item)
+            i = (i + 1)
+        }
+        card.addChild(group)
+        return card
+    }
+
+    fn whoCard:EVGElement () {
+        def card (tree Fs (Card))
+        card.addChild((tree Fs (CardTtl "Acting as")))
+        card.addChild((tree Fs (Dim "No Google account and no sign-up. `root` carries an admin custom claim on its token.")))
+        def group (tree Fs (Radios (props (id "fs-who") (a11yLabel "Acting as"))))
+        for identities w:FsWho i {
+            def chosen:boolean (w.label == who.value)
+            def item (tree Fs (Radio (props (id ("fs-who-" + w.label))
+                                            (className (? chosen "fs-radio fs-radio-on" "fs-radio"))
+                                            (a11yLabel w.label))))
+            if chosen {
+                item.a11yChecked = 2
+            } {
+                item.a11yChecked = 1
+            }
+            item.addChild((tree Fs (RadioDot (props (className (? chosen "fs-radiodot fs-radiodot-on" "fs-radiodot"))))))
+            item.addChild((tree Fs (RadioTxt w.label)))
+            group.addChild(item)
+        }
+        card.addChild(group)
+        def w2:FsWho (this.currentWho())
+        def uidLine:string "not signed in"
+        if ((strlen w2.uid) > 0) {
+            uidLine = ("uid " + w2.uid)
+        }
+        card.addChild((tree Fs (Mono uidLine)))
+        return card
+    }
+
+    fn waitCard:EVGElement () {
+        def card (tree Fs (Card))
+        card.addChild((tree Fs (CardTtl "The wait")))
+        card.addChild((tree Fs (Dim "The clock is the app's, so nothing sleeps.")))
+        def track (tree Fs (Track (props (id "fs-latency-track"))))
+        def range (tree Fs (Range (props (id "fs-latency-range"))))
+        def pct:int (latency.percent())
+        UiTree.inline(range "width" ((to_string pct) + "%"))
+        track.addChild(range)
+        def thumb (tree Fs (Thumb (props (id "fs-latency") (a11yLabel "Latency"))))
+        thumb.a11yHasRange = true
+        thumb.a11yValueMin = latency.minValue
+        thumb.a11yValueMax = latency.maxValue
+        thumb.a11yHasValue = true
+        thumb.a11yValueNow = latency.value
+        thumb.a11yValue = ((to_string latency.value) + " ms")
+        UiTree.inline(thumb "margin-left" ((to_string pct) + "%"))
+        track.addChild(thumb)
+        card.addChild(track)
+        card.addChild((tree Fs (Mono ((to_string latency.value) + " ms on every call"))))
+
+        def sw (tree Fs (Switch (props (id "fs-offline") (a11yLabel "Offline"))))
+        if offline.on {
+            sw.a11yChecked = 2
+            sw.className = "fs-switch fs-switch-on"
+        } {
+            sw.a11yChecked = 1
+        }
+        sw.addChild((tree Fs (SwitchKnb (props (className (? offline.on "fs-switchknb fs-switchknb-on" "fs-switchknb"))))))
+        def swRow (tree Fs (Row))
+        swRow.addChild(sw)
+        swRow.addChild((tree Fs (Txt "Offline")))
+        card.addChild(swRow)
+
+        def cb (tree Fs (Check (props (id "fs-failnext") (a11yLabel "Fail the next call"))))
+        def isOn:boolean (failNext.checkState == 1)
+        if isOn {
+            cb.a11yChecked = 2
+            cb.className = "fs-check fs-check-on"
+            cb.addChild((tree Fs (CheckMark "✓")))
+        } {
+            cb.a11yChecked = 1
+        }
+        def cbRow (tree Fs (Row))
+        cbRow.addChild(cb)
+        cbRow.addChild((tree Fs (Txt "Fail the next call")))
+        card.addChild(cbRow)
+
+        def bar (tree Fs (Bar (props (id "fs-inflight") (a11yLabel "Calls in flight"))))
+        bar.a11yHasRange = true
+        bar.a11yValueMin = 0
+        bar.a11yValueMax = (to_int inflight.maxValue)
+        bar.a11yHasValue = true
+        bar.a11yValueNow = (to_int inflight.value)
+        bar.a11yValue = (inflight.valueText())
+        def fill (tree Fs (BarFill (props (id "fs-inflight-fill"))))
+        def flightPct:int (inflight.percent())
+        UiTree.inline(fill "width" ((to_string flightPct) + "%"))
+        bar.addChild(fill)
+        card.addChild(bar)
+        return card
+    }
+
+    fn button:EVGElement (id:string label:string) {
+        def b (tree Fs (Btn (props (id id) (a11yLabel label))))
+        b.addChild((tree Fs (BtnTxt label)))
+        return b
+    }
+
+    fn main:EVGElement () {
+        def main (tree Fs (Main))
+        def strip (tree Fs (TabList (props (id "fs-tabs"))))
+        def n:int (array_length tabs.items)
+        def i:int 0
+        while (i < n) {
+            def it:UiItem (itemAt tabs.items i)
+            def on:boolean (it.value == tabs.value)
+            def tab (tree Fs (Tab (props (id ("fs-tab-" + it.value))
+                                         (className (? on "fs-tab fs-tab-on" "fs-tab"))
+                                         (a11yLabel it.name))))
+            if on {
+                tab.a11ySelected = 2
+            } {
+                tab.a11ySelected = 1
+            }
+            tab.addChild((tree Fs (TabTxt it.name)))
+            strip.addChild(tab)
+            i = (i + 1)
+        }
+        main.addChild(strip)
+        def panel (tree Fs (Panel (props (id ("fs-panel-" + tabs.value)) (a11yLabel (this.panelName())))))
+        if (tabs.value == "data") {
+            this.dataPanel(panel)
+        }
+        if (tabs.value == "query") {
+            this.queryPanel(panel)
+        }
+        if (tabs.value == "rules") {
+            this.rulesPanel(panel)
+        }
+        if (tabs.value == "users") {
+            this.usersPanel(panel)
+        }
+        if (tabs.value == "traffic") {
+            this.trafficPanel(panel)
+        }
+        main.addChild(panel)
+        return main
+    }
+
+    fn panelName:string () {
+        def n:int (array_length tabs.items)
+        def i:int 0
+        while (i < n) {
+            def it:UiItem (itemAt tabs.items i)
+            if (it.value == tabs.value) {
+                return it.name
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn noteRow:EVGElement () {
+        def box (tree Fs (Note (props (id "fs-note") (a11yLabel note))))
+        box.addChild((tree Fs (NoteTxt note)))
+        return box
+    }
+
+    ; --- Data ----------------------------------------------------------------
+    fn dataPanel:void (panel:EVGElement) {
+        panel.addChild((this.breadcrumb()))
+        def panes (tree Fs (Panes))
+        panes.addChild((this.collectionsPane()))
+        panes.addChild((this.documentsPane()))
+        panes.addChild((this.fieldsPane()))
+        panel.addChild(panes)
+        def actions (tree Fs (Row))
+        actions.addChild((this.button("fs-add" "Add a document")))
+        actions.addChild((this.button("fs-get" "GET the selected one")))
+        actions.addChild((this.button("fs-del" "Delete it")))
+        panel.addChild(actions)
+        panel.addChild((this.noteRow()))
+    }
+
+    fn breadcrumb:EVGElement () {
+        def bar (tree Fs (Crumbs (props (id "fs-crumbs"))))
+        def rootCrumb (tree Fs (Crumb (props (id "fs-crumb-root") (a11yLabel "the database root"))))
+        rootCrumb.addChild((tree Fs (CrumbTxt "(default)")))
+        bar.addChild(rootCrumb)
+        def all:[string] (this.crumbs())
+        for all seg:string i {
+            bar.addChild((tree Fs (CrumbSep "/")))
+            def crumb (tree Fs (Crumb (props (id ("fs-crumb-" + (to_string i))) (a11yLabel seg))))
+            crumb.addChild((tree Fs (CrumbTxt seg)))
+            bar.addChild(crumb)
+        }
+        return bar
+    }
+
+    fn collectionsPane:EVGElement () {
+        def pane (tree Fs (Pane))
+        def title:string "Collections"
+        if ((strlen parentDoc) > 0) {
+            title = ("Subcollections of " + (FsPath.idOf(parentDoc)))
+        }
+        pane.addChild((tree Fs (PaneTtl title)))
+        def ids:[string] (this.collectionsHere())
+        if ((array_length ids) == 0) {
+            pane.addChild((tree Fs (Empty "none here")))
+        }
+        for ids name:string i {
+            def on:boolean (name == collectionId)
+            def item (tree Fs (Item (props (id ("fs-col-" + name))
+                                           (className (? on "fs-item fs-item-on" "fs-item"))
+                                           (a11yLabel name))))
+            item.addChild((tree Fs (ItemTxt name)))
+            pane.addChild(item)
+        }
+        return pane
+    }
+
+    ; How many rows fit. EVG clips a box that is told to scroll; this pane is
+    ; not one, so the list draws what fits and says how many it did not —
+    ; which is also what keeps a 733-document collection from costing 733
+    ; elements a frame.
+    fn visibleRows:int () {
+        def room:double (pageH - 410.0)
+        def n:int (floor (room / 42.0))
+        if (n < 4) {
+            return 4
+        }
+        if (n > 40) {
+            return 40
+        }
+        return n
+    }
+
+    fn documentsPane:EVGElement () {
+        def pane (tree Fs (Pane (props (className "fs-pane fs-pane-docs"))))
+        def count:int (array_length docIds)
+        pane.addChild((tree Fs (PaneTtl ((("Documents (" + (to_string count)) + ")")))))
+        if ((strlen collectionId) == 0) {
+            pane.addChild((tree Fs (Empty "pick a collection")))
+            return pane
+        }
+        if (count == 0) {
+            pane.addChild((tree Fs (Empty "no documents this caller may see")))
+        }
+        def room:int (this.visibleRows())
+        def i:int 0
+        while (i < count) {
+            if (i < room) {
+                def id:string (itemAt docIds i)
+                def on:boolean (id == docId)
+                def item (tree Fs (Item (props (id ("fs-doc-" + id))
+                                               (className (? on "fs-item fs-item-on" "fs-item"))
+                                               (a11yLabel id))))
+                item.addChild((tree Fs (ItemTxt id)))
+                def summary:string (itemAt docSummaries i)
+                item.addChild((tree Fs (ItemSub summary)))
+                pane.addChild(item)
+            }
+            i = (i + 1)
+        }
+        if (count > room) {
+            pane.addChild((tree Fs (Empty ((("and " + (to_string (count - room))) + " more")))))
+        }
+        return pane
+    }
+
+    fn fieldsPane:EVGElement () {
+        def pane (tree Fs (Pane (props (className "fs-pane fs-pane-wide"))))
+        def path:string (this.documentPath())
+        if ((strlen path) == 0) {
+            pane.addChild((tree Fs (PaneTtl "Fields")))
+            pane.addChild((tree Fs (Empty "pick a document")))
+            return pane
+        }
+        pane.addChild((tree Fs (PaneTtl ("Fields of " + docId))))
+        def server:FsServer (sim.backend())
+        def store:FsStore (server.db())
+        if (! (store.exists(path))) {
+            pane.addChild((tree Fs (Empty "that document is not there any more")))
+            return pane
+        }
+        def doc:FsDocument (store.get(path))
+        def data:FsValue (doc.root())
+        def head (tree Fs (Field (props (className "fs-field fs-field-head"))))
+        head.addChild((tree Fs (FName "field")))
+        head.addChild((tree Fs (FType "type")))
+        head.addChild((tree Fs (FValue "value")))
+        pane.addChild(head)
+        if ((data.count()) == 0) {
+            pane.addChild((tree Fs (Empty "no fields")))
+        }
+        for data.keys k:string i {
+            def v:FsValue (data.field(k))
+            def row (tree Fs (Field (props (id ("fs-field-" + k)))))
+            row.addChild((tree Fs (FName k)))
+            row.addChild((tree Fs (FType (FiresimConsole.typeName(v)))))
+            row.addChild((tree Fs (FValue (FiresimConsole.valueText(v)))))
+            pane.addChild(row)
+        }
+        ; What hangs UNDER this document. A subcollection is not a field and
+        ; is not deleted with its parent, so it is listed apart from them.
+        def subs:[string] (store.collectionIds(path))
+        if ((array_length subs) > 0) {
+            pane.addChild((tree Fs (PaneTtl "Subcollections")))
+            for subs name:string si {
+                def item (tree Fs (Item (props (id ("fs-sub-" + name)) (a11yLabel ("subcollection " + name)))))
+                item.addChild((tree Fs (ItemTxt name)))
+                pane.addChild(item)
+            }
+        }
+        return pane
+    }
+
+    ; --- Query ---------------------------------------------------------------
+    fn queryPanel:void (panel:EVGElement) {
+        panel.addChild((tree Fs (Dim "A where and an orderBy, built by pressing and run through :runQuery as whoever you are. The answers worth seeing are the refusals — an inequality on two fields, an orderBy on a field a document lacks, a filter Firestore will not take.")))
+        def path:string (this.collectionPath())
+        def where:string "pick a collection on the Data tab"
+        if ((strlen path) > 0) {
+            where = ("from " + path)
+        }
+        panel.addChild((tree Fs (Mono where)))
+
+        def fields:[string] (this.queryFields())
+        def values:[string] (this.queryValues())
+        def ops:[string] (FiresimConsole.operators())
+        def orders:[string] (this.orderChoices())
+        def lims:[int] (FiresimConsole.limits())
+        def limitText:string "no limit"
+        def ln:int (array_length lims)
+        if (ln > 0) {
+            def lv:int (itemAt lims (qLimitIndex % ln))
+            if (lv > 0) {
+                limitText = ("limit " + (to_string lv))
+            }
+        }
+        def wheels (tree Fs (Row))
+        wheels.addChild((this.button("fs-q-field" ("where " + (this.pick(fields qFieldIndex))))))
+        wheels.addChild((this.button("fs-q-op" (this.pick(ops qOpIndex)))))
+        wheels.addChild((this.button("fs-q-value" (this.pick(values qValueIndex)))))
+        wheels.addChild((this.button("fs-q-order" ("order by " + (this.pick(orders qOrderIndex))))))
+        wheels.addChild((this.button("fs-q-limit" limitText)))
+        wheels.addChild((this.button("fs-q-run" "Run")))
+        panel.addChild(wheels)
+
+        def status (tree Fs (Note (props (id "fs-q-status") (a11yLabel ("query: " + qStatus)))))
+        status.addChild((tree Fs (NoteTxt qStatus)))
+        panel.addChild(status)
+        if ((strlen qHint) > 0) {
+            panel.addChild((tree Fs (Mono ("composite index this would need: " + qHint))))
+        }
+        def list (tree Fs (Pane (props (className "fs-pane fs-pane-wide"))))
+        list.addChild((tree Fs (PaneTtl "Matching documents")))
+        if ((array_length qResults) == 0) {
+            list.addChild((tree Fs (Empty "none")))
+        }
+        for qResults id:string i {
+            if (i < 24) {
+                def item (tree Fs (Item (props (id ("fs-qres-" + id)) (a11yLabel id))))
+                item.addChild((tree Fs (ItemTxt id)))
+                list.addChild(item)
+            }
+        }
+        panel.addChild(list)
+    }
+
+    ; --- Rules ---------------------------------------------------------------
+    fn rulesPanel:void (panel:EVGElement) {
+        def path:string (this.documentPath())
+        if ((strlen path) == 0) {
+            path = (this.collectionPath())
+        }
+        if ((strlen path) == 0) {
+            path = "(nothing selected)"
+        }
+        panel.addChild((tree Fs (Dim "Every cell is FsRulesEval run against the rules file below, for that identity, on the path selected in the data browser, at this moment.")))
+        panel.addChild((tree Fs (Mono ("path: " + path))))
+        def grid (tree Fs (Grid (props (id "fs-grid"))))
+        def head (tree Fs (GRow))
+        head.addChild((tree Fs (GHead "")))
+        def ms:[string] (FiresimConsole.methods())
+        for ms m:string mi {
+            head.addChild((tree Fs (GHead m)))
+        }
+        grid.addChild(head)
+        def usable:boolean (FsPath.isDocument(path))
+        for identities w:FsWho i {
+            def row (tree Fs (GRow (props (id ("fs-grid-" + w.label)))))
+            row.addChild((tree Fs (GName w.label)))
+            for ms m:string mi {
+                def word:string "—"
+                def cls:string "fs-gcell"
+                if usable {
+                    def yes:boolean (this.allowed(w m path))
+                    word = "denied"
+                    cls = "fs-gcell fs-gcell-no"
+                    if yes {
+                        word = "allowed"
+                        cls = "fs-gcell fs-gcell-yes"
+                    }
+                }
+                def cell (tree Fs (GCell (props (className cls)
+                                                (id (("fs-cell-" + w.label) + "-" + m))
+                                                (a11yLabel ((((w.label + " ") + m) + " " + path + ": ") + word)))
+                                         word))
+                row.addChild(cell)
+            }
+            grid.addChild(row)
+        }
+        panel.addChild(grid)
+        if (! usable) {
+            panel.addChild((tree Fs (Dim "Pick a DOCUMENT in the data browser — a rule is evaluated against one, and a collection path has no resource to read.")))
+        }
+        def code (tree Fs (Code (props (id "fs-rules"))))
+        for rulesLines line:string i {
+            if (i < 44) {
+                code.addChild((tree Fs (CodeLn line)))
+            }
+        }
+        panel.addChild(code)
+    }
+
+    ; --- Users ---------------------------------------------------------------
+    fn usersPanel:void (panel:EVGElement) {
+        panel.addChild((tree Fs (Dim "The accounts table. A token here is the same shape the Firebase Auth emulator mints — alg none, empty signature — so a client that decodes its own token for a uid or a claim works unchanged.")))
+        def server:FsServer (sim.backend())
+        def accounts:FsAuthService (server.accounts())
+        def grid (tree Fs (Grid (props (id "fs-users") (a11yLabel "Accounts"))))
+        def head (tree Fs (GRow))
+        head.addChild((tree Fs (GHead "uid")))
+        head.addChild((tree Fs (GHead "email")))
+        head.addChild((tree Fs (GHead "provider")))
+        head.addChild((tree Fs (GHead "custom claims")))
+        grid.addChild(head)
+        for accounts.users u:FsUser i {
+            def row (tree Fs (GRow (props (id ("fs-user-" + u.localId)))))
+            row.addChild((tree Fs (GName u.localId)))
+            def email:string u.email
+            if ((strlen email) == 0) {
+                email = "(anonymous)"
+            }
+            row.addChild((tree Fs (GCell email)))
+            row.addChild((tree Fs (GCell u.providerId)))
+            def claims:FsValue (u.claims())
+            def claimText:string "—"
+            if ((claims.count()) > 0) {
+                def writer:VlJsonWriter (new VlJsonWriter)
+                claimText = (writer.write((claims.toPlain())))
+            }
+            row.addChild((tree Fs (GCell claimText)))
+            grid.addChild(row)
+        }
+        panel.addChild(grid)
+        def actions (tree Fs (Row))
+        actions.addChild((this.button("fs-user-add" "Create an account")))
+        actions.addChild((this.button("fs-user-anon" "Sign in anonymously")))
+        panel.addChild(actions)
+        panel.addChild((this.noteRow()))
+    }
+
+    ; --- Traffic -------------------------------------------------------------
+    fn trafficPanel:void (panel:EVGElement) {
+        panel.addChild((tree Fs (Dim "Every request the simulator has answered, newest first. Runs of the listener's polls are collapsed with a count — otherwise they would be the whole log, which is itself worth knowing.")))
+        def actions (tree Fs (Row))
+        actions.addChild((this.button("fs-send-get" "GET a document")))
+        actions.addChild((this.button("fs-send-query" "Run the query")))
+        actions.addChild((this.button("fs-send-stream" "Open a stream")))
+        panel.addChild(actions)
+        if ((strlen streamText) > 0) {
+            panel.addChild((tree Fs (Mono ("stream frames: " + streamText))))
+        }
+        def server:FsServer (sim.backend())
+        def n:int (array_length server.logPaths)
+        def shown:int 0
+        def i:int (n - 1)
+        while (i >= 0) {
+            if (shown < 16) {
+                def method:string (itemAt server.logMethods i)
+                def raw:string (itemAt server.logPaths i)
+                def where:string (FiresimConsole.shorten(raw))
+                def code:string (to_string (itemAt server.logStatuses i))
+                def repeats:int 1
+                if (raw == "/firesim/v1/poll") {
+                    def j:int (i - 1)
+                    while (j >= 0) {
+                        if ((itemAt server.logPaths j) != "/firesim/v1/poll") {
+                            break
+                        }
+                        repeats = (repeats + 1)
+                        j = (j - 1)
+                    }
+                    i = (j + 1)
+                    if (repeats > 1) {
+                        where = ((where + "  ×") + (to_string repeats))
+                    }
+                }
+                def row (tree Fs (LogRow))
+                row.addChild((tree Fs (LogCell method)))
+                row.addChild((tree Fs (LogCell where)))
+                row.addChild((tree Fs (LogCell code)))
+                panel.addChild(row)
+                shown = (shown + 1)
+            }
+            i = (i - 1)
+        }
+        if (shown == 0) {
+            panel.addChild((tree Fs (Empty "nothing yet")))
+        }
+    }
+
+    ; The document path out of a REST URL: the project and database segments
+    ; are the same on every line and say nothing.
+    sfn shorten:string (path:string) {
+        def marker:string "/documents"
+        def n:int (strlen path)
+        def m:int (strlen marker)
+        def i:int 0
+        while (i <= (n - m)) {
+            if ((substring path i (i + m)) == marker) {
+                return ("…" + (substring path (i + m) n))
+            }
+            i = (i + 1)
+        }
+        return path
+    }
+
+    ; =========================================================================
+    ; Input
+    ; =========================================================================
+    fn press:boolean (target:string) {
+        if (target == "") {
+            return false
+        }
+        focused = target
+        for identities w:FsWho i {
+            if (target == ("fs-who-" + w.label)) {
+                who.selectValue(w.label)
+                this.applyIdentity()
+                this.startWatch()
+                this.rebuild()
+                return true
+            }
+        }
+        def dn:int (array_length dataset.items)
+        def di:int 0
+        while (di < dn) {
+            def it:UiItem (itemAt dataset.items di)
+            if (target == ("fs-ds-" + it.value)) {
+                dataset.selectValue(it.value)
+                if (it.value == "Sample") {
+                    this.useRules(sampleRules)
+                    this.seedSample()
+                    this.openRoot()
+                } {
+                    ; The host has to fetch it: a 400 kB fixture does not
+                    ; belong in the page's first byte.
+                    pendingDataset = it.value
+                    note = ("loading the " + it.value + " dataset…")
+                }
+                this.rebuild()
+                return true
+            }
+            di = (di + 1)
+        }
+        def tn:int (array_length tabs.items)
+        def ti:int 0
+        while (ti < tn) {
+            def it2:UiItem (itemAt tabs.items ti)
+            if (target == ("fs-tab-" + it2.value)) {
+                tabs.value = it2.value
+                tabs.rovingValue = it2.value
+                this.rebuild()
+                return true
+            }
+            ti = (ti + 1)
+        }
+        if (target == "fs-crumb-root") {
+            this.openRoot()
+            this.rebuild()
+            return true
+        }
+        def all:[string] (this.crumbs())
+        def ci:int 0
+        while (ci < (array_length all)) {
+            if (target == ("fs-crumb-" + (to_string ci))) {
+                this.openCrumb(ci)
+                this.rebuild()
+                return true
+            }
+            ci = (ci + 1)
+        }
+        def cols:[string] (this.collectionsHere())
+        for cols name:string i {
+            if (target == ("fs-col-" + name)) {
+                this.openCollection(name)
+                this.rebuild()
+                return true
+            }
+        }
+        def docPath:string (this.documentPath())
+        if ((strlen docPath) > 0) {
+            def server:FsServer (sim.backend())
+            def store:FsStore (server.db())
+            def subs:[string] (store.collectionIds(docPath))
+            for subs name:string i {
+                if (target == ("fs-sub-" + name)) {
+                    this.openSubcollection(name)
+                    this.rebuild()
+                    return true
+                }
+            }
+        }
+        for docIds id:string i {
+            if (target == ("fs-doc-" + id)) {
+                docId = id
+                this.rebuild()
+                return true
+            }
+        }
+        if (target == "fs-offline") {
+            offline.on = (! offline.on)
+            def wait:FsLatency (sim.wait())
+            wait.offline = offline.on
+            this.rebuild()
+            return true
+        }
+        if (target == "fs-failnext") {
+            def on:boolean (failNext.checkState == 1)
+            if on {
+                failNext.checkState = 0
+            } {
+                failNext.checkState = 1
+            }
+            def wait2:FsLatency (sim.wait())
+            wait2.failNext = (failNext.checkState == 1)
+            this.rebuild()
+            return true
+        }
+        if (target == "fs-add") {
+            this.addDocument()
+            this.rebuild()
+            return true
+        }
+        if (target == "fs-get") {
+            this.getSelected()
+            this.rebuild()
+            return true
+        }
+        if (target == "fs-del") {
+            this.deleteSelected()
+            this.rebuild()
+            return true
+        }
+        if (target == "fs-q-field") {
+            qFieldIndex = (qFieldIndex + 1)
+            qValueIndex = 0
+            this.rebuild()
+            return true
+        }
+        if (target == "fs-q-op") {
+            qOpIndex = (qOpIndex + 1)
+            this.rebuild()
+            return true
+        }
+        if (target == "fs-q-value") {
+            qValueIndex = (qValueIndex + 1)
+            this.rebuild()
+            return true
+        }
+        if (target == "fs-q-order") {
+            qOrderIndex = (qOrderIndex + 1)
+            this.rebuild()
+            return true
+        }
+        if (target == "fs-q-limit") {
+            qLimitIndex = (qLimitIndex + 1)
+            this.rebuild()
+            return true
+        }
+        if (target == "fs-q-run") {
+            this.runQuery()
+            this.rebuild()
+            return true
+        }
+        if (target == "fs-send-query") {
+            this.runQuery()
+            this.rebuild()
+            return true
+        }
+        if (target == "fs-send-get") {
+            this.getSelected()
+            this.rebuild()
+            return true
+        }
+        if (target == "fs-send-stream") {
+            this.startStream()
+            this.rebuild()
+            return true
+        }
+        if (target == "fs-user-add") {
+            def server2:FsServer (sim.backend())
+            def accounts:FsAuthService (server2.accounts())
+            def n:int ((array_length accounts.users) + 1)
+            def email:string (("user" + (to_string n)) + "@example.com")
+            def res:FsAuthResult (accounts.signUp(email "password1" "" sim.nowMs))
+            if (res.ok) {
+                note = ("created " + res.localId + " (" + email + ")")
+            } {
+                note = res.error
+            }
+            this.rebuild()
+            return true
+        }
+        if (target == "fs-user-anon") {
+            def server3:FsServer (sim.backend())
+            def accounts2:FsAuthService (server3.accounts())
+            def res2:FsAuthResult (accounts2.signUp("" "" "" sim.nowMs))
+            note = ("anonymous session " + res2.localId)
+            this.rebuild()
+            return true
+        }
+        return false
+    }
+
+    ; What the host is being asked to fetch, or "".
+    fn wantedDataset:string () {
+        return pendingDataset
+    }
+
+    fn clearWanted:void () {
+        pendingDataset = ""
+    }
+
+    fn slideTo:boolean (frac:double) {
+        latency.dragTo(frac)
+        def wait:FsLatency (sim.wait())
+        wait.baseMs = (to_double latency.value)
+        this.rebuild()
+        return true
+    }
+
+    fn key:boolean (k:string) {
+        def moved:string (tabs.keyDown(focused k))
+        if ((strlen moved) > 0) {
+            tabs.value = tabs.rovingValue
+            focused = moved
+            this.rebuild()
+            return true
+        }
+        if (focused == "fs-latency") {
+            def out:string (latency.keyDown(focused k))
+            if ((strlen out) > 0) {
+                def wait:FsLatency (sim.wait())
+                wait.baseMs = (to_double latency.value)
+                this.rebuild()
+                return true
+            }
+        }
+        return false
+    }
+
+    fn setHover:void (id:string) {
+        hovered = id
+    }
+
+    fn setPressed:void (id:string) {
+        pressed = id
+    }
+
+    fn setFocus:void (id:string) {
+        focused = id
+    }
+
+    fn setPageSize:void (w:double h:double) {
+        pageW = w
+        pageH = h
+        layout = (new EVGLayout())
+        def lay:EVGLayout (unwrap layout)
+        lay.setPageSize(pageW pageH)
+        this.rebuild()
+    }
+
+    ; =========================================================================
+    ; Drawing
+    ; =========================================================================
+    fn rebuild:void () {
+        root = (this.page())
+    }
+
+    fn markStates:void (el:EVGElement) {
+        el.isHovered = false
+        el.isPressed = false
+        el.isFocused = false
+        if ((strlen el.id) > 0) {
+            if (el.id == hovered) {
+                el.isHovered = true
+            }
+            if (el.id == pressed) {
+                el.isPressed = true
+            }
+            if (el.id == focused) {
+                el.isFocused = true
+            }
+        }
+        def i:int 0
+        while (i < (el.getChildCount())) {
+            this.markStates((el.getChild(i)))
+            i = (i + 1)
+        }
+    }
+
+    fn laidOut:EVGLayout () {
+        def r:EVGElement (unwrap root)
+        def s:EVGStyleSheet (unwrap sheet)
+        s.setViewport(pageW pageH false)
+        this.markStates(r)
+        s.applyTree(r "")
+        def t:EVGTransition transitions
+        t.reconcileTree(r)
+        if layout {
+            def lay:EVGLayout (unwrap layout)
+            if ((s.layoutClean()) == false) {
+                lay.layout(r)
+            }
+            return lay
+        }
+        def fresh (new EVGLayout())
+        fresh.setPageSize(pageW pageH)
+        layout = fresh
+        fresh.layout(r)
+        return fresh
+    }
+
+    fn displayListJson:string () {
+        def lay:EVGLayout (this.laidOut())
+        def r:EVGElement (unwrap root)
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(r)
+        return (dl.toJson())
+    }
+
+    fn hitId:string (px:double py:double) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def hit (new EVGHitTest())
+        return (hit.idAt(r px py))
+    }
+
+    fn a11yJson:string (generation:int focusId:string) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "firesim workbench" generation focusId))
+        return (t.toJson())
+    }
+
+    fn a11yProblems:[string] () {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "firesim workbench" 1 ""))
+        return (t.lint())
+    }
+
+    fn styleErrorCount:int () {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (s.getErrorCount())
+    }
+
+    fn styleErrorAt:string (i:int) {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (s.getError(i))
+    }
+
+    ; --- what a check reads --------------------------------------------------
+    fn docCount:int () {
+        return (array_length docIds)
+    }
+
+    fn docIdAt:string (i:int) {
+        return (itemAt docIds i)
+    }
+
+    fn selectedPath:string () {
+        return (this.documentPath())
+    }
+
+    fn collectionPathNow:string () {
+        return (this.collectionPath())
+    }
+
+    fn noteText:string () {
+        return note
+    }
+
+    fn queryStatus:string () {
+        return qStatus
+    }
+
+    fn queryResultCount:int () {
+        return (array_length qResults)
+    }
+
+    fn whoLabel:string () {
+        return who.value
+    }
+
+    fn tabValue:string () {
+        return tabs.value
+    }
+
+    fn datasetName:string () {
+        return datasetLoaded
+    }
+
+    fn latencyMs:int () {
+        return latency.value
+    }
+
+    fn storeCount:int () {
+        def server:FsServer (sim.backend())
+        def store:FsStore (server.db())
+        return (store.count())
+    }
+}

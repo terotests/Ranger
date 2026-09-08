@@ -1,0 +1,66 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// Rules for the RealTrainer schema, as gallery/realtrainer's reference seed
+// writes it: flat `users`, `calendars`, `entries` and `yearsheets`
+// collections, every document carrying the `userId` of whoever owns it.
+//
+// This is a rules file in the real language. Nothing here is written for the
+// simulator: it is what such a project deploys, and the point is that the
+// same text runs in both places.
+
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function owns(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    // The document as it will be after the write, for a create or an update.
+    function incoming() {
+      return request.resource.data;
+    }
+
+    // A user reads and writes their own profile, and nobody else's.
+    match /users/{userId} {
+      allow read, write: if owns(userId);
+    }
+
+    // A calendar belongs to one account. A shared one is readable by anyone
+    // signed in; a private one is not.
+    match /calendars/{calendarId} {
+      allow read:   if owns(resource.data.userId) || resource.data.visibility == 'shared';
+      allow create: if owns(incoming().userId);
+      allow update: if owns(resource.data.userId) && owns(incoming().userId);
+      allow delete: if owns(resource.data.userId);
+    }
+
+    // An entry is a workout. It carries its own owner, so a diary query can
+    // be narrowed to the caller without reading the calendar first.
+    match /entries/{entryId} {
+      allow read:   if owns(resource.data.userId);
+      allow create: if owns(incoming().userId);
+      allow update: if owns(resource.data.userId) && owns(incoming().userId);
+      allow delete: if owns(resource.data.userId);
+    }
+
+    // The year plan behind the dashboard's goals.
+    match /yearsheets/{sheetId} {
+      allow read:   if owns(resource.data.userId);
+      allow create: if owns(incoming().userId);
+      allow update: if owns(resource.data.userId);
+      allow delete: if owns(resource.data.userId);
+    }
+
+    // Everything else is closed. A collection nobody wrote a rule for is a
+    // collection nobody may read, which is the default worth having.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
