@@ -77,6 +77,11 @@ SUITES=(
   evg:stylecache:test
   evg:invalidate:test
   evg:adopt:check
+  # A scroll moves the painter's kept frame with a uniform rather than
+  # rebuilding it, so a draw that forgets the uniform paints where the frame
+  # was BUILT. Needs a GPU to see and there is no oracle for it; this reads
+  # the painter as text.
+  evg:shift:check
   evg:scroll:check
   evg:tags:check
   evg:textbox:check
