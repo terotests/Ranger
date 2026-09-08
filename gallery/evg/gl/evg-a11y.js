@@ -105,7 +105,17 @@ export function styleBase(el) {
   s.background = "transparent";
   s.color = "transparent";
   s.font = "inherit";
-  s.fontSize = "10px";
+  // SIXTEEN PIXELS, AND IT IS NOT A DESIGN CHOICE. Nothing here paints, so
+  // the size is invisible — but iOS Safari zooms the whole page in when a
+  // text field it is focusing computes to less than 16px, and the mirror's
+  // `<input>` is what a tap on a drawn field focuses. The page then sat at
+  // some magnification the person had to pinch their way out of, over a
+  // canvas that used to refuse the pinch as well.
+  //
+  // It costs nothing: the node is clipped by `overflow: hidden` below and its
+  // text is transparent either way. Anyone tidying this back to 10px would
+  // bring the zoom back with it, which is why `evg:a11y:paint` holds it.
+  s.fontSize = "16px";
   s.lineHeight = "1";
   s.overflow = "hidden";
   s.whiteSpace = "pre";

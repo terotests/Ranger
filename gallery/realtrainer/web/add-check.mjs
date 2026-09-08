@@ -18,6 +18,11 @@
 // are what a state machine is for — a keystroke while the request is in flight
 // must do nothing at all.
 //
+// AND THE ANSWER IS NOT AN INSERT. What comes back is a proposal — a score, a
+// sentence from the coach, and the entries it recognised — and each of those
+// is added or skipped by hand. So nothing is written by the request, and the
+// walk below only reaches the feed by pressing Add.
+//
 // Exit code 0 when every check passes.
 
 import fs from "node:fs";
@@ -73,6 +78,15 @@ const settle = (app, ms) => {
   app.display();
 };
 const type = (app, s) => app.applyEdit("rt-home-field", s, s.length, s.length);
+// The whole of it: type, send, wait, and say yes to what came back.
+const addNow = (app, text) => {
+  app.press("rt-home-field");
+  type(app, text);
+  app.press("rt-home-send");
+  settle(app, 1200);
+  app.press("rt-review-add-0");
+  app.display();
+};
 
 const TEXT = "Exercise Maastaveto|3x5@100kg";
 // Not a name the fixture already has: the check counts occurrences.
@@ -93,16 +107,26 @@ console.log("--- the press, the text, the send ---");
   ok("the placeholder is gone", shows(app, "Kirjoita merkintä") === false);
 
   ok("the send starts a save", app.press("rt-home-send"));
-  ok("and says so", shows(app, "Tallennetaan"));
+  // THE WAIT IS A SCREEN, not a caption: the request reads the text and
+  // comes back with something to look at, and a grey line under the composer
+  // is not enough warning for that.
+  ok("and says what it is doing", shows(app, "Tarkistetaan tietoja"));
+  ok("over everything else", shows(app, "Luetaan merkintä"));
   // THE IGNORE. The machine refuses SET_INPUT_TEXT while saving, so a
   // keystroke that arrives mid-flight must not change what is being saved.
   type(app, TEXT + " ja vielä");
   ok("a keystroke while saving changes nothing", shows(app, "ja vielä") === false);
 
   settle(app, 1200);
-  ok("the card lands in the feed", shows(app, "Maastaveto"));
-  ok("the waiting line is gone", shows(app, "Tallennetaan") === false);
+  ok("the waiting screen is gone", shows(app, "Tarkistetaan tietoja") === false);
+  // NOTHING IS IN THE FEED YET. What is on the screen is the proposal.
+  ok("the review is what came back", shows(app, "Tarkista merkinnät"));
   ok("and the composer is empty again", shows(app, "Kirjoita merkintä"));
+
+  ok("saying yes lands the card", app.press("rt-review-add-0"));
+  app.display();
+  ok("the card is in the feed", shows(app, "Maastaveto"));
+  ok("and the review is gone", shows(app, "Recognized entries") === false);
 }
 
 console.log("");
@@ -112,9 +136,12 @@ console.log("--- Enter sends it too ---");
   app.press("rt-home-field");
   type(app, TEXT);
   ok("Enter is taken", app.keyWith("Enter", false, false));
-  ok("and starts the save", shows(app, "Tallennetaan"));
+  ok("and starts the save", shows(app, "Tarkistetaan tietoja"));
   settle(app, 1200);
-  ok("the card lands", shows(app, "Maastaveto"));
+  ok("the review comes back", shows(app, "Tarkista merkinnät"));
+  ok("and Add lands the card", app.press("rt-review-add-0"));
+  app.display();
+  ok("the card is in the feed", shows(app, "Maastaveto"));
 }
 
 console.log("");
@@ -135,7 +162,10 @@ console.log("--- the save that fails, and the retry ---");
 
   ok("sending again is taken", app.press("rt-home-send"));
   settle(app, 1200);
-  ok("the retry lands the card", drawn(app).some((t) => t.includes("Kahvakuula")));
+  ok("the retry comes back with a review", shows(app, "Tarkista merkinnät"));
+  app.press("rt-review-add-0");
+  app.display();
+  ok("and Add lands the card", drawn(app).some((t) => t.includes("Kahvakuula")));
   ok("and the error is gone", shows(app, "epäonnistui") === false);
   ok("and the composer is empty", shows(app, "Kirjoita merkintä"));
 }
@@ -171,7 +201,135 @@ console.log("--- the wait is drawn, not only written ---");
 
   settle(app, 1200);
   ok("and it is gone once the answer is in", blades().length === 0, blades().length + " blades");
-  ok("the chevron is back", shows(app, "Maastaveto"));
+  ok("the chevron is back", shows(app, "Tarkista merkinnät"));
+}
+
+console.log("");
+console.log("--- what the save answers with ---");
+{
+  // The screen the request comes back to, laid out top to bottom: a banner
+  // with the score and the coach's sentence, the count of what was
+  // recognised, and one card per entry — two chips, the title over its date,
+  // Add and Skip, and then the rows as they were READ.
+  const app = open();
+  app.press("rt-home-field");
+  type(app, "Juoksu 10km");
+  app.press("rt-home-send");
+  settle(app, 1200);
+  // The overlay is drawn last, so everything from the sheet's own title
+  // onward belongs to it. The feed is still under there and would otherwise
+  // answer for the buttons this card must not have.
+  const all = drawn(app);
+  const t = all.slice(all.lastIndexOf("Tarkista merkinnät"));
+  const has = (x) => t.some((s) => s.includes(x));
+
+  ok("it is a sheet with a title", has("Tarkista merkinnät"));
+  ok("the banner scores it", has("points") && t.some((s) => /^\d+$/.test(s)),
+     t.slice(-14).join(" | "));
+  ok("and the coach says something about it", has("on kirjattu"));
+  // DECISIONS, not adds: a skipped entry is as done with as an added one,
+  // and the counter counts both.
+  ok("the count is of what was recognised", has("Recognized entries (0/1)"),
+     t.filter((s) => s.includes("Recognized")).join(" | "));
+  // The two chips over the card: which calendar it would go in, and what
+  // would be done to it.
+  ok("the chips say where and what", has("training") && has("ADD"));
+  ok("the title is what was read out of the text", has("Juoksulenkki"));
+  ok("with a date written the way the app writes them", has("03.09.2026"));
+  ok("and the two answers are offered", has("Add") && has("Skip"));
+  // THE ROWS, which is the point: what is being agreed to is what the parser
+  // made of the line, not a sentence about it.
+  ok("the body is what was parsed", has("Juoksu") && has("10km"));
+
+  // A PROPOSAL IS NOT AN ENTRY. Nothing has been written, so nothing that is
+  // done to a written entry belongs on this card.
+  ok("nothing to delete yet", has("Poista") === false, t.join(" | ").slice(0, 120));
+  ok("nothing to export yet", has("Compact") === false && has("JSON") === false);
+  ok("and nothing to comment on yet", has("Lisää kommentti") === false);
+}
+
+console.log("");
+console.log("--- Add writes it, Skip does not ---");
+{
+  const app = open();
+  const cards = (a) => drawn(a).filter((x) => x.includes("Juoksulenkki")).length;
+
+  app.press("rt-home-field");
+  type(app, "Juoksu 10km");
+  app.press("rt-home-send");
+  settle(app, 1200);
+  ok("Skip is taken", app.press("rt-review-skip-0"));
+  app.display();
+  ok("and closes the review", shows(app, "Recognized entries") === false);
+  // The whole of it: a skipped proposal leaves the store exactly as it was.
+  ok("and writes nothing", drawn(app).some((x) => x.includes("10km")) === false,
+     drawn(app).filter((x) => x.includes("km")).join(" | "));
+
+  // The same line again, and this time yes.
+  app.press("rt-home-field");
+  type(app, "Juoksu 10km");
+  app.press("rt-home-send");
+  settle(app, 1200);
+  ok("Add is taken", app.press("rt-review-add-0"));
+  app.display();
+  ok("and the entry is in the feed", drawn(app).some((x) => x.includes("10km")));
+  ok("the review closed on the last decision", shows(app, "Recognized entries") === false);
+  ok("pressing Add again does nothing", app.press("rt-review-add-0") === false);
+}
+
+console.log("");
+console.log("--- closing it skips the rest ---");
+{
+  // Nothing was written, and a proposal left in a drawer nobody can open
+  // again would be a worse answer than dropping it.
+  const app = open();
+  app.press("rt-home-field");
+  type(app, "Juoksu 10km");
+  app.press("rt-home-send");
+  settle(app, 1200);
+  ok("the close is taken", app.press("rt-review-close"));
+  app.display();
+  ok("the review is gone", shows(app, "Recognized entries") === false);
+  ok("and nothing was added", drawn(app).some((x) => x.includes("10km")) === false);
+  // And the screen under it takes presses again: a modal that closed but
+  // kept the block would be a screen nobody can use.
+  ok("Home answers again", app.press("rt-home-field") && app.focusedField() === "rt-home-field");
+}
+
+console.log("");
+console.log("--- the review is a modal, and nothing under it takes a press ---");
+{
+  const app = open();
+  app.press("rt-home-field");
+  type(app, "Juoksu 10km");
+  app.press("rt-home-send");
+  settle(app, 1200);
+  ok("the field under it does not take the focus", app.press("rt-home-field") === false);
+  ok("nor does the tab bar", app.press("rt-nav-cal") === false);
+  ok("nor a card under it", app.press("rt-entry-notes-0") === false);
+  ok("but the review still does", app.press("rt-review-add-0"));
+}
+
+console.log("");
+console.log("--- the wait turns, and it is the app's clock that turns it ---");
+{
+  // The waiting screen's ring is the loader's at a third of the size: twelve
+  // blades, turned by a transform written onto the element once a frame.
+  const app = open();
+  const wblades = () =>
+    JSON.parse(app.displayListJson()).cmds.filter((c) => c.k === 0 && c.w === 5 && c.h === 14);
+  ok("nothing is waiting before the send", wblades().length === 0);
+  app.press("rt-home-field");
+  type(app, "Juoksu 10km");
+  app.press("rt-home-send");
+  app.tick(16.7);
+  app.display();
+  ok("the wait screen holds a ring", wblades().length === 12, wblades().length + " blades");
+  const a0 = Math.round(wblades()[0].rot || 0);
+  for (let i = 0; i < 10; i += 1) { app.tick(16.7); app.display(); }
+  ok("and it turns", Math.round(wblades()[0].rot || 0) !== a0);
+  settle(app, 1200);
+  ok("and it is gone once the answer is in", wblades().length === 0);
 }
 
 console.log("");
@@ -206,6 +364,9 @@ console.log("--- a plan calendar answers with what is coming ---");
   type(app, "Exercise Aitajuoksu|6x60m");
   ok("the send starts", app.press("rt-home-send"));
   settle(app, 1200);
+  ok("the review still says nothing is coming", shows(app, "Ei tulevia tapahtumia"));
+  ok("Add is taken", app.press("rt-review-add-0"));
+  app.display();
   ok("the entry is on Home", shows(app, "Aitajuoksu"));
   ok("and the sentence is gone", shows(app, "Ei tulevia tapahtumia") === false);
   ok("and the composer is empty", shows(app, "Kirjoita merkintä"));
@@ -216,4 +377,4 @@ if (failed > 0) {
   console.log(`  ${failed} check(s) failed`);
   process.exit(1);
 }
-console.log("  the quick entry adds a workout, waits, fails and retries");
+console.log("  the quick entry reads a workout, proposes it, and adds what is agreed to");

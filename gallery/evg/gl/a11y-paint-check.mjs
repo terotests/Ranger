@@ -39,6 +39,13 @@ const MUST_BE = {
   overflow: "hidden",
   pointerEvents: "none",
   userSelect: "none",
+  // NOT A PAINTING RULE, and here anyway because it lives in the same style
+  // block and is the same kind of invisible-until-a-phone mistake: iOS Safari
+  // zooms the whole page in when it focuses a text field computing to under
+  // 16px, and the mirror's `<input>` is what a tap on a drawn field focuses.
+  // It was 10px, which is small enough to trigger it and invisible enough
+  // that nothing on a desktop ever said so.
+  fontSize: "16px",
 };
 
 const el = { style: {} };
@@ -56,7 +63,7 @@ for (const [prop, want] of Object.entries(MUST_BE)) {
 
 console.log("");
 if (failed > 0) {
-  console.log(`  ${failed} way(s) the mirror could still paint over the canvas`);
+  console.log(`  ${failed} way(s) the mirror could still paint, or zoom a phone`);
   process.exit(1);
 }
-console.log(`  ${Object.keys(MUST_BE).length} ways it cannot paint`);
+console.log(`  ${Object.keys(MUST_BE).length} ways it cannot paint, or make a phone zoom`);

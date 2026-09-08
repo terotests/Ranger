@@ -94,6 +94,11 @@ const STILL_SCROLLING_MS = 200;
 stage.addEventListener(
   "wheel",
   (e) => {
+    // A PINCH IS NOT A SCROLL. A trackpad pinch and an iPad's arrive as a
+    // wheel event with `ctrlKey` set, and taking it here — scrolling the
+    // document and calling `preventDefault` — is what stops a page from being
+    // zoomed back out. It belongs to the browser.
+    if (e.ctrlKey) return;
     app.scrollHalt();
     if (app.scrollDocument(e.deltaY)) {
       dirty = true;
@@ -406,7 +411,19 @@ function syncTextSession() {
 // how far. The physics is `EVGFling`, in the app, so this page and the iOS
 // one throw a document the same distance.
 let drag = null;
+// How many fingers are on the glass. A pinch is two, and the moment the
+// second arrives the drag is over: the app must not scroll the page out from
+// under a gesture the browser is using to zoom it.
+const down = new Set();
 canvas.addEventListener("pointerdown", (ev) => {
+  down.add(ev.pointerId);
+  if (down.size > 1) {
+    drag = null;
+    app.scrollHalt();
+    app.setPressed("");
+    paint();
+    return;
+  }
   const [x, y] = at(ev);
   inputAt = performance.now();
   // The scrollbar's thumb takes the press: the moves that follow drag the
@@ -426,6 +443,7 @@ canvas.addEventListener("pointerdown", (ev) => {
   paint();
 });
 canvas.addEventListener("pointerup", (ev) => {
+  down.delete(ev.pointerId);
   const [x, y] = at(ev);
   if (drag?.bar) {
     drag = null;
@@ -445,7 +463,8 @@ canvas.addEventListener("pointerup", (ev) => {
   }
   press(x, y);
 });
-canvas.addEventListener("pointercancel", () => {
+canvas.addEventListener("pointercancel", (ev) => {
+  down.delete(ev && ev.pointerId);
   if (drag?.bar) app.scrollbarRelease();
   drag = null;
   app.scrollHalt();
@@ -453,6 +472,7 @@ canvas.addEventListener("pointercancel", () => {
   paint();
 });
 canvas.addEventListener("pointermove", (ev) => {
+  if (down.size > 1) return;
   const [x, y] = at(ev);
   if (drag && drag.bar) {
     if (app.scrollbarDrag(y)) {
