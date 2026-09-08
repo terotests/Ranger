@@ -86,9 +86,14 @@ treefactory Fs {
     tag RadioDot  EVGElement (props (className "fs-radiodot"))
     tag RadioTxt  EVGElement (props (className "fs-radiotxt") (elementType 1) (a11yHidden true))
 
-    tag Track     EVGElement (props (className "fs-track"))
+    ; The slider's role and its id are on the TRACK, not on the thumb. The
+    ; thumb moves with the value, so a drag measured against the thumb's own
+    ; rectangle measures against something that has already moved — which is
+    ; a slider that snaps to an end on every press. The track is the box that
+    ; stays put, so it is the one that carries both.
+    tag Track     EVGElement (props (className "fs-track") (role "slider"))
     tag Range     EVGElement (props (className "fs-range"))
-    tag Thumb     EVGElement (props (className "fs-thumb") (role "slider"))
+    tag Thumb     EVGElement (props (className "fs-thumb"))
 
     tag Switch    EVGElement (props (className "fs-switch") (role "switch"))
     tag SwitchKnb EVGElement (props (className "fs-switchknb"))
@@ -196,6 +201,9 @@ class FiresimConsole {
     def docIds:[string]
     def docSummaries:[string]
     def watchId@(mutable):int 0
+    ; Whether the last listener was lost rather than replaced, so that coming
+    ; back says so on the screen instead of leaving the failure showing.
+    def watchLost@(mutable):boolean false
     def pollDueMs@(mutable):double 0.0
     def pollEveryMs@(mutable):double 300.0
 
@@ -302,7 +310,11 @@ class FiresimConsole {
         for identities w:FsWho i {
             who.addItem(w.label w.label false)
         }
-        def first:FsWho (itemAt identities 0)
+        ; The admin, not the first account. A data browser opens showing what
+        ; is IN the database; a default caller who owns one document of nine
+        ; makes the tool look empty, and switching down to `ada` is then the
+        ; interesting thing to do rather than the state you land in.
+        def first:FsWho (this.adminWho())
         who.value = first.label
         who.rovingValue = first.label
         who.build()
@@ -485,7 +497,13 @@ class FiresimConsole {
         def server:FsServer (sim.backend())
         def store:FsStore (server.db())
         store.wipe()
-        def owner:FsWho (itemAt identities 0)
+        ; Seeded as WHOEVER IS LOOKING. Seeding it to somebody else means
+        ; picking a dataset empties the browser, which is a tool that looks
+        ; broken for being right.
+        def owner:FsWho (this.currentWho())
+        if ((strlen owner.uid) == 0) {
+            owner = (itemAt identities 0)
+        }
         def written:int (sim.seedJson(json owner.uid))
         if ((strlen rules) > 0) {
             this.useRules(rules)
@@ -536,13 +554,34 @@ class FiresimConsole {
     fn openRoot:void () {
         parentDoc = ""
         docId = ""
-        def ids:[string] (this.collectionsHere())
-        collectionId = ""
-        if ((array_length ids) > 0) {
-            collectionId = (itemAt ids 0)
-        }
+        collectionId = (this.biggestCollection())
         this.resetQuery()
         this.startWatch()
+    }
+
+    ; Which collection to land on. Alphabetically first is an accident of
+    ; naming — `orders` before `products` — and lands a browser on whichever
+    ; collection happens to sort first, which may be the one with least in it.
+    ; The one with the most documents is the one worth opening.
+    fn biggestCollection:string () {
+        def ids:[string] (this.collectionsHere())
+        def best:string ""
+        def bestCount:int -1
+        def server:FsServer (sim.backend())
+        def store:FsStore (server.db())
+        for ids name:string i {
+            def path:string name
+            if ((strlen parentDoc) > 0) {
+                path = ((parentDoc + "/") + name)
+            }
+            def docs:[FsDocument] (store.docsIn(path))
+            def n:int (array_length docs)
+            if (n > bestCount) {
+                bestCount = n
+                best = name
+            }
+        }
+        return best
     }
 
     fn openCollection:void (name:string) {
@@ -628,19 +667,14 @@ class FiresimConsole {
     ; =========================================================================
     ; The listener behind the document list
     ; =========================================================================
-    fn startWatch:void () {
-        def freshIds:[string]
-        def freshSummaries:[string]
-        docIds = freshIds
-        docSummaries = freshSummaries
-        watchId = 0
-        def path:string (this.collectionPath())
-        if ((strlen path) == 0) {
-            return
-        }
+    fn watchQuery:FsQuery () {
         def q:FsQuery (new FsQuery)
+        def path:string (this.collectionPath())
         def segs:[string] (FsPath.segments(path))
         def n:int (array_length segs)
+        if (n == 0) {
+            return q
+        }
         q.collectionId = (itemAt segs (n - 1))
         if (n > 1) {
             def parentSegs:[string]
@@ -651,8 +685,48 @@ class FiresimConsole {
             }
             q.parent = (FsPath.joinSegs(parentSegs))
         }
-        def id:int (client.watch(q))
+        return q
+    }
+
+    fn startWatch:void () {
+        def freshIds:[string]
+        def freshSummaries:[string]
+        docIds = freshIds
+        docSummaries = freshSummaries
+        ; Answers still in flight belong to the collection that was open a
+        ; moment ago. Reading them into this list puts the previous
+        ; collection's documents in it — which is what walking into a
+        ; subcollection quickly used to do.
+        this.dropPending("watch")
+        this.dropPending("poll")
+        watchId = 0
+        def path:string (this.collectionPath())
+        if ((strlen path) == 0) {
+            return
+        }
+        def id:int (client.watch((this.watchQuery())))
         this.expect(id "watch")
+    }
+
+    ; Forget the calls of one kind that are still out. Their answers will
+    ; arrive and be dropped rather than applied to whatever is on screen now.
+    fn dropPending:void (kind:string) {
+        def keepIds:[int]
+        def keepKinds:[string]
+        def n:int (array_length waitingIds)
+        def i:int 0
+        while (i < n) {
+            def id:int (itemAt waitingIds i)
+            if ((itemAt waitingKinds i) == kind) {
+                transport.forget(id)
+            } {
+                push keepIds id
+                push keepKinds (itemAt waitingKinds i)
+            }
+            i = (i + 1)
+        }
+        waitingIds = keepIds
+        waitingKinds = keepKinds
     }
 
     fn expect:void (callId:int kind:string) {
@@ -685,11 +759,16 @@ class FiresimConsole {
         if (kind == "watch") {
             def got:int (client.readWatchId(id))
             if (got < 1) {
-                note = ("the listener was refused: " + client.lastError)
+                note = ("the listener was refused: " + client.lastError + " — retrying")
+                watchLost = true
                 this.noteCall("POST /firesim/v1/watch")
                 return
             }
             watchId = got
+            if (watchLost) {
+                note = "the listener is back"
+                watchLost = false
+            }
             def first:[FsWatchChange] (client.readChanges(id))
             this.applyChanges(first)
             this.noteCall("POST /firesim/v1/watch")
@@ -698,7 +777,9 @@ class FiresimConsole {
         if (kind == "poll") {
             def changes:[FsWatchChange] (client.readChanges(id))
             if (client.lastStatus >= 400) {
-                note = ("the listener stopped: " + client.lastError)
+                note = ("the listener stopped: " + client.lastError + " — retrying")
+                watchId = 0
+                watchLost = true
                 return
             }
             if ((array_length changes) > 0) {
@@ -794,6 +875,11 @@ class FiresimConsole {
             }
         }
         this.sortDocs()
+        if ((strlen docId) == 0) {
+            if ((array_length docIds) > 0) {
+                docId = (itemAt docIds 0)
+            }
+        }
     }
 
     ; What a document says about itself in one line: its first two scalar
@@ -822,7 +908,7 @@ class FiresimConsole {
                     if (shown > 0) {
                         out = (out + " · ")
                     }
-                    def text:string (FiresimConsole.shortText((v.asString()) 26))
+                    def text:string (FiresimConsole.shortText((v.asString()) 18))
                     out = ((out + k) + " " + text)
                     shown = (shown + 1)
                 }
@@ -832,7 +918,9 @@ class FiresimConsole {
             def n:int (data.count())
             out = ((to_string n) + " field(s)")
         }
-        return out
+        ; One line, whatever the fields say: the row is 15 px tall and a
+        ; summary that wraps is a summary with its second half cut off.
+        return (FiresimConsole.shortText(out 44))
     }
 
     fn indexOfDoc:int (id:string) {
@@ -1182,6 +1270,15 @@ class FiresimConsole {
     ; =========================================================================
     ; Who is asking
     ; =========================================================================
+    fn adminWho:FsWho () {
+        for identities w:FsWho i {
+            if (w.admin) {
+                return w
+            }
+        }
+        return (itemAt identities 0)
+    }
+
     fn currentWho:FsWho () {
         for identities w:FsWho i {
             if (w.label == who.value) {
@@ -1247,7 +1344,16 @@ class FiresimConsole {
         this.collect()
         this.pumpStream()
         this.maybePoll(dtMs)
-        def flying:int (array_length waitingIds)
+        ; What is in flight FOR A PERSON. The listener polls three times a
+        ; second whether anything is happening or not, so counting its calls
+        ; made this bar strobe green forever and say nothing — a meter that
+        ; is always moving is a meter nobody reads.
+        def flying:int 0
+        for waitingKinds k:string ki {
+            if (k != "poll") {
+                flying = (flying + 1)
+            }
+        }
         if (streamCall >= 0) {
             flying = (flying + 1)
         }
@@ -1264,16 +1370,35 @@ class FiresimConsole {
     }
 
     fn maybePoll:void (dtMs:double) {
-        if (watchId <= 0) {
-            return
-        }
         pollDueMs = (pollDueMs - dtMs)
         if (pollDueMs > 0.0) {
             return
         }
         pollDueMs = pollEveryMs
+        ; No watch: the last one was refused, or the network was off when it
+        ; was opened. Try again. A listener that gives up for good leaves the
+        ; browser frozen on whatever it had, which is indistinguishable from
+        ; an empty database — and a real client reconnects.
+        if (watchId <= 0) {
+            if ((strlen collectionId) > 0) {
+                if (! (this.awaiting("watch"))) {
+                    def again:int (client.watch((this.watchQuery())))
+                    this.expect(again "watch")
+                }
+            }
+            return
+        }
         def id:int (client.poll(watchId))
         this.expect(id "poll")
+    }
+
+    fn awaiting:boolean (kind:string) {
+        for waitingKinds k:string i {
+            if (k == kind) {
+                return true
+            }
+        }
+        return false
     }
 
     ; The streaming endpoint, shown for what it is: a response that arrives in
@@ -1464,19 +1589,21 @@ class FiresimConsole {
         def card (tree Fs (Card))
         card.addChild((tree Fs (CardTtl "The wait")))
         card.addChild((tree Fs (Dim "The clock is the app's, so nothing sleeps.")))
-        def track (tree Fs (Track (props (id "fs-latency-track"))))
+        def track (tree Fs (Track (props (id "fs-latency") (a11yLabel "Latency"))))
+        track.a11yHasRange = true
+        track.a11yValueMin = latency.minValue
+        track.a11yValueMax = latency.maxValue
+        track.a11yHasValue = true
+        track.a11yValueNow = latency.value
+        track.a11yValue = ((to_string latency.value) + " ms")
         def range (tree Fs (Range (props (id "fs-latency-range"))))
         def pct:int (latency.percent())
         UiTree.inline(range "width" ((to_string pct) + "%"))
         track.addChild(range)
-        def thumb (tree Fs (Thumb (props (id "fs-latency") (a11yLabel "Latency"))))
-        thumb.a11yHasRange = true
-        thumb.a11yValueMin = latency.minValue
-        thumb.a11yValueMax = latency.maxValue
-        thumb.a11yHasValue = true
-        thumb.a11yValueNow = latency.value
-        thumb.a11yValue = ((to_string latency.value) + " ms")
-        UiTree.inline(thumb "margin-left" ((to_string pct) + "%"))
+        ; No offset of its own: the thumb is the next flex item after the
+        ; fill, so the fill's width IS its position. Giving it a margin as
+        ; well moved it twice as far as the value said.
+        def thumb (tree Fs (Thumb (props (id "fs-latency-thumb"))))
         track.addChild(thumb)
         card.addChild(track)
         card.addChild((tree Fs (Mono ((to_string latency.value) + " ms on every call"))))

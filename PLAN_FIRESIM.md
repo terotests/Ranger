@@ -190,7 +190,7 @@ six.
 | `npm run firesim:test` | 101 assertions: values, the store, queries and their refusals, the rules, accounts, the wait, listeners, the model, the Ranger client, the RealTrainer seed, and a real socket |
 | `npm run firesim:realtrainer` | the demo drawing from the simulator, six scenarios |
 | `npm run firesim:targets` | 24/24 — two builds × twelve targets |
-| `npm run firesim:demo` | the workbench, driven with no browser: 87 assertions |
+| `npm run firesim:demo` | the workbench, driven with no browser: 102 assertions |
 | `npm run firesim:demo:frame` | the same page in Chromium, at the pixels |
 | `npm run firesim:size` | what each build costs, per target |
 

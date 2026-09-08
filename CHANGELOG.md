@@ -33,7 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   behind the page — and no bundler and no install either, since the compiled
   module is one self-contained file. Two gates: `firesim:demo` drives the same
   app with a made-up clock and presses its controls at the rectangles the
-  accessibility tree reports (87 assertions, no browser), and
+  accessibility tree reports (102 assertions, no browser), and
   `firesim:demo:frame` loads the page in Chromium and reads the framebuffer,
   because a script that 404s and a WebGL context that is never created both
   look like a working app to a check that never opens one.
@@ -76,7 +76,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is the proof: the reference recorder's own `seed.json` goes in unconverted,
   comes back over `:runQuery` as a signed-in user through the rules, and the
   demo has to draw the same accessibility tree from it — six scenarios, node
-  for node. 101 + 87 + 17 + 16 assertions and 24/24 target builds; the client
+  for node. 101 + 102 + 17 + 16 assertions and 24/24 target builds; the client
   build an app carries is 113 kB of Kotlin, which is the measured answer to
   whether it fits on a watch. Plan and the phases left in
   [`PLAN_FIRESIM.md`](PLAN_FIRESIM.md).
@@ -108,6 +108,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The workbench's latency slider snapped to an end on every press, and its
+  in-flight meter strobed.** Two defects with one shape: a control measured
+  against the wrong thing. The slider's `role` and id were on the THUMB, so a
+  drag was measured against a 14-pixel box that had already moved — the role
+  and the id are on the track now, which is the box that stays put, and the
+  thumb no longer carries a margin that moved it a second time. The progress
+  bar counted the listener's polls, which happen three times a second whether
+  anything is happening or not; it counts only calls a person caused. Also
+  fixed in the same pass: a listener that was refused (offline, or a rule)
+  gave up for good and left the browser frozen on whatever it had, which is
+  indistinguishable from an empty database — it retries and says when it is
+  back; answers still in flight from the previous collection were applied to
+  the new one, so walking quickly into a subcollection listed the parent's
+  documents in it; and a dataset loaded from the rail was seeded to a fixed
+  account rather than to whoever loaded it, so picking one emptied the
+  browser for being right.
 - **Firestore rules: `&&` and `||` now absorb errors, as CEL does.** Found
   while building the console. `resource.data.userId == uid ||
   request.resource.data.userId == uid` is the ordinary way to write one rule
