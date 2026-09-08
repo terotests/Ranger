@@ -264,7 +264,13 @@ class ChatHost {
 
     ; The reply, and the actions it proposes — `kind` and `id` each, as the
     ; manifest's payloads have them.
-    fn complete:boolean (replyText:string kinds:[string] ids:[string]) {
+    ; An action carries WHAT IT WOULD WRITE, and not only that it is an
+    ; `addWorkout` called `w1`. A review that names a kind and an id is a
+    ; review of nothing: the person is agreeing to a change they cannot see.
+    ; `texts` is the phrase the assistant read out of the message, one per
+    ; action, and the view puts it through the same recogniser the quick
+    ; entry uses.
+    fn complete:boolean (replyText:string kinds:[string] ids:[string] texts:[string]) {
         def actions@(mutable):ScVal (ScValOps.emptyList())
         for kinds kind:string i {
             def keys:[string]
@@ -273,6 +279,12 @@ class ChatHost {
             push entries (ScValOps.str(kind))
             push keys "id"
             push entries (ScValOps.str((itemAt ids i)))
+            push keys "text"
+            def phrase@(mutable):string ""
+            if (i < (array_length texts)) {
+                phrase = (itemAt texts i)
+            }
+            push entries (ScValOps.str(phrase))
             actions = (ScValOps.appended(actions (new ScVal.Map(keys entries))))
         }
         def rkeys:[string]
@@ -358,6 +370,9 @@ class RtChatSim {
     def reply@(mutable):string ""
     def kinds:[string]
     def ids:[string]
+    ; The phrase behind each proposed action — what the assistant read out of
+    ; the message, and what would be written if it is accepted.
+    def texts:[string]
     ; The next stream fails instead of completing.
     def failNext@(mutable):boolean false
     ; What the last tick produced: the chunks that came due, in order, and
@@ -371,20 +386,32 @@ class RtChatSim {
     fn begin:void (prompt:string) {
         clear kinds
         clear ids
+        clear texts
         reply = "Lisään päiväkirjaan: "
         if (RtChatSim.hasText(prompt "?")) {
             reply = "Viime viikolla oli kolme voimaharjoitusta ja yksi lenkki."
         } {
-            if (RtChatSim.hasText(prompt " ja ")) {
-                reply = "Lisään kaksi liikettä: maastaveto ja kyykky."
+            ; THE PROPOSALS ARE MADE OF THE MESSAGE. "ja" is where a person
+            ; puts two lifts in one sentence, so it is where this splits
+            ; them, and each half is proposed as itself rather than as a
+            ; sentence about itself.
+            def at:int (RtChatSim.indexOfText(prompt " ja "))
+            if (at >= 0) {
+                def first:string (trim (substring prompt 0 at))
+                def second:string (trim (substring prompt (at + 4) (strlen prompt)))
+                reply = (("Lisään kaksi merkintää: " + first) + ((" ja " + second) + "."))
                 push kinds "addWorkout"
                 push ids "w1"
+                push texts first
                 push kinds "addWorkout"
                 push ids "w2"
+                push texts second
             } {
-                reply = "Lisään harjoituksen: maastaveto 3x5@100kg."
+                def only:string (trim prompt)
+                reply = ("Lisään merkinnän: " + (only + "."))
                 push kinds "addWorkout"
                 push ids "w1"
+                push texts only
             }
         }
         clear words
@@ -436,6 +463,21 @@ class RtChatSim {
             return true
         }
         return ((strlen produced) > 0)
+    }
+
+    ; Where `needle` starts, or -1. `hasText` is this with the answer thrown
+    ; away, and the splitting below needs the place.
+    sfn indexOfText:int (text:string needle:string) {
+        def n:int (strlen needle)
+        def len:int (strlen text)
+        def i@(mutable):int 0
+        while ((i + n) <= len) {
+            if ((substring text i (i + n)) == needle) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
     }
 
     sfn hasText:boolean (text:string needle:string) {

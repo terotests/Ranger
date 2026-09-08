@@ -2300,6 +2300,45 @@ class RtRecognise {
         return (substring text start end)
     }
 
+    ; `Maastaveto 3x5@100kg` — a name, then sets by reps and maybe a weight.
+    ; The COMPACT row for it is `Maastaveto|3x5@100kg`: the same words with a
+    ; bar where the space was. A person writing a lift writes the space, and
+    ; the assistant proposing one writes it too, so this is the shape both the
+    ; quick entry and the chat's proposals arrive in.
+    ;
+    ; Answers where the sets token starts, or -1. The token is digits, `x`,
+    ; digits — `3x5`, `12x15` — which is why `10km` and `2x` alone are not it.
+    sfn setsAt:int (line:string) {
+        def n:int (strlen line)
+        def i@(mutable):int 0
+        def start@(mutable):int (0 - 1)
+        while (i < n) {
+            def c:int (charAt line i)
+            if (c == 32) {
+                start = (0 - 1)
+            } {
+                if (start < 0) {
+                    start = i
+                }
+                ; 120 is `x`.
+                if ((c == 120) && (start < i)) {
+                    def before:int (charAt line (i - 1))
+                    def head:int (charAt line start)
+                    def okBefore:boolean ((before >= 48) && (before <= 57))
+                    def okHead:boolean ((head >= 48) && (head <= 57))
+                    if (((okBefore && okHead) && ((i + 1) < n))) {
+                        def after:int (charAt line (i + 1))
+                        if ((after >= 48) && (after <= 57)) {
+                            return start
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
     ; Is this line already COMPACT? Any row the parser makes sense of says so;
     ; a line it can only call text or unknown does not.
     sfn isCompact:boolean (body:string) {
@@ -2337,6 +2376,21 @@ class RtRecognise {
             return out
         }
 
+        ; A lift before a run: `Maastaveto 3x5@100kg` has no distance and no
+        ; minutes in it, but `Penkki 3x5 60min` does, and the sets are what
+        ; it is about.
+        def sets:int (RtRecognise.setsAt(line))
+        if (sets > 0) {
+            def name:string (trim (substring line 0 sets))
+            if ((strlen name) > 0) {
+                def rest:string (substring line sets (strlen line))
+                ; `Exercise <name>|<sets>` is the row the parser reads; the
+                ; bar alone is not enough for it.
+                out.compact = (((head + "Exercise ") + name) + ("|" + rest))
+                out.title = name
+                return out
+            }
+        }
         def km:string (RtRecognise.numberBefore(line "km"))
         def mins:string (RtRecognise.numberBefore(line "min"))
         if ((strlen km) > 0) {

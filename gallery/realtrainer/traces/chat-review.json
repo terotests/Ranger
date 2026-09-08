@@ -505,7 +505,7 @@
     },
     {
      "role": "listitem",
-     "name": "Lisään harjoituksen: maastaveto 3x5@100kg.",
+     "name": "Lisään merkinnän: Maastaveto 3x5@100kg.",
      "state": ""
     },
     {
@@ -524,9 +524,9 @@
      "state": ""
     },
     {
-     "role": "listitem",
-     "name": "addWorkout · w1 odottaa",
-     "state": ""
+     "role": "heading",
+     "name": "Maastaveto",
+     "state": "level=3"
     },
     {
      "role": "button",
@@ -677,7 +677,7 @@
     },
     {
      "role": "listitem",
-     "name": "Lisään harjoituksen: maastaveto 3x5@100kg.",
+     "name": "Lisään merkinnän: Maastaveto 3x5@100kg.",
      "state": ""
     },
     {
@@ -824,7 +824,7 @@
     },
     {
      "role": "listitem",
-     "name": "Lisään harjoituksen: maastaveto 3x5@100kg.",
+     "name": "Lisään merkinnän: Maastaveto 3x5@100kg.",
      "state": ""
     },
     {

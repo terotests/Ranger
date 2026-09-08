@@ -2346,24 +2346,64 @@ class RealTrainerDemo {
 
     ; The proposed actions. One proposes a verdict on the whole; several take
     ; a verdict each, and closing the review saves whatever was accepted.
+    ;
+    ; THE SAME REVIEW AS THE QUICK ENTRY'S, because it is the same question:
+    ; here is what was read out of what you wrote, do you want it. It used to
+    ; be a row reading `addWorkout · w1` with two buttons after it — a review
+    ; of an id, which is a review of nothing, and agreeing to a change nobody
+    ; can see. So each proposal is drawn as the card it would become: the two
+    ; chips, the title over its date, the verdict, and the rows themselves.
     fn chatReviewRows:void (box:EVGElement multi:boolean) {
         def acts (tree Rt (ChatActs))
         def n:int (chat.actionCount())
+        def onDay:string (this.chatDay())
         def i@(mutable):int 0
         while (i < n) {
-            def row (tree Rt (ChatAct))
-            row.addChild((tree Rt (ChatActTx (((chat.actionField(i "kind")) + " · ") + (chat.actionField(i "id"))))))
+            def card (tree Rt (RevCard (props (id ("rt-chat-card-" + (to_string i))))))
+            def phrase:string (chat.actionField(i "text"))
+            def read:RtRecognise (RtRecognise.read(phrase onDay))
+            def chips (tree Rt (RevChips))
+            def kind@(mutable):string seed.calendarType
+            if ((strlen kind) == 0) { kind = "training" }
+            chips.addChild((tree Rt (RevKind kind)))
+            chips.addChild((tree Rt (RevOp "ADD")))
             def status:string (chat.actionStatus(i))
-            def word@(mutable):string "odottaa"
-            if (status == "accepted") { word = "hyväksytty" }
-            if (status == "rejected") { word = "hylätty" }
-            row.addChild((tree Rt (ChatActSt word)))
-            row.addChild((tree Rt (Spacer)))
-            if ((strlen status) == 0) {
-                row.addChild((this.sheetBtn(("rt-chat-accept-" + (to_string i)) ("Hyväksy " + (to_string (i + 1))) "Hyväksy" true)))
-                row.addChild((this.sheetBtn(("rt-chat-reject-" + (to_string i)) ("Hylkää " + (to_string (i + 1))) "Hylkää" false)))
+            if ((strlen status) > 0) {
+                def word@(mutable):string "hylätty"
+                if (status == "accepted") { word = "hyväksytty" }
+                chips.addChild((tree Rt (ChatActSt (props (id ("rt-chat-state-" + (to_string i)))) word)))
             }
-            acts.addChild(row)
+            card.addChild(chips)
+            def hd (tree Rt (RevHead))
+            def glyph (tree Rt (PhIcon))
+            glyph.svgSource = (RtIcons.clipboardList("#e8e2da"))
+            hd.addChild(glyph)
+            def col (tree Rt (Col))
+            col.addChild((tree Rt (RevTitle (props (id ("rt-chat-title-" + (to_string i)))) read.title)))
+            col.addChild((tree Rt (RevDate (RealTrainerDemo.fiDatePadded(onDay)))))
+            hd.addChild(col)
+            card.addChild(hd)
+            if ((strlen status) == 0) {
+                def btns (tree Rt (RevBtns))
+                def yes (this.exButton(("rt-chat-accept-" + (to_string i)) ("Hyväksy " + (to_string (i + 1))) "Hyväksy"))
+                yes.className = "rt-ex-btn rt-rev-add"
+                def no (this.exButton(("rt-chat-reject-" + (to_string i)) ("Hylkää " + (to_string (i + 1))) "Hylkää"))
+                no.className = "rt-ex-btn rt-rev-skip"
+                btns.addChild(yes)
+                btns.addChild(no)
+                card.addChild(btns)
+            }
+            ; The card the diary will show, so what is being agreed to is what
+            ; will appear — the quick entry's proposal card, built the same
+            ; way. See `entryCard`: no header, no actions, no comments.
+            def preview (new RtSeedEntry())
+            preview.id = ("rt-chat-entry-" + (to_string i))
+            preview.calendarId = seed.calendarId
+            preview.date = onDay
+            preview.compact = read.compact
+            preview.points = (0 - 1)
+            card.addChild((this.entryCard(preview (2000 + i) false)))
+            acts.addChild(card)
             i = (i + 1)
         }
         box.addChild(acts)
@@ -2375,6 +2415,38 @@ class RealTrainerDemo {
             actions.addChild((this.sheetBtn("rt-chat-accept-all" "Hyväksy kaikki" "Hyväksy kaikki" true)))
         }
         box.addChild(actions)
+    }
+
+    ; The day a proposal would land on: the day being looked at, or today.
+    fn chatDay:string () {
+        if ((strlen dayIso) > 0) {
+            return dayIso
+        }
+        return today
+    }
+
+    ; WHAT WAS ACCEPTED IS WRITTEN. The chat used to run a six-hundred
+    ; millisecond job called "chat", say "Tallennetaan päiväkirjaan…" and
+    ; write nothing at all: a review whose yes did nothing. The machine
+    ; clears `pendingActions` on its `onDone`, so this reads them while the
+    ; save is still in `processing` — before `saveComplete`.
+    fn chatWriteAccepted:void () {
+        def n:int (chat.actionCount())
+        def onDay:string (this.chatDay())
+        def i@(mutable):int 0
+        while (i < n) {
+            if ((chat.actionStatus(i)) == "accepted") {
+                def phrase:string (chat.actionField(i "text"))
+                if ((strlen phrase) > 0) {
+                    def read:RtRecognise (RtRecognise.read(phrase onDay))
+                    addedSeq = (addedSeq + 1)
+                    seed.addEntry(("added-" + (to_string addedSeq)) seed.calendarId onDay read.compact)
+                }
+            }
+            i = (i + 1)
+        }
+        feedShown = feedChunk
+        this.forgetCards()
     }
 
     fn pressChat:boolean (id:string) {
@@ -5435,19 +5507,26 @@ class RealTrainerDemo {
             }
             if (kind == "text") {
                 rows.addChild((tree Rt (EntryPara (props (id ("rt-entry-text-" + rowId))) (CompactStatBuilder.text(row)))))
-                def tacts (tree Rt (Row (props (className "rt-entry-under"))))
-                tacts.addChild((this.iconBtn(("rt-entry-edit-" + rowId) "Muokkaa tekstiä" (RtIcons.penLine("#999999")))))
-                tacts.addChild((this.commentBtn(rowId)))
-                rows.addChild(tacts)
+                if (cardPreview == false) {
+                    def tacts (tree Rt (Row (props (className "rt-entry-under"))))
+                    tacts.addChild((this.iconBtn(("rt-entry-edit-" + rowId) "Muokkaa tekstiä" (RtIcons.penLine("#999999")))))
+                    tacts.addChild((this.commentBtn(rowId)))
+                    rows.addChild(tacts)
+                }
                 continue
             }
             if isMove {
                 moves = (moves + 1)
                 tonnage = (tonnage + (RealTrainerDemo.tonnageOf(row)))
                 def line (tree Rt (EntryRow))
-                def statsBtn (this.iconBtn(("rt-entry-stats-" + rowId) "Näytä tilastot" (RtIcons.barChart("#999999"))))
-                statsBtn.className = "rt-icon-btn rt-entry-stats-btn"
-                line.addChild(statsBtn)
+                ; No history for a lift that has not happened — see
+                ; `entryCard`: a proposal carries none of the things done to
+                ; a written entry.
+                if (cardPreview == false) {
+                    def statsBtn (this.iconBtn(("rt-entry-stats-" + rowId) "Näytä tilastot" (RtIcons.barChart("#999999"))))
+                    statsBtn.className = "rt-icon-btn rt-entry-stats-btn"
+                    line.addChild(statsBtn)
+                }
                 def col (tree Rt (EntryRowCol))
                 def nameRow (tree Rt (Row (props (className "rt-entry-name-row"))))
                 def shown@(mutable):string label
@@ -7182,7 +7261,7 @@ class RealTrainerDemo {
                 chat.chunk(c)
             }
             if (chatSim.produced == "complete") {
-                chat.complete(chatSim.reply chatSim.kinds chatSim.ids)
+                chat.complete(chatSim.reply chatSim.kinds chatSim.ids chatSim.texts)
             }
             if (chatSim.produced == "error") {
                 this.chatFailed()
@@ -7191,6 +7270,7 @@ class RealTrainerDemo {
             return true
         }
         if (chatJob.tick(dtMs)) {
+            this.chatWriteAccepted()
             chat.saveComplete()
             chatJob.clear()
             this.rebuild()

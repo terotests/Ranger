@@ -415,6 +415,73 @@ console.log("--- Enter sends the sheet too ---");
 }
 
 console.log("");
+console.log("--- the AI chat proposes, and its yes writes ---");
+{
+  // THE THIRD COMPOSER. The chat has its own machine — sixteen events, an
+  // `always` fork, an `onDone` — and it already had a `reviewing` state. What
+  // it did not have was anything IN it: a row reading `addWorkout · w1` with
+  // Hyväksy and Hylkää after it, and an accept that ran a six-hundred
+  // millisecond job and wrote NOTHING to the diary. A review of an id is a
+  // review of nothing.
+  const app = open();
+  ok("the chat opens", app.press("rt-nav-chat"));
+  ok("two lifts in one sentence is taken", app.press("rt-chat-type2"));
+  ok("and sends", app.press("rt-chat-send"));
+  // The stream is on the app's clock, like every other wait here.
+  for (let i = 0; i < 80; i += 1) app.tick(200);
+  app.display();
+  const t = drawn(app);
+  const has = (x) => t.some((s) => s.includes(x));
+
+  ok("what came back is proposed one card at a time",
+     t.filter((s) => s === "ADD").length === 2, t.join(" | ").slice(0, 200));
+  ok("each says which calendar it would go in", has("training"));
+  // THE POINT: the title and the rows are what the parser made of the
+  // phrase, not the id the machine gave it.
+  ok("with the lift's own name on it", has("Maastaveto") && has("kyykky"));
+  ok("and the rows it would write", has("3x5") && has("x100kg"));
+  ok("no id is shown as if it were a review", has("addWorkout · w1") === false);
+  ok("and the two answers are offered", has("Hyväksy") && has("Hylkää"));
+  // A proposal is not an entry here either.
+  ok("nothing to delete yet", has("Poista") === false);
+  // "Näytä tilastot" is an icon button with no text, so it is the recorded
+  // accessibility trace (`chat-review.json`) that holds it out of a proposal.
+
+  ok("one is accepted", app.press("rt-chat-accept-0"));
+  ok("and says so", shows(app, "hyväksytty"));
+  ok("the other is rejected", app.press("rt-chat-reject-1"));
+  ok("and says so", shows(app, "hylätty"));
+  // In `multiAction` the machine stays in the review until it is closed —
+  // that is the machine's own shape, not the view's.
+  ok("closing it saves what was accepted", app.press("rt-chat-close"));
+  settle(app, 900);
+  ok("the review is gone", shows(app, "Hyväksy") === false);
+
+  app.press("rt-nav-home");
+  let spun = 0;
+  while (app.building() && spun < 300) { app.tick(16.7); spun += 1; }
+  app.display();
+  // THE WHOLE OF IT. The accept used to end in "Tallennetaan päiväkirjaan…"
+  // and an empty diary.
+  ok("the accepted lift is in the diary", shows(app, "Maastaveto"));
+  ok("and the rejected one is not", shows(app, "kyykky") === false,
+     drawn(app).filter((x) => x.toLowerCase().includes("kyykky")).join(" | "));
+}
+
+console.log("");
+console.log("--- a lift written the way a person writes one ---");
+{
+  // `Maastaveto 3x5@100kg` is what someone types; `Exercise Maastaveto|3x5@100kg`
+  // is what the parser reads. The recogniser bridges the two, which is what
+  // lets the chat's proposals and the quick entry's carry real rows.
+  const app = open();
+  addNow(app, "Penkkipunnerrus 3x8@60kg");
+  ok("the name became the title", shows(app, "Penkkipunnerrus"));
+  ok("and the sets became a row", shows(app, "3x8") || shows(app, "3x"),
+     drawn(app).filter((x) => x.includes("8")).slice(0, 8).join(" | "));
+}
+
+console.log("");
 console.log("--- the field is one line, whatever is in it ---");
 {
   // An `<input>` never wraps: it scrolls. The plan calendar's placeholder is
