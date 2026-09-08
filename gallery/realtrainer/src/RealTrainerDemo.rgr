@@ -6851,6 +6851,29 @@ class RealTrainerDemo {
         if ((this.hasField(focused)) == false) {
             return (this.navKey(k shift))
         }
+        ; TAB IS THE SCREEN'S, EVEN FROM INSIDE A FIELD. A composer that
+        ; swallowed it was one you could type in and never reach the send
+        ; button beside it from: a canvas is one element, so the browser has
+        ; no tab order of its own to fall back on, and a Tab this does not
+        ; answer goes nowhere at all. The field lets go, and the ring starts
+        ; from where the field was standing rather than from the last place
+        ; the keyboard happened to be.
+        if (k == "Tab") {
+            def from:string focused
+            focused = ""
+            layoutDirty = true
+            boxesDirty = true
+            this.rebuild()
+            def lay:EVGLayout (this.laidOut())
+            def r:EVGElement (unwrap root)
+            keys.place(r from)
+            def to:string (keys.key(r k shift))
+            if ((strlen to) == 0) {
+                return false
+            }
+            listDirty = true
+            return true
+        }
         layoutDirty = true
         boxesDirty = true
         ; ENTER SENDS THE QUICK ENTRY, which is what a one-line composer with
@@ -6946,6 +6969,38 @@ class RealTrainerDemo {
     ; Where the ring is, for a host and for a check.
     fn focusRingId:string () {
         return keys.focusId
+    }
+
+    ; PUT THE RING SOMEWHERE BY HAND — a press, or a reader that moved its own
+    ; cursor. The pointer and the keyboard used to keep two separate ideas of
+    ; where the focus was, so a Tab after a click carried on from wherever the
+    ; ring had been left rather than from the thing just clicked.
+    ;
+    ; An id nothing focusable carries is refused by `EVGFocus.place` and the
+    ; ring stays where it was: a ring pointing at nothing is worse than a ring
+    ; that did not move.
+    fn focusOn:boolean (id:string) {
+        def lay:EVGLayout (this.laidOut())
+        def r:EVGElement (unwrap root)
+        if ((keys.place(r id)) == false) {
+            return false
+        }
+        listDirty = true
+        return true
+    }
+
+    ; The same from a pointer: the keys carry on from what was clicked, and no
+    ; ring is drawn round it — a person who just clicked something knows where
+    ; it is, and a ring round every button the mouse touches is not what a
+    ; focus ring is for.
+    fn pointOn:boolean (id:string) {
+        def lay:EVGLayout (this.laidOut())
+        def r:EVGElement (unwrap root)
+        if ((keys.pointAt(r id)) == false) {
+            return false
+        }
+        listDirty = true
+        return true
     }
 
     ; The dialog the keys are shut inside, or "" — see `EVGFocus`. A host
@@ -7905,6 +7960,11 @@ class RealTrainerDemo {
         if (id == "") {
             return false
         }
+        ; THE FOCUS FOLLOWS THE POINTER. Before the press, because the press
+        ; is what may take the element away — and on the tree as it stands,
+        ; which is the tree the pointer was aimed at. Nothing is DRAWN for it:
+        ; see `EVGFocus.pointAt`.
+        this.pointOn(id)
         layoutDirty = true
         boxesDirty = true
         ; A field takes focus, and that is all a press on it does. NOT UNDER
@@ -8474,7 +8534,9 @@ class RealTrainerDemo {
         if (v < (0.0 - 0.5)) {
             dl.setOverscan((pageH * 3.0) (pageH * 1.0))
         }
-        dl.setFocusRing(keys.focusId)
+        ; Where the focus is is not always where a ring belongs — see
+        ; `EVGFocus.ringId`.
+        dl.setFocusRing((keys.ringId()))
         ; BEFORE the build, so the walk emits each chart where its card is —
         ; see `registerCharts`.
         this.registerCharts(dl lay r)
@@ -8509,6 +8571,13 @@ class RealTrainerDemo {
             if (calMenuOpen == false) {
                 a11yFocus = ""
             }
+        }
+        ; AND THE RING IS A FOCUS TOO. With nothing else claiming it, the
+        ; mirror follows what the keyboard is on — otherwise the ring and a
+        ; reader's cursor walk the screen separately, which is two focuses on
+        ; one page.
+        if ((strlen f) == 0) {
+            f = keys.focusId
         }
         def b (new EVGA11yFromTree())
         def t:EVGA11yTree (b.build(r "RealTrainer" generation f))

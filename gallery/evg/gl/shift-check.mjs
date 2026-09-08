@@ -91,3 +91,7 @@ if (failed > 0) {
   process.exit(1);
 }
 console.log("  every draw in the painter moves with its layer");
+// The marker `scripts/run-gallery-editor-tests.sh` greps for. The compiler
+// prints `[FAIL]` and still exits 0, so that runner refuses to take a zero
+// exit as a pass — a suite has to SAY it passed.
+console.log("ALL PASS");

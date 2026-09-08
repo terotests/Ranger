@@ -70,6 +70,12 @@ class EVGFocus {
     def hs:[double]
     ; What has the focus, or "" for nothing.
     def focusId@(mutable):string ""
+    ; WHETHER TO DRAW IT. The focus moves on a click as well as on a key —
+    ; otherwise Tab after a click carries on from somewhere else on the screen
+    ; — but a ring round every button somebody points at is not what a focus
+    ; ring is for. The rule is the browsers': shown when a key put it there,
+    ; not when the pointer did. `ringId` is what a renderer asks.
+    def ringVisible@(mutable):boolean false
     ; The dialog the walk is confined to, when the tree declares one.
     def trapEl@(mutable+optional):EVGElement
     def trapped@(mutable):boolean false
@@ -322,6 +328,7 @@ class EVGFocus {
             return ""
         }
         focusId = to
+        ringVisible = true
         return to
     }
 
@@ -331,6 +338,7 @@ class EVGFocus {
     fn place:boolean (root:EVGElement id:string) {
         if ((strlen id) == 0) {
             focusId = ""
+            ringVisible = false
             return true
         }
         this.scan(root)
@@ -338,11 +346,32 @@ class EVGFocus {
             return false
         }
         focusId = id
+        ringVisible = true
         return true
+    }
+
+    ; The same, from a POINTER: the focus moves so the keys carry on from what
+    ; was just clicked, and nothing is drawn, because the person can see where
+    ; they clicked.
+    fn pointAt:boolean (root:EVGElement id:string) {
+        if ((this.place(root id)) == false) {
+            return false
+        }
+        ringVisible = false
+        return true
+    }
+
+    ; Where to draw the ring, or "" for nowhere.
+    fn ringId:string () {
+        if (ringVisible == false) {
+            return ""
+        }
+        return focusId
     }
 
     fn clear:void () {
         focusId = ""
+        ringVisible = false
     }
 
     ; The focus after a rebuild: it is kept if the id is still focusable, and
@@ -355,6 +384,7 @@ class EVGFocus {
         this.scan(root)
         if ((this.indexOfId(focusId)) < 0) {
             focusId = ""
+            ringVisible = false
         }
     }
 }

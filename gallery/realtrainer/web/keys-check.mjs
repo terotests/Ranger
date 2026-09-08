@@ -50,6 +50,10 @@ const open = (section) => {
   app.press(section || "rt-nav-home");
   let spun = 0;
   while (app.building() && spun < 400) { app.tick(16.7); spun += 1; }
+  // The press above is how this gets to a screen, not something a person did:
+  // a real one would leave the ring on the button it pressed — see the last
+  // section — and every check below starts from a screen nobody has touched.
+  app.focusOn("");
   app.display();
   return app;
 };
@@ -254,15 +258,88 @@ console.log("--- the review over the sheet is the one that traps ---");
 }
 
 console.log("");
-console.log("--- a field keeps its own keys ---");
+console.log("--- a field keeps its own keys, except Tab ---");
 {
-  // While something is being typed into, the arrows move a caret. The host is
-  // what holds the key back there; this checks the app agrees about who has
-  // the keyboard.
+  // While something is being typed into, the arrows move a caret: that is the
+  // platform's job and the host holds those keys back. Tab is not one of them.
+  // A canvas is ONE element, so there is no browser tab order underneath to
+  // take over when a field declines the key — a Tab the app does not answer
+  // goes nowhere, which is how the composer became a place you could type in
+  // and never reach the send button beside it from.
   const app = open();
   app.press("rt-home-field");
-  ok("the field has it", app.focusedField() === "rt-home-field");
-  ok("and the ring does not", app.focusRingId() === "", app.focusRingId());
+  ok("the field has the keyboard", app.focusedField() === "rt-home-field");
+  ok("and the ring is on it too", app.focusRingId() === "rt-home-field", app.focusRingId());
+
+  app.applyEdit("rt-home-field", "Juoksu 10km", 11, 11);
+  ok("Tab is taken", key(app, "Tab"));
+  ok("and it reaches the send button", app.focusRingId() === "rt-home-send", app.focusRingId());
+  ok("the field let go of the keyboard", app.focusedField() === "", app.focusedField());
+  app.display();
+  ok("and the ring is drawn round the button", rings(app).length === 1, rings(app).length + " rings");
+  ok("Enter presses it", key(app, "Enter"));
+}
+
+console.log("");
+console.log("--- the same in the AI chat, which is where it was noticed ---");
+{
+  const app = open("rt-nav-chat");
+  ok("the chat has a field", app.press("rt-chat-field") && app.focusedField() === "rt-chat-field");
+  app.applyEdit("rt-chat-field", "Miten meni?", 11, 11);
+  ok("Tab is taken", key(app, "Tab"));
+  ok("and lands on send", app.focusRingId() === "rt-chat-send", app.focusRingId());
+  ok("Shift+Tab goes back to the field", key(app, "Tab", true) &&
+     app.focusRingId() === "rt-chat-field", app.focusRingId());
+}
+
+console.log("");
+console.log("--- the ring goes with the page ---");
+{
+  // The ring is drawn LAST and outside every clip, so that a button in a
+  // panel is not half-ringed by the panel's edge — which also puts it outside
+  // every scrolled layer's range. A frame that only scrolls moves those
+  // ranges and nothing else, so the page used to slide out from under a ring
+  // that stayed where it was. `EVGDisplayList.refreshRing` puts it back
+  // against its own box, which is where the scroll has already moved it.
+  const app = open("rt-nav-home");
+  let spun = 0;
+  while (spun < 30 && !app.focusRingId().startsWith("rt-entry")) { key(app, "Tab"); spun += 1; }
+  ok("the ring is on something in the feed", app.focusRingId().startsWith("rt-entry"),
+     app.focusRingId());
+  app.display();
+  const before = rings(app)[0];
+  ok("and drawn", !!before);
+  app.scrollDocument(160);
+  app.display();
+  const after = rings(app)[0];
+  ok("it is still drawn after a scroll", !!after);
+  ok("and it moved with the page", after && before && Math.abs((before.y - after.y) - 160) < 0.5,
+     before && after ? `${before.y} -> ${after.y}` : "no ring");
+}
+
+console.log("");
+console.log("--- the pointer and the keyboard share one focus ---");
+{
+  // They used to keep two: a click moved the caret or pressed a button and
+  // left the ring wherever the last key had put it, so Tab after a click
+  // carried on from somewhere else on the screen.
+  const app = open("rt-nav-home");
+  ok("a click puts the ring on what it pressed", app.press("rt-add") &&
+     app.focusRingId() === "rt-add", app.focusRingId());
+  ok("Escape closes the sheet the click opened", key(app, "Escape"));
+
+  key(app, "Home");
+  const first = app.focusRingId();
+  app.press("rt-nav-calendar");
+  ok("and a click elsewhere moves it there", app.focusRingId() === "rt-nav-calendar",
+     app.focusRingId());
+  ok("which is not where the keys had left it", first !== "rt-nav-calendar", first);
+
+  // An id nothing focusable carries leaves the ring where it was: a ring
+  // round nothing is worse than a ring that did not move.
+  const here = app.focusRingId();
+  ok("a press on nothing is refused", app.focusOn("rt-not-a-thing") === false);
+  ok("and the ring stays", app.focusRingId() === here, app.focusRingId());
 }
 
 console.log("");
@@ -271,3 +348,7 @@ if (failed > 0) {
   process.exit(1);
 }
 console.log("  the arrows work, and the ring says where they are");
+// The marker `scripts/run-gallery-editor-tests.sh` greps for: the compiler
+// prints `[FAIL]` and still exits 0, so that runner refuses to take a zero
+// exit as a pass — a suite has to SAY it passed.
+console.log("ALL PASS");

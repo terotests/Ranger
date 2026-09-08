@@ -189,7 +189,11 @@ if (!gl && !domPainter) {
 }
 
 let generation = 0;
-let focus = "";
+// WHO HAS THE FOCUS. The field with the text session, if there is one — its
+// <input> is a real element and the reader's cursor belongs in it — and
+// otherwise nobody here: the app answers with its own ring, which is the one
+// focus the pointer and the keyboard now share. See `RealTrainerDemo.a11yJson`.
+const a11yFocus = () => app.focusedField();
 
 const mirror = createA11yMirror(stage, {
   canvas,
@@ -204,7 +208,6 @@ const mirror = createA11yMirror(stage, {
   // session, anything else ends it; the app draws the focused field and the
   // mirror's own outline marks the rest.
   onFocus: (node) => {
-    focus = node.id;
     if (app.hasField(node.id)) {
       if (app.focusedField() !== node.id) {
         app.setFocus(node.id);
@@ -214,6 +217,10 @@ const mirror = createA11yMirror(stage, {
       app.setFocus("");
       app.rebuild();
     }
+    // …and the ring goes with it, so a reader that moved its own cursor and
+    // the drawn ring are in the same place. Two focuses on one page is the
+    // bug this is here to stop.
+    app.focusOn(node.id);
     syncTextSession();
     paintAll();
   },
@@ -311,7 +318,7 @@ function syncMirror(now) {
   mirrorDue = (now === undefined ? performance.now() : now) + MIRROR_MIN_GAP_MS;
   try {
     generation += 1;
-    mirror.update(JSON.parse(app.a11yJson(generation, focus)));
+    mirror.update(JSON.parse(app.a11yJson(generation, a11yFocus())));
   } catch (e) {
     errEl.textContent = String((e && e.stack) || e);
   }
@@ -386,15 +393,18 @@ const textInput = createTextInputBridge({
     if (after && after.value !== value) textInput.sync(after);
   },
   onKey: (k) => {
-    // Tab leaves the field: the session ends, the app forgets the focus, and
-    // the browser moves it to the next control — which is the mirror's next
-    // tab stop, because the field IS a mirror element.
+    // Tab leaves the field, and the APP is what moves it. Letting the browser
+    // do it worked only as far as the mirror's tab order reached — a disabled
+    // send button is no tab stop, and the next one is somewhere else on the
+    // page — so the ring and the reader's cursor ended up in different
+    // places. Now `EVGFocus` picks the next control and the mirror follows.
     if (k.key === "Tab") {
+      const took = app.keyWith("Tab", k.shiftKey, false);
       textInput.release();
-      app.setFocus("");
-      app.rebuild();
+      syncTextSession();
       paintAll();
-      return false;
+      syncMirror();
+      return took;
     }
     if (k.key !== "Escape" && k.key !== "Enter") return false;
     const took = app.keyWith(k.key, k.shiftKey, k.ctrlKey || k.metaKey);
@@ -416,7 +426,6 @@ function syncTextSession() {
     textInput.blurField();
     return;
   }
-  focus = tid;
   if (textInput.activeTid() === tid) {
     textInput.sync(st);
     return;
