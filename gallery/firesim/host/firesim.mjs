@@ -318,6 +318,33 @@ export function createSim(options = {}) {
       };
     },
 
+    // --- listeners ---
+    // A query that answers again when its answer changes. It is the
+    // simulator's own — the real thing carries `onSnapshot` over a gRPC
+    // channel a REST surface cannot pretend to be — so it lives under the
+    // `firesim/` prefix and is named for what it is.
+    watch(structuredQuery, { parent = "" } = {}) {
+      const body = typeof structuredQuery === "string" ? { document: structuredQuery } : { structuredQuery, parent };
+      const first = api.fetchNow("/firesim/v1/watch", { method: "POST", body, headers: authHeader() });
+      if (!first.ok) throw new Error(first.bodyText);
+      const started = JSON.parse(first.bodyText);
+      return {
+        id: started.watchId,
+        // The whole result, as a view draws it before anything has changed.
+        initial: started.changes,
+        // What has changed since the last ask. Cheap when nothing has: the
+        // store's version has not moved, so the query is not even run.
+        poll() {
+          const res = api.fetchNow("/firesim/v1/poll", { method: "POST", body: { watchId: started.watchId }, headers: authHeader() });
+          if (!res.ok) throw new Error(res.bodyText);
+          return JSON.parse(res.bodyText);
+        },
+        stop() {
+          api.fetchNow("/firesim/v1/unwatch", { method: "POST", body: { watchId: started.watchId } });
+        },
+      };
+    },
+
     // --- the model ---
     ai: {
       canned(prompt, reply) {
@@ -337,6 +364,23 @@ export function createSim(options = {}) {
       return startServer(api, sim, port, timeScale);
     },
   };
+
+  // Who a convenience call speaks as. `signIn`/`signUp` set it, so a test
+  // does not repeat the Authorization header on every line.
+  let asToken = "";
+  const authHeader = () => (asToken ? { Authorization: `Bearer ${asToken}` } : {});
+  api.actAs = (idTokenOrNull) => {
+    asToken = idTokenOrNull ?? "";
+    return api;
+  };
+  for (const name of ["signUp", "signIn", "signInAnonymously"]) {
+    const inner = api[name];
+    api[name] = (...args) => {
+      const out = inner(...args);
+      asToken = out.idToken;
+      return out;
+    };
+  }
 
   if (options.seed) api.seed(options.seed, { ownerUid: options.ownerUid ?? "" });
   return api;

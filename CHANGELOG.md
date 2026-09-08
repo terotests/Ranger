@@ -9,6 +9,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A database workbench over the simulator, at `/firesim/`.** A backend you
+  cannot see is a backend you have to take on trust, so `gallery/firesim/demo`
+  puts the thing a person actually reaches for on top of it: a data browser.
+  Collections, the documents in one, and a document's fields with their
+  Firestore TYPES — string, integer, double, boolean, timestamp, array, map,
+  reference, geopoint, null — with a subcollection listed apart from the
+  fields, because it is not one, and pressable, so the tree is walked rather
+  than described. The document list is an `FsWatch` polled on the app's own
+  tick, so a row appears because a listener said it did, and switching
+  identity re-registers it. The Rules tab is a real tester: every cell is
+  `FsRulesEval.check` against the rules file printed under it, for that
+  identity, ON WHATEVER PATH IS SELECTED IN THE BROWSER. The Query tab builds
+  a `where` and an `orderBy` by pressing — fields and values read out of the
+  data — and the answers worth having are the refusals. Users is the accounts
+  table with providers and custom claims; Traffic is every request answered,
+  with runs of listener polls collapsed under a count. Two datasets and
+  neither is built in: a sample written in Ranger with one of every value
+  type, and `gallery/realtrainer`'s own 747-document seed as EXAMPLE DATA,
+  fetched by the host and loaded through `FsSeed` unconverted, each carrying
+  its own rules file. Drawn by EVG on WebGL, controlled by `gallery/ui`'s own
+  controllers, full screen, with the whole backend in the tab and no server
+  behind the page — and no bundler and no install either, since the compiled
+  module is one self-contained file. Two gates: `firesim:demo` drives the same
+  app with a made-up clock and presses its controls at the rectangles the
+  accessibility tree reports (87 assertions, no browser), and
+  `firesim:demo:frame` loads the page in Chromium and reads the framebuffer,
+  because a script that 404s and a WebGL context that is never created both
+  look like a working app to a check that never opens one.
+- **Snapshot listeners, as the simulator's own rather than as a claim about
+  Google's.** `onSnapshot` travels over a gRPC `Listen` channel that a REST
+  surface cannot pretend to be, so `FsWatch` sits under the `firesim/` prefix
+  and is named for what it is. A watch is a registered query plus what it last
+  answered, and a poll re-runs it and diffs the RESULT SET — not the store's
+  change log, which is the decision worth arguing about: a write log cannot
+  tell you that a document nobody touched left the result because someone
+  else's write pushed it past the `limit`, that an edit to an unrelated field
+  made a document start matching a `where`, or that a rule stopped allowing a
+  row that is still there. The rules run again on every poll, as a `list`, so
+  revoking access makes rows leave a live view instead of sitting in it.
 - **A Firebase, simulated, in Ranger — `gallery/firesim`.**
   `gallery/realtrainer` is a five-screen application with no backend: it reads
   its week out of a file and "saves" through a countdown with nothing behind
@@ -37,9 +76,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is the proof: the reference recorder's own `seed.json` goes in unconverted,
   comes back over `:runQuery` as a signed-in user through the rules, and the
   demo has to draw the same accessibility tree from it — six scenarios, node
-  for node. 87 + 17 + 15 assertions and 24/24 target builds; the client build
-  an app carries is 106 kB of Kotlin, which is the measured answer to whether
-  it fits on a watch. Plan and the phases left in
+  for node. 101 + 87 + 17 + 16 assertions and 24/24 target builds; the client
+  build an app carries is 113 kB of Kotlin, which is the measured answer to
+  whether it fits on a watch. Plan and the phases left in
   [`PLAN_FIRESIM.md`](PLAN_FIRESIM.md).
 - **A segmented date field, measured against the browser's own.** The
   calendar demo's date box was a formatted label; a person asked for the
@@ -69,6 +108,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Firestore rules: `&&` and `||` now absorb errors, as CEL does.** Found
+  while building the console. `resource.data.userId == uid ||
+  request.resource.data.userId == uid` is the ordinary way to write one rule
+  for a create and an update, and on a create the left half reads a document
+  that is not there — which the strict operators here were turning into a
+  denial. `||` now answers true when either side is true even if the other
+  errored, `&&` false when either is false, and only a combination that
+  decides nothing keeps the error; the left side still short-circuits when it
+  decides the answer, so a `get()` on the right is not a read that should not
+  have happened. `resource` is `null` on a create rather than an empty map
+  too, which is what makes `resource == null` work as a create guard.
 - **Keyboard focus was invisible on the demo forms and the calendar.** Not one
   of `form.css`, `profile.css` and `calendar.css` had a `:focus` rule, so Tab
   moved the focus and drew nothing: a Tab into the readonly invoice number,

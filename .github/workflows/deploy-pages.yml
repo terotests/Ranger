@@ -88,6 +88,8 @@ on:
       # The RealTrainer page at /realtrainer/ is built from these, and from
       # the controls in gallery/ui it is drawn with.
       - "gallery/realtrainer/**"
+      # The firesim console at /firesim/ is built from these.
+      - "gallery/firesim/**"
       - "gallery/ui/**"
       # These carry the deck editor, the API playground, and the Office
       # reference at /office/reference/ — so a change to a facade republishes
@@ -227,6 +229,23 @@ jobs:
           test -s "$GITHUB_WORKSPACE/_site/realtrainer/bundle-worker.js"
           test -s "$GITHUB_WORKSPACE/_site/realtrainer/worker-bundle.js"
           test -s "$GITHUB_WORKSPACE/_site/evg/responsive/evg-dom.js"
+
+      # ---- the firesim workbench at /firesim/ ------------------------------
+      # A database browser over the Firebase simulator. No bundler: the
+      # compiled module is one self-contained file, so the page is a wrapper
+      # and a copy of EVG's own browser helpers — which is the same claim the
+      # simulator makes about itself, and why this step has no install.
+      - name: Build the firesim workbench
+        run: |
+          npm run firesim:demo:build --silent
+          node gallery/firesim/demo/build.mjs --out "$GITHUB_WORKSPACE/_site/firesim"
+          test -s "$GITHUB_WORKSPACE/_site/firesim/index.html"
+          test -s "$GITHUB_WORKSPACE/_site/firesim/generated-host.js"
+          test -s "$GITHUB_WORKSPACE/_site/firesim/evg/gl/evg-webgl.js"
+          grep -q "FiresimConsole" "$GITHUB_WORKSPACE/_site/firesim/generated-host.js"
+          grep -q "FsRulesEval" "$GITHUB_WORKSPACE/_site/firesim/generated-host.js"
+          test -s "$GITHUB_WORKSPACE/_site/firesim/datasets/realtrainer.json"
+          test -s "$GITHUB_WORKSPACE/_site/firesim/datasets/realtrainer.rules"
 
       # ---- .pptx API playground at /office/ -------------------------------
       # The published API and the slide editor in one page: the code writes a

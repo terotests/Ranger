@@ -29,7 +29,7 @@
 ; the trip to twelve languages as reliably.
 ; =============================================================================
 
-Import "FsQuery.rgr"
+Import "FsWatch.rgr"
 Import "FsHttp.rgr"
 
 ; -----------------------------------------------------------------------------
@@ -74,7 +74,7 @@ class FsTransport {
     Constructor () {
     }
 
-    sfn to:FsTransport (baseUrl:string) {
+    sfn toBase:FsTransport (baseUrl:string) {
         def t:FsTransport (new FsTransport)
         t.baseUrl = baseUrl
         return t
@@ -331,6 +331,10 @@ class FsClient {
     ; The last error a `read…` call saw, so an app has one place to look.
     def lastError@(mutable):string ""
     def lastStatus@(mutable):int 0
+    ; What the last `readChanges` saw: whether the store had moved at all,
+    ; and the version it is at now.
+    def lastQuiet@(mutable):boolean false
+    def lastVersion@(mutable):int 0
 
     Constructor () {
     }
@@ -465,6 +469,91 @@ class FsClient {
         def req:FsRequest (this.newRequest("POST" url (writer.write(body))))
         def t:FsTransport (unwrap transport)
         return (t.send(req))
+    }
+
+    ; --- listeners -----------------------------------------------------------
+    ; A query that answers again when its answer changes. This is the
+    ; SIMULATOR'S OWN endpoint and not Google's — the real thing carries
+    ; `onSnapshot` over a gRPC channel — so an app that uses it against a real
+    ; project needs a host transport that turns it into a real listener. The
+    ; shape on this side is the same either way: start it, then poll on the
+    ; app's tick.
+    fn watch:int (q:FsQuery) {
+        def body:VlJson (VlJson.objectValue())
+        body.setMember("structuredQuery" (FsClient.queryJson(q)))
+        if ((strlen q.parent) > 0) {
+            body.setMember("parent" (VlJson.stringValue(q.parent)))
+        }
+        def writer:VlJsonWriter (new VlJsonWriter)
+        def req:FsRequest (this.newRequest("POST" "/firesim/v1/watch" (writer.write(body))))
+        def t:FsTransport (unwrap transport)
+        return (t.send(req))
+    }
+
+    fn watchDocument:int (path:string) {
+        def body:VlJson (VlJson.objectValue())
+        body.setMember("document" (VlJson.stringValue(path)))
+        def writer:VlJsonWriter (new VlJsonWriter)
+        def req:FsRequest (this.newRequest("POST" "/firesim/v1/watch" (writer.write(body))))
+        def t:FsTransport (unwrap transport)
+        return (t.send(req))
+    }
+
+    fn poll:int (watchId:int) {
+        def body:VlJson (VlJson.objectValue())
+        body.setMember("watchId" (VlJson.intValue(watchId)))
+        def writer:VlJsonWriter (new VlJsonWriter)
+        def req:FsRequest (this.newRequest("POST" "/firesim/v1/poll" (writer.write(body))))
+        def t:FsTransport (unwrap transport)
+        return (t.send(req))
+    }
+
+    fn unwatch:int (watchId:int) {
+        def body:VlJson (VlJson.objectValue())
+        body.setMember("watchId" (VlJson.intValue(watchId)))
+        def writer:VlJsonWriter (new VlJsonWriter)
+        def req:FsRequest (this.newRequest("POST" "/firesim/v1/unwatch" (writer.write(body))))
+        def t:FsTransport (unwrap transport)
+        return (t.send(req))
+    }
+
+    ; The watch id out of a `watch` answer, or -1.
+    fn readWatchId:int (callId:int) {
+        def body:VlJson (this.readJson(callId))
+        if (lastStatus >= 400) {
+            return -1
+        }
+        return (body.intOr("watchId" -1))
+    }
+
+    ; What changed. `quiet` on the answer means the store has not moved at
+    ; all since the last look — a view can skip its rebuild on that alone.
+    fn readChanges:[FsWatchChange] (callId:int) {
+        def out:[FsWatchChange]
+        def body:VlJson (this.readJson(callId))
+        if (lastStatus >= 400) {
+            return out
+        }
+        lastQuiet = (body.boolOr("quiet" false))
+        lastVersion = (body.intOr("version" 0))
+        def rows:VlJson (body.get("changes"))
+        def n:int (rows.count())
+        def i:int 0
+        while (i < n) {
+            def row:VlJson (rows.at(i))
+            def c:FsWatchChange (new FsWatchChange)
+            c.kind = (row.stringOr("type" "added"))
+            if (c.kind == "removed") {
+                c.path = (FsClient.pathOfName((row.stringOr("name" ""))))
+            } {
+                def doc:FsDocument (FsClient.docOf((row.get("document"))))
+                c.path = doc.path
+                c.doc = doc
+            }
+            push out c
+            i = (i + 1)
+        }
+        return out
     }
 
     ; A prompt, streamed. The chunks come back through `takeChunks`.

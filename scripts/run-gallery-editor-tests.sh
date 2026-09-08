@@ -306,10 +306,14 @@ SUITES=(
   # separately from the whole simulator, because they are different sizes for
   # a reason.
   firesim:targets
-  # The simulator running in a browser tab, driven with no browser: the page
-  # is the proof that the whole backend fits in a page with nothing installed,
-  # and this presses its buttons.
-  firesim:page
+  # The workbench: a database browser over the simulator, drawn by EVG and
+  # controlled by gallery/ui's own controllers — collections, documents, a
+  # document's fields with their Firestore types, a query builder whose
+  # interesting answers are the refusals, and the permission grid for whatever
+  # path is selected. Driven here with a made-up clock; the page's own browser
+  # gate is firesim:demo:frame, which needs a Chromium and skips loudly
+  # without one.
+  firesim:demo
   # And the demo drawing from the simulator instead of from its fixture file:
   # the seed goes in over REST, comes back through a query as a signed-in
   # user, and the app has to draw the SAME accessibility tree it draws from

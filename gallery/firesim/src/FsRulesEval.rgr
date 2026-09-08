@@ -173,8 +173,14 @@ class FsRulesEval {
         return req
     }
 
+    ; `resource` is NULL when the document is not there — which is what makes
+    ; `resource == null` the idiomatic create guard, and what makes
+    ; `resource.data.x` an error on a create rather than a silent empty map.
     fn buildResource:FsValue () {
         def c:FsRequestCtx (unwrap ctx)
+        if (! c.resourceExists) {
+            return (FsValue.nullV())
+        }
         def res:FsValue (FsValue.mapV())
         def data:FsValue (c.existing())
         res.setField("data" (data.copy()))
@@ -307,21 +313,69 @@ class FsRulesEval {
         def op:string e.text
         ; `&&` and `||` short-circuit, which is what makes
         ; `request.auth != null && request.auth.uid == x` safe to write.
+        ; CEL's logical operators ABSORB errors, and rules files depend on it:
+        ; `resource.data.userId == uid || request.resource.data.userId == uid`
+        ; is the ordinary way to write one rule for a create and an update,
+        ; and on a create the left half reads a document that is not there.
+        ; A strict `||` would deny it. So: `x || true` is true even when `x`
+        ; errored, `x && false` is false even when `x` errored, and only a
+        ; combination that does not decide keeps the error.
+        ;
+        ; The left side still short-circuits when it decides the answer,
+        ; because a `get()` on the right is a read that should not happen.
         if (op == "&&") {
             def l:FsValue (this.eval((itemAt e.parts 0)))
-            if (! (l.asBool())) {
-                return (FsValue.boolV(false))
+            def leftFailed:string error
+            if ((strlen leftFailed) == 0) {
+                if (! (l.asBool())) {
+                    return (FsValue.boolV(false))
+                }
             }
+            error = ""
             def r:FsValue (this.eval((itemAt e.parts 1)))
-            return (FsValue.boolV((r.asBool())))
+            def rightFailed:string error
+            if ((strlen rightFailed) == 0) {
+                if (! (r.asBool())) {
+                    return (FsValue.boolV(false))
+                }
+            }
+            if ((strlen leftFailed) > 0) {
+                error = leftFailed
+                return (new FsValue)
+            }
+            if ((strlen rightFailed) > 0) {
+                error = rightFailed
+                return (new FsValue)
+            }
+            error = ""
+            return (FsValue.boolV(true))
         }
         if (op == "||") {
             def l:FsValue (this.eval((itemAt e.parts 0)))
-            if (l.asBool()) {
-                return (FsValue.boolV(true))
+            def leftFailed:string error
+            if ((strlen leftFailed) == 0) {
+                if (l.asBool()) {
+                    return (FsValue.boolV(true))
+                }
             }
+            error = ""
             def r:FsValue (this.eval((itemAt e.parts 1)))
-            return (FsValue.boolV((r.asBool())))
+            def rightFailed:string error
+            if ((strlen rightFailed) == 0) {
+                if (r.asBool()) {
+                    return (FsValue.boolV(true))
+                }
+            }
+            if ((strlen leftFailed) > 0) {
+                error = leftFailed
+                return (new FsValue)
+            }
+            if ((strlen rightFailed) > 0) {
+                error = rightFailed
+                return (new FsValue)
+            }
+            error = ""
+            return (FsValue.boolV(false))
         }
         if (op == "is") {
             def l:FsValue (this.eval((itemAt e.parts 0)))

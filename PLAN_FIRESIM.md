@@ -1,6 +1,6 @@
 # PLAN_FIRESIM — a Firebase backend, simulated, under the Ranger apps
 
-Status: **phases 1–5 implemented and gated**; phases 6–9 are the plan.
+Status: **phases 1–7 implemented and gated**; phases 8–11 are the plan.
 Module: [`gallery/firesim`](gallery/firesim/README.md).
 
 ## The ask
@@ -171,7 +171,7 @@ is written for and otherwise unreachable.
 | --- | --- |
 | Node | `host/firesim.mjs`: `createSim`, a `fetch` that advances the clock, an async iterator over a stream |
 | a socket | `host/serve.mjs`: a real HTTP server for an Android emulator, an iOS simulator, a browser or `curl`; SSE in real time, `--time-scale` to make it instant in CI |
-| a browser tab | `web/build.mjs` wraps the compiled module as an ES module with **no bundler** (the compiled `.cjs` has no `require` in it); `web/index.html` is an inspector running the whole backend in the page |
+| a browser tab | `demo/build.mjs` wraps the compiled module as an ES module with **no bundler** (the compiled `.cjs` has no `require` in it) and copies EVG's three browser helpers beside it; the workbench of phase 7 is what runs there |
 | iOS / Android / Linux SDL | the module compiles to Swift, Kotlin and C++, in-process through `FsSimBridge` or over the socket |
 
 **The proof** is `npm run firesim:realtrainer`. `gallery/realtrainer`'s
@@ -187,14 +187,16 @@ six.
 
 | | |
 | --- | --- |
-| `npm run firesim:test` | 87 assertions: values, the store, queries and their refusals, the rules, accounts, the wait, the model, the Ranger client, the RealTrainer seed, and a real socket |
+| `npm run firesim:test` | 101 assertions: values, the store, queries and their refusals, the rules, accounts, the wait, listeners, the model, the Ranger client, the RealTrainer seed, and a real socket |
 | `npm run firesim:realtrainer` | the demo drawing from the simulator, six scenarios |
-| `npm run firesim:page` | the browser inspector, driven with a DOM stub |
 | `npm run firesim:targets` | 24/24 — two builds × twelve targets |
+| `npm run firesim:demo` | the workbench, driven with no browser: 87 assertions |
+| `npm run firesim:demo:frame` | the same page in Chromium, at the pixels |
 | `npm run firesim:size` | what each build costs, per target |
 
-All four are wired into `scripts/run-gallery-editor-tests.sh`, which is what
-CI's `gallery-editors` job runs.
+All of them except the browser gate are wired into
+`scripts/run-gallery-editor-tests.sh`, which is what CI's `gallery-editors`
+job runs; `firesim:demo:frame` needs a Chromium and skips loudly without one.
 
 ## Is it light enough for a watch?
 
@@ -202,46 +204,100 @@ Measured, not asserted (`npm run firesim:size`):
 
 | build | Kotlin | Swift | JavaScript |
 | --- | --- | --- | --- |
-| **client** (`FsClient.rgr`) | 106 kB / 4 293 lines | 110 kB / 4 059 lines | 92 kB / 3 897 lines |
-| **whole simulator** (`FsSimBridge.rgr`) | 224 kB / 8 515 lines | 236 kB / 8 209 lines | 194 kB / 7 838 lines |
+| **client** (`FsClient.rgr`) | 113 kB / 4 540 lines | 117 kB / 4 307 lines | 97 kB / 4 125 lines |
+| **whole simulator** (`FsSimBridge.rgr`) | 236 kB / 8 923 lines | 249 kB / 8 623 lines | 204 kB / 8 226 lines |
 
 The client build — values, paths, queries, wire shapes, transport — is what an
 app carries. No rules parser, no routing, no accounts, no model: those are
 behind the transport. It allocates no threads, opens no sockets, and depends
 on nothing but the Ranger runtime.
 
-**Verdict: yes for the client**, on Wear OS and watchOS, at about four
-thousand lines of generated source. Running the whole simulator on the watch
+**Verdict: yes for the client**, on Wear OS and watchOS, at about four and
+a half thousand lines of generated source. Running the whole simulator on the watch
 compiles and would work, but is not the shape to reach for — point the watch's
 transport at the simulator on the phone or the laptop and seed once, rather
 than seeding two devices. Compiled binary size and RAM under a real seed are
 **not** measured: they need platform toolchains this repository's CI does not
 have, and a made-up number would be worth nothing.
 
+## Phase 6 — a query that answers again *(done)*
+
+`onSnapshot` is the one Firestore feature an app leans on that a REST
+simulator cannot inherit: the real thing carries it over a gRPC `Listen`
+channel. So `FsWatch` is **this simulator's own**, under the `firesim/` prefix
+and named for what it is — `POST /firesim/v1/watch`, `…/poll`, `…/unwatch` —
+because claiming Google's shape for something Google does not do that way is
+the one thing this module has avoided throughout.
+
+A watch is a registered query plus what it last answered; a poll re-runs it
+and diffs the **result set**. That is the design decision, and it is not the
+obvious one: a change log tells you which documents were written, and does not
+tell you that a document nobody touched left the result because someone else's
+write pushed it past the `limit`, that an edit to an unrelated field made a
+document start matching a `where`, or that a rule stopped allowing a row that
+is still there. Those three are exactly what an app renders wrongly when its
+listener is built on a write log.
+
+The rules run again on every poll, as a `list`, so a listener cannot see what
+a query could not. A poll where the store's version has not moved answers
+`quiet` without running the query at all.
+
+Building it also found a real fidelity bug: CEL's logical operators **absorb
+errors**, and the strict `&&`/`||` here did not. `resource.data.userId == uid
+|| request.resource.data.userId == uid` is the ordinary way to write one rule
+for a create and an update, and on a create the left half reads a document
+that is not there — which this engine was denying. `||` now answers true when
+either side is true even if the other errored, `&&` false when either is
+false, and only a combination that decides nothing keeps the error. `resource`
+is now `null` on a create too, rather than an empty map, which is what makes
+`resource == null` work as a create guard.
+
+## Phase 7 — the workbench, on github.io *(done)*
+
+`gallery/firesim/demo`, published at
+[`/firesim/`](https://terotests.github.io/Ranger/firesim/): a **database
+browser** over the simulator — drawn by EVG on WebGL, controlled by
+`gallery/ui`'s own controllers, full screen, with the whole backend running in
+the tab and no server behind the page.
+
+It is deliberately not an application demo, and that was a correction worth
+making: the first version of this page was a RealTrainer screen with the
+simulator behind it, which showed an app and not a database. What a person
+reaching for a backend simulator wants is the thing the Firebase console gives
+them — *what is actually in there* — so:
+
+- **Data**: collections, the documents in one, and a document's fields with
+  their Firestore TYPES; a subcollection listed apart from the fields, because
+  it is not one, and pressable, so the tree is walked rather than described.
+  The list is an `FsWatch`, so a row appears because a listener said it did.
+- **Rules**: the permission grid for **whatever path is selected in the
+  browser**, every identity against every method, each cell `FsRulesEval` at
+  that moment.
+- **Query**: a `where` and an `orderBy` built by pressing — the fields and
+  values read out of the data — with the refusals as the point.
+- **Users**: the accounts table, providers and custom claims.
+- **Traffic**: every request answered, with runs of listener polls collapsed.
+
+Two datasets and neither is built in: a sample written in Ranger with one of
+every value type, and `gallery/realtrainer`'s own 747-document seed as
+**example data**, fetched by the host and loaded through `FsSeed` unconverted.
+Each carries its own rules file, because rules belong to a dataset and not to
+a tool. Nothing in the workbench knows what a calendar is.
+
+The page has **no bundler and no install**. The compiled module is one
+self-contained file, so the build is a wrapper, a copy of EVG's three browser
+helpers (followed transitively, and asserted to resolve where they are put)
+and an `index.html` — the same claim the simulator makes about itself.
+
+The plain-DOM inspector that phase 5 shipped under `web/` was removed with
+this: two pages doing the same job is worse than one, and the workbench does
+strictly more.
+
 ---
 
 # What is next
 
-## Phase 6 — snapshot listeners
-
-The one Firestore feature an app leans on that is not here. `FsStore` already
-keeps a change log with a monotonic version, which is what a listener replays;
-what is missing is the shape.
-
-- `FsListener`: a registered query plus the version it has seen. On each
-  `tick`, the changes after that version are matched against the query and
-  emitted as `added` / `modified` / `removed`, with the same rules check a
-  `list` gets.
-- On the wire: the REST API has `documents:listen` over gRPC, which is not
-  reachable from a plain HTTP simulator. So the socket host gets an SSE
-  endpoint of its own (`/firesim/v1/listen`) and the Ranger client gets
-  `FsClient.watch(query)` over it. **Documented as this simulator's own**, in
-  the `firesim/` prefix, because pretending it is Google's would be the one
-  lie this module has avoided so far.
-- Acceptance: a RealTrainer diary open in two tabs, a workout added in one,
-  appearing in the other, in a check.
-
-## Phase 7 — the host transports, for real
+## Phase 8 — the host transports, for real
 
 The queue exists and is checked; the three implementations that drain it over
 HTTPS do not.
@@ -257,9 +313,11 @@ HTTPS do not.
 
 Each is a hundred lines and none of them is Ranger. Acceptance: the RealTrainer
 iOS and Android ports run against the simulator over the socket unchanged, and
-against a real project by changing `baseUrl`.
+against a real project by changing `baseUrl`. The watch endpoints are the part
+that needs real work here: against a real project they have to become an
+actual `onSnapshot`, which is why they are named as this simulator's own.
 
-## Phase 8 — Storage and Functions
+## Phase 9 — Storage and Functions
 
 - **Cloud Storage**: `POST /v0/b/{bucket}/o?name=`, `GET /v0/b/{bucket}/o/{name}`,
   download tokens, and rules under `service firebase.storage`. RealTrainer's
@@ -270,7 +328,7 @@ against a real project by changing `baseUrl`.
   registers. This is the shape the coach's "accept these actions" step would
   really take.
 
-## Phase 9 — fidelity, measured against the real emulator
+## Phase 10 — fidelity, measured against the real emulator
 
 The honest end of this module. `gallery/realtrainer`'s trace harness already
 has the pattern: a reference recorded against the real thing, committed, and
@@ -287,6 +345,15 @@ diffed here.
 
 That check is what would let this module claim fidelity instead of describing
 it, and it is the most valuable thing left to build.
+
+## Phase 11 — the console, wired to RealTrainer's own data
+
+The console draws three made-up entries. The obvious next step is to seed it
+from `gallery/realtrainer/fixtures/reference/seed.json` — 747 documents, the
+same file `firesim:realtrainer` proves the demo can draw from — and put the
+RealTrainer port's own screens beside the rail, so one page shows an app and
+the backend under it at the same time. The pieces are all here; what is
+missing is the page that puts them together.
 
 ## Deliberately out of scope
 

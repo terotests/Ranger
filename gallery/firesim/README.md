@@ -11,16 +11,100 @@ the same process as the app or behind a socket, with **no Google account, no
 emulator, no Java and no network**.
 
 ```bash
-npm run firesim:test          # the gate: store, queries, rules, accounts, latency, the model
-npm run firesim:realtrainer   # the demo drawing from the simulator instead of its file  (CI)
+npm run firesim:test          # the gate: store, queries, rules, accounts, latency, listeners
+npm run firesim:realtrainer   # a real app drawing from the simulator                  (CI)
 npm run firesim:targets       # does it compile for the twelve targets an app runs on
 npm run firesim:size          # what the client build costs, per target
-npm run firesim:page          # the browser inspector, driven with no browser
+
+npm run firesim:demo          # the workbench, driven with no browser                  (CI)
+npm run firesim:demo:web      # the workbench page, served — build, URL, open it
+npm run firesim:demo:frame    # the same page in Chromium, at the pixels
+npm run firesim:demo:shots    # regenerate the screenshots below from it
+
 npm run firesim:serve -- --seed gallery/realtrainer/fixtures/reference/seed.json \
                          --rules gallery/firesim/fixtures/realtrainer.rules \
                          --user test@example.com:testpassword123
-npm run firesim:web           # the same, plus the inspector page
 ```
+
+Live, from these sources: **[the workbench](https://terotests.github.io/Ranger/firesim/)** —
+a database browser, a query builder, a rules tester and an accounts table over
+a Firestore running in your tab with nothing installed.
+
+## The workbench: a database you can look at
+
+![the data browser: collections, documents, and a document's fields with their types](demo/shots/firesim-console-data.png)
+
+`npm run firesim:demo:web`, or
+[the page on github.io](https://terotests.github.io/Ranger/firesim/). There is
+no server behind it. The store, the query engine, the rules parser and the
+accounts are the same code the checks drive, compiled to JavaScript and
+executing in the page; the screen is EVG on WebGL, and the controls are
+`gallery/ui`'s own — the ones its conformance harness measures against Radix.
+
+It is deliberately **not an application demo**. There is no product in it.
+What it shows is a database.
+
+**Data** is the browser: the collections here, the documents in the one you
+picked, and that document's fields with their **Firestore types** — string,
+integer, double, boolean, timestamp, array, map, reference, geopoint, null.
+A subcollection is listed apart from the fields and is pressable, because a
+subcollection is not a field and does not go away with its parent. The
+breadcrumb walks back up.
+
+The document list is not a query re-run on a timer. It is an `FsWatch`, polled
+on the app's own tick, so a row appears because a **listener** said it did —
+and switching identity re-registers it, so the rows that arrive are the rows
+those rules allow.
+
+![the permission grid, computed by the rules engine for the selected path](demo/shots/firesim-console-rules.png)
+
+**Rules** is the tester. Every cell is `FsRulesEval.check` run against the
+rules file printed underneath it, for that identity, **on whatever path is
+selected in the browser**, at that moment. Pick a different document and the
+grid is a different answer. The identities are an owner, another owner, an
+admin by custom claim, and nobody at all.
+
+![the query builder, and the answers worth having are the refusals](demo/shots/firesim-console-query.png)
+
+**Query** builds a `where` and an `orderBy` by pressing — the fields and the
+values are read out of the data, so it can only ask questions the data can
+answer — and runs it through `:runQuery` as whoever you are. The interesting
+answers are the refusals: an inequality on two fields, an `orderBy` on a field
+a document lacks, an inequality that is not the first `orderBy`. It prints the
+composite index the query would need, too.
+
+**Users** is the accounts table: uid, e-mail, provider and custom claims, with
+buttons to make another account or an anonymous session. **Traffic** is every
+request the simulator answered, newest first, with runs of the listener's
+polls collapsed under a count — otherwise they would be the whole log, which
+is itself worth knowing.
+
+The rail is the simulator's own knobs: latency on every call, an offline
+switch, a fail-the-next-call box, and a progress bar showing what is actually
+in flight.
+
+### Two datasets, and neither is built in
+
+A **sample** written in Ranger — nine documents, one of every value type
+Firestore has, with a subcollection and a reference — and
+**[`gallery/realtrainer`](../realtrainer/README.md)'s own seed**: 747
+documents, the file its reference recorder puts into a *real* Firebase
+emulator, fetched by the page and loaded through `FsSeed` unconverted. Each
+brings its own rules file, because rules are part of a dataset and not part of
+a tool.
+
+The RealTrainer one is there as **example data**, to show the browser against
+something the size of a real database rather than something arranged to look
+good. Nothing in the workbench knows what a calendar or a workout is.
+
+### The two gates
+
+`npm run firesim:demo` drives the same app with a made-up clock and presses
+its controls at the rectangles the accessibility tree reports — 87 assertions,
+no browser. `npm run firesim:demo:frame` loads the page in Chromium and reads
+the framebuffer, because a script that 404s, a module that will not parse and
+a WebGL context that is never created all look like a working app to a check
+that never opens one.
 
 ## The one decision everything else follows from
 
@@ -166,6 +250,45 @@ simulator keeps them:
   every real rules file guards with `.keys().hasAll([…])` first. An error
   denies.
 
+## A query that answers again
+
+`onSnapshot` is the one Firestore feature an app leans on that a REST
+simulator cannot inherit: the real thing carries it over a gRPC `Listen`
+channel, which is not something a plain HTTP surface can pretend to be. So
+this is **the simulator's own**, under the `firesim/` prefix in the URL space
+and named for what it is, because claiming Google's shape for something Google
+does not do that way is the one thing this module has avoided throughout.
+
+A watch is a registered query plus what it last answered. A poll re-runs it
+and diffs:
+
+```
+in the new answer, not the old      → added
+in both, at a newer version         → modified
+in the old answer, not the new      → removed
+```
+
+The diff is against the **result set**, not the store's change log, and that
+is the whole design decision. A change log tells you which documents were
+written. It does not tell you that a document nobody touched left the result
+because someone else's write pushed it past the `limit`, or that an edit to an
+unrelated field made a document start matching a `where`, or that a rule
+stopped allowing a row that is still there. Those are exactly the transitions
+an app renders wrongly when its listener is built on a write log, and they are
+free here.
+
+The rules run again on every poll, as a `list`. So a listener cannot see what
+a query could not, and revoking access makes rows **leave** a live view rather
+than sit in it forever.
+
+```js
+const w = sim.watch({ from: [{ collectionId: "entries" }],
+                      orderBy: [{ field: { fieldPath: "minutes" } }], limit: 2 });
+w.initial;      // the whole result — the snapshot a view draws
+w.poll();       // { changes: [...], quiet: false, version: 12 }
+w.poll().quiet; // true: the store has not moved, so the query was not even run
+```
+
 ## Accounts, without Google
 
 `accounts:signUp`, `accounts:signInWithPassword`, `accounts:lookup`,
@@ -270,7 +393,7 @@ for the simulator.
 | --- | --- |
 | **Node** | `host/firesim.mjs` — a friendlier constructor, a `fetch` that advances the clock, an async iterator over a stream |
 | **A socket** | `npm run firesim:serve` — a real HTTP server, so an Android emulator, an iOS simulator, a browser or `curl` reaches the same simulator; SSE arrives in real time, scaled by `--time-scale` |
-| **A browser tab** | `web/build.mjs` wraps the compiled module as an ES module with **no bundler** — the compiled `.cjs` has no `require` in it at all — and `web/index.html` is an inspector: accounts, latency sliders, a rules editor, a request console, the document tree and the streaming model, all of it running in the page |
+| **A browser tab** | `demo/build.mjs` wraps the compiled module as an ES module with **no bundler** — the compiled `.cjs` has no `require` in it at all — and copies EVG's three browser helpers beside it. The workbench above is the result, and it is the whole backend running in the page |
 | **iOS / Android / Linux SDL** | the module compiles to Swift, Kotlin and C++; in-process through `FsSimBridge`, or over the socket from a simulator or a device on the same network |
 
 `npm run firesim:targets` compiles both builds for all twelve targets:
@@ -283,8 +406,8 @@ Second priority in the ask, and the honest answer is a number
 
 | build | Kotlin | Swift | JavaScript |
 | --- | --- | --- | --- |
-| **client** (`FsClient.rgr`) | 106 kB / 4 293 lines | 110 kB / 4 059 lines | 92 kB / 3 897 lines |
-| **whole simulator** (`FsSimBridge.rgr`) | 224 kB / 8 515 lines | 236 kB / 8 209 lines | 194 kB / 7 838 lines |
+| **client** (`FsClient.rgr`) | 113 kB / 4 540 lines | 117 kB / 4 307 lines | 97 kB / 4 125 lines |
+| **whole simulator** (`FsSimBridge.rgr`) | 236 kB / 8 923 lines | 249 kB / 8 623 lines | 204 kB / 8 226 lines |
 
 The **client** build is what an app carries: values, paths, queries, the wire
 shapes and the transport. No rules parser, no routing table, no accounts, no
@@ -293,7 +416,7 @@ to a real project pays for none of them. It allocates no threads, opens no
 sockets, and has no dependency beyond the Ranger runtime.
 
 So: **yes for the client**, on both Wear OS (Kotlin) and watchOS (Swift), at
-about four thousand lines of generated source. Running the **whole simulator**
+about four and a half thousand lines of generated source. Running the **whole simulator**
 on the watch is possible — it compiles, and the largest thing in it is a
 recursive-descent parser — but it is not the shape to reach for: point the
 watch's transport at the simulator running on the phone or on a laptop and
@@ -316,24 +439,31 @@ src/FsHttp.rgr       the request, the response, and one that arrives in pieces
 src/FsAi.rgr         a model that answers a word at a time, on the clock
 src/FsServer.rgr     the endpoints
 src/FsSim.rgr        the clock, the wait, failure injection, and the seed loader
+src/FsWatch.rgr      a query that answers again when its answer changes
 src/FsClient.rgr     what an app calls, and the transport that is only a queue
 src/FsSimBridge.rgr  the one file that knows about both ends
 
+demo/FiresimConsole.rgr  the workbench: a database browser over the simulator
+demo/firesim-console.css the theme, as an EVG stylesheet
+demo/main.js             the browser host — a clock, a pointer, one canvas
+demo/build.mjs           the page, assembled: no bundler, no install
+fixtures/console.rules       the workbench's own rules, in the real language
+fixtures/realtrainer.rules   the rules that come with the RealTrainer dataset
+
 host/firesim.mjs     the Node face: createSim, fetch, stream, listen
 host/serve.mjs       the simulator on a socket
-web/build.mjs        the same module as an ES module, with no bundler
-web/index.html       the inspector, running the whole backend in a tab
 tests/               the gates
 fixtures/realtrainer.rules   rules for the RealTrainer schema, in the real language
 ```
 
 ## What this is not
 
-- **Not a Firestore.** No indexes, no transactions with retries, no
-  `onSnapshot` over a gRPC channel, no offline persistence, no multi-region
-  anything. The client SDKs' own realtime channel is not implemented; the
-  change log in `FsStore` is what a listener would be built on, and building
-  that listener is the next piece of work.
+- **Not a Firestore.** No indexes, no transactions with retries, no offline
+  persistence, no multi-region anything. The client SDKs' own realtime channel
+  is not implemented either: listeners are here, but over this simulator's own
+  polling endpoint rather than Google's gRPC `Listen`, and an app that uses
+  them against a real project needs a host transport that turns them into real
+  ones.
 - **Not secure.** Passwords are plaintext, tokens are unsigned, and
   `Bearer owner` bypasses every rule. It is a simulator.
 - **Not a promise about production.** It is faithful where it is checked, and

@@ -1,0 +1,66 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<html lang="fi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <!-- Inline, so the page asks the network for nothing at all: the whole
+         point of it is that it needs no server. -->
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230e1116'/%3E%3Cpath d='M16 5c3 4 1 6 3 8s4 1 4 5a7 7 0 1 1-14 0c0-4 4-6 7-13z' fill='%23ff8a3d'/%3E%3C/svg%3E"
+    />
+    <title>firesim — a Firebase, simulated, in a browser tab</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        background: #0e1116;
+        color: #e6edf3;
+        font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        overflow: hidden;
+      }
+      /* The page is the window. One stage, one canvas, and the accessibility
+         mirror over it — a canvas hands a reader one empty graphic no matter
+         what was drawn into it. */
+      #stage {
+        position: relative;
+        width: 100%;
+        height: 100%;
+      }
+      #c {
+        display: block;
+        width: 100%;
+        height: 100%;
+        touch-action: none;
+      }
+      #err {
+        position: fixed;
+        left: 12px;
+        bottom: 12px;
+        right: 12px;
+        color: #f85149;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 12px;
+        white-space: pre-wrap;
+        pointer-events: none;
+      }
+      noscript {
+        display: block;
+        padding: 24px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="stage"><canvas id="c"></canvas></div>
+    <div id="err"></div>
+    <noscript>
+      This page is a Firebase simulator — a Firestore, an Identity Toolkit, a
+      security-rules engine and a streaming model, compiled from Ranger and
+      running in the tab. It needs JavaScript and WebGL 2.
+    </noscript>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

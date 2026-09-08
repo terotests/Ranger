@@ -45,6 +45,7 @@
 
 Import "FsStore.rgr"
 Import "FsQuery.rgr"
+Import "FsWatch.rgr"
 Import "FsRulesEval.rgr"
 Import "FsAuth.rgr"
 Import "FsHttp.rgr"
@@ -73,6 +74,7 @@ class FsServer {
     def auth@(optional):FsAuthService
     def rules@(optional):FsRules
     def ai@(optional):FsAiSim
+    def watches@(optional):FsWatchRegistry
     def projectId@(mutable):string "demo-firesim"
     def databaseId@(mutable):string "(default)"
     ; Off means every request is allowed — the shape a project has before it
@@ -93,6 +95,8 @@ class FsServer {
         def a:FsAuthService (new FsAuthService)
         def r:FsRules (FsRules.allowAll())
         def m:FsAiSim (new FsAiSim)
+        def w:FsWatchRegistry (new FsWatchRegistry)
+        watches = w
         store = s
         auth = a
         rules = r
@@ -113,6 +117,10 @@ class FsServer {
 
     fn model:FsAiSim () {
         return (unwrap ai)
+    }
+
+    fn listeners:FsWatchRegistry () {
+        return (unwrap watches)
     }
 
     ; --- names ---------------------------------------------------------------
@@ -1101,7 +1109,123 @@ class FsServer {
         if (lastSeg == "state") {
             return (FsResponse.json(200 (this.stateJson())))
         }
+        if (lastSeg == "watch") {
+            return (this.startWatch(req body nowMs))
+        }
+        if (lastSeg == "poll") {
+            return (this.pollWatch(req body nowMs))
+        }
+        if (lastSeg == "unwatch") {
+            def reg:FsWatchRegistry (unwrap watches)
+            def stopped:boolean (reg.stop((body.intOr("watchId" 0))))
+            def out:VlJson (VlJson.objectValue())
+            out.setMember("stopped" (VlJson.boolValue(stopped)))
+            return (FsResponse.json(200 out))
+        }
         return (FsResponse.error(404 "NOT_FOUND" ("no firesim route for " + req.path)))
+    }
+
+    ; --- listeners -----------------------------------------------------------
+    ; `POST /firesim/v1/watch` with a `structuredQuery` or a `document`, and
+    ; the first answer is the whole result — the snapshot a view draws before
+    ; anything has changed.
+    fn startWatch:FsResponse (req:FsRequest body:VlJson nowMs:double) {
+        def s:FsSession (this.sessionOf(req nowMs))
+        if ((strlen s.tokenError) > 0) {
+            return (FsResponse.error(401 "UNAUTHENTICATED" s.tokenError))
+        }
+        def reg:FsWatchRegistry (unwrap watches)
+        def w:FsWatch (reg.add())
+        w.uid = s.uid
+        w.signedIn = s.signedIn
+        w.owner = s.owner
+        w.claims = (s.token())
+        if (body.has("structuredQuery")) {
+            w.isQuery = true
+            w.query = (FsServer.queryOf((body.get("structuredQuery")) (body.stringOr("parent" ""))))
+            def q:FsQuery (w.spec())
+            def bad:string (q.validate())
+            if ((strlen bad) > 0) {
+                reg.stop(w.id)
+                return (FsResponse.error(400 "INVALID_ARGUMENT" bad))
+            }
+        } {
+            w.docPath = (FsServer.pathOfName((body.stringOr("document" ""))))
+            if ((strlen w.docPath) == 0) {
+                reg.stop(w.id)
+                return (FsResponse.error(400 "INVALID_ARGUMENT" "a watch needs a structuredQuery or a document"))
+            }
+        }
+        return (this.watchAnswer(w true nowMs))
+    }
+
+    fn pollWatch:FsResponse (req:FsRequest body:VlJson nowMs:double) {
+        def reg:FsWatchRegistry (unwrap watches)
+        def id:int (body.intOr("watchId" 0))
+        if (! (reg.hasWatch(id))) {
+            return (FsResponse.error(404 "NOT_FOUND" ("no such watch: " + (to_string id))))
+        }
+        def w:FsWatch (reg.find(id))
+        return (this.watchAnswer(w false nowMs))
+    }
+
+    ; Re-run the watch and diff. The rules run again on every poll, as a
+    ; `list` — so a permission taken away makes rows LEAVE a live view
+    ; rather than sit there forever.
+    fn watchAnswer:FsResponse (w:FsWatch first:boolean nowMs:double) {
+        def dbStore:FsStore (unwrap store)
+        def reg:FsWatchRegistry (unwrap watches)
+        def out:VlJson (VlJson.objectValue())
+        out.setMember("watchId" (VlJson.intValue(w.id)))
+        out.setMember("version" (VlJson.intValue(dbStore.version)))
+        ; Nothing has been written since the last look, so nothing can have
+        ; changed — and the query is not run at all.
+        if (! first) {
+            if (w.seenVersion == dbStore.version) {
+                out.setMember("changes" (VlJson.arrayValue()))
+                out.setMember("quiet" (VlJson.boolValue(true)))
+                return (FsResponse.json(200 out))
+            }
+        }
+        w.seenVersion = dbStore.version
+        def candidates:[FsDocument]
+        if (w.isQuery) {
+            def q:FsQuery (w.spec())
+            candidates = (FsQueryRun.run(dbStore q))
+        } {
+            if (dbStore.exists(w.docPath)) {
+                push candidates (dbStore.get(w.docPath))
+            }
+        }
+        def session:FsSession (new FsSession)
+        session.uid = w.uid
+        session.signedIn = w.signedIn
+        session.owner = w.owner
+        session.claims = (w.token())
+        def visible:[FsDocument]
+        def empty:FsValue (FsValue.mapV())
+        for candidates d:FsDocument i {
+            def gate:FsRuleDecision (this.allow("list" d.path empty false session nowMs))
+            if (gate.allowed) {
+                push visible d
+            }
+        }
+        def changes:[FsWatchChange] (FsWatchRegistry.diff(w visible))
+        def rows:VlJson (VlJson.arrayValue())
+        for changes c:FsWatchChange ci {
+            def row:VlJson (VlJson.objectValue())
+            row.setMember("type" (VlJson.stringValue(c.kind)))
+            if (c.kind == "removed") {
+                row.setMember("name" (VlJson.stringValue((this.nameOf(c.path)))))
+            } {
+                def doc:FsDocument (c.document())
+                row.setMember("document" (this.documentJson(doc)))
+            }
+            push rows.arr row
+        }
+        out.setMember("changes" rows)
+        out.setMember("quiet" (VlJson.boolValue(false)))
+        return (FsResponse.json(200 out))
     }
 
     ; Everything, as one document — what a debugger, a test failure message

@@ -394,6 +394,70 @@ section("the wait, and the failures you can ask for");
 }
 
 // =============================================================================
+section("listeners — a query that answers again");
+// =============================================================================
+{
+  // The natural rules file: ONE rule for a create and an update, which is
+  // only writable because CEL's `||` absorbs the error from the half that
+  // reads a document which is not there yet.
+  const rules = `service cloud.firestore { match /databases/{db}/documents {
+    match /entries/{id} {
+      allow read, write: if request.auth != null
+        && (resource.data.userId == request.auth.uid || request.resource.data.userId == request.auth.uid);
+    }
+    match /{document=**} { allow read, write: if false; }
+  } }`;
+  const sim = createSim({ rules, latency: { baseMs: 0 } });
+  const me = sim.signUp("watcher@example.com", "password1");
+  const base = "/v1/projects/demo-firesim/databases/(default)/documents";
+  const H = { Authorization: `Bearer ${me.idToken}` };
+  const put = (id, minutes) =>
+    sim.fetchNow(`${base}/entries/${id}`, {
+      method: "PATCH",
+      headers: H,
+      body: { fields: { userId: { stringValue: me.uid }, minutes: { integerValue: String(minutes) } } },
+    });
+
+  eq("one rule covers create and update, because `||` absorbs the error", put("e1", 30).status, 200);
+
+  const w = sim.watch({ from: [{ collectionId: "entries" }], orderBy: [{ field: { fieldPath: "minutes" }, direction: "ASCENDING" }], limit: 2 });
+  const names = (cs) => cs.map((c) => `${c.type} ${(c.document ? c.document.name : c.name).split("/").pop()}`);
+  eq("the first answer is the whole result", names(w.initial), ["added e1"]);
+
+  put("e2", 10);
+  eq("a write is an added", names(w.poll().changes), ["added e2"]);
+  ok("a poll with nothing written is quiet", w.poll().quiet);
+
+  put("e1", 30);
+  eq("an edit is a modified", names(w.poll().changes), ["modified e1"]);
+
+  // The two transitions a listener built on a write log gets wrong.
+  put("e3", 20);
+  eq("a document nobody touched leaves when the limit pushes it out", names(w.poll().changes), ["added e3", "removed e1"]);
+  sim.fetchNow(`${base}/entries/e2`, { method: "DELETE", headers: H });
+  eq("…and comes back when room is made", names(w.poll().changes), ["added e1", "removed e2"]);
+
+  // A watch answers as whoever registered it, on every poll.
+  const other = createSim({ rules, latency: { baseMs: 0 } });
+  const alice = other.signUp("alice@example.com", "password1");
+  other.fetchNow(`${base}/entries/a1`, { method: "PATCH", headers: { Authorization: `Bearer ${alice.idToken}` }, body: { fields: { userId: { stringValue: alice.uid }, minutes: { integerValue: "5" } } } });
+  const bob = other.signUp("bob@example.com", "password2"); // signUp switches who `watch` speaks as
+  const bobWatch = other.watch({ from: [{ collectionId: "entries" }] });
+  eq("a watch sees only what its own caller may see", bobWatch.initial.length, 0);
+
+  // A single document, rather than a query.
+  const one = sim.watch(`projects/demo-firesim/databases/(default)/documents/entries/e3`);
+  eq("a document watch starts with the document", names(one.initial), ["added e3"]);
+  sim.fetchNow(`${base}/entries/e3`, { method: "DELETE", headers: H });
+  eq("…and reports it gone", names(one.poll().changes), ["removed e3"]);
+
+  // Stopping.
+  const before = sim.server.listeners().count();
+  one.stop();
+  eq("a stopped watch is forgotten", sim.server.listeners().count(), before - 1);
+}
+
+// =============================================================================
 section("the model, streamed on the clock");
 // =============================================================================
 {
@@ -444,7 +508,7 @@ section("a Ranger app, over the same seam");
   const sim = new FsSim();
   sim.backend().rulesEnabled = false;
   sim.wait().baseMs = 100;
-  const transport = FsTransport.to("");
+  const transport = FsTransport.toBase("");
   const client = new FsClient();
   client.transport = transport;
   const bridge = FsSimBridge.attach(transport, sim);
@@ -476,9 +540,28 @@ section("a Ranger app, over the same seam");
   }
   ok("…and sees the model stream", chunks.length >= 4);
 
+  // A listener, on the app's own tick.
+  const watchQ = new FsQuery();
+  watchQ.collectionId = "entries";
+  id = client.watch(watchQ);
+  bridge.tick(200);
+  const watchId = client.readWatchId(id);
+  ok("the client can register a watch", watchId > 0);
+  const more = FsValue.mapV();
+  more.setField("title", FsValue.strV("Toinen"));
+  client.setDoc("entries/e2", more);
+  bridge.tick(200);
+  id = client.poll(watchId);
+  bridge.tick(200);
+  eq("…and sees what changed", client.readChanges(id).map((c) => `${c.kind} ${c.path}`), ["added entries/e2"]);
+  id = client.poll(watchId);
+  bridge.tick(200);
+  client.readChanges(id);
+  ok("…and is told when nothing has", client.lastQuiet);
+
   // The transport is a queue: a host can drain it instead, which is the
   // whole deployment switch.
-  const hostSide = FsTransport.to("https://firestore.googleapis.com");
+  const hostSide = FsTransport.toBase("https://firestore.googleapis.com");
   const hosted = new FsClient();
   hosted.transport = hostSide;
   const cid = hosted.getDoc("calendars/cal-plan");

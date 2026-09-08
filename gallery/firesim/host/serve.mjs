@@ -23,7 +23,7 @@
 //   --latency MS      the wait on every call                       (default 120)
 //   --jitter MS       spread around it                               (default 0)
 //   --time-scale N    how fast a streamed answer really arrives      (default 1)
-//   --page            also serve gallery/firesim/web (the inspector)
+//   --page            also serve the workbench page (gallery/firesim/demo)
 
 import fs from "node:fs";
 import path from "node:path";
@@ -78,13 +78,16 @@ process.stdout.write(`    accounts   ${host.url}/identitytoolkit.googleapis.com/
 process.stdout.write(`    state      ${host.url}/firesim/v1/state\n`);
 process.stdout.write(`    the model  ${host.url}/ai/v1/chat:stream\n`);
 
-// The inspector page, when asked for: a second server so the API server stays
-// exactly the API and nothing else.
+// The workbench page, when asked for: a second server so the API server stays
+// exactly the API and nothing else. Note that the page does not USE this
+// server — it carries its own simulator — so what this is for is having both
+// on one machine: the page to look at, and the socket for a device simulator
+// or `curl` to talk to.
 if (withPage) {
-  const web = path.join(MODULE, "web");
-  const bundle = path.join(web, "firesim.browser.js");
+  const web = path.join(MODULE, "demo");
+  const bundle = path.join(web, "generated-host.js");
   if (!fs.existsSync(bundle)) {
-    process.stdout.write(`\n  the page is not built — run: node gallery/firesim/web/build.mjs\n`);
+    process.stdout.write(`\n  the page is not built — run: npm run firesim:demo:page\n`);
   } else {
     const pageServer = http.createServer((req, res) => {
       const name = req.url === "/" ? "/index.html" : req.url.split("?")[0];
@@ -98,7 +101,7 @@ if (withPage) {
       res.end(fs.readFileSync(file));
     });
     await new Promise((done) => pageServer.listen(PORT ? PORT + 1 : 0, done));
-    process.stdout.write(`\n  the inspector on http://127.0.0.1:${pageServer.address().port}/\n`);
+    process.stdout.write(`\n  the workbench on http://127.0.0.1:${pageServer.address().port}/\n`);
   }
 }
 process.stdout.write("\n  ctrl-c to stop\n\n");
