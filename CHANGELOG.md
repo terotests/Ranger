@@ -9,6 +9,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A Firebase, simulated, in Ranger — `gallery/firesim`.**
+  `gallery/realtrainer` is a five-screen application with no backend: it reads
+  its week out of a file and "saves" through a countdown with nothing behind
+  it. This is the backend it did not have — a Firestore, the Identity Toolkit,
+  a security-rules engine and a model that streams — with no Google account,
+  no emulator, no Java and no network. The decision the rest follows from is
+  that the seam is the WIRE PROTOCOL and not an interface invented for a mock:
+  it answers Google's own REST shapes (`documents`, `:runQuery`, `:commit`,
+  `:batchGet`, `accounts:signUp`, `accounts:signInWithPassword`, the
+  emulator's wipes), so switching an app to a real project is a base URL. What
+  it is worth having is not running a query but REFUSING the ones the real API
+  refuses: `update` on a missing document is a 404, an `orderBy` field a
+  document lacks removes that document, an inequality on two fields is a 400,
+  a filter on an absent field matches nothing (not even `!=`), and a `list`
+  where one row is unreadable is denied whole. `FsRules` parses
+  `firestore.rules` — the file a project deploys, not a JSON description of it
+  — including nested matches, `{var=**}`, user functions, `get()`, path
+  literals and `.keys().hasAll()`; the subset's boundary is a parse error with
+  a line number and never a quiet allow. A call is a HANDLE on the app's own
+  clock, so the wait, the retry and the failure states are reachable and
+  nothing sleeps; the model answers a word per `chunkMs` over SSE in Gemini's
+  shape and its own, deterministically, and can be made to break part-way. It
+  runs in Node, on a socket for an Android or iOS simulator, and wholly inside
+  a browser tab (`web/build.mjs` wraps the compiled module with no bundler,
+  because the compiled `.cjs` has no `require` in it). `firesim:realtrainer`
+  is the proof: the reference recorder's own `seed.json` goes in unconverted,
+  comes back over `:runQuery` as a signed-in user through the rules, and the
+  demo has to draw the same accessibility tree from it — six scenarios, node
+  for node. 87 + 17 + 15 assertions and 24/24 target builds; the client build
+  an app carries is 106 kB of Kotlin, which is the measured answer to whether
+  it fits on a watch. Plan and the phases left in
+  [`PLAN_FIRESIM.md`](PLAN_FIRESIM.md).
 - **A segmented date field, measured against the browser's own.** The
   calendar demo's date box was a formatted label; a person asked for the
   `__/__/____` editor, and shadcn has none to measure (its Date Picker is a

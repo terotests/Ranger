@@ -296,6 +296,26 @@ SUITES=(
   # added chat, that the fuzz had never been random: `seed * 1103515245` runs
   # past 2^53 and every "random sequence" was one event repeated.
   rt:machine:live
+  # The Firebase simulator: the store, the query engine and its refusals, the
+  # rules language, the accounts, the wait, and the model that streams. It is
+  # the backend gallery/realtrainer never had, and the check below is the one
+  # that makes it a claim rather than a hope.
+  firesim:test
+  # …and the twelve targets it compiles for, which is what the "run it on a
+  # phone, and maybe on a watch" claim rests on. The client build is compiled
+  # separately from the whole simulator, because they are different sizes for
+  # a reason.
+  firesim:targets
+  # The simulator running in a browser tab, driven with no browser: the page
+  # is the proof that the whole backend fits in a page with nothing installed,
+  # and this presses its buttons.
+  firesim:page
+  # And the demo drawing from the simulator instead of from its fixture file:
+  # the seed goes in over REST, comes back through a query as a signed-in
+  # user, and the app has to draw the SAME accessibility tree it draws from
+  # the file. A field lost on the wire, a collection mis-sorted or a row the
+  # rules hid moves the tree and fails here.
+  firesim:realtrainer
   # And the machine wired to a view: the scenario replayed on the Ranger side,
   # against the trace recorded from it. The other half of that benchmark — the
   # same scenario against the React app on the Firebase emulators — is

@@ -1,0 +1,277 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; FsAi — a model that answers on the clock, a word at a time
+; =============================================================================
+; RealTrainer's coach screen asks a model for a reply and draws it AS IT
+; ARRIVES: a border while the stream is open, the words appearing, then the
+; actions the model proposes with a verdict each. None of that screen can be
+; looked at against a backend that answers in one piece, and none of it can be
+; tested against a real model, whose reply is different every time.
+;
+; So the reply here is DETERMINISTIC and the timing is the simulated clock's:
+; the same prompt gives the same words in the same order at the same
+; milliseconds on Node, in a browser and on a phone. A test asserts on the
+; third chunk; a demo watches it type.
+;
+; Two wire shapes, because an app calls whichever its provider uses:
+;
+;   POST /ai/v1/chat:stream                        the plain one — one JSON
+;                                                  object per SSE event
+;   POST /v1beta/models/{model}:streamGenerateContent
+;                                                  Gemini's, which is what a
+;                                                  Firebase AI Logic client
+;                                                  sends
+;
+; `failAt` is the other half: a stream that dies in the middle is the state an
+; app's error path is actually written for, and it is unreachable against a
+; model that works.
+; =============================================================================
+
+Import "FsHttp.rgr"
+
+class FsAiSim {
+    ; The wait before the first word, and the gap between words.
+    def firstTokenMs@(mutable):double 300.0
+    def chunkMs@(mutable):double 90.0
+    ; A prompt that matches one of these exactly gets the reply beside it,
+    ; which is how a scenario pins the words it asserts on.
+    def cannedPrompts:[string]
+    def cannedReplies:[string]
+    ; The next stream fails after this many chunks; -1 for no failure.
+    def failAfter@(mutable):int -1
+    def failMessage@(mutable):string "the model stopped responding"
+
+    Constructor () {
+    }
+
+    fn addCanned:void (prompt:string reply:string) {
+        push cannedPrompts prompt
+        push cannedReplies reply
+    }
+
+    ; The reply for a prompt. Canned first; otherwise one of three shapes
+    ; picked by what the prompt looks like, so the three branches an app has
+    ; (a question, one proposed action, several) are all reachable from text.
+    fn replyFor:string (prompt:string) {
+        for cannedPrompts p:string i {
+            if (p == prompt) {
+                return (itemAt cannedReplies i)
+            }
+        }
+        if (FsAiSim.endsWithChar(prompt 63)) {
+            return "Hyvä kysymys. Palautuminen on yhtä tärkeää kuin itse harjoitus, joten pidä ainakin yksi kevyt päivä viikossa."
+        }
+        if (FsAiSim.hasSub(prompt " ja ")) {
+            return "Selvä. Lisään molemmat harjoitukset ohjelmaasi ja tasapainotan viikon kuormituksen."
+        }
+        return "Selvä. Lisään harjoituksen ohjelmaasi."
+    }
+
+    ; How many actions the reply proposes. The app's review step forks on
+    ; this number, so it is part of the answer and not a detail.
+    fn actionsFor:int (prompt:string) {
+        if (FsAiSim.endsWithChar(prompt 63)) {
+            return 0
+        }
+        if (FsAiSim.hasSub(prompt " ja ")) {
+            return 2
+        }
+        return 1
+    }
+
+    sfn endsWithChar:boolean (s:string c:int) {
+        def n:int (strlen s)
+        if (n == 0) {
+            return false
+        }
+        return ((charAt s (n - 1)) == c)
+    }
+
+    sfn hasSub:boolean (s:string needle:string) {
+        def n:int (strlen s)
+        def m:int (strlen needle)
+        if (m == 0) {
+            return true
+        }
+        if (m > n) {
+            return false
+        }
+        def i:int 0
+        while (i <= (n - m)) {
+            if ((substring s i (i + m)) == needle) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; The reply cut into the pieces a stream delivers: one word each, with
+    ; the space kept on the front so the joined text is the reply exactly.
+    sfn words:[string] (text:string) {
+        def out:[string]
+        def parts:[string] (strsplit text " ")
+        for parts p:string i {
+            if (i == 0) {
+                push out p
+            } {
+                push out (" " + p)
+            }
+        }
+        return out
+    }
+
+    ; --- the plain shape -----------------------------------------------------
+    fn streamPlain:FsResponse (prompt:string requestId:string) {
+        def reply:string (this.replyFor(prompt))
+        def pieces:[string] (FsAiSim.words(reply))
+        def res:FsResponse (new FsResponse)
+        res.contentType = "text/event-stream"
+        def at:double firstTokenMs
+        def sent:int 0
+        def failed:boolean false
+        for pieces w:string i {
+            if (! failed) {
+                if (failAfter >= 0) {
+                    if (sent >= failAfter) {
+                        def errObj:VlJson (VlJson.objectValue())
+                        errObj.setMember("type" (VlJson.stringValue("error")))
+                        errObj.setMember("requestId" (VlJson.stringValue(requestId)))
+                        errObj.setMember("message" (VlJson.stringValue(failMessage)))
+                        res.addChunk(at (FsAiSim.sse(errObj)))
+                        failed = true
+                    }
+                }
+            }
+            if (! failed) {
+                def chunk:VlJson (VlJson.objectValue())
+                chunk.setMember("type" (VlJson.stringValue("chunk")))
+                chunk.setMember("requestId" (VlJson.stringValue(requestId)))
+                chunk.setMember("text" (VlJson.stringValue(w)))
+                res.addChunk(at (FsAiSim.sse(chunk)))
+                sent = (sent + 1)
+                at = (at + chunkMs)
+            }
+        }
+        if (! failed) {
+            def done:VlJson (VlJson.objectValue())
+            done.setMember("type" (VlJson.stringValue("done")))
+            done.setMember("requestId" (VlJson.stringValue(requestId)))
+            done.setMember("text" (VlJson.stringValue(reply)))
+            def actions:VlJson (VlJson.arrayValue())
+            def count:int (this.actionsFor(prompt))
+            def k:int 0
+            while (k < count) {
+                def a:VlJson (VlJson.objectValue())
+                a.setMember("id" (VlJson.stringValue((("action-" + requestId) + "-") + (to_string (k + 1)))))
+                a.setMember("kind" (VlJson.stringValue("addWorkout")))
+                a.setMember("title" (VlJson.stringValue(("Ehdotettu harjoitus " + (to_string (k + 1))))))
+                push actions.arr a
+                k = (k + 1)
+            }
+            done.setMember("actions" actions)
+            res.addChunk(at (FsAiSim.sse(done)))
+            at = (at + chunkMs)
+            res.addChunk(at "data: [DONE]\n\n")
+        }
+        res.body = (res.joined())
+        return res
+    }
+
+    ; --- Gemini's shape ------------------------------------------------------
+    fn streamGemini:FsResponse (prompt:string model:string) {
+        def reply:string (this.replyFor(prompt))
+        def pieces:[string] (FsAiSim.words(reply))
+        def res:FsResponse (new FsResponse)
+        res.contentType = "text/event-stream"
+        def at:double firstTokenMs
+        def sent:int 0
+        def stopped:boolean false
+        for pieces w:string i {
+            if (! stopped) {
+                if (failAfter >= 0) {
+                    if (sent >= failAfter) {
+                        stopped = true
+                    }
+                }
+            }
+            if (! stopped) {
+                def part:VlJson (VlJson.objectValue())
+                part.setMember("text" (VlJson.stringValue(w)))
+                def parts:VlJson (VlJson.arrayValue())
+                push parts.arr part
+                def content:VlJson (VlJson.objectValue())
+                content.setMember("parts" parts)
+                content.setMember("role" (VlJson.stringValue("model")))
+                def cand:VlJson (VlJson.objectValue())
+                cand.setMember("content" content)
+                cand.setMember("index" (VlJson.intValue(0)))
+                def cands:VlJson (VlJson.arrayValue())
+                push cands.arr cand
+                def env:VlJson (VlJson.objectValue())
+                env.setMember("candidates" cands)
+                env.setMember("modelVersion" (VlJson.stringValue(model)))
+                res.addChunk(at (FsAiSim.sse(env)))
+                sent = (sent + 1)
+                at = (at + chunkMs)
+            }
+        }
+        if (stopped) {
+            def errObj:VlJson (VlJson.objectValue())
+            def inner:VlJson (VlJson.objectValue())
+            inner.setMember("code" (VlJson.intValue(503)))
+            inner.setMember("message" (VlJson.stringValue(failMessage)))
+            inner.setMember("status" (VlJson.stringValue("UNAVAILABLE")))
+            errObj.setMember("error" inner)
+            res.addChunk(at (FsAiSim.sse(errObj)))
+        } {
+            def last:VlJson (VlJson.objectValue())
+            def cand:VlJson (VlJson.objectValue())
+            cand.setMember("finishReason" (VlJson.stringValue("STOP")))
+            cand.setMember("index" (VlJson.intValue(0)))
+            def cands:VlJson (VlJson.arrayValue())
+            push cands.arr cand
+            last.setMember("candidates" cands)
+            res.addChunk(at (FsAiSim.sse(last)))
+        }
+        res.body = (res.joined())
+        return res
+    }
+
+    sfn sse:string (value:VlJson) {
+        def writer:VlJsonWriter (new VlJsonWriter)
+        return (("data: " + (writer.write(value))) + "\n\n")
+    }
+
+    ; The prompt out of either request shape: `{"prompt":"…"}` or Gemini's
+    ; `{"contents":[{"parts":[{"text":"…"}]}]}`.
+    sfn promptOf:string (body:VlJson) {
+        if (body.has("prompt")) {
+            def p:VlJson (body.get("prompt"))
+            return (p.asString())
+        }
+        if (body.has("message")) {
+            def m:VlJson (body.get("message"))
+            return (m.asString())
+        }
+        if (body.has("contents")) {
+            def contents:VlJson (body.get("contents"))
+            def n:int (contents.count())
+            if (n > 0) {
+                def lastContent:VlJson (contents.at((n - 1)))
+                def parts:VlJson (lastContent.get("parts"))
+                def out:string ""
+                def pn:int (parts.count())
+                def i:int 0
+                while (i < pn) {
+                    def part:VlJson (parts.at(i))
+                    out = (out + (part.stringOr("text" "")))
+                    i = (i + 1)
+                }
+                return out
+            }
+        }
+        return ""
+    }
+}

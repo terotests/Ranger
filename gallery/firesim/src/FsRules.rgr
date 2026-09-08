@@ -1,0 +1,1089 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; FsRules — Firestore security rules, read from the file you already have
+; =============================================================================
+; The access rules are the half of a backend an app cannot test without one.
+; A mock that returns whatever it is asked for will happily let a client read
+; another user's calendar, and the first place that is noticed is production.
+;
+; So this reads the REAL LANGUAGE — the `firestore.rules` file a project
+; already deploys — rather than a JSON description of it invented here:
+;
+;   rules_version = '2';
+;   service cloud.firestore {
+;     match /databases/{database}/documents {
+;       function signedIn() { return request.auth != null; }
+;       function owns(uid)  { return signedIn() && request.auth.uid == uid; }
+;
+;       match /calendars/{calendarId} {
+;         allow read:            if owns(resource.data.userId);
+;         allow create:          if owns(request.resource.data.userId);
+;         allow update, delete:  if owns(resource.data.userId);
+;       }
+;       match /{document=**} { allow read, write: if false; }
+;     }
+;   }
+;
+; A SUBSET, and the boundary is written down rather than discovered:
+;
+;   supported   match blocks and nesting, `{var}` and `{var=**}` captures,
+;               allow with get/list/create/update/delete/read/write, user
+;               functions with parameters, `let` is not needed because a
+;               function is one, && || ! == != < <= > >= + - * / %, `in`,
+;               `is`, the ternary, list literals, path literals with
+;               `$(interpolation)`, `request.auth`, `request.auth.token.*`,
+;               `request.resource.data`, `resource.data`, `resource.id`,
+;               `request.method`, `request.time`, `request.path`,
+;               `exists()`, `get()`, `.keys()`, `.size()`, `.values()`,
+;               `.hasAll()`, `.hasAny()`, `.hasOnly()`, `.get(k, d)`,
+;               `.toMillis()`, `.lower()`, `.upper()`, `duration` helpers
+;
+;   NOT         `getAfter`/`existsAfter`, `.diff()`, regular expressions in
+;               `.matches()`, `math.*`, custom `service` names other than
+;               `cloud.firestore`, and rate limits. Anything unsupported is a
+;               PARSE ERROR with a line number, never a silent allow — a rules
+;               engine that quietly ignores a clause it did not understand is
+;               the most dangerous thing this file could be.
+;
+; A `list` is evaluated PER DOCUMENT the query would return, and one denial
+; denies the whole query, which is what the Firebase emulator does and what
+; produces the "query would return documents you do not have access to" error
+; a broad query gets in production. Filtering the result instead would make
+; the simulator pass a query that the real thing rejects.
+; =============================================================================
+
+Import "FsStore.rgr"
+
+; -----------------------------------------------------------------------------
+; RuleExpr — one node of a condition
+; -----------------------------------------------------------------------------
+; kind: "lit" "var" "member" "index" "call" "method" "unary" "binary"
+;       "ternary" "list" "path"
+; -----------------------------------------------------------------------------
+class RuleExpr {
+    def kind@(mutable):string "lit"
+    def text@(mutable):string ""
+    def value@(optional):FsValue
+    def parts:[RuleExpr]
+    def line@(mutable):int 0
+
+    Constructor () {
+        def fresh:FsValue (new FsValue)
+        value = fresh
+    }
+
+    fn literal:FsValue () {
+        return (unwrap value)
+    }
+
+    sfn node:RuleExpr (kind:string text:string) {
+        def e:RuleExpr (new RuleExpr)
+        e.kind = kind
+        e.text = text
+        return e
+    }
+}
+
+class RuleFunc {
+    def name@(mutable):string ""
+    def params:[string]
+    def body@(optional):RuleExpr
+
+    Constructor () {
+    }
+
+    fn expr:RuleExpr () {
+        return (unwrap body)
+    }
+}
+
+; One `allow read, write: if …`
+class RuleAllow {
+    def methods:[string]
+    def condition@(optional):RuleExpr
+    def line@(mutable):int 0
+
+    Constructor () {
+    }
+
+    fn expr:RuleExpr () {
+        return (unwrap condition)
+    }
+
+    fn covers:boolean (method:string) {
+        for methods m:string i {
+            if (m == method) {
+                return true
+            }
+            if (m == "read") {
+                if (method == "get") {
+                    return true
+                }
+                if (method == "list") {
+                    return true
+                }
+            }
+            if (m == "write") {
+                if (method == "create") {
+                    return true
+                }
+                if (method == "update") {
+                    return true
+                }
+                if (method == "delete") {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+}
+
+; One path segment of a `match`.
+; kind: "lit" a literal name, "var" a `{name}` capture, "rest" a `{name=**}`
+class RuleSeg {
+    def kind@(mutable):string "lit"
+    def text@(mutable):string ""
+
+    Constructor () {
+    }
+}
+
+class RuleMatch {
+    def segments:[RuleSeg]
+    def allows:[RuleAllow]
+    def children:[RuleMatch]
+    def funcs:[RuleFunc]
+    def line@(mutable):int 0
+
+    Constructor () {
+    }
+}
+
+; -----------------------------------------------------------------------------
+; RuleScanner — one pass over the text
+; -----------------------------------------------------------------------------
+; No token stream: a `/` starts a path in one place and divides in another,
+; and a scanner the parser can steer is simpler than a lexer that has to
+; guess. Comments are skipped here so `//` never reads as an empty path.
+; -----------------------------------------------------------------------------
+class RuleScanner {
+    def text@(mutable):string ""
+    def pos@(mutable):int 0
+    def len@(mutable):int 0
+    def error@(mutable):string ""
+    def errorLine@(mutable):int 0
+
+    Constructor (source:string) {
+        text = source
+        len = (strlen source)
+    }
+
+    fn lineAt:int (at:int) {
+        def n:int 1
+        def i:int 0
+        while (i < at) {
+            if ((charAt text i) == 10) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    fn fail:void (message:string) {
+        if ((strlen error) > 0) {
+            return
+        }
+        error = message
+        errorLine = (this.lineAt(pos))
+    }
+
+    fn done:boolean () {
+        return (pos >= len)
+    }
+
+    fn peek:int () {
+        if (pos >= len) {
+            return 0
+        }
+        return (charAt text pos)
+    }
+
+    fn peekAt:int (ahead:int) {
+        def at:int (pos + ahead)
+        if (at >= len) {
+            return 0
+        }
+        return (charAt text at)
+    }
+
+    fn skipWs:void () {
+        def running:boolean true
+        while (running) {
+            running = false
+            while (pos < len) {
+                def c:int (charAt text pos)
+                def isSpace:boolean false
+                if (c == 32) {
+                    isSpace = true
+                }
+                if (c == 9) {
+                    isSpace = true
+                }
+                if (c == 10) {
+                    isSpace = true
+                }
+                if (c == 13) {
+                    isSpace = true
+                }
+                if (! isSpace) {
+                    break
+                }
+                pos = (pos + 1)
+            }
+            if (pos < len) {
+                if ((charAt text pos) == 47) {
+                    def nxt:int (this.peekAt(1))
+                    if (nxt == 47) {
+                        while (pos < len) {
+                            if ((charAt text pos) == 10) {
+                                break
+                            }
+                            pos = (pos + 1)
+                        }
+                        running = true
+                    }
+                    if (nxt == 42) {
+                        pos = (pos + 2)
+                        while (pos < len) {
+                            if ((charAt text pos) == 42) {
+                                if ((this.peekAt(1)) == 47) {
+                                    pos = (pos + 2)
+                                    break
+                                }
+                            }
+                            pos = (pos + 1)
+                        }
+                        running = true
+                    }
+                }
+            }
+        }
+    }
+
+    sfn isIdentStart:boolean (c:int) {
+        if (c == 95) {
+            return true
+        }
+        if (c >= 97) {
+            return (c <= 122)
+        }
+        if (c >= 65) {
+            return (c <= 90)
+        }
+        return false
+    }
+
+    sfn isDigit:boolean (c:int) {
+        if (c < 48) {
+            return false
+        }
+        return (c <= 57)
+    }
+
+    sfn isIdentChar:boolean (c:int) {
+        if (RuleScanner.isIdentStart(c)) {
+            return true
+        }
+        return (RuleScanner.isDigit(c))
+    }
+
+    ; The identifier at the cursor, or "" — the cursor does not move unless
+    ; one is there.
+    fn readIdent:string () {
+        this.skipWs()
+        if (pos >= len) {
+            return ""
+        }
+        if (! (RuleScanner.isIdentStart((charAt text pos)))) {
+            return ""
+        }
+        def start:int pos
+        while (pos < len) {
+            if (! (RuleScanner.isIdentChar((charAt text pos)))) {
+                break
+            }
+            pos = (pos + 1)
+        }
+        return (substring text start pos)
+    }
+
+    fn peekIdent:string () {
+        def save:int pos
+        def id:string (this.readIdent())
+        pos = save
+        return id
+    }
+
+    fn takeWord:boolean (word:string) {
+        def save:int pos
+        def id:string (this.readIdent())
+        if (id == word) {
+            return true
+        }
+        pos = save
+        return false
+    }
+
+    ; A punctuation run, exactly as written: "==", "&&", "=**", ";".
+    fn takeSym:boolean (sym:string) {
+        this.skipWs()
+        def n:int (strlen sym)
+        if ((pos + n) > len) {
+            return false
+        }
+        def i:int 0
+        while (i < n) {
+            if ((charAt text (pos + i)) != (charAt sym i)) {
+                return false
+            }
+            i = (i + 1)
+        }
+        ; `=` must not swallow the `=` of `==`, and `<` must not eat `<=`.
+        if (n == 1) {
+            def c0:int (charAt sym 0)
+            def after:int (this.peekAt(1))
+            if (c0 == 61) {
+                if (after == 61) {
+                    return false
+                }
+            }
+            if (c0 == 60) {
+                if (after == 61) {
+                    return false
+                }
+            }
+            if (c0 == 62) {
+                if (after == 61) {
+                    return false
+                }
+            }
+            if (c0 == 33) {
+                if (after == 61) {
+                    return false
+                }
+            }
+            if (c0 == 38) {
+                if (after == 38) {
+                    return false
+                }
+            }
+            if (c0 == 124) {
+                if (after == 124) {
+                    return false
+                }
+            }
+        }
+        pos = (pos + n)
+        return true
+    }
+
+    fn peekSym:boolean (sym:string) {
+        def save:int pos
+        def got:boolean (this.takeSym(sym))
+        pos = save
+        return got
+    }
+
+    ; A quoted string, either quote, with the usual escapes.
+    fn readString:string () {
+        this.skipWs()
+        def quote:int (this.peek())
+        if (quote != 34) {
+            if (quote != 39) {
+                this.fail("expected a string")
+                return ""
+            }
+        }
+        pos = (pos + 1)
+        def out:string ""
+        while (pos < len) {
+            def c:int (charAt text pos)
+            if (c == quote) {
+                pos = (pos + 1)
+                return out
+            }
+            if (c == 92) {
+                pos = (pos + 1)
+                if (pos < len) {
+                    def e:int (charAt text pos)
+                    if (e == 110) {
+                        out = (out + "\n")
+                    } {
+                        if (e == 116) {
+                            out = (out + "\t")
+                        } {
+                            out = (out + (substring text pos (pos + 1)))
+                        }
+                    }
+                    pos = (pos + 1)
+                }
+            } {
+                out = (out + (substring text pos (pos + 1)))
+                pos = (pos + 1)
+            }
+        }
+        this.fail("unterminated string")
+        return out
+    }
+
+    fn readNumber:double () {
+        this.skipWs()
+        def start:int pos
+        if ((this.peek()) == 45) {
+            pos = (pos + 1)
+        }
+        while (pos < len) {
+            def c:int (charAt text pos)
+            def ok:boolean (RuleScanner.isDigit(c))
+            if (c == 46) {
+                ok = true
+            }
+            if (! ok) {
+                break
+            }
+            pos = (pos + 1)
+        }
+        def raw:string (substring text start pos)
+        def parsed@(optional):double (to_double raw)
+        if (null? parsed) {
+            return 0.0
+        }
+        return (unwrap parsed)
+    }
+}
+
+; -----------------------------------------------------------------------------
+; FsRules — the parsed file
+; -----------------------------------------------------------------------------
+class FsRules {
+    def root@(optional):RuleMatch
+    def error@(mutable):string ""
+    def errorLine@(mutable):int 0
+    def source@(mutable):string ""
+
+    Constructor () {
+        def m:RuleMatch (new RuleMatch)
+        root = m
+    }
+
+    fn tree:RuleMatch () {
+        return (unwrap root)
+    }
+
+    fn ok:boolean () {
+        return ((strlen error) == 0)
+    }
+
+    ; The default when a project has no rules file: nothing is allowed. A
+    ; simulator that defaulted to "allow all" would be a simulator of a
+    ; misconfigured project.
+    sfn denyAll:FsRules () {
+        return (new FsRules)
+    }
+
+    sfn allowAll:FsRules () {
+        return (FsRules.parse("service cloud.firestore { match /databases/{db}/documents { match /{document=**} { allow read, write: if true; } } }"))
+    }
+
+    sfn parse:FsRules (source:string) {
+        def rules:FsRules (new FsRules)
+        rules.source = source
+        def sc:RuleScanner (new RuleScanner(source))
+        def rootMatch:RuleMatch (rules.tree())
+        sc.skipWs()
+        while (! (sc.done())) {
+            sc.skipWs()
+            if (sc.done()) {
+                break
+            }
+            if (sc.takeWord("rules_version")) {
+                sc.takeSym("=")
+                sc.readString()
+                sc.takeSym(";")
+            } {
+                if (sc.takeWord("service")) {
+                    ; `cloud.firestore`, or any dotted name — the simulator
+                    ; only has one service, so the name is read and ignored.
+                    sc.readIdent()
+                    while (sc.takeSym(".")) {
+                        sc.readIdent()
+                    }
+                    if (! (sc.takeSym("{"))) {
+                        sc.fail("expected { after service")
+                        break
+                    }
+                    FsRules.parseBody(sc rootMatch)
+                    if (! (sc.takeSym("}"))) {
+                        sc.fail("expected } to close service")
+                    }
+                } {
+                    sc.fail(("unexpected input: " + (substring source sc.pos (FsRules.clampEnd(source (sc.pos + 24))))))
+                    break
+                }
+            }
+            if ((strlen sc.error) > 0) {
+                break
+            }
+        }
+        rules.error = sc.error
+        rules.errorLine = sc.errorLine
+        return rules
+    }
+
+    sfn clampEnd:int (s:string at:int) {
+        def n:int (strlen s)
+        if (at > n) {
+            return n
+        }
+        return at
+    }
+
+    ; The inside of a `service` or a `match`: functions, nested matches and
+    ; allow clauses, in any order.
+    sfn parseBody:void (sc:RuleScanner into:RuleMatch) {
+        def running:boolean true
+        while (running) {
+            sc.skipWs()
+            if (sc.done()) {
+                running = false
+            } {
+                if (sc.peekSym("}")) {
+                    running = false
+                } {
+                    if ((strlen sc.error) > 0) {
+                        running = false
+                    } {
+                        def word:string (sc.peekIdent())
+                        if (word == "function") {
+                            sc.takeWord("function")
+                            FsRules.parseFunction(sc into)
+                        } {
+                            if (word == "match") {
+                                sc.takeWord("match")
+                                FsRules.parseMatch(sc into)
+                            } {
+                                if (word == "allow") {
+                                    sc.takeWord("allow")
+                                    FsRules.parseAllow(sc into)
+                                } {
+                                    sc.fail(("expected function, match or allow, found '" + word + "'"))
+                                    running = false
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    sfn parseFunction:void (sc:RuleScanner into:RuleMatch) {
+        def f:RuleFunc (new RuleFunc)
+        f.name = (sc.readIdent())
+        if (! (sc.takeSym("("))) {
+            sc.fail("expected ( after a function name")
+            return
+        }
+        if (! (sc.takeSym(")"))) {
+            def more:boolean true
+            while (more) {
+                def p:string (sc.readIdent())
+                if ((strlen p) == 0) {
+                    sc.fail("expected a parameter name")
+                    return
+                }
+                push f.params p
+                more = (sc.takeSym(","))
+            }
+            if (! (sc.takeSym(")"))) {
+                sc.fail("expected ) after the parameters")
+                return
+            }
+        }
+        if (! (sc.takeSym("{"))) {
+            sc.fail("expected { to open a function body")
+            return
+        }
+        ; A rules function is one `return` of one expression. `let` bindings
+        ; are not supported and say so rather than being skipped.
+        if (! (sc.takeWord("return"))) {
+            sc.fail("a function body must be a single return statement")
+            return
+        }
+        f.body = (FsRules.parseExpr(sc))
+        sc.takeSym(";")
+        if (! (sc.takeSym("}"))) {
+            sc.fail("expected } to close a function body")
+            return
+        }
+        push into.funcs f
+    }
+
+    sfn parseMatch:void (sc:RuleScanner into:RuleMatch) {
+        def m:RuleMatch (new RuleMatch)
+        m.line = (sc.lineAt(sc.pos))
+        sc.skipWs()
+        if (! (sc.peekSym("/"))) {
+            sc.fail("a match takes a path beginning with /")
+            return
+        }
+        while (sc.takeSym("/")) {
+            def seg:RuleSeg (new RuleSeg)
+            if (sc.takeSym("{")) {
+                def name:string (sc.readIdent())
+                seg.text = name
+                seg.kind = "var"
+                if (sc.takeSym("=**")) {
+                    seg.kind = "rest"
+                }
+                if (! (sc.takeSym("}"))) {
+                    sc.fail("expected } to close a path capture")
+                    return
+                }
+            } {
+                def lit:string (sc.readIdent())
+                if ((strlen lit) == 0) {
+                    sc.fail("expected a path segment")
+                    return
+                }
+                seg.kind = "lit"
+                seg.text = lit
+            }
+            push m.segments seg
+            sc.skipWs()
+            if (! (sc.peekSym("/"))) {
+                break
+            }
+        }
+        if (! (sc.takeSym("{"))) {
+            sc.fail("expected { to open a match block")
+            return
+        }
+        FsRules.parseBody(sc m)
+        if (! (sc.takeSym("}"))) {
+            sc.fail("expected } to close a match block")
+            return
+        }
+        push into.children m
+    }
+
+    sfn parseAllow:void (sc:RuleScanner into:RuleMatch) {
+        def a:RuleAllow (new RuleAllow)
+        a.line = (sc.lineAt(sc.pos))
+        def more:boolean true
+        while (more) {
+            def m:string (sc.readIdent())
+            if ((strlen m) == 0) {
+                sc.fail("expected a method after allow")
+                return
+            }
+            def known:boolean false
+            if (m == "read") {
+                known = true
+            }
+            if (m == "write") {
+                known = true
+            }
+            if (m == "get") {
+                known = true
+            }
+            if (m == "list") {
+                known = true
+            }
+            if (m == "create") {
+                known = true
+            }
+            if (m == "update") {
+                known = true
+            }
+            if (m == "delete") {
+                known = true
+            }
+            if (! known) {
+                sc.fail(("unknown method in allow: " + m))
+                return
+            }
+            push a.methods m
+            more = (sc.takeSym(","))
+        }
+        if (! (sc.takeSym(":"))) {
+            ; `allow read;` with no condition is `if true` — accepted, as the
+            ; language accepts it.
+            sc.takeSym(";")
+            def yes:RuleExpr (RuleExpr.node("lit" "true"))
+            yes.value = (FsValue.boolV(true))
+            a.condition = yes
+            push into.allows a
+            return
+        }
+        if (! (sc.takeWord("if"))) {
+            sc.fail("expected 'if' after allow …:")
+            return
+        }
+        a.condition = (FsRules.parseExpr(sc))
+        sc.takeSym(";")
+        push into.allows a
+    }
+
+    ; --- expressions ---------------------------------------------------------
+    sfn parseExpr:RuleExpr (sc:RuleScanner) {
+        return (FsRules.parseTernary(sc))
+    }
+
+    sfn parseTernary:RuleExpr (sc:RuleScanner) {
+        def cond:RuleExpr (FsRules.parseOr(sc))
+        if (sc.takeSym("?")) {
+            def a:RuleExpr (FsRules.parseTernary(sc))
+            if (! (sc.takeSym(":"))) {
+                sc.fail("expected : in a ternary")
+                return cond
+            }
+            def b:RuleExpr (FsRules.parseTernary(sc))
+            def e:RuleExpr (RuleExpr.node("ternary" "?"))
+            push e.parts cond
+            push e.parts a
+            push e.parts b
+            return e
+        }
+        return cond
+    }
+
+    sfn parseOr:RuleExpr (sc:RuleScanner) {
+        def left:RuleExpr (FsRules.parseAnd(sc))
+        while (sc.takeSym("||")) {
+            def right:RuleExpr (FsRules.parseAnd(sc))
+            def e:RuleExpr (RuleExpr.node("binary" "||"))
+            push e.parts left
+            push e.parts right
+            left = e
+        }
+        return left
+    }
+
+    sfn parseAnd:RuleExpr (sc:RuleScanner) {
+        def left:RuleExpr (FsRules.parseComparison(sc))
+        while (sc.takeSym("&&")) {
+            def right:RuleExpr (FsRules.parseComparison(sc))
+            def e:RuleExpr (RuleExpr.node("binary" "&&"))
+            push e.parts left
+            push e.parts right
+            left = e
+        }
+        return left
+    }
+
+    sfn parseComparison:RuleExpr (sc:RuleScanner) {
+        def left:RuleExpr (FsRules.parseAdditive(sc))
+        def running:boolean true
+        while (running) {
+            def op:string ""
+            if (sc.takeSym("==")) {
+                op = "=="
+            }
+            if ((strlen op) == 0) {
+                if (sc.takeSym("!=")) {
+                    op = "!="
+                }
+            }
+            if ((strlen op) == 0) {
+                if (sc.takeSym("<=")) {
+                    op = "<="
+                }
+            }
+            if ((strlen op) == 0) {
+                if (sc.takeSym(">=")) {
+                    op = ">="
+                }
+            }
+            if ((strlen op) == 0) {
+                if (sc.takeSym("<")) {
+                    op = "<"
+                }
+            }
+            if ((strlen op) == 0) {
+                if (sc.takeSym(">")) {
+                    op = ">"
+                }
+            }
+            if ((strlen op) == 0) {
+                if (sc.takeWord("in")) {
+                    op = "in"
+                }
+            }
+            if ((strlen op) == 0) {
+                if (sc.takeWord("is")) {
+                    op = "is"
+                }
+            }
+            if ((strlen op) == 0) {
+                running = false
+            } {
+                def right:RuleExpr (FsRules.parseAdditive(sc))
+                def e:RuleExpr (RuleExpr.node("binary" op))
+                push e.parts left
+                push e.parts right
+                left = e
+            }
+        }
+        return left
+    }
+
+    sfn parseAdditive:RuleExpr (sc:RuleScanner) {
+        def left:RuleExpr (FsRules.parseMultiplicative(sc))
+        def running:boolean true
+        while (running) {
+            def op:string ""
+            if (sc.takeSym("+")) {
+                op = "+"
+            }
+            if ((strlen op) == 0) {
+                if (sc.takeSym("-")) {
+                    op = "-"
+                }
+            }
+            if ((strlen op) == 0) {
+                running = false
+            } {
+                def right:RuleExpr (FsRules.parseMultiplicative(sc))
+                def e:RuleExpr (RuleExpr.node("binary" op))
+                push e.parts left
+                push e.parts right
+                left = e
+            }
+        }
+        return left
+    }
+
+    sfn parseMultiplicative:RuleExpr (sc:RuleScanner) {
+        def left:RuleExpr (FsRules.parseUnary(sc))
+        def running:boolean true
+        while (running) {
+            def op:string ""
+            ; A `/` here is division. A path literal only ever starts a term,
+            ; and `parseUnary` is the only place that reads one.
+            if (sc.takeSym("*")) {
+                op = "*"
+            }
+            if ((strlen op) == 0) {
+                if (sc.takeSym("%")) {
+                    op = "%"
+                }
+            }
+            if ((strlen op) == 0) {
+                running = false
+            } {
+                def right:RuleExpr (FsRules.parseUnary(sc))
+                def e:RuleExpr (RuleExpr.node("binary" op))
+                push e.parts left
+                push e.parts right
+                left = e
+            }
+        }
+        return left
+    }
+
+    sfn parseUnary:RuleExpr (sc:RuleScanner) {
+        if (sc.takeSym("!")) {
+            def operand:RuleExpr (FsRules.parseUnary(sc))
+            def e:RuleExpr (RuleExpr.node("unary" "!"))
+            push e.parts operand
+            return e
+        }
+        if (sc.takeSym("-")) {
+            def operand:RuleExpr (FsRules.parseUnary(sc))
+            def e:RuleExpr (RuleExpr.node("unary" "-"))
+            push e.parts operand
+            return e
+        }
+        return (FsRules.parsePostfix(sc))
+    }
+
+    sfn parsePostfix:RuleExpr (sc:RuleScanner) {
+        def left:RuleExpr (FsRules.parsePrimary(sc))
+        def running:boolean true
+        while (running) {
+            if (sc.takeSym(".")) {
+                def name:string (sc.readIdent())
+                if ((strlen name) == 0) {
+                    sc.fail("expected a name after .")
+                    return left
+                }
+                if (sc.takeSym("(")) {
+                    def call:RuleExpr (RuleExpr.node("method" name))
+                    push call.parts left
+                    FsRules.parseArgs(sc call)
+                    left = call
+                } {
+                    def mem:RuleExpr (RuleExpr.node("member" name))
+                    push mem.parts left
+                    left = mem
+                }
+            } {
+                if (sc.takeSym("[")) {
+                    def idx:RuleExpr (RuleExpr.node("index" ""))
+                    push idx.parts left
+                    push idx.parts (FsRules.parseExpr(sc))
+                    if (! (sc.takeSym("]"))) {
+                        sc.fail("expected ] after an index")
+                        return left
+                    }
+                    left = idx
+                } {
+                    running = false
+                }
+            }
+        }
+        return left
+    }
+
+    sfn parseArgs:void (sc:RuleScanner into:RuleExpr) {
+        if (sc.takeSym(")")) {
+            return
+        }
+        def more:boolean true
+        while (more) {
+            push into.parts (FsRules.parseExpr(sc))
+            more = (sc.takeSym(","))
+            if ((strlen sc.error) > 0) {
+                return
+            }
+        }
+        if (! (sc.takeSym(")"))) {
+            sc.fail("expected ) after the arguments")
+        }
+    }
+
+    sfn parsePrimary:RuleExpr (sc:RuleScanner) {
+        sc.skipWs()
+        def c:int (sc.peek())
+        if (c == 40) {
+            sc.takeSym("(")
+            def inner:RuleExpr (FsRules.parseExpr(sc))
+            if (! (sc.takeSym(")"))) {
+                sc.fail("expected ) to close a group")
+            }
+            return inner
+        }
+        if (c == 91) {
+            sc.takeSym("[")
+            def list:RuleExpr (RuleExpr.node("list" ""))
+            if (sc.takeSym("]")) {
+                return list
+            }
+            def more:boolean true
+            while (more) {
+                push list.parts (FsRules.parseExpr(sc))
+                more = (sc.takeSym(","))
+                if ((strlen sc.error) > 0) {
+                    return list
+                }
+            }
+            if (! (sc.takeSym("]"))) {
+                sc.fail("expected ] to close a list")
+            }
+            return list
+        }
+        if (c == 47) {
+            return (FsRules.parsePathLiteral(sc))
+        }
+        if (c == 34) {
+            def s:RuleExpr (RuleExpr.node("lit" "string"))
+            s.value = (FsValue.strV((sc.readString())))
+            return s
+        }
+        if (c == 39) {
+            def s:RuleExpr (RuleExpr.node("lit" "string"))
+            s.value = (FsValue.strV((sc.readString())))
+            return s
+        }
+        if (RuleScanner.isDigit(c)) {
+            def n:RuleExpr (RuleExpr.node("lit" "number"))
+            def save:int sc.pos
+            def d:double (sc.readNumber())
+            def raw:string (substring sc.text save sc.pos)
+            def isInt:boolean true
+            def i:int 0
+            while (i < (strlen raw)) {
+                if ((charAt raw i) == 46) {
+                    isInt = false
+                }
+                i = (i + 1)
+            }
+            if (isInt) {
+                n.value = (FsValue.longV(d))
+            } {
+                n.value = (FsValue.doubleV(d))
+            }
+            return n
+        }
+        def id:string (sc.readIdent())
+        if ((strlen id) == 0) {
+            sc.fail("expected an expression")
+            return (RuleExpr.node("lit" "error"))
+        }
+        if (id == "true") {
+            def t:RuleExpr (RuleExpr.node("lit" "true"))
+            t.value = (FsValue.boolV(true))
+            return t
+        }
+        if (id == "false") {
+            def f:RuleExpr (RuleExpr.node("lit" "false"))
+            f.value = (FsValue.boolV(false))
+            return f
+        }
+        if (id == "null") {
+            return (RuleExpr.node("lit" "null"))
+        }
+        if (sc.takeSym("(")) {
+            def call:RuleExpr (RuleExpr.node("call" id))
+            FsRules.parseArgs(sc call)
+            return call
+        }
+        return (RuleExpr.node("var" id))
+    }
+
+    ; `/databases/$(database)/documents/calendars/$(calId)` — the literal
+    ; segments and the interpolations, as one expression that evaluates to a
+    ; path string.
+    sfn parsePathLiteral:RuleExpr (sc:RuleScanner) {
+        def e:RuleExpr (RuleExpr.node("path" ""))
+        while (sc.peekSym("/")) {
+            sc.takeSym("/")
+            sc.skipWs()
+            if (sc.takeSym("$(")) {
+                def inner:RuleExpr (FsRules.parseExpr(sc))
+                if (! (sc.takeSym(")"))) {
+                    sc.fail("expected ) to close $( in a path")
+                    return e
+                }
+                push e.parts inner
+            } {
+                def lit:string (sc.readIdent())
+                if ((strlen lit) == 0) {
+                    sc.fail("expected a path segment")
+                    return e
+                }
+                def part:RuleExpr (RuleExpr.node("lit" "string"))
+                part.value = (FsValue.strV(lit))
+                push e.parts part
+            }
+            if ((strlen sc.error) > 0) {
+                return e
+            }
+        }
+        return e
+    }
+}

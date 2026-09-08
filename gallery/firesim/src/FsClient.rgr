@@ -1,0 +1,723 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; FsClient — the app's side, and the one seam that has to move
+; =============================================================================
+; An app written against this compiles to Kotlin, Swift, JavaScript, C++ and
+; the rest, and reaches EITHER the simulator in its own process or a real
+; Firebase project, with the same source. What changes between the two is one
+; object:
+;
+;     FsTransport.mode = "sim"    the simulator, in-process, on the app clock
+;     FsTransport.mode = "host"   the host does the HTTP; the app does not
+;
+; In `host` mode the transport is a QUEUE and nothing else: the app puts a
+; request in, the host (URLSession on iOS, OkHttp on Android, `fetch` in a
+; browser, libcurl on Linux/SDL) takes it out, performs it against
+; `firestore.googleapis.com`, and hands the answer back. Ranger has no HTTP
+; and should not: the language has no business owning a socket, and the host
+; already has one that is configured, proxied and trusted on that platform.
+;
+; So "switch to the real backend" is: install a host transport and point it at
+; the real base URL. No call site changes, no `#if SIMULATOR`, and the same
+; request bodies go over both — because the bodies are Google's REST shapes
+; and not something invented here.
+;
+; There is no inheritance in this file on purpose. A transport is one class
+; with a mode, which every one of Ranger's targets renders the same way; an
+; abstract base with two subclasses would be prettier and would not survive
+; the trip to twelve languages as reliably.
+; =============================================================================
+
+Import "FsQuery.rgr"
+Import "FsHttp.rgr"
+
+; -----------------------------------------------------------------------------
+; FsTransport — a queue, and nothing else
+; -----------------------------------------------------------------------------
+; Deliberately it does NOT know about the simulator. A transport that held an
+; FsSim would drag the rules parser, the routing table and the model into
+; every build that only wanted to talk to a backend — which is the whole
+; client side, and every watch. So the transport is a mailbox: requests go in
+; one end, answers come back the other, and whoever drains it is the backend.
+;
+;   a host      URLSession, OkHttp, `fetch`, libcurl — real Firebase
+;   FsSimBridge the simulator, in the same process (FsSimBridge.rgr)
+;
+; That is the deployment switch, and it is one line at start-up.
+; -----------------------------------------------------------------------------
+class FsTransport {
+    ; Prefixed onto every URL a host is handed —
+    ; `https://firestore.googleapis.com` in production, "" for the simulator.
+    def baseUrl@(mutable):string ""
+
+    ; The outbound queue.
+    def outIds:[int]
+    def outMethods:[string]
+    def outUrls:[string]
+    def outBodies:[string]
+    def outTokens:[string]
+    ; -1 not yet taken by whoever performs it, 1 taken.
+    def outTaken:[int]
+
+    ; What has come back.
+    def doneIds:[int]
+    def doneStatuses:[int]
+    def doneBodies:[string]
+    ; Chunks of a streamed answer, by call.
+    def chunkIds:[int]
+    def chunkTexts:[string]
+    def chunkTaken:[int]
+
+    def nextId@(mutable):int 1
+
+    Constructor () {
+    }
+
+    sfn to:FsTransport (baseUrl:string) {
+        def t:FsTransport (new FsTransport)
+        t.baseUrl = baseUrl
+        return t
+    }
+
+    ; --- the app's side ------------------------------------------------------
+    fn send:int (req:FsRequest) {
+        def id:int nextId
+        nextId = (nextId + 1)
+        def h:FsHeaders (req.head())
+        def url:string req.path
+        def qn:int (array_length req.queryKeys)
+        def i:int 0
+        while (i < qn) {
+            def sep:string "&"
+            if (i == 0) {
+                sep = "?"
+            }
+            url = ((url + sep) + (itemAt req.queryKeys i) + "=" + (itemAt req.queryValues i))
+            i = (i + 1)
+        }
+        push outIds id
+        push outMethods req.method
+        push outUrls url
+        push outBodies req.body
+        push outTokens (h.value("authorization"))
+        push outTaken -1
+        return id
+    }
+
+    fn ready:boolean (callId:int) {
+        for doneIds id:int i {
+            if (id == callId) {
+                return true
+            }
+        }
+        return false
+    }
+
+    fn statusOf:int (callId:int) {
+        for doneIds id:int i {
+            if (id == callId) {
+                return (itemAt doneStatuses i)
+            }
+        }
+        return 0
+    }
+
+    fn bodyOf:string (callId:int) {
+        for doneIds id:int i {
+            if (id == callId) {
+                return (itemAt doneBodies i)
+            }
+        }
+        return ""
+    }
+
+    ; The pieces of a streamed answer that have arrived since the last ask —
+    ; which is exactly what a chat screen appends.
+    fn takeChunks:[string] (callId:int) {
+        def out:[string]
+        def n:int (array_length chunkIds)
+        def i:int 0
+        while (i < n) {
+            if ((itemAt chunkIds i) == callId) {
+                if ((itemAt chunkTaken i) == 0) {
+                    push out (itemAt chunkTexts i)
+                    set chunkTaken i 1
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn finished:boolean (callId:int) {
+        return (this.ready(callId))
+    }
+
+    ; --- the backend's side --------------------------------------------------
+    ; The next request nobody has performed yet, or -1.
+    fn nextPending:int () {
+        def n:int (array_length outIds)
+        def i:int 0
+        while (i < n) {
+            if ((itemAt outTaken i) < 0) {
+                set outTaken i 1
+                return (itemAt outIds i)
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn indexOfOut:int (callId:int) {
+        def n:int (array_length outIds)
+        def i:int 0
+        while (i < n) {
+            if ((itemAt outIds i) == callId) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn pendingMethod:string (callId:int) {
+        def i:int (this.indexOfOut(callId))
+        if (i < 0) {
+            return ""
+        }
+        return (itemAt outMethods i)
+    }
+
+    ; The URL without the base — what the simulator routes on.
+    fn pendingPath:string (callId:int) {
+        def i:int (this.indexOfOut(callId))
+        if (i < 0) {
+            return ""
+        }
+        return (itemAt outUrls i)
+    }
+
+    ; The URL a host requests, base included.
+    fn pendingUrl:string (callId:int) {
+        def i:int (this.indexOfOut(callId))
+        if (i < 0) {
+            return ""
+        }
+        return (baseUrl + (itemAt outUrls i))
+    }
+
+    fn pendingBody:string (callId:int) {
+        def i:int (this.indexOfOut(callId))
+        if (i < 0) {
+            return ""
+        }
+        return (itemAt outBodies i)
+    }
+
+    ; The `Authorization` header value, or "" — a host copies it onto its own
+    ; request rather than building one.
+    fn pendingToken:string (callId:int) {
+        def i:int (this.indexOfOut(callId))
+        if (i < 0) {
+            return ""
+        }
+        return (itemAt outTokens i)
+    }
+
+    fn deliver:void (callId:int status:int body:string) {
+        push doneIds callId
+        push doneStatuses status
+        push doneBodies body
+    }
+
+    fn deliverChunk:void (callId:int text:string) {
+        push chunkIds callId
+        push chunkTexts text
+        push chunkTaken 0
+    }
+
+    ; Close a streamed answer: the whole body is what the chunks said.
+    fn deliverEnd:void (callId:int status:int) {
+        def whole:string ""
+        def n:int (array_length chunkIds)
+        def i:int 0
+        while (i < n) {
+            if ((itemAt chunkIds i) == callId) {
+                whole = (whole + (itemAt chunkTexts i))
+            }
+            i = (i + 1)
+        }
+        push doneIds callId
+        push doneStatuses status
+        push doneBodies whole
+    }
+
+    ; Forget a call that has been read, so a long session does not keep every
+    ; answer it ever received.
+    fn forget:void (callId:int) {
+        def ids:[int]
+        def methods:[string]
+        def urls:[string]
+        def bodies:[string]
+        def tokens:[string]
+        def taken:[int]
+        def n:int (array_length outIds)
+        def i:int 0
+        while (i < n) {
+            if ((itemAt outIds i) != callId) {
+                push ids (itemAt outIds i)
+                push methods (itemAt outMethods i)
+                push urls (itemAt outUrls i)
+                push bodies (itemAt outBodies i)
+                push tokens (itemAt outTokens i)
+                push taken (itemAt outTaken i)
+            }
+            i = (i + 1)
+        }
+        outIds = ids
+        outMethods = methods
+        outUrls = urls
+        outBodies = bodies
+        outTokens = tokens
+        outTaken = taken
+        def dIds:[int]
+        def dStatuses:[int]
+        def dBodies:[string]
+        def dn:int (array_length doneIds)
+        def d:int 0
+        while (d < dn) {
+            if ((itemAt doneIds d) != callId) {
+                push dIds (itemAt doneIds d)
+                push dStatuses (itemAt doneStatuses d)
+                push dBodies (itemAt doneBodies d)
+            }
+            d = (d + 1)
+        }
+        doneIds = dIds
+        doneStatuses = dStatuses
+        doneBodies = dBodies
+        def cIds:[int]
+        def cTexts:[string]
+        def cTaken:[int]
+        def cn:int (array_length chunkIds)
+        def c:int 0
+        while (c < cn) {
+            if ((itemAt chunkIds c) != callId) {
+                push cIds (itemAt chunkIds c)
+                push cTexts (itemAt chunkTexts c)
+                push cTaken (itemAt chunkTaken c)
+            }
+            c = (c + 1)
+        }
+        chunkIds = cIds
+        chunkTexts = cTexts
+        chunkTaken = cTaken
+    }
+}
+
+; -----------------------------------------------------------------------------
+; FsClient — what an app calls
+; -----------------------------------------------------------------------------
+class FsClient {
+    def transport@(optional):FsTransport
+    def projectId@(mutable):string "demo-firesim"
+    def databaseId@(mutable):string "(default)"
+    ; The signed-in user, once a sign-in call has been read.
+    def idToken@(mutable):string ""
+    def refreshToken@(mutable):string ""
+    def uid@(mutable):string ""
+    def signedIn@(mutable):boolean false
+    ; The last error a `read…` call saw, so an app has one place to look.
+    def lastError@(mutable):string ""
+    def lastStatus@(mutable):int 0
+
+    Constructor () {
+    }
+
+    fn wire:FsTransport () {
+        return (unwrap transport)
+    }
+
+    fn documentsBase:string () {
+        return (((("/v1/projects/" + projectId) + "/databases/" + databaseId) + "/documents"))
+    }
+
+    fn newRequest:FsRequest (method:string url:string body:string) {
+        def req:FsRequest (FsRequest.parse(method url body))
+        if (signedIn) {
+            def h:FsHeaders (req.head())
+            h.set("authorization" ("Bearer " + idToken))
+        }
+        return req
+    }
+
+    ; --- accounts ------------------------------------------------------------
+    fn signIn:int (email:string password:string) {
+        def body:VlJson (VlJson.objectValue())
+        body.setMember("email" (VlJson.stringValue(email)))
+        body.setMember("password" (VlJson.stringValue(password)))
+        body.setMember("returnSecureToken" (VlJson.boolValue(true)))
+        def writer:VlJsonWriter (new VlJsonWriter)
+        def req:FsRequest (this.newRequest("POST" "/identitytoolkit.googleapis.com/v1/accounts:signInWithPassword" (writer.write(body))))
+        def t:FsTransport (unwrap transport)
+        return (t.send(req))
+    }
+
+    fn signUp:int (email:string password:string displayName:string) {
+        def body:VlJson (VlJson.objectValue())
+        body.setMember("email" (VlJson.stringValue(email)))
+        body.setMember("password" (VlJson.stringValue(password)))
+        body.setMember("displayName" (VlJson.stringValue(displayName)))
+        body.setMember("returnSecureToken" (VlJson.boolValue(true)))
+        def writer:VlJsonWriter (new VlJsonWriter)
+        def req:FsRequest (this.newRequest("POST" "/identitytoolkit.googleapis.com/v1/accounts:signUp" (writer.write(body))))
+        def t:FsTransport (unwrap transport)
+        return (t.send(req))
+    }
+
+    ; An anonymous session: no e-mail, no password, a real uid. This is what
+    ; lets a demo run with no Google account at all.
+    fn signInAnonymously:int () {
+        return (this.signUp("" "" ""))
+    }
+
+    ; Reads a sign-in answer and, on success, keeps the token. Answers whether
+    ; the app is now signed in.
+    fn readSignIn:boolean (callId:int) {
+        def body:VlJson (this.readJson(callId))
+        if (lastStatus >= 400) {
+            return false
+        }
+        idToken = (body.stringOr("idToken" ""))
+        refreshToken = (body.stringOr("refreshToken" ""))
+        uid = (body.stringOr("localId" ""))
+        signedIn = ((strlen idToken) > 0)
+        return signedIn
+    }
+
+    fn signOut:void () {
+        idToken = ""
+        refreshToken = ""
+        uid = ""
+        signedIn = false
+    }
+
+    ; --- documents -----------------------------------------------------------
+    fn getDoc:int (path:string) {
+        def base:string (this.documentsBase())
+        def req:FsRequest (this.newRequest("GET" ((base + "/") + path) ""))
+        def t:FsTransport (unwrap transport)
+        return (t.send(req))
+    }
+
+    fn setDoc:int (path:string data:FsValue) {
+        def base:string (this.documentsBase())
+        def req:FsRequest (this.newRequest("PATCH" ((base + "/") + path) (FsClient.documentBody(data))))
+        def t:FsTransport (unwrap transport)
+        return (t.send(req))
+    }
+
+    ; A merge: only the named fields are written, the rest of the document is
+    ; left alone. An empty list means every field the value carries.
+    fn mergeDoc:int (path:string data:FsValue fields:[string]) {
+        def base:string (this.documentsBase())
+        def url:string ((base + "/") + path)
+        def names:[string] fields
+        if ((array_length names) == 0) {
+            names = (FsStore.leafPaths(data ""))
+        }
+        for names f:string i {
+            def sep:string "&"
+            if (i == 0) {
+                sep = "?"
+            }
+            url = ((url + sep) + "updateMask.fieldPaths=" + f)
+        }
+        def req:FsRequest (this.newRequest("PATCH" url (FsClient.documentBody(data))))
+        def t:FsTransport (unwrap transport)
+        return (t.send(req))
+    }
+
+    fn addDoc:int (collection:string data:FsValue) {
+        def base:string (this.documentsBase())
+        def req:FsRequest (this.newRequest("POST" ((base + "/") + collection) (FsClient.documentBody(data))))
+        def t:FsTransport (unwrap transport)
+        return (t.send(req))
+    }
+
+    fn deleteDoc:int (path:string) {
+        def base:string (this.documentsBase())
+        def req:FsRequest (this.newRequest("DELETE" ((base + "/") + path) ""))
+        def t:FsTransport (unwrap transport)
+        return (t.send(req))
+    }
+
+    fn runQuery:int (q:FsQuery) {
+        def base:string (this.documentsBase())
+        def url:string (base + ":runQuery")
+        if ((strlen q.parent) > 0) {
+            url = (((base + "/") + q.parent) + ":runQuery")
+        }
+        def body:VlJson (VlJson.objectValue())
+        body.setMember("structuredQuery" (FsClient.queryJson(q)))
+        def writer:VlJsonWriter (new VlJsonWriter)
+        def req:FsRequest (this.newRequest("POST" url (writer.write(body))))
+        def t:FsTransport (unwrap transport)
+        return (t.send(req))
+    }
+
+    ; A prompt, streamed. The chunks come back through `takeChunks`.
+    fn ask:int (prompt:string requestId:string) {
+        def body:VlJson (VlJson.objectValue())
+        body.setMember("prompt" (VlJson.stringValue(prompt)))
+        body.setMember("requestId" (VlJson.stringValue(requestId)))
+        def writer:VlJsonWriter (new VlJsonWriter)
+        def req:FsRequest (this.newRequest("POST" "/ai/v1/chat:stream" (writer.write(body))))
+        def t:FsTransport (unwrap transport)
+        return (t.send(req))
+    }
+
+    ; --- reading answers -----------------------------------------------------
+    fn ready:boolean (callId:int) {
+        def t:FsTransport (unwrap transport)
+        return (t.ready(callId))
+    }
+
+    fn takeChunks:[string] (callId:int) {
+        def t:FsTransport (unwrap transport)
+        return (t.takeChunks(callId))
+    }
+
+    fn readJson:VlJson (callId:int) {
+        def t:FsTransport (unwrap transport)
+        lastStatus = (t.statusOf(callId))
+        lastError = ""
+        def text:string (t.bodyOf(callId))
+        def parser:VlJsonParser (new VlJsonParser)
+        def body:VlJson (parser.parse(text))
+        if (lastStatus >= 400) {
+            if (body.has("error")) {
+                def err:VlJson (body.get("error"))
+                lastError = (err.stringOr("message" "the request failed"))
+            } {
+                lastError = ("the request failed with " + (to_string lastStatus))
+            }
+        }
+        return body
+    }
+
+    ; One document out of a get, a create or a patch.
+    fn readDoc:FsDocument (callId:int) {
+        def body:VlJson (this.readJson(callId))
+        return (FsClient.docOf(body))
+    }
+
+    ; The documents a query answered with, in the order it answered.
+    fn readDocs:[FsDocument] (callId:int) {
+        def body:VlJson (this.readJson(callId))
+        def out:[FsDocument]
+        if (lastStatus >= 400) {
+            return out
+        }
+        def n:int (body.count())
+        def i:int 0
+        while (i < n) {
+            def row:VlJson (body.at(i))
+            if (row.has("document")) {
+                push out (FsClient.docOf((row.get("document"))))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; A REST document back into an FsDocument — the same shape a store
+    ; hands out, so a screen does not care which side answered.
+    sfn docOf:FsDocument (node:VlJson) {
+        def doc:FsDocument (new FsDocument)
+        doc.path = (FsClient.pathOfName((node.stringOr("name" ""))))
+        def data:FsValue (FsClient.fieldsOf(node))
+        doc.data = data
+        doc.createMs = (FsTime.parseIso((node.stringOr("createTime" ""))))
+        doc.updateMs = (FsTime.parseIso((node.stringOr("updateTime" ""))))
+        return doc
+    }
+
+    ; `projects/p/databases/d/documents/calendars/x` → `calendars/x`
+    sfn pathOfName:string (name:string) {
+        def segs:[string] (FsPath.segments(name))
+        def n:int (array_length segs)
+        def i:int 0
+        while (i < n) {
+            if ((itemAt segs i) == "documents") {
+                def kept:[string]
+                def k:int (i + 1)
+                while (k < n) {
+                    push kept (itemAt segs k)
+                    k = (k + 1)
+                }
+                return (FsPath.joinSegs(kept))
+            }
+            i = (i + 1)
+        }
+        return name
+    }
+
+    sfn fieldsOf:FsValue (body:VlJson) {
+        def out:FsValue (FsValue.mapV())
+        if (! (body.has("fields"))) {
+            return out
+        }
+        def fields:VlJson (body.get("fields"))
+        for fields.keys k:string ki {
+            out.setField(k (FsValue.fromWire((fields.get(k)))))
+        }
+        return out
+    }
+
+    ; --- bodies --------------------------------------------------------------
+    sfn documentBody:string (data:FsValue) {
+        def out:VlJson (VlJson.objectValue())
+        def fields:VlJson (VlJson.objectValue())
+        for data.keys k:string ki {
+            def v:FsValue (data.field(k))
+            fields.setMember(k (v.toWire()))
+        }
+        out.setMember("fields" fields)
+        def writer:VlJsonWriter (new VlJsonWriter)
+        return (writer.write(out))
+    }
+
+    ; An FsQuery as the `structuredQuery` the REST API takes — the same JSON
+    ; the simulator reads and the same JSON Google reads.
+    sfn queryJson:VlJson (q:FsQuery) {
+        def out:VlJson (VlJson.objectValue())
+        def from:VlJson (VlJson.arrayValue())
+        def src:VlJson (VlJson.objectValue())
+        src.setMember("collectionId" (VlJson.stringValue(q.collectionId)))
+        src.setMember("allDescendants" (VlJson.boolValue(q.allDescendants)))
+        push from.arr src
+        out.setMember("from" from)
+        if (q.hasWhere()) {
+            def f:FsFilter (q.filter())
+            out.setMember("where" (FsClient.filterJson(f)))
+        }
+        if ((array_length q.orders) > 0) {
+            def orders:VlJson (VlJson.arrayValue())
+            for q.orders o:FsOrder oi {
+                def node:VlJson (VlJson.objectValue())
+                def field:VlJson (VlJson.objectValue())
+                field.setMember("fieldPath" (VlJson.stringValue(o.fieldPath)))
+                node.setMember("field" field)
+                def dir:string "ASCENDING"
+                if (o.descending) {
+                    dir = "DESCENDING"
+                }
+                node.setMember("direction" (VlJson.stringValue(dir)))
+                push orders.arr node
+            }
+            out.setMember("orderBy" orders)
+        }
+        if (q.limitCount >= 0) {
+            out.setMember("limit" (VlJson.intValue(q.limitCount)))
+        }
+        if (q.offsetCount > 0) {
+            out.setMember("offset" (VlJson.intValue(q.offsetCount)))
+        }
+        def sc:FsCursor (q.startAt())
+        if (sc.active) {
+            out.setMember("startAt" (FsClient.cursorJson(sc)))
+        }
+        def ec:FsCursor (q.endAt())
+        if (ec.active) {
+            out.setMember("endAt" (FsClient.cursorJson(ec)))
+        }
+        return out
+    }
+
+    sfn cursorJson:VlJson (c:FsCursor) {
+        def out:VlJson (VlJson.objectValue())
+        def values:VlJson (VlJson.arrayValue())
+        for c.values v:FsValue i {
+            push values.arr (v.toWire())
+        }
+        out.setMember("values" values)
+        out.setMember("before" (VlJson.boolValue(c.before)))
+        return out
+    }
+
+    sfn wireOp:string (op:string) {
+        if (op == "==") {
+            return "EQUAL"
+        }
+        if (op == "!=") {
+            return "NOT_EQUAL"
+        }
+        if (op == "<") {
+            return "LESS_THAN"
+        }
+        if (op == "<=") {
+            return "LESS_THAN_OR_EQUAL"
+        }
+        if (op == ">") {
+            return "GREATER_THAN"
+        }
+        if (op == ">=") {
+            return "GREATER_THAN_OR_EQUAL"
+        }
+        if (op == "array-contains") {
+            return "ARRAY_CONTAINS"
+        }
+        if (op == "array-contains-any") {
+            return "ARRAY_CONTAINS_ANY"
+        }
+        if (op == "in") {
+            return "IN"
+        }
+        if (op == "not-in") {
+            return "NOT_IN"
+        }
+        if (op == "is-null") {
+            return "IS_NULL"
+        }
+        if (op == "is-not-null") {
+            return "IS_NOT_NULL"
+        }
+        if (op == "is-nan") {
+            return "IS_NAN"
+        }
+        return "EQUAL"
+    }
+
+    sfn filterJson:VlJson (f:FsFilter) {
+        def out:VlJson (VlJson.objectValue())
+        if (f.kind == "composite") {
+            def comp:VlJson (VlJson.objectValue())
+            comp.setMember("op" (VlJson.stringValue(f.combine)))
+            def parts:VlJson (VlJson.arrayValue())
+            for f.parts p:FsFilter i {
+                push parts.arr (FsClient.filterJson(p))
+            }
+            comp.setMember("filters" parts)
+            out.setMember("compositeFilter" comp)
+            return out
+        }
+        def field:VlJson (VlJson.objectValue())
+        field.setMember("fieldPath" (VlJson.stringValue(f.fieldPath)))
+        if (f.kind == "unary") {
+            def un:VlJson (VlJson.objectValue())
+            un.setMember("field" field)
+            un.setMember("op" (VlJson.stringValue((FsClient.wireOp(f.op)))))
+            out.setMember("unaryFilter" un)
+            return out
+        }
+        def ff:VlJson (VlJson.objectValue())
+        ff.setMember("field" field)
+        ff.setMember("op" (VlJson.stringValue((FsClient.wireOp(f.op)))))
+        def arg:FsValue (f.arg())
+        ff.setMember("value" (arg.toWire()))
+        out.setMember("fieldFilter" ff)
+        return out
+    }
+}
