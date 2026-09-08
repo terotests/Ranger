@@ -659,3 +659,42 @@ same text in a child of the same container lands. A browser cannot tell those
 two apart and neither may EVG. Six alignments, plus that the slack really is
 there to be shared, that the layout's baseline is still the painter's, and
 that a block ignores `align-items`.
+
+## Issue #12: the accessibility mirror does not hide the page behind a dialog
+
+Open, and NOT fixed here. The drawn half is fixed — see `EVGFocus`, the focus
+trap — and this is the other half, recorded so it is not rediscovered.
+
+### What happens
+
+`evg-a11y.js` already knows how: `applyModal` looks for a node in the
+accessibility tree that carries `modal` (`aria-modal`), walks up to the
+top-level region holding it, and puts `aria-hidden="true"` on every other
+top-level region. That is the right mechanism and it is written.
+
+It never fires in realtrainer, because there is no such node. The element that
+declares `a11yModal` is the overlay — the scrim, which is what covers the page
+— and an element with no role and no name is not published to the tree at all.
+So `tree.nodes.find(n => n.modal)` finds nothing, nothing is hidden, and a
+screen reader walks straight out of an open dialog into the page behind it,
+even though a sighted keyboard user can no longer do that.
+
+### Why it is not a one-line fix
+
+The node has to exist, which means the overlay or the sheet has to carry a
+role — `dialog` is the right one — and that adds a node to the accessibility
+tree of every screen that has a sheet on it. Those trees are recorded:
+`gallery/realtrainer/traces/*.json` is the Ranger side's own transcript, and
+`traces/reference/*.json` is the app being ported. Adding the role is very
+likely a step TOWARDS the reference — a real dialog there is a
+`<div role="dialog" aria-modal="true">` — but "very likely" is not "checked",
+and the check needs the private frontend the reference recorder runs against.
+
+So the shape of the fix is known and the cost is a re-record plus a look at
+the reference diff, which is a machine this repository's CI does not have.
+
+### What holds in the meantime
+
+The keyboard is trapped (`EVGFocus`, `rt:keys`), Escape closes the topmost
+dialog, and the mirror still reports the dialog's own controls correctly — it
+just also reports the page behind them.

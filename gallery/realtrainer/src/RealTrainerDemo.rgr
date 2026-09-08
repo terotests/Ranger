@@ -438,7 +438,14 @@ treefactory Rt {
     tag ThemeDesc EVGElement (props (className "rt-theme-desc") (elementType 1))
     tag ThemeOn  EVGElement (props (className "rt-theme-on") (elementType 1))
 
-    tag Overlay  EVGElement (props (className "rt-overlay"))
+    ; THE SCRIM IS THE MODAL. `a11yModal` is `aria-modal`: while this is up,
+    ; the page behind it is not there. The mirror reads it to hide what is
+    ; under the dialog, and `EVGFocus` reads it to keep the keyboard inside —
+    ; a dialog you have to close is not one Tab may walk out of. Declared on
+    ; the overlay rather than on the sheet because the overlay is the thing
+    ; that covers the page; `Modal` is also used for cards that are not over
+    ; anything.
+    tag Overlay  EVGElement (props (className "rt-overlay") (a11yModal true))
     tag Modal    EVGElement (props (className "rt-modal"))
     tag ModalHead EVGElement (props (className "rt-modal-head"))
     tag ModalTitle EVGElement (props (className "rt-modal-title") (elementType 1) (role "heading"))
@@ -2662,12 +2669,12 @@ class RealTrainerDemo {
     ; bar, the add sheet after it — the reference's tree reads them so.
     fn overlays:void (page:EVGElement) {
         if (plan.isOpen()) {
-            def over2 (tree Rt (Overlay))
+            def over2 (tree Rt (Overlay (props (id "rt-overlay-plan"))))
             over2.addChild((this.planSheet()))
             page.addChild(over2)
         }
         if moreOpen {
-            def over3 (tree Rt (Overlay (props (className "rt-overlay rt-overlay-bottom"))))
+            def over3 (tree Rt (Overlay (props (id "rt-overlay-more") (className "rt-overlay rt-overlay-bottom"))))
             over3.addChild((this.moreSheet()))
             page.addChild(over3)
         }
@@ -2675,7 +2682,7 @@ class RealTrainerDemo {
 
     fn addOverlay:void (page:EVGElement) {
         if (addDialog.isOpen()) {
-            def over (tree Rt (Overlay))
+            def over (tree Rt (Overlay (props (id "rt-overlay-add"))))
             over.addChild((this.addSheet()))
             page.addChild(over)
         }
@@ -2684,14 +2691,14 @@ class RealTrainerDemo {
         ; the request reads the text and comes back with a proposal, and a
         ; person who does not know that taps the button again.
         if (this.savingNow()) {
-            def wov (tree Rt (Overlay))
+            def wov (tree Rt (Overlay (props (id "rt-overlay-wait"))))
             wov.addChild((RealTrainerDemo.waitCard()))
             page.addChild(wov)
         }
         ; The review is over everything the sheet is over, and over the sheet:
         ; it is what the save answered with.
         if review.open {
-            def rev (tree Rt (Overlay))
+            def rev (tree Rt (Overlay (props (id "rt-overlay-review"))))
             rev.addChild((this.reviewSheet()))
             page.addChild(rev)
         }
@@ -6910,7 +6917,20 @@ class RealTrainerDemo {
             ; that turned out to change nothing.
             return true
         }
+        ; ESCAPE IS THE WAY OUT. The keys are trapped inside a dialog now —
+        ; Tab cannot walk out of one — so a dialog that could only be closed
+        ; by finding its × would be a room with the door painted on. Each
+        ; sheet has its own close and this presses the topmost one's.
+        ;
+        ; With no dialog up, Escape drops the ring, which is what it did
+        ; before and is still the right answer for "never mind".
         if (k == "Escape") {
+            if (this.closeTopmost()) {
+                def lay3:EVGLayout (this.laidOut())
+                def r3:EVGElement (unwrap root)
+                keys.settle(r3)
+                return true
+            }
             if ((strlen keys.focusId) == 0) {
                 return false
             }
@@ -6932,6 +6952,40 @@ class RealTrainerDemo {
     ; Where the ring is, for a host and for a check.
     fn focusRingId:string () {
         return keys.focusId
+    }
+
+    ; The dialog the keys are shut inside, or "" — see `EVGFocus`. A host
+    ; needs it to know whether a key of its own is the dialog's, and it must
+    ; be answerable without pressing one, so the tree is walked here.
+    fn focusTrapId:string () {
+        def lay:EVGLayout (this.laidOut())
+        def r:EVGElement (unwrap root)
+        keys.scan(r)
+        return (keys.trapId())
+    }
+
+    ; Close whatever is on top, innermost first — the order they are drawn in,
+    ; reversed. Answers false when nothing is open, which is what lets Escape
+    ; fall through to dropping the ring.
+    fn closeTopmost:boolean () {
+        if calMenuOpen {
+            this.closeCalMenu()
+            this.rebuild()
+            return true
+        }
+        if review.open {
+            return (this.press("rt-review-close"))
+        }
+        if (addDialog.isOpen()) {
+            return (this.press("rt-sheet-cancel"))
+        }
+        if moreOpen {
+            return (this.press("rt-more-close"))
+        }
+        if (plan.isOpen()) {
+            return (this.press("rt-plan-cancel"))
+        }
+        return false
     }
 
     ; --- what the browser's text session asks ---------------------------------

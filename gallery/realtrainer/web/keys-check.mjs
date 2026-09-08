@@ -173,6 +173,87 @@ console.log("--- the ring follows a rebuild, or goes with what it was on ---");
 }
 
 console.log("");
+console.log("--- a dialog shuts the keys inside it ---");
+{
+  // Tab past the last control of a dialog used to land on the page behind it:
+  // the ring on things the person cannot see the point of and cannot get back
+  // from except by walking all the way round. Nothing here says "trap now" —
+  // the overlay declares `a11yModal`, which is the same declaration the
+  // accessibility mirror reads, and `EVGFocus` reads it too.
+  const app = open("rt-nav-home");
+  ok("nothing is trapped to start with", app.focusTrapId() === "", app.focusTrapId());
+  const loose = [];
+  for (let i = 0; i < 5; i += 1) { key(app, "Tab"); loose.push(app.focusRingId()); }
+  ok("and Tab walks the page", loose.includes("rt-add"), loose.join(" > "));
+
+  ok("the sheet opens", app.press("rt-add"));
+  ok("and it is what the keys are in", app.focusTrapId() === "rt-overlay-add",
+     app.focusTrapId());
+  const inside = [];
+  for (let i = 0; i < 7; i += 1) { key(app, "Tab"); inside.push(app.focusRingId()); }
+  // Every stop is one of the sheet's own, and it comes round rather than
+  // leaving.
+  ok("every stop is the sheet's",
+     inside.every((id) => id.startsWith("rt-sheet-") || id === "rt-add-field"),
+     inside.join(" > "));
+  ok("and it wraps rather than leaving", inside[0] === inside[3], inside.join(" > "));
+  ok("nothing on the page behind is reachable",
+     inside.includes("rt-add") === false && inside.includes("rt-credits") === false,
+     inside.join(" > "));
+  // An arrow cannot leave either — the page's buttons are above the sheet.
+  const before = app.focusRingId();
+  key(app, "ArrowUp");
+  ok("nor by arrow", app.focusRingId().startsWith("rt-sheet-") ||
+     app.focusRingId() === "rt-add-field" || app.focusRingId() === before,
+     app.focusRingId());
+}
+
+console.log("");
+console.log("--- and Escape is the way out ---");
+{
+  // A trap with no door is worse than no trap. Each sheet has its own close
+  // and Escape presses the topmost one's.
+  const app = open("rt-nav-home");
+  app.press("rt-add");
+  ok("the sheet is up", app.focusTrapId() === "rt-overlay-add");
+  ok("Escape is taken", key(app, "Escape"));
+  ok("and the sheet is gone", app.focusTrapId() === "", app.focusTrapId());
+  ok("the page is walkable again", key(app, "Tab") && app.focusRingId() !== "");
+
+  // The bar's sheet too, which is a different dialog with a different close.
+  app.press("rt-nav-more");
+  ok("the More sheet traps", app.focusTrapId() === "rt-overlay-more", app.focusTrapId());
+  ok("Escape closes it too", key(app, "Escape"));
+  ok("and lets go", app.focusTrapId() === "", app.focusTrapId());
+
+  // With nothing open Escape is what it always was: never mind, drop the ring.
+  key(app, "Tab");
+  ok("with no dialog it drops the ring", key(app, "Escape") && app.focusRingId() === "");
+  ok("and then it is not taken at all", key(app, "Escape") === false);
+}
+
+console.log("");
+console.log("--- the review over the sheet is the one that traps ---");
+{
+  // Overlays are appended, so the later one is on top — and the keys follow
+  // the top one, not the first.
+  const app = open("rt-nav-home");
+  app.press("rt-home-field");
+  app.applyEdit("rt-home-field", "Juoksu 10km", 11, 11);
+  app.press("rt-home-send");
+  let spent = 0;
+  while (spent < 1200) { app.tick(16.7); spent += 16.7; }
+  app.display();
+  ok("the review came back", app.focusTrapId() === "rt-overlay-review", app.focusTrapId());
+  const inside = [];
+  for (let i = 0; i < 5; i += 1) { key(app, "Tab"); inside.push(app.focusRingId()); }
+  ok("and the keys are in it",
+     inside.every((id) => id.startsWith("rt-review-")), inside.join(" > "));
+  ok("Escape closes the review", key(app, "Escape") && app.focusTrapId() === "",
+     app.focusTrapId());
+}
+
+console.log("");
 console.log("--- a field keeps its own keys ---");
 {
   // While something is being typed into, the arrows move a caret. The host is
