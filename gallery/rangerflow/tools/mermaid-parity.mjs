@@ -39,6 +39,48 @@ function read(name) {
   return JSON.parse(fs.readFileSync(p, "utf8"));
 }
 
+/**
+ * Every diagram type the INSTALLED Mermaid ships, read off its own build.
+ *
+ * Not a list typed into this file: Mermaid publishes one chunk per diagram,
+ * so the names are whatever this version actually carries, and a type added
+ * upstream turns up here the next time the harness is installed. The header
+ * keyword differs from the chunk name in four places — a flowchart opens with
+ * `flowchart`, not `flow` — and that is the whole of the mapping.
+ */
+function mermaidDiagramTypes() {
+  const dir = path.join(ROOT, "harness", "node_modules", "mermaid", "dist", "chunks", "mermaid.core");
+  if (!fs.existsSync(dir)) return [];
+  // The chunk name is not always the keyword. Where it is not, this says so.
+  const HEADER = {
+    flow: "flowchart", class: "classDiagram", "class-v2": "classDiagram",
+    state: "stateDiagram", "state-v2": "stateDiagram-v2", sequence: "sequenceDiagram",
+    er: "erDiagram", requirement: "requirementDiagram", quadrant: "quadrantChart",
+    c4: "C4Context", architecture: "architecture-beta", block: "block-beta",
+    sankey: "sankey-beta", xychart: "xychart-beta", packet: "packet-beta",
+    radar: "radar-beta", treemap: "treemap-beta", venn: "venn-beta",
+    wardley: "wardley-beta", cynefin: "cynefin-beta", ishikawa: "ishikawa-beta",
+    swimlanes: "swimlanes-beta",
+  };
+  const names = new Set();
+  for (const file of fs.readdirSync(dir)) {
+    // …Diagram-HASH.mjs for most of them, and `<name>-definition-HASH.mjs`
+    // for the three that are packaged the other way.
+    const m = file.match(/^([a-zA-Z0-9]+)Diagram(-v2)?-[A-Z0-9]+\.mjs$/);
+    if (m) names.add(m[1] + (m[2] ?? ""));
+    const d = file.match(/^([a-zA-Z0-9]+)-definition-[A-Z0-9]+\.mjs$/);
+    if (d) names.add(d[1]);
+  }
+  // `class` and `class-v2` are one keyword with two renderers behind it, so
+  // the table has one row for it rather than two.
+  const rows = new Map();
+  for (const chunk of [...names].sort()) {
+    const header = HEADER[chunk] ?? chunk;
+    if (!rows.has(header)) rows.set(header, { chunk, header });
+  }
+  return [...rows.values()];
+}
+
 const oracle = read("mermaid.json");
 const ours = read("rangerflow_mermaid.json");
 if (!ours) {
@@ -153,7 +195,7 @@ for (const want of oracle.diagrams) {
   // A diagram Mermaid draws with another parser is one RangerFlow must say no
   // to rather than read as a flowchart. That is the whole of the check.
   if (kind !== "flowchart") {
-    add("read as nothing else", got.nodes.length === 0, `${got.nodes.length} nodes invented from a ${kind} diagram`);
+    add("not read as a flowchart", got.nodes.length === 0, `${got.nodes.length} nodes invented from a ${kind} diagram`);
     rows.push({ file: want.file, kind, checks, notes });
     continue;
   }
@@ -215,6 +257,32 @@ for (const want of oracle.diagrams) {
   rows.push({ file: want.file, kind, checks, notes });
 }
 
+// ------------------------------------------------------- the type coverage -
+// Two readers here — a flowchart and a class diagram — and two dozen kinds of
+// diagram in Mermaid. What matters is not the score but that every OTHER kind
+// is recognised and refused: a Wardley map read as a flowchart is a page of
+// invented boxes, and a header this reader has never heard of falls straight
+// through to the flowchart parser.
+// Which kinds have a reader is the READER's answer, not this file's: the dump
+// asks `MermaidReader.draws` for every header and reports what it said.
+const types = mermaidDiagramTypes();
+const byHeader = new Map((ours.headers ?? []).map((h) => [h.header, h]));
+const coverage = [];
+for (const t of types) {
+  const got = byHeader.get(t.header);
+  const kind = got?.kind ?? "";
+  let verdict = "refused";
+  if (!kind || kind === "flowchart") {
+    // Either it is the flowchart, or it fell through to the flowchart parser
+    // — and for every other header that is the failure this table exists for.
+    verdict = t.header === "flowchart" ? "read" : "MISTAKEN FOR A FLOWCHART";
+  } else if (got?.draws) {
+    verdict = "read";
+  }
+  coverage.push({ ...t, kind, verdict });
+}
+const mistaken = coverage.filter((c) => c.verdict.startsWith("MIS"));
+
 // ------------------------------------------------------------- the report --
 const passed = rows.reduce((n, r) => n + r.checks.filter((c) => c.ok).length, 0);
 const total = rows.reduce((n, r) => n + r.checks.length, 0);
@@ -237,6 +305,14 @@ for (const r of rows) {
   if (bad.length && wantDiff) for (const note of r.notes) console.log(`         ${note}`);
 }
 console.log("");
+if (coverage.length) {
+  const read = coverage.filter((c) => c.verdict === "read").length;
+  const refused = coverage.filter((c) => c.verdict === "refused").length;
+  console.log(`  of Mermaid's ${coverage.length} diagram types: ${read} drawn, ${refused} recognised and refused` +
+    (mistaken.length ? `, ${mistaken.length} MISTAKEN FOR A FLOWCHART` : ""));
+  for (const c of mistaken) console.log(`    ${c.header} → ${c.kind || "(unrecognised)"}`);
+  console.log("");
+}
 console.log(`  ${passed}/${total} checks agree with Mermaid's own parser — ${score}%`);
 if (tolerated.length) console.log(`  ${tolerated.length} diagram(s) Mermaid refuses and this reader takes`);
 if (failing.length && !wantDiff) console.log("  (run with -- --diff to see what differs)");
@@ -262,7 +338,7 @@ const cell = (r, name) => {
 for (const r of rows) {
   // A diagram of another kind has one thing to get right, and the type cell is
   // where it is said: recognised, and read as nothing.
-  const guard = r.checks.find((c) => c.name === "read as nothing else");
+  const guard = r.checks.find((c) => c.name === "not read as a flowchart");
   const kindCell = guard ? `${r.kind} ${guard.ok ? "✓" : "✗"}` : r.kind;
   lines.push(`| \`${r.file}\` | ${kindCell} | ${cell(r, "direction")} | ${cell(r, "nodes")} | ${cell(r, "labels")} | ${cell(r, "shapes")} | ${cell(r, "classes")} | ${cell(r, "edges")} | ${cell(r, "subgraphs")} |`);
 }
@@ -285,6 +361,25 @@ if (failing.length) {
   }
   lines.push("");
 }
+if (coverage.length) {
+  lines.push("## Mermaid's diagram types");
+  lines.push("");
+  lines.push("Read off the installed Mermaid's own build rather than typed here, so a type");
+  lines.push("added upstream appears the next time the harness is installed. Two are drawn;");
+  lines.push("the rest have to be **recognised and refused**, because a header this reader");
+  lines.push("does not know falls through to the flowchart parser, and a Wardley map read as");
+  lines.push("a flowchart is a page of invented boxes.");
+  lines.push("");
+  lines.push("| header | RangerFlow |");
+  lines.push("| --- | --- |");
+  for (const c of coverage) {
+    const say = c.verdict === "read" ? `**drawn** — read as \`${c.kind}\``
+      : c.verdict === "refused" ? `recognised as \`${c.kind}\`, read as nothing`
+      : `⚠️ ${c.verdict.toLowerCase()}`;
+    lines.push(`| \`${c.header}\` | ${say} |`);
+  }
+  lines.push("");
+}
 lines.push("## What this compares");
 lines.push("");
 lines.push("- **The reading, not the drawing.** Mermaid lays a diagram out its own way and");
@@ -304,4 +399,4 @@ lines.push("");
 fs.mkdirSync(path.dirname(DOC), { recursive: true });
 fs.writeFileSync(DOC, lines.join("\n"));
 console.log(`  wrote ${path.relative(process.cwd(), DOC)}`);
-if (failing.length) process.exit(1);
+if (failing.length || mistaken.length) process.exit(1);

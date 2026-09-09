@@ -39,9 +39,50 @@ class MermaidParityDump {
             }
             i = (i + 1)
         }
+        out = (out + "\n ],\n")
+        ; What this reader makes of every diagram type Mermaid ships. The names
+        ; are handed in by the meter, which reads them out of the installed
+        ; Mermaid rather than from a list somebody typed — so a type added
+        ; upstream shows up here as one this reader has never heard of.
+        out = (out + " \"headers\": [\n")
+        def listed:int 0
+        def k:int 0
+        while (k < count) {
+            def arg:string (shell_arg k)
+            if ((MermaidParityDump.isHeader(arg))) {
+                def name:string (substring arg 9 (strlen arg))
+                if (listed > 0) {
+                    out = (out + ",\n")
+                }
+                out = (out + (MermaidParityDump.dumpHeader(name)))
+                listed = (listed + 1)
+            }
+            k = (k + 1)
+        }
         out = (out + "\n ]\n}\n")
         write_file "." "gallery/rangerflow/harness/out/rangerflow_mermaid.json" out
         print ("  rangerflow reader: " + (to_string written) + " diagrams → gallery/rangerflow/harness/out/rangerflow_mermaid.json")
+    }
+
+    ; `--header=gitGraph`, as the meter passes it.
+    sfn isHeader:boolean (arg:string) {
+        if ((strlen arg) <= 9) {
+            return false
+        }
+        return ((substring arg 0 9) == "--header=")
+    }
+
+    ; What the reader decides a one-line file of that type is. A body is not
+    ; needed: the header is the whole of the detection, which is the point.
+    sfn dumpHeader:string (name:string) {
+        def src:string (name + "\n    A --> B\n")
+        def d:MermaidDiagram (MermaidReader.parse(src))
+        def out:string "  {"
+        out = (out + "\"header\": \"" + (MermaidParityDump.esc(name)) + "\"")
+        out = (out + ", \"kind\": \"" + d.diagramKind + "\"")
+        out = (out + ", \"nodes\": " + (to_string (d.nodeCount())))
+        out = (out + ", \"draws\": " + (to_string (MermaidReader.draws(d.diagramKind))) + "}")
+        return out
     }
 
     sfn isDiagram:boolean (path:string) {

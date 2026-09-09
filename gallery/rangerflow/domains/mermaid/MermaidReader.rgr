@@ -1273,6 +1273,16 @@ class MermaidReader {
         }
     }
 
+    ; Which of the kinds above RangerFlow can actually draw. One place, so the
+    ; page, the demo and the parity meter cannot disagree about it — and so
+    ; that adding a reader is one line here rather than three greps.
+    sfn draws:boolean (kind:string) {
+        if (kind == "flowchart") { return true }
+        if (kind == "class")     { return true }
+        if (kind == "er")        { return true }
+        return false
+    }
+
     ; The other diagrams Mermaid draws, by the keyword each one opens with. A
     ; `gitGraph:` or a `stateDiagram-v2` is matched by the word before the
     ; punctuation, which is how Mermaid's own detectors find them.
@@ -1305,6 +1315,21 @@ class MermaidReader {
         if (word == "c4component")        { return "c4" }
         if (word == "c4dynamic")          { return "c4" }
         if (word == "c4deployment")       { return "c4" }
+        ; The rest of what Mermaid 11 draws. The list is not decoration: a
+        ; header this reader does not know falls through to the flowchart
+        ; parser, and a Wardley map read as a flowchart is a page of invented
+        ; boxes. `npm run rangerflow:mermaid:parity` checks it against the
+        ; diagram types the installed Mermaid actually ships.
+        if (word == "abnf")               { return "abnf" }
+        if (word == "cynefin")            { return "cynefin" }
+        if (word == "ebnf")               { return "ebnf" }
+        if (word == "ishikawa")           { return "ishikawa" }
+        if (word == "fishbone")           { return "ishikawa" }
+        if (word == "peg")                { return "peg" }
+        if (word == "railroad")           { return "railroad" }
+        if (word == "swimlanes")          { return "swimlanes" }
+        if (word == "venn")               { return "venn" }
+        if (word == "wardley")            { return "wardley" }
         return ""
     }
 
@@ -2483,6 +2508,21 @@ class MermaidFlow {
             def again:int (EdgeLanes.assign(g))
         }
         def repaired:int (OrthoRouter.repairAll(g))
+        ; And then again, from what the repair actually left on the page.
+        ;
+        ; This is not belt and braces. `EdgeLanes.assign` fans the edges that
+        ; would otherwise be drawn along the same line apart, and it skips an
+        ; edge that already has a lane — so the lanes computed BEFORE the grid
+        ; router rewrote half the routes are the only lanes there will ever be,
+        ; and a second `assign` is a no-op that hides it. Resetting first is
+        ; what makes the fan see the routes as they now are.
+        ;
+        ; It was found the way these things are: the page looked wrong until
+        ; you clicked something, and then fixed itself. The click was doing
+        ; exactly this, in `pointerUp`.
+        EdgeLanes.resetLanes(g)
+        def refanned:int (EdgeLanes.assign(g))
+        def again:int (OrthoRouter.repairAll(g))
         def frames:int (d.frameSubgraphs(g style))
         return g
     }

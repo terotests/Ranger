@@ -101,6 +101,11 @@ class UMLRelation {
     def label:string ""
     def fromMultiplicity:string ""
     def toMultiplicity:string ""
+    ; Which end the ornament sits on. UML puts it on the end that owns the
+    ; relationship, and that is not always the target: written as
+    ; `Animal <|-- Duck`, the supertype is the one named FIRST, and a diagram
+    ; that put the triangle on the duck would say the opposite of what it means.
+    def markAtSource:boolean false
 
     Constructor () {
     }
@@ -201,6 +206,10 @@ class UMLToGraph {
                     e.label = r.label
                     e.markerEnd = (r.targetMarker())
                     e.markerStart = ""
+                    if r.markAtSource {
+                        e.markerStart = (r.targetMarker())
+                        e.markerEnd = ""
+                    }
                     e.sourceCardinality = ""
                     e.targetCardinality = ""
                     if (r.dashed()) {

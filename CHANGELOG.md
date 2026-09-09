@@ -9,6 +9,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Mermaid ER diagrams — the third type, and the one this library was built
+  for.** `erDiagram` is a schema, so
+  `gallery/rangerflow/domains/mermaid/MermaidErReader.rgr` reads it into the
+  schema model and hands it to the ERD editor's own `SchemaToGraph`: entities
+  are tables, attributes are columns with their `PK` / `FK` / `UK` and their
+  comment, and a relationship is the crow's foot `EdgeDecoration` has drawn
+  since the first commit. Every cardinality pair Mermaid has — `|o` `||` `}o`
+  `}|` and their mirrors — with the identifying `--` and non-identifying `..`
+  line, entity aliases, and `direction`. Where it differs is stated rather
+  than hidden: Mermaid's relationship names no columns, so the line joins two
+  boxes rather than two rows. Which types have a reader is now one function —
+  `MermaidReader.draws` — that the page, the demo and the parity meter all
+  read, so the matrix in `docs/MERMAID_PARITY.md` cannot drift from the code:
+  thirty types, three drawn, twenty-seven recognised and refused.
+- **Mermaid class diagrams, drawn with the UML model that was already
+  there.** `classDiagram` is the second Mermaid diagram RangerFlow reads, and
+  it needed no new renderer: `gallery/rangerflow/domains/mermaid/MermaidClassReader.rgr`
+  translates it into `domains/uml`, and from there it is the compartment node
+  the schema editor is built on — the hollow triangle at the supertype, the
+  filled diamond at the whole, the dashed realization. It reads `class X { … }`
+  blocks and the `X : +member` one-liner, visibility, `type name` attributes
+  and `name(params) returnType` operations, `$` static and `*` abstract,
+  `<<interface>>` stereotypes, every relation with its cardinalities and label,
+  and puts the ornament on the end the syntax names — the class written first
+  is the one being pointed at, which is why `UMLRelation` grew a `markAtSource`.
+  Paste one into the page's Mermaid box and it draws.
+- **Every diagram type Mermaid ships, accounted for.** The parity run now reads
+  the diagram list out of the INSTALLED Mermaid's own build and asks this
+  reader what it makes of each header: thirty types, two drawn and twenty-eight
+  recognised and refused, with a type nobody has taught it about failing the
+  run rather than being read as a flowchart and drawn as a page of invented
+  boxes. The matrix is written into `docs/MERMAID_PARITY.md` by the run.
 - **Mermaid parity, measured against Mermaid.** A claim of parity with a
   format is worth what the person making it wanted it to be worth, so this one
   is not a claim: `npm run rangerflow:mermaid:parity` hands every diagram in

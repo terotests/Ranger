@@ -661,6 +661,29 @@ class EdgeLanes {
 
     ; Forget every assignment — the lanes are only valid for the positions they
     ; were computed from, so a drag or a relayout has to start clean.
+    ; The lanes only, with the routes left alone.
+    ;
+    ; `assign` skips an edge that already has a lane, so the fan computed
+    ; before a router rewrote half the routes is the only fan there will ever
+    ; be — and a second `assign` is a no-op that hides it. This is what a
+    ; pipeline calls to fan the edges again against the routes as they now
+    ; are. The full `reset` below throws the routes away as well, which is
+    ; right after a DRAG (the layout those routes came from is no longer what
+    ; is on screen) and wrong after a repair (the routes are the repair).
+    sfn resetLanes:void (g:FlowGraph) {
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            if (e.pinnedRoute == false) {
+                e.hasLaneX = false
+                e.hasLaneY = false
+                e.portNudgeSource = 0.0
+                e.portNudgeTarget = 0.0
+            }
+            k = (k + 1)
+        }
+    }
+
     sfn reset:void (g:FlowGraph) {
         def k:int 0
         while (k < (g.edgeCount())) {

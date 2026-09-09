@@ -140,6 +140,8 @@ Status keys: **✓** done · **~** partial · **·** not yet.
 | Schema grouping / multi-schema | ~ | `DBTable.schema` is modelled; no visual grouping yet |
 | SQL DDL import | ✓ | `SqlSchemaReader` |
 | Mermaid flowchart import | ✓ | `MermaidReader`: every shape and link, `subgraph`, `classDef` / `class` / `style`; `click` and `linkStyle` ignored |
+| Mermaid ER diagram import | ✓ | `MermaidErReader` → the schema model: entities, attributes with PK/FK/UK and comments, every cardinality pair, identifying and non-identifying lines |
+| Mermaid class diagram import | ✓ | `MermaidClassReader` → the UML model: members, visibility, static/abstract, stereotypes, every relation with its ornament, cardinalities and label |
 | Mermaid parity, measured | ✓ | `npm run rangerflow:mermaid:parity`: 26 examples through Mermaid's own parser and this reader, compared — see [`MERMAID_PARITY.md`](MERMAID_PARITY.md) |
 | Restyling a diagram with CSS | ✓ | `FlowStyle` over EVG's stylesheet engine: class selectors, `@vars`, `@media`, themes — nodes, edges and the canvas |
 | JSON import / export | ✓ | `FlowGraphJson` |

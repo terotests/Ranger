@@ -24,6 +24,8 @@ Import "../domains/erd/SchemaToGraph.rgr"
 Import "../domains/uml/UMLModel.rgr"
 Import "../domains/flowchart/Flowchart.rgr"
 Import "../domains/mermaid/MermaidReader.rgr"
+Import "../domains/mermaid/MermaidClassReader.rgr"
+Import "../domains/mermaid/MermaidErReader.rgr"
 Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 
@@ -91,6 +93,9 @@ class RangerFlowTest {
         RangerFlowTest.testStyleSheet(c)
         RangerFlowTest.testMermaidStyled(c)
         RangerFlowTest.testMermaidExamples(c)
+        RangerFlowTest.testClickChangesNothing(c)
+        RangerFlowTest.testMermaidClassDiagram(c)
+        RangerFlowTest.testMermaidErDiagram(c)
         RangerFlowTest.testBusinessCharts(c)
         RangerFlowTest.testAuthoring(c)
         RangerFlowTest.testTreeLayouts(c)
@@ -2407,6 +2412,227 @@ class RangerFlowTest {
         def hA:FlowNode (hg.nodeById("A"))
         c.eqStr("and it says what it says" hA.label "a --> b, piped | text")
         c.eqInt("the semicolons separate statements" (hg.edgeCount()) 2)
+    }
+
+    ; ------------------------------------------------ Mermaid class diagrams --
+    ; The other Mermaid diagram RangerFlow can draw, because it already had the
+    ; model for it: `domains/uml`, with the compartment node, the hollow
+    ; triangle and the filled diamond.
+    sfn testMermaidClassDiagram:void (c:Checker) {
+        c.section("Mermaid class diagrams")
+        def src:string "classDiagram\n"
+        src = (src + "    Animal <|-- Duck\n")
+        src = (src + "    Animal : +int age\n")
+        src = (src + "    class Duck {\n")
+        src = (src + "        <<interface>>\n")
+        src = (src + "        +String beakColor\n")
+        src = (src + "        list wings$\n")
+        src = (src + "        +swim(depth) bool\n")
+        src = (src + "        +quack()*\n")
+        src = (src + "    }\n")
+        src = (src + "    Flock \"1\" *-- \"0..*\" Duck : holds\n")
+        src = (src + "    Duck ..|> Swimmer\n")
+        src = (src + "    Duck ..> Water\n")
+        def d:MermaidClassDiagram (MermaidClassReader.parse(src))
+        c.eqInt("every class named is a class" (d.classCount()) 5)
+        c.eqInt("and every relation a relation" (d.relationCount()) 4)
+
+        def duck:UMLClass (d.ensureClass("Duck"))
+        c.eqStr("an annotation is the stereotype" duck.stereotype "interface")
+        c.eqInt("the attributes are counted apart from the operations" (array_length duck.attributes) 2)
+        c.eqInt("…and the operations apart from the attributes" (array_length duck.operations) 2)
+        def beak:UMLMember (itemAt duck.attributes 0)
+        c.eqStr("Mermaid writes an attribute type first" beak.memberType "String")
+        c.eqStr("and its name second" beak.name "beakColor")
+        c.eqStr("with the visibility it was given" beak.visibility "+")
+        def wings:UMLMember (itemAt duck.attributes 1)
+        c.ok("a trailing $ is what static looks like" wings.isStatic)
+        c.eqStr("and the name comes back without it" wings.name "wings")
+        def swim:UMLMember (itemAt duck.operations 0)
+        c.eqStr("an operation keeps its parameters" swim.parameters "depth")
+        c.eqStr("and its return type" swim.memberType "bool")
+        def quack:UMLMember (itemAt duck.operations 1)
+        c.ok("a trailing * is what abstract looks like" quack.isAbstract)
+
+        ; `Animal : +int age` — the same member, written on one line.
+        def animal:UMLClass (d.ensureClass("Animal"))
+        c.eqInt("the one-line form adds a member too" (array_length animal.attributes) 1)
+
+        ; The ornament belongs to the end the syntax names, and the class named
+        ; first is the one it is named at.
+        def inherit:UMLRelation (itemAt d.uml.relations 0)
+        c.eqStr("<|-- is inheritance" inherit.kind "inheritance")
+        c.eqStr("read from the supertype" inherit.fromClass "Animal")
+        c.ok("with the triangle at the supertype's end" inherit.markAtSource)
+        def holds:UMLRelation (itemAt d.uml.relations 1)
+        c.eqStr("*-- is composition" holds.kind "composition")
+        c.eqStr("its label survives the colon" holds.label "holds")
+        c.eqStr("and the cardinalities their quotes" holds.fromMultiplicity "1")
+        c.eqStr("both of them" holds.toMultiplicity "0..*")
+        def realize:UMLRelation (itemAt d.uml.relations 2)
+        c.eqStr("..|> is a realization" realize.kind "implementation")
+        c.ok("drawn dashed" (realize.dashed()))
+        c.ok("with the triangle at the far end" (realize.markAtSource == false))
+        def depend:UMLRelation (itemAt d.uml.relations 3)
+        c.eqStr("..> is a dependency" depend.kind "dependency")
+
+        ; And the whole thing draws: compartment nodes, laid out and routed.
+        def g:FlowGraph (MermaidClassFlow.render(src))
+        c.eqInt("every class became a node" (g.nodeCount()) 5)
+        c.eqInt("and every relation an edge" (g.edgeCount()) 4)
+        def dNode:FlowNode (g.nodeById("Duck"))
+        c.eqStr("a class is a compartment node" dNode.nodeType "umlclass")
+        c.ok("with its members in rows" ((dNode.sectionCount()) >= 2))
+        def e0:FlowEdge (g.edgeAt(0))
+        c.eqStr("the triangle is drawn at the end the model asked for" e0.markerStart "triangle")
+        c.eqStr("and nothing at the other" e0.markerEnd "")
+        c.eqInt("nothing is drawn through a class" (EdgeOverlap.nodeCrossings(g)) 0)
+
+        ; The file the whole thing came from.
+        def real:string (?? (read_file "." "gallery/rangerflow/fixtures/class_django.mmd") "")
+        if ((strlen real) > 0) {
+            def rd:MermaidClassDiagram (MermaidClassReader.parse(real))
+            c.eqStr("front matter titles a class diagram too" rd.title "Django Watson Class Diagram")
+            c.eqInt("ten classes, five of them named only by a relation" (rd.classCount()) 10)
+            c.eqInt("and six relations" (rd.relationCount()) 6)
+            def engine:UMLClass (rd.ensureClass("SearchEngine"))
+            c.eqInt("a Python class with four fields" (array_length engine.attributes) 4)
+            def statics:int 0
+            def i:int 0
+            while (i < (array_length engine.operations)) {
+                def m:UMLMember (itemAt engine.operations i)
+                if m.isStatic {
+                    statics = (statics + 1)
+                }
+                i = (i + 1)
+            }
+            c.eqInt("one of its methods is static" statics 1)
+            def rg:FlowGraph (MermaidClassFlow.render(real))
+            c.eqInt("and it draws" (EdgeOverlap.nodeCrossings(rg)) 0)
+        }
+    }
+
+    ; --------------------------------------------------- Mermaid ER diagrams --
+    ; The third one, and the one this library was built for: an entity is a
+    ; table, an attribute is a column, and the crow's foot goes at the many end.
+    sfn testMermaidErDiagram:void (c:Checker) {
+        c.section("Mermaid ER diagrams")
+        def src:string "erDiagram\n"
+        src = (src + "    CUSTOMER ||--o{ ORDER : places\n")
+        src = (src + "    ORDER ||--|{ LINE-ITEM : contains\n")
+        src = (src + "    CUSTOMER }|..|{ ADDRESS : uses\n")
+        src = (src + "    CUSTOMER {\n")
+        src = (src + "        string name\n")
+        src = (src + "        string custNumber PK\n")
+        src = (src + "        int score UK \"how good they are\"\n")
+        src = (src + "    }\n")
+        src = (src + "    ORDER {\n")
+        src = (src + "        int orderNumber PK,FK\n")
+        src = (src + "        string note\n")
+        src = (src + "    }\n")
+        def d:MermaidErDiagram (MermaidErReader.parse(src))
+        c.eqInt("every entity named is an entity" (d.entityCount()) 4)
+        c.eqInt("and every line a relationship" (d.relationCount()) 3)
+
+        def cust:DBTable (d.ensureEntity("CUSTOMER"))
+        c.eqInt("an attribute block is a list of columns" (array_length cust.columns) 3)
+        def custNumber:SchemaColumn (itemAt cust.columns 1)
+        c.eqStr("Mermaid writes the type first" custNumber.dataType "string")
+        c.eqStr("and the name second" custNumber.name "custNumber")
+        c.ok("PK is a primary key" custNumber.isPrimaryKey)
+        def score:SchemaColumn (itemAt cust.columns 2)
+        c.ok("UK is a unique one" score.isUnique)
+        c.eqStr("and the quoted tail is the comment" score.comment "how good they are")
+        def order:DBTable (d.ensureEntity("ORDER"))
+        def orderNumber:SchemaColumn (itemAt order.columns 0)
+        c.ok("`PK,FK` is both" (orderNumber.isPrimaryKey && orderNumber.isForeignKey))
+
+        ; The cardinality is the pair of characters against the line, and the
+        ; end it is written at is the end it describes.
+        def places:MermaidErRelation (itemAt d.relations 0)
+        c.eqStr("|| is exactly one" places.fromCardinality "1")
+        c.eqStr("o{ is zero or more" places.toCardinality "0..*")
+        c.eqStr("and the label survives the colon" places.label "places")
+        def contains:MermaidErRelation (itemAt d.relations 1)
+        c.eqStr("|{ is one or more" contains.toCardinality "1..*")
+        c.eqStr("an entity may be written with a dash in it" contains.toEntity "LINE-ITEM")
+        def uses:MermaidErRelation (itemAt d.relations 2)
+        c.eqStr("}| is one or more, read from the other side" uses.fromCardinality "1..*")
+        c.ok("and `..` is the non-identifying line" (uses.identifying == false))
+
+        ; …and it draws, with the notation the schema editor already had.
+        def g:FlowGraph (MermaidErFlow.render(src))
+        c.eqInt("every entity became a node" (g.nodeCount()) 4)
+        c.eqInt("and every relationship an edge" (g.edgeCount()) 3)
+        def custNode:FlowNode (g.nodeById("CUSTOMER"))
+        c.eqStr("an entity is a table" custNode.nodeType "table")
+        c.ok("with its attributes in rows" ((custNode.sectionCount()) >= 1))
+        def e0:FlowEdge (g.edgeAt(0))
+        c.eqStr("the cardinality is carried, not the arrowhead" e0.sourceCardinality "1")
+        c.eqStr("at both ends" e0.targetCardinality "0..*")
+        c.eqStr("and no marker is set: the notation decides" e0.markerEnd "")
+        def e2:FlowEdge (g.edgeAt(2))
+        c.ok("a non-identifying relationship is drawn dashed" (e2.dash > 0.0))
+        c.eqInt("nothing is drawn through an entity" (EdgeOverlap.nodeCrossings(g)) 0)
+
+        ; The file Mermaid's own documentation is written from.
+        def real:string (?? (read_file "." "gallery/rangerflow/fixtures/er_orders.mmd") "")
+        if ((strlen real) > 0) {
+            def rd:MermaidErDiagram (MermaidErReader.parse(real))
+            c.eqStr("front matter titles an ER diagram too" rd.title "Order fulfilment")
+            c.eqInt("six entities" (rd.entityCount()) 6)
+            c.eqInt("and seven relationships" (rd.relationCount()) 7)
+            def rg:FlowGraph (MermaidErFlow.render(real))
+            c.eqInt("and it draws" (EdgeOverlap.nodeCrossings(rg)) 0)
+        }
+
+        ; The flowchart reader still refuses it, which is what keeps a diagram
+        ; from being read by the wrong one.
+        def asFlow:MermaidDiagram (MermaidReader.parse(src))
+        c.eqStr("an ER diagram is named" asFlow.diagramKind "er")
+        c.eqInt("and read as no flowchart at all" (asFlow.nodeCount()) 0)
+        c.ok("but it is one this library draws" (MermaidReader.draws("er")))
+        c.ok("unlike a gantt chart" ((MermaidReader.draws("gantt")) == false))
+    }
+
+    ; --------------------------------------------- a click is not an edit --
+    ; The page re-fans the lanes and re-routes whatever a gesture put in the
+    ; way — and it has to know which gestures those were. `onGraphChanged` is
+    ; that answer, and it is the difference between a diagram that sits still
+    ; while you read it and one that rearranges itself when you click a box.
+    sfn testClickChangesNothing:void (c:Checker) {
+        c.section("a click is not an edit")
+        def g (new FlowGraph)
+        def a:FlowNode (FlowNode.create("a" "One" 40.0 40.0))
+        a.width = 120.0
+        a.height = 50.0
+        g.addNode(a)
+        def b:FlowNode (FlowNode.create("b" "Two" 40.0 240.0))
+        b.width = 120.0
+        b.height = 50.0
+        g.addNode(b)
+        g.addEdge((FlowEdge.create("e" "a" "b")))
+        g.reindex()
+        def ed:FlowEditor (FlowEditor.of(g))
+        ed.setSize(800.0 600.0)
+
+        def input (new FlowInput)
+        def sx:double (ed.view.viewport.toScreenX((a.centerX())))
+        def sy:double (ed.view.viewport.toScreenY((a.centerY())))
+        input.x = sx
+        input.y = sy
+        ed.pointerDown(input)
+        ed.pointerUp(input)
+        c.ok("clicking a node selects it" a.selected)
+        c.ok("and reports no change to the graph" (ed.onGraphChanged == false))
+
+        ; The same gesture with a move in the middle of it is an edit.
+        ed.pointerDown(input)
+        input.x = (sx + 60.0)
+        input.y = (sy + 40.0)
+        ed.pointerMove(input)
+        ed.pointerUp(input)
+        c.ok("dragging one does report a change" ed.onGraphChanged)
     }
 
     ; ---------------------------------------------------------- stylesheets --
