@@ -6,7 +6,10 @@ reproducible with the commands in [Appendix A](#appendix-a--how-the-numbers-were
 
 The subject is not RealTrainer. RealTrainer is the *case*, because it is the
 biggest Ranger app that ships to a browser and because its page is deployed at
-`/realtrainer/`. The question is what a Ranger app's arrival on the web should
+`/realtrainer/`. It is, however, one of eight or more browser applications in
+this repository, each of which loads a Ranger app into a canvas and each of
+which implements that from scratch — which is §8, and arguably the reason the
+rest of this document is worth doing at all. The question is what a Ranger app's arrival on the web should
 look like in general — from the JavaScript backend and from the WebAssembly
 one — and what has to exist in the compiler, in EVG and in the host pages for
 that to be the default rather than a per-app trick.
@@ -128,7 +131,7 @@ boundary where several separate questions meet:
 | the worker split (§6) | a frame computed on another thread (`toBinary`, already shipped) |
 | chunked / split runtimes (§4, §7) | frames whose producer is only partly loaded |
 | caching and pre-rendered views | a frame stored and replayed rather than recomputed |
-| a wire protocol, if one is ever wanted (§8) | a frame computed on another machine |
+| a wire protocol, if one is ever wanted (§9) | a frame computed on another machine |
 
 One format answers all five, and four of the five need no server. Worth
 treating it as an interface with a version, not as EVG's internal plumbing.
@@ -486,7 +489,162 @@ that produces JS chunks produces the `wasm-split` profile.
 
 ---
 
-## 8. The alternative that was raised: streaming the display list from a server
+## 8. Strategy F — one loader, not one per application
+
+Everything above is written as though RealTrainer were the case. It is not; it
+is the eighth. The gallery now deploys, into one Pages artifact, at least these
+browser applications: **pptx** (and **pptx-wasm**, the same editor on the other
+backend), **datagrid**, **docx_viewer**, **rangerdbviewer**, **book**,
+**figma**, **rangerflow**, **realtrainer**, plus the EVG showcase, the vela
+page, the office playground, the games and the playground itself. Each of them
+loads a Ranger app into a canvas and paints an `EVGDisplayList`. Each of them
+implements that from scratch.
+
+### 8.1 What is actually duplicated
+
+| App | `standalone.mjs` | `smoke.mjs` | `build.sh` |
+|---|---:|---:|---:|
+| pptx | 68 490 | 8 625 | 6 985 |
+| datagrid | 33 044 | 7 620 | 7 313 |
+| book | 30 404 | 7 116 | 6 099 |
+| figma | 24 954 | 12 507 | 3 245 |
+| docx_viewer | 22 090 | 7 680 | 6 719 |
+| rangerflow | 17 282 | 8 716 | 4 846 |
+| rangerdbviewer | 11 576 | 6 081 | 5 937 |
+
+Plus RealTrainer's own `main.js` (25 KB), `main-worker.js` (18 KB),
+`engine-worker.js` and `build.mjs`. Call it ~350 KB of hand-written host code
+doing three jobs — mount a canvas, deliver input, run a frame loop — seven or
+eight times over.
+
+The same things are re-derived in each: WebGL 2 acquisition and the
+"WebGL 2 not available" path; device pixel ratio and resize; pointer, wheel,
+keys; an error surface; a cache-busting stamp (`?v=…`, computed per app over
+all of its files, so a one-line app change also invalidates that app's copy of
+the painter); and a copy of `gallery/evg/gl/evg-webgl.js` staged into each
+app's `dist/gl/`. Seven copies of one painter at seven URLs, so a visitor who
+loads two of these pages downloads and compiles it twice.
+
+### 8.2 Three different answers to "what does loading look like"
+
+- **RealTrainer**: a loading screen drawn by EVG itself, with a hard-coded
+  `fillMs = 2600` — an animation that runs after the loading is over (§1).
+- **pptx, docx_viewer, rangerdbviewer, datagrid**: a text status line,
+  `statusEl.textContent = "loading fonts"`, then `"loading shapes"`, then
+  `"loading the deck"` — an accurate narration of a sequence that should not
+  be sequential.
+- **book, figma, rangerflow**: essentially nothing; the page is blank until it
+  is not.
+
+Three idioms, no shared vocabulary, and none of them is the ladder in §2.
+
+### 8.3 The worst critical path is not RealTrainer's
+
+pptx's `boot()` is a straight `await` chain, and every link is on the path to
+the first pixel:
+
+```text
+  await Promise.all(8 font faces)     2 403 236 bytes of TTF   (~1.2 MB gzip)
+  await document.fonts.ready
+  await fetch("presets.txt")            110 749 bytes
+  await fetch("deck.pptx")               12 932 bytes
+  await draw()                        ← the first picture, finally
+```
+
+Nothing about this needs to be serial, and most of it does not need to be on
+the critical path at all. And the fonts are the same problem `seed.json` is
+(§5, C1), one level worse, because they are shared *between* applications and
+shipped as though they were not:
+
+| | bytes |
+|---|---:|
+| TTF shipped across the one Pages artifact | 11 908 184 |
+| the 11 unique faces behind it | 3 388 072 |
+| **pure duplication** | **8 520 112** |
+
+The same `OpenSans-Regular.ttf` is served from six different URLs, so no
+browser cache can ever share it between two Ranger apps, and each app's build
+stamp changes its URL again on every deploy.
+
+### 8.4 What a shared host layer should own
+
+One module — `gallery/evg/host/` — that every browser application mounts,
+owning exactly what is not application-specific:
+
+1. **the mount**: canvas, DPR, resize, WebGL 2 acquisition, and *one* failure
+   path when there is no WebGL 2 (today: seven wordings of the same sentence);
+2. **the input**: pointer, wheel, keys, touch, the text-input bridge, the a11y
+   mirror — all of which exist already in `gallery/evg/gl/` and are wired up
+   by hand per app;
+3. **the frame loop**: dirty tracking, the `shift` vs. rebuild distinction, and
+   the worker option (§6) as a flag rather than as a second host program;
+4. **the loading ladder** from §2, as a *contract the app declares* rather than
+   a sequence each app writes: which assets are needed for T0, which for T1,
+   which may arrive after;
+5. **the asset layer**: fonts and other shared blobs resolved from one
+   site-wide, content-hashed URL space, so the cache is shared across apps and
+   immutable across deploys;
+6. **the build**: one build script driven by a per-app manifest, replacing
+   seven copies of a shell script that differ in their file lists.
+
+The per-app declaration is small, and it is data:
+
+```jsonc
+// app.web.json — what this app needs, not how to load it
+{
+  "entry": "PptxWeb",
+  "snapshot": {                      // §3: what T0 is baked from
+    "routes": ["/"],
+    "viewports": ["390x844", "1280x800"],
+    "themes": ["light", "dark"]
+  },
+  "assets": {
+    "t1": { "fonts": ["OpenSans-Regular", "OpenSans-Bold"] },
+    "deferred": { "fonts": ["NotoEmoji-Regular", "ElMessiri-Regular"],
+                  "files": ["presets.txt", "deck.pptx"] }
+  },
+  "chunks": "ranger.manifest.json"   // §4.3: the code partition
+}
+```
+
+Two things follow that are worth more than the deduplication.
+
+**The ladder becomes the default.** A new gallery app gets T0, the handoff
+contract and the drift gate by declaring a snapshot, not by re-implementing a
+loader. That is the difference between an optimisation done once for
+RealTrainer and a property of Ranger on the web.
+
+**The gates are written once.** Each app already has its own `smoke.mjs`, and
+they check similar things in dissimilar ways. A shared host means the checks in
+§11 — byte budgets, time to first pixel, snapshot drift, no blank frame at
+handover — are one harness parameterised by `app.web.json`, and every
+application is held to them, including the ones that do not exist yet.
+
+### 8.5 Fonts deserve their own decision
+
+They are the largest shared asset and the one most wrongly placed:
+
+- **They do not block T0.** The baked snapshot (§3) already carries text as
+  positioned geometry; nothing about it needs a font file. So the first picture
+  is free of the 1.2 MB entirely.
+- **They gate the handoff, not the paint.** §3.2's condition is "fonts ready,
+  *or* metrics compatible". What layout actually needs from a TTF is
+  measurement — advances, kerning, the fallback chain. A build-time
+  **metrics sidecar** is a fraction of a font file, and would let T1 lay out
+  correctly while outlines are still arriving.
+- **They should be shared and immutable.** One `/_assets/fonts/<hash>/…` for
+  the whole site: a visitor who opened pptx has already paid for docx_viewer.
+- **They should not be TTF on the wire.** `OpenSans-Regular.ttf` is 217 KB raw
+  and 116 KB gzipped; WOFF2 is roughly half that again, and subsetting is a
+  further multiple for apps that draw Latin text only.
+
+Deduplication alone takes 11.9 MB to 3.4 MB. Dedup plus WOFF2 plus subsetting
+plausibly takes it under 1 MB for the entire site, with none of it on the path
+to a first pixel.
+
+---
+
+## 9. The alternative that was raised: streaming the display list from a server
 
 Worth stating plainly, because the format makes it genuinely available: a
 screen's display list is **3.5 KB gzip**. Streaming screens from a server is
@@ -511,7 +669,7 @@ a screen whose content is not knowable at build time.
 
 ---
 
-## 9. Proposed order
+## 10. Proposed order
 
 Cheap and certain first; nothing later depends on a bet made earlier.
 
@@ -525,12 +683,14 @@ Cheap and certain first; nothing later depends on a bet made earlier.
 | 6 | §4 B1 → B2: profile-guided split, charts and cold routes out of the entry chunk | **T1** at budget | medium |
 | 7 | §4 B3: chunking in the compiler, with a manifest | every Ranger web app gets the ladder | large, but it is the point |
 | 8 | §7: streaming instantiation and `wasm-split` for the WASM builds | the same ladder on the other backend | medium |
+| 9 | §8.5: font dedup, WOFF2, metrics sidecar, one site-wide asset space | 11.9 MB → under 1 MB across the site, and none of it before the first pixel | low |
+| 10 | §8.4: the shared host layer, and the per-app `app.web.json` | the ladder becomes the default for every app, present and future; ~350 KB of host code collapses | large, and the right place to end up |
 
 Step 5 is listed after the frame work deliberately: a worker moves the boot off
 the main thread, but with T0 in place there is a picture on screen regardless,
 and the two compose.
 
-## 10. What to measure, and where the gate goes
+## 11. What to measure, and where the gate goes
 
 The repo's habit is that a claim is a check. The same applies here:
 
@@ -567,6 +727,24 @@ awk '/^class /{if(n)print len" "n; n=$2; len=0} {len+=length($0)+1} END{if(n)pri
 # one frame as SVG, and as a display list
 node gallery/realtrainer/web/shot-svg.mjs --out /tmp/svgout
 ```
+
+The host-layer and font numbers in §8:
+
+```sh
+# host code written per application
+wc -c gallery/*/web/standalone/standalone.mjs \
+      gallery/*/web/standalone/smoke.mjs \
+      gallery/*/web/standalone/build.sh
+
+# which faces each app stages, and pptx's serial boot
+grep -n '\.ttf' gallery/*/web/standalone/build.sh
+sed -n '/^async function boot/,/__pptxReady/p' \
+    gallery/pptx/web/standalone/standalone.mjs
+```
+
+The 11.9 MB total is the sum of the faces each `build.sh` copies into its own
+`dist/fonts/`, counted per application; the 3.4 MB is the same set counted
+once.
 
 The boot timings come from requiring the built module in Node and marking each
 call in the sequence `web/main.js` performs (`init`, `loadPlanMachine`,
