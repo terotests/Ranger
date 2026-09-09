@@ -52,6 +52,7 @@ Import "../domains/mermaid/MermaidInfoReader.rgr"
 Import "../domains/mermaid/MermaidPacketReader.rgr"
 Import "../domains/mermaid/MermaidRadarReader.rgr"
 Import "../domains/mermaid/MermaidTreemapReader.rgr"
+Import "../domains/mermaid/MermaidTreeViewReader.rgr"
 Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 
@@ -148,6 +149,7 @@ class RangerFlowTest {
         RangerFlowTest.testMermaidPacket(c)
         RangerFlowTest.testMermaidRadar(c)
         RangerFlowTest.testMermaidTreemap(c)
+        RangerFlowTest.testMermaidTreeView(c)
         RangerFlowTest.testBusinessCharts(c)
         RangerFlowTest.testAuthoring(c)
         RangerFlowTest.testTreeLayouts(c)
@@ -4086,6 +4088,66 @@ class RangerFlowTest {
         c.eqStr("and a different branch is a different colour" far.bgColor (MermaidTreemapFlow.colorAt(1)))
         c.eqStr("`treemap-beta` is the same word" (MermaidReader.otherDiagram("treemap-beta")) "treemap")
         c.ok("a treemap is one this library draws" (MermaidReader.draws("treemap")))
+    }
+
+    ; --------------------------------------------- Mermaid tree view ------
+    ; The same hierarchy the treemap draws by area, drawn as an outline. The
+    ; order is the order it was written and nothing sorts it, so what the
+    ; assertions are about is the three annotations — which are cut off the end
+    ; of a line in an order that is not arbitrary.
+    sfn testMermaidTreeView:void (c:Checker) {
+        c.section("Mermaid tree views")
+        def src:string "treeView-beta\n"
+        src = (src + "title RangerFlow\n")
+        src = (src + "core\n")
+        src = (src + "    FlowView.rgr ## the view and its text fitting\n")
+        src = (src + "    GraphModel.rgr icon(fa:file) ::: warm ## nodes and edges\n")
+        src = (src + "tests\n")
+
+        def d:MermaidTreeView (MermaidTreeViewReader.parse(src))
+        c.eqStr("the title is the line that says so" d.title "RangerFlow")
+        c.eqInt("a row per line" (d.nodeCount()) 4)
+        c.eqInt("and the indentation says which are at the top" (d.rootCount()) 2)
+        def one:MermaidTreeViewNode (itemAt d.nodes 1)
+        c.eqInt("a line indented further is a child of the one above" one.parent 0)
+        c.eqStr("`##` is a description written beside the row" one.description "the view and its text fitting")
+        c.eqStr("and is not part of the name" one.label "FlowView.rgr")
+        ; The description runs to the end of the line, so it is cut off FIRST
+        ; or it swallows the other two annotations whole.
+        def two:MermaidTreeViewNode (itemAt d.nodes 2)
+        c.eqStr("three annotations on one row still leave the name" two.label "GraphModel.rgr")
+        c.eqStr("`icon(…)` names an icon" two.icon "fa:file")
+        c.eqStr("`:::` puts a class on the row" two.cssClass "warm")
+        c.eqStr("and the description is still the description" two.description "nodes and edges")
+        def last:MermaidTreeViewNode (itemAt d.nodes 3)
+        c.eqInt("a line indented back out is a root again" last.parent -1)
+        c.eqInt("three levels deep is a depth of two" (d.maxDepth()) 1)
+
+        def bare (new FlowStyle)
+        def g:FlowGraph (MermaidTreeViewFlow.build(d bare))
+        c.eqInt("a tree view has no edges: the rules are drawn, not routed" (g.edgeCount()) 0)
+        def core:MermaidTreeViewNode (itemAt d.nodes 0)
+        def rCore:FlowNode (g.nodeById(core.id))
+        def rOne:FlowNode (g.nodeById(one.id))
+        c.ok("a child is indented under its parent" (rOne.x > rCore.x))
+        c.ok("and stands on the row below it" (rOne.y > rCore.y))
+        def rLast:FlowNode (g.nodeById(last.id))
+        c.ok("a root is back at the margin" ((fabs (rLast.x - rCore.x)) < 0.001))
+        c.ok("every row is marked" (g.hasNode((one.id + "-mark"))))
+        c.ok("and a description is written beside it" (g.hasNode((one.id + "-note"))))
+        ; Mermaid resolves `icon(fa:file)` against an icon pack and there is
+        ; none here. The name is kept where it can be read rather than turned
+        ; into a picture this library would be guessing at.
+        def rTwo:FlowNode (g.nodeById(two.id))
+        c.eqStr("an icon nobody can draw is still an icon somebody asked for" rTwo.tooltip "icon(fa:file)")
+        c.ok("the elbows are drawn as rules" (g.hasNode("tvline-0")))
+        ; `otherDiagram` is asked the keyword in lower case, the way the
+        ; statement reader hands it over — Mermaid's own detector is
+        ; case-sensitive about the header and this reader is not.
+        c.eqStr("`treeView-beta` is a word this reader knows" (MermaidReader.otherDiagram("treeview-beta")) "treeview")
+        def d2:MermaidDiagram (MermaidReader.parse("treeView-beta\n  a\n"))
+        c.eqStr("as it is written, capital V and all" d2.diagramKind "treeview")
+        c.ok("a tree view is one this library draws" (MermaidReader.draws("treeview")))
     }
 
     ; The edge with a given id. `FlowGraph` indexes nodes by name and edges by

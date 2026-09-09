@@ -7,12 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- **Thirty-six of Mermaid's thirty-eight header keywords are drawn.** The
+- **Thirty-seven of Mermaid's thirty-eight header keywords are drawn.** The
   matrix in `docs/MERMAID_PARITY.md` is read off Mermaid's own detector
   registry. It used to say thirty of thirty, and both numbers were wrong.
 
 ### Added
 
+- **Mermaid tree views.** The same hierarchy the treemap draws by area, drawn
+  as an outline: one row per entry, indented under its parent, with elbow rules
+  that say which row belongs to which. Indentation is the hierarchy, ` ::: name`
+  puts a class on a row, ` ## words` is a description beside it and
+  ` icon(name)` names an icon — and the three are cut off the end of a line in
+  the one order that cannot go wrong, the description first, because it runs to
+  the end of the line and would swallow the other two. Mermaid resolves an icon
+  name against an icon pack and there is none here: inventing a picture for a
+  name this library has never seen would be worse than drawing none, so the
+  marker says only what this reader knows — whether the row has anything under
+  it — and the icon name is kept on the row as its tooltip rather than dropped.
 - **Mermaid treemaps.** A tree whose branches are drawn to scale: the nesting
   says what contains what and the area says how big each part is, so the one
   thing this must not do is round a rectangle to make it look tidier. The

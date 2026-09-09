@@ -42,6 +42,7 @@ Import "../domains/mermaid/MermaidXyReader.rgr"
 Import "../domains/mermaid/MermaidPacketReader.rgr"
 Import "../domains/mermaid/MermaidRadarReader.rgr"
 Import "../domains/mermaid/MermaidTreemapReader.rgr"
+Import "../domains/mermaid/MermaidTreeViewReader.rgr"
 Import "../domains/mermaid/MermaidSankeyReader.rgr"
 Import "../domains/mermaid/MermaidBlockReader.rgr"
 Import "../domains/mermaid/MermaidArchReader.rgr"
@@ -726,6 +727,9 @@ class RangerFlowWeb {
         if (MermaidReader.isRailroad(d.diagramKind)) {
             return (this.loadMermaidRailroad(text styleName want))
         }
+        if (d.diagramKind == "treeview") {
+            return (this.loadMermaidTreeView(text styleName want))
+        }
         if (d.diagramKind == "treemap") {
             return (this.loadMermaidTreemap(text styleName want))
         }
@@ -1142,6 +1146,26 @@ class RangerFlowWeb {
             what = "Mermaid xychart"
         }
         status = ((to_string (xd.seriesCount())) + " series over " + (to_string (xd.slots())) + " readings — " + what + ", " + want)
+        return true
+    }
+
+    ; A tree view: the same hierarchy as an outline rather than by area.
+    fn loadMermaidTreeView:boolean (text:string styleName:string want:string) {
+        def tv:MermaidTreeView (MermaidTreeViewReader.parse(text))
+        if ((tv.nodeCount()) == 0) {
+            status = "nothing in that tree"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidTreeViewFlow.build(tv style))
+        this.adoptPlaced(g style want)
+        def what:string tv.title
+        if ((strlen what) == 0) {
+            what = "Mermaid tree view"
+        }
+        status = ((to_string (tv.nodeCount())) + " rows, " + (to_string ((tv.maxDepth()) + 1)) + " deep — " + what + ", " + want)
         return true
     }
 

@@ -1477,6 +1477,7 @@ class MermaidReader {
         if (kind == "packet")    { return true }
         if (kind == "radar")     { return true }
         if (kind == "treemap")   { return true }
+        if (kind == "treeview")  { return true }
         return false
     }
 

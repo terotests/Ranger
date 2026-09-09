@@ -49,6 +49,7 @@ Import "../domains/mermaid/MermaidXyReader.rgr"
 Import "../domains/mermaid/MermaidPacketReader.rgr"
 Import "../domains/mermaid/MermaidRadarReader.rgr"
 Import "../domains/mermaid/MermaidTreemapReader.rgr"
+Import "../domains/mermaid/MermaidTreeViewReader.rgr"
 Import "../domains/mermaid/MermaidSankeyReader.rgr"
 Import "../domains/mermaid/MermaidBlockReader.rgr"
 Import "../domains/mermaid/MermaidArchReader.rgr"
@@ -566,6 +567,10 @@ class RangerFlowDemo {
             this.runMermaidRailroad(srcOpt styleName)
             return
         }
+        if (d.diagramKind == "treeview") {
+            this.runMermaidTreeView(srcOpt styleName)
+            return
+        }
         if (d.diagramKind == "treemap") {
             this.runMermaidTreemap(srcOpt styleName)
             return
@@ -938,6 +943,27 @@ class RangerFlowDemo {
             title = "RangerFlow — Mermaid pie chart"
         }
         this.writeAll(v g "rangerflow-mermaid-pie" title)
+    }
+
+    ; A tree view: the same hierarchy as an outline rather than by area.
+    fn runMermaidTreeView:void (src:string styleName:string) {
+        def tv:MermaidTreeView (MermaidTreeViewReader.parse(src))
+        if ((tv.nodeCount()) == 0) {
+            print "  nothing in that tree"
+            return
+        }
+        def style:FlowStyle (this.styleByName(styleName))
+        def g:FlowGraph (MermaidTreeViewFlow.build(tv style))
+        print ("  model  " + (to_string (tv.nodeCount())) + " rows, " + (to_string ((tv.maxDepth()) + 1)) + " deep, " + (to_string (tv.rootCount())) + " at the top")
+        print ("  graph  " + (to_string (g.nodeCount())) + " nodes, " + (to_string (g.edgeCount())) + " edges")
+        def v:FlowView (FlowView.of(g))
+        v.notation = "plain"
+        style.applyToTheme(v.theme)
+        def title:string tv.title
+        if ((strlen title) == 0) {
+            title = "RangerFlow — Mermaid tree view"
+        }
+        this.writeAll(v g "rangerflow-mermaid-treeview" title)
     }
 
     ; A treemap: what contains what, and how big each part is.
