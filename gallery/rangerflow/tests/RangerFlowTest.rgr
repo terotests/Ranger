@@ -396,13 +396,53 @@ class RangerFlowTest {
         ed.pointerDown(inp)
         ed.pointerUp(inp)
         c.ok("armed again, from a handle already in use" (ed.pending()))
+        ; Genuinely empty canvas. The bottom-right corner is the minimap,
+        ; which is chrome and answers a press of its own.
         def nowhere (new FlowInput)
         nowhere.x = 900.0
-        nowhere.y = 620.0
+        nowhere.y = 200.0
         ed.pointerDown(nowhere)
         ed.pointerUp(nowhere)
         c.eqInt("a click on nothing makes no edge" (g.edgeCount()) n1)
         c.ok("and cancels the connection" ((ed.pending()) == false))
+
+        ; The minimap is a place to GO, not a thing to drag. Until it was hit
+        ; tested, a press meant for it fell through to the pane and panned the
+        ; canvas — which drags the content, so the view moved the opposite way
+        ; to the one the reader pushed.
+        def onMap (new FlowInput)
+        onMap.x = ((ed.view.width - 60.0))
+        onMap.y = ((ed.view.height - 60.0))
+        c.ok("the bottom-right corner is the minimap" (ed.view.minimapAt(onMap.x onMap.y)))
+        def beforeX:double ed.view.viewport.x
+        def beforeY:double ed.view.viewport.y
+        ed.pointerDown(onMap)
+        c.eqInt("and a press on it steers rather than pans" ed.mode 9)
+        def steeredY:double ed.view.viewport.y
+        ed.pointerUp(onMap)
+        c.ok("the view moved" (((fabs (steeredY - beforeY)) + (fabs (ed.view.viewport.x - beforeX))) > 0.5))
+        ; What the press means, said in the coordinates it is about: the flow
+        ; point in the middle of the screen. A point higher on the map has to
+        ; put a HIGHER part of the diagram there. Panning moved it the other
+        ; way, and that is what "mirrored" looked like.
+        def midY:double (ed.view.height * 0.5)
+        def sawY:double (ed.view.viewport.toFlowY(midY))
+        def higher (new FlowInput)
+        higher.x = onMap.x
+        higher.y = (onMap.y - 40.0)
+        ed.pointerDown(higher)
+        def sawHigher:double (ed.view.viewport.toFlowY(midY))
+        ed.pointerUp(higher)
+        c.ok("and a point higher on the map centres a higher part of the diagram" (sawHigher < sawY))
+        def midX:double (ed.view.width * 0.5)
+        def sawX:double (ed.view.viewport.toFlowX(midX))
+        def righter (new FlowInput)
+        righter.x = (onMap.x + 40.0)
+        righter.y = higher.y
+        ed.pointerDown(righter)
+        def sawRight:double (ed.view.viewport.toFlowX(midX))
+        ed.pointerUp(righter)
+        c.ok("and a point further right, a part further right" (sawRight > sawX))
         c.ok("leaving the editor idle" (ed.idle()))
 
         ; Dragging from a handle still works exactly as it did.

@@ -451,7 +451,8 @@ class FlowEditor {
     def undo:FlowUndo (new FlowUndo)
 
     ; 0 idle, 1 panning, 2 dragging, 3 box select, 4 connecting, 5 resizing,
-    ; 6 dragging one segment of an edge, 7 typing into a label
+    ; 6 dragging one segment of an edge, 7 typing into a label,
+    ; 8 moving one end of an edge, 9 steering from the minimap
     def mode:int 0
     def pressX:double 0.0
     def pressY:double 0.0
@@ -818,6 +819,19 @@ class FlowEditor {
             mode = 0
             return
         }
+        ; The minimap sits ON the drawing. Until it was asked, a press meant
+        ; for it fell through to the pane and PANNED the canvas — which drags
+        ; the content, so the view moved the opposite way to the one the
+        ; reader pushed. It is a place to go, not a thing to drag.
+        if (view.minimapAt(inp.x inp.y)) {
+            ; Chrome, so it also puts down whatever the surface was holding: a
+            ; connection waiting for its far end is not finished by a press on
+            ; the map, it is abandoned by one.
+            this.cancelPending()
+            def went:boolean (view.minimapGoTo(inp.x inp.y))
+            mode = 9
+            return
+        }
         def grip:int (this.gripAt(inp.x inp.y))
         if (grip >= 0) {
             def rn:FlowNode (graph.nodeAt(grip))
@@ -1164,6 +1178,13 @@ class FlowEditor {
                 return
             }
             this.updateHover(inp.x inp.y)
+            return
+        }
+        ; Steering from the minimap: the pointer names a place, and the view
+        ; goes there. Not a pan — a pan would move it by the drag rather than
+        ; to the point, which is the same thing backwards.
+        if (mode == 9) {
+            def went:boolean (view.minimapGoTo(inp.x inp.y))
             return
         }
         if (mode == 1) {

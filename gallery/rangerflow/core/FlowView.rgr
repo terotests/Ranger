@@ -31,6 +31,30 @@ Import "FlowTheme.rgr"
 Import "FlowText.rgr"
 Import "../../evg/EVGTextMeasurer.rgr"
 
+; Where the minimap is on the screen, and what part of the flow it is
+; showing. A value, because it is worked out from the graph and the viewport
+; every frame and is nobody's state.
+class FlowMiniMap {
+    ; The panel, in screen pixels.
+    def x:double 0.0
+    def y:double 0.0
+    def w:double 180.0
+    def h:double 120.0
+    ; The flow point the panel's own origin stands for, and how many screen
+    ; pixels one flow unit is worth inside it.
+    def flowX:double 0.0
+    def flowY:double 0.0
+    def offX:double 0.0
+    def offY:double 0.0
+    def scale:double 0.0
+    ; False when there is nothing to show: an empty graph has no bounds, so
+    ; the panel is drawn and nothing is mapped into it.
+    def valid:boolean false
+
+    Constructor () {
+    }
+}
+
 class FlowView {
     def graph:FlowGraph (new FlowGraph)
     def viewport:FlowViewport (new FlowViewport)
@@ -1975,20 +1999,20 @@ class FlowView {
     }
 
     ; ------------------------------------------------------------- minimap ---
-    fn paintMinimap:void (sc:FlowScene) {
-        def mw:double 180.0
-        def mh:double 120.0
+    ; Where the minimap is and what it is showing. Worked out once and used by
+    ; both the painting and the hit test: two copies of this arithmetic would
+    ; drift apart, and a minimap you cannot press where you see it is the
+    ; failure that follows.
+    fn minimapGeometry:FlowMiniMap () {
+        def m (new FlowMiniMap)
+        m.w = 180.0
+        m.h = 120.0
         def margin:double 12.0
-        def mx:double ((width - mw) - margin)
-        def my:double ((height - mh) - margin)
-        def panel:SceneItem (sc.rect(mx my mw mh theme.panelFill))
-        panel.radius = 6.0
-        panel.stroke = theme.panelBorder
-        panel.strokeWidth = 1.0
-        panel.tag = "chrome"
+        m.x = ((width - m.w) - margin)
+        m.y = ((height - m.h) - margin)
         def b:FlowRect (graph.bounds())
         if (b.valid == false) {
-            return
+            return m
         }
         ; The minimap must show where the viewport is even when it is outside
         ; the graph, so the mapped area is the union of the two.
@@ -2009,12 +2033,74 @@ class FlowView {
         if (uw < 1.0) { uw = 1.0 }
         if (uh < 1.0) { uh = 1.0 }
         def pad:double 8.0
-        def scaleX:double ((mw - (pad * 2.0)) / uw)
-        def scaleY:double ((mh - (pad * 2.0)) / uh)
+        def scaleX:double ((m.w - (pad * 2.0)) / uw)
+        def scaleY:double ((m.h - (pad * 2.0)) / uh)
         def s:double scaleX
         if (scaleY < s) { s = scaleY }
-        def offX:double ((mx + pad) + (((mw - (pad * 2.0)) - (uw * s)) * 0.5))
-        def offY:double ((my + pad) + (((mh - (pad * 2.0)) - (uh * s)) * 0.5))
+        m.scale = s
+        m.flowX = ux
+        m.flowY = uy
+        m.offX = ((m.x + pad) + (((m.w - (pad * 2.0)) - (uw * s)) * 0.5))
+        m.offY = ((m.y + pad) + (((m.h - (pad * 2.0)) - (uh * s)) * 0.5))
+        m.valid = true
+        return m
+    }
+
+    ; Is this screen point on the minimap? It has to be asked before anything
+    ; else on the surface: the minimap sits ON the drawing, and a press meant
+    ; for it that falls through pans the canvas underneath — which moves the
+    ; view the OPPOSITE way to the one the reader pushed.
+    fn minimapAt:boolean (px:double py:double) {
+        if (showMinimap == false) {
+            return false
+        }
+        def m:FlowMiniMap (this.minimapGeometry())
+        if (px < m.x) { return false }
+        if (px > (m.x + m.w)) { return false }
+        if (py < m.y) { return false }
+        if (py > (m.y + m.h)) { return false }
+        return true
+    }
+
+    ; Put the middle of the viewport on the flow point a minimap press names.
+    fn minimapGoTo:boolean (px:double py:double) {
+        def m:FlowMiniMap (this.minimapGeometry())
+        if (m.valid == false) {
+            return false
+        }
+        if (m.scale <= 0.0) {
+            return false
+        }
+        def fx:double (m.flowX + ((px - m.offX) / m.scale))
+        def fy:double (m.flowY + ((py - m.offY) / m.scale))
+        viewport.x = ((width * 0.5) - (fx * viewport.zoom))
+        viewport.y = ((height * 0.5) - (fy * viewport.zoom))
+        return true
+    }
+
+    fn paintMinimap:void (sc:FlowScene) {
+        def m:FlowMiniMap (this.minimapGeometry())
+        def mx:double m.x
+        def my:double m.y
+        def mw:double m.w
+        def mh:double m.h
+        def panel:SceneItem (sc.rect(mx my mw mh theme.panelFill))
+        panel.radius = 6.0
+        panel.stroke = theme.panelBorder
+        panel.strokeWidth = 1.0
+        panel.tag = "chrome"
+        if (m.valid == false) {
+            return
+        }
+        def s:double m.scale
+        def ux:double m.flowX
+        def uy:double m.flowY
+        def offX:double m.offX
+        def offY:double m.offY
+        def vx:double (viewport.toFlowX(0.0))
+        def vy:double (viewport.toFlowY(0.0))
+        def vw:double (width / viewport.zoom)
+        def vh:double (height / viewport.zoom)
         def i:int 0
         while (i < (graph.nodeCount())) {
             def n:FlowNode (graph.nodeAt(i))
