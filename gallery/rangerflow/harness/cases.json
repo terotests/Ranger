@@ -1,3 +1,1 @@
-["wardley-beta\n  title Tea shop\n  anchor Business [0.95, 0.63]\n  component Cup of Tea [0.79, 0.61]\n  component Tea [0.63, 0.81]\n  Business->Cup of Tea\n  Cup of Tea->Tea\n  evolve Tea 0.9",
- "wardley-beta\n  component A [0.5, 0.5]\n  component B [0.2, 0.8]\n  A->B\n  market M [0.4,0.4]\n  note +a note [0.3, 0.3]",
- "ishikawa-beta\n  Late delivery\n    Machine\n      Old truck\n      No spares\n    Method\n      No plan"]
+["railroad-ebnf-beta\n  a = \"x\" ;"]

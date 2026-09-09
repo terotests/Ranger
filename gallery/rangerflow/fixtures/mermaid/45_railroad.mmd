@@ -1,0 +1,6 @@
+%% The plain notation writes the tree out in full.
+railroad-beta
+    title A small grammar
+    word = oneOrMore(nonterminal('letter'));
+    letter = choice(terminal('a'), terminal('b'));
+    tagged = sequence(optional(terminal('#')), nonterminal('word'));

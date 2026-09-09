@@ -1301,6 +1301,20 @@ class MermaidReader {
         if (kind == "ishikawa")  { return true }
         if (kind == "venn")      { return true }
         if (kind == "wardley")   { return true }
+        if (kind == "railroad")  { return true }
+        if (kind == "ebnf")      { return true }
+        if (kind == "abnf")      { return true }
+        if (kind == "peg")       { return true }
+        if (kind == "info")      { return true }
+        return false
+    }
+
+    ; The four headers that are all one picture: a grammar as a railroad.
+    sfn isRailroad:boolean (kind:string) {
+        if (kind == "railroad") { return true }
+        if (kind == "ebnf")     { return true }
+        if (kind == "abnf")     { return true }
+        if (kind == "peg")      { return true }
         return false
     }
 
@@ -1308,6 +1322,15 @@ class MermaidReader {
     ; `gitGraph:` or a `stateDiagram-v2` is matched by the word before the
     ; punctuation, which is how Mermaid's own detectors find them.
     sfn otherDiagram:string (kw:string) {
+        ; The four railroad headers are `railroad-…-beta`, and the part that
+        ; tells them apart is the part `upToPunct` would throw away. The
+        ; chunks Mermaid ships are called `abnf`, `ebnf` and `peg`, and a
+        ; reader that took the file name for the keyword would recognise none
+        ; of the four.
+        if (MermaidReader.beginsWith(kw "railroad-ebnf")) { return "ebnf" }
+        if (MermaidReader.beginsWith(kw "railroad-abnf")) { return "abnf" }
+        if (MermaidReader.beginsWith(kw "railroad-peg"))  { return "peg" }
+        if (MermaidReader.beginsWith(kw "railroad"))      { return "railroad" }
         def word:string (MermaidReader.upToPunct(kw))
         if (word == "sequencediagram")    { return "sequence" }
         if (word == "classdiagram")       { return "class" }
@@ -1341,6 +1364,11 @@ class MermaidReader {
         ; parser, and a Wardley map read as a flowchart is a page of invented
         ; boxes. `npm run rangerflow:mermaid:parity` checks it against the
         ; diagram types the installed Mermaid actually ships.
+        ; The four notations under their own bare names. Mermaid has no such
+        ; header — it wants `railroad-abnf-beta` — but a file that opens with
+        ; `abnf` is unambiguously ABNF, and reading it as that is kinder than
+        ; handing it to the flowchart parser, which is where an unrecognised
+        ; header goes.
         if (word == "abnf")               { return "abnf" }
         if (word == "cynefin")            { return "cynefin" }
         if (word == "ebnf")               { return "ebnf" }

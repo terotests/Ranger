@@ -1,0 +1,6 @@
+%% ABNF: a space joins, `/` chooses, `n*m` repeats, `[ ]` is optional.
+railroad-abnf-beta
+    word = 1*letter;
+    letter = "a" / "b" / "c";
+    phrase = word *(" " word);
+    tagged = [ "#" ] word;

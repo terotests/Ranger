@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **All thirty of Mermaid's diagram types are now drawn.** The matrix in
+  `docs/MERMAID_PARITY.md` is read off the installed Mermaid's own build, and
+  every row of it says *drawn*.
+
+### Added
+
+- **Mermaid railroad diagrams, in all four notations.** Types twenty-six to
+  twenty-nine. Mermaid ships four headers for one picture — `railroad-beta`
+  and the grammar notations `railroad-ebnf-beta`, `railroad-abnf-beta` and
+  `railroad-peg-beta` — which disagree about how to spell a choice and agree
+  about everything else, so this is one syntax tree, four front ends and one
+  renderer. There is not one edge in the output: a railroad's lines are square,
+  exact, and go where the grammar says.
+- **Mermaid `info`.** The thirtieth, and the smallest diagram Mermaid has: the
+  whole source is the word, and what it renders is the version of the thing
+  that rendered it. This is not Mermaid and does not know Mermaid's version, so
+  it gives the same kind of answer and not the same answer — it says what it
+  is. A version number invented on the spot would be printed in a box and
+  believed.
+
+### Fixed
+
+- **The four railroad keywords were wrong, in the reader and in the meter.**
+  The headers are `railroad-beta` and `railroad-<notation>-beta`; the chunks
+  Mermaid ships are called `abnf`, `ebnf`, `peg` and `railroad`. Both the
+  reader and the parity harness had taken the file names for the keywords, so
+  the matrix was asking about four headers that do not exist. Mermaid's own
+  detectors settle it. This is the same fault as the swimlane keyword, found
+  the same way.
+
 ### Added
 
 - **Mermaid Wardley maps.** The twenty-fifth type: a value chain drawn against

@@ -1,0 +1,6 @@
+%% PEG: a space joins, `/` chooses, and `+ * ?` come after the thing.
+railroad-peg-beta
+    word <- letter+;
+    letter <- 'a' / 'b' / 'c';
+    phrase <- word (' ' word)*;
+    tagged <- '#'? word;

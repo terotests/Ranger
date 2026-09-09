@@ -54,6 +54,8 @@ Import "../domains/mermaid/MermaidCynefinReader.rgr"
 Import "../domains/mermaid/MermaidIshikawaReader.rgr"
 Import "../domains/mermaid/MermaidVennReader.rgr"
 Import "../domains/mermaid/MermaidWardleyReader.rgr"
+Import "../domains/mermaid/MermaidRailroadReader.rgr"
+Import "../domains/mermaid/MermaidInfoReader.rgr"
 Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 Import "../layout/LayeredLayout.rgr"
@@ -555,6 +557,14 @@ class RangerFlowDemo {
         }
         if (d.diagramKind == "wardley") {
             this.runMermaidWardley(srcOpt styleName)
+            return
+        }
+        if (MermaidReader.isRailroad(d.diagramKind)) {
+            this.runMermaidRailroad(srcOpt styleName)
+            return
+        }
+        if (d.diagramKind == "info") {
+            this.runMermaidInfo(srcOpt styleName)
             return
         }
         if ((strlen d.diagramKind) > 0) {
@@ -1102,6 +1112,43 @@ class RangerFlowDemo {
             title = "RangerFlow — Mermaid Wardley map"
         }
         this.writeAll(v g "rangerflow-mermaid-wardley" title)
+    }
+
+    ; A railroad diagram: a grammar, drawn as the track a parser runs on.
+    fn runMermaidRailroad:void (src:string styleName:string) {
+        def rd:MermaidRailroad (MermaidRailroadReader.parse(src))
+        if ((rd.ruleCount()) == 0) {
+            print "  no rules in that grammar"
+            return
+        }
+        def style:FlowStyle (this.styleByName(styleName))
+        def g:FlowGraph (MermaidRailroadFlow.build(rd style))
+        print ("  model  " + (to_string (rd.ruleCount())) + " rules in " + rd.notation)
+        print ("  graph  " + (to_string (g.nodeCount())) + " nodes, " + (to_string (g.edgeCount())) + " edges")
+        def v:FlowView (FlowView.of(g))
+        v.notation = "plain"
+        style.applyToTheme(v.theme)
+        def title:string rd.title
+        if ((strlen title) == 0) {
+            title = "RangerFlow — Mermaid railroad diagram"
+        }
+        this.writeAll(v g "rangerflow-mermaid-railroad" title)
+    }
+
+    ; `info`: the diagram that asks what drew it.
+    fn runMermaidInfo:void (src:string styleName:string) {
+        def id:MermaidInfo (MermaidInfoReader.parse(src))
+        def style:FlowStyle (this.styleByName(styleName))
+        def g:FlowGraph (MermaidInfoFlow.build(id style))
+        if ((g.nodeCount()) == 0) {
+            print "  that is not an info diagram"
+            return
+        }
+        print ("  model  " + id.text)
+        def v:FlowView (FlowView.of(g))
+        v.notation = "plain"
+        style.applyToTheme(v.theme)
+        this.writeAll(v g "rangerflow-mermaid-info" "RangerFlow — Mermaid info")
     }
 
     ; ------------------------------------------------------------- org -----

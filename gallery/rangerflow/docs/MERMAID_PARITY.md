@@ -5,7 +5,7 @@
 > and asked what it understood. Nothing is transcribed, so nothing can be
 > transcribed wrong.
 
-Mermaid 11.17.2 · 41 diagrams · **212/212 checks agree (100%)**
+Mermaid 11.17.2 · 46 diagrams · **222/222 checks agree (100%)**
 
 | example | type | direction | nodes | labels | shapes | classes | edges | subgraphs |
 | --- | --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
@@ -50,6 +50,11 @@ Mermaid 11.17.2 · 41 diagrams · **212/212 checks agree (100%)**
 | `39_ishikawa.mmd` | ishikawa ✓ | — | — | — | — | — | — | — |
 | `40_venn.mmd` | venn ✓ | — | — | — | — | — | — | — |
 | `41_wardley.mmd` | wardley ✓ | — | — | — | — | — | — | — |
+| `42_railroad_ebnf.mmd` | ebnf ✓ | — | — | — | — | — | — | — |
+| `43_railroad_abnf.mmd` | abnf ✓ | — | — | — | — | — | — | — |
+| `44_railroad_peg.mmd` | peg ✓ | — | — | — | — | — | — | — |
+| `45_railroad.mmd` | railroad ✓ | — | — | — | — | — | — | — |
+| `46_info.mmd` | info ✓ | — | — | — | — | — | — | — |
 
 ## Read anyway
 
@@ -62,33 +67,33 @@ every one of these is a file somebody wrote and Mermaid would not draw.
 ## Mermaid's diagram types
 
 Read off the installed Mermaid's own build rather than typed here, so a type
-added upstream appears the next time the harness is installed. 25 of the 30 are drawn;
+added upstream appears the next time the harness is installed. 30 of the 30 are drawn;
 the rest have to be **recognised and refused**, because a header this reader
 does not know falls through to the flowchart parser, and a Wardley map read as
 a flowchart is a page of invented boxes.
 
 | header | RangerFlow |
 | --- | --- |
-| `abnf` | recognised as `abnf`, read as nothing |
+| `railroad-abnf-beta` | **drawn** — read as `abnf` |
 | `architecture-beta` | **drawn** — read as `architecture` |
 | `block-beta` | **drawn** — read as `block` |
 | `C4Context` | **drawn** — read as `c4` |
 | `classDiagram` | **drawn** — read as `class` |
 | `cynefin-beta` | **drawn** — read as `cynefin` |
-| `ebnf` | recognised as `ebnf`, read as nothing |
+| `railroad-ebnf-beta` | **drawn** — read as `ebnf` |
 | `erDiagram` | **drawn** — read as `er` |
 | `flowchart` | **drawn** — read as `flowchart` |
 | `gantt` | **drawn** — read as `gantt` |
 | `gitGraph` | **drawn** — read as `git` |
-| `info` | recognised as `info`, read as nothing |
+| `info` | **drawn** — read as `info` |
 | `ishikawa-beta` | **drawn** — read as `ishikawa` |
 | `journey` | **drawn** — read as `journey` |
 | `kanban` | **drawn** — read as `kanban` |
 | `mindmap` | **drawn** — read as `mindmap` |
-| `peg` | recognised as `peg`, read as nothing |
+| `railroad-peg-beta` | **drawn** — read as `peg` |
 | `pie` | **drawn** — read as `pie` |
 | `quadrantChart` | **drawn** — read as `quadrant` |
-| `railroad` | recognised as `railroad`, read as nothing |
+| `railroad-beta` | **drawn** — read as `railroad` |
 | `requirementDiagram` | **drawn** — read as `requirement` |
 | `sankey-beta` | **drawn** — read as `sankey` |
 | `sequenceDiagram` | **drawn** — read as `sequence` |

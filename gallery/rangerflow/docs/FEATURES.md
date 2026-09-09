@@ -140,6 +140,8 @@ Status keys: **✓** done · **~** partial · **·** not yet.
 | Schema grouping / multi-schema | ~ | `DBTable.schema` is modelled; no visual grouping yet |
 | SQL DDL import | ✓ | `SqlSchemaReader` |
 | Mermaid flowchart import | ✓ | `MermaidReader`: every shape and link, `subgraph`, `classDef` / `class` / `style`; `click` and `linkStyle` ignored |
+| Mermaid railroad import | ✓ | `MermaidRailroadReader`: one syntax tree and four front ends — `railroad-beta`, `railroad-ebnf-beta`, `railroad-abnf-beta`, `railroad-peg-beta` — drawn as track rather than routed |
+| Mermaid `info` import | ✓ | `MermaidInfoReader`: says what drew it, which is the same kind of answer Mermaid gives and not the same answer |
 | Mermaid Wardley import | ✓ | `MermaidWardleyReader`: `anchor` / `component` / `market` / `pipeline` with their `[visibility, evolution]`, links, `evolve` drawn as the move it is, the four stages on the axis |
 | Mermaid Venn import | ✓ | `MermaidVennReader`: `set` and `union` with labels and sizes, circles sized by area and placed to overlap, labels written on the drawing |
 | Mermaid fishbone import | ✓ | `MermaidIshikawaReader`: indentation as the whole grammar, effect at the head, categories alternating above and below the spine, causes to any depth |

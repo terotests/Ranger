@@ -13,5 +13,5 @@ for (const src of JSON.parse(fs.readFileSync(process.argv[2],"utf8"))) {
     const d = await mermaid.mermaidAPI.getDiagramFromText(src);
     const db = d.db ?? d.getDB?.();
     console.log('   OK', Object.keys(db).filter(k=>/^get/.test(k)).map(k=>{try{return k+'='+String(dump(db[k]())).slice(0,300)}catch(e){return ''}}).filter(Boolean).join('\n      '));
-  } catch(e) { console.log('   ERR', String(e.message||e).split('\n')[0].slice(0,160)); }
+  } catch(e) { console.log('   ERR', String(e.message||e).slice(0,900)); }
 }

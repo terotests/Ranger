@@ -47,6 +47,8 @@ Import "../domains/mermaid/MermaidCynefinReader.rgr"
 Import "../domains/mermaid/MermaidIshikawaReader.rgr"
 Import "../domains/mermaid/MermaidVennReader.rgr"
 Import "../domains/mermaid/MermaidWardleyReader.rgr"
+Import "../domains/mermaid/MermaidRailroadReader.rgr"
+Import "../domains/mermaid/MermaidInfoReader.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 Import "../layout/TreeLayouts.rgr"
 Import "../export/FlowExport.rgr"
@@ -718,6 +720,12 @@ class RangerFlowWeb {
         if (d.diagramKind == "wardley") {
             return (this.loadMermaidWardley(text styleName want))
         }
+        if (MermaidReader.isRailroad(d.diagramKind)) {
+            return (this.loadMermaidRailroad(text styleName want))
+        }
+        if (d.diagramKind == "info") {
+            return (this.loadMermaidInfo(text styleName want))
+        }
         if ((d.nodeCount()) == 0) {
             status = "no nodes in that Mermaid source"
             if ((strlen d.diagramKind) > 0) {
@@ -1282,6 +1290,43 @@ class RangerFlowWeb {
             what = "Mermaid Wardley map"
         }
         status = ((to_string (wd.nodeCount())) + " components, " + (to_string (wd.linkCount())) + " links — " + what + ", " + want)
+        return true
+    }
+
+    ; A railroad diagram, in any of the four notations Mermaid has for one.
+    fn loadMermaidRailroad:boolean (text:string styleName:string want:string) {
+        def rd:MermaidRailroad (MermaidRailroadReader.parse(text))
+        if ((rd.ruleCount()) == 0) {
+            status = "no rules in that grammar"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidRailroadFlow.build(rd style))
+        this.adoptPlaced(g style want)
+        def what:string rd.title
+        if ((strlen what) == 0) {
+            what = ("Mermaid railroad diagram, " + rd.notation)
+        }
+        status = ((to_string (rd.ruleCount())) + " rules — " + what + ", " + want)
+        return true
+    }
+
+    ; `info` asks what drew it, and gets an answer about this rather than a
+    ; version number invented on the spot.
+    fn loadMermaidInfo:boolean (text:string styleName:string want:string) {
+        def id:MermaidInfo (MermaidInfoReader.parse(text))
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidInfoFlow.build(id style))
+        if ((g.nodeCount()) == 0) {
+            status = "that is not an info diagram"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        this.adoptPlaced(g style want)
+        status = (id.text + ", " + want)
         return true
     }
 

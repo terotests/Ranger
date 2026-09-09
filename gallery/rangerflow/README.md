@@ -712,6 +712,38 @@ of the map being that things go that way. Visible is *up* and the page counts
 down, which is the one conversion the map needs and the one that would turn it
 into a map of the opposite argument.
 
+### …and railroad diagrams, in all four notations
+
+Mermaid ships **four** headers for one picture: `railroad-beta` and the three
+grammar notations `railroad-ebnf-beta`, `railroad-abnf-beta` and
+`railroad-peg-beta`. They disagree about how to spell a choice and agree about
+everything else, so this is one syntax tree, four front ends and one renderer.
+
+```mermaid
+railroad-ebnf-beta
+    letter = "a" | "b" ;
+    word = letter , { letter } ;
+```
+
+| | joins | chooses | repeats | optional |
+| --- | --- | --- | --- | --- |
+| EBNF | `,` | `\|` | `{ x }` | `[ x ]` |
+| ABNF | space | `/` | `1*x` | `[ x ]` |
+| PEG | space | `/` | `x+` `x*` | `x?` |
+| plain | `sequence(…)` | `choice(…)` | `oneOrMore(…)` | `optional(…)` |
+
+There is not one edge in the output: a railroad's lines are square, exact, and
+go where the grammar says, which is the one thing a router must not be asked to
+improve on. So they are drawn as thin rules, like the spine of a fishbone.
+
+### …and `info`
+
+The smallest diagram Mermaid has: the whole source is the word `info`, and what
+it renders is the version of the thing that rendered it. RangerFlow is not
+Mermaid and does not know Mermaid's version, so it gives the same *kind* of
+answer and not the same answer — it says what it is. A version number invented
+on the spot would be printed in a box and believed.
+
 ### …measured against Mermaid itself
 
 A claim of parity with a format is worth what the person making it wanted it to

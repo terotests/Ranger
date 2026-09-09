@@ -64,6 +64,10 @@ function mermaidDiagramTypes() {
     // Mermaid's own detector says so, and a matrix that asked about the wrong
     // keyword would report a reader that recognises nothing as passing.
     swimlanes: "swimlane-beta",
+    // Four headers for one picture, and none of them is the chunk's name:
+    // Mermaid's detectors want `railroad-beta` and `railroad-<notation>-beta`.
+    abnf: "railroad-abnf-beta", ebnf: "railroad-ebnf-beta",
+    peg: "railroad-peg-beta", railroad: "railroad-beta",
   };
   const names = new Set();
   for (const file of fs.readdirSync(dir)) {
@@ -161,7 +165,12 @@ function labelText(raw) {
 // Two types keep a word in Mermaid's name that RangerFlow's vocabulary drops,
 // the way it calls the others `er` and `c4`. Written out rather than pattern
 // matched: `xychart` would lose its "chart" to a rule and become `xy`.
-const SHORT_NAME = { gitgraph: "git", quadrantchart: "quadrant" };
+const SHORT_NAME = {
+  gitgraph: "git", quadrantchart: "quadrant",
+  // The three grammar notations are one diagram to Mermaid and three to a
+  // reader, which is the useful way round: `railroadEbnf` is EBNF.
+  railroadebnf: "ebnf", railroadabnf: "abnf", railroadpeg: "peg",
+};
 const kindOf = (raw) => {
   const k = String(raw ?? "").toLowerCase().replace(/-v2$/, "").replace(/^flowchart-elk$/, "flowchart").replace(/diagram$/, "");
   return SHORT_NAME[k] ?? k ?? "";

@@ -47,6 +47,8 @@ Import "../domains/mermaid/MermaidCynefinReader.rgr"
 Import "../domains/mermaid/MermaidIshikawaReader.rgr"
 Import "../domains/mermaid/MermaidVennReader.rgr"
 Import "../domains/mermaid/MermaidWardleyReader.rgr"
+Import "../domains/mermaid/MermaidRailroadReader.rgr"
+Import "../domains/mermaid/MermaidInfoReader.rgr"
 Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 
@@ -137,6 +139,7 @@ class RangerFlowTest {
         RangerFlowTest.testMermaidIshikawa(c)
         RangerFlowTest.testMermaidVenn(c)
         RangerFlowTest.testMermaidWardley(c)
+        RangerFlowTest.testMermaidRailroad(c)
         RangerFlowTest.testBusinessCharts(c)
         RangerFlowTest.testAuthoring(c)
         RangerFlowTest.testTreeLayouts(c)
@@ -3759,6 +3762,95 @@ class RangerFlowTest {
         def stage:FlowNode (g.nodeById("stage0"))
         c.eqStr("the four stages are written along the bottom" stage.label "Genesis")
         c.ok("a Wardley map is one this library draws" (MermaidReader.draws("wardley")))
+    }
+
+    ; --------------------------------------------- Mermaid railroad -------
+    ; Mermaid ships FOUR headers for one picture. They disagree about how to
+    ; spell a choice and agree about everything else, so the test is that all
+    ; four arrive at the same tree — and that the headers are the ones Mermaid
+    ; actually detects, which are not the names of the chunks it ships.
+    sfn testMermaidRailroad:void (c:Checker) {
+        c.section("Mermaid railroad diagrams")
+        c.eqStr("the EBNF header is `railroad-ebnf-beta`" (MermaidReader.otherDiagram("railroad-ebnf-beta")) "ebnf")
+        c.eqStr("the ABNF one `railroad-abnf-beta`" (MermaidReader.otherDiagram("railroad-abnf-beta")) "abnf")
+        c.eqStr("the PEG one `railroad-peg-beta`" (MermaidReader.otherDiagram("railroad-peg-beta")) "peg")
+        c.eqStr("and the plain one `railroad-beta`" (MermaidReader.otherDiagram("railroad-beta")) "railroad")
+        c.ok("all four are one picture" (MermaidReader.isRailroad("peg")))
+
+        ; The same grammar in three notations. `word` is one or more letters
+        ; and a letter is an a or a b, however it is written down.
+        def ebnf:MermaidRailroad (MermaidRailroadReader.parse("railroad-ebnf-beta\n  word = letter , { letter } ;\n  letter = \"a\" | \"b\" ;\n"))
+        def abnf:MermaidRailroad (MermaidRailroadReader.parse("railroad-abnf-beta\n  word = 1*letter;\n  letter = \"a\" / \"b\";\n"))
+        def peg:MermaidRailroad (MermaidRailroadReader.parse("railroad-peg-beta\n  word <- letter+;\n  letter <- 'a' / 'b';\n"))
+        c.eqStr("the notation is read off the header" ebnf.notation "ebnf")
+        c.eqStr("in each of the four" abnf.notation "abnf")
+        c.eqStr("and the fourth" peg.notation "peg")
+        c.eqInt("a rule per statement, in every notation" (ebnf.ruleCount()) 2)
+        c.eqInt("however it is spelled" (abnf.ruleCount()) 2)
+        c.eqInt("and in the third" (peg.ruleCount()) 2)
+
+        def eLetter:MermaidRailRule (ebnf.ruleNamed("letter"))
+        def aLetter:MermaidRailRule (abnf.ruleNamed("letter"))
+        def pLetter:MermaidRailRule (peg.ruleNamed("letter"))
+        def eBody:MermaidRailNode eLetter.body
+        def aBody:MermaidRailNode aLetter.body
+        def pBody:MermaidRailNode pLetter.body
+        c.eqStr("`|` in EBNF is a choice" eBody.kind "choice")
+        c.eqStr("and so is `/` in ABNF" aBody.kind "choice")
+        c.eqStr("and in PEG" pBody.kind "choice")
+        c.eqInt("of two terminals" (eBody.childCount()) 2)
+        def term:MermaidRailNode (itemAt eBody.children 0)
+        c.eqStr("with the quotes off them" term.text "a")
+        c.eqStr("and drawn as what the input contains" term.kind "terminal")
+
+        def aWord:MermaidRailRule (abnf.ruleNamed("word"))
+        def pWord:MermaidRailRule (peg.ruleNamed("word"))
+        def aw:MermaidRailNode aWord.body
+        def pw2:MermaidRailNode pWord.body
+        c.eqStr("`1*x` in ABNF is a repetition" aw.kind "repetition")
+        c.eqInt("of one or more" aw.minTimes 1)
+        c.eqStr("and so is `x+` in PEG" pw2.kind "repetition")
+        c.eqInt("one or more there too" pw2.minTimes 1)
+        def eWord:MermaidRailRule (ebnf.ruleNamed("word"))
+        def ew:MermaidRailNode eWord.body
+        c.eqStr("EBNF says the same thing as a sequence with a `{ }` in it" ew.kind "sequence")
+        def tail:MermaidRailNode (itemAt ew.children 1)
+        c.eqStr("whose second half is the repeat" tail.kind "repetition")
+        c.eqInt("and `{ }` is NONE or more" tail.minTimes 0)
+
+        ; The fourth notation writes the tree out in full.
+        def plain:MermaidRailroad (MermaidRailroadReader.parse("railroad-beta\n  word = optional(zeroOrMore(special('any')));\n"))
+        def pw:MermaidRailRule (plain.ruleNamed("word"))
+        def pwBody:MermaidRailNode pw.body
+        c.eqStr("`optional(…)` is an optional" pwBody.kind "optional")
+        def rep:MermaidRailNode (itemAt pwBody.children 0)
+        c.eqStr("`zeroOrMore(…)` a repetition" rep.kind "repetition")
+        def sp:MermaidRailNode (itemAt rep.children 0)
+        c.eqStr("and `special('x')` the third kind of leaf" sp.kind "special")
+        c.eqStr("with its own words in it" sp.text "any")
+
+        def bare (new FlowStyle)
+        def g:FlowGraph (MermaidRailroadFlow.build(ebnf bare))
+        c.eqInt("a railroad's lines are drawn, not routed" (g.edgeCount()) 0)
+        def name:FlowNode (g.nodeById("rule-word"))
+        c.eqStr("every rule is named at its left" name.label "word")
+        def other:FlowNode (g.nodeById("rule-letter"))
+        c.ok("and the rules stack down the page" (other.y > name.y))
+        c.ok("a railroad diagram is one this library draws" (MermaidReader.draws("ebnf")))
+
+        ; `info` is the smallest diagram Mermaid has: the whole source is the
+        ; word, and what it renders is what rendered it. This is not Mermaid
+        ; and does not know Mermaid's version, so it says what it IS — a
+        ; version number invented on the spot would be printed in a box and
+        ; believed.
+        def info:MermaidInfo (MermaidInfoReader.parse("info\n"))
+        c.ok("`info` is a question, and it was asked" info.asked)
+        c.ok("the answer names the thing that drew it" ((indexOf info.text "RangerFlow") >= 0))
+        def ig:FlowGraph (MermaidInfoFlow.build(info bare))
+        c.eqInt("and is one card" (ig.nodeCount()) 1)
+        def notInfo:MermaidInfo (MermaidInfoReader.parse("flowchart TD\n  a --> b\n"))
+        c.ok("a diagram that never asked gets no answer" (notInfo.asked == false))
+        c.ok("`info` is one this library draws" (MermaidReader.draws("info")))
     }
 
     ; --------------------------------------------- a click is not an edit --

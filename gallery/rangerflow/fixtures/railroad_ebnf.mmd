@@ -1,0 +1,7 @@
+railroad-ebnf-beta
+    title A small grammar
+    digit = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" ;
+    letter = "a" | "b" | "c" ;
+    identifier = letter , { letter | digit } ;
+    number = digit , { digit } ;
+    value = identifier | number ;
