@@ -39,6 +39,7 @@ Import "../domains/mermaid/MermaidKanbanReader.rgr"
 Import "../domains/mermaid/MermaidQuadrantReader.rgr"
 Import "../domains/mermaid/MermaidPieReader.rgr"
 Import "../domains/mermaid/MermaidXyReader.rgr"
+Import "../domains/mermaid/MermaidSankeyReader.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 Import "../layout/TreeLayouts.rgr"
 Import "../export/FlowExport.rgr"
@@ -686,6 +687,9 @@ class RangerFlowWeb {
         if (d.diagramKind == "xychart") {
             return (this.loadMermaidXy(text styleName want))
         }
+        if (d.diagramKind == "sankey") {
+            return (this.loadMermaidSankey(text styleName want))
+        }
         if ((d.nodeCount()) == 0) {
             status = "no nodes in that Mermaid source"
             if ((strlen d.diagramKind) > 0) {
@@ -1090,6 +1094,27 @@ class RangerFlowWeb {
             what = "Mermaid xychart"
         }
         status = ((to_string (xd.seriesCount())) + " series over " + (to_string (xd.slots())) + " readings — " + what + ", " + want)
+        return true
+    }
+
+    ; A Sankey diagram: a graph whose edges have a width, and the width is
+    ; the whole point.
+    fn loadMermaidSankey:boolean (text:string styleName:string want:string) {
+        def sd:MermaidSankey (MermaidSankeyReader.parse(text))
+        if ((sd.linkCount()) == 0) {
+            status = "no flows in that Sankey diagram"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidSankeyFlow.build(sd style))
+        this.adoptPlaced(g style want)
+        def what:string sd.title
+        if ((strlen what) == 0) {
+            what = "Mermaid Sankey diagram"
+        }
+        status = ((to_string (sd.nodeCount())) + " nodes, " + (to_string (sd.linkCount())) + " flows — " + what + ", " + want)
         return true
     }
 

@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Mermaid Sankey diagrams.** The eighteenth type: a graph whose edges have a
+  width, and the width is the whole point. A node is as tall as the quantity
+  through it, a column as tall as the quantities in it, and the ribbons are
+  polygons worked out from the numbers — a band from where a flow leaves to
+  where it arrives, sampled along a smooth curve, so a Sankey is drawn by the
+  same renderer as everything else. The whole language is three CSV columns,
+  which makes it the shortest reader here and the one that does the most
+  arithmetic.
 - **Mermaid xy charts.** The seventeenth type, and the first with a *scale* in
   it: every other diagram here places things by counting, and this one places
   them by measuring. `bar` and `line` series can be mixed, several bar series

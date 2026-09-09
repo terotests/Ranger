@@ -523,6 +523,31 @@ taken from the data and the bottom is zero unless the data goes below it: an
 axis that starts just under the smallest bar makes a 4% difference look like a
 tenfold one, and Mermaid's own default is not to do that.
 
+### …and Sankey diagrams
+
+A graph whose edges have a *width*, and the width is the whole point: it is how
+much went that way. Everything else follows — a node is as tall as the quantity
+through it, a column as tall as the quantities in it — and nothing may be moved
+to make a line shorter, because a line's thickness is a number somebody
+measured.
+
+```mermaid
+sankey-beta
+
+Agricultural 'waste',Bio-conversion,124.729
+Bio-conversion,Losses,26.862
+Bio-conversion,Solid,280.322
+Coal reserves,Coal,63.965
+Coal,Solid,75.571
+```
+
+The whole language is three CSV columns, which makes this the shortest reader
+here and the one that does the most arithmetic. The ribbons are polygons worked
+out from the numbers — a band from where it leaves to where it arrives, sampled
+along a smooth curve — so a Sankey is drawn by the same renderer as everything
+else. A quote at the start of a field quotes it, comma and all; one in the
+middle is an apostrophe.
+
 ### …measured against Mermaid itself
 
 A claim of parity with a format is worth what the person making it wanted it to

@@ -39,6 +39,7 @@ Import "../domains/mermaid/MermaidKanbanReader.rgr"
 Import "../domains/mermaid/MermaidQuadrantReader.rgr"
 Import "../domains/mermaid/MermaidPieReader.rgr"
 Import "../domains/mermaid/MermaidXyReader.rgr"
+Import "../domains/mermaid/MermaidSankeyReader.rgr"
 Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 
@@ -121,6 +122,7 @@ class RangerFlowTest {
         RangerFlowTest.testMermaidQuadrant(c)
         RangerFlowTest.testMermaidPie(c)
         RangerFlowTest.testMermaidXyChart(c)
+        RangerFlowTest.testMermaidSankey(c)
         RangerFlowTest.testBusinessCharts(c)
         RangerFlowTest.testAuthoring(c)
         RangerFlowTest.testTreeLayouts(c)
@@ -3308,6 +3310,56 @@ class RangerFlowTest {
         c.eqStr("a line series is a dot at every reading" dot.shape "circle")
         c.eqInt("with an edge between one dot and the next" (g.edgeCount()) 3)
         c.ok("an xychart is one this library draws" (MermaidReader.draws("xychart")))
+    }
+
+    ; --------------------------------------------- Mermaid Sankey ---------
+    ; A graph whose edges have a WIDTH, and the width is a number somebody
+    ; measured. So these check the arithmetic — the columns, the flow through
+    ; each node, and that a ribbon twice the value is twice as thick.
+    sfn testMermaidSankey:void (c:Checker) {
+        c.section("Mermaid Sankey diagrams")
+        def src:string "sankey-beta\n"
+        src = (src + "\n")
+        src = (src + "Agricultural 'waste',Bio-conversion,100\n")
+        src = (src + "Bio-conversion,Losses,25\n")
+        src = (src + "Bio-conversion,Solid,50\n")
+        src = (src + "Bio-conversion,Gas,25\n")
+        src = (src + "\"Imports, net\",Bio-conversion,20\n")
+
+        def d:MermaidSankey (MermaidSankeyReader.parse(src))
+        c.eqInt("a node per name, once" (d.nodeCount()) 6)
+        c.eqInt("a flow per row" (d.linkCount()) 5)
+        def waste:MermaidSankeyNode (itemAt d.nodes 0)
+        c.eqStr("a quote inside a field is an apostrophe, not a quoted string" waste.name "Agricultural 'waste'")
+        def imports:MermaidSankeyNode (itemAt d.nodes 5)
+        c.eqStr("but a field that opens with one is quoted, comma and all" imports.name "Imports, net")
+        def bio:MermaidSankeyNode (itemAt d.nodes 1)
+        c.ok("what goes in is added up" ((fabs (bio.inflow - 120.0)) < 0.0001))
+        c.ok("and so is what comes out" ((fabs (bio.outflow - 100.0)) < 0.0001))
+        c.ok("a node is as tall as the larger of the two" ((fabs ((bio.flow()) - 120.0)) < 0.0001))
+        c.eqInt("nothing flows into the first column" waste.depth 0)
+        c.eqInt("and each node sits one past whatever feeds it" bio.depth 1)
+        c.eqInt("three columns in all" (d.depthCount()) 3)
+
+        def bare (new FlowStyle)
+        def g:FlowGraph (MermaidSankeyFlow.build(d bare))
+        def barA:FlowNode (g.nodeById(waste.id))
+        def barB:FlowNode (g.nodeById(bio.id))
+        c.ok("columns run left to right" (barA.x < barB.x))
+        def losses:MermaidSankeyNode (itemAt d.nodes 2)
+        def solid:MermaidSankeyNode (itemAt d.nodes 3)
+        def barL:FlowNode (g.nodeById(losses.id))
+        def barS:FlowNode (g.nodeById(solid.id))
+        def ratio:double (barS.height / barL.height)
+        c.ok("and twice the quantity is twice the height" ((fabs (ratio - 2.0)) < 0.02))
+        def ribbon:FlowNode (g.nodeById("rb0"))
+        c.eqStr("a ribbon is a polygon: the library has no ribbon" ribbon.shape "polygon")
+        c.ok("sampled along a curve rather than drawn as a wedge" ((array_length ribbon.shapePoints) > 40))
+        def l0:MermaidSankeyLink (itemAt d.links 0)
+        def l1:MermaidSankeyLink (itemAt d.links 1)
+        c.ok("and as thick as the number on its own row" ((fabs ((l0.thickness / l1.thickness) - 4.0)) < 0.02))
+        c.eqInt("nothing is an edge: a Sankey's lines are its shapes" (g.edgeCount()) 0)
+        c.ok("a Sankey diagram is one this library draws" (MermaidReader.draws("sankey")))
     }
 
     ; --------------------------------------------- a click is not an edit --

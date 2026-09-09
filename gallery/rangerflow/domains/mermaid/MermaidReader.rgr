@@ -1293,6 +1293,7 @@ class MermaidReader {
         if (kind == "quadrant")  { return true }
         if (kind == "pie")       { return true }
         if (kind == "xychart")   { return true }
+        if (kind == "sankey")    { return true }
         return false
     }
 
