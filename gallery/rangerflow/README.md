@@ -381,10 +381,26 @@ gantt
         Release  :milestone, m1, 2024-02-01, 0d
 ```
 
-`done`, `active` and `crit` become classes a stylesheet can match, and a
-milestone is drawn as the diamond it is. Dates are read as `YYYY-MM-DD`, which
-is `dateFormat`'s default; a chart in another format keeps its order and its
-durations.
+A Gantt is three things in one picture and the bars are only one of them.
+Without the **date axis** a reader cannot say when anything happens, so the
+axis carries real dates — turned back out of the day numbers by the inverse of
+the formula that made them, rather than by a second calendar — with a rule down
+the chart at every tick, counted from the first day so the left edge is never
+the one without a label. Without the **section bands** a reader cannot say
+whose work it is, so each section is a strip with its name in the gutter. The
+bands are cut from the task order rather than fitted around each section's
+bounding box: two sections whose dates overlap have overlapping boxes, and a
+band per box draws one on top of another and loses the label underneath.
+
+Bars are filled rather than outlined, and exactly as long as the task is — a
+minimum width would be a lie about a short task, so a bar too narrow for its
+name gets the name beside it instead. `done`, `active` and `crit` each get a
+fill as well as a class a stylesheet can match, and a milestone is drawn as the
+diamond it is. There is not one edge in the output: `after <id>` is arithmetic
+on the start date, and an arrow drawn between the two bars would be a claim
+about the plan that the plan does not make. Dates are read as `YYYY-MM-DD`,
+which is `dateFormat`'s default; a chart in another format keeps its order and
+its durations.
 
 ### …and sequence diagrams
 

@@ -5,7 +5,7 @@
 > and asked what it understood. Nothing is transcribed, so nothing can be
 > transcribed wrong.
 
-Mermaid 11.17.2 · 47 diagrams · **224/224 checks agree (100%)**
+Mermaid 11.17.2 · 48 diagrams · **226/226 checks agree (100%)**
 
 | example | type | direction | nodes | labels | shapes | classes | edges | subgraphs |
 | --- | --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
@@ -56,6 +56,7 @@ Mermaid 11.17.2 · 47 diagrams · **224/224 checks agree (100%)**
 | `45_railroad.mmd` | railroad ✓ | — | — | — | — | — | — | — |
 | `46_info.mmd` | info ✓ | — | — | — | — | — | — | — |
 | `47_packet.mmd` | packet ✓ | — | — | — | — | — | — | — |
+| `48_gantt2.mmd` | gantt ✓ | — | — | — | — | — | — | — |
 
 ## Read anyway
 

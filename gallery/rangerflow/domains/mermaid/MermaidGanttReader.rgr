@@ -469,151 +469,391 @@ class MermaidGanttFlow {
         return (MermaidGanttFlow.build(d bare))
     }
 
+    ; --------------------------------------------------------------------
+    ; The chart. A Gantt is three things in one picture and the bars are only
+    ; one of them: without the DATE AXIS a reader cannot say when anything
+    ; happens, and without the SECTION BANDS they cannot say whose work it is.
+    ;
+    ;      │            2014-01-01   2014-01-15   2014-01-29
+    ;      ├────────────┬────────────┬────────────┬──────────
+    ;  Section  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
+    ;                                 ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
+    ;  Another        ▓▓▓▓▓▓▓▓▓
+    ;
+    ; The bands are cut from the task ORDER rather than fitted around the
+    ; bounding box of each section's bars: two sections whose dates overlap
+    ; have overlapping boxes, so a frame per box draws one band on top of
+    ; another and loses the label underneath. A band is a run of consecutive
+    ; rows, which is what a section is.
+    ; --------------------------------------------------------------------
     sfn build:FlowGraph (d:MermaidGantt style:FlowStyle) {
         def g (new FlowGraph)
+        if ((array_length d.tasks) == 0) {
+            return g
+        }
         def first:int (d.firstDay())
         def last:int (d.lastDay())
         def span:int (last - first)
         if (span < 1) {
             span = 1
         }
-        ; The axis is scaled to a page rather than to a fixed pixels-per-day:
-        ; a two-year plan and a two-week one both have to be readable.
+        ; Scaled to a page rather than to a fixed pixels-per-day: a two-year
+        ; plan and a two-week one both have to be readable.
         def width:double 1100.0
         def perDay:double (width / (to_double span))
-        if (perDay > 26.0) {
-            perDay = 26.0
+        if (perDay > 40.0) {
+            perDay = 40.0
         }
-        if (perDay < 1.6) {
-            perDay = 1.6
+        if (perDay < 1.2) {
+            perDay = 1.2
         }
-        def rowH:double 34.0
-        def rowGap:double 10.0
-        def topPad:double 40.0
-        def minBar:double 96.0
+        def gutter:double (MermaidGanttFlow.gutterFor(d))
+        def rowPitch:double 30.0
+        def barH:double 22.0
+        def pad:double 7.0
+        def plotW:double ((to_double span) * perDay)
+        def top:double 0.0
+        if ((strlen d.title) > 0) {
+            MermaidGanttFlow.label(g "gantt-title" d.title gutter 0.0 plotW 30.0 "mermaid gantt title axislabel")
+            top = 40.0
+        }
+        ; The axis, above the bands. Its labels are dates because the bars are
+        ; placed by date: a tick reading "12" would be a number the chart does
+        ; not otherwise mention.
+        def step:int (MermaidGanttFlow.tickStep(perDay))
+        def axisY:double top
+        def bodyTop:double (top + 26.0)
+        def bodyH:double (MermaidGanttFlow.bodyHeight(d rowPitch pad))
+        ; Counted from the first day rather than from a round multiple of the
+        ; step: rounding leaves the left edge of the chart unlabelled, and the
+        ; date the first task begins is the one a reader looks for first.
+        def tick:int first
+        def ti:int 0
+        while (tick <= last) {
+            def tx:double (gutter + ((to_double (tick - first)) * perDay))
+            ; The rule first, so it goes under the bars — the bands are sent
+            ; to the back after this and the bars are drawn over both.
+            def rule:FlowNode (FlowNode.create(("gline-" + (to_string ti)) "" tx bodyTop))
+            rule.nodeType = "gridline"
+            rule.shape = "rect"
+            rule.width = 1.0
+            rule.height = bodyH
+            rule.connectable = false
+            rule.draggable = false
+            rule.cssClass = "mermaid gantt gridline"
+            rule.bgColor = "#d8dce8"
+            rule.borderColor = "#d8dce8"
+            rule.syncFromModel()
+            g.addNode(rule)
+            MermaidGanttFlow.label(g ("gtick-" + (to_string ti)) (MermaidGanttFlow.dateText(tick)) (tx - 44.0) axisY 88.0 22.0 "mermaid gantt tick axislabel")
+            tick = (tick + step)
+            ti = (ti + 1)
+        }
+        ; The bands, then the bars on them. One band per RUN of rows in the
+        ; same section — see the note above.
+        def rowY:double (bodyTop + pad)
+        def bandTop:double bodyTop
+        def bandName:string ""
+        def bandRows:int 0
+        def bands:int 0
         def i:int 0
         while (i < (array_length d.tasks)) {
             def t:MermaidGanttTask (itemAt d.tasks i)
-            def x:double ((to_double (t.startDay - first)) * perDay)
-            def w:double ((to_double t.days) * perDay)
-            if (w < minBar) {
-                w = minBar
+            if (i == 0) {
+                bandName = t.section
             }
-            def y:double (topPad + ((to_double i) * (rowH + rowGap)))
-            def n:FlowNode (FlowNode.create(t.id t.name x y))
-            n.nodeType = "step"
-            n.shape = "rect"
-            n.borderRadius = 6.0
-            n.width = w
-            n.height = rowH
-            n.cssClass = ("mermaid bar" + t.tags)
-            if t.milestone {
-                n.shape = "diamond"
-                n.width = 46.0
-                n.height = 46.0
-                n.cssClass = "mermaid milestone"
-                n.y = (y - 6.0)
+            if (t.section != bandName) {
+                MermaidGanttFlow.band(g bands bandName gutter bandTop plotW (((to_double bandRows) * rowPitch) + (pad * 2.0)))
+                bands = (bands + 1)
+                bandTop = (bandTop + (((to_double bandRows) * rowPitch) + (pad * 2.0)))
+                rowY = (bandTop + pad)
+                bandName = t.section
+                bandRows = 0
             }
-            n.addSideHandles()
-            n.syncFromModel()
-            g.addNode(n)
+            MermaidGanttFlow.bar(g t gutter first perDay rowY rowPitch barH)
+            rowY = (rowY + rowPitch)
+            bandRows = (bandRows + 1)
             i = (i + 1)
         }
-        g.reindex()
-        ; The one relation a Gantt chart has: what waits for what.
-        def k:int 0
-        while (k < (array_length d.tasks)) {
-            def t2:MermaidGanttTask (itemAt d.tasks k)
-            if ((strlen t2.after) > 0) {
-                if (g.hasNode(t2.after)) {
-                    def e:FlowEdge (FlowEdge.create("" t2.after t2.id))
-                    e.edgeType = "smoothstep"
-                    e.markerEnd = "arrow"
-                    e.cssClass = "link waits"
-                    e.sourceHandle = 1
-                    e.targetHandle = 3
-                    g.addEdge(e)
-                }
-            }
-            k = (k + 1)
+        if (bandRows > 0) {
+            MermaidGanttFlow.band(g bands bandName gutter bandTop plotW (((to_double bandRows) * rowPitch) + (pad * 2.0)))
+            bands = (bands + 1)
         }
         g.reindex()
         def wrote:int (style.applyTo(g))
-        def frames:int (MermaidGanttFlow.frameSections(d g style))
-        def moved:int (EdgeLanes.assign(g))
+        ; A band is scenery, and scenery goes behind everything. `sendToBack`
+        ; moves to index 0, so the LAST one called ends up deepest — which is
+        ; why the bands go back after the rules and not before them.
+        def b:int 0
+        while (b < bands) {
+            g.sendToBack(("gband-" + (to_string b)))
+            b = (b + 1)
+        }
+        MermaidGanttFlow.repaint(g d)
         return g
     }
 
-    sfn frameSections:int (d:MermaidGantt g:FlowGraph style:FlowStyle) {
-        def made:int 0
-        def s:int 0
-        while (s < (array_length d.sections)) {
-            def name:string (itemAt d.sections s)
-            def r (new FlowRect)
-            def i:int 0
-            while (i < (array_length d.tasks)) {
-                def t:MermaidGanttTask (itemAt d.tasks i)
-                if (t.section == name) {
-                    MermaidGanttFlow.growTo(r g t.id)
-                }
-                i = (i + 1)
-            }
-            if r.valid {
-                def pad:double 14.0
-                def head:double 24.0
-                def frameId:string ("sg-section" + (to_string s))
-                def frame:FlowNode (FlowNode.create(frameId name (r.x - pad) ((r.y - pad) - head)))
-                frame.nodeType = "group"
-                frame.width = (r.w + (pad * 2.0))
-                def hh:double ((r.h + (pad * 2.0)) + head)
-                frame.height = hh
-                frame.connectable = false
-                frame.cssClass = "mermaid section"
-                frame.bgColor = "#f6f7fb"
-                frame.borderColor = "#c9cede"
-                frame.syncFromModel()
-                g.addNode(frame)
-                style.styleNode(frame)
-                g.sendToBack(frameId)
-                made = (made + 1)
-            }
-            s = (s + 1)
+    ; A section band: the strip behind a run of rows, with the section's name
+    ; in the gutter beside it. Mermaid alternates two fills, and so does this —
+    ; the boundary between two sections is a change of colour and nothing else.
+    sfn band:void (g:FlowGraph index:int name:string gutter:double y:double w:double h:double) {
+        def id:string ("gband-" + (to_string index))
+        def n:FlowNode (FlowNode.create(id "" gutter y))
+        n.nodeType = "group"
+        n.shape = "rect"
+        n.width = w
+        n.height = h
+        n.connectable = false
+        n.draggable = false
+        n.cssClass = ("mermaid gantt band " + (MermaidGanttFlow.bandClass(index)))
+        n.bgColor = (MermaidGanttFlow.bandColor(index))
+        n.borderColor = (MermaidGanttFlow.bandColor(index))
+        n.syncFromModel()
+        g.addNode(n)
+        if ((strlen name) == 0) {
+            return
         }
-        return made
+        MermaidGanttFlow.label(g (id + "-name") name 0.0 ((y + (h * 0.5)) - 13.0) (gutter - 12.0) 26.0 "mermaid gantt sectionname axislabel")
     }
 
-    sfn growTo:void (r:FlowRect g:FlowGraph id:string) {
-        if ((g.hasNode(id)) == false) {
+    ; One task. The bar is exactly as long as the task is, which is the whole
+    ; claim a Gantt chart makes — a minimum width would be a lie about a short
+    ; task — so a bar too narrow for its name gets the name beside it instead.
+    sfn bar:void (g:FlowGraph t:MermaidGanttTask gutter:double first:int perDay:double y:double rowPitch:double barH:double) {
+        def x:double (gutter + ((to_double (t.startDay - first)) * perDay))
+        def w:double ((to_double t.days) * perDay)
+        if (w < 3.0) {
+            w = 3.0
+        }
+        def cy:double (y + ((rowPitch - barH) * 0.5))
+        def n:FlowNode (FlowNode.create(t.id t.name x cy))
+        n.nodeType = "step"
+        n.shape = "rect"
+        n.borderRadius = 3.0
+        n.width = w
+        n.height = barH
+        n.connectable = false
+        n.cssClass = ("mermaid gantt bar" + t.tags)
+        if t.milestone {
+            n.shape = "diamond"
+            n.label = ""
+            n.width = barH
+            n.height = barH
+            n.x = (x - (barH * 0.5))
+            n.cssClass = "mermaid gantt milestone"
+        }
+        n.syncFromModel()
+        g.addNode(n)
+        ; The name outside the bar, where the bar is too short to hold it. The
+        ; estimate is the one the other readers size boxes with; there is no
+        ; font measurer this side of the view.
+        def need:double (((to_double (strlen t.name)) * 6.6) + 16.0)
+        if (need > n.width) {
+            n.label = ""
+            n.syncFromModel()
+            MermaidGanttFlow.label(g (t.id + "-name") t.name ((n.x + n.width) + 8.0) cy (need + 8.0) barH "mermaid gantt barname axislabel")
+        }
+    }
+
+    sfn label:void (g:FlowGraph id:string text:string x:double y:double w:double h:double cls:string) {
+        if ((strlen text) == 0) {
             return
         }
-        def n:FlowNode (g.nodeById(id))
-        def right:double (n.x + n.width)
-        def bottom:double (n.y + n.height)
-        if (r.valid == false) {
-            r.x = n.x
-            r.y = n.y
-            r.w = n.width
-            r.h = n.height
-            r.valid = true
-            return
+        def n:FlowNode (FlowNode.create(id text x y))
+        n.nodeType = "axislabel"
+        n.shape = "rect"
+        n.width = w
+        n.height = h
+        n.connectable = false
+        n.draggable = false
+        n.cssClass = cls
+        n.syncFromModel()
+        g.addNode(n)
+    }
+
+    ; The fills. A bar drawn as an outline on a pale band is a bar you have to
+    ; look for; `done`, `active` and `crit` are the states Mermaid gives a
+    ; colour, and a stylesheet may say otherwise by matching them.
+    sfn repaint:void (g:FlowGraph d:MermaidGantt) {
+        def i:int 0
+        while (i < (array_length d.tasks)) {
+            def t:MermaidGanttTask (itemAt d.tasks i)
+            if (g.hasNode(t.id)) {
+                def n:FlowNode (g.nodeById(t.id))
+                if (MermaidGanttFlow.isDefaultFill(n.bgColor)) {
+                    n.bgColor = (MermaidGanttFlow.fillFor(t))
+                    n.borderColor = (MermaidGanttFlow.inkFor(t))
+                    n.syncFromModel()
+                }
+            }
+            i = (i + 1)
         }
-        if (n.x < r.x) {
-            def dw:double (r.x - n.x)
-            r.x = n.x
-            r.w = (r.w + dw)
+    }
+
+    ; True while nothing has painted it on purpose. A stylesheet that set a
+    ; colour has said what it wants and is not overruled here.
+    sfn isDefaultFill:boolean (fill:string) {
+        if ((strlen fill) == 0)  { return true }
+        if (fill == "#ffffff")   { return true }
+        return false
+    }
+
+    sfn fillFor:string (t:MermaidGanttTask) {
+        if t.milestone { return "#d8a13c" }
+        if ((MermaidGanttFlow.tagged(t "crit")))   { return "#e08585" }
+        if ((MermaidGanttFlow.tagged(t "active"))) { return "#7fb2e2" }
+        if ((MermaidGanttFlow.tagged(t "done")))   { return "#cbd0dc" }
+        return "#a3b1dd"
+    }
+
+    sfn inkFor:string (t:MermaidGanttTask) {
+        if t.milestone { return "#9a7020" }
+        if ((MermaidGanttFlow.tagged(t "crit")))   { return "#b45050" }
+        if ((MermaidGanttFlow.tagged(t "active"))) { return "#4a7fb0" }
+        if ((MermaidGanttFlow.tagged(t "done")))   { return "#9aa0af" }
+        return "#6d7cb5"
+    }
+
+    sfn tagged:boolean (t:MermaidGanttTask word:string) {
+        return ((MermaidGanttFlow.indexOfText(t.tags word)) >= 0)
+    }
+
+    sfn indexOfText:int (text:string needle:string) {
+        def n:int (strlen needle)
+        def m:int (strlen text)
+        if (n == 0) {
+            return -1
         }
-        if (n.y < r.y) {
-            def dh:double (r.y - n.y)
-            r.y = n.y
-            r.h = (r.h + dh)
+        def i:int 0
+        while ((i + n) <= m) {
+            def k:int 0
+            def hit:boolean true
+            while (k < n) {
+                if ((charAt text (i + k)) != (charAt needle k)) {
+                    hit = false
+                    k = n
+                }
+                k = (k + 1)
+            }
+            if hit {
+                return i
+            }
+            i = (i + 1)
         }
-        def rr:double (r.x + r.w)
-        if (right > rr) {
-            r.w = (right - r.x)
+        return -1
+    }
+
+    sfn bandClass:string (index:int) {
+        return ("band-" + (to_string (index % 2)))
+    }
+
+    sfn bandColor:string (index:int) {
+        if ((index % 2) == 0) {
+            return "#eef1f8"
         }
-        def rb:double (r.y + r.h)
-        if (bottom > rb) {
-            r.h = (bottom - r.y)
+        return "#e3e8f3"
+    }
+
+    ; The gutter is as wide as the widest section name, because a name cut in
+    ; half is a section nobody can tell from the one below it.
+    sfn gutterFor:double (d:MermaidGantt) {
+        def w:double 90.0
+        def i:int 0
+        while (i < (array_length d.tasks)) {
+            def t:MermaidGanttTask (itemAt d.tasks i)
+            def need:double (((to_double (strlen t.section)) * 7.0) + 30.0)
+            if (need > w) {
+                w = need
+            }
+            i = (i + 1)
         }
+        if (w > 220.0) {
+            w = 220.0
+        }
+        return w
+    }
+
+    sfn bodyHeight:double (d:MermaidGantt rowPitch:double pad:double) {
+        def rows:double (to_double (array_length d.tasks))
+        def bands:double (to_double (MermaidGanttFlow.bandCount(d)))
+        return ((rows * rowPitch) + (bands * (pad * 2.0)))
+    }
+
+    sfn bandCount:int (d:MermaidGantt) {
+        def n:int 0
+        def name:string ""
+        def i:int 0
+        while (i < (array_length d.tasks)) {
+            def t:MermaidGanttTask (itemAt d.tasks i)
+            if (i == 0) {
+                name = t.section
+                n = 1
+            } {
+                if (t.section != name) {
+                    n = (n + 1)
+                    name = t.section
+                }
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; How many days between ticks. Chosen so the labels stand about a hundred
+    ; pixels apart whatever the span: ticks closer than their own labels are a
+    ; grey smear, and ticks a page apart are not an axis.
+    sfn tickStep:int (perDay:double) {
+        def steps:[int]
+        push steps 1
+        push steps 2
+        push steps 5
+        push steps 7
+        push steps 14
+        push steps 30
+        push steps 60
+        push steps 90
+        push steps 180
+        push steps 365
+        def i:int 0
+        while (i < (array_length steps)) {
+            def s:int (itemAt steps i)
+            if (((to_double s) * perDay) >= 100.0) {
+                return s
+            }
+            i = (i + 1)
+        }
+        return 730
+    }
+
+    ; A day number back into the date it is. Howard Hinnant's civil_from_days,
+    ; which is the inverse of the `daysFromCivil` the reader turns dates with —
+    ; the same arithmetic in the other direction rather than a second calendar.
+    sfn dateText:string (day:int) {
+        def z:int (day + 719468)
+        def era:int (idiv z 146097)
+        if (z < 0) {
+            era = (idiv (z - 146096) 146097)
+        }
+        def doe:int (z - (era * 146097))
+        def yoe:int (idiv ((((doe - (idiv doe 1460)) + (idiv doe 36524)) - (idiv doe 146096))) 365)
+        def y:int (yoe + (era * 400))
+        def doy:int (doe - (((365 * yoe) + (idiv yoe 4)) - (idiv yoe 100)))
+        def mp:int (idiv (((5 * doy) + 2)) 153)
+        def d:int ((doy - (idiv (((153 * mp) + 2)) 5)) + 1)
+        def m:int (mp + 3)
+        if (mp >= 10) {
+            m = (mp - 9)
+        }
+        if (m <= 2) {
+            y = (y + 1)
+        }
+        return (((to_string y) + "-") + (MermaidGanttFlow.pad2(m)) + "-" + (MermaidGanttFlow.pad2(d)))
+    }
+
+    sfn pad2:string (v:int) {
+        if (v < 10) {
+            return ("0" + (to_string v))
+        }
+        return (to_string v)
     }
 }

@@ -43,6 +43,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   are one picture behind two detectors and a reader has to know both words.
   `harness/out/mermaid.json` carries the list, so the dump script and the
   parity tool stop guessing and the hand-written chunk→header map is gone.
+- **A Gantt chart had no date axis, unfilled bars, and one section band drawn
+  on top of another.** The axis is the diagram — a chart that spaced its bars
+  evenly instead of by date would be a list with rounded corners — and there
+  was none: no ticks, no dates, no rules. It has one now, labelled with real
+  dates turned back out of the day numbers by the inverse of the civil-calendar
+  formula that made them rather than by a second calendar, counted from the
+  first day so the left edge of the chart is never the one without a label.
+  The bands were framed around the bounding box of each section's bars, and two
+  sections whose dates overlap have overlapping boxes: one band was drawn over
+  another and the label underneath was lost. A band is a run of consecutive
+  rows now, which is what a section is. The bars are filled rather than
+  outlined, with a colour for `done`, `active` and `crit`, and are exactly as
+  long as the task is — the old 96-pixel minimum was a lie about a short task,
+  so a bar too narrow for its name gets the name beside it instead. The
+  dependency arrow between `after` tasks is gone: `after <id>` is arithmetic on
+  the start date, and an arrow between the bars claims something about the plan
+  that the plan does not say.
 - **`note` in a class diagram was read and thrown away.** Both spellings are
   drawn now: `note "text"` stands on its own, and `note for Duck "text"` is
   pinned to its class with the dashed leader UML has always drawn — no

@@ -3017,7 +3017,27 @@ class RangerFlowTest {
         c.ok("and their width is how long they take" (bar1.width > 0.0))
         def milestone:FlowNode (g.nodeById("m1"))
         c.eqStr("a milestone is drawn as the diamond it is" milestone.shape "diamond")
-        c.eqInt("what waits for what is the one relation a Gantt chart has" (g.edgeCount()) 1)
+        ; `after a1` is arithmetic on the start date and nothing else. Mermaid
+        ; draws no dependency arrow, and an arrow drawn here would be a claim
+        ; about the plan that the plan does not make.
+        c.eqInt("a Gantt chart has no edges at all" (g.edgeCount()) 0)
+        c.eqInt("and `after` shows as the date it produced" (test.startDay) 19733)
+        ; The axis is the diagram: a chart that spaced its bars evenly would be
+        ; a list with rounded corners, and one with no dates on it is a chart
+        ; you cannot read a date off.
+        def tick:FlowNode (g.nodeById("gtick-0"))
+        c.ok("the axis is labelled with dates" ((indexOf tick.label "-") > 0))
+        c.eqStr("read back out of the day numbers the reader made" (MermaidGanttFlow.dateText(19723)) "2024-01-01")
+        c.eqStr("and the last day of a leap February is not the first of March" (MermaidGanttFlow.dateText(19782)) "2024-02-29")
+        c.ok("with a rule down the chart at every one" (g.hasNode("gline-0")))
+        ; Two sections whose dates overlap have overlapping bounding boxes, so
+        ; a band per box draws one on top of the other and loses the label
+        ; underneath. A band is a run of consecutive rows instead.
+        def b0:FlowNode (g.nodeById("gband-0"))
+        def b1:FlowNode (g.nodeById("gband-1"))
+        c.ok("each section is a band of its own" ((b0.y + b0.height) <= (b1.y + 0.001)))
+        c.ok("and every band keeps its name" (g.hasNode("gband-1-name")))
+        c.ok("the bars are filled, not outlined" ((strlen bar1.bgColor) > 0))
         c.ok("a Gantt chart is one this library draws" (MermaidReader.draws("gantt")))
     }
 
