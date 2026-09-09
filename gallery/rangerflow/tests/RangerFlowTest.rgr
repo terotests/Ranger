@@ -142,6 +142,7 @@ class RangerFlowTest {
         RangerFlowTest.testMermaidVenn(c)
         RangerFlowTest.testMermaidWardley(c)
         RangerFlowTest.testMermaidRailroad(c)
+        RangerFlowTest.testMermaidClassNotes(c)
         RangerFlowTest.testMermaidPacket(c)
         RangerFlowTest.testBusinessCharts(c)
         RangerFlowTest.testAuthoring(c)
@@ -3894,6 +3895,67 @@ class RangerFlowTest {
         def notInfo:MermaidInfo (MermaidInfoReader.parse("flowchart TD\n  a --> b\n"))
         c.ok("a diagram that never asked gets no answer" (notInfo.asked == false))
         c.ok("`info` is one this library draws" (MermaidReader.draws("info")))
+    }
+
+    ; --------------------------------------------- Mermaid class notes ----
+    ; A note is prose ABOUT the program rather than part of it, which is what
+    ; decides both of the questions here: it is not given to the layout, and
+    ; the line breaks in it are the author's rather than the wrapper's.
+    sfn testMermaidClassNotes:void (c:Checker) {
+        c.section("Mermaid class diagram notes")
+        def src:string "classDiagram\n"
+        src = (src + "note \"From Duck till Zebra\"\n")
+        src = (src + "Animal <|-- Duck\n")
+        src = (src + "note for Duck \"can fly<br>can swim<br>can dive<br>can help in debugging\"\n")
+
+        def d:MermaidClassDiagram (MermaidClassReader.parse(src))
+        c.eqInt("both notes are read" (d.noteCount()) 2)
+        def loose:MermaidClassNote (itemAt d.notes 0)
+        c.eqStr("a bare note is the words in the quotes" loose.text "From Duck till Zebra")
+        c.ok("and belongs to no class" ((loose.pinned()) == false))
+        def pinned:MermaidClassNote (itemAt d.notes 1)
+        c.eqStr("`note for Duck` names the class" pinned.target "Duck")
+        c.ok("and is pinned to it" (pinned.pinned()))
+        c.eqInt("`<br>` is a line the author asked for" (FlowText.hardLines(pinned.text)) 4)
+        c.eqInt("a note is not a class" (d.classCount()) 2)
+
+        def bare (new FlowStyle)
+        def g:FlowGraph (MermaidClassFlow.build(d bare))
+        def n0:FlowNode (g.nodeById("note-0"))
+        def n1:FlowNode (g.nodeById("note-1"))
+        c.eqStr("a note is drawn with the folded corner" n1.shape "note")
+        c.eqStr("and carries its own words" n0.label "From Duck till Zebra")
+        def duck:FlowNode (g.nodeById("Duck"))
+        c.ok("a pinned note stands beside its class" (n1.x < duck.x))
+        c.ok("and level with it" ((fabs ((n1.centerY()) - (duck.centerY()))) < 1.0))
+        c.ok("and does not overlap it" (((n1.x + n1.width) < duck.x)))
+        c.ok("it is tall enough for every line the author wrote" (n1.height > 80.0))
+        def leader:FlowEdge (RangerFlowTest.edgeNamed(g "noteline-1"))
+        c.ok("the leader is dashed" (leader.dash > 0.0))
+        c.eqStr("with nothing on the end of it" leader.markerEnd "")
+        c.ok("and goes where it was put, not where a router would send it" leader.pinnedRoute)
+        c.eqInt("a note with no class gets no leader" (g.edgeCount()) 2)
+        ; Three lines is the cap for text that WRAPPED. Text broken by hand is
+        ; not wrapped text, and merging two of its lines rewrites the sentence.
+        def view:FlowView (FlowView.of(g))
+        def hard:int (view.linesForText(200.0 12.0 "a\nb\nc\nd\ne"))
+        c.eqInt("five hand-written lines are five lines" hard 5)
+        def soft:int (view.linesForText(200.0 12.0 "one long sentence with no breaks in it"))
+        c.eqInt("and text with none of them still caps at three" soft 3)
+    }
+
+    ; The edge with a given id. `FlowGraph` indexes nodes by name and edges by
+    ; nothing, because an edge is normally reached from the node it leaves.
+    sfn edgeNamed:FlowEdge (g:FlowGraph id:string) {
+        def i:int 0
+        while (i < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(i))
+            if (e.id == id) {
+                return e
+            }
+            i = (i + 1)
+        }
+        return (new FlowEdge)
     }
 
     ; --------------------------------------------- Mermaid packet ---------

@@ -223,6 +223,12 @@ an attribute and `name(params) returnType` for an operation, `$` for static and
 cardinalities and their label, and the ornament goes on the end the syntax
 names — the class written FIRST is the one being pointed at.
 
+`note "text"` stands on its own and `note for Duck "text"` is pinned to a class
+with the dashed leader UML has always drawn. Notes are placed *after* the
+layout rather than laid out with it: a note is prose about the program rather
+than part of it, and a layout that ranked one like a class would push the
+classes apart to make room for a sentence.
+
 Everything else Mermaid draws — git graphs, architecture diagrams, the `-beta`
 charts — has a reader of its own further down this page. **Thirty-four of
 Mermaid's thirty-eight header keywords are drawn**, and the other four —

@@ -43,6 +43,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   are one picture behind two detectors and a reader has to know both words.
   `harness/out/mermaid.json` carries the list, so the dump script and the
   parity tool stop guessing and the hand-written chunk→header map is gone.
+- **`note` in a class diagram was read and thrown away.** Both spellings are
+  drawn now: `note "text"` stands on its own, and `note for Duck "text"` is
+  pinned to its class with the dashed leader UML has always drawn — no
+  arrowhead, because a comment does not depend on what it comments on. They are
+  placed after the layout rather than laid out with it: a note is prose about
+  the program rather than part of it, and a note given a rank pushes the
+  classes apart to make room for a sentence and lands in the middle of the
+  inheritance it was describing.
+- **A hand-written line break could be silently merged with the next line.** A
+  node label was capped at three lines, which is right for text that WRAPPED —
+  a paragraph in a box is not a label — and wrong for text the author broke
+  themselves: `can fly<br>can swim<br>can dive<br>can help in debugging` came
+  out as three lines with the last two run together, which is a sentence nobody
+  wrote. Hard breaks now raise the cap, and the height still decides whether
+  they fit: the text shrinks first and is cut last, exactly as before.
 - **An arrow to a subgraph pointed at a box that was not there.** `C --> A`
   where `subgraph A` exists means the group, and Mermaid keeps `A` as a vertex
   all the same — the clustering is a drawing decision, not a parsing one. This

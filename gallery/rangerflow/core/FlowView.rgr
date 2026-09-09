@@ -1579,7 +1579,7 @@ class FlowView {
             tall = (size * 1.25)
         }
         def text:string (this.textFor(tag n.label))
-        def lay:FlowTextLayout (this.layoutText(text size room tall (this.linesFor(tall size))))
+        def lay:FlowTextLayout (this.layoutText(text size room tall (this.linesForText(tall size text))))
         def cx:double (FlowShapes.labelCX(n.shape x y w h))
         def cy:double (FlowShapes.labelCY(n.shape x y w h))
         this.paintEditField(sc tag cx cy lay room)
@@ -1608,6 +1608,25 @@ class FlowView {
         return n
     }
 
+    ; Three lines is the right cap for a label that WRAPPED: a paragraph in a
+    ; box is not a label, and a name broken over five lines is a name nobody
+    ; scans past. It is the wrong cap for one the author broke by hand — a
+    ; `<br>` is a line somebody typed, and merging two of them puts words on
+    ; the page in an order nobody wrote. So hard breaks raise the cap, and the
+    ; height still decides whether they fit: the text shrinks first and is cut
+    ; last, exactly as it would have been.
+    fn linesForText:int (room:double size:double text:string) {
+        def n:int (this.linesFor(room size))
+        def hard:int (FlowText.hardLines(text))
+        if (hard > n) {
+            n = hard
+        }
+        if (n > 12) {
+            n = 12
+        }
+        return n
+    }
+
     fn paintPlainLabel:void (sc:FlowScene n:FlowNode x:double y:double w:double h:double tag:string) {
         def size:double (this.sl(theme.headerFontSize))
         if (size < 5.0) {
@@ -1619,7 +1638,7 @@ class FlowView {
             tall = (size * 1.25)
         }
         def text:string (this.textFor(tag n.label))
-        def lay:FlowTextLayout (this.layoutText(text size room tall (this.linesFor(tall size))))
+        def lay:FlowTextLayout (this.layoutText(text size room tall (this.linesForText(tall size text))))
         def cx:double (x + (w * 0.5))
         def cy:double (y + (h * 0.5))
         this.paintEditField(sc tag cx cy lay room)
