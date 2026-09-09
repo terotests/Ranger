@@ -1456,13 +1456,23 @@ function buildFrame(gl, doc, opts = {}) {
   // else the id the list put on the clip that opened it.
   const layerStack = [];
   let layer = 0;
-  const pushRun = (start, count, tex) => {
-    if (count > 0) runs.push({ kind: "quads", start, count, tex, clip, layer });
+  const pushRun = (start, count, tex, ownLayer) => {
+    if (count > 0) runs.push({ kind: "quads", start, count, tex, clip, layer: ownLayer ?? layer });
   };
+  // A COMMAND THAT SAYS WHICH LAYER IT IS IN. Layers are otherwise read off
+  // the clip nesting, which is right for everything drawn inside a scroller —
+  // and the focus ring is drawn LAST and outside every clip, so that a button
+  // in a panel is not half-ringed by the panel's edge. Outside every clip is
+  // outside every layer, so a kept frame moved by `uShift` moved the whole
+  // page and left the ring where it was. The list now marks the ring with the
+  // layer its element scrolls in (`EVGDisplayList.ringAround`) and this is
+  // what reads it.
+  let ownLayer = null;
+  const flushOwn = () => { if (ownLayer !== null) { flush(); ownLayer = null; } };
   let runStart = 0;
   const flush = () => {
     const n = rects.length / 4;
-    pushRun(runStart, n - runStart, null);
+    pushRun(runStart, n - runStart, null, ownLayer);
     runStart = n;
   };
   // Path geometry is not instanced quads, so a path ends the run before it and
@@ -1470,6 +1480,13 @@ function buildFrame(gl, doc, opts = {}) {
   const pushPath = (op) => { flush(); runs.push(Object.assign(op, { clip, layer })); };
 
   for (const c of cmds) {
+    // A command of its own layer starts its own run and ends it after — see
+    // `ownLayer` above. Only the ring uses this; everything else takes the
+    // layer of the clip it is inside.
+    if (c.k !== KIND.PUSH_CLIP && c.k !== KIND.POP_CLIP) {
+      const mine = c.layer > 0 ? c.layer : null;
+      if (mine !== ownLayer) { flush(); ownLayer = mine; }
+    }
     // A backdrop blur reads the framebuffer as it stands, so it has to happen
     // between the runs before it and the runs after it — the same reason a
     // path breaks the batch. The command then goes on to emit its own fill

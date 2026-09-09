@@ -347,28 +347,129 @@ console.log("--- Escape is the way out of a field as well ---");
 }
 
 console.log("");
-console.log("--- the ring goes with the page ---");
+console.log("--- the ring is round its element, whatever the page is doing ---");
 {
-  // The ring is drawn LAST and outside every clip, so that a button in a
+  // THE RING IS DRAWN LAST AND OUTSIDE EVERY CLIP, so that a button in a
   // panel is not half-ringed by the panel's edge — which also puts it outside
   // every scrolled layer's range. A frame that only scrolls moves those
-  // ranges and nothing else, so the page used to slide out from under a ring
-  // that stayed where it was. `EVGDisplayList.refreshRing` puts it back
-  // against its own box, which is where the scroll has already moved it.
+  // ranges and nothing else, so the page slid out from under a ring that
+  // stayed where it was until `EVGDisplayList.refreshRing`.
+  //
+  // What is checked here is not that the ring MOVED BY the scroll — a ring
+  // that lags by a frame and a ring that leads by one both move by the right
+  // amount eventually. It is the invariant: the ring is exactly round its
+  // element's box, on every frame, whatever moved it. A drawn ring that is
+  // out of step with the page under it is the one thing a screenshot shows
+  // and a delta test does not.
+  const PAD = 2;
+  const boxOf = (app, id) =>
+    (JSON.parse(app.a11yJson(1, "")).nodes.find((n) => n.id === id) || {}).b;
+  const around = (app, why) => {
+    const id = app.focusRingId();
+    const r = rings(app)[0];
+    const b = boxOf(app, id);
+    if (!r || !b) {
+      ok(why, false, `ring=${!!r} box=${!!b} on ${id}`);
+      return;
+    }
+    const off = [r.x - (b[0] - PAD), r.y - (b[1] - PAD), r.w - (b[2] + PAD * 2), r.h - (b[3] + PAD * 2)];
+    ok(why, off.every((d) => Math.abs(d) < 1),
+       `${id}: ring ${r.x.toFixed(1)},${r.y.toFixed(1)} ${r.w.toFixed(1)}x${r.h.toFixed(1)} vs box ${b[0].toFixed(1)},${b[1].toFixed(1)} ${b[2].toFixed(1)}x${b[3].toFixed(1)}`);
+  };
+
   const app = open("rt-nav-home");
   let spun = 0;
   while (spun < 30 && !app.focusRingId().startsWith("rt-entry")) { key(app, "Tab"); spun += 1; }
   ok("the ring is on something in the feed", app.focusRingId().startsWith("rt-entry"),
      app.focusRingId());
   app.display();
-  const before = rings(app)[0];
-  ok("and drawn", !!before);
-  app.scrollDocument(160);
+  around(app, "at rest");
+
+  // AND IT SAYS WHICH LAYER IT IS IN, which is the half of this the list
+  // cannot show. A host does not re-read the list for a frame that only
+  // scrolled: it moves the kept frame by a per-layer offset — `uShift` in the
+  // WebGL painter, the same arithmetic in the worker page. The ring is drawn
+  // last and outside every clip, so it belonged to no layer and got no offset:
+  // the page moved under a ring that stayed. Everything above passes with that
+  // bug in place, because the LIST was right all along.
+  const ringCmd = (a) => JSON.parse(a.displayListJson()).cmds.find(
+    (c) => c.k === 1 && c.c && c.c[0] === 125 && c.c[1] === 211 && c.c[2] === 252);
+  const layers = (a) => JSON.parse(a.displayListJson()).cmds.filter((c) => c.k === 4 && c.layer > 0);
+  ok("the ring is in the feed's own scroll layer",
+     (ringCmd(app) || {}).layer > 0 &&
+     layers(app).some((c) => c.layer === ringCmd(app).layer),
+     `layer ${(ringCmd(app) || {}).layer} of ${layers(app).map((c) => c.layer).join(",")}`);
+  // …and a control that scrolls with nothing is in no layer, or it would be
+  // moved by a scroll it does not take part in.
+  app.focusOn("rt-credits");
   app.display();
-  const after = rings(app)[0];
-  ok("it is still drawn after a scroll", !!after);
-  ok("and it moved with the page", after && before && Math.abs((before.y - after.y) - 160) < 0.5,
-     before && after ? `${before.y} -> ${after.y}` : "no ring");
+  ok("and a header button's ring is in none",
+     ((ringCmd(app) || {}).layer || 0) === 0, `layer ${(ringCmd(app) || {}).layer}`);
+  app.focusOn("");
+  spun = 0;
+  while (spun < 30 && !app.focusRingId().startsWith("rt-entry")) { key(app, "Tab"); spun += 1; }
+  app.display();
+
+  // A wheel, down and up, including past what was built for.
+  for (const d of [40, 120, 300, 900, -260, -1100]) {
+    app.scrollDocument(d);
+    app.display();
+    around(app, `after a wheel of ${d}`);
+  }
+
+  // A THROW, moved by the clock and not by a call: the kept list is shifted
+  // frame by frame here and the ring has to be shifted with it every time.
+  app.scrollDocument(600);
+  for (let i = 0; i < 12; i += 1) {
+    app.tick(16.7);
+    app.display();
+    around(app, `frame ${i + 1} of a throw`);
+  }
+
+  // A REBUILD UNDER THE RING. The tree is built again and the boxes move;
+  // the ring is emitted afresh and must land on the new box, not the old one.
+  app.scrollDocument(-99999);
+  app.display();
+  app.setHover("rt-entry-notes-0");
+  app.display();
+  around(app, "after a hover restyled the page");
+  // Enter, not a click: a POINTER press puts the ring away on purpose — see
+  // `EVGFocus.pointAt` — and a key press does not, so this is the one that
+  // leaves a ring to check across a rebuild.
+  ok("Enter opens the card's menu", key(app, "Enter") && app.focusRingId() === "rt-entry-add-0",
+     app.focusRingId());
+  app.display();
+  around(app, "after a key press rebuilt the card under it");
+  ok("Escape closes it", key(app, "Escape"));
+  app.display();
+  around(app, "and after it closed again");
+
+  // …and the page turned, which lays everything out afresh at a new width.
+  app.setPageSize(844, 390);
+  app.display();
+  around(app, "at another page size");
+  app.scrollDocument(200);
+  app.display();
+  around(app, "and scrolled there");
+  app.setPageSize(390, 844);
+  app.display();
+  around(app, "and back");
+
+  // THE COMPOSER GROWS WHEN IT TAKES THE KEYBOARD, which moves everything
+  // under it — the ring included, since Tab onto a field is the field's now.
+  const c = open("rt-nav-home");
+  let m = 0;
+  while (m < 40 && c.focusRingId() !== "rt-home-field") { key(c, "Tab"); m += 1; }
+  c.display();
+  around(c, "on the composer's field");
+  c.typeChar("t");
+  c.display();
+  around(c, "with a letter in it");
+  for (let i = 0; i < 20; i += 1) { c.tick(16.7); c.display(); }
+  around(c, "and after the frames that opened it");
+  c.scrollDocument(80);
+  c.display();
+  around(c, "then a wheel under it");
 }
 
 console.log("");
@@ -392,6 +493,18 @@ console.log("--- the pointer and the keyboard share one focus ---");
   // An id nothing focusable carries leaves the ring where it was: a ring
   // round nothing is worse than a ring that did not move.
   const here = app.focusRingId();
+  // …and a press with a KEY keeps it, which is the other half of the rule.
+  // …on a control that is still there afterwards: Enter on the credit gauge
+  // opens a page and takes the ring's element with it, which is the settle
+  // rule and not this one.
+  const k = open("rt-nav-home");
+  let t = 0;
+  while (t < 30 && k.focusRingId() !== "rt-home-tab-drills") { key(k, "Tab"); t += 1; }
+  const on = k.focusRingId();
+  k.display();
+  ok("a key press leaves the ring where it was", key(k, "Enter") &&
+     k.focusRingId() === on && rings(k).length === 1,
+     `${on} -> ${k.focusRingId()}, ${rings(k).length} rings`);
   ok("a press on nothing is refused", app.focusOn("rt-not-a-thing") === false);
   ok("and the ring stays", app.focusRingId() === here, app.focusRingId());
 }

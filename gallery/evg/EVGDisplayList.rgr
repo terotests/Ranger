@@ -410,9 +410,49 @@ class EVGDisplayList {
         c.g = (col.green())
         c.b = (col.blue())
         c.a = (col.alpha())
+        ; WHICH LAYER IT SCROLLS IN. The ring is emitted last and outside
+        ; every clip — so a button inside a panel is not half-ringed by the
+        ; panel's edge — and outside every clip is outside every LAYER too.
+        ; A host that moves a kept frame by a per-layer offset rather than by
+        ; rebuilding it then moved the whole page and left the ring behind:
+        ; `refreshRing` keeps the LIST right and this keeps the FRAME right.
+        ; The painter reads `layer` off a command that carries one.
+        c.layer = (this.layerAround(el))
         this.addCmd(c)
         ringCmd = ((array_length cmds) - 1)
         ringEl = el
+    }
+
+    ; The scroll layer an element is inside, as the painter numbers them
+    ; (1-based, 0 for none) — the innermost, which is the last one whose
+    ; container holds it.
+    fn layerAround:int (el:EVGElement) {
+        def found@(mutable):int 0
+        def i:int 0
+        while (i < (array_length layerEls)) {
+            if ((itemAt layerKind i) == 0) {
+                if (EVGDisplayList.holds((itemAt layerEls i) el)) {
+                    found = (i + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        return found
+    }
+
+    sfn holds:boolean (parent:EVGElement el:EVGElement) {
+        if (parent == el) {
+            return true
+        }
+        def i:int 0
+        def n:int (parent.getChildCount())
+        while (i < n) {
+            if (EVGDisplayList.holds((parent.getChild(i)) el)) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
     }
 
     ; The ring against the box it is round, as that box stands now. A scroll

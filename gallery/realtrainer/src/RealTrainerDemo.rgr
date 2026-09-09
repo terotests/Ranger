@@ -7259,6 +7259,13 @@ class RealTrainerDemo {
             def lay2:EVGLayout (this.laidOut())
             def r2:EVGElement (unwrap root)
             keys.settle(r2)
+            ; THE RING STAYS. `press` moves the focus the way a pointer does —
+            ; there, and not drawn — and this press was a key: Enter on a
+            ; focused button activates it and leaves the ring round it, which
+            ; is what every browser does and what a person navigating by
+            ; keyboard needs in order not to lose their place.
+            keys.show()
+            listDirty = true
             ; TAKEN EITHER WAY. The key was aimed at the ring, and a Space
             ; that reaches the page scrolls it — which is worse than a press
             ; that turned out to change nothing.
@@ -7370,6 +7377,16 @@ class RealTrainerDemo {
             this.closeCalMenu()
             this.rebuild()
             return true
+        }
+        ; A CARD'S OWN PANELS ARE THINGS TO CLOSE TOO. They are drawn in the
+        ; page rather than over it — the reference puts them there — but to
+        ; the person in front of them they are open, and Escape is how an
+        ; open thing shuts.
+        if (menuCard >= 0) {
+            return (this.press("rt-entry-menu-close"))
+        }
+        if ((strlen statsRow) > 0) {
+            return (this.press("rt-entry-stats-close"))
         }
         if review.open {
             return (this.press("rt-review-close"))

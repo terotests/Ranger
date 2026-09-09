@@ -532,9 +532,19 @@ Object.defineProperty(window, "__lastList", {
           cur = [now[0] - was[0], now[1] - was[1]];
         }
       }
-      if (cur[0] !== 0 || cur[1] !== 0) {
-        o = { ...c, x: c.x + cur[0], y: c.y + cur[1] };
-        if (c.pts) o.pts = c.pts.map((v, i) => v + (i % 2 === 0 ? cur[0] : cur[1]));
+      // A COMMAND OF ITS OWN LAYER moves with THAT layer, not with the clip it
+      // happens to be between — the focus ring is drawn last and outside every
+      // clip and still scrolls with the feed it is round. Same rule the
+      // painter follows; see `EVGDisplayList.ringAround`.
+      let mine = cur;
+      if (c.k !== 4 && c.k !== 5 && c.layer > 0) {
+        const now = lastShifts[c.layer - 1] || base[c.layer - 1] || [0, 0];
+        const was = base[c.layer - 1] || [0, 0];
+        mine = [now[0] - was[0], now[1] - was[1]];
+      }
+      if (mine[0] !== 0 || mine[1] !== 0) {
+        o = { ...c, x: c.x + mine[0], y: c.y + mine[1] };
+        if (c.pts) o.pts = c.pts.map((v, i) => v + (i % 2 === 0 ? mine[0] : mine[1]));
       }
       if (c.k === 5) cur = stack.pop() || [0, 0];
       return o;
