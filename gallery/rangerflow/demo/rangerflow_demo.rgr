@@ -47,6 +47,7 @@ Import "../domains/mermaid/MermaidQuadrantReader.rgr"
 Import "../domains/mermaid/MermaidPieReader.rgr"
 Import "../domains/mermaid/MermaidXyReader.rgr"
 Import "../domains/mermaid/MermaidSankeyReader.rgr"
+Import "../domains/mermaid/MermaidBlockReader.rgr"
 Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 Import "../layout/LayeredLayout.rgr"
@@ -522,6 +523,10 @@ class RangerFlowDemo {
             this.runMermaidSankey(srcOpt styleName)
             return
         }
+        if (d.diagramKind == "block") {
+            this.runMermaidBlock(srcOpt styleName)
+            return
+        }
         if ((strlen d.diagramKind) > 0) {
             if (d.diagramKind != "flowchart") {
                 print ("  this is a " + d.diagramKind + " diagram — this reads flowcharts and class diagrams")
@@ -920,6 +925,27 @@ class RangerFlowDemo {
             title = "RangerFlow — Mermaid Sankey diagram"
         }
         this.writeAll(v g "rangerflow-mermaid-sankey" title)
+    }
+
+    ; A block diagram: a grid, and the one diagram that admits it.
+    fn runMermaidBlock:void (src:string styleName:string) {
+        def bd:MermaidBlockDiagram (MermaidBlockReader.parse(src))
+        if ((bd.blockCount()) == 0) {
+            print "  no blocks in that diagram"
+            return
+        }
+        def style:FlowStyle (this.styleByName(styleName))
+        def g:FlowGraph (MermaidBlockFlow.build(bd style))
+        print ("  model  " + (to_string (bd.blockCount())) + " blocks, " + (to_string (bd.linkCount())) + " arrows")
+        print ("  graph  " + (to_string (g.nodeCount())) + " nodes, " + (to_string (g.edgeCount())) + " edges")
+        def v:FlowView (FlowView.of(g))
+        v.notation = "plain"
+        style.applyToTheme(v.theme)
+        def title:string bd.title
+        if ((strlen title) == 0) {
+            title = "RangerFlow — Mermaid block diagram"
+        }
+        this.writeAll(v g "rangerflow-mermaid-block" title)
     }
 
     ; ------------------------------------------------------------- org -----

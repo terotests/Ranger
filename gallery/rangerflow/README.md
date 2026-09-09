@@ -548,6 +548,32 @@ along a smooth curve — so a Sankey is drawn by the same renderer as everything
 else. A quote at the start of a field quotes it, comma and all; one in the
 middle is an apostrophe.
 
+### …and block diagrams
+
+Every other box-and-line diagram asks a layout engine where the boxes go.
+`block-beta` does not: it says `columns 3` and then lists the boxes, and where
+they end up is arithmetic. That is the whole reason the type exists — somebody
+wanted a picture that would come out the same every time — so the one thing
+this reader must not do is improve on it.
+
+```mermaid
+block-beta
+  columns 3
+  a["A label"] b:2
+  block:group1
+    columns 2
+    c d
+  end
+  e(("circle")) space f{"decision"}
+  a --> e
+```
+
+`id:n` spans columns, `space` and `space:n` leave holes, `block:id … end` nests
+with columns of its own, and the shapes are the flowchart's, because
+`block-beta` borrowed the vocabulary wholesale. Sizing is two passes: a nested
+block is as wide as what is inside it and a row is as tall as the tallest thing
+in it, so everything is measured and then placed.
+
 ### …measured against Mermaid itself
 
 A claim of parity with a format is worth what the person making it wanted it to

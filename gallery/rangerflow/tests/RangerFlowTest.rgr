@@ -40,6 +40,7 @@ Import "../domains/mermaid/MermaidQuadrantReader.rgr"
 Import "../domains/mermaid/MermaidPieReader.rgr"
 Import "../domains/mermaid/MermaidXyReader.rgr"
 Import "../domains/mermaid/MermaidSankeyReader.rgr"
+Import "../domains/mermaid/MermaidBlockReader.rgr"
 Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 
@@ -123,6 +124,7 @@ class RangerFlowTest {
         RangerFlowTest.testMermaidPie(c)
         RangerFlowTest.testMermaidXyChart(c)
         RangerFlowTest.testMermaidSankey(c)
+        RangerFlowTest.testMermaidBlock(c)
         RangerFlowTest.testBusinessCharts(c)
         RangerFlowTest.testAuthoring(c)
         RangerFlowTest.testTreeLayouts(c)
@@ -3360,6 +3362,69 @@ class RangerFlowTest {
         c.ok("and as thick as the number on its own row" ((fabs ((l0.thickness / l1.thickness) - 4.0)) < 0.02))
         c.eqInt("nothing is an edge: a Sankey's lines are its shapes" (g.edgeCount()) 0)
         c.ok("a Sankey diagram is one this library draws" (MermaidReader.draws("sankey")))
+    }
+
+    ; --------------------------------------------- Mermaid block ----------
+    ; The one diagram that says where its boxes go. `columns 3` and a list is
+    ; arithmetic, so the one thing this reader must not do is improve on it —
+    ; and that is what these assertions are: the grid came out as written.
+    sfn testMermaidBlock:void (c:Checker) {
+        c.section("Mermaid block diagrams")
+        def src:string "block-beta\n"
+        src = (src + "  columns 3\n")
+        src = (src + "  a[\"A label\"] b:2\n")
+        src = (src + "  block:inner\n")
+        src = (src + "    columns 2\n")
+        src = (src + "    d e\n")
+        src = (src + "  end\n")
+        src = (src + "  f((\"round\")) space g{\"choice\"}\n")
+        src = (src + "  a --> f\n")
+        src = (src + "  b -- \"why\" --> g\n")
+        src = (src + "  style a fill:#f9f\n")
+        src = (src + "  classDef hot fill:#f00\n")
+        src = (src + "  class g hot\n")
+
+        def d:MermaidBlockDiagram (MermaidBlockReader.parse(src))
+        c.eqInt("a block per token, the container included and a space not" (d.blockCount()) 7)
+        c.eqInt("an arrow per arrow line" (d.linkCount()) 2)
+        def a:MermaidBlockItem (itemAt d.root.children 0)
+        c.eqStr("the bracket holds the label" a.label "A label")
+        c.eqStr("and the name is what stands before it" a.id "a")
+        def b:MermaidBlockItem (itemAt d.root.children 1)
+        c.eqInt("`:2` is how many columns it takes" b.span 2)
+        def inner:MermaidBlockItem (itemAt d.root.children 2)
+        c.ok("`block:` opens a container" inner.isGroup)
+        c.eqInt("with children of its own" (inner.childCount()) 2)
+        c.eqInt("and columns of its own" inner.columns 2)
+        def f:MermaidBlockItem (itemAt d.root.children 3)
+        c.eqStr("`((…))` is a circle, as in a flowchart" f.shape "circle")
+        def space:MermaidBlockItem (itemAt d.root.children 4)
+        c.ok("`space` is a hole in the grid" space.isSpace)
+        def g2:MermaidBlockItem (itemAt d.root.children 5)
+        c.eqStr("`{…}` is the decision diamond" g2.shape "rhombus")
+        c.eqStr("`style` names a colour for one block" a.fill "#f9f")
+        c.eqStr("and `class` hands one out by name" g2.cssClass "hot")
+        def link:MermaidBlockLink (itemAt d.links 1)
+        c.eqStr("an arrow reads from its ends" link.source "b")
+        c.eqStr("both of them" link.target "g")
+        c.eqStr("and carries whatever was written between the dashes" link.label "why")
+
+        def bare (new FlowStyle)
+        def graph:FlowGraph (MermaidBlockFlow.build(d bare))
+        def na:FlowNode (graph.nodeById("a"))
+        def nb:FlowNode (graph.nodeById("b"))
+        c.ok("blocks fill a row left to right" (na.x < nb.x))
+        c.ok("and a span of two is twice as wide, plus the gap between them" ((nb.width - (na.width * 2.0)) > 10.0))
+        def frame:FlowNode (graph.nodeById("sg-inner"))
+        c.ok("a container starts on the row after the one it follows" (frame.y > na.y))
+        def nd:FlowNode (graph.nodeById("d"))
+        c.ok("and holds its children inside itself" (nd.x >= frame.x))
+        c.ok("below its title band" (nd.y > frame.y))
+        def ng:FlowNode (graph.nodeById("g"))
+        c.eqStr("a class written in the diagram beats the stylesheet" ng.bgColor "#f00")
+        c.eqStr("as does a style written on the block" (na.bgColor) "#f9f")
+        c.eqInt("arrows are edges like anywhere else" (graph.edgeCount()) 2)
+        c.ok("a block diagram is one this library draws" (MermaidReader.draws("block")))
     }
 
     ; --------------------------------------------- a click is not an edit --

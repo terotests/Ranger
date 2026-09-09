@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Mermaid block diagrams.** The nineteenth type, and the only one that says
+  where its own boxes go: `columns 3` and a list is arithmetic, so nothing here
+  asks the layout engine anything. `id:n` spans columns, `space` leaves holes,
+  `block:id … end` nests with columns of its own, and the shapes are the
+  flowchart's because `block-beta` borrowed the vocabulary wholesale. Sizing is
+  two passes — a nested block is as wide as what is inside it and a row as tall
+  as the tallest thing in it.
 - **Mermaid Sankey diagrams.** The eighteenth type: a graph whose edges have a
   width, and the width is the whole point. A node is as tall as the quantity
   through it, a column as tall as the quantities in it, and the ribbons are

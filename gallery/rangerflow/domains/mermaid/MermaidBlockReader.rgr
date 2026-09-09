@@ -1,0 +1,905 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MermaidBlockReader.rgr — a grid, and the diagram that admits it.
+; ============================================================================
+;
+; Every other box-and-line diagram asks a layout engine where the boxes go.
+; `block-beta` does not: it says `columns 3` and then lists the boxes, and
+; where they end up is arithmetic. That is the whole reason the type exists —
+; somebody wanted a picture that would come out the same every time — so the
+; one thing this reader must not do is improve on it.
+;
+;   columns 3
+;   a b c            ┌───┐ ┌───┐ ┌───┐
+;   block:group      │ a │ │ b │ │ c │
+;     d e            └───┘ └───┘ └───┘
+;   end              ┌─ group ────────┐
+;   f:2 g            │ ┌───┐ ┌───┐    │
+;                    │ │ d │ │ e │    │
+;                    └────────────────┘
+;                    ┌───────────┐ ┌───┐
+;                    │     f     │ │ g │
+;                    └───────────┘ └───┘
+;
+; **What it reads.** `columns n`, blocks with the bracket shapes the flowchart
+; has, `id:n` to span columns, `space` and `space:n`, nested `block:id … end`
+; with columns of their own, arrows between blocks with or without a label,
+; and `style` / `classDef` / `class`.
+;
+; Sizing is two passes, because a nested block is as wide as what is inside it
+; and the row it sits in is as tall as the tallest thing in the row. Measure
+; everything, then place it: there is no way to do it in one.
+; ============================================================================
+
+Import "MermaidReader.rgr"
+Import "../flowchart/Flowchart.rgr"
+Import "../../core/FlowStyleSheet.rgr"
+
+class MermaidBlockItem {
+    def id:string ""
+    def label:string ""
+    ; A flowchart shape name: "square", "round", "circle", "rhombus", …
+    def shape:string "square"
+    ; How many columns of its container it takes.
+    def span:int 1
+    ; `space` and `space:2`: a hole in the grid, drawn as nothing.
+    def isSpace:boolean false
+    def isGroup:boolean false
+    ; For a group: what is inside it, and how many columns it lays them in.
+    def children:[MermaidBlockItem]
+    def columns:int 0
+    def cssClass:string ""
+    def fill:string ""
+    def stroke:string ""
+
+    ; Filled in by the builder.
+    def x:double 0.0
+    def y:double 0.0
+    def width:double 0.0
+    def height:double 0.0
+
+    Constructor () {
+    }
+
+    fn childCount:int () {
+        return (array_length children)
+    }
+}
+
+class MermaidBlockLink {
+    def source:string ""
+    def target:string ""
+    def label:string ""
+    ; "arrow" | "line"
+    def head:string "arrow"
+    def dashed:boolean false
+
+    Constructor () {
+    }
+}
+
+class MermaidBlockClass {
+    def name:string ""
+    def fill:string ""
+    def stroke:string ""
+
+    Constructor () {
+    }
+}
+
+class MermaidBlockDiagram {
+    def title:string ""
+    def root:MermaidBlockItem (new MermaidBlockItem)
+    def links:[MermaidBlockLink]
+    def classes:[MermaidBlockClass]
+
+    Constructor () {
+    }
+
+    fn linkCount:int () {
+        return (array_length links)
+    }
+
+    fn blockCount:int () {
+        return (MermaidBlockDiagram.countIn(root))
+    }
+
+    sfn countIn:int (item:MermaidBlockItem) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length item.children)) {
+            def c:MermaidBlockItem (itemAt item.children i)
+            if (c.isSpace == false) {
+                n = (n + 1)
+            }
+            n = (n + (MermaidBlockDiagram.countIn(c)))
+            i = (i + 1)
+        }
+        return n
+    }
+
+    fn find:MermaidBlockItem (id:string) {
+        return (MermaidBlockDiagram.findIn(root id))
+    }
+
+    sfn findIn:MermaidBlockItem (item:MermaidBlockItem id:string) {
+        def i:int 0
+        while (i < (array_length item.children)) {
+            def c:MermaidBlockItem (itemAt item.children i)
+            if (c.id == id) {
+                return c
+            }
+            def deeper:MermaidBlockItem (MermaidBlockDiagram.findIn(c id))
+            if ((strlen deeper.id) > 0) {
+                return deeper
+            }
+            i = (i + 1)
+        }
+        return (new MermaidBlockItem)
+    }
+
+    fn classNamed:MermaidBlockClass (name:string) {
+        def i:int 0
+        while (i < (array_length classes)) {
+            def c:MermaidBlockClass (itemAt classes i)
+            if (c.name == name) {
+                return c
+            }
+            i = (i + 1)
+        }
+        return (new MermaidBlockClass)
+    }
+}
+
+class MermaidBlockReader {
+    def doc:MermaidBlockDiagram (new MermaidBlockDiagram)
+    ; The containers currently open, outermost first. `block:x` pushes and
+    ; `end` pops, and everything is added to the last one.
+    def stack:[MermaidBlockItem]
+    def seq:int 0
+
+    Constructor () {
+    }
+
+    sfn parse:MermaidBlockDiagram (src:string) {
+        def r (new MermaidBlockReader)
+        return (r.read(src))
+    }
+
+    fn read:MermaidBlockDiagram (src:string) {
+        doc.root.id = "root"
+        doc.root.isGroup = true
+        push stack doc.root
+        def lines:[string] (strsplit src "\n")
+        def i:int 0
+        while (i < (array_length lines)) {
+            def raw:string (trim (itemAt lines i))
+            i = (i + 1)
+            def line:string (trim (MermaidBlockReader.stripComment(raw)))
+            if ((strlen line) == 0) {
+                continue
+            }
+            this.statement(line)
+        }
+        return doc
+    }
+
+    sfn stripComment:string (line:string) {
+        def len:int (strlen line)
+        def i:int 0
+        while (i < len) {
+            def c:int (charAt line i)
+            if (c == 37) {
+                if ((i + 1) < len) {
+                    if ((charAt line (i + 1)) == 37) {
+                        return (substring line 0 i)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return line
+    }
+
+    fn top:MermaidBlockItem () {
+        def n:int (array_length stack)
+        if (n == 0) {
+            return doc.root
+        }
+        return (itemAt stack (n - 1))
+    }
+
+    fn statement:void (st:string) {
+        def word:string (MermaidReader.firstWord(st))
+        def kw:string (MermaidReader.lower(word))
+        def rest:string (trim (substring st (strlen word) (strlen st)))
+        if (MermaidReader.beginsWith(kw "block-beta")) { return }
+        if (kw == "block-beta") { return }
+        if (MermaidReader.beginsWith(kw "acctitle")) { return }
+        if (MermaidReader.beginsWith(kw "accdescr")) { return }
+        if (kw == "title") {
+            doc.title = (MermaidReader.cleanLabel(rest))
+            return
+        }
+        if (kw == "columns") {
+            def n:MermaidBlockItem (this.top())
+            def v@(optional):int (str2int (trim rest))
+            if (!null? v) {
+                n.columns = (unwrap v)
+            }
+            return
+        }
+        if (kw == "end") {
+            def depth:int (array_length stack)
+            if (depth > 1) {
+                def kept:[MermaidBlockItem]
+                def i:int 0
+                while (i < (depth - 1)) {
+                    push kept (itemAt stack i)
+                    i = (i + 1)
+                }
+                stack = kept
+            }
+            return
+        }
+        if (MermaidReader.beginsWith(kw "block:")) {
+            def name:string (substring word 6 (strlen word))
+            def group (new MermaidBlockItem)
+            group.id = (MermaidReader.unquote((trim name)))
+            if ((strlen group.id) == 0) {
+                group.id = ("group" + (to_string seq))
+                seq = (seq + 1)
+            }
+            group.isGroup = true
+            def colon:int (MermaidBlockReader.charIndex(group.id 58))
+            if (colon > 0) {
+                def spanText:string (substring group.id (colon + 1) (strlen group.id))
+                def sv@(optional):int (str2int spanText)
+                if (!null? sv) {
+                    group.span = (unwrap sv)
+                }
+                group.id = (substring group.id 0 colon)
+            }
+            def parent:MermaidBlockItem (this.top())
+            push parent.children group
+            push stack group
+            if ((strlen rest) > 0) {
+                this.statement(rest)
+            }
+            return
+        }
+        if (kw == "style") {
+            this.style(rest)
+            return
+        }
+        if (kw == "classdef") {
+            this.classDef(rest)
+            return
+        }
+        if (kw == "class") {
+            this.classOf(rest)
+            return
+        }
+        ; An arrow line is a relation between blocks; anything else on a line
+        ; is a row of them.
+        if ((MermaidBlockReader.arrowAt(st)) >= 0) {
+            this.link(st)
+            return
+        }
+        this.row(st)
+    }
+
+    ; `a b c` — a row of blocks, each one possibly with a shape and a span.
+    fn row:void (st:string) {
+        def parent:MermaidBlockItem (this.top())
+        def tokens:[string] (MermaidBlockReader.tokens(st))
+        def i:int 0
+        while (i < (array_length tokens)) {
+            def t:string (itemAt tokens i)
+            i = (i + 1)
+            if ((strlen t) == 0) {
+                continue
+            }
+            def item:MermaidBlockItem (MermaidBlockReader.itemOf(t))
+            if ((strlen item.id) == 0) {
+                if (item.isSpace == false) {
+                    continue
+                }
+            }
+            push parent.children item
+        }
+    }
+
+    ; Splitting a row into blocks is not a split on spaces: `a["two words"]`
+    ; is one block, and so is `b("a label")`. So the scan tracks brackets and
+    ; quotes and only breaks where neither is open.
+    sfn tokens:[string] (st:string) {
+        def out:[string]
+        def cur:string ""
+        def depth:int 0
+        def quote:int 0
+        def n:int (strlen st)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt st i)
+            i = (i + 1)
+            if (quote != 0) {
+                cur = (cur + (strfromcode c))
+                if (c == quote) {
+                    quote = 0
+                }
+                continue
+            }
+            if (c == 34) {
+                quote = 34
+                cur = (cur + (strfromcode c))
+                continue
+            }
+            if (c == 91) { depth = (depth + 1) }
+            if (c == 40) { depth = (depth + 1) }
+            if (c == 123) { depth = (depth + 1) }
+            if (c == 93) { depth = (depth - 1) }
+            if (c == 41) { depth = (depth - 1) }
+            if (c == 125) { depth = (depth - 1) }
+            if (c == 32) {
+                if (depth <= 0) {
+                    push out cur
+                    cur = ""
+                    continue
+                }
+            }
+            cur = (cur + (strfromcode c))
+        }
+        push out cur
+        return out
+    }
+
+    ; One token: `a`, `a:2`, `a["label"]`, `space`, `space:3`.
+    sfn itemOf:MermaidBlockItem (token:string) {
+        def item (new MermaidBlockItem)
+        def t:string (trim token)
+        def lower:string (MermaidReader.lower(t))
+        if (MermaidReader.beginsWith(lower "space")) {
+            item.isSpace = true
+            item.id = ""
+            def colon:int (MermaidBlockReader.charIndex(t 58))
+            if (colon > 0) {
+                def sv@(optional):int (str2int (trim (substring t (colon + 1) (strlen t))))
+                if (!null? sv) {
+                    item.span = (unwrap sv)
+                }
+            }
+            return item
+        }
+        def open:int (MermaidBlockReader.openAt(t))
+        if (open < 0) {
+            def colon2:int (MermaidBlockReader.charIndex(t 58))
+            if (colon2 > 0) {
+                item.id = (substring t 0 colon2)
+                def sv2@(optional):int (str2int (trim (substring t (colon2 + 1) (strlen t))))
+                if (!null? sv2) {
+                    item.span = (unwrap sv2)
+                }
+            } {
+                item.id = t
+            }
+            item.label = item.id
+            return item
+        }
+        item.id = (trim (substring t 0 open))
+        def colon3:int (MermaidBlockReader.charIndex(item.id 58))
+        if (colon3 > 0) {
+            def sv3@(optional):int (str2int (trim (substring item.id (colon3 + 1) (strlen item.id))))
+            if (!null? sv3) {
+                item.span = (unwrap sv3)
+            }
+            item.id = (substring item.id 0 colon3)
+        }
+        item.shape = (MermaidBlockReader.shapeAt(t open))
+        def inner:string (MermaidBlockReader.inside(t open))
+        item.label = (MermaidReader.cleanLabel(inner))
+        if ((strlen item.label) == 0) {
+            item.label = item.id
+        }
+        return item
+    }
+
+    ; Where the shape's brackets start.
+    sfn openAt:int (t:string) {
+        def i:int 0
+        while (i < (strlen t)) {
+            def c:int (charAt t i)
+            if (c == 91) { return i }
+            if (c == 40) { return i }
+            if (c == 123) { return i }
+            if (c == 62) { return i }
+            if (c == 60) { return i }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; Which shape a bracket run means. The same vocabulary the flowchart has,
+    ; because `block-beta` borrowed it wholesale.
+    sfn shapeAt:string (t:string open:int) {
+        def n:int (strlen t)
+        def a:int (charAt t open)
+        def b:int 0
+        if ((open + 1) < n) {
+            b = (charAt t (open + 1))
+        }
+        def c:int 0
+        if ((open + 2) < n) {
+            c = (charAt t (open + 2))
+        }
+        if (a == 62) { return "odd" }
+        if (a == 60) { return "square" }
+        if (a == 91) {
+            if (b == 91) { return "subroutine" }
+            if (b == 40) { return "cylinder" }
+            if (b == 47) { return "leanr" }
+            if (b == 92) { return "leanl" }
+            return "square"
+        }
+        if (a == 40) {
+            if (b == 40) {
+                if (c == 40) { return "doublecircle" }
+                return "circle"
+            }
+            if (b == 91) { return "stadium" }
+            return "round"
+        }
+        if (a == 123) {
+            if (b == 123) { return "hexagon" }
+            return "rhombus"
+        }
+        return "square"
+    }
+
+    ; What is written inside the brackets, whichever ones they were.
+    sfn inside:string (t:string open:int) {
+        def n:int (strlen t)
+        def from:int open
+        while (from < n) {
+            def c:int (charAt t from)
+            if (c == 91) { from = (from + 1) } {
+                if (c == 40) { from = (from + 1) } {
+                    if (c == 123) { from = (from + 1) } {
+                        if (c == 62) { from = (from + 1) } {
+                            if (c == 60) { from = (from + 1) } {
+                                break
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        def to:int (n - 1)
+        while (to > from) {
+            def c2:int (charAt t to)
+            if (c2 == 93) { to = (to - 1) } {
+                if (c2 == 41) { to = (to - 1) } {
+                    if (c2 == 125) { to = (to - 1) } {
+                        if (c2 == 62) { to = (to - 1) } {
+                            break
+                        }
+                    }
+                }
+            }
+        }
+        if (to < from) {
+            return ""
+        }
+        return (substring t from (to + 1))
+    }
+
+    sfn charIndex:int (t:string c:int) {
+        def i:int 0
+        while (i < (strlen t)) {
+            if ((charAt t i) == c) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    sfn arrowAt:int (st:string) {
+        def n:int (strlen st)
+        def i:int 0
+        while (i < n) {
+            if ((charAt st i) == 45) {
+                if ((i + 1) < n) {
+                    def b:int (charAt st (i + 1))
+                    if (b == 62) { return i }
+                    if (b == 45) { return i }
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn link:void (st:string) {
+        def at:int (MermaidBlockReader.arrowAt(st))
+        if (at < 0) {
+            return
+        }
+        def left:string (trim (substring st 0 at))
+        def rest:string (substring st at (strlen st))
+        ; `-- "text" -->` or `-->`. Everything between the dashes is the label.
+        def head:int 0
+        def n:int (strlen rest)
+        while (head < n) {
+            def c:int (charAt rest head)
+            if (c == 45) { head = (head + 1) } {
+                break
+            }
+        }
+        def label:string ""
+        def tailAt:int head
+        if (head < n) {
+            if ((charAt rest head) != 62) {
+                def close:int head
+                while (close < n) {
+                    if ((charAt rest close) == 45) {
+                        break
+                    }
+                    close = (close + 1)
+                }
+                label = (MermaidReader.cleanLabel((trim (substring rest head close))))
+                tailAt = close
+            }
+        }
+        def after:string (substring rest tailAt (strlen rest))
+        def target:string ""
+        def k:int 0
+        while (k < (strlen after)) {
+            def c2:int (charAt after k)
+            if (c2 == 45) { k = (k + 1) } {
+                if (c2 == 62) { k = (k + 1) } {
+                    if (c2 == 32) { k = (k + 1) } {
+                        break
+                    }
+                }
+            }
+        }
+        target = (trim (substring after k (strlen after)))
+        def l (new MermaidBlockLink)
+        l.source = (MermaidReader.firstWord(left))
+        l.target = (MermaidReader.firstWord(target))
+        l.label = label
+        if ((strlen l.source) == 0) { return }
+        if ((strlen l.target) == 0) { return }
+        push doc.links l
+    }
+
+    fn style:void (rest:string) {
+        def t:string (trim rest)
+        def id:string (MermaidReader.firstWord(t))
+        if ((strlen id) == 0) {
+            return
+        }
+        def props:string (trim (substring t (strlen id) (strlen t)))
+        def item:MermaidBlockItem (doc.find(id))
+        if ((strlen item.id) == 0) {
+            return
+        }
+        item.fill = (MermaidBlockReader.prop(props "fill"))
+        item.stroke = (MermaidBlockReader.prop(props "stroke"))
+    }
+
+    fn classDef:void (rest:string) {
+        def t:string (trim rest)
+        def name:string (MermaidReader.firstWord(t))
+        if ((strlen name) == 0) {
+            return
+        }
+        def props:string (trim (substring t (strlen name) (strlen t)))
+        def c (new MermaidBlockClass)
+        c.name = name
+        c.fill = (MermaidBlockReader.prop(props "fill"))
+        c.stroke = (MermaidBlockReader.prop(props "stroke"))
+        push doc.classes c
+    }
+
+    fn classOf:void (rest:string) {
+        def t:string (trim rest)
+        def ids:string (MermaidReader.firstWord(t))
+        def name:string (trim (substring t (strlen ids) (strlen t)))
+        def parts:[string] (strsplit ids ",")
+        def i:int 0
+        while (i < (array_length parts)) {
+            def id:string (trim (itemAt parts i))
+            i = (i + 1)
+            def item:MermaidBlockItem (doc.find(id))
+            if ((strlen item.id) > 0) {
+                item.cssClass = name
+            }
+        }
+    }
+
+    sfn prop:string (props:string name:string) {
+        def parts:[string] (strsplit props ",")
+        def i:int 0
+        while (i < (array_length parts)) {
+            def p:string (trim (itemAt parts i))
+            i = (i + 1)
+            def colon:int (MermaidBlockReader.charIndex(p 58))
+            if (colon < 0) {
+                continue
+            }
+            def key:string (MermaidReader.lower((trim (substring p 0 colon))))
+            if (key == name) {
+                return (trim (substring p (colon + 1) (strlen p)))
+            }
+        }
+        return ""
+    }
+}
+
+; ---------------------------------------------------------------------------
+; The pipeline
+; ---------------------------------------------------------------------------
+;
+; Two passes, because there is no way to do it in one: a nested block is as
+; wide as what is inside it, and the row it sits in is as tall as the tallest
+; thing in the row. So everything is measured first and placed second.
+; ---------------------------------------------------------------------------
+class MermaidBlockFlow {
+    sfn parse:MermaidBlockDiagram (src:string) {
+        return (MermaidBlockReader.parse(src))
+    }
+
+    sfn render:FlowGraph (src:string) {
+        def d:MermaidBlockDiagram (MermaidBlockReader.parse(src))
+        def bare (new FlowStyle)
+        return (MermaidBlockFlow.build(d bare))
+    }
+
+    sfn cellW:double () { return 168.0 }
+    sfn cellH:double () { return 62.0 }
+    sfn gap:double ()   { return 16.0 }
+    sfn head:double ()  { return 30.0 }
+
+    sfn build:FlowGraph (d:MermaidBlockDiagram style:FlowStyle) {
+        def g (new FlowGraph)
+        if ((d.blockCount()) == 0) {
+            return g
+        }
+        MermaidBlockFlow.measure(d.root)
+        MermaidBlockFlow.place(d.root 0.0 0.0)
+        def backs:[string]
+        MermaidBlockFlow.emit(g d d.root backs true)
+        g.reindex()
+        def k:int 0
+        while (k < (array_length d.links)) {
+            def l:MermaidBlockLink (itemAt d.links k)
+            if (g.hasNode(l.source)) {
+                if (g.hasNode(l.target)) {
+                    def e:FlowEdge (FlowEdge.create("" l.source l.target))
+                    e.edgeType = "smoothstep"
+                    e.markerEnd = "arrowclosed"
+                    e.label = l.label
+                    e.cssClass = "link block"
+                    g.addEdge(e)
+                }
+            }
+            k = (k + 1)
+        }
+        g.reindex()
+        def wrote:int (style.applyTo(g))
+        MermaidBlockFlow.repaint(g d d.root)
+        def b:int 0
+        while (b < (array_length backs)) {
+            def moved:boolean (g.sendToBack((itemAt backs b)))
+            b = (b + 1)
+        }
+        return g
+    }
+
+    ; How many columns a container lays its children out in. Where it was not
+    ; said, everything goes in one row — which is what Mermaid does, and what
+    ; `block-beta\n a b c` obviously means.
+    sfn columnsOf:int (item:MermaidBlockItem) {
+        if (item.columns > 0) {
+            return item.columns
+        }
+        def n:int 0
+        def i:int 0
+        while (i < (array_length item.children)) {
+            def c:MermaidBlockItem (itemAt item.children i)
+            n = (n + c.span)
+            i = (i + 1)
+        }
+        if (n < 1) {
+            return 1
+        }
+        return n
+    }
+
+    ; Pass one: how big is everything. A leaf is one cell per column it spans;
+    ; a group is whatever its own grid comes to, plus its title band.
+    sfn measure:void (item:MermaidBlockItem) {
+        def cols:int (MermaidBlockFlow.columnsOf(item))
+        def col:int 0
+        def rowH:double 0.0
+        def totalH:double 0.0
+        def rows:int 0
+        def i:int 0
+        while (i < (array_length item.children)) {
+            def c:MermaidBlockItem (itemAt item.children i)
+            if c.isGroup {
+                MermaidBlockFlow.measure(c)
+            } {
+                c.width = (((to_double c.span) * (MermaidBlockFlow.cellW())) + ((to_double (c.span - 1)) * (MermaidBlockFlow.gap())))
+                c.height = (MermaidBlockFlow.cellH())
+            }
+            def take:int c.span
+            if c.isGroup {
+                take = (MermaidBlockFlow.spanOf(c))
+                c.span = take
+                c.width = (((to_double take) * (MermaidBlockFlow.cellW())) + ((to_double (take - 1)) * (MermaidBlockFlow.gap())))
+            }
+            if ((col + take) > cols) {
+                totalH = ((totalH + rowH) + (MermaidBlockFlow.gap()))
+                rowH = 0.0
+                rows = (rows + 1)
+                col = 0
+            }
+            if (c.height > rowH) {
+                rowH = c.height
+            }
+            col = (col + take)
+            i = (i + 1)
+        }
+        if (col > 0) {
+            totalH = (totalH + rowH)
+            rows = (rows + 1)
+        }
+        def w:double (((to_double cols) * (MermaidBlockFlow.cellW())) + ((to_double (cols - 1)) * (MermaidBlockFlow.gap())))
+        item.width = w
+        item.height = totalH
+        if item.isGroup {
+            if ((strlen item.id) > 0) {
+                if (item.id != "root") {
+                    item.width = (w + ((MermaidBlockFlow.gap()) * 2.0))
+                    item.height = ((totalH + ((MermaidBlockFlow.gap()) * 2.0)) + (MermaidBlockFlow.head()))
+                }
+            }
+        }
+    }
+
+    ; How many columns of its PARENT a measured group needs. A group wider
+    ; than the cells it lands on would push the row out of alignment, so it
+    ; takes whole columns and is widened to fill them.
+    sfn spanOf:int (item:MermaidBlockItem) {
+        def unit:double ((MermaidBlockFlow.cellW()) + (MermaidBlockFlow.gap()))
+        def n:int 1
+        def acc:double (MermaidBlockFlow.cellW())
+        while (acc < (item.width - 0.5)) {
+            n = (n + 1)
+            acc = (acc + unit)
+        }
+        return n
+    }
+
+    ; Pass two: where everything goes, now that everything has a size.
+    sfn place:void (item:MermaidBlockItem x:double y:double) {
+        item.x = x
+        item.y = y
+        def inset:double 0.0
+        def down:double 0.0
+        if item.isGroup {
+            if (item.id != "root") {
+                inset = (MermaidBlockFlow.gap())
+                down = ((MermaidBlockFlow.head()) + (MermaidBlockFlow.gap()))
+            }
+        }
+        def cols:int (MermaidBlockFlow.columnsOf(item))
+        def col:int 0
+        def rowTop:double (y + down)
+        def rowH:double 0.0
+        def i:int 0
+        while (i < (array_length item.children)) {
+            def c:MermaidBlockItem (itemAt item.children i)
+            def take:int c.span
+            if ((col + take) > cols) {
+                rowTop = ((rowTop + rowH) + (MermaidBlockFlow.gap()))
+                rowH = 0.0
+                col = 0
+            }
+            def cx:double (((x + inset) + ((to_double col) * ((MermaidBlockFlow.cellW()) + (MermaidBlockFlow.gap())))))
+            MermaidBlockFlow.place(c cx rowTop)
+            if (c.height > rowH) {
+                rowH = c.height
+            }
+            col = (col + take)
+            i = (i + 1)
+        }
+    }
+
+    sfn emit:void (g:FlowGraph d:MermaidBlockDiagram item:MermaidBlockItem backs:[string] isRoot:boolean) {
+        if (isRoot == false) {
+            if item.isSpace {
+                return
+            }
+            if item.isGroup {
+                def frame:FlowNode (FlowNode.create(("sg-" + item.id) item.label item.x item.y))
+                frame.nodeType = "group"
+                frame.width = item.width
+                frame.height = item.height
+                frame.connectable = false
+                frame.draggable = false
+                frame.cssClass = ("mermaid blockgroup " + item.cssClass)
+                frame.bgColor = "#f6f7fb"
+                frame.borderColor = "#c9cede"
+                frame.syncFromModel()
+                g.addNode(frame)
+                push backs ("sg-" + item.id)
+            } {
+                def n:FlowNode (FlowNode.create(item.id item.label item.x item.y))
+                ; The kind is the flowchart vocabulary word; the shape is the
+                ; outline that word is drawn with; `applyShape` is the handful
+                ; Mermaid has that the vocabulary does not.
+                def kind:string (MermaidShape.kindOf(item.shape))
+                n.nodeType = kind
+                n.shape = (FlowKind.shapeFor(kind))
+                n.cssClass = ("mermaid block " + item.cssClass)
+                ; The shape first and the size second: `applyShape` squares a
+                ; circle off, and a circle sized to the widest of a cell is a
+                ; circle that has left the grid.
+                MermaidDiagram.applyShape(n item.shape)
+                n.width = item.width
+                n.height = item.height
+                n.x = item.x
+                n.y = item.y
+                if (MermaidBlockFlow.isRound(item.shape)) {
+                    n.width = item.height
+                    n.x = (item.x + ((item.width - item.height) * 0.5))
+                }
+                n.addSideHandles()
+                n.syncFromModel()
+                g.addNode(n)
+            }
+        }
+        def i:int 0
+        while (i < (array_length item.children)) {
+            def c:MermaidBlockItem (itemAt item.children i)
+            MermaidBlockFlow.emit(g d c backs false)
+            i = (i + 1)
+        }
+    }
+
+    sfn isRound:boolean (shape:string) {
+        if (shape == "circle")       { return true }
+        if (shape == "doublecircle") { return true }
+        return false
+    }
+
+    ; `style` on a block and `classDef` behind a `class` both name a colour,
+    ; and both were written after the diagram rather than in the sheet — so
+    ; they win over it.
+    sfn repaint:void (g:FlowGraph d:MermaidBlockDiagram item:MermaidBlockItem) {
+        def i:int 0
+        while (i < (array_length item.children)) {
+            def c:MermaidBlockItem (itemAt item.children i)
+            def id:string c.id
+            if c.isGroup {
+                id = ("sg-" + c.id)
+            }
+            if (g.hasNode(id)) {
+                def n:FlowNode (g.nodeById(id))
+                def cls:MermaidBlockClass (d.classNamed(c.cssClass))
+                if ((strlen cls.fill) > 0)   { n.bgColor = cls.fill }
+                if ((strlen cls.stroke) > 0) { n.borderColor = cls.stroke }
+                if ((strlen c.fill) > 0)     { n.bgColor = c.fill }
+                if ((strlen c.stroke) > 0)   { n.borderColor = c.stroke }
+                n.syncFromModel()
+            }
+            MermaidBlockFlow.repaint(g d c)
+            i = (i + 1)
+        }
+    }
+}

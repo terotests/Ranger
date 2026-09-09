@@ -40,6 +40,7 @@ Import "../domains/mermaid/MermaidQuadrantReader.rgr"
 Import "../domains/mermaid/MermaidPieReader.rgr"
 Import "../domains/mermaid/MermaidXyReader.rgr"
 Import "../domains/mermaid/MermaidSankeyReader.rgr"
+Import "../domains/mermaid/MermaidBlockReader.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 Import "../layout/TreeLayouts.rgr"
 Import "../export/FlowExport.rgr"
@@ -690,6 +691,9 @@ class RangerFlowWeb {
         if (d.diagramKind == "sankey") {
             return (this.loadMermaidSankey(text styleName want))
         }
+        if (d.diagramKind == "block") {
+            return (this.loadMermaidBlock(text styleName want))
+        }
         if ((d.nodeCount()) == 0) {
             status = "no nodes in that Mermaid source"
             if ((strlen d.diagramKind) > 0) {
@@ -1115,6 +1119,26 @@ class RangerFlowWeb {
             what = "Mermaid Sankey diagram"
         }
         status = ((to_string (sd.nodeCount())) + " nodes, " + (to_string (sd.linkCount())) + " flows — " + what + ", " + want)
+        return true
+    }
+
+    ; A block diagram places itself: `columns 3` and a list is arithmetic.
+    fn loadMermaidBlock:boolean (text:string styleName:string want:string) {
+        def bd:MermaidBlockDiagram (MermaidBlockReader.parse(text))
+        if ((bd.blockCount()) == 0) {
+            status = "no blocks in that diagram"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidBlockFlow.build(bd style))
+        this.adoptPlaced(g style want)
+        def what:string bd.title
+        if ((strlen what) == 0) {
+            what = "Mermaid block diagram"
+        }
+        status = ((to_string (bd.blockCount())) + " blocks, " + (to_string (bd.linkCount())) + " arrows — " + what + ", " + want)
         return true
     }
 
