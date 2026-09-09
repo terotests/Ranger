@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Mermaid sequence diagrams.** The eleventh type, and the one where both axes
+  are content: who across the page, when down it. Nothing asks the layout
+  engine anything — the columns are the participants in declaration order, the
+  rows are the statements in the order they were written, and every arrow is
+  pinned to its own row. All ten arrow tokens are drawn as what they say
+  (`->>` a filled head, `-)` an open one, `-x` a cross, `<<->>` both ends);
+  activation is a bar on the lifeline, from `activate` / `deactivate` or the
+  `+` / `-` shorthand, nested where a participant calls itself; `loop`, `alt` /
+  `else`, `opt`, `par` / `and`, `critical` / `option`, `break` and `rect` box
+  exactly the participants they touch; `box` groups the participants declared
+  inside it, and `create` / `destroy` place a participant late and end its
+  lifeline with the cross.
 - **Mermaid Gantt charts.** The tenth type. The axis is the diagram, so the
   reader does arithmetic: every date becomes a day number by the civil-calendar
   formula (the only way to know that the 1st of March follows the 28th of

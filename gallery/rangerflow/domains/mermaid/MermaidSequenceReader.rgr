@@ -1,0 +1,1478 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MermaidSequenceReader.rgr — a sequence diagram, drawn on a clock.
+; ============================================================================
+;
+; Every other diagram in this directory is a graph: boxes, and lines between
+; the boxes, and a layout that decides where the boxes go. A sequence diagram
+; is not one. It has two axes and both of them mean something — WHO across the
+; page and WHEN down it — and a layout that moved a message up to shorten a
+; line would be rewriting the story.
+;
+;      ┌───────┐        ┌───────┐        ┌────────┐
+;      │ Alice │        │  Bob  │        │ Carol  │     ← the participants
+;      └───┬───┘        └───┬───┘        └────┬───┘
+;          │  hello         │                 │
+;          │───────────────>│                 │        ← a message, and the
+;          │                ▓ ask             │          shaded bar is Bob
+;          │                ▓────────────────>│          doing something
+;          │                ▓<- - - - - - - - │        ← dotted: a reply
+;          │<- - - - - - - -▓                 │
+;          │                │                 │
+;
+; So this one is PLACED, like the journey and the Gantt chart next door: the
+; participants get columns in the order they were declared, and the statements
+; get rows in the order they were written. Nothing here asks the layout engine
+; anything, because there is nothing left for it to decide.
+;
+; **What it reads.** Participants (`participant`/`actor`, `as` aliases, `box`
+; groups, `create`/`destroy`), every arrow Mermaid has (`->` `-->` `->>`
+; `-->>` `<<->>` `<<-->>` `-x` `--x` `-)` `--)`), activation — both the
+; explicit `activate`/`deactivate` and the `+`/`-` shorthand on an arrow —
+; notes (`left of`, `right of`, `over A,B`), `autonumber`, and the block
+; statements: `loop`, `alt`/`else`, `opt`, `par`/`and`, `critical`/`option`,
+; `break` and `rect`.
+;
+; The one thing it does not do is guess. `links`, `properties` and the styling
+; directives are read and dropped rather than half-drawn, because a box with
+; an invented picture in it is worse than a box without one.
+; ============================================================================
+
+Import "MermaidReader.rgr"
+Import "../../core/FlowStyleSheet.rgr"
+
+class MermaidSeqActor {
+    def id:string ""
+    def name:string ""
+    ; `actor Alice` rather than `participant Alice`: Mermaid draws a stick
+    ; figure for it. We draw a rounded box, and remember which it was.
+    def isActor:boolean false
+    ; The `box` this participant was declared inside, "" for none.
+    def box:string ""
+    ; The step index this participant is created at, -1 when it has been
+    ; there from the beginning. A `create participant` appears part-way down.
+    def createdAt:int -1
+    def destroyed:boolean false
+
+    ; Filled in by the builder: the column this participant owns.
+    def x:double 0.0
+    def width:double 130.0
+    def top:double 0.0
+    def bottom:double 0.0
+
+    Constructor () {
+    }
+
+    fn centerX:double () {
+        return (x + (width * 0.5))
+    }
+}
+
+; One line of the script, in the order it was written. A sequence diagram is a
+; sequence, so a single ordered list is the honest model: splitting messages
+; from notes from blocks would lose the only thing they all agree on, which is
+; what came before what.
+;
+; kind: "message" | "note" | "blockstart" | "divider" | "blockend"
+;     | "activate" | "deactivate" | "destroy"
+class MermaidSeqStep {
+    def kind:string "message"
+    def source:string ""
+    def target:string ""
+    def text:string ""
+    ; "solid" | "dotted"
+    def stroke:string "solid"
+    ; "" | "arrowclosed" | "arrow" | "cross"
+    def head:string "arrowclosed"
+    def bidirectional:boolean false
+    def activates:boolean false
+    def deactivates:boolean false
+    ; note placement: "left" | "right" | "over"
+    def placement:string "over"
+    ; block: "loop" | "alt" | "opt" | "par" | "critical" | "break" | "rect"
+    ; divider: "else" | "and" | "option"
+    def blockKind:string ""
+    ; The autonumber, 0 when the diagram is not numbered.
+    def number:int 0
+
+    Constructor () {
+    }
+}
+
+class MermaidSequence {
+    def title:string ""
+    def themeName:string ""
+    def actors:[MermaidSeqActor]
+    def steps:[MermaidSeqStep]
+    def boxes:[string]
+    def autonumber:boolean false
+
+    Constructor () {
+    }
+
+    fn actorCount:int () {
+        return (array_length actors)
+    }
+
+    fn stepCount:int () {
+        return (array_length steps)
+    }
+
+    fn boxCount:int () {
+        return (array_length boxes)
+    }
+
+    fn messageCount:int () {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length steps)) {
+            def s:MermaidSeqStep (itemAt steps i)
+            if (s.kind == "message") {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    fn noteCount:int () {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length steps)) {
+            def s:MermaidSeqStep (itemAt steps i)
+            if (s.kind == "note") {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    fn blockCount:int () {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length steps)) {
+            def s:MermaidSeqStep (itemAt steps i)
+            if (s.kind == "blockstart") {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    fn indexOfActor:int (id:string) {
+        def i:int 0
+        while (i < (array_length actors)) {
+            def a:MermaidSeqActor (itemAt actors i)
+            if (a.id == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+}
+
+class MermaidSequenceReader {
+    def doc:MermaidSequence (new MermaidSequence)
+    ; The `box` currently open, and the nesting of everything that ends with
+    ; `end` — a `box` and a `loop` both close with the same word, so the only
+    ; way to know which one an `end` belongs to is to have kept count.
+    def openBox:string ""
+    def openKinds:[string]
+    def autoNext:int 1
+    def autoStep:int 1
+
+    Constructor () {
+    }
+
+    sfn parse:MermaidSequence (src:string) {
+        def r (new MermaidSequenceReader)
+        return (r.read(src))
+    }
+
+    fn read:MermaidSequence (src:string) {
+        def lines:[string] (strsplit src "\n")
+        def i:int 0
+        while (i < (array_length lines)) {
+            def raw:string (trim (itemAt lines i))
+            i = (i + 1)
+            def line:string (trim (MermaidSequenceReader.stripComment(raw)))
+            if ((strlen line) == 0) {
+                continue
+            }
+            this.statement(line)
+        }
+        return doc
+    }
+
+    sfn stripComment:string (line:string) {
+        def len:int (strlen line)
+        def i:int 0
+        while (i < len) {
+            def c:int (charAt line i)
+            if (c == 37) {
+                if ((i + 1) < len) {
+                    if ((charAt line (i + 1)) == 37) {
+                        return (substring line 0 i)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return line
+    }
+
+    fn statement:void (st:string) {
+        def word:string (MermaidReader.firstWord(st))
+        def kw:string (MermaidReader.lower(word))
+        def rest:string (trim (substring st (strlen word) (strlen st)))
+        if (kw == "sequencediagram") { return }
+        if (MermaidReader.beginsWith(kw "acctitle")) { return }
+        if (MermaidReader.beginsWith(kw "accdescr")) { return }
+        if (kw == "links")      { return }
+        if (kw == "link")       { return }
+        if (kw == "properties") { return }
+        if (kw == "title") {
+            doc.title = (MermaidReader.cleanLabel(rest))
+            return
+        }
+        if (kw == "autonumber") {
+            this.autonumber(rest)
+            return
+        }
+        if (kw == "participant") {
+            def pi:int (this.declare(rest false -1))
+            return
+        }
+        if (kw == "actor") {
+            def ai:int (this.declare(rest true -1))
+            return
+        }
+        if (kw == "create") {
+            this.createStatement(rest)
+            return
+        }
+        if (kw == "destroy") {
+            def who:string (this.actorId(rest))
+            def d (new MermaidSeqStep)
+            d.kind = "destroy"
+            d.target = who
+            push doc.steps d
+            def di:int (doc.indexOfActor(who))
+            if (di >= 0) {
+                def a:MermaidSeqActor (itemAt doc.actors di)
+                a.destroyed = true
+            }
+            return
+        }
+        if (kw == "activate") {
+            this.activation("activate" rest)
+            return
+        }
+        if (kw == "deactivate") {
+            this.activation("deactivate" rest)
+            return
+        }
+        if (kw == "note") {
+            this.note(rest)
+            return
+        }
+        if (kw == "box") {
+            openBox = (MermaidSequenceReader.boxLabel(rest))
+            push doc.boxes openBox
+            push openKinds "box"
+            return
+        }
+        if (kw == "end") {
+            this.closeBlock()
+            return
+        }
+        if (MermaidSequenceReader.isBlockWord(kw)) {
+            def b (new MermaidSeqStep)
+            b.kind = "blockstart"
+            b.blockKind = kw
+            b.text = (MermaidReader.cleanLabel(rest))
+            if (kw == "rect") {
+                ; `rect rgb(0,255,0)` — the argument is a colour, not a name,
+                ; and a box labelled "rgb(0,255,0)" says nothing to a reader.
+                b.text = ""
+            }
+            push doc.steps b
+            push openKinds "block"
+            return
+        }
+        if (MermaidSequenceReader.isDividerWord(kw)) {
+            def v (new MermaidSeqStep)
+            v.kind = "divider"
+            v.blockKind = kw
+            v.text = (MermaidReader.cleanLabel(rest))
+            push doc.steps v
+            return
+        }
+        this.message(st)
+    }
+
+    fn closeBlock:void () {
+        def n:int (array_length openKinds)
+        if (n == 0) {
+            return
+        }
+        def what:string (itemAt openKinds (n - 1))
+        def kept:[string]
+        def i:int 0
+        while (i < (n - 1)) {
+            push kept (itemAt openKinds i)
+            i = (i + 1)
+        }
+        openKinds = kept
+        if (what == "box") {
+            openBox = ""
+            return
+        }
+        def e (new MermaidSeqStep)
+        e.kind = "blockend"
+        push doc.steps e
+    }
+
+    sfn isBlockWord:boolean (kw:string) {
+        if (kw == "loop")     { return true }
+        if (kw == "alt")      { return true }
+        if (kw == "opt")      { return true }
+        if (kw == "par")      { return true }
+        if (kw == "critical") { return true }
+        if (kw == "break")    { return true }
+        if (kw == "rect")     { return true }
+        return false
+    }
+
+    sfn isDividerWord:boolean (kw:string) {
+        if (kw == "else")   { return true }
+        if (kw == "and")    { return true }
+        if (kw == "option") { return true }
+        return false
+    }
+
+    ; `box Aqua Buyers` — the colour is optional and comes first, so a leading
+    ; colour word is dropped and what is left is the name.
+    sfn boxLabel:string (rest:string) {
+        def t:string (trim rest)
+        def w:string (MermaidReader.firstWord(t))
+        def lw:string (MermaidReader.lower(w))
+        def drop:boolean false
+        if (lw == "transparent") { drop = true }
+        if (MermaidReader.beginsWith(lw "rgb(")) { drop = true }
+        if (MermaidReader.beginsWith(lw "rgba(")) { drop = true }
+        if (MermaidReader.beginsWith(lw "#")) { drop = true }
+        if drop {
+            return (MermaidReader.cleanLabel((trim (substring t (strlen w) (strlen t)))))
+        }
+        return (MermaidReader.cleanLabel(t))
+    }
+
+    fn autonumber:void (rest:string) {
+        def t:string (trim rest)
+        if ((MermaidReader.lower(t)) == "off") {
+            doc.autonumber = false
+            return
+        }
+        doc.autonumber = true
+        if ((strlen t) == 0) {
+            return
+        }
+        def parts:[string] (strsplit t " ")
+        def got:int 0
+        def i:int 0
+        while (i < (array_length parts)) {
+            def p:string (trim (itemAt parts i))
+            i = (i + 1)
+            if ((strlen p) == 0) {
+                continue
+            }
+            def v@(optional):int (str2int p)
+            if (null? v) {
+                continue
+            }
+            if (got == 0) {
+                autoNext = (unwrap v)
+            }
+            if (got == 1) {
+                autoStep = (unwrap v)
+            }
+            got = (got + 1)
+        }
+    }
+
+    fn createStatement:void (rest:string) {
+        def w:string (MermaidReader.firstWord(rest))
+        def lw:string (MermaidReader.lower(w))
+        def tail:string (trim (substring rest (strlen w) (strlen rest)))
+        if (lw == "participant") {
+            def pi:int (this.declare(tail false (array_length doc.steps)))
+            return
+        }
+        if (lw == "actor") {
+            def ai:int (this.declare(tail true (array_length doc.steps)))
+            return
+        }
+        def oi:int (this.declare(rest false (array_length doc.steps)))
+    }
+
+    fn activation:void (kind:string rest:string) {
+        def who:string (this.actorId(rest))
+        if ((strlen who) == 0) {
+            return
+        }
+        def s (new MermaidSeqStep)
+        s.kind = kind
+        s.target = who
+        push doc.steps s
+    }
+
+    ; `participant A as Alice`, `actor Bob`, `participant "Bob the Builder"`.
+    fn declare:int (rest:string isActor:boolean createdAt:int) {
+        def t:string (trim rest)
+        if ((strlen t) == 0) {
+            return -1
+        }
+        def id:string t
+        def name:string ""
+        def at:int (MermaidSequenceReader.asWordAt(t))
+        if (at >= 0) {
+            id = (trim (substring t 0 at))
+            name = (MermaidReader.cleanLabel((trim (substring t (at + 4) (strlen t)))))
+        }
+        id = (MermaidReader.unquote((trim id)))
+        if ((strlen name) == 0) {
+            name = id
+        }
+        def idx:int (this.ensure(id))
+        def a:MermaidSeqActor (itemAt doc.actors idx)
+        a.name = name
+        a.isActor = isActor
+        a.box = openBox
+        if (createdAt >= 0) {
+            a.createdAt = createdAt
+        }
+        return idx
+    }
+
+    ; Where the word `as` stands on its own in `A as Alice`. A participant
+    ; called `Gas` is not an alias, so the word has to be bounded by spaces on
+    ; both sides rather than merely present.
+    sfn asWordAt:int (t:string) {
+        def n:int (strlen t)
+        def i:int 1
+        while ((i + 3) <= n) {
+            if ((charAt t i) == 32) {
+                def a:int (charAt t (i + 1))
+                def b:int (charAt t (i + 2))
+                def isAs:boolean false
+                if (a == 97) {
+                    if (b == 115) { isAs = true }
+                }
+                if (a == 65) {
+                    if (b == 83) { isAs = true }
+                }
+                if isAs {
+                    if ((i + 3) < n) {
+                        if ((charAt t (i + 3)) == 32) {
+                            return i
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn ensure:int (id:string) {
+        def clean:string (MermaidReader.unquote((trim id)))
+        if ((strlen clean) == 0) {
+            return -1
+        }
+        def at:int (doc.indexOfActor(clean))
+        if (at >= 0) {
+            return at
+        }
+        def a (new MermaidSeqActor)
+        a.id = clean
+        a.name = clean
+        a.box = openBox
+        push doc.actors a
+        return (doc.indexOfActor(clean))
+    }
+
+    ; The first word of a statement that names one participant, with any
+    ; trailing punctuation off it: `activate Bob`, `destroy Carol:`.
+    fn actorId:string (rest:string) {
+        def t:string (trim rest)
+        def w:string (MermaidReader.firstWord(t))
+        def clean:string (MermaidReader.unquote((trim w)))
+        def n:int (strlen clean)
+        if (n > 0) {
+            if ((charAt clean (n - 1)) == 58) {
+                clean = (substring clean 0 (n - 1))
+            }
+        }
+        return clean
+    }
+
+    ; `Note right of Alice: text`, `Note over Alice,Bob: text`.
+    fn note:void (rest:string) {
+        def t:string (trim rest)
+        def w:string (MermaidReader.firstWord(t))
+        def place:string (MermaidReader.lower(w))
+        def after:string (trim (substring t (strlen w) (strlen t)))
+        if (place == "right") {
+            def w2:string (MermaidReader.firstWord(after))
+            after = (trim (substring after (strlen w2) (strlen after)))
+        }
+        if (place == "left") {
+            def w3:string (MermaidReader.firstWord(after))
+            after = (trim (substring after (strlen w3) (strlen after)))
+        }
+        if (place == "over") {
+            place = "over"
+        } {
+            if (place == "right") {
+                place = "right"
+            } {
+                if (place == "left") {
+                    place = "left"
+                } {
+                    ; Not a placement at all — `Note: something`. Mermaid does
+                    ; not accept it, and neither does this.
+                    return
+                }
+            }
+        }
+        def colon:int (MermaidSequenceReader.charIndex(after 58))
+        if (colon < 0) {
+            return
+        }
+        def who:string (trim (substring after 0 colon))
+        def text:string (MermaidReader.cleanLabel((substring after (colon + 1) (strlen after))))
+        def names:[string] (strsplit who ",")
+        if ((array_length names) == 0) {
+            return
+        }
+        def s (new MermaidSeqStep)
+        s.kind = "note"
+        s.placement = place
+        s.text = text
+        def firstIdx:int (this.ensure((itemAt names 0)))
+        if (firstIdx < 0) {
+            return
+        }
+        def fa:MermaidSeqActor (itemAt doc.actors firstIdx)
+        s.source = fa.id
+        s.target = fa.id
+        if ((array_length names) > 1) {
+            def lastIdx:int (this.ensure((itemAt names ((array_length names) - 1))))
+            if (lastIdx >= 0) {
+                def la:MermaidSeqActor (itemAt doc.actors lastIdx)
+                s.target = la.id
+            }
+        }
+        push doc.steps s
+    }
+
+    ; `Alice ->>+ Bob: Hello`. Everything before the arrow is the sender,
+    ; everything between the arrow and the colon is the receiver, and the
+    ; `+`/`-` between them is the activation shorthand.
+    fn message:void (st:string) {
+        def at:int (MermaidSequenceReader.arrowAt(st))
+        if (at < 0) {
+            return
+        }
+        def tok:string (MermaidSequenceReader.arrowToken(st at))
+        def left:string (trim (substring st 0 at))
+        def j:int (at + (strlen tok))
+        def activates:boolean false
+        def deactivates:boolean false
+        if (j < (strlen st)) {
+            def c:int (charAt st j)
+            if (c == 43) {
+                activates = true
+                j = (j + 1)
+            }
+            if (c == 45) {
+                deactivates = true
+                j = (j + 1)
+            }
+        }
+        def right:string (trim (substring st j (strlen st)))
+        def colon:int (MermaidSequenceReader.charIndex(right 58))
+        def to:string right
+        def text:string ""
+        if (colon >= 0) {
+            to = (trim (substring right 0 colon))
+            text = (MermaidReader.cleanLabel((substring right (colon + 1) (strlen right))))
+        }
+        def si:int (this.ensure(left))
+        def ti:int (this.ensure(to))
+        if (si < 0) { return }
+        if (ti < 0) { return }
+        def sa:MermaidSeqActor (itemAt doc.actors si)
+        def ta:MermaidSeqActor (itemAt doc.actors ti)
+        def m (new MermaidSeqStep)
+        m.kind = "message"
+        m.source = sa.id
+        m.target = ta.id
+        m.text = text
+        m.stroke = (MermaidSequenceReader.strokeOf(tok))
+        m.head = (MermaidSequenceReader.headOf(tok))
+        m.bidirectional = (MermaidReader.beginsWith(tok "<<"))
+        m.activates = activates
+        m.deactivates = deactivates
+        if doc.autonumber {
+            m.number = autoNext
+            autoNext = (autoNext + autoStep)
+        }
+        push doc.steps m
+    }
+
+    sfn charIndex:int (t:string c:int) {
+        def i:int 0
+        while (i < (strlen t)) {
+            if ((charAt t i) == c) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; Where the arrow starts, or -1 when the line is not a message. The scan
+    ; is left to right and longest-token-first at each position, so a
+    ; participant called `order-service` is not read as an arrow: `-s` is not
+    ; one of the ten tokens Mermaid has.
+    sfn arrowAt:int (st:string) {
+        def n:int (strlen st)
+        def i:int 0
+        while (i < n) {
+            def tok:string (MermaidSequenceReader.arrowToken(st i))
+            if ((strlen tok) > 0) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    sfn arrowToken:string (st:string i:int) {
+        if (MermaidSequenceReader.matches(st i "<<-->>")) { return "<<-->>" }
+        if (MermaidSequenceReader.matches(st i "<<->>"))  { return "<<->>" }
+        if (MermaidSequenceReader.matches(st i "-->>"))   { return "-->>" }
+        if (MermaidSequenceReader.matches(st i "-->"))    { return "-->" }
+        if (MermaidSequenceReader.matches(st i "--x"))    { return "--x" }
+        if (MermaidSequenceReader.matches(st i "--)"))    { return "--)" }
+        if (MermaidSequenceReader.matches(st i "->>"))    { return "->>" }
+        if (MermaidSequenceReader.matches(st i "->"))     { return "->" }
+        if (MermaidSequenceReader.matches(st i "-x"))     { return "-x" }
+        if (MermaidSequenceReader.matches(st i "-)"))     { return "-)" }
+        return ""
+    }
+
+    sfn matches:boolean (st:string i:int tok:string) {
+        def n:int (strlen tok)
+        if ((i + n) > (strlen st)) {
+            return false
+        }
+        def k:int 0
+        while (k < n) {
+            if ((charAt st (i + k)) != (charAt tok k)) {
+                return false
+            }
+            k = (k + 1)
+        }
+        return true
+    }
+
+    ; A doubled dash is Mermaid's "this did not happen, it came back".
+    sfn strokeOf:string (tok:string) {
+        if (MermaidSequenceReader.hasDoubleDash(tok)) {
+            return "dotted"
+        }
+        return "solid"
+    }
+
+    sfn hasDoubleDash:boolean (tok:string) {
+        def i:int 0
+        while ((i + 1) < (strlen tok)) {
+            if ((charAt tok i) == 45) {
+                if ((charAt tok (i + 1)) == 45) {
+                    return true
+                }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn headOf:string (tok:string) {
+        def n:int (strlen tok)
+        def endc:int (charAt tok (n - 1))
+        ; `-x`: it never arrived.
+        if (endc == 120) {
+            return "cross"
+        }
+        ; `-)`: it was sent and nobody waited — an open head, not a filled one.
+        if (endc == 41) {
+            return "arrow"
+        }
+        if (endc == 62) {
+            ; `->` has one chevron and no head at all; `->>` has two and does.
+            if (n >= 2) {
+                if ((charAt tok (n - 2)) == 62) {
+                    return "arrowclosed"
+                }
+            }
+            return ""
+        }
+        return ""
+    }
+}
+
+; ---------------------------------------------------------------------------
+; The pipeline
+; ---------------------------------------------------------------------------
+;
+; Placed, not laid out. `run` walks the script once, from the top, carrying a
+; single number with it — how far down the page we have got — and every
+; statement either draws something at that height or pushes it further down.
+; That is the whole algorithm, and it is the right one: the vertical order of
+; a sequence diagram is not a thing to be optimised, it is the content.
+; ---------------------------------------------------------------------------
+class MermaidSequenceFlow {
+    def g:FlowGraph (new FlowGraph)
+    def doc:MermaidSequence (new MermaidSequence)
+    def style:FlowStyle (new FlowStyle)
+
+    ; How far down the page we have got.
+    def cursor:double 0.0
+
+    ; The activations that are open, innermost last. A participant can be
+    ; active inside its own activation — a recursive call is exactly that —
+    ; so this is a stack rather than a flag.
+    def openWho:[int]
+    def openY:[double]
+
+    ; The blocks that are open, outermost first, and the dividers waiting for
+    ; the block they belong to to close: an `else` cannot be drawn until the
+    ; `end` says how wide the box around it is.
+    def blockId:[int]
+    def blockY:[double]
+    def blockMinX:[double]
+    def blockMaxX:[double]
+    def blockLabel:[string]
+    def blockSeq:int 0
+    def divBlock:[int]
+    def divY:[double]
+    def divText:[string]
+
+    ; What has to end up behind the drawing, in the order it is sent there.
+    def backIds:[string]
+    def bars:int 0
+    def noteSeq:int 0
+    def markSeq:int 0
+    def divSeq:int 0
+    def edgeSeq:int 0
+
+    ; The measurements. A column is as wide as the name in it, a row is as far
+    ; below the last one as a label needs.
+    def headerH:double 46.0
+    def colGap:double 64.0
+    def minCol:double 132.0
+    def msgStep:double 48.0
+    def selfDrop:double 36.0
+
+    Constructor () {
+    }
+
+    sfn parse:MermaidSequence (src:string) {
+        return (MermaidSequenceReader.parse(src))
+    }
+
+    sfn render:FlowGraph (src:string) {
+        def d:MermaidSequence (MermaidSequenceReader.parse(src))
+        def bare (new FlowStyle)
+        return (MermaidSequenceFlow.build(d bare))
+    }
+
+    sfn build:FlowGraph (d:MermaidSequence style:FlowStyle) {
+        def f (new MermaidSequenceFlow)
+        f.doc = d
+        f.style = style
+        return (f.run())
+    }
+
+    fn run:FlowGraph () {
+        def n:int (array_length doc.actors)
+        if (n == 0) {
+            return g
+        }
+        this.columns()
+        this.lifelines()
+        def k:int 0
+        while (k < n) {
+            def a:MermaidSeqActor (itemAt doc.actors k)
+            if (a.createdAt < 0) {
+                this.headerNode(a 0.0)
+            }
+            k = (k + 1)
+        }
+        cursor = (headerH + 34.0)
+        def s:int 0
+        while (s < (array_length doc.steps)) {
+            def st:MermaidSeqStep (itemAt doc.steps s)
+            this.step(st s)
+            s = (s + 1)
+        }
+        ; A script that forgot an `end` or a `deactivate` still has to draw:
+        ; the bar runs to the bottom and the box closes around what it got.
+        this.closeOpenActivations()
+        while ((array_length blockId) > 0) {
+            this.closeBlock()
+        }
+        this.trimLifelines()
+        this.boxes()
+        g.reindex()
+        def wrote:int (style.applyTo(g))
+        def b:int 0
+        while (b < (array_length backIds)) {
+            def id:string (itemAt backIds b)
+            def moved:boolean (g.sendToBack(id))
+            b = (b + 1)
+        }
+        return g
+    }
+
+    ; ------------------------------------------------------------- columns --
+    fn columns:void () {
+        def x:double 0.0
+        def i:int 0
+        while (i < (array_length doc.actors)) {
+            def a:MermaidSeqActor (itemAt doc.actors i)
+            def w:double ((MermaidSequenceFlow.textWidth(a.name 13.0)) + 40.0)
+            if (w < minCol) {
+                w = minCol
+            }
+            a.x = x
+            a.width = w
+            a.top = headerH
+            a.bottom = -1.0
+            x = ((x + w) + colGap)
+            i = (i + 1)
+        }
+    }
+
+    ; The lifelines go in before anything else so that everything drawn later
+    ; is drawn on top of them, and so that a message has something to be an
+    ; edge BETWEEN: the arrow is pinned to its own coordinates, but an edge
+    ; still needs two nodes to belong to.
+    fn lifelines:void () {
+        def i:int 0
+        while (i < (array_length doc.actors)) {
+            def a:MermaidSeqActor (itemAt doc.actors i)
+            def n:FlowNode (FlowNode.create((MermaidSequenceFlow.lifelineId(a.id)) "" ((a.centerX()) - 1.0) headerH))
+            n.nodeType = "lifeline"
+            n.shape = "rect"
+            n.width = 2.0
+            n.height = 10.0
+            n.borderRadius = 0.0
+            n.connectable = false
+            n.draggable = false
+            n.selectable = false
+            n.cssClass = "mermaid lifeline"
+            n.bgColor = "#b9c0cc"
+            n.borderColor = "#b9c0cc"
+            n.syncFromModel()
+            g.addNode(n)
+            i = (i + 1)
+        }
+        g.reindex()
+    }
+
+    fn trimLifelines:void () {
+        def floor:double (cursor + 12.0)
+        def i:int 0
+        while (i < (array_length doc.actors)) {
+            def a:MermaidSeqActor (itemAt doc.actors i)
+            def id:string (MermaidSequenceFlow.lifelineId(a.id))
+            if (g.hasNode(id)) {
+                def n:FlowNode (g.nodeById(id))
+                def bottom:double floor
+                if (a.bottom >= 0.0) {
+                    bottom = a.bottom
+                }
+                n.x = ((a.centerX()) - 1.0)
+                n.y = a.top
+                def h:double (bottom - a.top)
+                if (h < 4.0) {
+                    h = 4.0
+                }
+                n.height = h
+                n.syncFromModel()
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn lifelineId:string (id:string) {
+        return ("ll-" + id)
+    }
+
+    fn headerNode:void (a:MermaidSeqActor y:double) {
+        def n:FlowNode (FlowNode.create(a.id a.name a.x y))
+        n.nodeType = "participant"
+        n.shape = "rect"
+        n.width = a.width
+        n.height = headerH
+        n.borderRadius = 6.0
+        n.cssClass = "mermaid participant"
+        if a.isActor {
+            n.borderRadius = 22.0
+            n.cssClass = "mermaid participant actor"
+        }
+        n.connectable = false
+        n.syncFromModel()
+        g.addNode(n)
+    }
+
+    ; ---------------------------------------------------------- the script --
+    fn step:void (st:MermaidSeqStep idx:int) {
+        this.createAt(idx)
+        if (st.kind == "message") {
+            this.message(st)
+            return
+        }
+        if (st.kind == "note") {
+            this.noteBox(st)
+            return
+        }
+        if (st.kind == "activate") {
+            def si:int (doc.indexOfActor(st.target))
+            this.openAct(si cursor)
+            return
+        }
+        if (st.kind == "deactivate") {
+            def di:int (doc.indexOfActor(st.target))
+            this.closeAct(di cursor)
+            return
+        }
+        if (st.kind == "destroy") {
+            this.destroyAt(st.target)
+            return
+        }
+        if (st.kind == "blockstart") {
+            this.openBlock(st)
+            return
+        }
+        if (st.kind == "divider") {
+            this.divider(st)
+            return
+        }
+        if (st.kind == "blockend") {
+            this.closeBlock()
+            return
+        }
+    }
+
+    ; A `create participant` draws its box where it is created rather than at
+    ; the top: that is the point of saying it late.
+    fn createAt:void (idx:int) {
+        def i:int 0
+        while (i < (array_length doc.actors)) {
+            def a:MermaidSeqActor (itemAt doc.actors i)
+            if (a.createdAt == idx) {
+                def y:double (cursor - (headerH * 0.5))
+                this.headerNode(a y)
+                a.top = (y + headerH)
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn message:void (st:MermaidSeqStep) {
+        def si:int (doc.indexOfActor(st.source))
+        def ti:int (doc.indexOfActor(st.target))
+        if (si < 0) { return }
+        if (ti < 0) { return }
+        def a:MermaidSeqActor (itemAt doc.actors si)
+        def b:MermaidSeqActor (itemAt doc.actors ti)
+        def y:double cursor
+        if st.activates {
+            this.openAct(ti y)
+        }
+        def ax:double (a.centerX())
+        def bx:double (b.centerX())
+        def offA:double (MermaidSequenceFlow.offsetOf((this.depthOf(si))))
+        def offB:double (MermaidSequenceFlow.offsetOf((this.depthOf(ti))))
+        def label:string st.text
+        if (st.number > 0) {
+            label = (((to_string st.number) + "  ") + st.text)
+        }
+        def e:FlowEdge (FlowEdge.create(("m" + (to_string edgeSeq)) (MermaidSequenceFlow.lifelineId(a.id)) (MermaidSequenceFlow.lifelineId(b.id))))
+        edgeSeq = (edgeSeq + 1)
+        e.edgeType = "step"
+        e.label = label
+        e.labelDY = -13.0
+        e.markerEnd = st.head
+        e.markerStart = ""
+        if st.bidirectional {
+            e.markerStart = st.head
+        }
+        if (st.stroke == "dotted") {
+            e.dash = 5.0
+        }
+        e.cssClass = (("mermaid message " + st.stroke))
+        e.pinnedRoute = true
+        if (si == ti) {
+            ; A message to itself: out to the right, down, and back. There is
+            ; no straight line between a point and itself.
+            def x0:double (ax + offA)
+            def out:double (x0 + 54.0)
+            push e.waypoints x0
+            push e.waypoints y
+            push e.waypoints out
+            push e.waypoints y
+            push e.waypoints out
+            push e.waypoints (y + selfDrop)
+            push e.waypoints x0
+            push e.waypoints (y + selfDrop)
+            e.labelDX = 40.0
+            this.touch(x0 (out + 30.0))
+            cursor = ((cursor + selfDrop) + msgStep)
+        } {
+            def dir:double 1.0
+            if (bx < ax) {
+                dir = -1.0
+            }
+            def x1:double (ax + (dir * offA))
+            def x2:double (bx - (dir * offB))
+            push e.waypoints x1
+            push e.waypoints y
+            push e.waypoints x2
+            push e.waypoints y
+            this.touch(x1 x2)
+            cursor = (cursor + msgStep)
+        }
+        g.addEdge(e)
+        g.reindex()
+        if st.deactivates {
+            this.closeAct(si y)
+        }
+    }
+
+    fn noteBox:void (st:MermaidSeqStep) {
+        def si:int (doc.indexOfActor(st.source))
+        def ti:int (doc.indexOfActor(st.target))
+        if (si < 0) { return }
+        if (ti < 0) { ti = si }
+        def a:MermaidSeqActor (itemAt doc.actors si)
+        def b:MermaidSeqActor (itemAt doc.actors ti)
+        def lines:int (MermaidSequenceFlow.lineCount(st.text))
+        def h:double (34.0 + ((to_double (lines - 1)) * 16.0))
+        def x:double 0.0
+        def w:double 190.0
+        if (st.placement == "right") {
+            x = ((a.centerX()) + 18.0)
+        } {
+            if (st.placement == "left") {
+                x = (((a.centerX()) - 18.0) - w)
+            } {
+                if (si == ti) {
+                    w = ((MermaidSequenceFlow.textWidth(st.text 12.0)) + 34.0)
+                    if (w < 150.0) { w = 150.0 }
+                    if (w > 260.0) { w = 260.0 }
+                    x = ((a.centerX()) - (w * 0.5))
+                } {
+                    x = ((a.centerX()) - 24.0)
+                    w = (((b.centerX()) + 24.0) - x)
+                }
+            }
+        }
+        def n:FlowNode (FlowNode.create(("note" + (to_string noteSeq)) st.text x cursor))
+        noteSeq = (noteSeq + 1)
+        n.nodeType = "note"
+        n.shape = "note"
+        n.width = w
+        n.height = h
+        n.connectable = false
+        n.cssClass = "mermaid note"
+        n.bgColor = "#fdf8e6"
+        n.borderColor = "#c4b483"
+        n.syncFromModel()
+        g.addNode(n)
+        this.touch(x (x + w))
+        cursor = ((cursor + h) + 18.0)
+    }
+
+    ; The end of a lifeline, drawn as the cross Mermaid draws: not a shape the
+    ; library has, so it is given as one — twelve points of a unit square.
+    fn destroyAt:void (id:string) {
+        def i:int (doc.indexOfActor(id))
+        if (i < 0) {
+            return
+        }
+        def a:MermaidSeqActor (itemAt doc.actors i)
+        a.bottom = (cursor + 10.0)
+        def n:FlowNode (FlowNode.create(("destroy" + (to_string markSeq)) "" ((a.centerX()) - 12.0) (cursor - 2.0)))
+        markSeq = (markSeq + 1)
+        n.nodeType = "mark"
+        n.shape = "polygon"
+        MermaidSequenceFlow.crossPoints(n)
+        n.width = 24.0
+        n.height = 24.0
+        n.connectable = false
+        n.cssClass = "mermaid destroy"
+        n.bgColor = "#7b8494"
+        n.borderColor = "#7b8494"
+        n.syncFromModel()
+        g.addNode(n)
+        cursor = (cursor + 34.0)
+    }
+
+    sfn crossPoints:void (n:FlowNode) {
+        MermaidSequenceFlow.put(n 0.0 0.18)
+        MermaidSequenceFlow.put(n 0.18 0.0)
+        MermaidSequenceFlow.put(n 0.5 0.32)
+        MermaidSequenceFlow.put(n 0.82 0.0)
+        MermaidSequenceFlow.put(n 1.0 0.18)
+        MermaidSequenceFlow.put(n 0.68 0.5)
+        MermaidSequenceFlow.put(n 1.0 0.82)
+        MermaidSequenceFlow.put(n 0.82 1.0)
+        MermaidSequenceFlow.put(n 0.5 0.68)
+        MermaidSequenceFlow.put(n 0.18 1.0)
+        MermaidSequenceFlow.put(n 0.0 0.82)
+        MermaidSequenceFlow.put(n 0.32 0.5)
+    }
+
+    sfn put:void (n:FlowNode x:double y:double) {
+        push n.shapePoints x
+        push n.shapePoints y
+    }
+
+    ; ------------------------------------------------------- activation ----
+    fn depthOf:int (who:int) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length openWho)) {
+            if ((itemAt openWho i) == who) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    fn openAct:void (who:int y:double) {
+        if (who < 0) {
+            return
+        }
+        push openWho who
+        push openY y
+    }
+
+    fn closeAct:void (who:int y:double) {
+        if (who < 0) {
+            return
+        }
+        def n:int (array_length openWho)
+        def at:int -1
+        def i:int 0
+        while (i < n) {
+            if ((itemAt openWho i) == who) {
+                at = i
+            }
+            i = (i + 1)
+        }
+        if (at < 0) {
+            return
+        }
+        def depth:int 0
+        def k:int 0
+        while (k <= at) {
+            if ((itemAt openWho k) == who) {
+                depth = (depth + 1)
+            }
+            k = (k + 1)
+        }
+        this.bar(who (itemAt openY at) y depth)
+        def keptWho:[int]
+        def keptY:[double]
+        def j:int 0
+        while (j < n) {
+            if (j != at) {
+                push keptWho (itemAt openWho j)
+                push keptY (itemAt openY j)
+            }
+            j = (j + 1)
+        }
+        openWho = keptWho
+        openY = keptY
+    }
+
+    fn closeOpenActivations:void () {
+        while ((array_length openWho) > 0) {
+            def who:int (itemAt openWho ((array_length openWho) - 1))
+            this.closeAct(who (cursor + 4.0))
+        }
+    }
+
+    fn bar:void (who:int y1:double y2:double depth:int) {
+        def a:MermaidSeqActor (itemAt doc.actors who)
+        def h:double (y2 - y1)
+        if (h < 18.0) {
+            h = 18.0
+        }
+        def off:double (MermaidSequenceFlow.offsetOf(depth))
+        def n:FlowNode (FlowNode.create(("act" + (to_string bars)) "" (((a.centerX()) - 5.0) + (off - 5.0)) y1))
+        bars = (bars + 1)
+        n.nodeType = "activation"
+        n.shape = "rect"
+        n.width = 10.0
+        n.height = h
+        n.borderRadius = 0.0
+        n.connectable = false
+        n.cssClass = "mermaid activation"
+        n.bgColor = "#eef2f8"
+        n.borderColor = "#b9c0cc"
+        n.syncFromModel()
+        g.addNode(n)
+    }
+
+    ; How far off the lifeline an arrow stops: at the edge of the bar it is
+    ; talking to, and further out again for each activation inside it.
+    sfn offsetOf:double (depth:int) {
+        if (depth <= 0) {
+            return 0.0
+        }
+        return (5.0 + ((to_double (depth - 1)) * 4.0))
+    }
+
+    ; ------------------------------------------------------------- blocks --
+    fn openBlock:void (st:MermaidSeqStep) {
+        push blockId blockSeq
+        blockSeq = (blockSeq + 1)
+        push blockY cursor
+        push blockMinX 1000000.0
+        push blockMaxX -1000000.0
+        def label:string st.blockKind
+        if ((strlen st.text) > 0) {
+            label = ((st.blockKind + "  ") + st.text)
+        }
+        push blockLabel label
+        cursor = (cursor + 46.0)
+    }
+
+    fn divider:void (st:MermaidSeqStep) {
+        def n:int (array_length blockId)
+        if (n == 0) {
+            return
+        }
+        def label:string st.text
+        if ((strlen label) == 0) {
+            label = st.blockKind
+        } {
+            label = ((st.blockKind + "  ") + st.text)
+        }
+        push divBlock (itemAt blockId (n - 1))
+        push divY cursor
+        push divText label
+        cursor = (cursor + 52.0)
+    }
+
+    fn closeBlock:void () {
+        def n:int (array_length blockId)
+        if (n == 0) {
+            return
+        }
+        def at:int (n - 1)
+        def id:int (itemAt blockId at)
+        def y0:double (itemAt blockY at)
+        def minx:double (itemAt blockMinX at)
+        def maxx:double (itemAt blockMaxX at)
+        def label:string (itemAt blockLabel at)
+        this.dropBlock(at)
+        if (minx > maxx) {
+            ; An empty block still says something. It gets the whole width.
+            minx = (this.leftEdge())
+            maxx = (this.rightEdge())
+        }
+        def pad:double 30.0
+        def fx:double (minx - pad)
+        def fw:double ((maxx + pad) - fx)
+        def fy:double y0
+        def fh:double ((cursor + 6.0) - fy)
+        def frameId:string ("sg-block" + (to_string id))
+        def frame:FlowNode (FlowNode.create(frameId label fx fy))
+        frame.nodeType = "group"
+        frame.width = fw
+        frame.height = fh
+        frame.connectable = false
+        frame.draggable = false
+        frame.cssClass = "mermaid block"
+        frame.bgColor = "#f6f7fb"
+        frame.borderColor = "#c9cede"
+        frame.syncFromModel()
+        g.addNode(frame)
+        push backIds frameId
+        this.drawDividers(id fx fw)
+        this.touch(fx (fx + fw))
+        cursor = (cursor + 22.0)
+    }
+
+    fn dropBlock:void (at:int) {
+        def keptId:[int]
+        def keptY:[double]
+        def keptMin:[double]
+        def keptMax:[double]
+        def keptLabel:[string]
+        def i:int 0
+        while (i < (array_length blockId)) {
+            if (i != at) {
+                push keptId (itemAt blockId i)
+                push keptY (itemAt blockY i)
+                push keptMin (itemAt blockMinX i)
+                push keptMax (itemAt blockMaxX i)
+                push keptLabel (itemAt blockLabel i)
+            }
+            i = (i + 1)
+        }
+        blockId = keptId
+        blockY = keptY
+        blockMinX = keptMin
+        blockMaxX = keptMax
+        blockLabel = keptLabel
+    }
+
+    ; An `else` is a band across the box it divides. Mermaid draws a dashed
+    ; rule with the condition beside it; a band says the same thing and does
+    ; not need a second kind of line.
+    fn drawDividers:void (id:int fx:double fw:double) {
+        def i:int 0
+        while (i < (array_length divBlock)) {
+            if ((itemAt divBlock i) == id) {
+                def n:FlowNode (FlowNode.create(("div" + (to_string divSeq)) (itemAt divText i) (fx + 1.0) (itemAt divY i)))
+                divSeq = (divSeq + 1)
+                n.nodeType = "divider"
+                n.shape = "rect"
+                n.width = (fw - 2.0)
+                n.height = 26.0
+                n.borderRadius = 0.0
+                n.connectable = false
+                n.draggable = false
+                n.cssClass = "mermaid divider"
+                n.bgColor = "#eef2f8"
+                n.borderColor = "#c9cede"
+                n.syncFromModel()
+                g.addNode(n)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Every open block remembers how far left and right its contents reached,
+    ; because a `loop` box drawn around the whole page when it holds one
+    ; message between two neighbours is a box that says nothing.
+    fn touch:void (a:double b:double) {
+        def lo:double a
+        def hi:double b
+        if (b < a) {
+            lo = b
+            hi = a
+        }
+        def i:int 0
+        while (i < (array_length blockId)) {
+            if (lo < (itemAt blockMinX i)) {
+                set_at blockMinX i lo
+            }
+            if (hi > (itemAt blockMaxX i)) {
+                set_at blockMaxX i hi
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn leftEdge:double () {
+        if ((array_length doc.actors) == 0) {
+            return 0.0
+        }
+        def a:MermaidSeqActor (itemAt doc.actors 0)
+        return (a.centerX())
+    }
+
+    fn rightEdge:double () {
+        def n:int (array_length doc.actors)
+        if (n == 0) {
+            return 0.0
+        }
+        def a:MermaidSeqActor (itemAt doc.actors (n - 1))
+        return (a.centerX())
+    }
+
+    ; --------------------------------------------------------------- boxes --
+    fn boxes:void () {
+        def b:int 0
+        while (b < (array_length doc.boxes)) {
+            def name:string (itemAt doc.boxes b)
+            def minx:double 1000000.0
+            def maxx:double -1000000.0
+            def i:int 0
+            while (i < (array_length doc.actors)) {
+                def a:MermaidSeqActor (itemAt doc.actors i)
+                if (a.box == name) {
+                    if (a.x < minx) {
+                        minx = a.x
+                    }
+                    def right:double (a.x + a.width)
+                    if (right > maxx) {
+                        maxx = right
+                    }
+                }
+                i = (i + 1)
+            }
+            if (minx <= maxx) {
+                def pad:double 14.0
+                def head:double 26.0
+                def frameId:string ("sg-box" + (to_string b))
+                def frame:FlowNode (FlowNode.create(frameId name (minx - pad) ((0.0 - pad) - head)))
+                frame.nodeType = "group"
+                frame.width = ((maxx - minx) + (pad * 2.0))
+                frame.height = ((headerH + (pad * 2.0)) + head)
+                frame.connectable = false
+                frame.draggable = false
+                frame.cssClass = "mermaid box"
+                frame.bgColor = "#f6f7fb"
+                frame.borderColor = "#c9cede"
+                frame.syncFromModel()
+                g.addNode(frame)
+                push backIds frameId
+            }
+            b = (b + 1)
+        }
+    }
+
+    ; ---------------------------------------------------------------- bits --
+    sfn textWidth:double (t:string size:double) {
+        return ((to_double (strlen t)) * (size * 0.58))
+    }
+
+    sfn lineCount:int (t:string) {
+        def n:int 1
+        def i:int 0
+        while (i < (strlen t)) {
+            if ((charAt t i) == 10) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+}

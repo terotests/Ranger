@@ -184,10 +184,10 @@ markdown strings, and ids with a `-` or a `.` in them.
 What it drops on purpose: `click` (there is no browser to navigate),
 `linkStyle` by index, and `direction` inside a subgraph — RangerFlow lays the
 whole chart out one way. They are ignored rather than treated as errors, so a
-diagram that renders in Mermaid renders here too. The dozen other diagrams
-Mermaid draws — sequence, class, state, gantt, ER, … — are recognised by their
-header and read as **nothing**, because a sequence diagram read as a flowchart
-would be a page of invented boxes.
+diagram that renders in Mermaid renders here too. The other diagrams Mermaid
+draws are recognised by their header and handed to the reader that knows them —
+or, where there is no such reader yet, read as **nothing**, because a git graph
+read as a flowchart would be a page of invented boxes.
 
 Where it differs: text is measured with a font table rather than in a browser,
 so a line can break one word apart from Mermaid's, and a double circle is drawn
@@ -218,9 +218,9 @@ an attribute and `name(params) returnType` for an operation, `$` for static and
 cardinalities and their label, and the ornament goes on the end the syntax
 names — the class written FIRST is the one being pointed at.
 
-Everything else Mermaid draws — sequence, state, gantt, ER, git, architecture,
-… — is recognised by its header and read as **nothing**, which is the only safe
-answer: a header this reader did not know would fall through to the flowchart
+Everything else Mermaid draws — git graphs, architecture diagrams, the
+`-beta` charts — is recognised by its header and read as **nothing**, which is
+the only safe answer: a header this reader did not know would fall through to the flowchart
 parser and produce a page of invented boxes. The table of all thirty is in
 [`docs/MERMAID_PARITY.md`](docs/MERMAID_PARITY.md), and it is read off the
 installed Mermaid's own build rather than typed by hand, so a diagram type
@@ -365,6 +365,44 @@ gantt
 milestone is drawn as the diamond it is. Dates are read as `YYYY-MM-DD`, which
 is `dateFormat`'s default; a chart in another format keeps its order and its
 durations.
+
+### …and sequence diagrams
+
+The one Mermaid type where both axes are content: who, across the page, and
+when, down it. So nothing here asks the layout engine anything — the columns
+are the participants in the order they were declared, the rows are the
+statements in the order they were written, and every arrow is pinned to its own
+row so that no later pass can decide it would read better somewhere else.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Alice
+    box Back office
+        participant DB as Database
+    end
+    Alice->>+DB: SELECT 1
+    DB->>DB: check indexes
+    DB-->>-Alice: one row
+    Note over Alice,DB: nothing is written yet
+    loop until settled
+        alt accepted
+            DB-->>Alice: ok
+        else declined
+            DB--xAlice: no
+        end
+    end
+```
+
+All ten arrows are drawn as what they say: `->>` a filled head, `-->>` the same
+head on a dotted line, `-)` an open one for a message nobody waited for, `-x`
+the cross for one that never arrived, `<<->>` both ends at once. Activation is
+a bar on the lifeline — from `activate`/`deactivate` or from the `+`/`-`
+shorthand on the arrow, and nested one inside the other where a participant
+calls itself. `loop`, `alt`/`else`, `opt`, `par`/`and`, `critical`/`option`,
+`break` and `rect` become boxes around exactly the participants they touch;
+`box` groups the ones declared inside it; `create` draws a participant where it
+is created and `destroy` ends its lifeline with the cross.
 
 ### …measured against Mermaid itself
 

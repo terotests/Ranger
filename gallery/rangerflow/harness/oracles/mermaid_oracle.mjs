@@ -31,7 +31,11 @@ const dom = new JSDOM("<!doctype html><html><body></body></html>", { pretendToBe
 globalThis.window = dom.window;
 globalThis.document = dom.window.document;
 Object.defineProperty(globalThis, "navigator", { value: dom.window.navigator, configurable: true });
-for (const name of ["Element", "SVGElement", "HTMLElement", "Node", "DOMParser", "NodeFilter", "getComputedStyle"]) {
+// `Option` is in the list because Mermaid 11.17 reaches for the browser's
+// option-element constructor while parsing a sequence diagram's `box`, and a
+// bare jsdom does not put it on the global. Without it the oracle reports
+// "Mermaid will not parse this", which would be a lie about the corpus.
+for (const name of ["Element", "SVGElement", "HTMLElement", "Node", "DOMParser", "NodeFilter", "getComputedStyle", "Option"]) {
   globalThis[name] = dom.window[name];
 }
 

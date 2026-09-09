@@ -33,6 +33,7 @@ Import "../domains/mermaid/MermaidC4Reader.rgr"
 Import "../domains/mermaid/MermaidTimelineReader.rgr"
 Import "../domains/mermaid/MermaidJourneyReader.rgr"
 Import "../domains/mermaid/MermaidGanttReader.rgr"
+Import "../domains/mermaid/MermaidSequenceReader.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 Import "../layout/TreeLayouts.rgr"
 Import "../export/FlowExport.rgr"
@@ -662,6 +663,9 @@ class RangerFlowWeb {
         if (d.diagramKind == "gantt") {
             return (this.loadMermaidGantt(text styleName want))
         }
+        if (d.diagramKind == "sequence") {
+            return (this.loadMermaidSequence(text styleName want))
+        }
         if ((d.nodeCount()) == 0) {
             status = "no nodes in that Mermaid source"
             if ((strlen d.diagramKind) > 0) {
@@ -944,6 +948,27 @@ class RangerFlowWeb {
         }
         def span:int ((gd.lastDay()) - (gd.firstDay()))
         status = ((to_string (gd.taskCount())) + " tasks over " + (to_string span) + " days — " + what + ", " + want)
+        return true
+    }
+
+    ; A sequence diagram: who across the page, when down it. Both axes carry
+    ; meaning, so there is nothing for a layout to improve.
+    fn loadMermaidSequence:boolean (text:string styleName:string want:string) {
+        def sd:MermaidSequence (MermaidSequenceReader.parse(text))
+        if ((sd.actorCount()) == 0) {
+            status = "no participants in that sequence diagram"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidSequenceFlow.build(sd style))
+        this.adoptPlaced(g style want)
+        def what:string sd.title
+        if ((strlen what) == 0) {
+            what = "Mermaid sequence diagram"
+        }
+        status = ((to_string (sd.actorCount())) + " participants, " + (to_string (sd.messageCount())) + " messages — " + what + ", " + want)
         return true
     }
 

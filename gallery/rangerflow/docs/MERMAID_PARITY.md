@@ -5,7 +5,7 @@
 > and asked what it understood. Nothing is transcribed, so nothing can be
 > transcribed wrong.
 
-Mermaid 11.17.2 · 27 diagrams · **184/184 checks agree (100%)**
+Mermaid 11.17.2 · 28 diagrams · **186/186 checks agree (100%)**
 
 | example | type | direction | nodes | labels | shapes | classes | edges | subgraphs |
 | --- | --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
@@ -36,6 +36,7 @@ Mermaid 11.17.2 · 27 diagrams · **184/184 checks agree (100%)**
 | `25_mixed.mmd` | flowchart | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `26_beyond.mmd` | — | — | — | — | — | — | — | — |
 | `27_er.mmd` | er ✓ | — | — | — | — | — | — | — |
+| `28_sequence.mmd` | sequence ✓ | — | — | — | — | — | — | — |
 
 ## Read anyway
 
@@ -77,7 +78,7 @@ a flowchart is a page of invented boxes.
 | `railroad` | recognised as `railroad`, read as nothing |
 | `requirementDiagram` | **drawn** — read as `requirement` |
 | `sankey-beta` | recognised as `sankey`, read as nothing |
-| `sequenceDiagram` | recognised as `sequence`, read as nothing |
+| `sequenceDiagram` | **drawn** — read as `sequence` |
 | `stateDiagram` | **drawn** — read as `state` |
 | `stateDiagram-v2` | **drawn** — read as `state` |
 | `swimlanes-beta` | recognised as `swimlanes`, read as nothing |

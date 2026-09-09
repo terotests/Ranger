@@ -33,6 +33,7 @@ Import "../domains/mermaid/MermaidC4Reader.rgr"
 Import "../domains/mermaid/MermaidTimelineReader.rgr"
 Import "../domains/mermaid/MermaidJourneyReader.rgr"
 Import "../domains/mermaid/MermaidGanttReader.rgr"
+Import "../domains/mermaid/MermaidSequenceReader.rgr"
 Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 
@@ -109,6 +110,7 @@ class RangerFlowTest {
         RangerFlowTest.testMermaidC4(c)
         RangerFlowTest.testMermaidPlaced(c)
         RangerFlowTest.testMermaidGantt(c)
+        RangerFlowTest.testMermaidSequence(c)
         RangerFlowTest.testBusinessCharts(c)
         RangerFlowTest.testAuthoring(c)
         RangerFlowTest.testTreeLayouts(c)
@@ -2605,7 +2607,7 @@ class RangerFlowTest {
         c.eqStr("an ER diagram is named" asFlow.diagramKind "er")
         c.eqInt("and read as no flowchart at all" (asFlow.nodeCount()) 0)
         c.ok("but it is one this library draws" (MermaidReader.draws("er")))
-        c.ok("unlike a sequence diagram" ((MermaidReader.draws("sequence")) == false))
+        c.ok("as is a sequence diagram" (MermaidReader.draws("sequence")))
     }
 
     ; ------------------------------------------------ Mermaid state diagrams --
@@ -2944,6 +2946,105 @@ class RangerFlowTest {
         c.eqStr("a milestone is drawn as the diamond it is" milestone.shape "diamond")
         c.eqInt("what waits for what is the one relation a Gantt chart has" (g.edgeCount()) 1)
         c.ok("a Gantt chart is one this library draws" (MermaidReader.draws("gantt")))
+    }
+
+    ; --------------------------------------------- Mermaid sequence -------
+    ; A sequence diagram is the one Mermaid type where both axes are content:
+    ; who, across, and when, down. So the assertions are about ORDER and about
+    ; the two things a reader would otherwise have to take on trust — that the
+    ; arrow means what the token said, and that the bar covers what was active.
+    sfn testMermaidSequence:void (c:Checker) {
+        c.section("Mermaid sequence diagrams")
+        def src:string "sequenceDiagram\n"
+        src = (src + "    autonumber\n")
+        src = (src + "    actor Cust as Customer\n")
+        src = (src + "    box Shop\n")
+        src = (src + "        participant Web\n")
+        src = (src + "        participant API as Order API\n")
+        src = (src + "    end\n")
+        src = (src + "    participant Bank\n")
+        src = (src + "    Cust->>Web: place order\n")
+        src = (src + "    Web->>+API: POST /orders\n")
+        src = (src + "    API->>API: validate\n")
+        src = (src + "    API-->>-Web: 201\n")
+        src = (src + "    Note over Web,API: nothing is paid yet\n")
+        src = (src + "    loop until settled\n")
+        src = (src + "        Web-)Bank: authorise\n")
+        src = (src + "    alt accepted\n")
+        src = (src + "        Bank-->>Web: approved\n")
+        src = (src + "    else declined\n")
+        src = (src + "        Bank--xWeb: no\n")
+        src = (src + "    end\n")
+        src = (src + "    end\n")
+        src = (src + "    destroy Bank\n")
+        src = (src + "    Web->>Cust: receipt\n")
+
+        def d:MermaidSequence (MermaidSequenceReader.parse(src))
+        c.eqInt("a participant per declaration, in the order declared" (d.actorCount()) 4)
+        def cust:MermaidSeqActor (itemAt d.actors 0)
+        c.eqStr("`as` renames without renumbering" cust.name "Customer")
+        c.ok("and `actor` is remembered as one" cust.isActor)
+        def api:MermaidSeqActor (itemAt d.actors 2)
+        c.eqStr("a participant declared inside a box knows which" api.box "Shop")
+        def bank:MermaidSeqActor (itemAt d.actors 3)
+        c.eqStr("one declared outside it does not" bank.box "")
+        c.eqInt("the box is counted once" (d.boxCount()) 1)
+        c.ok("`autonumber` numbers the messages" d.autonumber)
+
+        c.eqInt("every arrow is a message" (d.messageCount()) 8)
+        c.eqInt("and the note is not one" (d.noteCount()) 1)
+        c.eqInt("`loop` and `alt` are the two blocks" (d.blockCount()) 2)
+
+        def first:MermaidSeqStep (itemAt d.steps 0)
+        c.eqStr("the sender is what stands before the arrow" first.source "Cust")
+        c.eqStr("the receiver what stands after it" first.target "Web")
+        c.eqStr("and the text what follows the colon" first.text "place order")
+        c.eqInt("numbering starts at one" first.number 1)
+        c.eqStr("`->>` is a line with a head on it" first.head "arrowclosed")
+        c.eqStr("and a single dash is not a reply" first.stroke "solid")
+
+        def second:MermaidSeqStep (itemAt d.steps 1)
+        c.ok("`+` after the arrow activates the receiver" second.activates)
+        def selfCall:MermaidSeqStep (itemAt d.steps 2)
+        c.eqStr("a participant may send to itself" selfCall.source selfCall.target)
+        def reply:MermaidSeqStep (itemAt d.steps 3)
+        c.eqStr("`-->>` is the dotted one" reply.stroke "dotted")
+        c.ok("and `-` after it deactivates the sender" reply.deactivates)
+
+        def note:MermaidSeqStep (itemAt d.steps 4)
+        c.eqStr("`over A,B` spans from the first name to the last" note.source "Web")
+        c.eqStr("to the last one named" note.target "API")
+        c.eqStr("and it is placed over rather than beside" note.placement "over")
+
+        ; The tokens, one at a time, because a diagram that draws `--x` as a
+        ; plain arrow is telling the reader the message arrived.
+        c.eqStr("`-)` is an open head" (MermaidSequenceReader.headOf("-)")) "arrow")
+        c.eqStr("`--x` is a cross" (MermaidSequenceReader.headOf("--x")) "cross")
+        c.eqStr("`->` has no head at all" (MermaidSequenceReader.headOf("->")) "")
+        c.eqStr("`<<-->>` is dotted" (MermaidSequenceReader.strokeOf("<<-->>")) "dotted")
+        c.eqInt("a name with a dash in it is not an arrow" (MermaidSequenceReader.arrowAt("order-service is here")) -1)
+
+        def g:FlowGraph (MermaidSequenceFlow.render(src))
+        def wl:FlowNode (g.nodeById("ll-Web"))
+        def al:FlowNode (g.nodeById("ll-API"))
+        c.ok("the columns are in declaration order, left to right" (wl.x < al.x))
+        def head:FlowNode (g.nodeById("Cust"))
+        c.eqStr("the participant box is drawn from the alias" head.label "Customer")
+        c.eqInt("an arrow per message" (g.edgeCount()) 8)
+
+        def m1:FlowEdge (g.edgeAt(1))
+        c.eqInt("a message is pinned to its own row — nothing may re-route it" (array_length m1.waypoints) 4)
+        def dy:double ((itemAt m1.waypoints 1) - (itemAt m1.waypoints 3))
+        c.ok("and the row is level: a sequence arrow is horizontal" ((fabs dy) < 0.001))
+        def bar:FlowNode (g.nodeById("act0"))
+        c.ok("an activation is a bar on the lifeline, not a box" (bar.width < 16.0))
+        c.ok("and it is as long as the participant was busy" (bar.height > 20.0))
+        def cross:FlowNode (g.nodeById("destroy0"))
+        c.eqStr("`destroy` ends the lifeline with the cross Mermaid draws" cross.shape "polygon")
+        def bankLife:FlowNode (g.nodeById("ll-Bank"))
+        def custLife:FlowNode (g.nodeById("ll-Cust"))
+        c.ok("a destroyed lifeline stops short of the others" (bankLife.height < custLife.height))
+        c.ok("a sequence diagram is one this library draws" (MermaidReader.draws("sequence")))
     }
 
     ; --------------------------------------------- a click is not an edit --
