@@ -478,6 +478,7 @@ treefactory Rt {
     tag IconBtn  EVGElement (props (className "rt-icon-btn") (role "button") (a11yFocusable true))
     tag ModalFoot EVGElement (props (className "rt-modal-foot"))
     tag ChatHd   EVGElement (props (className "rt-chat-hd") (id "rt-chat-hd") (elementType 1) (role "heading") (a11yLevel 2))
+    tag ChatH3   EVGElement (props (className "rt-chat-h3") (elementType 1) (role "heading") (a11yLevel 3))
     tag ChatTools EVGElement (props (className "rt-chat-tools"))
     tag ChatTool EVGElement (props (className "rt-chat-tool") (role "button") (a11yFocusable true))
     tag ChatToolTx EVGElement (props (className "rt-chat-tool-text") (elementType 1))
@@ -986,6 +987,14 @@ class RealTrainerDemo {
     def setMailField:InputCtl (new InputCtl())
     def setNickField:InputCtl (new InputCtl())
     def setHintField:InputCtl (new InputCtl())
+    ; Which of the chat's own drawers is open — the history, the saved notes
+    ; or the AI instructions. One at a time, as the original has them.
+    def chatPanel@(mutable):string ""
+    ; "Anna palautetta harjoittelustani" asks for an assessment, and the page
+    ; renames itself to say so. A question a person types does not — see
+    ; `traces/reference/chat-send.json`, where the heading stays "AI Chat".
+    def chatReview@(mutable):boolean false
+    def chatHintField:InputCtl (new InputCtl())
     def venueField:InputCtl (new InputCtl())
     def knowField:InputCtl (new InputCtl())
     def featFrom:InputCtl (new InputCtl())
@@ -1199,6 +1208,9 @@ class RealTrainerDemo {
         setHintField.tid = "rt-set-hint"
         setHintField.placeholder = "Lisää uusi ohje..."
         setHintField.name = setHintField.placeholder
+        chatHintField.tid = "rt-chat-hint"
+        chatHintField.placeholder = "Lisää uusi ohje..."
+        chatHintField.name = chatHintField.placeholder
         venueField.tid = "rt-ven-search"
         venueField.placeholder = "Etsi julkisia kuntosaleja..."
         venueField.name = venueField.placeholder
@@ -2732,6 +2744,43 @@ class RealTrainerDemo {
     }
 
     fn pressChat:boolean (id:string) {
+        ; THE FIVE TOOLS ABOVE THE COMPOSER. They were drawn and answered
+        ; nothing: a screen with five buttons that do not press is worse than
+        ; one without them. See `traces/reference/chat-tools.json`.
+        if (id == "rt-chat-history") {
+            chatPanel = (RealTrainerDemo.togglePanel(chatPanel "history"))
+            return true
+        }
+        if (id == "rt-chat-notes") {
+            chatPanel = (RealTrainerDemo.togglePanel(chatPanel "notes"))
+            return true
+        }
+        if (id == "rt-chat-guide") {
+            chatPanel = (RealTrainerDemo.togglePanel(chatPanel "guide"))
+            return true
+        }
+        if ((id == "rt-chat-history-panel-close") || (id == "rt-chat-notes-panel-close")) {
+            chatPanel = ""
+            return true
+        }
+        if (id == "rt-chat-guide-close") {
+            chatPanel = ""
+            return true
+        }
+        ; "Uusi keskustelu" empties the log. The drawers stay as they were —
+        ; a new conversation is not a reason to close the instructions.
+        if (id == "rt-chat-new") {
+            chatSim.stop()
+            chatReview = false
+            return (chat.reset())
+        }
+        ; The canned question, asked. It goes through the composer like
+        ; anything else a person types, because that is what it is.
+        if (id == "rt-chat-feedback") {
+            chatReview = true
+            chat.setInput("Mitä mieltä olet harjoittelustani? Analysoi viimeaikaiset merkintäni suhteessa vuosisuunnitelmaani, arvioi edistymistäni ja anna konkreettisia neuvoja jatkoon.")
+            return (this.pressChat("rt-chat-send"))
+        }
         if (id == "rt-chat-type") { return (chat.setInput("Maastaveto 3x5@100kg")) }
         if (id == "rt-chat-type2") { return (chat.setInput("Maastaveto 3x5@100kg ja kyykky 5x5@80kg")) }
         if (id == "rt-chat-ask") { return (chat.setInput("Montako harjoitusta viime viikolla?")) }
@@ -2742,6 +2791,11 @@ class RealTrainerDemo {
             def sent:boolean (chat.sendMessage())
             if sent {
                 chat.clearInput()
+                ; Asking something puts the log back on the screen, so the
+                ; history and the notes fold away. The instructions do not:
+                ; they are what the next question is asked under.
+                if (chatPanel == "history") { chatPanel = "" }
+                if (chatPanel == "notes") { chatPanel = "" }
                 ; The switch says the NEXT thing fails, and this is it: the
                 ; request fails at once, as the original's does with no
                 ; backend behind it.
@@ -7244,7 +7298,15 @@ class RealTrainerDemo {
         def st:string (chat.state())
         def col (tree Rt (Col (props (className "rt-chat-section"))))
         def hd (tree Rt (ModalRow))
-        hd.addChild((tree Rt (ChatHd "AI Chat")))
+        ; THE HEADING SAYS WHAT IS ON THE SCREEN. An empty chat is "AI Chat";
+        ; once something has been asked it is "AI-arvio", which is what the
+        ; reference calls the page it answers on. See
+        ; `traces/reference/chat-tools.json`.
+        def hdName@(mutable):string "AI Chat"
+        if chatReview {
+            hdName = "AI-arvio"
+        }
+        hd.addChild((tree Rt (ChatHd hdName)))
         if ((array_length chat.sentTexts) > 0) {
             hd.addChild((tree Rt (Spacer)))
             hd.addChild((this.iconBtn("rt-chat-copy-all" "Kopioi koko keskustelu" (RtIcons.bookOpen("#999999")))))
@@ -7253,10 +7315,22 @@ class RealTrainerDemo {
         def tools (tree Rt (ChatTools))
         tools.addChild((this.chatTool("rt-chat-new" "Uusi keskustelu")))
         tools.addChild((this.chatTool("rt-chat-history" "Keskusteluhistoria")))
+        ; A drawer opens UNDER ITS OWN BUTTON and not at the foot of the
+        ; screen: that is where the original puts it, and a reader tabbing
+        ; through hears it where the button that opened it was.
+        if (chatPanel == "history") {
+            tools.addChild((this.chatDrawer("rt-chat-history-panel" "Keskusteluhistoria" "Ei aikaisempia keskusteluja")))
+        }
         tools.addChild((this.chatTool("rt-chat-notes" "Tallennetut muistiinpanot")))
+        if (chatPanel == "notes") {
+            tools.addChild((this.chatDrawer("rt-chat-notes-panel" "Tallennetut muistiinpanot" "Ei tallennettuja muistiinpanoja")))
+        }
         tools.addChild((this.chatTool("rt-chat-guide" "AI-ohjeet")))
         col.addChild(tools)
         col.addChild((this.chatTool("rt-chat-cal" seed.calendarName)))
+        if (chatPanel == "guide") {
+            this.chatGuide(col)
+        }
         if ((array_length chat.sentTexts) == 0) {
             col.addChild((tree Rt (ChatPara "Valitse kalenteri(t) ja kysy mitä vain päiväkirjamerkinnöistäsi!")))
             col.addChild((this.chatTool("rt-chat-feedback" "Anna palautetta harjoittelustani")))
@@ -7325,6 +7399,68 @@ class RealTrainerDemo {
         compose.addChild(send)
         col.addChild(compose)
         return col
+    }
+
+    ; The history and the saved notes: a title, a close, and the line that
+    ; says there is nothing in it. Neither is stored here — there is no
+    ; backend — and the original shows exactly this on a fresh account.
+    fn chatDrawer:EVGElement (id:string title:string empty:string) {
+        def box (tree Rt (Col (props (className "rt-chat-drawer"))))
+        box.id = id
+        def head (tree Rt (Row (props (className "rt-chat-drawer-head"))))
+        head.addChild((tree Rt (ChatToolTx title)))
+        head.addChild((tree Rt (Spacer)))
+        head.addChild((this.iconBtn((id + "-close") "" (RtIcons.x("#999999")))))
+        box.addChild(head)
+        box.addChild((tree Rt (ChatToolTx empty)))
+        return box
+    }
+
+    ; AI-OHJEET, the same block the settings page carries — the original
+    ; draws it in both places, and a person who opens it from the chat should
+    ; not be sent to Asetukset to read it. Nothing here is stored: the
+    ; instructions are the backend's, and the add button is disabled where
+    ; the original disables it.
+    fn chatGuide:void (col:EVGElement) {
+        col.addChild((tree Rt (ChatH3 (props (id "rt-chat-guide-hd")) "AI-ohjeet")))
+        col.addChild((this.iconBtn("rt-chat-guide-close" "" (RtIcons.x("#999999")))))
+        col.addChild((tree Rt (ChatPara "AI saa automaattisesti tietoa vuosisuunnitelmastasi ja aktiivisesta periodista. Lisää tähän omia ohjeita AI:lle.")))
+        col.addChild((tree Rt (ChatToolTx "Tee ehdotukset")))
+        col.addChild((tree Rt (ChatPara "Anna AI:n analysoida vuosisuunnitelmasi, päiväkirjasi ja profiilisi, ja luoda sinulle personoidut ohjeet.")))
+        col.addChild((this.chatTool("rt-chat-suggest" "Tee ehdotukset")))
+        col.addChild((this.chatTool("rt-chat-general" "Yleiset ohjeet (0 aktiivista)")))
+        col.addChild((tree Rt (ChatToolTx "Ehdotuksia:")))
+        col.addChild((this.chatTool("rt-chat-hint-fi" "+ Kommunikoi suomeksi")))
+        col.addChild((this.chatTool("rt-chat-hint-kind" "+ Ole kannustava ja positiivinen")))
+        col.addChild((this.chatTool("rt-chat-hint-concrete" "+ Anna konkreettisia parannusehdotuksia")))
+        col.addChild((this.fieldBox(chatHintField)))
+        def add (this.iconBtn("rt-chat-hint-add" "" (RtIcons.plus("#999999"))))
+        add.a11yDisabled = true
+        col.addChild(add)
+        col.addChild((tree Rt (ChatToolTx "Kalenterityyppikohtaiset ohjeet")))
+        def kinds:[string]
+        push kinds "Harjoituspäiväkirja"
+        push kinds "Harjoitussuunnitelma"
+        push kinds "Ravintopäiväkirja"
+        push kinds "Unipäiväkirja"
+        push kinds "Kilpailut"
+        push kinds "Leirit"
+        push kinds "Kulut"
+        push kinds "Mittaukset"
+        push kinds "Fiilispäiväkirja"
+        push kinds "Testauspöytäkirja"
+        for kinds kn:string ki {
+            col.addChild((this.chatTool(("rt-chat-kind-" + (to_string ki)) kn)))
+        }
+        col.addChild((this.chatTool("rt-chat-save-hints" "Tallenna ohjeet")))
+    }
+
+    ; A drawer that is open closes; any other opens and closes the one that was.
+    sfn togglePanel:string (now:string want:string) {
+        if (now == want) {
+            return ""
+        }
+        return want
     }
 
     fn chatTool:EVGElement (id:string label:string) {
@@ -7759,6 +7895,7 @@ class RealTrainerDemo {
         push a setMailField
         push a setNickField
         push a setHintField
+        push a chatHintField
         push a venueField
         push a knowField
         push a featFrom
