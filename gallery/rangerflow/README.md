@@ -479,6 +479,27 @@ on the point itself wins over the stylesheet — that is the author saying *this
 one is different*, and a sheet that painted over it would be answering a
 question nobody asked.
 
+### …and pie charts
+
+The one diagram that is arithmetic all the way down. No nodes, no edges: a list
+of numbers, and each one gets the share of a circle that it is of their total.
+
+```mermaid
+pie showData
+    title Key elements in Product X
+    "Calcium" : 42.96
+    "Potassium" : 50.05
+    "Magnesium" : 10.01
+    "Iron" : 5
+```
+
+The shape library has no wedge, so the wedges are given as polygons — a fan of
+points along the arc, the centre, and back — which means a pie is drawn by the
+same renderer as everything else rather than by a special case. The names go in
+a legend beside the circle rather than inside it: a chart with eleven slices has
+no room for eleven words in the middle. Twelve palette colours come as classes
+(`.slice-0` … `.slice-11`), so a stylesheet that disagrees can say so.
+
 ### …measured against Mermaid itself
 
 A claim of parity with a format is worth what the person making it wanted it to

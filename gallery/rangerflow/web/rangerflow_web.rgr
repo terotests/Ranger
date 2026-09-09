@@ -37,6 +37,7 @@ Import "../domains/mermaid/MermaidSequenceReader.rgr"
 Import "../domains/mermaid/MermaidGitReader.rgr"
 Import "../domains/mermaid/MermaidKanbanReader.rgr"
 Import "../domains/mermaid/MermaidQuadrantReader.rgr"
+Import "../domains/mermaid/MermaidPieReader.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 Import "../layout/TreeLayouts.rgr"
 Import "../export/FlowExport.rgr"
@@ -678,6 +679,9 @@ class RangerFlowWeb {
         if (d.diagramKind == "quadrant") {
             return (this.loadMermaidQuadrant(text styleName want))
         }
+        if (d.diagramKind == "pie") {
+            return (this.loadMermaidPie(text styleName want))
+        }
         if ((d.nodeCount()) == 0) {
             status = "no nodes in that Mermaid source"
             if ((strlen d.diagramKind) > 0) {
@@ -1042,6 +1046,26 @@ class RangerFlowWeb {
             what = "Mermaid quadrant chart"
         }
         status = ((to_string (qd.pointCount())) + " points — " + what + ", " + want)
+        return true
+    }
+
+    ; A pie chart: a list of numbers and one rule.
+    fn loadMermaidPie:boolean (text:string styleName:string want:string) {
+        def pd:MermaidPie (MermaidPieReader.parse(text))
+        if ((pd.sliceCount()) == 0) {
+            status = "no slices in that pie chart"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidPieFlow.build(pd style))
+        this.adoptPlaced(g style want)
+        def what:string pd.title
+        if ((strlen what) == 0) {
+            what = "Mermaid pie chart"
+        }
+        status = ((to_string (pd.sliceCount())) + " slices — " + what + ", " + want)
         return true
     }
 

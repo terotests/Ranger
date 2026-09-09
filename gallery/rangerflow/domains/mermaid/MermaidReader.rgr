@@ -1291,6 +1291,7 @@ class MermaidReader {
         if (kind == "git")       { return true }
         if (kind == "kanban")    { return true }
         if (kind == "quadrant")  { return true }
+        if (kind == "pie")       { return true }
         return false
     }
 

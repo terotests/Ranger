@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Mermaid pie charts.** The sixteenth type, and the one that is arithmetic
+  all the way down: no nodes, no edges, a list of numbers and one rule. The
+  shape library has no wedge, so the wedges are given as `shapePoints`
+  polygons — a fan along the arc, the centre, and back — which means a pie is
+  drawn by the same renderer as everything else rather than by a special case.
+  The names go in a legend beside the circle, and twelve palette colours arrive
+  as classes a stylesheet can disagree with.
 - **Mermaid quadrant charts.** The fifteenth type: a scatter plot that has been
   told what its corners mean. The numbers place the dots and nothing else may;
   the one conversion the chart needs is that y counts up in the source and down

@@ -37,6 +37,7 @@ Import "../domains/mermaid/MermaidSequenceReader.rgr"
 Import "../domains/mermaid/MermaidGitReader.rgr"
 Import "../domains/mermaid/MermaidKanbanReader.rgr"
 Import "../domains/mermaid/MermaidQuadrantReader.rgr"
+Import "../domains/mermaid/MermaidPieReader.rgr"
 Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 
@@ -117,6 +118,7 @@ class RangerFlowTest {
         RangerFlowTest.testMermaidGit(c)
         RangerFlowTest.testMermaidKanban(c)
         RangerFlowTest.testMermaidQuadrant(c)
+        RangerFlowTest.testMermaidPie(c)
         RangerFlowTest.testBusinessCharts(c)
         RangerFlowTest.testAuthoring(c)
         RangerFlowTest.testTreeLayouts(c)
@@ -3208,6 +3210,53 @@ class RangerFlowTest {
         c.eqStr("and a colour on the point itself wins over the sheet" pd.bgColor "#00ff00")
         c.eqInt("the four corners are four frames, and there are no edges" (g.edgeCount()) 0)
         c.ok("a quadrant chart is one this library draws" (MermaidReader.draws("quadrant")))
+    }
+
+    ; --------------------------------------------- Mermaid pie ------------
+    ; A pie chart has no nodes and no edges: a list of numbers and one rule.
+    ; So what these check is the arithmetic and the geometry — that the shares
+    ; add up, and that a wedge is a wedge rather than a box.
+    sfn testMermaidPie:void (c:Checker) {
+        c.section("Mermaid pie charts")
+        def src:string "pie showData\n"
+        src = (src + "    title Key elements in Product X\n")
+        src = (src + "    \"Calcium\" : 42.96\n")
+        src = (src + "    \"Potassium\" : 50.05\n")
+        src = (src + "    \"Magnesium\" : 10.01\n")
+        src = (src + "    \"Iron\" :  5\n")
+
+        def d:MermaidPie (MermaidPieReader.parse(src))
+        c.ok("`showData` is read off the header line" d.showData)
+        c.eqStr("as is the title on the line after it" d.title "Key elements in Product X")
+        c.eqInt("a slice per line" (d.sliceCount()) 4)
+        def first:MermaidPieSlice (itemAt d.slices 0)
+        c.eqStr("the quotes are not part of the name" first.label "Calcium")
+        c.ok("and the number is the number" ((fabs (first.value - 42.96)) < 0.0001))
+        c.ok("the total is what they add up to" ((fabs ((d.total()) - 108.02)) < 0.0001))
+
+        ; Built from the model that was just read, so the shares the builder
+        ; works out land on the slices these assertions can see.
+        def bare (new FlowStyle)
+        def g:FlowGraph (MermaidPieFlow.build(d bare))
+        c.eqInt("a wedge and a legend row per slice" (g.nodeCount()) 12)
+        c.eqInt("and nothing joins anything" (g.edgeCount()) 0)
+        def w0:FlowNode (g.nodeById(first.id))
+        c.eqStr("a wedge is given as a polygon, because the library has no wedge" w0.shape "polygon")
+        c.ok("with an arc's worth of points on it" ((array_length w0.shapePoints) > 20))
+        def shares:double 0.0
+        def i:int 0
+        while (i < (d.sliceCount())) {
+            def s:MermaidPieSlice (itemAt d.slices i)
+            shares = (shares + s.share)
+            i = (i + 1)
+        }
+        c.ok("and the shares are shares: they come to one" ((fabs (shares - 1.0)) < 0.0001))
+        def big:MermaidPieSlice (itemAt d.slices 1)
+        def w1:FlowNode (g.nodeById(big.id))
+        c.ok("the biggest slice takes the most room" (w1.width > w0.width))
+        c.eqStr("46.3% of a circle needs no decimals it has not got" (MermaidPieFlow.numberText(5.0)) "5")
+        c.eqStr("and one that does keeps them" (MermaidPieFlow.numberText(42.96)) "42.96")
+        c.ok("a pie chart is one this library draws" (MermaidReader.draws("pie")))
     }
 
     ; --------------------------------------------- a click is not an edit --
