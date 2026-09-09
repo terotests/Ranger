@@ -35,6 +35,7 @@ Import "../domains/mermaid/MermaidJourneyReader.rgr"
 Import "../domains/mermaid/MermaidGanttReader.rgr"
 Import "../domains/mermaid/MermaidSequenceReader.rgr"
 Import "../domains/mermaid/MermaidGitReader.rgr"
+Import "../domains/mermaid/MermaidKanbanReader.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 Import "../layout/TreeLayouts.rgr"
 Import "../export/FlowExport.rgr"
@@ -670,6 +671,9 @@ class RangerFlowWeb {
         if (d.diagramKind == "git") {
             return (this.loadMermaidGit(text styleName want))
         }
+        if (d.diagramKind == "kanban") {
+            return (this.loadMermaidKanban(text styleName want))
+        }
         if ((d.nodeCount()) == 0) {
             status = "no nodes in that Mermaid source"
             if ((strlen d.diagramKind) > 0) {
@@ -994,6 +998,26 @@ class RangerFlowWeb {
             what = "Mermaid git graph"
         }
         status = ((to_string (gd.commitCount())) + " commits on " + (to_string (gd.branchCount())) + " branches — " + what + ", " + want)
+        return true
+    }
+
+    ; A board: columns, cards, and nothing between them.
+    fn loadMermaidKanban:boolean (text:string styleName:string want:string) {
+        def kd:MermaidKanban (MermaidKanbanReader.parse(text))
+        if ((kd.columnCount()) == 0) {
+            status = "no columns in that board"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidKanbanFlow.build(kd style))
+        this.adoptPlaced(g style want)
+        def what:string kd.title
+        if ((strlen what) == 0) {
+            what = "Mermaid kanban board"
+        }
+        status = ((to_string (kd.columnCount())) + " columns, " + (to_string (kd.cardCount())) + " cards — " + what + ", " + want)
         return true
     }
 

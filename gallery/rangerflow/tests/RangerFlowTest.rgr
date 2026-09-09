@@ -35,6 +35,7 @@ Import "../domains/mermaid/MermaidJourneyReader.rgr"
 Import "../domains/mermaid/MermaidGanttReader.rgr"
 Import "../domains/mermaid/MermaidSequenceReader.rgr"
 Import "../domains/mermaid/MermaidGitReader.rgr"
+Import "../domains/mermaid/MermaidKanbanReader.rgr"
 Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 
@@ -113,6 +114,7 @@ class RangerFlowTest {
         RangerFlowTest.testMermaidGantt(c)
         RangerFlowTest.testMermaidSequence(c)
         RangerFlowTest.testMermaidGit(c)
+        RangerFlowTest.testMermaidKanban(c)
         RangerFlowTest.testBusinessCharts(c)
         RangerFlowTest.testAuthoring(c)
         RangerFlowTest.testTreeLayouts(c)
@@ -3103,6 +3105,51 @@ class RangerFlowTest {
         c.eqStr("a reversed commit is struck through" ((g.nodeById("oops")).shape) "polygon")
         c.eqInt("an edge per parent — two for the merge and two for the pick" (g.edgeCount()) 7)
         c.ok("a git graph is one this library draws" (MermaidReader.draws("git")))
+    }
+
+    ; --------------------------------------------- Mermaid kanban ---------
+    ; A board has two nouns and no verbs: columns, cards, and "this one is in
+    ; that one". The whole of the reading is indentation and brackets.
+    sfn testMermaidKanban:void (c:Checker) {
+        c.section("Mermaid kanban boards")
+        def src:string "kanban\n"
+        src = (src + "  Todo\n")
+        src = (src + "    [Read the grammar]\n")
+        src = (src + "    docs[Write the documentation]\n")
+        src = (src + "  doing[In progress]\n")
+        src = (src + "    render[Draw it]@{ ticket: RF-2038, assigned: 'tero', priority: 'Very High' }\n")
+        src = (src + "  done[Done]\n")
+
+        def d:MermaidKanban (MermaidKanbanReader.parse(src))
+        c.eqInt("a line at the outer level is a column" (d.columnCount()) 3)
+        c.eqInt("and one inside it is a card" (d.cardCount()) 3)
+        def todo:MermaidKanbanColumn (itemAt d.columns 0)
+        c.eqStr("a column with no brackets is its own label" todo.label "Todo")
+        def doing:MermaidKanbanColumn (itemAt d.columns 1)
+        c.eqStr("`id[Label]` names the column" doing.id "doing")
+        c.eqStr("and labels it" doing.label "In progress")
+        def empty:MermaidKanbanColumn (itemAt d.columns 2)
+        c.eqInt("an empty column is still a column" (d.cardsIn(empty.id)) 0)
+        c.eqInt("cards belong to the column above them" (d.cardsIn("doing")) 1)
+
+        def first:MermaidKanbanCard (itemAt d.cards 0)
+        c.eqStr("a card with no id gets one" first.label "Read the grammar")
+        c.ok("" ((strlen first.id) > 0))
+        def meta:MermaidKanbanCard (itemAt d.cards 2)
+        c.eqStr("`ticket:` is read out of the metadata block" meta.ticket "RF-2038")
+        c.eqStr("and single quotes are quotes" meta.assigned "tero")
+        c.eqStr("as is the priority" meta.priority "Very High")
+        c.eqStr("which is written under the card rather than dropped" (meta.meta()) "RF-2038  ·  tero  ·  Very High")
+
+        def g:FlowGraph (MermaidKanbanFlow.render(src))
+        c.eqInt("a board has no edges at all" (g.edgeCount()) 0)
+        def col:FlowNode (g.nodeById("sg-doing"))
+        c.eqStr("a column is the frame a sub-flow already is" col.nodeType "group")
+        def card:FlowNode (g.nodeById("render"))
+        c.ok("and its cards sit inside it" (card.x > col.x))
+        def col3:FlowNode (g.nodeById("sg-done"))
+        c.ok("every column reaches the bottom of the tallest" ((fabs (col3.height - col.height)) < 0.001))
+        c.ok("a kanban board is one this library draws" (MermaidReader.draws("kanban")))
     }
 
     ; --------------------------------------------- a click is not an edit --

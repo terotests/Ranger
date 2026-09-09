@@ -1289,6 +1289,7 @@ class MermaidReader {
         if (kind == "gantt")     { return true }
         if (kind == "sequence")  { return true }
         if (kind == "git")       { return true }
+        if (kind == "kanban")    { return true }
         return false
     }
 

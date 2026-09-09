@@ -368,7 +368,9 @@ if (coverage.length) {
   lines.push("## Mermaid's diagram types");
   lines.push("");
   lines.push("Read off the installed Mermaid's own build rather than typed here, so a type");
-  lines.push("added upstream appears the next time the harness is installed. Two are drawn;");
+  const drawn = coverage.filter((c) => c.verdict === "read").length;
+  lines.push(`added upstream appears the next time the harness is installed. ${drawn} of the ` +
+    `${coverage.length} are drawn;`);
   lines.push("the rest have to be **recognised and refused**, because a header this reader");
   lines.push("does not know falls through to the flowchart parser, and a Wardley map read as");
   lines.push("a flowchart is a page of invented boxes.");
@@ -389,10 +391,11 @@ lines.push("- **The reading, not the drawing.** Mermaid lays a diagram out its o
 lines.push("  has no opinion about RangerFlow's, so comparing positions would measure two");
 lines.push("  layouts rather than one reader.");
 lines.push("- **Every diagram type, but not equally.** A flowchart is compared node by node");
-lines.push("  and edge by edge. For the dozen other kinds Mermaid draws, the check is that");
-lines.push("  RangerFlow recognises the header and reads *nothing* — a sequence diagram");
-lines.push("  read as a flowchart would be a page of invented boxes, which is the one");
-lines.push("  failure a reader of somebody else's file must not have.");
+lines.push("  and edge by edge. For the other kinds Mermaid draws, the check is that the");
+lines.push("  header is read as the type it is — and, where there is no reader for that");
+lines.push("  type yet, that it is read as *nothing*. A Wardley map read as a flowchart");
+lines.push("  would be a page of invented boxes, which is the one failure a reader of");
+lines.push("  somebody else's file must not have.");
 lines.push("- **The vocabularies meet in `tools/mermaid-parity.mjs`.** Mermaid says");
 lines.push("  `lean_right` and `arrow_point`; RangerFlow says `leanr` and carries the");
 lines.push("  marker its renderer draws. The translation lives in the meter so neither");

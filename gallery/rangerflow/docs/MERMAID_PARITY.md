@@ -5,7 +5,7 @@
 > and asked what it understood. Nothing is transcribed, so nothing can be
 > transcribed wrong.
 
-Mermaid 11.17.2 · 29 diagrams · **188/188 checks agree (100%)**
+Mermaid 11.17.2 · 30 diagrams · **190/190 checks agree (100%)**
 
 | example | type | direction | nodes | labels | shapes | classes | edges | subgraphs |
 | --- | --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
@@ -38,6 +38,7 @@ Mermaid 11.17.2 · 29 diagrams · **188/188 checks agree (100%)**
 | `27_er.mmd` | er ✓ | — | — | — | — | — | — | — |
 | `28_sequence.mmd` | sequence ✓ | — | — | — | — | — | — | — |
 | `29_gitgraph.mmd` | git ✓ | — | — | — | — | — | — | — |
+| `30_kanban.mmd` | kanban ✓ | — | — | — | — | — | — | — |
 
 ## Read anyway
 
@@ -50,7 +51,7 @@ every one of these is a file somebody wrote and Mermaid would not draw.
 ## Mermaid's diagram types
 
 Read off the installed Mermaid's own build rather than typed here, so a type
-added upstream appears the next time the harness is installed. Two are drawn;
+added upstream appears the next time the harness is installed. 14 of the 30 are drawn;
 the rest have to be **recognised and refused**, because a header this reader
 does not know falls through to the flowchart parser, and a Wardley map read as
 a flowchart is a page of invented boxes.
@@ -71,7 +72,7 @@ a flowchart is a page of invented boxes.
 | `info` | recognised as `info`, read as nothing |
 | `ishikawa-beta` | recognised as `ishikawa`, read as nothing |
 | `journey` | **drawn** — read as `journey` |
-| `kanban` | recognised as `kanban`, read as nothing |
+| `kanban` | **drawn** — read as `kanban` |
 | `mindmap` | **drawn** — read as `mindmap` |
 | `peg` | recognised as `peg`, read as nothing |
 | `pie` | recognised as `pie`, read as nothing |
@@ -94,10 +95,11 @@ a flowchart is a page of invented boxes.
   has no opinion about RangerFlow's, so comparing positions would measure two
   layouts rather than one reader.
 - **Every diagram type, but not equally.** A flowchart is compared node by node
-  and edge by edge. For the dozen other kinds Mermaid draws, the check is that
-  RangerFlow recognises the header and reads *nothing* — a sequence diagram
-  read as a flowchart would be a page of invented boxes, which is the one
-  failure a reader of somebody else's file must not have.
+  and edge by edge. For the other kinds Mermaid draws, the check is that the
+  header is read as the type it is — and, where there is no reader for that
+  type yet, that it is read as *nothing*. A Wardley map read as a flowchart
+  would be a page of invented boxes, which is the one failure a reader of
+  somebody else's file must not have.
 - **The vocabularies meet in `tools/mermaid-parity.mjs`.** Mermaid says
   `lean_right` and `arrow_point`; RangerFlow says `leanr` and carries the
   marker its renderer draws. The translation lives in the meter so neither

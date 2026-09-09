@@ -430,6 +430,29 @@ draws a dashed line back to what it picked. The four commit types are the four
 Mermaid draws — NORMAL a disc, MERGE two rings, HIGHLIGHT a box, REVERSE a disc
 struck through — and `order:` moves a branch's row where it is given.
 
+### …and kanban boards
+
+Two nouns and no verbs. A board has columns and it has cards, and the only
+relation in it is which card is in which column — so the columns are the frames
+a sub-flow already has, the cards stack inside them in the order they were
+written, and the graph comes out with no edges at all.
+
+```mermaid
+kanban
+  Todo
+    [Read the grammar]
+    docs[Write the documentation]
+  doing[In progress]
+    render[Draw it]@{ ticket: RF-2038, assigned: 'tero', priority: 'High' }
+  done[Done]
+```
+
+Indentation is the hierarchy, `id[Label]` names either a column or a card, and
+the `@{ … }` block is written under the card's own words rather than dropped: a
+board with no ticket, owner or priority on it is a list. The priority also
+becomes a class, so a stylesheet can colour the board by urgency without the
+reader having an opinion about which colour urgent is.
+
 ### …measured against Mermaid itself
 
 A claim of parity with a format is worth what the person making it wanted it to

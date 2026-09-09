@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Mermaid kanban boards.** The fourteenth type, and the one with no edges in
+  it at all: a board has columns and cards and the single relation "this is in
+  that". Indentation is the hierarchy, `id[Label]` names either, and the
+  `@{ ticket / assigned / priority }` block is written under the card rather
+  than dropped — a board with none of that on it is a list. The priority also
+  becomes a class a stylesheet can match.
 - **Mermaid git graphs.** The twelfth type, and the one whose syntax already
   contains its layout: commits run along the axis in the order they were
   written, one row per branch, so nothing is asked of the layout engine. A
