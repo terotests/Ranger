@@ -43,6 +43,7 @@ Import "../domains/mermaid/MermaidPacketReader.rgr"
 Import "../domains/mermaid/MermaidRadarReader.rgr"
 Import "../domains/mermaid/MermaidTreemapReader.rgr"
 Import "../domains/mermaid/MermaidTreeViewReader.rgr"
+Import "../domains/mermaid/MermaidEventModelReader.rgr"
 Import "../domains/mermaid/MermaidSankeyReader.rgr"
 Import "../domains/mermaid/MermaidBlockReader.rgr"
 Import "../domains/mermaid/MermaidArchReader.rgr"
@@ -727,6 +728,9 @@ class RangerFlowWeb {
         if (MermaidReader.isRailroad(d.diagramKind)) {
             return (this.loadMermaidRailroad(text styleName want))
         }
+        if (d.diagramKind == "eventmodeling") {
+            return (this.loadMermaidEventModel(text styleName want))
+        }
         if (d.diagramKind == "treeview") {
             return (this.loadMermaidTreeView(text styleName want))
         }
@@ -1146,6 +1150,22 @@ class RangerFlowWeb {
             what = "Mermaid xychart"
         }
         status = ((to_string (xd.seriesCount())) + " series over " + (to_string (xd.slots())) + " readings — " + what + ", " + want)
+        return true
+    }
+
+    ; An event model: time across the page, kind down it.
+    fn loadMermaidEventModel:boolean (text:string styleName:string want:string) {
+        def em:MermaidEventModel (MermaidEventModelReader.parse(text))
+        if ((em.frameCount()) == 0) {
+            status = "no time frames in that event model"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidEventModelFlow.build(em style))
+        this.adoptPlaced(g style want)
+        status = ((to_string (em.frameCount())) + " frames — Mermaid event model, " + want)
         return true
     }
 

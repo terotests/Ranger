@@ -1478,6 +1478,7 @@ class MermaidReader {
         if (kind == "radar")     { return true }
         if (kind == "treemap")   { return true }
         if (kind == "treeview")  { return true }
+        if (kind == "eventmodeling") { return true }
         return false
     }
 

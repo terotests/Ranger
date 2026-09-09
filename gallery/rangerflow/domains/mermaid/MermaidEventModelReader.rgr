@@ -1,0 +1,628 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MermaidEventModelReader.rgr — event modelling: time across, kind down.
+; ============================================================================
+;
+; An event model is a story told left to right in TIME FRAMES, with each frame
+; drawn in the lane its kind belongs to. Nothing is laid out: the frames are in
+; the order they were written and the lane is decided by the word the author
+; used, which is the whole of the notation.
+;
+;   UI/Automation      ┌────────┐
+;                      │ Screen │
+;   Command/Read Model └───┬────┘   ┌────────┐        ┌────────┐
+;                          └──────► │ Place  │        │ Orders │
+;   Events                          └───┬────┘        └────▲───┘
+;                                       └──► ┌─────────┐ ──┘
+;                                            │ Placed  │
+;                                            └─────────┘
+;
+; **What it reads.** `tf <frame> <kind> <Name>` and `rf` for a reset frame,
+; where the frame is a number and the kind is one of Mermaid's nine words —
+; `ui`, `cmd`/`command`, `evt`/`event`, `rmo`/`readmodel`, `pcr`/`processor`.
+; `->> 1 2` says which earlier frames this one follows, `[[Name]]` points at a
+; declared `data` block, and `entity` / `data` / `note` / `gwt` are read for
+; what they declare.
+;
+; **The lanes** are Mermaid's own three, under the names its config gives them:
+; UI/Automation, Command/Read Model, Events. Which lane a frame lands in is a
+; property of its kind and not a choice — an event drawn in the command lane is
+; a different diagram.
+;
+; **No title.** Mermaid's own grammar rejects `title` in an event model, and a
+; reader that accepted one would be taking a file Mermaid will not take.
+; ============================================================================
+
+Import "MermaidReader.rgr"
+Import "../../core/FlowStyleSheet.rgr"
+
+class MermaidEmFrame {
+    ; The number the file gave it, which is what `->>` points at.
+    def name:string ""
+    ; "ui" | "pcr" | "cmd" | "rmo" | "evt"
+    def kind:string "ui"
+    def entity:string ""
+    def sources:[string]
+    def dataRef:string ""
+    ; `rf` rather than `tf`: the story starts again here.
+    def reset:boolean false
+    ; Filled in by the builder: which column it landed in.
+    def column:int 0
+
+    Constructor () {
+    }
+}
+
+class MermaidEmDeclared {
+    def name:string ""
+    ; "entity" | "data"
+    def kind:string "entity"
+
+    Constructor () {
+    }
+}
+
+class MermaidEmGwt {
+    def frame:string ""
+    def givens:[string]
+    def whens:[string]
+    def thens:[string]
+
+    Constructor () {
+    }
+}
+
+class MermaidEventModel {
+    def frames:[MermaidEmFrame]
+    def declared:[MermaidEmDeclared]
+    def gwts:[MermaidEmGwt]
+
+    Constructor () {
+    }
+
+    fn frameCount:int () {
+        return (array_length frames)
+    }
+
+    fn declaredCount:int () {
+        return (array_length declared)
+    }
+
+    fn gwtCount:int () {
+        return (array_length gwts)
+    }
+
+    fn indexOfFrame:int (name:string) {
+        def i:int 0
+        while (i < (array_length frames)) {
+            def f:MermaidEmFrame (itemAt frames i)
+            if (f.name == name) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; How many frames are in a lane, which is what says whether a lane is
+    ; drawn at all: a model with no read models has no read-model lane.
+    fn laneCount:int (lane:int) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length frames)) {
+            def f:MermaidEmFrame (itemAt frames i)
+            if ((MermaidEventModel.laneOf(f.kind)) == lane) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; Which of Mermaid's three lanes a kind belongs to. Not a choice: an event
+    ; drawn in the command lane is a different diagram.
+    sfn laneOf:int (kind:string) {
+        if (kind == "ui")  { return 0 }
+        if (kind == "pcr") { return 0 }
+        if (kind == "cmd") { return 1 }
+        if (kind == "rmo") { return 1 }
+        return 2
+    }
+
+    sfn laneName:string (lane:int) {
+        if (lane == 0) { return "UI/Automation" }
+        if (lane == 1) { return "Command/Read Model" }
+        return "Events"
+    }
+}
+
+class MermaidEventModelReader {
+    def doc:MermaidEventModel (new MermaidEventModel)
+    ; The `gwt` being filled in, and which of its three lists is open.
+    def openGwt:int -1
+    def openList:string ""
+    ; A `data` or `note` block runs to its closing brace, and what is inside is
+    ; somebody else's syntax — JSON, markdown, a Figma link.
+    def inBlock:boolean false
+
+    Constructor () {
+    }
+
+    sfn parse:MermaidEventModel (src:string) {
+        def r (new MermaidEventModelReader)
+        return (r.read(src))
+    }
+
+    fn read:MermaidEventModel (src:string) {
+        def lines:[string] (strsplit src "\n")
+        def inFront:boolean false
+        def frontDone:boolean false
+        def i:int 0
+        while (i < (array_length lines)) {
+            def raw:string (trim (itemAt lines i))
+            i = (i + 1)
+            if (raw == "---") {
+                if (frontDone == false) {
+                    if inFront {
+                        inFront = false
+                        frontDone = true
+                    } {
+                        inFront = true
+                    }
+                    continue
+                }
+            }
+            if inFront {
+                continue
+            }
+            if inBlock {
+                ; The brace that closes it is the only thing looked for: what
+                ; is between them is another language's business.
+                if (MermaidReader.beginsWith(raw "}")) {
+                    inBlock = false
+                }
+                continue
+            }
+            def line:string (trim (MermaidEventModelReader.stripComment(raw)))
+            if ((strlen line) == 0) {
+                continue
+            }
+            this.statement(line)
+        }
+        return doc
+    }
+
+    sfn stripComment:string (line:string) {
+        def len:int (strlen line)
+        def i:int 0
+        while (i < len) {
+            def c:int (charAt line i)
+            if (c == 37) {
+                if ((i + 1) < len) {
+                    def d:int (charAt line (i + 1))
+                    if (d == 37) {
+                        return (substring line 0 i)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return line
+    }
+
+    fn statement:void (st:string) {
+        def word:string (MermaidReader.firstWord(st))
+        def kw:string (MermaidReader.lower(word))
+        def rest:string (trim (substring st (strlen word) (strlen st)))
+        if (kw == "eventmodeling") {
+            if ((strlen rest) > 0) {
+                this.statement(rest)
+            }
+            return
+        }
+        if (MermaidReader.beginsWith(kw "acctitle")) { return }
+        if (MermaidReader.beginsWith(kw "accdescr")) { return }
+        if (kw == "tf")        { this.frame(rest false)  return }
+        if (kw == "timeframe") { this.frame(rest false)  return }
+        if (kw == "rf")        { this.frame(rest true)   return }
+        if (kw == "resetframe"){ this.frame(rest true)   return }
+        if (kw == "entity")    { this.declare(rest "entity")  return }
+        if (kw == "data")      { this.declare(rest "data")    return }
+        if (kw == "note") {
+            ; A note is a block of somebody else's syntax hung on a frame.
+            this.openBlockIn(st)
+            return
+        }
+        if (kw == "gwt") {
+            def g (new MermaidEmGwt)
+            g.frame = (MermaidReader.firstWord(rest))
+            push doc.gwts g
+            openGwt = ((array_length doc.gwts) - 1)
+            openList = ""
+            return
+        }
+        if (kw == "given") { this.gwtLine("given" rest)  return }
+        if (kw == "when")  { this.gwtLine("when" rest)   return }
+        if (kw == "then")  { this.gwtLine("then" rest)   return }
+    }
+
+    ; `1 ui Screen ->> 2 3 [[OrderJson]]`
+    fn frame:void (rest:string reset:boolean) {
+        def f (new MermaidEmFrame)
+        f.reset = reset
+        def body:string rest
+        def open:int (MermaidEventModelReader.indexOfText(body "[["))
+        if (open >= 0) {
+            def close:int (MermaidEventModelReader.indexOfText(body "]]"))
+            if (close > open) {
+                f.dataRef = (trim (substring body (open + 2) close))
+                body = (trim (substring body 0 open))
+            }
+        }
+        def arrow:int (MermaidEventModelReader.indexOfText(body "->>"))
+        if (arrow >= 0) {
+            def tail:string (trim (substring body (arrow + 3) (strlen body)))
+            def parts:[string] (strsplit tail " ")
+            def p:int 0
+            while (p < (array_length parts)) {
+                def one:string (trim (itemAt parts p))
+                if ((strlen one) > 0) {
+                    push f.sources one
+                }
+                p = (p + 1)
+            }
+            body = (trim (substring body 0 arrow))
+        }
+        f.name = (MermaidReader.firstWord(body))
+        body = (trim (substring body (strlen f.name) (strlen body)))
+        def kindWord:string (MermaidReader.firstWord(body))
+        f.kind = (MermaidEventModelReader.kindOf(kindWord))
+        body = (trim (substring body (strlen kindWord) (strlen body)))
+        f.entity = (MermaidReader.cleanLabel(body))
+        if ((strlen f.name) == 0) {
+            return
+        }
+        if ((strlen f.entity) == 0) {
+            f.entity = f.name
+        }
+        push doc.frames f
+        openGwt = -1
+    }
+
+    fn declare:void (rest:string kind:string) {
+        def d (new MermaidEmDeclared)
+        d.kind = kind
+        d.name = (MermaidReader.firstWord(rest))
+        if ((strlen d.name) == 0) {
+            return
+        }
+        push doc.declared d
+        openGwt = -1
+        this.openBlockIn(rest)
+    }
+
+    ; A `{` at the end of a line opens a block that runs to its closing brace.
+    fn openBlockIn:void (st:string) {
+        def i:int 0
+        while (i < (strlen st)) {
+            if ((charAt st i) == 123) {
+                ; `{ "id": 1 }` all on one line closes itself.
+                def j:int i
+                while (j < (strlen st)) {
+                    if ((charAt st j) == 125) {
+                        return
+                    }
+                    j = (j + 1)
+                }
+                inBlock = true
+                return
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn gwtLine:void (which:string rest:string) {
+        if (openGwt < 0) {
+            return
+        }
+        def g:MermaidEmGwt (itemAt doc.gwts openGwt)
+        def text:string (trim rest)
+        if ((strlen text) == 0) {
+            return
+        }
+        if (which == "given") {
+            push g.givens text
+            return
+        }
+        if (which == "when") {
+            push g.whens text
+            return
+        }
+        push g.thens text
+    }
+
+    ; Mermaid gives five kinds nine spellings, and the short one is the one
+    ; this reader keeps: a lane is chosen by the kind, so the spellings have to
+    ; collapse before anything is placed.
+    sfn kindOf:string (word:string) {
+        def w:string (MermaidReader.lower(word))
+        if (w == "ui")        { return "ui" }
+        if (w == "pcr")       { return "pcr" }
+        if (w == "processor") { return "pcr" }
+        if (w == "cmd")       { return "cmd" }
+        if (w == "command")   { return "cmd" }
+        if (w == "rmo")       { return "rmo" }
+        if (w == "readmodel") { return "rmo" }
+        if (w == "evt")       { return "evt" }
+        if (w == "event")     { return "evt" }
+        return "ui"
+    }
+
+    sfn indexOfText:int (text:string needle:string) {
+        def n:int (strlen needle)
+        def m:int (strlen text)
+        if (n == 0) {
+            return -1
+        }
+        def i:int 0
+        while ((i + n) <= m) {
+            def k:int 0
+            def hit:boolean true
+            while (k < n) {
+                if ((charAt text (i + k)) != (charAt needle k)) {
+                    hit = false
+                    k = n
+                }
+                k = (k + 1)
+            }
+            if hit {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+}
+
+; ============================================================================
+; MermaidEventModelFlow — the lanes, drawn.
+; ============================================================================
+class MermaidEventModelFlow {
+    Constructor () {
+    }
+
+    sfn gutter:double ()  { return 170.0 }
+    sfn columnWidth:double () { return 190.0 }
+    sfn laneHeight:double ()  { return 130.0 }
+    sfn boxWidth:double ()    { return 150.0 }
+    sfn boxHeight:double ()   { return 60.0 }
+
+    sfn build:FlowGraph (d:MermaidEventModel style:FlowStyle) {
+        def g (new FlowGraph)
+        if ((d.frameCount()) == 0) {
+            return g
+        }
+        def gutter:double (MermaidEventModelFlow.gutter())
+        def colW:double (MermaidEventModelFlow.columnWidth())
+        def laneH:double (MermaidEventModelFlow.laneHeight())
+        def bw:double (MermaidEventModelFlow.boxWidth())
+        def bh:double (MermaidEventModelFlow.boxHeight())
+        def cols:int (d.frameCount())
+        def plotW:double ((to_double cols) * colW)
+        ; The three lanes, always all three: a lane left out because nothing is
+        ; in it makes two models of the same system look like different shapes.
+        def lane:int 0
+        while (lane < 3) {
+            def y:double ((to_double lane) * laneH)
+            def band:FlowNode (FlowNode.create(("lane-" + (to_string lane)) "" gutter y))
+            band.nodeType = "group"
+            band.shape = "rect"
+            band.width = plotW
+            band.height = laneH
+            band.connectable = false
+            band.draggable = false
+            band.cssClass = ("mermaid eventmodel lane " + (MermaidEventModelFlow.laneClass(lane)))
+            band.bgColor = (MermaidEventModelFlow.laneColor(lane))
+            band.borderColor = "#dfe3ec"
+            band.syncFromModel()
+            g.addNode(band)
+            MermaidEventModelFlow.label(g (("lane-" + (to_string lane)) + "-name") (MermaidEventModel.laneName(lane)) 0.0 ((y + (laneH * 0.5)) - 14.0) (gutter - 14.0) 28.0 "mermaid eventmodel lanename axislabel")
+            lane = (lane + 1)
+        }
+        ; The frames, left to right in the order they were written.
+        def i:int 0
+        while (i < (d.frameCount())) {
+            def f:MermaidEmFrame (itemAt d.frames i)
+            f.column = i
+            def slot:int (MermaidEventModel.laneOf(f.kind))
+            def x:double ((gutter + ((to_double i) * colW)) + ((colW - bw) * 0.5))
+            def y:double ((((to_double slot) * laneH) + (laneH * 0.5)) - (bh * 0.5))
+            def box:FlowNode (FlowNode.create(("frame-" + f.name) f.entity x y))
+            box.nodeType = "step"
+            box.shape = "rect"
+            box.width = bw
+            box.height = bh
+            box.borderRadius = 4.0
+            box.cssClass = ("mermaid eventmodel " + f.kind)
+            box.addSideHandles()
+            box.syncFromModel()
+            g.addNode(box)
+            ; A reset frame is where the story starts again, and the notation
+            ; says so with a rule rather than with a different box.
+            if f.reset {
+                def rule:FlowNode (FlowNode.create(("reset-" + f.name) "" (gutter + ((to_double i) * colW)) 0.0))
+                rule.nodeType = "rule"
+                rule.shape = "rect"
+                rule.width = 2.0
+                rule.height = (laneH * 3.0)
+                rule.connectable = false
+                rule.draggable = false
+                rule.borderWidth = 0.0
+                rule.bgColor = "#b0688a"
+                rule.borderColor = "#b0688a"
+                rule.cssClass = "mermaid eventmodel resetframe"
+                rule.syncFromModel()
+                g.addNode(rule)
+            }
+            if ((strlen f.dataRef) > 0) {
+                MermaidEventModelFlow.label(g (("frame-" + f.name) + "-data") (("[[" + f.dataRef) + "]]") x ((y + bh) + 2.0) bw 22.0 "mermaid eventmodel dataref axislabel")
+            }
+            i = (i + 1)
+        }
+        ; What follows what. These are the only edges here, and they say the
+        ; one thing the columns do not: which frame caused which.
+        def k:int 0
+        while (k < (d.frameCount())) {
+            def f2:MermaidEmFrame (itemAt d.frames k)
+            def s:int 0
+            while (s < (array_length f2.sources)) {
+                def from:string (itemAt f2.sources s)
+                def fromId:string ("frame-" + from)
+                def toId:string ("frame-" + f2.name)
+                if (g.hasNode(fromId)) {
+                    def e:FlowEdge (FlowEdge.create(((("flow-" + from) + "-") + f2.name) fromId toId))
+                    e.edgeType = "smoothstep"
+                    e.markerEnd = "arrow"
+                    e.cssClass = "link follows"
+                    e.sourceHandle = 1
+                    e.targetHandle = 3
+                    g.addEdge(e)
+                }
+                s = (s + 1)
+            }
+            k = (k + 1)
+        }
+        ; Given / When / Then, under the frame it is about. It is a test of the
+        ; model rather than part of it, so it goes below the lanes.
+        def below:double (laneH * 3.0)
+        def q:int 0
+        while (q < (d.gwtCount())) {
+            def gw:MermaidEmGwt (itemAt d.gwts q)
+            def at:int (d.indexOfFrame(gw.frame))
+            def x2:double gutter
+            if (at >= 0) {
+                x2 = (gutter + ((to_double at) * colW))
+            }
+            def text:string (MermaidEventModelFlow.gwtText(gw))
+            def note:FlowNode (FlowNode.create(("gwt-" + (to_string q)) text (x2 + 8.0) (below + 20.0)))
+            note.nodeType = "note"
+            note.shape = "note"
+            note.width = (colW - 16.0)
+            note.height = 92.0
+            note.connectable = false
+            note.cssClass = "mermaid eventmodel gwt"
+            note.bgColor = "#fdf8e6"
+            note.borderColor = "#c9bd8e"
+            note.syncFromModel()
+            g.addNode(note)
+            q = (q + 1)
+        }
+        g.reindex()
+        def wrote:int (style.applyTo(g))
+        ; The lane bands behind everything, deepest last — `sendToBack` moves
+        ; to index 0, so the last call is the one at the bottom.
+        def b:int 2
+        while (b >= 0) {
+            g.sendToBack(("lane-" + (to_string b)))
+            b = (b - 1)
+        }
+        MermaidEventModelFlow.repaint(g d)
+        return g
+    }
+
+    sfn gwtText:string (gw:MermaidEmGwt) {
+        def nl:string (strfromcode 10)
+        def out:string ""
+        def i:int 0
+        while (i < (array_length gw.givens)) {
+            out = ((out + "given ") + (itemAt gw.givens i) + nl)
+            i = (i + 1)
+        }
+        def k:int 0
+        while (k < (array_length gw.whens)) {
+            out = ((out + "when ") + (itemAt gw.whens k) + nl)
+            k = (k + 1)
+        }
+        def n:int 0
+        while (n < (array_length gw.thens)) {
+            out = ((out + "then ") + (itemAt gw.thens n) + nl)
+            n = (n + 1)
+        }
+        return (trim out)
+    }
+
+    ; After the sheet: the kind of a frame is what its colour says, and the
+    ; theme's one node fill would draw a command and an event as the same
+    ; thing standing in different rows.
+    sfn repaint:void (g:FlowGraph d:MermaidEventModel) {
+        def i:int 0
+        while (i < (d.frameCount())) {
+            def f:MermaidEmFrame (itemAt d.frames i)
+            def id:string ("frame-" + f.name)
+            if (g.hasNode(id)) {
+                def n:FlowNode (g.nodeById(id))
+                n.bgColor = (MermaidEventModelFlow.fillFor(f.kind))
+                n.borderColor = (MermaidEventModelFlow.inkFor(f.kind))
+                n.syncFromModel()
+            }
+            i = (i + 1)
+        }
+        def lane:int 0
+        while (lane < 3) {
+            def id2:string ("lane-" + (to_string lane))
+            if (g.hasNode(id2)) {
+                def band:FlowNode (g.nodeById(id2))
+                band.bgColor = (MermaidEventModelFlow.laneColor(lane))
+                band.borderColor = "#dfe3ec"
+                band.syncFromModel()
+            }
+            lane = (lane + 1)
+        }
+    }
+
+    sfn label:void (g:FlowGraph id:string text:string x:double y:double w:double h:double cls:string) {
+        if ((strlen text) == 0) {
+            return
+        }
+        def n:FlowNode (FlowNode.create(id text x y))
+        n.nodeType = "axislabel"
+        n.shape = "rect"
+        n.width = w
+        n.height = h
+        n.connectable = false
+        n.draggable = false
+        n.cssClass = cls
+        n.syncFromModel()
+        g.addNode(n)
+    }
+
+    ; The colours event modelling has used since it was drawn on sticky notes:
+    ; blue for a command, orange for an event, green for a read model.
+    sfn fillFor:string (kind:string) {
+        if (kind == "cmd") { return "#bcd7f0" }
+        if (kind == "evt") { return "#f7d9a8" }
+        if (kind == "rmo") { return "#cfe8cf" }
+        if (kind == "pcr") { return "#e2dbf2" }
+        return "#f2f3f6"
+    }
+
+    sfn inkFor:string (kind:string) {
+        if (kind == "cmd") { return "#5b87b8" }
+        if (kind == "evt") { return "#c39247" }
+        if (kind == "rmo") { return "#77a877" }
+        if (kind == "pcr") { return "#8f83b8" }
+        return "#a8adba"
+    }
+
+    sfn laneClass:string (lane:int) {
+        if (lane == 0) { return "lane-ui" }
+        if (lane == 1) { return "lane-command" }
+        return "lane-events"
+    }
+
+    sfn laneColor:string (lane:int) {
+        if (lane == 1) { return "#f2f4fa" }
+        return "#f7f8fb"
+    }
+}

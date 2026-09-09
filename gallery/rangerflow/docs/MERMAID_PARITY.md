@@ -5,7 +5,7 @@
 > and asked what it understood. Nothing is transcribed, so nothing can be
 > transcribed wrong.
 
-Mermaid 11.17.2 · 51 diagrams · **232/232 checks agree (100%)**
+Mermaid 11.17.2 · 52 diagrams · **234/234 checks agree (100%)**
 
 | example | type | direction | nodes | labels | shapes | classes | edges | subgraphs |
 | --- | --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
@@ -60,6 +60,7 @@ Mermaid 11.17.2 · 51 diagrams · **232/232 checks agree (100%)**
 | `49_radar.mmd` | radar ✓ | — | — | — | — | — | — | — |
 | `50_treemap.mmd` | treemap ✓ | — | — | — | — | — | — | — |
 | `51_treeview.mmd` | treeview ✓ | — | — | — | — | — | — | — |
+| `52_eventmodel.mmd` | eventmodeling ✓ | — | — | — | — | — | — | — |
 
 ## Read anyway
 
@@ -72,7 +73,7 @@ every one of these is a file somebody wrote and Mermaid would not draw.
 ## Mermaid's diagram types
 
 Read off the installed Mermaid's own build rather than typed here, so a type
-added upstream appears the next time the harness is installed. 37 of the 38 are drawn;
+added upstream appears the next time the harness is installed. 38 of the 38 are drawn;
 the rest have to be **recognised and refused**, because a header this reader
 does not know falls through to the flowchart parser, and a Wardley map read as
 a flowchart is a page of invented boxes.
@@ -86,7 +87,7 @@ a flowchart is a page of invented boxes.
 | `classDiagram-v2` | **drawn** — read as `class` |
 | `cynefin-beta` | **drawn** — read as `cynefin` |
 | `erDiagram` | **drawn** — read as `er` |
-| `eventmodeling` | recognised as `eventmodeling`, read as nothing |
+| `eventmodeling` | **drawn** — read as `eventmodeling` |
 | `flowchart` | **drawn** — read as `flowchart` |
 | `flowchart-elk` | **drawn** — read as `flowchart` |
 | `gantt` | **drawn** — read as `gantt` |

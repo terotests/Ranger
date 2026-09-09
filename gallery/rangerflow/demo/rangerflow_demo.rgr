@@ -50,6 +50,7 @@ Import "../domains/mermaid/MermaidPacketReader.rgr"
 Import "../domains/mermaid/MermaidRadarReader.rgr"
 Import "../domains/mermaid/MermaidTreemapReader.rgr"
 Import "../domains/mermaid/MermaidTreeViewReader.rgr"
+Import "../domains/mermaid/MermaidEventModelReader.rgr"
 Import "../domains/mermaid/MermaidSankeyReader.rgr"
 Import "../domains/mermaid/MermaidBlockReader.rgr"
 Import "../domains/mermaid/MermaidArchReader.rgr"
@@ -567,6 +568,10 @@ class RangerFlowDemo {
             this.runMermaidRailroad(srcOpt styleName)
             return
         }
+        if (d.diagramKind == "eventmodeling") {
+            this.runMermaidEventModel(srcOpt styleName)
+            return
+        }
         if (d.diagramKind == "treeview") {
             this.runMermaidTreeView(srcOpt styleName)
             return
@@ -943,6 +948,23 @@ class RangerFlowDemo {
             title = "RangerFlow — Mermaid pie chart"
         }
         this.writeAll(v g "rangerflow-mermaid-pie" title)
+    }
+
+    ; An event model: time across the page, kind down it.
+    fn runMermaidEventModel:void (src:string styleName:string) {
+        def em:MermaidEventModel (MermaidEventModelReader.parse(src))
+        if ((em.frameCount()) == 0) {
+            print "  no time frames in that event model"
+            return
+        }
+        def style:FlowStyle (this.styleByName(styleName))
+        def g:FlowGraph (MermaidEventModelFlow.build(em style))
+        print ("  model  " + (to_string (em.frameCount())) + " frames, " + (to_string (em.declaredCount())) + " declared, " + (to_string (em.gwtCount())) + " given/when/then")
+        print ("  graph  " + (to_string (g.nodeCount())) + " nodes, " + (to_string (g.edgeCount())) + " edges")
+        def v:FlowView (FlowView.of(g))
+        v.notation = "plain"
+        style.applyToTheme(v.theme)
+        this.writeAll(v g "rangerflow-mermaid-eventmodel" "RangerFlow — Mermaid event model")
     }
 
     ; A tree view: the same hierarchy as an outline rather than by area.

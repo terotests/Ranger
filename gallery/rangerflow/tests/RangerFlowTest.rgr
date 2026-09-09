@@ -53,6 +53,7 @@ Import "../domains/mermaid/MermaidPacketReader.rgr"
 Import "../domains/mermaid/MermaidRadarReader.rgr"
 Import "../domains/mermaid/MermaidTreemapReader.rgr"
 Import "../domains/mermaid/MermaidTreeViewReader.rgr"
+Import "../domains/mermaid/MermaidEventModelReader.rgr"
 Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 
@@ -150,6 +151,7 @@ class RangerFlowTest {
         RangerFlowTest.testMermaidRadar(c)
         RangerFlowTest.testMermaidTreemap(c)
         RangerFlowTest.testMermaidTreeView(c)
+        RangerFlowTest.testMermaidEventModel(c)
         RangerFlowTest.testBusinessCharts(c)
         RangerFlowTest.testAuthoring(c)
         RangerFlowTest.testTreeLayouts(c)
@@ -4148,6 +4150,74 @@ class RangerFlowTest {
         def d2:MermaidDiagram (MermaidReader.parse("treeView-beta\n  a\n"))
         c.eqStr("as it is written, capital V and all" d2.diagramKind "treeview")
         c.ok("a tree view is one this library draws" (MermaidReader.draws("treeview")))
+    }
+
+    ; --------------------------------------------- Mermaid event model ----
+    ; Time across the page, kind down it. The lane a frame lands in is decided
+    ; by the word the author used and is not a choice: an event drawn in the
+    ; command lane is a different diagram. So that is what the assertions are
+    ; about, along with the nine spellings Mermaid gives five kinds.
+    sfn testMermaidEventModel:void (c:Checker) {
+        c.section("Mermaid event models")
+        def src:string "eventmodeling\n"
+        src = (src + "entity Order\n")
+        src = (src + "tf 1 ui OrderScreen\n")
+        src = (src + "tf 2 command PlaceOrder ->> 1\n")
+        src = (src + "tf 3 evt OrderPlaced ->> 2\n")
+        src = (src + "tf 4 readmodel OpenOrders ->> 3 [[OrderJson]]\n")
+        src = (src + "rf 5 ui Again ->> 4\n")
+        src = (src + "gwt 2\n")
+        src = (src + "given evt OrderPlaced\n")
+        src = (src + "when cmd PlaceOrder\n")
+        src = (src + "then evt OrderPlaced\n")
+
+        def d:MermaidEventModel (MermaidEventModelReader.parse(src))
+        c.eqInt("a frame per `tf` and per `rf`" (d.frameCount()) 5)
+        c.eqInt("and a declaration per `entity`" (d.declaredCount()) 1)
+        def f1:MermaidEmFrame (itemAt d.frames 0)
+        c.eqStr("the number is the frame's name" f1.name "1")
+        c.eqStr("and what follows the kind is the entity" f1.entity "OrderScreen")
+        ; Nine spellings, five kinds: the lane is chosen by the kind, so the
+        ; spellings have to collapse before anything is placed.
+        def f2:MermaidEmFrame (itemAt d.frames 1)
+        c.eqStr("`command` and `cmd` are one kind" f2.kind "cmd")
+        def f4:MermaidEmFrame (itemAt d.frames 3)
+        c.eqStr("so are `readmodel` and `rmo`" f4.kind "rmo")
+        c.eqStr("`[[…]]` points at a declared data block" f4.dataRef "OrderJson")
+        c.eqInt("`->>` says which frame this one follows" (array_length f2.sources) 1)
+        c.eqStr("by that frame's number" (itemAt f2.sources 0) "1")
+        def f5:MermaidEmFrame (itemAt d.frames 4)
+        c.ok("`rf` is a frame where the story starts again" f5.reset)
+        c.eqInt("the lanes are Mermaid's three" (MermaidEventModel.laneOf("ui")) 0)
+        c.eqInt("a command shares its lane with a read model" (MermaidEventModel.laneOf("cmd")) (MermaidEventModel.laneOf("rmo")))
+        c.ok("and an event has one of its own" ((MermaidEventModel.laneOf("evt")) != (MermaidEventModel.laneOf("cmd"))))
+        c.eqInt("a `gwt` per block" (d.gwtCount()) 1)
+        def gw:MermaidEmGwt (itemAt d.gwts 0)
+        c.eqStr("hung on the frame it names" gw.frame "2")
+        c.eqInt("with its givens" (array_length gw.givens) 1)
+        c.eqInt("its whens" (array_length gw.whens) 1)
+        c.eqInt("and its thens" (array_length gw.thens) 1)
+
+        def bare (new FlowStyle)
+        def g:FlowGraph (MermaidEventModelFlow.build(d bare))
+        def screen:FlowNode (g.nodeById("frame-1"))
+        def place:FlowNode (g.nodeById("frame-2"))
+        def placed:FlowNode (g.nodeById("frame-3"))
+        c.ok("the frames run left to right in the order written" (place.x > screen.x))
+        c.ok("a command stands below the screen that raised it" (place.y > screen.y))
+        c.ok("and an event below the command" (placed.y > place.y))
+        c.eqStr("a command is drawn in the colour event modelling gives it" place.bgColor (MermaidEventModelFlow.fillFor("cmd")))
+        c.ok("all three lanes are drawn, whether or not anything is in them" ((g.hasNode("lane-0")) && (g.hasNode("lane-2"))))
+        c.ok("each with its name beside it" (g.hasNode("lane-1-name")))
+        c.eqInt("an arrow per `->>`, and none besides" (g.edgeCount()) 4)
+        c.ok("a reset frame is marked with a rule" (g.hasNode("reset-5")))
+        c.ok("a data reference is written under its box" (g.hasNode("frame-4-data")))
+        c.ok("and the given/when/then goes below the lanes" (g.hasNode("gwt-0")))
+        ; Mermaid's own grammar rejects `title` in an event model, and a reader
+        ; that accepted one would take a file Mermaid will not take.
+        def titled:MermaidEventModel (MermaidEventModelReader.parse("eventmodeling\ntitle Nope\ntf 1 ui A\n"))
+        c.eqInt("a title is not part of this diagram" (titled.frameCount()) 1)
+        c.ok("an event model is one this library draws" (MermaidReader.draws("eventmodeling")))
     }
 
     ; The edge with a given id. `FlowGraph` indexes nodes by name and edges by

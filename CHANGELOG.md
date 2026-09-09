@@ -7,12 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- **Thirty-seven of Mermaid's thirty-eight header keywords are drawn.** The
-  matrix in `docs/MERMAID_PARITY.md` is read off Mermaid's own detector
-  registry. It used to say thirty of thirty, and both numbers were wrong.
+- **All thirty-eight of Mermaid's header keywords are drawn.** The matrix in
+  `docs/MERMAID_PARITY.md` is read off Mermaid's own detector registry — the
+  record its parser itself consults. It used to say thirty of thirty, and both
+  of those numbers were wrong.
 
 ### Added
 
+- **Mermaid event models.** Time across the page, kind down it: each `tf` is a
+  time frame and lands in the lane its kind belongs to, under the three names
+  Mermaid's own config gives them. The lane is not a choice — an event drawn in
+  the command lane is a different diagram — and the nine spellings Mermaid
+  gives five kinds collapse to five before anything is placed. `->>` is the
+  only edge on the page, `rf` marks where the story starts again, `[[Name]]`
+  points at a declared `data` block, and a `gwt` block is drawn below the lanes
+  because a test of the model is not part of it. There is no `title`: Mermaid's
+  own grammar rejects one here, and a reader that took a file Mermaid will not
+  take would be claiming a parity it does not have.
 - **Mermaid tree views.** The same hierarchy the treemap draws by area, drawn
   as an outline: one row per entry, indented under its parent, with elbow rules
   that say which row belongs to which. Indentation is the hierarchy, ` ::: name`
