@@ -729,7 +729,7 @@ class RangerFlowWeb {
         if ((d.nodeCount()) == 0) {
             status = "no nodes in that Mermaid source"
             if ((strlen d.diagramKind) > 0) {
-                status = ("a " + d.diagramKind + " diagram — this reads flowcharts and class diagrams")
+                status = ("a " + d.diagramKind + " diagram — recognised, but nothing here draws one yet")
             }
             return false
         }

@@ -186,8 +186,8 @@ What it drops on purpose: `click` (there is no browser to navigate),
 whole chart out one way. They are ignored rather than treated as errors, so a
 diagram that renders in Mermaid renders here too. The other diagrams Mermaid
 draws are recognised by their header and handed to the reader that knows them —
-or, where there is no such reader yet, read as **nothing**, because a git graph
-read as a flowchart would be a page of invented boxes.
+never to this one, because a git graph read as a flowchart would be a page of
+invented boxes.
 
 Where it differs: text is measured with a font table rather than in a browser,
 so a line can break one word apart from Mermaid's, and a double circle is drawn
@@ -195,10 +195,10 @@ as the UML final node, which is the same two rings.
 
 ### …and class diagrams
 
-Mermaid draws two dozen kinds of diagram and this reads two of them, because
-the second one was already here: a `classDiagram` is the UML model RangerFlow
-has had all along, so it is drawn with the same compartment node the schema
-editor uses — the hollow triangle at the supertype, the filled diamond at the
+Mermaid draws thirty kinds of diagram and this reads all of them. The second
+one was already here before the reading started: a `classDiagram` is the UML
+model RangerFlow has had all along, so it is drawn with the same compartment
+node the schema editor uses — the hollow triangle at the supertype, the filled diamond at the
 whole, the dashed line for a realization.
 
 ```mermaid
@@ -218,13 +218,15 @@ an attribute and `name(params) returnType` for an operation, `$` for static and
 cardinalities and their label, and the ornament goes on the end the syntax
 names — the class written FIRST is the one being pointed at.
 
-Everything else Mermaid draws — git graphs, architecture diagrams, the
-`-beta` charts — is recognised by its header and read as **nothing**, which is
-the only safe answer: a header this reader did not know would fall through to the flowchart
-parser and produce a page of invented boxes. The table of all thirty is in
+Everything else Mermaid draws — git graphs, architecture diagrams, the `-beta`
+charts — has a reader of its own further down this page. **All thirty of
+Mermaid's diagram types are drawn.** The table is in
 [`docs/MERMAID_PARITY.md`](docs/MERMAID_PARITY.md), and it is read off the
 installed Mermaid's own build rather than typed by hand, so a diagram type
-added upstream shows up as one nobody has taught this reader about.
+added upstream shows up as one nobody has taught this reader about — and a
+header this reader did not know would fall through to the flowchart parser and
+produce a page of invented boxes, which is the one failure a reader of somebody
+else's file must not have.
 
 ### …and ER diagrams
 

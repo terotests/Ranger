@@ -569,7 +569,7 @@ class RangerFlowDemo {
         }
         if ((strlen d.diagramKind) > 0) {
             if (d.diagramKind != "flowchart") {
-                print ("  this is a " + d.diagramKind + " diagram — this reads flowcharts and class diagrams")
+                print ("  this is a " + d.diagramKind + " diagram — recognised, but nothing here draws one yet")
                 return
             }
         }
