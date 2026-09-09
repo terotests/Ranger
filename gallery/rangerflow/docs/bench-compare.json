@@ -1,0 +1,126 @@
+{
+  "at": "2026-08-24T11:13:13.577Z",
+  "node": "v22.14.0",
+  "sizes": [
+    100,
+    500,
+    1000
+  ],
+  "rows": [
+    {
+      "n": 100,
+      "ranger": {
+        "engine": "rangerflow",
+        "nodes": 100,
+        "edges": 113,
+        "path_ms": 23.606689453125,
+        "path_cases": 64000,
+        "force_ms": 36.15576171875,
+        "force_ticks": 300,
+        "layered_ms": 1.898193359375,
+        "scene_fit_ms": 32.150390625,
+        "drawn_fit": 100,
+        "culled_fit": 0,
+        "scene_zoom_ms": 10.0224609375,
+        "drawn_zoom": 15,
+        "culled_zoom": 85,
+        "display_list_ms": 22.6357421875,
+        "display_list_bytes": 353345,
+        "drag_60_ms": 250.558837890625,
+        "drag_ms_per_frame": 4.175980631510416
+      },
+      "react": {
+        "engine": "reactflow",
+        "source": "@xyflow/system + d3-force",
+        "nodes": 100,
+        "edges": 113,
+        "path_ms": 46.985776,
+        "path_cases": 64000,
+        "force_ms": 58.017076,
+        "force_ticks": 300,
+        "viewport_ms": 50.02744099999998,
+        "viewport_iters": 444000,
+        "scene_fit_ms": null,
+        "drag_ms_per_frame": null,
+        "note": "scene/drag require the browser half (browser/)"
+      }
+    },
+    {
+      "n": 500,
+      "ranger": {
+        "engine": "rangerflow",
+        "nodes": 500,
+        "edges": 570,
+        "path_ms": 21.362548828125,
+        "path_cases": 64000,
+        "force_ms": 205.335693359375,
+        "force_ticks": 300,
+        "layered_ms": 6.241943359375,
+        "scene_fit_ms": 86.515625,
+        "drawn_fit": 355,
+        "culled_fit": 145,
+        "scene_zoom_ms": 108.092529296875,
+        "drawn_zoom": 0,
+        "culled_zoom": 500,
+        "display_list_ms": 37.685302734375,
+        "display_list_bytes": 1559671,
+        "drag_60_ms": 5655.017578125,
+        "drag_ms_per_frame": 94.25029296875
+      },
+      "react": {
+        "engine": "reactflow",
+        "source": "@xyflow/system + d3-force",
+        "nodes": 500,
+        "edges": 570,
+        "path_ms": 46.551731000000004,
+        "path_cases": 64000,
+        "force_ms": 366.55977399999995,
+        "force_ticks": 300,
+        "viewport_ms": 50.06803000000002,
+        "viewport_iters": 654000,
+        "scene_fit_ms": null,
+        "drag_ms_per_frame": null,
+        "note": "scene/drag require the browser half (browser/)"
+      }
+    },
+    {
+      "n": 1000,
+      "ranger": {
+        "engine": "rangerflow",
+        "nodes": 1000,
+        "edges": 1141,
+        "path_ms": 23.598876953125,
+        "path_cases": 64000,
+        "force_ms": 430.593505859375,
+        "force_ticks": 300,
+        "layered_ms": 10.61279296875,
+        "scene_fit_ms": 347.666748046875,
+        "drawn_fit": 459,
+        "culled_fit": 541,
+        "scene_zoom_ms": 415.796875,
+        "drawn_zoom": 0,
+        "culled_zoom": 1000,
+        "display_list_ms": 142.466796875,
+        "display_list_bytes": 4815106,
+        "drag_60_ms": 26383.7294921875,
+        "drag_ms_per_frame": 439.72882486979165
+      },
+      "react": {
+        "engine": "reactflow",
+        "source": "@xyflow/system + d3-force",
+        "nodes": 1000,
+        "edges": 1141,
+        "path_ms": 48.688120999999995,
+        "path_cases": 64000,
+        "force_ms": 781.247391,
+        "force_ticks": 300,
+        "viewport_ms": 50.04451300000005,
+        "viewport_iters": 603000,
+        "scene_fit_ms": null,
+        "drag_ms_per_frame": null,
+        "note": "scene/drag require the browser half (browser/)"
+      }
+    }
+  ],
+  "browser": null
+}

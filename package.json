@@ -287,6 +287,7 @@
     "rangerflow:org": "npm run rangerflow:build && node ./gallery/rangerflow/bin/rangerflow_demo.js --org",
     "rangerflow:process": "npm run rangerflow:build && node ./gallery/rangerflow/bin/rangerflow_demo.js --process",
     "rangerflow:bench": "npm run rangerflow:build && node ./gallery/rangerflow/bin/rangerflow_demo.js --bench",
+    "rangerflow:bench:compare": "node gallery/rangerflow/bench/compare/run.mjs",
     "rangerflow:sdl": "bash gallery/rangerflow/platform/sdl/build.sh",
     "rangerflow:sdl:run": "bash gallery/rangerflow/platform/sdl/build.sh --run gallery/rangerflow/fixtures/ecommerce.sql",
     "rangerflow:sdl:smoke": "bash gallery/rangerflow/platform/sdl/build.sh && SDL_VIDEODRIVER=dummy ./tmp/rangerflow-sdl/rangerflow_sdl gallery/rangerflow/fixtures/ecommerce.sql 30",

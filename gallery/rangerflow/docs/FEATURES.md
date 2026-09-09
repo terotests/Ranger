@@ -166,17 +166,24 @@ Status keys: **✓** done · **~** partial · **·** not yet.
 
 ## Performance
 
-`npm run rangerflow:bench -- N`. Node 22, this container, single core.
+`npm run rangerflow:bench -- N` for Ranger alone;
+`npm run rangerflow:bench:compare` for the same numbers next to React Flow's
+stack (`@xyflow/system` + `d3-force`) on the **same** graph. Full tables:
+[`docs/BENCH.md`](BENCH.md).
+
+Node 22, this container, single core — latest compare run:
 
 | | 100 nodes | 500 nodes | 1000 nodes |
 | --- | --- | --- | --- |
-| force layout, 300 ticks | 57 ms | 265 ms | 570 ms |
-| layered layout | 2 ms | 7 ms | 14 ms |
-| scene build (fit) | 4 ms | 13 ms | 18 ms |
-| node drag, per frame | 1.8 ms | 3.1 ms | 8.1 ms |
+| edge paths ×64k — RangerFlow | 23 ms | 21 ms | 23 ms |
+| edge paths ×64k — `@xyflow/system` | 47 ms | 47 ms | 49 ms |
+| force 300 ticks — RangerFlow | 36 ms | 205 ms | 431 ms |
+| force 300 ticks — `d3-force` | 58 ms | 367 ms | 781 ms |
+| layered layout | 2 ms | 6 ms | 11 ms |
+| scene build (fit) | 32 ms | 87 ms | 348 ms |
+| node drag, per frame | 4.2 ms | 94 ms | 440 ms |
 
-Numbers are from this machine and are meant for tracking regressions, not for
-comparing against a browser on someone else's laptop. What they are here to
-show is the shape: layered layout and scene building are linear, the force
-layout is `n log n` per tick, and a drag stays inside a frame budget well past
-the size where a DOM-based editor stops being comfortable.
+Path generation is about **2×** React Flow's; force layout about **1.7–1.8×**.
+Scene and drag are the canvas path (EVG display list) — React Flow's equivalent
+is DOM reconciliation and is not timed in Node. Behavioural parity against
+React Flow remains **98.6%** (`npm run rangerflow:parity`).

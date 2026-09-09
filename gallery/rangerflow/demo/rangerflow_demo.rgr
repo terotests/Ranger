@@ -8,6 +8,9 @@
 ;   npm run rangerflow:demo -- --uml        the UML class diagram instead
 ;   npm run rangerflow:demo -- --force      the React Flow force-layout parity
 ;   npm run rangerflow:demo -- --bench 500  layout + scene timings at a size
+;   npm run rangerflow:demo -- --bench 500 --json
+;                                           same, and write machine-readable
+;                                           timings for tools/bench_compare.mjs
 ;   npm run rangerflow:demo -- --flowchart  an ATK flowchart in ISO 5807 shapes
 ;   npm run rangerflow:demo -- --org        an organisation chart
 ;   npm run rangerflow:demo -- --process    a swimlane process
@@ -20,6 +23,7 @@
 
 Import "../export/FlowExport.rgr"
 Import "../core/FlowEditor.rgr"
+Import "../core/EdgeRouter.rgr"
 Import "../domains/erd/SqlSchemaReader.rgr"
 Import "../domains/erd/SchemaToGraph.rgr"
 Import "../domains/uml/UMLModel.rgr"
@@ -33,6 +37,7 @@ Import "../layout/ForceLayout.rgr"
 class RangerFlowDemo {
     def outDir:string "gallery/rangerflow/out"
     def fontsDir:string "gallery/pdf_writer/assets/fonts"
+    def benchJson:boolean false
 
     Constructor () {
     }
@@ -52,11 +57,16 @@ class RangerFlowDemo {
             if (a == "--flowchart") { mode = "flowchart" }
             if (a == "--org")       { mode = "org" }
             if (a == "--process")   { mode = "process" }
+            if (a == "--json")  { d.benchJson = true }
             if (a == "--bench") {
                 mode = "bench"
                 if ((i + 1) < argCount) {
                     def raw:string (shell_arg (i + 1))
-                    benchSize = (?? (str2int raw) 0)
+                    if ((strlen raw) > 0) {
+                        if ((charAt raw 0) != 45) {
+                            benchSize = (?? (str2int raw) 0)
+                        }
+                    }
                 }
             }
             i = (i + 1)
@@ -185,6 +195,10 @@ class RangerFlowDemo {
     }
 
     ; ------------------------------------------------------------- bench ----
+    ; The numbers React Flow's own stack can answer in Node too — path maths,
+    ; force layout, viewport — plus the scene/drag budget that only this
+    ; canvas path has. `--json` writes the same timings for
+    ; `tools/bench_compare.mjs` so they sit next to `@xyflow/system` + d3-force.
     fn runBench:void (size:int) {
         def n:int size
         if (n <= 0) {
@@ -209,7 +223,22 @@ class RangerFlowDemo {
             }
             k = (k + 1)
         }
-        print ("  " + (to_string (g.nodeCount())) + " nodes, " + (to_string (g.edgeCount())) + " edges")
+        def edgeN:int (g.edgeCount())
+        print ("  " + (to_string (g.nodeCount())) + " nodes, " + (to_string edgeN) + " edges")
+
+        ; Path maths — the same 320 cases the parity oracle asks React Flow,
+        ; repeated so a millisecond is measurable.
+        def pathIters:int 200
+        def tPath0:double (wall_clock_ms)
+        def pi:int 0
+        while (pi < pathIters) {
+            this.benchPathsOnce()
+            pi = (pi + 1)
+        }
+        def tPath1:double (wall_clock_ms)
+        def pathMs:double (tPath1 - tPath0)
+        def pathCases:int (320 * pathIters)
+        print ("  edge paths    " + (to_string (to_int pathMs)) + " ms (" + (to_string pathCases) + " paths)")
 
         def t0:double (wall_clock_ms)
         def sim:FlowSimulation (FlowSimulation.of(g))
@@ -220,13 +249,15 @@ class RangerFlowDemo {
         sim.initialize()
         def ticks:int (sim.run(300))
         def t1:double (wall_clock_ms)
-        print ("  force layout  " + (to_string (to_int (t1 - t0))) + " ms (" + (to_string ticks) + " ticks)")
+        def forceMs:double (t1 - t0)
+        print ("  force layout  " + (to_string (to_int forceMs)) + " ms (" + (to_string ticks) + " ticks)")
 
         def t2:double (wall_clock_ms)
         def lay:LayeredLayout (LayeredLayout.of(g))
         lay.run()
         def t3:double (wall_clock_ms)
-        print ("  layered layout " + (to_string (to_int (t3 - t2))) + " ms (" + (to_string (lay.layerCount())) + " layers)")
+        def layeredMs:double (t3 - t2)
+        print ("  layered layout " + (to_string (to_int layeredMs)) + " ms (" + (to_string (lay.layerCount())) + " layers)")
 
         def v:FlowView (FlowView.of(g))
         v.width = 1600.0
@@ -236,7 +267,10 @@ class RangerFlowDemo {
         def t4:double (wall_clock_ms)
         def sc:FlowScene (v.build())
         def t5:double (wall_clock_ms)
-        print ("  scene (fit)    " + (to_string (to_int (t5 - t4))) + " ms, " + (to_string (sc.count())) + " items, " + (to_string v.drawnNodes) + " drawn / " + (to_string v.culledNodes) + " culled")
+        def sceneFitMs:double (t5 - t4)
+        def drawnFit:int v.drawnNodes
+        def culledFit:int v.culledNodes
+        print ("  scene (fit)    " + (to_string (to_int sceneFitMs)) + " ms, " + (to_string (sc.count())) + " items, " + (to_string drawnFit) + " drawn / " + (to_string culledFit) + " culled")
 
         ; Zoomed in, which is where culling earns its keep.
         v.viewport.zoom = 1.0
@@ -245,12 +279,17 @@ class RangerFlowDemo {
         def t6:double (wall_clock_ms)
         def sc2:FlowScene (v.build())
         def t7:double (wall_clock_ms)
-        print ("  scene (1:1)    " + (to_string (to_int (t7 - t6))) + " ms, " + (to_string (sc2.count())) + " items, " + (to_string v.drawnNodes) + " drawn / " + (to_string v.culledNodes) + " culled")
+        def sceneZoomMs:double (t7 - t6)
+        def drawnZoom:int v.drawnNodes
+        def culledZoom:int v.culledNodes
+        print ("  scene (1:1)    " + (to_string (to_int sceneZoomMs)) + " ms, " + (to_string (sc2.count())) + " items, " + (to_string drawnZoom) + " drawn / " + (to_string culledZoom) + " culled")
 
         def t8:double (wall_clock_ms)
         def json:string (sc2.sceneJson(1600.0 900.0))
         def t9:double (wall_clock_ms)
-        print ("  display list   " + (to_string (to_int (t9 - t8))) + " ms, " + (to_string (strlen json)) + " bytes of JSON")
+        def jsonMs:double (t9 - t8)
+        def jsonBytes:int (strlen json)
+        print ("  display list   " + (to_string (to_int jsonMs)) + " ms, " + (to_string jsonBytes) + " bytes of JSON")
 
         ; A drag is a scene rebuild per frame; this is the latency budget.
         def ed:FlowEditor (FlowEditor.of(g))
@@ -270,8 +309,77 @@ class RangerFlowDemo {
         }
         ed.pointerUp(inp)
         def t11:double (wall_clock_ms)
-        def per:double ((t11 - t10) / 60.0)
-        print ("  drag 60 frames " + (to_string (to_int (t11 - t10))) + " ms (" + (to_string per) + " ms/frame)")
+        def dragMs:double (t11 - t10)
+        def per:double (dragMs / 60.0)
+        print ("  drag 60 frames " + (to_string (to_int dragMs)) + " ms (" + (to_string per) + " ms/frame)")
+
+        if benchJson {
+            this.writeBenchJson(n edgeN pathMs pathCases forceMs ticks layeredMs sceneFitMs drawnFit culledFit sceneZoomMs drawnZoom culledZoom jsonMs jsonBytes dragMs per)
+        }
+    }
+
+    ; The parity oracle's 320 edge cases, once — four kinds × 4×4 sides × 5 offsets.
+    fn benchPathsOnce:void () {
+        def sx:double 150.0
+        def sy:double 120.0
+        def ox:[double]
+        def oy:[double]
+        push ox 250.0
+        push oy 200.0
+        push ox -250.0
+        push oy 200.0
+        push ox 250.0
+        push oy -200.0
+        push ox -40.0
+        push oy 20.0
+        push ox 0.0
+        push oy 300.0
+        def s:int 0
+        while (s < 4) {
+            def t:int 0
+            while (t < 4) {
+                def i:int 0
+                while (i < 5) {
+                    def tx:double (sx + (itemAt ox i))
+                    def ty:double (sy + (itemAt oy i))
+                    EdgeRouter.bezier(sx sy s tx ty t 0.25)
+                    EdgeRouter.straight(sx sy tx ty)
+                    EdgeRouter.step(sx sy s tx ty t 20.0)
+                    EdgeRouter.smoothStep(sx sy s tx ty t 20.0 5.0)
+                    i = (i + 1)
+                }
+                t = (t + 1)
+            }
+            s = (s + 1)
+        }
+    }
+
+    fn writeBenchJson:void (n:int edges:int pathMs:double pathCases:int forceMs:double ticks:int layeredMs:double sceneFitMs:double drawnFit:int culledFit:int sceneZoomMs:double drawnZoom:int culledZoom:int jsonMs:double jsonBytes:int dragMs:double dragPer:double) {
+        if ((dir_exists outDir) == false) {
+            create_dir outDir
+        }
+        def body:string "{"
+        body = (body + "\"engine\":\"rangerflow\",")
+        body = (body + "\"nodes\":" + (to_string n) + ",")
+        body = (body + "\"edges\":" + (to_string edges) + ",")
+        body = (body + "\"path_ms\":" + (to_string pathMs) + ",")
+        body = (body + "\"path_cases\":" + (to_string pathCases) + ",")
+        body = (body + "\"force_ms\":" + (to_string forceMs) + ",")
+        body = (body + "\"force_ticks\":" + (to_string ticks) + ",")
+        body = (body + "\"layered_ms\":" + (to_string layeredMs) + ",")
+        body = (body + "\"scene_fit_ms\":" + (to_string sceneFitMs) + ",")
+        body = (body + "\"drawn_fit\":" + (to_string drawnFit) + ",")
+        body = (body + "\"culled_fit\":" + (to_string culledFit) + ",")
+        body = (body + "\"scene_zoom_ms\":" + (to_string sceneZoomMs) + ",")
+        body = (body + "\"drawn_zoom\":" + (to_string drawnZoom) + ",")
+        body = (body + "\"culled_zoom\":" + (to_string culledZoom) + ",")
+        body = (body + "\"display_list_ms\":" + (to_string jsonMs) + ",")
+        body = (body + "\"display_list_bytes\":" + (to_string jsonBytes) + ",")
+        body = (body + "\"drag_60_ms\":" + (to_string dragMs) + ",")
+        body = (body + "\"drag_ms_per_frame\":" + (to_string dragPer))
+        body = (body + "}")
+        write_file outDir "bench-rangerflow.json" body
+        print ("  wrote " + outDir + "/bench-rangerflow.json")
     }
 
     ; Channel routing, with the number that says whether it worked. Two edge
