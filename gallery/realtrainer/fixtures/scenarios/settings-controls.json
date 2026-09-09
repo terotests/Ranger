@@ -1,0 +1,21 @@
+{
+  "_": "The settings page's own controls, which nothing has ever pressed. `more-sheet` walks its seventy-nine stops and stops there; this presses the three that open something — the AI instruction sets, a calendar in the visibility list and the theme builder. The three suggestion buttons under Ehdotuksia are NOT pressed: opening the instruction sets takes them off the page, and a step that finds nothing to click measures nothing. Recorded so what each one opens is on file rather than guessed at.",
+  "id": "settings-controls",
+  "area": "asetukset",
+  "machine": "",
+  "reference": {
+    "route": "/calendar/cal-train?week=2026-02-09"
+  },
+  "setup": [
+    { "page": "390x844" },
+    { "route": "/calendar/cal-train?week=2026-02-09" }
+  ],
+  "steps": [
+    { "tick": 500 },
+    { "id": "rt-nav-more", "role": "button", "name": "Lisää" },
+    { "id": "rt-more-settings", "role": "button", "name": "Asetukset" },
+    { "id": "rt-set-general", "role": "button", "name": "Yleiset ohjeet (0 aktiivista)" },
+    { "id": "rt-set-kind-3", "role": "button", "name": "Unipäiväkirja", "nth": 0, "why": "the FIRST button named Unipäiväkirja is the one in the AI-ohjeet block, not the one in the visibility list further down — the ten calendar types are named twice on this page" },
+    { "id": "rt-set-own-theme", "role": "button", "name": "Luo oma teema", "why": "LAST: the reference opens a builder over the page" }
+  ]
+}

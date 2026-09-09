@@ -1012,6 +1012,20 @@ class RealTrainerDemo {
     ; or the AI instructions. One at a time, as the original has them.
     ; Which drill's history is open, or -1. `ExerciseStatsModal` on the
     ; reference; a strip above the tabs here, where the reference puts it.
+    ; Which AI instruction set is open on the settings page — "global", or
+    ; "kind-<n>" for one of the ten calendar types, or "" for none. The
+    ; general one is open when the page is, which is where the reference
+    ; leaves it.
+    def setHintSet@(mutable):string "global"
+    ; The theme editor, over the settings page.
+    def themeEditor@(mutable):boolean false
+    def teditName:InputCtl (new InputCtl())
+    def themeBase:SelectCtl (new SelectCtl())
+    def themeMode:SelectCtl (new SelectCtl())
+    def themeGroup:SelectCtl (new SelectCtl())
+    def themeFont:SelectCtl (new SelectCtl())
+    def themeAlign:SelectCtl (new SelectCtl())
+    def themeCase:SelectCtl (new SelectCtl())
     def drillCard@(mutable):int (0 - 1)
     ; Which card's notes are open, or -1. "Muistiinpanot" on a diary card is
     ; not a panel on the card: it opens a page over the feed.
@@ -1239,6 +1253,39 @@ class RealTrainerDemo {
         setHintField.tid = "rt-set-hint"
         setHintField.placeholder = "Lisää uusi ohje..."
         setHintField.name = setHintField.placeholder
+        teditName.tid = "rt-tedit-name"
+        teditName.name = "Teeman nimi"
+        themeBase.tid = "rt-tedit-base"
+        themeBase.name = "Pohjateema"
+        themeBase.addItem("night" "Grafiitti" false)
+        themeBase.addItem("ocean" "Ocean" false)
+        themeBase.addItem("forest" "Forest" false)
+        themeBase.addItem("violet" "Violet" false)
+        themeBase.value = "Grafiitti"
+        themeMode.tid = "rt-tedit-mode"
+        themeMode.name = "Väritilan paletti Tämä paletti päivittyy juuri nyt näkyvään käyttöliittymään."
+        themeMode.addItem("light" "Vaalea" false)
+        themeMode.addItem("dark" "Tumma" false)
+        themeMode.value = "Tumma"
+        themeGroup.tid = "rt-tedit-group"
+        themeGroup.name = "Muokattava ryhmä"
+        themeGroup.addItem("title" "Otsikko" false)
+        themeGroup.addItem("body" "Leipäteksti" false)
+        themeGroup.value = "Otsikko"
+        themeFont.tid = "rt-tedit-font"
+        themeFont.name = "Otsikon fontti"
+        themeFont.addItem("inter" "Inter" false)
+        themeFont.value = "Inter"
+        themeAlign.tid = "rt-tedit-align"
+        themeAlign.name = "Otsikon tasaus"
+        themeAlign.addItem("center" "Keskitetty" false)
+        themeAlign.addItem("left" "Vasemmalta" false)
+        themeAlign.value = "Keskitetty"
+        themeCase.tid = "rt-tedit-case"
+        themeCase.name = "Otsikon kirjainmuoto"
+        themeCase.addItem("upper" "Versaalit" false)
+        themeCase.addItem("normal" "Normaali kirjainkoko" false)
+        themeCase.value = "Versaalit"
         noteDate.tid = "rt-notes-date"
         noteTitle.tid = "rt-notes-title"
         noteTitle.placeholder = "Uuden videon otsikko"
@@ -3533,15 +3580,15 @@ class RealTrainerDemo {
         col.addChild((tree Rt (SetNote "Tee ehdotukset")))
         col.addChild((tree Rt (SetNote "Anna AI:n analysoida vuosisuunnitelmasi, päiväkirjasi ja profiilisi.")))
         col.addChild((this.setBtn("rt-set-suggest" "Tee ehdotukset")))
+        ; ONE SET OF INSTRUCTIONS IS OPEN AT A TIME, and its suggestions
+        ; open UNDER THE BUTTON that opened it — the general ones under
+        ; "Yleiset ohjeet", a calendar type's under its own name in the list
+        ; below. The general set is open when the page is. See
+        ; `traces/reference/settings-controls.json`.
         col.addChild((this.setBtn("rt-set-general" "Yleiset ohjeet (0 aktiivista)")))
-        col.addChild((tree Rt (SetNote "Ehdotuksia:")))
-        col.addChild((this.setBtn("rt-set-hint-fi" "+ Kommunikoi suomeksi")))
-        col.addChild((this.setBtn("rt-set-hint-kind" "+ Ole kannustava ja positiivinen")))
-        col.addChild((this.setBtn("rt-set-hint-concrete" "+ Anna konkreettisia parannusehdotuksia")))
-        col.addChild((this.fieldBox(setHintField)))
-        def addHint (this.iconBtn("rt-set-hint-add" "" (RtIcons.plus("#999999"))))
-        addHint.a11yDisabled = true
-        col.addChild(addHint)
+        if (setHintSet == "global") {
+            this.hintBlock(col "global")
+        }
         col.addChild((tree Rt (SetNote "Kalenterityyppikohtaiset ohjeet")))
         def kinds:[string]
         push kinds "Harjoituspäiväkirja"
@@ -3556,6 +3603,9 @@ class RealTrainerDemo {
         push kinds "Testauspöytäkirja"
         for kinds kn:string ki {
             col.addChild((this.setBtn(("rt-set-kind-" + (to_string ki)) kn)))
+            if (setHintSet == ("kind-" + (to_string ki))) {
+                this.hintBlock(col (RealTrainerDemo.hintKindOf(ki)))
+            }
         }
         col.addChild((this.setBtn("rt-set-save-hints" "Tallenna ohjeet")))
 
@@ -3625,6 +3675,9 @@ class RealTrainerDemo {
         col.addChild((tree Rt (SetSub "Lakiasiat")))
         col.addChild((this.setLink("rt-set-terms" "Käyttöehdot Palvelun käyttöehdot")))
         col.addChild((this.setLink("rt-set-privacy" "Tietosuojaseloste Rekisteriseloste ja tietosuojakäytäntö")))
+        if themeEditor {
+            this.themeEditorPanel(col)
+        }
         body.addChild(col)
     }
 
@@ -3635,6 +3688,103 @@ class RealTrainerDemo {
         if (name == "violet") { return "Violet" }
         if (name == "sunrise") { return "Sunrise" }
         return "Grafiitti"
+    }
+
+    ; The suggestions for one instruction set, the box to add one of your own,
+    ; and the add button — disabled until something is typed, as the
+    ; original's is. A type with no suggestions of its own gets the box and
+    ; nothing above it, which is what the reference shows for Kilpailut and
+    ; the five after it.
+    fn hintBlock:void (col:EVGElement key:string) {
+        col.addChild((tree Rt (SetNote "Ehdotuksia:")))
+        def said:[string] (RealTrainerDemo.hintsFor(key))
+        for said h:string i {
+            col.addChild((this.setBtn((("rt-set-hint-" + key) + ("-" + (to_string i))) ("+ " + h))))
+        }
+        col.addChild((this.fieldBox(setHintField)))
+        def addHint (this.iconBtn("rt-set-hint-add" "" (RtIcons.plus("#999999"))))
+        addHint.a11yDisabled = true
+        col.addChild(addHint)
+    }
+
+    ; `settings.aiContext.suggestions` — the five families the original has,
+    ; word for word. The ten calendar types map onto them, and the six with
+    ; no family of their own get nothing.
+    sfn hintKindOf:string (i:int) {
+        if (i == 0) { return "training" }
+        if (i == 1) { return "plan" }
+        if (i == 2) { return "nutrition" }
+        if (i == 3) { return "sleep" }
+        return ""
+    }
+
+    sfn hintsFor:[string] (key:string) {
+        def out:[string]
+        if (key == "global") {
+            push out "Kommunikoi suomeksi"
+            push out "Ole kannustava ja positiivinen"
+            push out "Anna konkreettisia parannusehdotuksia"
+        }
+        if (key == "training") {
+            push out "Laske RM1 arvio voimaharjoituksille"
+            push out "Arvioi maratonaika pitkän juoksun perusteella"
+            push out "Arvioi RPE jos en ole sitä maininnut"
+            push out "Laske TRIMP kuormitusindeksi"
+        }
+        if (key == "plan") {
+            push out "Huomioi progressiivinen kuormitus 10%/viikko"
+            push out "Lisää lepoviikko 3-4 viikon välein"
+            push out "Huomioi kilpailukalenteri suunnittelussa"
+        }
+        if (key == "nutrition") {
+            push out "Laske proteiini g/kg, tavoite 2g/kg"
+            push out "Arvioi kokonaiskalorit"
+            push out "Huomioi vegaaniruokavalio"
+        }
+        if (key == "sleep") {
+            push out "Tavoite: 8h unta yössä"
+            push out "Arvioi unen laatu 1-10"
+        }
+        return out
+    }
+
+    ; THE THEME EDITOR, over the settings page and at the end of it, which is
+    ; where the reference puts it. Nothing here changes a colour: the palettes
+    ; this port has are the stylesheet's, and a theme built here would have
+    ; nowhere to live. It is drawn because a button that opens nothing is a
+    ; button that lies. See `traces/reference/settings-controls.json`.
+    fn themeEditorPanel:void (col:EVGElement) {
+        col.addChild((tree Rt (SetNote "Teemaeditori")))
+        col.addChild((tree Rt (SetHd (props (id "rt-tedit-hd")) "Luo oma teema")))
+        col.addChild((tree Rt (SetNote "Valmisteemat pysyvät ennallaan. Luo yksi oma teema valitun pohjateeman päälle ja säädä värit ja typografia.")))
+        col.addChild((this.setBtn("rt-tedit-close" "Sulje")))
+        col.addChild((tree Rt (SetNote "Oman teeman perusasetukset Teeman nimi")))
+        col.addChild((this.fieldBox(teditName)))
+        col.addChild((tree Rt (SetNote "Pohjateema")))
+        col.addChild((this.setSelect(themeBase)))
+        col.addChild((tree Rt (SetNote "Väritilan paletti")))
+        col.addChild((this.setSelect(themeMode)))
+        col.addChild((tree Rt (SetNote "Tämä paletti päivittyy juuri nyt näkyvään käyttöliittymään. Korosteväri #FF6B35")))
+        col.addChild((tree Rt (SetNote "Tausta #121212")))
+        col.addChild((tree Rt (SetNote "Paneeli #1C1C1C")))
+        col.addChild((tree Rt (SetNote "Blogin typografia Muokattava ryhmä")))
+        col.addChild((this.setSelect(themeGroup)))
+        col.addChild((tree Rt (SetNote "Otsikon fontti")))
+        col.addChild((this.setSelect(themeFont)))
+        col.addChild((tree Rt (SetNote "Otsikon tasaus")))
+        col.addChild((this.setSelect(themeAlign)))
+        col.addChild((tree Rt (SetNote "Otsikon koko 1.50rem")))
+        col.addChild((tree Rt (SetNote "Merkkiväli 0.30em")))
+        col.addChild((tree Rt (SetNote "Riviväli 1.05")))
+        col.addChild((tree Rt (SetNote "Otsikon rivittymisen leveys 26ch")))
+        col.addChild((tree Rt (SetNote "Otsikon kirjainmuoto")))
+        col.addChild((this.setSelect(themeCase)))
+        col.addChild((tree Rt (SetNote "Vinkit Muutokset päivittyvät näkyvään käyttöliittymään livenä niin kauan kuin ikkuna on auki.")))
+        col.addChild((this.setBtn("rt-tedit-reset" "Palauta teema")))
+        col.addChild((this.setBtn("rt-tedit-cancel" "Peruuta")))
+        def make (this.setBtn("rt-tedit-create" "Luo oma teema"))
+        make.a11yDisabled = true
+        col.addChild(make)
     }
 
     fn setBtn:EVGElement (id:string label:string) {
@@ -8262,6 +8412,24 @@ class RealTrainerDemo {
         if (id == "rt-theme-forest") { return (this.setPalette("forest")) }
         if (id == "rt-theme-violet") { return (this.setPalette("violet")) }
         if (id == "rt-theme-sunrise") { return (this.setPalette("sunrise")) }
+        ; The AI instruction sets, and the theme editor — buttons the settings
+        ; page drew and answered nothing for. See `settingsSection`.
+        if (id == "rt-set-general") {
+            setHintSet = (RealTrainerDemo.togglePanel(setHintSet "global"))
+            return true
+        }
+        if (RtEntry.hasPrefix(id "rt-set-kind-")) {
+            setHintSet = (RealTrainerDemo.togglePanel(setHintSet ("kind-" + (substring id 12 (strlen id)))))
+            return true
+        }
+        if (id == "rt-set-own-theme") {
+            themeEditor = true
+            return true
+        }
+        if ((id == "rt-tedit-close") || (id == "rt-tedit-cancel")) {
+            themeEditor = false
+            return true
+        }
         if (id == "rt-nav-more") {
             moreOpen = true
             return true
@@ -8382,6 +8550,7 @@ class RealTrainerDemo {
         push a setMailField
         push a setNickField
         push a setHintField
+        push a teditName
         push a noteDate
         push a noteTitle
         push a noteUrl
