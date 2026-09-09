@@ -1,0 +1,48 @@
+{
+  "_": "The two card buttons `home-entry` leaves alone. \"Lisää\" turns out not to be an add at all: on the reference it opens the card's ACTION MENU — Muokkaa AI:lla, Kopioi kuvana, Poista — and \"Poista\" removes the entry and toasts \"Merkintä poistettu\". Poista is last, because a delete moves every card after it and nothing recorded below it would mean anything. Both are dead on this side. \"Muokkaa tekstiä\" is not here for the same reason \"Lisää kommentti\" is not in `home-entry`: it is a row control the row's own content lies over, and the click will not land even with the row hovered.",
+  "id": "home-entry-edit",
+  "area": "koti",
+  "machine": "",
+  "reference": {
+    "route": "/calendar/cal-train?week=2026-02-09"
+  },
+  "setup": [
+    {
+      "page": "390x844"
+    },
+    {
+      "route": "/calendar/cal-train?week=2026-02-09"
+    }
+  ],
+  "steps": [
+    {
+      "tick": 500
+    },
+    {
+      "id": "rt-nav-home",
+      "role": "button",
+      "name": "Koti"
+    },
+    {
+      "tick": 1500
+    },
+    {
+      "id": "rt-entry-add-0",
+      "role": "button",
+      "name": "Lisää",
+      "nth": 0,
+      "why": "the FIRST card's — the bar's Lisää is the last button of that name on the page. It is not an \"add\": on the reference it opens the card's action menu — Muokkaa AI:lla, Kopioi kuvana, Poista"
+    },
+    {
+      "id": "rt-entry-delete-0",
+      "role": "button",
+      "name": "Poista",
+      "nth": 0,
+      "why": "last: a delete moves every card after it. The reference removes the card and toasts \"Merkintä poistettu\""
+    },
+    {
+      "tick": 800,
+      "why": "a confirmation, or the card going"
+    }
+  ]
+}

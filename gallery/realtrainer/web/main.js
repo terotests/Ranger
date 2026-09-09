@@ -346,10 +346,25 @@ function at(ev) {
   return [ev.clientX - r.left, ev.clientY - r.top];
 }
 
+// What an export put on the clipboard, once. The app writes the text into
+// `clipboard` — see `RealTrainerDemo.pressEntryCard`, which has no clipboard
+// of its own to write to — and this is the browser's half of it. A refusal
+// (no permission, no secure context) is not an error worth showing: the toast
+// the app drew already said what happened, and the text is still readable in
+// the app.
+let lastClip = "";
+function syncClipboard() {
+  const text = app.clipboard;
+  if (!text || text === lastClip) return;
+  lastClip = text;
+  navigator.clipboard?.writeText(text).catch(() => {});
+}
+
 function press(x, y) {
   const id = app.hitId(x, y);
   app.setPressed("");
   if (app.press(id)) paintAll();
+  syncClipboard();
   syncTextSession();
 }
 
@@ -373,6 +388,11 @@ document.addEventListener("keydown", (ev) => {
     ev.preventDefault();
     paintAll();
     syncMirror();
+    // A Tab that landed on a text field HANDS IT THE KEYBOARD — see
+    // `RealTrainerDemo.keyboardTo` — so the session follows it there, or the
+    // ring sits on a field the next letter does not reach. After the mirror,
+    // because the field's <input> IS a mirror element.
+    syncTextSession();
   }
 });
 
@@ -430,7 +450,10 @@ function syncTextSession() {
     textInput.sync(st);
     return;
   }
-  // The mirror's input for the field, once the mirror has drawn it.
+  // The mirror's input for the field, once the mirror has drawn it — and if
+  // it has not (a Tab that only just moved the focus on to it), the mirror is
+  // brought up to date first, because that element IS the text session.
+  if (!mirror.elementOf(tid)) syncMirror();
   textInput.focusField(tid, st, mirror.elementOf(tid));
 }
 

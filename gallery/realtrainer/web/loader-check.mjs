@@ -340,7 +340,7 @@ console.log("\n--- the document ---");
 app.press("rt-rail-log");
 ok("the rail opens the document", app.sceneName() === "document", app.sceneName());
 const doc = textsOf(listOf());
-ok("the whole document is drawn", doc.includes("21 riviä"), doc.join("|"));
+ok("the whole document is drawn", doc.includes("28 riviä"), doc.join("|"));
 ok("a summary is drawn", doc.includes("Kova mutta hallittu treeni"), doc.join("|"));
 ok("a phase carries its number", doc.includes("Phase1"), doc.join("|"));
 ok("a duration is drawn", doc.includes("10min") && doc.includes("Alkulämmittely"), doc.join("|"));
@@ -358,8 +358,46 @@ const docTree = JSON.parse(app.a11yJson(1, "")).nodes;
 ok("the list is a list", docTree.some((n) => n.id === "rt-doc-list" && n.role === "list"),
    JSON.stringify(docTree.find((n) => n.id === "rt-doc-list")));
 ok("with an item per row",
-   docTree.filter((n) => n.role === "listitem").length === 21,
+   docTree.filter((n) => n.role === "listitem").length === 28,
    docTree.filter((n) => n.role === "listitem").length + " items");
+
+// THE THREE FAMILIES NOTHING EVER DREW. The demo's document reached nine of
+// COMPACT's row families and the app has code for twelve — see COVERAGE.md,
+// whose Drawn column is the one the README calls "real work left". A family
+// with a row type and no line to draw is a branch nobody has ever seen run,
+// which is the thirty-second-family bug the row layer exists to design out.
+//
+// A pyramid is one exercise at descending reps and rising load: each step is
+// its own pair of runs, so a reader is pointed at the load and not at a
+// sentence about it.
+ok("a pyramid draws a step per load",
+   doc.includes("5x") && doc.includes("60kg") && doc.includes("4x") &&
+   doc.includes("70kg") && doc.includes("3x") && doc.includes("80kg"),
+   doc.join("|"));
+// A move's splits are rows under it, each with its own pace and heart rate —
+// the pace formatted per split, not inherited from the move.
+ok("a split carries its own pace", doc.includes(`6'00"/1km`), doc.join("|"));
+ok("and its own heart rate", doc.includes("132bpm") && doc.includes("141bpm"),
+   doc.join("|"));
+// And a line the parser does not know is still a line: shown as it was
+// written, because a training diary that silently drops what it cannot classify
+// is a training diary that loses entries.
+ok("an unrecognised line is drawn as written",
+   doc.includes("Kengat vaihtoon ensi viikolla"), doc.join("|"));
+
+// A MEAL AND A DRINK are rows of their own, with the numbers the reference
+// draws beside them: the library turns both into a line of text and the line
+// loses things — a drink's calories and protein, and a meal's name entirely.
+// See `CompactStatBuilder.mealParts` and the deviations `rt:l0` lists.
+ok("a meal draws its food and its numbers",
+   doc.includes("Kalapihvit, perunamuusi ja salaatti") && doc.includes("580 kcal") &&
+   doc.includes("26g prot") && doc.includes("60g hh") && doc.includes("12g rasva"),
+   doc.join("|"));
+ok("and a drink its volume with them",
+   doc.includes("Maito") && doc.includes("2dl") && doc.includes("92 kcal") &&
+   doc.includes("7g prot"), doc.join("|"));
+ok("neither is named twice",
+   doc.filter((t) => t === "Maito").length === 1, doc.filter((t) => t === "Maito").length + " times");
 
 // A circuit is a header and its exercises, flattened into the list under it.
 ok("a circuit draws its rounds and its variant",
@@ -379,7 +417,10 @@ const bottomBefore = lastText().y;
 ok("the wheel moves the document", app.scrollDocument(200) === true);
 ok("and the rows move with it", lastText().y < bottomBefore,
    `${bottomBefore} -> ${lastText().y}`);
-ok("it stops at the end", app.scrollDocument(2000) === false, "kept scrolling");
+// To the bottom, however long the document is — it grew when the families
+// nothing had drawn were added to it — and then one more, which is refused.
+app.scrollDocument(9999);
+ok("it stops at the end", app.scrollDocument(200) === false, "kept scrolling");
 ok("and comes back to the top",
    app.scrollDocument(-9999) === true && lastText().y === bottomBefore,
    `${bottomBefore} -> ${lastText().y}`);

@@ -1,0 +1,45 @@
+{
+  "_": "The settings page and its palettes. THIS SIDE'S ALONE: the reference has an Asetukset page, but Ocean and Sunrise are this port's, drawn from the stylesheet's `@vars` themes, so there is nothing to compare them against. What the trace holds is that choosing a palette redraws the page and leaves the same controls on it.",
+  "id": "settings-theme",
+  "area": "asetukset",
+  "machine": "",
+  "noReference": true,
+  "setup": [
+    {
+      "page": "390x844"
+    },
+    {
+      "route": "/calendar/cal-train?week=2026-02-09"
+    }
+  ],
+  "steps": [
+    {
+      "tick": 500
+    },
+    {
+      "id": "rt-nav-more",
+      "role": "button",
+      "name": "Lisää"
+    },
+    {
+      "id": "rt-more-settings",
+      "role": "button",
+      "name": "Asetukset"
+    },
+    {
+      "id": "rt-theme-ocean",
+      "role": "button",
+      "name": "Ocean"
+    },
+    {
+      "id": "rt-theme-sunrise",
+      "role": "button",
+      "name": "Sunrise"
+    },
+    {
+      "id": "rt-theme-night",
+      "role": "button",
+      "name": "Yö"
+    }
+  ]
+}

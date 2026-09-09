@@ -8,8 +8,37 @@
 # output, on a missing pass marker, and on a non-zero exit.
 #
 #   npm run gallery:editors:test
+#
+# Sequentially these take about forty minutes, against thirty seconds for
+# every other job in the workflow, so CI runs them as SHARDS:
+#
+#   npm run gallery:editors:test -- --shard=2/6
+#
+# Shard i of n takes every n'th suite starting at i — round-robin rather than
+# a contiguous block, because the suites are nothing like equal in length and
+# a block would put the slow ones next to each other. Without the flag the
+# whole list runs, which is what it does on a developer's machine.
 set -uo pipefail
 cd "$(cd "$(dirname "$0")/.." && pwd)"
+
+SHARD=""
+SHARDS=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --shard=*) spec="${1#--shard=}" ;;
+    --shard)   shift; spec="${1:-}" ;;
+    *) echo "unknown argument: $1" >&2; exit 2 ;;
+  esac
+  case "$spec" in
+    [0-9]*/[0-9]*) SHARD="${spec%%/*}"; SHARDS="${spec##*/}" ;;
+    *) echo "--shard wants i/n, got: $spec" >&2; exit 2 ;;
+  esac
+  shift
+done
+if [ -n "$SHARD" ] && { [ "$SHARD" -lt 1 ] || [ "$SHARDS" -lt 1 ] || [ "$SHARD" -gt "$SHARDS" ]; }; then
+  echo "--shard $SHARD/$SHARDS is out of range" >&2
+  exit 2
+fi
 
 SUITES=(
   book:test
@@ -93,6 +122,17 @@ SUITES=(
   evg:color:check
   # How wide text is, which is where a caret gets drawn.
   evg:advance:check
+  # The keyboard as an EVG feature rather than an app's: Tab in tree order,
+  # the arrows by the boxes, what cannot be focused, a dialog the walk cannot
+  # leave, and the rule that the pointer moves the focus without drawing a
+  # ring round it. Every drawn UI needs this and none of them has tab stops
+  # of its own.
+  evg:focus:test
+  # The accessibility tree the mirror is built from — roles, names, states,
+  # the lint that refuses a focusable with no name — and, beside it, the
+  # fourteen ways the mirror's own DOM must not paint or make a phone zoom.
+  evg:a11y:test
+  evg:a11y:paint
   ui:sortable:motion
   ui:table:check
   ui:virtual:check
@@ -291,6 +331,26 @@ SUITES=(
   # in. This is the arithmetic against dates worked out independently, and the
   # wiring that lets a host say when now is.
   rt:clock
+  # THE KEYBOARD, on a screen that is a picture. A canvas is one element, so
+  # the browser has no tab stops to offer and nothing in the app is reachable
+  # by key unless `EVGFocus` makes it so: Tab in tree order, the arrows by the
+  # boxes, a dialog the keys cannot walk out of, Escape out of it and out of a
+  # field, and the ring the pointer moves without drawing. None of it had a
+  # gate here, which is how the composer shipped with a Tab that could not
+  # reach the send button beside it.
+  rt:keys
+  # The scroll: sixty frames of the kept display list held against a full
+  # re-layout of the same tree, plus the culling, the kept cards and the
+  # charts painted where their cards are. The two bugs it has caught since —
+  # a chart that did not move with its layer, a focus ring that did not — were
+  # both invisible in a screenshot and both obvious here.
+  rt:scroll
+  # The quick entry end to end: text in, a proposal, a review, and a diary
+  # entry only for what was agreed to.
+  rt:add
+  # And that a palette is a palette: the same frame, the same commands in the
+  # same places, in every theme the settings page offers.
+  rt:theme
   # The statechart runtime on its own account: its own two machines against
   # xstate — one that is the smallest thing still a machine, one that uses
   # everything the runner has — and the drawing it makes of them. Conformance
@@ -334,7 +394,62 @@ SUITES=(
   # same scenario against the React app on the Firebase emulators — is
   # scripts/record-reference-trace.mjs, which cannot run here and says so.
   rt:trace
+  # …and that trace against the REFERENCE one: the app being ported, recorded
+  # from the real frontend on the emulators. Frame by frame, the sequence of
+  # stops a reader would tab through, scored by longest common subsequence
+  # over the reference's own length. The floor only ever goes up — it is the
+  # port's parity, and a number that can fall is a number nobody reads.
+  rt:trace:diff
 )
+
+# Almost every suite here compiles what it runs, which is what makes them
+# safe to split. These do not: they READ what the suite before them wrote, so
+# they must land in the same shard as it, and the sharder treats each such run
+# as one indivisible unit.
+KEEP_WITH_PREVIOUS=(
+  # `rt:trace` re-records gallery/realtrainer/web/traces/ and `rt:trace:diff`
+  # scores those recordings against the reference. The recordings are
+  # COMMITTED files, so a diff that runs without the recording before it reads
+  # the last commit's traces instead of this commit's — green on exactly the
+  # drift it exists to catch, and silently, because nothing is missing.
+  rt:trace:diff
+)
+
+# A shard is a slice of the list above, not a list of its own: a suite added
+# to SUITES is picked up by whichever shard it falls into, and no shard file
+# can go stale against it.
+if [ -n "$SHARD" ]; then
+  # Group first, then deal round-robin over the GROUPS, so an attached suite
+  # never gets separated from the one it reads.
+  units=()
+  for suite in "${SUITES[@]}"; do
+    attach=0
+    for pinned in "${KEEP_WITH_PREVIOUS[@]}"; do
+      if [ "$pinned" = "$suite" ] && [ ${#units[@]} -gt 0 ]; then attach=1; fi
+    done
+    if [ "$attach" -eq 1 ]; then
+      last=$(( ${#units[@]} - 1 ))
+      units[$last]="${units[$last]}"$'\n'"$suite"
+    else
+      units+=("$suite")
+    fi
+  done
+
+  picked=()
+  u=0
+  for unit in "${units[@]}"; do
+    if [ $(( u % SHARDS )) -eq $(( SHARD - 1 )) ]; then
+      while IFS= read -r suite; do picked+=("$suite"); done <<<"$unit"
+    fi
+    u=$(( u + 1 ))
+  done
+  SUITES=("${picked[@]+"${picked[@]}"}")
+  printf 'shard %s/%s: %s suites\n\n' "$SHARD" "$SHARDS" "${#SUITES[@]}"
+  if [ "${#SUITES[@]}" -eq 0 ]; then
+    echo "nothing in this shard"
+    exit 0
+  fi
+fi
 
 failed=()
 for suite in "${SUITES[@]}"; do
@@ -366,4 +481,8 @@ if [ ${#failed[@]} -ne 0 ]; then
   done
   exit 1
 fi
-echo "all ${#SUITES[@]} gallery editor suites passed"
+if [ -n "$SHARD" ]; then
+  echo "all ${#SUITES[@]} gallery editor suites in shard $SHARD/$SHARDS passed"
+else
+  echo "all ${#SUITES[@]} gallery editor suites passed"
+fi

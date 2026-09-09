@@ -1,0 +1,20 @@
+{
+  "_": "The Dashboard section and its two buttons. `sections` presses the bar's Dashboard and goes straight on to the next section; nothing has ever pressed what is on it.",
+  "id": "dashboard",
+  "area": "navigaatio",
+  "machine": "",
+  "reference": {
+    "route": "/calendar/cal-train?week=2026-02-09"
+  },
+  "setup": [
+    { "page": "390x844" },
+    { "route": "/calendar/cal-train?week=2026-02-09" }
+  ],
+  "steps": [
+    { "tick": 500 },
+    { "id": "rt-nav-dashboard", "role": "button", "name": "Dashboard" },
+    { "tick": 800 },
+    { "id": "rt-dash-open", "role": "button", "name": "Avaa suunnitelma" },
+    { "tick": 800 }
+  ]
+}

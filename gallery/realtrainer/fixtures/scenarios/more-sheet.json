@@ -1,0 +1,53 @@
+{
+  "_": "The bar's Lisää sheet, item by item. `sections` opens it and closes it again; this one goes through it. Vuosilakana and Asetukset are screens on both sides. Harjoituspaikat is a screen on the reference and nothing here — the sheet closes and the app lands back where it started — and it is pressed last because the reference does not come back from it.",
+  "id": "more-sheet",
+  "area": "navigaatio",
+  "machine": "",
+  "reference": {
+    "route": "/calendar/cal-train?week=2026-02-09"
+  },
+  "setup": [
+    {
+      "page": "390x844"
+    },
+    {
+      "route": "/calendar/cal-train?week=2026-02-09"
+    }
+  ],
+  "steps": [
+    {
+      "tick": 500
+    },
+    {
+      "id": "rt-nav-more",
+      "role": "button",
+      "name": "Lisää"
+    },
+    {
+      "id": "rt-more-yearsheet",
+      "role": "button",
+      "name": "Vuosilakana"
+    },
+    {
+      "id": "rt-nav-more",
+      "role": "button",
+      "name": "Lisää"
+    },
+    {
+      "id": "rt-more-settings",
+      "role": "button",
+      "name": "Asetukset"
+    },
+    {
+      "id": "rt-nav-more",
+      "role": "button",
+      "name": "Lisää"
+    },
+    {
+      "id": "rt-more-venues",
+      "role": "button",
+      "name": "Harjoituspaikat",
+      "why": "LAST, because the reference opens a page the bar cannot be reached from again; here the sheet closes and nothing opens"
+    }
+  ]
+}

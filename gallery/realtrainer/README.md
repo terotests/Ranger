@@ -413,8 +413,77 @@ calendar, newest first, so a calendar boundary is where the dates start over.
 An entry with a score shows it under its date, and one with feedback shows
 "AI-valmentajan palaute" at the end, as the blog view does. A frame is the accessibility tree: every button, heading,
 textbox, checkbox and landmark, in order, with `disabled` and `checked`. The
-diff is a longest common subsequence over that order, per frame, and the gate is
-the worst frame against `RT_TRACE_FLOOR` (0.9).
+diff is a longest common subsequence over that order, per frame.
+
+The gate is a **ratchet, per scenario**. One floor over everything says nothing
+the moment a scenario walks somewhere nobody has been: the first recording of a
+screen this port does not have reads 14%, and a single number either drops to
+14 — and stops guarding the fifteen scenarios at 100 — or refuses the recording
+that found the gap. So each scenario's worst frame is written in
+`traces/parity.json` and none may fall below it. `npm run rt:trace:diff --
+--bless` records what is measured now, and REFUSES to lower a baseline unless
+`RT_TRACE_BLESS_DOWN=1` says the drop is meant.
+
+A frame is taken once the app has finished building, the way the page's own
+mirror does (`main.js` syncs it only when `app.building()` is false): Home's
+diary arrives in chunks, and a tree with twelve of sixty-eight workouts in it
+is one no reader is ever handed.
+
+### What the scenarios do not press, and what happened when they did
+
+Four scenarios were added to go where the first thirteen never did, and three
+of them found something that is drawn and does not answer:
+
+Fifteen scenarios were added to go where the first thirteen never did, and the
+reference was recorded for fourteen of them — so what each gap should look like is
+on file rather than guessed at. Thirteen of the twenty-seven are at 100%, no
+frame is below 41%, and six of the gaps they found are closed: the credits
+page, the diary card's own buttons in both scenarios that press them, the
+feature-vector dialog, where a plan in the list opens, and the settings page.
+
+**What is drawn and not wired says so by doing nothing.** A Slack workspace, a
+token quota, an export and a purchase are the backend's, and there is no
+backend here; they are drawn because the page is what a reader walks and a
+missing section is a missing stop. What a person can actually change — the
+language, the day a week starts on, which calendars show, the palette — is
+wired.
+
+Two of those needed the reference to say WHERE, not just what. A row's
+statistics are a strip at the top of Home and not a modal over the card; the
+card's menu hangs off its own button, inside the card. Drawn as page-level
+overlays they read 99.6% with every node present — the diff is a longest
+common subsequence, so a control in the wrong place is a control missing and
+another invented.
+
+| Scenario | Parity | What the reference does, and this side does not |
+| --- | ---: | --- |
+| `more-sheet` | 44% | **Asetukset** was 79 stops there and 11 here. It is 79 of 79 now, in order, with one extra — the Sunrise palette, which is this port's own and was asked for. Eleven sections: the version, the usage, the subscription, the AI instructions with their ten calendar types, Slack, the profile with its three fields and two selects, which calendars show, three notification switches, the appearance with the reference's four palettes, the export, and the two legal links. What is left in this scenario is **Harjoituspaikat**, a page there and nothing here |
+| `home-notes` | 46% | **Muistiinpanot** on a card is not a panel on the card — it opens a workout notes page: the notes for that entry, a date and Tallenna, the training links (Hae ja linkitä treeni, the linked entry, Poista linkki tähän treeniin), the video links out of the knowledge store, and a markdown field with its rendered preview. Here the button does nothing |
+| `home-drills` | 77% | the tab, the categories and the sort all work, and both sides list the same six endurance drills in the same order — with different numbers: juoksu 29× there and 37× here, uinti 1.6km against 2.6km, rintauinti 3.0km against 16.2km. A drill row opens the exercise there and nothing here |
+| `home-entry` | **99.9%** | **Näytä tilastot** is a strip at the top of Home, above the tabs, named after the exercise and with a Sulje of its own. **Compact** and **JSON** copy the entry and say which shape in a toast — two toasts, stacked, when both are pressed. All three answer now; what is left is the composer |
+| `credits` | **100%** | the header's **credit gauge** was drawn on every screen and answered on none. It opens the page now — AI-kreditit with what is used of what is available, the one thing there is to buy with Stripe under it, and the two histories that are empty until a purchase writes to them — and the tree matches the reference's stop for stop. Closed |
+| `home-stats` | **95%** | **Laske vektorit** opens the dialog now — five spans with today the one it opens on, the calendars a vector can be built from, what the calculation will do, and Peruuta beside it. Its rules are the reference's own, read off `CalculateVectorsDialog.tsx` and not guessed: seven of the seed's thirteen calendars, because a PLAN has no entries to read. Starting it is the backend's. What is left is the composer |
+| `home-entry-edit` | **99.9%** | **Lisää** on a card is not an add: it opens the card's action menu — Muokkaa AI:lla, Kopioi kuvana, Poista — hanging off the button, in the card. **Poista** removes the entry and toasts "Merkintä poistettu". Both answer now |
+| `more-rest` | 41% | **Jaetut kalenterit** is a sharing page there — Hallitse jakamista, Julkaise päiväkirja verkkoon, and every calendar with whether it is shared. **Tietopankki** is a knowledge store — a search, eight category filters, an empty state and Lisää ensimmäinen. Both close the sheet here. **Vie tietokanta** adds nothing to either side's tree, which is the one item that matches |
+| `chat-tools` | 45% | **AI-ohjeet** opens an instructions panel: the general instructions with three suggestions to add, a Tee ehdotukset that has the AI write them, a field for a new one, and instructions per calendar type. **Keskusteluhistoria** and **Tallennetut muistiinpanot** are panels. **Anna palautetta** produces an AI-arvio with Kopioi koko keskustelu, Kopioi viesti and Tallenna muistiin. All five are drawn here and none answers |
+| `yearsheet-open` | 47% | opening the plan out of the list goes to the DASHBOARD there — Aktiivinen suunnitelma, the current period, and "Avaa suunnitelma" as the way in — which is what it does here now, and that frame is 100%. What is left is the list itself: **Vuosilakana** in the More sheet goes straight into the plan there and stops at a list of plans here, a screen the reference does not have |
+| `calendar-measure` | 77% | a calendar whose entries are MEASUREMENTS and not workouts. The reference gives each metric a heading of its own — Hrv, Leposyke, Weight, Askeleet, Mets Huippu, Aktiiviset Kalorit, Treeni Aika — and this side draws a card of a different shape: 171 stops it does not have, 48 of the reference's it does not draw |
+| `yearsheet-edit` | 41% | the plan's own tabs, behind Avaa suunnitelma. Kaudet and Rivit match; **Featuret** is a screen this side does not have — Feature-vektorit (beta) with a date range, Kopioi tulokset / Liitä / Suorita laskennat, a JSON field and a normalised trend, 155 stops of it. **Kopioi JSON leikepöydälle** is drawn here and does nothing |
+| `dashboard` | 100% | the section and **Avaa suunnitelma** — the year plan with its JSON in and out, its three tabs and its periods — match |
+| `calendar-day` | 100% | a day in the calendar, its card's exports and its way out. The card in a day view is the same card as on Home, so this went green with them |
+| `settings-theme` | — | `noReference`: Ocean and Sunrise are this port's own |
+
+Two the recorder could not reach: **Lisää kommentti** and **Muokkaa tekstiä**.
+Both are row controls, both are drawn hundreds of times on the reference's
+Home, and the row's own content lies over every one of them —
+`custom-row … intercepts pointer events` — with hovering the row first not
+enough for the click to land. A `"hover": true` step is in the recorder for
+them; the gaps are real either way and these scenarios cannot yet record their
+shape.
+
+`handled: false` in a committed trace is a gap recorded rather than
+remembered, and `traces/parity.json` is what stops any of these sliding
+further while they are open.
 
 What the traces found, in the order they found it: the reference's dialogs sit
 *before* the bottom bar in the tree and the add sheet *after* it; the bar's
@@ -452,8 +521,18 @@ npm run rt:coverage:check   # fail if it is stale  (CI)
 ```
 
 Reaching `text` is not scored as a gap: the reference gives a row type of its
-own only to what it draws specially. The column that shows real work left is
-**Drawn** — the families the demo's own document does not yet contain.
+own only to what it draws specially — which is a rule to check and not to
+assume. `food` and `drinking` reached `text` and should not have: the
+reference has a `FoodRow` and a `DrinkingRow` of its own, and the line the
+library builds instead loses things (a drink's calories and protein, a meal's
+name). They are rows of their own here now, and the three L0 cases that
+covered them are recorded as deviations with that reason. **Drawn** is the column that showed real
+work left — the families the demo's own document did not contain — and it is
+now full: every family with a row type of its own, `pyramid`, `split` and the
+`unknown` line included, has a line in `fixtures/session.compact` and is drawn
+by the document screen, which is how a branch stops being one nobody has seen
+run. It is counted against what it can reach: a family that becomes `text` is
+drawn as text, and `tags` and `emojis` belong to the workout, not to the list.
 
 ## Saving, and why it does not serialise the rows
 

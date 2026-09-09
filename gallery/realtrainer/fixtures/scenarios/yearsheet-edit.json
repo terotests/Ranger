@@ -1,0 +1,63 @@
+{
+  "_": "The year plan's own editors. The route is the reference's: the plan opens on the DASHBOARD — Aktiivinen suunnitelma with the current period — and \"Avaa suunnitelma\" is what goes into it. `dashboard` presses that and stops; this goes on to the tabs and the tools inside, which nothing has pressed.",
+  "id": "yearsheet-edit",
+  "area": "vuosisuunnitelma",
+  "machine": "",
+  "reference": {
+    "route": "/calendar/cal-train?week=2026-02-09"
+  },
+  "setup": [
+    {
+      "page": "390x844"
+    },
+    {
+      "route": "/calendar/cal-train?week=2026-02-09"
+    }
+  ],
+  "steps": [
+    {
+      "tick": 500
+    },
+    {
+      "id": "rt-nav-dashboard",
+      "role": "button",
+      "name": "Dashboard"
+    },
+    {
+      "tick": 800
+    },
+    {
+      "id": "rt-dash-open",
+      "role": "button",
+      "name": "Avaa suunnitelma"
+    },
+    {
+      "tick": 800
+    },
+    {
+      "id": "rt-ys-copy",
+      "role": "button",
+      "name": "Kopioi JSON leikepöydälle",
+      "why": "the plan on the clipboard, BEFORE the tabs — the Featuret tab is long enough to put it out of reach"
+    },
+    {
+      "id": "rt-ys-periods",
+      "role": "button",
+      "name": "Kaudet",
+      "why": "the periods tab"
+    },
+    {
+      "id": "rt-ys-rows",
+      "role": "button",
+      "name": "Rivit"
+    },
+    {
+      "id": "rt-ys-features",
+      "role": "button",
+      "name": "Featuret"
+    },
+    {
+      "tick": 600
+    }
+  ]
+}

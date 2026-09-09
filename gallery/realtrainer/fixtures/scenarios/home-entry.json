@@ -1,0 +1,63 @@
+{
+  "_": "The diary card's OWN buttons, the three the reference lets a script reach: a row's statistics and its close, and the two exports at the foot. All three are dead on this side. What the reference does with them is now on file: the statistics are a panel over the card with a Sulje of its own, and Compact and JSON copy the entry to the clipboard and say so in a toast — two toasts, stacked, when both are pressed. \"Lisää kommentti\" is NOT here: it is drawn three hundred times on that page and the row's own content lies over every one of them until the row is hovered, and hovering was not enough for the click to land — see `hover` in the recorder. It is a gap either way, and one this scenario cannot yet record. Muistiinpanot is `home-notes`, because it navigates; Poista is neither, because a delete moves every card after it.",
+  "id": "home-entry-actions",
+  "area": "koti",
+  "machine": "",
+  "reference": {
+    "route": "/calendar/cal-train?week=2026-02-09"
+  },
+  "setup": [
+    {
+      "page": "390x844"
+    },
+    {
+      "route": "/calendar/cal-train?week=2026-02-09"
+    }
+  ],
+  "steps": [
+    {
+      "tick": 500
+    },
+    {
+      "id": "rt-nav-home",
+      "role": "button",
+      "name": "Koti",
+      "why": "the bottom bar's Koti; the feed builds from the selected calendar"
+    },
+    {
+      "tick": 1500,
+      "why": "the feed arrives in chunks — see `feedShown`"
+    },
+    {
+      "id": "rt-entry-stats-0-6",
+      "role": "button",
+      "name": "Näytä tilastot",
+      "nth": 0,
+      "why": "the first row that has statistics behind it"
+    },
+    {
+      "id": "rt-entry-stats-close",
+      "role": "button",
+      "name": "Sulje",
+      "why": "the statistics the reference opens are a panel over the card with its own close; nothing else on the card can be pressed while it is up"
+    },
+    {
+      "tick": 400,
+      "why": "the statistics panel fades out; its overlay swallows the next click while it does"
+    },
+    {
+      "id": "rt-entry-compact-0",
+      "role": "button",
+      "name": "Compact",
+      "nth": 0,
+      "why": "the card's export as the text it was read from"
+    },
+    {
+      "id": "rt-entry-json-0",
+      "role": "button",
+      "name": "JSON",
+      "nth": 0,
+      "why": "and as the parser's own object"
+    }
+  ]
+}

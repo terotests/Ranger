@@ -45,6 +45,45 @@
   --accent-off: #0f3a37;
 }
 
+/* Forest: the reference's third palette. Green, and a shade softer in
+   contrast than the other two — its own note says so. */
+@vars forest {
+  --bg: #0c1712;
+  --surface: #14251c;
+  --surface-2: #091310;
+  --surface-3: #1c3427;
+  --line: #234230;
+  --ink: #e6f2ea;
+  --ink-dim: #97b7a4;
+  --ink-mute: #789a86;
+  --accent: #4ade80;
+  --accent-2: #22c55e;
+  --accent-soft: #86efac;
+  --on-accent: #052e16;
+  --knob: #e6f2ea;
+  --good: #34d399;
+  --accent-off: #14361f;
+}
+
+/* Violet: dark violet, with the lilac details the reference names. */
+@vars violet {
+  --bg: #14101f;
+  --surface: #1e1830;
+  --surface-2: #0e0b17;
+  --surface-3: #2a2142;
+  --line: #372c54;
+  --ink: #ede9fb;
+  --ink-dim: #a99cc9;
+  --ink-mute: #8b7fae;
+  --accent: #a78bfa;
+  --accent-2: #8b5cf6;
+  --accent-soft: #c4b5fd;
+  --on-accent: #1e1b4b;
+  --knob: #ede9fb;
+  --good: #818cf8;
+  --accent-off: #2b2350;
+}
+
 /* Sunrise: the sky before the sun is up. Warm plum surfaces, a coral accent
    and amber where the dark theme is green. */
 @vars sunrise {
@@ -2628,6 +2667,41 @@
 .rt-toast-text { color: var(--ink); font-family: Arial; font-size: 13px; height: 18px; }
 
 /* --- the year sheet ------------------------------------------------------------ */
+/* --- a card's own panels: a row's history, and the card's menu ---------- */
+.rt-card-sheet { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 8px; margin: 16px; padding: 14px; border-radius: 14px; border-width: 1px; border-color: var(--line); background-color: var(--surface-2); }
+.rt-card-menu { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 2px; padding: 6px; border-radius: 10px; border-width: 1px; border-color: var(--line); background-color: var(--surface-3); }
+.rt-card-hd { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 16px; height: 22px; }
+.rt-card-tx { color: var(--ink-dim); font-family: Arial; font-size: 13px; height: 18px; }
+
+/* --- a meal and a drink: description left, numbers right -------------- */
+.rt-entry-meal { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; padding: 4px 0px; }
+.rt-entry-meal-name { color: var(--ink); font-family: Arial; font-size: 13px; height: 18px; }
+.rt-entry-meal-nums { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; }
+.rt-entry-meal-macro { color: #f59e0b; }
+
+/* --- the feature-vector dialog ----------------------------------------- */
+.rt-vec-sheet { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 10px; margin: 12px 0px; padding: 14px; border-radius: 14px; border-width: 1px; border-color: var(--line); background-color: var(--surface-2); }
+.rt-vec-hd { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 16px; height: 22px; }
+.rt-vec-cap { color: var(--ink-dim); font-family: Arial; font-weight: bold; font-size: 12px; height: 16px; }
+.rt-vec-para { color: var(--ink-dim); font-family: Arial; font-size: 12px; height: 16px; }
+.rt-vec-opts { display: flex; flex-direction: row; flex-wrap: wrap; gap: 6px; }
+.rt-vec-opt { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; height: 30px; padding: 0px 10px; border-radius: 8px; border-width: 1px; border-color: var(--line); background-color: var(--surface-3); cursor: pointer; }
+.rt-vec-opt-on { border-color: var(--accent); background-color: var(--accent-soft); }
+.rt-vec-opt-text { color: var(--ink); font-family: Arial; font-size: 12px; height: 16px; }
+
+/* --- AI-kreditit: a page of its own, no shell on it --------------------- */
+.rt-cred { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 12px; padding: 0px 16px 16px 16px; background-color: var(--bg); }
+.rt-cred-head { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 12px; padding: 12px 0px; }
+.rt-cred-hd { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 22px; height: 28px; }
+.rt-cred-sub { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 16px; height: 22px; }
+.rt-cred-para { color: var(--ink-dim); font-family: Arial; font-size: 13px; height: 18px; }
+.rt-cred-big { color: var(--accent); font-family: Arial; font-weight: bold; font-size: 30px; height: 38px; }
+.rt-cred-dim { color: var(--ink-dim); font-family: Arial; font-size: 12px; height: 16px; }
+.rt-cred-card { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 4px; padding: 14px; border-radius: 12px; border-width: 1px; border-color: var(--line); background-color: var(--surface-2); }
+.rt-cred-buy { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; height: 44px; padding: 0px 14px; border-radius: 10px; background-color: var(--surface-3); cursor: pointer; }
+.rt-cred-buy:hover { background-color: #333333; }
+.rt-cred-buy-text { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 13px; height: 18px; }
+
 .rt-ys-head { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 12px; padding: 12px 16px; background-color: var(--bg); }
 .rt-ys-hd { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 17px; height: 22px; }
 .rt-ys-h3 { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 14px; height: 20px; }
@@ -2903,6 +2977,14 @@
 .rt-set-hd { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 22px; height: 28px; }
 .rt-set-sub { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 16px; height: 22px; }
 .rt-set-note { color: var(--ink-dim); font-family: Arial; font-size: 13px; height: 18px; }
+
+.rt-set-sub3 { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 14px; height: 20px; }
+.rt-set-btn { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; height: 34px; padding: 0px 12px; border-radius: 8px; border-width: 1px; border-color: var(--line); background-color: var(--surface-3); cursor: pointer; }
+.rt-set-btn:hover { background-color: #333333; }
+.rt-set-btn-text { color: var(--ink); font-family: Arial; font-size: 13px; height: 18px; }
+.rt-set-toggle { width: 44px; }
+.rt-set-link { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; height: 30px; cursor: pointer; }
+.rt-set-select { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; height: 34px; padding: 0px 12px; border-radius: 8px; border-width: 1px; border-color: var(--line); background-color: var(--surface-2); cursor: pointer; }
 
 .rt-theme-card {
   display: flex;

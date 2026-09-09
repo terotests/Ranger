@@ -361,6 +361,16 @@ class EVGFocus {
         return true
     }
 
+    ; SHOW IT AGAIN. A press is the pointer's by default — `pointAt` puts the
+    ; ring away — and a press the KEYBOARD made is not: Enter on a focused
+    ; button activates it and leaves the ring where it was, in every browser
+    ; there is. The caller that knows a key did it says so with this.
+    fn show:void () {
+        if ((strlen focusId) > 0) {
+            ringVisible = true
+        }
+    }
+
     ; Where to draw the ring, or "" for nowhere.
     fn ringId:string () {
         if (ringVisible == false) {

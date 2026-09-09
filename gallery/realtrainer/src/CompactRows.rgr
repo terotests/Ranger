@@ -187,6 +187,33 @@ class PhaseSpec {
     }
 }
 
+; A MEAL AND A DRINK, as the reference draws them. Both were turned into a
+; line of `text` here and the line lost things on the way: `Drinking 2dl 92kcal
+; 7g/prot | Maito` came out as "Drinking2dl | Maito" — the calories and the
+; protein gone, and no space after the label. The reference does not build a
+; line at all: `ContentRows.tsx` has a `FoodRow` and a `DrinkingRow`, with the
+; description on the left and the numbers on the right, each in its own colour.
+; So these are rows of their own here too, and the three L0 cases that covered
+; them are recorded as deviations with that reason.
+class FoodSpec {
+    def hasCalories@(mutable):boolean false
+    def calories@(mutable):string ""
+    def hasProtein@(mutable):boolean false
+    def protein@(mutable):string ""
+    def hasCarbs@(mutable):boolean false
+    def carbs@(mutable):string ""
+    def hasFat@(mutable):boolean false
+    def fat@(mutable):string ""
+    ; What is drunk is a volume; a meal has none, and the field is here so the
+    ; two rows can share one drawing.
+    def hasVolume@(mutable):boolean false
+    def volume@(mutable):string ""
+    def description@(mutable):string ""
+
+    Constructor () {
+    }
+}
+
 class CustomSpec {
     def name@(mutable):string ""
     def value@(mutable):string ""
@@ -260,6 +287,8 @@ shape CompactRow {
     case Custom   { def spec:CustomSpec }
     case Duration { def spec:DurationSpec }
     case Unknown  { def raw:string "" }
+    case Food     { def spec:FoodSpec }
+    case Drinking { def spec:FoodSpec }
     case Circuit  { def spec:CircuitSpec }
     case CircuitItem { def spec:CircuitItemSpec }
 }
@@ -744,6 +773,38 @@ class CompactStatBuilder {
     }
 
     ; The header: how many rounds, which word, and the rest between rounds.
+    ; A MEAL OR A DRINK, as runs. The glyph and what was eaten first, then the
+    ; numbers in the order `FoodRow` and `DrinkingRow` put them: a drink's
+    ; volume, the calories, the protein, the carbohydrate and the fat. A value
+    ; that is missing is not drawn — the reference tests `!= null && > 0` on
+    ; every one of them — and something with no description falls back to the
+    ; word for it, which is what `t('workout.blog.meal')` is there for.
+    sfn mealParts:[StatPart] (spec:FoodSpec glyph:string fallback:string) {
+        def out:[StatPart]
+        def said@(mutable):string spec.description
+        if ((strlen said) == 0) {
+            said = fallback
+        }
+        push out (new StatPart(glyph "default" "meta"))
+        push out (new StatPart(said "default" "note"))
+        if (spec.hasVolume) {
+            push out (new StatPart(spec.volume "muted" "volume"))
+        }
+        if (spec.hasCalories) {
+            push out (new StatPart((spec.calories + " kcal") "muted" "energy"))
+        }
+        if (spec.hasProtein) {
+            push out (new StatPart((spec.protein + "g prot") "weight" "protein"))
+        }
+        if (spec.hasCarbs) {
+            push out (new StatPart((spec.carbs + "g hh") "spec" "carbs"))
+        }
+        if (spec.hasFat) {
+            push out (new StatPart((spec.fat + "g rasva") "spec" "fat"))
+        }
+        return out
+    }
+
     sfn circuitParts:[StatPart] (e:CircuitSpec) {
         def out:[StatPart]
         push out (new StatPart(((to_string e.rounds) + "x") "default" "spec"))
@@ -957,6 +1018,18 @@ class CompactStatBuilder {
             Unknown un {
                 push out (new StatPart(un.raw "warn" "meta"))
             }
+            ; A MEAL AND A DRINK: the description on the left and the numbers
+            ; on the right, each in its own colour, as `ContentRows.tsx` draws
+            ; them. Every part carries its kind so the drawing can put it where
+            ; the reference puts it.
+            Food fo {
+                def fspec2:FoodSpec (unwrap fo.spec)
+                return (CompactStatBuilder.mealParts(fspec2 "🍴" "Ateria"))
+            }
+            Drinking dr {
+                def dspec3:FoodSpec (unwrap dr.spec)
+                return (CompactStatBuilder.mealParts(dspec3 "🥛" "Juoma"))
+            }
             Circuit ci {
                 def cspec2:CircuitSpec (unwrap ci.spec)
                 return (CompactStatBuilder.circuitParts(cspec2))
@@ -995,6 +1068,8 @@ class CompactStatBuilder {
             Custom cu { return "custom" }
             Duration du { return "duration" }
             Unknown un { return "unknown" }
+            Food fo { return "food" }
+            Drinking dr { return "drinking" }
             Circuit ci { return "circuit" }
             CircuitItem it { return "circuitItem" }
         }
@@ -1044,6 +1119,14 @@ class CompactStatBuilder {
             }
             Unknown un {
                 return ""
+            }
+            Food fo {
+                def fspec3:FoodSpec (unwrap fo.spec)
+                return fspec3.description
+            }
+            Drinking dr {
+                def dspec4:FoodSpec (unwrap dr.spec)
+                return dspec4.description
             }
             Circuit ci {
                 return ""
@@ -1631,6 +1714,62 @@ class CompactRowMapper {
             push rows (new CompactRow.Phase(pspec))
             return
         }
+        ; A MEAL AND A DRINK are rows of their own — see `FoodSpec`. Everything
+        ; the parser read is carried over; the drawing decides what to show.
+        if (node.type == "food") {
+            def fo:FoodNode (cast node to:FoodNode)
+            def fspec (new FoodSpec)
+            if (fo.hasCalories) {
+                fspec.hasCalories = true
+                fspec.calories = fo.caloriesRaw
+            }
+            if (fo.hasProtein) {
+                fspec.hasProtein = true
+                fspec.protein = fo.proteinRaw
+            }
+            if (fo.hasCarbs) {
+                fspec.hasCarbs = true
+                fspec.carbs = fo.carbsRaw
+            }
+            if (fo.hasFat) {
+                fspec.hasFat = true
+                fspec.fat = fo.fatRaw
+            }
+            if (fo.hasDescription) {
+                fspec.description = fo.description
+            }
+            push rows (new CompactRow.Food(fspec))
+            return
+        }
+        if (node.type == "drinking") {
+            def dr:DrinkingNode (cast node to:DrinkingNode)
+            def dspec2 (new FoodSpec)
+            if (dr.hasVolume) {
+                dspec2.hasVolume = true
+                dspec2.volume = (dr.volumeRaw + dr.volumeUnit)
+            }
+            if (dr.hasCalories) {
+                dspec2.hasCalories = true
+                dspec2.calories = dr.caloriesRaw
+            }
+            if (dr.hasProtein) {
+                dspec2.hasProtein = true
+                dspec2.protein = dr.proteinRaw
+            }
+            ; What is drunk is the description; the parser puts a bare word in
+            ; `liquid` and a `|` note in `description`, and the reference shows
+            ; whichever there is.
+            if (dr.hasDescription) {
+                dspec2.description = dr.description
+            }
+            if ((strlen dspec2.description) == 0) {
+                if (dr.hasLiquid) {
+                    dspec2.description = dr.liquid
+                }
+            }
+            push rows (new CompactRow.Drinking(dspec2))
+            return
+        }
         if (node.type == "custom") {
             def cu:CustomNode (cast node to:CustomNode)
             def cspec (new CustomSpec)
@@ -1861,6 +2000,12 @@ class CompactRowEdit {
             Unknown un {
                 return false
             }
+            Food fo {
+                return false
+            }
+            Drinking dr {
+                return false
+            }
             Circuit ci {
                 return false
             }
@@ -1906,6 +2051,12 @@ class CompactRowEdit {
             Unknown un {
                 return false
             }
+            Food fo {
+                return false
+            }
+            Drinking dr {
+                return false
+            }
             Circuit ci {
                 return false
             }
@@ -1949,6 +2100,12 @@ class CompactRowEdit {
                 return false
             }
             Unknown un {
+                return false
+            }
+            Food fo {
+                return false
+            }
+            Drinking dr {
                 return false
             }
             Circuit ci {
@@ -1997,6 +2154,12 @@ class CompactRowEdit {
             Unknown un {
                 return 0
             }
+            Food fo {
+                return 0
+            }
+            Drinking dr {
+                return 0
+            }
             Circuit ci {
                 return 0
             }
@@ -2043,6 +2206,12 @@ class CompactRowEdit {
             Unknown un {
                 return 0
             }
+            Food fo {
+                return 0
+            }
+            Drinking dr {
+                return 0
+            }
             Circuit ci {
                 return 0
             }
@@ -2087,6 +2256,12 @@ class CompactRowEdit {
                 return 0
             }
             Unknown un {
+                return 0
+            }
+            Food fo {
+                return 0
+            }
+            Drinking dr {
                 return 0
             }
             Circuit ci {
@@ -2153,6 +2328,10 @@ class CompactRowEdit {
             Duration du {
             }
             Unknown un {
+            }
+            Food fo {
+            }
+            Drinking dr {
             }
             Circuit ci {
             }
@@ -2237,6 +2416,8 @@ class CompactWrite {
             Custom cu { return "" }
             Duration du { return "" }
             Unknown un { return "" }
+            Food fo { return "" }
+            Drinking dr { return "" }
             Circuit ci { return "" }
             CircuitItem it { return "" }
         }

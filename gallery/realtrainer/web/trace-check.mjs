@@ -25,6 +25,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
+import { stringifyTrace } from "./trace-format.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, "..");
@@ -128,10 +129,27 @@ function runScenario(file) {
     if (step.key !== undefined) return app.keyWith(step.key, false, false) || pressed;
     return pressed;
   };
+  // THE FEED ARRIVES IN CHUNKS, and the page does not publish a half-built
+  // one: `main.js` syncs the accessibility mirror only when `app.building()`
+  // is false, because a reader handed twelve of sixty-eight workouts and then
+  // the rest a frame later is a reader whose cursor is thrown. The recorder
+  // read the tree the frame the press returned, so every Home frame in these
+  // traces was the first twelve cards — the port looking like it had lost
+  // fifty-six workouts it draws perfectly well. This is what the page does,
+  // in the recorder.
+  const settle = () => {
+    let spun = 0;
+    while (app.building() && spun < 400) {
+      app.tick(16.7);
+      spun += 1;
+    }
+  };
   for (const step of scenario.setup ?? []) apply(step);
+  settle();
   const wrong = [];
   const frames = scenario.steps.map((step) => {
     const handled = apply(step);
+    settle();
     const state = machineState(app, scenario.machine);
     if (step.state !== undefined && step.state !== state) {
       wrong.push(`${step.id ?? `tick ${step.tick}`}: in ${state}, wanted ${step.state}`);
@@ -153,7 +171,7 @@ let failed = 0;
 for (const name of fs.readdirSync(dir).filter((f) => f.endsWith(".json"))) {
   const { wrong, ...trace } = runScenario(path.join(dir, name));
   const target = path.join(out, name);
-  const text = JSON.stringify(trace, null, 1) + "\n";
+  const text = stringifyTrace(trace);
   if (wrong.length) {
     failed += 1;
     console.log(`  FAIL ${name} — the machine is not where the scenario says: ${wrong.join("; ")}`);

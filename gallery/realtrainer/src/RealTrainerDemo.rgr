@@ -428,9 +428,18 @@ treefactory Rt {
     tag FieldSel EVGElement (props (className "rt-field-sel") (a11yHidden true))
     ; --- the settings screen ------------------------------------------------
     tag SetCol   EVGElement (props (className "rt-settings"))
-    tag SetHd    EVGElement (props (className "rt-set-hd") (elementType 1) (role "heading") (a11yLevel 1))
-    tag SetSub   EVGElement (props (className "rt-set-sub") (elementType 1) (role "heading") (a11yLevel 2))
+    ; ASETUKSET IS AN H2 THERE, not an h1: the page has no title above it and
+    ; the sections under it are h3s, with an h4 where one section has a part
+    ; of its own. Levels are what a reader navigates by, so they are the
+    ; reference's and not this page's own idea of a hierarchy.
+    tag SetHd    EVGElement (props (className "rt-set-hd") (elementType 1) (role "heading") (a11yLevel 2))
+    tag SetSub   EVGElement (props (className "rt-set-sub") (elementType 1) (role "heading") (a11yLevel 3))
+    tag SetSub3  EVGElement (props (className "rt-set-sub3") (elementType 1) (role "heading") (a11yLevel 4))
     tag SetNote  EVGElement (props (className "rt-set-note") (elementType 1) (role "paragraph"))
+    tag SetBtn   EVGElement (props (className "rt-set-btn") (role "button") (a11yFocusable true))
+    tag SetBtnTx EVGElement (props (className "rt-set-btn-text") (elementType 1) (a11yHidden true))
+    tag SetLink  EVGElement (props (className "rt-set-link") (role "link") (a11yFocusable true))
+    tag SetSelect EVGElement (props (className "rt-set-select") (role "combobox") (a11yFocusable true))
     tag ThemeCard EVGElement (props (className "rt-theme-card") (role "button") (a11yFocusable true))
     tag ThemeSwatches EVGElement (props (className "rt-theme-swatches"))
     tag Swatch   EVGElement (props (className "rt-swatch") (a11yHidden true))
@@ -514,6 +523,37 @@ treefactory Rt {
     tag WizBtnTx EVGElement (props (className "rt-wiz-btn-text") (elementType 1))
     ; The year sheet page: its header, the cards, the toolbar, the grid,
     ; the legend, the periods and their example weeks.
+    ; A card's own panels: the history behind one row, and the menu behind the
+    ; button at its top. Both are sheets over the card, as the original draws
+    ; them.
+    tag CardSheet EVGElement (props (className "rt-card-sheet"))
+    tag CardMenu EVGElement (props (className "rt-card-menu"))
+    ; The feature-vector dialog: a heading, two lists of choices, what it will
+    ; do, and the two buttons at the foot.
+    tag VecSheet EVGElement (props (className "rt-vec-sheet"))
+    tag VecHd    EVGElement (props (className "rt-vec-hd") (elementType 1) (role "heading") (a11yLevel 2))
+    tag VecCap   EVGElement (props (className "rt-vec-cap") (elementType 1))
+    tag VecPara  EVGElement (props (className "rt-vec-para") (elementType 1) (role "paragraph"))
+    tag VecOpts  EVGElement (props (className "rt-vec-opts"))
+    tag VecOpt   EVGElement (props (className "rt-vec-opt") (role "button") (a11yFocusable true))
+    tag VecOptTx EVGElement (props (className "rt-vec-opt-text") (elementType 1) (a11yHidden true))
+    tag CardHd   EVGElement (props (className "rt-card-hd") (elementType 1) (role "heading") (a11yLevel 2))
+    tag CardTx   EVGElement (props (className "rt-card-tx") (elementType 1))
+
+    ; --- AI-kreditit ---------------------------------------------------------
+    ; The header's credit gauge opens a page of its own, as the original's
+    ; does: what is left of what was bought, one thing to buy, and the two
+    ; histories that are empty until something is.
+    tag Cred     EVGElement (props (className "rt-cred"))
+    tag CredHead EVGElement (props (className "rt-cred-head"))
+    tag CredHd   EVGElement (props (className "rt-cred-hd") (elementType 1) (role "heading") (a11yLevel 1))
+    tag CredSub  EVGElement (props (className "rt-cred-sub") (elementType 1) (role "heading") (a11yLevel 2))
+    tag CredPara EVGElement (props (className "rt-cred-para") (elementType 1) (role "paragraph"))
+    tag CredBig  EVGElement (props (className "rt-cred-big") (elementType 1))
+    tag CredDim  EVGElement (props (className "rt-cred-dim") (elementType 1))
+    tag CredCard EVGElement (props (className "rt-cred-card"))
+    tag CredBuy  EVGElement (props (className "rt-cred-buy") (id "rt-cred-buy") (role "button") (a11yFocusable true))
+    tag CredBuyTx EVGElement (props (className "rt-cred-buy-text") (elementType 1) (a11yHidden true))
     tag YsHead   EVGElement (props (className "rt-ys-head"))
     tag YsHd     EVGElement (props (className "rt-ys-hd") (elementType 1) (role "heading") (a11yLevel 1))
     tag YsH3     EVGElement (props (className "rt-ys-h3") (elementType 1) (role "heading") (a11yLevel 3))
@@ -893,14 +933,49 @@ class RealTrainerDemo {
     def wizard:CalendarWizard (new CalendarWizard())
     def wizJob:RtBackendSim (new RtBackendSim())
     def wizScroll:double 0.0
-    def toastText@(mutable):string ""
-    def toastMs:double 0.0
+    ; THE FEATURE-VECTOR DIALOG, which the statistics panel's one button opens.
+    ; `vecRange` is which of the five spans is chosen and `vecOff` the
+    ; calendars turned OFF — off, not on, because the dialog opens with the
+    ; five diary types already selected and a list of what is not selected is
+    ; empty on the frame that matters.
+    def vecOpen@(mutable):boolean false
+    def vecRange@(mutable):string "today"
+    def vecOff:[string]
+    ; THE TWO THINGS A CARD OPENS OVER ITSELF. `statsRow` is the row whose
+    ; history is being shown ("" for none) and `menuCard` the card whose
+    ; action menu is open (-1 for none) — see `traces/reference/home-entry.json`
+    ; and `home-entry-edit.json`, which is where their shape comes from.
+    def statsRow@(mutable):string ""
+    def statsName@(mutable):string ""
+    def menuCard@(mutable):int (0 - 1)
+    ; What an export put where a host can take it — see `pressEntryCard`. The
+    ; browser page reads this and calls `navigator.clipboard`; a check reads it
+    ; to see WHAT was copied and not merely that something said so.
+    def clipboard@(mutable):string ""
+    ; THE TOASTER IS A STACK. It held one, and pressing Compact and then JSON
+    ; on a card is two toasts on the reference — the second above the first,
+    ; both counting down on their own. A single slot meant the second replaced
+    ; the first and the first's four seconds were somebody else's.
+    def toastTexts:[string]
+    def toastLeft:[double]
+    def toastGood:[boolean]
     ; The year sheet page, and the editors' controls — one duration, one
     ; unit and one type per period, built when the seed is loaded.
     def ys:RtYearSheet (new RtYearSheet())
     def ysDur:[NumberCtl]
     def ysUnit:[SelectCtl]
     def ysType:[SelectCtl]
+    ; The settings page's own fields and selects. Three fields — the name, the
+    ; address the account was made with, the public nickname — and three
+    ; selects: the language, the day a week starts on and the view the
+    ; calendar opens in.
+    def setNameField:InputCtl (new InputCtl())
+    def setMailField:InputCtl (new InputCtl())
+    def setNickField:InputCtl (new InputCtl())
+    def setHintField:InputCtl (new InputCtl())
+    def setLang:SelectCtl (new SelectCtl())
+    def setWeekStart:SelectCtl (new SelectCtl())
+    def setDefaultView:SelectCtl (new SelectCtl())
     def wizName:InputCtl (new InputCtl())
     def wizDesc:InputCtl (new InputCtl())
     def wizGoals:InputCtl (new InputCtl())
@@ -1086,6 +1161,40 @@ class RealTrainerDemo {
         weekType.value = "target"
         planJob.latencyMs = 900.0
 
+        ; The settings page's fields and selects — see `settingsSection`. The
+        ; e-mail is the account's and cannot be typed into, which the field
+        ; says by being disabled where it is drawn.
+        ; A FIELD WITH A VALUE IS NAMED BY IT. Neither of these carries a
+        ; label in the original — the word above them is a line of text — so
+        ; what a reader hears is what is written in the box.
+        setNameField.tid = "rt-set-name"
+        setNameField.setValue("Test User")
+        setNameField.name = "Test User"
+        setMailField.tid = "rt-set-mail-field"
+        setMailField.setValue("test@example.com")
+        setMailField.name = "test@example.com"
+        setNickField.tid = "rt-set-nick"
+        setNickField.placeholder = "esim. sprinter650t"
+        setNickField.name = setNickField.placeholder
+        setHintField.tid = "rt-set-hint"
+        setHintField.placeholder = "Lisää uusi ohje..."
+        setHintField.name = setHintField.placeholder
+        setLang.tid = "rt-set-lang"
+        setLang.name = ""
+        setLang.addItem("fi" "Suomi" false)
+        setLang.addItem("en" "English" false)
+        setLang.value = "Suomi"
+        setWeekStart.tid = "rt-set-weekstart"
+        setWeekStart.name = ""
+        setWeekStart.addItem("mon" "Maanantai" false)
+        setWeekStart.addItem("sun" "Sunnuntai" false)
+        setWeekStart.value = "Maanantai"
+        setDefaultView.tid = "rt-set-view"
+        setDefaultView.name = ""
+        setDefaultView.addItem("week" "Viikko" false)
+        setDefaultView.addItem("month" "Kuukausi" false)
+        setDefaultView.addItem("day" "Päivä" false)
+        setDefaultView.value = "Viikko"
         chatField.tid = "rt-chat-field"
         chatField.placeholder = "Kysy jotain päiväkirjastasi..."
         chatField.name = chatField.placeholder
@@ -1986,7 +2095,14 @@ class RealTrainerDemo {
         }
 
         def el (tree Rt (DocRow (props (id rowId) (className ("rt-doc-row rt-doc-" + kind)))))
-        if ((strlen label) > 0) {
+        ; A MEAL'S LABEL IS ITS DESCRIPTION, and the description is already the
+        ; second of its runs — see `CompactStatBuilder.mealParts`. Drawing the
+        ; label as well printed the food twice.
+        def named@(mutable):boolean ((strlen label) > 0)
+        if ((kind == "food") || (kind == "drinking")) {
+            named = false
+        }
+        if named {
             el.addChild((tree Rt (DocLabel (props (id (rowId + "-label"))) label)))
         }
         el.addChild((tree Rt (Spacer)))
@@ -2680,6 +2796,134 @@ class RealTrainerDemo {
         }
     }
 
+    ; A ROW'S HISTORY. The reference names it after the exercise, in the
+    ; letters the diary was written in, and puts a Sulje of its own on it —
+    ; nothing else on the card can be pressed while it is up, which is what
+    ; makes it a sheet and not a chip. The summary is this app's own
+    ; statistics (`src/stats`), read for that one exercise.
+    fn entryStatsSheet:EVGElement () {
+        def sheet (tree Rt (CardSheet))
+        def head (tree Rt (ModalHead))
+        head.addChild((tree Rt (CardHd statsName)))
+        head.addChild((tree Rt (Spacer)))
+        head.addChild((this.sheetBtn("rt-entry-stats-close" "Sulje" "Sulje" false))) 
+        sheet.addChild(head)
+        def body (tree Rt (ModalBody))
+        def sums:[ExerciseSummary] (this.drillSummaries())
+        def said@(mutable):boolean false
+        for sums su:ExerciseSummary i {
+            if ((RealTrainerDemo.lower(su.name)) == (RealTrainerDemo.lower(statsName))) {
+                if (said == false) {
+                    body.addChild((tree Rt (CardTx ((to_string su.occurrences) + " kertaa"))))
+                    if (su.maxWeight > 0.0) {
+                        def best:string (("Paras " + (RealTrainerDemo.fixed(su.maxWeight 1))) + " kg")
+                        body.addChild((tree Rt (CardTx best)))
+                    }
+                    if (su.totalDistance > 0.0) {
+                        def far:string (("Yhteensä " + (RealTrainerDemo.fixed(su.totalDistance 1))) + " km")
+                        body.addChild((tree Rt (CardTx far)))
+                    }
+                    def last:string ("Viimeksi " + (RealTrainerDemo.fiDatePadded(su.lastDate)))
+                    body.addChild((tree Rt (CardTx last)))
+                    said = true
+                }
+            }
+        }
+        if (said == false) {
+            body.addChild((tree Rt (CardTx "Ei vielä historiaa")))
+        }
+        sheet.addChild(body)
+        return sheet
+    }
+
+    ; THE FEATURE-VECTOR DIALOG. Its rules are the reference's, read off
+    ; `CalculateVectorsDialog.tsx` rather than guessed: five spans with today
+    ; as the one it opens on, the calendars whose type a vector can be built
+    ; from — training, nutrition, measurement, sleep, feelings, camp, test-log
+    ; — in the store's order, what the calculation will do, and Peruuta beside
+    ; the button that starts it. Starting it is the backend's and there is no
+    ; backend here.
+    fn vectorsSheet:EVGElement () {
+        def sheet (tree Rt (VecSheet))
+        def head (tree Rt (ModalHead))
+        head.addChild((tree Rt (VecHd "Laske feature vektorit")))
+        head.addChild((tree Rt (Spacer)))
+        head.addChild((this.iconBtn("rt-vec-close" "" (RtIcons.x("#f2f2f2")))))
+        sheet.addChild(head)
+        sheet.addChild((tree Rt (VecCap "Aikaväli")))
+        def spans (tree Rt (VecOpts))
+        spans.addChild((this.vecOption("rt-vec-today" "Tänään" (vecRange == "today")))) 
+        spans.addChild((this.vecOption("rt-vec-7" "Viimeiset 7 päivää" (vecRange == "7days"))))
+        spans.addChild((this.vecOption("rt-vec-14" "Viimeiset 14 päivää" (vecRange == "14days"))))
+        spans.addChild((this.vecOption("rt-vec-30" "Viimeiset 30 päivää" (vecRange == "30days"))))
+        spans.addChild((this.vecOption("rt-vec-custom" "Mukautettu aikaväli" (vecRange == "custom"))))
+        sheet.addChild(spans)
+        sheet.addChild((tree Rt (VecCap "Kalenterit")))
+        def cals (tree Rt (VecOpts))
+        def listed:[RtSeedCalendar] (seed.storeOrder())
+        for listed c:RtSeedCalendar i {
+            if (RealTrainerDemo.vectorKind(c.kind)) {
+                cals.addChild((this.vecOption(("rt-vec-cal-" + c.id) c.name (this.vecOn(c.id)))))
+            }
+        }
+        sheet.addChild(cals)
+        sheet.addChild((tree Rt (VecPara "AI laskee feature vektorit valittujen kalentereiden merkinnöistä. Tämä voi kestää hetken.")))
+        def foot (tree Rt (ModalRow))
+        foot.addChild((tree Rt (Spacer)))
+        foot.addChild((this.sheetBtn("rt-vec-cancel" "Peruuta" "Peruuta" false)))
+        foot.addChild((this.sheetBtn("rt-vec-go" "Laske vektorit" "Laske vektorit" true)))
+        sheet.addChild(foot)
+        return sheet
+    }
+
+    ; A calendar a feature vector can be built from — the reference's list,
+    ; and the reason a plan is not on it: a plan has no entries to read.
+    sfn vectorKind:boolean (kind:string) {
+        if (kind == "training") { return true }
+        if (kind == "nutrition") { return true }
+        if (kind == "measurement") { return true }
+        if (kind == "sleep") { return true }
+        if (kind == "feelings") { return true }
+        if (kind == "camp") { return true }
+        if (kind == "test-log") { return true }
+        return false
+    }
+
+    ; Selected unless it has been turned off — see `vecOff`.
+    fn vecOn:boolean (id:string) {
+        for vecOff off:string i {
+            if (off == id) {
+                return false
+            }
+        }
+        return true
+    }
+
+    fn vecOption:EVGElement (id:string label:string on:boolean) {
+        def b (tree Rt (VecOpt))
+        b.id = id
+        b.a11yLabel = label
+        if on {
+            b.className = "rt-vec-opt rt-vec-opt-on"
+            ; TWO IS YES.  is the tri-state — 1 is "no", 2 is
+            ; "yes" — and a 1 here published nothing at all.
+            b.a11ySelected = 2
+        }
+        b.addChild((tree Rt (VecOptTx label)))
+        return b
+    }
+
+    ; THE CARD'S ACTION MENU, which is what the button at the top of a card
+    ; opens — not an "add", whatever its name says. Three items, as the
+    ; reference has them.
+    fn entryMenuSheet:EVGElement () {
+        def menu (tree Rt (CardMenu))
+        menu.addChild((this.moreItem("rt-entry-menu-ai" "Muokkaa AI:lla" (RtIcons.sparkles("#f2f2f2")))))
+        menu.addChild((this.moreItem("rt-entry-menu-image" "Kopioi kuvana" (RtIcons.copy("#f2f2f2")))))
+        menu.addChild((this.moreItem("rt-entry-menu-delete" "Poista" (RtIcons.trash("#f2f2f2")))))
+        return menu
+    }
+
     fn addOverlay:void (page:EVGElement) {
         if (addDialog.isOpen()) {
             def over (tree Rt (Overlay (props (id "rt-overlay-add"))))
@@ -3075,15 +3319,174 @@ class RealTrainerDemo {
     ;
     ; The swatches are literal colours and not `var()`: a swatch shows a
     ; palette that is NOT on, and the sheet only resolves the one that is.
+    ; THE SETTINGS PAGE, section for section as the reference has it —
+    ; `traces/reference/more-sheet.json` is where the order and the wording
+    ; come from. It was one heading and three theme cards here, eleven stops
+    ; against seventy-nine.
+    ;
+    ; What is drawn but not wired is drawn all the same, and says so by doing
+    ; nothing: a Slack workspace, a token quota and an export are the
+    ; backend's, and there is no backend here. What a person can actually
+    ; change — the language, the week's first day, which calendars show, the
+    ; palette — is wired.
     fn settingsSection:void (body:EVGElement) {
         def col (tree Rt (SetCol))
         col.addChild((tree Rt (SetHd "Asetukset")))
-        col.addChild((tree Rt (SetSub "Teema")))
-        col.addChild((tree Rt (SetNote "Väri, ei asettelu: sama ruutu joka teemalla.")))
-        col.addChild((this.themeCard("" "Yö" "Tumma harmaa, oranssi korostus")))
-        col.addChild((this.themeCard("ocean" "Ocean" "Syvä vesi, turkoosi korostus")))
+
+        col.addChild((tree Rt (SetSub "Versio")))
+        col.addChild((tree Rt (SetNote "1.17.54 RealTrainer")))
+
+        col.addChild((tree Rt (SetSub "Käyttötilastot")))
+        col.addChild((tree Rt (SetNote "AI-tokenit 0 / 100 000 · 0% käytetty · Funktiokutsut 0")))
+
+        col.addChild((tree Rt (SetSub "Tilaus ja laskutus")))
+        col.addChild((tree Rt (SetNote "AI-kreditit 0 / 100 000")))
+        col.addChild((tree Rt (SetSub3 "Osta AI-kredittejä")))
+        col.addChild((tree Rt (SetNote "Kreditit eivät vanhene ja lisätään nykyiseen saldoosi.")))
+        col.addChild((this.setBtn("rt-set-buy" "1 000 000 kredittiä €4,95 Osta")))
+
+        ; --- AI-ohjeet ---------------------------------------------------
+        col.addChild((tree Rt (SetSub "AI-ohjeet")))
+        col.addChild((tree Rt (SetNote "Lisää henkilökohtaisia ohjeita jotka AI huomioi analyyseissään.")))
+        col.addChild((tree Rt (SetNote "AI saa automaattisesti tietoa vuosisuunnitelmastasi ja aktiivisesta periodista.")))
+        col.addChild((tree Rt (SetNote "Tee ehdotukset")))
+        col.addChild((tree Rt (SetNote "Anna AI:n analysoida vuosisuunnitelmasi, päiväkirjasi ja profiilisi.")))
+        col.addChild((this.setBtn("rt-set-suggest" "Tee ehdotukset")))
+        col.addChild((this.setBtn("rt-set-general" "Yleiset ohjeet (0 aktiivista)")))
+        col.addChild((tree Rt (SetNote "Ehdotuksia:")))
+        col.addChild((this.setBtn("rt-set-hint-fi" "+ Kommunikoi suomeksi")))
+        col.addChild((this.setBtn("rt-set-hint-kind" "+ Ole kannustava ja positiivinen")))
+        col.addChild((this.setBtn("rt-set-hint-concrete" "+ Anna konkreettisia parannusehdotuksia")))
+        col.addChild((this.fieldBox(setHintField)))
+        def addHint (this.iconBtn("rt-set-hint-add" "" (RtIcons.plus("#999999"))))
+        addHint.a11yDisabled = true
+        col.addChild(addHint)
+        col.addChild((tree Rt (SetNote "Kalenterityyppikohtaiset ohjeet")))
+        def kinds:[string]
+        push kinds "Harjoituspäiväkirja"
+        push kinds "Harjoitussuunnitelma"
+        push kinds "Ravintopäiväkirja"
+        push kinds "Unipäiväkirja"
+        push kinds "Kilpailut"
+        push kinds "Leirit"
+        push kinds "Kulut"
+        push kinds "Mittaukset"
+        push kinds "Fiilispäiväkirja"
+        push kinds "Testauspöytäkirja"
+        for kinds kn:string ki {
+            col.addChild((this.setBtn(("rt-set-kind-" + (to_string ki)) kn)))
+        }
+        col.addChild((this.setBtn("rt-set-save-hints" "Tallenna ohjeet")))
+
+        col.addChild((tree Rt (SetSub "Slack-integraatiot")))
+        col.addChild((tree Rt (SetNote "Yhdistä Slack-työtila ja anna ryhmäsi jäsenten kirjata harjoituksia.")))
+        col.addChild((this.setBtn("rt-set-slack" "Lisää Slack-työtila")))
+        col.addChild((tree Rt (SetNote "💡 Slack-botin käyttämät AI-tokenit lasketaan sinun kiintiöstäsi.")))
+
+        ; --- Profiiliasetukset -------------------------------------------
+        col.addChild((tree Rt (SetSub "Profiiliasetukset")))
+        col.addChild((tree Rt (SetNote "Nimi")))
+        col.addChild((this.fieldBox(setNameField)))
+        col.addChild((tree Rt (SetNote "Sähköposti")))
+        def mail:EVGElement (this.fieldBox(setMailField))
+        mail.a11yDisabled = true
+        col.addChild(mail)
+        col.addChild((tree Rt (SetNote "Julkinen nimimerkki")))
+        col.addChild((this.fieldBox(setNickField)))
+        def saveProfile (this.setBtn("rt-set-save-profile" "Tallenna"))
+        saveProfile.a11yDisabled = true
+        col.addChild(saveProfile)
+        col.addChild((tree Rt (SetNote "Linkkisi muoto: https://www.realtrainer.com/diary/nimimerkki/")))
+        col.addChild((this.setSelect(setLang)))
+        col.addChild((tree Rt (SetNote "Viikko alkaa")))
+        col.addChild((this.setSelect(setWeekStart)))
+
+        col.addChild((tree Rt (SetSub "Kalenterin asetukset")))
+        def listed:[RtSeedCalendar] (seed.storeOrder())
+        for listed c:RtSeedCalendar i {
+            col.addChild((this.setBtn(("rt-set-cal-" + c.id) c.name)))
+        }
+
+        col.addChild((tree Rt (SetSub "Ilmoitusasetukset")))
+        col.addChild((tree Rt (SetNote "Sähköposti-ilmoitukset · Saat ilmoitukset sähköpostiin")))
+        col.addChild((this.setToggle("rt-set-mail")))
+        col.addChild((tree Rt (SetNote "Push-ilmoitukset · Selainilmoitukset")))
+        col.addChild((this.setToggle("rt-set-push")))
+        col.addChild((tree Rt (SetNote "Muistutukset · Harjoitusmuistutukset")))
+        col.addChild((this.setToggle("rt-set-remind")))
+
+        ; --- Ulkoasun asetukset ------------------------------------------
+        col.addChild((tree Rt (SetSub "Ulkoasun asetukset")))
+        col.addChild((tree Rt (SetNote "Oletusnäkymä")))
+        col.addChild((this.setSelect(setDefaultView)))
+        col.addChild((tree Rt (SetNote "Väritila")))
+        col.addChild((this.setBtn("rt-set-light" "Vaalea")))
+        col.addChild((this.setBtn("rt-set-dark" "Tumma")))
+        col.addChild((this.setBtn("rt-set-system" "Järjestelmä")))
+        col.addChild((tree Rt (SetNote ("Väripohja " + (RealTrainerDemo.paletteName(palette))))))
+        col.addChild((tree Rt (SetNote "Sama nykyinen ilme eri sävyillä. Vaihda korosteväriä ja taustoja.")))
+        col.addChild((this.setBtn("rt-set-own-theme" "Luo oma teema")))
+        col.addChild((this.themeCard("" "Grafiitti" "Nykyinen tumma harmaa lämpimällä korostevärillä")))
+        col.addChild((this.themeCard("ocean" "Ocean" "Viileä sininen ja kirkkaat turkoosit korostukset")))
+        col.addChild((this.themeCard("forest" "Forest" "Luonnollinen vihreä, hieman pehmeämpi kontrasti")))
+        col.addChild((this.themeCard("violet" "Violet" "Tumma violetti ja pehmeät lilat yksityiskohdat")))
+        ; THE FIFTH IS THIS PORT'S OWN, and asked for: the reference has four
+        ; palettes and Sunrise is not one of them.
         col.addChild((this.themeCard("sunrise" "Sunrise" "Lämmin luumu, korallin korostus")))
+        col.addChild((tree Rt (SetNote "Pikavaihto löytyy edelleen valikon alaosasta.")))
+
+        col.addChild((tree Rt (SetSub "Tietojen hallinta")))
+        col.addChild((tree Rt (SetSub3 "Vie tiedot")))
+        col.addChild((tree Rt (SetNote "Lataa kaikki tietosi JSON-tiedostona")))
+        col.addChild((this.setBtn("rt-set-export" "Vie tiedot")))
+        col.addChild((tree Rt (SetNote "Viennin tila · Kalenterit muistissa: 3 / 13")))
+
+        col.addChild((tree Rt (SetSub "Lakiasiat")))
+        col.addChild((this.setLink("rt-set-terms" "Käyttöehdot Palvelun käyttöehdot")))
+        col.addChild((this.setLink("rt-set-privacy" "Tietosuojaseloste Rekisteriseloste ja tietosuojakäytäntö")))
         body.addChild(col)
+    }
+
+    ; The palette in force, by the name the settings page shows.
+    sfn paletteName:string (name:string) {
+        if (name == "ocean") { return "Ocean" }
+        if (name == "forest") { return "Forest" }
+        if (name == "violet") { return "Violet" }
+        if (name == "sunrise") { return "Sunrise" }
+        return "Grafiitti"
+    }
+
+    fn setBtn:EVGElement (id:string label:string) {
+        def b (tree Rt (SetBtn))
+        b.id = id
+        b.a11yLabel = label
+        b.addChild((tree Rt (SetBtnTx label)))
+        return b
+    }
+
+    ; A switch with no name, as the original's are — the line above says what
+    ; it is for, and the lint lists every one of them.
+    fn setToggle:EVGElement (id:string) {
+        def b (tree Rt (SetBtn))
+        b.id = id
+        b.className = "rt-set-btn rt-set-toggle"
+        b.a11yLabel = ""
+        return b
+    }
+
+    fn setLink:EVGElement (id:string label:string) {
+        def b (tree Rt (SetLink))
+        b.id = id
+        b.a11yLabel = label
+        b.addChild((tree Rt (SetBtnTx label)))
+        return b
+    }
+
+    fn setSelect:EVGElement (ctl:SelectCtl) {
+        def box (tree Rt (SetSelect))
+        box.id = ctl.tid
+        box.addChild((tree Rt (SetBtnTx ctl.value)))
+        return box
     }
 
     fn themeCard:EVGElement (name:string label:string about:string) {
@@ -3093,11 +3496,15 @@ class RealTrainerDemo {
         }
         def card (tree Rt (ThemeCard))
         card.id = ("rt-theme-" + slug)
-        card.a11yLabel = label
+        ; THE NAME IS THE WHOLE CARD, as the original's is: the palette and
+        ; the sentence under it are one button and a reader hears both.
+        card.a11yLabel = (label + " " + about)
         def on:boolean (palette == name)
         if on {
             card.className = "rt-theme-card rt-theme-card-on"
-            card.a11ySelected = 1
+            ; Two is yes; a 1 here published nothing, so the palette in force
+            ; was marked on the screen and not to a reader.
+            card.a11ySelected = 2
         }
         def sw (tree Rt (ThemeSwatches))
         def k:int 0
@@ -3453,6 +3860,13 @@ class RealTrainerDemo {
         ; it out again, forever, and a scroll there could never take the
         ; shortcut. Cleared here, before either tab can return.
         feedMore = false
+        ; A ROW'S HISTORY IS A STRIP AT THE TOP OF HOME, above the tabs — not a
+        ; modal over the card it was opened from. The reference puts it here,
+        ; between the composer and the tabs, and a reader tabbing the page
+        ; meets it there: see `traces/reference/home-entry.json`.
+        if ((strlen statsRow) > 0) {
+            home.addChild((this.entryStatsSheet()))
+        }
         def tabs (tree Rt (Row (props (className "rt-ex-btns rt-home-tabs"))))
         tabs.addChild((this.homeTabBtn("rt-home-tab-diary" "Päiväkirja" (homeTab == "diary"))))
         tabs.addChild((this.homeTabBtn("rt-home-tab-drills" "Harjoitteet" (homeTab == "drills"))))
@@ -3633,6 +4047,8 @@ class RealTrainerDemo {
             Phase ph { }
             Custom cu { }
             Unknown un { }
+            Food fo { }
+            Drinking dr { }
             Circuit ci { }
             CircuitItem it { }
         }
@@ -3957,6 +4373,8 @@ class RealTrainerDemo {
                     Phase ph { }
                     Duration du { }
                     Unknown un { }
+                    Food fo { }
+                    Drinking dr { }
                     Circuit ci { }
                     CircuitItem it { }
                 }
@@ -4197,6 +4615,13 @@ class RealTrainerDemo {
         }
         panel.addChild(feats)
         home.addChild(panel)
+        ; AFTER the panel, which is where the reference puts it: the tabs and
+        ; the statistics stay in the tree behind the dialog, and a reader walking
+        ; the page meets it last. Drawn before them it read 81% with every node
+        ; present — see the note on the card's panels.
+        if vecOpen {
+            home.addChild((this.vectorsSheet()))
+        }
     }
 
     sfn featureRow:void (keys:[string] labels:[string] units:[string] colors:[string] key:string label:string unit:string color:string) {
@@ -4592,6 +5017,43 @@ class RealTrainerDemo {
     ; `CalendarWizard.tsx`, step by step: the header with the dots, the
     ; step's body, and the footer that goes back or on. Everything drawn is
     ; read from `wizard`; the gates are its.
+    ; THE CREDITS PAGE, drawn from the reference's own tree — see
+    ; `traces/reference/credits.json`. A page of its own, with none of the
+    ; shell on it: a back that carries no name (as every icon button in the
+    ; original does), the balance, the one thing there is to buy, and the two
+    ; histories that are empty until a purchase writes to them.
+    ;
+    ; The numbers are the header gauge's, because they are the same numbers:
+    ; `PhCredits` says "AI Credits: 100k" on every screen.
+    fn creditsScreen:EVGElement () {
+        def page (tree Rt (Cred))
+        def head (tree Rt (CredHead))
+        head.addChild((this.iconBtn("rt-cred-back" "" (RtIcons.arrowLeft("#f2f2f2")))))
+        head.addChild((tree Rt (CredHd "AI-kreditit")))
+        page.addChild(head)
+        def bal (tree Rt (CredCard))
+        bal.addChild((tree Rt (CredDim "Käytettävissä")))
+        bal.addChild((tree Rt (CredBig "100 000")))
+        bal.addChild((tree Rt (CredDim "Käytetty 0 / 100 000")))
+        page.addChild(bal)
+        page.addChild((tree Rt (CredSub "Osta lisää kredittejä")))
+        page.addChild((tree Rt (CredPara "Kreditit eivät vanhene ja lisätään nykyiseen saldoosi.")))
+        def buy (tree Rt (CredBuy))
+        buy.a11yLabel = "1 000 000 kredittiä €4,95 Osta"
+        buy.addChild((tree Rt (CredBuyTx "1 000 000 kredittiä")))
+        buy.addChild((tree Rt (Spacer)))
+        buy.addChild((tree Rt (CredBuyTx "€4,95")))
+        buy.addChild((tree Rt (CredBuyTx "Osta")))
+        page.addChild(buy)
+        page.addChild((tree Rt (CredDim "Maksu käsitellään turvallisesti Stripen kautta.")))
+        page.addChild((tree Rt (CredSub "Credits history")))
+        page.addChild((tree Rt (CredDim "Ei vielä kuluhistoriaa")))
+        page.addChild((tree Rt (CredSub "Yksityiskohtaiset kuitit")))
+        page.addChild((tree Rt (CredDim "Ei vielä yksityiskohtaisia kuitteja")))
+        page.addChild((this.toasts()))
+        return page
+    }
+
     fn wizardScreen:EVGElement () {
         def page (tree Rt (Wiz))
         def head (tree Rt (WizHead))
@@ -4937,23 +5399,42 @@ class RealTrainerDemo {
     fn wizardDone:void (ok:boolean) {
         if (ok == false) {
             wizard.complete(false)
-            toastText = "Päiväkirjan luonti epäonnistui"
-            toastMs = 4000.0
+            this.toast("Päiväkirjan luonti epäonnistui" false)
             return
         }
         def id:string ("cal-new-" + (to_string (wizard.created + 1)))
         def newName:string (wizard.nameTrimmed())
         seed.addCalendar(id newName wizard.typeKey wizard.color)
         seed.selectCalendar(id)
-        toastText = (("Päiväkirja \"" + newName) + "\" luotu")
+        def said@(mutable):string ((("Päiväkirja \"" + newName) + "\" luotu"))
         if wizard.encrypted {
-            toastText = (("Salattu päiväkirja \"" + newName) + "\" luotu 🔐")
+            said = (("Salattu päiväkirja \"" + newName) + "\" luotu 🔐")
         }
         wizard.complete(true)
         scene = "app"
         section = "home"
         docScroll = 0.0
-        toastMs = 4000.0
+        this.toast(said true)
+    }
+
+    ; SAY SOMETHING, for four seconds. Newest first, the way the original's
+    ; toaster stacks them, and each with its own clock — see `toastTexts`.
+    fn toast:void (text:string good:boolean) {
+        def texts:[string]
+        def left:[double]
+        def good2:[boolean]
+        push texts text
+        push left 4000.0
+        push good2 good
+        for toastTexts t:string i {
+            push texts t
+            push left (itemAt toastLeft i)
+            push good2 (itemAt toastGood i)
+        }
+        toastTexts = texts
+        toastLeft = left
+        toastGood = good2
+        listDirty = true
     }
 
     ; --- the year sheet ------------------------------------------------------------
@@ -5252,8 +5733,15 @@ class RealTrainerDemo {
             docScroll = 0.0
             return true
         }
+        ; A PLAN IN THE LIST OPENS THE DASHBOARD, not the plan. The reference
+        ; goes there — Aktiivinen suunnitelma, the current period, and "Avaa
+        ; suunnitelma" as the way in — and this side went straight to the
+        ; editor, which is one screen further than a person asked for. See
+        ; `traces/reference/yearsheet-open.json`; `dashboard` is the scenario
+        ; that walks the rest of that route.
         if (RtEntry.hasPrefix(id "rt-ys-open-")) {
-            ys.openDetail()
+            scene = "app"
+            section = "dashboard"
             docScroll = 0.0
             return true
         }
@@ -5323,18 +5811,24 @@ class RealTrainerDemo {
         return (ch - 48)
     }
 
-    ; The toaster's landmark, and the toast in it while there is one.
+    ; The toaster's landmark, and the toasts in it while there are any: one
+    ; list, an item each, as sonner has it.
     fn toasts:EVGElement () {
         def region (tree Rt (PhToasts))
-        if ((strlen toastText) > 0) {
+        if ((array_length toastTexts) > 0) {
             def list (tree Rt (Toast))
             list.setAttribute("width" ((to_string (to_int (pageW - 32.0))) + "px"))
-            def item (tree Rt (ToastItem))
-            def ic (tree Rt (PhIcon))
-            ic.svgSource = (RtIcons.check("#22c55e"))
-            item.addChild(ic)
-            item.addChild((tree Rt (ToastTx toastText)))
-            list.addChild(item)
+            for toastTexts t:string i {
+                def item (tree Rt (ToastItem))
+                def ic (tree Rt (PhIcon))
+                ic.svgSource = (RtIcons.check("#22c55e"))
+                if ((itemAt toastGood i) == false) {
+                    ic.svgSource = (RtIcons.x("#ef4444"))
+                }
+                item.addChild(ic)
+                item.addChild((tree Rt (ToastTx t)))
+                list.addChild(item)
+            }
             region.addChild(list)
         }
         return region
@@ -5568,6 +6062,12 @@ class RealTrainerDemo {
             def addRow (tree Rt (ModalRow))
             addRow.addChild((tree Rt (Spacer)))
             addRow.addChild((this.exButton(("rt-entry-add-" + (to_string i)) "Lisää" "Lisää")))
+            ; THE MENU HANGS OFF THE BUTTON, in the card and right after it,
+            ; which is where the reference puts it and therefore where a
+            ; reader walking the page finds it.
+            if (menuCard == i) {
+                addRow.addChild((this.entryMenuSheet()))
+            }
             card.addChild(addRow)
         }
         ; THE HEADER IS NOT IN A PROPOSAL. The chips row above the card
@@ -5686,6 +6186,40 @@ class RealTrainerDemo {
                     }
                 }
                 rows.addChild(dline)
+                rows.addChild((this.commentUnder(rowId)))
+                continue
+            }
+            ; A MEAL AND A DRINK. `ContentRows.tsx` draws them as one row with
+            ; two ends: the glyph and what was eaten on the left, and the
+            ; numbers on the right in mono — calories muted, protein in the
+            ; orange the app uses for a load, carbohydrate and fat in amber.
+            ; They used to be a line of text and the line lost things: a drink
+            ; came out as "Drinking2dl | Maito", its calories and its protein
+            ; gone. See `CompactStatBuilder.mealParts`.
+            if ((kind == "food") || (kind == "drinking")) {
+                def meal (tree Rt (Row (props (className "rt-entry-meal"))))
+                def mparts:[StatPart] (CompactStatBuilder.parts(row))
+                def nums (tree Rt (Row (props (className "rt-entry-meal-nums"))))
+                for mparts mp:StatPart mi {
+                    if (mp.kind == "meta") {
+                        meal.addChild((tree Rt (EntryRowTx mp.text)))
+                        continue
+                    }
+                    if (mp.kind == "note") {
+                        def name (tree Rt (EntryRowTx mp.text))
+                        name.className = "rt-entry-row-text rt-entry-meal-name"
+                        meal.addChild(name)
+                        meal.addChild((tree Rt (Spacer)))
+                        continue
+                    }
+                    def num (tree Rt (EntryMono mp.text))
+                    if (mp.tone == "weight") { num.className = "rt-entry-mono rt-entry-weight" }
+                    if (mp.tone == "spec") { num.className = "rt-entry-mono rt-entry-meal-macro" }
+                    if (mp.tone == "muted") { num.className = "rt-entry-mono rt-entry-muted" }
+                    nums.addChild(num)
+                }
+                meal.addChild(nums)
+                rows.addChild(meal)
                 rows.addChild((this.commentUnder(rowId)))
                 continue
             }
@@ -5992,6 +6526,8 @@ class RealTrainerDemo {
             Custom cu { }
             Duration du { }
             Unknown un { }
+            Food fo { }
+            Drinking dr { }
             Circuit ci { }
             CircuitItem it { }
         }
@@ -6017,6 +6553,8 @@ class RealTrainerDemo {
             Phase ph { }
             Duration du { }
             Unknown un { }
+            Food fo { }
+            Drinking dr { }
             Circuit ci { }
             CircuitItem it { }
         }
@@ -6097,6 +6635,8 @@ class RealTrainerDemo {
             Phase ph { }
             Duration du { }
             Unknown un { }
+            Food fo { }
+            Drinking dr { }
             Circuit ci { }
             CircuitItem it { }
         }
@@ -6122,6 +6662,8 @@ class RealTrainerDemo {
             Custom cu { }
             Duration du { }
             Unknown un { }
+            Food fo { }
+            Drinking dr { }
             Circuit ci { }
             CircuitItem it { }
         }
@@ -6477,7 +7019,204 @@ class RealTrainerDemo {
         return b
     }
 
+    ; THE CARD'S OWN BUTTONS. Compact and JSON are exports: the reference puts
+    ; the entry on the clipboard and says which shape in a toast, and this
+    ; side has no clipboard, so it writes what would have been copied where a
+    ; host can take it (`clipboardText`) and says the same thing. Poista takes
+    ; the entry away. See `traces/reference/home-entry.json` and
+    ; `home-entry-edit.json` — this is their answer, not a guess.
+    ; The dialog's own buttons. Starting the calculation is the backend's, so
+    ; "Laske vektorit" closes and says nothing rather than pretending.
+    fn pressVectors:boolean (id:string) {
+        if (id == "rt-stats-calc") {
+            vecOpen = true
+            this.rebuild()
+            return true
+        }
+        if (vecOpen == false) {
+            return false
+        }
+        if ((id == "rt-vec-close") || (id == "rt-vec-cancel") || (id == "rt-vec-go")) {
+            vecOpen = false
+            this.rebuild()
+            return true
+        }
+        def spans:[string]
+        push spans "rt-vec-today"
+        push spans "rt-vec-7"
+        push spans "rt-vec-14"
+        push spans "rt-vec-30"
+        push spans "rt-vec-custom"
+        def keys:[string]
+        push keys "today"
+        push keys "7days"
+        push keys "14days"
+        push keys "30days"
+        push keys "custom"
+        for spans sid:string i {
+            if (sid == id) {
+                vecRange = (itemAt keys i)
+                this.rebuild()
+                return true
+            }
+        }
+        if (RtEntry.hasPrefix(id "rt-vec-cal-")) {
+            def cid:string (substring id (strlen "rt-vec-cal-") (strlen id))
+            def kept:[string]
+            def was@(mutable):boolean false
+            for vecOff off:string i {
+                if (off == cid) {
+                    was = true
+                } {
+                    push kept off
+                }
+            }
+            if (was == false) {
+                push kept cid
+            }
+            vecOff = kept
+            this.rebuild()
+            return true
+        }
+        return false
+    }
+
+    fn pressEntryCard:boolean (id:string) {
+        ; The two panels a card opens over itself, and their ways out.
+        if (id == "rt-entry-stats-close") {
+            statsRow = ""
+            statsName = ""
+            this.rebuild()
+            return true
+        }
+        if ((id == "rt-entry-menu-close") || (id == "rt-entry-menu-ai") || (id == "rt-entry-menu-image")) {
+            ; Editing with the AI and copying the card as a picture are the
+            ; backend's and the canvas's; neither exists here, so the menu
+            ; closes and says nothing rather than pretending.
+            menuCard = (0 - 1)
+            ; The card is KEPT across frames — see `cardFor` — so a rebuild
+            ; alone would hand back the card as it was, menu and all.
+            this.forgetCards()
+            this.rebuild()
+            return true
+        }
+        if ((RtEntry.hasPrefix(id "rt-entry-stats-")) && (id != "rt-entry-stats-close")) {
+            def rowId:string (substring id (strlen "rt-entry-stats-") (strlen id))
+            def name:string (this.entryRowName(rowId))
+            if ((strlen name) == 0) {
+                return false
+            }
+            statsRow = rowId
+            statsName = name
+            this.rebuild()
+            return true
+        }
+        def ai:int (RealTrainerDemo.indexAfter(id "rt-entry-add-"))
+        if (ai >= 0) {
+            menuCard = ai
+            this.forgetCards()
+            this.rebuild()
+            return true
+        }
+        if (id == "rt-entry-menu-delete") {
+            def mc:int menuCard
+            menuCard = (0 - 1)
+            this.forgetCards()
+            if (mc < 0) {
+                return false
+            }
+            return (this.removeCard(mc))
+        }
+        def ci:int (RealTrainerDemo.indexAfter(id "rt-entry-compact-"))
+        def ji:int (RealTrainerDemo.indexAfter(id "rt-entry-json-"))
+        def di:int (RealTrainerDemo.indexAfter(id "rt-entry-delete-"))
+        if ((ci < 0) && (ji < 0) && (di < 0)) {
+            return false
+        }
+        def sorted:[RtSeedEntry] (RealTrainerDemo.sortByDateDesc((seed.selectedEntries())))
+        def at@(mutable):int ci
+        if (ji >= 0) { at = ji }
+        if (di >= 0) { at = di }
+        if (at >= (array_length sorted)) {
+            return false
+        }
+        def e:RtSeedEntry (itemAt sorted at)
+        if (ci >= 0) {
+            clipboard = e.compact
+            this.toast("Kopioitu Compact-muodossa" true)
+            return true
+        }
+        if (ji >= 0) {
+            clipboard = ((CompactV1Parser.parseText(e.compact)).toJSONString())
+            this.toast("Kopioitu JSON-muodossa" true)
+            return true
+        }
+        return (this.removeCard(at))
+    }
+
+    ; The card at a place in the feed, taken away. By the entry's id, because
+    ; the feed is sorted and its index is not the seed's.
+    fn removeCard:boolean (at:int) {
+        def sorted:[RtSeedEntry] (RealTrainerDemo.sortByDateDesc((seed.selectedEntries())))
+        if (at >= (array_length sorted)) {
+            return false
+        }
+        def e:RtSeedEntry (itemAt sorted at)
+        if (seed.removeEntry(e.id)) {
+            this.forgetCards()
+            this.toast("Merkintä poistettu" true)
+            layoutDirty = true
+            boxesDirty = true
+            this.rebuild()
+            return true
+        }
+        return false
+    }
+
+    ; The exercise a row is, for the history sheet's name. `rowId` is the
+    ; card's place in the feed and the row's place in the card, which is how
+    ; the buttons on it are named.
+    fn entryRowName:string (rowId:string) {
+        def dash:int (RtEntry.findIn(rowId "-"))
+        if (dash < 0) {
+            return ""
+        }
+        def ci@(optional):int (to_int (substring rowId 0 dash))
+        def ri@(optional):int (to_int (substring rowId (dash + 1) (strlen rowId)))
+        if ci {
+            if ri {
+                def sorted:[RtSeedEntry] (RealTrainerDemo.sortByDateDesc((seed.selectedEntries())))
+                def at:int (unwrap ci)
+                if (at >= (array_length sorted)) {
+                    return ""
+                }
+                def se:RtSeedEntry (itemAt sorted at)
+                def parsed:CompactDocument (CompactRowMapper.parseDocument(se.compact))
+                def rws:[CompactRow] parsed.rows
+                def r:int (unwrap ri)
+                if (r >= (array_length rws)) {
+                    return ""
+                }
+                return (CompactStatBuilder.label((itemAt rws r)))
+            }
+        }
+        return ""
+    }
+
     fn pressApp:boolean (id:string) {
+        if (this.pressVectors(id)) {
+            return true
+        }
+        if (this.pressEntryCard(id)) {
+            return true
+        }
+        ; THE CREDIT GAUGE IS A BUTTON, on every screen, and it was drawn on
+        ; every screen and answered on none — see ISSUES.md and
+        ; `traces/reference/credits.json`. It opens a page of its own.
+        if (id == "rt-credits") {
+            this.setScene("credits")
+            return true
+        }
         ; The calendar menu: the selector opens and closes it, an item picks
         ; a calendar and goes Home with it, "Luo uusi kalenteri" opens the
         ; wizard, and anything else closes it on the way.
@@ -6563,8 +7302,11 @@ class RealTrainerDemo {
         }
         if (id == "rt-nav-chat") { return (this.goSection("chat")) }
         if (id == "rt-nav-settings") { return (this.goSection("settings")) }
+        ; The reference's four, and this port's fifth — see `settingsSection`.
         if (id == "rt-theme-night") { return (this.setPalette("")) }
         if (id == "rt-theme-ocean") { return (this.setPalette("ocean")) }
+        if (id == "rt-theme-forest") { return (this.setPalette("forest")) }
+        if (id == "rt-theme-violet") { return (this.setPalette("violet")) }
         if (id == "rt-theme-sunrise") { return (this.setPalette("sunrise")) }
         if (id == "rt-nav-more") {
             moreOpen = true
@@ -6669,6 +7411,10 @@ class RealTrainerDemo {
         for dayFields f:InputCtl i {
             push a f
         }
+        push a setNameField
+        push a setMailField
+        push a setNickField
+        push a setHintField
         push a wizName
         push a wizDesc
         push a wizGoals
@@ -6872,6 +7618,34 @@ class RealTrainerDemo {
                 return false
             }
             listDirty = true
+            ; …and the next stop may be a field as well, in which case the
+            ; keyboard goes straight on into it.
+            this.keyboardTo(to)
+            return true
+        }
+        ; ESCAPE IS THE WAY OUT OF A FIELD TOO. Nothing answered it here, so
+        ; a dialog you were typing in could only be closed by finding its ×
+        ; with the mouse — while the same Escape one Tab later closed it at
+        ; once. A native dialog closes on Escape from inside its own input,
+        ; and with no dialog up this hands the keyboard back to the screen:
+        ; the field lets go, the ring stays on it, and the arrows move the
+        ; ring again instead of a caret.
+        if (k == "Escape") {
+            def from:string focused
+            focused = ""
+            layoutDirty = true
+            boxesDirty = true
+            if (this.closeTopmost()) {
+                def lay:EVGLayout (this.laidOut())
+                def r:EVGElement (unwrap root)
+                keys.settle(r)
+                return true
+            }
+            this.rebuild()
+            def lay2:EVGLayout (this.laidOut())
+            def r2:EVGElement (unwrap root)
+            keys.place(r2 from)
+            listDirty = true
             return true
         }
         layoutDirty = true
@@ -6929,6 +7703,13 @@ class RealTrainerDemo {
             def lay2:EVGLayout (this.laidOut())
             def r2:EVGElement (unwrap root)
             keys.settle(r2)
+            ; THE RING STAYS. `press` moves the focus the way a pointer does —
+            ; there, and not drawn — and this press was a key: Enter on a
+            ; focused button activates it and leaves the ring round it, which
+            ; is what every browser does and what a person navigating by
+            ; keyboard needs in order not to lose their place.
+            keys.show()
+            listDirty = true
             ; TAKEN EITHER WAY. The key was aimed at the ring, and a Space
             ; that reaches the page scrolls it — which is worse than a press
             ; that turned out to change nothing.
@@ -6961,8 +7742,10 @@ class RealTrainerDemo {
         }
         ; ONLY THE LIST. The tree and its boxes are exactly what they were —
         ; the ring is drawn from `keys.focusId` by the display list — so this
-        ; is a repaint and not a rebuild.
+        ; is a repaint and not a rebuild. Unless the ring landed on a field,
+        ; which does rebuild, because the field now has the keyboard.
         listDirty = true
+        this.keyboardTo(to)
         return true
     }
 
@@ -6987,6 +7770,23 @@ class RealTrainerDemo {
         }
         listDirty = true
         return true
+    }
+
+    ; THE RING ON A FIELD IS A CARET. Tab onto a text field and the keyboard
+    ; has to go INTO it, or the ring says "here" and the next letter is
+    ; refused — a field you can reach and cannot type in. A host starts its
+    ; text session from `focusedField`, so saying so is the whole of it.
+    fn keyboardTo:void (id:string) {
+        if ((this.hasField(id)) == false) {
+            return
+        }
+        if (focused == id) {
+            return
+        }
+        focused = id
+        layoutDirty = true
+        boxesDirty = true
+        this.rebuild()
     }
 
     ; The same from a pointer: the keys carry on from what was clicked, and no
@@ -7021,6 +7821,16 @@ class RealTrainerDemo {
             this.closeCalMenu()
             this.rebuild()
             return true
+        }
+        ; A CARD'S OWN PANELS ARE THINGS TO CLOSE TOO. They are drawn in the
+        ; page rather than over it — the reference puts them there — but to
+        ; the person in front of them they are open, and Escape is how an
+        ; open thing shuts.
+        if (menuCard >= 0) {
+            return (this.press("rt-entry-menu-close"))
+        }
+        if ((strlen statsRow) > 0) {
+            return (this.press("rt-entry-stats-close"))
         }
         if review.open {
             return (this.press("rt-review-close"))
@@ -7342,6 +8152,9 @@ class RealTrainerDemo {
         if (scene == "wizard") {
             root = (this.wizardScreen())
         }
+        if (scene == "credits") {
+            root = (this.creditsScreen())
+        }
         if (scene == "yearsheet") {
             root = (this.yearsheetScreen())
         }
@@ -7600,11 +8413,23 @@ class RealTrainerDemo {
             return true
         }
         ; A toast stays for a while and goes.
-        if (toastMs > 0.0) {
-            toastMs = (toastMs - dtMs)
-            if (toastMs <= 0.0) {
-                toastMs = 0.0
-                toastText = ""
+        if ((array_length toastTexts) > 0) {
+            def texts:[string]
+            def left:[double]
+            def good:[boolean]
+            for toastTexts t:string i {
+                def rest:double ((itemAt toastLeft i) - dtMs)
+                if (rest > 0.0) {
+                    push texts t
+                    push left rest
+                    push good (itemAt toastGood i)
+                }
+            }
+            def went:boolean ((array_length texts) != (array_length toastTexts))
+            toastTexts = texts
+            toastLeft = left
+            toastGood = good
+            if went {
                 this.rebuild()
                 return true
             }
@@ -8011,6 +8836,21 @@ class RealTrainerDemo {
         if (scene == "wizard") {
             if (this.pressWizard(id)) {
                 this.rebuild()
+                return true
+            }
+            return false
+        }
+        ; The credits page has one way out and one thing on it that is not a
+        ; heading. Buying is the backend's and there is no backend here, so
+        ; the button is a button and says nothing yet.
+        if (scene == "credits") {
+            if (id == "rt-cred-back") {
+                scene = "app"
+                docScroll = 0.0
+                this.rebuild()
+                return true
+            }
+            if (id == "rt-cred-buy") {
                 return true
             }
             return false

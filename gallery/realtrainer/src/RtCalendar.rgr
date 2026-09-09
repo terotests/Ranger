@@ -251,6 +251,24 @@ class RtSeed {
         push entries e
     }
 
+    ; …and one taken away. By id, because the feed is sorted and an index into
+    ; the sorted list is not an index into this one.
+    fn removeEntry:boolean (id:string) {
+        def kept:[RtSeedEntry]
+        def gone@(mutable):boolean false
+        for entries e:RtSeedEntry i {
+            if (e.id == id) {
+                gone = true
+            } {
+                push kept e
+            }
+        }
+        if gone {
+            entries = kept
+        }
+        return gone
+    }
+
     fn addCalendar:void (id:string name:string kind:string color:string) {
         def c (new RtSeedCalendar)
         c.id = id

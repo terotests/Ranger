@@ -117,6 +117,9 @@ const isMoving = (now) => drag !== null || (state.velocity || 0) !== 0 || now - 
 
 function applyReply(r) {
   state = r.state || state;
+  // The clipboard rides on the state, so it is read here and not at the press
+  // — the press is a post and its answer comes back on a later turn.
+  syncClipboard();
   if (r.t === "frame") {
     dropFrame();
     if (gl) frame = prepareDisplayList(gl, { width: W, height: H, list: r.doc.list }, { dpr });
@@ -222,6 +225,15 @@ function at(ev) {
   return [ev.clientX - r.left, ev.clientY - r.top];
 }
 
+// What an export put on the clipboard, once — see main.js.
+let lastClip = "";
+function syncClipboard() {
+  const text = state.clip;
+  if (!text || text === lastClip) return;
+  lastClip = text;
+  navigator.clipboard?.writeText(text).catch(() => {});
+}
+
 function press(x, y) {
   engine.post("@up", x, y);
   changed();
@@ -282,6 +294,9 @@ document.addEventListener("keydown", (ev) => {
   ev.preventDefault();
   engine.call("keyWith", ev.key, ev.shiftKey, ev.ctrlKey || ev.metaKey).then((took) => {
     if (took) changed();
+    // A Tab that landed on a text field hands it the keyboard — see
+    // `RealTrainerDemo.keyboardTo` — so the session follows it there.
+    syncTextSession();
   });
 });
 
@@ -517,9 +532,19 @@ Object.defineProperty(window, "__lastList", {
           cur = [now[0] - was[0], now[1] - was[1]];
         }
       }
-      if (cur[0] !== 0 || cur[1] !== 0) {
-        o = { ...c, x: c.x + cur[0], y: c.y + cur[1] };
-        if (c.pts) o.pts = c.pts.map((v, i) => v + (i % 2 === 0 ? cur[0] : cur[1]));
+      // A COMMAND OF ITS OWN LAYER moves with THAT layer, not with the clip it
+      // happens to be between — the focus ring is drawn last and outside every
+      // clip and still scrolls with the feed it is round. Same rule the
+      // painter follows; see `EVGDisplayList.ringAround`.
+      let mine = cur;
+      if (c.k !== 4 && c.k !== 5 && c.layer > 0) {
+        const now = lastShifts[c.layer - 1] || base[c.layer - 1] || [0, 0];
+        const was = base[c.layer - 1] || [0, 0];
+        mine = [now[0] - was[0], now[1] - was[1]];
+      }
+      if (mine[0] !== 0 || mine[1] !== 0) {
+        o = { ...c, x: c.x + mine[0], y: c.y + mine[1] };
+        if (c.pts) o.pts = c.pts.map((v, i) => v + (i % 2 === 0 ? mine[0] : mine[1]));
       }
       if (c.k === 5) cur = stack.pop() || [0, 0];
       return o;

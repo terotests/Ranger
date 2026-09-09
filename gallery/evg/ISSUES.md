@@ -698,3 +698,46 @@ the reference diff, which is a machine this repository's CI does not have.
 The keyboard is trapped (`EVGFocus`, `rt:keys`), Escape closes the topmost
 dialog, and the mirror still reports the dialog's own controls correctly — it
 just also reports the page behind them.
+
+---
+
+## Issue #13: a kept frame moved the page and left the focus ring behind
+
+Fixed. Recorded because the first half of the fix was not enough and the
+second half was in a place nobody would look.
+
+### What happened
+
+The ring is drawn LAST and outside every clip, so that a button inside a panel
+is not half-ringed by the panel's edge. Outside every clip is also outside
+every scroll LAYER — and a host does not re-read the display list for a frame
+that only scrolled. It moves the kept frame by a per-layer offset: `uShift` in
+the WebGL painter, the same arithmetic on the worker page. The ring belonged to
+no layer, so it got no offset: the page moved and the ring stayed.
+
+### Why the first fix did not show it
+
+`EVGDisplayList.refreshRing` (Issue #12's neighbour, landed earlier) puts the
+ring back against its own box whenever the kept LIST is refreshed, and every
+check that reads `displayListJson()` therefore passes — the list was right all
+along. What was wrong was the FRAME, which is built from the list once and
+then moved by uniforms. A check that reads the list cannot see it; a
+screenshot can.
+
+### The fix
+
+`ringAround` marks the ring command with the layer its element scrolls in
+(`layerAround`, the innermost layer container that holds it, 1-based as the
+painter numbers them), and the painter reads `layer` off a command that
+carries one instead of taking it from the clip nesting alone. A control that
+scrolls with nothing — a header button — is in layer 0 and stays put, which is
+also checked.
+
+### What holds it
+
+`rt:keys` — "the ring is round its element, whatever the page is doing": the
+invariant across wheels, a throw moved by the clock, a rebuild under the ring
+and a page turn, plus the two assertions on the layer the ring declares. The
+invariant is what was missing: a delta test ("it moved by 160") passes for a
+ring that lags a frame and for one that leads one.
+
