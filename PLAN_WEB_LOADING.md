@@ -98,18 +98,40 @@ target is a **ladder**, with a budget for each rung, gated in CI:
 | **T1 — a live screen** | that screen scrolls, hovers, presses, routes | ≤ 120 KB gzip |
 | **T2 — the app** | every route, charts, editors, the year of data | streamed after T1, invisible |
 
-The web's advantage over a single-artifact runtime (Flutter, a monolithic
-`.wasm`) is that T0 and T1 can be *different artifacts*, and T0 need not
-contain a runtime at all. The reason that is available to Ranger and not to
-most of them is specific and worth naming:
+The web's advantage over a single-artifact runtime is that T0 and T1 can be
+*different artifacts*, and T0 need not contain a runtime at all. That much is
+available to anyone: any host page, Flutter's included, can carry a
+hand-authored SVG or HTML placeholder, and plenty do. So the claim worth making
+is not that Ranger can put a picture in the HTML — it is where that picture
+comes from:
 
-> **An EVG frame is data.** `EVGDisplayList` is rects, borders, clips, paths
-> and text runs in paint order. `toJson()` and `toBinary()` already exist,
-> `evg-binary.js` already reads a list nobody computed on this thread, and
-> `shot-svg.mjs` already turns a list into SVG with no GPU. So the first
-> picture of a Ranger app is a **build artifact**, not a runtime output.
+> **An EVG frame is data, and the placeholder is generated from the same
+> model as the frame it stands in for.** `EVGDisplayList` is rects, borders,
+> clips, paths and text runs in paint order. `toJson()` and `toBinary()`
+> already exist, `evg-binary.js` already reads a list nobody computed on this
+> thread, and `shot-svg.mjs` already turns a list into SVG with no GPU. So T0
+> is not a drawing of the first screen — it is the first screen, computed
+> deterministically by the same layout and the same cascade, in the same
+> build, and therefore checkable against the live frame command for command.
 
-That single fact is what the rest of this plan spends.
+A hand-drawn placeholder is a second source of truth that rots silently. A
+snapshot taken from the display list is a *projection* of the app that CI can
+prove. That difference — not the existence of a placeholder — is the whole
+argument, and the rest of this plan spends it.
+
+It also generalises past loading. The display list is turning out to be the
+boundary where several separate questions meet:
+
+| Use | What crosses the boundary |
+|---|---|
+| T0 snapshot (§3) | a frame computed at build time |
+| the worker split (§6) | a frame computed on another thread (`toBinary`, already shipped) |
+| chunked / split runtimes (§4, §7) | frames whose producer is only partly loaded |
+| caching and pre-rendered views | a frame stored and replayed rather than recomputed |
+| a wire protocol, if one is ever wanted (§8) | a frame computed on another machine |
+
+One format answers all five, and four of the five need no server. Worth
+treating it as an interface with a version, not as EVG's internal plumbing.
 
 ---
 
@@ -139,6 +161,16 @@ gets the GL context created, the shaders compiled and the atlases uploaded
 while the app is still downloading. That warm-up is otherwise paid *after* the
 app arrives, at the worst possible moment.
 
+**Why A1 wins T0 even though it is 2.2× the bytes.** The list is 3.5 KB and
+the SVG is 7.7 KB, and the 4 KB is not the trade being made. What the SVG buys
+is zero script execution, zero EVG runtime, zero decode, zero canvas or GL
+setup — the browser paints it on the same pass that parses the document. The
+list, cheaper on the wire, needs 32 KB of painter, a GL context and a frame
+callback before anything appears. At the first rung, bytes are not the scarce
+resource; *the absence of a runtime* is. The binary list earns its place one
+rung later, where a painter exists anyway — T1 handover, pre-rendered
+secondary views, cached routes — and there its compactness is the point.
+
 The sensible combination is A1 for T0 (nothing beats HTML parsing) and A2
 folded into T1, since the painter is needed there anyway.
 
@@ -154,16 +186,83 @@ folded into T1, since the painter is needed there anyway.
   `prefers-color-scheme` counterpart; that is a media query too.
 - *A frame is baked for a route.* Bake the entry routes only (`/`, and
   whatever the deployment links to). Everything else is a T1 concern.
-- *Drift is the real risk.* A baked picture that no longer matches the app is
-  worse than no picture. The defence is the one this repo already uses
-  everywhere: a gate. `frame-check.mjs` drives the real app to its first frame;
-  the gate asserts the baked list equals it, command for command, and fails the
-  build otherwise. The baked artifact is then not a copy of the app, it is a
-  *projection* of it, checked on every push.
-- *Handover.* Cross-fade, or better: hold the baked layer until the app's first
-  real list has been painted once, then remove it in the same frame. Because
-  both sides are the same list, a correct handover is invisible — there is
-  nothing to interpolate.
+Drift and handover are not bullets. They are the two things that decide
+whether this feels like one screen or like two, so they get their own
+subsections.
+
+### 3.1 The drift gate
+
+A baked picture that no longer matches the app is worse than no picture: it
+replaces one flash with a subtler one, where the layout shifts, a font changes
+metrics or a value is stale at the exact moment of handover. The snapshot must
+be *derived* on every build, never edited, and the derivation must be checked
+end to end:
+
+```text
+  the snapshot's declared state          (route, viewport bucket, theme, clock)
+        ↓  build
+  build-time display list  →  inline SVG
+        ↓  CI
+  live EVG first frame, driven to the SAME declared state
+        ↓
+  compare: command count, kind, geometry, colour, text runs
+        ↓
+  pixel diff of the SVG against the painted frame, within tolerance
+```
+
+Two levels, because they catch different things. The **list comparison** is
+exact and cheap and catches everything structural — a moved box, a new border,
+a changed colour. The **pixel comparison** is tolerant and catches what the SVG
+backend gets wrong on purpose: `shot-svg.mjs` says of itself that it places
+text by line box rather than by real face metrics and strokes with SVG's stroke
+rather than the GL path builder's triangles. So the tolerance is not laziness —
+it is the documented distance between the two backends, and the gate's job is
+to prove that distance has not grown. If it turns out to be too wide to be
+useful for text, the honest answer is to bake the shell and let text arrive
+with T1, not to loosen the tolerance.
+
+`frame-check.mjs` already drives the real app to a first frame headlessly and
+already knows how to hold a picture against a recorded one; this is a new
+assertion in an existing harness rather than a new harness.
+
+### 3.2 The handoff contract
+
+The second flash is the one an optimised pipeline gives you for free: T0 is
+removed the moment the code is *loaded*, and one empty frame gets to the
+screen. So the condition for handover has to be written down as a contract, and
+"the script finished executing" is not on the list:
+
+```text
+  EVG initialised
++ viewport known                       (the real size, after any resize)
++ fonts ready, or metrics compatible   (measured, not assumed)
++ initial app state reconstructed      (the state the snapshot declared)
++ first live display list PAINTED      (painted, not produced)
+= handoff
+```
+
+Then the swap happens inside one animation frame:
+
+```text
+  T0 SVG visible
+  T1 paints, hidden or offscreen
+  requestAnimationFrame:
+      show the canvas
+      remove the SVG
+```
+
+Two properties fall out of doing it this way. The swap cannot show an empty
+frame, because the canvas is only revealed after it has content. And it needs
+no cross-fade, because both sides are the same list — there is nothing to
+interpolate between. A fade would only be there to hide a mismatch, which is
+what §3.1 exists to prevent.
+
+The font condition deserves its own note: the browser measures text for the
+live app (`installCanvasMeasurer`), while the snapshot was measured at build
+time by whatever the baking host used. Either the two agree — in which case the
+gate in §3.1 proves it — or the handoff must wait for `document.fonts.ready`,
+or the shell-only snapshot avoids the question. That decision should be made
+with a measurement, not assumed.
 
 ---
 
@@ -179,21 +278,62 @@ static method assignments, and `module.exports.*` at the end. **There is no
 module-level work.** Nothing runs when the file is evaluated except defining
 things. The only ordering constraint is `class X extends Y` (72 of them).
 
-That means splitting is a mechanical transform on the output, not a language
-redesign, and it can be built and measured before any compiler change is made.
+This is not a property of this one app. Scanning every generated output in
+`gallery/*/bin`, the *only* top-level statements that are not declarations are
+two kinds:
+
+- `__js_main()` — the CLI entry, emitted for `-nodecli` builds and absent from
+  library builds (`-nodemodule`), which is what a web app is;
+- static field initialisers, `EvalConstPool.__singleton_instance = null` and
+  the like — assignments, not work, but they are cross-chunk *state* and must
+  travel with their class rather than with the code that reads them.
+
+So the shape holds for the backend, not just for RealTrainer: splitting is a
+mechanical transform on the output, not a language redesign, and it can be
+built and measured before any compiler change is made. That is also why the
+compiler route (B3) is tractable — it partitions its own symbol graph and never
+has to reason about JavaScript's general tree-shaking problem, because it never
+sees JavaScript.
 
 ### 4.2 Where the boundary should be
 
-Not by hand. Profile it, using the harness that already exists:
+Not by hand — but not by coverage alone either. Coverage answers "what ran in
+this one cold start", and that is not the same question as "what may be needed
+before the next chunk could possibly arrive". A class the painter statically
+depends on but that a cold run never reaches — the resize path, the first
+pointer event, a font fallback, an error path — is not lazy; it is a crash
+waiting for the first visitor who turns their phone. Three inputs, combined:
 
-1. Run `frame-check.mjs` / `loader-check.mjs` under V8 precise coverage
-   (`Profiler.startPreciseCoverage`, or `NODE_V8_COVERAGE`).
-2. The functions executed up to the **first interactive frame** are the hot
-   set. Their classes are the entry chunk.
-3. Everything else is cold, grouped into chunks by what pulls it in: charts,
-   the raster/PDF path, the editor dialogs, the non-entry routes.
-4. The profile becomes a checked-in manifest, and a gate fails when the hot set
-   grows — the same discipline as the existing oracle checks.
+```text
+  static dependency graph        what the entry roots CAN reach
+            +
+  cold-start runtime coverage    what a real first frame DID reach
+            +
+  explicit annotations           what a human declares hot or deferred,
+                                 and the constraints that must hold
+            ↓
+        chunk partition
+```
+
+- The **static graph** is the safety floor: nothing reachable from an entry
+  root through a synchronous edge may live in a lazy chunk. Ranger's own
+  symbol graph gives this, and it is a better graph than a JS bundler's,
+  because it is the compiler's own and not recovered from syntax.
+- **Coverage** is the pressure: of what is statically reachable, it says what a
+  first frame actually touches, and that is what turns "could be smaller" into
+  a ranked list. Take it from the existing headless checks
+  (`frame-check.mjs`, `loader-check.mjs`) under V8 precise coverage
+  (`Profiler.startPreciseCoverage`, or `NODE_V8_COVERAGE`), across more than
+  one path — cold start, a resize, a pointer press, a route change — precisely
+  so a single path's blind spot does not become a partition.
+- **Annotations** settle what neither can: a subsystem the author knows is
+  cold (the PDF writer), one that must stay hot despite looking cold (the
+  error and resize paths), and hard constraints ("nothing in `boot` may await").
+
+Coverage's best role, in the end, is not partitioning at all — it is the
+regression gate. "Why has Vega-Lite reappeared in the boot chunk?" is exactly
+the question CI should be able to answer on the commit that did it, and a
+coverage-derived hot set is what makes that check possible.
 
 On the numbers above, the obvious first cuts are Vega-Lite (870 KB raw) and the
 font/raster stack (158 KB raw), neither of which is on the path to a first
@@ -216,11 +356,31 @@ the seams it already has (routing, dialog open). Nothing in the language
 changes; the app gains one asynchronous boundary it did not have.
 
 **B3 — compiler support (the durable answer).** `bin/output.js` already
-computes what to export. Give it a declared deferral — an annotation on a class
-or a manifest naming deferred roots — and let it emit an entry file, N chunk
-files and a manifest, with the reachability analysis on its side of the fence.
-Then every Ranger web app gets the ladder by building, and the WASM backend can
-share the same manifest (§6).
+computes what to export; the reachability analysis belongs on its side of the
+fence. The key move is that the compiler does **not** have to solve JavaScript's
+general tree-shaking problem — it never sees JavaScript. It has its own symbol
+and dependency graph, and what it emits is a partition of that graph:
+
+```jsonc
+// ranger.manifest.json — the partition, not the output
+{
+  "boot":    ["EVGPainter", "EVGDisplayListReader", "TextMeasure", "..."],
+  "startup": ["RealTrainerApp", "Router", "EVGLayout", "EVGStyleSheet", "..."],
+  "chunks": {
+    "vega":   ["VlCompile", "VlRuntime", "VlScale", "..."],
+    "export": ["PdfWriter", "..."],
+    "raster": ["TrueTypeFont", "SoftCanvas", "RasterText", "..."]
+  },
+  "constraints": { "boot": { "maxBytes": 122880, "noAsync": true } }
+}
+```
+
+The manifest is the artifact; each backend materialises it in its own terms —
+ES modules and dynamic `import()` for JS, `wasm-split` primary/secondary or
+`SIDE_MODULE`s for WASM (§7), and a no-op for the targets where it means
+nothing (a Go or C++ CLI links once and does not care). Then every Ranger web
+app gets the ladder by building, and the split is stated once rather than per
+backend.
 
 Note what stays honest: one source tree, one compile, one semantic. Chunking is
 an *output* concern, exactly like `-l=js` vs `-l=cpp`.
@@ -247,11 +407,14 @@ development only. This is the same move as the baked frame, one level up:
 compute at build time what does not depend on the visitor.
 
 **C3 — the loader should cover a wait, not follow it.** `fillMs = 2600` is a
-scripted animation played when nothing is loading any more. Drive the ring from
-real progress — chunk arrivals, seed applied — and let it end when the work
-ends. With T0 in place there may be nothing left to cover at all, which is the
-better outcome: the ring becomes a demo of EVG rather than a fixture of the
-product.
+scripted animation played when nothing is loading any more — a loader that
+*defines* the startup duration instead of covering it, which is backwards. Two
+rules replace it. A loader may never set the length of startup: it is driven by
+real progress (chunk arrivals, seed applied) and ends when that work ends. And
+with T0 in place there is usually nothing left to cover, so what remains is at
+most a short handoff transition, skippable in full when T1 is already ready by
+the time the frame comes round. The ring then becomes what it should have been:
+a demo of what EVG can draw, on a page that is already there.
 
 **C4 — the page shell.** Default the page to its `fit` layout in CSS and let
 `?page=WxH` opt *out*, rather than the reverse; give `#stage` its size in CSS
@@ -299,10 +462,14 @@ not want to give it.
 
 What transfers directly:
 
-- **T0 does not involve WASM.** The baked frame (§3) is HTML and SVG. It paints
-  while the module is still streaming. This is the entire answer to "why not
-  just do what Flutter does": Flutter cannot show its first screen without its
-  engine; a Ranger app can, because its first screen is data.
+- **T0 does not involve WASM.** The baked frame (§3) is HTML and SVG, so it
+  paints while the module is still streaming and compiling. Any WASM or Flutter
+  app could put *a* placeholder in its host page; what it could not do without
+  building a second renderer is derive that placeholder from the same scene
+  model as the real frame. Here the snapshot comes out of the same
+  `EVGDisplayList` the WASM build itself produces at runtime, in the same
+  build, checked against it by the same gate (§3.1) — which is why the JS and
+  WASM deployments of one app can share a T0 byte for byte.
 - **`instantiateStreaming`** — compile while downloading, rather than after.
 - **Profile-guided module splitting.** Binaryen's `wasm-split` does for WASM
   exactly what §4.2 describes for JS: instrument, record which functions run
@@ -374,7 +541,15 @@ The repo's habit is that a claim is a check. The same applies here:
   throttled to a fixed profile, so the number means the same thing twice;
 - **the hot set**, from the coverage profile: a gate that fails when a class
   that was cold becomes reachable from the entry chunk. That is the check that
-  keeps the split from rotting, and without it the split *will* rot.
+  keeps the split from rotting, and without it the split *will* rot;
+- **snapshot drift** (§3.1): the baked list against the live first frame,
+  exactly, and the SVG against the painted frame within a stated tolerance —
+  the tolerance being a checked-in number that may shrink and must not grow;
+- **the handoff contract** (§3.2): asserted rather than assumed. Drive the page
+  headlessly, capture every frame across the swap, and fail if any of them is
+  empty or differs from its neighbours by more than the tolerance. The bug this
+  catches — one blank frame at handover — is invisible to every byte and
+  millisecond budget above.
 
 ---
 
