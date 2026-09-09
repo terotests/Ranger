@@ -28,6 +28,7 @@ Import "../domains/mermaid/MermaidClassReader.rgr"
 Import "../domains/mermaid/MermaidErReader.rgr"
 Import "../domains/mermaid/MermaidStateReader.rgr"
 Import "../domains/mermaid/MermaidMindMapReader.rgr"
+Import "../domains/mermaid/MermaidRequirementReader.rgr"
 Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 
@@ -100,6 +101,7 @@ class RangerFlowTest {
         RangerFlowTest.testMermaidErDiagram(c)
         RangerFlowTest.testMermaidStateDiagram(c)
         RangerFlowTest.testMermaidMindMap(c)
+        RangerFlowTest.testMermaidRequirements(c)
         RangerFlowTest.testBusinessCharts(c)
         RangerFlowTest.testAuthoring(c)
         RangerFlowTest.testTreeLayouts(c)
@@ -2729,6 +2731,59 @@ class RangerFlowTest {
         c.ok("the branches are balanced either side of the root" ((left > 0) && (right > 0)))
         c.eqInt("nothing is drawn through a node" (EdgeOverlap.nodeCrossings(g)) 0)
         c.ok("a mind map is one this library draws" (MermaidReader.draws("mindmap")))
+    }
+
+    ; ------------------------------------------- Mermaid requirement diagrams --
+    ; A requirement diagram is a class diagram whose boxes are requirements, so
+    ; it is read into the same UML model with the fields as rows.
+    sfn testMermaidRequirements:void (c:Checker) {
+        c.section("Mermaid requirement diagrams")
+        def src:string "requirementDiagram\n"
+        src = (src + "requirement top {\n")
+        src = (src + "    id: 1\n")
+        src = (src + "    text: the system shall work.\n")
+        src = (src + "    risk: high\n")
+        src = (src + "    verifymethod: test\n")
+        src = (src + "}\n")
+        src = (src + "functionalRequirement sub {\n")
+        src = (src + "    id: 1.1\n")
+        src = (src + "    risk: low\n")
+        src = (src + "}\n")
+        src = (src + "element impl {\n")
+        src = (src + "    type: simulation\n")
+        src = (src + "}\n")
+        src = (src + "impl - satisfies -> sub\n")
+        src = (src + "top - contains -> sub\n")
+        src = (src + "sub <- copies - impl\n")
+        def d:MermaidRequirementDiagram (MermaidRequirementReader.parse(src))
+        c.eqInt("every declaration is a box" (d.boxCount()) 3)
+        c.eqInt("and every arrow a trace" (d.relationCount()) 3)
+
+        def top:UMLClass (d.ensureBox("top"))
+        c.eqStr("the keyword is the stereotype" top.stereotype "requirement")
+        c.eqInt("and the braces hold its fields" (array_length top.attributes) 4)
+        def text:UMLMember (itemAt top.attributes 1)
+        c.eqStr("a field keeps its name" text.name "text")
+        c.eqStr("and everything after the colon, full stop included" text.memberType "the system shall work.")
+        def sub:UMLClass (d.ensureBox("sub"))
+        c.eqStr("each requirement type is its own stereotype" sub.stereotype "functionalRequirement")
+        def impl:UMLClass (d.ensureBox("impl"))
+        c.eqStr("and an element says so" impl.stereotype "element")
+
+        def satisfies:UMLRelation (itemAt d.uml.relations 0)
+        c.eqStr("a trace is a dependency" satisfies.kind "dependency")
+        c.eqStr("with the relationship's name on it" satisfies.label "«satisfies»")
+        c.ok("drawn dashed" (satisfies.dashed()))
+        def copies:UMLRelation (itemAt d.uml.relations 2)
+        c.ok("`<-` points the other way" copies.markAtSource)
+
+        def g:FlowGraph (MermaidRequirementFlow.render(src))
+        c.eqInt("every box became a node" (g.nodeCount()) 3)
+        c.eqInt("and every trace an edge" (g.edgeCount()) 3)
+        def topNode:FlowNode (g.nodeById("top"))
+        c.ok("with the fields in rows" ((topNode.sectionCount()) >= 1))
+        c.eqInt("nothing is drawn through a box" (EdgeOverlap.nodeCrossings(g)) 0)
+        c.ok("a requirement diagram is one this library draws" (MermaidReader.draws("requirement")))
     }
 
     ; --------------------------------------------- a click is not an edit --

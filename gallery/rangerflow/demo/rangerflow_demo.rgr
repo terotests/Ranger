@@ -35,6 +35,7 @@ Import "../domains/mermaid/MermaidClassReader.rgr"
 Import "../domains/mermaid/MermaidErReader.rgr"
 Import "../domains/mermaid/MermaidStateReader.rgr"
 Import "../domains/mermaid/MermaidMindMapReader.rgr"
+Import "../domains/mermaid/MermaidRequirementReader.rgr"
 Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 Import "../layout/LayeredLayout.rgr"
@@ -462,6 +463,10 @@ class RangerFlowDemo {
             this.runMermaidMindMap(srcOpt styleName)
             return
         }
+        if (d.diagramKind == "requirement") {
+            this.runMermaidRequirement(srcOpt styleName)
+            return
+        }
         if ((strlen d.diagramKind) > 0) {
             if (d.diagramKind != "flowchart") {
                 print ("  this is a " + d.diagramKind + " diagram — this reads flowcharts and class diagrams")
@@ -605,6 +610,28 @@ class RangerFlowDemo {
             title = "RangerFlow — Mermaid mind map"
         }
         this.writeAll(v g "rangerflow-mermaid-mindmap" title)
+    }
+
+    ; A Mermaid requirement diagram, drawn as the SysML boxes it is.
+    fn runMermaidRequirement:void (src:string styleName:string) {
+        def rd:MermaidRequirementDiagram (MermaidRequirementReader.parse(src))
+        if ((rd.boxCount()) == 0) {
+            print "  no requirements in that diagram"
+            return
+        }
+        def style:FlowStyle (this.styleByName(styleName))
+        def g:FlowGraph (MermaidRequirementFlow.build(rd style))
+        print ("  model  " + (to_string (rd.boxCount())) + " requirements, " + (to_string (rd.relationCount())) + " traces")
+        print ("  graph  " + (to_string (g.nodeCount())) + " nodes, " + (to_string (g.edgeCount())) + " edges")
+        print ("         edges drawn through an unrelated node: " + (to_string (EdgeOverlap.nodeCrossings(g))))
+        def v:FlowView (FlowView.of(g))
+        v.notation = "uml"
+        style.applyToTheme(v.theme)
+        def title:string rd.title
+        if ((strlen title) == 0) {
+            title = "RangerFlow — Mermaid requirement diagram"
+        }
+        this.writeAll(v g "rangerflow-mermaid-requirement" title)
     }
 
     ; ------------------------------------------------------------- org -----

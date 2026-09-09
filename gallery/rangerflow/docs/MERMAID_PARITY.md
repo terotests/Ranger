@@ -75,7 +75,7 @@ a flowchart is a page of invented boxes.
 | `pie` | recognised as `pie`, read as nothing |
 | `quadrantChart` | recognised as `quadrant`, read as nothing |
 | `railroad` | recognised as `railroad`, read as nothing |
-| `requirementDiagram` | recognised as `requirement`, read as nothing |
+| `requirementDiagram` | **drawn** — read as `requirement` |
 | `sankey-beta` | recognised as `sankey`, read as nothing |
 | `sequenceDiagram` | recognised as `sequence`, read as nothing |
 | `stateDiagram` | **drawn** — read as `state` |

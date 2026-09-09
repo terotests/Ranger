@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Mermaid requirement diagrams.** The sixth type, and another that needed
+  no renderer: a SysML requirement diagram is a class diagram whose boxes are
+  requirements, so `MermaidRequirementReader` reads it into the same UML model
+  — the keyword becomes the stereotype, the fields inside the braces become
+  the rows, and a relationship is a dashed line carrying its own name in
+  guillemets. All six requirement types and `element`, every relationship
+  Mermaid has, and both directions of writing one.
 - **Mermaid mind maps.** The fifth type, and the one with no arrows in it:
   indentation is the syntax, so `MermaidMindMapReader` turns the outline into a
   tree and hands it to `MindMapLayout`, which has balanced a mind map's

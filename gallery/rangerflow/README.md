@@ -27,7 +27,7 @@ routing, auto-layout, large graphs — and produces something worth having.
 ## Run it
 
 ```bash
-npm run rangerflow:test        # 826 assertions: model, forces, router, editor, SQL, Mermaid, CSS, export
+npm run rangerflow:test        # 843 assertions: model, forces, router, editor, SQL, Mermaid, CSS, export
 npm run rangerflow:demo        # the e-commerce schema → SVG, PDF, HTML, JSON, scene
 npm run rangerflow:uml         # the same pipeline for a UML class diagram
 npm run rangerflow:flowchart   # an ATK flowchart in ISO 5807 shapes
@@ -298,6 +298,24 @@ read and dropped (there is no icon font here) and `:::class` kept, because a
 stylesheet can match it.
 
 ![a mind map, balanced either side of its root](artifacts/scenario_mermaid_mindmap.png)
+
+### …and requirement diagrams
+
+A SysML requirement diagram is a class diagram whose boxes are requirements, so
+it goes into the same UML model: the keyword is the stereotype, the fields
+inside the braces are the rows, and a relationship is a dashed line with its
+own name on it in guillemets — `«satisfies»`, `«traces»` — which is what tells
+one from another when there are five on a page.
+
+```mermaid
+requirementDiagram
+    requirement top { id: 1  text: the system shall work  risk: high }
+    element impl { type: simulation }
+    impl - satisfies -> top
+```
+
+All six requirement types and `element`, every relationship Mermaid has, and
+both directions of writing one: `A - satisfies -> B` and `B <- satisfies - A`.
 
 ### …measured against Mermaid itself
 

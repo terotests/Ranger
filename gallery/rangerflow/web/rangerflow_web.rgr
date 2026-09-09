@@ -28,6 +28,7 @@ Import "../domains/mermaid/MermaidClassReader.rgr"
 Import "../domains/mermaid/MermaidErReader.rgr"
 Import "../domains/mermaid/MermaidStateReader.rgr"
 Import "../domains/mermaid/MermaidMindMapReader.rgr"
+Import "../domains/mermaid/MermaidRequirementReader.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 Import "../layout/TreeLayouts.rgr"
 Import "../export/FlowExport.rgr"
@@ -642,6 +643,9 @@ class RangerFlowWeb {
         if (d.diagramKind == "mindmap") {
             return (this.loadMermaidMindMap(text styleName want))
         }
+        if (d.diagramKind == "requirement") {
+            return (this.loadMermaidRequirement(text styleName want))
+        }
         if ((d.nodeCount()) == 0) {
             status = "no nodes in that Mermaid source"
             if ((strlen d.diagramKind) > 0) {
@@ -799,6 +803,37 @@ class RangerFlowWeb {
             what = "Mermaid mind map"
         }
         status = ((to_string (md.nodeCount())) + " nodes — " + what + ", " + want)
+        return true
+    }
+
+    ; `requirementDiagram`: SysML boxes with their fields, and dashed traces
+    ; between them.
+    fn loadMermaidRequirement:boolean (text:string styleName:string want:string) {
+        def rd:MermaidRequirementDiagram (MermaidRequirementReader.parse(text))
+        if ((rd.boxCount()) == 0) {
+            status = "no requirements in that diagram"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidRequirementFlow.build(rd style))
+        this.adopt(g)
+        editor.view.notation = "uml"
+        layoutName = "layered"
+        simRunning = false
+        editor.pinWhileDragging = false
+        style.applyToTheme(editor.view.theme)
+        if (want == "dark") {
+            editor.view.theme.name = "dark"
+        } {
+            editor.view.theme.name = "light"
+        }
+        def what:string rd.title
+        if ((strlen what) == 0) {
+            what = "Mermaid requirement diagram"
+        }
+        status = ((to_string (rd.boxCount())) + " requirements, " + (to_string (rd.relationCount())) + " traces — " + what + ", " + want)
         return true
     }
 
