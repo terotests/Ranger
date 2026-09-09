@@ -1300,6 +1300,7 @@ class MermaidReader {
         if (kind == "cynefin")   { return true }
         if (kind == "ishikawa")  { return true }
         if (kind == "venn")      { return true }
+        if (kind == "wardley")   { return true }
         return false
     }
 

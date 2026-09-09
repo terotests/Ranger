@@ -689,6 +689,29 @@ venn-beta
 Every label is written *on* the drawing rather than in a box over it: a label
 with a fill of its own hides the very overlap the diagram is about.
 
+### …and Wardley maps
+
+A value chain drawn against evolution. Up the page is how *visible* a thing is
+to the customer; across it is how *evolved* it is, from something nobody has
+built before to something you buy by the metre. Both are numbers the author
+wrote, and both mean something, so a layout engine has nothing whatever to
+contribute.
+
+```mermaid
+wardley-beta
+    title Tea shop
+    anchor Business [0.95, 0.63]
+    component Cup of Tea [0.79, 0.61]
+    component Kettle [0.43, 0.35]
+    Cup of Tea->Kettle
+    evolve Kettle 0.62
+```
+
+`evolve` is drawn as the dashed move to the right that it is — the whole point
+of the map being that things go that way. Visible is *up* and the page counts
+down, which is the one conversion the map needs and the one that would turn it
+into a map of the opposite argument.
+
 ### …measured against Mermaid itself
 
 A claim of parity with a format is worth what the person making it wanted it to

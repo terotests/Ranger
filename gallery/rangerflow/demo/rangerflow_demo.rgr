@@ -53,6 +53,7 @@ Import "../domains/mermaid/MermaidSwimlaneReader.rgr"
 Import "../domains/mermaid/MermaidCynefinReader.rgr"
 Import "../domains/mermaid/MermaidIshikawaReader.rgr"
 Import "../domains/mermaid/MermaidVennReader.rgr"
+Import "../domains/mermaid/MermaidWardleyReader.rgr"
 Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 Import "../layout/LayeredLayout.rgr"
@@ -550,6 +551,10 @@ class RangerFlowDemo {
         }
         if (d.diagramKind == "venn") {
             this.runMermaidVenn(srcOpt styleName)
+            return
+        }
+        if (d.diagramKind == "wardley") {
+            this.runMermaidWardley(srcOpt styleName)
             return
         }
         if ((strlen d.diagramKind) > 0) {
@@ -1076,6 +1081,27 @@ class RangerFlowDemo {
             title = "RangerFlow — Mermaid Venn diagram"
         }
         this.writeAll(v g "rangerflow-mermaid-venn" title)
+    }
+
+    ; A Wardley map: a value chain drawn against evolution.
+    fn runMermaidWardley:void (src:string styleName:string) {
+        def wd:MermaidWardley (MermaidWardleyReader.parse(src))
+        if ((wd.nodeCount()) == 0) {
+            print "  nothing on that map"
+            return
+        }
+        def style:FlowStyle (this.styleByName(styleName))
+        def g:FlowGraph (MermaidWardleyFlow.build(wd style))
+        print ("  model  " + (to_string (wd.nodeCount())) + " components, " + (to_string (wd.linkCount())) + " links, " + (to_string (wd.evolvingCount())) + " evolving")
+        print ("  graph  " + (to_string (g.nodeCount())) + " nodes, " + (to_string (g.edgeCount())) + " edges")
+        def v:FlowView (FlowView.of(g))
+        v.notation = "plain"
+        style.applyToTheme(v.theme)
+        def title:string wd.title
+        if ((strlen title) == 0) {
+            title = "RangerFlow — Mermaid Wardley map"
+        }
+        this.writeAll(v g "rangerflow-mermaid-wardley" title)
     }
 
     ; ------------------------------------------------------------- org -----

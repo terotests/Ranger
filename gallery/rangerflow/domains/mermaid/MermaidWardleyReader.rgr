@@ -1,0 +1,499 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MermaidWardleyReader.rgr — a map, and the two axes that make it one.
+; ============================================================================
+;
+; A Wardley map is a value chain drawn against evolution. Up the page is how
+; VISIBLE a thing is to the customer; across it is how EVOLVED it is, from
+; something nobody has built before to something you buy by the metre. Both
+; are numbers the author wrote, and both mean something, so a layout engine
+; has nothing whatever to contribute.
+;
+;   visible   │  ● Cup of tea
+;             │      ╲
+;             │       ● Tea
+;             │          ╲
+;   invisible │           ● Kettle ⇢ ⇢ ⇢ (evolving)
+;             └──────────────────────────────────────
+;              Genesis  Custom  Product  Commodity
+;
+; **What it reads.** `title`, `anchor` and `component` with their
+; `[visibility, evolution]` pair, `market` and `pipeline`, the `a->b` links,
+; and `evolve X 0.9`, which is drawn as the dashed move to the right that it
+; is — the whole point of the map being that things move that way.
+; ============================================================================
+
+Import "MermaidReader.rgr"
+Import "../../core/FlowStyleSheet.rgr"
+
+class MermaidWardleyNode {
+    def id:string ""
+    def label:string ""
+    ; "component" | "anchor" | "market" | "pipeline"
+    def kind:string "component"
+    ; Both in 0..1: how visible, and how evolved.
+    def visibility:double 0.5
+    def evolution:double 0.5
+    ; `evolve X 0.9` — where it is going, and whether it was told to.
+    def evolveTo:double 0.0
+    def evolving:boolean false
+
+    Constructor () {
+    }
+}
+
+class MermaidWardleyLink {
+    def source:string ""
+    def target:string ""
+
+    Constructor () {
+    }
+}
+
+class MermaidWardley {
+    def title:string ""
+    def nodes:[MermaidWardleyNode]
+    def links:[MermaidWardleyLink]
+
+    Constructor () {
+    }
+
+    fn nodeCount:int () {
+        return (array_length nodes)
+    }
+
+    fn linkCount:int () {
+        return (array_length links)
+    }
+
+    fn evolvingCount:int () {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def x:MermaidWardleyNode (itemAt nodes i)
+            if x.evolving {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    fn indexOf:int (id:string) {
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def x:MermaidWardleyNode (itemAt nodes i)
+            if (x.id == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; The four stages of evolution, in the words Wardley uses.
+    sfn stages:[string] () {
+        def out:[string]
+        push out "Genesis"
+        push out "Custom-built"
+        push out "Product"
+        push out "Commodity"
+        return out
+    }
+}
+
+class MermaidWardleyReader {
+    def doc:MermaidWardley (new MermaidWardley)
+
+    Constructor () {
+    }
+
+    sfn parse:MermaidWardley (src:string) {
+        def r (new MermaidWardleyReader)
+        return (r.read(src))
+    }
+
+    fn read:MermaidWardley (src:string) {
+        def lines:[string] (strsplit src "\n")
+        def i:int 0
+        while (i < (array_length lines)) {
+            def raw:string (trim (itemAt lines i))
+            i = (i + 1)
+            def line:string (trim (MermaidWardleyReader.stripComment(raw)))
+            if ((strlen line) == 0) {
+                continue
+            }
+            this.statement(line)
+        }
+        return doc
+    }
+
+    sfn stripComment:string (line:string) {
+        def len:int (strlen line)
+        def i:int 0
+        while (i < len) {
+            def c:int (charAt line i)
+            if (c == 37) {
+                if ((i + 1) < len) {
+                    if ((charAt line (i + 1)) == 37) {
+                        return (substring line 0 i)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return line
+    }
+
+    fn statement:void (st:string) {
+        def word:string (MermaidReader.firstWord(st))
+        def kw:string (MermaidReader.lower(word))
+        def rest:string (trim (substring st (strlen word) (strlen st)))
+        if (MermaidReader.beginsWith(kw "wardley")) { return }
+        if (MermaidReader.beginsWith(kw "acctitle")) { return }
+        if (MermaidReader.beginsWith(kw "accdescr")) { return }
+        if (kw == "title") {
+            doc.title = (MermaidReader.cleanLabel(rest))
+            return
+        }
+        if (kw == "component") {
+            this.place(rest "component")
+            return
+        }
+        if (kw == "anchor") {
+            this.place(rest "anchor")
+            return
+        }
+        if (kw == "market") {
+            this.place(rest "market")
+            return
+        }
+        if (kw == "pipeline") {
+            this.place(rest "pipeline")
+            return
+        }
+        if (kw == "evolve") {
+            this.evolve(rest)
+            return
+        }
+        if (kw == "note")       { return }
+        if (kw == "annotation") { return }
+        if (kw == "style")      { return }
+        this.link(st)
+    }
+
+    ; `Cup of Tea [0.79, 0.61]` — the name may have spaces in it, so the
+    ; bracket is what ends it rather than the first space.
+    fn place:void (rest:string kind:string) {
+        def t:string (trim rest)
+        def open:int (MermaidWardleyReader.charIndex(t 91))
+        def name:string t
+        def n (new MermaidWardleyNode)
+        n.kind = kind
+        if (open >= 0) {
+            name = (trim (substring t 0 open))
+            def close:int (MermaidWardleyReader.charIndex(t 93))
+            if (close > open) {
+                def inside:string (substring t (open + 1) close)
+                def parts:[string] (strsplit inside ",")
+                if ((array_length parts) > 0) {
+                    n.visibility = (MermaidWardleyReader.numberOf((itemAt parts 0) 0.5))
+                }
+                if ((array_length parts) > 1) {
+                    n.evolution = (MermaidWardleyReader.numberOf((itemAt parts 1) 0.5))
+                }
+            }
+        }
+        n.id = (MermaidReader.unquote((trim name)))
+        if ((strlen n.id) == 0) {
+            return
+        }
+        n.label = n.id
+        push doc.nodes n
+    }
+
+    ; `evolve Cup of Tea 0.9` — the last word is where it is going.
+    fn evolve:void (rest:string) {
+        def t:string (trim rest)
+        def at:int (MermaidWardleyReader.lastSpace(t))
+        if (at < 0) {
+            return
+        }
+        def name:string (trim (substring t 0 at))
+        def target:double (MermaidWardleyReader.numberOf((substring t (at + 1) (strlen t)) -1.0))
+        if (target < 0.0) {
+            return
+        }
+        def i:int (doc.indexOf(name))
+        if (i < 0) {
+            return
+        }
+        def n:MermaidWardleyNode (itemAt doc.nodes i)
+        n.evolving = true
+        n.evolveTo = target
+    }
+
+    ; `Business->Cup of Tea`.
+    fn link:void (st:string) {
+        def at:int (MermaidWardleyReader.indexOfText(st "->"))
+        if (at < 0) {
+            return
+        }
+        def l (new MermaidWardleyLink)
+        l.source = (trim (substring st 0 at))
+        l.target = (trim (substring st (at + 2) (strlen st)))
+        if ((strlen l.source) == 0) { return }
+        if ((strlen l.target) == 0) { return }
+        push doc.links l
+    }
+
+    sfn numberOf:double (text:string fallback:double) {
+        def t:string (trim text)
+        if ((strlen t) == 0) {
+            return fallback
+        }
+        def v@(optional):double (str2double t)
+        if (null? v) {
+            return fallback
+        }
+        return (unwrap v)
+    }
+
+    sfn lastSpace:int (t:string) {
+        def at:int -1
+        def i:int 0
+        while (i < (strlen t)) {
+            if ((charAt t i) == 32) {
+                at = i
+            }
+            i = (i + 1)
+        }
+        return at
+    }
+
+    sfn charIndex:int (t:string c:int) {
+        def i:int 0
+        while (i < (strlen t)) {
+            if ((charAt t i) == c) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    sfn indexOfText:int (text:string needle:string) {
+        def n:int (strlen needle)
+        def m:int (strlen text)
+        if (n == 0) {
+            return -1
+        }
+        def i:int 0
+        while ((i + n) <= m) {
+            def k:int 0
+            def hit:boolean true
+            while (k < n) {
+                if ((charAt text (i + k)) != (charAt needle k)) {
+                    hit = false
+                    break
+                }
+                k = (k + 1)
+            }
+            if hit {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+}
+
+; ---------------------------------------------------------------------------
+; The pipeline
+; ---------------------------------------------------------------------------
+class MermaidWardleyFlow {
+    sfn parse:MermaidWardley (src:string) {
+        return (MermaidWardleyReader.parse(src))
+    }
+
+    sfn render:FlowGraph (src:string) {
+        def d:MermaidWardley (MermaidWardleyReader.parse(src))
+        def bare (new FlowStyle)
+        return (MermaidWardleyFlow.build(d bare))
+    }
+
+    sfn build:FlowGraph (d:MermaidWardley style:FlowStyle) {
+        def g (new FlowGraph)
+        if ((d.nodeCount()) == 0) {
+            return g
+        }
+        def w:double 900.0
+        def h:double 560.0
+        def dot:double 16.0
+        ; The map itself, and the four stages written along the bottom of it.
+        def plot:FlowNode (FlowNode.create("sg-map" "" 0.0 0.0))
+        plot.nodeType = "group"
+        plot.width = w
+        plot.height = h
+        plot.connectable = false
+        plot.draggable = false
+        plot.cssClass = "mermaid map frame"
+        plot.bgColor = "#f6f7fb"
+        plot.borderColor = "#c9cede"
+        plot.syncFromModel()
+        g.addNode(plot)
+        def stages:[string] (MermaidWardley.stages())
+        def s:int 0
+        while (s < (array_length stages)) {
+            def at:double ((w * (to_double s)) * 0.25)
+            MermaidWardleyFlow.label(g ("stage" + (to_string s)) (itemAt stages s) at (h + 10.0) (w * 0.25))
+            if (s > 0) {
+                def rule:FlowNode (FlowNode.create(("rule" + (to_string s)) "" (at - 0.5) 0.0))
+                rule.nodeType = "rule"
+                rule.shape = "rect"
+                rule.width = 1.0
+                rule.height = h
+                rule.borderRadius = 0.0
+                rule.connectable = false
+                rule.draggable = false
+                rule.cssClass = "mermaid stagerule"
+                rule.bgColor = "#c9cede"
+                rule.borderColor = "#c9cede"
+                rule.syncFromModel()
+                g.addNode(rule)
+            }
+            s = (s + 1)
+        }
+        MermaidWardleyFlow.label(g "axis-visible" "visible" (0.0 - 190.0) (0.0 - 4.0) 170.0)
+        MermaidWardleyFlow.label(g "axis-invisible" "invisible" (0.0 - 190.0) (h - 26.0) 170.0)
+        MermaidWardleyFlow.label(g "axis-evolution" "evolution" (w * 0.5) (h + 42.0) (w * 0.5))
+        def i:int 0
+        while (i < (array_length d.nodes)) {
+            def n:MermaidWardleyNode (itemAt d.nodes i)
+            def x:double ((n.evolution * w) - (dot * 0.5))
+            ; Visible is UP: the source counts it from the bottom and the page
+            ; counts from the top, and a map with that the wrong way round is
+            ; a map of the opposite argument.
+            def y:double (((1.0 - n.visibility) * h) - (dot * 0.5))
+            def node:FlowNode (FlowNode.create(n.id "" x y))
+            node.nodeType = "component"
+            node.shape = "circle"
+            node.width = dot
+            node.height = dot
+            node.connectable = false
+            node.cssClass = ("mermaid component " + n.kind)
+            node.bgColor = "#ffffff"
+            node.borderColor = "#1f2430"
+            if (n.kind == "anchor") {
+                node.width = (dot * 1.5)
+                node.height = (dot * 1.5)
+                node.x = ((n.evolution * w) - (dot * 0.75))
+                node.y = (((1.0 - n.visibility) * h) - (dot * 0.75))
+                node.bgColor = "#1f2430"
+            }
+            if (n.kind == "market") {
+                node.shape = "diamond"
+                node.width = (dot * 1.6)
+                node.height = (dot * 1.6)
+            }
+            def name:FlowAnnotation (node.addAnnotation(n.label 0.5 -0.9))
+            name.fontSize = 12.0
+            name.width = 200.0
+            node.addSideHandles()
+            node.syncFromModel()
+            g.addNode(node)
+            ; Where it is going, if it was told. A ghost at the new evolution
+            ; and a dashed line to it: the whole point of the map is that
+            ; things move to the right.
+            if n.evolving {
+                def gx:double ((n.evolveTo * w) - (dot * 0.5))
+                def ghost:FlowNode (FlowNode.create(("evolved-" + n.id) "" gx y))
+                ghost.nodeType = "component"
+                ghost.shape = "circle"
+                ghost.width = dot
+                ghost.height = dot
+                ghost.connectable = false
+                ghost.cssClass = "mermaid evolved"
+                ghost.bgColor = "#e45756"
+                ghost.borderColor = "#e45756"
+                ghost.addSideHandles()
+                ghost.syncFromModel()
+                g.addNode(ghost)
+            }
+            i = (i + 1)
+        }
+        g.reindex()
+        def k:int 0
+        while (k < (array_length d.links)) {
+            def l:MermaidWardleyLink (itemAt d.links k)
+            if (g.hasNode(l.source)) {
+                if (g.hasNode(l.target)) {
+                    def e:FlowEdge (FlowEdge.create("" l.source l.target))
+                    e.edgeType = "straight"
+                    e.markerEnd = ""
+                    e.cssClass = "link chain"
+                    g.addEdge(e)
+                }
+            }
+            k = (k + 1)
+        }
+        def m:int 0
+        while (m < (array_length d.nodes)) {
+            def n2:MermaidWardleyNode (itemAt d.nodes m)
+            if n2.evolving {
+                def ghostId:string ("evolved-" + n2.id)
+                if (g.hasNode(ghostId)) {
+                    def move:FlowEdge (FlowEdge.create("" n2.id ghostId))
+                    move.edgeType = "straight"
+                    move.markerEnd = "arrowclosed"
+                    move.dash = 5.0
+                    move.cssClass = "link evolving"
+                    g.addEdge(move)
+                }
+            }
+            m = (m + 1)
+        }
+        g.reindex()
+        def wrote:int (style.applyTo(g))
+        def p:int 0
+        while (p < (array_length d.nodes)) {
+            def n3:MermaidWardleyNode (itemAt d.nodes p)
+            if (n3.kind == "anchor") {
+                MermaidWardleyFlow.paint(g n3.id "#1f2430")
+            }
+            if n3.evolving {
+                MermaidWardleyFlow.paint(g ("evolved-" + n3.id) "#e45756")
+            }
+            p = (p + 1)
+        }
+        def moved:boolean (g.sendToBack("sg-map"))
+        return g
+    }
+
+    sfn paint:void (g:FlowGraph id:string color:string) {
+        if ((g.hasNode(id)) == false) {
+            return
+        }
+        def n:FlowNode (g.nodeById(id))
+        n.bgColor = color
+        n.borderColor = color
+        n.syncFromModel()
+    }
+
+    sfn label:void (g:FlowGraph id:string text:string x:double y:double w:double) {
+        if ((strlen text) == 0) {
+            return
+        }
+        def n:FlowNode (FlowNode.create(id text x y))
+        n.nodeType = "axislabel"
+        n.shape = "rect"
+        n.width = w
+        n.height = 26.0
+        n.connectable = false
+        n.draggable = false
+        n.cssClass = "mermaid axislabel"
+        n.syncFromModel()
+        g.addNode(n)
+    }
+}

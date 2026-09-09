@@ -46,6 +46,7 @@ Import "../domains/mermaid/MermaidSwimlaneReader.rgr"
 Import "../domains/mermaid/MermaidCynefinReader.rgr"
 Import "../domains/mermaid/MermaidIshikawaReader.rgr"
 Import "../domains/mermaid/MermaidVennReader.rgr"
+Import "../domains/mermaid/MermaidWardleyReader.rgr"
 Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 
@@ -135,6 +136,7 @@ class RangerFlowTest {
         RangerFlowTest.testMermaidCynefin(c)
         RangerFlowTest.testMermaidIshikawa(c)
         RangerFlowTest.testMermaidVenn(c)
+        RangerFlowTest.testMermaidWardley(c)
         RangerFlowTest.testBusinessCharts(c)
         RangerFlowTest.testAuthoring(c)
         RangerFlowTest.testTreeLayouts(c)
@@ -3709,6 +3711,54 @@ class RangerFlowTest {
         c.ok("built of the four cubic arcs every drawing library uses" ((MermaidReader.replaceAll(arc "C" "")) != arc))
         c.eqStr("and a shape with no curve in it carries none" (FlowShapes.arcPath("hexagon" 0.0 0.0 10.0 10.0)) "")
         c.ok("a Venn diagram is one this library draws" (MermaidReader.draws("venn")))
+    }
+
+    ; --------------------------------------------- Mermaid Wardley --------
+    ; A value chain drawn against evolution: up the page is how visible a
+    ; thing is, across it is how evolved. Both are numbers the author wrote,
+    ; so the assertions are about reading them and about the one conversion
+    ; the map needs — visible is UP, and the page counts down.
+    sfn testMermaidWardley:void (c:Checker) {
+        c.section("Mermaid Wardley maps")
+        def src:string "wardley-beta\n"
+        src = (src + "    title Tea shop\n")
+        src = (src + "    anchor Business [0.95, 0.63]\n")
+        src = (src + "    component Cup of Tea [0.79, 0.61]\n")
+        src = (src + "    component Kettle [0.43, 0.35]\n")
+        src = (src + "    Business->Cup of Tea\n")
+        src = (src + "    Cup of Tea->Kettle\n")
+        src = (src + "    evolve Kettle 0.62\n")
+
+        def d:MermaidWardley (MermaidWardleyReader.parse(src))
+        c.eqStr("the title is the line that says so" d.title "Tea shop")
+        c.eqInt("a node per placed thing" (d.nodeCount()) 3)
+        c.eqInt("and a link per arrow" (d.linkCount()) 2)
+        def anchor:MermaidWardleyNode (itemAt d.nodes 0)
+        c.eqStr("an anchor is not a component" anchor.kind "anchor")
+        c.ok("the first number is how visible it is" ((fabs (anchor.visibility - 0.95)) < 0.0001))
+        c.ok("and the second how evolved" ((fabs (anchor.evolution - 0.63)) < 0.0001))
+        def cup:MermaidWardleyNode (itemAt d.nodes 1)
+        c.eqStr("a name may have spaces in it: the bracket ends it, not the space" cup.id "Cup of Tea")
+        def kettle:MermaidWardleyNode (itemAt d.nodes 2)
+        c.ok("`evolve` says a thing is moving" kettle.evolving)
+        c.ok("and where to" ((fabs (kettle.evolveTo - 0.62)) < 0.0001))
+        def link:MermaidWardleyLink (itemAt d.links 0)
+        c.eqStr("a link reads from its ends, spaces and all" link.target "Cup of Tea")
+
+        def bare (new FlowStyle)
+        def g:FlowGraph (MermaidWardleyFlow.build(d bare))
+        def nAnchor:FlowNode (g.nodeById("Business"))
+        def nKettle:FlowNode (g.nodeById("Kettle"))
+        c.ok("visible is UP, and the page counts down" (nAnchor.y < nKettle.y))
+        def nCup:FlowNode (g.nodeById("Cup of Tea"))
+        c.ok("more evolved is further right" (nCup.x > nKettle.x))
+        def ghost:FlowNode (g.nodeById("evolved-Kettle"))
+        c.ok("a thing that is evolving gets a ghost where it is going" (ghost.x > nKettle.x))
+        c.ok("at the same height, because only evolution changes" ((fabs (ghost.y - nKettle.y)) < 0.001))
+        c.eqInt("an edge per link, and one more for the move" (g.edgeCount()) 3)
+        def stage:FlowNode (g.nodeById("stage0"))
+        c.eqStr("the four stages are written along the bottom" stage.label "Genesis")
+        c.ok("a Wardley map is one this library draws" (MermaidReader.draws("wardley")))
     }
 
     ; --------------------------------------------- a click is not an edit --

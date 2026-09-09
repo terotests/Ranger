@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Mermaid Wardley maps.** The twenty-fifth type: a value chain drawn against
+  evolution, where up the page is how visible a thing is and across it is how
+  evolved. Both are numbers the author wrote, so nothing is laid out. `evolve`
+  is drawn as the dashed move to the right that it is, and visible is *up*
+  while the page counts down — the one conversion the map needs, and the one
+  that would otherwise turn it into a map of the opposite argument.
 - **Mermaid Venn diagrams.** The twenty-fourth type. Two facts and one picture:
   how big each set is, and how much of it is also in another one. Circles are
   sized by area rather than by radius — a set twice as big is twice the ink —
