@@ -1474,6 +1474,7 @@ class MermaidReader {
         if (kind == "abnf")      { return true }
         if (kind == "peg")       { return true }
         if (kind == "info")      { return true }
+        if (kind == "packet")    { return true }
         return false
     }
 

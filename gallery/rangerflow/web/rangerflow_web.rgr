@@ -39,6 +39,7 @@ Import "../domains/mermaid/MermaidKanbanReader.rgr"
 Import "../domains/mermaid/MermaidQuadrantReader.rgr"
 Import "../domains/mermaid/MermaidPieReader.rgr"
 Import "../domains/mermaid/MermaidXyReader.rgr"
+Import "../domains/mermaid/MermaidPacketReader.rgr"
 Import "../domains/mermaid/MermaidSankeyReader.rgr"
 Import "../domains/mermaid/MermaidBlockReader.rgr"
 Import "../domains/mermaid/MermaidArchReader.rgr"
@@ -723,6 +724,9 @@ class RangerFlowWeb {
         if (MermaidReader.isRailroad(d.diagramKind)) {
             return (this.loadMermaidRailroad(text styleName want))
         }
+        if (d.diagramKind == "packet") {
+            return (this.loadMermaidPacket(text styleName want))
+        }
         if (d.diagramKind == "info") {
             return (this.loadMermaidInfo(text styleName want))
         }
@@ -1130,6 +1134,27 @@ class RangerFlowWeb {
             what = "Mermaid xychart"
         }
         status = ((to_string (xd.seriesCount())) + " series over " + (to_string (xd.slots())) + " readings — " + what + ", " + want)
+        return true
+    }
+
+    ; A packet diagram: a ruler with names written on it, and the ruler wraps.
+    fn loadMermaidPacket:boolean (text:string styleName:string want:string) {
+        def pk:MermaidPacket (MermaidPacketReader.parse(text))
+        if ((pk.fieldCount()) == 0) {
+            status = "no fields in that packet diagram"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidPacketFlow.build(pk style))
+        this.adoptPlaced(g style want)
+        def what:string pk.title
+        if ((strlen what) == 0) {
+            what = "Mermaid packet diagram"
+        }
+        def bits:int ((pk.lastBit()) + 1)
+        status = ((to_string (pk.fieldCount())) + " fields over " + (to_string bits) + " bits — " + what + ", " + want)
         return true
     }
 

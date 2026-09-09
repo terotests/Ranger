@@ -46,6 +46,7 @@ Import "../domains/mermaid/MermaidKanbanReader.rgr"
 Import "../domains/mermaid/MermaidQuadrantReader.rgr"
 Import "../domains/mermaid/MermaidPieReader.rgr"
 Import "../domains/mermaid/MermaidXyReader.rgr"
+Import "../domains/mermaid/MermaidPacketReader.rgr"
 Import "../domains/mermaid/MermaidSankeyReader.rgr"
 Import "../domains/mermaid/MermaidBlockReader.rgr"
 Import "../domains/mermaid/MermaidArchReader.rgr"
@@ -563,6 +564,10 @@ class RangerFlowDemo {
             this.runMermaidRailroad(srcOpt styleName)
             return
         }
+        if (d.diagramKind == "packet") {
+            this.runMermaidPacket(srcOpt styleName)
+            return
+        }
         if (d.diagramKind == "info") {
             this.runMermaidInfo(srcOpt styleName)
             return
@@ -923,6 +928,28 @@ class RangerFlowDemo {
             title = "RangerFlow — Mermaid pie chart"
         }
         this.writeAll(v g "rangerflow-mermaid-pie" title)
+    }
+
+    ; A packet diagram: a ruler with names on it, and the ruler wraps.
+    fn runMermaidPacket:void (src:string styleName:string) {
+        def pk:MermaidPacket (MermaidPacketReader.parse(src))
+        if ((pk.fieldCount()) == 0) {
+            print "  no fields in that packet diagram"
+            return
+        }
+        def style:FlowStyle (this.styleByName(styleName))
+        def g:FlowGraph (MermaidPacketFlow.build(pk style))
+        def bits:int ((pk.lastBit()) + 1)
+        print ("  model  " + (to_string (pk.fieldCount())) + " fields over " + (to_string bits) + " bits, " + (to_string (pk.rowCount())) + " rows")
+        print ("  graph  " + (to_string (g.nodeCount())) + " nodes, " + (to_string (g.edgeCount())) + " edges")
+        def v:FlowView (FlowView.of(g))
+        v.notation = "plain"
+        style.applyToTheme(v.theme)
+        def title:string pk.title
+        if ((strlen title) == 0) {
+            title = "RangerFlow — Mermaid packet diagram"
+        }
+        this.writeAll(v g "rangerflow-mermaid-packet" title)
     }
 
     ; An xychart: bars and a line on an axis that means something.

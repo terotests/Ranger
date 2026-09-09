@@ -49,6 +49,7 @@ Import "../domains/mermaid/MermaidVennReader.rgr"
 Import "../domains/mermaid/MermaidWardleyReader.rgr"
 Import "../domains/mermaid/MermaidRailroadReader.rgr"
 Import "../domains/mermaid/MermaidInfoReader.rgr"
+Import "../domains/mermaid/MermaidPacketReader.rgr"
 Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 
@@ -141,6 +142,7 @@ class RangerFlowTest {
         RangerFlowTest.testMermaidVenn(c)
         RangerFlowTest.testMermaidWardley(c)
         RangerFlowTest.testMermaidRailroad(c)
+        RangerFlowTest.testMermaidPacket(c)
         RangerFlowTest.testBusinessCharts(c)
         RangerFlowTest.testAuthoring(c)
         RangerFlowTest.testTreeLayouts(c)
@@ -3892,6 +3894,73 @@ class RangerFlowTest {
         def notInfo:MermaidInfo (MermaidInfoReader.parse("flowchart TD\n  a --> b\n"))
         c.ok("a diagram that never asked gets no answer" (notInfo.asked == false))
         c.ok("`info` is one this library draws" (MermaidReader.draws("info")))
+    }
+
+    ; --------------------------------------------- Mermaid packet ---------
+    ; A packet diagram is arithmetic on bit numbers, and the arithmetic that
+    ; matters is the WRAP: a field of 64 bits on a 32-bit ruler is two boxes
+    ; on two rows, not one box twice as wide as the diagram.
+    sfn testMermaidPacket:void (c:Checker) {
+        c.section("Mermaid packet diagrams")
+        def src:string "---\n"
+        src = (src + "title: \"TCP Packet\"\n")
+        src = (src + "---\n")
+        src = (src + "packet\n")
+        src = (src + "0-15: \"Source Port\"\n")
+        src = (src + "16-31: \"Destination Port\"\n")
+        src = (src + "32-63: \"Sequence Number\"\n")
+        src = (src + "64: \"URG\"\n")
+        src = (src + "+7: \"Flags\"\n")
+        src = (src + "192-255: \"Data\"\n")
+
+        def d:MermaidPacket (MermaidPacketReader.parse(src))
+        c.eqStr("the title comes out of the front matter" d.title "TCP Packet")
+        c.eqInt("one field per line" (d.fieldCount()) 6)
+        def f0:MermaidPacketField (itemAt d.fields 0)
+        c.eqInt("`0-15` starts at nought" f0.start 0)
+        c.eqInt("and ends at fifteen" f0.endBit 15)
+        c.eqInt("which is sixteen bits, not fifteen" (f0.bits()) 16)
+        def one:MermaidPacketField (itemAt d.fields 3)
+        c.eqInt("a bare number is one bit wide" (one.bits()) 1)
+        def plus:MermaidPacketField (itemAt d.fields 4)
+        c.eqInt("`+7` starts where the last field stopped" plus.start 65)
+        c.eqInt("and is seven bits long" (plus.bits()) 7)
+        c.eqInt("the ruler is 32 bits wide unless told otherwise" d.bitsPerRow 32)
+        c.eqInt("256 bits is eight rows of it" (d.rowCount()) 8)
+
+        def bare (new FlowStyle)
+        def g:FlowGraph (MermaidPacketFlow.build(d bare))
+        c.eqInt("a packet diagram has no edges" (g.edgeCount()) 0)
+        def first:FlowNode (g.nodeById("fld-0-0"))
+        c.eqStr("a field is a box with its name in it" first.label "Source Port")
+        def second:FlowNode (g.nodeById("fld-16-0"))
+        c.ok("the next field is to its right" (second.x > first.x))
+        c.ok("on the same row" ((fabs (second.y - first.y)) < 0.001))
+        def third:FlowNode (g.nodeById("fld-32-0"))
+        c.ok("and bit 32 has wrapped onto the next one" (third.y > first.y))
+        c.ok("starting back at the left margin" ((fabs (third.x - first.x)) < 0.001))
+        ; The wrap. `192-255` is 64 bits on a 32-bit ruler, so it is two boxes.
+        def wideA:FlowNode (g.nodeById("fld-192-0"))
+        def wideB:FlowNode (g.nodeById("fld-192-1"))
+        c.ok("a field longer than the ruler is drawn twice" (wideB.y > wideA.y))
+        c.eqStr("with its name in both halves" wideB.label "Data")
+        c.ok("and neither half is wider than the ruler" (wideA.width <= ((to_double d.bitsPerRow) * (MermaidPacketFlow.bitWidthFor(d)))))
+        ; The bit numbers are the diagram: without them it is a row of words.
+        def tick:FlowNode (g.nodeById("fld-0-0-a"))
+        c.eqStr("each box says which bit it starts at" tick.label "0")
+        def tickEnd:FlowNode (g.nodeById("fld-0-0-b"))
+        c.eqStr("and which one it ends at" tickEnd.label "15")
+        c.ok("the numbers sit above the box, not in it" (tick.y < first.y))
+        c.ok("a one-bit field says its number once" ((g.hasNode("fld-64-0-b")) == false))
+        ; A ruler scaled to the wide fields draws `URG` as an ellipsis.
+        def flags:string "packet\n0: \"URG\"\n1-31: \"Rest\"\n"
+        def fd:MermaidPacket (MermaidPacketReader.parse(flags))
+        def wide:double (MermaidPacketFlow.bitWidthFor(fd))
+        c.ok("a one-bit field with a word in it widens the ruler" (wide > 27.0))
+        def plain:MermaidPacket (MermaidPacketReader.parse("packet\n0-31: \"A\"\n"))
+        c.ok("and one without leaves it alone" ((fabs ((MermaidPacketFlow.bitWidthFor(plain)) - 27.0)) < 0.001))
+        c.eqStr("`packet-beta` is the same word" (MermaidReader.otherDiagram("packet-beta")) "packet")
+        c.ok("a packet diagram is one this library draws" (MermaidReader.draws("packet")))
     }
 
     ; --------------------------------------------- a link to a subgraph ---

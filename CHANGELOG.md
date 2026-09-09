@@ -7,9 +7,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- **All thirty of Mermaid's diagram types are now drawn.** The matrix in
-  `docs/MERMAID_PARITY.md` is read off the installed Mermaid's own build, and
-  every row of it says *drawn*.
+- **Thirty-four of Mermaid's thirty-eight header keywords are drawn.** The
+  matrix in `docs/MERMAID_PARITY.md` is read off Mermaid's own detector
+  registry. It used to say thirty of thirty, and both numbers were wrong.
+
+### Added
+
+- **Mermaid packet diagrams.** A ruler with names written on it: every field is
+  a range of bit numbers, the ruler is 32 bits wide, and the whole of the
+  layout is arithmetic on those numbers. The one thing that needs care is the
+  wrap — `192-255` is not one box, it is two boxes on two rows with the same
+  name in both, because a field 64 bits wide does not fit on a 32-bit ruler.
+  All three ways of writing a range are read: `0-15:`, `32:` for a single bit,
+  and `+16:` for the next sixteen after whatever came before. The bit numbers
+  above the boxes are the diagram rather than decoration, so they are drawn at
+  both ends of every box; and a header whose flags are one-bit fields called
+  `URG` and `ACK` widens the ruler until those words fit, because six boxes
+  with an ellipsis in each say nothing at all.
+
+### Fixed
+
+- **The diagram-type matrix was measured against a list that could not be
+  complete.** It discovered Mermaid's types by listing
+  `dist/chunks/mermaid.core/*.mjs` and reading the name out of each filename —
+  but five of those chunks are called `diagram-<hash>.mjs` and say nothing
+  about which diagram they hold, so five types were invisible to the very
+  matrix that exists to notice a type with no reader: `packet`, `radar`,
+  `treemap`, `treeView` and `eventmodeling`. The fault was in the meter, which
+  is the third one of that class here, after the swimlane and railroad
+  keywords. The oracle now imports Mermaid's own `detectors` registry — the
+  record the parser itself consults — reads each keyword off the detector's
+  regular expression, and hands the keyword back to that detector to check it;
+  a keyword derived wrongly is dropped rather than asked of this reader as
+  Mermaid's. Keywords rather than renderers, because `graph` and `flowchart`
+  are one picture behind two detectors and a reader has to know both words.
+  `harness/out/mermaid.json` carries the list, so the dump script and the
+  parity tool stop guessing and the hand-written chunk→header map is gone.
+- **An arrow to a subgraph pointed at a box that was not there.** `C --> A`
+  where `subgraph A` exists means the group, and Mermaid keeps `A` as a vertex
+  all the same — the clustering is a drawing decision, not a parsing one. This
+  reader drew both: the frame *and* a phantom node called `A` beside it, so a
+  diagram whose arrows all end at subgraphs came out with a second, empty copy
+  of every group. The expansion now happens when the GRAPH is built rather than
+  in the model, which is what keeps the parity dump agreeing with Mermaid's own
+  parser: an edge to a group becomes an edge to every member of it, with all
+  but the drawn one hidden. Pointing at a single member instead would split the
+  group across ranks, because the layout ranks by longest path. Frames grew
+  side handles so an edge can land on one, and an edge to a frame faces it by
+  the direction of the layout rather than by the larger delta — a frame is
+  wide, so "larger delta" always chose sideways.
+- **Three headers fell through to the flowchart parser.** `requirement`
+  (Mermaid's detector is `requirement(Diagram)?`, and only the long spelling
+  was known), `treeView-beta` and `eventmodeling`. The corrected matrix found
+  all three on its first run.
 
 ### Added
 
