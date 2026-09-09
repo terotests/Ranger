@@ -386,6 +386,7 @@ treefactory Rt {
     tag DrillName EVGElement (props (className "rt-drill-name") (elementType 1))
     tag DrillMetaTx EVGElement (props (className "rt-drill-meta-text") (elementType 1))
     tag DrillWeekTx EVGElement (props (className "rt-drill-week") (elementType 1))
+    tag DrillSheetHd EVGElement (props (className "rt-drill-sheet-hd") (elementType 1) (role "heading") (a11yLevel 2))
     tag StatsH4 EVGElement (props (className "rt-stats-h4") (elementType 1) (role "heading") (a11yLevel 4))
     tag StatsBig EVGElement (props (className "rt-stats-big") (elementType 1))
     tag StatsSmall EVGElement (props (className "rt-stats-small") (elementType 1))
@@ -445,6 +446,17 @@ treefactory Rt {
     ; the original: a banner, a main, and no shell around them — see
     ; `traces/reference/more-sheet.json` and `traces/reference/more-rest.json`.
     tag SetHd1   EVGElement (props (className "rt-set-hd") (elementType 1) (role "heading") (a11yLevel 1))
+    ; The measurement calendar's summary — one card per thing measured, as
+    ; `traces/reference/calendar-measure.json` has them.
+    tag MsHd     EVGElement (props (className "rt-ms-hd") (elementType 1) (role "heading") (a11yLevel 2))
+    tag MsH3     EVGElement (props (className "rt-ms-h3") (elementType 1) (role "heading") (a11yLevel 3))
+    tag MsCard   EVGElement (props (className "rt-ms-card"))
+    tag MsTx     EVGElement (props (className "rt-ms-text") (elementType 1))
+    tag MsBig    EVGElement (props (className "rt-ms-big") (elementType 1))
+    tag MsGrid   EVGElement (props (className "rt-ms-grid"))
+    tag MsCell   EVGElement (props (className "rt-ms-cell"))
+    tag MsLabel  EVGElement (props (className "rt-ms-label") (elementType 1) (role "paragraph"))
+    tag MsValue  EVGElement (props (className "rt-ms-value") (elementType 1) (role "paragraph"))
     tag SubPage  EVGElement (props (className "rt-subpage"))
     tag PageHead EVGElement (props (className "rt-page-head") (role "banner"))
     tag PageMain EVGElement (props (className "rt-page-main") (role "main"))
@@ -998,6 +1010,9 @@ class RealTrainerDemo {
     def setHintField:InputCtl (new InputCtl())
     ; Which of the chat's own drawers is open — the history, the saved notes
     ; or the AI instructions. One at a time, as the original has them.
+    ; Which drill's history is open, or -1. `ExerciseStatsModal` on the
+    ; reference; a strip above the tabs here, where the reference puts it.
+    def drillCard@(mutable):int (0 - 1)
     ; Which card's notes are open, or -1. "Muistiinpanot" on a diary card is
     ; not a panel on the card: it opens a page over the feed.
     def notesCard@(mutable):int (0 - 1)
@@ -4026,6 +4041,218 @@ class RealTrainerDemo {
 
     ; A training calendar's Home, as `HomeView` has it: the three tabs and,
     ; on Päiväkirja, every workout of the calendar as a card, newest first.
+    ; THE MEASUREMENT CALENDAR'S SUMMARY. A diary of readings is not a diary
+    ; of workouts: the reference gives it no tabs and puts a card per thing
+    ; measured above the feed — the latest reading, the least, the mean and
+    ; the most of it, how long the readings span and how far apart they fall.
+    ; See `traces/reference/calendar-measure.json`.
+    ;
+    ; A card reads the LAST FOURTEEN readings and no more. That is not a
+    ; guess: `Hrv` has thirty in the seed and the reference's card says
+    ; 20 days and a mean of 42, which is the fourteen most recent of them and
+    ; nothing else; `Weight` has fifteen and the card's ~14pv interval is the
+    ; span over thirteen gaps, not fourteen. The ORDER is by how many
+    ; readings there are in all, so a thing measured thirty times leads a
+    ; thing measured eight times however recent the eight are.
+    fn measurePanel:void (home:EVGElement) {
+        def series:[RtMeasure] (this.measureSeries())
+        if ((array_length series) == 0) {
+            return
+        }
+        def panel (tree Rt (Col (props (className "rt-ms"))))
+        def head (tree Rt (Row (props (className "rt-ms-head"))))
+        head.addChild((tree Rt (MsHd (props (id "rt-ms-hd")) "Mittaukset")))
+        def n:int (array_length (seed.selectedEntries()))
+        def top:RtMeasure (itemAt series 0)
+        head.addChild((tree Rt (MsTx (((to_string n) + " merkintää ") + (RealTrainerDemo.measureGlyph(top.key))))))
+        panel.addChild(head)
+        for series m:RtMeasure i {
+            panel.addChild((this.measureCard(m i)))
+        }
+        home.addChild(panel)
+    }
+
+    fn measureCard:EVGElement (m:RtMeasure i:int) {
+        def card (tree Rt (MsCard))
+        def n@(mutable):int (array_length m.values)
+        if (n > 14) { n = 14 }
+        def latest:double (itemAt m.values 0)
+        def min@(mutable):double latest
+        def max@(mutable):double latest
+        def sum@(mutable):double 0.0
+        def j@(mutable):int 0
+        while (j < n) {
+            def v:double (itemAt m.values j)
+            if (v < min) { min = v }
+            if (v > max) { max = v }
+            sum = (sum + v)
+            j = (j + 1)
+        }
+        def span:int ((RtWeek.daysOf((itemAt m.dates 0))) - (RtWeek.daysOf((itemAt m.dates (n - 1)))))
+        def gaps@(mutable):int (n - 1)
+        if (gaps < 1) { gaps = 1 }
+        def head (tree Rt (Row (props (className "rt-ms-card-head"))))
+        head.addChild((tree Rt (MsTx (RealTrainerDemo.measureGlyph(m.key)))))
+        head.addChild((tree Rt (MsH3 (props (id ("rt-ms-" + (to_string i)))) (RealTrainerDemo.measureTitle(m.key)))))
+        card.addChild(head)
+        def big@(mutable):string (RealTrainerDemo.rounded(latest))
+        if ((strlen m.unit) > 0) {
+            big = ((big + " ") + m.unit)
+        }
+        card.addChild((tree Rt (MsBig big)))
+        def grid (tree Rt (MsGrid))
+        grid.addChild((this.measureCell("Min" (RealTrainerDemo.rounded(min)))))
+        grid.addChild((this.measureCell("Ka" (RealTrainerDemo.rounded((sum / (int2double n)))))))
+        grid.addChild((this.measureCell("Max" (RealTrainerDemo.rounded(max)))))
+        grid.addChild((this.measureCell("Jakso" ((to_string span) + "pv"))))
+        grid.addChild((this.measureCell("Väli" (("~" + (to_string (to_int (((int2double span) / (int2double gaps)) + 0.5)))) + "pv"))))
+        card.addChild(grid)
+        return card
+    }
+
+    fn measureCell:EVGElement (label:string value:string) {
+        def cell (tree Rt (MsCell))
+        cell.addChild((tree Rt (MsLabel label)))
+        cell.addChild((tree Rt (MsValue value)))
+        return cell
+    }
+
+    ; Every reading the diary carries, newest first, by what was measured —
+    ; the custom rows, the body measurements, and the step counts a run
+    ; carries, which the reference counts as Askeleet with the rest.
+    fn measureSeries:[RtMeasure] () {
+        def out:[RtMeasure]
+        def sorted:[RtSeedEntry] (RealTrainerDemo.sortByDateDesc((seed.selectedEntries())))
+        for sorted e:RtSeedEntry i {
+            if ((strlen e.compact) == 0) { continue }
+            def doc:CompactDocument (CompactRowMapper.parseDocument(e.compact))
+            for doc.rows row:CompactRow ri {
+                def key@(mutable):string ""
+                def unit@(mutable):string ""
+                def value@(mutable):double 0.0
+                match row {
+                    Custom cu {
+                        def cs:CustomSpec (unwrap cu.spec)
+                        key = cs.name
+                        unit = cs.unit
+                        value = (CompactRowMapper.toNum(cs.value))
+                    }
+                    Measurement ms {
+                        def msp:MeasurementSpec (unwrap ms.spec)
+                        key = (RealTrainerDemo.capitalised(msp.measureType))
+                        unit = msp.unit
+                        value = (CompactRowMapper.toNum(msp.value))
+                    }
+                    Move mv {
+                        def mo:MoveSpec (unwrap mv.spec)
+                        if (mo.hasSteps) {
+                            key = "Askeleet"
+                            value = (int2double mo.steps)
+                        }
+                    }
+                    Exercise ex { }
+                    Pyramid py { }
+                    Split sp { }
+                    Section s { }
+                    Text t { }
+                    Summary sm { }
+                    Phase ph { }
+                    Duration du { }
+                    Unknown un { }
+                    Food fo { }
+                    Drinking dr { }
+                    Circuit ci { }
+                    CircuitItem it { }
+                    Expense ep { }
+                    Sleep sl { }
+                    Contacts ct { }
+                }
+                if ((strlen key) == 0) { continue }
+                def at@(mutable):int (0 - 1)
+                for out m:RtMeasure mi {
+                    if (m.key == key) { at = mi }
+                }
+                if (at < 0) {
+                    def made (new RtMeasure())
+                    made.key = key
+                    made.unit = unit
+                    push out made
+                    at = ((array_length out) - 1)
+                }
+                def series:RtMeasure (itemAt out at)
+                if ((strlen series.unit) == 0) { series.unit = unit }
+                push series.dates e.date
+                push series.values value
+            }
+        }
+        return (RealTrainerDemo.byReadingCount(out))
+    }
+
+    ; Most readings first, and a tie keeps the order it was found in.
+    sfn byReadingCount:[RtMeasure] (list:[RtMeasure]) {
+        def out:[RtMeasure]
+        for list m:RtMeasure i {
+            def placed:[RtMeasure]
+            def done@(mutable):boolean false
+            for out o:RtMeasure j {
+                if ((done == false) && ((array_length m.values) > (array_length o.values))) {
+                    push placed m
+                    done = true
+                }
+                push placed o
+            }
+            if (done == false) { push placed m }
+            out = placed
+        }
+        return out
+    }
+
+    ; `METS-huippu` is drawn `Mets Huippu`: the dashes are spaces and every
+    ; word takes a capital, which is what the reference's own title case does
+    ; to a key nobody wrote for a reader.
+    sfn measureTitle:string (key:string) {
+        def out@(mutable):string ""
+        def start@(mutable):boolean true
+        def len:int (strlen key)
+        def i@(mutable):int 0
+        while (i < len) {
+            def code:int (charAt key i)
+            if ((code == 45) || (code == 95) || (code == 32)) {
+                out = (out + " ")
+                start = true
+            } {
+                def ch:string (strfromcode code)
+                if start {
+                    out = (out + (RealTrainerDemo.upper(ch)))
+                    start = false
+                } {
+                    out = (out + (RealTrainerDemo.lower(ch)))
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn measureGlyph:string (key:string) {
+        if (key == "Weight") { return "⚖" }
+        if (key == "Askeleet") { return "👟" }
+        if (key == "HRV") { return "💓" }
+        if (key == "Leposyke") { return "💓" }
+        if (key == "Max-syke") { return "💓" }
+        if (key == "Viimeisin-syke") { return "💓" }
+        if (RtEntry.hasPrefix(key "METS")) { return "🔥" }
+        if (RtEntry.hasPrefix(key "Aktiiv")) { return "🔥" }
+        if (RtEntry.hasPrefix(key "Kokonais")) { return "🔥" }
+        if (RtEntry.hasPrefix(key "Lepo")) { return "🔥" }
+        return "📊"
+    }
+
+    ; A reading, as a whole number — `94.6` is `95` and `8644` is itself.
+    sfn rounded:string (v:double) {
+        return (to_string (to_int (v + 0.5)))
+    }
+
     fn diaryFeed:void (home:EVGElement) {
         ; THE FEED IS NOT ARRIVING ON THE OTHER TABS. `feedMore` says the diary
         ; has cards still to build, and `tick` builds a chunk and rebuilds the
@@ -4043,21 +4270,44 @@ class RealTrainerDemo {
         if ((strlen statsRow) > 0) {
             home.addChild((this.entryStatsSheet()))
         }
-        def tabs (tree Rt (Row (props (className "rt-ex-btns rt-home-tabs"))))
-        tabs.addChild((this.homeTabBtn("rt-home-tab-diary" "Päiväkirja" (homeTab == "diary"))))
-        tabs.addChild((this.homeTabBtn("rt-home-tab-drills" "Harjoitteet" (homeTab == "drills"))))
-        tabs.addChild((this.homeTabBtn("rt-home-tab-stats" "Tilastot" (homeTab == "stats"))))
-        home.addChild(tabs)
-        if (homeTab == "drills") {
-            this.homeDrills(home)
-            return
+        ; A DRILL'S HISTORY goes in the same place — see `drillSheet`.
+        if (drillCard >= 0) {
+            home.addChild((this.drillSheet()))
         }
-        if (homeTab == "stats") {
-            this.statsPanel(home)
-            return
+        ; A DIARY OF READINGS HAS NO TABS. Harjoitteet and Tilastot are a
+        ; training diary's, and the reference draws neither on a measurement
+        ; calendar: it puts the summary there instead.
+        if (seed.calendarType == "measurement") {
+            this.measurePanel(home)
+        } {
+            def tabs (tree Rt (Row (props (className "rt-ex-btns rt-home-tabs"))))
+            tabs.addChild((this.homeTabBtn("rt-home-tab-diary" "Päiväkirja" (homeTab == "diary"))))
+            tabs.addChild((this.homeTabBtn("rt-home-tab-drills" "Harjoitteet" (homeTab == "drills"))))
+            tabs.addChild((this.homeTabBtn("rt-home-tab-stats" "Tilastot" (homeTab == "stats"))))
+            home.addChild(tabs)
+            if (homeTab == "drills") {
+                this.homeDrills(home)
+                return
+            }
+            if (homeTab == "stats") {
+                this.statsPanel(home)
+                return
+            }
         }
         def feed (tree Rt (Col (props (className "rt-home-feed"))))
         def sorted:[RtSeedEntry] (RealTrainerDemo.sortByDateDesc((seed.selectedEntries())))
+        ; A READING IS A LINE, NOT A CARD. The reference gives a measurement
+        ; calendar's entries none of a workout's furniture — no score, no
+        ; Compact and JSON, no comments: the date, what was measured, one
+        ; button to add another of the same, and the reading itself. All of
+        ; them at once, too, which a line can afford and a card cannot.
+        if (seed.calendarType == "measurement") {
+            for sorted e:RtSeedEntry i {
+                feed.addChild((this.measureEntry(e i)))
+            }
+            home.addChild(feed)
+            return
+        }
         for sorted e:RtSeedEntry i {
             if (i >= feedShown) {
                 if ((this.hasCard(e i "home")) == false) {
@@ -4070,6 +4320,26 @@ class RealTrainerDemo {
             feed.addChild(card)
         }
         home.addChild(feed)
+    }
+
+    fn measureEntry:EVGElement (e:RtSeedEntry i:int) {
+        def card (tree Rt (Col (props (className "rt-ms-entry"))))
+        card.id = ("rt-ms-entry-" + (to_string i))
+        card.addChild((tree Rt (MsTx (RtWeek.fiDate(e.date)))))
+        def head (tree Rt (Row (props (className "rt-ms-entry-head"))))
+        head.addChild((tree Rt (MsH3 (props (id ("rt-ms-entry-hd-" + (to_string i)))) (CompactRowMapper.firstWorkoutTitle(e.compact)))))
+        head.addChild((tree Rt (Spacer)))
+        head.addChild((this.exButton(("rt-ms-add-" + (to_string i)) "Lisää" "Lisää")))
+        card.addChild(head)
+        def doc:CompactDocument (CompactRowMapper.parseDocument(e.compact))
+        def said (tree Rt (Row (props (className "rt-ms-entry-rows"))))
+        for doc.rows row:CompactRow ri {
+            def line:string (CompactStatBuilder.lineText(row))
+            if ((strlen line) == 0) { continue }
+            said.addChild((tree Rt (MsTx line)))
+        }
+        card.addChild(said)
+        return card
     }
 
     ; Is the feed still arriving — see `feedShown`.
@@ -4369,6 +4639,44 @@ class RealTrainerDemo {
         }
         panel.addChild(rows)
         home.addChild(panel)
+    }
+
+    ; ONE DRILL'S HISTORY. `ExerciseStatsModal` on the reference, and a strip
+    ; above the tabs here because that is where the reference draws it: the
+    ; name, a way out, and every time the drill was done. See
+    ; `traces/reference/home-drills.json`.
+    fn drillSheet:EVGElement () {
+        def sheet (tree Rt (Col (props (className "rt-drill-sheet"))))
+        def all:[ExerciseSummary] (this.drillSummaries())
+        def cats:CategorizedExercises (ExerciseStats.categorizeSummaries(all))
+        def list@(mutable):[ExerciseSummary] cats.strength
+        if (drillCat == "endurance") { list = cats.endurance }
+        if (drillCat == "bodyweight") { list = cats.bodyweight }
+        def sorted:[ExerciseSummary] (RealTrainerDemo.sortDrills(list drillSort))
+        if (drillCard >= (array_length sorted)) {
+            return sheet
+        }
+        def ex:ExerciseSummary (itemAt sorted drillCard)
+        def head (tree Rt (Row (props (className "rt-drill-sheet-head"))))
+        head.addChild((tree Rt (DrillSheetHd (props (id "rt-drill-sheet-hd")) ex.displayName)))
+        head.addChild((tree Rt (Spacer)))
+        head.addChild((this.iconBtn("rt-drill-close" "Sulje" (RtIcons.x("#999999")))))
+        sheet.addChild(head)
+        def facts (tree Rt (Row (props (className "rt-drill-sheet-facts"))))
+        facts.addChild((tree Rt (DrillMetaTx ((to_string ex.occurrences) + " Kertaa"))))
+        if (ex.totalDistance > 0.0) {
+            facts.addChild((tree Rt (DrillMetaTx ((RealTrainerDemo.kmText(ex.totalDistance)) + " Yhteensä"))))
+        }
+        if (ex.maxDuration > 0) {
+            facts.addChild((tree Rt (DrillMetaTx ((StatsMath.formatDuration(ex.maxDuration)) + " Pisin"))))
+        }
+        sheet.addChild(facts)
+        def when (tree Rt (Row (props (className "rt-drill-sheet-when"))))
+        for ex.history point:StatsDataPoint hi {
+            when.addChild((tree Rt (DrillWeekTx (RtWeek.fiDate(point.date)))))
+        }
+        sheet.addChild(when)
+        return sheet
     }
 
     fn drillTabColor:string (cat:string) {
@@ -7938,6 +8246,19 @@ class RealTrainerDemo {
         }
         if (RtEntry.hasPrefix(id "rt-drill-sort-")) {
             drillSort = (substring id 14 (strlen id))
+            drillSortOpen = false
+            return true
+        }
+        ; A DRILL ROW OPENS ITS HISTORY. It was a button that did nothing —
+        ; every row on the Harjoitteet tab, and the one thing a person goes
+        ; to that tab to see. See `drillSheet`.
+        if (id == "rt-drill-close") {
+            drillCard = (0 - 1)
+            return true
+        }
+        def drill:int (RealTrainerDemo.indexAfter(id "rt-drill-"))
+        if (drill >= 0) {
+            drillCard = drill
             drillSortOpen = false
             return true
         }

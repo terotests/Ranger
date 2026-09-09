@@ -2553,6 +2553,29 @@
 .rt-notes-hd { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 18px; height: 24px; }
 .rt-notes-para { color: var(--ink-dim); font-family: Arial; font-size: 13px; height: 18px; }
 .rt-notes-text { color: var(--ink-dim); font-family: Arial; font-size: 12px; height: 16px; }
+/* The measurement calendar: a summary card per thing measured, then the
+   readings as lines rather than as cards. */
+.rt-ms { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 10px; padding: 8px 0px; }
+.rt-ms-head { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; }
+.rt-ms-hd { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 18px; height: 24px; }
+.rt-ms-h3 { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 14px; height: 20px; }
+.rt-ms-card { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 6px; padding: 12px; border-radius: 12px; border-width: 1px; border-color: var(--line); background-color: var(--surface-2); }
+.rt-ms-card-head { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; }
+.rt-ms-text { color: var(--ink-dim); font-family: Arial; font-size: 12px; height: 16px; }
+.rt-ms-big { color: var(--accent); font-family: Arial; font-weight: bold; font-size: 22px; height: 28px; }
+.rt-ms-grid { display: flex; flex-direction: row; flex-wrap: wrap; gap: 12px; }
+.rt-ms-cell { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 2px; }
+.rt-ms-label { color: var(--ink-dim); font-family: Arial; font-size: 11px; height: 14px; }
+.rt-ms-value { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 13px; height: 18px; }
+.rt-ms-entry { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 4px; padding: 10px 0px; border-bottom-width: 1px; border-color: var(--line); }
+.rt-ms-entry-head { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; }
+.rt-ms-entry-rows { display: flex; flex-direction: row; flex-wrap: wrap; gap: 8px; }
+/* One drill's history, above the tabs, where the reference draws it. */
+.rt-drill-sheet { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 6px; padding: 12px; border-radius: 12px; border-width: 1px; border-color: var(--line); background-color: var(--surface-2); }
+.rt-drill-sheet-head { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; }
+.rt-drill-sheet-hd { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 16px; height: 22px; }
+.rt-drill-sheet-facts { display: flex; flex-direction: row; flex-wrap: wrap; gap: 10px; }
+.rt-drill-sheet-when { display: flex; flex-direction: row; flex-wrap: wrap; gap: 8px; }
 .rt-chat-compose { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; width: 100%; }
 
 /* --- the chat log's rows, the More sheet, the phone's home and dashboard, the edit sheet --- */

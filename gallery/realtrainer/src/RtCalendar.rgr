@@ -687,6 +687,18 @@ class RtEntry {
 ; as `DerivedRow` shows it: the value, its unit, the short Finnish label the
 ; metric has, and the goodness as a word.
 ; -----------------------------------------------------------------------------
+; One measured thing, and every reading of it the diary carries — newest
+; first, because that is the order the summary reads them in.
+class RtMeasure {
+    def key@(mutable):string ""
+    def unit@(mutable):string ""
+    def dates:[string]
+    def values:[double]
+
+    Constructor () {
+    }
+}
+
 class RtDerived {
     def key@(mutable):string ""
     def value@(mutable):string ""

@@ -88,6 +88,39 @@ prints them under "deliberate deviations" on every run. A difference that is
 not on that list still fails the gate; this one is on it, with its reason, so
 it cannot quietly become the thing everyone forgot to look at.
 
+## Home's composer is more of a control here than there
+
+Six scenarios sit between 93% and 97% for one row of three elements — the
+quick-entry composer above the Home feed. The reference publishes it as
+
+```
+button "Lisää kuva"
+text   "Kirjoita merkintä... esim. \"treeni 60min\""
+button ""
+```
+
+and this port as
+
+```
+button  "Lisää kuva"
+textbox "Kirjoita merkintä... esim. \"treeni 60min\""
+button  "Lähetä" [disabled]
+```
+
+Three differences, and the port is on the better side of all three: the field
+is a real textbox a reader can find and type into rather than a line of text
+with a placeholder read out beside it; the send button has a name; and it says
+it is disabled while there is nothing to send, which is what pressing it does.
+
+The reference's own chat page publishes the same control as `button ""
+[disabled]`, and this port matches it there — `chat-send` and `chat-tools` are
+at 100%. So the difference is not a rule the port applies everywhere; it is one
+button that was given a name because a send button with no name is a send
+button nobody can reach.
+
+**Not fixed.** `traces/parity.json` holds those six scenarios where this row
+puts them, and this is the note that says why none of them is 100%.
+
 ## The reference reads a run's line with an older parser
 
 The app under `frontend/` parses COMPACT with the **TypeScript**
