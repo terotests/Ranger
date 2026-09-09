@@ -32,6 +32,7 @@ Import "../domains/uml/UMLModel.rgr"
 Import "../domains/flowchart/Flowchart.rgr"
 Import "../domains/mermaid/MermaidReader.rgr"
 Import "../domains/mermaid/MermaidClassReader.rgr"
+Import "../domains/mermaid/MermaidErReader.rgr"
 Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 Import "../layout/LayeredLayout.rgr"
@@ -447,6 +448,10 @@ class RangerFlowDemo {
             this.runMermaidClass(srcOpt styleName)
             return
         }
+        if (d.diagramKind == "er") {
+            this.runMermaidEr(srcOpt styleName)
+            return
+        }
         if ((strlen d.diagramKind) > 0) {
             if (d.diagramKind != "flowchart") {
                 print ("  this is a " + d.diagramKind + " diagram — this reads flowcharts and class diagrams")
@@ -503,6 +508,12 @@ class RangerFlowDemo {
     }
 
     fn styleForClass:FlowStyle (name:string cd:MermaidClassDiagram) {
+        return (this.styleByName(name))
+    }
+
+    ; A look by name or by file, for the diagrams that carry no theme of their
+    ; own.
+    fn styleByName:FlowStyle (name:string) {
         def want:string name
         if ((strlen want) == 0) {
             want = "default"
@@ -518,6 +529,28 @@ class RangerFlowDemo {
         }
         print ("  style  " + want)
         return (FlowStyle.parse(css))
+    }
+
+    ; A Mermaid ER diagram, drawn by the schema editor's own machinery.
+    fn runMermaidEr:void (src:string styleName:string) {
+        def ed:MermaidErDiagram (MermaidErReader.parse(src))
+        if ((ed.entityCount()) == 0) {
+            print "  no entities in that ER diagram"
+            return
+        }
+        def style:FlowStyle (this.styleByName(styleName))
+        def g:FlowGraph (MermaidErFlow.build(ed style))
+        print ("  model  " + (to_string (ed.entityCount())) + " entities, " + (to_string (ed.relationCount())) + " relationships, direction " + ed.direction)
+        print ("  graph  " + (to_string (g.nodeCount())) + " nodes, " + (to_string (g.edgeCount())) + " edges")
+        print ("         edges drawn through an unrelated node: " + (to_string (EdgeOverlap.nodeCrossings(g))))
+        def v:FlowView (FlowView.of(g))
+        v.notation = "crowfoot"
+        style.applyToTheme(v.theme)
+        def title:string ed.title
+        if ((strlen title) == 0) {
+            title = "RangerFlow — Mermaid ER diagram"
+        }
+        this.writeAll(v g "rangerflow-mermaid-er" title)
     }
 
     ; ------------------------------------------------------------- org -----

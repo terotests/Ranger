@@ -195,7 +195,7 @@ for (const want of oracle.diagrams) {
   // A diagram Mermaid draws with another parser is one RangerFlow must say no
   // to rather than read as a flowchart. That is the whole of the check.
   if (kind !== "flowchart") {
-    add("read as nothing else", got.nodes.length === 0, `${got.nodes.length} nodes invented from a ${kind} diagram`);
+    add("not read as a flowchart", got.nodes.length === 0, `${got.nodes.length} nodes invented from a ${kind} diagram`);
     rows.push({ file: want.file, kind, checks, notes });
     continue;
   }
@@ -263,18 +263,22 @@ for (const want of oracle.diagrams) {
 // is recognised and refused: a Wardley map read as a flowchart is a page of
 // invented boxes, and a header this reader has never heard of falls straight
 // through to the flowchart parser.
-const READS = { flowchart: "flowchart", class: "class" };
+// Which kinds have a reader is the READER's answer, not this file's: the dump
+// asks `MermaidReader.draws` for every header and reports what it said.
 const types = mermaidDiagramTypes();
 const byHeader = new Map((ours.headers ?? []).map((h) => [h.header, h]));
 const coverage = [];
 for (const t of types) {
   const got = byHeader.get(t.header);
   const kind = got?.kind ?? "";
-  const reads = READS[kind] !== undefined && kind === READS[kind];
-  const wanted = t.header === "flowchart" ? "flowchart" : t.header === "classDiagram" ? "class" : "refused";
-  let verdict = "unknown";
-  if (wanted === "refused") verdict = kind && kind !== "flowchart" ? "refused" : "MISTAKEN FOR A FLOWCHART";
-  else verdict = kind === wanted ? "read" : "MISREAD";
+  let verdict = "refused";
+  if (!kind || kind === "flowchart") {
+    // Either it is the flowchart, or it fell through to the flowchart parser
+    // — and for every other header that is the failure this table exists for.
+    verdict = t.header === "flowchart" ? "read" : "MISTAKEN FOR A FLOWCHART";
+  } else if (got?.draws) {
+    verdict = "read";
+  }
   coverage.push({ ...t, kind, verdict });
 }
 const mistaken = coverage.filter((c) => c.verdict.startsWith("MIS"));
@@ -334,7 +338,7 @@ const cell = (r, name) => {
 for (const r of rows) {
   // A diagram of another kind has one thing to get right, and the type cell is
   // where it is said: recognised, and read as nothing.
-  const guard = r.checks.find((c) => c.name === "read as nothing else");
+  const guard = r.checks.find((c) => c.name === "not read as a flowchart");
   const kindCell = guard ? `${r.kind} ${guard.ok ? "✓" : "✗"}` : r.kind;
   lines.push(`| \`${r.file}\` | ${kindCell} | ${cell(r, "direction")} | ${cell(r, "nodes")} | ${cell(r, "labels")} | ${cell(r, "shapes")} | ${cell(r, "classes")} | ${cell(r, "edges")} | ${cell(r, "subgraphs")} |`);
 }
@@ -369,7 +373,7 @@ if (coverage.length) {
   lines.push("| header | RangerFlow |");
   lines.push("| --- | --- |");
   for (const c of coverage) {
-    const say = c.verdict === "read" ? `**drawn** — as a ${c.kind} diagram`
+    const say = c.verdict === "read" ? `**drawn** — read as \`${c.kind}\``
       : c.verdict === "refused" ? `recognised as \`${c.kind}\`, read as nothing`
       : `⚠️ ${c.verdict.toLowerCase()}`;
     lines.push(`| \`${c.header}\` | ${say} |`);

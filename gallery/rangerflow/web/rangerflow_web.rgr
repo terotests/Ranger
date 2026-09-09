@@ -25,6 +25,7 @@ Import "../domains/uml/UMLActivity.rgr"
 Import "../domains/flowchart/Flowchart.rgr"
 Import "../domains/mermaid/MermaidReader.rgr"
 Import "../domains/mermaid/MermaidClassReader.rgr"
+Import "../domains/mermaid/MermaidErReader.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 Import "../layout/TreeLayouts.rgr"
 Import "../export/FlowExport.rgr"
@@ -630,6 +631,9 @@ class RangerFlowWeb {
         if (d.diagramKind == "class") {
             return (this.loadMermaidClass(text styleName want))
         }
+        if (d.diagramKind == "er") {
+            return (this.loadMermaidEr(text styleName want))
+        }
         if ((d.nodeCount()) == 0) {
             status = "no nodes in that Mermaid source"
             if ((strlen d.diagramKind) > 0) {
@@ -692,6 +696,37 @@ class RangerFlowWeb {
             what = "Mermaid class diagram"
         }
         status = ((to_string (cd.classCount())) + " classes, " + (to_string (cd.relationCount())) + " relations — " + what + ", " + want)
+        return true
+    }
+
+    ; `erDiagram`, drawn by the part of RangerFlow that came first: the schema
+    ; editor's own compartment node, with a crow's foot at the many end.
+    fn loadMermaidEr:boolean (text:string styleName:string want:string) {
+        def ed:MermaidErDiagram (MermaidErReader.parse(text))
+        if ((ed.entityCount()) == 0) {
+            status = "no entities in that ER diagram"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidErFlow.build(ed style))
+        this.adopt(g)
+        editor.view.notation = "crowfoot"
+        layoutName = "layered"
+        simRunning = false
+        editor.pinWhileDragging = false
+        style.applyToTheme(editor.view.theme)
+        if (want == "dark") {
+            editor.view.theme.name = "dark"
+        } {
+            editor.view.theme.name = "light"
+        }
+        def what:string ed.title
+        if ((strlen what) == 0) {
+            what = "Mermaid ER diagram"
+        }
+        status = ((to_string (ed.entityCount())) + " entities, " + (to_string (ed.relationCount())) + " relationships — " + what + ", " + want)
         return true
     }
 

@@ -80,7 +80,8 @@ class MermaidParityDump {
         def out:string "  {"
         out = (out + "\"header\": \"" + (MermaidParityDump.esc(name)) + "\"")
         out = (out + ", \"kind\": \"" + d.diagramKind + "\"")
-        out = (out + ", \"nodes\": " + (to_string (d.nodeCount())) + "}")
+        out = (out + ", \"nodes\": " + (to_string (d.nodeCount())))
+        out = (out + ", \"draws\": " + (to_string (MermaidReader.draws(d.diagramKind))) + "}")
         return out
     }
 

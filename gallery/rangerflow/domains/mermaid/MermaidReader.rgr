@@ -1273,6 +1273,16 @@ class MermaidReader {
         }
     }
 
+    ; Which of the kinds above RangerFlow can actually draw. One place, so the
+    ; page, the demo and the parity meter cannot disagree about it — and so
+    ; that adding a reader is one line here rather than three greps.
+    sfn draws:boolean (kind:string) {
+        if (kind == "flowchart") { return true }
+        if (kind == "class")     { return true }
+        if (kind == "er")        { return true }
+        return false
+    }
+
     ; The other diagrams Mermaid draws, by the keyword each one opens with. A
     ; `gitGraph:` or a `stateDiagram-v2` is matched by the word before the
     ; punctuation, which is how Mermaid's own detectors find them.

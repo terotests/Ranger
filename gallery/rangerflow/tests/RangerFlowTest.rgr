@@ -25,6 +25,7 @@ Import "../domains/uml/UMLModel.rgr"
 Import "../domains/flowchart/Flowchart.rgr"
 Import "../domains/mermaid/MermaidReader.rgr"
 Import "../domains/mermaid/MermaidClassReader.rgr"
+Import "../domains/mermaid/MermaidErReader.rgr"
 Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 
@@ -94,6 +95,7 @@ class RangerFlowTest {
         RangerFlowTest.testMermaidExamples(c)
         RangerFlowTest.testClickChangesNothing(c)
         RangerFlowTest.testMermaidClassDiagram(c)
+        RangerFlowTest.testMermaidErDiagram(c)
         RangerFlowTest.testBusinessCharts(c)
         RangerFlowTest.testAuthoring(c)
         RangerFlowTest.testTreeLayouts(c)
@@ -2508,6 +2510,89 @@ class RangerFlowTest {
             def rg:FlowGraph (MermaidClassFlow.render(real))
             c.eqInt("and it draws" (EdgeOverlap.nodeCrossings(rg)) 0)
         }
+    }
+
+    ; --------------------------------------------------- Mermaid ER diagrams --
+    ; The third one, and the one this library was built for: an entity is a
+    ; table, an attribute is a column, and the crow's foot goes at the many end.
+    sfn testMermaidErDiagram:void (c:Checker) {
+        c.section("Mermaid ER diagrams")
+        def src:string "erDiagram\n"
+        src = (src + "    CUSTOMER ||--o{ ORDER : places\n")
+        src = (src + "    ORDER ||--|{ LINE-ITEM : contains\n")
+        src = (src + "    CUSTOMER }|..|{ ADDRESS : uses\n")
+        src = (src + "    CUSTOMER {\n")
+        src = (src + "        string name\n")
+        src = (src + "        string custNumber PK\n")
+        src = (src + "        int score UK \"how good they are\"\n")
+        src = (src + "    }\n")
+        src = (src + "    ORDER {\n")
+        src = (src + "        int orderNumber PK,FK\n")
+        src = (src + "        string note\n")
+        src = (src + "    }\n")
+        def d:MermaidErDiagram (MermaidErReader.parse(src))
+        c.eqInt("every entity named is an entity" (d.entityCount()) 4)
+        c.eqInt("and every line a relationship" (d.relationCount()) 3)
+
+        def cust:DBTable (d.ensureEntity("CUSTOMER"))
+        c.eqInt("an attribute block is a list of columns" (array_length cust.columns) 3)
+        def custNumber:SchemaColumn (itemAt cust.columns 1)
+        c.eqStr("Mermaid writes the type first" custNumber.dataType "string")
+        c.eqStr("and the name second" custNumber.name "custNumber")
+        c.ok("PK is a primary key" custNumber.isPrimaryKey)
+        def score:SchemaColumn (itemAt cust.columns 2)
+        c.ok("UK is a unique one" score.isUnique)
+        c.eqStr("and the quoted tail is the comment" score.comment "how good they are")
+        def order:DBTable (d.ensureEntity("ORDER"))
+        def orderNumber:SchemaColumn (itemAt order.columns 0)
+        c.ok("`PK,FK` is both" (orderNumber.isPrimaryKey && orderNumber.isForeignKey))
+
+        ; The cardinality is the pair of characters against the line, and the
+        ; end it is written at is the end it describes.
+        def places:MermaidErRelation (itemAt d.relations 0)
+        c.eqStr("|| is exactly one" places.fromCardinality "1")
+        c.eqStr("o{ is zero or more" places.toCardinality "0..*")
+        c.eqStr("and the label survives the colon" places.label "places")
+        def contains:MermaidErRelation (itemAt d.relations 1)
+        c.eqStr("|{ is one or more" contains.toCardinality "1..*")
+        c.eqStr("an entity may be written with a dash in it" contains.toEntity "LINE-ITEM")
+        def uses:MermaidErRelation (itemAt d.relations 2)
+        c.eqStr("}| is one or more, read from the other side" uses.fromCardinality "1..*")
+        c.ok("and `..` is the non-identifying line" (uses.identifying == false))
+
+        ; …and it draws, with the notation the schema editor already had.
+        def g:FlowGraph (MermaidErFlow.render(src))
+        c.eqInt("every entity became a node" (g.nodeCount()) 4)
+        c.eqInt("and every relationship an edge" (g.edgeCount()) 3)
+        def custNode:FlowNode (g.nodeById("CUSTOMER"))
+        c.eqStr("an entity is a table" custNode.nodeType "table")
+        c.ok("with its attributes in rows" ((custNode.sectionCount()) >= 1))
+        def e0:FlowEdge (g.edgeAt(0))
+        c.eqStr("the cardinality is carried, not the arrowhead" e0.sourceCardinality "1")
+        c.eqStr("at both ends" e0.targetCardinality "0..*")
+        c.eqStr("and no marker is set: the notation decides" e0.markerEnd "")
+        def e2:FlowEdge (g.edgeAt(2))
+        c.ok("a non-identifying relationship is drawn dashed" (e2.dash > 0.0))
+        c.eqInt("nothing is drawn through an entity" (EdgeOverlap.nodeCrossings(g)) 0)
+
+        ; The file Mermaid's own documentation is written from.
+        def real:string (?? (read_file "." "gallery/rangerflow/fixtures/er_orders.mmd") "")
+        if ((strlen real) > 0) {
+            def rd:MermaidErDiagram (MermaidErReader.parse(real))
+            c.eqStr("front matter titles an ER diagram too" rd.title "Order fulfilment")
+            c.eqInt("six entities" (rd.entityCount()) 6)
+            c.eqInt("and seven relationships" (rd.relationCount()) 7)
+            def rg:FlowGraph (MermaidErFlow.render(real))
+            c.eqInt("and it draws" (EdgeOverlap.nodeCrossings(rg)) 0)
+        }
+
+        ; The flowchart reader still refuses it, which is what keeps a diagram
+        ; from being read by the wrong one.
+        def asFlow:MermaidDiagram (MermaidReader.parse(src))
+        c.eqStr("an ER diagram is named" asFlow.diagramKind "er")
+        c.eqInt("and read as no flowchart at all" (asFlow.nodeCount()) 0)
+        c.ok("but it is one this library draws" (MermaidReader.draws("er")))
+        c.ok("unlike a gantt chart" ((MermaidReader.draws("gantt")) == false))
     }
 
     ; --------------------------------------------- a click is not an edit --

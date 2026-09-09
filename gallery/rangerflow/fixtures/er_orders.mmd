@@ -1,0 +1,48 @@
+---
+title: Order fulfilment
+---
+%% Mermaid's own ER example, with the attribute blocks it documents.
+erDiagram
+    CUSTOMER ||--o{ ORDER : places
+    CUSTOMER ||--o{ DELIVERY-ADDRESS : has
+    CUSTOMER }|..|{ INVOICE : "liable for"
+    ORDER ||--|{ ORDER-ITEM : contains
+    ORDER ||--|| INVOICE : "covered by"
+    PRODUCT ||--o{ ORDER-ITEM : "ordered in"
+    DELIVERY-ADDRESS ||--o{ ORDER : "delivered to"
+
+    CUSTOMER {
+        string custNumber PK
+        string name
+        string sector "what they sell"
+    }
+    ORDER {
+        int orderNumber PK
+        string custNumber FK
+        string deliveryAddress FK
+        date placedAt
+    }
+    ORDER-ITEM {
+        int orderNumber PK,FK
+        int lineNumber PK
+        int productId FK
+        int quantity
+        decimal pricePerUnit
+    }
+    PRODUCT {
+        int productId PK
+        string sku UK
+        string name
+        decimal listPrice
+    }
+    INVOICE {
+        int invoiceNumber PK
+        int orderNumber FK
+        date issuedAt
+    }
+    DELIVERY-ADDRESS {
+        int addressId PK
+        string custNumber FK
+        string street
+        string city
+    }

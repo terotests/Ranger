@@ -1,0 +1,627 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MermaidErReader.rgr — a Mermaid ER diagram, into the schema model.
+; ============================================================================
+;
+; The third Mermaid diagram RangerFlow draws, and the one it was built for: an
+; entity-relationship diagram is what the whole library started as. So this is
+; the shortest translation of the three — entities are tables, attributes are
+; columns, and a relationship is a line with a crow's foot on each end, which
+; `EdgeDecoration` has drawn since the first commit.
+;
+;   erDiagram
+;       CUSTOMER ||--o{ ORDER : places
+;       CUSTOMER {
+;           string name
+;           string custNumber PK
+;       }
+;
+;   ┌──────────────────┐                   ┌──────────────┐
+;   │ CUSTOMER         │                   │ ORDER        │
+;   ├──────────────────┤──╫──────────────<─├──────────────┤
+;   │ PK custNumber    │   exactly one     │              │
+;   │    name          │        …to many   └──────────────┘
+;   └──────────────────┘
+;
+; **What it reads.** `ENTITY { … }` attribute blocks — `type name PK "comment"`,
+; with `PK`, `FK` and `UK` in any order — every cardinality pair Mermaid has
+; (`|o` `||` `}o` `}|` and their mirrors), identifying `--` and non-identifying
+; `..` lines, the label after the colon, an entity's alias in brackets, and
+; `direction`.
+;
+; **Where it differs.** Mermaid's relationship names no columns, so the line
+; joins the two boxes rather than two rows of them. The port-level attachment
+; the SQL reader produces — `orders.customer_id ●──● customers.id` — needs a
+; foreign key to know which column it starts at, and an ER diagram written by
+; hand does not have one.
+; ============================================================================
+
+Import "MermaidReader.rgr"
+Import "../erd/SchemaToGraph.rgr"
+
+; One line between two entities, with what is drawn at either end of it.
+class MermaidErRelation {
+    def fromEntity:string ""
+    def toEntity:string ""
+    ; "1" | "0..1" | "*" | "0..*" | "1..*", as the rest of the model says them.
+    def fromCardinality:string "1"
+    def toCardinality:string "*"
+    def label:string ""
+    ; `..` rather than `--`: the child can exist without the parent.
+    def identifying:boolean true
+
+    Constructor () {
+    }
+}
+
+class MermaidErDiagram {
+    def title:string ""
+    ; Mermaid lays an ER diagram out top-to-bottom by default and takes a
+    ; `direction`; RangerFlow's schema editor reads left-to-right, which is
+    ; what a table with fifteen rows in it needs.
+    def direction:string "LR"
+    def themeName:string ""
+    def schema:DatabaseSchema (new DatabaseSchema)
+    def relations:[MermaidErRelation]
+
+    Constructor () {
+    }
+
+    fn entityCount:int () {
+        return (schema.tableCount())
+    }
+
+    fn relationCount:int () {
+        return (array_length relations)
+    }
+
+    ; An entity exists from the first time it is named, in a block or in a
+    ; relationship.
+    fn ensureEntity:DBTable (name:string) {
+        def at:int (schema.indexOfTable(name))
+        if (at >= 0) {
+            return (schema.tableAt(at))
+        }
+        return (schema.table(name))
+    }
+
+    fn layerDirection:string () {
+        if (direction == "TB") { return "TB" }
+        if (direction == "TD") { return "TB" }
+        return "LR"
+    }
+}
+
+class MermaidErReader {
+    def doc:MermaidErDiagram (new MermaidErDiagram)
+    def openEntity:string ""
+
+    Constructor () {
+    }
+
+    sfn parse:MermaidErDiagram (src:string) {
+        def r (new MermaidErReader)
+        return (r.read(src))
+    }
+
+    fn read:MermaidErDiagram (src:string) {
+        def lines:[string] (strsplit src "\n")
+        def inFront:boolean false
+        def frontDone:boolean false
+        def i:int 0
+        while (i < (array_length lines)) {
+            def raw:string (trim (itemAt lines i))
+            i = (i + 1)
+            if (raw == "---") {
+                if (frontDone == false) {
+                    if inFront {
+                        inFront = false
+                        frontDone = true
+                    } {
+                        inFront = true
+                    }
+                    continue
+                }
+            }
+            if inFront {
+                def cut:int (indexOf raw ":")
+                if (cut > 0) {
+                    def key:string (trim (substring raw 0 cut))
+                    if ((MermaidReader.lower(key)) == "title") {
+                        def rest:string (trim (substring raw (cut + 1) (strlen raw)))
+                        doc.title = (MermaidReader.unquote(rest))
+                    }
+                }
+                continue
+            }
+            def line:string (trim (this.stripComment(raw)))
+            if ((strlen line) == 0) {
+                continue
+            }
+            this.statement(line)
+        }
+        return doc
+    }
+
+    fn stripComment:string (line:string) {
+        def len:int (strlen line)
+        def q:boolean false
+        def i:int 0
+        while (i < len) {
+            def c:int (charAt line i)
+            if (c == 34) {
+                if q { q = false } { q = true }
+            }
+            if (q == false) {
+                if (c == 37) {
+                    if ((i + 1) < len) {
+                        if ((charAt line (i + 1)) == 37) {
+                            return (substring line 0 i)
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return line
+    }
+
+    ; ---------------------------------------------------------- statements --
+    fn statement:void (st:string) {
+        if ((strlen openEntity) > 0) {
+            if (MermaidReader.beginsWith(st "}")) {
+                openEntity = ""
+                return
+            }
+            this.readAttribute(openEntity st)
+            return
+        }
+        def word:string (MermaidReader.firstWord(st))
+        def kw:string (MermaidReader.lower(word))
+        def rest:string (trim (substring st (strlen word) (strlen st)))
+        if (kw == "erdiagram") {
+            ; `erDiagram direction LR` is one line in Mermaid.
+            if ((strlen rest) > 0) {
+                this.statement(rest)
+            }
+            return
+        }
+        if (kw == "direction") {
+            def dir:string (MermaidReader.upper((MermaidReader.firstWord(rest))))
+            if (dir == "TB") { doc.direction = "TB" }
+            if (dir == "TD") { doc.direction = "TB" }
+            if (dir == "LR") { doc.direction = "LR" }
+            if (dir == "RL") { doc.direction = "LR" }
+            if (dir == "BT") { doc.direction = "TB" }
+            return
+        }
+        if (kw == "style")     { return }
+        if (kw == "classdef")  { return }
+        if (kw == "class")     { return }
+        if (kw == "click")     { return }
+        if (kw == "acctitle")  { return }
+        if (kw == "accdescr")  { return }
+        if (st == "}")         { return }
+        if (this.readRelation(st)) {
+            return
+        }
+        ; `CUSTOMER {`, `CUSTOMER["Customer account"] {`, or a bare entity.
+        this.readEntity(st)
+    }
+
+    fn readEntity:void (st:string) {
+        def text:string (trim st)
+        def opens:boolean false
+        def brace:int (indexOf text "{")
+        if (brace >= 0) {
+            opens = true
+            text = (trim (substring text 0 brace))
+        }
+        def alias:string ""
+        def open:int (indexOf text "[")
+        if (open > 0) {
+            def close:int (MermaidReader.closeIn(text (open + 1) "]"))
+            if (close > 0) {
+                alias = (MermaidReader.cleanLabel((substring text (open + 1) close)))
+            }
+            text = (trim (substring text 0 open))
+        }
+        def name:string (trim text)
+        if ((strlen name) == 0) {
+            return
+        }
+        if ((MermaidErReader.isName(name)) == false) {
+            return
+        }
+        def t:DBTable (doc.ensureEntity(name))
+        if ((strlen alias) > 0) {
+            ; The alias is what the box is captioned with; the name stays the
+            ; id, because that is what a relationship names it by.
+            t.comment = alias
+        }
+        if opens {
+            openEntity = name
+        }
+    }
+
+    ; `string custNumber PK "the customer's number"`, and the same without the
+    ; key or the comment. The type comes first, which is the one thing that
+    ; differs from every other line in Mermaid.
+    fn readAttribute:void (owner:string text:string) {
+        def body:string (trim text)
+        if ((strlen body) == 0) {
+            return
+        }
+        def comment:string ""
+        def quote:int (indexOf body "\"")
+        if (quote >= 0) {
+            def close:int (MermaidErReader.quoteEnd(body (quote + 1)))
+            if (close > quote) {
+                comment = (trim (substring body (quote + 1) close))
+            }
+            body = (trim (substring body 0 quote))
+        }
+        def parts:[string] (MermaidErReader.words(body))
+        if ((array_length parts) == 0) {
+            return
+        }
+        def t:DBTable (doc.ensureEntity(owner))
+        def dataType:string (itemAt parts 0)
+        def name:string ""
+        if ((array_length parts) > 1) {
+            name = (itemAt parts 1)
+        } {
+            ; A lone word is the attribute's name, not its type: a column with
+            ; no name is not a column.
+            name = dataType
+            dataType = ""
+        }
+        def col:SchemaColumn (t.column(name dataType))
+        col.comment = comment
+        ; `PK`, `FK`, `UK`, and Mermaid's `PK, FK` on one attribute.
+        def k:int 2
+        while (k < (array_length parts)) {
+            def keys:[string] (strsplit (itemAt parts k) ",")
+            def m:int 0
+            while (m < (array_length keys)) {
+                def key:string (MermaidReader.upper((trim (itemAt keys m))))
+                if (key == "PK") { col.isPrimaryKey = true }
+                if (key == "FK") { col.isForeignKey = true }
+                if (key == "UK") { col.isUnique = true }
+                m = (m + 1)
+            }
+            k = (k + 1)
+        }
+    }
+
+    ; ----------------------------------------------------------- relations --
+    ; `CUSTOMER ||--o{ ORDER : places`. The cardinality is the pair of
+    ; characters against the line, and which side it is on is which end it
+    ; describes — the crow's foot goes at the many end, whichever that is.
+    fn readRelation:boolean (st:string) {
+        def body:string st
+        def label:string ""
+        def line:int (MermaidErReader.findLine(body))
+        if (line < 0) {
+            return false
+        }
+        def colon:int (MermaidErReader.findTop(body 58 (line + 1)))
+        if (colon > 0) {
+            label = (MermaidReader.unquote((trim (substring body (colon + 1) (strlen body)))))
+            body = (trim (substring body 0 colon))
+        }
+        def dotted:boolean ((charAt body line) == 46)
+        def lineEnd:int line
+        while (lineEnd < (strlen body)) {
+            def c:int (charAt body lineEnd)
+            if (c == 45) {
+                lineEnd = (lineEnd + 1)
+                continue
+            }
+            if (c == 46) {
+                lineEnd = (lineEnd + 1)
+                continue
+            }
+            break
+        }
+        def left:string (trim (substring body 0 line))
+        def right:string (trim (substring body lineEnd (strlen body)))
+        ; The token nearest the line belongs to the end nearest the line.
+        def leftToken:string ""
+        while ((strlen left) > 0) {
+            def at:int ((strlen left) - 1)
+            def c2:int (charAt left at)
+            if (MermaidErReader.isCardinalityCode(c2)) {
+                leftToken = ((strfromcode c2) + leftToken)
+                left = (substring left 0 at)
+            } {
+                break
+            }
+        }
+        def rightToken:string ""
+        while ((strlen right) > 0) {
+            def c3:int (charAt right 0)
+            if (MermaidErReader.isCardinalityCode(c3)) {
+                rightToken = (rightToken + (strfromcode c3))
+                right = (substring right 1 (strlen right))
+            } {
+                break
+            }
+        }
+        left = (trim left)
+        right = (trim right)
+        if ((MermaidErReader.isName(left)) == false) {
+            return false
+        }
+        if ((MermaidErReader.isName(right)) == false) {
+            return false
+        }
+        doc.ensureEntity(left)
+        doc.ensureEntity(right)
+        def r (new MermaidErRelation)
+        r.fromEntity = left
+        r.toEntity = right
+        r.fromCardinality = (MermaidErReader.cardinalityOf(leftToken))
+        r.toCardinality = (MermaidErReader.cardinalityOf(rightToken))
+        r.label = label
+        r.identifying = (dotted == false)
+        push doc.relations r
+        return true
+    }
+
+    ; Mermaid writes a cardinality as two characters, mirrored on the right:
+    ; `|o` and `o|` are both "zero or one". The bar is one, the circle is zero,
+    ; and the crow's foot — `{` or `}` — is many.
+    sfn cardinalityOf:string (token:string) {
+        def hasBar:boolean ((indexOf token "|") >= 0)
+        def hasZero:boolean ((indexOf token "o") >= 0)
+        def hasMany:boolean false
+        if ((indexOf token "{") >= 0) { hasMany = true }
+        if ((indexOf token "}") >= 0) { hasMany = true }
+        if hasMany {
+            if hasZero {
+                return "0..*"
+            }
+            return "1..*"
+        }
+        if hasZero {
+            return "0..1"
+        }
+        if hasBar {
+            return "1"
+        }
+        return ""
+    }
+
+    ; ------------------------------------------------------------ scanning --
+    sfn findLine:int (text:string) {
+        def n:int (strlen text)
+        def q:boolean false
+        def i:int 0
+        while (i < (n - 1)) {
+            def c:int (charAt text i)
+            if (c == 34) {
+                if q { q = false } { q = true }
+            }
+            if (q == false) {
+                def nx:int (charAt text (i + 1))
+                if (c == 45) {
+                    if (nx == 45) {
+                        return i
+                    }
+                }
+                if (c == 46) {
+                    if (nx == 46) {
+                        return i
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    sfn findTop:int (text:string code:int from:int) {
+        def q:boolean false
+        def i:int from
+        while (i < (strlen text)) {
+            def c:int (charAt text i)
+            if (c == 34) {
+                if q { q = false } { q = true }
+            }
+            if (q == false) {
+                if (c == code) {
+                    return i
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    sfn quoteEnd:int (text:string from:int) {
+        def i:int from
+        while (i < (strlen text)) {
+            if ((charAt text i) == 34) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    sfn isCardinalityCode:boolean (c:int) {
+        if (c == 124) { return true }
+        if (c == 111) { return true }
+        if (c == 123) { return true }
+        if (c == 125) { return true }
+        return false
+    }
+
+    ; An entity name: Mermaid's own rule, which allows the dashes `LINE-ITEM`
+    ; and `DELIVERY-ADDRESS` are written with.
+    sfn isName:boolean (text:string) {
+        def t:string (trim text)
+        if ((strlen t) == 0) {
+            return false
+        }
+        def i:int 0
+        while (i < (strlen t)) {
+            def c:int (charAt t i)
+            def ok:boolean (MermaidReader.isIdentCode(c))
+            if (c == 45) { ok = true }
+            if (c == 46) { ok = true }
+            if (ok == false) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    sfn words:[string] (text:string) {
+        def out:[string]
+        def start:int -1
+        def i:int 0
+        while (i < (strlen text)) {
+            def c:int (charAt text i)
+            if (MermaidReader.isSpaceCode(c)) {
+                if (start >= 0) {
+                    push out (substring text start i)
+                    start = -1
+                }
+            } {
+                if (start < 0) {
+                    start = i
+                }
+            }
+            i = (i + 1)
+        }
+        if (start >= 0) {
+            push out (substring text start (strlen text))
+        }
+        return out
+    }
+}
+
+; ---------------------------------------------------------------------------
+; The pipeline
+; ---------------------------------------------------------------------------
+class MermaidErFlow {
+    sfn parse:MermaidErDiagram (src:string) {
+        return (MermaidErReader.parse(src))
+    }
+
+    sfn render:FlowGraph (src:string) {
+        def d:MermaidErDiagram (MermaidErReader.parse(src))
+        def bare (new FlowStyle)
+        return (MermaidErFlow.build(d bare))
+    }
+
+    sfn build:FlowGraph (d:MermaidErDiagram style:FlowStyle) {
+        def s2g (new SchemaToGraph)
+        ; An ER diagram written by hand has no indexes and no check
+        ; constraints, and a section header for the two of them it does not
+        ; have is a line of chrome.
+        s2g.showIndexes = false
+        s2g.showConstraints = false
+        def g:FlowGraph (s2g.build(d.schema))
+        ; The caption, where an entity was given one.
+        def t:int 0
+        while (t < (d.schema.tableCount())) {
+            def tab:DBTable (d.schema.tableAt(t))
+            if ((strlen tab.comment) > 0) {
+                if (g.hasNode(tab.name)) {
+                    def n:FlowNode (g.nodeById(tab.name))
+                    n.label = tab.comment
+                }
+            }
+            t = (t + 1)
+        }
+        def i:int 0
+        while (i < (g.nodeCount())) {
+            def n2:FlowNode (g.nodeAt(i))
+            n2.cssClass = "mermaid entity"
+            i = (i + 1)
+        }
+        ; The relationships. They join the boxes rather than two rows of them:
+        ; Mermaid's syntax names no columns — see the header.
+        def k:int 0
+        while (k < (array_length d.relations)) {
+            def r:MermaidErRelation (itemAt d.relations k)
+            if (g.hasNode(r.fromEntity)) {
+                if (g.hasNode(r.toEntity)) {
+                    def e:FlowEdge (FlowEdge.create(("r" + (to_string k)) r.fromEntity r.toEntity))
+                    e.edgeType = "smoothstep"
+                    e.label = r.label
+                    e.sourceCardinality = r.fromCardinality
+                    e.targetCardinality = r.toCardinality
+                    e.markerEnd = ""
+                    e.markerStart = ""
+                    e.cssClass = "link relationship"
+                    if ((r.identifying) == false) {
+                        e.dash = 6.0
+                    }
+                    g.addEdge(e)
+                }
+            }
+            k = (k + 1)
+        }
+        g.reindex()
+        def wrote:int (style.applyTo(g))
+        def lay:LayeredLayout (LayeredLayout.of(g))
+        lay.direction = (d.layerDirection())
+        lay.layerGap = 150.0
+        lay.nodeGap = 40.0
+        if ((d.layerDirection()) == "TB") {
+            lay.layerGap = 90.0
+        }
+        lay.run()
+        MermaidErFlow.faceEdges(g)
+        def moved:int (EdgeLanes.assign(g))
+        def routed:int (lay.routeLongEdges())
+        EdgeLanes.resetLanes(g)
+        def refanned:int (EdgeLanes.assign(g))
+        def repaired:int (OrthoRouter.repairAll(g))
+        return g
+    }
+
+    ; Which side each line leaves by. The schema reader picks a column's left
+    ; or right port; here there are no ports, so it is the box's own side, and
+    ; the rule is the same: the side facing the other end.
+    sfn faceEdges:void (g:FlowGraph) {
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            if (e.sourceIndex >= 0) {
+                if (e.targetIndex >= 0) {
+                    def a:FlowNode (g.nodeAt(e.sourceIndex))
+                    def b:FlowNode (g.nodeAt(e.targetIndex))
+                    def dx:double ((b.centerX()) - (a.centerX()))
+                    def dy:double ((b.centerY()) - (a.centerY()))
+                    def adx:double (fabs dx)
+                    def ady:double (fabs dy)
+                    if (adx >= ady) {
+                        if (dx >= 0.0) {
+                            e.sourceHandle = 1
+                            e.targetHandle = 3
+                        } {
+                            e.sourceHandle = 3
+                            e.targetHandle = 1
+                        }
+                    } {
+                        if (dy >= 0.0) {
+                            e.sourceHandle = 2
+                            e.targetHandle = 0
+                        } {
+                            e.sourceHandle = 0
+                            e.targetHandle = 2
+                        }
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+    }
+}

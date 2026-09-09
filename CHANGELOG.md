@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Mermaid ER diagrams — the third type, and the one this library was built
+  for.** `erDiagram` is a schema, so
+  `gallery/rangerflow/domains/mermaid/MermaidErReader.rgr` reads it into the
+  schema model and hands it to the ERD editor's own `SchemaToGraph`: entities
+  are tables, attributes are columns with their `PK` / `FK` / `UK` and their
+  comment, and a relationship is the crow's foot `EdgeDecoration` has drawn
+  since the first commit. Every cardinality pair Mermaid has — `|o` `||` `}o`
+  `}|` and their mirrors — with the identifying `--` and non-identifying `..`
+  line, entity aliases, and `direction`. Where it differs is stated rather
+  than hidden: Mermaid's relationship names no columns, so the line joins two
+  boxes rather than two rows. Which types have a reader is now one function —
+  `MermaidReader.draws` — that the page, the demo and the parity meter all
+  read, so the matrix in `docs/MERMAID_PARITY.md` cannot drift from the code:
+  thirty types, three drawn, twenty-seven recognised and refused.
 - **Mermaid class diagrams, drawn with the UML model that was already
   there.** `classDiagram` is the second Mermaid diagram RangerFlow reads, and
   it needed no new renderer: `gallery/rangerflow/domains/mermaid/MermaidClassReader.rgr`

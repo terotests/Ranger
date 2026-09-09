@@ -5,7 +5,7 @@
 > and asked what it understood. Nothing is transcribed, so nothing can be
 > transcribed wrong.
 
-Mermaid 11.17.2 · 26 diagrams · **182/182 checks agree (100%)**
+Mermaid 11.17.2 · 27 diagrams · **184/184 checks agree (100%)**
 
 | example | type | direction | nodes | labels | shapes | classes | edges | subgraphs |
 | --- | --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
@@ -35,6 +35,7 @@ Mermaid 11.17.2 · 26 diagrams · **182/182 checks agree (100%)**
 | `24_keywords.mmd` | flowchart | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `25_mixed.mmd` | flowchart | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `26_beyond.mmd` | — | — | — | — | — | — | — | — |
+| `27_er.mmd` | er ✓ | — | — | — | — | — | — | — |
 
 ## Read anyway
 
@@ -58,11 +59,11 @@ a flowchart is a page of invented boxes.
 | `architecture-beta` | recognised as `architecture`, read as nothing |
 | `block-beta` | recognised as `block`, read as nothing |
 | `C4Context` | recognised as `c4`, read as nothing |
-| `classDiagram` | **drawn** — as a class diagram |
+| `classDiagram` | **drawn** — read as `class` |
 | `cynefin-beta` | recognised as `cynefin`, read as nothing |
 | `ebnf` | recognised as `ebnf`, read as nothing |
-| `erDiagram` | recognised as `er`, read as nothing |
-| `flowchart` | **drawn** — as a flowchart diagram |
+| `erDiagram` | **drawn** — read as `er` |
+| `flowchart` | **drawn** — read as `flowchart` |
 | `gantt` | recognised as `gantt`, read as nothing |
 | `gitGraph` | recognised as `git`, read as nothing |
 | `info` | recognised as `info`, read as nothing |
