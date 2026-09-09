@@ -24,6 +24,7 @@ Import "../domains/uml/UMLModel.rgr"
 Import "../domains/uml/UMLActivity.rgr"
 Import "../domains/flowchart/Flowchart.rgr"
 Import "../domains/mermaid/MermaidReader.rgr"
+Import "../domains/mermaid/MermaidClassReader.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 Import "../layout/TreeLayouts.rgr"
 Import "../export/FlowExport.rgr"
@@ -611,12 +612,6 @@ class RangerFlowWeb {
 
     fn loadMermaidStyled:boolean (text:string styleName:string) {
         def d:MermaidDiagram (MermaidReader.parse(text))
-        if ((d.nodeCount()) == 0) {
-            status = "no nodes in that Mermaid source"
-            return false
-        }
-        mermaidText = text
-        mermaidStyle = styleName
         ; A diagram that names its own theme gets it, unless the reader has
         ; picked one from the dropdown.
         def want:string styleName
@@ -630,6 +625,20 @@ class RangerFlowWeb {
                 }
             }
         }
+        ; A class diagram is the other one RangerFlow can draw: it has the UML
+        ; model already, so the text goes to the class reader instead.
+        if (d.diagramKind == "class") {
+            return (this.loadMermaidClass(text styleName want))
+        }
+        if ((d.nodeCount()) == 0) {
+            status = "no nodes in that Mermaid source"
+            if ((strlen d.diagramKind) > 0) {
+                status = ("a " + d.diagramKind + " diagram — this reads flowcharts and class diagrams")
+            }
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
         def style:FlowStyle (FlowStyle.named(want))
         def g:FlowGraph (MermaidFlow.styled(d style))
         this.adopt(g)
@@ -650,6 +659,39 @@ class RangerFlowWeb {
             what = ("Mermaid " + d.direction)
         }
         status = ((to_string (d.nodeCount())) + " nodes, " + (to_string (d.linkCount())) + " links — " + what + ", " + want)
+        return true
+    }
+
+    ; `classDiagram`, drawn with the compartment node the schema editor uses:
+    ; the same boxes, the same rows, the hollow triangle at the supertype and
+    ; the filled diamond at the whole.
+    fn loadMermaidClass:boolean (text:string styleName:string want:string) {
+        def cd:MermaidClassDiagram (MermaidClassReader.parse(text))
+        if ((cd.classCount()) == 0) {
+            status = "no classes in that class diagram"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidClassFlow.build(cd style))
+        this.adopt(g)
+        ; UML notation, because that is what it is.
+        editor.view.notation = "uml"
+        layoutName = "layered"
+        simRunning = false
+        editor.pinWhileDragging = false
+        style.applyToTheme(editor.view.theme)
+        if (want == "dark") {
+            editor.view.theme.name = "dark"
+        } {
+            editor.view.theme.name = "light"
+        }
+        def what:string cd.title
+        if ((strlen what) == 0) {
+            what = "Mermaid class diagram"
+        }
+        status = ((to_string (cd.classCount())) + " classes, " + (to_string (cd.relationCount())) + " relations — " + what + ", " + want)
         return true
     }
 

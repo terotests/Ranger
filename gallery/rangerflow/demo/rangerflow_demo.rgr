@@ -31,6 +31,7 @@ Import "../domains/erd/SchemaToGraph.rgr"
 Import "../domains/uml/UMLModel.rgr"
 Import "../domains/flowchart/Flowchart.rgr"
 Import "../domains/mermaid/MermaidReader.rgr"
+Import "../domains/mermaid/MermaidClassReader.rgr"
 Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 Import "../layout/LayeredLayout.rgr"
@@ -440,11 +441,15 @@ class RangerFlowDemo {
         }
         def d:MermaidDiagram (MermaidReader.parse(srcOpt))
         print ("  read   " + path)
-        ; Mermaid draws a dozen kinds of diagram and this reads one of them.
-        ; Saying so beats writing an empty page.
+        ; Mermaid draws a dozen kinds of diagram and this reads two of them.
+        ; Saying which beats writing an empty page.
+        if (d.diagramKind == "class") {
+            this.runMermaidClass(srcOpt styleName)
+            return
+        }
         if ((strlen d.diagramKind) > 0) {
             if (d.diagramKind != "flowchart") {
-                print ("  this is a " + d.diagramKind + " diagram, not a flowchart — nothing to draw")
+                print ("  this is a " + d.diagramKind + " diagram — this reads flowcharts and class diagrams")
                 return
             }
         }
@@ -470,6 +475,49 @@ class RangerFlowDemo {
             title = "RangerFlow — Mermaid"
         }
         this.writeAll(v g "rangerflow-mermaid" title)
+    }
+
+    ; A Mermaid class diagram, drawn with the UML model RangerFlow already
+    ; had: the same compartment node the schema editor uses, with the rows
+    ; being members rather than columns.
+    fn runMermaidClass:void (src:string styleName:string) {
+        def cd:MermaidClassDiagram (MermaidClassReader.parse(src))
+        if ((cd.classCount()) == 0) {
+            print "  no classes in that class diagram"
+            return
+        }
+        def style:FlowStyle (this.styleForClass(styleName cd))
+        def g:FlowGraph (MermaidClassFlow.build(cd style))
+        print ("  model  " + (to_string (cd.classCount())) + " classes, " + (to_string (cd.relationCount())) + " relations, direction " + cd.direction)
+        print ("  graph  " + (to_string (g.nodeCount())) + " nodes, " + (to_string (g.edgeCount())) + " edges")
+        print ("         edges drawn through an unrelated node: " + (to_string (EdgeOverlap.nodeCrossings(g))))
+        print ("         edges crossing each other: " + (to_string (EdgeOverlap.edgeCrossings(g))))
+        def v:FlowView (FlowView.of(g))
+        v.notation = "uml"
+        style.applyToTheme(v.theme)
+        def title:string cd.title
+        if ((strlen title) == 0) {
+            title = "RangerFlow — Mermaid class diagram"
+        }
+        this.writeAll(v g "rangerflow-mermaid-class" title)
+    }
+
+    fn styleForClass:FlowStyle (name:string cd:MermaidClassDiagram) {
+        def want:string name
+        if ((strlen want) == 0) {
+            want = "default"
+        }
+        if (FlowStyles.knows(want)) {
+            print ("  style  " + want + " (built in)")
+            return (FlowStyle.named(want))
+        }
+        def css:string (?? (read_file "." want) "")
+        if ((strlen css) == 0) {
+            print ("  style  could not read " + want + " — using the default look")
+            return (FlowStyle.named("default"))
+        }
+        print ("  style  " + want)
+        return (FlowStyle.parse(css))
     }
 
     ; ------------------------------------------------------------- org -----

@@ -27,7 +27,7 @@ routing, auto-layout, large graphs — and produces something worth having.
 ## Run it
 
 ```bash
-npm run rangerflow:test        # 716 assertions: model, forces, router, editor, SQL, Mermaid, CSS, export
+npm run rangerflow:test        # 757 assertions: model, forces, router, editor, SQL, Mermaid, CSS, export
 npm run rangerflow:demo        # the e-commerce schema → SVG, PDF, HTML, JSON, scene
 npm run rangerflow:uml         # the same pipeline for a UML class diagram
 npm run rangerflow:flowchart   # an ATK flowchart in ISO 5807 shapes
@@ -192,6 +192,39 @@ would be a page of invented boxes.
 Where it differs: text is measured with a font table rather than in a browser,
 so a line can break one word apart from Mermaid's, and a double circle is drawn
 as the UML final node, which is the same two rings.
+
+### …and class diagrams
+
+Mermaid draws two dozen kinds of diagram and this reads two of them, because
+the second one was already here: a `classDiagram` is the UML model RangerFlow
+has had all along, so it is drawn with the same compartment node the schema
+editor uses — the hollow triangle at the supertype, the filled diamond at the
+whole, the dashed line for a realization.
+
+```mermaid
+classDiagram
+    Animal <|-- Duck
+    class Duck {
+        <<interface>>
+        +String beakColor
+        +swim(depth) bool
+    }
+    Flock "1" *-- "0..*" Duck : holds
+```
+
+Members are read as Mermaid writes them: `+ - # ~` visibility, `type name` for
+an attribute and `name(params) returnType` for an operation, `$` for static and
+`*` for abstract, `<<interface>>` for the stereotype. Relations carry their
+cardinalities and their label, and the ornament goes on the end the syntax
+names — the class written FIRST is the one being pointed at.
+
+Everything else Mermaid draws — sequence, state, gantt, ER, git, architecture,
+… — is recognised by its header and read as **nothing**, which is the only safe
+answer: a header this reader did not know would fall through to the flowchart
+parser and produce a page of invented boxes. The table of all thirty is in
+[`docs/MERMAID_PARITY.md`](docs/MERMAID_PARITY.md), and it is read off the
+installed Mermaid's own build rather than typed by hand, so a diagram type
+added upstream shows up as one nobody has taught this reader about.
 
 ### …measured against Mermaid itself
 

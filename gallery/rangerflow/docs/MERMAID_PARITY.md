@@ -44,6 +44,47 @@ every one of these is a file somebody wrote and Mermaid would not draw.
 
 - **`26_beyond.mmd`** — Mermaid: Parse error on line 2: · ...tart] --> B[Middle] %% a comment where M; RangerFlow read 3 nodes, 2 edges
 
+## Mermaid's diagram types
+
+Read off the installed Mermaid's own build rather than typed here, so a type
+added upstream appears the next time the harness is installed. Two are drawn;
+the rest have to be **recognised and refused**, because a header this reader
+does not know falls through to the flowchart parser, and a Wardley map read as
+a flowchart is a page of invented boxes.
+
+| header | RangerFlow |
+| --- | --- |
+| `abnf` | recognised as `abnf`, read as nothing |
+| `architecture-beta` | recognised as `architecture`, read as nothing |
+| `block-beta` | recognised as `block`, read as nothing |
+| `C4Context` | recognised as `c4`, read as nothing |
+| `classDiagram` | **drawn** — as a class diagram |
+| `cynefin-beta` | recognised as `cynefin`, read as nothing |
+| `ebnf` | recognised as `ebnf`, read as nothing |
+| `erDiagram` | recognised as `er`, read as nothing |
+| `flowchart` | **drawn** — as a flowchart diagram |
+| `gantt` | recognised as `gantt`, read as nothing |
+| `gitGraph` | recognised as `git`, read as nothing |
+| `info` | recognised as `info`, read as nothing |
+| `ishikawa-beta` | recognised as `ishikawa`, read as nothing |
+| `journey` | recognised as `journey`, read as nothing |
+| `kanban` | recognised as `kanban`, read as nothing |
+| `mindmap` | recognised as `mindmap`, read as nothing |
+| `peg` | recognised as `peg`, read as nothing |
+| `pie` | recognised as `pie`, read as nothing |
+| `quadrantChart` | recognised as `quadrant`, read as nothing |
+| `railroad` | recognised as `railroad`, read as nothing |
+| `requirementDiagram` | recognised as `requirement`, read as nothing |
+| `sankey-beta` | recognised as `sankey`, read as nothing |
+| `sequenceDiagram` | recognised as `sequence`, read as nothing |
+| `stateDiagram` | recognised as `state`, read as nothing |
+| `stateDiagram-v2` | recognised as `state`, read as nothing |
+| `swimlanes-beta` | recognised as `swimlanes`, read as nothing |
+| `timeline` | recognised as `timeline`, read as nothing |
+| `venn-beta` | recognised as `venn`, read as nothing |
+| `wardley-beta` | recognised as `wardley`, read as nothing |
+| `xychart-beta` | recognised as `xychart`, read as nothing |
+
 ## What this compares
 
 - **The reading, not the drawing.** Mermaid lays a diagram out its own way and

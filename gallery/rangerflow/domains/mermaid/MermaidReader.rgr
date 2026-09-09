@@ -1305,6 +1305,21 @@ class MermaidReader {
         if (word == "c4component")        { return "c4" }
         if (word == "c4dynamic")          { return "c4" }
         if (word == "c4deployment")       { return "c4" }
+        ; The rest of what Mermaid 11 draws. The list is not decoration: a
+        ; header this reader does not know falls through to the flowchart
+        ; parser, and a Wardley map read as a flowchart is a page of invented
+        ; boxes. `npm run rangerflow:mermaid:parity` checks it against the
+        ; diagram types the installed Mermaid actually ships.
+        if (word == "abnf")               { return "abnf" }
+        if (word == "cynefin")            { return "cynefin" }
+        if (word == "ebnf")               { return "ebnf" }
+        if (word == "ishikawa")           { return "ishikawa" }
+        if (word == "fishbone")           { return "ishikawa" }
+        if (word == "peg")                { return "peg" }
+        if (word == "railroad")           { return "railroad" }
+        if (word == "swimlanes")          { return "swimlanes" }
+        if (word == "venn")               { return "venn" }
+        if (word == "wardley")            { return "wardley" }
         return ""
     }
 
