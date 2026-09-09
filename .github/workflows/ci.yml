@@ -284,9 +284,26 @@ jobs:
   # as easily as a gallery change does, and the shared office/ modules are the
   # seam both sides meet at.
   gallery-editors:
-    name: gallery-editors
+    # Sharded. The suites run about forty minutes end to end, against thirty
+    # seconds for every other job here, so this one job decided how long a
+    # pull request took to answer. Six shards of a round-robin slice bring
+    # that to roughly seven minutes of wall clock for the same 111 suites —
+    # the runner minutes are unchanged, and this repository is public, so
+    # minutes are not what is scarce; the wait is.
+    #
+    # `fail-fast: false` because the shards are independent suites, not
+    # attempts at one thing: a failure in shard 3 says nothing about shard 5,
+    # and cancelling the others would hide every OTHER failure behind the
+    # first one found. `test-gate` reads the aggregate result, which is a
+    # success only when every shard succeeded.
+    name: gallery-editors (${{ matrix.shard }}/6)
     needs: changes
     runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
 
     steps:
       - name: Checkout repository
@@ -346,7 +363,7 @@ jobs:
         run: npm run ui:conformance:install
 
       - name: Run the gallery editor suites
-        run: npm run gallery:editors:test
+        run: npm run gallery:editors:test -- --shard=${{ matrix.shard }}/6
 
       # The deck editor is built twice — to JavaScript for /pptx/ and through
       # C++ to WebAssembly for /pptx-wasm/ — and only the first was compiled
@@ -354,7 +371,11 @@ jobs:
       # does not therefore turned the Pages deploy red AFTER landing. This is
       # the front end of that build, without Emscripten: ~30 seconds, and it
       # catches the whole class. See gallery/pptx/web/wasm/cpp-check.sh.
+      # Not one of the sharded suites and not per-shard work: one compile of
+      # the deck editor answers it for the whole job, so it rides on the
+      # first shard rather than six times over.
       - name: The deck editor still compiles as C++
+        if: matrix.shard == 1
         run: npm run pptx:cpp:check
 
   # The interpreter realm is gallery code but its tests live in tests/, so this

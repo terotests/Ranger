@@ -8,8 +8,37 @@
 # output, on a missing pass marker, and on a non-zero exit.
 #
 #   npm run gallery:editors:test
+#
+# Sequentially these take about forty minutes, against thirty seconds for
+# every other job in the workflow, so CI runs them as SHARDS:
+#
+#   npm run gallery:editors:test -- --shard=2/6
+#
+# Shard i of n takes every n'th suite starting at i — round-robin rather than
+# a contiguous block, because the suites are nothing like equal in length and
+# a block would put the slow ones next to each other. Without the flag the
+# whole list runs, which is what it does on a developer's machine.
 set -uo pipefail
 cd "$(cd "$(dirname "$0")/.." && pwd)"
+
+SHARD=""
+SHARDS=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --shard=*) spec="${1#--shard=}" ;;
+    --shard)   shift; spec="${1:-}" ;;
+    *) echo "unknown argument: $1" >&2; exit 2 ;;
+  esac
+  case "$spec" in
+    [0-9]*/[0-9]*) SHARD="${spec%%/*}"; SHARDS="${spec##*/}" ;;
+    *) echo "--shard wants i/n, got: $spec" >&2; exit 2 ;;
+  esac
+  shift
+done
+if [ -n "$SHARD" ] && { [ "$SHARD" -lt 1 ] || [ "$SHARDS" -lt 1 ] || [ "$SHARD" -gt "$SHARDS" ]; }; then
+  echo "--shard $SHARD/$SHARDS is out of range" >&2
+  exit 2
+fi
 
 SUITES=(
   book:test
@@ -373,6 +402,55 @@ SUITES=(
   rt:trace:diff
 )
 
+# Almost every suite here compiles what it runs, which is what makes them
+# safe to split. These do not: they READ what the suite before them wrote, so
+# they must land in the same shard as it, and the sharder treats each such run
+# as one indivisible unit.
+KEEP_WITH_PREVIOUS=(
+  # `rt:trace` re-records gallery/realtrainer/web/traces/ and `rt:trace:diff`
+  # scores those recordings against the reference. The recordings are
+  # COMMITTED files, so a diff that runs without the recording before it reads
+  # the last commit's traces instead of this commit's — green on exactly the
+  # drift it exists to catch, and silently, because nothing is missing.
+  rt:trace:diff
+)
+
+# A shard is a slice of the list above, not a list of its own: a suite added
+# to SUITES is picked up by whichever shard it falls into, and no shard file
+# can go stale against it.
+if [ -n "$SHARD" ]; then
+  # Group first, then deal round-robin over the GROUPS, so an attached suite
+  # never gets separated from the one it reads.
+  units=()
+  for suite in "${SUITES[@]}"; do
+    attach=0
+    for pinned in "${KEEP_WITH_PREVIOUS[@]}"; do
+      if [ "$pinned" = "$suite" ] && [ ${#units[@]} -gt 0 ]; then attach=1; fi
+    done
+    if [ "$attach" -eq 1 ]; then
+      last=$(( ${#units[@]} - 1 ))
+      units[$last]="${units[$last]}"$'\n'"$suite"
+    else
+      units+=("$suite")
+    fi
+  done
+
+  picked=()
+  u=0
+  for unit in "${units[@]}"; do
+    if [ $(( u % SHARDS )) -eq $(( SHARD - 1 )) ]; then
+      while IFS= read -r suite; do picked+=("$suite"); done <<<"$unit"
+    fi
+    u=$(( u + 1 ))
+  done
+  SUITES=("${picked[@]+"${picked[@]}"}")
+  printf 'shard %s/%s: %s suites\n\n' "$SHARD" "$SHARDS" "${#SUITES[@]}"
+  if [ "${#SUITES[@]}" -eq 0 ]; then
+    echo "nothing in this shard"
+    exit 0
+  fi
+fi
+
 failed=()
 for suite in "${SUITES[@]}"; do
   printf '==> %s\n' "$suite"
@@ -403,4 +481,8 @@ if [ ${#failed[@]} -ne 0 ]; then
   done
   exit 1
 fi
-echo "all ${#SUITES[@]} gallery editor suites passed"
+if [ -n "$SHARD" ]; then
+  echo "all ${#SUITES[@]} gallery editor suites in shard $SHARD/$SHARDS passed"
+else
+  echo "all ${#SUITES[@]} gallery editor suites passed"
+fi
