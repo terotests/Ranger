@@ -41,6 +41,13 @@
 #                ?engine=worker runs the app in a Worker (evg-engine.js).
 #                /evg/responsive/?painter=dom is the same painter on the
 #                responsive page.
+#   /rangerflow/ -> the node-graph editor: a database schema parsed from a .sql
+#                file in the tab, a UML class diagram, a swimlane process — and
+#                a box you paste Mermaid into, rendered by RangerFlow's own
+#                reader, laid out by its own layered layout and drawn on the
+#                GPU. Every demo in the dropdown is checked on every push by
+#                `rangerflow:web:test`, which drives this same page in headless
+#                Chrome.
 #   /figma/   -> the Figma .fig / .deck reader: it opens on a real Figma
 #                export (fixtures/health.fig) and takes any other file you
 #                upload or paste in the tab, parsing it (ZIP → kiwi → node
@@ -104,6 +111,9 @@ on:
       - "gallery/xml/**"
       - "gallery/pdf_writer/src/**"
       - "gallery/figma/**"
+      # The graph editor at /rangerflow/ is built from these — the domains it
+      # reads (SQL, UML, Mermaid), the layout and the exporters included.
+      - "gallery/rangerflow/**"
       - "gallery/zip/**"
       - ".github/workflows/deploy-pages.yml"
   # A published release republishes the site, so the documentation on
@@ -398,6 +408,31 @@ jobs:
       # left dist/ in place, which is what the smoke test loads.
       - name: Check the Fig reader parses and pastes
         run: node gallery/figma/web/standalone/smoke.mjs
+
+      # ---- RangerFlow at /rangerflow/ --------------------------------------
+      # The graph editor with no host process: the schema is parsed in the tab,
+      # the Mermaid box is read by the same reader the tests drive, and the
+      # scene is drawn by the shared WebGL painter. The build script compiles
+      # the facade and checks that the bundle defines its class with `require`
+      # undefined — which is what a browser looks like.
+      - name: Build the RangerFlow editor
+        run: bash gallery/rangerflow/web/standalone/build.sh --out "$GITHUB_WORKSPACE/_site/rangerflow"
+
+      - name: Check the RangerFlow page has an engine
+        run: |
+          test -s "$GITHUB_WORKSPACE/_site/rangerflow/index.html"
+          test -s "$GITHUB_WORKSPACE/_site/rangerflow/rangerflow_web.js"
+          test -s "$GITHUB_WORKSPACE/_site/rangerflow/standalone.mjs"
+          test -s "$GITHUB_WORKSPACE/_site/rangerflow/gl/evg-webgl.js"
+          # The page fetches this by itself on load, so a missing fixture is an
+          # empty canvas rather than a 404 anyone would notice.
+          test -s "$GITHUB_WORKSPACE/_site/rangerflow/ecommerce.sql"
+          test -s "$GITHUB_WORKSPACE/_site/rangerflow/fonts/NotoSans-Regular.ttf"
+          grep -q "RangerFlowWeb" "$GITHUB_WORKSPACE/_site/rangerflow/rangerflow_web.js"
+          # The Mermaid box is part of the page rather than a separate demo;
+          # without the reader in the bundle the dropdown has an entry that
+          # renders nothing.
+          grep -q "MermaidReader" "$GITHUB_WORKSPACE/_site/rangerflow/rangerflow_web.js"
 
       # Does the engine agree with ITSELF? The frame is published twice — as
       # JSON, where every field arrives with its name, and as packed

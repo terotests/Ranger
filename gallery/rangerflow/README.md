@@ -49,6 +49,10 @@ npm run rangerflow:sdl:run     # the same editor in a native SDL2 + OpenGL windo
 
 ## The demos, in a browser
 
+The same page is published at
+**[terotests.github.io/Ranger/rangerflow/](https://terotests.github.io/Ranger/rangerflow/)**
+by the Pages workflow on every push to `master` that touches `gallery/rangerflow/`.
+
 `npm run rangerflow:demo:web` builds the static page, serves it, and prints
 the URLs. They are the same editor with different graphs in it — the `demo`
 dropdown in the page switches between them, and `?scenario=` picks one on load:

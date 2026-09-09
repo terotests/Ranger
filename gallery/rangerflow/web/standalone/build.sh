@@ -25,26 +25,32 @@ while [ $# -gt 0 ]; do
 done
 
 export RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr
-mkdir -p "$OUT"
+
+# The compiler resolves `-d=` against its working directory, so an ABSOLUTE
+# --out — which is what the Pages job passes — would land the bundle under
+# `$PWD$OUT`. It is therefore compiled into the local dist and copied, which is
+# what every other page in this repository does for the same reason.
+STAGE=$WEB/dist
+mkdir -p "$STAGE" "$OUT"
 
 # A previous build's bundle must not survive this one: the checks below ask
 # whether a bundle is present and loadable, and a stale file answers yes.
-rm -f "$OUT/rangerflow_web.js"
-log=$(node bin/output.js -es6 gallery/rangerflow/web/rangerflow_web.rgr -d="$OUT" -o=rangerflow_web.js 2>&1)
+rm -f "$STAGE/rangerflow_web.js"
+log=$(node bin/output.js -es6 gallery/rangerflow/web/rangerflow_web.rgr -d="$STAGE" -o=rangerflow_web.js 2>&1)
 if echo "$log" | grep -q "Compilation FAILED"; then
   echo "$log" | grep -A3 "\[FAIL\]" | head -40
   echo "FAILED to compile gallery/rangerflow/web/rangerflow_web.rgr" >&2
   exit 1
 fi
-if [ ! -f "$OUT/rangerflow_web.js" ]; then
-  echo "the compiler reported no failure but wrote no $OUT/rangerflow_web.js" >&2
+if [ ! -f "$STAGE/rangerflow_web.js" ]; then
+  echo "the compiler reported no failure but wrote no $STAGE/rangerflow_web.js" >&2
   exit 1
 fi
 
 node --input-type=module -e "
   import fs from 'fs';
   globalThis.require = undefined;
-  const src = fs.readFileSync('$OUT/rangerflow_web.js', 'utf8');
+  const src = fs.readFileSync('$STAGE/rangerflow_web.js', 'utf8');
   const found = (0, eval)(src + '; typeof RangerFlowWeb');
   if (found !== 'function') {
     console.error('rangerflow_web.js does not define RangerFlowWeb when loaded without require()');
@@ -56,7 +62,7 @@ node --input-type=module -e "
 # page also loads the WebGL module; scoping keeps the two from colliding.
 node --input-type=module -e "
   import fs from 'fs';
-  const p = '$OUT/rangerflow_web.js';
+  const p = '$STAGE/rangerflow_web.js';
   const src = fs.readFileSync(p, 'utf8');
   if (!src.startsWith('// scoped')) {
     fs.writeFileSync(p,
@@ -64,6 +70,10 @@ node --input-type=module -e "
       + '(function () {\n' + src + '\n;globalThis.RangerFlowWeb = RangerFlowWeb;\n})();\n');
   }
 " || exit 1
+
+if [ "$(cd "$OUT" && pwd)" != "$(cd "$STAGE" && pwd)" ]; then
+  cp "$STAGE/rangerflow_web.js" "$OUT/rangerflow_web.js"
+fi
 
 cp "$WEB/index.html" "$OUT/index.html"
 cp "$WEB/standalone.mjs" "$OUT/standalone.mjs"
