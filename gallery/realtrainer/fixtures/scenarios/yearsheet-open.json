@@ -1,5 +1,5 @@
 {
-  "_": "The year sheet list under Vuosilakana: the plan that is there, opened and closed. `yearsheet` and `yearsheet-detail` start inside one; nothing has pressed the list around it.",
+  "_": "Vuosilakana from the bar's sheet: the year plan it opens, and the way back out of it. `yearsheet` and `yearsheet-detail` start inside a plan; this one walks in from the sheet.",
   "id": "yearsheet-open",
   "area": "vuosisuunnitelma",
   "machine": "",
@@ -14,10 +14,10 @@
     { "id": "rt-more-yearsheet", "role": "button", "name": "Vuosilakana" },
     { "tick": 800 },
     {
-      "id": "rt-ys-open-ys-ref-1",
+      "id": "rt-ys-back",
       "role": "button",
       "nth": 0,
-      "why": "the one plan in the list; its name is the whole card on this side and the two sides are unlikely to spell it the same, which is what this records"
+      "why": "the first button on the plan page is the back arrow, and back from a plan is the dashboard on both sides"
     },
     { "tick": 800 }
   ]

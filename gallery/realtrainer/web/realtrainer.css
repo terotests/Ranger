@@ -2541,6 +2541,41 @@
 .rt-chat-tool:hover { background-color: var(--surface-3); }
 .rt-chat-tool-text { color: var(--ink); font-family: Arial; font-size: 12px; height: 16px; }
 .rt-chat-para { color: var(--ink-dim); font-family: Arial; font-size: 13px; height: 18px; }
+.rt-chat-h3 { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 14px; height: 20px; }
+/* The history and the saved notes, under the button that opened them. */
+.rt-chat-drawer { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 6px; padding: 10px; border-radius: 10px; border-width: 1px; border-color: var(--line); background-color: var(--surface-2); }
+.rt-chat-drawer-head { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; }
+/* The workout notes page, over the Home feed. */
+.rt-notes { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 10px; padding: 0px 4px 16px 4px; }
+.rt-notes-head { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 10px; }
+.rt-notes-main { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 8px; }
+.rt-notes-side { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 6px; padding: 10px; border-radius: 10px; border-width: 1px; border-color: var(--line); background-color: var(--surface-2); }
+.rt-notes-hd { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 18px; height: 24px; }
+.rt-notes-para { color: var(--ink-dim); font-family: Arial; font-size: 13px; height: 18px; }
+.rt-notes-text { color: var(--ink-dim); font-family: Arial; font-size: 12px; height: 16px; }
+/* The measurement calendar: a summary card per thing measured, then the
+   readings as lines rather than as cards. */
+.rt-ms { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 10px; padding: 8px 0px; }
+.rt-ms-head { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; }
+.rt-ms-hd { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 18px; height: 24px; }
+.rt-ms-h3 { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 14px; height: 20px; }
+.rt-ms-card { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 6px; padding: 12px; border-radius: 12px; border-width: 1px; border-color: var(--line); background-color: var(--surface-2); }
+.rt-ms-card-head { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; }
+.rt-ms-text { color: var(--ink-dim); font-family: Arial; font-size: 12px; height: 16px; }
+.rt-ms-big { color: var(--accent); font-family: Arial; font-weight: bold; font-size: 22px; height: 28px; }
+.rt-ms-grid { display: flex; flex-direction: row; flex-wrap: wrap; gap: 12px; }
+.rt-ms-cell { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 2px; }
+.rt-ms-label { color: var(--ink-dim); font-family: Arial; font-size: 11px; height: 14px; }
+.rt-ms-value { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 13px; height: 18px; }
+.rt-ms-entry { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 4px; padding: 10px 0px; border-bottom-width: 1px; border-color: var(--line); }
+.rt-ms-entry-head { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; }
+.rt-ms-entry-rows { display: flex; flex-direction: row; flex-wrap: wrap; gap: 8px; }
+/* One drill's history, above the tabs, where the reference draws it. */
+.rt-drill-sheet { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 6px; padding: 12px; border-radius: 12px; border-width: 1px; border-color: var(--line); background-color: var(--surface-2); }
+.rt-drill-sheet-head { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; }
+.rt-drill-sheet-hd { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 16px; height: 22px; }
+.rt-drill-sheet-facts { display: flex; flex-direction: row; flex-wrap: wrap; gap: 10px; }
+.rt-drill-sheet-when { display: flex; flex-direction: row; flex-wrap: wrap; gap: 8px; }
 .rt-chat-compose { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; width: 100%; }
 
 /* --- the chat log's rows, the More sheet, the phone's home and dashboard, the edit sheet --- */
@@ -2678,6 +2713,14 @@
 .rt-entry-meal-name { color: var(--ink); font-family: Arial; font-size: 13px; height: 18px; }
 .rt-entry-meal-nums { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; }
 .rt-entry-meal-macro { color: #f59e0b; }
+/* A night and a body measurement: `SleepRow` and `MeasurementRow` have no
+   right-hand end, so the glyph and the value sit together on the left. */
+.rt-entry-life { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; padding: 4px 0px; }
+.rt-entry-quality { font-family: Arial; font-size: 11px; height: 14px; padding: 2px 8px; border-radius: 4px; }
+.rt-q-excellent { color: #4ade80; background-color: rgba(34, 197, 94, 0.2); }
+.rt-q-good { color: #60a5fa; background-color: rgba(59, 130, 246, 0.2); }
+.rt-q-fair { color: #facc15; background-color: rgba(234, 179, 8, 0.2); }
+.rt-q-poor { color: #f87171; background-color: rgba(239, 68, 68, 0.2); }
 
 /* --- the feature-vector dialog ----------------------------------------- */
 .rt-vec-sheet { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 10px; margin: 12px 0px; padding: 14px; border-radius: 14px; border-width: 1px; border-color: var(--line); background-color: var(--surface-2); }
@@ -2702,9 +2745,21 @@
 .rt-cred-buy:hover { background-color: #333333; }
 .rt-cred-buy-text { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 13px; height: 18px; }
 
+/* Harjoituspaikat and Tietopankki: a page with a banner and a main, and no
+   shell around them. The one keeps the bottom bar, the other does not. */
+.rt-subpage { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 12px; padding: 0px 16px 16px 16px; background-color: var(--bg); }
+.rt-page-head { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 12px; padding: 12px 0px; }
+.rt-page-main { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 10px; }
+.rt-page-hd { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 22px; height: 28px; }
+.rt-page-h2 { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 16px; height: 22px; }
+.rt-page-para { color: var(--ink-dim); font-family: Arial; font-size: 13px; height: 18px; }
+.rt-page-row { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; }
+.rt-page-cats { display: flex; flex-direction: row; flex-wrap: wrap; gap: 8px; }
+
 .rt-ys-head { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 12px; padding: 12px 16px; background-color: var(--bg); }
 .rt-ys-hd { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 17px; height: 22px; }
 .rt-ys-h3 { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 14px; height: 20px; }
+.rt-ys-h2 { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 15px; height: 21px; }
 .rt-ys-para { color: var(--ink-dim); font-family: Arial; font-size: 12px; height: 16px; }
 .rt-ys-text { color: var(--ink); font-family: Arial; font-size: 13px; height: 18px; }
 .rt-ys-dim { color: var(--ink-dim); font-family: Arial; font-size: 11px; height: 16px; }

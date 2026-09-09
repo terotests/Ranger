@@ -122,6 +122,14 @@ class RtYearSheet {
         editor = "none"
     }
 
+    ; The Featuret tab is a PAGE and not a panel inside the plan: the
+    ; reference replaces the whole screen with it, back arrow and all. See
+    ; `traces/reference/yearsheet-edit.json`.
+    fn openFeatures:void () {
+        view = "features"
+        editor = "none"
+    }
+
     ; Opening the sheet is what loads it, and a sheet with no rows gets the
     ; one every sheet has — which the page then saves, so the dashboard's
     ; goals show it from then on.

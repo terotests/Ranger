@@ -88,6 +88,72 @@ prints them under "deliberate deviations" on every run. A difference that is
 not on that list still fails the gate; this one is on it, with its reason, so
 it cannot quietly become the thing everyone forgot to look at.
 
+## Home's composer is more of a control here than there
+
+Six scenarios sit between 93% and 97% for one row of three elements — the
+quick-entry composer above the Home feed. The reference publishes it as
+
+```
+button "Lisää kuva"
+text   "Kirjoita merkintä... esim. \"treeni 60min\""
+button ""
+```
+
+and this port as
+
+```
+button  "Lisää kuva"
+textbox "Kirjoita merkintä... esim. \"treeni 60min\""
+button  "Lähetä" [disabled]
+```
+
+Three differences, and the port is on the better side of all three: the field
+is a real textbox a reader can find and type into rather than a line of text
+with a placeholder read out beside it; the send button has a name; and it says
+it is disabled while there is nothing to send, which is what pressing it does.
+
+The reference's own chat page publishes the same control as `button ""
+[disabled]`, and this port matches it there — `chat-send` and `chat-tools` are
+at 100%. So the difference is not a rule the port applies everywhere; it is one
+button that was given a name because a send button with no name is a send
+button nobody can reach.
+
+**Not fixed.** `traces/parity.json` holds those six scenarios where this row
+puts them, and this is the note that says why none of them is 100%.
+
+## The reference reads a run's line with an older parser
+
+The app under `frontend/` parses COMPACT with the **TypeScript**
+`@realtrainer/compact-parser`; this port uses the **Ranger v1** parser from
+`parser-ranger-v1/src`, vendored under `parser/`. They are not the same parser,
+and on one line shape they do not agree:
+
+```
+Run "rintauinti" 27.15min 800m
+Run "rintauinti" 18.05min 250m
+Run "rintauinti" 14.7min 500m | Tampere
+```
+
+The Ranger parser reads both fields — 27.15 minutes and 800 metres. The
+TypeScript parser drops the distance (`distance.value: null`) and misreads the
+decimal minutes: `27.15min` comes back as `15`, `14.7min` as `7`, and
+`78.3333…min` as `783333333333335`. It is the decimal point it cannot hold.
+
+What that costs is visible in `home-drills`: the Harjoitteet tab totals the
+distance of every endurance drill, and over the seed `rintauinti` comes to
+16.2 km here against 3.0 km there — the reference is missing every distance
+that shares a line with a decimal duration. The best pace goes the same way,
+and `uinti` has no pace at all there because none of its moves kept both a
+duration and a distance.
+
+The occurrence counts agree exactly (28 of `rintauinti`, 8 of `uinti`), which
+is what says the difference is the parse and not the aggregation:
+`src/stats/ExerciseStats.rgr` is the monorepo's own file, import path aside.
+
+**Not fixed here, and not a gap to close.** The port is the one reading the
+line correctly. `traces/parity.json` holds `home-drills` at the level the
+three drill names cost, and this is the note that says why it is not 100%.
+
 ## Fixes that stayed in this repository
 
 These are not parser patches — they are recorded here because they were made in

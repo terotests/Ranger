@@ -370,6 +370,7 @@ treefactory Rt {
     tag EntryScoreOf EVGElement (props (className "rt-entry-score-of") (elementType 1))
     tag EntryRule EVGElement (props (className "rt-entry-hr-rule"))
     tag EntryChip EVGElement (props (className "rt-entry-chip") (elementType 1))
+    tag EntryQuality EVGElement (props (className "rt-entry-quality") (elementType 1))
     tag EntryKind EVGElement (props (className "rt-entry-kind") (elementType 1))
     tag CommentBtn EVGElement (props (className "rt-comment-btn") (role "button") (a11yFocusable true))
     tag CommentBtnTx EVGElement (props (className "rt-comment-btn-text") (elementType 1))
@@ -385,6 +386,7 @@ treefactory Rt {
     tag DrillName EVGElement (props (className "rt-drill-name") (elementType 1))
     tag DrillMetaTx EVGElement (props (className "rt-drill-meta-text") (elementType 1))
     tag DrillWeekTx EVGElement (props (className "rt-drill-week") (elementType 1))
+    tag DrillSheetHd EVGElement (props (className "rt-drill-sheet-hd") (elementType 1) (role "heading") (a11yLevel 2))
     tag StatsH4 EVGElement (props (className "rt-stats-h4") (elementType 1) (role "heading") (a11yLevel 4))
     tag StatsBig EVGElement (props (className "rt-stats-big") (elementType 1))
     tag StatsSmall EVGElement (props (className "rt-stats-small") (elementType 1))
@@ -440,6 +442,28 @@ treefactory Rt {
     tag SetBtnTx EVGElement (props (className "rt-set-btn-text") (elementType 1) (a11yHidden true))
     tag SetLink  EVGElement (props (className "rt-set-link") (role "link") (a11yFocusable true))
     tag SetSelect EVGElement (props (className "rt-set-select") (role "combobox") (a11yFocusable true))
+    ; A PAGE OF ITS OWN, the way Harjoituspaikat and Tietopankki are pages in
+    ; the original: a banner, a main, and no shell around them — see
+    ; `traces/reference/more-sheet.json` and `traces/reference/more-rest.json`.
+    tag SetHd1   EVGElement (props (className "rt-set-hd") (elementType 1) (role "heading") (a11yLevel 1))
+    ; The measurement calendar's summary — one card per thing measured, as
+    ; `traces/reference/calendar-measure.json` has them.
+    tag MsHd     EVGElement (props (className "rt-ms-hd") (elementType 1) (role "heading") (a11yLevel 2))
+    tag MsH3     EVGElement (props (className "rt-ms-h3") (elementType 1) (role "heading") (a11yLevel 3))
+    tag MsCard   EVGElement (props (className "rt-ms-card"))
+    tag MsTx     EVGElement (props (className "rt-ms-text") (elementType 1))
+    tag MsBig    EVGElement (props (className "rt-ms-big") (elementType 1))
+    tag MsGrid   EVGElement (props (className "rt-ms-grid"))
+    tag MsCell   EVGElement (props (className "rt-ms-cell"))
+    tag MsLabel  EVGElement (props (className "rt-ms-label") (elementType 1) (role "paragraph"))
+    tag MsValue  EVGElement (props (className "rt-ms-value") (elementType 1) (role "paragraph"))
+    tag SubPage  EVGElement (props (className "rt-subpage"))
+    tag PageHead EVGElement (props (className "rt-page-head") (role "banner"))
+    tag PageMain EVGElement (props (className "rt-page-main") (role "main"))
+    tag PageHd   EVGElement (props (className "rt-page-hd") (elementType 1) (role "heading") (a11yLevel 1))
+    tag PageH2   EVGElement (props (className "rt-page-h2") (elementType 1) (role "heading") (a11yLevel 2))
+    tag PagePara EVGElement (props (className "rt-page-para") (elementType 1) (role "paragraph"))
+    tag PageCats EVGElement (props (className "rt-page-cats"))
     tag ThemeCard EVGElement (props (className "rt-theme-card") (role "button") (a11yFocusable true))
     tag ThemeSwatches EVGElement (props (className "rt-theme-swatches"))
     tag Swatch   EVGElement (props (className "rt-swatch") (a11yHidden true))
@@ -466,6 +490,16 @@ treefactory Rt {
     tag IconBtn  EVGElement (props (className "rt-icon-btn") (role "button") (a11yFocusable true))
     tag ModalFoot EVGElement (props (className "rt-modal-foot"))
     tag ChatHd   EVGElement (props (className "rt-chat-hd") (id "rt-chat-hd") (elementType 1) (role "heading") (a11yLevel 2))
+    tag ChatH3   EVGElement (props (className "rt-chat-h3") (elementType 1) (role "heading") (a11yLevel 3))
+    ; The workout notes page — `traces/reference/home-notes.json`. It opens
+    ; over the Home feed and keeps the two buttons above it, so it is a
+    ; section of Home and not a scene: a `main` of its own inside the shell's,
+    ; with the note list beside the editor.
+    tag NotesMain EVGElement (props (className "rt-notes-main") (role "main"))
+    tag NotesSide EVGElement (props (className "rt-notes-side") (role "complementary"))
+    tag NotesHd  EVGElement (props (className "rt-notes-hd") (elementType 1) (role "heading") (a11yLevel 1))
+    tag NotesPara EVGElement (props (className "rt-notes-para") (elementType 1) (role "paragraph"))
+    tag NotesTx  EVGElement (props (className "rt-notes-text") (elementType 1))
     tag ChatTools EVGElement (props (className "rt-chat-tools"))
     tag ChatTool EVGElement (props (className "rt-chat-tool") (role "button") (a11yFocusable true))
     tag ChatToolTx EVGElement (props (className "rt-chat-tool-text") (elementType 1))
@@ -556,6 +590,7 @@ treefactory Rt {
     tag CredBuyTx EVGElement (props (className "rt-cred-buy-text") (elementType 1) (a11yHidden true))
     tag YsHead   EVGElement (props (className "rt-ys-head"))
     tag YsHd     EVGElement (props (className "rt-ys-hd") (elementType 1) (role "heading") (a11yLevel 1))
+    tag YsH2     EVGElement (props (className "rt-ys-h2") (elementType 1) (role "heading") (a11yLevel 2))
     tag YsH3     EVGElement (props (className "rt-ys-h3") (elementType 1) (role "heading") (a11yLevel 3))
     tag YsPara   EVGElement (props (className "rt-ys-para") (elementType 1) (role "paragraph"))
     tag YsTx     EVGElement (props (className "rt-ys-text") (elementType 1))
@@ -973,6 +1008,31 @@ class RealTrainerDemo {
     def setMailField:InputCtl (new InputCtl())
     def setNickField:InputCtl (new InputCtl())
     def setHintField:InputCtl (new InputCtl())
+    ; Which of the chat's own drawers is open — the history, the saved notes
+    ; or the AI instructions. One at a time, as the original has them.
+    ; Which drill's history is open, or -1. `ExerciseStatsModal` on the
+    ; reference; a strip above the tabs here, where the reference puts it.
+    def drillCard@(mutable):int (0 - 1)
+    ; Which card's notes are open, or -1. "Muistiinpanot" on a diary card is
+    ; not a panel on the card: it opens a page over the feed.
+    def notesCard@(mutable):int (0 - 1)
+    def noteDate:InputCtl (new InputCtl())
+    def noteTitle:InputCtl (new InputCtl())
+    def noteUrl:InputCtl (new InputCtl())
+    def noteBody:InputCtl (new InputCtl())
+    def chatPanel@(mutable):string ""
+    ; "Anna palautetta harjoittelustani" asks for an assessment, and the page
+    ; renames itself to say so. A question a person types does not — see
+    ; `traces/reference/chat-send.json`, where the heading stays "AI Chat".
+    def chatReview@(mutable):boolean false
+    def chatHintField:InputCtl (new InputCtl())
+    def venueField:InputCtl (new InputCtl())
+    def knowField:InputCtl (new InputCtl())
+    def featFrom:InputCtl (new InputCtl())
+    def featTo:InputCtl (new InputCtl())
+    def featJson:InputCtl (new InputCtl())
+    def featPeriod:SelectCtl (new SelectCtl())
+    def featCycle:SelectCtl (new SelectCtl())
     def setLang:SelectCtl (new SelectCtl())
     def setWeekStart:SelectCtl (new SelectCtl())
     def setDefaultView:SelectCtl (new SelectCtl())
@@ -1179,6 +1239,46 @@ class RealTrainerDemo {
         setHintField.tid = "rt-set-hint"
         setHintField.placeholder = "Lisää uusi ohje..."
         setHintField.name = setHintField.placeholder
+        noteDate.tid = "rt-notes-date"
+        noteTitle.tid = "rt-notes-title"
+        noteTitle.placeholder = "Uuden videon otsikko"
+        noteTitle.name = noteTitle.placeholder
+        noteUrl.tid = "rt-notes-url"
+        noteUrl.placeholder = "https://youtube.com/..."
+        noteUrl.name = noteUrl.placeholder
+        noteBody.tid = "rt-notes-body"
+        noteBody.placeholder = "# Otsikko Vapaamuotoinen muistiinpano..."
+        noteBody.name = noteBody.placeholder
+        chatHintField.tid = "rt-chat-hint"
+        chatHintField.placeholder = "Lisää uusi ohje..."
+        chatHintField.name = chatHintField.placeholder
+        venueField.tid = "rt-ven-search"
+        venueField.placeholder = "Etsi julkisia kuntosaleja..."
+        venueField.name = venueField.placeholder
+        knowField.tid = "rt-kn-search"
+        knowField.placeholder = "Hae tietopankista..."
+        knowField.name = knowField.placeholder
+        ; The Featuret page's own controls. The two dates are `<input
+        ; type="date">` in the original, which a reader hears by their label
+        ; and not by what is in them; the paste box is named by its
+        ; placeholder, as every unlabelled box here is.
+        featFrom.tid = "rt-ys-feat-from"
+        featFrom.name = "Alkaen"
+        featTo.tid = "rt-ys-feat-to"
+        featTo.name = "Asti"
+        featJson.tid = "rt-ys-feat-json"
+        featJson.placeholder = "{ \"version\": \"feature-vectors-v1\", \"dailyVectors\": [...] }"
+        featJson.name = featJson.placeholder
+        featPeriod.tid = "rt-ys-feat-period"
+        featPeriod.name = "Periodi"
+        featPeriod.addItem("custom" "Mukautettu aikaväli" false)
+        featPeriod.value = "Mukautettu aikaväli"
+        featCycle.tid = "rt-ys-feat-cycle"
+        featCycle.name = "Laskentasykli"
+        featCycle.addItem("daily" "Päivittäin" false)
+        featCycle.addItem("weekly" "Viikoittain" false)
+        featCycle.addItem("manual" "Manuaalinen" false)
+        featCycle.value = "Päivittäin"
         setLang.tid = "rt-set-lang"
         setLang.name = ""
         setLang.addItem("fi" "Suomi" false)
@@ -2102,6 +2202,11 @@ class RealTrainerDemo {
         if ((kind == "food") || (kind == "drinking")) {
             named = false
         }
+        ; The same holds for an expense and for ground contacts: what the row
+        ; is called is the run after the glyph.
+        if ((kind == "expense") || (kind == "contacts")) {
+            named = false
+        }
         if named {
             el.addChild((tree Rt (DocLabel (props (id (rowId + "-label"))) label)))
         }
@@ -2122,6 +2227,18 @@ class RealTrainerDemo {
             partsClass = "rt-doc-parts rt-doc-parts-gap"
         }
         if (kind == "circuit") {
+            partsClass = "rt-doc-parts rt-doc-parts-gap"
+        }
+        if (kind == "expense") {
+            partsClass = "rt-doc-parts rt-doc-parts-gap"
+        }
+        if (kind == "contacts") {
+            partsClass = "rt-doc-parts rt-doc-parts-gap"
+        }
+        if (kind == "sleep") {
+            partsClass = "rt-doc-parts rt-doc-parts-gap"
+        }
+        if (kind == "measurement") {
             partsClass = "rt-doc-parts rt-doc-parts-gap"
         }
         def parts (tree Rt (DocParts (props (id (rowId + "-parts")) (className partsClass))))
@@ -2668,6 +2785,43 @@ class RealTrainerDemo {
     }
 
     fn pressChat:boolean (id:string) {
+        ; THE FIVE TOOLS ABOVE THE COMPOSER. They were drawn and answered
+        ; nothing: a screen with five buttons that do not press is worse than
+        ; one without them. See `traces/reference/chat-tools.json`.
+        if (id == "rt-chat-history") {
+            chatPanel = (RealTrainerDemo.togglePanel(chatPanel "history"))
+            return true
+        }
+        if (id == "rt-chat-notes") {
+            chatPanel = (RealTrainerDemo.togglePanel(chatPanel "notes"))
+            return true
+        }
+        if (id == "rt-chat-guide") {
+            chatPanel = (RealTrainerDemo.togglePanel(chatPanel "guide"))
+            return true
+        }
+        if ((id == "rt-chat-history-panel-close") || (id == "rt-chat-notes-panel-close")) {
+            chatPanel = ""
+            return true
+        }
+        if (id == "rt-chat-guide-close") {
+            chatPanel = ""
+            return true
+        }
+        ; "Uusi keskustelu" empties the log. The drawers stay as they were —
+        ; a new conversation is not a reason to close the instructions.
+        if (id == "rt-chat-new") {
+            chatSim.stop()
+            chatReview = false
+            return (chat.reset())
+        }
+        ; The canned question, asked. It goes through the composer like
+        ; anything else a person types, because that is what it is.
+        if (id == "rt-chat-feedback") {
+            chatReview = true
+            chat.setInput("Mitä mieltä olet harjoittelustani? Analysoi viimeaikaiset merkintäni suhteessa vuosisuunnitelmaani, arvioi edistymistäni ja anna konkreettisia neuvoja jatkoon.")
+            return (this.pressChat("rt-chat-send"))
+        }
         if (id == "rt-chat-type") { return (chat.setInput("Maastaveto 3x5@100kg")) }
         if (id == "rt-chat-type2") { return (chat.setInput("Maastaveto 3x5@100kg ja kyykky 5x5@80kg")) }
         if (id == "rt-chat-ask") { return (chat.setInput("Montako harjoitusta viime viikolla?")) }
@@ -2678,6 +2832,11 @@ class RealTrainerDemo {
             def sent:boolean (chat.sendMessage())
             if sent {
                 chat.clearInput()
+                ; Asking something puts the log back on the screen, so the
+                ; history and the notes fold away. The instructions do not:
+                ; they are what the next question is asked under.
+                if (chatPanel == "history") { chatPanel = "" }
+                if (chatPanel == "notes") { chatPanel = "" }
                 ; The switch says the NEXT thing fails, and this is it: the
                 ; request fails at once, as the original's does with no
                 ; backend behind it.
@@ -3305,6 +3464,9 @@ class RealTrainerDemo {
         if (section == "settings") {
             this.settingsSection(body)
         }
+        if (section == "shared") {
+            this.sharedSection(body)
+        }
         main.addChild(body)
         return main
     }
@@ -3329,6 +3491,25 @@ class RealTrainerDemo {
     ; backend's, and there is no backend here. What a person can actually
     ; change — the language, the week's first day, which calendars show, the
     ; palette — is wired.
+    ; JAETUT KALENTERIT — a section inside the shell and not a page: the
+    ; header and the bottom bar stay, which is what `traces/reference/
+    ; more-rest.json` shows. One button per calendar, in the store's order,
+    ; each named by the calendar and the state it is in — none of them is
+    ; shared here, so every one of them reads "Ei jaettu".
+    fn sharedSection:void (body:EVGElement) {
+        def col (tree Rt (SetCol))
+        col.addChild((tree Rt (SetHd1 "Hallitse jakamista")))
+        col.addChild((tree Rt (SetNote "Hallitse päiväkirjojesi jakamisasetuksia. Voit jakaa päiväkirjasi muiden kanssa ja antaa heille katselu- tai yhteistyöoikeudet.")))
+        col.addChild((tree Rt (SetSub "Julkaise päiväkirja verkkoon")))
+        col.addChild((tree Rt (SetNote "Luo jaettava sivu harjoituspäiväkirjastasi.")))
+        col.addChild((this.setBtn("rt-share-publish" "Julkaise")))
+        def listed:[RtSeedCalendar] (seed.storeOrder())
+        for listed c:RtSeedCalendar i {
+            col.addChild((this.setBtn(("rt-share-cal-" + c.id) (c.name + " Ei jaettu"))))
+        }
+        body.addChild(col)
+    }
+
     fn settingsSection:void (body:EVGElement) {
         def col (tree Rt (SetCol))
         col.addChild((tree Rt (SetHd "Asetukset")))
@@ -3485,6 +3666,10 @@ class RealTrainerDemo {
     fn setSelect:EVGElement (ctl:SelectCtl) {
         def box (tree Rt (SetSelect))
         box.id = ctl.tid
+        ; A select with no name is what the settings page's three are — the
+        ; word above them is a line of text — and the Featuret page's two
+        ; carry theirs. Either way it is the control's own.
+        box.a11yLabel = ctl.name
         box.addChild((tree Rt (SetBtnTx ctl.value)))
         return box
     }
@@ -3539,6 +3724,12 @@ class RealTrainerDemo {
             actions.addChild((this.calButton("rt-plan-update" "Päivitä suunnitelma" (RtIcons.refreshCw("#ffffff")))))
         }
         body.addChild(actions)
+        ; The notes page takes the feed's place and leaves the two buttons
+        ; above it, which is where the reference leaves them.
+        if (notesCard >= 0) {
+            this.notesPage(body)
+            return
+        }
         def home (tree Rt (Col (props (className "rt-home"))))
         def entry (tree Rt (ModalRow))
         entry.addChild((this.iconBtn("rt-home-image" "Lisää kuva" (RtIcons.penLine("#999999")))))
@@ -3850,6 +4041,218 @@ class RealTrainerDemo {
 
     ; A training calendar's Home, as `HomeView` has it: the three tabs and,
     ; on Päiväkirja, every workout of the calendar as a card, newest first.
+    ; THE MEASUREMENT CALENDAR'S SUMMARY. A diary of readings is not a diary
+    ; of workouts: the reference gives it no tabs and puts a card per thing
+    ; measured above the feed — the latest reading, the least, the mean and
+    ; the most of it, how long the readings span and how far apart they fall.
+    ; See `traces/reference/calendar-measure.json`.
+    ;
+    ; A card reads the LAST FOURTEEN readings and no more. That is not a
+    ; guess: `Hrv` has thirty in the seed and the reference's card says
+    ; 20 days and a mean of 42, which is the fourteen most recent of them and
+    ; nothing else; `Weight` has fifteen and the card's ~14pv interval is the
+    ; span over thirteen gaps, not fourteen. The ORDER is by how many
+    ; readings there are in all, so a thing measured thirty times leads a
+    ; thing measured eight times however recent the eight are.
+    fn measurePanel:void (home:EVGElement) {
+        def series:[RtMeasure] (this.measureSeries())
+        if ((array_length series) == 0) {
+            return
+        }
+        def panel (tree Rt (Col (props (className "rt-ms"))))
+        def head (tree Rt (Row (props (className "rt-ms-head"))))
+        head.addChild((tree Rt (MsHd (props (id "rt-ms-hd")) "Mittaukset")))
+        def n:int (array_length (seed.selectedEntries()))
+        def top:RtMeasure (itemAt series 0)
+        head.addChild((tree Rt (MsTx (((to_string n) + " merkintää ") + (RealTrainerDemo.measureGlyph(top.key))))))
+        panel.addChild(head)
+        for series m:RtMeasure i {
+            panel.addChild((this.measureCard(m i)))
+        }
+        home.addChild(panel)
+    }
+
+    fn measureCard:EVGElement (m:RtMeasure i:int) {
+        def card (tree Rt (MsCard))
+        def n@(mutable):int (array_length m.values)
+        if (n > 14) { n = 14 }
+        def latest:double (itemAt m.values 0)
+        def min@(mutable):double latest
+        def max@(mutable):double latest
+        def sum@(mutable):double 0.0
+        def j@(mutable):int 0
+        while (j < n) {
+            def v:double (itemAt m.values j)
+            if (v < min) { min = v }
+            if (v > max) { max = v }
+            sum = (sum + v)
+            j = (j + 1)
+        }
+        def span:int ((RtWeek.daysOf((itemAt m.dates 0))) - (RtWeek.daysOf((itemAt m.dates (n - 1)))))
+        def gaps@(mutable):int (n - 1)
+        if (gaps < 1) { gaps = 1 }
+        def head (tree Rt (Row (props (className "rt-ms-card-head"))))
+        head.addChild((tree Rt (MsTx (RealTrainerDemo.measureGlyph(m.key)))))
+        head.addChild((tree Rt (MsH3 (props (id ("rt-ms-" + (to_string i)))) (RealTrainerDemo.measureTitle(m.key)))))
+        card.addChild(head)
+        def big@(mutable):string (RealTrainerDemo.rounded(latest))
+        if ((strlen m.unit) > 0) {
+            big = ((big + " ") + m.unit)
+        }
+        card.addChild((tree Rt (MsBig big)))
+        def grid (tree Rt (MsGrid))
+        grid.addChild((this.measureCell("Min" (RealTrainerDemo.rounded(min)))))
+        grid.addChild((this.measureCell("Ka" (RealTrainerDemo.rounded((sum / (int2double n)))))))
+        grid.addChild((this.measureCell("Max" (RealTrainerDemo.rounded(max)))))
+        grid.addChild((this.measureCell("Jakso" ((to_string span) + "pv"))))
+        grid.addChild((this.measureCell("Väli" (("~" + (to_string (to_int (((int2double span) / (int2double gaps)) + 0.5)))) + "pv"))))
+        card.addChild(grid)
+        return card
+    }
+
+    fn measureCell:EVGElement (label:string value:string) {
+        def cell (tree Rt (MsCell))
+        cell.addChild((tree Rt (MsLabel label)))
+        cell.addChild((tree Rt (MsValue value)))
+        return cell
+    }
+
+    ; Every reading the diary carries, newest first, by what was measured —
+    ; the custom rows, the body measurements, and the step counts a run
+    ; carries, which the reference counts as Askeleet with the rest.
+    fn measureSeries:[RtMeasure] () {
+        def out:[RtMeasure]
+        def sorted:[RtSeedEntry] (RealTrainerDemo.sortByDateDesc((seed.selectedEntries())))
+        for sorted e:RtSeedEntry i {
+            if ((strlen e.compact) == 0) { continue }
+            def doc:CompactDocument (CompactRowMapper.parseDocument(e.compact))
+            for doc.rows row:CompactRow ri {
+                def key@(mutable):string ""
+                def unit@(mutable):string ""
+                def value@(mutable):double 0.0
+                match row {
+                    Custom cu {
+                        def cs:CustomSpec (unwrap cu.spec)
+                        key = cs.name
+                        unit = cs.unit
+                        value = (CompactRowMapper.toNum(cs.value))
+                    }
+                    Measurement ms {
+                        def msp:MeasurementSpec (unwrap ms.spec)
+                        key = (RealTrainerDemo.capitalised(msp.measureType))
+                        unit = msp.unit
+                        value = (CompactRowMapper.toNum(msp.value))
+                    }
+                    Move mv {
+                        def mo:MoveSpec (unwrap mv.spec)
+                        if (mo.hasSteps) {
+                            key = "Askeleet"
+                            value = (int2double mo.steps)
+                        }
+                    }
+                    Exercise ex { }
+                    Pyramid py { }
+                    Split sp { }
+                    Section s { }
+                    Text t { }
+                    Summary sm { }
+                    Phase ph { }
+                    Duration du { }
+                    Unknown un { }
+                    Food fo { }
+                    Drinking dr { }
+                    Circuit ci { }
+                    CircuitItem it { }
+                    Expense ep { }
+                    Sleep sl { }
+                    Contacts ct { }
+                }
+                if ((strlen key) == 0) { continue }
+                def at@(mutable):int (0 - 1)
+                for out m:RtMeasure mi {
+                    if (m.key == key) { at = mi }
+                }
+                if (at < 0) {
+                    def made (new RtMeasure())
+                    made.key = key
+                    made.unit = unit
+                    push out made
+                    at = ((array_length out) - 1)
+                }
+                def series:RtMeasure (itemAt out at)
+                if ((strlen series.unit) == 0) { series.unit = unit }
+                push series.dates e.date
+                push series.values value
+            }
+        }
+        return (RealTrainerDemo.byReadingCount(out))
+    }
+
+    ; Most readings first, and a tie keeps the order it was found in.
+    sfn byReadingCount:[RtMeasure] (list:[RtMeasure]) {
+        def out:[RtMeasure]
+        for list m:RtMeasure i {
+            def placed:[RtMeasure]
+            def done@(mutable):boolean false
+            for out o:RtMeasure j {
+                if ((done == false) && ((array_length m.values) > (array_length o.values))) {
+                    push placed m
+                    done = true
+                }
+                push placed o
+            }
+            if (done == false) { push placed m }
+            out = placed
+        }
+        return out
+    }
+
+    ; `METS-huippu` is drawn `Mets Huippu`: the dashes are spaces and every
+    ; word takes a capital, which is what the reference's own title case does
+    ; to a key nobody wrote for a reader.
+    sfn measureTitle:string (key:string) {
+        def out@(mutable):string ""
+        def start@(mutable):boolean true
+        def len:int (strlen key)
+        def i@(mutable):int 0
+        while (i < len) {
+            def code:int (charAt key i)
+            if ((code == 45) || (code == 95) || (code == 32)) {
+                out = (out + " ")
+                start = true
+            } {
+                def ch:string (strfromcode code)
+                if start {
+                    out = (out + (RealTrainerDemo.upper(ch)))
+                    start = false
+                } {
+                    out = (out + (RealTrainerDemo.lower(ch)))
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn measureGlyph:string (key:string) {
+        if (key == "Weight") { return "⚖" }
+        if (key == "Askeleet") { return "👟" }
+        if (key == "HRV") { return "💓" }
+        if (key == "Leposyke") { return "💓" }
+        if (key == "Max-syke") { return "💓" }
+        if (key == "Viimeisin-syke") { return "💓" }
+        if (RtEntry.hasPrefix(key "METS")) { return "🔥" }
+        if (RtEntry.hasPrefix(key "Aktiiv")) { return "🔥" }
+        if (RtEntry.hasPrefix(key "Kokonais")) { return "🔥" }
+        if (RtEntry.hasPrefix(key "Lepo")) { return "🔥" }
+        return "📊"
+    }
+
+    ; A reading, as a whole number — `94.6` is `95` and `8644` is itself.
+    sfn rounded:string (v:double) {
+        return (to_string (to_int (v + 0.5)))
+    }
+
     fn diaryFeed:void (home:EVGElement) {
         ; THE FEED IS NOT ARRIVING ON THE OTHER TABS. `feedMore` says the diary
         ; has cards still to build, and `tick` builds a chunk and rebuilds the
@@ -3867,21 +4270,44 @@ class RealTrainerDemo {
         if ((strlen statsRow) > 0) {
             home.addChild((this.entryStatsSheet()))
         }
-        def tabs (tree Rt (Row (props (className "rt-ex-btns rt-home-tabs"))))
-        tabs.addChild((this.homeTabBtn("rt-home-tab-diary" "Päiväkirja" (homeTab == "diary"))))
-        tabs.addChild((this.homeTabBtn("rt-home-tab-drills" "Harjoitteet" (homeTab == "drills"))))
-        tabs.addChild((this.homeTabBtn("rt-home-tab-stats" "Tilastot" (homeTab == "stats"))))
-        home.addChild(tabs)
-        if (homeTab == "drills") {
-            this.homeDrills(home)
-            return
+        ; A DRILL'S HISTORY goes in the same place — see `drillSheet`.
+        if (drillCard >= 0) {
+            home.addChild((this.drillSheet()))
         }
-        if (homeTab == "stats") {
-            this.statsPanel(home)
-            return
+        ; A DIARY OF READINGS HAS NO TABS. Harjoitteet and Tilastot are a
+        ; training diary's, and the reference draws neither on a measurement
+        ; calendar: it puts the summary there instead.
+        if (seed.calendarType == "measurement") {
+            this.measurePanel(home)
+        } {
+            def tabs (tree Rt (Row (props (className "rt-ex-btns rt-home-tabs"))))
+            tabs.addChild((this.homeTabBtn("rt-home-tab-diary" "Päiväkirja" (homeTab == "diary"))))
+            tabs.addChild((this.homeTabBtn("rt-home-tab-drills" "Harjoitteet" (homeTab == "drills"))))
+            tabs.addChild((this.homeTabBtn("rt-home-tab-stats" "Tilastot" (homeTab == "stats"))))
+            home.addChild(tabs)
+            if (homeTab == "drills") {
+                this.homeDrills(home)
+                return
+            }
+            if (homeTab == "stats") {
+                this.statsPanel(home)
+                return
+            }
         }
         def feed (tree Rt (Col (props (className "rt-home-feed"))))
         def sorted:[RtSeedEntry] (RealTrainerDemo.sortByDateDesc((seed.selectedEntries())))
+        ; A READING IS A LINE, NOT A CARD. The reference gives a measurement
+        ; calendar's entries none of a workout's furniture — no score, no
+        ; Compact and JSON, no comments: the date, what was measured, one
+        ; button to add another of the same, and the reading itself. All of
+        ; them at once, too, which a line can afford and a card cannot.
+        if (seed.calendarType == "measurement") {
+            for sorted e:RtSeedEntry i {
+                feed.addChild((this.measureEntry(e i)))
+            }
+            home.addChild(feed)
+            return
+        }
         for sorted e:RtSeedEntry i {
             if (i >= feedShown) {
                 if ((this.hasCard(e i "home")) == false) {
@@ -3894,6 +4320,26 @@ class RealTrainerDemo {
             feed.addChild(card)
         }
         home.addChild(feed)
+    }
+
+    fn measureEntry:EVGElement (e:RtSeedEntry i:int) {
+        def card (tree Rt (Col (props (className "rt-ms-entry"))))
+        card.id = ("rt-ms-entry-" + (to_string i))
+        card.addChild((tree Rt (MsTx (RtWeek.fiDate(e.date)))))
+        def head (tree Rt (Row (props (className "rt-ms-entry-head"))))
+        head.addChild((tree Rt (MsH3 (props (id ("rt-ms-entry-hd-" + (to_string i)))) (CompactRowMapper.firstWorkoutTitle(e.compact)))))
+        head.addChild((tree Rt (Spacer)))
+        head.addChild((this.exButton(("rt-ms-add-" + (to_string i)) "Lisää" "Lisää")))
+        card.addChild(head)
+        def doc:CompactDocument (CompactRowMapper.parseDocument(e.compact))
+        def said (tree Rt (Row (props (className "rt-ms-entry-rows"))))
+        for doc.rows row:CompactRow ri {
+            def line:string (CompactStatBuilder.lineText(row))
+            if ((strlen line) == 0) { continue }
+            said.addChild((tree Rt (MsTx line)))
+        }
+        card.addChild(said)
+        return card
     }
 
     ; Is the feed still arriving — see `feedShown`.
@@ -4051,6 +4497,10 @@ class RealTrainerDemo {
             Drinking dr { }
             Circuit ci { }
             CircuitItem it { }
+            Expense ep { }
+            Sleep sl { }
+            Measurement ms { }
+            Contacts ct { }
         }
         return out
     }
@@ -4191,6 +4641,44 @@ class RealTrainerDemo {
         home.addChild(panel)
     }
 
+    ; ONE DRILL'S HISTORY. `ExerciseStatsModal` on the reference, and a strip
+    ; above the tabs here because that is where the reference draws it: the
+    ; name, a way out, and every time the drill was done. See
+    ; `traces/reference/home-drills.json`.
+    fn drillSheet:EVGElement () {
+        def sheet (tree Rt (Col (props (className "rt-drill-sheet"))))
+        def all:[ExerciseSummary] (this.drillSummaries())
+        def cats:CategorizedExercises (ExerciseStats.categorizeSummaries(all))
+        def list@(mutable):[ExerciseSummary] cats.strength
+        if (drillCat == "endurance") { list = cats.endurance }
+        if (drillCat == "bodyweight") { list = cats.bodyweight }
+        def sorted:[ExerciseSummary] (RealTrainerDemo.sortDrills(list drillSort))
+        if (drillCard >= (array_length sorted)) {
+            return sheet
+        }
+        def ex:ExerciseSummary (itemAt sorted drillCard)
+        def head (tree Rt (Row (props (className "rt-drill-sheet-head"))))
+        head.addChild((tree Rt (DrillSheetHd (props (id "rt-drill-sheet-hd")) ex.displayName)))
+        head.addChild((tree Rt (Spacer)))
+        head.addChild((this.iconBtn("rt-drill-close" "Sulje" (RtIcons.x("#999999")))))
+        sheet.addChild(head)
+        def facts (tree Rt (Row (props (className "rt-drill-sheet-facts"))))
+        facts.addChild((tree Rt (DrillMetaTx ((to_string ex.occurrences) + " Kertaa"))))
+        if (ex.totalDistance > 0.0) {
+            facts.addChild((tree Rt (DrillMetaTx ((RealTrainerDemo.kmText(ex.totalDistance)) + " Yhteensä"))))
+        }
+        if (ex.maxDuration > 0) {
+            facts.addChild((tree Rt (DrillMetaTx ((StatsMath.formatDuration(ex.maxDuration)) + " Pisin"))))
+        }
+        sheet.addChild(facts)
+        def when (tree Rt (Row (props (className "rt-drill-sheet-when"))))
+        for ex.history point:StatsDataPoint hi {
+            when.addChild((tree Rt (DrillWeekTx (RtWeek.fiDate(point.date)))))
+        }
+        sheet.addChild(when)
+        return sheet
+    }
+
     fn drillTabColor:string (cat:string) {
         if (cat == "strength") { return "#f97316" }
         if (cat == "endurance") { return "#22c55e" }
@@ -4297,8 +4785,38 @@ class RealTrainerDemo {
                 name = ((name + " ") + wk)
             }
         }
-        b.a11yLabel = name
+        ; THE NAME IS TEXT CONTENT, and text content collapses. A drill
+        ; whose own name ends in a space — `@<150bpm | matka + ` is one the
+        ; corpus has — came out here with the space still in it and a double
+        ; space where the runs were joined. The browser never shows those, so
+        ; neither does this.
+        b.a11yLabel = (RealTrainerDemo.squish(name))
         return b
+    }
+
+    ; One string, spaced the way a browser spaces the runs it is made of:
+    ; leading and trailing space gone, and a run of them one space.
+    sfn squish:string (raw:string) {
+        def out@(mutable):string ""
+        def gap@(mutable):boolean false
+        def len:int (strlen raw)
+        def i@(mutable):int 0
+        while (i < len) {
+            def code:int (charAt raw i)
+            if ((code == 32) || (code == 9)) {
+                if ((strlen out) > 0) {
+                    gap = true
+                }
+            } {
+                if gap {
+                    out = (out + " ")
+                    gap = false
+                }
+                out = (out + (strfromcode code))
+            }
+            i = (i + 1)
+        }
+        return out
     }
 
     ; --- Home: Tilastot -------------------------------------------------------
@@ -4377,6 +4895,10 @@ class RealTrainerDemo {
                     Drinking dr { }
                     Circuit ci { }
                     CircuitItem it { }
+                    Expense ep { }
+                    Sleep sl { }
+                    Measurement ms { }
+                    Contacts ct { }
                 }
             }
             def at@(mutable):int -1
@@ -5054,6 +5576,66 @@ class RealTrainerDemo {
         return page
     }
 
+    ; HARJOITUSPAIKAT — a page of its own, and the bar cannot be reached from
+    ; it: the reference replaces the whole screen, header and bottom nav both.
+    ; Eleven stops, from `traces/reference/more-sheet.json`. Nothing is stored
+    ; yet, so it is the empty state the original shows on a new account.
+    fn venuesScreen:EVGElement () {
+        def page (tree Rt (SubPage))
+        def head (tree Rt (PageHead))
+        head.addChild((this.iconBtn("rt-ven-back" "" (RtIcons.arrowLeft("#f2f2f2")))))
+        head.addChild((tree Rt (PageHd "Harjoituspaikat")))
+        head.addChild((tree Rt (PagePara "0 paikkaa")))
+        head.addChild((tree Rt (Spacer)))
+        head.addChild((this.setBtn("rt-ven-add" "Lisää")))
+        page.addChild(head)
+        def main (tree Rt (PageMain))
+        main.addChild((this.fieldBox(venueField)))
+        main.addChild((tree Rt (PageH2 "Omat harjoituspaikat")))
+        main.addChild((tree Rt (PagePara "Ei harjoituspaikkoja vielä")))
+        main.addChild((this.setBtn("rt-ven-first" "Lisää ensimmäinen")))
+        page.addChild(main)
+        page.addChild((this.toasts()))
+        return page
+    }
+
+    ; TIETOPANKKI — a page too, but this one KEEPS the bottom bar, which is
+    ; why it is not the same shape as Harjoituspaikat and why the two are
+    ; written out rather than sharing one. The nine categories are the
+    ; original's, in its order; the store is empty on a new account.
+    fn knowledgeScreen:EVGElement () {
+        def page (tree Rt (SubPage))
+        def head (tree Rt (PageHead))
+        head.addChild((tree Rt (PageHd "Tietopankki")))
+        page.addChild(head)
+        def main (tree Rt (PageMain))
+        def top (tree Rt (Row (props (className "rt-page-row"))))
+        top.addChild((this.fieldBox(knowField)))
+        top.addChild((this.setBtn("rt-kn-add" "Lisää")))
+        main.addChild(top)
+        def cats:[string]
+        push cats "Kaikki"
+        push cats "Tekniikka"
+        push cats "Ravinto"
+        push cats "Palautuminen"
+        push cats "Liikkuvuus"
+        push cats "Voimaharjoittelu"
+        push cats "Kestävyys"
+        push cats "Elämänhallinta"
+        push cats "Muut"
+        def catRow (tree Rt (PageCats))
+        for cats cn:string ci {
+            catRow.addChild((this.setBtn(("rt-kn-cat-" + (to_string ci)) cn)))
+        }
+        main.addChild(catRow)
+        main.addChild((tree Rt (PagePara "Tietopankki on tyhjä")))
+        main.addChild((this.setBtn("rt-kn-first" "Lisää ensimmäinen")))
+        page.addChild(main)
+        page.addChild((this.bottomNav()))
+        page.addChild((this.toasts()))
+        return page
+    }
+
     fn wizardScreen:EVGElement () {
         def page (tree Rt (Wiz))
         def head (tree Rt (WizHead))
@@ -5449,7 +6031,11 @@ class RealTrainerDemo {
         if (ys.view == "list") {
             this.ysList(body)
         } {
-            this.ysDetail(body)
+            if (ys.view == "features") {
+                this.ysFeatures(body)
+            } {
+                this.ysDetail(body)
+            }
         }
         main.addChild(body)
         ; The same shell as `appScreen`, without the header.
@@ -5495,6 +6081,103 @@ class RealTrainerDemo {
 
     ; One sheet: the header and its toolbar, an editor when one is on, the
     ; grid, the legend, and the periods with their example weeks.
+    ; THE FEATURET PAGE — `traces/reference/yearsheet-edit.json`. The tab is
+    ; a page of its own: the back arrow, the range to compute over, the two
+    ; selects, the three buttons that would call the backend, a box to paste
+    ; an export into, the user's own vectors and the fifteen the app derives.
+    ;
+    ; Nothing here computes: there is no backend, and the reference itself
+    ; shows every feature at zero on a fresh range. What is drawn but not
+    ; wired says so by being disabled where the original disables it.
+    fn ysFeatures:void (body:EVGElement) {
+        def head (tree Rt (YsHead))
+        head.addChild((this.iconBtn("rt-ys-feat-back" "" (RtIcons.arrowLeft("#f2f2f2")))))
+        def titles (tree Rt (Col))
+        titles.addChild((tree Rt (YsHd "Feature-vektorit (beta)")))
+        titles.addChild((tree Rt (YsPara (props (id "rt-ys-feat-sub")) "Testaa vektorilaskentaa päiväkirjamerkinnöistä valitulta aikaväliltä")))
+        head.addChild(titles)
+        body.addChild(head)
+        body.addChild((tree Rt (YsDim "Kokonaispiste: 0.00")))
+        def range (tree Rt (YsEditRow))
+        range.addChild((tree Rt (YsDim "Alkaen")))
+        range.addChild((this.fieldBox(featFrom)))
+        range.addChild((tree Rt (YsDim "Asti")))
+        range.addChild((this.fieldBox(featTo)))
+        body.addChild(range)
+        def picks (tree Rt (YsEditRow))
+        picks.addChild((tree Rt (YsDim "Periodi")))
+        picks.addChild((this.setSelect(featPeriod)))
+        picks.addChild((tree Rt (YsDim "Laskentasykli")))
+        picks.addChild((this.setSelect(featCycle)))
+        body.addChild(picks)
+        body.addChild((tree Rt (YsDim "Merkintöjä valitulla aikavälillä: 0 AI-laskennan maksimi aikaväli on 14 päivää.")))
+        def acts (tree Rt (YsTools))
+        def copy (this.ysTool("rt-ys-feat-copy" "Kopioi tulokset" (RtIcons.copy("#999999")) "rt-ys-tool"))
+        copy.a11yDisabled = true
+        acts.addChild(copy)
+        acts.addChild((this.ysTool("rt-ys-feat-paste" "Liitä" (RtIcons.clipboardPaste("#f2f2f2")) "rt-ys-tool")))
+        acts.addChild((this.ysTool("rt-ys-feat-run" "Suorita laskennat" (RtIcons.sparkles("#ffffff")) "rt-ys-tool rt-ys-tool-violet")))
+        body.addChild(acts)
+        body.addChild((tree Rt (YsDim "Voit liittää exportoidun feature-vectors JSONin tähän ilman serverikutsua.")))
+        def useJson (this.ysTool("rt-ys-feat-use" "Käytä liitettyä JSONia" (RtIcons.check("#999999")) "rt-ys-tool"))
+        useJson.a11yDisabled = true
+        body.addChild(useJson)
+        body.addChild((this.fieldBox(featJson)))
+        def own (tree Rt (YsPanel))
+        own.addChild((tree Rt (YsH2 (props (id "rt-ys-feat-own")) "Käyttäjäkohtaiset vektorit")))
+        own.addChild((this.ysTool("rt-ys-feat-add" "Lisää" (RtIcons.plus("#f2f2f2")) "rt-ys-tool")))
+        own.addChild((tree Rt (YsPara (props (id "rt-ys-feat-none")) "Ei vielä käyttäjäkohtaisia vektoreita")))
+        body.addChild(own)
+        def table (tree Rt (YsGrid))
+        def headRow (tree Rt (YsGridRow))
+        def cols:[string] ([] _:string ("Feature" "Arvo" "Lähde" "Confidence" "Paino" "Painotettu piste"))
+        for cols cn:string ci {
+            def hc (tree Rt (YsCell))
+            hc.addChild((tree Rt (YsCellTx cn)))
+            headRow.addChild(hc)
+        }
+        table.addChild(headRow)
+        def names:[string] (RealTrainerDemo.featureNames())
+        for names fn2:string fi {
+            def r (tree Rt (YsGridRow))
+            def c0 (tree Rt (YsCell))
+            c0.addChild((tree Rt (YsCellTx fn2)))
+            r.addChild(c0)
+            def c1 (tree Rt (YsCell))
+            c1.addChild((tree Rt (YsCellTx ("0.0 " + (RealTrainerDemo.featureUnit(fn2))))))
+            r.addChild(c1)
+            def rest:[string] ([] _:string ("estimated" "0.30" "1.00" "0.000"))
+            for rest rv:string ri {
+                def c (tree Rt (YsCell))
+                c.addChild((tree Rt (YsCellTx rv)))
+                r.addChild(c)
+            }
+            table.addChild(r)
+        }
+        body.addChild(table)
+        def trend (tree Rt (YsPanel))
+        trend.addChild((tree Rt (YsH2 (props (id "rt-ys-feat-trend")) "Feature trendi (normalisoitu)")))
+        for names fn3:string fj {
+            def line (tree Rt (YsEditRow))
+            line.addChild((tree Rt (YsDim fn3)))
+            line.addChild((tree Rt (YsDim "0%")))
+            trend.addChild(line)
+        }
+        body.addChild(trend)
+    }
+
+    ; The fifteen the app derives, in the order the reference's table lists
+    ; them — nutrition, then the endurance zones, then the strength scores.
+    sfn featureNames:[string] () {
+        return ([] _:string ("nutrition.fat_good_total" "nutrition.fat_bad_total" "nutrition.sugar_simple" "nutrition.sugar_complex" "endurance.zone1_minutes" "endurance.zone2_minutes" "endurance.zone3_minutes" "endurance.zone4_minutes" "endurance.zone5_minutes" "strength.neural_stress" "strength.max_strength_emphasis" "strength.power_emphasis" "strength.speed_strength_emphasis" "strength.strength_endurance_emphasis" "strength.hypertrophy_emphasis"))
+    }
+
+    sfn featureUnit:string (name:string) {
+        if (RtEntry.hasPrefix(name "nutrition.")) { return "g/day" }
+        if (RtEntry.hasPrefix(name "endurance.")) { return "min" }
+        return "score"
+    }
+
     fn ysDetail:void (body:EVGElement) {
         def head (tree Rt (YsHead))
         head.addChild((this.iconBtn("rt-ys-back" "" (RtIcons.arrowLeft("#f2f2f2")))))
@@ -5745,8 +6428,23 @@ class RealTrainerDemo {
             docScroll = 0.0
             return true
         }
+        ; The Featuret page: a back arrow and nothing else that does anything
+        ; — every button on it would call a backend there is none of here.
+        if (ys.view == "features") {
+            if (id == "rt-ys-feat-back") {
+                ys.openDetail()
+                docScroll = 0.0
+                return true
+            }
+            return false
+        }
         if (ys.view != "detail") {
             return false
+        }
+        if (id == "rt-ys-features") {
+            ys.openFeatures()
+            docScroll = 0.0
+            return true
         }
         if (id == "rt-ys-periods") { return (ys.toggleEditor("periods")) }
         if (id == "rt-ys-rows") { return (ys.toggleEditor("rows")) }
@@ -6196,8 +6894,11 @@ class RealTrainerDemo {
             ; They used to be a line of text and the line lost things: a drink
             ; came out as "Drinking2dl | Maito", its calories and its protein
             ; gone. See `CompactStatBuilder.mealParts`.
-            if ((kind == "food") || (kind == "drinking")) {
-                def meal (tree Rt (Row (props (className "rt-entry-meal"))))
+            ; AN EXPENSE AND THE GROUND CONTACTS are the same row: `ExpenseRow`
+            ; and `ContactsRow` are `FoodRow` with one number instead of four
+            ; — a glyph and a name on the left, the value on the right.
+            if ((kind == "expense") || (kind == "contacts") || (kind == "food") || (kind == "drinking")) {
+                def meal (tree Rt (Row (props (className ("rt-entry-meal rt-entry-" + kind)))))
                 def mparts:[StatPart] (CompactStatBuilder.parts(row))
                 def nums (tree Rt (Row (props (className "rt-entry-meal-nums"))))
                 for mparts mp:StatPart mi {
@@ -6223,8 +6924,31 @@ class RealTrainerDemo {
                 rows.addChild((this.commentUnder(rowId)))
                 continue
             }
+            ; A NIGHT AND A BODY MEASUREMENT. `SleepRow` and `MeasurementRow`
+            ; have no right-hand end: the glyph, the value in mono and — for a
+            ; night that says how it went — the quality as a coloured pill.
+            if ((kind == "sleep") || (kind == "measurement")) {
+                def life (tree Rt (Row (props (className ("rt-entry-life rt-entry-" + kind)))))
+                def lparts:[StatPart] (CompactStatBuilder.parts(row))
+                for lparts lp:StatPart li {
+                    if (lp.kind == "meta") {
+                        life.addChild((tree Rt (EntryRowTx lp.text)))
+                        continue
+                    }
+                    if (lp.kind == "quality") {
+                        def pill (tree Rt (EntryQuality lp.text))
+                        pill.className = ("rt-entry-quality rt-q-" + lp.tone)
+                        life.addChild(pill)
+                        continue
+                    }
+                    life.addChild((tree Rt (EntryMono lp.text)))
+                }
+                rows.addChild(life)
+                rows.addChild((this.commentUnder(rowId)))
+                continue
+            }
             if (kind == "text") {
-                rows.addChild((tree Rt (EntryPara (props (id ("rt-entry-text-" + rowId))) (CompactStatBuilder.text(row)))))
+                rows.addChild((tree Rt (EntryPara (props (id ("rt-entry-text-" + rowId))) (CompactStatBuilder.lineText(row)))))
                 if (cardPreview == false) {
                     def tacts (tree Rt (Row (props (className "rt-entry-under"))))
                     tacts.addChild((this.iconBtn(("rt-entry-edit-" + rowId) "Muokkaa tekstiä" (RtIcons.penLine("#999999")))))
@@ -6321,7 +7045,7 @@ class RealTrainerDemo {
                             def nline (tree Rt (Row (props (className "rt-entry-run-note"))))
                             nline.addChild((tree Rt (Col (props (className "rt-entry-band")))))
                             def nid:string ((to_string i) + ("-" + (to_string si)))
-                            def np (tree Rt (EntryPara (props (id ("rt-entry-text-" + nid))) (CompactStatBuilder.text(next))))
+                            def np (tree Rt (EntryPara (props (id ("rt-entry-text-" + nid))) (CompactStatBuilder.lineText(next))))
                             np.className = "rt-entry-para rt-entry-para-italic"
                             nline.addChild(np)
                             notes.addChild(nline)
@@ -6353,7 +7077,7 @@ class RealTrainerDemo {
             }
             if ((kind != "unknown") && (kind != "summary")) {
                 def note@(mutable):string label
-                def more:string (CompactStatBuilder.text(row))
+                def more:string (CompactStatBuilder.lineText(row))
                 if ((strlen more) > 0) { note = ((note + " ") + more) }
                 if ((strlen note) > 0) {
                     rows.addChild((tree Rt (EntryNote note)))
@@ -6530,6 +7254,10 @@ class RealTrainerDemo {
             Drinking dr { }
             Circuit ci { }
             CircuitItem it { }
+            Expense ep { }
+            Sleep sl { }
+            Measurement ms { }
+            Contacts ct { }
         }
         return false
     }
@@ -6557,6 +7285,10 @@ class RealTrainerDemo {
             Drinking dr { }
             Circuit ci { }
             CircuitItem it { }
+            Expense ep { }
+            Sleep sl { }
+            Measurement ms { }
+            Contacts ct { }
         }
         return (CompactStatBuilder.text(row))
     }
@@ -6610,7 +7342,7 @@ class RealTrainerDemo {
         for doc.rows row:CompactRow ri {
             def kind:string (CompactStatBuilder.kind(row))
             if (kind == "text") {
-                card.addChild((tree Rt (EntryPara (props (id (("rt-entry-text-" + (to_string i)) + ("-" + (to_string ri))))) (CompactStatBuilder.text(row)))))
+                card.addChild((tree Rt (EntryPara (props (id (("rt-entry-text-" + (to_string i)) + ("-" + (to_string ri))))) (CompactStatBuilder.lineText(row)))))
             }
         }
     }
@@ -6639,6 +7371,10 @@ class RealTrainerDemo {
             Drinking dr { }
             Circuit ci { }
             CircuitItem it { }
+            Expense ep { }
+            Sleep sl { }
+            Measurement ms { }
+            Contacts ct { }
         }
         return (CompactStatBuilder.text(row))
     }
@@ -6666,6 +7402,10 @@ class RealTrainerDemo {
             Drinking dr { }
             Circuit ci { }
             CircuitItem it { }
+            Expense ep { }
+            Sleep sl { }
+            Measurement ms { }
+            Contacts ct { }
         }
         return 0
     }
@@ -6898,6 +7638,60 @@ class RealTrainerDemo {
         }
     }
 
+    ; THE WORKOUT NOTES PAGE — `traces/reference/home-notes.json`. The notes
+    ; kept for one diary entry: a date and Tallenna, the training links, the
+    ; video links out of the knowledge store, and a markdown field with its
+    ; rendered preview beside it.
+    ;
+    ; Nothing is stored: notes, the knowledge store and the search behind
+    ; "Hae ja linkitä treeni" are the backend's, and the reference itself
+    ; shows the empty state on a fresh account. What is drawn is what a
+    ; person sees there, and the one thing that is true here — which entry
+    ; the page was opened from — is drawn from the entry.
+    fn notesPage:void (body:EVGElement) {
+        def sorted:[RtSeedEntry] (RealTrainerDemo.sortByDateDesc((seed.selectedEntries())))
+        def eid@(mutable):string ""
+        def eday@(mutable):string ""
+        if (notesCard < (array_length sorted)) {
+            def e:RtSeedEntry (itemAt sorted notesCard)
+            eid = e.id
+            eday = e.date
+        }
+        noteDate.setValue(eday)
+        noteDate.name = eday
+        def page (tree Rt (Col (props (className "rt-notes"))))
+        def head (tree Rt (Row (props (className "rt-notes-head"))))
+        head.addChild((this.exButton("rt-entry-notes-back" "Takaisin" "Takaisin")))
+        head.addChild((tree Rt (NotesHd (props (id "rt-notes-hd")) "Harjoitusmuistiinpanot")))
+        page.addChild(head)
+        page.addChild((tree Rt (NotesPara ("Linkitetty entryyn: " + eid))))
+        def main (tree Rt (NotesMain))
+        def side (tree Rt (NotesSide))
+        side.addChild((this.exButton("rt-notes-new" "Uusi" "Uusi")))
+        side.addChild((tree Rt (NotesTx "AI-valittu: 0")))
+        side.addChild((tree Rt (NotesPara "Ei muistiinpanoja")))
+        main.addChild(side)
+        main.addChild((this.fieldBox(noteDate)))
+        main.addChild((this.exButton("rt-notes-save" "Tallenna" "Tallenna")))
+        main.addChild((tree Rt (NotesTx "Treenilinkitykset")))
+        main.addChild((this.exButton("rt-notes-unlink" "Poista linkki tähän treeniin" "Poista linkki tähän treeniin")))
+        main.addChild((this.exButton("rt-notes-link" "Hae ja linkitä treeni" "Hae ja linkitä treeni")))
+        main.addChild((this.exButton("rt-notes-entry" eid eid)))
+        main.addChild((tree Rt (NotesTx "Videolinkit tietovarastosta Tietovarastolinkkejä: 0")))
+        main.addChild((this.exButton("rt-notes-videos" "Hae tai selaa videoita" "Hae tai selaa videoita")))
+        main.addChild((this.fieldBox(noteTitle)))
+        main.addChild((this.fieldBox(noteUrl)))
+        main.addChild((this.exButton("rt-notes-store" "Lisää tietovarastoon" "Lisää tietovarastoon")))
+        main.addChild((this.fieldBox(noteBody)))
+        ; The preview: the markdown on the left and what it renders to on the
+        ; right, which for an empty note is the one heading the placeholder
+        ; carries.
+        main.addChild((tree Rt (NotesTx "# Muistiinpano")))
+        main.addChild((tree Rt (NotesHd (props (id "rt-notes-preview")) "Muistiinpano")))
+        page.addChild(main)
+        body.addChild(page)
+    }
+
     fn exButton:EVGElement (id:string label:string text:string) {
         def b (tree Rt (ExBtn))
         b.id = id
@@ -6928,7 +7722,15 @@ class RealTrainerDemo {
         def st:string (chat.state())
         def col (tree Rt (Col (props (className "rt-chat-section"))))
         def hd (tree Rt (ModalRow))
-        hd.addChild((tree Rt (ChatHd "AI Chat")))
+        ; THE HEADING SAYS WHAT IS ON THE SCREEN. An empty chat is "AI Chat";
+        ; once something has been asked it is "AI-arvio", which is what the
+        ; reference calls the page it answers on. See
+        ; `traces/reference/chat-tools.json`.
+        def hdName@(mutable):string "AI Chat"
+        if chatReview {
+            hdName = "AI-arvio"
+        }
+        hd.addChild((tree Rt (ChatHd hdName)))
         if ((array_length chat.sentTexts) > 0) {
             hd.addChild((tree Rt (Spacer)))
             hd.addChild((this.iconBtn("rt-chat-copy-all" "Kopioi koko keskustelu" (RtIcons.bookOpen("#999999")))))
@@ -6937,10 +7739,22 @@ class RealTrainerDemo {
         def tools (tree Rt (ChatTools))
         tools.addChild((this.chatTool("rt-chat-new" "Uusi keskustelu")))
         tools.addChild((this.chatTool("rt-chat-history" "Keskusteluhistoria")))
+        ; A drawer opens UNDER ITS OWN BUTTON and not at the foot of the
+        ; screen: that is where the original puts it, and a reader tabbing
+        ; through hears it where the button that opened it was.
+        if (chatPanel == "history") {
+            tools.addChild((this.chatDrawer("rt-chat-history-panel" "Keskusteluhistoria" "Ei aikaisempia keskusteluja")))
+        }
         tools.addChild((this.chatTool("rt-chat-notes" "Tallennetut muistiinpanot")))
+        if (chatPanel == "notes") {
+            tools.addChild((this.chatDrawer("rt-chat-notes-panel" "Tallennetut muistiinpanot" "Ei tallennettuja muistiinpanoja")))
+        }
         tools.addChild((this.chatTool("rt-chat-guide" "AI-ohjeet")))
         col.addChild(tools)
         col.addChild((this.chatTool("rt-chat-cal" seed.calendarName)))
+        if (chatPanel == "guide") {
+            this.chatGuide(col)
+        }
         if ((array_length chat.sentTexts) == 0) {
             col.addChild((tree Rt (ChatPara "Valitse kalenteri(t) ja kysy mitä vain päiväkirjamerkinnöistäsi!")))
             col.addChild((this.chatTool("rt-chat-feedback" "Anna palautetta harjoittelustani")))
@@ -7009,6 +7823,68 @@ class RealTrainerDemo {
         compose.addChild(send)
         col.addChild(compose)
         return col
+    }
+
+    ; The history and the saved notes: a title, a close, and the line that
+    ; says there is nothing in it. Neither is stored here — there is no
+    ; backend — and the original shows exactly this on a fresh account.
+    fn chatDrawer:EVGElement (id:string title:string empty:string) {
+        def box (tree Rt (Col (props (className "rt-chat-drawer"))))
+        box.id = id
+        def head (tree Rt (Row (props (className "rt-chat-drawer-head"))))
+        head.addChild((tree Rt (ChatToolTx title)))
+        head.addChild((tree Rt (Spacer)))
+        head.addChild((this.iconBtn((id + "-close") "" (RtIcons.x("#999999")))))
+        box.addChild(head)
+        box.addChild((tree Rt (ChatToolTx empty)))
+        return box
+    }
+
+    ; AI-OHJEET, the same block the settings page carries — the original
+    ; draws it in both places, and a person who opens it from the chat should
+    ; not be sent to Asetukset to read it. Nothing here is stored: the
+    ; instructions are the backend's, and the add button is disabled where
+    ; the original disables it.
+    fn chatGuide:void (col:EVGElement) {
+        col.addChild((tree Rt (ChatH3 (props (id "rt-chat-guide-hd")) "AI-ohjeet")))
+        col.addChild((this.iconBtn("rt-chat-guide-close" "" (RtIcons.x("#999999")))))
+        col.addChild((tree Rt (ChatPara "AI saa automaattisesti tietoa vuosisuunnitelmastasi ja aktiivisesta periodista. Lisää tähän omia ohjeita AI:lle.")))
+        col.addChild((tree Rt (ChatToolTx "Tee ehdotukset")))
+        col.addChild((tree Rt (ChatPara "Anna AI:n analysoida vuosisuunnitelmasi, päiväkirjasi ja profiilisi, ja luoda sinulle personoidut ohjeet.")))
+        col.addChild((this.chatTool("rt-chat-suggest" "Tee ehdotukset")))
+        col.addChild((this.chatTool("rt-chat-general" "Yleiset ohjeet (0 aktiivista)")))
+        col.addChild((tree Rt (ChatToolTx "Ehdotuksia:")))
+        col.addChild((this.chatTool("rt-chat-hint-fi" "+ Kommunikoi suomeksi")))
+        col.addChild((this.chatTool("rt-chat-hint-kind" "+ Ole kannustava ja positiivinen")))
+        col.addChild((this.chatTool("rt-chat-hint-concrete" "+ Anna konkreettisia parannusehdotuksia")))
+        col.addChild((this.fieldBox(chatHintField)))
+        def add (this.iconBtn("rt-chat-hint-add" "" (RtIcons.plus("#999999"))))
+        add.a11yDisabled = true
+        col.addChild(add)
+        col.addChild((tree Rt (ChatToolTx "Kalenterityyppikohtaiset ohjeet")))
+        def kinds:[string]
+        push kinds "Harjoituspäiväkirja"
+        push kinds "Harjoitussuunnitelma"
+        push kinds "Ravintopäiväkirja"
+        push kinds "Unipäiväkirja"
+        push kinds "Kilpailut"
+        push kinds "Leirit"
+        push kinds "Kulut"
+        push kinds "Mittaukset"
+        push kinds "Fiilispäiväkirja"
+        push kinds "Testauspöytäkirja"
+        for kinds kn:string ki {
+            col.addChild((this.chatTool(("rt-chat-kind-" + (to_string ki)) kn)))
+        }
+        col.addChild((this.chatTool("rt-chat-save-hints" "Tallenna ohjeet")))
+    }
+
+    ; A drawer that is open closes; any other opens and closes the one that was.
+    sfn togglePanel:string (now:string want:string) {
+        if (now == want) {
+            return ""
+        }
+        return want
     }
 
     fn chatTool:EVGElement (id:string label:string) {
@@ -7082,6 +7958,25 @@ class RealTrainerDemo {
     }
 
     fn pressEntryCard:boolean (id:string) {
+        ; NOT UNDER THE REVIEW. It is a modal and the cards are beneath it;
+        ; the same reason the composer's field steps aside while it is up.
+        if review.open {
+            return false
+        }
+        ; "Muistiinpanot" opens the notes page over the feed, and Takaisin
+        ; closes it. Both were drawn and answered nothing.
+        if (id == "rt-entry-notes-back") {
+            notesCard = (0 - 1)
+            this.rebuild()
+            return true
+        }
+        def note:int (RealTrainerDemo.indexAfter(id "rt-entry-notes-"))
+        if (note >= 0) {
+            notesCard = note
+            docScroll = 0.0
+            this.rebuild()
+            return true
+        }
         ; The two panels a card opens over itself, and their ways out.
         if (id == "rt-entry-stats-close") {
             statsRow = ""
@@ -7251,9 +8146,16 @@ class RealTrainerDemo {
                 moreOpen = false
                 return true
             }
+            ; VUOSILAKANA OPENS THE PLAN, not a list of plans. The reference
+            ; has no list behind this item: the sheet's item goes straight to
+            ; the year plan of the calendar in hand, with its toolbar, its
+            ; three tabs and its periods. The list is still a screen here —
+            ; `/summary/yearsheet` draws it — but it is not what this opens.
+            ; See `traces/reference/yearsheet-open.json`.
             if (id == "rt-more-yearsheet") {
                 moreOpen = false
                 ys.openList()
+                ys.openDetail()
                 docScroll = 0.0
                 scene = "yearsheet"
                 return true
@@ -7264,6 +8166,27 @@ class RealTrainerDemo {
                 moreOpen = false
                 scene = "app"
                 this.goSection("settings")
+                return true
+            }
+            ; Three more of the sheet's items are pages in the port now.
+            ; Harjoituspaikat and Tietopankki replace the screen; Jaetut
+            ; kalenterit is a section under the shell, as the original has it.
+            if (id == "rt-more-shared") {
+                moreOpen = false
+                scene = "app"
+                this.goSection("shared")
+                return true
+            }
+            if (id == "rt-more-venues") {
+                moreOpen = false
+                docScroll = 0.0
+                this.setScene("venues")
+                return true
+            }
+            if (id == "rt-more-knowledge") {
+                moreOpen = false
+                docScroll = 0.0
+                this.setScene("knowledge")
                 return true
             }
             if ((strlen id) > 7) {
@@ -7323,6 +8246,19 @@ class RealTrainerDemo {
         }
         if (RtEntry.hasPrefix(id "rt-drill-sort-")) {
             drillSort = (substring id 14 (strlen id))
+            drillSortOpen = false
+            return true
+        }
+        ; A DRILL ROW OPENS ITS HISTORY. It was a button that did nothing —
+        ; every row on the Harjoitteet tab, and the one thing a person goes
+        ; to that tab to see. See `drillSheet`.
+        if (id == "rt-drill-close") {
+            drillCard = (0 - 1)
+            return true
+        }
+        def drill:int (RealTrainerDemo.indexAfter(id "rt-drill-"))
+        if (drill >= 0) {
+            drillCard = drill
             drillSortOpen = false
             return true
         }
@@ -7415,6 +8351,16 @@ class RealTrainerDemo {
         push a setMailField
         push a setNickField
         push a setHintField
+        push a noteDate
+        push a noteTitle
+        push a noteUrl
+        push a noteBody
+        push a chatHintField
+        push a venueField
+        push a knowField
+        push a featFrom
+        push a featTo
+        push a featJson
         push a wizName
         push a wizDesc
         push a wizGoals
@@ -8155,6 +9101,12 @@ class RealTrainerDemo {
         if (scene == "credits") {
             root = (this.creditsScreen())
         }
+        if (scene == "venues") {
+            root = (this.venuesScreen())
+        }
+        if (scene == "knowledge") {
+            root = (this.knowledgeScreen())
+        }
         if (scene == "yearsheet") {
             root = (this.yearsheetScreen())
         }
@@ -8852,6 +9804,29 @@ class RealTrainerDemo {
             }
             if (id == "rt-cred-buy") {
                 return true
+            }
+            return false
+        }
+        ; Harjoituspaikat has a back and nothing else that does anything —
+        ; there is nowhere to add a venue TO. Tietopankki has no back at all
+        ; in the original: the bottom bar is how a person leaves it, so the
+        ; bar's five items are answered under it.
+        if (scene == "venues") {
+            if (id == "rt-ven-back") {
+                scene = "app"
+                docScroll = 0.0
+                this.rebuild()
+                return true
+            }
+            return false
+        }
+        if (scene == "knowledge") {
+            if ((strlen id) > 7) {
+                if ((substring id 0 7) == "rt-nav-") {
+                    scene = "app"
+                    docScroll = 0.0
+                    return (this.pressApp(id))
+                }
             }
             return false
         }
