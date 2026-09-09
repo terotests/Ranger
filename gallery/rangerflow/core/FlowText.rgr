@@ -142,7 +142,7 @@ class FlowText {
         while (going) {
             going = false
             if (i < n) {
-                if ((charAt t i) == 32) {
+                if (FlowText.isBreak((charAt t i))) {
                     i = (i + 1)
                     going = true
                 }
@@ -158,12 +158,38 @@ class FlowText {
         while (going) {
             going = false
             if (i < n) {
-                if ((charAt t i) != 32) {
+                if ((FlowText.isBreak((charAt t i))) == false) {
                     i = (i + 1)
                     going = true
                 }
             }
         }
         return i
+    }
+
+    ; Where a line may be broken: a space, and a newline. A label carries a
+    ; newline when its author asked for one — Mermaid's `<br/>`, a two-line
+    ; caption typed as two lines — and a wrap that treated it as an ordinary
+    ; character would set the whole thing as one word.
+    sfn isBreak:boolean (c:int) {
+        if (c == 32) { return true }
+        if (c == 10) { return true }
+        if (c == 13) { return true }
+        return false
+    }
+
+    ; True when the text between the end of the last word and the start of this
+    ; one contains a newline: the author asked for a line here, and asking is
+    ; the whole difference between a hard break and a wrap.
+    sfn hardBreakBefore:boolean (t:string from:int) {
+        def i:int (from - 1)
+        while (i >= 0) {
+            def c:int (charAt t i)
+            if (c == 10) { return true }
+            if (c == 13) { return true }
+            if (c != 32) { return false }
+            i = (i - 1)
+        }
+        return false
     }
 }

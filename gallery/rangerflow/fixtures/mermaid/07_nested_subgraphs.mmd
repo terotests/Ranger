@@ -1,0 +1,9 @@
+flowchart TB
+    subgraph outer [Outer group]
+        A --> B
+        subgraph inner [Inner group]
+            C --> D
+        end
+        B --> C
+    end
+    D --> E

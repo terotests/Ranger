@@ -217,6 +217,7 @@ window.addEventListener("keydown", (ev) => {
 const bind = (id, fn) => document.getElementById(id).addEventListener("change", fn);
 bind("scenario", (e) => {
   app.loadScenario(e.target.value);
+  showMermaidBox(e.target.value === "mermaid");
   app.fitView();
   // Each scenario picks the layout and notation that suit it; the controls
   // have to say what the app actually did, or the next change reads as a
@@ -232,6 +233,43 @@ bind("snap", (e) => app.setSnap(e.target.checked));
 bind("rulers", (e) => app.setRulers(e.target.checked));
 bind("bridges", (e) => app.setBridges(e.target.checked));
 document.getElementById("fit").addEventListener("click", () => app.fitView());
+
+// ---- Mermaid ---------------------------------------------------------------
+// The panel is the whole of the browser's share of this: the reader, the
+// layout and the router are all in the engine bundle.
+const mermaidBox = document.getElementById("mermaidbox");
+const mermaidSrc = document.getElementById("mermaidsrc");
+
+function showMermaidBox(on) {
+  mermaidBox.hidden = !on;
+  if (on && !mermaidSrc.value) mermaidSrc.value = engineClass().sampleMermaid();
+}
+
+function renderMermaid() {
+  app.loadMermaidStyled(mermaidSrc.value, document.getElementById("mermaidstyle").value);
+  app.fitView();
+  syncControls();
+}
+
+document.getElementById("mermaidrender").addEventListener("click", renderMermaid);
+// The look is a stylesheet, and switching it re-renders the same text: the
+// sheet decides the fills, the paper and the edge colour in one move.
+bind("mermaidstyle", (e) => {
+  if (!app.setMermaidStyle(e.target.value)) renderMermaid();
+  app.fitView();
+  syncControls();
+});
+document.getElementById("mermaidsample").addEventListener("click", () => {
+  mermaidSrc.value = engineClass().sampleMermaid();
+  renderMermaid();
+});
+// Ctrl/⌘+Enter renders without reaching for the button.
+mermaidSrc.addEventListener("keydown", (ev) => {
+  if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) {
+    ev.preventDefault();
+    renderMermaid();
+  }
+});
 
 document.getElementById("svg").addEventListener("click", () => {
   const blob = new Blob([app.svg()], { type: "image/svg+xml" });
@@ -381,6 +419,14 @@ async function boot() {
   const params = new URLSearchParams(location.search);
   const wanted = params.get("scenario") || "erd";
   document.getElementById("scenario").value = wanted;
+  showMermaidBox(wanted === "mermaid");
+  // `?look=dark` picks the Mermaid stylesheet on load, so a screenshot of a
+  // look is a URL rather than a click.
+  const look = params.get("look");
+  if (look) {
+    document.getElementById("mermaidstyle").value = look;
+    app.mermaidStyle = look;
+  }
   app.loadScenario(wanted);
   syncControls();
   app.fitView();

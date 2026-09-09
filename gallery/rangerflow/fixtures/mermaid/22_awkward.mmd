@@ -1,0 +1,6 @@
+graph TD;
+    A["a --> b, piped | text"] --> B;
+    B --> C{"Is it {tricky}?"};
+    C -->|"yes, very"| D[end of the line];
+    D --> A;
+    E --> E;

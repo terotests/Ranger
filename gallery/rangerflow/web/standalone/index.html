@@ -25,12 +25,26 @@
             opacity: 0; border: 0; padding: 0; }
   footer { display: flex; gap: 16px; padding: 6px 12px; border-top: 1px solid #d5dae2;
            background: #fff; color: #6b7280; font-variant-numeric: tabular-nums; }
+  #mermaidbox { display: flex; gap: 10px; align-items: stretch; padding: 8px 12px;
+                border-bottom: 1px solid #d5dae2; background: #fbfcfe; }
+  /* `display: flex` above beats the browser's own [hidden] rule, and the panel
+     would take the canvas's room in every scenario. */
+  #mermaidbox[hidden] { display: none; }
+  #mermaidbox textarea { flex: 1; min-height: 120px; font: 12px/1.45 ui-monospace, SFMono-Regular,
+                         Menlo, monospace; padding: 6px 8px; border: 1px solid #ccd3dd;
+                         border-radius: 5px; resize: vertical; background: #fff; color: inherit; }
+  #mermaidbox .side { display: flex; flex-direction: column; gap: 6px; width: 210px; color: #6b7280; }
+  #mermaidbox button { padding: 5px 9px; border: 1px solid #ccd3dd; border-radius: 5px;
+                       background: #fff; cursor: pointer; font: inherit; }
+  #mermaidbox button:hover { border-color: #7c93b5; }
   #selftest { white-space: pre-wrap; padding: 6px 12px; color: #111; background: #ffd; }
   @media (prefers-color-scheme: dark) {
     body { background: #12151c; color: #e6e9ef; }
     header, footer { background: #1b202a; border-color: #39414f; }
     #tools { background: #171c25; border-color: #39414f; }
     #tools button, #rename { background: #222833; border-color: #39414f; color: #e6e9ef; }
+    #mermaidbox { background: #171c25; border-color: #39414f; }
+    #mermaidbox textarea, #mermaidbox button { background: #222833; border-color: #39414f; color: #e6e9ef; }
     #tools button.on { background: #2563eb; border-color: #2563eb; }
     label, footer { color: #98a2b3; }
   }
@@ -45,6 +59,7 @@
       <option value="force">force layout (React Flow example)</option>
       <option value="flow">flowchart</option>
       <option value="atk">ATK-kaavio (ISO 5807)</option>
+      <option value="mermaid">Mermaid (paste your own)</option>
       <option value="org">organisaatiokaavio</option>
       <option value="process">uimaratakaavio</option>
       <option value="mindmap">mind map</option>
@@ -139,6 +154,28 @@
     <span class="cap">name</span>
     <input id="rename" type="text" placeholder="select a node" size="24" disabled>
   </span>
+</div>
+
+<!-- Mermaid in, RangerFlow out. The parser is in the engine bundle, so this
+     panel is a textarea and one method call. -->
+<div id="mermaidbox" hidden>
+  <textarea id="mermaidsrc" spellcheck="false" aria-label="Mermaid source"></textarea>
+  <div class="side">
+    <button id="mermaidrender" type="button">render</button>
+    <button id="mermaidsample" type="button">sample</button>
+    <label>look
+      <select id="mermaidstyle">
+        <option value="default">default</option>
+        <option value="forest">forest</option>
+        <option value="dark">dark</option>
+        <option value="neutral">neutral</option>
+        <option value="print">print</option>
+      </select>
+    </label>
+    <span>Mermaid <code>flowchart</code> / <code>graph</code>: shapes, links,
+      labels, <code>subgraph</code>, <code>classDef</code>. Drag the result,
+      edit it, export it to SVG.</span>
+  </div>
 </div>
 
 <div id="wrap">

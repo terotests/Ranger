@@ -1,0 +1,10 @@
+flowchart LR
+    subgraph one [Inner LR]
+        direction TB
+        a --> b
+    end
+    subgraph two [Inner RL]
+        direction RL
+        c --> d
+    end
+    one --> two

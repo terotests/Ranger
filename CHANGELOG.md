@@ -9,6 +9,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Mermaid parity, measured against Mermaid.** A claim of parity with a
+  format is worth what the person making it wanted it to be worth, so this one
+  is not a claim: `npm run rangerflow:mermaid:parity` hands every diagram in
+  `gallery/rangerflow/fixtures/mermaid/` to **Mermaid's own parser** (11.17,
+  under jsdom, in the parity harness) and compares its answer — vertices with
+  their shapes, edges with their strokes and arrowheads, subgraphs with their
+  members, the classes a `classDef` handed out — with what RangerFlow's reader
+  made of the same text. 182/182 checks over 26 examples, written up in
+  `docs/MERMAID_PARITY.md` by the run rather than by hand. What the corpus
+  turned up and the reader now does: ids with a `-` or a `.` in them
+  (`node-1`), Mermaid 11's `A@{ shape: rounded, label: "…" }` nodes with the
+  alias table that comes with it, named edges (`A e1@--> B`, `e1@{ animate:
+  true }`), markdown strings, labels that run past the end of their line,
+  `subgraph "A title"` named `subGraph0` the way Mermaid names it, and
+  Mermaid's real rule for what a subgraph contains — a node mentioned inside a
+  block belongs to it, even when it was named earlier outside. `<br/>` now
+  arrives as a newline and the text layout breaks on it, so a two-line label is
+  two lines. The dozen other diagrams Mermaid draws — sequence, class, state,
+  gantt, ER, … — are recognised by their header and read as nothing at all,
+  because a sequence diagram read as a flowchart is a page of invented boxes.
+- **A diagram's look, as a stylesheet.** EVG already carries a small
+  print-safe CSS engine, so RangerFlow's colours are now something you write
+  rather than something you pass: `gallery/rangerflow/core/FlowStyleSheet.rgr`
+  maps class selectors, `@vars`, `@media` and themes onto nodes, edges and the
+  canvas. A node answers to what it already is — `.node`, its type,
+  `.shape-diamond`, `.id-<id>` — plus the vocabulary its domain wrote, so a
+  Mermaid node wears its kind, the shape it was written as and every
+  `classDef` name it was given, and one sheet works on the next diagram too.
+  Five looks ship with it — default, forest, dark, neutral and print — as one
+  sheet whose themes vary a `@vars` block rather than restating the rules,
+  because the engine's one precedence rule is that theme-scoped beats
+  unscoped. `npm run rangerflow:mermaid -- --style=print` writes the printable
+  version; `--style=house.css` uses your own; `--restyle` lets the sheet beat
+  the diagram's own `classDef` instead of the other way round. The browser
+  page has a **look** dropdown beside the Mermaid box, and
+  `?scenario=mermaid&look=dark` picks one on load. Two gaps in the core it
+  needed: `FlowNode.textColor` was a field nothing painted (labels now use it,
+  and a `classDef` fill with no text colour gets a readable one computed from
+  its luma), and a node had no border weight of its own.
+- **Mermaid, rendered by RangerFlow.** Mermaid is how a diagram travels
+  through a README, a ticket and a review, and it is also a diagram you cannot
+  print, hit-test or drag a node in. `gallery/rangerflow/domains/mermaid`
+  reads the flowchart dialect — every node shape, every link including `--o`,
+  `--x` and the `<-->` family, both label forms, chains and `&` fan-outs,
+  `subgraph … end` nested, `classDef` / `class` / `:::name` / `style`, `%%`
+  comments and `---` front matter — and hands back a `FlowGraph`. From there
+  it is the layered layout, the lane router and the four backends the ERD
+  already uses: `npm run rangerflow:mermaid` writes SVG, PDF, HTML, JSON and a
+  GPU scene from `fixtures/order_flow.mmd`. A subgraph becomes the sub-flow
+  frame RangerFlow already had, drawn behind its members and dragging them
+  with it, and the layer ordering keeps a group's nodes together so the frame
+  encloses what it says it encloses. `BT` and `RL` are the layout mirrored
+  rather than a second layout. In the browser page, `?scenario=mermaid` opens a
+  text box: paste Mermaid, press render, and the result is draggable, editable
+  and exportable to SVG — checked on every `rangerflow:web:test` like the other
+  scenarios. What is ignored on purpose: `click`, `linkStyle` by index, and
+  `direction` inside a subgraph.
 - **A database workbench over the simulator, at `/firesim/`.** A backend you
   cannot see is a backend you have to take on trust, so `gallery/firesim/demo`
   puts the thing a person actually reaches for on top of it: a data browser.

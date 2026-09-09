@@ -23,6 +23,8 @@ Import "../domains/erd/SqlSchemaReader.rgr"
 Import "../domains/erd/SchemaToGraph.rgr"
 Import "../domains/uml/UMLModel.rgr"
 Import "../domains/flowchart/Flowchart.rgr"
+Import "../domains/mermaid/MermaidReader.rgr"
+Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 
 class Checker {
@@ -84,6 +86,11 @@ class RangerFlowTest {
         RangerFlowTest.testSegmentDrag(c)
         RangerFlowTest.testShapes(c)
         RangerFlowTest.testFlowchart(c)
+        RangerFlowTest.testMermaid(c)
+        RangerFlowTest.testMermaidLayout(c)
+        RangerFlowTest.testStyleSheet(c)
+        RangerFlowTest.testMermaidStyled(c)
+        RangerFlowTest.testMermaidExamples(c)
         RangerFlowTest.testBusinessCharts(c)
         RangerFlowTest.testAuthoring(c)
         RangerFlowTest.testTreeLayouts(c)
@@ -2168,6 +2175,364 @@ class RangerFlowTest {
         ; reader relies on when the labels are too small to read.
         def okNode:FlowNode (g.nodeById("ok"))
         c.ok("the decision sits above the branch it leads to" ((ehto.centerY()) < (okNode.centerY())))
+    }
+
+    ; -------------------------------------------------------------- mermaid --
+    ; The reader, asserted against the diagram somebody would actually paste
+    ; in: every shape, every link, both label forms, a subgraph, a class and a
+    ; comment.
+    sfn testMermaid:void (c:Checker) {
+        c.section("Mermaid reader")
+        def src:string "%% a comment\n"
+        src = (src + "flowchart TD\n")
+        src = (src + "    A([Start]) --> B[/Read/]\n")
+        src = (src + "    B --> C{Ok?}\n")
+        src = (src + "    C -->|yes| D[[Invoice]]\n")
+        src = (src + "    C -- no --> E[\\Reject\\]\n")
+        src = (src + "    D --> F[(Orders)] ; F -.-> G((Done))\n")
+        src = (src + "    E ==> G\n")
+        src = (src + "    H{{Prepare}} --o I>Report]\n")
+        def d:MermaidDiagram (MermaidReader.parse(src))
+        c.eqStr("the header gives the direction" d.direction "TD")
+        c.eqInt("every node named is a node" (d.nodeCount()) 9)
+        c.eqInt("and every link a link" (d.linkCount()) 8)
+
+        def g:FlowGraph (d.build())
+        def a:FlowNode (g.nodeById("A"))
+        c.eqStr("([]) is a stadium" a.shape "stadium")
+        c.eqStr("and the label is what was in the brackets" a.label "Start")
+        def b:FlowNode (g.nodeById("B"))
+        c.eqStr("[//] is a parallelogram" b.shape "parallelogram")
+        def cc:FlowNode (g.nodeById("C"))
+        c.eqStr("{} is a diamond" cc.shape "diamond")
+        def dd:FlowNode (g.nodeById("D"))
+        c.eqStr("[[]] is a subroutine box" dd.shape "predefined")
+        def ee:FlowNode (g.nodeById("E"))
+        c.eqStr("[\\] is a polygon, mirrored" ee.shape "polygon")
+        def ff:FlowNode (g.nodeById("F"))
+        c.eqStr("[()] is a drum" ff.shape "cylinder")
+        def gg:FlowNode (g.nodeById("G"))
+        c.eqStr("(()) is a circle" gg.shape "circle")
+        c.near("and a circle is round" gg.width gg.height 0.001)
+        def hh:FlowNode (g.nodeById("H"))
+        c.eqStr("{{}} is a hexagon" hh.shape "hexagon")
+        def ii:FlowNode (g.nodeById("I"))
+        c.eqStr(">] is the notched box" ii.shape "receivesignal")
+
+        ; The links: both label forms, and the four strokes.
+        def yes:FlowEdge (RangerFlowTest.edgeBetween(g "C" "D"))
+        c.eqStr("|text| labels the link" yes.label "yes")
+        def no:FlowEdge (RangerFlowTest.edgeBetween(g "C" "E"))
+        c.eqStr("-- text --> labels it too" no.label "no")
+        def dotted:FlowEdge (RangerFlowTest.edgeBetween(g "F" "G"))
+        c.ok("-.-> is drawn dashed" (dotted.dash > 0.0))
+        def thick:FlowEdge (RangerFlowTest.edgeBetween(g "E" "G"))
+        c.ok("==> is drawn thick" (thick.strokeWidth > 1.0))
+        def circle:FlowEdge (RangerFlowTest.edgeBetween(g "H" "I"))
+        c.eqStr("--o ends in a circle" circle.markerEnd "circle")
+        def plain:FlowEdge (RangerFlowTest.edgeBetween(g "A" "B"))
+        c.eqStr("--> ends in an arrow" plain.markerEnd "arrowclosed")
+    }
+
+    sfn edgeBetween:FlowEdge (g:FlowGraph source:string target:string) {
+        def i:int 0
+        while (i < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(i))
+            if (e.source == source) {
+                if (e.target == target) {
+                    return e
+                }
+            }
+            i = (i + 1)
+        }
+        return (new FlowEdge)
+    }
+
+    ; The rest of the dialect, and what the layout does with it.
+    sfn testMermaidLayout:void (c:Checker) {
+        c.section("Mermaid layout, subgraphs and styles")
+        ; Chains, fan-out, the open and bidirectional links, and a `---`
+        ; front matter title.
+        def src:string "---\ntitle: A chart\n---\nflowchart LR\n"
+        src = (src + "    A --> B --> C\n")
+        src = (src + "    D & E --> F\n")
+        src = (src + "    G --- H\n")
+        src = (src + "    I <--> J\n")
+        def d:MermaidDiagram (MermaidReader.parse(src))
+        c.eqStr("the front matter carries the title" d.title "A chart")
+        c.eqStr("and the header the direction" d.direction "LR")
+        c.eqInt("a chain is two links, a fan-out two more" (d.linkCount()) 6)
+        def g:FlowGraph (MermaidFlow.build(d))
+        def open:FlowEdge (RangerFlowTest.edgeBetween(g "G" "H"))
+        c.eqStr("--- has no arrow at all" open.markerEnd "")
+        def both:FlowEdge (RangerFlowTest.edgeBetween(g "I" "J"))
+        c.eqStr("<--> has one at each end" both.markerStart "arrowclosed")
+        ; Left to right means left to right.
+        def a:FlowNode (g.nodeById("A"))
+        def b:FlowNode (g.nodeById("B"))
+        c.ok("LR puts the target to the right" ((a.centerX()) < (b.centerX())))
+
+        ; Bottom to top is the same layout, read the other way.
+        def up:MermaidDiagram (MermaidReader.parse("flowchart BT\n  A --> B\n  B --> C\n"))
+        def ug:FlowGraph (MermaidFlow.build(up))
+        def ua:FlowNode (ug.nodeById("A"))
+        def uc:FlowNode (ug.nodeById("C"))
+        c.ok("BT puts the target above the source" ((uc.centerY()) < (ua.centerY())))
+
+        ; A subgraph becomes a frame behind its members, and the members carry
+        ; its id — which is what makes dragging the group work.
+        def sub:string "flowchart TD\n"
+        sub = (sub + "    A --> B\n")
+        sub = (sub + "    subgraph pay [Payments]\n")
+        sub = (sub + "        B --> C\n")
+        sub = (sub + "        C --> D\n")
+        sub = (sub + "    end\n")
+        sub = (sub + "    D --> E\n")
+        sub = (sub + "    classDef warn fill:#fee,stroke:#c66\n")
+        sub = (sub + "    class E warn\n")
+        sub = (sub + "    style A fill:#eef\n")
+        def sd:MermaidDiagram (MermaidReader.parse(sub))
+        c.eqInt("the block is one subgraph" (sd.subgraphCount()) 1)
+        def sg:MermaidSubgraph (sd.subgraphAt(0))
+        c.eqStr("named as it was written" sg.title "Payments")
+        ; B is named before the block AND inside it, and Mermaid puts it in the
+        ; block: a subgraph is the only statement about where a node lives, so
+        ; it beats an earlier mention that said nothing about that. Measured
+        ; against Mermaid's own parser — see docs/MERMAID_PARITY.md.
+        c.eqInt("a node mentioned inside the block belongs to it" (sg.memberCount()) 3)
+        def sgraph:FlowGraph (MermaidFlow.build(sd))
+        def frame:FlowNode (sgraph.nodeById("sg-pay"))
+        c.eqStr("the subgraph is drawn as a group" frame.nodeType "group")
+        def cNode:FlowNode (sgraph.nodeById("C"))
+        c.eqStr("and its members belong to it" cNode.parentId "sg-pay")
+        ; Painted first is painted behind, which is the whole point of a frame.
+        def first:FlowNode (sgraph.nodeAt(0))
+        c.eqStr("the frame is behind the nodes it holds" first.id "sg-pay")
+        ; The frame holds what it says it holds.
+        def dNode:FlowNode (sgraph.nodeById("D"))
+        def right:double (frame.x + frame.width)
+        def bottom:double (frame.y + frame.height)
+        c.ok("the frame encloses its members" ((cNode.x > frame.x) && (dNode.x < right)))
+        c.ok("top and bottom too" ((cNode.y > frame.y) && (dNode.y < bottom)))
+        ; classDef / class / style.
+        def eNode:FlowNode (sgraph.nodeById("E"))
+        c.eqStr("a class sets the fill" eNode.bgColor "#fee")
+        c.eqStr("and the stroke" eNode.borderColor "#c66")
+        def aNode:FlowNode (sgraph.nodeById("A"))
+        c.eqStr("style names one node" aNode.bgColor "#eef")
+
+        ; And the whole of the demo diagram still routes cleanly.
+        def demoSrc:string (?? (read_file "." "gallery/rangerflow/fixtures/order_flow.mmd") "")
+        if ((strlen demoSrc) > 0) {
+            def demo:MermaidDiagram (MermaidReader.parse(demoSrc))
+            c.eqStr("the demo diagram has its title" demo.title "Tilauksen käsittely")
+            def dg:FlowGraph (MermaidFlow.build(demo))
+            c.eqInt("nothing is drawn through a step" (EdgeOverlap.nodeCrossings(dg)) 0)
+            c.eqInt("and no two links are drawn as one line" (EdgeOverlap.pairs(dg 2.0)) 0)
+        }
+    }
+
+    ; ------------------------------------------------- the examples' dialect --
+    ; What `fixtures/mermaid/` turned up. Every assertion here is one Mermaid's
+    ; own parser makes about the same text — see `docs/MERMAID_PARITY.md`, which
+    ; is regenerated by asking it rather than by writing answers down. This is
+    ; the offline half: it runs in the suite, with no registry and no oracle.
+    sfn testMermaidExamples:void (c:Checker) {
+        c.section("Mermaid, as its examples are written")
+
+        ; An id may hold a dash or a dot; a link may not be mistaken for one.
+        def ids:MermaidDiagram (MermaidReader.parse("flowchart LR\n  node-1[One] --> node.2[Two]\n  node.2-->node_3\n"))
+        c.eqInt("a kebab-case id is one node, not three" (ids.nodeCount()) 3)
+        def idg:FlowGraph (ids.build())
+        c.ok("and it keeps its name" (idg.hasNode("node-1")))
+        c.ok("dots too" (idg.hasNode("node.2")))
+        c.eqInt("with the links between them" (idg.edgeCount()) 2)
+
+        ; Mermaid 11's `@{ … }` node: the shapes with no bracket spelling.
+        def at:MermaidDiagram (MermaidReader.parse("flowchart TD\n  A@{ shape: rounded, label: \"New syntax\" }\n  B@{ shape: lean-r }\n  A --> B\n"))
+        def atg:FlowGraph (at.build())
+        def aNode:FlowNode (atg.nodeById("A"))
+        c.eqStr("`label:` names the node" aNode.label "New syntax")
+        c.near("and `shape: rounded` rounds it" aNode.borderRadius 14.0 0.001)
+        def bNode:FlowNode (atg.nodeById("B"))
+        c.eqStr("`shape: lean-r` is the parallelogram" bNode.shape "parallelogram")
+
+        ; An edge with a name is not a node between two nodes.
+        def named:MermaidDiagram (MermaidReader.parse("flowchart LR\n  A e1@--> B\n  e1@{ animate: true }\n"))
+        c.eqInt("an edge id makes no node of its own" (named.nodeCount()) 2)
+        def ng:FlowGraph (named.build())
+        def e0:FlowEdge (ng.edgeAt(0))
+        c.eqStr("the edge is called what the diagram called it" e0.id "e1")
+        c.ok("and what it was told, it does" e0.animated)
+
+        ; A markdown string is a label with formatting in it.
+        def md:MermaidDiagram (MermaidReader.parse("flowchart LR\n  A[\"`**Bold** text`\"] --> B\n"))
+        def mdg:FlowGraph (md.build())
+        def mdA:FlowNode (mdg.nodeById("A"))
+        c.eqStr("the backticks are not part of the label" mdA.label "**Bold** text")
+
+        ; `<br/>` is a line the author asked for, and the layout can take one.
+        def br:MermaidDiagram (MermaidReader.parse("flowchart TD\n  A[\"Two<br/>lines\"]\n"))
+        def brg:FlowGraph (br.build())
+        def brA:FlowNode (brg.nodeById("A"))
+        c.eqInt("a break arrives as a newline" (strlen brA.label) 9)
+        c.ok("and the box is given the second line" (brA.height > 60.0))
+
+        ; A subgraph with a title and no id is named the way Mermaid names it.
+        def sg:MermaidDiagram (MermaidReader.parse("flowchart TD\n  subgraph \"A title\"\n    a --> b\n  end\n"))
+        c.eqInt("the block is one subgraph" (sg.subgraphCount()) 1)
+        def sg0:MermaidSubgraph (sg.subgraphAt(0))
+        c.eqStr("titled as written" sg0.title "A title")
+        c.eqStr("and named as Mermaid names it" sg0.id "subGraph0")
+
+        ; Everything else Mermaid draws: recognised, and read as nothing.
+        def seq:MermaidDiagram (MermaidReader.parse("sequenceDiagram\n    Alice->>John: Hello\n    John-->>Alice: Hi\n"))
+        c.eqStr("a sequence diagram is named" seq.diagramKind "sequence")
+        c.eqInt("and not read as a flowchart" (seq.nodeCount()) 0)
+        def gantt:MermaidDiagram (MermaidReader.parse("gantt\n  title A\n  section S\n  task :a1, 2014-01-01, 30d\n"))
+        c.eqStr("a gantt chart too" gantt.diagramKind "gantt")
+        c.eqInt("with nothing invented from it" (gantt.nodeCount()) 0)
+        def state:MermaidDiagram (MermaidReader.parse("stateDiagram-v2\n  [*] --> Still\n  Still --> [*]\n"))
+        c.eqStr("a version suffix is part of the name, not of the type" state.diagramKind "state")
+        ; …and the one that IS the flowchart, under its other renderer.
+        def elk:MermaidDiagram (MermaidReader.parse("flowchart-elk TD\n  A --> B\n"))
+        c.eqStr("`flowchart-elk` is a flowchart" elk.diagramKind "flowchart")
+        c.eqInt("and is read as one" (elk.nodeCount()) 2)
+
+        ; A label may hold what looks like syntax, and a statement may end in a
+        ; semicolon — the old `graph` style, which most examples still use.
+        def hard:MermaidDiagram (MermaidReader.parse("graph TD;\n  A[\"a --> b, piped | text\"] --> B;\n  B --> C{\"Is it {tricky}?\"};\n"))
+        c.eqInt("a label full of syntax is still one label" (hard.nodeCount()) 3)
+        def hg:FlowGraph (hard.build())
+        def hA:FlowNode (hg.nodeById("A"))
+        c.eqStr("and it says what it says" hA.label "a --> b, piped | text")
+        c.eqInt("the semicolons separate statements" (hg.edgeCount()) 2)
+    }
+
+    ; ---------------------------------------------------------- stylesheets --
+    ; The look, as CSS. EVG's own engine does the parsing and the cascade; what
+    ; is asserted here is the vocabulary — which property means which field —
+    ; and that a node can be reached by everything it is: its type, its shape,
+    ; its id and whatever the domain called it.
+    sfn testStyleSheet:void (c:Checker) {
+        c.section("stylesheets")
+        def g (new FlowGraph)
+        def a:FlowNode (FlowNode.create("a" "Start" 0.0 0.0))
+        a.nodeType = "step"
+        a.shape = "stadium"
+        a.cssClass = "terminator"
+        g.addNode(a)
+        def b:FlowNode (FlowNode.create("b" "Ok?" 0.0 120.0))
+        b.nodeType = "step"
+        b.shape = "diamond"
+        b.cssClass = "decision warn"
+        g.addNode(b)
+        def e:FlowEdge (FlowEdge.create("e1" "a" "b"))
+        e.cssClass = "link dotted"
+        g.addEdge(e)
+        g.reindex()
+
+        def css:string "@vars { --ink: #101010; --paper: #fdfdfd }\n"
+        css = (css + ".node { fill: #ffffff; stroke: #cccccc; color: var(--ink); border-width: 2px }\n")
+        css = (css + ".decision { fill: #fff6e5 }\n")
+        css = (css + ".shape-stadium { border-radius: 22px }\n")
+        css = (css + ".id-b { accent-color: #ff0000 }\n")
+        css = (css + ".edge { stroke: #445566; stroke-width: 1.5px; marker-end: none }\n")
+        css = (css + ".dotted { stroke-dasharray: 4px }\n")
+        css = (css + ".canvas { background: var(--paper); edge-color: #445566; background-variant: lines }\n")
+        css = (css + ".theme-dark .node { fill: #1b202a; color: #e6e9ef }\n")
+        def st:FlowStyle (FlowStyle.parse(css))
+        c.eqInt("the sheet parsed with nothing left over" (st.errorCount()) 0)
+        c.eqInt("every rule was kept" (st.ruleCount()) 8)
+
+        def wrote:int (st.applyTo(g))
+        c.ok("and it wrote something" (wrote > 0))
+        c.eqStr("a class from the domain paints the box" b.bgColor "#fff6e5")
+        c.eqStr("`.node` reaches a node with no classes of its own" a.bgColor "#ffffff")
+        c.eqStr("a var() is resolved before it arrives" a.textColor "#101010")
+        c.near("a length loses its unit" a.borderWidth 2.0 0.001)
+        c.near("the shape is a selector" a.borderRadius 22.0 0.001)
+        c.eqStr("and so is the id" b.accentColor "#ff0000")
+        c.eqStr("an edge is styled by the same sheet" e.strokeColor "#445566")
+        c.near("its width in the same units" e.strokeWidth 1.5 0.001)
+        c.near("and `stroke-dasharray` is the dash" e.dash 4.0 0.001)
+        c.eqStr("`none` means the model's empty rather than the word" e.markerEnd "")
+
+        ; The canvas: the values a renderer reads before it draws anything.
+        def theme (new FlowTheme)
+        def themed:int (st.applyToTheme(theme))
+        c.ok("the canvas rule reached the theme" (themed > 0))
+        c.eqStr("the paper is the sheet's" theme.background "#fdfdfd")
+        c.eqInt("and so is the grid" theme.backgroundVariant 2)
+
+        ; A theme-scoped rule beats an unscoped one, whatever the source order.
+        st.setTheme("dark")
+        st.applyTo(g)
+        c.eqStr("a theme-scoped rule wins" a.bgColor "#1b202a")
+        c.eqStr("...for every property it names" a.textColor "#e6e9ef")
+        ; The engine has exactly one precedence rule — theme-scoped beats
+        ; unscoped — and it is not specificity: `.theme-dark .node` wins over
+        ; `.decision` even though the second names the more particular thing.
+        ; That is why the looks that ship here vary a `@vars` block instead of
+        ; restating the rules under a theme.
+        c.eqStr("a theme-scoped rule beats an unscoped one, specific or not" b.bgColor "#1b202a")
+
+        ; The looks that ship with it.
+        c.ok("the built-in names are known" (FlowStyles.knows("forest")))
+        c.ok("...including print" (FlowStyles.knows("print")))
+        c.ok("and an invented one is not" ((FlowStyles.knows("neon")) == false))
+        def dark:FlowStyle (FlowStyle.named("dark"))
+        c.eqInt("the built-in sheet parses cleanly" (dark.errorCount()) 0)
+        def dt (new FlowTheme)
+        dark.applyToTheme(dt)
+        c.eqStr("and its canvas is dark" dt.background "#12151c")
+    }
+
+    ; A Mermaid diagram in a look it did not choose — and the one rule that
+    ; decides what the diagram still gets to say for itself.
+    sfn testMermaidStyled:void (c:Checker) {
+        c.section("Mermaid, restyled")
+        def src:string "%%{init: {'theme':'forest'}}%%\n"
+        src = (src + "flowchart TD\n")
+        src = (src + "    A([Start]) --> B{Ok?}\n")
+        src = (src + "    B --> C[Reject]\n")
+        src = (src + "    classDef stop fill:#fee,stroke:#c66\n")
+        src = (src + "    class C stop\n")
+        def d:MermaidDiagram (MermaidReader.parse(src))
+        c.eqStr("an init directive names a theme" d.themeName "forest")
+
+        ; The classes a sheet matches a Mermaid node by.
+        def plain:FlowGraph (d.build())
+        def bNode:FlowNode (plain.nodeById("B"))
+        c.ok("a node wears its kind" ((indexOf bNode.cssClass "decision") >= 0))
+        c.ok("and the Mermaid shape it was written as" ((indexOf bNode.cssClass "rhombus") >= 0))
+        def cNode:FlowNode (plain.nodeById("C"))
+        c.ok("and every classDef it was given" ((indexOf cNode.cssClass "stop") >= 0))
+
+        ; A sheet under the diagram: it paints what the diagram did not.
+        def sheet:FlowStyle (FlowStyle.parse(".node { fill: #101010 } .decision { fill: #202020 }"))
+        def g:FlowGraph (MermaidFlow.styled(d sheet))
+        def sB:FlowNode (g.nodeById("B"))
+        c.eqStr("the sheet paints a node the diagram said nothing about" sB.bgColor "#202020")
+        def sC:FlowNode (g.nodeById("C"))
+        c.eqStr("and a classDef still beats it" sC.bgColor "#fee")
+        c.eqStr("a dark fill from a classDef gets readable text" sC.textColor "#1f2430")
+
+        ; ...unless the caller says the sheet wins.
+        def strong:FlowStyle (FlowStyle.parse(".node { fill: #101010 } .decision { fill: #202020 }"))
+        strong.strong = true
+        def g2:FlowGraph (MermaidFlow.styled(d strong))
+        def s2C:FlowNode (g2.nodeById("C"))
+        c.eqStr("with the sheet last, the sheet wins" s2C.bgColor "#101010")
+
+        ; A subgraph frame is made after the layout, and still gets the look.
+        def sub:string "flowchart TD\n  subgraph one [One]\n    A --> B\n  end\n"
+        def sd:MermaidDiagram (MermaidReader.parse(sub))
+        def frameSheet:FlowStyle (FlowStyle.parse(".frame { fill: #001122; stroke: #334455 }"))
+        def fg:FlowGraph (MermaidFlow.styled(sd frameSheet))
+        def frame:FlowNode (fg.nodeById("sg-one"))
+        c.eqStr("the frame is styled too" frame.bgColor "#001122")
+        c.eqStr("border and all" frame.borderColor "#334455")
     }
 
     ; ------------------------------------------------------ business charts --

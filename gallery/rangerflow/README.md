@@ -27,10 +27,12 @@ routing, auto-layout, large graphs — and produces something worth having.
 ## Run it
 
 ```bash
-npm run rangerflow:test        # 399 assertions: model, forces, router, editor, SQL, export
+npm run rangerflow:test        # 716 assertions: model, forces, router, editor, SQL, Mermaid, CSS, export
 npm run rangerflow:demo        # the e-commerce schema → SVG, PDF, HTML, JSON, scene
 npm run rangerflow:uml         # the same pipeline for a UML class diagram
 npm run rangerflow:flowchart   # an ATK flowchart in ISO 5807 shapes
+npm run rangerflow:mermaid     # a Mermaid flowchart, read from fixtures/order_flow.mmd
+npm run rangerflow:mermaid -- --style=print   # …the same diagram in another look
 npm run rangerflow:org         # an organisation chart
 npm run rangerflow:process     # a swimlane process
 npm run rangerflow:force       # React Flow's force-layout example, in Ranger
@@ -38,13 +40,18 @@ npm run rangerflow:bench       # layout / scene / drag timings at 500 nodes
 npm run rangerflow:drag        # drop every node everywhere, count the lines left crossing
 npm run rangerflow:demo:web    # build the page, serve it, open a browser
 npm run rangerflow:web:serve   # …the same without opening anything
-npm run rangerflow:web:test    # …or run all nine demos in headless Chrome
+npm run rangerflow:web:test    # …or run all eleven demos in headless Chrome
+npm run rangerflow:mermaid:parity  # score the reader against Mermaid's own parser
 npm run rangerflow:parity      # score it against React Flow — see below
 npm run rangerflow:rivals      # …and against JointJS and Syncfusion
 npm run rangerflow:sdl:run     # the same editor in a native SDL2 + OpenGL window
 ```
 
 ## The demos, in a browser
+
+The same page is published at
+**[terotests.github.io/Ranger/rangerflow/](https://terotests.github.io/Ranger/rangerflow/)**
+by the Pages workflow on every push to `master` that touches `gallery/rangerflow/`.
 
 `npm run rangerflow:demo:web` builds the static page, serves it, and prints
 the URLs. They are the same editor with different graphs in it — the `demo`
@@ -57,6 +64,7 @@ dropdown in the page switches between them, and `?scenario=` picks one on load:
 | [`?scenario=force`](http://localhost:8080/?scenario=force) | React Flow's force-layout example: d3-force running live, and a node you drag pins while you hold it |
 | [`?scenario=flow`](http://localhost:8080/?scenario=flow) | a plain flowchart — the core with no domain on top of it |
 | [`?scenario=atk`](http://localhost:8080/?scenario=atk) | an ATK chart in the ISO 5807 shapes: diamond, drum, parallelogram, wavy-footed page |
+| [`?scenario=mermaid`](http://localhost:8080/?scenario=mermaid) | **paste Mermaid, press render** — the text box is the diagram, and what comes out is draggable, editable and exportable |
 | [`?scenario=org`](http://localhost:8080/?scenario=org) | an organisation chart, units coloured, the matrix report dashed |
 | [`?scenario=process`](http://localhost:8080/?scenario=process) | a swimlane process — drag a lane and its steps come with it |
 | [`?scenario=mindmap`](http://localhost:8080/?scenario=mindmap) | a mind map, branches balanced either side of the root |
@@ -86,6 +94,122 @@ drives itself through select → drag → undo → select-all → **add two node
 join them, rename one, undo it all** inside real headless Chrome, and reports
 what the GL context actually did. A scenario cannot rot unnoticed behind the
 default one, and neither can a toolbar button.
+
+## Mermaid in, a drawing out
+
+Mermaid is how a diagram travels through a README, a ticket and a review:
+eleven lines of text everyone can already write. What it is not is something
+you can print, hit-test, drag a node in, or produce without a browser.
+`domains/mermaid/MermaidReader.rgr` is the door — text in, a `FlowGraph` out —
+and after that it is the same layered layout, the same lane router and the same
+four backends the ERD uses.
+
+```bash
+npm run rangerflow:mermaid                            # fixtures/order_flow.mmd
+npm run rangerflow:demo -- --mermaid path/to/diagram.mmd
+```
+
+```ranger
+def d:MermaidDiagram (MermaidReader.parse(text))
+def g:FlowGraph (MermaidFlow.build(d))      ; parsed, laid out, routed, framed
+```
+
+![Mermaid pasted into the page and drawn on the GPU](artifacts/scenario_mermaid.png)
+
+What it reads, which is the flowchart dialect people actually write:
+
+| | |
+| --- | --- |
+| header | `flowchart` / `graph` with `TD`, `TB`, `BT`, `LR`, `RL` |
+| shapes | `[]` `()` `([])` `[[]]` `[()]` `(())` `((()))` `>]` `{}` `{{}}` `[//]` `[\\]` `[/\]` `[\/]` |
+| links | `-->` `---` `-.->` `-.-` `==>` `===` `--o` `--x`, the `<-->` family, and both label forms — `A -->|yes| B` and `A -- yes --> B` |
+| statements | chains `A --> B --> C`, fan-outs `A & B --> C & D`, `;` separators |
+| grouping | `subgraph … end`, nested, drawn as the frames a sub-flow already has |
+| styling | `classDef`, `class`, `:::name`, `style` — fill, stroke and text colour |
+| the rest | `%%` comments, `---` front matter with a title, quoted labels, `<br/>`, HTML entities |
+
+### The same diagram in another look
+
+The diagram says what it says; how it looks is somebody else's decision, and
+usually somebody else's file. EVG already carries a small print-safe CSS engine
+— class selectors, `@vars`, `@media`, themes — so the look is a **stylesheet**
+rather than a set of constructor arguments:
+
+```bash
+npm run rangerflow:mermaid -- --style=forest      # default | forest | dark | neutral | print
+npm run rangerflow:mermaid -- --style=house.css   # …or one of your own
+npm run rangerflow:mermaid -- --style=print --restyle   # …and let it win over the diagram
+```
+
+```css
+@vars       { --fill: #ffffff; --line: #b9c0cc; }
+@vars dark  { --fill: #1b202a; --line: #39414f; }
+.node       { fill: var(--fill); stroke: var(--line); border-width: 1px; }
+.decision   { fill: #fff6e5; }
+.warn       { fill: #fee; stroke: #c66; }     /* a Mermaid classDef name */
+.frame      { fill: #f6f7fb; }                /* a subgraph box */
+.edge       { stroke: #7b8494; stroke-width: 1.4px; }
+.canvas     { background: #f7f8fa; edge-color: #7b8494; background-variant: dots; }
+```
+
+Every node answers to what it already is — `.node`, its type, `.shape-diamond`,
+`.id-<id>` — plus whatever vocabulary the domain wrote: a Mermaid node wears its
+kind (`.decision`), the shape it was written as (`.rhombus`) and every
+`classDef` name it was given (`.warn`), and edges wear `.link` with
+`.solid` / `.dotted` / `.thick`. So a sheet written for one diagram works on the
+next one.
+
+| in a rule | means |
+| --- | --- |
+| on a node | `fill`, `stroke`, `color`, `accent-color`, `border-radius`, `border-width`, `shape`, `visibility` |
+| on an edge | `stroke`, `stroke-width`, `stroke-dasharray`, `marker-start`, `marker-end`, `edge-type`, `animated` |
+| on `.canvas` | the paper, the grid, the node and header defaults, the edge colour and width, the selection, the panels and the minimap, the fonts |
+
+By default the **diagram wins**: a Mermaid `classDef` still beats the sheet,
+because someone wrote that colour on purpose — and a `classDef` fill with no
+text colour gets a readable one computed from it, so a pale box in the dark look
+is not pale text on pale paper. `--restyle` (or `style.strong = true`) turns
+that around for when the house style is the point.
+
+`%%{init: {'theme':'forest'}}%%` in the source picks a look by name, which is
+the same word Mermaid uses for it. In the browser page the Mermaid panel has a
+**look** dropdown, and `?scenario=mermaid&look=dark` picks one on load.
+
+![the same diagram in the dark look, on the GPU](artifacts/scenario_mermaid_dark.png)
+
+It also reads what Mermaid 11 added: `A@{ shape: rounded, label: "…" }` for the
+shapes with no bracket spelling, named edges (`A e1@--> B`, `e1@{ animate: true }`),
+markdown strings, and ids with a `-` or a `.` in them.
+
+What it drops on purpose: `click` (there is no browser to navigate),
+`linkStyle` by index, and `direction` inside a subgraph — RangerFlow lays the
+whole chart out one way. They are ignored rather than treated as errors, so a
+diagram that renders in Mermaid renders here too. The dozen other diagrams
+Mermaid draws — sequence, class, state, gantt, ER, … — are recognised by their
+header and read as **nothing**, because a sequence diagram read as a flowchart
+would be a page of invented boxes.
+
+Where it differs: text is measured with a font table rather than in a browser,
+so a line can break one word apart from Mermaid's, and a double circle is drawn
+as the UML final node, which is the same two rings.
+
+### …measured against Mermaid itself
+
+A claim of parity with a format is worth what the person making it wanted it to
+be worth, so this one is not a claim:
+
+```bash
+npm run rangerflow:mermaid:parity            # the score
+npm run rangerflow:mermaid:parity -- --diff  # …and every difference in full
+```
+
+Every diagram in `fixtures/mermaid/` is handed to **Mermaid's own parser**, and
+what comes back — vertices with their shapes, edges with their strokes and
+arrowheads, subgraphs with their members — is compared with what this reader
+made of the same text. Currently **182/182 checks over 26 examples**, including
+three diagrams of other kinds that must be refused rather than read. The table
+is [`docs/MERMAID_PARITY.md`](docs/MERMAID_PARITY.md), regenerated by the run;
+the corpus is where a new example goes when Mermaid grows one.
 
 ## …and in a window
 
