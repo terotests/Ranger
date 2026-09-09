@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Mermaid Cynefin frameworks.** The twenty-second type. The five domains are
+  always in the same places, because the places are the argument, so there is
+  nothing to lay out: the reader puts each item in the domain it was written
+  under and draws the arrows that say something moved. `confusion` is drawn in
+  the middle and over the four it sits between; a move from a domain to itself
+  is dropped, because it says nothing.
 - **Mermaid swimlane diagrams.** The twenty-first type, and the one with no
   grammar of its own: Mermaid reuses the flowchart parser wholesale and swaps
   the layout engine, so this reads the source with the flowchart reader and

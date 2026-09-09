@@ -625,6 +625,28 @@ recognise nothing and hand every swimlane diagram to the flowchart parser —
 which would draw it, and draw it wrong. The parity harness was asking about the
 wrong keyword too, so it could not have caught that.
 
+### …and Cynefin frameworks
+
+The Cynefin framework has exactly five domains and they are always in the same
+places, because the places are the argument: `complex` is next to `complicated`
+because the difference between them is the point, and `confusion` is in the
+middle because that is where you are when you do not know which of the other
+four you are in.
+
+```mermaid
+cynefin-beta
+    title Where the work is
+    complex
+        "new market"
+        "the rewrite"
+    clear "payroll"
+    complex --> complicated : "understood"
+```
+
+So there is nothing to lay out. The reader's whole job is to put each item in
+the domain it was written under and to draw the arrows that say something moved
+— and a move from a domain to itself is dropped, because it says nothing.
+
 ### …measured against Mermaid itself
 
 A claim of parity with a format is worth what the person making it wanted it to

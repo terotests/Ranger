@@ -1297,6 +1297,7 @@ class MermaidReader {
         if (kind == "block")     { return true }
         if (kind == "architecture") { return true }
         if (kind == "swimlane")  { return true }
+        if (kind == "cynefin")   { return true }
         return false
     }
 

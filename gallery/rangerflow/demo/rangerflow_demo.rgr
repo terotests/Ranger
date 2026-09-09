@@ -50,6 +50,7 @@ Import "../domains/mermaid/MermaidSankeyReader.rgr"
 Import "../domains/mermaid/MermaidBlockReader.rgr"
 Import "../domains/mermaid/MermaidArchReader.rgr"
 Import "../domains/mermaid/MermaidSwimlaneReader.rgr"
+Import "../domains/mermaid/MermaidCynefinReader.rgr"
 Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 Import "../layout/LayeredLayout.rgr"
@@ -537,6 +538,10 @@ class RangerFlowDemo {
             this.runMermaidSwimlane(srcOpt styleName)
             return
         }
+        if (d.diagramKind == "cynefin") {
+            this.runMermaidCynefin(srcOpt styleName)
+            return
+        }
         if ((strlen d.diagramKind) > 0) {
             if (d.diagramKind != "flowchart") {
                 print ("  this is a " + d.diagramKind + " diagram — this reads flowcharts and class diagrams")
@@ -998,6 +1003,27 @@ class RangerFlowDemo {
             title = "RangerFlow — Mermaid swimlane diagram"
         }
         this.writeAll(v g "rangerflow-mermaid-swimlane" title)
+    }
+
+    ; A Cynefin framework: five domains, and which one a thing is in.
+    fn runMermaidCynefin:void (src:string styleName:string) {
+        def cd:MermaidCynefin (MermaidCynefinReader.parse(src))
+        if ((cd.itemCount()) == 0) {
+            print "  nothing placed in that Cynefin framework"
+            return
+        }
+        def style:FlowStyle (this.styleByName(styleName))
+        def g:FlowGraph (MermaidCynefinFlow.build(cd style))
+        print ("  model  " + (to_string (cd.itemCount())) + " items, " + (to_string (cd.moveCount())) + " moves")
+        print ("  graph  " + (to_string (g.nodeCount())) + " nodes, " + (to_string (g.edgeCount())) + " edges")
+        def v:FlowView (FlowView.of(g))
+        v.notation = "plain"
+        style.applyToTheme(v.theme)
+        def title:string cd.title
+        if ((strlen title) == 0) {
+            title = "RangerFlow — Mermaid Cynefin framework"
+        }
+        this.writeAll(v g "rangerflow-mermaid-cynefin" title)
     }
 
     ; ------------------------------------------------------------- org -----

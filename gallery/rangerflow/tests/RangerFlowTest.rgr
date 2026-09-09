@@ -43,6 +43,7 @@ Import "../domains/mermaid/MermaidSankeyReader.rgr"
 Import "../domains/mermaid/MermaidBlockReader.rgr"
 Import "../domains/mermaid/MermaidArchReader.rgr"
 Import "../domains/mermaid/MermaidSwimlaneReader.rgr"
+Import "../domains/mermaid/MermaidCynefinReader.rgr"
 Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 
@@ -129,6 +130,7 @@ class RangerFlowTest {
         RangerFlowTest.testMermaidBlock(c)
         RangerFlowTest.testMermaidArchitecture(c)
         RangerFlowTest.testMermaidSwimlane(c)
+        RangerFlowTest.testMermaidCynefin(c)
         RangerFlowTest.testBusinessCharts(c)
         RangerFlowTest.testAuthoring(c)
         RangerFlowTest.testTreeLayouts(c)
@@ -3523,6 +3525,59 @@ class RangerFlowTest {
         c.ok("and there is one more band than there are subgraphs" (spare.y > lane0.y))
         c.eqInt("every link survives the relayout" (g.edgeCount()) 4)
         c.ok("a swimlane diagram is one this library draws" (MermaidReader.draws("swimlane")))
+    }
+
+    ; --------------------------------------------- Mermaid Cynefin --------
+    ; Five domains, always in the same places, because the places are the
+    ; argument. So there is nothing to lay out and everything to get right
+    ; about which domain a thing was written under.
+    sfn testMermaidCynefin:void (c:Checker) {
+        c.section("Mermaid Cynefin frameworks")
+        def src:string "cynefin-beta\n"
+        src = (src + "    title Where the work is\n")
+        src = (src + "    complex\n")
+        src = (src + "        \"new market\"\n")
+        src = (src + "        \"the rewrite\"\n")
+        src = (src + "    complicated \"migration\"\n")
+        src = (src + "    clear \"payroll\"\n")
+        src = (src + "    chaotic \"the outage\"\n")
+        src = (src + "    confusion \"the backlog\"\n")
+        src = (src + "    complex --> complicated : \"understood\"\n")
+        src = (src + "    clear --> clear : \"nowhere\"\n")
+
+        def d:MermaidCynefin (MermaidCynefinReader.parse(src))
+        c.eqStr("the title is the line that says so" d.title "Where the work is")
+        c.eqInt("an item per quoted string" (d.itemCount()) 6)
+        c.eqInt("indented under the name and on the same line both count" (d.itemsIn("complex")) 2)
+        c.eqInt("one written beside its name is one item" (d.itemsIn("complicated")) 1)
+        c.eqInt("the fifth domain is a domain like the others" (d.itemsIn("confusion")) 1)
+        c.eqInt("a move between two domains" (d.moveCount()) 1)
+        c.ok("and a move to the domain it is already in is not one" ((d.moveCount()) == 1))
+        def m:MermaidCynefinMove (itemAt d.moves 0)
+        c.eqStr("which reads from its ends" m.from "complex")
+        c.eqStr("both of them" m.to "complicated")
+        c.eqStr("and carries what was written after the colon" m.label "understood")
+        c.ok("`complex` is one of the five" (MermaidCynefin.isDomain("complex")))
+        c.ok("and `simple` is not — the framework renamed it years ago" ((MermaidCynefin.isDomain("simple")) == false))
+
+        def bare (new FlowStyle)
+        def g:FlowGraph (MermaidCynefinFlow.build(d bare))
+        def complex:FlowNode (g.nodeById("sg-complex"))
+        def complicated:FlowNode (g.nodeById("sg-complicated"))
+        def chaotic:FlowNode (g.nodeById("sg-chaotic"))
+        def clear:FlowNode (g.nodeById("sg-clear"))
+        c.ok("complicated is to the right of complex" (complicated.x > complex.x))
+        c.ok("chaotic is below it" (chaotic.y > complex.y))
+        c.ok("and clear is opposite" (clear.x > chaotic.x))
+        def centre:FlowNode (g.nodeById("sg-confusion"))
+        c.ok("confusion is in the middle" (centre.x > complex.x))
+        c.ok("of all four of them" (centre.x < complicated.x))
+        c.ok("and smaller than the domains it sits between" (centre.width < complex.width))
+        def first:MermaidCynefinItem (itemAt d.items 0)
+        def item:FlowNode (g.nodeById(first.id))
+        c.ok("an item is drawn inside its own domain" (item.x >= complex.x))
+        c.eqInt("a move is an arrow between two domains" (g.edgeCount()) 1)
+        c.ok("a Cynefin framework is one this library draws" (MermaidReader.draws("cynefin")))
     }
 
     ; --------------------------------------------- a click is not an edit --
