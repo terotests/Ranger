@@ -26,19 +26,47 @@ import { fileURLToPath } from "node:url";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, "..");
 const ALL = process.argv.includes("--all");
+const ROLES = process.argv.includes("--roles");
 
 const COMPARED = new Set([
   "button", "heading", "textbox", "checkbox", "radio", "dialog", "link", "tab",
   "banner", "main", "navigation", "region", "switch", "combobox", "menuitem",
 ]);
 
+// A MENU ITEM IS A BUTTON TO THIS DIFF, for the same reason a list wrapper is
+// nothing: both sides give the reader a stop with the same name in the same
+// place, and only one of them says the stop is inside a menu. The port's
+// calendar dropdown is `role="menu"` with `menuitem` children — which is what
+// a dropdown should be, and what its own keyboard trap is built on — while the
+// reference's is fourteen plain buttons in a div. Counting that as fourteen
+// controls missing and fourteen invented said the port had lost the calendar
+// switcher it draws perfectly well. The difference is not hidden: `--roles`
+// prints every stop whose role the two sides disagree on.
+const SAME_STOP = new Map([["menuitem", "button"]]);
+const roleOf = (n) => SAME_STOP.get(n.role) ?? n.role;
+
 function keyOf(n) {
   const state = n.state ? ` [${n.state}]` : "";
-  return `${n.role} "${n.name}"${state}`;
+  return `${roleOf(n)} "${n.name}"${state}`;
 }
 
 function compared(nodes) {
   return nodes.filter((n) => COMPARED.has(n.role)).map(keyOf);
+}
+
+/** The stops whose role the two sides spell differently, name by name. */
+function roleNotes(refNodes, ourNodes) {
+  // By NAME, so an unnamed node is skipped: `banner ""` and `main ""` are not
+  // the same stop as each other however the two sides spell them.
+  const ours = new Map();
+  for (const n of ourNodes) if (COMPARED.has(n.role) && n.name) ours.set(n.name, n.role);
+  const out = new Map();
+  for (const n of refNodes) {
+    if (!COMPARED.has(n.role) || !n.name) continue;
+    const mine = ours.get(n.name);
+    if (mine && mine !== n.role) out.set(`${n.role} → ${mine}`, (out.get(`${n.role} → ${mine}`) ?? 0) + 1);
+  }
+  return [...out].map(([k, n]) => `${n} ${k}`);
 }
 
 /** Longest common subsequence, as the pairs of indices that matched. */
@@ -95,6 +123,9 @@ for (const name of fs.readdirSync(refDir).filter((f) => f.endsWith(".json")).sor
       for (const m of missing) console.log(`        − ${m}`);
       for (const e of extra) console.log(`        + ${e}`);
     }
+    if (ROLES && of) {
+      for (const note of roleNotes(rf.nodes, of.nodes)) console.log(`        ~ ${note}`);
+    }
   });
 }
 
@@ -105,9 +136,19 @@ if (compared_ === 0) {
 }
 // The gate: nothing may fall below this. Raise it as the port catches up; a
 // number that only ever goes up is a number that means something.
-const FLOOR = Number(process.env.RT_TRACE_FLOOR ?? "0.9");
+// Raised from 0.90 when the recorder stopped snapshotting a half-built feed
+// and the calendar dropdown stopped counting as fourteen lost controls. What
+// is left below 100% is one difference, in five places: the reference's quick
+// entry is a collapsed placeholder with an UNNAMED send button, and the port's
+// is a real textbox with a named one. Closing that gap would mean taking the
+// name off a button.
+const FLOOR = Number(process.env.RT_TRACE_FLOOR ?? "0.93");
 if (worst < FLOOR) {
   console.log(`the worst frame matches ${(worst * 100).toFixed(0)}% of the reference — below the ${(FLOOR * 100).toFixed(0)}% floor`);
   process.exit(1);
 }
 console.log(`every frame matches at least ${(worst * 100).toFixed(0)}% of the reference in order`);
+// The marker `scripts/run-gallery-editor-tests.sh` greps for. The compiler
+// prints `[FAIL]` and still exits 0, so that runner refuses to take a zero
+// exit as a pass — a suite has to SAY it passed.
+console.log("ALL PASS");

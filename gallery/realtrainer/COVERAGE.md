@@ -13,7 +13,7 @@ below went through the parser and the row layer on the way to being printed.
 | The parser gives its own type | 32 / 32 |
 | Reaches a row type of its own | 14 / 32 |
 | Has L0 cases against the reference | 32 / 32 |
-| Drawn by the demo's own document | 9 / 32 |
+| Drawn by the demo's own document | 12 / 12 that can be |
 
 **Reaching `text` is not a gap.** The reference gives a row type of its own
 only to what it draws specially and turns the rest into a line of text with a
@@ -28,9 +28,9 @@ would mean it became nothing.
 | `phase` | ✅ | ✅ phase | ✅ 1 | ✅ |
 | `section` | ✅ | ✅ section | ✅ 1 | ✅ |
 | `exercise` | ✅ | ✅ exercise | ✅ 15 | ✅ |
-| `pyramid` | ✅ | ✅ pyramid | ✅ 2 | ❌ |
+| `pyramid` | ✅ | ✅ pyramid | ✅ 2 | ✅ |
 | `move` | ✅ | ✅ move | ✅ 4 | ✅ |
-| `split` | ✅ | ✅ split | ✅ 1 | ❌ |
+| `split` | ✅ | ✅ split | ✅ 1 | ✅ |
 | `duration` | ✅ | ✅ duration | 🟡 2 | ✅ |
 | `contacts` | ✅ | 🟡 text | ✅ 1 | ❌ |
 | `feeling` | ✅ | 🟡 text | ✅ 1 | ❌ |
@@ -53,7 +53,7 @@ would mean it became nothing.
 | `summary` | ✅ | ✅ summary | ✅ 1 | ✅ |
 | `interval` | ✅ | 🟡 text | ✅ 2 | ❌ |
 | `circuit` | ✅ | ✅ circuit | ✅ 2 | ✅ |
-| `unknown` | ✅ | ✅ unknown | ✅ 1 | ❌ |
+| `unknown` | ✅ | ✅ unknown | ✅ 1 | ✅ |
 
 ## What the columns are
 
@@ -67,7 +67,9 @@ would mean it became nothing.
   renderer or this port deliberately deviates (`🟡`). All of them match:
   `npm run rt:l0`.
 - **Drawn** — the demo's own `fixtures/session.compact` contains a row of this
-  family, so the document screen draws it.
+  family, so the document screen draws it. Counted against the families that
+  can be drawn under their own name: a family that becomes `text` is drawn as
+  text, and `tags` and `emojis` belong to the workout and not to the list.
 
 A family with no cases is the honest gap in this table: it parses and it maps,
 and nothing has checked what it looks like against the reference.

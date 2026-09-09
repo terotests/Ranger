@@ -365,6 +365,12 @@ SUITES=(
   # same scenario against the React app on the Firebase emulators — is
   # scripts/record-reference-trace.mjs, which cannot run here and says so.
   rt:trace
+  # …and that trace against the REFERENCE one: the app being ported, recorded
+  # from the real frontend on the emulators. Frame by frame, the sequence of
+  # stops a reader would tab through, scored by longest common subsequence
+  # over the reference's own length. The floor only ever goes up — it is the
+  # port's parity, and a number that can fall is a number nobody reads.
+  rt:trace:diff
 )
 
 failed=()

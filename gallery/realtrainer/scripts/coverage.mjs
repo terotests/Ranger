@@ -121,6 +121,13 @@ const parsed = rows.filter((r) => r.parses === YES).length;
 const own = rows.filter((r) => r.row.startsWith(YES)).length;
 const withCases = rows.filter((r) => r.caseCount > 0).length;
 const drawn = rows.filter((r) => r.drawn === YES).length;
+// WHAT DRAWN CAN REACH. A family that becomes a line of `text` is drawn as
+// text — the document has plenty of those — so it can never light this column
+// up under its own name, and neither can `tags` or `emojis`, which belong to
+// the workout rather than to the list. The reachable set is the families with
+// a row type of their own that IS a row; without saying so, `12 / 32` reads
+// like twenty families nobody drew.
+const drawable = rows.filter((r) => r.row.startsWith(YES) && !r.row.endsWith("not a row")).length;
 
 const body = `# COVERAGE — what this demo does with each COMPACT family
 
@@ -137,7 +144,7 @@ below went through the parser and the row layer on the way to being printed.
 | The parser gives its own type | ${parsed} / ${total} |
 | Reaches a row type of its own | ${own} / ${total} |
 | Has L0 cases against the reference | ${withCases} / ${total} |
-| Drawn by the demo's own document | ${drawn} / ${total} |
+| Drawn by the demo's own document | ${drawn} / ${drawable} that can be |
 
 **Reaching \`text\` is not a gap.** The reference gives a row type of its own
 only to what it draws specially and turns the rest into a line of text with a
@@ -160,7 +167,9 @@ ${rows.map((r) => `| \`${r.family}\` | ${r.parses} | ${r.row} | ${r.parts} | ${r
   renderer or this port deliberately deviates (\`${PART}\`). All of them match:
   \`npm run rt:l0\`.
 - **Drawn** — the demo's own \`fixtures/session.compact\` contains a row of this
-  family, so the document screen draws it.
+  family, so the document screen draws it. Counted against the families that
+  can be drawn under their own name: a family that becomes \`text\` is drawn as
+  text, and \`tags\` and \`emojis\` belong to the workout and not to the list.
 
 A family with no cases is the honest gap in this table: it parses and it maps,
 and nothing has checked what it looks like against the reference.
@@ -177,6 +186,6 @@ if (checkOnly) {
 } else {
   fs.writeFileSync(OUT, body);
   console.log(
-    `COVERAGE.md: ${total} families, ${parsed} parse, ${own} with a row type of their own, ${withCases} with L0 cases, ${drawn} drawn`,
+    `COVERAGE.md: ${total} families, ${parsed} parse, ${own} with a row type of their own, ${withCases} with L0 cases, ${drawn} of ${drawable} drawable drawn`,
   );
 }

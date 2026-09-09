@@ -452,8 +452,13 @@ npm run rt:coverage:check   # fail if it is stale  (CI)
 ```
 
 Reaching `text` is not scored as a gap: the reference gives a row type of its
-own only to what it draws specially. The column that shows real work left is
-**Drawn** — the families the demo's own document does not yet contain.
+own only to what it draws specially. **Drawn** is the column that showed real
+work left — the families the demo's own document did not contain — and it is
+now full: every family with a row type of its own, `pyramid`, `split` and the
+`unknown` line included, has a line in `fixtures/session.compact` and is drawn
+by the document screen, which is how a branch stops being one nobody has seen
+run. It is counted against what it can reach: a family that becomes `text` is
+drawn as text, and `tags` and `emojis` belong to the workout, not to the list.
 
 ## Saving, and why it does not serialise the rows
 
