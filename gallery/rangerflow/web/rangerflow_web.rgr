@@ -44,6 +44,7 @@ Import "../domains/mermaid/MermaidBlockReader.rgr"
 Import "../domains/mermaid/MermaidArchReader.rgr"
 Import "../domains/mermaid/MermaidSwimlaneReader.rgr"
 Import "../domains/mermaid/MermaidCynefinReader.rgr"
+Import "../domains/mermaid/MermaidIshikawaReader.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 Import "../layout/TreeLayouts.rgr"
 Import "../export/FlowExport.rgr"
@@ -706,6 +707,9 @@ class RangerFlowWeb {
         if (d.diagramKind == "cynefin") {
             return (this.loadMermaidCynefin(text styleName want))
         }
+        if (d.diagramKind == "ishikawa") {
+            return (this.loadMermaidIshikawa(text styleName want))
+        }
         if ((d.nodeCount()) == 0) {
             status = "no nodes in that Mermaid source"
             if ((strlen d.diagramKind) > 0) {
@@ -1214,6 +1218,22 @@ class RangerFlowWeb {
             what = "Mermaid Cynefin framework"
         }
         status = ((to_string (cd.itemCount())) + " items — " + what + ", " + want)
+        return true
+    }
+
+    ; A fishbone: the effect at the head, the causes off the spine.
+    fn loadMermaidIshikawa:boolean (text:string styleName:string want:string) {
+        def fd:MermaidIshikawa (MermaidIshikawaReader.parse(text))
+        if ((fd.categoryCount()) == 0) {
+            status = "no causes in that fishbone"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidIshikawaFlow.build(fd style))
+        this.adoptPlaced(g style want)
+        status = ((to_string (fd.categoryCount())) + " categories, " + (to_string (fd.causeCount())) + " causes — " + fd.problem + ", " + want)
         return true
     }
 

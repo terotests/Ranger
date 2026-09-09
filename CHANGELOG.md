@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Mermaid fishbone (Ishikawa) diagrams.** The twenty-third type. Indentation
+  is the whole of Mermaid's grammar for it, so it is the whole of the reading:
+  the first line is the effect, the lines under it the categories, and the
+  lines under those the causes — to any depth, because a cause of a cause is
+  what the diagram was invented for. Drawn as a fishbone: the effect at the
+  head, the categories alternating above and below the spine.
 - **Mermaid Cynefin frameworks.** The twenty-second type. The five domains are
   always in the same places, because the places are the argument, so there is
   nothing to lay out: the reader puts each item in the domain it was written

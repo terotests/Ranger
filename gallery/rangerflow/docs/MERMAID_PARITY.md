@@ -5,7 +5,7 @@
 > and asked what it understood. Nothing is transcribed, so nothing can be
 > transcribed wrong.
 
-Mermaid 11.17.2 · 38 diagrams · **206/206 checks agree (100%)**
+Mermaid 11.17.2 · 39 diagrams · **208/208 checks agree (100%)**
 
 | example | type | direction | nodes | labels | shapes | classes | edges | subgraphs |
 | --- | --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
@@ -47,6 +47,7 @@ Mermaid 11.17.2 · 38 diagrams · **206/206 checks agree (100%)**
 | `36_architecture.mmd` | architecture ✓ | — | — | — | — | — | — | — |
 | `37_swimlane.mmd` | swimlane ✓ | — | — | — | — | — | — | — |
 | `38_cynefin.mmd` | cynefin ✓ | — | — | — | — | — | — | — |
+| `39_ishikawa.mmd` | ishikawa ✓ | — | — | — | — | — | — | — |
 
 ## Read anyway
 
@@ -59,7 +60,7 @@ every one of these is a file somebody wrote and Mermaid would not draw.
 ## Mermaid's diagram types
 
 Read off the installed Mermaid's own build rather than typed here, so a type
-added upstream appears the next time the harness is installed. 22 of the 30 are drawn;
+added upstream appears the next time the harness is installed. 23 of the 30 are drawn;
 the rest have to be **recognised and refused**, because a header this reader
 does not know falls through to the flowchart parser, and a Wardley map read as
 a flowchart is a page of invented boxes.
@@ -78,7 +79,7 @@ a flowchart is a page of invented boxes.
 | `gantt` | **drawn** — read as `gantt` |
 | `gitGraph` | **drawn** — read as `git` |
 | `info` | recognised as `info`, read as nothing |
-| `ishikawa-beta` | recognised as `ishikawa`, read as nothing |
+| `ishikawa-beta` | **drawn** — read as `ishikawa` |
 | `journey` | **drawn** — read as `journey` |
 | `kanban` | **drawn** — read as `kanban` |
 | `mindmap` | **drawn** — read as `mindmap` |

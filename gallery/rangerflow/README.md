@@ -647,6 +647,29 @@ So there is nothing to lay out. The reader's whole job is to put each item in
 the domain it was written under and to draw the arrows that say something moved
 — and a move from a domain to itself is dropped, because it says nothing.
 
+### …and fishbone diagrams
+
+A cause-and-effect tree with one strong convention about how it is drawn: the
+effect is the head of the fish, the spine runs back from it, and the causes
+come off the spine at an angle, alternating above and below so that a long list
+still fits on a page.
+
+```mermaid
+ishikawa-beta
+  Late delivery
+    Machine
+      Old truck
+      No spare parts
+    Method
+      No route plan
+        Nobody asked the driver
+```
+
+Indentation is the whole of Mermaid's grammar for it, so it is the whole of the
+reading: the first line is the effect, the lines under it are the categories,
+and the lines under those are the causes — as deep as they go, because a cause
+of a cause is the thing the diagram was invented for.
+
 ### …measured against Mermaid itself
 
 A claim of parity with a format is worth what the person making it wanted it to

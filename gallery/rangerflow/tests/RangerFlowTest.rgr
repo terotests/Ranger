@@ -44,6 +44,7 @@ Import "../domains/mermaid/MermaidBlockReader.rgr"
 Import "../domains/mermaid/MermaidArchReader.rgr"
 Import "../domains/mermaid/MermaidSwimlaneReader.rgr"
 Import "../domains/mermaid/MermaidCynefinReader.rgr"
+Import "../domains/mermaid/MermaidIshikawaReader.rgr"
 Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 
@@ -131,6 +132,7 @@ class RangerFlowTest {
         RangerFlowTest.testMermaidArchitecture(c)
         RangerFlowTest.testMermaidSwimlane(c)
         RangerFlowTest.testMermaidCynefin(c)
+        RangerFlowTest.testMermaidIshikawa(c)
         RangerFlowTest.testBusinessCharts(c)
         RangerFlowTest.testAuthoring(c)
         RangerFlowTest.testTreeLayouts(c)
@@ -3593,6 +3595,60 @@ class RangerFlowTest {
         c.ok("which crosses the boundary rather than running along it" ((fabs (x1 - x0)) > 40.0))
         c.eqInt("a move is an arrow between two domains" (g.edgeCount()) 1)
         c.ok("a Cynefin framework is one this library draws" (MermaidReader.draws("cynefin")))
+    }
+
+    ; --------------------------------------------- Mermaid Ishikawa -------
+    ; A cause-and-effect tree with one strong convention about how it is
+    ; drawn: the effect at the head, the causes off the spine, alternating
+    ; above and below. The reading is indentation and nothing else, which is
+    ; the whole of Mermaid's grammar for it.
+    sfn testMermaidIshikawa:void (c:Checker) {
+        c.section("Mermaid fishbone diagrams")
+        def src:string "ishikawa-beta\n"
+        src = (src + "  Late delivery\n")
+        src = (src + "    Machine\n")
+        src = (src + "      Old truck\n")
+        src = (src + "      No spare parts\n")
+        src = (src + "    Method\n")
+        src = (src + "      No route plan\n")
+        src = (src + "        Nobody asked the driver\n")
+        src = (src + "    Material\n")
+        src = (src + "    People\n")
+
+        def d:MermaidIshikawa (MermaidIshikawaReader.parse(src))
+        c.eqStr("the first line is the effect — the head of the fish" d.problem "Late delivery")
+        c.eqInt("the lines under it are the categories" (d.categoryCount()) 4)
+        c.eqInt("and everything below those is a cause, as deep as it goes" (d.causeCount()) 4)
+        def machine:MermaidIshikawaNode (itemAt d.root.children 0)
+        c.eqStr("read in the order they were written" machine.text "Machine")
+        c.eqInt("with their own causes under them" (machine.childCount()) 2)
+        def method:MermaidIshikawaNode (itemAt d.root.children 1)
+        def plan:MermaidIshikawaNode (itemAt method.children 0)
+        c.eqInt("a cause may have a cause of its own" (plan.childCount()) 1)
+        def deeper:MermaidIshikawaNode (itemAt plan.children 0)
+        c.eqStr("as deep as the indentation goes" deeper.text "Nobody asked the driver")
+        def empty:MermaidIshikawaNode (itemAt d.root.children 2)
+        c.eqInt("a category with nothing under it is still a category" (empty.childCount()) 0)
+
+        def bare (new FlowStyle)
+        def g:FlowGraph (MermaidIshikawaFlow.build(d bare))
+        def head:FlowNode (g.nodeById("head"))
+        def spine:FlowNode (g.nodeById("spine"))
+        c.eqStr("the effect is drawn as the head it is" head.label "Late delivery")
+        c.ok("at the far end of the spine" (head.x >= (spine.x + spine.width - 1.0)))
+        def cat0:FlowNode (g.nodeById(machine.id))
+        def cat1:FlowNode (g.nodeById(method.id))
+        c.ok("the first category is above the spine" (cat0.y < spine.y))
+        c.ok("and the second below it, so a long list still fits" (cat1.y > spine.y))
+        def cat2:MermaidIshikawaNode (itemAt d.root.children 2)
+        def cat2Node:FlowNode (g.nodeById(cat2.id))
+        c.ok("the third is above again, and further along" (cat2Node.x > cat0.x))
+        c.ok("on the same side as the first" (cat2Node.y < spine.y))
+        def firstCause:MermaidIshikawaNode (itemAt machine.children 0)
+        def cause:FlowNode (g.nodeById(firstCause.id))
+        c.ok("a cause is further from the spine than what it causes" (cause.y < cat0.y))
+        c.eqInt("a bone per category and per cause, the deep one included" (g.edgeCount()) 8)
+        c.ok("a fishbone is one this library draws" (MermaidReader.draws("ishikawa")))
     }
 
     ; --------------------------------------------- a click is not an edit --

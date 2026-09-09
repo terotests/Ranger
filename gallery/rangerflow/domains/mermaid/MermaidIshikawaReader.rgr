@@ -53,8 +53,10 @@ class MermaidIshikawa {
         return (array_length root.children)
     }
 
+    ; The causes, which are everything below a category — the categories
+    ; themselves are not causes of anything, they are the headings.
     fn causeCount:int () {
-        return (MermaidIshikawa.countBelow(root))
+        return ((MermaidIshikawa.countBelow(root)) - (array_length root.children))
     }
 
     sfn countBelow:int (n:MermaidIshikawaNode) {

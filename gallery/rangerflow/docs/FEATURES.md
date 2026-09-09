@@ -140,6 +140,7 @@ Status keys: **✓** done · **~** partial · **·** not yet.
 | Schema grouping / multi-schema | ~ | `DBTable.schema` is modelled; no visual grouping yet |
 | SQL DDL import | ✓ | `SqlSchemaReader` |
 | Mermaid flowchart import | ✓ | `MermaidReader`: every shape and link, `subgraph`, `classDef` / `class` / `style`; `click` and `linkStyle` ignored |
+| Mermaid fishbone import | ✓ | `MermaidIshikawaReader`: indentation as the whole grammar, effect at the head, categories alternating above and below the spine, causes to any depth |
 | Mermaid Cynefin import | ✓ | `MermaidCynefinReader`: the five domains in their fixed places, quoted items beside or under the name, `from --> to : "label"` moves |
 | Mermaid swimlane import | ✓ | `MermaidSwimlaneFlow`: the flowchart reader, subgraphs as lanes, longest-path order across the page |
 | Mermaid architecture import | ✓ | `MermaidArchReader`: `group` / `service` / `junction` with icons and `in` parents, all four connection arrows, and the L/R/T/B sides used as the layout |
