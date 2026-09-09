@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Mermaid mind maps.** The fifth type, and the one with no arrows in it:
+  indentation is the syntax, so `MermaidMindMapReader` turns the outline into a
+  tree and hands it to `MindMapLayout`, which has balanced a mind map's
+  branches either side of its root since the tree layouts were written. Every
+  node shape Mermaid has, `::icon()` read and dropped, `:::class` kept for a
+  stylesheet to match.
 - **Mermaid state diagrams.** The fourth type, and again no new renderer: a
   state machine and a UML activity diagram are the same picture with two
   vocabularies over it, so `MermaidStateReader` reads `stateDiagram` into

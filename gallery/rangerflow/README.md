@@ -27,7 +27,7 @@ routing, auto-layout, large graphs — and produces something worth having.
 ## Run it
 
 ```bash
-npm run rangerflow:test        # 808 assertions: model, forces, router, editor, SQL, Mermaid, CSS, export
+npm run rangerflow:test        # 826 assertions: model, forces, router, editor, SQL, Mermaid, CSS, export
 npm run rangerflow:demo        # the e-commerce schema → SVG, PDF, HTML, JSON, scene
 npm run rangerflow:uml         # the same pipeline for a UML class diagram
 npm run rangerflow:flowchart   # an ATK flowchart in ISO 5807 shapes
@@ -275,6 +275,29 @@ sub-flow already has, nested, and a transition into one enters it at the state
 it starts at; `state "A long name" as s`, `s : a description` (which becomes
 the second line of the box), `<<fork>>`, `<<join>>`, `<<choice>>` and
 `direction`. Notes and the `--` concurrency divider are dropped.
+
+### …and mind maps
+
+The one with no arrows in it. Indentation is the syntax, and `MindMapLayout`
+has balanced a mind map's branches either side of its root since the tree
+layouts were written — so this reader turns an outline into a tree and hands it
+over.
+
+```mermaid
+mindmap
+  root((RangerFlow))
+    Domains
+      ERD
+      Mermaid
+    Backends
+      WebGL 2
+```
+
+Every shape Mermaid has — `[]` `()` `(())` `))((` `)(` `{{}}` — with `::icon()`
+read and dropped (there is no icon font here) and `:::class` kept, because a
+stylesheet can match it.
+
+![a mind map, balanced either side of its root](artifacts/scenario_mermaid_mindmap.png)
 
 ### …measured against Mermaid itself
 

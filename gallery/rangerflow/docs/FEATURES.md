@@ -140,6 +140,7 @@ Status keys: **✓** done · **~** partial · **·** not yet.
 | Schema grouping / multi-schema | ~ | `DBTable.schema` is modelled; no visual grouping yet |
 | SQL DDL import | ✓ | `SqlSchemaReader` |
 | Mermaid flowchart import | ✓ | `MermaidReader`: every shape and link, `subgraph`, `classDef` / `class` / `style`; `click` and `linkStyle` ignored |
+| Mermaid mind map import | ✓ | `MermaidMindMapReader` → the tree layout: indentation as hierarchy, every node shape, balanced either side of the root |
 | Mermaid state diagram import | ✓ | `MermaidStateReader` → the activity model: `[*]` terminals per scope, composite states as frames, `<<fork>>` / `<<join>>` / `<<choice>>`, descriptions |
 | Mermaid ER diagram import | ✓ | `MermaidErReader` → the schema model: entities, attributes with PK/FK/UK and comments, every cardinality pair, identifying and non-identifying lines |
 | Mermaid class diagram import | ✓ | `MermaidClassReader` → the UML model: members, visibility, static/abstract, stereotypes, every relation with its ornament, cardinalities and label |

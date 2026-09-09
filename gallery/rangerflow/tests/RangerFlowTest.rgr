@@ -27,6 +27,7 @@ Import "../domains/mermaid/MermaidReader.rgr"
 Import "../domains/mermaid/MermaidClassReader.rgr"
 Import "../domains/mermaid/MermaidErReader.rgr"
 Import "../domains/mermaid/MermaidStateReader.rgr"
+Import "../domains/mermaid/MermaidMindMapReader.rgr"
 Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 
@@ -98,6 +99,7 @@ class RangerFlowTest {
         RangerFlowTest.testMermaidClassDiagram(c)
         RangerFlowTest.testMermaidErDiagram(c)
         RangerFlowTest.testMermaidStateDiagram(c)
+        RangerFlowTest.testMermaidMindMap(c)
         RangerFlowTest.testBusinessCharts(c)
         RangerFlowTest.testAuthoring(c)
         RangerFlowTest.testTreeLayouts(c)
@@ -2664,6 +2666,69 @@ class RangerFlowTest {
             c.eqInt("and it draws" (EdgeOverlap.nodeCrossings(rg)) 0)
         }
         c.ok("a state diagram is one this library draws" (MermaidReader.draws("state")))
+    }
+
+    ; ---------------------------------------------------- Mermaid mind maps --
+    ; The one with no arrows in it: indentation is the syntax, and the tree
+    ; layout has balanced a mind map either side of its root since it was
+    ; written.
+    sfn testMermaidMindMap:void (c:Checker) {
+        c.section("Mermaid mind maps")
+        def src:string "mindmap\n"
+        src = (src + "  root((the middle))\n")
+        src = (src + "    Origins\n")
+        src = (src + "      Long history\n")
+        src = (src + "      ::icon(fa fa-book)\n")
+        src = (src + "      Popularisation\n")
+        src = (src + "        Tony Buzan\n")
+        src = (src + "    Research\n")
+        src = (src + "      On effectiveness<br/>and features\n")
+        src = (src + "    Tools[in brackets]\n")
+        src = (src + "      Pen and paper\n")
+        def d:MermaidMindMap (MermaidMindMapReader.parse(src))
+        c.eqInt("every line is a node" (d.nodeCount()) 9)
+        c.eqStr("the first one is the root" (d.rootId()) "root")
+
+        def root:MermaidMindNode (itemAt d.nodes 0)
+        c.eqStr("`(( ))` is a circle" root.shape "circle")
+        c.eqStr("with the label from between the brackets" root.label "the middle")
+        def origins:MermaidMindNode (itemAt d.nodes 1)
+        c.eqInt("indentation is the hierarchy" origins.depth 1)
+        c.eqStr("so the root is its parent" origins.parent "root")
+        def buzan:MermaidMindNode (itemAt d.nodes 4)
+        c.eqInt("four levels in" buzan.depth 3)
+        c.eqStr("under the line above it" buzan.parent "Popularisation")
+        def research:MermaidMindNode (itemAt d.nodes 5)
+        c.eqStr("and a line indented back out is a sibling of what it lines up with" research.parent "root")
+        def wrapped:MermaidMindNode (itemAt d.nodes 6)
+        c.ok("`<br/>` is a line the author asked for" ((indexOf wrapped.label (strfromcode 10)) > 0))
+        def tools:MermaidMindNode (itemAt d.nodes 7)
+        c.eqStr("`[]` is a square" tools.shape "square")
+        c.eqStr("named by what is before the bracket" tools.id "Tools")
+        c.eqStr("and labelled by what is inside it" tools.label "in brackets")
+
+        ; …and it draws, laid out by the mind map layout rather than a layered
+        ; one: a mind map read top to bottom is a tree with the point missed.
+        def g:FlowGraph (MermaidMindMapFlow.render(src))
+        c.eqInt("every node became a node" (g.nodeCount()) 9)
+        c.eqInt("and every line but the root's a branch" (g.edgeCount()) 8)
+        def rootNode:FlowNode (g.nodeById("root"))
+        def left:int 0
+        def right:int 0
+        def i:int 0
+        while (i < (g.nodeCount())) {
+            def n:FlowNode (g.nodeAt(i))
+            if ((n.centerX()) < (rootNode.centerX())) {
+                left = (left + 1)
+            }
+            if ((n.centerX()) > (rootNode.centerX())) {
+                right = (right + 1)
+            }
+            i = (i + 1)
+        }
+        c.ok("the branches are balanced either side of the root" ((left > 0) && (right > 0)))
+        c.eqInt("nothing is drawn through a node" (EdgeOverlap.nodeCrossings(g)) 0)
+        c.ok("a mind map is one this library draws" (MermaidReader.draws("mindmap")))
     }
 
     ; --------------------------------------------- a click is not an edit --

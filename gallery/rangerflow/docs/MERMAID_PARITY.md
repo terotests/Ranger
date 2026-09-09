@@ -70,7 +70,7 @@ a flowchart is a page of invented boxes.
 | `ishikawa-beta` | recognised as `ishikawa`, read as nothing |
 | `journey` | recognised as `journey`, read as nothing |
 | `kanban` | recognised as `kanban`, read as nothing |
-| `mindmap` | recognised as `mindmap`, read as nothing |
+| `mindmap` | **drawn** — read as `mindmap` |
 | `peg` | recognised as `peg`, read as nothing |
 | `pie` | recognised as `pie`, read as nothing |
 | `quadrantChart` | recognised as `quadrant`, read as nothing |

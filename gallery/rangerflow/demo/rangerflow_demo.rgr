@@ -34,6 +34,7 @@ Import "../domains/mermaid/MermaidReader.rgr"
 Import "../domains/mermaid/MermaidClassReader.rgr"
 Import "../domains/mermaid/MermaidErReader.rgr"
 Import "../domains/mermaid/MermaidStateReader.rgr"
+Import "../domains/mermaid/MermaidMindMapReader.rgr"
 Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 Import "../layout/LayeredLayout.rgr"
@@ -457,6 +458,10 @@ class RangerFlowDemo {
             this.runMermaidState(srcOpt styleName)
             return
         }
+        if (d.diagramKind == "mindmap") {
+            this.runMermaidMindMap(srcOpt styleName)
+            return
+        }
         if ((strlen d.diagramKind) > 0) {
             if (d.diagramKind != "flowchart") {
                 print ("  this is a " + d.diagramKind + " diagram — this reads flowcharts and class diagrams")
@@ -578,6 +583,28 @@ class RangerFlowDemo {
             title = "RangerFlow — Mermaid state diagram"
         }
         this.writeAll(v g "rangerflow-mermaid-state" title)
+    }
+
+    ; A Mermaid mind map, balanced either side of its root.
+    fn runMermaidMindMap:void (src:string styleName:string) {
+        def md:MermaidMindMap (MermaidMindMapReader.parse(src))
+        if ((md.nodeCount()) == 0) {
+            print "  no nodes in that mind map"
+            return
+        }
+        def style:FlowStyle (this.styleByName(styleName))
+        def g:FlowGraph (MermaidMindMapFlow.build(md style))
+        print ("  model  " + (to_string (md.nodeCount())) + " nodes, root " + (md.rootId()))
+        print ("  graph  " + (to_string (g.nodeCount())) + " nodes, " + (to_string (g.edgeCount())) + " edges")
+        print ("         edges drawn through an unrelated node: " + (to_string (EdgeOverlap.nodeCrossings(g))))
+        def v:FlowView (FlowView.of(g))
+        v.notation = "plain"
+        style.applyToTheme(v.theme)
+        def title:string md.title
+        if ((strlen title) == 0) {
+            title = "RangerFlow — Mermaid mind map"
+        }
+        this.writeAll(v g "rangerflow-mermaid-mindmap" title)
     }
 
     ; ------------------------------------------------------------- org -----

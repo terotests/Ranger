@@ -1281,6 +1281,7 @@ class MermaidReader {
         if (kind == "class")     { return true }
         if (kind == "er")        { return true }
         if (kind == "state")     { return true }
+        if (kind == "mindmap")   { return true }
         return false
     }
 
