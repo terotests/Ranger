@@ -140,6 +140,7 @@ Status keys: **✓** done · **~** partial · **·** not yet.
 | Schema grouping / multi-schema | ~ | `DBTable.schema` is modelled; no visual grouping yet |
 | SQL DDL import | ✓ | `SqlSchemaReader` |
 | Mermaid flowchart import | ✓ | `MermaidReader`: every shape and link, `subgraph`, `classDef` / `class` / `style`; `click` and `linkStyle` ignored |
+| Mermaid xychart import | ✓ | `MermaidXyReader`: `bar` and `line` series on a measured axis, category or numeric x, given or derived y range, `horizontal` |
 | Mermaid pie import | ✓ | `MermaidPieReader`: wedges as `shapePoints` polygons, `showData`, a legend with values and percentages, twelve palette classes |
 | Mermaid quadrant chart import | ✓ | `MermaidQuadrantReader`: both axes with their ends, the four corner labels, points with `radius:` / `color:` / `stroke-color:`, `:::class` and `classDef` |
 | Mermaid kanban import | ✓ | `MermaidKanbanReader`: indentation as hierarchy, `id[Label]`, the `@{ ticket / assigned / priority }` block, priority as a class |

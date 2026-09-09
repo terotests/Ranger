@@ -38,6 +38,7 @@ Import "../domains/mermaid/MermaidGitReader.rgr"
 Import "../domains/mermaid/MermaidKanbanReader.rgr"
 Import "../domains/mermaid/MermaidQuadrantReader.rgr"
 Import "../domains/mermaid/MermaidPieReader.rgr"
+Import "../domains/mermaid/MermaidXyReader.rgr"
 Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 
@@ -119,6 +120,7 @@ class RangerFlowTest {
         RangerFlowTest.testMermaidKanban(c)
         RangerFlowTest.testMermaidQuadrant(c)
         RangerFlowTest.testMermaidPie(c)
+        RangerFlowTest.testMermaidXyChart(c)
         RangerFlowTest.testBusinessCharts(c)
         RangerFlowTest.testAuthoring(c)
         RangerFlowTest.testTreeLayouts(c)
@@ -3257,6 +3259,55 @@ class RangerFlowTest {
         c.eqStr("46.3% of a circle needs no decimals it has not got" (MermaidPieFlow.numberText(5.0)) "5")
         c.eqStr("and one that does keeps them" (MermaidPieFlow.numberText(42.96)) "42.96")
         c.ok("a pie chart is one this library draws" (MermaidReader.draws("pie")))
+    }
+
+    ; --------------------------------------------- Mermaid xychart --------
+    ; The first diagram here with a SCALE in it. Every other one places things
+    ; by counting; this one places them by measuring, so the assertions are
+    ; about the measuring — and about the default range, because a bar chart
+    ; whose axis starts just under the smallest bar is a lie with a legend.
+    sfn testMermaidXyChart:void (c:Checker) {
+        c.section("Mermaid xy charts")
+        def src:string "xychart-beta\n"
+        src = (src + "    title \"Sales revenue\"\n")
+        src = (src + "    x-axis [jan, feb, mar, apr]\n")
+        src = (src + "    y-axis \"Revenue (in $)\" 4000 --> 12000\n")
+        src = (src + "    bar [5000, 6000, 7500, 8200]\n")
+        src = (src + "    line [5000, 6000, 7500, 8200]\n")
+
+        def d:MermaidXyChart (MermaidXyReader.parse(src))
+        c.eqStr("the title loses its quotes" d.title "Sales revenue")
+        c.eqInt("a category per name in the brackets" (d.categoryCount()) 4)
+        c.eqStr("the y axis keeps its own title" d.yTitle "Revenue (in $)")
+        c.ok("and its range is the one that was given" d.yGiven)
+        c.ok("the bottom of it as written" ((fabs ((d.low()) - 4000.0)) < 0.0001))
+        c.ok("both ends of it" ((fabs ((d.high()) - 12000.0)) < 0.0001))
+        c.eqInt("a series per bar and line statement" (d.seriesCount()) 2)
+        def bars:MermaidXySeries (itemAt d.series 0)
+        c.eqStr("read in the order they were written" bars.kind "bar")
+        c.eqInt("with a reading per number" (bars.count()) 4)
+
+        ; Where no range was given the axis starts at zero, which is Mermaid's
+        ; default and the only one that does not exaggerate.
+        def plain:string "xychart-beta\n    bar [90, 95, 100]\n"
+        def pd:MermaidXyChart (MermaidXyReader.parse(plain))
+        c.ok("with no range given the axis starts at zero" ((fabs (pd.low())) < 0.0001))
+        c.ok("and stops at the biggest reading" ((fabs ((pd.high()) - 100.0)) < 0.0001))
+        c.eqInt("and the readings decide how wide the chart is" (pd.slots()) 3)
+
+        def bare (new FlowStyle)
+        def g:FlowGraph (MermaidXyFlow.build(d bare))
+        def b0:FlowNode (g.nodeById("bar0-0"))
+        def b3:FlowNode (g.nodeById("bar0-3"))
+        c.ok("bars run along the axis in order" (b0.x < b3.x))
+        c.ok("a bigger number is a taller bar" (b3.height > b0.height))
+        ; 5000 of the way from 4000 to 12000 is one eighth; 8200 is 21/40.
+        def ratio:double (b3.height / b0.height)
+        c.ok("and taller by exactly as much as it is bigger" ((fabs (ratio - 4.2)) < 0.02))
+        def dot:FlowNode (g.nodeById("dot1-0"))
+        c.eqStr("a line series is a dot at every reading" dot.shape "circle")
+        c.eqInt("with an edge between one dot and the next" (g.edgeCount()) 3)
+        c.ok("an xychart is one this library draws" (MermaidReader.draws("xychart")))
     }
 
     ; --------------------------------------------- a click is not an edit --

@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Mermaid xy charts.** The seventeenth type, and the first with a *scale* in
+  it: every other diagram here places things by counting, and this one places
+  them by measuring. `bar` and `line` series can be mixed, several bar series
+  share a band side by side, and `horizontal` swaps the axes. Where the range
+  is not given it comes from the data with zero at the bottom, because an axis
+  that starts just under the smallest bar makes a 4% difference look like a
+  tenfold one.
 - **Mermaid pie charts.** The sixteenth type, and the one that is arithmetic
   all the way down: no nodes, no edges, a list of numbers and one rule. The
   shape library has no wedge, so the wedges are given as `shapePoints`

@@ -1292,6 +1292,7 @@ class MermaidReader {
         if (kind == "kanban")    { return true }
         if (kind == "quadrant")  { return true }
         if (kind == "pie")       { return true }
+        if (kind == "xychart")   { return true }
         return false
     }
 

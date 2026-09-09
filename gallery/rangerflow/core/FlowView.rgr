@@ -1471,6 +1471,12 @@ class FlowView {
         body.stroke = border
         body.strokeWidth = bw
         body.tag = tag
+        ; A band with nothing written in it is a stripe. An unnamed frame — a
+        ; plot area, a quadrant, a box drawn only to say "these belong
+        ; together" — is a plain box, and the band comes back with the name.
+        if ((strlen n.label) == 0) {
+            return
+        }
         def barW:double (this.sl(28.0))
         def bar:SceneItem (sc.rect(x y barW h theme.headerFill))
         bar.tag = tag

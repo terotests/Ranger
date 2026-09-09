@@ -500,6 +500,29 @@ a legend beside the circle rather than inside it: a chart with eleven slices has
 no room for eleven words in the middle. Twelve palette colours come as classes
 (`.slice-0` … `.slice-11`), so a stylesheet that disagrees can say so.
 
+### …and xy charts
+
+The first diagram here with a *scale* in it. Every other one places things by
+counting — the third commit, the second lane — and this one places them by
+measuring: a bar at 9500 has to be exactly as far up the page as 9500 is
+between the bottom of the axis and the top, or the picture is a lie about the
+numbers.
+
+```mermaid
+xychart-beta
+    title "Sales revenue"
+    x-axis [jan, feb, mar, apr]
+    y-axis "Revenue (in $)" 4000 --> 12000
+    bar [5000, 6000, 7500, 8200]
+    line [5000, 6000, 7500, 8200]
+```
+
+Bar and line series can be mixed, several bar series share a band side by side,
+and `xychart-beta horizontal` swaps the axes. Where the range is not given it is
+taken from the data and the bottom is zero unless the data goes below it: an
+axis that starts just under the smallest bar makes a 4% difference look like a
+tenfold one, and Mermaid's own default is not to do that.
+
 ### …measured against Mermaid itself
 
 A claim of parity with a format is worth what the person making it wanted it to

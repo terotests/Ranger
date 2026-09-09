@@ -38,6 +38,7 @@ Import "../domains/mermaid/MermaidGitReader.rgr"
 Import "../domains/mermaid/MermaidKanbanReader.rgr"
 Import "../domains/mermaid/MermaidQuadrantReader.rgr"
 Import "../domains/mermaid/MermaidPieReader.rgr"
+Import "../domains/mermaid/MermaidXyReader.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 Import "../layout/TreeLayouts.rgr"
 Import "../export/FlowExport.rgr"
@@ -682,6 +683,9 @@ class RangerFlowWeb {
         if (d.diagramKind == "pie") {
             return (this.loadMermaidPie(text styleName want))
         }
+        if (d.diagramKind == "xychart") {
+            return (this.loadMermaidXy(text styleName want))
+        }
         if ((d.nodeCount()) == 0) {
             status = "no nodes in that Mermaid source"
             if ((strlen d.diagramKind) > 0) {
@@ -1066,6 +1070,26 @@ class RangerFlowWeb {
             what = "Mermaid pie chart"
         }
         status = ((to_string (pd.sliceCount())) + " slices — " + what + ", " + want)
+        return true
+    }
+
+    ; An xychart: the first diagram here with a scale in it.
+    fn loadMermaidXy:boolean (text:string styleName:string want:string) {
+        def xd:MermaidXyChart (MermaidXyReader.parse(text))
+        if ((xd.seriesCount()) == 0) {
+            status = "no series in that chart"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidXyFlow.build(xd style))
+        this.adoptPlaced(g style want)
+        def what:string xd.title
+        if ((strlen what) == 0) {
+            what = "Mermaid xychart"
+        }
+        status = ((to_string (xd.seriesCount())) + " series over " + (to_string (xd.slots())) + " readings — " + what + ", " + want)
         return true
     }
 
