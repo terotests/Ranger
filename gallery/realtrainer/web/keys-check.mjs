@@ -77,12 +77,14 @@ console.log("--- Tab walks the screen, and the ring says where ---");
   ok("the ring is drawn", rings(app).length === 1, rings(app).length + " rings");
   ok("and only one", rings(app).length === 1);
 
-  const walk = [];
-  for (let i = 0; i < 9; i += 1) { key(app, "Tab"); walk.push(app.focusRingId()); }
   // Tree order: the header, then the page, then the bar — the order the page
-  // is written in, which is the order the mirror publishes.
-  ok("it reaches the theme cards", walk.includes("rt-theme-ocean"), walk.join(" > "));
-  ok("and the bar after them", walk.includes("rt-nav-home"), walk.join(" > "));
+  // is written in, which is the order the mirror publishes. The settings page
+  // is the reference's now, and that is fifty-odd stops before the palettes.
+  const walk = [];
+  for (let i = 0; i < 80; i += 1) { key(app, "Tab"); walk.push(app.focusRingId()); }
+  ok("it reaches the theme cards", walk.includes("rt-theme-ocean"), walk.slice(0, 12).join(" > "));
+  ok("and the bar after them", walk.includes("rt-nav-home"),
+     walk.slice(walk.indexOf("rt-theme-ocean")).slice(0, 12).join(" > "));
   ok("and it wraps", walk[walk.length - 1] !== walk[walk.length - 2]);
 
   // Back the way it came.
@@ -99,14 +101,17 @@ console.log("--- an arrow is a direction ---");
   // as "the next card" — and Tab would answer the same here, which is why the
   // check below leaves the stack.
   const app = open("rt-nav-settings");
-  key(app, "Home");
+  // Onto the first palette by Tab, then down the stack of them by arrow.
+  let spun = 0;
+  while (spun < 90 && app.focusRingId() !== "rt-theme-night") { key(app, "Tab"); spun += 1; }
+  ok("Tab reaches the first palette", app.focusRingId() === "rt-theme-night", app.focusRingId());
   const down = [];
   for (let i = 0; i < 4; i += 1) { key(app, "ArrowDown"); down.push(app.focusRingId()); }
-  ok("down walks the cards", down[0] === "rt-theme-night" && down[1] === "rt-theme-ocean" &&
-     down[2] === "rt-theme-sunrise", down.join(" > "));
+  ok("down walks the cards", down[0] === "rt-theme-ocean" && down[1] === "rt-theme-forest" &&
+     down[2] === "rt-theme-violet" && down[3] === "rt-theme-sunrise", down.join(" > "));
   const up = [];
   for (let i = 0; i < 2; i += 1) { key(app, "ArrowUp"); up.push(app.focusRingId()); }
-  ok("and up comes back", up.join(",").includes("rt-theme-sunrise") || up.join(",").includes("rt-theme-ocean"),
+  ok("and up comes back", up[0] === "rt-theme-violet" && up[1] === "rt-theme-forest",
      up.join(" > "));
 
   // OFF THE EDGE IS NOWHERE, not a wrap: the eye does not jump to the far
@@ -121,14 +126,17 @@ console.log("");
 console.log("--- Enter and Space press what the ring is round ---");
 {
   const app = open("rt-nav-settings");
-  for (let i = 0; i < 4; i += 1) key(app, "Tab");
+  let spun2 = 0;
+  while (spun2 < 90 && app.focusRingId() !== "rt-theme-ocean") { key(app, "Tab"); spun2 += 1; }
   ok("the ring is on a theme", app.focusRingId() === "rt-theme-ocean", app.focusRingId());
   ok("Enter is taken", key(app, "Enter"));
   ok("and it chose the theme", app.themeChosen() === "ocean", app.themeChosen());
 
   key(app, "ArrowDown");
+  const next = app.focusRingId();
+  ok("the arrow moved to the next card", next === "rt-theme-forest", next);
   ok("Space is taken too", key(app, " "));
-  ok("and it chose the next one", app.themeChosen() === "sunrise", app.themeChosen());
+  ok("and it chose the next one", app.themeChosen() === "forest", app.themeChosen());
 
   // A Space that reaches the page scrolls it, so it is taken even when the
   // press it made changed nothing.
@@ -158,7 +166,8 @@ console.log("--- the ring follows a rebuild, or goes with what it was on ---");
   // screen change takes the elements away: the ring must not point at
   // something that is gone.
   const app = open("rt-nav-settings");
-  for (let i = 0; i < 4; i += 1) key(app, "Tab");
+  let spun3 = 0;
+  while (spun3 < 90 && app.focusRingId() !== "rt-theme-ocean") { key(app, "Tab"); spun3 += 1; }
   const on = app.focusRingId();
   ok("the ring is on a card", on === "rt-theme-ocean", on);
   app.tick(16.7);

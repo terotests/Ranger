@@ -436,10 +436,17 @@ of them found something that is drawn and does not answer:
 
 Fifteen scenarios were added to go where the first thirteen never did, and the
 reference was recorded for fourteen of them — so what each gap should look like is
-on file rather than guessed at. Thirteen of the twenty-seven are at 100%, and
-five of the gaps they found are closed: the credits page, the diary card's own
-buttons in both scenarios that press them, the feature-vector dialog, and where
-a plan in the list opens.
+on file rather than guessed at. Thirteen of the twenty-seven are at 100%, no
+frame is below 41%, and six of the gaps they found are closed: the credits
+page, the diary card's own buttons in both scenarios that press them, the
+feature-vector dialog, where a plan in the list opens, and the settings page.
+
+**What is drawn and not wired says so by doing nothing.** A Slack workspace, a
+token quota, an export and a purchase are the backend's, and there is no
+backend here; they are drawn because the page is what a reader walks and a
+missing section is a missing stop. What a person can actually change — the
+language, the day a week starts on, which calendars show, the palette — is
+wired.
 
 Two of those needed the reference to say WHERE, not just what. A row's
 statistics are a strip at the top of Home and not a modal over the card; the
@@ -450,7 +457,7 @@ another invented.
 
 | Scenario | Parity | What the reference does, and this side does not |
 | --- | ---: | --- |
-| `more-sheet` | 14% | **Asetukset** is 79 stops there and 11 here — the settings page is most of a screen short. **Harjoituspaikat** is a page there and nothing here: the sheet closes and the app lands back where it started. Vuosilakana differs too |
+| `more-sheet` | 44% | **Asetukset** was 79 stops there and 11 here. It is 79 of 79 now, in order, with one extra — the Sunrise palette, which is this port's own and was asked for. Eleven sections: the version, the usage, the subscription, the AI instructions with their ten calendar types, Slack, the profile with its three fields and two selects, which calendars show, three notification switches, the appearance with the reference's four palettes, the export, and the two legal links. What is left in this scenario is **Harjoituspaikat**, a page there and nothing here |
 | `home-notes` | 46% | **Muistiinpanot** on a card is not a panel on the card — it opens a workout notes page: the notes for that entry, a date and Tallenna, the training links (Hae ja linkitä treeni, the linked entry, Poista linkki tähän treeniin), the video links out of the knowledge store, and a markdown field with its rendered preview. Here the button does nothing |
 | `home-drills` | 77% | the tab, the categories and the sort all work, and both sides list the same six endurance drills in the same order — with different numbers: juoksu 29× there and 37× here, uinti 1.6km against 2.6km, rintauinti 3.0km against 16.2km. A drill row opens the exercise there and nothing here |
 | `home-entry` | **99.9%** | **Näytä tilastot** is a strip at the top of Home, above the tabs, named after the exercise and with a Sulje of its own. **Compact** and **JSON** copy the entry and say which shape in a toast — two toasts, stacked, when both are pressed. All three answer now; what is left is the composer |

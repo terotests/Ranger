@@ -428,9 +428,18 @@ treefactory Rt {
     tag FieldSel EVGElement (props (className "rt-field-sel") (a11yHidden true))
     ; --- the settings screen ------------------------------------------------
     tag SetCol   EVGElement (props (className "rt-settings"))
-    tag SetHd    EVGElement (props (className "rt-set-hd") (elementType 1) (role "heading") (a11yLevel 1))
-    tag SetSub   EVGElement (props (className "rt-set-sub") (elementType 1) (role "heading") (a11yLevel 2))
+    ; ASETUKSET IS AN H2 THERE, not an h1: the page has no title above it and
+    ; the sections under it are h3s, with an h4 where one section has a part
+    ; of its own. Levels are what a reader navigates by, so they are the
+    ; reference's and not this page's own idea of a hierarchy.
+    tag SetHd    EVGElement (props (className "rt-set-hd") (elementType 1) (role "heading") (a11yLevel 2))
+    tag SetSub   EVGElement (props (className "rt-set-sub") (elementType 1) (role "heading") (a11yLevel 3))
+    tag SetSub3  EVGElement (props (className "rt-set-sub3") (elementType 1) (role "heading") (a11yLevel 4))
     tag SetNote  EVGElement (props (className "rt-set-note") (elementType 1) (role "paragraph"))
+    tag SetBtn   EVGElement (props (className "rt-set-btn") (role "button") (a11yFocusable true))
+    tag SetBtnTx EVGElement (props (className "rt-set-btn-text") (elementType 1) (a11yHidden true))
+    tag SetLink  EVGElement (props (className "rt-set-link") (role "link") (a11yFocusable true))
+    tag SetSelect EVGElement (props (className "rt-set-select") (role "combobox") (a11yFocusable true))
     tag ThemeCard EVGElement (props (className "rt-theme-card") (role "button") (a11yFocusable true))
     tag ThemeSwatches EVGElement (props (className "rt-theme-swatches"))
     tag Swatch   EVGElement (props (className "rt-swatch") (a11yHidden true))
@@ -956,6 +965,17 @@ class RealTrainerDemo {
     def ysDur:[NumberCtl]
     def ysUnit:[SelectCtl]
     def ysType:[SelectCtl]
+    ; The settings page's own fields and selects. Three fields — the name, the
+    ; address the account was made with, the public nickname — and three
+    ; selects: the language, the day a week starts on and the view the
+    ; calendar opens in.
+    def setNameField:InputCtl (new InputCtl())
+    def setMailField:InputCtl (new InputCtl())
+    def setNickField:InputCtl (new InputCtl())
+    def setHintField:InputCtl (new InputCtl())
+    def setLang:SelectCtl (new SelectCtl())
+    def setWeekStart:SelectCtl (new SelectCtl())
+    def setDefaultView:SelectCtl (new SelectCtl())
     def wizName:InputCtl (new InputCtl())
     def wizDesc:InputCtl (new InputCtl())
     def wizGoals:InputCtl (new InputCtl())
@@ -1141,6 +1161,40 @@ class RealTrainerDemo {
         weekType.value = "target"
         planJob.latencyMs = 900.0
 
+        ; The settings page's fields and selects — see `settingsSection`. The
+        ; e-mail is the account's and cannot be typed into, which the field
+        ; says by being disabled where it is drawn.
+        ; A FIELD WITH A VALUE IS NAMED BY IT. Neither of these carries a
+        ; label in the original — the word above them is a line of text — so
+        ; what a reader hears is what is written in the box.
+        setNameField.tid = "rt-set-name"
+        setNameField.setValue("Test User")
+        setNameField.name = "Test User"
+        setMailField.tid = "rt-set-mail-field"
+        setMailField.setValue("test@example.com")
+        setMailField.name = "test@example.com"
+        setNickField.tid = "rt-set-nick"
+        setNickField.placeholder = "esim. sprinter650t"
+        setNickField.name = setNickField.placeholder
+        setHintField.tid = "rt-set-hint"
+        setHintField.placeholder = "Lisää uusi ohje..."
+        setHintField.name = setHintField.placeholder
+        setLang.tid = "rt-set-lang"
+        setLang.name = ""
+        setLang.addItem("fi" "Suomi" false)
+        setLang.addItem("en" "English" false)
+        setLang.value = "Suomi"
+        setWeekStart.tid = "rt-set-weekstart"
+        setWeekStart.name = ""
+        setWeekStart.addItem("mon" "Maanantai" false)
+        setWeekStart.addItem("sun" "Sunnuntai" false)
+        setWeekStart.value = "Maanantai"
+        setDefaultView.tid = "rt-set-view"
+        setDefaultView.name = ""
+        setDefaultView.addItem("week" "Viikko" false)
+        setDefaultView.addItem("month" "Kuukausi" false)
+        setDefaultView.addItem("day" "Päivä" false)
+        setDefaultView.value = "Viikko"
         chatField.tid = "rt-chat-field"
         chatField.placeholder = "Kysy jotain päiväkirjastasi..."
         chatField.name = chatField.placeholder
@@ -3265,15 +3319,174 @@ class RealTrainerDemo {
     ;
     ; The swatches are literal colours and not `var()`: a swatch shows a
     ; palette that is NOT on, and the sheet only resolves the one that is.
+    ; THE SETTINGS PAGE, section for section as the reference has it —
+    ; `traces/reference/more-sheet.json` is where the order and the wording
+    ; come from. It was one heading and three theme cards here, eleven stops
+    ; against seventy-nine.
+    ;
+    ; What is drawn but not wired is drawn all the same, and says so by doing
+    ; nothing: a Slack workspace, a token quota and an export are the
+    ; backend's, and there is no backend here. What a person can actually
+    ; change — the language, the week's first day, which calendars show, the
+    ; palette — is wired.
     fn settingsSection:void (body:EVGElement) {
         def col (tree Rt (SetCol))
         col.addChild((tree Rt (SetHd "Asetukset")))
-        col.addChild((tree Rt (SetSub "Teema")))
-        col.addChild((tree Rt (SetNote "Väri, ei asettelu: sama ruutu joka teemalla.")))
-        col.addChild((this.themeCard("" "Yö" "Tumma harmaa, oranssi korostus")))
-        col.addChild((this.themeCard("ocean" "Ocean" "Syvä vesi, turkoosi korostus")))
+
+        col.addChild((tree Rt (SetSub "Versio")))
+        col.addChild((tree Rt (SetNote "1.17.54 RealTrainer")))
+
+        col.addChild((tree Rt (SetSub "Käyttötilastot")))
+        col.addChild((tree Rt (SetNote "AI-tokenit 0 / 100 000 · 0% käytetty · Funktiokutsut 0")))
+
+        col.addChild((tree Rt (SetSub "Tilaus ja laskutus")))
+        col.addChild((tree Rt (SetNote "AI-kreditit 0 / 100 000")))
+        col.addChild((tree Rt (SetSub3 "Osta AI-kredittejä")))
+        col.addChild((tree Rt (SetNote "Kreditit eivät vanhene ja lisätään nykyiseen saldoosi.")))
+        col.addChild((this.setBtn("rt-set-buy" "1 000 000 kredittiä €4,95 Osta")))
+
+        ; --- AI-ohjeet ---------------------------------------------------
+        col.addChild((tree Rt (SetSub "AI-ohjeet")))
+        col.addChild((tree Rt (SetNote "Lisää henkilökohtaisia ohjeita jotka AI huomioi analyyseissään.")))
+        col.addChild((tree Rt (SetNote "AI saa automaattisesti tietoa vuosisuunnitelmastasi ja aktiivisesta periodista.")))
+        col.addChild((tree Rt (SetNote "Tee ehdotukset")))
+        col.addChild((tree Rt (SetNote "Anna AI:n analysoida vuosisuunnitelmasi, päiväkirjasi ja profiilisi.")))
+        col.addChild((this.setBtn("rt-set-suggest" "Tee ehdotukset")))
+        col.addChild((this.setBtn("rt-set-general" "Yleiset ohjeet (0 aktiivista)")))
+        col.addChild((tree Rt (SetNote "Ehdotuksia:")))
+        col.addChild((this.setBtn("rt-set-hint-fi" "+ Kommunikoi suomeksi")))
+        col.addChild((this.setBtn("rt-set-hint-kind" "+ Ole kannustava ja positiivinen")))
+        col.addChild((this.setBtn("rt-set-hint-concrete" "+ Anna konkreettisia parannusehdotuksia")))
+        col.addChild((this.fieldBox(setHintField)))
+        def addHint (this.iconBtn("rt-set-hint-add" "" (RtIcons.plus("#999999"))))
+        addHint.a11yDisabled = true
+        col.addChild(addHint)
+        col.addChild((tree Rt (SetNote "Kalenterityyppikohtaiset ohjeet")))
+        def kinds:[string]
+        push kinds "Harjoituspäiväkirja"
+        push kinds "Harjoitussuunnitelma"
+        push kinds "Ravintopäiväkirja"
+        push kinds "Unipäiväkirja"
+        push kinds "Kilpailut"
+        push kinds "Leirit"
+        push kinds "Kulut"
+        push kinds "Mittaukset"
+        push kinds "Fiilispäiväkirja"
+        push kinds "Testauspöytäkirja"
+        for kinds kn:string ki {
+            col.addChild((this.setBtn(("rt-set-kind-" + (to_string ki)) kn)))
+        }
+        col.addChild((this.setBtn("rt-set-save-hints" "Tallenna ohjeet")))
+
+        col.addChild((tree Rt (SetSub "Slack-integraatiot")))
+        col.addChild((tree Rt (SetNote "Yhdistä Slack-työtila ja anna ryhmäsi jäsenten kirjata harjoituksia.")))
+        col.addChild((this.setBtn("rt-set-slack" "Lisää Slack-työtila")))
+        col.addChild((tree Rt (SetNote "💡 Slack-botin käyttämät AI-tokenit lasketaan sinun kiintiöstäsi.")))
+
+        ; --- Profiiliasetukset -------------------------------------------
+        col.addChild((tree Rt (SetSub "Profiiliasetukset")))
+        col.addChild((tree Rt (SetNote "Nimi")))
+        col.addChild((this.fieldBox(setNameField)))
+        col.addChild((tree Rt (SetNote "Sähköposti")))
+        def mail:EVGElement (this.fieldBox(setMailField))
+        mail.a11yDisabled = true
+        col.addChild(mail)
+        col.addChild((tree Rt (SetNote "Julkinen nimimerkki")))
+        col.addChild((this.fieldBox(setNickField)))
+        def saveProfile (this.setBtn("rt-set-save-profile" "Tallenna"))
+        saveProfile.a11yDisabled = true
+        col.addChild(saveProfile)
+        col.addChild((tree Rt (SetNote "Linkkisi muoto: https://www.realtrainer.com/diary/nimimerkki/")))
+        col.addChild((this.setSelect(setLang)))
+        col.addChild((tree Rt (SetNote "Viikko alkaa")))
+        col.addChild((this.setSelect(setWeekStart)))
+
+        col.addChild((tree Rt (SetSub "Kalenterin asetukset")))
+        def listed:[RtSeedCalendar] (seed.storeOrder())
+        for listed c:RtSeedCalendar i {
+            col.addChild((this.setBtn(("rt-set-cal-" + c.id) c.name)))
+        }
+
+        col.addChild((tree Rt (SetSub "Ilmoitusasetukset")))
+        col.addChild((tree Rt (SetNote "Sähköposti-ilmoitukset · Saat ilmoitukset sähköpostiin")))
+        col.addChild((this.setToggle("rt-set-mail")))
+        col.addChild((tree Rt (SetNote "Push-ilmoitukset · Selainilmoitukset")))
+        col.addChild((this.setToggle("rt-set-push")))
+        col.addChild((tree Rt (SetNote "Muistutukset · Harjoitusmuistutukset")))
+        col.addChild((this.setToggle("rt-set-remind")))
+
+        ; --- Ulkoasun asetukset ------------------------------------------
+        col.addChild((tree Rt (SetSub "Ulkoasun asetukset")))
+        col.addChild((tree Rt (SetNote "Oletusnäkymä")))
+        col.addChild((this.setSelect(setDefaultView)))
+        col.addChild((tree Rt (SetNote "Väritila")))
+        col.addChild((this.setBtn("rt-set-light" "Vaalea")))
+        col.addChild((this.setBtn("rt-set-dark" "Tumma")))
+        col.addChild((this.setBtn("rt-set-system" "Järjestelmä")))
+        col.addChild((tree Rt (SetNote ("Väripohja " + (RealTrainerDemo.paletteName(palette))))))
+        col.addChild((tree Rt (SetNote "Sama nykyinen ilme eri sävyillä. Vaihda korosteväriä ja taustoja.")))
+        col.addChild((this.setBtn("rt-set-own-theme" "Luo oma teema")))
+        col.addChild((this.themeCard("" "Grafiitti" "Nykyinen tumma harmaa lämpimällä korostevärillä")))
+        col.addChild((this.themeCard("ocean" "Ocean" "Viileä sininen ja kirkkaat turkoosit korostukset")))
+        col.addChild((this.themeCard("forest" "Forest" "Luonnollinen vihreä, hieman pehmeämpi kontrasti")))
+        col.addChild((this.themeCard("violet" "Violet" "Tumma violetti ja pehmeät lilat yksityiskohdat")))
+        ; THE FIFTH IS THIS PORT'S OWN, and asked for: the reference has four
+        ; palettes and Sunrise is not one of them.
         col.addChild((this.themeCard("sunrise" "Sunrise" "Lämmin luumu, korallin korostus")))
+        col.addChild((tree Rt (SetNote "Pikavaihto löytyy edelleen valikon alaosasta.")))
+
+        col.addChild((tree Rt (SetSub "Tietojen hallinta")))
+        col.addChild((tree Rt (SetSub3 "Vie tiedot")))
+        col.addChild((tree Rt (SetNote "Lataa kaikki tietosi JSON-tiedostona")))
+        col.addChild((this.setBtn("rt-set-export" "Vie tiedot")))
+        col.addChild((tree Rt (SetNote "Viennin tila · Kalenterit muistissa: 3 / 13")))
+
+        col.addChild((tree Rt (SetSub "Lakiasiat")))
+        col.addChild((this.setLink("rt-set-terms" "Käyttöehdot Palvelun käyttöehdot")))
+        col.addChild((this.setLink("rt-set-privacy" "Tietosuojaseloste Rekisteriseloste ja tietosuojakäytäntö")))
         body.addChild(col)
+    }
+
+    ; The palette in force, by the name the settings page shows.
+    sfn paletteName:string (name:string) {
+        if (name == "ocean") { return "Ocean" }
+        if (name == "forest") { return "Forest" }
+        if (name == "violet") { return "Violet" }
+        if (name == "sunrise") { return "Sunrise" }
+        return "Grafiitti"
+    }
+
+    fn setBtn:EVGElement (id:string label:string) {
+        def b (tree Rt (SetBtn))
+        b.id = id
+        b.a11yLabel = label
+        b.addChild((tree Rt (SetBtnTx label)))
+        return b
+    }
+
+    ; A switch with no name, as the original's are — the line above says what
+    ; it is for, and the lint lists every one of them.
+    fn setToggle:EVGElement (id:string) {
+        def b (tree Rt (SetBtn))
+        b.id = id
+        b.className = "rt-set-btn rt-set-toggle"
+        b.a11yLabel = ""
+        return b
+    }
+
+    fn setLink:EVGElement (id:string label:string) {
+        def b (tree Rt (SetLink))
+        b.id = id
+        b.a11yLabel = label
+        b.addChild((tree Rt (SetBtnTx label)))
+        return b
+    }
+
+    fn setSelect:EVGElement (ctl:SelectCtl) {
+        def box (tree Rt (SetSelect))
+        box.id = ctl.tid
+        box.addChild((tree Rt (SetBtnTx ctl.value)))
+        return box
     }
 
     fn themeCard:EVGElement (name:string label:string about:string) {
@@ -3283,7 +3496,9 @@ class RealTrainerDemo {
         }
         def card (tree Rt (ThemeCard))
         card.id = ("rt-theme-" + slug)
-        card.a11yLabel = label
+        ; THE NAME IS THE WHOLE CARD, as the original's is: the palette and
+        ; the sentence under it are one button and a reader hears both.
+        card.a11yLabel = (label + " " + about)
         def on:boolean (palette == name)
         if on {
             card.className = "rt-theme-card rt-theme-card-on"
@@ -7087,8 +7302,11 @@ class RealTrainerDemo {
         }
         if (id == "rt-nav-chat") { return (this.goSection("chat")) }
         if (id == "rt-nav-settings") { return (this.goSection("settings")) }
+        ; The reference's four, and this port's fifth — see `settingsSection`.
         if (id == "rt-theme-night") { return (this.setPalette("")) }
         if (id == "rt-theme-ocean") { return (this.setPalette("ocean")) }
+        if (id == "rt-theme-forest") { return (this.setPalette("forest")) }
+        if (id == "rt-theme-violet") { return (this.setPalette("violet")) }
         if (id == "rt-theme-sunrise") { return (this.setPalette("sunrise")) }
         if (id == "rt-nav-more") {
             moreOpen = true
@@ -7193,6 +7411,10 @@ class RealTrainerDemo {
         for dayFields f:InputCtl i {
             push a f
         }
+        push a setNameField
+        push a setMailField
+        push a setNickField
+        push a setHintField
         push a wizName
         push a wizDesc
         push a wizGoals

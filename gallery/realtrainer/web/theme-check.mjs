@@ -73,11 +73,27 @@ console.log("--- Asetukset is a page ---");
   const app = open();
   ok("the rail's gear goes there", app.press("rt-nav-settings"));
   ok("with its heading", shows(app, "Asetukset"));
-  ok("and the one setting there is", shows(app, "Teema"));
-  ok("the three palettes are named",
-     shows(app, "Yö") && shows(app, "Ocean") && shows(app, "Sunrise"));
-  ok("and one of them is on", texts(app).filter((t) => t === "Käytössä").length === 1,
-     texts(app).filter((t) => t === "Käytössä").join("|"));
+  // THE PAGE IS THE REFERENCE'S NOW — eleven sections, seventy-nine stops —
+  // and the palettes are one of them: see `settingsSection`, and the note in
+  // the README on what is drawn and not wired.
+  // Read off the TREE and not the drawn frame: the page is longer than the
+  // viewport now and the display list leaves what is below it out.
+  const named = (app) => JSON.parse(app.a11yJson(1, "")).nodes.map((n) => n.name || "");
+  const has = (app, t) => named(app).some((n) => n.includes(t));
+  ok("with the sections the reference has",
+     ["Versio", "Käyttötilastot", "Tilaus ja laskutus", "AI-ohjeet", "Slack-integraatiot",
+      "Profiiliasetukset", "Kalenterin asetukset", "Ilmoitusasetukset",
+      "Ulkoasun asetukset", "Tietojen hallinta", "Lakiasiat"].every((h) => has(app, h)),
+     ["Versio", "Käyttötilastot", "Tilaus ja laskutus", "AI-ohjeet", "Slack-integraatiot",
+      "Profiiliasetukset", "Kalenterin asetukset", "Ilmoitusasetukset",
+      "Ulkoasun asetukset", "Tietojen hallinta", "Lakiasiat"].filter((h) => !has(app, h)).join("|"));
+  ok("the reference's four palettes are named",
+     ["Grafiitti", "Ocean", "Forest", "Violet"].every((n) => has(app, n)));
+  ok("and this port's own fifth", has(app, "Sunrise"));
+  // The card in force says so with `selected`, which is what a reader is
+  // told — the word "Käytössä" is drawn on it and drawn text is culled.
+  const on = (a) => JSON.parse(a.a11yJson(1, "")).nodes.filter((n) => n.selected);
+  ok("one of them is on", on(app).length === 1, on(app).map((n) => n.name).join("|"));
   ok("the dark one, to start with", app.themeChosen() === "", app.themeChosen());
 }
 
@@ -90,7 +106,7 @@ console.log("--- and it is reachable on a phone, where there is no rail ---");
     const app = open();
     app.press("rt-nav-more");
     ok(`${via}: the sheet opens`, shows(app, "Vuosilakana"));
-    ok(`${via}: it goes to the page`, app.press(via) && shows(app, "Teema"));
+    ok(`${via}: it goes to the page`, app.press(via) && app.sectionName() === "settings", app.sectionName());
     ok(`${via}: and the sheet closed behind it`, shows(app, "Vuosilakana") === false);
   }
 }
@@ -147,8 +163,12 @@ console.log("--- a palette is one value, not a machine ---");
   app.press("rt-nav-settings");
   ok("choosing changes something", app.press("rt-theme-ocean"));
   ok("choosing it again does not", app.press("rt-theme-ocean") === false);
-  ok("the card says which one", shows(app, "Käytössä"));
-  ok("and only one card says it", texts(app).filter((t) => t === "Käytössä").length === 1);
+  // Off the tree, not the frame: the palettes are far enough down the page
+  // that the display list culls them.
+  const said = () => JSON.parse(app.a11yJson(1, "")).nodes.filter((n) => n.selected).length;
+  ok("the card says which one", said() === 1, said() + " cards");
+  ok("and it is the one that was chosen",
+     JSON.parse(app.a11yJson(1, "")).nodes.some((n) => n.selected && (n.name || "").startsWith("Ocean")));
 }
 
 console.log("");
