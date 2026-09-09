@@ -434,8 +434,8 @@ is one no reader is ever handed.
 Four scenarios were added to go where the first thirteen never did, and three
 of them found something that is drawn and does not answer:
 
-Thirteen scenarios were added to go where the first thirteen never did, and the
-reference was recorded for twelve of them — so what each gap should look like is
+Fifteen scenarios were added to go where the first thirteen never did, and the
+reference was recorded for fourteen of them — so what each gap should look like is
 on file rather than guessed at. Ten of the twenty-five are at 100%, and three
 of the gaps they found are closed: the credits page, and the diary card's own
 buttons in both scenarios that press them.
@@ -460,7 +460,9 @@ another invented.
 | `chat-tools` | 45% | **AI-ohjeet** opens an instructions panel: the general instructions with three suggestions to add, a Tee ehdotukset that has the AI write them, a field for a new one, and instructions per calendar type. **Keskusteluhistoria** and **Tallennetut muistiinpanot** are panels. **Anna palautetta** produces an AI-arvio with Kopioi koko keskustelu, Kopioi viesti and Tallenna muistiin. All five are drawn here and none answers |
 | `yearsheet-open` | 47% | opening the plan out of the Vuosilakana list goes to the plan's own view there — Aktiivinen suunnitelma, the current period, week 36 of 104 — and stays in the list here |
 | `calendar-measure` | 77% | a calendar whose entries are MEASUREMENTS and not workouts. The reference gives each metric a heading of its own — Hrv, Leposyke, Weight, Askeleet, Mets Huippu, Aktiiviset Kalorit, Treeni Aika — and this side draws a card of a different shape: 171 stops it does not have, 48 of the reference's it does not draw |
+| `yearsheet-edit` | 41% | the plan's own tabs, behind Avaa suunnitelma. Kaudet and Rivit match; **Featuret** is a screen this side does not have — Feature-vektorit (beta) with a date range, Kopioi tulokset / Liitä / Suorita laskennat, a JSON field and a normalised trend, 155 stops of it. **Kopioi JSON leikepöydälle** is drawn here and does nothing |
 | `dashboard` | 100% | the section and **Avaa suunnitelma** — the year plan with its JSON in and out, its three tabs and its periods — match |
+| `calendar-day` | 100% | a day in the calendar, its card's exports and its way out. The card in a day view is the same card as on Home, so this went green with them |
 | `settings-theme` | — | `noReference`: Ocean and Sunrise are this port's own |
 
 Two the recorder could not reach: **Lisää kommentti** and **Muokkaa tekstiä**.

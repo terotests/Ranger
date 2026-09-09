@@ -1,0 +1,53 @@
+{
+  "_": "A day in the calendar, and the card's buttons ON IT. `calendar-diary` opens a day and goes straight back out; this stays and presses what is there — the card in a day view is the same card as on Home, so the exports that were dead everywhere were dead here too — and then the day's own way out, which nothing had pressed. The card's menu is not opened here: the reference draws it over the back button.",
+  "id": "calendar-day",
+  "area": "kalenteri",
+  "machine": "",
+  "reference": {
+    "route": "/calendar/cal-train?week=2026-02-09"
+  },
+  "setup": [
+    {
+      "page": "390x844"
+    },
+    {
+      "route": "/calendar/cal-train?week=2026-02-09"
+    }
+  ],
+  "steps": [
+    {
+      "tick": 500
+    },
+    {
+      "id": "rt-day-2026-02-09",
+      "role": "button",
+      "name": "9 Ma Kontrastivoima (Sali) & Kierto #voima #kontrasti #sali",
+      "why": "the day row's name is everything drawn on it, on both sides"
+    },
+    {
+      "tick": 800
+    },
+    {
+      "id": "rt-entry-compact-0",
+      "role": "button",
+      "name": "Compact",
+      "nth": 0
+    },
+    {
+      "id": "rt-entry-json-0",
+      "role": "button",
+      "name": "JSON",
+      "nth": 0
+    },
+    {
+      "id": "rt-day-back",
+      "role": "button",
+      "name": "",
+      "nth": 0,
+      "why": "out of the day again — BEFORE the card's menu, which the reference draws over it"
+    },
+    {
+      "tick": 600
+    }
+  ]
+}

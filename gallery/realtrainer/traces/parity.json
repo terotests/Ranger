@@ -23,5 +23,7 @@
  "calendar-measure.json": 0.769,
  "chat-tools.json": 0.447,
  "more-rest.json": 0.407,
- "yearsheet-open.json": 0.473
+ "yearsheet-open.json": 0.473,
+ "calendar-day.json": 1,
+ "yearsheet-edit.json": 0.409
 }
