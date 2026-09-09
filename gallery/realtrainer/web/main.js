@@ -346,10 +346,25 @@ function at(ev) {
   return [ev.clientX - r.left, ev.clientY - r.top];
 }
 
+// What an export put on the clipboard, once. The app writes the text into
+// `clipboard` — see `RealTrainerDemo.pressEntryCard`, which has no clipboard
+// of its own to write to — and this is the browser's half of it. A refusal
+// (no permission, no secure context) is not an error worth showing: the toast
+// the app drew already said what happened, and the text is still readable in
+// the app.
+let lastClip = "";
+function syncClipboard() {
+  const text = app.clipboard;
+  if (!text || text === lastClip) return;
+  lastClip = text;
+  navigator.clipboard?.writeText(text).catch(() => {});
+}
+
 function press(x, y) {
   const id = app.hitId(x, y);
   app.setPressed("");
   if (app.press(id)) paintAll();
+  syncClipboard();
   syncTextSession();
 }
 

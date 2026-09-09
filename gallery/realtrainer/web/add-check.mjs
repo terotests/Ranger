@@ -521,6 +521,64 @@ console.log("--- a plan calendar answers with what is coming ---");
   ok("and the composer is empty", shows(app, "Kirjoita merkintä"));
 }
 
+console.log("\n--- a diary card's own buttons ---");
+// Every one of these was DRAWN and answered nothing: `home-entry` and
+// `home-entry-edit` pressed them and recorded `handled: false`. What each one
+// should do came back with the reference recording, not from a guess — see
+// `traces/reference/home-entry.json`.
+{
+  const card = open();
+  const tree = () => JSON.parse(card.a11yJson(1, "")).nodes;
+  const named = (re) => tree().filter((n) => re.test(n.name || "")).map((n) => n.role + ":" + n.name);
+
+  // Compact and JSON are EXPORTS. The reference copies the entry and toasts
+  // which shape; there is no clipboard in Ranger, so the app writes what would
+  // have been copied where a host can take it and the page calls
+  // `navigator.clipboard` with it.
+  ok("Compact is taken", card.press("rt-entry-compact-0"));
+  ok("and it is the entry's own text", card.clipboard.startsWith("[") &&
+     card.clipboard.includes("##"), card.clipboard.slice(0, 40));
+  ok("JSON is taken too", card.press("rt-entry-json-0"));
+  ok("and that is the parser's object", card.clipboard.startsWith('{"workouts"'),
+     card.clipboard.slice(0, 40));
+  // TWO TOASTS, STACKED. The toaster held one, so the second used to replace
+  // the first and take the first's four seconds with it.
+  ok("both said so, and both are still up",
+     tree().filter((n) => n.role === "listitem").length === 2,
+     tree().filter((n) => n.role === "listitem").length + " toasts");
+  for (let i = 0; i < 260; i += 1) card.tick(16.7);
+  card.display();
+  ok("and they go on their own clock",
+     tree().filter((n) => n.role === "listitem").length === 0);
+
+  // A row's history is a strip at the top of Home, above the tabs, which is
+  // where the reference puts it — not a modal over the card.
+  ok("a row's statistics open", card.press("rt-entry-stats-0-6"));
+  ok("named after the exercise, and with a close",
+     named(/^Sulje$/).length === 1 && tree().some((n) => n.role === "heading" && n.level === 2),
+     named(/^Sulje$/).join("|"));
+  ok("and the close closes them", card.press("rt-entry-stats-close") &&
+     named(/^Sulje$/).length === 0);
+
+  // "Lisää" is not an add: it is the card's action menu.
+  ok("the card's menu opens", card.press("rt-entry-add-0"));
+  ok("with the three things the reference has on it",
+     named(/^Muokkaa AI:lla$/).length === 1 && named(/^Kopioi kuvana$/).length === 1,
+     named(/^(Muokkaa AI:lla|Kopioi kuvana)$/).join("|"));
+  // The feed shows a screenful at a time — see `feedShown` — so a card going
+  // pulls the next one in and the COUNT does not move. What moves is which
+  // entry is first, and how many there are behind it.
+  const first = () => (tree().find((n) => n.role === "heading" && n.level === 1) || {}).name;
+  const held = () => card.seed.entries.length;
+  const wasFirst = first();
+  const wasHeld = held();
+  ok("and its Poista takes the entry away", card.press("rt-entry-menu-delete") &&
+     held() === wasHeld - 1, `${wasHeld} -> ${held()}`);
+  ok("the one that was on top", first() !== wasFirst, `${wasFirst} -> ${first()}`);
+  ok("saying so", tree().some((n) => n.role === "listitem"));
+}
+
+
 console.log("");
 if (failed > 0) {
   console.log(`  ${failed} check(s) failed`);

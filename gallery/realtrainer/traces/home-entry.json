@@ -2199,7 +2199,7 @@
   },
   {
    "step": "rt-entry-stats-0-6",
-   "handled": false,
+   "handled": true,
    "state": "",
    "nodes": [
     {"role":"group","name":"RealTrainer","state":""},
@@ -2212,6 +2212,8 @@
     {"role":"button","name":"Lisää kuva","state":""},
     {"role":"textbox","name":"Kirjoita merkintä... esim. \"treeni 60min\"","state":""},
     {"role":"button","name":"Lähetä","state":"disabled"},
+    {"role":"heading","name":"rintauinti","state":"level=2"},
+    {"role":"button","name":"Sulje","state":""},
     {"role":"button","name":"Päiväkirja","state":""},
     {"role":"button","name":"Harjoitteet","state":""},
     {"role":"button","name":"Tilastot","state":""},
@@ -3281,7 +3283,7 @@
   },
   {
    "step": "rt-entry-stats-close",
-   "handled": false,
+   "handled": true,
    "state": "",
    "nodes": [
     {"role":"group","name":"RealTrainer","state":""},
@@ -5445,7 +5447,7 @@
   },
   {
    "step": "rt-entry-compact-0",
-   "handled": false,
+   "handled": true,
    "state": "",
    "nodes": [
     {"role":"group","name":"RealTrainer","state":""},
@@ -6522,12 +6524,14 @@
     {"role":"button","name":"Dashboard","state":""},
     {"role":"button","name":"AI Chat","state":""},
     {"role":"button","name":"Lisää","state":""},
-    {"role":"region","name":"Notifications alt+T","state":""}
+    {"role":"region","name":"Notifications alt+T","state":""},
+    {"role":"list","name":"","state":""},
+    {"role":"listitem","name":"Kopioitu Compact-muodossa","state":""}
    ]
   },
   {
    "step": "rt-entry-json-0",
-   "handled": false,
+   "handled": true,
    "state": "",
    "nodes": [
     {"role":"group","name":"RealTrainer","state":""},
@@ -7604,7 +7608,10 @@
     {"role":"button","name":"Dashboard","state":""},
     {"role":"button","name":"AI Chat","state":""},
     {"role":"button","name":"Lisää","state":""},
-    {"role":"region","name":"Notifications alt+T","state":""}
+    {"role":"region","name":"Notifications alt+T","state":""},
+    {"role":"list","name":"","state":""},
+    {"role":"listitem","name":"Kopioitu JSON-muodossa","state":""},
+    {"role":"listitem","name":"Kopioitu Compact-muodossa","state":""}
    ]
   }
  ]

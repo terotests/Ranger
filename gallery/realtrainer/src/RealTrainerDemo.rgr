@@ -514,6 +514,14 @@ treefactory Rt {
     tag WizBtnTx EVGElement (props (className "rt-wiz-btn-text") (elementType 1))
     ; The year sheet page: its header, the cards, the toolbar, the grid,
     ; the legend, the periods and their example weeks.
+    ; A card's own panels: the history behind one row, and the menu behind the
+    ; button at its top. Both are sheets over the card, as the original draws
+    ; them.
+    tag CardSheet EVGElement (props (className "rt-card-sheet"))
+    tag CardMenu EVGElement (props (className "rt-card-menu"))
+    tag CardHd   EVGElement (props (className "rt-card-hd") (elementType 1) (role "heading") (a11yLevel 2))
+    tag CardTx   EVGElement (props (className "rt-card-tx") (elementType 1))
+
     ; --- AI-kreditit ---------------------------------------------------------
     ; The header's credit gauge opens a page of its own, as the original's
     ; does: what is left of what was bought, one thing to buy, and the two
@@ -907,8 +915,24 @@ class RealTrainerDemo {
     def wizard:CalendarWizard (new CalendarWizard())
     def wizJob:RtBackendSim (new RtBackendSim())
     def wizScroll:double 0.0
-    def toastText@(mutable):string ""
-    def toastMs:double 0.0
+    ; THE TWO THINGS A CARD OPENS OVER ITSELF. `statsRow` is the row whose
+    ; history is being shown ("" for none) and `menuCard` the card whose
+    ; action menu is open (-1 for none) — see `traces/reference/home-entry.json`
+    ; and `home-entry-edit.json`, which is where their shape comes from.
+    def statsRow@(mutable):string ""
+    def statsName@(mutable):string ""
+    def menuCard@(mutable):int (0 - 1)
+    ; What an export put where a host can take it — see `pressEntryCard`. The
+    ; browser page reads this and calls `navigator.clipboard`; a check reads it
+    ; to see WHAT was copied and not merely that something said so.
+    def clipboard@(mutable):string ""
+    ; THE TOASTER IS A STACK. It held one, and pressing Compact and then JSON
+    ; on a card is two toasts on the reference — the second above the first,
+    ; both counting down on their own. A single slot meant the second replaced
+    ; the first and the first's four seconds were somebody else's.
+    def toastTexts:[string]
+    def toastLeft:[double]
+    def toastGood:[boolean]
     ; The year sheet page, and the editors' controls — one duration, one
     ; unit and one type per period, built when the seed is loaded.
     def ys:RtYearSheet (new RtYearSheet())
@@ -2694,6 +2718,57 @@ class RealTrainerDemo {
         }
     }
 
+    ; A ROW'S HISTORY. The reference names it after the exercise, in the
+    ; letters the diary was written in, and puts a Sulje of its own on it —
+    ; nothing else on the card can be pressed while it is up, which is what
+    ; makes it a sheet and not a chip. The summary is this app's own
+    ; statistics (`src/stats`), read for that one exercise.
+    fn entryStatsSheet:EVGElement () {
+        def sheet (tree Rt (CardSheet))
+        def head (tree Rt (ModalHead))
+        head.addChild((tree Rt (CardHd statsName)))
+        head.addChild((tree Rt (Spacer)))
+        head.addChild((this.sheetBtn("rt-entry-stats-close" "Sulje" "Sulje" false))) 
+        sheet.addChild(head)
+        def body (tree Rt (ModalBody))
+        def sums:[ExerciseSummary] (this.drillSummaries())
+        def said@(mutable):boolean false
+        for sums su:ExerciseSummary i {
+            if ((RealTrainerDemo.lower(su.name)) == (RealTrainerDemo.lower(statsName))) {
+                if (said == false) {
+                    body.addChild((tree Rt (CardTx ((to_string su.occurrences) + " kertaa"))))
+                    if (su.maxWeight > 0.0) {
+                        def best:string (("Paras " + (RealTrainerDemo.fixed(su.maxWeight 1))) + " kg")
+                        body.addChild((tree Rt (CardTx best)))
+                    }
+                    if (su.totalDistance > 0.0) {
+                        def far:string (("Yhteensä " + (RealTrainerDemo.fixed(su.totalDistance 1))) + " km")
+                        body.addChild((tree Rt (CardTx far)))
+                    }
+                    def last:string ("Viimeksi " + (RealTrainerDemo.fiDatePadded(su.lastDate)))
+                    body.addChild((tree Rt (CardTx last)))
+                    said = true
+                }
+            }
+        }
+        if (said == false) {
+            body.addChild((tree Rt (CardTx "Ei vielä historiaa")))
+        }
+        sheet.addChild(body)
+        return sheet
+    }
+
+    ; THE CARD'S ACTION MENU, which is what the button at the top of a card
+    ; opens — not an "add", whatever its name says. Three items, as the
+    ; reference has them.
+    fn entryMenuSheet:EVGElement () {
+        def menu (tree Rt (CardMenu))
+        menu.addChild((this.moreItem("rt-entry-menu-ai" "Muokkaa AI:lla" (RtIcons.sparkles("#f2f2f2")))))
+        menu.addChild((this.moreItem("rt-entry-menu-image" "Kopioi kuvana" (RtIcons.copy("#f2f2f2")))))
+        menu.addChild((this.moreItem("rt-entry-menu-delete" "Poista" (RtIcons.trash("#f2f2f2")))))
+        return menu
+    }
+
     fn addOverlay:void (page:EVGElement) {
         if (addDialog.isOpen()) {
             def over (tree Rt (Overlay (props (id "rt-overlay-add"))))
@@ -3467,6 +3542,13 @@ class RealTrainerDemo {
         ; it out again, forever, and a scroll there could never take the
         ; shortcut. Cleared here, before either tab can return.
         feedMore = false
+        ; A ROW'S HISTORY IS A STRIP AT THE TOP OF HOME, above the tabs — not a
+        ; modal over the card it was opened from. The reference puts it here,
+        ; between the composer and the tabs, and a reader tabbing the page
+        ; meets it there: see `traces/reference/home-entry.json`.
+        if ((strlen statsRow) > 0) {
+            home.addChild((this.entryStatsSheet()))
+        }
         def tabs (tree Rt (Row (props (className "rt-ex-btns rt-home-tabs"))))
         tabs.addChild((this.homeTabBtn("rt-home-tab-diary" "Päiväkirja" (homeTab == "diary"))))
         tabs.addChild((this.homeTabBtn("rt-home-tab-drills" "Harjoitteet" (homeTab == "drills"))))
@@ -4988,23 +5070,42 @@ class RealTrainerDemo {
     fn wizardDone:void (ok:boolean) {
         if (ok == false) {
             wizard.complete(false)
-            toastText = "Päiväkirjan luonti epäonnistui"
-            toastMs = 4000.0
+            this.toast("Päiväkirjan luonti epäonnistui" false)
             return
         }
         def id:string ("cal-new-" + (to_string (wizard.created + 1)))
         def newName:string (wizard.nameTrimmed())
         seed.addCalendar(id newName wizard.typeKey wizard.color)
         seed.selectCalendar(id)
-        toastText = (("Päiväkirja \"" + newName) + "\" luotu")
+        def said@(mutable):string ((("Päiväkirja \"" + newName) + "\" luotu"))
         if wizard.encrypted {
-            toastText = (("Salattu päiväkirja \"" + newName) + "\" luotu 🔐")
+            said = (("Salattu päiväkirja \"" + newName) + "\" luotu 🔐")
         }
         wizard.complete(true)
         scene = "app"
         section = "home"
         docScroll = 0.0
-        toastMs = 4000.0
+        this.toast(said true)
+    }
+
+    ; SAY SOMETHING, for four seconds. Newest first, the way the original's
+    ; toaster stacks them, and each with its own clock — see `toastTexts`.
+    fn toast:void (text:string good:boolean) {
+        def texts:[string]
+        def left:[double]
+        def good2:[boolean]
+        push texts text
+        push left 4000.0
+        push good2 good
+        for toastTexts t:string i {
+            push texts t
+            push left (itemAt toastLeft i)
+            push good2 (itemAt toastGood i)
+        }
+        toastTexts = texts
+        toastLeft = left
+        toastGood = good2
+        listDirty = true
     }
 
     ; --- the year sheet ------------------------------------------------------------
@@ -5374,18 +5475,24 @@ class RealTrainerDemo {
         return (ch - 48)
     }
 
-    ; The toaster's landmark, and the toast in it while there is one.
+    ; The toaster's landmark, and the toasts in it while there are any: one
+    ; list, an item each, as sonner has it.
     fn toasts:EVGElement () {
         def region (tree Rt (PhToasts))
-        if ((strlen toastText) > 0) {
+        if ((array_length toastTexts) > 0) {
             def list (tree Rt (Toast))
             list.setAttribute("width" ((to_string (to_int (pageW - 32.0))) + "px"))
-            def item (tree Rt (ToastItem))
-            def ic (tree Rt (PhIcon))
-            ic.svgSource = (RtIcons.check("#22c55e"))
-            item.addChild(ic)
-            item.addChild((tree Rt (ToastTx toastText)))
-            list.addChild(item)
+            for toastTexts t:string i {
+                def item (tree Rt (ToastItem))
+                def ic (tree Rt (PhIcon))
+                ic.svgSource = (RtIcons.check("#22c55e"))
+                if ((itemAt toastGood i) == false) {
+                    ic.svgSource = (RtIcons.x("#ef4444"))
+                }
+                item.addChild(ic)
+                item.addChild((tree Rt (ToastTx t)))
+                list.addChild(item)
+            }
             region.addChild(list)
         }
         return region
@@ -5619,6 +5726,12 @@ class RealTrainerDemo {
             def addRow (tree Rt (ModalRow))
             addRow.addChild((tree Rt (Spacer)))
             addRow.addChild((this.exButton(("rt-entry-add-" + (to_string i)) "Lisää" "Lisää")))
+            ; THE MENU HANGS OFF THE BUTTON, in the card and right after it,
+            ; which is where the reference puts it and therefore where a
+            ; reader walking the page finds it.
+            if (menuCard == i) {
+                addRow.addChild((this.entryMenuSheet()))
+            }
             card.addChild(addRow)
         }
         ; THE HEADER IS NOT IN A PROPOSAL. The chips row above the card
@@ -6528,7 +6641,138 @@ class RealTrainerDemo {
         return b
     }
 
+    ; THE CARD'S OWN BUTTONS. Compact and JSON are exports: the reference puts
+    ; the entry on the clipboard and says which shape in a toast, and this
+    ; side has no clipboard, so it writes what would have been copied where a
+    ; host can take it (`clipboardText`) and says the same thing. Poista takes
+    ; the entry away. See `traces/reference/home-entry.json` and
+    ; `home-entry-edit.json` — this is their answer, not a guess.
+    fn pressEntryCard:boolean (id:string) {
+        ; The two panels a card opens over itself, and their ways out.
+        if (id == "rt-entry-stats-close") {
+            statsRow = ""
+            statsName = ""
+            this.rebuild()
+            return true
+        }
+        if ((id == "rt-entry-menu-close") || (id == "rt-entry-menu-ai") || (id == "rt-entry-menu-image")) {
+            ; Editing with the AI and copying the card as a picture are the
+            ; backend's and the canvas's; neither exists here, so the menu
+            ; closes and says nothing rather than pretending.
+            menuCard = (0 - 1)
+            ; The card is KEPT across frames — see `cardFor` — so a rebuild
+            ; alone would hand back the card as it was, menu and all.
+            this.forgetCards()
+            this.rebuild()
+            return true
+        }
+        if ((RtEntry.hasPrefix(id "rt-entry-stats-")) && (id != "rt-entry-stats-close")) {
+            def rowId:string (substring id (strlen "rt-entry-stats-") (strlen id))
+            def name:string (this.entryRowName(rowId))
+            if ((strlen name) == 0) {
+                return false
+            }
+            statsRow = rowId
+            statsName = name
+            this.rebuild()
+            return true
+        }
+        def ai:int (RealTrainerDemo.indexAfter(id "rt-entry-add-"))
+        if (ai >= 0) {
+            menuCard = ai
+            this.forgetCards()
+            this.rebuild()
+            return true
+        }
+        if (id == "rt-entry-menu-delete") {
+            def mc:int menuCard
+            menuCard = (0 - 1)
+            this.forgetCards()
+            if (mc < 0) {
+                return false
+            }
+            return (this.removeCard(mc))
+        }
+        def ci:int (RealTrainerDemo.indexAfter(id "rt-entry-compact-"))
+        def ji:int (RealTrainerDemo.indexAfter(id "rt-entry-json-"))
+        def di:int (RealTrainerDemo.indexAfter(id "rt-entry-delete-"))
+        if ((ci < 0) && (ji < 0) && (di < 0)) {
+            return false
+        }
+        def sorted:[RtSeedEntry] (RealTrainerDemo.sortByDateDesc((seed.selectedEntries())))
+        def at@(mutable):int ci
+        if (ji >= 0) { at = ji }
+        if (di >= 0) { at = di }
+        if (at >= (array_length sorted)) {
+            return false
+        }
+        def e:RtSeedEntry (itemAt sorted at)
+        if (ci >= 0) {
+            clipboard = e.compact
+            this.toast("Kopioitu Compact-muodossa" true)
+            return true
+        }
+        if (ji >= 0) {
+            clipboard = ((CompactV1Parser.parseText(e.compact)).toJSONString())
+            this.toast("Kopioitu JSON-muodossa" true)
+            return true
+        }
+        return (this.removeCard(at))
+    }
+
+    ; The card at a place in the feed, taken away. By the entry's id, because
+    ; the feed is sorted and its index is not the seed's.
+    fn removeCard:boolean (at:int) {
+        def sorted:[RtSeedEntry] (RealTrainerDemo.sortByDateDesc((seed.selectedEntries())))
+        if (at >= (array_length sorted)) {
+            return false
+        }
+        def e:RtSeedEntry (itemAt sorted at)
+        if (seed.removeEntry(e.id)) {
+            this.forgetCards()
+            this.toast("Merkintä poistettu" true)
+            layoutDirty = true
+            boxesDirty = true
+            this.rebuild()
+            return true
+        }
+        return false
+    }
+
+    ; The exercise a row is, for the history sheet's name. `rowId` is the
+    ; card's place in the feed and the row's place in the card, which is how
+    ; the buttons on it are named.
+    fn entryRowName:string (rowId:string) {
+        def dash:int (RtEntry.findIn(rowId "-"))
+        if (dash < 0) {
+            return ""
+        }
+        def ci@(optional):int (to_int (substring rowId 0 dash))
+        def ri@(optional):int (to_int (substring rowId (dash + 1) (strlen rowId)))
+        if ci {
+            if ri {
+                def sorted:[RtSeedEntry] (RealTrainerDemo.sortByDateDesc((seed.selectedEntries())))
+                def at:int (unwrap ci)
+                if (at >= (array_length sorted)) {
+                    return ""
+                }
+                def se:RtSeedEntry (itemAt sorted at)
+                def parsed:CompactDocument (CompactRowMapper.parseDocument(se.compact))
+                def rws:[CompactRow] parsed.rows
+                def r:int (unwrap ri)
+                if (r >= (array_length rws)) {
+                    return ""
+                }
+                return (CompactStatBuilder.label((itemAt rws r)))
+            }
+        }
+        return ""
+    }
+
     fn pressApp:boolean (id:string) {
+        if (this.pressEntryCard(id)) {
+            return true
+        }
         ; THE CREDIT GAUGE IS A BUTTON, on every screen, and it was drawn on
         ; every screen and answered on none — see ISSUES.md and
         ; `traces/reference/credits.json`. It opens a page of its own.
@@ -7708,11 +7952,23 @@ class RealTrainerDemo {
             return true
         }
         ; A toast stays for a while and goes.
-        if (toastMs > 0.0) {
-            toastMs = (toastMs - dtMs)
-            if (toastMs <= 0.0) {
-                toastMs = 0.0
-                toastText = ""
+        if ((array_length toastTexts) > 0) {
+            def texts:[string]
+            def left:[double]
+            def good:[boolean]
+            for toastTexts t:string i {
+                def rest:double ((itemAt toastLeft i) - dtMs)
+                if (rest > 0.0) {
+                    push texts t
+                    push left rest
+                    push good (itemAt toastGood i)
+                }
+            }
+            def went:boolean ((array_length texts) != (array_length toastTexts))
+            toastTexts = texts
+            toastLeft = left
+            toastGood = good
+            if went {
                 this.rebuild()
                 return true
             }

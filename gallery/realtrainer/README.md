@@ -436,18 +436,26 @@ of them found something that is drawn and does not answer:
 
 Thirteen scenarios were added to go where the first thirteen never did, and the
 reference was recorded for twelve of them — so what each gap should look like is
-on file rather than guessed at. Ten of the twenty-five are at 100%, and
-`credits` is the first gap they found that has been closed.
+on file rather than guessed at. Ten of the twenty-five are at 100%, and three
+of the gaps they found are closed: the credits page, and the diary card's own
+buttons in both scenarios that press them.
+
+Two of those needed the reference to say WHERE, not just what. A row's
+statistics are a strip at the top of Home and not a modal over the card; the
+card's menu hangs off its own button, inside the card. Drawn as page-level
+overlays they read 99.6% with every node present — the diff is a longest
+common subsequence, so a control in the wrong place is a control missing and
+another invented.
 
 | Scenario | Parity | What the reference does, and this side does not |
 | --- | ---: | --- |
 | `more-sheet` | 14% | **Asetukset** is 79 stops there and 11 here — the settings page is most of a screen short. **Harjoituspaikat** is a page there and nothing here: the sheet closes and the app lands back where it started. Vuosilakana differs too |
 | `home-notes` | 46% | **Muistiinpanot** on a card is not a panel on the card — it opens a workout notes page: the notes for that entry, a date and Tallenna, the training links (Hae ja linkitä treeni, the linked entry, Poista linkki tähän treeniin), the video links out of the knowledge store, and a markdown field with its rendered preview. Here the button does nothing |
 | `home-drills` | 77% | the tab, the categories and the sort all work, and both sides list the same six endurance drills in the same order — with different numbers: juoksu 29× there and 37× here, uinti 1.6km against 2.6km, rintauinti 3.0km against 16.2km. A drill row opens the exercise there and nothing here |
-| `home-entry` | 99.7% | **Näytä tilastot** opens a panel over the card with a heading, a summary and a Sulje of its own. **Compact** and **JSON** copy the entry to the clipboard and say so in a toast — two toasts, stacked, when both are pressed. All three are dead here |
+| `home-entry` | **99.9%** | **Näytä tilastot** is a strip at the top of Home, above the tabs, named after the exercise and with a Sulje of its own. **Compact** and **JSON** copy the entry and say which shape in a toast — two toasts, stacked, when both are pressed. All three answer now; what is left is the composer |
 | `credits` | **100%** | the header's **credit gauge** was drawn on every screen and answered on none. It opens the page now — AI-kreditit with what is used of what is available, the one thing there is to buy with Stripe under it, and the two histories that are empty until a purchase writes to them — and the tree matches the reference's stop for stop. Closed |
 | `home-stats` | 54% | **Laske vektorit** opens a dialog there: a date range (Tänään, 7, 14, 30 päivää, Mukautettu), every calendar to pick from, what the calculation will do, and Peruuta beside it. Here it is the one control the statistics panel has |
-| `home-entry-edit` | 99.6% | **Lisää** on a card is not an add: it opens the card's action menu — Muokkaa AI:lla, Kopioi kuvana, Poista. **Poista** removes the entry and toasts "Merkintä poistettu". Both dead here |
+| `home-entry-edit` | **99.9%** | **Lisää** on a card is not an add: it opens the card's action menu — Muokkaa AI:lla, Kopioi kuvana, Poista — hanging off the button, in the card. **Poista** removes the entry and toasts "Merkintä poistettu". Both answer now |
 | `more-rest` | 41% | **Jaetut kalenterit** is a sharing page there — Hallitse jakamista, Julkaise päiväkirja verkkoon, and every calendar with whether it is shared. **Tietopankki** is a knowledge store — a search, eight category filters, an empty state and Lisää ensimmäinen. Both close the sheet here. **Vie tietokanta** adds nothing to either side's tree, which is the one item that matches |
 | `chat-tools` | 45% | **AI-ohjeet** opens an instructions panel: the general instructions with three suggestions to add, a Tee ehdotukset that has the AI write them, a field for a new one, and instructions per calendar type. **Keskusteluhistoria** and **Tallennetut muistiinpanot** are panels. **Anna palautetta** produces an AI-arvio with Kopioi koko keskustelu, Kopioi viesti and Tallenna muistiin. All five are drawn here and none answers |
 | `yearsheet-open` | 47% | opening the plan out of the Vuosilakana list goes to the plan's own view there — Aktiivinen suunnitelma, the current period, week 36 of 104 — and stays in the list here |

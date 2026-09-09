@@ -2199,7 +2199,7 @@
   },
   {
    "step": "rt-entry-add-0",
-   "handled": false,
+   "handled": true,
    "state": "",
    "nodes": [
     {"role":"group","name":"RealTrainer","state":""},
@@ -2216,6 +2216,9 @@
     {"role":"button","name":"Harjoitteet","state":""},
     {"role":"button","name":"Tilastot","state":""},
     {"role":"button","name":"Lisää","state":""},
+    {"role":"button","name":"Muokkaa AI:lla","state":""},
+    {"role":"button","name":"Kopioi kuvana","state":""},
+    {"role":"button","name":"Poista","state":""},
     {"role":"heading","name":"Uintiharjoitus (Rintauinti)","state":"level=1"},
     {"role":"button","name":"Muistiinpanot","state":""},
     {"role":"button","name":"Lisää kommentti","state":""},
@@ -3281,7 +3284,7 @@
   },
   {
    "step": "rt-entry-delete-0",
-   "handled": false,
+   "handled": true,
    "state": "",
    "nodes": [
     {"role":"group","name":"RealTrainer","state":""},
@@ -3298,20 +3301,9 @@
     {"role":"button","name":"Harjoitteet","state":""},
     {"role":"button","name":"Tilastot","state":""},
     {"role":"button","name":"Lisää","state":""},
-    {"role":"heading","name":"Uintiharjoitus (Rintauinti)","state":"level=1"},
-    {"role":"button","name":"Muistiinpanot","state":""},
-    {"role":"button","name":"Lisää kommentti","state":""},
-    {"role":"button","name":"Lisää kommentti","state":""},
-    {"role":"button","name":"Lisää kommentti","state":""},
-    {"role":"button","name":"Lisää kommentti","state":""},
-    {"role":"button","name":"Lisää kommentti","state":""},
-    {"role":"button","name":"Lisää kommentti","state":""},
-    {"role":"button","name":"Näytä tilastot","state":""},
-    {"role":"button","name":"Lisää kommentti","state":""},
-    {"role":"button","name":"Compact","state":""},
-    {"role":"button","name":"JSON","state":""},
+    {"role":"button","name":"Muokkaa AI:lla","state":""},
+    {"role":"button","name":"Kopioi kuvana","state":""},
     {"role":"button","name":"Poista","state":""},
-    {"role":"button","name":"Lisää","state":""},
     {"role":"heading","name":"Voima- ja kestävyysharjoitus","state":"level=1"},
     {"role":"button","name":"Muistiinpanot","state":""},
     {"role":"button","name":"Lisää kommentti","state":""},
@@ -4358,7 +4350,9 @@
     {"role":"button","name":"Dashboard","state":""},
     {"role":"button","name":"AI Chat","state":""},
     {"role":"button","name":"Lisää","state":""},
-    {"role":"region","name":"Notifications alt+T","state":""}
+    {"role":"region","name":"Notifications alt+T","state":""},
+    {"role":"list","name":"","state":""},
+    {"role":"listitem","name":"Merkintä poistettu","state":""}
    ]
   },
   {
@@ -4380,20 +4374,9 @@
     {"role":"button","name":"Harjoitteet","state":""},
     {"role":"button","name":"Tilastot","state":""},
     {"role":"button","name":"Lisää","state":""},
-    {"role":"heading","name":"Uintiharjoitus (Rintauinti)","state":"level=1"},
-    {"role":"button","name":"Muistiinpanot","state":""},
-    {"role":"button","name":"Lisää kommentti","state":""},
-    {"role":"button","name":"Lisää kommentti","state":""},
-    {"role":"button","name":"Lisää kommentti","state":""},
-    {"role":"button","name":"Lisää kommentti","state":""},
-    {"role":"button","name":"Lisää kommentti","state":""},
-    {"role":"button","name":"Lisää kommentti","state":""},
-    {"role":"button","name":"Näytä tilastot","state":""},
-    {"role":"button","name":"Lisää kommentti","state":""},
-    {"role":"button","name":"Compact","state":""},
-    {"role":"button","name":"JSON","state":""},
+    {"role":"button","name":"Muokkaa AI:lla","state":""},
+    {"role":"button","name":"Kopioi kuvana","state":""},
     {"role":"button","name":"Poista","state":""},
-    {"role":"button","name":"Lisää","state":""},
     {"role":"heading","name":"Voima- ja kestävyysharjoitus","state":"level=1"},
     {"role":"button","name":"Muistiinpanot","state":""},
     {"role":"button","name":"Lisää kommentti","state":""},
@@ -5440,7 +5423,9 @@
     {"role":"button","name":"Dashboard","state":""},
     {"role":"button","name":"AI Chat","state":""},
     {"role":"button","name":"Lisää","state":""},
-    {"role":"region","name":"Notifications alt+T","state":""}
+    {"role":"region","name":"Notifications alt+T","state":""},
+    {"role":"list","name":"","state":""},
+    {"role":"listitem","name":"Merkintä poistettu","state":""}
    ]
   }
  ]

@@ -117,6 +117,9 @@ const isMoving = (now) => drag !== null || (state.velocity || 0) !== 0 || now - 
 
 function applyReply(r) {
   state = r.state || state;
+  // The clipboard rides on the state, so it is read here and not at the press
+  // — the press is a post and its answer comes back on a later turn.
+  syncClipboard();
   if (r.t === "frame") {
     dropFrame();
     if (gl) frame = prepareDisplayList(gl, { width: W, height: H, list: r.doc.list }, { dpr });
@@ -220,6 +223,15 @@ function changed() {
 function at(ev) {
   const r = canvas.getBoundingClientRect();
   return [ev.clientX - r.left, ev.clientY - r.top];
+}
+
+// What an export put on the clipboard, once — see main.js.
+let lastClip = "";
+function syncClipboard() {
+  const text = state.clip;
+  if (!text || text === lastClip) return;
+  lastClip = text;
+  navigator.clipboard?.writeText(text).catch(() => {});
 }
 
 function press(x, y) {

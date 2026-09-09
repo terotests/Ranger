@@ -57,6 +57,10 @@ serveEngine({
     h: app.heightPx(),
     plan: app.plan.state(),
     chat: app.chat.state(),
+    // What an export put on the clipboard — see `RealTrainerDemo.clipboard`.
+    // On every reply because it is one string and the page has to notice it
+    // changed; the page writes it out once.
+    clip: app.clipboard,
   }),
   // A new build is when the tree changed, so the accessibility tree is
   // rebuilt beside it and crosses with it: the host's mirror and its checks
