@@ -1296,6 +1296,7 @@ class MermaidReader {
         if (kind == "sankey")    { return true }
         if (kind == "block")     { return true }
         if (kind == "architecture") { return true }
+        if (kind == "swimlane")  { return true }
         return false
     }
 
@@ -1343,7 +1344,12 @@ class MermaidReader {
         if (word == "fishbone")           { return "ishikawa" }
         if (word == "peg")                { return "peg" }
         if (word == "railroad")           { return "railroad" }
-        if (word == "swimlanes")          { return "swimlanes" }
+        ; The header is `swimlane-beta`, SINGULAR. The chunk Mermaid ships is
+        ; called `swimlanes`, and a reader that took the file name for the
+        ; keyword would recognise nothing and hand every swimlane diagram to
+        ; the flowchart parser — which would draw it, and draw it wrong.
+        if (word == "swimlane")           { return "swimlane" }
+        if (word == "swimlanes")          { return "swimlane" }
         if (word == "venn")               { return "venn" }
         if (word == "wardley")            { return "wardley" }
         return ""
@@ -1468,7 +1474,14 @@ class MermaidReader {
         }
         if ((strlen doc.diagramKind) > 0) {
             if (doc.diagramKind != "flowchart") {
-                return
+                ; A swimlane diagram IS a flowchart. Mermaid's own source says
+                ; so — it "reuses the flowchart parser, DB, and renderer
+                ; wholesale and only swaps in a different layout engine" — so
+                ; the body is read rather than refused, and the lanes are what
+                ; the layout does with the subgraphs.
+                if (doc.diagramKind != "swimlane") {
+                    return
+                }
             }
         }
         def rest:string (trim (substring st (strlen word) (strlen st)))

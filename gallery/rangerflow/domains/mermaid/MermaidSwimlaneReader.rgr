@@ -1,0 +1,231 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MermaidSwimlaneReader.rgr — a flowchart that has been asked who does what.
+; ============================================================================
+;
+; `swimlane-beta` has no grammar of its own. Mermaid's own source says so:
+; it "reuses the flowchart parser, DB, and renderer wholesale and only swaps
+; in a different layout engine". So this file has no parser in it either —
+; it reads the source with the flowchart reader next door and then does the
+; one thing that makes a swimlane diagram a swimlane diagram, which is to put
+; every step in the lane that owns it.
+;
+;              ┌─────────────────────────────────────────┐
+;   Customer   │  ▢ Order ──▶ ▢ Pay                      │
+;              ├─────────────────────────────────────────┤
+;   Shop       │                    ▢ Pick ──▶ ▢ Ship    │
+;              └─────────────────────────────────────────┘
+;
+; A subgraph is a lane. Everything not in one gets a lane of its own at the
+; bottom, because a step with no owner is a fact about the process rather
+; than something to hide.
+;
+; **The header is `swimlane-beta`, singular.** The chunk Mermaid ships is
+; called `swimlanes`, and a reader that took the file name for the keyword
+; would recognise nothing and hand every swimlane diagram to the flowchart
+; parser — which would draw it, and draw it wrong.
+; ============================================================================
+
+Import "MermaidReader.rgr"
+Import "../../core/FlowStyleSheet.rgr"
+Import "../../layout/EdgeLanes.rgr"
+
+class MermaidSwimlaneFlow {
+    sfn parse:MermaidDiagram (src:string) {
+        return (MermaidReader.parse(src))
+    }
+
+    sfn render:FlowGraph (src:string) {
+        def d:MermaidDiagram (MermaidReader.parse(src))
+        def bare (new FlowStyle)
+        return (MermaidSwimlaneFlow.build(d bare))
+    }
+
+    sfn build:FlowGraph (d:MermaidDiagram style:FlowStyle) {
+        def g:FlowGraph (MermaidFlow.styled(d style))
+        if ((g.nodeCount()) == 0) {
+            return g
+        }
+        ; The frames a sub-flow would have drawn are the lanes, so they are
+        ; taken out and drawn again as bands across the page.
+        def kept (new FlowGraph)
+        def i:int 0
+        while (i < (g.nodeCount())) {
+            def n:FlowNode (g.nodeAt(i))
+            if (n.nodeType != "group") {
+                kept.addNode(n)
+            }
+            i = (i + 1)
+        }
+        def e:int 0
+        while (e < (g.edgeCount())) {
+            kept.addEdge((g.edgeAt(e)))
+            e = (e + 1)
+        }
+        kept.reindex()
+        def laneOf:[int] (MermaidSwimlaneFlow.lanesFor(d kept))
+        def laneCount:int (MermaidSwimlaneFlow.laneCountOf(d))
+        def depth:[int] (MermaidSwimlaneFlow.depths(kept))
+        def colGap:double 70.0
+        def laneH:double 132.0
+        def leftPad:double 190.0
+        def widest:double 0.0
+        def k:int 0
+        while (k < (kept.nodeCount())) {
+            def n2:FlowNode (kept.nodeAt(k))
+            if (n2.width > widest) {
+                widest = n2.width
+            }
+            k = (k + 1)
+        }
+        def colW:double (widest + colGap)
+        def m:int 0
+        while (m < (kept.nodeCount())) {
+            def n3:FlowNode (kept.nodeAt(m))
+            def lane:int (itemAt laneOf m)
+            def col:int (itemAt depth m)
+            n3.x = (leftPad + ((to_double col) * colW))
+            n3.y = (((to_double lane) * laneH) + ((laneH - n3.height) * 0.5))
+            n3.sourcePosition = 1
+            n3.targetPosition = 3
+            n3.syncFromModel()
+            m = (m + 1)
+        }
+        ; The lanes themselves, and the name of each one at its left.
+        def right:double 0.0
+        def q:int 0
+        while (q < (kept.nodeCount())) {
+            def n4:FlowNode (kept.nodeAt(q))
+            def edge:double (n4.x + n4.width)
+            if (edge > right) {
+                right = edge
+            }
+            q = (q + 1)
+        }
+        def backs:[string]
+        def L:int 0
+        while (L < laneCount) {
+            def name:string (MermaidSwimlaneFlow.laneName(d L))
+            def id:string ("sg-lane" + (to_string L))
+            def band:FlowNode (FlowNode.create(id name 0.0 ((to_double L) * laneH)))
+            band.nodeType = "group"
+            band.width = ((right + 40.0))
+            band.height = laneH
+            band.connectable = false
+            band.draggable = false
+            band.cssClass = "mermaid lane"
+            band.bgColor = (MermaidSwimlaneFlow.laneFill(L))
+            band.borderColor = "#c9cede"
+            band.syncFromModel()
+            kept.addNode(band)
+            style.styleNode(band)
+            push backs id
+            L = (L + 1)
+        }
+        kept.reindex()
+        def ed:int 0
+        while (ed < (kept.edgeCount())) {
+            def link:FlowEdge (kept.edgeAt(ed))
+            link.sourceHandle = -1
+            link.targetHandle = -1
+            ed = (ed + 1)
+        }
+        def moved:int (EdgeLanes.assign(kept))
+        def b:int 0
+        while (b < (array_length backs)) {
+            def sent:boolean (kept.sendToBack((itemAt backs b)))
+            b = (b + 1)
+        }
+        return kept
+    }
+
+    ; How many lanes there are: one per subgraph, and one more for whatever
+    ; was not in any of them.
+    sfn laneCountOf:int (d:MermaidDiagram) {
+        return ((array_length d.subgraphs) + 1)
+    }
+
+    sfn laneName:string (d:MermaidDiagram lane:int) {
+        if (lane < (array_length d.subgraphs)) {
+            def sg:MermaidSubgraph (itemAt d.subgraphs lane)
+            if ((strlen sg.title) > 0) {
+                return sg.title
+            }
+            return sg.id
+        }
+        return "—"
+    }
+
+    ; Which lane each node is in, in step with the graph's own node order.
+    sfn lanesFor:[int] (d:MermaidDiagram g:FlowGraph) {
+        def out:[int]
+        def spare:int (array_length d.subgraphs)
+        def i:int 0
+        while (i < (g.nodeCount())) {
+            def n:FlowNode (g.nodeAt(i))
+            def lane:int spare
+            def s:int 0
+            while (s < (array_length d.subgraphs)) {
+                def sg:MermaidSubgraph (itemAt d.subgraphs s)
+                def k:int 0
+                while (k < (array_length sg.members)) {
+                    if ((itemAt sg.members k) == n.id) {
+                        lane = s
+                    }
+                    k = (k + 1)
+                }
+                s = (s + 1)
+            }
+            push out lane
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; How far along the process each step is: nothing before it and it is at
+    ; the start, otherwise one past whatever leads to it. The same longest
+    ; path the Sankey reader uses, and for the same reason — it is the only
+    ; ordering the source actually states.
+    sfn depths:[int] (g:FlowGraph) {
+        def out:[int]
+        def i:int 0
+        while (i < (g.nodeCount())) {
+            push out 0
+            i = (i + 1)
+        }
+        def rounds:int 0
+        def changed:boolean true
+        while changed {
+            changed = false
+            rounds = (rounds + 1)
+            if (rounds > 64) {
+                return out
+            }
+            def e:int 0
+            while (e < (g.edgeCount())) {
+                def link:FlowEdge (g.edgeAt(e))
+                if (link.sourceIndex >= 0) {
+                    if (link.targetIndex >= 0) {
+                        def a:int (itemAt out link.sourceIndex)
+                        def b:int (itemAt out link.targetIndex)
+                        if (b <= a) {
+                            set_at out link.targetIndex (a + 1)
+                            changed = true
+                        }
+                    }
+                }
+                e = (e + 1)
+            }
+        }
+        return out
+    }
+
+    ; Alternating bands, so a wide diagram can still be read across.
+    sfn laneFill:string (lane:int) {
+        if ((lane % 2) == 0) {
+            return "#f6f7fb"
+        }
+        return "#eef2f8"
+    }
+}

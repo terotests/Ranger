@@ -60,7 +60,10 @@ function mermaidDiagramTypes() {
     sankey: "sankey-beta", xychart: "xychart-beta", packet: "packet-beta",
     radar: "radar-beta", treemap: "treemap-beta", venn: "venn-beta",
     wardley: "wardley-beta", cynefin: "cynefin-beta", ishikawa: "ishikawa-beta",
-    swimlanes: "swimlanes-beta",
+    // Singular: the chunk is `swimlanes`, the header keyword `swimlane-beta`.
+    // Mermaid's own detector says so, and a matrix that asked about the wrong
+    // keyword would report a reader that recognises nothing as passing.
+    swimlanes: "swimlane-beta",
   };
   const names = new Set();
   for (const file of fs.readdirSync(dir)) {
@@ -199,7 +202,16 @@ for (const want of oracle.diagrams) {
   add("diagram type", kindOf(got.kind) === kind, `type ${got.kind || "(none)"} ≠ ${want.kind}`);
 
   // A diagram Mermaid draws with another parser is one RangerFlow must say no
-  // to rather than read as a flowchart. That is the whole of the check.
+  // to rather than read as a flowchart. That is the whole of the check — with
+  // one exception, and Mermaid's own source is what makes it one: a swimlane
+  // diagram "reuses the flowchart parser, DB, and renderer wholesale and only
+  // swaps in a different layout engine", so reading it as a flowchart is
+  // right and reading it as nothing would be the failure.
+  if (kind === "swimlane") {
+    add("read as the flowchart it is", got.nodes.length > 0, "no nodes read from a swimlane diagram");
+    rows.push({ file: want.file, kind, checks, notes });
+    continue;
+  }
   if (kind !== "flowchart") {
     add("not read as a flowchart", got.nodes.length === 0, `${got.nodes.length} nodes invented from a ${kind} diagram`);
     rows.push({ file: want.file, kind, checks, notes });
@@ -344,7 +356,7 @@ const cell = (r, name) => {
 for (const r of rows) {
   // A diagram of another kind has one thing to get right, and the type cell is
   // where it is said: recognised, and read as nothing.
-  const guard = r.checks.find((c) => c.name === "not read as a flowchart");
+  const guard = r.checks.find((c) => c.name === "not read as a flowchart" || c.name === "read as the flowchart it is");
   const kindCell = guard ? `${r.kind} ${guard.ok ? "✓" : "✗"}` : r.kind;
   lines.push(`| \`${r.file}\` | ${kindCell} | ${cell(r, "direction")} | ${cell(r, "nodes")} | ${cell(r, "labels")} | ${cell(r, "shapes")} | ${cell(r, "classes")} | ${cell(r, "edges")} | ${cell(r, "subgraphs")} |`);
 }

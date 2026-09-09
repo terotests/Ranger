@@ -599,6 +599,32 @@ icon from an icon pack; the shape library has outlines instead, and the icons
 that carry a meaning get the outline that means it — a database is a cylinder,
 a disk the same drum on its side.
 
+### …and swimlane diagrams
+
+`swimlane-beta` has no grammar of its own. Mermaid's own source says so: it
+"reuses the flowchart parser, DB, and renderer wholesale and only swaps in a
+different layout engine". So there is no parser here either — the source is read
+with the flowchart reader, and the one thing that makes a swimlane diagram a
+swimlane diagram is done to the layout: every step goes in the lane that owns
+it, and a step nobody claimed gets a lane at the bottom.
+
+```mermaid
+swimlane-beta
+    subgraph Customer
+        order[Place order] --> pay[Pay]
+    end
+    subgraph Warehouse
+        pick[Pick the goods] --> pack[Pack]
+    end
+    pay --> pick
+```
+
+The header is `swimlane-beta`, **singular**. The chunk Mermaid ships is called
+`swimlanes`, and a reader that took the file name for the keyword would
+recognise nothing and hand every swimlane diagram to the flowchart parser —
+which would draw it, and draw it wrong. The parity harness was asking about the
+wrong keyword too, so it could not have caught that.
+
 ### …measured against Mermaid itself
 
 A claim of parity with a format is worth what the person making it wanted it to

@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Mermaid swimlane diagrams.** The twenty-first type, and the one with no
+  grammar of its own: Mermaid reuses the flowchart parser wholesale and swaps
+  the layout engine, so this reads the source with the flowchart reader and
+  puts every step in the lane that owns it. A step nobody claimed gets a lane
+  at the bottom.
+
+### Fixed
+
+- **The swimlane keyword was wrong, in the reader and in the meter.** The
+  header is `swimlane-beta`, singular; the chunk Mermaid ships is called
+  `swimlanes`. Both the reader and the parity harness had taken the file name
+  for the keyword, so a real swimlane diagram fell through to the flowchart
+  parser and the matrix reported it as recognised. Mermaid's own detector
+  settles it.
+
+### Added
+
 - **Mermaid architecture diagrams.** The twentieth type. `architecture-beta`
   writes a side on each end of every connection — `db:L -- R:server` — and that
   is the only placement information the diagram has, so it is used as the

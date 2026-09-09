@@ -1,0 +1,2 @@
+["swimlane-beta\n  a --> b",
+ "swimlane-beta\n  subgraph Customer\n    a[Order] --> b[Pay]\n  end\n  subgraph Shop\n    c[Ship]\n  end\n  b --> c"]

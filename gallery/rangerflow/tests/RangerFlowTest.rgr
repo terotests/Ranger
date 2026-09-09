@@ -42,6 +42,7 @@ Import "../domains/mermaid/MermaidXyReader.rgr"
 Import "../domains/mermaid/MermaidSankeyReader.rgr"
 Import "../domains/mermaid/MermaidBlockReader.rgr"
 Import "../domains/mermaid/MermaidArchReader.rgr"
+Import "../domains/mermaid/MermaidSwimlaneReader.rgr"
 Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 
@@ -127,6 +128,7 @@ class RangerFlowTest {
         RangerFlowTest.testMermaidSankey(c)
         RangerFlowTest.testMermaidBlock(c)
         RangerFlowTest.testMermaidArchitecture(c)
+        RangerFlowTest.testMermaidSwimlane(c)
         RangerFlowTest.testBusinessCharts(c)
         RangerFlowTest.testAuthoring(c)
         RangerFlowTest.testTreeLayouts(c)
@@ -3478,6 +3480,49 @@ class RangerFlowTest {
         c.ok("on both sides" ((frame.x + frame.width) >= (nDb.x + nDb.width)))
         c.eqInt("a connection per edge" (g.edgeCount()) 3)
         c.ok("an architecture diagram is one this library draws" (MermaidReader.draws("architecture")))
+    }
+
+    ; --------------------------------------------- Mermaid swimlane -------
+    ; `swimlane-beta` has no grammar of its own: Mermaid's own source says it
+    ; reuses the flowchart parser wholesale and swaps the layout. So the one
+    ; thing to get wrong is the KEYWORD — the chunk Mermaid ships is called
+    ; `swimlanes` and the header is `swimlane-beta`, singular — and after
+    ; that, which lane each step lands in.
+    sfn testMermaidSwimlane:void (c:Checker) {
+        c.section("Mermaid swimlane diagrams")
+        def src:string "swimlane-beta\n"
+        src = (src + "    subgraph Customer\n")
+        src = (src + "        order[Place order] --> pay[Pay]\n")
+        src = (src + "    end\n")
+        src = (src + "    subgraph Warehouse\n")
+        src = (src + "        pick[Pick] --> pack[Pack]\n")
+        src = (src + "    end\n")
+        src = (src + "    pay --> pick\n")
+        src = (src + "    pack --> done[Done]\n")
+
+        def d:MermaidDiagram (MermaidReader.parse(src))
+        c.eqStr("the header names the diagram" d.diagramKind "swimlane")
+        c.eqInt("and the body is read, because a swimlane IS a flowchart" (d.nodeCount()) 5)
+        c.eqInt("with the subgraphs kept as the lanes" (d.subgraphCount()) 2)
+        c.eqInt("and the links between them" (d.linkCount()) 4)
+        c.eqStr("the plural is the chunk's name, not the keyword" (MermaidReader.otherDiagram("swimlane-beta")) "swimlane")
+
+        def bare (new FlowStyle)
+        def g:FlowGraph (MermaidSwimlaneFlow.build(d bare))
+        def order:FlowNode (g.nodeById("order"))
+        def pick:FlowNode (g.nodeById("pick"))
+        def done:FlowNode (g.nodeById("done"))
+        c.ok("a step is in the lane that owns it" (pick.y > order.y))
+        c.ok("and a step nobody claimed gets a lane at the bottom" (done.y > pick.y))
+        def pay:FlowNode (g.nodeById("pay"))
+        c.ok("the process runs across the page, not down it" (pay.x > order.x))
+        c.ok("each step past the one that leads to it" (pick.x > pay.x))
+        def lane0:FlowNode (g.nodeById("sg-lane0"))
+        c.eqStr("the lane is a band with the subgraph's name on it" lane0.label "Customer")
+        def spare:FlowNode (g.nodeById("sg-lane2"))
+        c.ok("and there is one more band than there are subgraphs" (spare.y > lane0.y))
+        c.eqInt("every link survives the relayout" (g.edgeCount()) 4)
+        c.ok("a swimlane diagram is one this library draws" (MermaidReader.draws("swimlane")))
     }
 
     ; --------------------------------------------- a click is not an edit --

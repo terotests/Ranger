@@ -42,6 +42,7 @@ Import "../domains/mermaid/MermaidXyReader.rgr"
 Import "../domains/mermaid/MermaidSankeyReader.rgr"
 Import "../domains/mermaid/MermaidBlockReader.rgr"
 Import "../domains/mermaid/MermaidArchReader.rgr"
+Import "../domains/mermaid/MermaidSwimlaneReader.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 Import "../layout/TreeLayouts.rgr"
 Import "../export/FlowExport.rgr"
@@ -698,6 +699,9 @@ class RangerFlowWeb {
         if (d.diagramKind == "architecture") {
             return (this.loadMermaidArch(text styleName want))
         }
+        if (d.diagramKind == "swimlane") {
+            return (this.loadMermaidSwimlane(text styleName want))
+        }
         if ((d.nodeCount()) == 0) {
             status = "no nodes in that Mermaid source"
             if ((strlen d.diagramKind) > 0) {
@@ -1164,6 +1168,27 @@ class RangerFlowWeb {
             what = "Mermaid architecture diagram"
         }
         status = ((to_string (ad.serviceCount())) + " services, " + (to_string (ad.edgeCount())) + " connections — " + what + ", " + want)
+        return true
+    }
+
+    ; A swimlane diagram: the flowchart reader, and then every step put in
+    ; the lane that owns it.
+    fn loadMermaidSwimlane:boolean (text:string styleName:string want:string) {
+        def sd:MermaidDiagram (MermaidReader.parse(text))
+        if ((sd.nodeCount()) == 0) {
+            status = "no steps in that swimlane diagram"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidSwimlaneFlow.build(sd style))
+        this.adoptPlaced(g style want)
+        def what:string sd.title
+        if ((strlen what) == 0) {
+            what = "Mermaid swimlane diagram"
+        }
+        status = ((to_string (sd.nodeCount())) + " steps in " + (to_string (sd.subgraphCount())) + " lanes — " + what + ", " + want)
         return true
     }
 

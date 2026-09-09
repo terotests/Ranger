@@ -49,6 +49,7 @@ Import "../domains/mermaid/MermaidXyReader.rgr"
 Import "../domains/mermaid/MermaidSankeyReader.rgr"
 Import "../domains/mermaid/MermaidBlockReader.rgr"
 Import "../domains/mermaid/MermaidArchReader.rgr"
+Import "../domains/mermaid/MermaidSwimlaneReader.rgr"
 Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 Import "../layout/LayeredLayout.rgr"
@@ -532,6 +533,10 @@ class RangerFlowDemo {
             this.runMermaidArch(srcOpt styleName)
             return
         }
+        if (d.diagramKind == "swimlane") {
+            this.runMermaidSwimlane(srcOpt styleName)
+            return
+        }
         if ((strlen d.diagramKind) > 0) {
             if (d.diagramKind != "flowchart") {
                 print ("  this is a " + d.diagramKind + " diagram — this reads flowcharts and class diagrams")
@@ -972,6 +977,27 @@ class RangerFlowDemo {
             title = "RangerFlow — Mermaid architecture diagram"
         }
         this.writeAll(v g "rangerflow-mermaid-architecture" title)
+    }
+
+    ; A swimlane diagram: a flowchart that has been asked who does what.
+    fn runMermaidSwimlane:void (src:string styleName:string) {
+        def sd:MermaidDiagram (MermaidReader.parse(src))
+        if ((sd.nodeCount()) == 0) {
+            print "  no steps in that swimlane diagram"
+            return
+        }
+        def style:FlowStyle (this.styleByName(styleName))
+        def g:FlowGraph (MermaidSwimlaneFlow.build(sd style))
+        print ("  model  " + (to_string (sd.nodeCount())) + " steps in " + (to_string (sd.subgraphCount())) + " lanes, " + (to_string (sd.linkCount())) + " links")
+        print ("  graph  " + (to_string (g.nodeCount())) + " nodes, " + (to_string (g.edgeCount())) + " edges")
+        def v:FlowView (FlowView.of(g))
+        v.notation = "plain"
+        style.applyToTheme(v.theme)
+        def title:string sd.title
+        if ((strlen title) == 0) {
+            title = "RangerFlow — Mermaid swimlane diagram"
+        }
+        this.writeAll(v g "rangerflow-mermaid-swimlane" title)
     }
 
     ; ------------------------------------------------------------- org -----
