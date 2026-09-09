@@ -413,8 +413,16 @@ calendar, newest first, so a calendar boundary is where the dates start over.
 An entry with a score shows it under its date, and one with feedback shows
 "AI-valmentajan palaute" at the end, as the blog view does. A frame is the accessibility tree: every button, heading,
 textbox, checkbox and landmark, in order, with `disabled` and `checked`. The
-diff is a longest common subsequence over that order, per frame, and the gate is
-the worst frame against `RT_TRACE_FLOOR` (0.93).
+diff is a longest common subsequence over that order, per frame.
+
+The gate is a **ratchet, per scenario**. One floor over everything says nothing
+the moment a scenario walks somewhere nobody has been: the first recording of a
+screen this port does not have reads 14%, and a single number either drops to
+14 — and stops guarding the fifteen scenarios at 100 — or refuses the recording
+that found the gap. So each scenario's worst frame is written in
+`traces/parity.json` and none may fall below it. `npm run rt:trace:diff --
+--bless` records what is measured now, and REFUSES to lower a baseline unless
+`RT_TRACE_BLESS_DOWN=1` says the drop is meant.
 
 A frame is taken once the app has finished building, the way the page's own
 mirror does (`main.js` syncs it only when `app.building()` is false): Home's
@@ -426,17 +434,28 @@ is one no reader is ever handed.
 Four scenarios were added to go where the first thirteen never did, and three
 of them found something that is drawn and does not answer:
 
-| Scenario | What it walks | What it found |
-| --- | --- | --- |
-| `home-entry` | the diary card's own buttons | **all dead.** Muistiinpanot, Näytä tilastot, Lisää kommentti, Compact and JSON are drawn on every card — the reference's Home has three hundred of the comment button alone — and none of them does anything here. Poista, Lisää and Muokkaa tekstiä are the same and are not pressed, because a delete moves every card after it |
-| `home-drills` | Harjoitteet: the categories, the sort menu, a sort | the tab works; a **drill row** does not open the exercise behind it |
-| `more-sheet` | the bar's Lisää sheet, item by item | Vuosilakana and Asetukset are screens; **Harjoituspaikat, Tietopankki, Jaetut kalenterit and Vie tietokanta** close the sheet and land back where they started |
-| `settings-theme` | the settings page and its palettes | works; `noReference`, because Ocean and Sunrise are this port's own |
+Five scenarios were added to go where the first thirteen never did, and the
+reference was recorded for four of them — so what each gap should look like is
+on file rather than guessed at.
+
+| Scenario | Parity | What the reference does, and this side does not |
+| --- | ---: | --- |
+| `more-sheet` | 14% | **Asetukset** is 79 stops there and 11 here — the settings page is most of a screen short. **Harjoituspaikat** is a page there and nothing here: the sheet closes and the app lands back where it started. Vuosilakana differs too |
+| `home-notes` | 46% | **Muistiinpanot** on a card is not a panel on the card — it opens a workout notes page: the notes for that entry, a date and Tallenna, the training links (Hae ja linkitä treeni, the linked entry, Poista linkki tähän treeniin), the video links out of the knowledge store, and a markdown field with its rendered preview. Here the button does nothing |
+| `home-drills` | 77% | the tab, the categories and the sort all work, and both sides list the same six endurance drills in the same order — with different numbers: juoksu 29× there and 37× here, uinti 1.6km against 2.6km, rintauinti 3.0km against 16.2km. A drill row opens the exercise there and nothing here |
+| `home-entry` | 99.7% | **Näytä tilastot** opens a panel over the card with a heading, a summary and a Sulje of its own. **Compact** and **JSON** copy the entry to the clipboard and say so in a toast — two toasts, stacked, when both are pressed. All three are dead here |
+| `settings-theme` | — | `noReference`: Ocean and Sunrise are this port's own |
+
+One thing the recorder could not reach: **Lisää kommentti**. It is drawn three
+hundred times on the reference's Home and the row's own content lies over every
+one of them — `custom-row … intercepts pointer events` — and hovering the row
+first was not enough for the click to land. A `"hover": true` step is in the
+recorder for it; the gap is real either way and this scenario cannot yet
+record its shape.
 
 `handled: false` in a committed trace is a gap recorded rather than
-remembered. What each of those buttons should DO is the reference's answer to
-give: run `rt:trace:reference` for these four on a machine that has the
-monorepo, and the shape comes back with it.
+remembered, and `traces/parity.json` is what stops any of these sliding
+further while they are open.
 
 What the traces found, in the order they found it: the reference's dialogs sit
 *before* the bottom bar in the tree and the add sheet *after* it; the bar's

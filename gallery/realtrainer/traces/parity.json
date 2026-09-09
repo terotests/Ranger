@@ -1,0 +1,19 @@
+{
+ "add-workout.json": 1,
+ "calendar-diary.json": 1,
+ "calendar-switch.json": 0.937,
+ "calendar-week.json": 1,
+ "calendar-wizard.json": 0.933,
+ "chat-send.json": 1,
+ "home-diary.json": 0.999,
+ "home-drills.json": 0.766,
+ "home-entry.json": 0.997,
+ "home-notes.json": 0.464,
+ "home-tabs.json": 0.952,
+ "more-sheet.json": 0.139,
+ "plan-edit.json": 0.97,
+ "plan-week.json": 1,
+ "sections.json": 0.937,
+ "yearsheet-detail.json": 1,
+ "yearsheet.json": 1
+}

@@ -40,7 +40,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { requireHostTool, MissingDomDeps } from "../../ui/conformance/dom-adapter.mjs";
+import { requireHostTool, MissingDomDeps, findChromium } from "../../ui/conformance/dom-adapter.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, "..");
@@ -178,7 +178,15 @@ if (!(await reachable(URL)) || !(await reachable(`${AUTH}/`)) || !(await reachab
   process.exit(2);
 }
 
-const browser = await playwright.chromium.launch();
+// A CHROMIUM THAT IS ALREADY THERE. `playwright-core` looks for the exact
+// build revision it shipped with, which is not the one a machine that came
+// with a browser installed has — and downloading a second copy of Chromium to
+// drive a page for four minutes is not the trade. `findChromium` is the same
+// lookup `gallery/ui`'s conformance host makes: `RANGER_CHROMIUM`, then
+// whatever `PLAYWRIGHT_BROWSERS_PATH` holds. Nothing found falls through to
+// Playwright's own, which is right on a machine that installed it that way.
+const chromium = findChromium();
+const browser = await playwright.chromium.launch(chromium ? { executablePath: chromium } : {});
 const context = await browser.newContext({ viewport: { width: VW, height: VH }, locale: "fi-FI" });
 const page = await context.newPage();
 
@@ -281,10 +289,17 @@ async function apply(step) {
       await target.press(step.key, { timeout: 5000 });
     } else {
       await target.scrollIntoViewIfNeeded({ timeout: 2000 }).catch(() => {});
+      // A CONTROL THAT IS ONLY THERE UNDER THE POINTER. The reference's
+      // per-row comment button sits in a `group/comment-row` and the row's own
+      // content lies over it until the row is hovered — Playwright reports it
+      // visible, enabled and stable, and then the click is intercepted by the
+      // text on top of it. `"hover": true` says so: point at it first, the way
+      // a person reaching for it would.
+      if (step.hover) await target.hover({ timeout: 5000 }).catch(() => {});
       await target.click({ timeout: 5000 });
     }
   } catch (e) {
-    console.log(`    ${step.name ?? step.role}: ${String(e.message).split("\n")[0]}`);
+    console.log(`    ${step.name ?? step.role}: ${String(e.message).split("\n").slice(0, 12).join("\n      ")}`);
     return false;
   }
   await page.waitForTimeout(150);

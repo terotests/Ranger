@@ -521,7 +521,7 @@
    ]
   },
   {
-   "step": "rt-more-venues",
+   "step": "rt-more-settings",
    "handled": true,
    "state": "",
    "nodes": [
@@ -531,43 +531,53 @@
      "state": ""
     },
     {
+     "role": "banner",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Credits: 100k. Click to purchase more credits.",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "💪 Harjoituspäiväkirja",
+     "state": ""
+    },
+    {
      "role": "main",
      "name": "",
      "state": ""
     },
     {
-     "role": "button",
-     "name": "",
-     "state": ""
-    },
-    {
      "role": "heading",
-     "name": "Vuosisuunnitelmat",
+     "name": "Asetukset",
      "state": "level=1"
     },
     {
-     "role": "paragraph",
-     "name": "1 suunnitelmaa",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Vuosisuunnitelma 2026 Referenssin vuosisuunnitelma 5.1.2026 • 1 kautta Luotu: 3.9.2026",
-     "state": ""
-    },
-    {
      "role": "heading",
-     "name": "Vuosisuunnitelma 2026",
-     "state": "level=3"
+     "name": "Teema",
+     "state": "level=2"
     },
     {
      "role": "paragraph",
-     "name": "Referenssin vuosisuunnitelma",
+     "name": "Väri, ei asettelu: sama ruutu joka teemalla.",
      "state": ""
     },
     {
      "role": "button",
-     "name": "Poista suunnitelma",
+     "name": "Yö",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Ocean",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Sunrise",
      "state": ""
     },
     {
@@ -618,43 +628,53 @@
      "state": ""
     },
     {
+     "role": "banner",
+     "name": "",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "AI Credits: 100k. Click to purchase more credits.",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "💪 Harjoituspäiväkirja",
+     "state": ""
+    },
+    {
      "role": "main",
      "name": "",
      "state": ""
     },
     {
-     "role": "button",
-     "name": "",
-     "state": ""
-    },
-    {
      "role": "heading",
-     "name": "Vuosisuunnitelmat",
+     "name": "Asetukset",
      "state": "level=1"
     },
     {
-     "role": "paragraph",
-     "name": "1 suunnitelmaa",
-     "state": ""
-    },
-    {
-     "role": "button",
-     "name": "Vuosisuunnitelma 2026 Referenssin vuosisuunnitelma 5.1.2026 • 1 kautta Luotu: 3.9.2026",
-     "state": ""
-    },
-    {
      "role": "heading",
-     "name": "Vuosisuunnitelma 2026",
-     "state": "level=3"
+     "name": "Teema",
+     "state": "level=2"
     },
     {
      "role": "paragraph",
-     "name": "Referenssin vuosisuunnitelma",
+     "name": "Väri, ei asettelu: sama ruutu joka teemalla.",
      "state": ""
     },
     {
      "role": "button",
-     "name": "Poista suunnitelma",
+     "name": "Yö",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Ocean",
+     "state": ""
+    },
+    {
+     "role": "button",
+     "name": "Sunrise",
      "state": ""
     },
     {
@@ -740,7 +760,7 @@
    ]
   },
   {
-   "step": "rt-more-settings",
+   "step": "rt-more-venues",
    "handled": true,
    "state": "",
    "nodes": [

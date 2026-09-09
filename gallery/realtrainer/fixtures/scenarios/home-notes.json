@@ -1,0 +1,44 @@
+{
+  "_": "\"Muistiinpanot\" on a diary card. On the reference it is not a panel on the card at all — it opens a WORKOUT NOTES PAGE: the notes for that entry, a date and Tallenna, the training links (Hae ja linkitä treeni, the linked entry, Poista linkki tähän treeniin), the video links out of the knowledge store, and a markdown field with its rendered preview. This side draws the button and answers nothing. Recorded so the shape is on file rather than guessed at.",
+  "id": "home-entry-notes",
+  "area": "koti",
+  "machine": "",
+  "reference": {
+    "route": "/calendar/cal-train?week=2026-02-09"
+  },
+  "setup": [
+    {
+      "page": "390x844"
+    },
+    {
+      "route": "/calendar/cal-train?week=2026-02-09"
+    }
+  ],
+  "steps": [
+    {
+      "tick": 500
+    },
+    {
+      "id": "rt-nav-home",
+      "role": "button",
+      "name": "Koti"
+    },
+    {
+      "tick": 1500,
+      "why": "the feed arrives in chunks — see `feedShown`"
+    },
+    {
+      "id": "rt-entry-notes-0",
+      "role": "button",
+      "name": "Muistiinpanot",
+      "nth": 0,
+      "why": "the FIRST card's: the reference draws sixty-eight of this button and takes the last by default"
+    },
+    {
+      "id": "rt-entry-notes-back",
+      "role": "button",
+      "name": "Takaisin",
+      "why": "out of the notes page again — an id this side does not have yet either"
+    }
+  ]
+}

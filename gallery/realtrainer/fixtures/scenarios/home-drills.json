@@ -1,5 +1,5 @@
 {
-  "_": "Home's Harjoitteet tab, which `home-tabs` opens and never goes into: the three categories with their counts, the sort menu, and a sort other than the default. The drill rows themselves are pressed last — nothing answers them here, which is the gap this records.",
+  "_": "Home's Harjoitteet tab, which `home-tabs` opens and never goes into: the three categories with their counts, the sort menu, and a sort other than the default. Both sides list the same six endurance drills in the same order under Kehittyvät ↑ — and disagree on the numbers beside four of them: juoksu is 29× there and 37× here, uinti 1.6km there and 2.6km here, rintauinti 3.0km there and 16.2km here, and this side puts a space in front of \"@<150bpm | matka +\". The row itself is pressed last: the reference opens the exercise behind it and this side does not.",
   "id": "home-drills",
   "area": "koti",
   "machine": "",
@@ -50,10 +50,11 @@
       "why": "a sort that is not the default, so the order below has to change"
     },
     {
-      "id": "rt-drill-0",
+      "id": "rt-drill-1",
       "role": "button",
       "nth": 0,
-      "why": "the first drill row: the reference opens the exercise behind it and this side does not"
+      "why": "a drill row. Named, because an unnamed step takes the LAST button on the page — and this is the one row whose summary the two sides spell identically; see the note above",
+      "name": "vapaauinti 1×"
     }
   ]
 }

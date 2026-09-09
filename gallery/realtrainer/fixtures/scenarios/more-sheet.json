@@ -1,5 +1,5 @@
 {
-  "_": "The bar's Lisää sheet, item by item. `sections` opens it and closes it again; this one goes through it. Vuosilakana and Asetukset are screens on both sides; Harjoituspaikat, Tietopankki, Jaetut kalenterit and Vie tietokanta close the sheet and land back where they started, which is this side's gap and what this records.",
+  "_": "The bar's Lisää sheet, item by item. `sections` opens it and closes it again; this one goes through it. Vuosilakana and Asetukset are screens on both sides. Harjoituspaikat is a screen on the reference and nothing here — the sheet closes and the app lands back where it started — and it is pressed last because the reference does not come back from it.",
   "id": "more-sheet",
   "area": "navigaatio",
   "machine": "",
@@ -34,10 +34,9 @@
       "name": "Lisää"
     },
     {
-      "id": "rt-more-venues",
+      "id": "rt-more-settings",
       "role": "button",
-      "name": "Harjoituspaikat",
-      "why": "a screen the reference has and this side does not: the sheet closes and nothing opens"
+      "name": "Asetukset"
     },
     {
       "id": "rt-nav-more",
@@ -45,9 +44,10 @@
       "name": "Lisää"
     },
     {
-      "id": "rt-more-settings",
+      "id": "rt-more-venues",
       "role": "button",
-      "name": "Asetukset"
+      "name": "Harjoituspaikat",
+      "why": "LAST, because the reference opens a page the bar cannot be reached from again; here the sheet closes and nothing opens"
     }
   ]
 }
