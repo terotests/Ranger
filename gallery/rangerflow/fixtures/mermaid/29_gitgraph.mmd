@@ -1,0 +1,19 @@
+%% Mermaid's own gitGraph example, with the commit types and the
+%% cherry-pick its documentation shows.
+gitGraph
+    commit
+    commit id: "Normal" tag: "v1.0.0"
+    commit id: "Reverse" type: REVERSE
+    commit id: "Highlight" type: HIGHLIGHT tag: "8.8.4"
+    branch develop order: 2
+    checkout develop
+    commit id: "one"
+    commit id: "two"
+    branch feature
+    checkout feature
+    commit id: "three"
+    checkout develop
+    merge feature id: "merged feature" tag: "v1.1.0"
+    checkout main
+    merge develop
+    cherry-pick id: "three"

@@ -1,0 +1,658 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MermaidC4Reader.rgr — a C4 diagram, into boxes, boundaries and arrows.
+; ============================================================================
+;
+; C4 is a naming convention over a very ordinary picture: labelled boxes with
+; a type and a sentence in them, dashed boundaries around groups of them, and
+; arrows that say what talks to what and over which protocol. Every part of
+; that is already drawn here — the compartment node for the box, the sub-flow
+; frame for the boundary, the layered layout for the rest.
+;
+;   C4Context
+;       Person(customer, "Banking customer", "Has personal accounts")
+;       System(banking, "Internet banking", "Lets customers view accounts")
+;       Rel(customer, banking, "Uses", "HTTPS")
+;
+;   ┌────────────────────────┐
+;   │      «person»          │
+;   │  Banking customer      │
+;   │  Has personal accounts │
+;   └───────────┬────────────┘
+;               │ Uses [HTTPS]
+;               ▼
+;
+; **What it reads.** Every element Mermaid's C4 support has — `Person`,
+; `System`, `Container`, `Component`, `Node` and their `_Ext`, `Db` and `Queue`
+; variants — with the alias, the label and the description from the call;
+; every boundary (`Enterprise_Boundary`, `System_Boundary`,
+; `Container_Boundary`, `Boundary`, `Node`), nested, drawn as frames; and
+; `Rel`, `BiRel` and the directional `Rel_Up` / `Down` / `Left` / `Right` /
+; `Back`, with the technology in brackets after the label.
+;
+; **What it drops.** `UpdateElementStyle`, `UpdateRelStyle`,
+; `UpdateLayoutConfig` and the `$tag` arguments: the look here is a
+; stylesheet's business — see `core/FlowStyleSheet.rgr`.
+; ============================================================================
+
+Import "MermaidReader.rgr"
+Import "../uml/UMLModel.rgr"
+
+class MermaidC4Group {
+    def id:string ""
+    def title:string ""
+    def kind:string "boundary"
+    def parent:string ""
+    def depth:int 0
+    def members:[string]
+
+    Constructor () {
+    }
+
+    fn memberCount:int () {
+        return (array_length members)
+    }
+}
+
+class MermaidC4Diagram {
+    def title:string ""
+    def kind:string "C4Context"
+    def themeName:string ""
+    def uml:UMLDiagram (new UMLDiagram)
+    def groups:[MermaidC4Group]
+    ; The two ends of a `BiRel`, by relation index.
+    def bidirectional:[boolean]
+
+    Constructor () {
+    }
+
+    fn boxCount:int () {
+        return (array_length uml.classes)
+    }
+
+    fn relationCount:int () {
+        return (array_length uml.relations)
+    }
+
+    fn groupCount:int () {
+        return (array_length groups)
+    }
+
+    fn groupAt:MermaidC4Group (i:int) {
+        return (itemAt groups i)
+    }
+
+    fn indexOfBox:int (name:string) {
+        def i:int 0
+        while (i < (array_length uml.classes)) {
+            def c:UMLClass (itemAt uml.classes i)
+            if (c.name == name) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn ensureBox:UMLClass (name:string) {
+        def at:int (this.indexOfBox(name))
+        if (at >= 0) {
+            return (itemAt uml.classes at)
+        }
+        return (uml.umlClass(name))
+    }
+
+    fn indexOfGroup:int (id:string) {
+        def i:int 0
+        while (i < (array_length groups)) {
+            def gr:MermaidC4Group (itemAt groups i)
+            if (gr.id == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn ownerOf:string (id:string) {
+        def i:int 0
+        while (i < (array_length groups)) {
+            def gr:MermaidC4Group (itemAt groups i)
+            def k:int 0
+            while (k < (array_length gr.members)) {
+                if ((itemAt gr.members k) == id) {
+                    return gr.id
+                }
+                k = (k + 1)
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    sfn frameIdOf:string (groupId:string) {
+        return ("sg-" + groupId)
+    }
+}
+
+class MermaidC4Reader {
+    def doc:MermaidC4Diagram (new MermaidC4Diagram)
+    def stack:[string]
+    def seq:int 0
+
+    Constructor () {
+    }
+
+    sfn parse:MermaidC4Diagram (src:string) {
+        def r (new MermaidC4Reader)
+        return (r.read(src))
+    }
+
+    fn read:MermaidC4Diagram (src:string) {
+        def lines:[string] (strsplit src "\n")
+        def i:int 0
+        while (i < (array_length lines)) {
+            def raw:string (trim (itemAt lines i))
+            i = (i + 1)
+            def line:string (trim (this.stripComment(raw)))
+            if ((strlen line) == 0) {
+                continue
+            }
+            this.statement(line)
+        }
+        return doc
+    }
+
+    fn stripComment:string (line:string) {
+        def len:int (strlen line)
+        def q:boolean false
+        def i:int 0
+        while (i < len) {
+            def c:int (charAt line i)
+            if (c == 34) {
+                if q { q = false } { q = true }
+            }
+            if (q == false) {
+                if (c == 37) {
+                    if ((i + 1) < len) {
+                        if ((charAt line (i + 1)) == 37) {
+                            return (substring line 0 i)
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return line
+    }
+
+    ; ---------------------------------------------------------- statements --
+    fn statement:void (st:string) {
+        if (st == "}") {
+            if ((array_length stack) > 0) {
+                removeLast stack
+            }
+            return
+        }
+        def word:string (MermaidC4Reader.callName(st))
+        def kw:string (MermaidReader.lower(word))
+        if ((strlen kw) == 0) {
+            def first:string (MermaidReader.lower((MermaidReader.firstWord(st))))
+            if (first == "title") {
+                doc.title = (trim (substring st 5 (strlen st)))
+            }
+            return
+        }
+        if (MermaidReader.beginsWith(kw "c4")) {
+            doc.kind = word
+            return
+        }
+        ; Read and dropped — the look is a stylesheet's business.
+        if (MermaidReader.beginsWith(kw "update")) { return }
+        def args:[string] (MermaidC4Reader.callArgs(st))
+        if (MermaidC4Reader.isBoundary(kw)) {
+            this.readBoundary(word args st)
+            return
+        }
+        if (MermaidC4Reader.isRelation(kw)) {
+            this.readRelation(kw args)
+            return
+        }
+        if (MermaidC4Reader.isElement(kw)) {
+            this.readElement(word args)
+            return
+        }
+    }
+
+    ; `Person(alias, "label", "description")`, and every variant of it.
+    fn readElement:void (word:string args:[string]) {
+        if ((array_length args) == 0) {
+            return
+        }
+        def alias:string (MermaidC4Reader.plain((itemAt args 0)))
+        if ((strlen alias) == 0) {
+            return
+        }
+        def label:string alias
+        if ((array_length args) > 1) {
+            label = (MermaidC4Reader.plain((itemAt args 1)))
+        }
+        def description:string ""
+        if ((array_length args) > 2) {
+            description = (MermaidC4Reader.plain((itemAt args 2)))
+        }
+        def known:int (doc.indexOfBox(alias))
+        def c:UMLClass (doc.ensureBox(alias))
+        ; The box says what it is above what it is called, which is C4's own
+        ; layout: a stereotype line, the name, and a sentence under both.
+        c.stereotype = (MermaidC4Reader.stereotypeOf(word))
+        if ((strlen label) > 0) {
+            c.name = alias
+        }
+        ; The name is the id; the caption and the sentence are rows, because
+        ; the compartment node draws rows and a C4 box is a caption with a
+        ; sentence under it.
+        if ((array_length c.attributes) == 0) {
+            def cap:UMLMember (c.attribute("" label ""))
+            if ((strlen description) > 0) {
+                def note:UMLMember (c.attribute("" description ""))
+                note.isAbstract = true
+            }
+        }
+        if (known < 0) {
+            this.noteMembership(alias)
+        }
+    }
+
+    ; `System_Boundary(b1, "Bank", "optional type") { … }`
+    fn readBoundary:void (word:string args:[string] st:string) {
+        if ((array_length args) == 0) {
+            return
+        }
+        def id:string (MermaidC4Reader.plain((itemAt args 0)))
+        if ((strlen id) == 0) {
+            return
+        }
+        def label:string id
+        if ((array_length args) > 1) {
+            label = (MermaidC4Reader.plain((itemAt args 1)))
+        }
+        def gr (new MermaidC4Group)
+        gr.id = id
+        gr.title = label
+        gr.kind = word
+        gr.depth = (array_length stack)
+        if ((array_length stack) > 0) {
+            def parent:string (last stack)
+            gr.parent = parent
+            def at:int (doc.indexOfGroup(parent))
+            if (at >= 0) {
+                def outer:MermaidC4Group (doc.groupAt(at))
+                push outer.members (MermaidC4Diagram.frameIdOf(id))
+            }
+        }
+        push doc.groups gr
+        ; A boundary written with no brace on the line still opens: Mermaid
+        ; puts the `{` at the end of the call, and both forms are in its docs.
+        push stack id
+    }
+
+    ; `Rel(from, to, "label", "technology")`, `BiRel(…)`, `Rel_Up(…)`.
+    fn readRelation:void (kw:string args:[string]) {
+        if ((array_length args) < 2) {
+            return
+        }
+        def from:string (MermaidC4Reader.plain((itemAt args 0)))
+        def to:string (MermaidC4Reader.plain((itemAt args 1)))
+        if ((strlen from) == 0) {
+            return
+        }
+        if ((strlen to) == 0) {
+            return
+        }
+        doc.ensureBox(from)
+        doc.ensureBox(to)
+        def label:string ""
+        if ((array_length args) > 2) {
+            label = (MermaidC4Reader.plain((itemAt args 2)))
+        }
+        if ((array_length args) > 3) {
+            def tech:string (MermaidC4Reader.plain((itemAt args 3)))
+            if ((strlen tech) > 0) {
+                if ((strlen label) > 0) {
+                    label = ((label + " [") + tech + "]")
+                } {
+                    label = (("[" + tech) + "]")
+                }
+            }
+        }
+        def r:UMLRelation (doc.uml.relate(from to "dependency"))
+        r.label = label
+        push doc.bidirectional (kw == "birel")
+    }
+
+    fn noteMembership:void (id:string) {
+        if ((array_length stack) == 0) {
+            return
+        }
+        if ((strlen (doc.ownerOf(id))) > 0) {
+            return
+        }
+        def owner:string (last stack)
+        def at:int (doc.indexOfGroup(owner))
+        if (at < 0) {
+            return
+        }
+        def gr:MermaidC4Group (doc.groupAt(at))
+        push gr.members id
+    }
+
+    ; ------------------------------------------------------------ the call --
+    ; `Person(a, "b", "c")` — the name before the bracket.
+    sfn callName:string (st:string) {
+        def open:int (indexOf st "(")
+        if (open <= 0) {
+            return ""
+        }
+        def name:string (trim (substring st 0 open))
+        def i:int 0
+        while (i < (strlen name)) {
+            def c:int (charAt name i)
+            def ok:boolean (MermaidReader.isIdentCode(c))
+            if (ok == false) {
+                return ""
+            }
+            i = (i + 1)
+        }
+        return name
+    }
+
+    ; The arguments, split on commas that are not inside a quoted string.
+    sfn callArgs:[string] (st:string) {
+        def out:[string]
+        def open:int (indexOf st "(")
+        if (open < 0) {
+            return out
+        }
+        def close:int (MermaidC4Reader.matchParen(st open))
+        if (close < 0) {
+            close = (strlen st)
+        }
+        def body:string (substring st (open + 1) close)
+        def start:int 0
+        def q:boolean false
+        def i:int 0
+        while (i < (strlen body)) {
+            def c:int (charAt body i)
+            if (c == 34) {
+                if q { q = false } { q = true }
+            }
+            if (q == false) {
+                if (c == 44) {
+                    push out (trim (substring body start i))
+                    start = (i + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        push out (trim (substring body start (strlen body)))
+        return out
+    }
+
+    sfn matchParen:int (text:string open:int) {
+        def depth:int 0
+        def q:boolean false
+        def i:int open
+        while (i < (strlen text)) {
+            def c:int (charAt text i)
+            if (c == 34) {
+                if q { q = false } { q = true }
+            }
+            if (q == false) {
+                if (c == 40) { depth = (depth + 1) }
+                if (c == 41) {
+                    depth = (depth - 1)
+                    if (depth == 0) {
+                        return i
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; An argument as it is meant to be read: without its quotes, and without
+    ; the `$tag="…"` arguments that are configuration rather than content.
+    sfn plain:string (arg:string) {
+        def t:string (trim arg)
+        if (MermaidReader.beginsWith(t "$")) {
+            return ""
+        }
+        return (MermaidReader.cleanLabel(t))
+    }
+
+    ; ------------------------------------------------------------ the words --
+    sfn isBoundary:boolean (kw:string) {
+        if (kw == "boundary")            { return true }
+        if (kw == "enterprise_boundary") { return true }
+        if (kw == "system_boundary")     { return true }
+        if (kw == "container_boundary")  { return true }
+        if (kw == "node")                { return true }
+        if (kw == "node_l")              { return true }
+        if (kw == "node_r")              { return true }
+        if (kw == "deployment_node")     { return true }
+        return false
+    }
+
+    sfn isRelation:boolean (kw:string) {
+        if (kw == "rel")       { return true }
+        if (kw == "birel")     { return true }
+        if (kw == "rel_up")    { return true }
+        if (kw == "rel_u")     { return true }
+        if (kw == "rel_down")  { return true }
+        if (kw == "rel_d")     { return true }
+        if (kw == "rel_left")  { return true }
+        if (kw == "rel_l")     { return true }
+        if (kw == "rel_right") { return true }
+        if (kw == "rel_r")     { return true }
+        if (kw == "rel_back")  { return true }
+        return false
+    }
+
+    sfn isElement:boolean (kw:string) {
+        if (kw == "person")         { return true }
+        if (kw == "person_ext")     { return true }
+        if (kw == "system")         { return true }
+        if (kw == "system_ext")     { return true }
+        if (kw == "systemdb")       { return true }
+        if (kw == "systemdb_ext")   { return true }
+        if (kw == "systemqueue")    { return true }
+        if (kw == "systemqueue_ext") { return true }
+        if (kw == "container")      { return true }
+        if (kw == "container_ext")  { return true }
+        if (kw == "containerdb")    { return true }
+        if (kw == "containerdb_ext") { return true }
+        if (kw == "containerqueue") { return true }
+        if (kw == "component")      { return true }
+        if (kw == "component_ext")  { return true }
+        if (kw == "componentdb")    { return true }
+        if (kw == "componentqueue") { return true }
+        return false
+    }
+
+    ; What the box says it is, in the words C4 uses rather than Mermaid's
+    ; underscores: `System_Ext` is an external system.
+    sfn stereotypeOf:string (word:string) {
+        def kw:string (MermaidReader.lower(word))
+        def base:string kw
+        def external:boolean false
+        if ((indexOf kw "_ext") > 0) {
+            external = true
+            base = (substring kw 0 (indexOf kw "_ext"))
+        }
+        def out:string base
+        if (base == "systemdb")       { out = "system, database" }
+        if (base == "systemqueue")    { out = "system, queue" }
+        if (base == "containerdb")    { out = "container, database" }
+        if (base == "containerqueue") { out = "container, queue" }
+        if (base == "componentdb")    { out = "component, database" }
+        if (base == "componentqueue") { out = "component, queue" }
+        if external {
+            out = (out + ", external")
+        }
+        return out
+    }
+}
+
+; ---------------------------------------------------------------------------
+; The pipeline
+; ---------------------------------------------------------------------------
+class MermaidC4Flow {
+    sfn parse:MermaidC4Diagram (src:string) {
+        return (MermaidC4Reader.parse(src))
+    }
+
+    sfn render:FlowGraph (src:string) {
+        def d:MermaidC4Diagram (MermaidC4Reader.parse(src))
+        def bare (new FlowStyle)
+        return (MermaidC4Flow.build(d bare))
+    }
+
+    sfn build:FlowGraph (d:MermaidC4Diagram style:FlowStyle) {
+        def u2g (new UMLToGraph)
+        def g:FlowGraph (u2g.build(d.uml))
+        def i:int 0
+        while (i < (g.nodeCount())) {
+            def n:FlowNode (g.nodeAt(i))
+            n.cssClass = "mermaid c4"
+            i = (i + 1)
+        }
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            e.cssClass = "link c4rel"
+            ; C4's arrows are solid: they are calls, not dependencies.
+            e.dash = 0.0
+            e.markerEnd = "arrow"
+            if (k < (array_length d.bidirectional)) {
+                if ((itemAt d.bidirectional k)) {
+                    e.markerStart = "arrow"
+                }
+            }
+            k = (k + 1)
+        }
+        def wrote:int (style.applyTo(g))
+        def lay:LayeredLayout (LayeredLayout.of(g))
+        lay.direction = "TB"
+        lay.layerGap = 110.0
+        lay.nodeGap = 44.0
+        lay.run()
+        def moved:int (EdgeLanes.assign(g))
+        def routed:int (lay.routeLongEdges())
+        EdgeLanes.resetLanes(g)
+        def refanned:int (EdgeLanes.assign(g))
+        def repaired:int (OrthoRouter.repairAll(g))
+        def frames:int (MermaidC4Flow.frameGroups(d g style))
+        return g
+    }
+
+    sfn frameGroups:int (d:MermaidC4Diagram g:FlowGraph style:FlowStyle) {
+        def made:int 0
+        def deepest:int 0
+        def i:int 0
+        while (i < (d.groupCount())) {
+            def gr:MermaidC4Group (d.groupAt(i))
+            if (gr.depth > deepest) {
+                deepest = gr.depth
+            }
+            i = (i + 1)
+        }
+        def level:int deepest
+        while (level >= 0) {
+            def k:int 0
+            while (k < (d.groupCount())) {
+                def gr2:MermaidC4Group (d.groupAt(k))
+                if (gr2.depth == level) {
+                    if ((MermaidC4Flow.frameOne(g gr2 style))) {
+                        made = (made + 1)
+                    }
+                }
+                k = (k + 1)
+            }
+            level = (level - 1)
+        }
+        return made
+    }
+
+    sfn frameOne:boolean (g:FlowGraph gr:MermaidC4Group style:FlowStyle) {
+        def pad:double 22.0
+        def bar:double 34.0
+        def head:double 24.0
+        def r (new FlowRect)
+        def i:int 0
+        while (i < (array_length gr.members)) {
+            def id:string (itemAt gr.members i)
+            if (g.hasNode(id)) {
+                def n:FlowNode (g.nodeById(id))
+                def right:double (n.x + n.width)
+                def bottom:double (n.y + n.height)
+                if (r.valid == false) {
+                    r.x = n.x
+                    r.y = n.y
+                    r.w = n.width
+                    r.h = n.height
+                    r.valid = true
+                } {
+                    if (n.x < r.x) {
+                        def dw:double (r.x - n.x)
+                        r.x = n.x
+                        r.w = (r.w + dw)
+                    }
+                    if (n.y < r.y) {
+                        def dh:double (r.y - n.y)
+                        r.y = n.y
+                        r.h = (r.h + dh)
+                    }
+                    def rr:double (r.x + r.w)
+                    if (right > rr) {
+                        r.w = (right - r.x)
+                    }
+                    def rb:double (r.y + r.h)
+                    if (bottom > rb) {
+                        r.h = (bottom - r.y)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if (r.valid == false) {
+            return false
+        }
+        def frameId:string (MermaidC4Diagram.frameIdOf(gr.id))
+        def frame:FlowNode (FlowNode.create(frameId gr.title (r.x - bar) ((r.y - pad) - head)))
+        frame.nodeType = "group"
+        frame.width = ((r.w + bar) + pad)
+        def hh:double ((r.h + (pad * 2.0)) + head)
+        frame.height = hh
+        frame.connectable = false
+        frame.cssClass = "mermaid boundary"
+        frame.bgColor = ""
+        frame.borderColor = "#9aa3b2"
+        frame.syncFromModel()
+        g.addNode(frame)
+        style.styleNode(frame)
+        g.sendToBack(frameId)
+        def m:int 0
+        while (m < (array_length gr.members)) {
+            def mid:string (itemAt gr.members m)
+            if (g.hasNode(mid)) {
+                def child:FlowNode (g.nodeById(mid))
+                child.parentId = frameId
+            }
+            m = (m + 1)
+        }
+        return true
+    }
+}

@@ -60,7 +60,14 @@ function mermaidDiagramTypes() {
     sankey: "sankey-beta", xychart: "xychart-beta", packet: "packet-beta",
     radar: "radar-beta", treemap: "treemap-beta", venn: "venn-beta",
     wardley: "wardley-beta", cynefin: "cynefin-beta", ishikawa: "ishikawa-beta",
-    swimlanes: "swimlanes-beta",
+    // Singular: the chunk is `swimlanes`, the header keyword `swimlane-beta`.
+    // Mermaid's own detector says so, and a matrix that asked about the wrong
+    // keyword would report a reader that recognises nothing as passing.
+    swimlanes: "swimlane-beta",
+    // Four headers for one picture, and none of them is the chunk's name:
+    // Mermaid's detectors want `railroad-beta` and `railroad-<notation>-beta`.
+    abnf: "railroad-abnf-beta", ebnf: "railroad-ebnf-beta",
+    peg: "railroad-peg-beta", railroad: "railroad-beta",
   };
   const names = new Set();
   for (const file of fs.readdirSync(dir)) {
@@ -155,8 +162,19 @@ function labelText(raw) {
 /** Mermaid names a diagram type several ways; this is the short one. */
 // `flowchart-elk` is the same language read by a different layout engine, and
 // RangerFlow has a layout engine of its own — so it is a flowchart here.
-const kindOf = (raw) =>
-  String(raw ?? "").toLowerCase().replace(/-v2$/, "").replace(/^flowchart-elk$/, "flowchart").replace(/diagram$/, "") || "";
+// Two types keep a word in Mermaid's name that RangerFlow's vocabulary drops,
+// the way it calls the others `er` and `c4`. Written out rather than pattern
+// matched: `xychart` would lose its "chart" to a rule and become `xy`.
+const SHORT_NAME = {
+  gitgraph: "git", quadrantchart: "quadrant",
+  // The three grammar notations are one diagram to Mermaid and three to a
+  // reader, which is the useful way round: `railroadEbnf` is EBNF.
+  railroadebnf: "ebnf", railroadabnf: "abnf", railroadpeg: "peg",
+};
+const kindOf = (raw) => {
+  const k = String(raw ?? "").toLowerCase().replace(/-v2$/, "").replace(/^flowchart-elk$/, "flowchart").replace(/diagram$/, "");
+  return SHORT_NAME[k] ?? k ?? "";
+};
 
 const dirOf = (raw) => (String(raw ?? "").toUpperCase() === "TD" ? "TB" : String(raw ?? "").toUpperCase());
 
@@ -193,7 +211,16 @@ for (const want of oracle.diagrams) {
   add("diagram type", kindOf(got.kind) === kind, `type ${got.kind || "(none)"} ≠ ${want.kind}`);
 
   // A diagram Mermaid draws with another parser is one RangerFlow must say no
-  // to rather than read as a flowchart. That is the whole of the check.
+  // to rather than read as a flowchart. That is the whole of the check — with
+  // one exception, and Mermaid's own source is what makes it one: a swimlane
+  // diagram "reuses the flowchart parser, DB, and renderer wholesale and only
+  // swaps in a different layout engine", so reading it as a flowchart is
+  // right and reading it as nothing would be the failure.
+  if (kind === "swimlane") {
+    add("read as the flowchart it is", got.nodes.length > 0, "no nodes read from a swimlane diagram");
+    rows.push({ file: want.file, kind, checks, notes });
+    continue;
+  }
   if (kind !== "flowchart") {
     add("not read as a flowchart", got.nodes.length === 0, `${got.nodes.length} nodes invented from a ${kind} diagram`);
     rows.push({ file: want.file, kind, checks, notes });
@@ -338,7 +365,7 @@ const cell = (r, name) => {
 for (const r of rows) {
   // A diagram of another kind has one thing to get right, and the type cell is
   // where it is said: recognised, and read as nothing.
-  const guard = r.checks.find((c) => c.name === "not read as a flowchart");
+  const guard = r.checks.find((c) => c.name === "not read as a flowchart" || c.name === "read as the flowchart it is");
   const kindCell = guard ? `${r.kind} ${guard.ok ? "✓" : "✗"}` : r.kind;
   lines.push(`| \`${r.file}\` | ${kindCell} | ${cell(r, "direction")} | ${cell(r, "nodes")} | ${cell(r, "labels")} | ${cell(r, "shapes")} | ${cell(r, "classes")} | ${cell(r, "edges")} | ${cell(r, "subgraphs")} |`);
 }
@@ -365,7 +392,9 @@ if (coverage.length) {
   lines.push("## Mermaid's diagram types");
   lines.push("");
   lines.push("Read off the installed Mermaid's own build rather than typed here, so a type");
-  lines.push("added upstream appears the next time the harness is installed. Two are drawn;");
+  const drawn = coverage.filter((c) => c.verdict === "read").length;
+  lines.push(`added upstream appears the next time the harness is installed. ${drawn} of the ` +
+    `${coverage.length} are drawn;`);
   lines.push("the rest have to be **recognised and refused**, because a header this reader");
   lines.push("does not know falls through to the flowchart parser, and a Wardley map read as");
   lines.push("a flowchart is a page of invented boxes.");
@@ -386,10 +415,11 @@ lines.push("- **The reading, not the drawing.** Mermaid lays a diagram out its o
 lines.push("  has no opinion about RangerFlow's, so comparing positions would measure two");
 lines.push("  layouts rather than one reader.");
 lines.push("- **Every diagram type, but not equally.** A flowchart is compared node by node");
-lines.push("  and edge by edge. For the dozen other kinds Mermaid draws, the check is that");
-lines.push("  RangerFlow recognises the header and reads *nothing* — a sequence diagram");
-lines.push("  read as a flowchart would be a page of invented boxes, which is the one");
-lines.push("  failure a reader of somebody else's file must not have.");
+lines.push("  and edge by edge. For the other kinds Mermaid draws, the check is that the");
+lines.push("  header is read as the type it is — and, where there is no reader for that");
+lines.push("  type yet, that it is read as *nothing*. A Wardley map read as a flowchart");
+lines.push("  would be a page of invented boxes, which is the one failure a reader of");
+lines.push("  somebody else's file must not have.");
 lines.push("- **The vocabularies meet in `tools/mermaid-parity.mjs`.** Mermaid says");
 lines.push("  `lean_right` and `arrow_point`; RangerFlow says `leanr` and carries the");
 lines.push("  marker its renderer draws. The translation lives in the meter so neither");

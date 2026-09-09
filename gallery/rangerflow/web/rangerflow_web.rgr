@@ -26,6 +26,29 @@ Import "../domains/flowchart/Flowchart.rgr"
 Import "../domains/mermaid/MermaidReader.rgr"
 Import "../domains/mermaid/MermaidClassReader.rgr"
 Import "../domains/mermaid/MermaidErReader.rgr"
+Import "../domains/mermaid/MermaidStateReader.rgr"
+Import "../domains/mermaid/MermaidMindMapReader.rgr"
+Import "../domains/mermaid/MermaidRequirementReader.rgr"
+Import "../domains/mermaid/MermaidC4Reader.rgr"
+Import "../domains/mermaid/MermaidTimelineReader.rgr"
+Import "../domains/mermaid/MermaidJourneyReader.rgr"
+Import "../domains/mermaid/MermaidGanttReader.rgr"
+Import "../domains/mermaid/MermaidSequenceReader.rgr"
+Import "../domains/mermaid/MermaidGitReader.rgr"
+Import "../domains/mermaid/MermaidKanbanReader.rgr"
+Import "../domains/mermaid/MermaidQuadrantReader.rgr"
+Import "../domains/mermaid/MermaidPieReader.rgr"
+Import "../domains/mermaid/MermaidXyReader.rgr"
+Import "../domains/mermaid/MermaidSankeyReader.rgr"
+Import "../domains/mermaid/MermaidBlockReader.rgr"
+Import "../domains/mermaid/MermaidArchReader.rgr"
+Import "../domains/mermaid/MermaidSwimlaneReader.rgr"
+Import "../domains/mermaid/MermaidCynefinReader.rgr"
+Import "../domains/mermaid/MermaidIshikawaReader.rgr"
+Import "../domains/mermaid/MermaidVennReader.rgr"
+Import "../domains/mermaid/MermaidWardleyReader.rgr"
+Import "../domains/mermaid/MermaidRailroadReader.rgr"
+Import "../domains/mermaid/MermaidInfoReader.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 Import "../layout/TreeLayouts.rgr"
 Import "../export/FlowExport.rgr"
@@ -634,10 +657,79 @@ class RangerFlowWeb {
         if (d.diagramKind == "er") {
             return (this.loadMermaidEr(text styleName want))
         }
+        if (d.diagramKind == "state") {
+            return (this.loadMermaidState(text styleName want))
+        }
+        if (d.diagramKind == "mindmap") {
+            return (this.loadMermaidMindMap(text styleName want))
+        }
+        if (d.diagramKind == "requirement") {
+            return (this.loadMermaidRequirement(text styleName want))
+        }
+        if (d.diagramKind == "c4") {
+            return (this.loadMermaidC4(text styleName want))
+        }
+        if (d.diagramKind == "timeline") {
+            return (this.loadMermaidTimeline(text styleName want))
+        }
+        if (d.diagramKind == "journey") {
+            return (this.loadMermaidJourney(text styleName want))
+        }
+        if (d.diagramKind == "gantt") {
+            return (this.loadMermaidGantt(text styleName want))
+        }
+        if (d.diagramKind == "sequence") {
+            return (this.loadMermaidSequence(text styleName want))
+        }
+        if (d.diagramKind == "git") {
+            return (this.loadMermaidGit(text styleName want))
+        }
+        if (d.diagramKind == "kanban") {
+            return (this.loadMermaidKanban(text styleName want))
+        }
+        if (d.diagramKind == "quadrant") {
+            return (this.loadMermaidQuadrant(text styleName want))
+        }
+        if (d.diagramKind == "pie") {
+            return (this.loadMermaidPie(text styleName want))
+        }
+        if (d.diagramKind == "xychart") {
+            return (this.loadMermaidXy(text styleName want))
+        }
+        if (d.diagramKind == "sankey") {
+            return (this.loadMermaidSankey(text styleName want))
+        }
+        if (d.diagramKind == "block") {
+            return (this.loadMermaidBlock(text styleName want))
+        }
+        if (d.diagramKind == "architecture") {
+            return (this.loadMermaidArch(text styleName want))
+        }
+        if (d.diagramKind == "swimlane") {
+            return (this.loadMermaidSwimlane(text styleName want))
+        }
+        if (d.diagramKind == "cynefin") {
+            return (this.loadMermaidCynefin(text styleName want))
+        }
+        if (d.diagramKind == "ishikawa") {
+            return (this.loadMermaidIshikawa(text styleName want))
+        }
+        if (d.diagramKind == "venn") {
+            return (this.loadMermaidVenn(text styleName want))
+        }
+        if (d.diagramKind == "wardley") {
+            return (this.loadMermaidWardley(text styleName want))
+        }
+        if (MermaidReader.isRailroad(d.diagramKind)) {
+            return (this.loadMermaidRailroad(text styleName want))
+        }
+        if (d.diagramKind == "info") {
+            return (this.loadMermaidInfo(text styleName want))
+        }
         if ((d.nodeCount()) == 0) {
             status = "no nodes in that Mermaid source"
             if ((strlen d.diagramKind) > 0) {
-                status = ("a " + d.diagramKind + " diagram — this reads flowcharts and class diagrams")
+                status = ("a " + d.diagramKind + " diagram — recognised, but nothing here draws one yet")
             }
             return false
         }
@@ -728,6 +820,530 @@ class RangerFlowWeb {
         }
         status = ((to_string (ed.entityCount())) + " entities, " + (to_string (ed.relationCount())) + " relationships — " + what + ", " + want)
         return true
+    }
+
+    ; `stateDiagram`, drawn with the activity vocabulary: a filled circle to
+    ; start, a ring to finish, a bar for a fork, a diamond for a choice.
+    fn loadMermaidState:boolean (text:string styleName:string want:string) {
+        def sd:MermaidStateDiagram (MermaidStateReader.parse(text))
+        if ((sd.stateCount()) == 0) {
+            status = "no states in that state diagram"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidStateFlow.build(sd style))
+        this.adopt(g)
+        editor.view.notation = "plain"
+        layoutName = "layered"
+        simRunning = false
+        editor.pinWhileDragging = false
+        style.applyToTheme(editor.view.theme)
+        if (want == "dark") {
+            editor.view.theme.name = "dark"
+        } {
+            editor.view.theme.name = "light"
+        }
+        def what:string sd.title
+        if ((strlen what) == 0) {
+            what = "Mermaid state diagram"
+        }
+        status = ((to_string (sd.stateCount())) + " states, " + (to_string (sd.transitionCount())) + " transitions — " + what + ", " + want)
+        return true
+    }
+
+    ; `mindmap`, drawn by the tree layout that balances a mind map's branches
+    ; either side of its root.
+    fn loadMermaidMindMap:boolean (text:string styleName:string want:string) {
+        def md:MermaidMindMap (MermaidMindMapReader.parse(text))
+        if ((md.nodeCount()) == 0) {
+            status = "no nodes in that mind map"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidMindMapFlow.build(md style))
+        this.adopt(g)
+        editor.view.notation = "plain"
+        ; The mind map layout has already placed everything; a layered pass
+        ; over the top would throw the balance away.
+        layoutName = "none"
+        simRunning = false
+        editor.pinWhileDragging = false
+        style.applyToTheme(editor.view.theme)
+        if (want == "dark") {
+            editor.view.theme.name = "dark"
+        } {
+            editor.view.theme.name = "light"
+        }
+        def what:string md.title
+        if ((strlen what) == 0) {
+            what = "Mermaid mind map"
+        }
+        status = ((to_string (md.nodeCount())) + " nodes — " + what + ", " + want)
+        return true
+    }
+
+    ; `requirementDiagram`: SysML boxes with their fields, and dashed traces
+    ; between them.
+    fn loadMermaidRequirement:boolean (text:string styleName:string want:string) {
+        def rd:MermaidRequirementDiagram (MermaidRequirementReader.parse(text))
+        if ((rd.boxCount()) == 0) {
+            status = "no requirements in that diagram"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidRequirementFlow.build(rd style))
+        this.adopt(g)
+        editor.view.notation = "uml"
+        layoutName = "layered"
+        simRunning = false
+        editor.pinWhileDragging = false
+        style.applyToTheme(editor.view.theme)
+        if (want == "dark") {
+            editor.view.theme.name = "dark"
+        } {
+            editor.view.theme.name = "light"
+        }
+        def what:string rd.title
+        if ((strlen what) == 0) {
+            what = "Mermaid requirement diagram"
+        }
+        status = ((to_string (rd.boxCount())) + " requirements, " + (to_string (rd.relationCount())) + " traces — " + what + ", " + want)
+        return true
+    }
+
+    ; C4: labelled boxes, dashed boundaries around groups of them, and arrows
+    ; that say what talks to what over which protocol.
+    fn loadMermaidC4:boolean (text:string styleName:string want:string) {
+        def cd:MermaidC4Diagram (MermaidC4Reader.parse(text))
+        if ((cd.boxCount()) == 0) {
+            status = "no elements in that C4 diagram"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidC4Flow.build(cd style))
+        this.adopt(g)
+        editor.view.notation = "uml"
+        layoutName = "layered"
+        simRunning = false
+        editor.pinWhileDragging = false
+        style.applyToTheme(editor.view.theme)
+        if (want == "dark") {
+            editor.view.theme.name = "dark"
+        } {
+            editor.view.theme.name = "light"
+        }
+        def what:string cd.title
+        if ((strlen what) == 0) {
+            what = cd.kind
+        }
+        status = ((to_string (cd.boxCount())) + " elements, " + (to_string (cd.relationCount())) + " relations — " + what + ", " + want)
+        return true
+    }
+
+    ; A timeline and a user journey are both PLACED rather than laid out: the
+    ; order is the axis, and in a journey the height is the score. A layered
+    ; pass over either would throw away the one quantity the diagram has.
+    fn loadMermaidTimeline:boolean (text:string styleName:string want:string) {
+        def td:MermaidTimeline (MermaidTimelineReader.parse(text))
+        if ((td.periodCount()) == 0) {
+            status = "no periods in that timeline"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidTimelineFlow.build(td style))
+        this.adoptPlaced(g style want)
+        def what:string td.title
+        if ((strlen what) == 0) {
+            what = "Mermaid timeline"
+        }
+        status = ((to_string (td.periodCount())) + " periods, " + (to_string (td.eventCount())) + " events — " + what + ", " + want)
+        return true
+    }
+
+    fn loadMermaidJourney:boolean (text:string styleName:string want:string) {
+        def jd:MermaidJourney (MermaidJourneyReader.parse(text))
+        if ((jd.taskCount()) == 0) {
+            status = "no tasks in that journey"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidJourneyFlow.build(jd style))
+        this.adoptPlaced(g style want)
+        def what:string jd.title
+        if ((strlen what) == 0) {
+            what = "Mermaid user journey"
+        }
+        status = ((to_string (jd.taskCount())) + " tasks — " + what + ", " + want)
+        return true
+    }
+
+    ; A Gantt chart is placed too, and on a real axis: the dates decide where
+    ; the bars go, not the order they were written in.
+    fn loadMermaidGantt:boolean (text:string styleName:string want:string) {
+        def gd:MermaidGantt (MermaidGanttReader.parse(text))
+        if ((gd.taskCount()) == 0) {
+            status = "no tasks in that Gantt chart"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidGanttFlow.build(gd style))
+        this.adoptPlaced(g style want)
+        def what:string gd.title
+        if ((strlen what) == 0) {
+            what = "Mermaid Gantt chart"
+        }
+        def span:int ((gd.lastDay()) - (gd.firstDay()))
+        status = ((to_string (gd.taskCount())) + " tasks over " + (to_string span) + " days — " + what + ", " + want)
+        return true
+    }
+
+    ; A sequence diagram: who across the page, when down it. Both axes carry
+    ; meaning, so there is nothing for a layout to improve.
+    fn loadMermaidSequence:boolean (text:string styleName:string want:string) {
+        def sd:MermaidSequence (MermaidSequenceReader.parse(text))
+        if ((sd.actorCount()) == 0) {
+            status = "no participants in that sequence diagram"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidSequenceFlow.build(sd style))
+        this.adoptPlaced(g style want)
+        def what:string sd.title
+        if ((strlen what) == 0) {
+            what = "Mermaid sequence diagram"
+        }
+        status = ((to_string (sd.actorCount())) + " participants, " + (to_string (sd.messageCount())) + " messages — " + what + ", " + want)
+        return true
+    }
+
+    ; A git graph carries its own layout in its syntax: the order is the
+    ; history, and one row per branch.
+    fn loadMermaidGit:boolean (text:string styleName:string want:string) {
+        def gd:MermaidGit (MermaidGitReader.parse(text))
+        if ((gd.commitCount()) == 0) {
+            status = "no commits in that git graph"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidGitFlow.build(gd style))
+        this.adoptPlaced(g style want)
+        def what:string gd.title
+        if ((strlen what) == 0) {
+            what = "Mermaid git graph"
+        }
+        status = ((to_string (gd.commitCount())) + " commits on " + (to_string (gd.branchCount())) + " branches — " + what + ", " + want)
+        return true
+    }
+
+    ; A board: columns, cards, and nothing between them.
+    fn loadMermaidKanban:boolean (text:string styleName:string want:string) {
+        def kd:MermaidKanban (MermaidKanbanReader.parse(text))
+        if ((kd.columnCount()) == 0) {
+            status = "no columns in that board"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidKanbanFlow.build(kd style))
+        this.adoptPlaced(g style want)
+        def what:string kd.title
+        if ((strlen what) == 0) {
+            what = "Mermaid kanban board"
+        }
+        status = ((to_string (kd.columnCount())) + " columns, " + (to_string (kd.cardCount())) + " cards — " + what + ", " + want)
+        return true
+    }
+
+    ; A quadrant chart: the numbers place the dots and nothing else may.
+    fn loadMermaidQuadrant:boolean (text:string styleName:string want:string) {
+        def qd:MermaidQuadrant (MermaidQuadrantReader.parse(text))
+        if ((qd.pointCount()) == 0) {
+            status = "no points in that quadrant chart"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidQuadrantFlow.build(qd style))
+        this.adoptPlaced(g style want)
+        def what:string qd.title
+        if ((strlen what) == 0) {
+            what = "Mermaid quadrant chart"
+        }
+        status = ((to_string (qd.pointCount())) + " points — " + what + ", " + want)
+        return true
+    }
+
+    ; A pie chart: a list of numbers and one rule.
+    fn loadMermaidPie:boolean (text:string styleName:string want:string) {
+        def pd:MermaidPie (MermaidPieReader.parse(text))
+        if ((pd.sliceCount()) == 0) {
+            status = "no slices in that pie chart"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidPieFlow.build(pd style))
+        this.adoptPlaced(g style want)
+        def what:string pd.title
+        if ((strlen what) == 0) {
+            what = "Mermaid pie chart"
+        }
+        status = ((to_string (pd.sliceCount())) + " slices — " + what + ", " + want)
+        return true
+    }
+
+    ; An xychart: the first diagram here with a scale in it.
+    fn loadMermaidXy:boolean (text:string styleName:string want:string) {
+        def xd:MermaidXyChart (MermaidXyReader.parse(text))
+        if ((xd.seriesCount()) == 0) {
+            status = "no series in that chart"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidXyFlow.build(xd style))
+        this.adoptPlaced(g style want)
+        def what:string xd.title
+        if ((strlen what) == 0) {
+            what = "Mermaid xychart"
+        }
+        status = ((to_string (xd.seriesCount())) + " series over " + (to_string (xd.slots())) + " readings — " + what + ", " + want)
+        return true
+    }
+
+    ; A Sankey diagram: a graph whose edges have a width, and the width is
+    ; the whole point.
+    fn loadMermaidSankey:boolean (text:string styleName:string want:string) {
+        def sd:MermaidSankey (MermaidSankeyReader.parse(text))
+        if ((sd.linkCount()) == 0) {
+            status = "no flows in that Sankey diagram"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidSankeyFlow.build(sd style))
+        this.adoptPlaced(g style want)
+        def what:string sd.title
+        if ((strlen what) == 0) {
+            what = "Mermaid Sankey diagram"
+        }
+        status = ((to_string (sd.nodeCount())) + " nodes, " + (to_string (sd.linkCount())) + " flows — " + what + ", " + want)
+        return true
+    }
+
+    ; A block diagram places itself: `columns 3` and a list is arithmetic.
+    fn loadMermaidBlock:boolean (text:string styleName:string want:string) {
+        def bd:MermaidBlockDiagram (MermaidBlockReader.parse(text))
+        if ((bd.blockCount()) == 0) {
+            status = "no blocks in that diagram"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidBlockFlow.build(bd style))
+        this.adoptPlaced(g style want)
+        def what:string bd.title
+        if ((strlen what) == 0) {
+            what = "Mermaid block diagram"
+        }
+        status = ((to_string (bd.blockCount())) + " blocks, " + (to_string (bd.linkCount())) + " arrows — " + what + ", " + want)
+        return true
+    }
+
+    ; An architecture diagram places itself: the sides in the connections
+    ; are the layout.
+    fn loadMermaidArch:boolean (text:string styleName:string want:string) {
+        def ad:MermaidArchitecture (MermaidArchReader.parse(text))
+        if ((ad.nodeCount()) == 0) {
+            status = "no services in that architecture diagram"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidArchFlow.build(ad style))
+        this.adoptPlaced(g style want)
+        def what:string ad.title
+        if ((strlen what) == 0) {
+            what = "Mermaid architecture diagram"
+        }
+        status = ((to_string (ad.serviceCount())) + " services, " + (to_string (ad.edgeCount())) + " connections — " + what + ", " + want)
+        return true
+    }
+
+    ; A swimlane diagram: the flowchart reader, and then every step put in
+    ; the lane that owns it.
+    fn loadMermaidSwimlane:boolean (text:string styleName:string want:string) {
+        def sd:MermaidDiagram (MermaidReader.parse(text))
+        if ((sd.nodeCount()) == 0) {
+            status = "no steps in that swimlane diagram"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidSwimlaneFlow.build(sd style))
+        this.adoptPlaced(g style want)
+        def what:string sd.title
+        if ((strlen what) == 0) {
+            what = "Mermaid swimlane diagram"
+        }
+        status = ((to_string (sd.nodeCount())) + " steps in " + (to_string (sd.subgraphCount())) + " lanes — " + what + ", " + want)
+        return true
+    }
+
+    ; A Cynefin framework: the five domains are always in the same places,
+    ; because the places are the argument.
+    fn loadMermaidCynefin:boolean (text:string styleName:string want:string) {
+        def cd:MermaidCynefin (MermaidCynefinReader.parse(text))
+        if ((cd.itemCount()) == 0) {
+            status = "nothing placed in that Cynefin framework"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidCynefinFlow.build(cd style))
+        this.adoptPlaced(g style want)
+        def what:string cd.title
+        if ((strlen what) == 0) {
+            what = "Mermaid Cynefin framework"
+        }
+        status = ((to_string (cd.itemCount())) + " items — " + what + ", " + want)
+        return true
+    }
+
+    ; A fishbone: the effect at the head, the causes off the spine.
+    fn loadMermaidIshikawa:boolean (text:string styleName:string want:string) {
+        def fd:MermaidIshikawa (MermaidIshikawaReader.parse(text))
+        if ((fd.categoryCount()) == 0) {
+            status = "no causes in that fishbone"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidIshikawaFlow.build(fd style))
+        this.adoptPlaced(g style want)
+        status = ((to_string (fd.categoryCount())) + " categories, " + (to_string (fd.causeCount())) + " causes — " + fd.problem + ", " + want)
+        return true
+    }
+
+    ; A Venn diagram: circles sized by their own numbers.
+    fn loadMermaidVenn:boolean (text:string styleName:string want:string) {
+        def vd:MermaidVenn (MermaidVennReader.parse(text))
+        if ((vd.setCount()) == 0) {
+            status = "no sets in that Venn diagram"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidVennFlow.build(vd style))
+        this.adoptPlaced(g style want)
+        def what:string vd.title
+        if ((strlen what) == 0) {
+            what = "Mermaid Venn diagram"
+        }
+        status = ((to_string (vd.setCount())) + " sets, " + (to_string (vd.unionCount())) + " overlaps — " + what + ", " + want)
+        return true
+    }
+
+    ; A Wardley map: both axes are numbers the author wrote.
+    fn loadMermaidWardley:boolean (text:string styleName:string want:string) {
+        def wd:MermaidWardley (MermaidWardleyReader.parse(text))
+        if ((wd.nodeCount()) == 0) {
+            status = "nothing on that map"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidWardleyFlow.build(wd style))
+        this.adoptPlaced(g style want)
+        def what:string wd.title
+        if ((strlen what) == 0) {
+            what = "Mermaid Wardley map"
+        }
+        status = ((to_string (wd.nodeCount())) + " components, " + (to_string (wd.linkCount())) + " links — " + what + ", " + want)
+        return true
+    }
+
+    ; A railroad diagram, in any of the four notations Mermaid has for one.
+    fn loadMermaidRailroad:boolean (text:string styleName:string want:string) {
+        def rd:MermaidRailroad (MermaidRailroadReader.parse(text))
+        if ((rd.ruleCount()) == 0) {
+            status = "no rules in that grammar"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidRailroadFlow.build(rd style))
+        this.adoptPlaced(g style want)
+        def what:string rd.title
+        if ((strlen what) == 0) {
+            what = ("Mermaid railroad diagram, " + rd.notation)
+        }
+        status = ((to_string (rd.ruleCount())) + " rules — " + what + ", " + want)
+        return true
+    }
+
+    ; `info` asks what drew it, and gets an answer about this rather than a
+    ; version number invented on the spot.
+    fn loadMermaidInfo:boolean (text:string styleName:string want:string) {
+        def id:MermaidInfo (MermaidInfoReader.parse(text))
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidInfoFlow.build(id style))
+        if ((g.nodeCount()) == 0) {
+            status = "that is not an info diagram"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        this.adoptPlaced(g style want)
+        status = (id.text + ", " + want)
+        return true
+    }
+
+    ; What the placed diagrams share: the graph as it was built, with no
+    ; layout over the top of it.
+    fn adoptPlaced:void (g:FlowGraph style:FlowStyle want:string) {
+        this.adopt(g)
+        editor.view.notation = "plain"
+        layoutName = "none"
+        simRunning = false
+        editor.pinWhileDragging = false
+        style.applyToTheme(editor.view.theme)
+        if (want == "dark") {
+            editor.view.theme.name = "dark"
+        } {
+            editor.view.theme.name = "light"
+        }
     }
 
     ; The sample the dropdown shows, and the text the editing panel opens with.

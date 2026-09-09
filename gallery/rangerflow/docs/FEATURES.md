@@ -140,6 +140,29 @@ Status keys: **✓** done · **~** partial · **·** not yet.
 | Schema grouping / multi-schema | ~ | `DBTable.schema` is modelled; no visual grouping yet |
 | SQL DDL import | ✓ | `SqlSchemaReader` |
 | Mermaid flowchart import | ✓ | `MermaidReader`: every shape and link, `subgraph`, `classDef` / `class` / `style`; `click` and `linkStyle` ignored |
+| Mermaid railroad import | ✓ | `MermaidRailroadReader`: one syntax tree and four front ends — `railroad-beta`, `railroad-ebnf-beta`, `railroad-abnf-beta`, `railroad-peg-beta` — drawn as track rather than routed |
+| Mermaid `info` import | ✓ | `MermaidInfoReader`: says what drew it, which is the same kind of answer Mermaid gives and not the same answer |
+| Mermaid Wardley import | ✓ | `MermaidWardleyReader`: `anchor` / `component` / `market` / `pipeline` with their `[visibility, evolution]`, links, `evolve` drawn as the move it is, the four stages on the axis |
+| Mermaid Venn import | ✓ | `MermaidVennReader`: `set` and `union` with labels and sizes, circles sized by area and placed to overlap, labels written on the drawing |
+| Mermaid fishbone import | ✓ | `MermaidIshikawaReader`: indentation as the whole grammar, effect at the head, categories alternating above and below the spine, causes to any depth |
+| Mermaid Cynefin import | ✓ | `MermaidCynefinReader`: the five domains in their fixed places, quoted items beside or under the name, `from --> to : "label"` moves |
+| Mermaid swimlane import | ✓ | `MermaidSwimlaneFlow`: the flowchart reader, subgraphs as lanes, longest-path order across the page |
+| Mermaid architecture import | ✓ | `MermaidArchReader`: `group` / `service` / `junction` with icons and `in` parents, all four connection arrows, and the L/R/T/B sides used as the layout |
+| Mermaid block import | ✓ | `MermaidBlockReader`: `columns n`, `id:n` spans, `space` / `space:n`, nested `block:id … end`, flowchart shapes, arrows, `style` / `classDef` / `class` |
+| Mermaid Sankey import | ✓ | `MermaidSankeyReader`: CSV flows with quoted fields, columns by longest path, node height by flow, ribbons as `shapePoints` polygons |
+| Mermaid xychart import | ✓ | `MermaidXyReader`: `bar` and `line` series on a measured axis, category or numeric x, given or derived y range, `horizontal` |
+| Mermaid pie import | ✓ | `MermaidPieReader`: wedges as `shapePoints` polygons, `showData`, a legend with values and percentages, twelve palette classes |
+| Mermaid quadrant chart import | ✓ | `MermaidQuadrantReader`: both axes with their ends, the four corner labels, points with `radius:` / `color:` / `stroke-color:`, `:::class` and `classDef` |
+| Mermaid kanban import | ✓ | `MermaidKanbanReader`: indentation as hierarchy, `id[Label]`, the `@{ ticket / assigned / priority }` block, priority as a class |
+| Mermaid git graph import | ✓ | `MermaidGitReader`: `commit` / `branch` / `checkout` / `merge` / `cherry-pick`, `id:` `tag:` `type:` `order:`, both parents of a merge |
+| Mermaid sequence import | ✓ | `MermaidSequenceReader`: all ten arrow tokens, activation (explicit and `+`/`-`), notes, `loop` / `alt` / `opt` / `par` / `critical` / `break` / `rect`, `box`, `create` / `destroy`, `autonumber` |
+| Mermaid Gantt import | ✓ | `MermaidGanttReader`: dates as day numbers, `after <id>` chains, durations, milestones, tags as classes |
+| Mermaid timeline import | ✓ | `MermaidTimelineReader`: periods along the axis, events under them, sections as frames |
+| Mermaid user journey import | ✓ | `MermaidJourneyReader`: tasks along the axis at the height they scored |
+| Mermaid C4 diagram import | ✓ | `MermaidC4Reader`: every element and boundary, nested, `Rel` / `BiRel` with the technology on the line |
+| Mermaid requirement diagram import | ✓ | `MermaidRequirementReader` → UML: six requirement types and `element`, fields as rows, dashed traces named in guillemets |
+| Mermaid mind map import | ✓ | `MermaidMindMapReader` → the tree layout: indentation as hierarchy, every node shape, balanced either side of the root |
+| Mermaid state diagram import | ✓ | `MermaidStateReader` → the activity model: `[*]` terminals per scope, composite states as frames, `<<fork>>` / `<<join>>` / `<<choice>>`, descriptions |
 | Mermaid ER diagram import | ✓ | `MermaidErReader` → the schema model: entities, attributes with PK/FK/UK and comments, every cardinality pair, identifying and non-identifying lines |
 | Mermaid class diagram import | ✓ | `MermaidClassReader` → the UML model: members, visibility, static/abstract, stereotypes, every relation with its ornament, cardinalities and label |
 | Mermaid parity, measured | ✓ | `npm run rangerflow:mermaid:parity`: 26 examples through Mermaid's own parser and this reader, compared — see [`MERMAID_PARITY.md`](MERMAID_PARITY.md) |

@@ -1273,6 +1273,14 @@ class FlowView {
             if ((FlowShapes.isDecorated(n.shape)) == false) {
                 def ring:[double] (FlowShapes.outlineCustom(n.shape x y w h n.shapePoints))
                 def poly:SceneItem (sc.polygon(ring fill))
+                ; A round shape also carries the exact curve, for the backends
+                ; that draw a path rather than tessellate one. The point ring
+                ; stays: it is what the WebGL backend fills and what a click
+                ; is tested against.
+                def curve:string (FlowShapes.arcPath(n.shape x y w h))
+                if ((strlen curve) > 0) {
+                    poly.d = curve
+                }
                 poly.stroke = border
                 poly.strokeWidth = bw
                 poly.opacity = faded
@@ -1471,6 +1479,12 @@ class FlowView {
         body.stroke = border
         body.strokeWidth = bw
         body.tag = tag
+        ; A band with nothing written in it is a stripe. An unnamed frame — a
+        ; plot area, a quadrant, a box drawn only to say "these belong
+        ; together" — is a plain box, and the band comes back with the name.
+        if ((strlen n.label) == 0) {
+            return
+        }
         def barW:double (this.sl(28.0))
         def bar:SceneItem (sc.rect(x y barW h theme.headerFill))
         bar.tag = tag

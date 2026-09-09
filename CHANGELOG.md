@@ -7,8 +7,205 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **All thirty of Mermaid's diagram types are now drawn.** The matrix in
+  `docs/MERMAID_PARITY.md` is read off the installed Mermaid's own build, and
+  every row of it says *drawn*.
+
 ### Added
 
+- **Mermaid railroad diagrams, in all four notations.** Types twenty-six to
+  twenty-nine. Mermaid ships four headers for one picture — `railroad-beta`
+  and the grammar notations `railroad-ebnf-beta`, `railroad-abnf-beta` and
+  `railroad-peg-beta` — which disagree about how to spell a choice and agree
+  about everything else, so this is one syntax tree, four front ends and one
+  renderer. There is not one edge in the output: a railroad's lines are square,
+  exact, and go where the grammar says.
+- **Mermaid `info`.** The thirtieth, and the smallest diagram Mermaid has: the
+  whole source is the word, and what it renders is the version of the thing
+  that rendered it. This is not Mermaid and does not know Mermaid's version, so
+  it gives the same kind of answer and not the same answer — it says what it
+  is. A version number invented on the spot would be printed in a box and
+  believed.
+
+### Fixed
+
+- **The four railroad keywords were wrong, in the reader and in the meter.**
+  The headers are `railroad-beta` and `railroad-<notation>-beta`; the chunks
+  Mermaid ships are called `abnf`, `ebnf`, `peg` and `railroad`. Both the
+  reader and the parity harness had taken the file names for the keywords, so
+  the matrix was asking about four headers that do not exist. Mermaid's own
+  detectors settle it. This is the same fault as the swimlane keyword, found
+  the same way.
+
+### Added
+
+- **Mermaid Wardley maps.** The twenty-fifth type: a value chain drawn against
+  evolution, where up the page is how visible a thing is and across it is how
+  evolved. Both are numbers the author wrote, so nothing is laid out. `evolve`
+  is drawn as the dashed move to the right that it is, and visible is *up*
+  while the page counts down — the one conversion the map needs, and the one
+  that would otherwise turn it into a map of the opposite argument.
+- **Mermaid Venn diagrams.** The twenty-fourth type. Two facts and one picture:
+  how big each set is, and how much of it is also in another one. Circles are
+  sized by area rather than by radius — a set twice as big is twice the ink —
+  and placed to overlap, because a Venn diagram whose circles miss each other
+  has drawn the one thing it exists to deny.
+
+### Changed
+
+- **Round shapes are round.** A circle's outline was a fixed twenty-four
+  straight pieces, which is right for a 40px node and visibly faceted on a
+  300px one. The piece count now follows the radius, and circles and ellipses
+  additionally carry the exact four-cubic-Bezier path for the backends that
+  draw a path rather than tessellate one — the point ring stays, because it is
+  what the WebGL backend fills and what a click is tested against.
+
+### Added
+
+- **Mermaid fishbone (Ishikawa) diagrams.** The twenty-third type. Indentation
+  is the whole of Mermaid's grammar for it, so it is the whole of the reading:
+  the first line is the effect, the lines under it the categories, and the
+  lines under those the causes — to any depth, because a cause of a cause is
+  what the diagram was invented for. Drawn as a fishbone: the effect at the
+  head, the categories alternating above and below the spine.
+- **Mermaid Cynefin frameworks.** The twenty-second type. The five domains are
+  always in the same places, because the places are the argument, so there is
+  nothing to lay out: the reader puts each item in the domain it was written
+  under and draws the arrows that say something moved. `confusion` is drawn in
+  the middle and over the four it sits between; a move from a domain to itself
+  is dropped, because it says nothing.
+- **Mermaid swimlane diagrams.** The twenty-first type, and the one with no
+  grammar of its own: Mermaid reuses the flowchart parser wholesale and swaps
+  the layout engine, so this reads the source with the flowchart reader and
+  puts every step in the lane that owns it. A step nobody claimed gets a lane
+  at the bottom.
+
+### Fixed
+
+- **The swimlane keyword was wrong, in the reader and in the meter.** The
+  header is `swimlane-beta`, singular; the chunk Mermaid ships is called
+  `swimlanes`. Both the reader and the parity harness had taken the file name
+  for the keyword, so a real swimlane diagram fell through to the flowchart
+  parser and the matrix reported it as recognised. Mermaid's own detector
+  settles it.
+
+### Added
+
+- **Mermaid architecture diagrams.** The twentieth type. `architecture-beta`
+  writes a side on each end of every connection — `db:L -- R:server` — and that
+  is the only placement information the diagram has, so it is used as the
+  layout: every service lands on the side its own connection asked for. A
+  layout engine would draw a perfectly good picture of a different arrangement.
+  `group`, `service` and `junction` with their icons and `in` parents, all four
+  connection arrows, and `{group}` endpoints.
+- **Mermaid block diagrams.** The nineteenth type, and the only one that says
+  where its own boxes go: `columns 3` and a list is arithmetic, so nothing here
+  asks the layout engine anything. `id:n` spans columns, `space` leaves holes,
+  `block:id … end` nests with columns of its own, and the shapes are the
+  flowchart's because `block-beta` borrowed the vocabulary wholesale. Sizing is
+  two passes — a nested block is as wide as what is inside it and a row as tall
+  as the tallest thing in it.
+- **Mermaid Sankey diagrams.** The eighteenth type: a graph whose edges have a
+  width, and the width is the whole point. A node is as tall as the quantity
+  through it, a column as tall as the quantities in it, and the ribbons are
+  polygons worked out from the numbers — a band from where a flow leaves to
+  where it arrives, sampled along a smooth curve, so a Sankey is drawn by the
+  same renderer as everything else. The whole language is three CSV columns,
+  which makes it the shortest reader here and the one that does the most
+  arithmetic.
+- **Mermaid xy charts.** The seventeenth type, and the first with a *scale* in
+  it: every other diagram here places things by counting, and this one places
+  them by measuring. `bar` and `line` series can be mixed, several bar series
+  share a band side by side, and `horizontal` swaps the axes. Where the range
+  is not given it comes from the data with zero at the bottom, because an axis
+  that starts just under the smallest bar makes a 4% difference look like a
+  tenfold one.
+- **Mermaid pie charts.** The sixteenth type, and the one that is arithmetic
+  all the way down: no nodes, no edges, a list of numbers and one rule. The
+  shape library has no wedge, so the wedges are given as `shapePoints`
+  polygons — a fan along the arc, the centre, and back — which means a pie is
+  drawn by the same renderer as everything else rather than by a special case.
+  The names go in a legend beside the circle, and twelve palette colours arrive
+  as classes a stylesheet can disagree with.
+- **Mermaid quadrant charts.** The fifteenth type: a scatter plot that has been
+  told what its corners mean. The numbers place the dots and nothing else may;
+  the one conversion the chart needs is that y counts up in the source and down
+  on the page, and getting it wrong puts every dot in the wrong quadrant while
+  the picture still looks fine. `radius:`, `color:` and `stroke-color:` are read
+  off the point's own line, `:::name` and `classDef` colour a group of them, and
+  a colour written on the point wins over the stylesheet.
+- **Mermaid kanban boards.** The fourteenth type, and the one with no edges in
+  it at all: a board has columns and cards and the single relation "this is in
+  that". Indentation is the hierarchy, `id[Label]` names either, and the
+  `@{ ticket / assigned / priority }` block is written under the card rather
+  than dropped — a board with none of that on it is a list. The priority also
+  becomes a class a stylesheet can match.
+- **Mermaid git graphs.** The twelfth type, and the one whose syntax already
+  contains its layout: commits run along the axis in the order they were
+  written, one row per branch, so nothing is asked of the layout engine. A
+  merge draws both of its parents and a cherry-pick a dashed line back to what
+  it picked; `id:`, `tag:`, `type:` and `order:` are read, and the four commit
+  types are drawn as the four shapes Mermaid draws.
+- **Mermaid sequence diagrams.** The eleventh type, and the one where both axes
+  are content: who across the page, when down it. Nothing asks the layout
+  engine anything — the columns are the participants in declaration order, the
+  rows are the statements in the order they were written, and every arrow is
+  pinned to its own row. All ten arrow tokens are drawn as what they say
+  (`->>` a filled head, `-)` an open one, `-x` a cross, `<<->>` both ends);
+  activation is a bar on the lifeline, from `activate` / `deactivate` or the
+  `+` / `-` shorthand, nested where a participant calls itself; `loop`, `alt` /
+  `else`, `opt`, `par` / `and`, `critical` / `option`, `break` and `rect` box
+  exactly the participants they touch; `box` groups the participants declared
+  inside it, and `create` / `destroy` place a participant late and end its
+  lifeline with the cross.
+- **Mermaid Gantt charts.** The tenth type. The axis is the diagram, so the
+  reader does arithmetic: every date becomes a day number by the civil-calendar
+  formula (the only way to know that the 1st of March follows the 28th of
+  February in a year with no 29th), `after <id>` starts where that task
+  finished, and a bare duration follows the one before it. Bars are placed on a
+  real time axis scaled to the page; `done` / `active` / `crit` become classes
+  a stylesheet can match, and a milestone is drawn as the diamond it is.
+- **Mermaid timelines and user journeys** — the eighth and ninth types, and
+  the two that are PLACED rather than laid out. A timeline runs along its axis
+  in the order it was written, with the events under the period they belong to;
+  a journey's height is the score against each task. Handing either to a
+  layered layout would throw away the one quantity the diagram has: a chart
+  that puts a 5 and a 1 at the same height is not a journey. Sections become
+  the frames a sub-flow already has.
+- **Mermaid C4 diagrams.** The seventh type. C4 is a naming convention over a
+  very ordinary picture — labelled boxes with a type and a sentence, dashed
+  boundaries around groups of them, arrows carrying a protocol — and all three
+  were already drawn here. Every element (`Person`, `System`, `Container`,
+  `Component`, `Node` and their `_Ext`, `Db`, `Queue` variants), every
+  boundary, nested, and `Rel` / `BiRel` / the directional variants with the
+  technology in brackets after the label. `UpdateElementStyle` and friends are
+  read and dropped.
+- **Mermaid requirement diagrams.** The sixth type, and another that needed
+  no renderer: a SysML requirement diagram is a class diagram whose boxes are
+  requirements, so `MermaidRequirementReader` reads it into the same UML model
+  — the keyword becomes the stereotype, the fields inside the braces become
+  the rows, and a relationship is a dashed line carrying its own name in
+  guillemets. All six requirement types and `element`, every relationship
+  Mermaid has, and both directions of writing one.
+- **Mermaid mind maps.** The fifth type, and the one with no arrows in it:
+  indentation is the syntax, so `MermaidMindMapReader` turns the outline into a
+  tree and hands it to `MindMapLayout`, which has balanced a mind map's
+  branches either side of its root since the tree layouts were written. Every
+  node shape Mermaid has, `::icon()` read and dropped, `:::class` kept for a
+  stylesheet to match.
+- **Mermaid state diagrams.** The fourth type, and again no new renderer: a
+  state machine and a UML activity diagram are the same picture with two
+  vocabularies over it, so `MermaidStateReader` reads `stateDiagram` into
+  `domains/uml/UMLActivity` — the filled circle, the ring, the fork bar and
+  the choice diamond were already there. `[*]` becomes a start where it is
+  written first and an end where it is written second, one of each per scope;
+  `state X { … }` composite states are the frames a sub-flow already has,
+  nested, and a transition that names one enters it at the state it starts at
+  rather than making a second empty box beside the frame. `state "A long name"
+  as s`, `s : a description` on a second line, `<<fork>>` / `<<join>>` /
+  `<<choice>>` and `direction`. `ActivityFlow` grew a plain `label`, because a
+  state machine writes the event on the arrow and an activity diagram writes a
+  guard in brackets, and they are not the same thing.
 - **Mermaid ER diagrams — the third type, and the one this library was built
   for.** `erDiagram` is a schema, so
   `gallery/rangerflow/domains/mermaid/MermaidErReader.rgr` reads it into the

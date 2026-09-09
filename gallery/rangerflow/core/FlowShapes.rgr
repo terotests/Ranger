@@ -456,7 +456,7 @@ class FlowShapes {
             return pts
         }
         if (shape == "ellipse") {
-            FlowShapes.ellipseInto(pts cx cy (w * 0.5) (h * 0.5) 28)
+            FlowShapes.ellipseInto(pts cx cy (w * 0.5) (h * 0.5) (FlowShapes.segmentsFor((w * 0.5) (h * 0.5))))
             return pts
         }
         if (shape == "circle") {
@@ -464,7 +464,7 @@ class FlowShapes {
             if ((h * 0.5) < rad2) {
                 rad2 = (h * 0.5)
             }
-            FlowShapes.ellipseInto(pts cx cy rad2 rad2 24)
+            FlowShapes.ellipseInto(pts cx cy rad2 rad2 (FlowShapes.segmentsFor(rad2 rad2)))
             return pts
         }
         if (shape == "cylinder") {
@@ -761,6 +761,97 @@ class FlowShapes {
             push pts (cy + (fy * (sin a)))
             i = (i + 1)
         }
+    }
+
+    ; How many straight pieces a round outline needs to stop looking like a
+    ; polygon. A fixed count is right for a 40px node and visibly faceted on a
+    ; 320px one, and a Venn diagram is nothing but large circles — so the
+    ; count follows the radius, with a floor for small shapes and a ceiling so
+    ; a huge one does not fill the display list with vertices nobody can see.
+    sfn segmentsFor:int (rx:double ry:double) {
+        def r:double rx
+        if (ry > r) {
+            r = ry
+        }
+        def n:int 16
+        def acc:double 22.0
+        while (acc < r) {
+            n = (n + 4)
+            acc = (acc + 22.0)
+            if (n >= 96) {
+                return 96
+            }
+        }
+        return n
+    }
+
+    ; The same outline as a path with real curves in it, for the backends that
+    ; take one. Four cubic Beziers is the exact circle every drawing library
+    ; uses, and it stays exact at any zoom — the point ring stays too, because
+    ; the tessellating and hit-testing backends need vertices.
+    ;
+    ; Empty for every other shape: a hexagon has no curve to be exact about.
+    sfn arcPath:string (shape:string x:double y:double w:double h:double) {
+        def round:boolean false
+        if (shape == "circle")  { round = true }
+        if (shape == "ellipse") { round = true }
+        if (round == false) {
+            return ""
+        }
+        def cx:double (x + (w * 0.5))
+        def cy:double (y + (h * 0.5))
+        def rx:double (w * 0.5)
+        def ry:double (h * 0.5)
+        if (shape == "circle") {
+            if (ry < rx) {
+                rx = ry
+            }
+            ry = rx
+        }
+        ; The magic number: the control-point distance that makes a cubic
+        ; Bezier quarter-arc match a true one to within a ten-thousandth.
+        def kx:double (rx * 0.5522847498307936)
+        def ky:double (ry * 0.5522847498307936)
+        def out:string ("M " + (FlowShapes.num(cx - rx)) + " " + (FlowShapes.num(cy)))
+        out = (out + " C " + (FlowShapes.num(cx - rx)) + " " + (FlowShapes.num(cy - ky)))
+        out = (out + " " + (FlowShapes.num(cx - kx)) + " " + (FlowShapes.num(cy - ry)))
+        out = (out + " " + (FlowShapes.num(cx)) + " " + (FlowShapes.num(cy - ry)))
+        out = (out + " C " + (FlowShapes.num(cx + kx)) + " " + (FlowShapes.num(cy - ry)))
+        out = (out + " " + (FlowShapes.num(cx + rx)) + " " + (FlowShapes.num(cy - ky)))
+        out = (out + " " + (FlowShapes.num(cx + rx)) + " " + (FlowShapes.num(cy)))
+        out = (out + " C " + (FlowShapes.num(cx + rx)) + " " + (FlowShapes.num(cy + ky)))
+        out = (out + " " + (FlowShapes.num(cx + kx)) + " " + (FlowShapes.num(cy + ry)))
+        out = (out + " " + (FlowShapes.num(cx)) + " " + (FlowShapes.num(cy + ry)))
+        out = (out + " C " + (FlowShapes.num(cx - kx)) + " " + (FlowShapes.num(cy + ry)))
+        out = (out + " " + (FlowShapes.num(cx - rx)) + " " + (FlowShapes.num(cy + ky)))
+        out = (out + " " + (FlowShapes.num(cx - rx)) + " " + (FlowShapes.num(cy)))
+        return (out + " Z")
+    }
+
+    ; Two decimals, and no trailing zeros: a path string is the biggest thing
+    ; in an SVG and `100.00000001` says nothing `100` does not. Local, so that
+    ; the shape library keeps having no imports at all.
+    sfn num:string (v:double) {
+        def scaled:int (to_int ((fabs v) * 100.0 + 0.5))
+        def whole:int (idiv scaled 100)
+        def frac:int (scaled - (whole * 100))
+        def sign:string ""
+        if (v < 0.0) {
+            if (scaled > 0) {
+                sign = "-"
+            }
+        }
+        if (frac == 0) {
+            return (sign + (to_string whole))
+        }
+        def tail:string (to_string frac)
+        if (frac < 10) {
+            tail = ("0" + tail)
+        }
+        if ((frac % 10) == 0) {
+            tail = (substring tail 0 1)
+        }
+        return ((sign + (to_string whole)) + "." + tail)
     }
 
     sfn ellipseInto:void (pts:[double] cx:double cy:double rx:double ry:double steps:int) {

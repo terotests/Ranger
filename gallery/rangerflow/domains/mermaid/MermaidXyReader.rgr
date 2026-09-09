@@ -1,0 +1,705 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MermaidXyReader.rgr — bars and a line, on an axis that means something.
+; ============================================================================
+;
+; An xychart is the first diagram in this directory with a SCALE in it. Every
+; other one places things by counting — the third commit, the second lane —
+; and this one places them by measuring: a bar at 9500 has to be exactly as
+; far up the page as 9500 is between the bottom of the axis and the top, or
+; the picture is a lie about the numbers.
+;
+;   11000 ┤            ╭─╮
+;         │        ╭─╮ │ │ ╭─╮
+;    7500 ┤    ╭─╮ │ │ │ │ │ │ ╭─╮
+;         │ ╭─╮│ │ │ │ │ │ │ │ │ │
+;    4000 ┼─┴─┴┴─┴─┴─┴─┴─┴─┴─┴─┴─┴──
+;          jan feb mar apr may jun
+;
+; **What it reads.** `title`, `x-axis` with either a list of categories or a
+; numeric range, `y-axis` with its own title and range, and any number of
+; `bar` and `line` series. `xychart-beta horizontal` swaps the two axes, which
+; is a coordinate change and not a second chart.
+;
+; Where the axis range is not given it is taken from the data, and the bottom
+; is zero unless the data goes below it: a bar chart whose axis starts at 9000
+; makes a 4% difference look like a tenfold one, and Mermaid's own default is
+; not to do that.
+; ============================================================================
+
+Import "MermaidReader.rgr"
+Import "../../core/FlowStyleSheet.rgr"
+
+class MermaidXySeries {
+    ; "bar" | "line"
+    def kind:string "bar"
+    def title:string ""
+    def values:[double]
+
+    Constructor () {
+    }
+
+    fn count:int () {
+        return (array_length values)
+    }
+}
+
+class MermaidXyChart {
+    def title:string ""
+    def horizontal:boolean false
+    def xTitle:string ""
+    ; Either a list of names…
+    def categories:[string]
+    ; …or a range, when the x axis is numbers.
+    def xMin:double 0.0
+    def xMax:double 0.0
+    def xNumeric:boolean false
+    def yTitle:string ""
+    def yMin:double 0.0
+    def yMax:double 0.0
+    def yGiven:boolean false
+    def series:[MermaidXySeries]
+
+    Constructor () {
+    }
+
+    fn seriesCount:int () {
+        return (array_length series)
+    }
+
+    fn categoryCount:int () {
+        return (array_length categories)
+    }
+
+    ; How many points across. The categories say so where they were given,
+    ; and the longest series says so where they were not.
+    fn slots:int () {
+        def n:int (array_length categories)
+        def i:int 0
+        while (i < (array_length series)) {
+            def s:MermaidXySeries (itemAt series i)
+            if ((s.count()) > n) {
+                n = (s.count())
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    fn dataMax:double () {
+        def m:double 0.0
+        def seen:boolean false
+        def i:int 0
+        while (i < (array_length series)) {
+            def s:MermaidXySeries (itemAt series i)
+            def k:int 0
+            while (k < (array_length s.values)) {
+                def v:double (itemAt s.values k)
+                if (seen == false) {
+                    m = v
+                    seen = true
+                } {
+                    if (v > m) { m = v }
+                }
+                k = (k + 1)
+            }
+            i = (i + 1)
+        }
+        return m
+    }
+
+    fn dataMin:double () {
+        def m:double 0.0
+        def seen:boolean false
+        def i:int 0
+        while (i < (array_length series)) {
+            def s:MermaidXySeries (itemAt series i)
+            def k:int 0
+            while (k < (array_length s.values)) {
+                def v:double (itemAt s.values k)
+                if (seen == false) {
+                    m = v
+                    seen = true
+                } {
+                    if (v < m) { m = v }
+                }
+                k = (k + 1)
+            }
+            i = (i + 1)
+        }
+        return m
+    }
+
+    ; The bottom of the axis. Zero unless the data goes below it or the
+    ; author said otherwise: a bar chart whose axis starts just under the
+    ; smallest bar makes a 4% difference look like a tenfold one.
+    fn low:double () {
+        if yGiven {
+            return yMin
+        }
+        def m:double (this.dataMin())
+        if (m < 0.0) {
+            return m
+        }
+        return 0.0
+    }
+
+    fn high:double () {
+        if yGiven {
+            return yMax
+        }
+        def m:double (this.dataMax())
+        if (m <= (this.low())) {
+            return ((this.low()) + 1.0)
+        }
+        return m
+    }
+}
+
+class MermaidXyReader {
+    def doc:MermaidXyChart (new MermaidXyChart)
+    def seq:int 0
+
+    Constructor () {
+    }
+
+    sfn parse:MermaidXyChart (src:string) {
+        def r (new MermaidXyReader)
+        return (r.read(src))
+    }
+
+    fn read:MermaidXyChart (src:string) {
+        def lines:[string] (strsplit src "\n")
+        def i:int 0
+        while (i < (array_length lines)) {
+            def raw:string (trim (itemAt lines i))
+            i = (i + 1)
+            def line:string (trim (MermaidXyReader.stripComment(raw)))
+            if ((strlen line) == 0) {
+                continue
+            }
+            this.statement(line)
+        }
+        return doc
+    }
+
+    sfn stripComment:string (line:string) {
+        def len:int (strlen line)
+        def i:int 0
+        while (i < len) {
+            def c:int (charAt line i)
+            if (c == 37) {
+                if ((i + 1) < len) {
+                    if ((charAt line (i + 1)) == 37) {
+                        return (substring line 0 i)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return line
+    }
+
+    fn statement:void (st:string) {
+        def word:string (MermaidReader.firstWord(st))
+        def kw:string (MermaidReader.lower(word))
+        def rest:string (trim (substring st (strlen word) (strlen st)))
+        if (MermaidReader.beginsWith(kw "xychart")) {
+            if ((MermaidReader.lower(rest)) == "horizontal") {
+                doc.horizontal = true
+            }
+            return
+        }
+        if (MermaidReader.beginsWith(kw "acctitle")) { return }
+        if (MermaidReader.beginsWith(kw "accdescr")) { return }
+        if (kw == "title") {
+            doc.title = (MermaidReader.cleanLabel(rest))
+            return
+        }
+        if (kw == "x-axis") {
+            this.xAxis(rest)
+            return
+        }
+        if (kw == "y-axis") {
+            this.yAxis(rest)
+            return
+        }
+        if (kw == "bar") {
+            this.series("bar" rest)
+            return
+        }
+        if (kw == "line") {
+            this.series("line" rest)
+            return
+        }
+    }
+
+    ; `x-axis [jan, feb, mar]`, `x-axis "Month" [jan, feb]`, or a range —
+    ; `x-axis "Temperature" 10 --> 150`.
+    fn xAxis:void (rest:string) {
+        def t:string (trim rest)
+        def open:int (MermaidXyReader.charIndex(t 91))
+        if (open >= 0) {
+            doc.xTitle = (MermaidReader.cleanLabel((trim (substring t 0 open))))
+            def close:int (MermaidXyReader.lastIndex(t 93))
+            if (close < open) {
+                close = (strlen t)
+            }
+            def inside:string (substring t (open + 1) close)
+            def parts:[string] (strsplit inside ",")
+            def i:int 0
+            while (i < (array_length parts)) {
+                def p:string (MermaidReader.cleanLabel((itemAt parts i)))
+                if ((strlen p) > 0) {
+                    push doc.categories p
+                }
+                i = (i + 1)
+            }
+            return
+        }
+        def at:int (MermaidXyReader.indexOfText(t "-->"))
+        if (at < 0) {
+            doc.xTitle = (MermaidReader.cleanLabel(t))
+            return
+        }
+        def head:string (trim (substring t 0 at))
+        def tail:string (trim (substring t (at + 3) (strlen t)))
+        def lowWord:string (MermaidXyReader.lastWord(head))
+        doc.xTitle = (MermaidReader.cleanLabel((trim (substring head 0 ((strlen head) - (strlen lowWord))))))
+        doc.xMin = (MermaidXyReader.numberOf(lowWord 0.0))
+        doc.xMax = (MermaidXyReader.numberOf((MermaidReader.firstWord(tail)) 1.0))
+        doc.xNumeric = true
+    }
+
+    ; `y-axis "Revenue (in $)" 4000 --> 11000`, or either half on its own.
+    fn yAxis:void (rest:string) {
+        def t:string (trim rest)
+        def at:int (MermaidXyReader.indexOfText(t "-->"))
+        if (at < 0) {
+            doc.yTitle = (MermaidReader.cleanLabel(t))
+            return
+        }
+        def head:string (trim (substring t 0 at))
+        def tail:string (trim (substring t (at + 3) (strlen t)))
+        def lowWord:string (MermaidXyReader.lastWord(head))
+        doc.yTitle = (MermaidReader.cleanLabel((trim (substring head 0 ((strlen head) - (strlen lowWord))))))
+        doc.yMin = (MermaidXyReader.numberOf(lowWord 0.0))
+        doc.yMax = (MermaidXyReader.numberOf((MermaidReader.firstWord(tail)) 1.0))
+        doc.yGiven = true
+    }
+
+    ; `bar [5000, 6000]`, or `bar "revenue" [5000, 6000]`.
+    fn series:void (kind:string rest:string) {
+        def t:string (trim rest)
+        def open:int (MermaidXyReader.charIndex(t 91))
+        if (open < 0) {
+            return
+        }
+        def s (new MermaidXySeries)
+        s.kind = kind
+        s.title = (MermaidReader.cleanLabel((trim (substring t 0 open))))
+        if ((strlen s.title) == 0) {
+            s.title = (kind + " " + (to_string seq))
+        }
+        seq = (seq + 1)
+        def close:int (MermaidXyReader.lastIndex(t 93))
+        if (close < open) {
+            close = (strlen t)
+        }
+        def inside:string (substring t (open + 1) close)
+        def parts:[string] (strsplit inside ",")
+        def i:int 0
+        while (i < (array_length parts)) {
+            def p:string (trim (itemAt parts i))
+            i = (i + 1)
+            if ((strlen p) == 0) {
+                continue
+            }
+            push s.values (MermaidXyReader.numberOf(p 0.0))
+        }
+        push doc.series s
+    }
+
+    sfn numberOf:double (text:string fallback:double) {
+        def t:string (MermaidReader.unquote((trim text)))
+        if ((strlen t) == 0) {
+            return fallback
+        }
+        def v@(optional):double (str2double t)
+        if (null? v) {
+            return fallback
+        }
+        return (unwrap v)
+    }
+
+    sfn lastWord:string (t:string) {
+        def n:int (strlen t)
+        def i:int n
+        while (i > 0) {
+            if ((charAt t (i - 1)) == 32) {
+                return (substring t i n)
+            }
+            i = (i - 1)
+        }
+        return t
+    }
+
+    sfn charIndex:int (t:string c:int) {
+        def i:int 0
+        while (i < (strlen t)) {
+            if ((charAt t i) == c) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    sfn lastIndex:int (t:string c:int) {
+        def at:int -1
+        def i:int 0
+        while (i < (strlen t)) {
+            if ((charAt t i) == c) {
+                at = i
+            }
+            i = (i + 1)
+        }
+        return at
+    }
+
+    sfn indexOfText:int (text:string needle:string) {
+        def n:int (strlen needle)
+        def m:int (strlen text)
+        if (n == 0) {
+            return -1
+        }
+        def i:int 0
+        while ((i + n) <= m) {
+            def k:int 0
+            def hit:boolean true
+            while (k < n) {
+                if ((charAt text (i + k)) != (charAt needle k)) {
+                    hit = false
+                    break
+                }
+                k = (k + 1)
+            }
+            if hit {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+}
+
+; ---------------------------------------------------------------------------
+; The pipeline
+; ---------------------------------------------------------------------------
+class MermaidXyFlow {
+    sfn parse:MermaidXyChart (src:string) {
+        return (MermaidXyReader.parse(src))
+    }
+
+    sfn render:FlowGraph (src:string) {
+        def d:MermaidXyChart (MermaidXyReader.parse(src))
+        def bare (new FlowStyle)
+        return (MermaidXyFlow.build(d bare))
+    }
+
+    sfn build:FlowGraph (d:MermaidXyChart style:FlowStyle) {
+        def g (new FlowGraph)
+        def slots:int (d.slots())
+        if (slots == 0) {
+            return g
+        }
+        def plotW:double 900.0
+        def plotH:double 440.0
+        if d.horizontal {
+            plotW = 620.0
+            plotH = (60.0 + ((to_double slots) * 46.0))
+        }
+        def low:double (d.low())
+        def high:double (d.high())
+        def span:double (high - low)
+        if (span <= 0.0) {
+            span = 1.0
+        }
+        def band:double (plotW / (to_double slots))
+        if d.horizontal {
+            band = (plotH / (to_double slots))
+        }
+        ; The plot area, as the frame it is: everything else is measured from
+        ; its corners, so it goes in first and stays at the back.
+        def plot:FlowNode (FlowNode.create("sg-plot" "" 0.0 0.0))
+        ; A `group`, so that it is painted in the pass that runs BEFORE the
+        ; edges: a filled rectangle drawn after them would cover the line
+        ; series entirely. An unnamed frame carries no title band.
+        plot.nodeType = "group"
+        plot.width = plotW
+        plot.height = plotH
+        plot.connectable = false
+        plot.draggable = false
+        plot.cssClass = "mermaid plot frame"
+        plot.bgColor = "#f6f7fb"
+        plot.borderColor = "#c9cede"
+        plot.syncFromModel()
+        g.addNode(plot)
+        ; The bars, one series at a time and side by side within each band, so
+        ; two series do not hide one another.
+        def bars:int (MermaidXyFlow.countOf(d "bar"))
+        def barIndex:int 0
+        def si:int 0
+        while (si < (array_length d.series)) {
+            def s:MermaidXySeries (itemAt d.series si)
+            if (s.kind == "bar") {
+                MermaidXyFlow.barSeries(g d s si barIndex bars plotW plotH band low span)
+                barIndex = (barIndex + 1)
+            }
+            if (s.kind == "line") {
+                MermaidXyFlow.lineSeries(g d s si plotW plotH band low span)
+            }
+            si = (si + 1)
+        }
+        MermaidXyFlow.axes(g d plotW plotH band low high)
+        g.reindex()
+        def wrote:int (style.applyTo(g))
+        def c:int 0
+        while (c < (array_length d.series)) {
+            def s2:MermaidXySeries (itemAt d.series c)
+            MermaidXyFlow.repaint(g d s2 c)
+            MermaidXyFlow.repaintEdges(g s2 c)
+            c = (c + 1)
+        }
+        def moved:boolean (g.sendToBack("sg-plot"))
+        return g
+    }
+
+    sfn countOf:int (d:MermaidXyChart kind:string) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length d.series)) {
+            def s:MermaidXySeries (itemAt d.series i)
+            if (s.kind == kind) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        if (n == 0) {
+            return 1
+        }
+        return n
+    }
+
+    sfn barSeries:void (g:FlowGraph d:MermaidXyChart s:MermaidXySeries si:int barIndex:int bars:int plotW:double plotH:double band:double low:double span:double) {
+        def slotW:double ((band * 0.72) / (to_double bars))
+        def k:int 0
+        while (k < (array_length s.values)) {
+            def v:double (itemAt s.values k)
+            def frac:double ((v - low) / span)
+            if (frac < 0.0) { frac = 0.0 }
+            if (frac > 1.0) { frac = 1.0 }
+            def id:string ((("bar" + (to_string si)) + "-") + (to_string k))
+            def n:FlowNode (FlowNode.create(id "" 0.0 0.0))
+            n.nodeType = "bar"
+            n.shape = "rect"
+            n.borderRadius = 2.0
+            if d.horizontal {
+                def len:double (frac * plotW)
+                if (len < 1.0) { len = 1.0 }
+                n.x = 0.0
+                n.y = ((((to_double k) * band) + (band * 0.14)) + ((to_double barIndex) * slotW))
+                n.width = len
+                n.height = slotW
+            } {
+                def h:double (frac * plotH)
+                if (h < 1.0) { h = 1.0 }
+                n.x = ((((to_double k) * band) + (band * 0.14)) + ((to_double barIndex) * slotW))
+                n.y = (plotH - h)
+                n.width = slotW
+                n.height = h
+            }
+            n.connectable = false
+            n.cssClass = ("mermaid bar " + (MermaidXyFlow.seriesClass(si)))
+            n.bgColor = (MermaidXyFlow.colorAt(si))
+            n.borderColor = (MermaidXyFlow.colorAt(si))
+            n.syncFromModel()
+            g.addNode(n)
+            k = (k + 1)
+        }
+    }
+
+    ; A line series is a dot at every reading with an edge between one dot and
+    ; the next: the dots are where the numbers are, and the edges are the
+    ; claim that what happened between them was gradual.
+    sfn lineSeries:void (g:FlowGraph d:MermaidXyChart s:MermaidXySeries si:int plotW:double plotH:double band:double low:double span:double) {
+        def r:double 5.0
+        def k:int 0
+        while (k < (array_length s.values)) {
+            def v:double (itemAt s.values k)
+            def frac:double ((v - low) / span)
+            if (frac < 0.0) { frac = 0.0 }
+            if (frac > 1.0) { frac = 1.0 }
+            def along:double ((((to_double k) * band) + (band * 0.5)))
+            def id:string ((("dot" + (to_string si)) + "-") + (to_string k))
+            def n:FlowNode (FlowNode.create(id "" 0.0 0.0))
+            n.nodeType = "dot"
+            n.shape = "circle"
+            n.width = (r * 2.0)
+            n.height = (r * 2.0)
+            if d.horizontal {
+                n.x = ((frac * plotW) - r)
+                n.y = (along - r)
+            } {
+                n.x = (along - r)
+                n.y = ((plotH - (frac * plotH)) - r)
+            }
+            n.connectable = false
+            n.cssClass = ("mermaid dot " + (MermaidXyFlow.seriesClass(si)))
+            n.bgColor = (MermaidXyFlow.colorAt(si))
+            n.borderColor = (MermaidXyFlow.colorAt(si))
+            n.syncFromModel()
+            g.addNode(n)
+            k = (k + 1)
+        }
+        g.reindex()
+        def j:int 1
+        while (j < (array_length s.values)) {
+            def a:string ((("dot" + (to_string si)) + "-") + (to_string (j - 1)))
+            def b:string ((("dot" + (to_string si)) + "-") + (to_string j))
+            if (g.hasNode(a)) {
+                if (g.hasNode(b)) {
+                    def e:FlowEdge (FlowEdge.create("" a b))
+                    e.edgeType = "straight"
+                    e.markerEnd = ""
+                    e.strokeWidth = 2.0
+                    e.strokeColor = (MermaidXyFlow.colorAt(si))
+                    e.cssClass = ("link series " + (MermaidXyFlow.seriesClass(si)))
+                    g.addEdge(e)
+                }
+            }
+            j = (j + 1)
+        }
+        g.reindex()
+    }
+
+    ; The axis: the category names along one edge and five readings up the
+    ; other, so a bar can be read off rather than compared with its neighbour.
+    sfn axes:void (g:FlowGraph d:MermaidXyChart plotW:double plotH:double band:double low:double high:double) {
+        def slots:int (d.slots())
+        def i:int 0
+        while (i < slots) {
+            def name:string (to_string (i + 1))
+            if (i < (array_length d.categories)) {
+                name = (itemAt d.categories i)
+            }
+            def along:double (((to_double i) * band) + (band * 0.5))
+            if d.horizontal {
+                MermaidXyFlow.label(g (("xt" + (to_string i))) name (0.0 - 150.0) (along - 13.0) 140.0)
+            } {
+                MermaidXyFlow.label(g (("xt" + (to_string i))) name (along - (band * 0.5)) (plotH + 8.0) band)
+            }
+            i = (i + 1)
+        }
+        def ticks:int 4
+        def t:int 0
+        while (t <= ticks) {
+            def frac:double ((to_double t) / (to_double ticks))
+            def value:double (low + ((high - low) * frac))
+            def text:string (MermaidXyFlow.numberText(value))
+            if d.horizontal {
+                MermaidXyFlow.label(g (("yt" + (to_string t))) text ((frac * plotW) - 60.0) (plotH + 8.0) 120.0)
+            } {
+                MermaidXyFlow.label(g (("yt" + (to_string t))) text (0.0 - 130.0) ((plotH - (frac * plotH)) - 13.0) 120.0)
+            }
+            t = (t + 1)
+        }
+        if ((strlen d.xTitle) > 0) {
+            MermaidXyFlow.label(g "x-title" d.xTitle 0.0 (plotH + 44.0) plotW)
+        }
+        if ((strlen d.yTitle) > 0) {
+            MermaidXyFlow.label(g "y-title" d.yTitle 0.0 (0.0 - 44.0) plotW)
+        }
+    }
+
+    sfn label:void (g:FlowGraph id:string text:string x:double y:double w:double) {
+        if ((strlen text) == 0) {
+            return
+        }
+        def n:FlowNode (FlowNode.create(id text x y))
+        n.nodeType = "axislabel"
+        n.shape = "rect"
+        n.width = w
+        n.height = 26.0
+        n.connectable = false
+        n.draggable = false
+        n.cssClass = "mermaid axislabel"
+        n.syncFromModel()
+        g.addNode(n)
+    }
+
+    ; A stylesheet may repaint a series by matching `.series-1`; until it does,
+    ; two series in the theme's one fill would be one series drawn twice.
+    sfn repaint:void (g:FlowGraph d:MermaidXyChart s:MermaidXySeries si:int) {
+        def k:int 0
+        while (k < (array_length s.values)) {
+            def id:string ((("bar" + (to_string si)) + "-") + (to_string k))
+            if (s.kind == "line") {
+                id = ((("dot" + (to_string si)) + "-") + (to_string k))
+            }
+            if (g.hasNode(id)) {
+                def n:FlowNode (g.nodeById(id))
+                n.bgColor = (MermaidXyFlow.colorAt(si))
+                n.borderColor = (MermaidXyFlow.colorAt(si))
+                n.syncFromModel()
+            }
+            k = (k + 1)
+        }
+    }
+
+    ; The line is the series, so it is the series' colour. `.edge` in the
+    ; built-in sheet paints every edge the same, which is right for a diagram
+    ; and wrong for a chart with two lines on it.
+    sfn repaintEdges:void (g:FlowGraph s:MermaidXySeries si:int) {
+        if (s.kind != "line") {
+            return
+        }
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            if (e.cssClass == ("link series " + (MermaidXyFlow.seriesClass(si)))) {
+                e.strokeColor = (MermaidXyFlow.colorAt(si))
+                e.strokeWidth = 2.0
+            }
+            k = (k + 1)
+        }
+    }
+
+    sfn seriesClass:string (index:int) {
+        return ("series-" + (to_string (index % 12)))
+    }
+
+    sfn colorAt:string (index:int) {
+        def i:int (index % 6)
+        if (i == 0) { return "#4c78a8" }
+        if (i == 1) { return "#f58518" }
+        if (i == 2) { return "#54a24b" }
+        if (i == 3) { return "#e45756" }
+        if (i == 4) { return "#72b7b2" }
+        return "#b279a2"
+    }
+
+    ; A tick reading, without decimals it has not got.
+    sfn numberText:string (v:double) {
+        def whole:int (to_int v)
+        def back:double (to_double whole)
+        if ((fabs (v - back)) < 0.005) {
+            return (to_string whole)
+        }
+        def tenths:int (to_int ((v * 10.0) + 0.5))
+        def a:int (idiv tenths 10)
+        def b:int (tenths - (a * 10))
+        return (((to_string a) + ".") + (to_string b))
+    }
+}

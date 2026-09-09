@@ -1,0 +1,89 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MermaidInfoReader.rgr — the diagram that asks what drew it.
+; ============================================================================
+;
+; `info` is Mermaid's smallest diagram and the only one with no content at
+; all: the whole source is the word `info`, and what it renders is the
+; version of the thing that rendered it. It is a "what am I looking at"
+; button rather than a picture of anything.
+;
+;   ┌──────────────────────────────────┐
+;   │  RangerFlow — Mermaid reader     │
+;   └──────────────────────────────────┘
+;
+; So the honest answer is the same KIND of answer Mermaid gives and not the
+; same answer: this is not Mermaid and does not know Mermaid's version, so it
+; says what it is instead. Anything else would be a version number invented
+; on the spot, printed in a box, and believed.
+;
+; `info showInfo` is Mermaid's deprecated spelling of the same thing and is
+; read as the same thing.
+; ============================================================================
+
+Import "MermaidReader.rgr"
+Import "../../core/FlowStyleSheet.rgr"
+
+class MermaidInfo {
+    ; What the drawing says. Not a version: see above.
+    def text:string "RangerFlow — Mermaid reader"
+    def asked:boolean false
+
+    Constructor () {
+    }
+}
+
+class MermaidInfoReader {
+    Constructor () {
+    }
+
+    sfn parse:MermaidInfo (src:string) {
+        def doc (new MermaidInfo)
+        def lines:[string] (strsplit src "\n")
+        def i:int 0
+        while (i < (array_length lines)) {
+            def raw:string (trim (itemAt lines i))
+            i = (i + 1)
+            if ((strlen raw) == 0) {
+                continue
+            }
+            def word:string (MermaidReader.lower((MermaidReader.firstWord(raw))))
+            if (word == "info") {
+                doc.asked = true
+            }
+        }
+        return doc
+    }
+}
+
+class MermaidInfoFlow {
+    sfn parse:MermaidInfo (src:string) {
+        return (MermaidInfoReader.parse(src))
+    }
+
+    sfn render:FlowGraph (src:string) {
+        def d:MermaidInfo (MermaidInfoReader.parse(src))
+        def bare (new FlowStyle)
+        return (MermaidInfoFlow.build(d bare))
+    }
+
+    sfn build:FlowGraph (d:MermaidInfo style:FlowStyle) {
+        def g (new FlowGraph)
+        if (d.asked == false) {
+            return g
+        }
+        def n:FlowNode (FlowNode.create("info" d.text 0.0 0.0))
+        n.nodeType = "terminator"
+        n.shape = "stadium"
+        n.width = 380.0
+        n.height = 64.0
+        n.connectable = false
+        n.cssClass = "mermaid info"
+        n.syncFromModel()
+        g.addNode(n)
+        g.reindex()
+        def wrote:int (style.applyTo(g))
+        return g
+    }
+}

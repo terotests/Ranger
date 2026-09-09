@@ -745,6 +745,19 @@ class FlowStyles {
         t = (t + ".note       { fill: var(--note); stroke: var(--note-line); }\n")
         t = (t + ".frame      { fill: var(--frame); stroke: var(--frame-line); }\n")
         t = (t + "\n")
+        ; What a sequence diagram is made of. The lifeline and the activation
+        ; bar have no equivalent anywhere else in the library, so they are the
+        ; one place a diagram type gets vocabulary of its own.
+        t = (t + ".participant { fill: var(--header); stroke: var(--line); }\n")
+        t = (t + ".lifeline   { fill: var(--line); stroke: var(--line); }\n")
+        t = (t + ".activation { fill: var(--header); stroke: var(--muted); border-width: 1.2px; }\n")
+        t = (t + ".divider    { fill: var(--header); stroke: var(--frame-line); }\n")
+        t = (t + ".destroy    { fill: var(--edge); stroke: var(--edge); }\n")
+        t = (t + ".point      { fill: var(--accent); stroke: var(--accent); }\n")
+        ; A label that names an axis is text on the paper, not a box with
+        ; words in it.
+        t = (t + ".axislabel  { fill: var(--paper); stroke: var(--paper); color: var(--muted); }\n")
+        t = (t + "\n")
         t = (t + ".edge       { stroke: var(--edge); stroke-width: var(--edge-width); }\n")
         t = (t + ".thick      { stroke-width: 3px; }\n")
         t = (t + ".dotted     { stroke-dasharray: var(--dash); }\n")

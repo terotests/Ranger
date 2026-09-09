@@ -1,0 +1,57 @@
+%% Mermaid's own sequence example, with the blocks and the activation
+%% shorthand its documentation shows.
+sequenceDiagram
+    autonumber
+    actor Alice
+    participant John as John Smith
+    box Back office
+        participant DB as Database
+    end
+
+    Alice->>John: Hello John, how are you?
+    activate John
+    John-->>Alice: Great!
+    deactivate John
+    Alice-)John: See you later!
+    John->>+DB: SELECT 1
+    DB->>DB: check indexes
+    DB-->>-John: one row
+    John--xAlice: fire and forget
+    Alice<<->>John: we both talk
+
+    Note left of Alice: she waits
+    Note right of John: he replies
+    Note over Alice,John: and they agree
+
+    loop Every minute
+        John->>Alice: still here
+    end
+    alt is sick
+        Alice->>John: get well
+    else is well
+        Alice->>John: good
+    end
+    opt Extra
+        Alice->>DB: audit
+    end
+    par Alice to John
+        Alice->>John: Hi
+    and Alice to DB
+        Alice->>DB: Hi
+    end
+    critical Establish a connection
+        Alice->>DB: connect
+    option Network timeout
+        Alice->>Alice: retry
+    end
+    break when the booking fails
+        Alice->>John: sorry
+    end
+    rect rgb(191, 223, 255)
+        Alice->>John: inside a coloured block
+    end
+
+    create participant Carl
+    Alice->>Carl: hello Carl
+    destroy Carl
+    Carl-->>Alice: bye

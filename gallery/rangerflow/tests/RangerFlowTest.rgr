@@ -26,6 +26,29 @@ Import "../domains/flowchart/Flowchart.rgr"
 Import "../domains/mermaid/MermaidReader.rgr"
 Import "../domains/mermaid/MermaidClassReader.rgr"
 Import "../domains/mermaid/MermaidErReader.rgr"
+Import "../domains/mermaid/MermaidStateReader.rgr"
+Import "../domains/mermaid/MermaidMindMapReader.rgr"
+Import "../domains/mermaid/MermaidRequirementReader.rgr"
+Import "../domains/mermaid/MermaidC4Reader.rgr"
+Import "../domains/mermaid/MermaidTimelineReader.rgr"
+Import "../domains/mermaid/MermaidJourneyReader.rgr"
+Import "../domains/mermaid/MermaidGanttReader.rgr"
+Import "../domains/mermaid/MermaidSequenceReader.rgr"
+Import "../domains/mermaid/MermaidGitReader.rgr"
+Import "../domains/mermaid/MermaidKanbanReader.rgr"
+Import "../domains/mermaid/MermaidQuadrantReader.rgr"
+Import "../domains/mermaid/MermaidPieReader.rgr"
+Import "../domains/mermaid/MermaidXyReader.rgr"
+Import "../domains/mermaid/MermaidSankeyReader.rgr"
+Import "../domains/mermaid/MermaidBlockReader.rgr"
+Import "../domains/mermaid/MermaidArchReader.rgr"
+Import "../domains/mermaid/MermaidSwimlaneReader.rgr"
+Import "../domains/mermaid/MermaidCynefinReader.rgr"
+Import "../domains/mermaid/MermaidIshikawaReader.rgr"
+Import "../domains/mermaid/MermaidVennReader.rgr"
+Import "../domains/mermaid/MermaidWardleyReader.rgr"
+Import "../domains/mermaid/MermaidRailroadReader.rgr"
+Import "../domains/mermaid/MermaidInfoReader.rgr"
 Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 
@@ -96,6 +119,27 @@ class RangerFlowTest {
         RangerFlowTest.testClickChangesNothing(c)
         RangerFlowTest.testMermaidClassDiagram(c)
         RangerFlowTest.testMermaidErDiagram(c)
+        RangerFlowTest.testMermaidStateDiagram(c)
+        RangerFlowTest.testMermaidMindMap(c)
+        RangerFlowTest.testMermaidRequirements(c)
+        RangerFlowTest.testMermaidC4(c)
+        RangerFlowTest.testMermaidPlaced(c)
+        RangerFlowTest.testMermaidGantt(c)
+        RangerFlowTest.testMermaidSequence(c)
+        RangerFlowTest.testMermaidGit(c)
+        RangerFlowTest.testMermaidKanban(c)
+        RangerFlowTest.testMermaidQuadrant(c)
+        RangerFlowTest.testMermaidPie(c)
+        RangerFlowTest.testMermaidXyChart(c)
+        RangerFlowTest.testMermaidSankey(c)
+        RangerFlowTest.testMermaidBlock(c)
+        RangerFlowTest.testMermaidArchitecture(c)
+        RangerFlowTest.testMermaidSwimlane(c)
+        RangerFlowTest.testMermaidCynefin(c)
+        RangerFlowTest.testMermaidIshikawa(c)
+        RangerFlowTest.testMermaidVenn(c)
+        RangerFlowTest.testMermaidWardley(c)
+        RangerFlowTest.testMermaidRailroad(c)
         RangerFlowTest.testBusinessCharts(c)
         RangerFlowTest.testAuthoring(c)
         RangerFlowTest.testTreeLayouts(c)
@@ -2592,7 +2636,1221 @@ class RangerFlowTest {
         c.eqStr("an ER diagram is named" asFlow.diagramKind "er")
         c.eqInt("and read as no flowchart at all" (asFlow.nodeCount()) 0)
         c.ok("but it is one this library draws" (MermaidReader.draws("er")))
-        c.ok("unlike a gantt chart" ((MermaidReader.draws("gantt")) == false))
+        c.ok("as is a sequence diagram" (MermaidReader.draws("sequence")))
+    }
+
+    ; ------------------------------------------------ Mermaid state diagrams --
+    ; A state machine and a UML activity diagram are the same picture with two
+    ; vocabularies over it, so this one needed a reader and nothing else.
+    sfn testMermaidStateDiagram:void (c:Checker) {
+        c.section("Mermaid state diagrams")
+        def src:string "stateDiagram-v2\n"
+        src = (src + "    [*] --> Still\n")
+        src = (src + "    Still --> [*]\n")
+        src = (src + "    Still --> Moving : go\n")
+        src = (src + "    state \"Rolling along\" as Moving\n")
+        src = (src + "    Moving : the wheels are turning\n")
+        src = (src + "    state pick <<choice>>\n")
+        src = (src + "    Moving --> pick\n")
+        src = (src + "    state Repair {\n")
+        src = (src + "        [*] --> Diagnose\n")
+        src = (src + "        Diagnose --> [*]\n")
+        src = (src + "    }\n")
+        src = (src + "    pick --> Repair : broken\n")
+        def d:MermaidStateDiagram (MermaidStateReader.parse(src))
+        ; Still, Moving, pick, Diagnose, and a start and an end in each of the
+        ; two scopes.
+        c.eqInt("every state named is a state" (d.stateCount()) 8)
+        c.eqInt("and every arrow a transition" (d.transitionCount()) 7)
+        c.eqInt("the block is one composite state" (d.groupCount()) 1)
+
+        def moving:ActivityNode (d.ensureState("Moving"))
+        c.ok("`as` renames a state" ((indexOf moving.label "Rolling along") == 0))
+        c.ok("and a colon adds a line under the name" ((indexOf moving.label "the wheels are turning") > 0))
+        def pick:ActivityNode (d.ensureState("pick"))
+        c.eqStr("<<choice>> is a decision" pick.kind "decision")
+
+        ; `[*]` is a start where it is written first and an end where it is
+        ; written second — one of each per scope.
+        def first:ActivityFlow (itemAt d.activity.flows 0)
+        def start:ActivityNode (d.ensureState(first.source))
+        c.eqStr("the first `[*]` is where the machine starts" start.kind "initial")
+        def second:ActivityFlow (itemAt d.activity.flows 1)
+        def end:ActivityNode (d.ensureState(second.target))
+        c.eqStr("and the second is where it stops" end.kind "final")
+        def labelled:ActivityFlow (itemAt d.activity.flows 2)
+        c.eqStr("a transition carries its label as written, unbracketed" labelled.label "go")
+
+        ; A transition to a composite state enters it at its own start, and
+        ; the box is not also a state of its own.
+        c.eqInt("the composite is a box rather than a box AND a state" (d.indexOfState("Repair")) -1)
+        def last:ActivityFlow (itemAt d.activity.flows 6)
+        def entered:ActivityNode (d.ensureState(last.target))
+        c.eqStr("so entering it means entering what it starts at" entered.kind "initial")
+
+        def g:FlowGraph (MermaidStateFlow.render(src))
+        def frame:FlowNode (g.nodeById("sg-Repair"))
+        c.eqStr("the composite is drawn as a group" frame.nodeType "group")
+        def firstNode:FlowNode (g.nodeAt(0))
+        c.eqStr("behind the states it holds" firstNode.id "sg-Repair")
+        def diag:FlowNode (g.nodeById("Diagnose"))
+        c.eqStr("which they belong to" diag.parentId "sg-Repair")
+        c.eqInt("nothing is drawn through a state" (EdgeOverlap.nodeCrossings(g)) 0)
+
+        ; The file it was written from.
+        def real:string (?? (read_file "." "gallery/rangerflow/fixtures/state_traffic.mmd") "")
+        if ((strlen real) > 0) {
+            def rd:MermaidStateDiagram (MermaidStateReader.parse(real))
+            c.eqStr("front matter titles a state diagram too" rd.title "A parcel, as a state machine")
+            def rg:FlowGraph (MermaidStateFlow.render(real))
+            c.eqInt("and it draws" (EdgeOverlap.nodeCrossings(rg)) 0)
+        }
+        c.ok("a state diagram is one this library draws" (MermaidReader.draws("state")))
+    }
+
+    ; ---------------------------------------------------- Mermaid mind maps --
+    ; The one with no arrows in it: indentation is the syntax, and the tree
+    ; layout has balanced a mind map either side of its root since it was
+    ; written.
+    sfn testMermaidMindMap:void (c:Checker) {
+        c.section("Mermaid mind maps")
+        def src:string "mindmap\n"
+        src = (src + "  root((the middle))\n")
+        src = (src + "    Origins\n")
+        src = (src + "      Long history\n")
+        src = (src + "      ::icon(fa fa-book)\n")
+        src = (src + "      Popularisation\n")
+        src = (src + "        Tony Buzan\n")
+        src = (src + "    Research\n")
+        src = (src + "      On effectiveness<br/>and features\n")
+        src = (src + "    Tools[in brackets]\n")
+        src = (src + "      Pen and paper\n")
+        def d:MermaidMindMap (MermaidMindMapReader.parse(src))
+        c.eqInt("every line is a node" (d.nodeCount()) 9)
+        c.eqStr("the first one is the root" (d.rootId()) "root")
+
+        def root:MermaidMindNode (itemAt d.nodes 0)
+        c.eqStr("`(( ))` is a circle" root.shape "circle")
+        c.eqStr("with the label from between the brackets" root.label "the middle")
+        def origins:MermaidMindNode (itemAt d.nodes 1)
+        c.eqInt("indentation is the hierarchy" origins.depth 1)
+        c.eqStr("so the root is its parent" origins.parent "root")
+        def buzan:MermaidMindNode (itemAt d.nodes 4)
+        c.eqInt("four levels in" buzan.depth 3)
+        c.eqStr("under the line above it" buzan.parent "Popularisation")
+        def research:MermaidMindNode (itemAt d.nodes 5)
+        c.eqStr("and a line indented back out is a sibling of what it lines up with" research.parent "root")
+        def wrapped:MermaidMindNode (itemAt d.nodes 6)
+        c.ok("`<br/>` is a line the author asked for" ((indexOf wrapped.label (strfromcode 10)) > 0))
+        def tools:MermaidMindNode (itemAt d.nodes 7)
+        c.eqStr("`[]` is a square" tools.shape "square")
+        c.eqStr("named by what is before the bracket" tools.id "Tools")
+        c.eqStr("and labelled by what is inside it" tools.label "in brackets")
+
+        ; …and it draws, laid out by the mind map layout rather than a layered
+        ; one: a mind map read top to bottom is a tree with the point missed.
+        def g:FlowGraph (MermaidMindMapFlow.render(src))
+        c.eqInt("every node became a node" (g.nodeCount()) 9)
+        c.eqInt("and every line but the root's a branch" (g.edgeCount()) 8)
+        def rootNode:FlowNode (g.nodeById("root"))
+        def left:int 0
+        def right:int 0
+        def i:int 0
+        while (i < (g.nodeCount())) {
+            def n:FlowNode (g.nodeAt(i))
+            if ((n.centerX()) < (rootNode.centerX())) {
+                left = (left + 1)
+            }
+            if ((n.centerX()) > (rootNode.centerX())) {
+                right = (right + 1)
+            }
+            i = (i + 1)
+        }
+        c.ok("the branches are balanced either side of the root" ((left > 0) && (right > 0)))
+        c.eqInt("nothing is drawn through a node" (EdgeOverlap.nodeCrossings(g)) 0)
+        c.ok("a mind map is one this library draws" (MermaidReader.draws("mindmap")))
+    }
+
+    ; ------------------------------------------- Mermaid requirement diagrams --
+    ; A requirement diagram is a class diagram whose boxes are requirements, so
+    ; it is read into the same UML model with the fields as rows.
+    sfn testMermaidRequirements:void (c:Checker) {
+        c.section("Mermaid requirement diagrams")
+        def src:string "requirementDiagram\n"
+        src = (src + "requirement top {\n")
+        src = (src + "    id: 1\n")
+        src = (src + "    text: the system shall work.\n")
+        src = (src + "    risk: high\n")
+        src = (src + "    verifymethod: test\n")
+        src = (src + "}\n")
+        src = (src + "functionalRequirement sub {\n")
+        src = (src + "    id: 1.1\n")
+        src = (src + "    risk: low\n")
+        src = (src + "}\n")
+        src = (src + "element impl {\n")
+        src = (src + "    type: simulation\n")
+        src = (src + "}\n")
+        src = (src + "impl - satisfies -> sub\n")
+        src = (src + "top - contains -> sub\n")
+        src = (src + "sub <- copies - impl\n")
+        def d:MermaidRequirementDiagram (MermaidRequirementReader.parse(src))
+        c.eqInt("every declaration is a box" (d.boxCount()) 3)
+        c.eqInt("and every arrow a trace" (d.relationCount()) 3)
+
+        def top:UMLClass (d.ensureBox("top"))
+        c.eqStr("the keyword is the stereotype" top.stereotype "requirement")
+        c.eqInt("and the braces hold its fields" (array_length top.attributes) 4)
+        def text:UMLMember (itemAt top.attributes 1)
+        c.eqStr("a field keeps its name" text.name "text")
+        c.eqStr("and everything after the colon, full stop included" text.memberType "the system shall work.")
+        def sub:UMLClass (d.ensureBox("sub"))
+        c.eqStr("each requirement type is its own stereotype" sub.stereotype "functionalRequirement")
+        def impl:UMLClass (d.ensureBox("impl"))
+        c.eqStr("and an element says so" impl.stereotype "element")
+
+        def satisfies:UMLRelation (itemAt d.uml.relations 0)
+        c.eqStr("a trace is a dependency" satisfies.kind "dependency")
+        c.eqStr("with the relationship's name on it" satisfies.label "«satisfies»")
+        c.ok("drawn dashed" (satisfies.dashed()))
+        def copies:UMLRelation (itemAt d.uml.relations 2)
+        c.ok("`<-` points the other way" copies.markAtSource)
+
+        def g:FlowGraph (MermaidRequirementFlow.render(src))
+        c.eqInt("every box became a node" (g.nodeCount()) 3)
+        c.eqInt("and every trace an edge" (g.edgeCount()) 3)
+        def topNode:FlowNode (g.nodeById("top"))
+        c.ok("with the fields in rows" ((topNode.sectionCount()) >= 1))
+        c.eqInt("nothing is drawn through a box" (EdgeOverlap.nodeCrossings(g)) 0)
+        c.ok("a requirement diagram is one this library draws" (MermaidReader.draws("requirement")))
+    }
+
+    ; --------------------------------------------------- Mermaid C4 diagrams --
+    ; C4 is a naming convention over a very ordinary picture: labelled boxes,
+    ; boundaries around groups of them, and arrows with a protocol on them.
+    sfn testMermaidC4:void (c:Checker) {
+        c.section("Mermaid C4 diagrams")
+        def src:string "C4Context\n"
+        src = (src + "    title Internet banking\n")
+        src = (src + "    Enterprise_Boundary(b0, \"The bank\") {\n")
+        src = (src + "        Person(customer, \"A customer\", \"Has accounts\")\n")
+        src = (src + "        System(banking, \"Internet banking\", \"Shows accounts\")\n")
+        src = (src + "        System_Boundary(b1, \"Back office\") {\n")
+        src = (src + "            SystemDb(core, \"Mainframe\", \"Holds the accounts\")\n")
+        src = (src + "        }\n")
+        src = (src + "    }\n")
+        src = (src + "    System_Ext(mail, \"E-mail\", \"Sends the letters\")\n")
+        src = (src + "    BiRel(customer, banking, \"Uses\")\n")
+        src = (src + "    Rel(banking, core, \"Reads\", \"Sync\")\n")
+        src = (src + "    UpdateElementStyle(customer, $fontColor=\"red\")\n")
+        def d:MermaidC4Diagram (MermaidC4Reader.parse(src))
+        c.eqStr("the title is the line that says so" d.title "Internet banking")
+        c.eqInt("every element is a box" (d.boxCount()) 4)
+        c.eqInt("every Rel is a relation" (d.relationCount()) 2)
+        c.eqInt("and every boundary a frame" (d.groupCount()) 2)
+
+        def person:UMLClass (d.ensureBox("customer"))
+        c.eqStr("a Person says it is one" person.stereotype "person")
+        def caption:UMLMember (itemAt person.attributes 0)
+        c.eqStr("the label is the first row" caption.name "A customer")
+        def note:UMLMember (itemAt person.attributes 1)
+        c.eqStr("and the description the second" note.name "Has accounts")
+        def ext:UMLClass (d.ensureBox("mail"))
+        c.eqStr("`_Ext` says the system is somebody else's" ext.stereotype "system, external")
+        def db:UMLClass (d.ensureBox("core"))
+        c.eqStr("and `Db` that it holds the data" db.stereotype "system, database")
+
+        def uses:UMLRelation (itemAt d.uml.relations 1)
+        c.eqStr("the technology rides in brackets after the label" uses.label "Reads [Sync]")
+
+        def g:FlowGraph (MermaidC4Flow.render(src))
+        def frame:FlowNode (g.nodeById("sg-b0"))
+        c.eqStr("a boundary is drawn as a group" frame.nodeType "group")
+        def inner:FlowNode (g.nodeById("core"))
+        c.eqStr("and the inner boundary holds what is inside it" inner.parentId "sg-b1")
+        def first:FlowEdge (g.edgeAt(0))
+        c.eqStr("a BiRel has an arrow at both ends" first.markerStart "arrow")
+        def second:FlowEdge (g.edgeAt(1))
+        c.eqStr("and a Rel at one" second.markerStart "")
+        c.eqInt("nothing is drawn through a box" (EdgeOverlap.nodeCrossings(g)) 0)
+        c.ok("a C4 diagram is one this library draws" (MermaidReader.draws("c4")))
+    }
+
+    ; ------------------------------------- the two Mermaid diagrams that are
+    ; PLACED rather than laid out: a timeline runs along its axis in the order
+    ; it was written, and a journey's height is the score. Handing either to a
+    ; layered layout would throw away the only quantity the diagram has.
+    sfn testMermaidPlaced:void (c:Checker) {
+        c.section("Mermaid timelines and journeys")
+        def tl:string "timeline\n"
+        tl = (tl + "    title A short history\n")
+        tl = (tl + "    section The nineties\n")
+        tl = (tl + "        1991 : The first web page\n")
+        tl = (tl + "        1995 : JavaScript : PHP\n")
+        tl = (tl + "    section Since\n")
+        tl = (tl + "        2017 : WebAssembly\n")
+        def t:MermaidTimeline (MermaidTimelineReader.parse(tl))
+        c.eqStr("the title is the line that says so" t.title "A short history")
+        c.eqInt("a period per line" (t.periodCount()) 3)
+        c.eqInt("and an event per colon after it" (t.eventCount()) 4)
+        c.eqInt("with the sections counted" (t.sectionCount()) 2)
+        def p:MermaidTimelinePeriod (itemAt t.periods 1)
+        c.eqStr("the period is what comes first" p.label "1995")
+        c.eqInt("and the rest are its events" (p.eventCount()) 2)
+        c.eqStr("under the section they were written in" p.section "The nineties")
+
+        def tg:FlowGraph (MermaidTimelineFlow.render(tl))
+        ; 3 periods + 4 events + 2 section frames.
+        c.eqInt("every period and event is a node" (tg.nodeCount()) 9)
+        def a:FlowNode (tg.nodeById("period0"))
+        def b:FlowNode (tg.nodeById("period1"))
+        c.ok("the periods run along the axis in the order written" (a.x < b.x))
+        def frame:FlowNode (tg.nodeAt(0))
+        c.eqStr("and a section is a frame behind them" frame.nodeType "group")
+
+        def jn:string "journey\n"
+        jn = (jn + "    title My working day\n")
+        jn = (jn + "    section Go to work\n")
+        jn = (jn + "      Make tea: 5: Me\n")
+        jn = (jn + "      Do work: 1: Me, Cat\n")
+        def j:MermaidJourney (MermaidJourneyReader.parse(jn))
+        c.eqInt("a task per line" (j.taskCount()) 2)
+        def task:MermaidJourneyTask (itemAt j.tasks 1)
+        c.eqStr("the name is what comes before the first colon" task.name "Do work")
+        c.eqInt("the score is the number after it" task.score 1)
+        c.eqStr("and the actors are the rest" task.actors "Me, Cat")
+
+        def jg:FlowGraph (MermaidJourneyFlow.render(jn))
+        def high:FlowNode (jg.nodeById("task0"))
+        def low:FlowNode (jg.nodeById("task1"))
+        c.ok("a five sits above a one, which is the whole point" (high.y < low.y))
+        c.ok("and the day runs left to right" (high.x < low.x))
+        c.ok("both are diagrams this library draws" ((MermaidReader.draws("timeline")) && (MermaidReader.draws("journey"))))
+    }
+
+    ; ------------------------------------------------------ Mermaid Gantt --
+    ; The axis is the diagram: a chart that spaced its bars evenly instead of
+    ; by date would be a list with rounded corners. So the reader does the
+    ; arithmetic, and these are the sums.
+    sfn testMermaidGantt:void (c:Checker) {
+        c.section("Mermaid Gantt charts")
+        def src:string "gantt\n"
+        src = (src + "    title A release\n")
+        src = (src + "    dateFormat YYYY-MM-DD\n")
+        src = (src + "    section Build\n")
+        src = (src + "        Write it   :a1, 2024-01-01, 10d\n")
+        src = (src + "        Test it    :after a1, 5d\n")
+        src = (src + "        Sign off   :crit, done, 2024-01-20, 2d\n")
+        src = (src + "    section Ship\n")
+        src = (src + "        Release    :milestone, m1, 2024-02-01, 0d\n")
+        src = (src + "        Watch it   :1w\n")
+        def d:MermaidGantt (MermaidGanttReader.parse(src))
+        c.eqStr("the title is the line that says so" d.title "A release")
+        c.eqInt("a task per line" (d.taskCount()) 5)
+        c.eqInt("and the sections counted" (d.sectionCount()) 2)
+
+        def write:MermaidGanttTask (itemAt d.tasks 0)
+        c.eqStr("the name is what comes before the colon" write.name "Write it")
+        c.eqStr("the id is the token that is neither a date nor a duration" write.id "a1")
+        c.eqInt("`10d` is ten days" write.days 10)
+        ; 2024-01-01 is 19723 days after the epoch, by the civil calendar.
+        c.eqInt("a date is a day number" write.startDay 19723)
+        def test:MermaidGanttTask (itemAt d.tasks 1)
+        c.eqStr("`after a1` names what it waits for" test.after "a1")
+        c.eqInt("and starts where that one finished" test.startDay 19733)
+        def signoff:MermaidGanttTask (itemAt d.tasks 2)
+        c.ok("the tags are kept for a stylesheet to match" ((indexOf signoff.tags "crit") > 0))
+        def release:MermaidGanttTask (itemAt d.tasks 3)
+        c.ok("a milestone says so" release.milestone)
+        c.eqInt("and lasts no time at all" release.days 0)
+        def watch:MermaidGanttTask (itemAt d.tasks 4)
+        c.eqInt("`1w` is seven days" watch.days 7)
+        c.eqInt("and a task with no start follows the one before it" watch.startDay (release.endDay()))
+
+        def g:FlowGraph (MermaidGanttFlow.render(src))
+        def bar1:FlowNode (g.nodeById("a1"))
+        def bar2:FlowNode (g.nodeById("task1"))
+        c.ok("the bars are placed by date, not by order" (bar1.x < bar2.x))
+        c.ok("and their width is how long they take" (bar1.width > 0.0))
+        def milestone:FlowNode (g.nodeById("m1"))
+        c.eqStr("a milestone is drawn as the diamond it is" milestone.shape "diamond")
+        c.eqInt("what waits for what is the one relation a Gantt chart has" (g.edgeCount()) 1)
+        c.ok("a Gantt chart is one this library draws" (MermaidReader.draws("gantt")))
+    }
+
+    ; --------------------------------------------- Mermaid sequence -------
+    ; A sequence diagram is the one Mermaid type where both axes are content:
+    ; who, across, and when, down. So the assertions are about ORDER and about
+    ; the two things a reader would otherwise have to take on trust — that the
+    ; arrow means what the token said, and that the bar covers what was active.
+    sfn testMermaidSequence:void (c:Checker) {
+        c.section("Mermaid sequence diagrams")
+        def src:string "sequenceDiagram\n"
+        src = (src + "    autonumber\n")
+        src = (src + "    actor Cust as Customer\n")
+        src = (src + "    box Shop\n")
+        src = (src + "        participant Web\n")
+        src = (src + "        participant API as Order API\n")
+        src = (src + "    end\n")
+        src = (src + "    participant Bank\n")
+        src = (src + "    Cust->>Web: place order\n")
+        src = (src + "    Web->>+API: POST /orders\n")
+        src = (src + "    API->>API: validate\n")
+        src = (src + "    API-->>-Web: 201\n")
+        src = (src + "    Note over Web,API: nothing is paid yet\n")
+        src = (src + "    loop until settled\n")
+        src = (src + "        Web-)Bank: authorise\n")
+        src = (src + "    alt accepted\n")
+        src = (src + "        Bank-->>Web: approved\n")
+        src = (src + "    else declined\n")
+        src = (src + "        Bank--xWeb: no\n")
+        src = (src + "    end\n")
+        src = (src + "    end\n")
+        src = (src + "    destroy Bank\n")
+        src = (src + "    Web->>Cust: receipt\n")
+
+        def d:MermaidSequence (MermaidSequenceReader.parse(src))
+        c.eqInt("a participant per declaration, in the order declared" (d.actorCount()) 4)
+        def cust:MermaidSeqActor (itemAt d.actors 0)
+        c.eqStr("`as` renames without renumbering" cust.name "Customer")
+        c.ok("and `actor` is remembered as one" cust.isActor)
+        def api:MermaidSeqActor (itemAt d.actors 2)
+        c.eqStr("a participant declared inside a box knows which" api.box "Shop")
+        def bank:MermaidSeqActor (itemAt d.actors 3)
+        c.eqStr("one declared outside it does not" bank.box "")
+        c.eqInt("the box is counted once" (d.boxCount()) 1)
+        c.ok("`autonumber` numbers the messages" d.autonumber)
+
+        c.eqInt("every arrow is a message" (d.messageCount()) 8)
+        c.eqInt("and the note is not one" (d.noteCount()) 1)
+        c.eqInt("`loop` and `alt` are the two blocks" (d.blockCount()) 2)
+
+        def first:MermaidSeqStep (itemAt d.steps 0)
+        c.eqStr("the sender is what stands before the arrow" first.source "Cust")
+        c.eqStr("the receiver what stands after it" first.target "Web")
+        c.eqStr("and the text what follows the colon" first.text "place order")
+        c.eqInt("numbering starts at one" first.number 1)
+        c.eqStr("`->>` is a line with a head on it" first.head "arrowclosed")
+        c.eqStr("and a single dash is not a reply" first.stroke "solid")
+
+        def second:MermaidSeqStep (itemAt d.steps 1)
+        c.ok("`+` after the arrow activates the receiver" second.activates)
+        def selfCall:MermaidSeqStep (itemAt d.steps 2)
+        c.eqStr("a participant may send to itself" selfCall.source selfCall.target)
+        def reply:MermaidSeqStep (itemAt d.steps 3)
+        c.eqStr("`-->>` is the dotted one" reply.stroke "dotted")
+        c.ok("and `-` after it deactivates the sender" reply.deactivates)
+
+        def note:MermaidSeqStep (itemAt d.steps 4)
+        c.eqStr("`over A,B` spans from the first name to the last" note.source "Web")
+        c.eqStr("to the last one named" note.target "API")
+        c.eqStr("and it is placed over rather than beside" note.placement "over")
+
+        ; The tokens, one at a time, because a diagram that draws `--x` as a
+        ; plain arrow is telling the reader the message arrived.
+        c.eqStr("`-)` is an open head" (MermaidSequenceReader.headOf("-)")) "arrow")
+        c.eqStr("`--x` is a cross" (MermaidSequenceReader.headOf("--x")) "cross")
+        c.eqStr("`->` has no head at all" (MermaidSequenceReader.headOf("->")) "")
+        c.eqStr("`<<-->>` is dotted" (MermaidSequenceReader.strokeOf("<<-->>")) "dotted")
+        c.eqInt("a name with a dash in it is not an arrow" (MermaidSequenceReader.arrowAt("order-service is here")) -1)
+
+        def g:FlowGraph (MermaidSequenceFlow.render(src))
+        def wl:FlowNode (g.nodeById("ll-Web"))
+        def al:FlowNode (g.nodeById("ll-API"))
+        c.ok("the columns are in declaration order, left to right" (wl.x < al.x))
+        def head:FlowNode (g.nodeById("Cust"))
+        c.eqStr("the participant box is drawn from the alias" head.label "Customer")
+        c.eqInt("an arrow per message" (g.edgeCount()) 8)
+
+        def m1:FlowEdge (g.edgeAt(1))
+        c.eqInt("a message is pinned to its own row — nothing may re-route it" (array_length m1.waypoints) 4)
+        def dy:double ((itemAt m1.waypoints 1) - (itemAt m1.waypoints 3))
+        c.ok("and the row is level: a sequence arrow is horizontal" ((fabs dy) < 0.001))
+        def bar:FlowNode (g.nodeById("act0"))
+        c.ok("an activation is a bar on the lifeline, not a box" (bar.width < 16.0))
+        c.ok("and it is as long as the participant was busy" (bar.height > 20.0))
+        def cross:FlowNode (g.nodeById("destroy0"))
+        c.eqStr("`destroy` ends the lifeline with the cross Mermaid draws" cross.shape "polygon")
+        def bankLife:FlowNode (g.nodeById("ll-Bank"))
+        def custLife:FlowNode (g.nodeById("ll-Cust"))
+        c.ok("a destroyed lifeline stops short of the others" (bankLife.height < custLife.height))
+        c.ok("a sequence diagram is one this library draws" (MermaidReader.draws("sequence")))
+    }
+
+    ; --------------------------------------------- Mermaid git graph ------
+    ; A git graph carries its own layout: the order is the history. So what
+    ; there is to get wrong is the ancestry — which commit came from which —
+    ; and that is what these check.
+    sfn testMermaidGit:void (c:Checker) {
+        c.section("Mermaid git graphs")
+        def src:string "gitGraph\n"
+        src = (src + "    commit id: \"init\"\n")
+        src = (src + "    commit id: \"readme\" tag: \"v0.1\"\n")
+        src = (src + "    branch develop order: 2\n")
+        src = (src + "    checkout develop\n")
+        src = (src + "    commit id: \"parser\"\n")
+        src = (src + "    commit id: \"oops\" type: REVERSE\n")
+        src = (src + "    checkout main\n")
+        src = (src + "    merge develop id: \"m1\" tag: \"v1.0\"\n")
+        src = (src + "    cherry-pick id: \"parser\"\n")
+
+        def d:MermaidGit (MermaidGitReader.parse(src))
+        c.eqInt("`main` is a branch nobody had to declare" (d.branchCount()) 2)
+        c.eqInt("a commit per statement that makes one" (d.commitCount()) 6)
+        c.eqInt("and the merge is counted as what it is" (d.mergeCount()) 1)
+
+        def init:MermaidGitCommit (itemAt d.commits 0)
+        c.eqStr("the first commit is on the default branch" init.branch "main")
+        c.eqStr("and comes from nothing" init.parent "")
+        def readme:MermaidGitCommit (itemAt d.commits 1)
+        c.eqStr("the next one follows it" readme.parent "init")
+        c.eqStr("`tag:` is read off the same line" readme.tag "v0.1")
+
+        def parser:MermaidGitCommit (itemAt d.commits 2)
+        c.eqStr("a branch is cut where its parent stood" parser.parent "readme")
+        c.eqStr("and its commits belong to it" parser.branch "develop")
+        def oops:MermaidGitCommit (itemAt d.commits 3)
+        c.eqStr("`type:` names the kind" oops.kind "REVERSE")
+
+        def merge:MermaidGitCommit (itemAt d.commits 4)
+        c.eqStr("a merge is on the branch that was checked out" merge.branch "main")
+        c.eqStr("its first parent is that branch's head" merge.parent "readme")
+        c.eqStr("and its second is the head of the branch merged in" merge.otherParent "oops")
+        def pick:MermaidGitCommit (itemAt d.commits 5)
+        c.eqStr("a cherry-pick's `id:` names what was picked" pick.otherParent "parser")
+        c.eqStr("not the commit it makes" pick.kind "CHERRY_PICK")
+
+        def g:FlowGraph (MermaidGitFlow.render(src))
+        def a:FlowNode (g.nodeById("init"))
+        def b:FlowNode (g.nodeById("readme"))
+        c.ok("commits run along the axis in the order they happened" (a.x < b.x))
+        def p:FlowNode (g.nodeById("parser"))
+        c.ok("and a branch gets a row of its own" (p.y > a.y))
+        def m:FlowNode (g.nodeById("m1"))
+        c.eqStr("a merge is two rings, not one" m.shape "finalnode")
+        c.eqStr("a reversed commit is struck through" ((g.nodeById("oops")).shape) "polygon")
+        c.eqInt("an edge per parent — two for the merge and two for the pick" (g.edgeCount()) 7)
+        c.ok("a git graph is one this library draws" (MermaidReader.draws("git")))
+    }
+
+    ; --------------------------------------------- Mermaid kanban ---------
+    ; A board has two nouns and no verbs: columns, cards, and "this one is in
+    ; that one". The whole of the reading is indentation and brackets.
+    sfn testMermaidKanban:void (c:Checker) {
+        c.section("Mermaid kanban boards")
+        def src:string "kanban\n"
+        src = (src + "  Todo\n")
+        src = (src + "    [Read the grammar]\n")
+        src = (src + "    docs[Write the documentation]\n")
+        src = (src + "  doing[In progress]\n")
+        src = (src + "    render[Draw it]@{ ticket: RF-2038, assigned: 'tero', priority: 'Very High' }\n")
+        src = (src + "  done[Done]\n")
+
+        def d:MermaidKanban (MermaidKanbanReader.parse(src))
+        c.eqInt("a line at the outer level is a column" (d.columnCount()) 3)
+        c.eqInt("and one inside it is a card" (d.cardCount()) 3)
+        def todo:MermaidKanbanColumn (itemAt d.columns 0)
+        c.eqStr("a column with no brackets is its own label" todo.label "Todo")
+        def doing:MermaidKanbanColumn (itemAt d.columns 1)
+        c.eqStr("`id[Label]` names the column" doing.id "doing")
+        c.eqStr("and labels it" doing.label "In progress")
+        def empty:MermaidKanbanColumn (itemAt d.columns 2)
+        c.eqInt("an empty column is still a column" (d.cardsIn(empty.id)) 0)
+        c.eqInt("cards belong to the column above them" (d.cardsIn("doing")) 1)
+
+        def first:MermaidKanbanCard (itemAt d.cards 0)
+        c.eqStr("a card with no id gets one" first.label "Read the grammar")
+        c.ok("" ((strlen first.id) > 0))
+        def meta:MermaidKanbanCard (itemAt d.cards 2)
+        c.eqStr("`ticket:` is read out of the metadata block" meta.ticket "RF-2038")
+        c.eqStr("and single quotes are quotes" meta.assigned "tero")
+        c.eqStr("as is the priority" meta.priority "Very High")
+        c.eqStr("which is written under the card rather than dropped" (meta.meta()) "RF-2038  ·  tero  ·  Very High")
+
+        def g:FlowGraph (MermaidKanbanFlow.render(src))
+        c.eqInt("a board has no edges at all" (g.edgeCount()) 0)
+        def col:FlowNode (g.nodeById("sg-doing"))
+        c.eqStr("a column is the frame a sub-flow already is" col.nodeType "group")
+        def card:FlowNode (g.nodeById("render"))
+        c.ok("and its cards sit inside it" (card.x > col.x))
+        def col3:FlowNode (g.nodeById("sg-done"))
+        c.ok("every column reaches the bottom of the tallest" ((fabs (col3.height - col.height)) < 0.001))
+        c.ok("a kanban board is one this library draws" (MermaidReader.draws("kanban")))
+    }
+
+    ; --------------------------------------------- Mermaid quadrant -------
+    ; The numbers place the dots. The one conversion this chart needs is that
+    ; y counts UP in the source and DOWN on the page, and getting it wrong
+    ; puts every dot in the wrong quadrant while the picture still looks fine.
+    sfn testMermaidQuadrant:void (c:Checker) {
+        c.section("Mermaid quadrant charts")
+        def src:string "quadrantChart\n"
+        src = (src + "    title Reach and engagement\n")
+        src = (src + "    x-axis Low Reach --> High Reach\n")
+        src = (src + "    y-axis Low Engagement --> High Engagement\n")
+        src = (src + "    quadrant-1 We should expand\n")
+        src = (src + "    quadrant-2 Need to promote\n")
+        src = (src + "    quadrant-3 Re-evaluate\n")
+        src = (src + "    quadrant-4 May be improved\n")
+        src = (src + "    classDef urgent fill: #b91c1c, stroke: #7f1d1d\n")
+        src = (src + "    Campaign A: [0.3, 0.6]\n")
+        src = (src + "    Campaign B: [0.45, 0.23]\n")
+        src = (src + "    Campaign C:::urgent: [0.57, 0.69] radius: 10\n")
+        src = (src + "    Campaign D: [0.78, 0.34] color: #00ff00\n")
+
+        def d:MermaidQuadrant (MermaidQuadrantReader.parse(src))
+        c.eqStr("the title is the line that says so" d.title "Reach and engagement")
+        c.eqStr("an axis has two ends and `-->` between them" d.xLeft "Low Reach")
+        c.eqStr("both of them" d.xRight "High Reach")
+        c.eqStr("and the y axis reads from the bottom up" d.yBottom "Low Engagement")
+        c.eqStr("with the far end last" d.yTop "High Engagement")
+        c.eqStr("quadrant 1 is the top right, the way mathematics numbers them" d.q1 "We should expand")
+        c.eqStr("and 3 the bottom left" d.q3 "Re-evaluate")
+        c.eqInt("a point per line that has a pair in brackets" (d.pointCount()) 4)
+        c.eqInt("and a class per classDef" (d.classCount()) 1)
+
+        def a:MermaidQuadrantPoint (itemAt d.points 0)
+        c.eqStr("the label is what stands before the colon" a.label "Campaign A")
+        c.ok("the first number is how far along" ((fabs (a.x - 0.3)) < 0.0001))
+        c.ok("and the second how far up" ((fabs (a.y - 0.6)) < 0.0001))
+        def cc:MermaidQuadrantPoint (itemAt d.points 2)
+        c.eqStr("`:::name` names a class rather than part of the label" cc.cssClass "urgent")
+        c.eqStr("which does not end up in the label either" cc.label "Campaign C")
+        c.ok("`radius:` sizes the dot" ((fabs (cc.radius - 10.0)) < 0.0001))
+        def dd:MermaidQuadrantPoint (itemAt d.points 3)
+        c.eqStr("`color:` is read off the same line" dd.color "#00ff00")
+
+        def g:FlowGraph (MermaidQuadrantFlow.render(src))
+        def pa:FlowNode (g.nodeById(a.id))
+        def b:MermaidQuadrantPoint (itemAt d.points 1)
+        def pb:FlowNode (g.nodeById(b.id))
+        c.ok("y counts up in the source and down on the page" (pa.y < pb.y))
+        c.ok("and x counts the same way in both" (pa.x < pb.x))
+        def pc:FlowNode (g.nodeById(cc.id))
+        c.eqStr("a classDef paints the dot it was given to" pc.bgColor "#b91c1c")
+        def pd:FlowNode (g.nodeById(dd.id))
+        c.eqStr("and a colour on the point itself wins over the sheet" pd.bgColor "#00ff00")
+        c.eqInt("the four corners are four frames, and there are no edges" (g.edgeCount()) 0)
+        c.ok("a quadrant chart is one this library draws" (MermaidReader.draws("quadrant")))
+    }
+
+    ; --------------------------------------------- Mermaid pie ------------
+    ; A pie chart has no nodes and no edges: a list of numbers and one rule.
+    ; So what these check is the arithmetic and the geometry — that the shares
+    ; add up, and that a wedge is a wedge rather than a box.
+    sfn testMermaidPie:void (c:Checker) {
+        c.section("Mermaid pie charts")
+        def src:string "pie showData\n"
+        src = (src + "    title Key elements in Product X\n")
+        src = (src + "    \"Calcium\" : 42.96\n")
+        src = (src + "    \"Potassium\" : 50.05\n")
+        src = (src + "    \"Magnesium\" : 10.01\n")
+        src = (src + "    \"Iron\" :  5\n")
+
+        def d:MermaidPie (MermaidPieReader.parse(src))
+        c.ok("`showData` is read off the header line" d.showData)
+        c.eqStr("as is the title on the line after it" d.title "Key elements in Product X")
+        c.eqInt("a slice per line" (d.sliceCount()) 4)
+        def first:MermaidPieSlice (itemAt d.slices 0)
+        c.eqStr("the quotes are not part of the name" first.label "Calcium")
+        c.ok("and the number is the number" ((fabs (first.value - 42.96)) < 0.0001))
+        c.ok("the total is what they add up to" ((fabs ((d.total()) - 108.02)) < 0.0001))
+
+        ; Built from the model that was just read, so the shares the builder
+        ; works out land on the slices these assertions can see.
+        def bare (new FlowStyle)
+        def g:FlowGraph (MermaidPieFlow.build(d bare))
+        c.eqInt("a wedge and a legend row per slice" (g.nodeCount()) 12)
+        c.eqInt("and nothing joins anything" (g.edgeCount()) 0)
+        def w0:FlowNode (g.nodeById(first.id))
+        c.eqStr("a wedge is given as a polygon, because the library has no wedge" w0.shape "polygon")
+        c.ok("with an arc's worth of points on it" ((array_length w0.shapePoints) > 20))
+        def shares:double 0.0
+        def i:int 0
+        while (i < (d.sliceCount())) {
+            def s:MermaidPieSlice (itemAt d.slices i)
+            shares = (shares + s.share)
+            i = (i + 1)
+        }
+        c.ok("and the shares are shares: they come to one" ((fabs (shares - 1.0)) < 0.0001))
+        def big:MermaidPieSlice (itemAt d.slices 1)
+        def w1:FlowNode (g.nodeById(big.id))
+        c.ok("the biggest slice takes the most room" (w1.width > w0.width))
+        c.eqStr("46.3% of a circle needs no decimals it has not got" (MermaidPieFlow.numberText(5.0)) "5")
+        c.eqStr("and one that does keeps them" (MermaidPieFlow.numberText(42.96)) "42.96")
+        c.ok("a pie chart is one this library draws" (MermaidReader.draws("pie")))
+    }
+
+    ; --------------------------------------------- Mermaid xychart --------
+    ; The first diagram here with a SCALE in it. Every other one places things
+    ; by counting; this one places them by measuring, so the assertions are
+    ; about the measuring — and about the default range, because a bar chart
+    ; whose axis starts just under the smallest bar is a lie with a legend.
+    sfn testMermaidXyChart:void (c:Checker) {
+        c.section("Mermaid xy charts")
+        def src:string "xychart-beta\n"
+        src = (src + "    title \"Sales revenue\"\n")
+        src = (src + "    x-axis [jan, feb, mar, apr]\n")
+        src = (src + "    y-axis \"Revenue (in $)\" 4000 --> 12000\n")
+        src = (src + "    bar [5000, 6000, 7500, 8200]\n")
+        src = (src + "    line [5000, 6000, 7500, 8200]\n")
+
+        def d:MermaidXyChart (MermaidXyReader.parse(src))
+        c.eqStr("the title loses its quotes" d.title "Sales revenue")
+        c.eqInt("a category per name in the brackets" (d.categoryCount()) 4)
+        c.eqStr("the y axis keeps its own title" d.yTitle "Revenue (in $)")
+        c.ok("and its range is the one that was given" d.yGiven)
+        c.ok("the bottom of it as written" ((fabs ((d.low()) - 4000.0)) < 0.0001))
+        c.ok("both ends of it" ((fabs ((d.high()) - 12000.0)) < 0.0001))
+        c.eqInt("a series per bar and line statement" (d.seriesCount()) 2)
+        def bars:MermaidXySeries (itemAt d.series 0)
+        c.eqStr("read in the order they were written" bars.kind "bar")
+        c.eqInt("with a reading per number" (bars.count()) 4)
+
+        ; Where no range was given the axis starts at zero, which is Mermaid's
+        ; default and the only one that does not exaggerate.
+        def plain:string "xychart-beta\n    bar [90, 95, 100]\n"
+        def pd:MermaidXyChart (MermaidXyReader.parse(plain))
+        c.ok("with no range given the axis starts at zero" ((fabs (pd.low())) < 0.0001))
+        c.ok("and stops at the biggest reading" ((fabs ((pd.high()) - 100.0)) < 0.0001))
+        c.eqInt("and the readings decide how wide the chart is" (pd.slots()) 3)
+
+        def bare (new FlowStyle)
+        def g:FlowGraph (MermaidXyFlow.build(d bare))
+        def b0:FlowNode (g.nodeById("bar0-0"))
+        def b3:FlowNode (g.nodeById("bar0-3"))
+        c.ok("bars run along the axis in order" (b0.x < b3.x))
+        c.ok("a bigger number is a taller bar" (b3.height > b0.height))
+        ; 5000 of the way from 4000 to 12000 is one eighth; 8200 is 21/40.
+        def ratio:double (b3.height / b0.height)
+        c.ok("and taller by exactly as much as it is bigger" ((fabs (ratio - 4.2)) < 0.02))
+        def dot:FlowNode (g.nodeById("dot1-0"))
+        c.eqStr("a line series is a dot at every reading" dot.shape "circle")
+        c.eqInt("with an edge between one dot and the next" (g.edgeCount()) 3)
+        c.ok("an xychart is one this library draws" (MermaidReader.draws("xychart")))
+    }
+
+    ; --------------------------------------------- Mermaid Sankey ---------
+    ; A graph whose edges have a WIDTH, and the width is a number somebody
+    ; measured. So these check the arithmetic — the columns, the flow through
+    ; each node, and that a ribbon twice the value is twice as thick.
+    sfn testMermaidSankey:void (c:Checker) {
+        c.section("Mermaid Sankey diagrams")
+        def src:string "sankey-beta\n"
+        src = (src + "\n")
+        src = (src + "Agricultural 'waste',Bio-conversion,100\n")
+        src = (src + "Bio-conversion,Losses,25\n")
+        src = (src + "Bio-conversion,Solid,50\n")
+        src = (src + "Bio-conversion,Gas,25\n")
+        src = (src + "\"Imports, net\",Bio-conversion,20\n")
+
+        def d:MermaidSankey (MermaidSankeyReader.parse(src))
+        c.eqInt("a node per name, once" (d.nodeCount()) 6)
+        c.eqInt("a flow per row" (d.linkCount()) 5)
+        def waste:MermaidSankeyNode (itemAt d.nodes 0)
+        c.eqStr("a quote inside a field is an apostrophe, not a quoted string" waste.name "Agricultural 'waste'")
+        def imports:MermaidSankeyNode (itemAt d.nodes 5)
+        c.eqStr("but a field that opens with one is quoted, comma and all" imports.name "Imports, net")
+        def bio:MermaidSankeyNode (itemAt d.nodes 1)
+        c.ok("what goes in is added up" ((fabs (bio.inflow - 120.0)) < 0.0001))
+        c.ok("and so is what comes out" ((fabs (bio.outflow - 100.0)) < 0.0001))
+        c.ok("a node is as tall as the larger of the two" ((fabs ((bio.flow()) - 120.0)) < 0.0001))
+        c.eqInt("nothing flows into the first column" waste.depth 0)
+        c.eqInt("and each node sits one past whatever feeds it" bio.depth 1)
+        c.eqInt("three columns in all" (d.depthCount()) 3)
+
+        def bare (new FlowStyle)
+        def g:FlowGraph (MermaidSankeyFlow.build(d bare))
+        def barA:FlowNode (g.nodeById(waste.id))
+        def barB:FlowNode (g.nodeById(bio.id))
+        c.ok("columns run left to right" (barA.x < barB.x))
+        def losses:MermaidSankeyNode (itemAt d.nodes 2)
+        def solid:MermaidSankeyNode (itemAt d.nodes 3)
+        def barL:FlowNode (g.nodeById(losses.id))
+        def barS:FlowNode (g.nodeById(solid.id))
+        def ratio:double (barS.height / barL.height)
+        c.ok("and twice the quantity is twice the height" ((fabs (ratio - 2.0)) < 0.02))
+        def ribbon:FlowNode (g.nodeById("rb0"))
+        c.eqStr("a ribbon is a polygon: the library has no ribbon" ribbon.shape "polygon")
+        c.ok("sampled along a curve rather than drawn as a wedge" ((array_length ribbon.shapePoints) > 40))
+        def l0:MermaidSankeyLink (itemAt d.links 0)
+        def l1:MermaidSankeyLink (itemAt d.links 1)
+        c.ok("and as thick as the number on its own row" ((fabs ((l0.thickness / l1.thickness) - 4.0)) < 0.02))
+        c.eqInt("nothing is an edge: a Sankey's lines are its shapes" (g.edgeCount()) 0)
+        c.ok("a Sankey diagram is one this library draws" (MermaidReader.draws("sankey")))
+    }
+
+    ; --------------------------------------------- Mermaid block ----------
+    ; The one diagram that says where its boxes go. `columns 3` and a list is
+    ; arithmetic, so the one thing this reader must not do is improve on it —
+    ; and that is what these assertions are: the grid came out as written.
+    sfn testMermaidBlock:void (c:Checker) {
+        c.section("Mermaid block diagrams")
+        def src:string "block-beta\n"
+        src = (src + "  columns 3\n")
+        src = (src + "  a[\"A label\"] b:2\n")
+        src = (src + "  block:inner\n")
+        src = (src + "    columns 2\n")
+        src = (src + "    d e\n")
+        src = (src + "  end\n")
+        src = (src + "  f((\"round\")) space g{\"choice\"}\n")
+        src = (src + "  a --> f\n")
+        src = (src + "  b -- \"why\" --> g\n")
+        src = (src + "  style a fill:#f9f\n")
+        src = (src + "  classDef hot fill:#f00\n")
+        src = (src + "  class g hot\n")
+
+        def d:MermaidBlockDiagram (MermaidBlockReader.parse(src))
+        c.eqInt("a block per token, the container included and a space not" (d.blockCount()) 7)
+        c.eqInt("an arrow per arrow line" (d.linkCount()) 2)
+        def a:MermaidBlockItem (itemAt d.root.children 0)
+        c.eqStr("the bracket holds the label" a.label "A label")
+        c.eqStr("and the name is what stands before it" a.id "a")
+        def b:MermaidBlockItem (itemAt d.root.children 1)
+        c.eqInt("`:2` is how many columns it takes" b.span 2)
+        def inner:MermaidBlockItem (itemAt d.root.children 2)
+        c.ok("`block:` opens a container" inner.isGroup)
+        c.eqInt("with children of its own" (inner.childCount()) 2)
+        c.eqInt("and columns of its own" inner.columns 2)
+        def f:MermaidBlockItem (itemAt d.root.children 3)
+        c.eqStr("`((…))` is a circle, as in a flowchart" f.shape "circle")
+        def space:MermaidBlockItem (itemAt d.root.children 4)
+        c.ok("`space` is a hole in the grid" space.isSpace)
+        def g2:MermaidBlockItem (itemAt d.root.children 5)
+        c.eqStr("`{…}` is the decision diamond" g2.shape "rhombus")
+        c.eqStr("`style` names a colour for one block" a.fill "#f9f")
+        c.eqStr("and `class` hands one out by name" g2.cssClass "hot")
+        def link:MermaidBlockLink (itemAt d.links 1)
+        c.eqStr("an arrow reads from its ends" link.source "b")
+        c.eqStr("both of them" link.target "g")
+        c.eqStr("and carries whatever was written between the dashes" link.label "why")
+
+        def bare (new FlowStyle)
+        def graph:FlowGraph (MermaidBlockFlow.build(d bare))
+        def na:FlowNode (graph.nodeById("a"))
+        def nb:FlowNode (graph.nodeById("b"))
+        c.ok("blocks fill a row left to right" (na.x < nb.x))
+        c.ok("and a span of two is twice as wide, plus the gap between them" ((nb.width - (na.width * 2.0)) > 10.0))
+        def frame:FlowNode (graph.nodeById("sg-inner"))
+        c.ok("a container starts on the row after the one it follows" (frame.y > na.y))
+        def nd:FlowNode (graph.nodeById("d"))
+        c.ok("and holds its children inside itself" (nd.x >= frame.x))
+        c.ok("below its title band" (nd.y > frame.y))
+        def ng:FlowNode (graph.nodeById("g"))
+        c.eqStr("a class written in the diagram beats the stylesheet" ng.bgColor "#f00")
+        c.eqStr("as does a style written on the block" (na.bgColor) "#f9f")
+        c.eqInt("arrows are edges like anywhere else" (graph.edgeCount()) 2)
+        c.ok("a block diagram is one this library draws" (MermaidReader.draws("block")))
+    }
+
+    ; --------------------------------------------- Mermaid architecture ---
+    ; The sides in the connections ARE the layout: `db:L -- R:server` puts the
+    ; server to the left of the database. A layout engine asked to place these
+    ; would draw a perfectly good picture of a different arrangement, so the
+    ; assertions are about the arrangement.
+    sfn testMermaidArchitecture:void (c:Checker) {
+        c.section("Mermaid architecture diagrams")
+        def src:string "architecture-beta\n"
+        src = (src + "    group api(cloud)[API]\n")
+        src = (src + "    service db(database)[Database] in api\n")
+        src = (src + "    service disk1(disk)[Storage] in api\n")
+        src = (src + "    service server(server)[Server] in api\n")
+        src = (src + "    junction j1 in api\n")
+        src = (src + "    db:L -- R:server\n")
+        src = (src + "    disk1:T -- B:server\n")
+        src = (src + "    server:B --> T:j1\n")
+
+        def d:MermaidArchitecture (MermaidArchReader.parse(src))
+        c.eqInt("a group is a node too" (d.groupCount()) 1)
+        c.eqInt("and the services are the rest" (d.serviceCount()) 4)
+        c.eqInt("a connection per line with sides on it" (d.edgeCount()) 3)
+        def db:MermaidArchNode (itemAt d.nodes 1)
+        c.eqStr("the icon is what stands in the brackets" db.icon "database")
+        c.eqStr("the label what stands in the square ones" db.label "Database")
+        c.eqStr("and `in` names the group it belongs to" db.parent "api")
+        def junction:MermaidArchNode (itemAt d.nodes 4)
+        c.ok("a junction is a place where lines meet" junction.isJunction)
+        c.eqStr("and has nothing written in it" junction.label "")
+        def e0:MermaidArchEdge (itemAt d.edges 0)
+        c.eqStr("each end of a connection carries its own side" e0.sourceSide "L")
+        c.eqStr("both of them" e0.targetSide "R")
+        c.ok("a plain `--` has no arrowhead" (e0.targetArrow == false))
+        def e2:MermaidArchEdge (itemAt d.edges 2)
+        c.ok("and `-->` has one at the far end" e2.targetArrow)
+        c.ok("but not at the near one" (e2.sourceArrow == false))
+
+        def bare (new FlowStyle)
+        def g:FlowGraph (MermaidArchFlow.build(d bare))
+        def nDb:FlowNode (g.nodeById("db"))
+        def nServer:FlowNode (g.nodeById("server"))
+        c.ok("`db:L` puts the server to the LEFT of the database" (nServer.x < nDb.x))
+        def nDisk:FlowNode (g.nodeById("disk1"))
+        c.ok("and `disk1:T` puts the disk BELOW the server it points up at" (nDisk.y > nServer.y))
+        c.eqStr("a database is drawn as the cylinder it is anywhere else" nDb.shape "cylinder")
+        def frame:FlowNode (g.nodeById("sg-api"))
+        c.ok("the group is drawn around whatever turned out to be inside it" (frame.x <= nServer.x))
+        c.ok("on both sides" ((frame.x + frame.width) >= (nDb.x + nDb.width)))
+        c.eqInt("a connection per edge" (g.edgeCount()) 3)
+        c.ok("an architecture diagram is one this library draws" (MermaidReader.draws("architecture")))
+    }
+
+    ; --------------------------------------------- Mermaid swimlane -------
+    ; `swimlane-beta` has no grammar of its own: Mermaid's own source says it
+    ; reuses the flowchart parser wholesale and swaps the layout. So the one
+    ; thing to get wrong is the KEYWORD — the chunk Mermaid ships is called
+    ; `swimlanes` and the header is `swimlane-beta`, singular — and after
+    ; that, which lane each step lands in.
+    sfn testMermaidSwimlane:void (c:Checker) {
+        c.section("Mermaid swimlane diagrams")
+        def src:string "swimlane-beta\n"
+        src = (src + "    subgraph Customer\n")
+        src = (src + "        order[Place order] --> pay[Pay]\n")
+        src = (src + "    end\n")
+        src = (src + "    subgraph Warehouse\n")
+        src = (src + "        pick[Pick] --> pack[Pack]\n")
+        src = (src + "    end\n")
+        src = (src + "    pay --> pick\n")
+        src = (src + "    pack --> done[Done]\n")
+
+        def d:MermaidDiagram (MermaidReader.parse(src))
+        c.eqStr("the header names the diagram" d.diagramKind "swimlane")
+        c.eqInt("and the body is read, because a swimlane IS a flowchart" (d.nodeCount()) 5)
+        c.eqInt("with the subgraphs kept as the lanes" (d.subgraphCount()) 2)
+        c.eqInt("and the links between them" (d.linkCount()) 4)
+        c.eqStr("the plural is the chunk's name, not the keyword" (MermaidReader.otherDiagram("swimlane-beta")) "swimlane")
+
+        def bare (new FlowStyle)
+        def g:FlowGraph (MermaidSwimlaneFlow.build(d bare))
+        def order:FlowNode (g.nodeById("order"))
+        def pick:FlowNode (g.nodeById("pick"))
+        def done:FlowNode (g.nodeById("done"))
+        c.ok("a step is in the lane that owns it" (pick.y > order.y))
+        c.ok("and a step nobody claimed gets a lane at the bottom" (done.y > pick.y))
+        def pay:FlowNode (g.nodeById("pay"))
+        c.ok("the process runs across the page, not down it" (pay.x > order.x))
+        c.ok("each step past the one that leads to it" (pick.x > pay.x))
+        def lane0:FlowNode (g.nodeById("sg-lane0"))
+        c.eqStr("the lane is a band with the subgraph's name on it" lane0.label "Customer")
+        def spare:FlowNode (g.nodeById("sg-lane2"))
+        c.ok("and there is one more band than there are subgraphs" (spare.y > lane0.y))
+        c.eqInt("every link survives the relayout" (g.edgeCount()) 4)
+        c.ok("a swimlane diagram is one this library draws" (MermaidReader.draws("swimlane")))
+    }
+
+    ; --------------------------------------------- Mermaid Cynefin --------
+    ; Five domains, always in the same places, because the places are the
+    ; argument. So there is nothing to lay out and everything to get right
+    ; about which domain a thing was written under.
+    sfn testMermaidCynefin:void (c:Checker) {
+        c.section("Mermaid Cynefin frameworks")
+        def src:string "cynefin-beta\n"
+        src = (src + "    title Where the work is\n")
+        src = (src + "    complex\n")
+        src = (src + "        \"new market\"\n")
+        src = (src + "        \"the rewrite\"\n")
+        src = (src + "    complicated \"migration\"\n")
+        src = (src + "    clear \"payroll\"\n")
+        src = (src + "    chaotic \"the outage\"\n")
+        src = (src + "    confusion \"the backlog\"\n")
+        src = (src + "    complex --> complicated : \"understood\"\n")
+        src = (src + "    clear --> clear : \"nowhere\"\n")
+
+        def d:MermaidCynefin (MermaidCynefinReader.parse(src))
+        c.eqStr("the title is the line that says so" d.title "Where the work is")
+        c.eqInt("an item per quoted string" (d.itemCount()) 6)
+        c.eqInt("indented under the name and on the same line both count" (d.itemsIn("complex")) 2)
+        c.eqInt("one written beside its name is one item" (d.itemsIn("complicated")) 1)
+        c.eqInt("the fifth domain is a domain like the others" (d.itemsIn("confusion")) 1)
+        c.eqInt("a move between two domains" (d.moveCount()) 1)
+        c.ok("and a move to the domain it is already in is not one" ((d.moveCount()) == 1))
+        def m:MermaidCynefinMove (itemAt d.moves 0)
+        c.eqStr("which reads from its ends" m.from "complex")
+        c.eqStr("both of them" m.to "complicated")
+        c.eqStr("and carries what was written after the colon" m.label "understood")
+        c.ok("`complex` is one of the five" (MermaidCynefin.isDomain("complex")))
+        c.ok("and `simple` is not — the framework renamed it years ago" ((MermaidCynefin.isDomain("simple")) == false))
+
+        def bare (new FlowStyle)
+        def g:FlowGraph (MermaidCynefinFlow.build(d bare))
+        def complex:FlowNode (g.nodeById("sg-complex"))
+        def complicated:FlowNode (g.nodeById("sg-complicated"))
+        def chaotic:FlowNode (g.nodeById("sg-chaotic"))
+        def clear:FlowNode (g.nodeById("sg-clear"))
+        c.ok("complicated is to the right of complex" (complicated.x > complex.x))
+        c.ok("chaotic is below it" (chaotic.y > complex.y))
+        c.ok("and clear is opposite" (clear.x > chaotic.x))
+        def centre:FlowNode (g.nodeById("sg-confusion"))
+        c.ok("confusion is in the middle" (centre.x > complex.x))
+        c.ok("of all four of them" (centre.x < complicated.x))
+        c.ok("and smaller than the domains it sits between" (centre.width < complex.width))
+        def first:MermaidCynefinItem (itemAt d.items 0)
+        def item:FlowNode (g.nodeById(first.id))
+        c.ok("an item is drawn inside its own domain" (item.x >= complex.x))
+        ; The middle domain's items go INSIDE it. Dropped below the centre
+        ; they land on the domain beneath and read as belonging to it, which
+        ; is the opposite of what `confusion` means.
+        def muddle:MermaidCynefinItem (itemAt d.items 5)
+        def muddleCard:FlowNode (g.nodeById(muddle.id))
+        c.eqStr("the last item is the one in the middle" muddle.domain "confusion")
+        c.ok("and its card is inside the middle box, not under it" (muddleCard.y >= centre.y))
+        c.ok("top and bottom both" ((muddleCard.y + muddleCard.height) <= (centre.y + centre.height)))
+        ; The quadrants touch, so an arrow between their EDGES has no length.
+        ; A move is drawn between the two domains' middles instead.
+        def move:FlowEdge (g.edgeAt(0))
+        c.eqInt("a move is pinned to a route of its own" (array_length move.waypoints) 4)
+        def x0:double (itemAt move.waypoints 0)
+        def x1:double (itemAt move.waypoints 2)
+        c.ok("which crosses the boundary rather than running along it" ((fabs (x1 - x0)) > 40.0))
+        c.eqInt("a move is an arrow between two domains" (g.edgeCount()) 1)
+        c.ok("a Cynefin framework is one this library draws" (MermaidReader.draws("cynefin")))
+    }
+
+    ; --------------------------------------------- Mermaid Ishikawa -------
+    ; A cause-and-effect tree with one strong convention about how it is
+    ; drawn: the effect at the head, the causes off the spine, alternating
+    ; above and below. The reading is indentation and nothing else, which is
+    ; the whole of Mermaid's grammar for it.
+    sfn testMermaidIshikawa:void (c:Checker) {
+        c.section("Mermaid fishbone diagrams")
+        def src:string "ishikawa-beta\n"
+        src = (src + "  Late delivery\n")
+        src = (src + "    Machine\n")
+        src = (src + "      Old truck\n")
+        src = (src + "      No spare parts\n")
+        src = (src + "    Method\n")
+        src = (src + "      No route plan\n")
+        src = (src + "        Nobody asked the driver\n")
+        src = (src + "    Material\n")
+        src = (src + "    People\n")
+
+        def d:MermaidIshikawa (MermaidIshikawaReader.parse(src))
+        c.eqStr("the first line is the effect — the head of the fish" d.problem "Late delivery")
+        c.eqInt("the lines under it are the categories" (d.categoryCount()) 4)
+        c.eqInt("and everything below those is a cause, as deep as it goes" (d.causeCount()) 4)
+        def machine:MermaidIshikawaNode (itemAt d.root.children 0)
+        c.eqStr("read in the order they were written" machine.text "Machine")
+        c.eqInt("with their own causes under them" (machine.childCount()) 2)
+        def method:MermaidIshikawaNode (itemAt d.root.children 1)
+        def plan:MermaidIshikawaNode (itemAt method.children 0)
+        c.eqInt("a cause may have a cause of its own" (plan.childCount()) 1)
+        def deeper:MermaidIshikawaNode (itemAt plan.children 0)
+        c.eqStr("as deep as the indentation goes" deeper.text "Nobody asked the driver")
+        def empty:MermaidIshikawaNode (itemAt d.root.children 2)
+        c.eqInt("a category with nothing under it is still a category" (empty.childCount()) 0)
+
+        def bare (new FlowStyle)
+        def g:FlowGraph (MermaidIshikawaFlow.build(d bare))
+        def head:FlowNode (g.nodeById("head"))
+        def spine:FlowNode (g.nodeById("spine"))
+        c.eqStr("the effect is drawn as the head it is" head.label "Late delivery")
+        c.ok("at the far end of the spine" (head.x >= (spine.x + spine.width - 1.0)))
+        def cat0:FlowNode (g.nodeById(machine.id))
+        def cat1:FlowNode (g.nodeById(method.id))
+        c.ok("the first category is above the spine" (cat0.y < spine.y))
+        c.ok("and the second below it, so a long list still fits" (cat1.y > spine.y))
+        def cat2:MermaidIshikawaNode (itemAt d.root.children 2)
+        def cat2Node:FlowNode (g.nodeById(cat2.id))
+        c.ok("the third is above again, and further along" (cat2Node.x > cat0.x))
+        c.ok("on the same side as the first" (cat2Node.y < spine.y))
+        def firstCause:MermaidIshikawaNode (itemAt machine.children 0)
+        def cause:FlowNode (g.nodeById(firstCause.id))
+        c.ok("a cause is further from the spine than what it causes" (cause.y < cat0.y))
+        c.eqInt("a bone per category and per cause, the deep one included" (g.edgeCount()) 8)
+        c.ok("a fishbone is one this library draws" (MermaidReader.draws("ishikawa")))
+    }
+
+    ; --------------------------------------------- Mermaid Venn -----------
+    ; Two facts and one picture: how big each set is, and how much of it is
+    ; also in another one. So the assertions are about the sizes — a Venn
+    ; diagram whose circles are all the same has thrown away half of what it
+    ; was given — and about the circles actually overlapping.
+    sfn testMermaidVenn:void (c:Checker) {
+        c.section("Mermaid Venn diagrams")
+        def src:string "venn-beta\n"
+        src = (src + "    title What people brought\n")
+        src = (src + "    set A [\"Apples\"]: 40\n")
+        src = (src + "    set B [\"Bananas\"]: 10\n")
+        src = (src + "    union A,B [\"Both\"]: 5\n")
+
+        def d:MermaidVenn (MermaidVennReader.parse(src))
+        c.eqStr("the title is the line that says so" d.title "What people brought")
+        c.eqInt("a subset per `set` and per `union`" (d.subsetCount()) 3)
+        c.eqInt("but only the plain ones are sets" (d.setCount()) 2)
+        c.eqInt("and the rest are overlaps" (d.unionCount()) 1)
+        def a:MermaidVennSet (itemAt d.subsets 0)
+        c.eqStr("the brackets hold the label" a.label "Apples")
+        c.eqStr("and the name is what stands before them" a.id "A")
+        c.ok("the number after the colon is the size" ((fabs (a.size - 40.0)) < 0.0001))
+        c.eqInt("a plain set has one member" (a.memberCount()) 1)
+        def both:MermaidVennSet (itemAt d.subsets 2)
+        c.ok("a union has more than one" (both.isUnion()))
+        c.eqInt("named on the same line, comma separated" (both.memberCount()) 2)
+        c.eqStr("which is how it knows which circles it lies between" (itemAt both.members 1) "B")
+
+        def bare (new FlowStyle)
+        def g:FlowGraph (MermaidVennFlow.build(d bare))
+        def ca:FlowNode (g.nodeById("set-A"))
+        def cb:FlowNode (g.nodeById("set-B"))
+        c.eqStr("a set is drawn as the circle it is" ca.shape "circle")
+        c.ok("a bigger set is a bigger circle" (ca.width > cb.width))
+        ; Four times the size is twice the width: the circles are sized by
+        ; AREA, because that is what a reader compares.
+        def ratio:double (ca.width / cb.width)
+        c.ok("and bigger by area, not by radius" ((fabs (ratio - 2.0)) < 0.05))
+        def gap:double (fabs ((cb.centerX()) - (ca.centerX())))
+        def reach:double ((ca.width + cb.width) * 0.5)
+        c.ok("two circles are placed so that they OVERLAP" (gap < reach))
+        c.ok("which is the one thing a Venn diagram exists to say" (gap > 0.0))
+        c.eqInt("a Venn diagram has no edges at all" (g.edgeCount()) 0)
+        ; A round outline is a polygon in the tessellating backends and a real
+        ; curve in the ones that draw a path, and the polygon's density
+        ; follows the radius: a fixed segment count is right for a 40px node
+        ; and visibly faceted on a 300px one.
+        def small:int (FlowShapes.segmentsFor(18.0 18.0))
+        def large:int (FlowShapes.segmentsFor(200.0 200.0))
+        c.ok("a small circle needs few pieces" (small <= 20))
+        c.ok("and a large one needs many more" (large > (small * 2)))
+        def arc:string (FlowShapes.arcPath("circle" 0.0 0.0 100.0 100.0))
+        c.ok("a circle also carries an exact curve for the vector backends" ((strlen arc) > 0))
+        c.ok("built of the four cubic arcs every drawing library uses" ((MermaidReader.replaceAll(arc "C" "")) != arc))
+        c.eqStr("and a shape with no curve in it carries none" (FlowShapes.arcPath("hexagon" 0.0 0.0 10.0 10.0)) "")
+        c.ok("a Venn diagram is one this library draws" (MermaidReader.draws("venn")))
+    }
+
+    ; --------------------------------------------- Mermaid Wardley --------
+    ; A value chain drawn against evolution: up the page is how visible a
+    ; thing is, across it is how evolved. Both are numbers the author wrote,
+    ; so the assertions are about reading them and about the one conversion
+    ; the map needs — visible is UP, and the page counts down.
+    sfn testMermaidWardley:void (c:Checker) {
+        c.section("Mermaid Wardley maps")
+        def src:string "wardley-beta\n"
+        src = (src + "    title Tea shop\n")
+        src = (src + "    anchor Business [0.95, 0.63]\n")
+        src = (src + "    component Cup of Tea [0.79, 0.61]\n")
+        src = (src + "    component Kettle [0.43, 0.35]\n")
+        src = (src + "    Business->Cup of Tea\n")
+        src = (src + "    Cup of Tea->Kettle\n")
+        src = (src + "    evolve Kettle 0.62\n")
+
+        def d:MermaidWardley (MermaidWardleyReader.parse(src))
+        c.eqStr("the title is the line that says so" d.title "Tea shop")
+        c.eqInt("a node per placed thing" (d.nodeCount()) 3)
+        c.eqInt("and a link per arrow" (d.linkCount()) 2)
+        def anchor:MermaidWardleyNode (itemAt d.nodes 0)
+        c.eqStr("an anchor is not a component" anchor.kind "anchor")
+        c.ok("the first number is how visible it is" ((fabs (anchor.visibility - 0.95)) < 0.0001))
+        c.ok("and the second how evolved" ((fabs (anchor.evolution - 0.63)) < 0.0001))
+        def cup:MermaidWardleyNode (itemAt d.nodes 1)
+        c.eqStr("a name may have spaces in it: the bracket ends it, not the space" cup.id "Cup of Tea")
+        def kettle:MermaidWardleyNode (itemAt d.nodes 2)
+        c.ok("`evolve` says a thing is moving" kettle.evolving)
+        c.ok("and where to" ((fabs (kettle.evolveTo - 0.62)) < 0.0001))
+        def link:MermaidWardleyLink (itemAt d.links 0)
+        c.eqStr("a link reads from its ends, spaces and all" link.target "Cup of Tea")
+
+        def bare (new FlowStyle)
+        def g:FlowGraph (MermaidWardleyFlow.build(d bare))
+        def nAnchor:FlowNode (g.nodeById("Business"))
+        def nKettle:FlowNode (g.nodeById("Kettle"))
+        c.ok("visible is UP, and the page counts down" (nAnchor.y < nKettle.y))
+        def nCup:FlowNode (g.nodeById("Cup of Tea"))
+        c.ok("more evolved is further right" (nCup.x > nKettle.x))
+        def ghost:FlowNode (g.nodeById("evolved-Kettle"))
+        c.ok("a thing that is evolving gets a ghost where it is going" (ghost.x > nKettle.x))
+        c.ok("at the same height, because only evolution changes" ((fabs (ghost.y - nKettle.y)) < 0.001))
+        c.eqInt("an edge per link, and one more for the move" (g.edgeCount()) 3)
+        def stage:FlowNode (g.nodeById("stage0"))
+        c.eqStr("the four stages are written along the bottom" stage.label "Genesis")
+        c.ok("a Wardley map is one this library draws" (MermaidReader.draws("wardley")))
+    }
+
+    ; --------------------------------------------- Mermaid railroad -------
+    ; Mermaid ships FOUR headers for one picture. They disagree about how to
+    ; spell a choice and agree about everything else, so the test is that all
+    ; four arrive at the same tree — and that the headers are the ones Mermaid
+    ; actually detects, which are not the names of the chunks it ships.
+    sfn testMermaidRailroad:void (c:Checker) {
+        c.section("Mermaid railroad diagrams")
+        c.eqStr("the EBNF header is `railroad-ebnf-beta`" (MermaidReader.otherDiagram("railroad-ebnf-beta")) "ebnf")
+        c.eqStr("the ABNF one `railroad-abnf-beta`" (MermaidReader.otherDiagram("railroad-abnf-beta")) "abnf")
+        c.eqStr("the PEG one `railroad-peg-beta`" (MermaidReader.otherDiagram("railroad-peg-beta")) "peg")
+        c.eqStr("and the plain one `railroad-beta`" (MermaidReader.otherDiagram("railroad-beta")) "railroad")
+        c.ok("all four are one picture" (MermaidReader.isRailroad("peg")))
+
+        ; The same grammar in three notations. `word` is one or more letters
+        ; and a letter is an a or a b, however it is written down.
+        def ebnf:MermaidRailroad (MermaidRailroadReader.parse("railroad-ebnf-beta\n  word = letter , { letter } ;\n  letter = \"a\" | \"b\" ;\n"))
+        def abnf:MermaidRailroad (MermaidRailroadReader.parse("railroad-abnf-beta\n  word = 1*letter;\n  letter = \"a\" / \"b\";\n"))
+        def peg:MermaidRailroad (MermaidRailroadReader.parse("railroad-peg-beta\n  word <- letter+;\n  letter <- 'a' / 'b';\n"))
+        c.eqStr("the notation is read off the header" ebnf.notation "ebnf")
+        c.eqStr("in each of the four" abnf.notation "abnf")
+        c.eqStr("and the fourth" peg.notation "peg")
+        c.eqInt("a rule per statement, in every notation" (ebnf.ruleCount()) 2)
+        c.eqInt("however it is spelled" (abnf.ruleCount()) 2)
+        c.eqInt("and in the third" (peg.ruleCount()) 2)
+
+        def eLetter:MermaidRailRule (ebnf.ruleNamed("letter"))
+        def aLetter:MermaidRailRule (abnf.ruleNamed("letter"))
+        def pLetter:MermaidRailRule (peg.ruleNamed("letter"))
+        def eBody:MermaidRailNode eLetter.body
+        def aBody:MermaidRailNode aLetter.body
+        def pBody:MermaidRailNode pLetter.body
+        c.eqStr("`|` in EBNF is a choice" eBody.kind "choice")
+        c.eqStr("and so is `/` in ABNF" aBody.kind "choice")
+        c.eqStr("and in PEG" pBody.kind "choice")
+        c.eqInt("of two terminals" (eBody.childCount()) 2)
+        def term:MermaidRailNode (itemAt eBody.children 0)
+        c.eqStr("with the quotes off them" term.text "a")
+        c.eqStr("and drawn as what the input contains" term.kind "terminal")
+
+        def aWord:MermaidRailRule (abnf.ruleNamed("word"))
+        def pWord:MermaidRailRule (peg.ruleNamed("word"))
+        def aw:MermaidRailNode aWord.body
+        def pw2:MermaidRailNode pWord.body
+        c.eqStr("`1*x` in ABNF is a repetition" aw.kind "repetition")
+        c.eqInt("of one or more" aw.minTimes 1)
+        c.eqStr("and so is `x+` in PEG" pw2.kind "repetition")
+        c.eqInt("one or more there too" pw2.minTimes 1)
+        def eWord:MermaidRailRule (ebnf.ruleNamed("word"))
+        def ew:MermaidRailNode eWord.body
+        c.eqStr("EBNF says the same thing as a sequence with a `{ }` in it" ew.kind "sequence")
+        def tail:MermaidRailNode (itemAt ew.children 1)
+        c.eqStr("whose second half is the repeat" tail.kind "repetition")
+        c.eqInt("and `{ }` is NONE or more" tail.minTimes 0)
+
+        ; The fourth notation writes the tree out in full.
+        def plain:MermaidRailroad (MermaidRailroadReader.parse("railroad-beta\n  word = optional(zeroOrMore(special('any')));\n"))
+        def pw:MermaidRailRule (plain.ruleNamed("word"))
+        def pwBody:MermaidRailNode pw.body
+        c.eqStr("`optional(…)` is an optional" pwBody.kind "optional")
+        def rep:MermaidRailNode (itemAt pwBody.children 0)
+        c.eqStr("`zeroOrMore(…)` a repetition" rep.kind "repetition")
+        def sp:MermaidRailNode (itemAt rep.children 0)
+        c.eqStr("and `special('x')` the third kind of leaf" sp.kind "special")
+        c.eqStr("with its own words in it" sp.text "any")
+
+        def bare (new FlowStyle)
+        def g:FlowGraph (MermaidRailroadFlow.build(ebnf bare))
+        c.eqInt("a railroad's lines are drawn, not routed" (g.edgeCount()) 0)
+        def name:FlowNode (g.nodeById("rule-word"))
+        c.eqStr("every rule is named at its left" name.label "word")
+        def other:FlowNode (g.nodeById("rule-letter"))
+        c.ok("and the rules stack down the page" (other.y > name.y))
+        c.ok("a railroad diagram is one this library draws" (MermaidReader.draws("ebnf")))
+
+        ; `info` is the smallest diagram Mermaid has: the whole source is the
+        ; word, and what it renders is what rendered it. This is not Mermaid
+        ; and does not know Mermaid's version, so it says what it IS — a
+        ; version number invented on the spot would be printed in a box and
+        ; believed.
+        def info:MermaidInfo (MermaidInfoReader.parse("info\n"))
+        c.ok("`info` is a question, and it was asked" info.asked)
+        c.ok("the answer names the thing that drew it" ((indexOf info.text "RangerFlow") >= 0))
+        def ig:FlowGraph (MermaidInfoFlow.build(info bare))
+        c.eqInt("and is one card" (ig.nodeCount()) 1)
+        def notInfo:MermaidInfo (MermaidInfoReader.parse("flowchart TD\n  a --> b\n"))
+        c.ok("a diagram that never asked gets no answer" (notInfo.asked == false))
+        c.ok("`info` is one this library draws" (MermaidReader.draws("info")))
     }
 
     ; --------------------------------------------- a click is not an edit --

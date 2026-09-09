@@ -1,0 +1,13 @@
+swimlane-beta
+    subgraph Customer
+        order[Place order] --> pay[Pay]
+    end
+    subgraph Warehouse
+        pick[Pick the goods] --> pack[Pack]
+    end
+    subgraph Courier
+        ship[Ship] --> deliver[Deliver]
+    end
+    pay --> pick
+    pack --> ship
+    deliver --> done[Done]

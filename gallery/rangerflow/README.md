@@ -27,7 +27,7 @@ routing, auto-layout, large graphs — and produces something worth having.
 ## Run it
 
 ```bash
-npm run rangerflow:test        # 790 assertions: model, forces, router, editor, SQL, Mermaid, CSS, export
+npm run rangerflow:test        # 895 assertions: model, forces, router, editor, SQL, Mermaid, CSS, export
 npm run rangerflow:demo        # the e-commerce schema → SVG, PDF, HTML, JSON, scene
 npm run rangerflow:uml         # the same pipeline for a UML class diagram
 npm run rangerflow:flowchart   # an ATK flowchart in ISO 5807 shapes
@@ -184,10 +184,10 @@ markdown strings, and ids with a `-` or a `.` in them.
 What it drops on purpose: `click` (there is no browser to navigate),
 `linkStyle` by index, and `direction` inside a subgraph — RangerFlow lays the
 whole chart out one way. They are ignored rather than treated as errors, so a
-diagram that renders in Mermaid renders here too. The dozen other diagrams
-Mermaid draws — sequence, class, state, gantt, ER, … — are recognised by their
-header and read as **nothing**, because a sequence diagram read as a flowchart
-would be a page of invented boxes.
+diagram that renders in Mermaid renders here too. The other diagrams Mermaid
+draws are recognised by their header and handed to the reader that knows them —
+never to this one, because a git graph read as a flowchart would be a page of
+invented boxes.
 
 Where it differs: text is measured with a font table rather than in a browser,
 so a line can break one word apart from Mermaid's, and a double circle is drawn
@@ -195,10 +195,10 @@ as the UML final node, which is the same two rings.
 
 ### …and class diagrams
 
-Mermaid draws two dozen kinds of diagram and this reads two of them, because
-the second one was already here: a `classDiagram` is the UML model RangerFlow
-has had all along, so it is drawn with the same compartment node the schema
-editor uses — the hollow triangle at the supertype, the filled diamond at the
+Mermaid draws thirty kinds of diagram and this reads all of them. The second
+one was already here before the reading started: a `classDiagram` is the UML
+model RangerFlow has had all along, so it is drawn with the same compartment
+node the schema editor uses — the hollow triangle at the supertype, the filled diamond at the
 whole, the dashed line for a realization.
 
 ```mermaid
@@ -218,13 +218,15 @@ an attribute and `name(params) returnType` for an operation, `$` for static and
 cardinalities and their label, and the ornament goes on the end the syntax
 names — the class written FIRST is the one being pointed at.
 
-Everything else Mermaid draws — sequence, state, gantt, ER, git, architecture,
-… — is recognised by its header and read as **nothing**, which is the only safe
-answer: a header this reader did not know would fall through to the flowchart
-parser and produce a page of invented boxes. The table of all thirty is in
+Everything else Mermaid draws — git graphs, architecture diagrams, the `-beta`
+charts — has a reader of its own further down this page. **All thirty of
+Mermaid's diagram types are drawn.** The table is in
 [`docs/MERMAID_PARITY.md`](docs/MERMAID_PARITY.md), and it is read off the
 installed Mermaid's own build rather than typed by hand, so a diagram type
-added upstream shows up as one nobody has taught this reader about.
+added upstream shows up as one nobody has taught this reader about — and a
+header this reader did not know would fall through to the flowchart parser and
+produce a page of invented boxes, which is the one failure a reader of somebody
+else's file must not have.
 
 ### …and ER diagrams
 
@@ -251,6 +253,498 @@ attachment the SQL reader produces needs a foreign key to know which column it
 starts at, and an ER diagram written by hand does not have one.
 
 ![the ER example, drawn with crow's feet](artifacts/scenario_mermaid_er.png)
+
+### …and state diagrams
+
+A state machine and a UML activity diagram are the same picture with two
+vocabularies over it, so `stateDiagram` needed a reader and nothing else: the
+filled circle, the ring, the fork bar and the choice diamond have been in
+`domains/uml/UMLActivity` since the activity demo.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Still
+    Still --> Moving : go
+    state Moving {
+        [*] --> Rolling
+    }
+    state pick <<choice>>
+```
+
+`[*]` is a start where it is written first and an end where it is written
+second, once per scope; `state X { … }` composite states are the frames a
+sub-flow already has, nested, and a transition into one enters it at the state
+it starts at; `state "A long name" as s`, `s : a description` (which becomes
+the second line of the box), `<<fork>>`, `<<join>>`, `<<choice>>` and
+`direction`. Notes and the `--` concurrency divider are dropped.
+
+### …and mind maps
+
+The one with no arrows in it. Indentation is the syntax, and `MindMapLayout`
+has balanced a mind map's branches either side of its root since the tree
+layouts were written — so this reader turns an outline into a tree and hands it
+over.
+
+```mermaid
+mindmap
+  root((RangerFlow))
+    Domains
+      ERD
+      Mermaid
+    Backends
+      WebGL 2
+```
+
+Every shape Mermaid has — `[]` `()` `(())` `))((` `)(` `{{}}` — with `::icon()`
+read and dropped (there is no icon font here) and `:::class` kept, because a
+stylesheet can match it.
+
+![a mind map, balanced either side of its root](artifacts/scenario_mermaid_mindmap.png)
+
+### …and requirement diagrams
+
+A SysML requirement diagram is a class diagram whose boxes are requirements, so
+it goes into the same UML model: the keyword is the stereotype, the fields
+inside the braces are the rows, and a relationship is a dashed line with its
+own name on it in guillemets — `«satisfies»`, `«traces»` — which is what tells
+one from another when there are five on a page.
+
+```mermaid
+requirementDiagram
+    requirement top { id: 1  text: the system shall work  risk: high }
+    element impl { type: simulation }
+    impl - satisfies -> top
+```
+
+All six requirement types and `element`, every relationship Mermaid has, and
+both directions of writing one: `A - satisfies -> B` and `B <- satisfies - A`.
+
+### …and C4
+
+C4 is a naming convention over a very ordinary picture: labelled boxes with a
+type and a sentence in them, boundaries around groups of them, and arrows that
+say what talks to what over which protocol. Every element Mermaid's C4 support
+has — `Person`, `System`, `Container`, `Component`, `Node` with their `_Ext`,
+`Db` and `Queue` variants — every boundary, nested, and `Rel`, `BiRel` and the
+directional variants. `UpdateElementStyle` and friends are dropped: the look
+here is a stylesheet's business.
+
+### …and the two that are placed rather than laid out
+
+A **timeline** runs along its axis in the order it was written, and a **user
+journey**'s height is the score against each task. Handing either to a layered
+layout would throw away the one quantity the diagram has, so both are placed by
+their reader: periods along the axis with their events under them, tasks along
+the axis at the height they scored, and sections as frames over the columns
+that belong to them.
+
+```mermaid
+journey
+    title My working day
+    section Go to work
+      Make tea: 5: Me
+      Do work: 1: Me, Cat
+```
+
+### …and Gantt charts
+
+The axis is the diagram: a chart that spaced its bars evenly instead of by date
+would be a list with rounded corners. So the reader does the arithmetic — every
+date becomes a day number by the civil-calendar formula, `after <id>` picks up
+where that task finished, a bare duration follows the one before it — and the
+bars are placed on a real time axis, scaled to the page so a two-year plan and
+a two-week one are both readable.
+
+```mermaid
+gantt
+    section Build
+        Write it :a1, 2024-01-01, 10d
+        Test it  :after a1, 5d
+        Release  :milestone, m1, 2024-02-01, 0d
+```
+
+`done`, `active` and `crit` become classes a stylesheet can match, and a
+milestone is drawn as the diamond it is. Dates are read as `YYYY-MM-DD`, which
+is `dateFormat`'s default; a chart in another format keeps its order and its
+durations.
+
+### …and sequence diagrams
+
+The one Mermaid type where both axes are content: who, across the page, and
+when, down it. So nothing here asks the layout engine anything — the columns
+are the participants in the order they were declared, the rows are the
+statements in the order they were written, and every arrow is pinned to its own
+row so that no later pass can decide it would read better somewhere else.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Alice
+    box Back office
+        participant DB as Database
+    end
+    Alice->>+DB: SELECT 1
+    DB->>DB: check indexes
+    DB-->>-Alice: one row
+    Note over Alice,DB: nothing is written yet
+    loop until settled
+        alt accepted
+            DB-->>Alice: ok
+        else declined
+            DB--xAlice: no
+        end
+    end
+```
+
+All ten arrows are drawn as what they say: `->>` a filled head, `-->>` the same
+head on a dotted line, `-)` an open one for a message nobody waited for, `-x`
+the cross for one that never arrived, `<<->>` both ends at once. Activation is
+a bar on the lifeline — from `activate`/`deactivate` or from the `+`/`-`
+shorthand on the arrow, and nested one inside the other where a participant
+calls itself. `loop`, `alt`/`else`, `opt`, `par`/`and`, `critical`/`option`,
+`break` and `rect` become boxes around exactly the participants they touch;
+`box` groups the ones declared inside it; `create` draws a participant where it
+is created and `destroy` ends its lifeline with the cross.
+
+### …and git graphs
+
+The one diagram whose syntax already contains its layout. Commits go along the
+axis in the order they were written and each branch gets a row, so there is
+nothing for a layout engine to work out: the order *is* the history, and a pass
+that shortened an edge by moving a commit would be claiming it happened at a
+different time.
+
+```mermaid
+gitGraph
+    commit id: "init"
+    commit id: "readme" tag: "v0.1"
+    branch develop order: 2
+    checkout develop
+    commit id: "parser"
+    commit id: "oops" type: REVERSE
+    checkout main
+    merge develop id: "m1" tag: "v1.0"
+    cherry-pick id: "parser"
+```
+
+A merge draws both its parents, because that is what a merge is; a cherry-pick
+draws a dashed line back to what it picked. The four commit types are the four
+Mermaid draws — NORMAL a disc, MERGE two rings, HIGHLIGHT a box, REVERSE a disc
+struck through — and `order:` moves a branch's row where it is given.
+
+### …and kanban boards
+
+Two nouns and no verbs. A board has columns and it has cards, and the only
+relation in it is which card is in which column — so the columns are the frames
+a sub-flow already has, the cards stack inside them in the order they were
+written, and the graph comes out with no edges at all.
+
+```mermaid
+kanban
+  Todo
+    [Read the grammar]
+    docs[Write the documentation]
+  doing[In progress]
+    render[Draw it]@{ ticket: RF-2038, assigned: 'tero', priority: 'High' }
+  done[Done]
+```
+
+Indentation is the hierarchy, `id[Label]` names either a column or a card, and
+the `@{ … }` block is written under the card's own words rather than dropped: a
+board with no ticket, owner or priority on it is a list. The priority also
+becomes a class, so a stylesheet can colour the board by urgency without the
+reader having an opinion about which colour urgent is.
+
+### …and quadrant charts
+
+A scatter plot that has been told what its corners mean. The numbers do the
+placing — `[0.3, 0.6]` is three tenths along and six tenths up, and nothing may
+move it — and the four labels turn a cloud of dots into an argument about what
+to do next.
+
+```mermaid
+quadrantChart
+    x-axis Low Reach --> High Reach
+    y-axis Low Engagement --> High Engagement
+    quadrant-1 We should expand
+    quadrant-2 Need to promote
+    quadrant-3 Re-evaluate
+    quadrant-4 May be improved
+    Campaign A: [0.3, 0.6]
+    Campaign C: [0.57, 0.69] radius: 10, color: #b91c1c
+```
+
+Quadrant 1 is the top right and they go anticlockwise, the way mathematics
+numbers them. `radius:`, `color:` and `stroke-color:` are read off the point's
+own line, `:::name` and `classDef` colour a group of them, and a colour written
+on the point itself wins over the stylesheet — that is the author saying *this
+one is different*, and a sheet that painted over it would be answering a
+question nobody asked.
+
+### …and pie charts
+
+The one diagram that is arithmetic all the way down. No nodes, no edges: a list
+of numbers, and each one gets the share of a circle that it is of their total.
+
+```mermaid
+pie showData
+    title Key elements in Product X
+    "Calcium" : 42.96
+    "Potassium" : 50.05
+    "Magnesium" : 10.01
+    "Iron" : 5
+```
+
+The shape library has no wedge, so the wedges are given as polygons — a fan of
+points along the arc, the centre, and back — which means a pie is drawn by the
+same renderer as everything else rather than by a special case. The names go in
+a legend beside the circle rather than inside it: a chart with eleven slices has
+no room for eleven words in the middle. Twelve palette colours come as classes
+(`.slice-0` … `.slice-11`), so a stylesheet that disagrees can say so.
+
+### …and xy charts
+
+The first diagram here with a *scale* in it. Every other one places things by
+counting — the third commit, the second lane — and this one places them by
+measuring: a bar at 9500 has to be exactly as far up the page as 9500 is
+between the bottom of the axis and the top, or the picture is a lie about the
+numbers.
+
+```mermaid
+xychart-beta
+    title "Sales revenue"
+    x-axis [jan, feb, mar, apr]
+    y-axis "Revenue (in $)" 4000 --> 12000
+    bar [5000, 6000, 7500, 8200]
+    line [5000, 6000, 7500, 8200]
+```
+
+Bar and line series can be mixed, several bar series share a band side by side,
+and `xychart-beta horizontal` swaps the axes. Where the range is not given it is
+taken from the data and the bottom is zero unless the data goes below it: an
+axis that starts just under the smallest bar makes a 4% difference look like a
+tenfold one, and Mermaid's own default is not to do that.
+
+### …and Sankey diagrams
+
+A graph whose edges have a *width*, and the width is the whole point: it is how
+much went that way. Everything else follows — a node is as tall as the quantity
+through it, a column as tall as the quantities in it — and nothing may be moved
+to make a line shorter, because a line's thickness is a number somebody
+measured.
+
+```mermaid
+sankey-beta
+
+Agricultural 'waste',Bio-conversion,124.729
+Bio-conversion,Losses,26.862
+Bio-conversion,Solid,280.322
+Coal reserves,Coal,63.965
+Coal,Solid,75.571
+```
+
+The whole language is three CSV columns, which makes this the shortest reader
+here and the one that does the most arithmetic. The ribbons are polygons worked
+out from the numbers — a band from where it leaves to where it arrives, sampled
+along a smooth curve — so a Sankey is drawn by the same renderer as everything
+else. A quote at the start of a field quotes it, comma and all; one in the
+middle is an apostrophe.
+
+### …and block diagrams
+
+Every other box-and-line diagram asks a layout engine where the boxes go.
+`block-beta` does not: it says `columns 3` and then lists the boxes, and where
+they end up is arithmetic. That is the whole reason the type exists — somebody
+wanted a picture that would come out the same every time — so the one thing
+this reader must not do is improve on it.
+
+```mermaid
+block-beta
+  columns 3
+  a["A label"] b:2
+  block:group1
+    columns 2
+    c d
+  end
+  e(("circle")) space f{"decision"}
+  a --> e
+```
+
+`id:n` spans columns, `space` and `space:n` leave holes, `block:id … end` nests
+with columns of its own, and the shapes are the flowchart's, because
+`block-beta` borrowed the vocabulary wholesale. Sizing is two passes: a nested
+block is as wide as what is inside it and a row is as tall as the tallest thing
+in it, so everything is measured and then placed.
+
+### …and architecture diagrams
+
+`architecture-beta` writes a side on each end of every connection —
+`db:L -- R:server`, the database's left port joined to the server's right — and
+that is not decoration. It says where the two things are relative to one
+another, and it is the only placement information the diagram has. So it *is*
+the layout: the first service goes down, and every other one lands on the side
+its own connection asked for.
+
+```mermaid
+architecture-beta
+    group api(cloud)[API]
+    service db(database)[Database] in api
+    service disk1(disk)[Storage] in api
+    service server(server)[Server] in api
+    db:L -- R:server
+    disk1:T -- B:server
+```
+
+A layout engine asked to place these would produce a perfectly good picture of
+a different arrangement, so there is no layout engine here. Mermaid draws an
+icon from an icon pack; the shape library has outlines instead, and the icons
+that carry a meaning get the outline that means it — a database is a cylinder,
+a disk the same drum on its side.
+
+### …and swimlane diagrams
+
+`swimlane-beta` has no grammar of its own. Mermaid's own source says so: it
+"reuses the flowchart parser, DB, and renderer wholesale and only swaps in a
+different layout engine". So there is no parser here either — the source is read
+with the flowchart reader, and the one thing that makes a swimlane diagram a
+swimlane diagram is done to the layout: every step goes in the lane that owns
+it, and a step nobody claimed gets a lane at the bottom.
+
+```mermaid
+swimlane-beta
+    subgraph Customer
+        order[Place order] --> pay[Pay]
+    end
+    subgraph Warehouse
+        pick[Pick the goods] --> pack[Pack]
+    end
+    pay --> pick
+```
+
+The header is `swimlane-beta`, **singular**. The chunk Mermaid ships is called
+`swimlanes`, and a reader that took the file name for the keyword would
+recognise nothing and hand every swimlane diagram to the flowchart parser —
+which would draw it, and draw it wrong. The parity harness was asking about the
+wrong keyword too, so it could not have caught that.
+
+### …and Cynefin frameworks
+
+The Cynefin framework has exactly five domains and they are always in the same
+places, because the places are the argument: `complex` is next to `complicated`
+because the difference between them is the point, and `confusion` is in the
+middle because that is where you are when you do not know which of the other
+four you are in.
+
+```mermaid
+cynefin-beta
+    title Where the work is
+    complex
+        "new market"
+        "the rewrite"
+    clear "payroll"
+    complex --> complicated : "understood"
+```
+
+So there is nothing to lay out. The reader's whole job is to put each item in
+the domain it was written under and to draw the arrows that say something moved
+— and a move from a domain to itself is dropped, because it says nothing.
+
+### …and fishbone diagrams
+
+A cause-and-effect tree with one strong convention about how it is drawn: the
+effect is the head of the fish, the spine runs back from it, and the causes
+come off the spine at an angle, alternating above and below so that a long list
+still fits on a page.
+
+```mermaid
+ishikawa-beta
+  Late delivery
+    Machine
+      Old truck
+      No spare parts
+    Method
+      No route plan
+        Nobody asked the driver
+```
+
+Indentation is the whole of Mermaid's grammar for it, so it is the whole of the
+reading: the first line is the effect, the lines under it are the categories,
+and the lines under those are the causes — as deep as they go, because a cause
+of a cause is the thing the diagram was invented for.
+
+### …and Venn diagrams
+
+Two facts and one picture: how big each set is, and how much of it is also in
+another one. The circles are sized by their own numbers and by *area* rather
+than by radius — a set twice as big is twice the ink, which is what a reader
+compares — and they are placed to overlap, because a Venn diagram whose circles
+miss each other has drawn the one thing it exists to deny.
+
+```mermaid
+venn-beta
+    title What people brought
+    set A ["Apples"]: 30
+    set B ["Bananas"]: 20
+    union A,B ["Both"]: 10
+```
+
+Every label is written *on* the drawing rather than in a box over it: a label
+with a fill of its own hides the very overlap the diagram is about.
+
+### …and Wardley maps
+
+A value chain drawn against evolution. Up the page is how *visible* a thing is
+to the customer; across it is how *evolved* it is, from something nobody has
+built before to something you buy by the metre. Both are numbers the author
+wrote, and both mean something, so a layout engine has nothing whatever to
+contribute.
+
+```mermaid
+wardley-beta
+    title Tea shop
+    anchor Business [0.95, 0.63]
+    component Cup of Tea [0.79, 0.61]
+    component Kettle [0.43, 0.35]
+    Cup of Tea->Kettle
+    evolve Kettle 0.62
+```
+
+`evolve` is drawn as the dashed move to the right that it is — the whole point
+of the map being that things go that way. Visible is *up* and the page counts
+down, which is the one conversion the map needs and the one that would turn it
+into a map of the opposite argument.
+
+### …and railroad diagrams, in all four notations
+
+Mermaid ships **four** headers for one picture: `railroad-beta` and the three
+grammar notations `railroad-ebnf-beta`, `railroad-abnf-beta` and
+`railroad-peg-beta`. They disagree about how to spell a choice and agree about
+everything else, so this is one syntax tree, four front ends and one renderer.
+
+```mermaid
+railroad-ebnf-beta
+    letter = "a" | "b" ;
+    word = letter , { letter } ;
+```
+
+| | joins | chooses | repeats | optional |
+| --- | --- | --- | --- | --- |
+| EBNF | `,` | `\|` | `{ x }` | `[ x ]` |
+| ABNF | space | `/` | `1*x` | `[ x ]` |
+| PEG | space | `/` | `x+` `x*` | `x?` |
+| plain | `sequence(…)` | `choice(…)` | `oneOrMore(…)` | `optional(…)` |
+
+There is not one edge in the output: a railroad's lines are square, exact, and
+go where the grammar says, which is the one thing a router must not be asked to
+improve on. So they are drawn as thin rules, like the spine of a fishbone.
+
+### …and `info`
+
+The smallest diagram Mermaid has: the whole source is the word `info`, and what
+it renders is the version of the thing that rendered it. RangerFlow is not
+Mermaid and does not know Mermaid's version, so it gives the same *kind* of
+answer and not the same answer — it says what it is. A version number invented
+on the spot would be printed in a box and believed.
 
 ### …measured against Mermaid itself
 

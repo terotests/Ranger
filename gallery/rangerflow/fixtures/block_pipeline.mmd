@@ -1,0 +1,20 @@
+block-beta
+  columns 3
+  Frontend["Web front end"] space Mobile["Mobile app"]
+  space:3
+  block:gateway
+    columns 2
+    Auth["Auth"] Rate["Rate limit"]
+  end
+  space:3
+  API(["Order API"]) Queue[["Work queue"]] Store[("Database")]
+  space:3
+  Reports{"Reports?"}
+  Frontend --> API
+  Mobile --> API
+  API -- "publishes" --> Queue
+  API --> Store
+  Queue --> Reports
+  style Store fill:#e8f1ff
+  classDef edge fill:#fff6e5,stroke:#c9a24b
+  class Frontend,Mobile edge

@@ -1,0 +1,492 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MermaidKanbanReader.rgr — a board, which is a diagram made of two nouns.
+; ============================================================================
+;
+; A kanban board has columns and it has cards, and the only relation in it is
+; "this card is in that column". There are no edges at all. That makes it the
+; simplest diagram in this directory and the one that most obviously does not
+; want a layout engine: a board whose columns had been reordered to shorten
+; something would not be a board any more.
+;
+;   ┌─ Todo ────────┐ ┌─ Doing ───────┐ ┌─ Done ────────┐
+;   │ ┌───────────┐ │ │ ┌───────────┐ │ │ ┌───────────┐ │
+;   │ │ write it  │ │ │ │ the graph │ │ │ │ the parser│ │
+;   │ └───────────┘ │ │ │ MC-2038   │ │ │ └───────────┘ │
+;   │ ┌───────────┐ │ │ └───────────┘ │ │               │
+;   │ │ test it   │ │ │               │ │               │
+;   │ └───────────┘ │ │               │ │               │
+;   └───────────────┘ └───────────────┘ └───────────────┘
+;
+; **What it reads.** Indentation: a line at the outer level is a column, a
+; line inside it is a card. `id[Label]` names either. `@{ ticket: MC-2038,
+; assigned: 'knsv', priority: 'High' }` is the card's metadata, and it is
+; written under the card's text rather than dropped, because a board without
+; who-and-when on it is a list.
+; ============================================================================
+
+Import "MermaidReader.rgr"
+Import "../../core/FlowStyleSheet.rgr"
+
+class MermaidKanbanCard {
+    def id:string ""
+    def label:string ""
+    def ticket:string ""
+    def assigned:string ""
+    def priority:string ""
+    def column:string ""
+
+    Constructor () {
+    }
+
+    ; The line under the card's own words: the ticket, who has it, and how
+    ; urgent it is, in that order and only where they were given.
+    fn meta:string () {
+        def out:string ""
+        if ((strlen ticket) > 0) {
+            out = ticket
+        }
+        if ((strlen assigned) > 0) {
+            if ((strlen out) > 0) { out = (out + "  ·  ") }
+            out = (out + assigned)
+        }
+        if ((strlen priority) > 0) {
+            if ((strlen out) > 0) { out = (out + "  ·  ") }
+            out = (out + priority)
+        }
+        return out
+    }
+}
+
+class MermaidKanbanColumn {
+    def id:string ""
+    def label:string ""
+
+    Constructor () {
+    }
+}
+
+class MermaidKanban {
+    def title:string ""
+    def columns:[MermaidKanbanColumn]
+    def cards:[MermaidKanbanCard]
+
+    Constructor () {
+    }
+
+    fn columnCount:int () {
+        return (array_length columns)
+    }
+
+    fn cardCount:int () {
+        return (array_length cards)
+    }
+
+    fn cardsIn:int (columnId:string) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length cards)) {
+            def c:MermaidKanbanCard (itemAt cards i)
+            if (c.column == columnId) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+}
+
+class MermaidKanbanReader {
+    def doc:MermaidKanban (new MermaidKanban)
+    ; The indent a column sits at. The first content line decides it, because
+    ; Mermaid's own examples indent the whole board by two spaces and a reader
+    ; that insisted on column zero would find no columns at all.
+    def columnIndent:int -1
+    def current:string ""
+    def seq:int 0
+
+    Constructor () {
+    }
+
+    sfn parse:MermaidKanban (src:string) {
+        def r (new MermaidKanbanReader)
+        return (r.read(src))
+    }
+
+    fn read:MermaidKanban (src:string) {
+        def lines:[string] (strsplit src "\n")
+        def i:int 0
+        while (i < (array_length lines)) {
+            def raw:string (MermaidKanbanReader.stripComment((itemAt lines i)))
+            i = (i + 1)
+            def body:string (trim raw)
+            if ((strlen body) == 0) {
+                continue
+            }
+            def indent:int (MermaidKanbanReader.indentOf(raw))
+            def word:string (MermaidReader.firstWord(body))
+            def kw:string (MermaidReader.lower(word))
+            if (kw == "kanban") {
+                continue
+            }
+            if (MermaidReader.beginsWith(kw "acctitle")) { continue }
+            if (MermaidReader.beginsWith(kw "accdescr")) { continue }
+            if (kw == "title") {
+                doc.title = (MermaidReader.cleanLabel((trim (substring body (strlen word) (strlen body)))))
+                continue
+            }
+            if (columnIndent < 0) {
+                columnIndent = indent
+            }
+            if (indent <= columnIndent) {
+                this.column(body)
+            } {
+                this.card(body)
+            }
+        }
+        return doc
+    }
+
+    sfn stripComment:string (line:string) {
+        def len:int (strlen line)
+        def i:int 0
+        while (i < len) {
+            def c:int (charAt line i)
+            if (c == 37) {
+                if ((i + 1) < len) {
+                    if ((charAt line (i + 1)) == 37) {
+                        return (substring line 0 i)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return line
+    }
+
+    ; How far in a line starts, with a tab worth two spaces — the same rule
+    ; the mind-map reader uses, and for the same reason.
+    sfn indentOf:int (line:string) {
+        def n:int 0
+        def i:int 0
+        while (i < (strlen line)) {
+            def c:int (charAt line i)
+            if (c == 32) { n = (n + 1) } {
+                if (c == 9) { n = (n + 2) } {
+                    return n
+                }
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    fn column:void (body:string) {
+        def col (new MermaidKanbanColumn)
+        def bare:string (MermaidKanbanReader.beforeMeta(body))
+        col.id = (MermaidKanbanReader.idOf(bare))
+        col.label = (MermaidKanbanReader.labelOf(bare))
+        if ((strlen col.id) == 0) {
+            col.id = ("col" + (to_string seq))
+            seq = (seq + 1)
+        }
+        push doc.columns col
+        current = col.id
+    }
+
+    fn card:void (body:string) {
+        if ((strlen current) == 0) {
+            return
+        }
+        def c (new MermaidKanbanCard)
+        def bare:string (MermaidKanbanReader.beforeMeta(body))
+        c.id = (MermaidKanbanReader.idOf(bare))
+        c.label = (MermaidKanbanReader.labelOf(bare))
+        if ((strlen c.id) == 0) {
+            c.id = ("card" + (to_string seq))
+            seq = (seq + 1)
+        }
+        c.column = current
+        def meta:string (MermaidKanbanReader.metaOf(body))
+        c.ticket = (MermaidKanbanReader.field(meta "ticket"))
+        c.assigned = (MermaidKanbanReader.field(meta "assigned"))
+        c.priority = (MermaidKanbanReader.field(meta "priority"))
+        push doc.cards c
+    }
+
+    ; `id[Label]@{ … }` — everything before the metadata block.
+    sfn beforeMeta:string (body:string) {
+        def at:int (MermaidKanbanReader.metaAt(body))
+        if (at < 0) {
+            return (trim body)
+        }
+        return (trim (substring body 0 at))
+    }
+
+    sfn metaOf:string (body:string) {
+        def at:int (MermaidKanbanReader.metaAt(body))
+        if (at < 0) {
+            return ""
+        }
+        def open:int (at + 1)
+        def n:int (strlen body)
+        while (open < n) {
+            if ((charAt body open) == 123) {
+                break
+            }
+            open = (open + 1)
+        }
+        if (open >= n) {
+            return ""
+        }
+        def close:int (n - 1)
+        while (close > open) {
+            if ((charAt body close) == 125) {
+                return (substring body (open + 1) close)
+            }
+            close = (close - 1)
+        }
+        return (substring body (open + 1) n)
+    }
+
+    ; Where `@{` starts, or -1. An `@` with no brace after it is part of a
+    ; label — an e-mail address in a card is not a metadata block.
+    sfn metaAt:int (body:string) {
+        def n:int (strlen body)
+        def i:int 0
+        while ((i + 1) < n) {
+            if ((charAt body i) == 64) {
+                def k:int (i + 1)
+                while (k < n) {
+                    if ((charAt body k) == 32) { k = (k + 1) } {
+                        break
+                    }
+                }
+                if (k < n) {
+                    if ((charAt body k) == 123) {
+                        return i
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; `ticket: MC-2038, assigned: 'knsv', priority: 'High'` — one field.
+    sfn field:string (meta:string name:string) {
+        if ((strlen meta) == 0) {
+            return ""
+        }
+        def parts:[string] (strsplit meta ",")
+        def i:int 0
+        while (i < (array_length parts)) {
+            def p:string (trim (itemAt parts i))
+            i = (i + 1)
+            def colon:int (MermaidKanbanReader.charIndex(p 58))
+            if (colon < 0) {
+                continue
+            }
+            def key:string (MermaidReader.lower((trim (substring p 0 colon))))
+            if (key == name) {
+                def v:string (trim (substring p (colon + 1) (strlen p)))
+                return (MermaidKanbanReader.unpick(v))
+            }
+        }
+        return ""
+    }
+
+    ; Mermaid's board metadata is written with single quotes as often as with
+    ; double ones, and `MC-2038` with neither.
+    sfn unpick:string (v:string) {
+        def t:string (trim v)
+        def n:int (strlen t)
+        if (n >= 2) {
+            def a:int (charAt t 0)
+            def b:int (charAt t (n - 1))
+            if (a == 39) {
+                if (b == 39) {
+                    return (trim (substring t 1 (n - 1)))
+                }
+            }
+        }
+        return (MermaidReader.unquote(t))
+    }
+
+    sfn charIndex:int (t:string c:int) {
+        def i:int 0
+        while (i < (strlen t)) {
+            if ((charAt t i) == c) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; `id7[In Progress]` — the name before the bracket. A line with no bracket
+    ; at all is its own label and has no id of its own.
+    sfn idOf:string (bare:string) {
+        def at:int (MermaidKanbanReader.charIndex(bare 91))
+        if (at <= 0) {
+            return ""
+        }
+        return (trim (substring bare 0 at))
+    }
+
+    sfn labelOf:string (bare:string) {
+        def at:int (MermaidKanbanReader.charIndex(bare 91))
+        if (at < 0) {
+            return (MermaidReader.cleanLabel(bare))
+        }
+        def close:int ((strlen bare) - 1)
+        while (close > at) {
+            if ((charAt bare close) == 93) {
+                return (MermaidReader.cleanLabel((substring bare (at + 1) close)))
+            }
+            close = (close - 1)
+        }
+        return (MermaidReader.cleanLabel((substring bare (at + 1) (strlen bare))))
+    }
+}
+
+; ---------------------------------------------------------------------------
+; The pipeline
+; ---------------------------------------------------------------------------
+class MermaidKanbanFlow {
+    sfn parse:MermaidKanban (src:string) {
+        return (MermaidKanbanReader.parse(src))
+    }
+
+    sfn render:FlowGraph (src:string) {
+        def d:MermaidKanban (MermaidKanbanReader.parse(src))
+        def bare (new FlowStyle)
+        return (MermaidKanbanFlow.build(d bare))
+    }
+
+    sfn build:FlowGraph (d:MermaidKanban style:FlowStyle) {
+        def g (new FlowGraph)
+        def colWidth:double 250.0
+        def colGap:double 22.0
+        def cardWidth:double 214.0
+        def pad:double 18.0
+        def head:double 44.0
+        def cardGap:double 12.0
+        def frames:[string]
+        def x:double 0.0
+        def tallest:double 0.0
+        def ci:int 0
+        while (ci < (array_length d.columns)) {
+            def col:MermaidKanbanColumn (itemAt d.columns ci)
+            def y:double (head + pad)
+            def k:int 0
+            while (k < (array_length d.cards)) {
+                def card:MermaidKanbanCard (itemAt d.cards k)
+                if (card.column == col.id) {
+                    def n:FlowNode (MermaidKanbanFlow.cardNode(card (x + pad) y cardWidth))
+                    g.addNode(n)
+                    y = ((y + n.height) + cardGap)
+                }
+                k = (k + 1)
+            }
+            def bottom:double ((y - cardGap) + pad)
+            if (bottom < (head + 70.0)) {
+                bottom = (head + 70.0)
+            }
+            if (bottom > tallest) {
+                tallest = bottom
+            }
+            def frame:FlowNode (FlowNode.create(("sg-" + col.id) col.label x 0.0))
+            frame.nodeType = "group"
+            frame.width = colWidth
+            frame.height = bottom
+            frame.connectable = false
+            frame.draggable = false
+            frame.cssClass = "mermaid column"
+            frame.bgColor = "#f6f7fb"
+            frame.borderColor = "#c9cede"
+            frame.syncFromModel()
+            g.addNode(frame)
+            push frames frame.id
+            x = ((x + colWidth) + colGap)
+            ci = (ci + 1)
+        }
+        ; Every column reaches the bottom of the tallest one: a board whose
+        ; empty column stopped short would read as a shorter board.
+        def f:int 0
+        while (f < (array_length frames)) {
+            def id:string (itemAt frames f)
+            if (g.hasNode(id)) {
+                def fr:FlowNode (g.nodeById(id))
+                fr.height = tallest
+                fr.syncFromModel()
+            }
+            f = (f + 1)
+        }
+        g.reindex()
+        def wrote:int (style.applyTo(g))
+        def b:int 0
+        while (b < (array_length frames)) {
+            def moved:boolean (g.sendToBack((itemAt frames b)))
+            b = (b + 1)
+        }
+        return g
+    }
+
+    sfn cardNode:FlowNode (card:MermaidKanbanCard x:double y:double w:double) {
+        def meta:string (card.meta())
+        def label:string card.label
+        if ((strlen meta) > 0) {
+            label = ((card.label + (strfromcode 10)) + meta)
+        }
+        def lines:int (MermaidKanbanFlow.wrapLines(card.label w))
+        if ((strlen meta) > 0) {
+            lines = (lines + 1)
+        }
+        def n:FlowNode (FlowNode.create(card.id label x y))
+        n.nodeType = "card"
+        n.shape = "rect"
+        n.borderRadius = 6.0
+        n.width = w
+        n.height = (22.0 + ((to_double lines) * 16.0))
+        n.connectable = false
+        n.cssClass = ("mermaid card" + (MermaidKanbanFlow.priorityClass(card.priority)))
+        n.bgColor = "#ffffff"
+        n.borderColor = "#c9cede"
+        n.syncFromModel()
+        return n
+    }
+
+    ; A stylesheet can colour a board by urgency without the reader having an
+    ; opinion about which colour urgent is.
+    sfn priorityClass:string (priority:string) {
+        def p:string (MermaidReader.lower(priority))
+        if ((strlen p) == 0) {
+            return ""
+        }
+        if (p == "very high") { return " priority-very-high" }
+        if (p == "high")      { return " priority-high" }
+        if (p == "low")       { return " priority-low" }
+        if (p == "very low")  { return " priority-very-low" }
+        return " priority-normal"
+    }
+
+    ; How many lines the text will take at this width. The card is sized from
+    ; it, and a card sized for one line with four in it is a card its own text
+    ; runs out of.
+    sfn wrapLines:int (text:string w:double) {
+        def perLine:double (w / 6.6)
+        if (perLine < 8.0) {
+            perLine = 8.0
+        }
+        def len:double (to_double (strlen text))
+        def n:int 1
+        def acc:double perLine
+        while (acc < len) {
+            n = (n + 1)
+            acc = (acc + perLine)
+        }
+        return n
+    }
+}

@@ -1,0 +1,962 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MermaidRailroadReader.rgr — a grammar, drawn as the track a parser runs on.
+; ============================================================================
+;
+; Mermaid ships FOUR headers for one picture: `railroad-beta` and the three
+; grammar notations `railroad-ebnf-beta`, `railroad-abnf-beta` and
+; `railroad-peg-beta`. They disagree about how to spell a choice and agree
+; about everything else, so this file is one syntax tree, four front ends and
+; one renderer:
+;
+;   word  ──▶──┬─▶─( a )─▶─┬──▶──
+;              └─▶─( b )─▶─┘
+;
+;                └───◀───┘        a repetition returns underneath
+;
+; **The headers are `railroad-…-beta`.** The chunks Mermaid ships are called
+; `abnf`, `ebnf` and `peg`, and a reader that took the file name for the
+; keyword would recognise none of the four.
+;
+; **What each notation says.** Sequence, choice, optional, repetition,
+; terminal and non-terminal, in each one's own spelling:
+;
+;   ebnf   `a = b , c | d ;`      `{ x }` repeat   `[ x ]` optional
+;   abnf   `a = b c / d ;`        `1*x` repeat     `[ x ]` optional
+;   peg    `a <- b c / d ;`       `x+` `x*` `x?`   `( … )` group
+;   plain  `a = choice(terminal('b'), nonterminal('c'));`
+; ============================================================================
+
+Import "MermaidReader.rgr"
+Import "../../core/FlowStyleSheet.rgr"
+
+; kind: "terminal" | "nonterminal" | "special"
+;     | "sequence" | "choice" | "optional" | "repetition" | "empty"
+class MermaidRailNode {
+    def kind:string "terminal"
+    def text:string ""
+    def children:[MermaidRailNode]
+    ; A repetition's bounds. -1 for "no upper bound".
+    def minTimes:int 1
+    def maxTimes:int -1
+
+    Constructor () {
+    }
+
+    fn childCount:int () {
+        return (array_length children)
+    }
+
+    sfn leaf:MermaidRailNode (kind:string text:string) {
+        def n (new MermaidRailNode)
+        n.kind = kind
+        n.text = text
+        return n
+    }
+}
+
+class MermaidRailRule {
+    def name:string ""
+    def body:MermaidRailNode (new MermaidRailNode)
+
+    Constructor () {
+    }
+}
+
+class MermaidRailroad {
+    def title:string ""
+    ; "railroad" | "ebnf" | "abnf" | "peg"
+    def notation:string "railroad"
+    def rules:[MermaidRailRule]
+
+    Constructor () {
+    }
+
+    fn ruleCount:int () {
+        return (array_length rules)
+    }
+
+    fn ruleNamed:MermaidRailRule (name:string) {
+        def i:int 0
+        while (i < (array_length rules)) {
+            def r:MermaidRailRule (itemAt rules i)
+            if (r.name == name) {
+                return r
+            }
+            i = (i + 1)
+        }
+        return (new MermaidRailRule)
+    }
+
+    ; Which of the four notations a header names.
+    sfn notationOf:string (header:string) {
+        def h:string (MermaidReader.lower(header))
+        if (MermaidReader.beginsWith(h "railroad-ebnf")) { return "ebnf" }
+        if (MermaidReader.beginsWith(h "railroad-abnf")) { return "abnf" }
+        if (MermaidReader.beginsWith(h "railroad-peg"))  { return "peg" }
+        return "railroad"
+    }
+}
+
+; ---------------------------------------------------------------------------
+; The reader
+; ---------------------------------------------------------------------------
+; One tokeniser and one recursive-descent parser, told which notation it is
+; reading. The four differ in four places — what separates a rule's name from
+; its body, what joins two things in a row, what offers a choice between them,
+; and how a repeat is written — and nowhere else.
+; ---------------------------------------------------------------------------
+class MermaidRailroadReader {
+    def doc:MermaidRailroad (new MermaidRailroad)
+    ; The rule body currently being parsed, and where in it we are.
+    def src:string ""
+    def at:int 0
+
+    Constructor () {
+    }
+
+    sfn parse:MermaidRailroad (text:string) {
+        def r (new MermaidRailroadReader)
+        return (r.read(text))
+    }
+
+    fn read:MermaidRailroad (text:string) {
+        def lines:[string] (strsplit text "\n")
+        ; The header decides the notation, and everything after it is one
+        ; long run of `name = body ;` — a rule may be written over several
+        ; lines, so the body is gathered until the semicolon rather than to
+        ; the end of the line.
+        def body:string ""
+        def i:int 0
+        while (i < (array_length lines)) {
+            def raw:string (MermaidRailroadReader.stripComment((itemAt lines i)))
+            i = (i + 1)
+            def line:string (trim raw)
+            if ((strlen line) == 0) {
+                continue
+            }
+            def word:string (MermaidReader.lower((MermaidReader.firstWord(line))))
+            if (MermaidReader.beginsWith(word "railroad")) {
+                doc.notation = (MermaidRailroad.notationOf(word))
+                continue
+            }
+            if (MermaidReader.beginsWith(word "acctitle")) { continue }
+            if (MermaidReader.beginsWith(word "accdescr")) { continue }
+            if (word == "title") {
+                doc.title = (MermaidReader.cleanLabel((trim (substring line 5 (strlen line)))))
+                continue
+            }
+            body = ((body + " ") + line)
+            ; A rule ends at its semicolon. EBNF, ABNF and PEG all want one in
+            ; Mermaid's dialect, and `railroad-beta` does too.
+            while ((MermaidRailroadReader.charIndex(body 59)) >= 0) {
+                def cut:int (MermaidRailroadReader.charIndex(body 59))
+                def one:string (trim (substring body 0 cut))
+                body = (trim (substring body (cut + 1) (strlen body)))
+                this.rule(one)
+            }
+        }
+        def leftover:string (trim body)
+        if ((strlen leftover) > 0) {
+            this.rule(leftover)
+        }
+        return doc
+    }
+
+    sfn stripComment:string (line:string) {
+        def len:int (strlen line)
+        def i:int 0
+        while (i < len) {
+            def c:int (charAt line i)
+            if (c == 37) {
+                if ((i + 1) < len) {
+                    if ((charAt line (i + 1)) == 37) {
+                        return (substring line 0 i)
+                    }
+                }
+            }
+            if (c == 35) {
+                return (substring line 0 i)
+            }
+            i = (i + 1)
+        }
+        return line
+    }
+
+    ; `name = body` — or `name <- body` in PEG, which is the only notation
+    ; that spells the assignment differently.
+    fn rule:void (text:string) {
+        def t:string (trim text)
+        if ((strlen t) == 0) {
+            return
+        }
+        def cut:int -1
+        def skip:int 1
+        if (doc.notation == "peg") {
+            cut = (MermaidRailroadReader.indexOfText(t "<-"))
+            skip = 2
+        }
+        if (cut < 0) {
+            cut = (MermaidRailroadReader.charIndex(t 61))
+            skip = 1
+        }
+        if (cut <= 0) {
+            return
+        }
+        def r (new MermaidRailRule)
+        r.name = (trim (substring t 0 cut))
+        src = (trim (substring t (cut + skip) (strlen t)))
+        at = 0
+        r.body = (this.expression())
+        if ((strlen r.name) == 0) {
+            return
+        }
+        push doc.rules r
+    }
+
+    ; ------------------------------------------------------------ parsing --
+    ; choice → sequence ( CHOICE sequence )*
+    fn expression:MermaidRailNode () {
+        def first:MermaidRailNode (this.sequence())
+        def alts:[MermaidRailNode]
+        push alts first
+        while (this.atChoice()) {
+            this.eatChoice()
+            push alts (this.sequence())
+        }
+        if ((array_length alts) == 1) {
+            return first
+        }
+        def n (new MermaidRailNode)
+        n.kind = "choice"
+        def i:int 0
+        while (i < (array_length alts)) {
+            push n.children (itemAt alts i)
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; sequence → item+ , with the separator each notation uses.
+    fn sequence:MermaidRailNode () {
+        def parts:[MermaidRailNode]
+        while true {
+            this.spaces()
+            if (this.atEnd()) {
+                break
+            }
+            if (this.atChoice()) {
+                break
+            }
+            if (this.atCloser()) {
+                break
+            }
+            def item:MermaidRailNode (this.item())
+            if (item.kind == "empty") {
+                break
+            }
+            push parts item
+            this.spaces()
+            ; EBNF writes a comma between two things in a row; the others
+            ; write nothing at all, so the next item simply follows.
+            if (doc.notation == "ebnf") {
+                if ((this.peek()) == 44) {
+                    at = (at + 1)
+                } {
+                    break
+                }
+            }
+        }
+        if ((array_length parts) == 0) {
+            def e (new MermaidRailNode)
+            e.kind = "empty"
+            return e
+        }
+        if ((array_length parts) == 1) {
+            return (itemAt parts 0)
+        }
+        def n (new MermaidRailNode)
+        n.kind = "sequence"
+        def i:int 0
+        while (i < (array_length parts)) {
+            push n.children (itemAt parts i)
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; One thing, with whatever the notation puts before or after it to say
+    ; "again" or "maybe".
+    fn item:MermaidRailNode () {
+        this.spaces()
+        ; ABNF puts the count first: `1*letter`, `*letter`, `2*4letter`.
+        def repeatMin:int -1
+        def repeatMax:int -1
+        if (doc.notation == "abnf") {
+            def counted:boolean false
+            def lo:int 0
+            def sawDigits:boolean false
+            while (MermaidRailroadReader.isDigit((this.peek()))) {
+                lo = ((lo * 10) + ((this.peek()) - 48))
+                at = (at + 1)
+                sawDigits = true
+            }
+            if ((this.peek()) == 42) {
+                at = (at + 1)
+                counted = true
+                repeatMin = 0
+                if sawDigits {
+                    repeatMin = lo
+                }
+                def hi:int 0
+                def sawHi:boolean false
+                while (MermaidRailroadReader.isDigit((this.peek()))) {
+                    hi = ((hi * 10) + ((this.peek()) - 48))
+                    at = (at + 1)
+                    sawHi = true
+                }
+                if sawHi {
+                    repeatMax = hi
+                }
+            } {
+                ; Digits with no star after them are a literal count — `3a` —
+                ; which is a repetition of exactly that many.
+                if sawDigits {
+                    repeatMin = lo
+                    repeatMax = lo
+                    counted = true
+                }
+            }
+        }
+        def base:MermaidRailNode (this.atom())
+        ; PEG puts the count after: `x+`, `x*`, `x?`.
+        if (doc.notation == "peg") {
+            def c:int (this.peek())
+            if (c == 43) {
+                at = (at + 1)
+                base = (MermaidRailroadReader.repeat(base 1 -1))
+            }
+            if (c == 42) {
+                at = (at + 1)
+                base = (MermaidRailroadReader.repeat(base 0 -1))
+            }
+            if (c == 63) {
+                at = (at + 1)
+                base = (MermaidRailroadReader.optionalOf(base))
+            }
+        }
+        if (repeatMin >= 0) {
+            base = (MermaidRailroadReader.repeat(base repeatMin repeatMax))
+        }
+        return base
+    }
+
+    ; A bracket, a quoted string, a call, or a name.
+    fn atom:MermaidRailNode () {
+        this.spaces()
+        def c:int (this.peek())
+        if (c == 0) {
+            def e (new MermaidRailNode)
+            e.kind = "empty"
+            return e
+        }
+        if (c == 40) {
+            at = (at + 1)
+            def inner:MermaidRailNode (this.expression())
+            this.expect(41)
+            return inner
+        }
+        if (c == 91) {
+            ; `[ … ]` is optional everywhere except PEG, where it is a
+            ; character class and belongs on the track as what it says.
+            if (doc.notation == "peg") {
+                return (MermaidRailNode.leaf("terminal" (this.bracketed(91 93))))
+            }
+            at = (at + 1)
+            def opt:MermaidRailNode (this.expression())
+            this.expect(93)
+            return (MermaidRailroadReader.optionalOf(opt))
+        }
+        if (c == 123) {
+            ; `{ … }` is EBNF's "none or more".
+            at = (at + 1)
+            def rep:MermaidRailNode (this.expression())
+            this.expect(125)
+            return (MermaidRailroadReader.repeat(rep 0 -1))
+        }
+        if (c == 34) {
+            return (MermaidRailNode.leaf("terminal" (this.quoted(34))))
+        }
+        if (c == 39) {
+            return (MermaidRailNode.leaf("terminal" (this.quoted(39))))
+        }
+        if (c == 37) {
+            ; ABNF's numeric terminal: `%x61-7A`.
+            return (MermaidRailNode.leaf("terminal" (this.word())))
+        }
+        def name:string (this.word())
+        if ((strlen name) == 0) {
+            at = (at + 1)
+            def e2 (new MermaidRailNode)
+            e2.kind = "empty"
+            return e2
+        }
+        ; `railroad-beta` writes everything as a call: `choice(a, b)`.
+        this.spaces()
+        if ((this.peek()) == 40) {
+            return (this.call(name))
+        }
+        return (MermaidRailNode.leaf("nonterminal" name))
+    }
+
+    ; `sequence(a, b)`, `terminal('x')`, `oneOrMore(x)` — the plain notation.
+    fn call:MermaidRailNode (name:string) {
+        this.expect(40)
+        def args:[MermaidRailNode]
+        while true {
+            this.spaces()
+            if ((this.peek()) == 41) {
+                break
+            }
+            if (this.atEnd()) {
+                break
+            }
+            push args (this.expression())
+            this.spaces()
+            if ((this.peek()) == 44) {
+                at = (at + 1)
+            } {
+                break
+            }
+        }
+        this.expect(41)
+        def kw:string (MermaidReader.lower(name))
+        def first (new MermaidRailNode)
+        first.kind = "empty"
+        if ((array_length args) > 0) {
+            first = (itemAt args 0)
+        }
+        if (kw == "terminal")    { return (MermaidRailNode.leaf("terminal" first.text)) }
+        if (kw == "nonterminal") { return (MermaidRailNode.leaf("nonterminal" first.text)) }
+        if (kw == "special")     { return (MermaidRailNode.leaf("special" first.text)) }
+        if (kw == "optional")    { return (MermaidRailroadReader.optionalOf(first)) }
+        if (kw == "oneormore")   { return (MermaidRailroadReader.repeat(first 1 -1)) }
+        if (kw == "zeroormore")  { return (MermaidRailroadReader.repeat(first 0 -1)) }
+        def n (new MermaidRailNode)
+        n.kind = "sequence"
+        if (kw == "choice") {
+            n.kind = "choice"
+        }
+        def i:int 0
+        while (i < (array_length args)) {
+            push n.children (itemAt args i)
+            i = (i + 1)
+        }
+        if ((array_length args) == 1) {
+            return first
+        }
+        return n
+    }
+
+    sfn repeat:MermaidRailNode (child:MermaidRailNode lo:int hi:int) {
+        def n (new MermaidRailNode)
+        n.kind = "repetition"
+        n.minTimes = lo
+        n.maxTimes = hi
+        push n.children child
+        return n
+    }
+
+    sfn optionalOf:MermaidRailNode (child:MermaidRailNode) {
+        def n (new MermaidRailNode)
+        n.kind = "optional"
+        push n.children child
+        return n
+    }
+
+    ; ------------------------------------------------------------ scanning --
+    fn peek:int () {
+        if (at >= (strlen src)) {
+            return 0
+        }
+        return (charAt src at)
+    }
+
+    fn atEnd:boolean () {
+        return (at >= (strlen src))
+    }
+
+    fn spaces:void () {
+        while (at < (strlen src)) {
+            def c:int (charAt src at)
+            if (c == 32) { at = (at + 1) } {
+                if (c == 9) { at = (at + 1) } {
+                    return
+                }
+            }
+        }
+    }
+
+    fn atCloser:boolean () {
+        def c:int (this.peek())
+        if (c == 41) { return true }
+        if (c == 93) { return true }
+        if (c == 125) { return true }
+        return false
+    }
+
+    ; What each notation writes between two alternatives.
+    fn atChoice:boolean () {
+        this.spaces()
+        def c:int (this.peek())
+        if (doc.notation == "ebnf") {
+            return (c == 124)
+        }
+        if (c == 47) { return true }
+        return (c == 124)
+    }
+
+    fn eatChoice:void () {
+        at = (at + 1)
+    }
+
+    fn expect:void (c:int) {
+        this.spaces()
+        if ((this.peek()) == c) {
+            at = (at + 1)
+        }
+    }
+
+    fn quoted:string (q:int) {
+        at = (at + 1)
+        def out:string ""
+        while (at < (strlen src)) {
+            def c:int (charAt src at)
+            at = (at + 1)
+            if (c == q) {
+                return out
+            }
+            out = (out + (strfromcode c))
+        }
+        return out
+    }
+
+    fn bracketed:string (open:int close:int) {
+        def out:string ""
+        at = (at + 1)
+        while (at < (strlen src)) {
+            def c:int (charAt src at)
+            at = (at + 1)
+            if (c == close) {
+                return out
+            }
+            out = (out + (strfromcode c))
+        }
+        return out
+    }
+
+    fn word:string () {
+        def out:string ""
+        while (at < (strlen src)) {
+            def c:int (charAt src at)
+            if (MermaidRailroadReader.isNameCode(c)) {
+                out = (out + (strfromcode c))
+                at = (at + 1)
+            } {
+                return out
+            }
+        }
+        return out
+    }
+
+    sfn isNameCode:boolean (c:int) {
+        if (c >= 97) {
+            if (c <= 122) { return true }
+        }
+        if (c >= 65) {
+            if (c <= 90) { return true }
+        }
+        if (c >= 48) {
+            if (c <= 57) { return true }
+        }
+        if (c == 95) { return true }
+        if (c == 45) { return true }
+        if (c == 37) { return true }
+        return false
+    }
+
+    sfn isDigit:boolean (c:int) {
+        if (c >= 48) {
+            if (c <= 57) { return true }
+        }
+        return false
+    }
+
+    sfn charIndex:int (t:string c:int) {
+        def i:int 0
+        while (i < (strlen t)) {
+            if ((charAt t i) == c) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    sfn indexOfText:int (text:string needle:string) {
+        def n:int (strlen needle)
+        def m:int (strlen text)
+        if (n == 0) {
+            return -1
+        }
+        def i:int 0
+        while ((i + n) <= m) {
+            def k:int 0
+            def hit:boolean true
+            while (k < n) {
+                if ((charAt text (i + k)) != (charAt needle k)) {
+                    hit = false
+                    break
+                }
+                k = (k + 1)
+            }
+            if hit {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+}
+
+; ---------------------------------------------------------------------------
+; The pipeline
+; ---------------------------------------------------------------------------
+;
+; Two passes, the same two every box-and-line drawing needs: how big is this,
+; and then where does it go. A railroad diagram has no layout to work out —
+; the grammar decides everything — so the whole renderer is arithmetic and a
+; handful of rules drawn as thin boxes. There is not one edge in it: a
+; railroad's lines are square, exact, and go where the grammar says, which is
+; the one thing a router must not be asked to improve on.
+; ---------------------------------------------------------------------------
+class RailBox {
+    def w:double 0.0
+    def h:double 0.0
+    ; Where the line comes in and leaves, measured from the top of the box.
+    def entry:double 0.0
+
+    Constructor () {
+    }
+}
+
+class MermaidRailroadFlow {
+    sfn parse:MermaidRailroad (src:string) {
+        return (MermaidRailroadReader.parse(src))
+    }
+
+    sfn render:FlowGraph (src:string) {
+        def d:MermaidRailroad (MermaidRailroadReader.parse(src))
+        def bare (new FlowStyle)
+        return (MermaidRailroadFlow.build(d bare))
+    }
+
+    sfn gap:double ()  { return 26.0 }
+    sfn fan:double ()  { return 30.0 }
+    sfn boxH:double () { return 34.0 }
+
+    sfn build:FlowGraph (d:MermaidRailroad style:FlowStyle) {
+        def g (new FlowGraph)
+        if ((d.ruleCount()) == 0) {
+            return g
+        }
+        def counter (new RailCounter)
+        def nameW:double 210.0
+        def y:double 0.0
+        def i:int 0
+        while (i < (array_length d.rules)) {
+            def r:MermaidRailRule (itemAt d.rules i)
+            def box:RailBox (MermaidRailroadFlow.measure(r.body))
+            def label:FlowNode (FlowNode.create(("rule-" + r.name) r.name 0.0 ((y + box.entry) - 17.0)))
+            label.nodeType = "rulename"
+            label.shape = "rect"
+            label.width = (nameW - 24.0)
+            label.height = 34.0
+            label.connectable = false
+            label.draggable = false
+            label.cssClass = "mermaid rulename axislabel"
+            label.syncFromModel()
+            g.addNode(label)
+            MermaidRailroadFlow.line(g counter (nameW - 24.0) (y + box.entry) 24.0)
+            MermaidRailroadFlow.place(g counter r.body nameW y box)
+            MermaidRailroadFlow.line(g counter (nameW + box.w) (y + box.entry) 24.0)
+            y = ((y + box.h) + 46.0)
+            i = (i + 1)
+        }
+        g.reindex()
+        def wrote:int (style.applyTo(g))
+        return g
+    }
+
+    ; ------------------------------------------------------------ measuring --
+    sfn measure:RailBox (n:MermaidRailNode) {
+        def b (new RailBox)
+        if (n.kind == "empty") {
+            b.w = 40.0
+            b.h = 4.0
+            b.entry = 2.0
+            return b
+        }
+        if (MermaidRailroadFlow.isLeaf(n.kind)) {
+            def w:double (((to_double (strlen n.text)) * 7.4) + 34.0)
+            if (w < 66.0) {
+                w = 66.0
+            }
+            b.w = w
+            b.h = (MermaidRailroadFlow.boxH())
+            b.entry = (b.h * 0.5)
+            return b
+        }
+        if (n.kind == "sequence") {
+            def total:double 0.0
+            def above:double 0.0
+            def below:double 0.0
+            def i:int 0
+            while (i < (array_length n.children)) {
+                def c:RailBox (MermaidRailroadFlow.measure((itemAt n.children i)))
+                total = (total + c.w)
+                if (i > 0) {
+                    total = (total + (MermaidRailroadFlow.gap()))
+                }
+                if (c.entry > above) {
+                    above = c.entry
+                }
+                def under:double (c.h - c.entry)
+                if (under > below) {
+                    below = under
+                }
+                i = (i + 1)
+            }
+            b.w = total
+            b.entry = above
+            b.h = (above + below)
+            return b
+        }
+        if (n.kind == "choice") {
+            def widest:double 0.0
+            def tall:double 0.0
+            def firstEntry:double 0.0
+            def k:int 0
+            while (k < (array_length n.children)) {
+                def c2:RailBox (MermaidRailroadFlow.measure((itemAt n.children k)))
+                if (c2.w > widest) {
+                    widest = c2.w
+                }
+                if (k > 0) {
+                    tall = (tall + 16.0)
+                } {
+                    firstEntry = c2.entry
+                }
+                tall = (tall + c2.h)
+                k = (k + 1)
+            }
+            b.w = (widest + ((MermaidRailroadFlow.fan()) * 2.0))
+            b.h = tall
+            b.entry = firstEntry
+            return b
+        }
+        def inner:RailBox (MermaidRailroadFlow.measure((itemAt n.children 0)))
+        if (n.kind == "optional") {
+            b.w = (inner.w + ((MermaidRailroadFlow.fan()) * 2.0))
+            b.h = (inner.h + 26.0)
+            b.entry = 8.0
+            return b
+        }
+        ; A repetition: the thing on the line, and the way back underneath it.
+        b.w = (inner.w + ((MermaidRailroadFlow.fan()) * 2.0))
+        b.h = (inner.h + 28.0)
+        b.entry = inner.entry
+        if (n.minTimes == 0) {
+            ; …and a way past it altogether, over the top.
+            b.h = (b.h + 26.0)
+            b.entry = 8.0
+        }
+        return b
+    }
+
+    sfn isLeaf:boolean (kind:string) {
+        if (kind == "terminal")    { return true }
+        if (kind == "nonterminal") { return true }
+        if (kind == "special")     { return true }
+        return false
+    }
+
+    ; ------------------------------------------------------------- placing --
+    sfn place:void (g:FlowGraph c:RailCounter n:MermaidRailNode x:double y:double box:RailBox) {
+        if (n.kind == "empty") {
+            MermaidRailroadFlow.line(g c x (y + box.entry) box.w)
+            return
+        }
+        if (MermaidRailroadFlow.isLeaf(n.kind)) {
+            def node:FlowNode (FlowNode.create((MermaidRailroadFlow.nextId(c "rr")) n.text x y))
+            node.nodeType = "step"
+            node.width = box.w
+            node.height = box.h
+            node.connectable = false
+            node.cssClass = ("mermaid " + n.kind)
+            ; A terminal is something the input actually contains, so it is
+            ; drawn as the rounded token every railroad diagram draws it as; a
+            ; non-terminal is another rule, and gets a box you could click.
+            node.shape = "rect"
+            node.borderRadius = 6.0
+            if (n.kind == "terminal") {
+                node.shape = "stadium"
+            }
+            if (n.kind == "special") {
+                node.shape = "hexagon"
+            }
+            node.syncFromModel()
+            g.addNode(node)
+            return
+        }
+        if (n.kind == "sequence") {
+            def cx:double x
+            def i:int 0
+            while (i < (array_length n.children)) {
+                def child:MermaidRailNode (itemAt n.children i)
+                def cb:RailBox (MermaidRailroadFlow.measure(child))
+                if (i > 0) {
+                    MermaidRailroadFlow.line(g c cx (y + box.entry) (MermaidRailroadFlow.gap()))
+                    cx = (cx + (MermaidRailroadFlow.gap()))
+                }
+                MermaidRailroadFlow.place(g c child cx ((y + box.entry) - cb.entry) cb)
+                cx = (cx + cb.w)
+                i = (i + 1)
+            }
+            return
+        }
+        if (n.kind == "choice") {
+            def fan:double (MermaidRailroadFlow.fan())
+            def top:double (y + box.entry)
+            def cy:double y
+            def lastLine:double top
+            def k:int 0
+            while (k < (array_length n.children)) {
+                def branch:MermaidRailNode (itemAt n.children k)
+                def bb:RailBox (MermaidRailroadFlow.measure(branch))
+                def lineY:double (cy + bb.entry)
+                MermaidRailroadFlow.place(g c branch (x + fan) cy bb)
+                ; …in from the left rail and out to the right one, with the
+                ; branch centred on whatever width the widest alternative
+                ; needed.
+                MermaidRailroadFlow.line(g c x lineY fan)
+                def rightStart:double ((x + fan) + bb.w)
+                MermaidRailroadFlow.line(g c rightStart lineY ((x + box.w) - rightStart))
+                lastLine = lineY
+                cy = ((cy + bb.h) + 16.0)
+                k = (k + 1)
+            }
+            MermaidRailroadFlow.column(g c x top lastLine)
+            MermaidRailroadFlow.column(g c (x + box.w) top lastLine)
+            return
+        }
+        def inner:MermaidRailNode (itemAt n.children 0)
+        def ib:RailBox (MermaidRailroadFlow.measure(inner))
+        def fan2:double (MermaidRailroadFlow.fan())
+        if (n.kind == "optional") {
+            def bypass:double (y + box.entry)
+            def childTop:double (y + 26.0)
+            def lineY:double (childTop + ib.entry)
+            MermaidRailroadFlow.place(g c inner (x + fan2) childTop ib)
+            MermaidRailroadFlow.line(g c x bypass box.w)
+            MermaidRailroadFlow.line(g c x lineY fan2)
+            def after:double ((x + fan2) + ib.w)
+            MermaidRailroadFlow.line(g c after lineY ((x + box.w) - after))
+            MermaidRailroadFlow.column(g c x bypass lineY)
+            MermaidRailroadFlow.column(g c (x + box.w) bypass lineY)
+            return
+        }
+        ; A repetition. The thing sits on the line and the way back runs
+        ; underneath it, which is the whole notation: you may go round again.
+        def childTop2:double y
+        if (n.minTimes == 0) {
+            childTop2 = (y + 26.0)
+        }
+        def lineY2:double (childTop2 + ib.entry)
+        MermaidRailroadFlow.place(g c inner (x + fan2) childTop2 ib)
+        MermaidRailroadFlow.line(g c x lineY2 fan2)
+        def after2:double ((x + fan2) + ib.w)
+        MermaidRailroadFlow.line(g c after2 lineY2 ((x + box.w) - after2))
+        def back:double ((childTop2 + ib.h) + 16.0)
+        MermaidRailroadFlow.line(g c (x + 10.0) back (box.w - 20.0))
+        MermaidRailroadFlow.column(g c (x + 10.0) lineY2 back)
+        MermaidRailroadFlow.column(g c ((x + box.w) - 10.0) lineY2 back)
+        if (n.minTimes == 0) {
+            def bypass2:double (y + box.entry)
+            MermaidRailroadFlow.line(g c x bypass2 box.w)
+            MermaidRailroadFlow.column(g c x bypass2 lineY2)
+            MermaidRailroadFlow.column(g c (x + box.w) bypass2 lineY2)
+        }
+    }
+
+    ; A piece of track: a rule two pixels thick, because a railroad diagram's
+    ; lines are exact and an edge router would be asked to improve on them.
+    sfn line:void (g:FlowGraph c:RailCounter x:double y:double w:double) {
+        if (w <= 0.5) {
+            return
+        }
+        def n:FlowNode (FlowNode.create((MermaidRailroadFlow.nextId(c "h")) "" x (y - 1.0)))
+        n.nodeType = "track"
+        n.shape = "rect"
+        n.width = w
+        n.height = 2.0
+        n.borderRadius = 0.0
+        n.connectable = false
+        n.draggable = false
+        n.cssClass = "mermaid track"
+        n.bgColor = "#7b8494"
+        n.borderColor = "#7b8494"
+        n.syncFromModel()
+        g.addNode(n)
+    }
+
+    sfn column:void (g:FlowGraph c:RailCounter x:double y0:double y1:double) {
+        def top:double y0
+        def bottom:double y1
+        if (y1 < y0) {
+            top = y1
+            bottom = y0
+        }
+        if ((bottom - top) <= 0.5) {
+            return
+        }
+        def n:FlowNode (FlowNode.create((MermaidRailroadFlow.nextId(c "v")) "" (x - 1.0) top))
+        n.nodeType = "track"
+        n.shape = "rect"
+        n.width = 2.0
+        n.height = (bottom - top)
+        n.borderRadius = 0.0
+        n.connectable = false
+        n.draggable = false
+        n.cssClass = "mermaid track"
+        n.bgColor = "#7b8494"
+        n.borderColor = "#7b8494"
+        n.syncFromModel()
+        g.addNode(n)
+    }
+
+    sfn nextId:string (c:RailCounter prefix:string) {
+        c.n = (c.n + 1)
+        return (prefix + (to_string c.n))
+    }
+}
+
+; Ids have to be unique and a static method has nowhere to keep a count, so
+; the count is passed down with everything else.
+class RailCounter {
+    def n:int 0
+
+    Constructor () {
+    }
+}

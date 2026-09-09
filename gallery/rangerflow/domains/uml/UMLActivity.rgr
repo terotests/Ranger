@@ -96,6 +96,11 @@ class ActivityFlow {
     def target:string ""
     ; The guard, written in brackets on the arrow: "[kyllä]", "[ei]".
     def guard:string ""
+    ; A plain label, written on the arrow as it stands. An activity diagram
+    ; puts a condition on a flow and brackets it; a state machine writes the
+    ; EVENT that causes the transition, and brackets would be a lie about
+    ; which of the two it is.
+    def label:string ""
 
     Constructor () {
     }
@@ -162,6 +167,9 @@ class ActivityDiagram {
                     e.markerEnd = "arrowclosed"
                     if ((strlen f.guard) > 0) {
                         e.label = ("[" + f.guard + "]")
+                    }
+                    if ((strlen f.label) > 0) {
+                        e.label = f.label
                     }
                     g.addEdge(e)
                 }

@@ -1,0 +1,7 @@
+%% EBNF: `,` joins, `|` chooses, `{ }` repeats, `[ ]` is optional.
+railroad-ebnf-beta
+    digit = "0" | "1" | "2" | "3" ;
+    letter = "a" | "b" | "c" ;
+    identifier = letter , { letter | digit } ;
+    number = digit , { digit } ;
+    value = identifier | number ;

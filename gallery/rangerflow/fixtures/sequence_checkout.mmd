@@ -1,0 +1,33 @@
+sequenceDiagram
+    autonumber
+    title Checkout
+    actor Customer
+    box Shop
+        participant Web as Web front
+        participant API as Order API
+    end
+    participant Bank as Payment gateway
+
+    Customer->>Web: Place order
+    activate Web
+    Web->>+API: POST /orders
+    API->>API: validate basket
+    API-->>-Web: 201 Created
+    deactivate Web
+    Note over Web,API: the order exists, nothing is paid yet
+
+    loop every 5s until settled
+        Web->>+Bank: authorise
+        alt card accepted
+            Bank-->>-Web: approved
+            Web-)API: mark paid
+        else card declined
+            Bank--xWeb: declined
+        end
+    end
+
+    opt receipt wanted
+        API->>Customer: e-mail receipt
+    end
+
+    Note right of Customer: done
