@@ -1,0 +1,26 @@
+{
+  "_": "Home's Tilastot tab, which `home-tabs` opens and never goes into, and the one button on it. `home-tabs` already shows the tab itself is 95% — this is what is under it.",
+  "id": "home-stats",
+  "area": "koti",
+  "machine": "",
+  "reference": {
+    "route": "/calendar/cal-train?week=2026-02-09"
+  },
+  "setup": [
+    { "page": "390x844" },
+    { "route": "/calendar/cal-train?week=2026-02-09" }
+  ],
+  "steps": [
+    { "tick": 500 },
+    { "id": "rt-nav-home", "role": "button", "name": "Koti" },
+    { "tick": 1500 },
+    { "id": "rt-home-tab-stats", "role": "button", "name": "Tilastot" },
+    {
+      "id": "rt-stats-calc",
+      "role": "button",
+      "name": "Laske vektorit",
+      "why": "the only control the statistics panel has on this side"
+    },
+    { "tick": 1200, "why": "whatever the calculation does" }
+  ]
+}

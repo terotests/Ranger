@@ -434,8 +434,8 @@ is one no reader is ever handed.
 Four scenarios were added to go where the first thirteen never did, and three
 of them found something that is drawn and does not answer:
 
-Five scenarios were added to go where the first thirteen never did, and the
-reference was recorded for four of them — so what each gap should look like is
+Nine scenarios were added to go where the first thirteen never did, and the
+reference was recorded for eight of them — so what each gap should look like is
 on file rather than guessed at.
 
 | Scenario | Parity | What the reference does, and this side does not |
@@ -444,14 +444,19 @@ on file rather than guessed at.
 | `home-notes` | 46% | **Muistiinpanot** on a card is not a panel on the card — it opens a workout notes page: the notes for that entry, a date and Tallenna, the training links (Hae ja linkitä treeni, the linked entry, Poista linkki tähän treeniin), the video links out of the knowledge store, and a markdown field with its rendered preview. Here the button does nothing |
 | `home-drills` | 77% | the tab, the categories and the sort all work, and both sides list the same six endurance drills in the same order — with different numbers: juoksu 29× there and 37× here, uinti 1.6km against 2.6km, rintauinti 3.0km against 16.2km. A drill row opens the exercise there and nothing here |
 | `home-entry` | 99.7% | **Näytä tilastot** opens a panel over the card with a heading, a summary and a Sulje of its own. **Compact** and **JSON** copy the entry to the clipboard and say so in a toast — two toasts, stacked, when both are pressed. All three are dead here |
+| `credits` | 14% | the header's **credit gauge** is on every screen of both sides. There it opens a page — AI-kreditit with what is used of what is available, a purchase panel with a price and Stripe under it, the credits history and the detailed receipts. Here it is drawn, carries the same long name a reader hears, and answers nothing |
+| `home-stats` | 54% | **Laske vektorit** opens a dialog there: a date range (Tänään, 7, 14, 30 päivää, Mukautettu), every calendar to pick from, what the calculation will do, and Peruuta beside it. Here it is the one control the statistics panel has |
+| `home-entry-edit` | 99.6% | **Lisää** on a card is not an add: it opens the card's action menu — Muokkaa AI:lla, Kopioi kuvana, Poista. **Poista** removes the entry and toasts "Merkintä poistettu". Both dead here |
+| `dashboard` | 100% | the section and **Avaa suunnitelma** — the year plan with its JSON in and out, its three tabs and its periods — match |
 | `settings-theme` | — | `noReference`: Ocean and Sunrise are this port's own |
 
-One thing the recorder could not reach: **Lisää kommentti**. It is drawn three
-hundred times on the reference's Home and the row's own content lies over every
-one of them — `custom-row … intercepts pointer events` — and hovering the row
-first was not enough for the click to land. A `"hover": true` step is in the
-recorder for it; the gap is real either way and this scenario cannot yet
-record its shape.
+Two the recorder could not reach: **Lisää kommentti** and **Muokkaa tekstiä**.
+Both are row controls, both are drawn hundreds of times on the reference's
+Home, and the row's own content lies over every one of them —
+`custom-row … intercepts pointer events` — with hovering the row first not
+enough for the click to land. A `"hover": true` step is in the recorder for
+them; the gaps are real either way and these scenarios cannot yet record their
+shape.
 
 `handled: false` in a committed trace is a gap recorded rather than
 remembered, and `traces/parity.json` is what stops any of these sliding

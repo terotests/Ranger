@@ -1,0 +1,23 @@
+{
+  "_": "The credits button in the header, on every screen of both sides. On the reference it opens a page: AI-kreditit with what is used of what is available, a purchase panel with a price and Stripe under it, the credits history and the detailed receipts. Here the button is drawn, carries the same long name a reader hears, and answers nothing.",
+  "id": "credits",
+  "area": "tili",
+  "machine": "",
+  "reference": {
+    "route": "/calendar/cal-train?week=2026-02-09"
+  },
+  "setup": [
+    { "page": "390x844" },
+    { "route": "/calendar/cal-train?week=2026-02-09" }
+  ],
+  "steps": [
+    { "tick": 500 },
+    {
+      "id": "rt-credits",
+      "role": "button",
+      "name": "AI Credits: 100k. Click to purchase more credits.",
+      "why": "the header's credit gauge; its name is what the original gives it"
+    },
+    { "tick": 600, "why": "the page the reference navigates to" }
+  ]
+}

@@ -15,5 +15,9 @@
  "plan-week.json": 1,
  "sections.json": 0.937,
  "yearsheet-detail.json": 1,
- "yearsheet.json": 1
+ "yearsheet.json": 1,
+ "credits.json": 0.142,
+ "dashboard.json": 1,
+ "home-entry-edit.json": 0.996,
+ "home-stats.json": 0.54
 }
