@@ -23,6 +23,7 @@ Import "../domains/erd/SchemaToGraph.rgr"
 Import "../domains/uml/UMLModel.rgr"
 Import "../domains/uml/UMLActivity.rgr"
 Import "../domains/flowchart/Flowchart.rgr"
+Import "../domains/mermaid/MermaidReader.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 Import "../layout/TreeLayouts.rgr"
 Import "../export/FlowExport.rgr"
@@ -277,6 +278,10 @@ class RangerFlowWeb {
         }
         if (name == "atk") {
             return (this.loadAtkChart())
+        }
+        if (name == "mermaid") {
+            def sample:string (RangerFlowWeb.sampleMermaid())
+            return (this.loadMermaid(sample))
         }
         if (name == "org") {
             return (this.loadOrgChart())
@@ -566,6 +571,50 @@ class RangerFlowWeb {
         editor.pinWhileDragging = false
         status = ((to_string (g.nodeCount())) + " vaihetta, " + (to_string (g.edgeCount())) + " yhteyttä — ATK-kaavio ISO 5807:n muodoilla")
         return true
+    }
+
+    ; ------------------------------------------------------------ mermaid ----
+    ; Text somebody wrote in a README, on the screen and draggable. This is
+    ; the whole of the browser side of it: the reader does the parsing, the
+    ; pipeline does the layout, and the editor does not know where the graph
+    ; came from.
+    fn loadMermaid:boolean (text:string) {
+        def d:MermaidDiagram (MermaidReader.parse(text))
+        if ((d.nodeCount()) == 0) {
+            status = "no nodes in that Mermaid source"
+            return false
+        }
+        def g:FlowGraph (MermaidFlow.build(d))
+        this.adopt(g)
+        editor.view.notation = "plain"
+        layoutName = "layered"
+        simRunning = false
+        editor.pinWhileDragging = false
+        def what:string d.title
+        if ((strlen what) == 0) {
+            what = ("Mermaid " + d.direction)
+        }
+        status = ((to_string (d.nodeCount())) + " nodes, " + (to_string (d.linkCount())) + " links — " + what)
+        return true
+    }
+
+    ; The sample the dropdown shows, and the text the editing panel opens with.
+    sfn sampleMermaid:string () {
+        def t:string "flowchart TD\n"
+        t = (t + "    start([Uusi tilaus]) --> lue[/Lue rivit/]\n")
+        t = (t + "    lue --> tarkista{Luotto kunnossa?}\n")
+        t = (t + "    tarkista -->|kyllä| varaa[Varaa tuotteet]\n")
+        t = (t + "    tarkista -->|ei| hylkaa[\\Ilmoita hylkäys\\]\n")
+        t = (t + "    subgraph laskutus [Laskutus]\n")
+        t = (t + "        varaa --> lasku[[Muodosta lasku]]\n")
+        t = (t + "        lasku --> posti[/Lasku asiakkaalle/]\n")
+        t = (t + "    end\n")
+        t = (t + "    rekisteri[(Asiakasrekisteri)] -.-> tarkista\n")
+        t = (t + "    posti --> loppu(((Valmis)))\n")
+        t = (t + "    hylkaa --> loppu\n")
+        t = (t + "    classDef stop fill:#fee,stroke:#c66\n")
+        t = (t + "    class hylkaa stop\n")
+        return t
     }
 
     ; A UML activity diagram: the other UML, the one that is a flowchart. Its

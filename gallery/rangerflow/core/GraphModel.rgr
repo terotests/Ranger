@@ -1534,6 +1534,35 @@ class FlowGraph {
         }
     }
 
+    ; Move a node to the front of the list, which is the back of the drawing:
+    ; nodes are painted in order and `nodeAtPoint` walks backwards, so a frame
+    ; added after the boxes it encloses would cover them and swallow their
+    ; clicks. A sub-flow box is the paper the group is drawn on, and paper goes
+    ; underneath.
+    fn sendToBack:boolean (id:string) {
+        def at:int (this.indexOfNode(id))
+        if (at < 0) {
+            return false
+        }
+        def kept:[FlowNode]
+        push kept (itemAt nodes at)
+        def i:int 0
+        while (i < (array_length nodes)) {
+            if (i != at) {
+                push kept (itemAt nodes i)
+            }
+            i = (i + 1)
+        }
+        clear nodes
+        def j:int 0
+        while (j < (array_length kept)) {
+            push nodes (itemAt kept j)
+            j = (j + 1)
+        }
+        this.reindex()
+        return true
+    }
+
     ; Removing a node removes what pointed at it — a dangling edge is the one
     ; kind of graph corruption a renderer cannot draw its way out of.
     fn removeNode:boolean (id:string) {

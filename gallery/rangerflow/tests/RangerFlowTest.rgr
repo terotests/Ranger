@@ -23,6 +23,7 @@ Import "../domains/erd/SqlSchemaReader.rgr"
 Import "../domains/erd/SchemaToGraph.rgr"
 Import "../domains/uml/UMLModel.rgr"
 Import "../domains/flowchart/Flowchart.rgr"
+Import "../domains/mermaid/MermaidReader.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 
 class Checker {
@@ -84,6 +85,8 @@ class RangerFlowTest {
         RangerFlowTest.testSegmentDrag(c)
         RangerFlowTest.testShapes(c)
         RangerFlowTest.testFlowchart(c)
+        RangerFlowTest.testMermaid(c)
+        RangerFlowTest.testMermaidLayout(c)
         RangerFlowTest.testBusinessCharts(c)
         RangerFlowTest.testAuthoring(c)
         RangerFlowTest.testTreeLayouts(c)
@@ -2168,6 +2171,158 @@ class RangerFlowTest {
         ; reader relies on when the labels are too small to read.
         def okNode:FlowNode (g.nodeById("ok"))
         c.ok("the decision sits above the branch it leads to" ((ehto.centerY()) < (okNode.centerY())))
+    }
+
+    ; -------------------------------------------------------------- mermaid --
+    ; The reader, asserted against the diagram somebody would actually paste
+    ; in: every shape, every link, both label forms, a subgraph, a class and a
+    ; comment.
+    sfn testMermaid:void (c:Checker) {
+        c.section("Mermaid reader")
+        def src:string "%% a comment\n"
+        src = (src + "flowchart TD\n")
+        src = (src + "    A([Start]) --> B[/Read/]\n")
+        src = (src + "    B --> C{Ok?}\n")
+        src = (src + "    C -->|yes| D[[Invoice]]\n")
+        src = (src + "    C -- no --> E[\\Reject\\]\n")
+        src = (src + "    D --> F[(Orders)] ; F -.-> G((Done))\n")
+        src = (src + "    E ==> G\n")
+        src = (src + "    H{{Prepare}} --o I>Report]\n")
+        def d:MermaidDiagram (MermaidReader.parse(src))
+        c.eqStr("the header gives the direction" d.direction "TD")
+        c.eqInt("every node named is a node" (d.nodeCount()) 9)
+        c.eqInt("and every link a link" (d.linkCount()) 8)
+
+        def g:FlowGraph (d.build())
+        def a:FlowNode (g.nodeById("A"))
+        c.eqStr("([]) is a stadium" a.shape "stadium")
+        c.eqStr("and the label is what was in the brackets" a.label "Start")
+        def b:FlowNode (g.nodeById("B"))
+        c.eqStr("[//] is a parallelogram" b.shape "parallelogram")
+        def cc:FlowNode (g.nodeById("C"))
+        c.eqStr("{} is a diamond" cc.shape "diamond")
+        def dd:FlowNode (g.nodeById("D"))
+        c.eqStr("[[]] is a subroutine box" dd.shape "predefined")
+        def ee:FlowNode (g.nodeById("E"))
+        c.eqStr("[\\] is a polygon, mirrored" ee.shape "polygon")
+        def ff:FlowNode (g.nodeById("F"))
+        c.eqStr("[()] is a drum" ff.shape "cylinder")
+        def gg:FlowNode (g.nodeById("G"))
+        c.eqStr("(()) is a circle" gg.shape "circle")
+        c.near("and a circle is round" gg.width gg.height 0.001)
+        def hh:FlowNode (g.nodeById("H"))
+        c.eqStr("{{}} is a hexagon" hh.shape "hexagon")
+        def ii:FlowNode (g.nodeById("I"))
+        c.eqStr(">] is the notched box" ii.shape "receivesignal")
+
+        ; The links: both label forms, and the four strokes.
+        def yes:FlowEdge (RangerFlowTest.edgeBetween(g "C" "D"))
+        c.eqStr("|text| labels the link" yes.label "yes")
+        def no:FlowEdge (RangerFlowTest.edgeBetween(g "C" "E"))
+        c.eqStr("-- text --> labels it too" no.label "no")
+        def dotted:FlowEdge (RangerFlowTest.edgeBetween(g "F" "G"))
+        c.ok("-.-> is drawn dashed" (dotted.dash > 0.0))
+        def thick:FlowEdge (RangerFlowTest.edgeBetween(g "E" "G"))
+        c.ok("==> is drawn thick" (thick.strokeWidth > 1.0))
+        def circle:FlowEdge (RangerFlowTest.edgeBetween(g "H" "I"))
+        c.eqStr("--o ends in a circle" circle.markerEnd "circle")
+        def plain:FlowEdge (RangerFlowTest.edgeBetween(g "A" "B"))
+        c.eqStr("--> ends in an arrow" plain.markerEnd "arrowclosed")
+    }
+
+    sfn edgeBetween:FlowEdge (g:FlowGraph source:string target:string) {
+        def i:int 0
+        while (i < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(i))
+            if (e.source == source) {
+                if (e.target == target) {
+                    return e
+                }
+            }
+            i = (i + 1)
+        }
+        return (new FlowEdge)
+    }
+
+    ; The rest of the dialect, and what the layout does with it.
+    sfn testMermaidLayout:void (c:Checker) {
+        c.section("Mermaid layout, subgraphs and styles")
+        ; Chains, fan-out, the open and bidirectional links, and a `---`
+        ; front matter title.
+        def src:string "---\ntitle: A chart\n---\nflowchart LR\n"
+        src = (src + "    A --> B --> C\n")
+        src = (src + "    D & E --> F\n")
+        src = (src + "    G --- H\n")
+        src = (src + "    I <--> J\n")
+        def d:MermaidDiagram (MermaidReader.parse(src))
+        c.eqStr("the front matter carries the title" d.title "A chart")
+        c.eqStr("and the header the direction" d.direction "LR")
+        c.eqInt("a chain is two links, a fan-out two more" (d.linkCount()) 6)
+        def g:FlowGraph (MermaidFlow.build(d))
+        def open:FlowEdge (RangerFlowTest.edgeBetween(g "G" "H"))
+        c.eqStr("--- has no arrow at all" open.markerEnd "")
+        def both:FlowEdge (RangerFlowTest.edgeBetween(g "I" "J"))
+        c.eqStr("<--> has one at each end" both.markerStart "arrowclosed")
+        ; Left to right means left to right.
+        def a:FlowNode (g.nodeById("A"))
+        def b:FlowNode (g.nodeById("B"))
+        c.ok("LR puts the target to the right" ((a.centerX()) < (b.centerX())))
+
+        ; Bottom to top is the same layout, read the other way.
+        def up:MermaidDiagram (MermaidReader.parse("flowchart BT\n  A --> B\n  B --> C\n"))
+        def ug:FlowGraph (MermaidFlow.build(up))
+        def ua:FlowNode (ug.nodeById("A"))
+        def uc:FlowNode (ug.nodeById("C"))
+        c.ok("BT puts the target above the source" ((uc.centerY()) < (ua.centerY())))
+
+        ; A subgraph becomes a frame behind its members, and the members carry
+        ; its id — which is what makes dragging the group work.
+        def sub:string "flowchart TD\n"
+        sub = (sub + "    A --> B\n")
+        sub = (sub + "    subgraph pay [Payments]\n")
+        sub = (sub + "        B --> C\n")
+        sub = (sub + "        C --> D\n")
+        sub = (sub + "    end\n")
+        sub = (sub + "    D --> E\n")
+        sub = (sub + "    classDef warn fill:#fee,stroke:#c66\n")
+        sub = (sub + "    class E warn\n")
+        sub = (sub + "    style A fill:#eef\n")
+        def sd:MermaidDiagram (MermaidReader.parse(sub))
+        c.eqInt("the block is one subgraph" (sd.subgraphCount()) 1)
+        def sg:MermaidSubgraph (sd.subgraphAt(0))
+        c.eqStr("named as it was written" sg.title "Payments")
+        ; B was named before the block, so it stays outside it: Mermaid's rule.
+        c.eqInt("only the nodes first named inside belong to it" (sg.memberCount()) 2)
+        def sgraph:FlowGraph (MermaidFlow.build(sd))
+        def frame:FlowNode (sgraph.nodeById("sg-pay"))
+        c.eqStr("the subgraph is drawn as a group" frame.nodeType "group")
+        def cNode:FlowNode (sgraph.nodeById("C"))
+        c.eqStr("and its members belong to it" cNode.parentId "sg-pay")
+        ; Painted first is painted behind, which is the whole point of a frame.
+        def first:FlowNode (sgraph.nodeAt(0))
+        c.eqStr("the frame is behind the nodes it holds" first.id "sg-pay")
+        ; The frame holds what it says it holds.
+        def dNode:FlowNode (sgraph.nodeById("D"))
+        def right:double (frame.x + frame.width)
+        def bottom:double (frame.y + frame.height)
+        c.ok("the frame encloses its members" ((cNode.x > frame.x) && (dNode.x < right)))
+        c.ok("top and bottom too" ((cNode.y > frame.y) && (dNode.y < bottom)))
+        ; classDef / class / style.
+        def eNode:FlowNode (sgraph.nodeById("E"))
+        c.eqStr("a class sets the fill" eNode.bgColor "#fee")
+        c.eqStr("and the stroke" eNode.borderColor "#c66")
+        def aNode:FlowNode (sgraph.nodeById("A"))
+        c.eqStr("style names one node" aNode.bgColor "#eef")
+
+        ; And the whole of the demo diagram still routes cleanly.
+        def demoSrc:string (?? (read_file "." "gallery/rangerflow/fixtures/order_flow.mmd") "")
+        if ((strlen demoSrc) > 0) {
+            def demo:MermaidDiagram (MermaidReader.parse(demoSrc))
+            c.eqStr("the demo diagram has its title" demo.title "Tilauksen käsittely")
+            def dg:FlowGraph (MermaidFlow.build(demo))
+            c.eqInt("nothing is drawn through a step" (EdgeOverlap.nodeCrossings(dg)) 0)
+            c.eqInt("and no two links are drawn as one line" (EdgeOverlap.pairs(dg 2.0)) 0)
+        }
     }
 
     ; ------------------------------------------------------ business charts --

@@ -139,6 +139,7 @@ Status keys: **✓** done · **~** partial · **·** not yet.
 | Keys-only view for big schemas | ✓ | `SchemaToGraph.keysOnly` |
 | Schema grouping / multi-schema | ~ | `DBTable.schema` is modelled; no visual grouping yet |
 | SQL DDL import | ✓ | `SqlSchemaReader` |
+| Mermaid flowchart import | ✓ | `MermaidReader`: every shape and link, `subgraph`, `classDef` / `class` / `style`; `click` and `linkStyle` ignored |
 | JSON import / export | ✓ | `FlowGraphJson` |
 | Prisma / DBML / ORM importers | · | on the list |
 | Live database introspection | · | the interface is designed, not written |

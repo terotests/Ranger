@@ -1571,6 +1571,22 @@ class EdgeDecoration {
             push d.shapes s2
             return d
         }
+        if (kind == "cross") {
+            ; Two strokes across the line's end: Mermaid's `--x`, and the same
+            ; mark UML uses for "and here it stops".
+            def x1 (new DecoShape)
+            def back:double (0.0 - size)
+            def up:double (size * 0.7)
+            def down:double (0.0 - up)
+            EdgeDecoration.put(x1 x y ux uy back up)
+            EdgeDecoration.put(x1 x y ux uy 0.0 down)
+            push d.shapes x1
+            def x2 (new DecoShape)
+            EdgeDecoration.put(x2 x y ux uy back down)
+            EdgeDecoration.put(x2 x y ux uy 0.0 up)
+            push d.shapes x2
+            return d
+        }
         if (kind == "circle") {
             def sc (new DecoShape)
             sc.filled = true

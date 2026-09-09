@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Mermaid, rendered by RangerFlow.** Mermaid is how a diagram travels
+  through a README, a ticket and a review, and it is also a diagram you cannot
+  print, hit-test or drag a node in. `gallery/rangerflow/domains/mermaid`
+  reads the flowchart dialect — every node shape, every link including `--o`,
+  `--x` and the `<-->` family, both label forms, chains and `&` fan-outs,
+  `subgraph … end` nested, `classDef` / `class` / `:::name` / `style`, `%%`
+  comments and `---` front matter — and hands back a `FlowGraph`. From there
+  it is the layered layout, the lane router and the four backends the ERD
+  already uses: `npm run rangerflow:mermaid` writes SVG, PDF, HTML, JSON and a
+  GPU scene from `fixtures/order_flow.mmd`. A subgraph becomes the sub-flow
+  frame RangerFlow already had, drawn behind its members and dragging them
+  with it, and the layer ordering keeps a group's nodes together so the frame
+  encloses what it says it encloses. `BT` and `RL` are the layout mirrored
+  rather than a second layout. In the browser page, `?scenario=mermaid` opens a
+  text box: paste Mermaid, press render, and the result is draggable, editable
+  and exportable to SVG — checked on every `rangerflow:web:test` like the other
+  scenarios. What is ignored on purpose: `click`, `linkStyle` by index, and
+  `direction` inside a subgraph.
 - **A database workbench over the simulator, at `/firesim/`.** A backend you
   cannot see is a backend you have to take on trust, so `gallery/firesim/demo`
   puts the thing a person actually reaches for on top of it: a data browser.

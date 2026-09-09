@@ -1,0 +1,29 @@
+---
+title: Tilauksen käsittely
+---
+%% The demo diagram, written the way anyone would write it in a README.
+%% `npm run rangerflow:mermaid` renders this file to SVG, PDF, HTML and a scene.
+flowchart TD
+    alku([Alku]) --> tilaus[/Lue tilaus/]
+    tilaus --> tarkista[Tarkista luottotiedot]
+    rekisteri[(Asiakasrekisteri)] -.-> tarkista
+    tarkista --> luotto{Luotto kunnossa?}
+    luotto -->|kyllä| varasto[Varaa tuotteet]
+    luotto -->|ei| hylkaa[\Ilmoita hylkäys\]
+
+    subgraph laskutus [Laskutus]
+        varasto --> saldo{Riittääkö saldo?}
+        saldo -- kyllä --> laskuta[[Muodosta lasku]]
+        saldo -- ei --> jalki[Merkitse jälkitoimitukseen]
+        jalki --> laskuta
+        laskuta --> lasku[/Lasku asiakkaalle/]
+    end
+
+    lasku --> loppu(((Loppu)))
+    hylkaa --> loppu
+
+    classDef stop fill:#fee,stroke:#c66
+    classDef store fill:#f3eefb,stroke:#9c88c4
+    class hylkaa stop
+    class rekisteri store
+    style loppu fill:#e8f1ff

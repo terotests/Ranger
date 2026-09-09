@@ -27,10 +27,11 @@ routing, auto-layout, large graphs — and produces something worth having.
 ## Run it
 
 ```bash
-npm run rangerflow:test        # 399 assertions: model, forces, router, editor, SQL, export
+npm run rangerflow:test        # 656 assertions: model, forces, router, editor, SQL, Mermaid, export
 npm run rangerflow:demo        # the e-commerce schema → SVG, PDF, HTML, JSON, scene
 npm run rangerflow:uml         # the same pipeline for a UML class diagram
 npm run rangerflow:flowchart   # an ATK flowchart in ISO 5807 shapes
+npm run rangerflow:mermaid     # a Mermaid flowchart, read from fixtures/order_flow.mmd
 npm run rangerflow:org         # an organisation chart
 npm run rangerflow:process     # a swimlane process
 npm run rangerflow:force       # React Flow's force-layout example, in Ranger
@@ -38,7 +39,7 @@ npm run rangerflow:bench       # layout / scene / drag timings at 500 nodes
 npm run rangerflow:drag        # drop every node everywhere, count the lines left crossing
 npm run rangerflow:demo:web    # build the page, serve it, open a browser
 npm run rangerflow:web:serve   # …the same without opening anything
-npm run rangerflow:web:test    # …or run all nine demos in headless Chrome
+npm run rangerflow:web:test    # …or run all eleven demos in headless Chrome
 npm run rangerflow:parity      # score it against React Flow — see below
 npm run rangerflow:rivals      # …and against JointJS and Syncfusion
 npm run rangerflow:sdl:run     # the same editor in a native SDL2 + OpenGL window
@@ -57,6 +58,7 @@ dropdown in the page switches between them, and `?scenario=` picks one on load:
 | [`?scenario=force`](http://localhost:8080/?scenario=force) | React Flow's force-layout example: d3-force running live, and a node you drag pins while you hold it |
 | [`?scenario=flow`](http://localhost:8080/?scenario=flow) | a plain flowchart — the core with no domain on top of it |
 | [`?scenario=atk`](http://localhost:8080/?scenario=atk) | an ATK chart in the ISO 5807 shapes: diamond, drum, parallelogram, wavy-footed page |
+| [`?scenario=mermaid`](http://localhost:8080/?scenario=mermaid) | **paste Mermaid, press render** — the text box is the diagram, and what comes out is draggable, editable and exportable |
 | [`?scenario=org`](http://localhost:8080/?scenario=org) | an organisation chart, units coloured, the matrix report dashed |
 | [`?scenario=process`](http://localhost:8080/?scenario=process) | a swimlane process — drag a lane and its steps come with it |
 | [`?scenario=mindmap`](http://localhost:8080/?scenario=mindmap) | a mind map, branches balanced either side of the root |
@@ -86,6 +88,49 @@ drives itself through select → drag → undo → select-all → **add two node
 join them, rename one, undo it all** inside real headless Chrome, and reports
 what the GL context actually did. A scenario cannot rot unnoticed behind the
 default one, and neither can a toolbar button.
+
+## Mermaid in, a drawing out
+
+Mermaid is how a diagram travels through a README, a ticket and a review:
+eleven lines of text everyone can already write. What it is not is something
+you can print, hit-test, drag a node in, or produce without a browser.
+`domains/mermaid/MermaidReader.rgr` is the door — text in, a `FlowGraph` out —
+and after that it is the same layered layout, the same lane router and the same
+four backends the ERD uses.
+
+```bash
+npm run rangerflow:mermaid                            # fixtures/order_flow.mmd
+npm run rangerflow:demo -- --mermaid path/to/diagram.mmd
+```
+
+```ranger
+def d:MermaidDiagram (MermaidReader.parse(text))
+def g:FlowGraph (MermaidFlow.build(d))      ; parsed, laid out, routed, framed
+```
+
+![Mermaid pasted into the page and drawn on the GPU](artifacts/scenario_mermaid.png)
+
+What it reads, which is the flowchart dialect people actually write:
+
+| | |
+| --- | --- |
+| header | `flowchart` / `graph` with `TD`, `TB`, `BT`, `LR`, `RL` |
+| shapes | `[]` `()` `([])` `[[]]` `[()]` `(())` `((()))` `>]` `{}` `{{}}` `[//]` `[\\]` `[/\]` `[\/]` |
+| links | `-->` `---` `-.->` `-.-` `==>` `===` `--o` `--x`, the `<-->` family, and both label forms — `A -->|yes| B` and `A -- yes --> B` |
+| statements | chains `A --> B --> C`, fan-outs `A & B --> C & D`, `;` separators |
+| grouping | `subgraph … end`, nested, drawn as the frames a sub-flow already has |
+| styling | `classDef`, `class`, `:::name`, `style` — fill, stroke and text colour |
+| the rest | `%%` comments, `---` front matter with a title, quoted labels, `<br/>`, HTML entities |
+
+What it drops on purpose: `click` (there is no browser to navigate),
+`linkStyle` by index, and `direction` inside a subgraph — RangerFlow lays the
+whole chart out one way. They are ignored rather than treated as errors, so a
+diagram that renders in Mermaid renders here too.
+
+Where it differs: text is measured with a font table rather than in a browser,
+so a line can break one word apart from Mermaid's; a double circle is drawn as
+the UML final node, which is the same two rings; and a node id may not contain
+`-` or `.`, because those start links.
 
 ## …and in a window
 

@@ -9,6 +9,7 @@
 ;   npm run rangerflow:demo -- --force      the React Flow force-layout parity
 ;   npm run rangerflow:demo -- --bench 500  layout + scene timings at a size
 ;   npm run rangerflow:demo -- --flowchart  an ATK flowchart in ISO 5807 shapes
+;   npm run rangerflow:demo -- --mermaid    a Mermaid flowchart, read from a file
 ;   npm run rangerflow:demo -- --org        an organisation chart
 ;   npm run rangerflow:demo -- --process    a swimlane process
 ;   npm run rangerflow:demo -- --drag       drop every node everywhere, count
@@ -24,6 +25,7 @@ Import "../domains/erd/SqlSchemaReader.rgr"
 Import "../domains/erd/SchemaToGraph.rgr"
 Import "../domains/uml/UMLModel.rgr"
 Import "../domains/flowchart/Flowchart.rgr"
+Import "../domains/mermaid/MermaidReader.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 Import "../layout/LayeredLayout.rgr"
 Import "../layout/EdgeLanes.rgr"
@@ -41,6 +43,7 @@ class RangerFlowDemo {
         def d (new RangerFlowDemo)
         def mode:string "erd"
         def benchSize:int 0
+        def mermaidPath:string "gallery/rangerflow/fixtures/order_flow.mmd"
         def argCount:int (shell_arg_cnt)
         def i:int 0
         while (i < argCount) {
@@ -50,6 +53,15 @@ class RangerFlowDemo {
             if (a == "--force") { mode = "force" }
             if (a == "--drag")  { mode = "drag" }
             if (a == "--flowchart") { mode = "flowchart" }
+            if (a == "--mermaid") {
+                mode = "mermaid"
+                if ((i + 1) < argCount) {
+                    def given:string (shell_arg (i + 1))
+                    if ((charAt given 0) != 45) {
+                        mermaidPath = given
+                    }
+                }
+            }
             if (a == "--org")       { mode = "org" }
             if (a == "--process")   { mode = "process" }
             if (a == "--bench") {
@@ -67,6 +79,7 @@ class RangerFlowDemo {
         if (mode == "bench") { d.runBench(benchSize) }
         if (mode == "drag")  { d.runDrag() }
         if (mode == "flowchart") { d.runFlowchart() }
+        if (mode == "mermaid")   { d.runMermaid(mermaidPath) }
         if (mode == "org")       { d.runOrg() }
         if (mode == "process")   { d.runProcess() }
     }
@@ -359,6 +372,33 @@ class RangerFlowDemo {
         def v:FlowView (FlowView.of(g))
         v.notation = "plain"
         this.writeAll(v g "rangerflow-flowchart" "RangerFlow — ATK-kaavio")
+    }
+
+    ; ----------------------------------------------------------- mermaid ----
+    ; The same pipeline again, with the model read from a file somebody wrote
+    ; in a README instead of built by hand. Everything after the first two
+    ; lines is what the ERD, the UML diagram and the ATK chart already do.
+    fn runMermaid:void (path:string) {
+        print "== RangerFlow: Mermaid =="
+        def srcOpt:string (?? (read_file "." path) "")
+        if ((strlen srcOpt) == 0) {
+            print ("could not read " + path)
+            return
+        }
+        def d:MermaidDiagram (MermaidReader.parse(srcOpt))
+        print ("  read   " + path)
+        print ("  model  " + (to_string (d.nodeCount())) + " nodes, " + (to_string (d.linkCount())) + " links, " + (to_string (d.subgraphCount())) + " subgraphs, direction " + d.direction)
+        def g:FlowGraph (MermaidFlow.build(d))
+        print ("  graph  " + (to_string (g.nodeCount())) + " nodes (frames included), " + (to_string (g.edgeCount())) + " edges")
+        print ("         edges drawn through an unrelated node: " + (to_string (EdgeOverlap.nodeCrossings(g))))
+        print ("         edges crossing each other: " + (to_string (EdgeOverlap.edgeCrossings(g))))
+        def v:FlowView (FlowView.of(g))
+        v.notation = "plain"
+        def title:string d.title
+        if ((strlen title) == 0) {
+            title = "RangerFlow — Mermaid"
+        }
+        this.writeAll(v g "rangerflow-mermaid" title)
     }
 
     ; ------------------------------------------------------------- org -----
