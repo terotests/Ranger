@@ -2634,6 +2634,16 @@
 .rt-card-hd { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 16px; height: 22px; }
 .rt-card-tx { color: var(--ink-dim); font-family: Arial; font-size: 13px; height: 18px; }
 
+/* --- the feature-vector dialog ----------------------------------------- */
+.rt-vec-sheet { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 10px; margin: 12px 0px; padding: 14px; border-radius: 14px; border-width: 1px; border-color: var(--line); background-color: var(--surface-2); }
+.rt-vec-hd { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 16px; height: 22px; }
+.rt-vec-cap { color: var(--ink-dim); font-family: Arial; font-weight: bold; font-size: 12px; height: 16px; }
+.rt-vec-para { color: var(--ink-dim); font-family: Arial; font-size: 12px; height: 16px; }
+.rt-vec-opts { display: flex; flex-direction: row; flex-wrap: wrap; gap: 6px; }
+.rt-vec-opt { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; height: 30px; padding: 0px 10px; border-radius: 8px; border-width: 1px; border-color: var(--line); background-color: var(--surface-3); cursor: pointer; }
+.rt-vec-opt-on { border-color: var(--accent); background-color: var(--accent-soft); }
+.rt-vec-opt-text { color: var(--ink); font-family: Arial; font-size: 12px; height: 16px; }
+
 /* --- AI-kreditit: a page of its own, no shell on it --------------------- */
 .rt-cred { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 12px; padding: 0px 16px 16px 16px; background-color: var(--bg); }
 .rt-cred-head { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 12px; padding: 12px 0px; }

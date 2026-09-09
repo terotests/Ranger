@@ -436,9 +436,10 @@ of them found something that is drawn and does not answer:
 
 Fifteen scenarios were added to go where the first thirteen never did, and the
 reference was recorded for fourteen of them — so what each gap should look like is
-on file rather than guessed at. Ten of the twenty-five are at 100%, and three
-of the gaps they found are closed: the credits page, and the diary card's own
-buttons in both scenarios that press them.
+on file rather than guessed at. Thirteen of the twenty-seven are at 100%, and
+five of the gaps they found are closed: the credits page, the diary card's own
+buttons in both scenarios that press them, the feature-vector dialog, and where
+a plan in the list opens.
 
 Two of those needed the reference to say WHERE, not just what. A row's
 statistics are a strip at the top of Home and not a modal over the card; the
@@ -454,11 +455,11 @@ another invented.
 | `home-drills` | 77% | the tab, the categories and the sort all work, and both sides list the same six endurance drills in the same order — with different numbers: juoksu 29× there and 37× here, uinti 1.6km against 2.6km, rintauinti 3.0km against 16.2km. A drill row opens the exercise there and nothing here |
 | `home-entry` | **99.9%** | **Näytä tilastot** is a strip at the top of Home, above the tabs, named after the exercise and with a Sulje of its own. **Compact** and **JSON** copy the entry and say which shape in a toast — two toasts, stacked, when both are pressed. All three answer now; what is left is the composer |
 | `credits` | **100%** | the header's **credit gauge** was drawn on every screen and answered on none. It opens the page now — AI-kreditit with what is used of what is available, the one thing there is to buy with Stripe under it, and the two histories that are empty until a purchase writes to them — and the tree matches the reference's stop for stop. Closed |
-| `home-stats` | 54% | **Laske vektorit** opens a dialog there: a date range (Tänään, 7, 14, 30 päivää, Mukautettu), every calendar to pick from, what the calculation will do, and Peruuta beside it. Here it is the one control the statistics panel has |
+| `home-stats` | **95%** | **Laske vektorit** opens the dialog now — five spans with today the one it opens on, the calendars a vector can be built from, what the calculation will do, and Peruuta beside it. Its rules are the reference's own, read off `CalculateVectorsDialog.tsx` and not guessed: seven of the seed's thirteen calendars, because a PLAN has no entries to read. Starting it is the backend's. What is left is the composer |
 | `home-entry-edit` | **99.9%** | **Lisää** on a card is not an add: it opens the card's action menu — Muokkaa AI:lla, Kopioi kuvana, Poista — hanging off the button, in the card. **Poista** removes the entry and toasts "Merkintä poistettu". Both answer now |
 | `more-rest` | 41% | **Jaetut kalenterit** is a sharing page there — Hallitse jakamista, Julkaise päiväkirja verkkoon, and every calendar with whether it is shared. **Tietopankki** is a knowledge store — a search, eight category filters, an empty state and Lisää ensimmäinen. Both close the sheet here. **Vie tietokanta** adds nothing to either side's tree, which is the one item that matches |
 | `chat-tools` | 45% | **AI-ohjeet** opens an instructions panel: the general instructions with three suggestions to add, a Tee ehdotukset that has the AI write them, a field for a new one, and instructions per calendar type. **Keskusteluhistoria** and **Tallennetut muistiinpanot** are panels. **Anna palautetta** produces an AI-arvio with Kopioi koko keskustelu, Kopioi viesti and Tallenna muistiin. All five are drawn here and none answers |
-| `yearsheet-open` | 47% | opening the plan out of the Vuosilakana list goes to the plan's own view there — Aktiivinen suunnitelma, the current period, week 36 of 104 — and stays in the list here |
+| `yearsheet-open` | 47% | opening the plan out of the list goes to the DASHBOARD there — Aktiivinen suunnitelma, the current period, and "Avaa suunnitelma" as the way in — which is what it does here now, and that frame is 100%. What is left is the list itself: **Vuosilakana** in the More sheet goes straight into the plan there and stops at a list of plans here, a screen the reference does not have |
 | `calendar-measure` | 77% | a calendar whose entries are MEASUREMENTS and not workouts. The reference gives each metric a heading of its own — Hrv, Leposyke, Weight, Askeleet, Mets Huippu, Aktiiviset Kalorit, Treeni Aika — and this side draws a card of a different shape: 171 stops it does not have, 48 of the reference's it does not draw |
 | `yearsheet-edit` | 41% | the plan's own tabs, behind Avaa suunnitelma. Kaudet and Rivit match; **Featuret** is a screen this side does not have — Feature-vektorit (beta) with a date range, Kopioi tulokset / Liitä / Suorita laskennat, a JSON field and a normalised trend, 155 stops of it. **Kopioi JSON leikepöydälle** is drawn here and does nothing |
 | `dashboard` | 100% | the section and **Avaa suunnitelma** — the year plan with its JSON in and out, its three tabs and its periods — match |

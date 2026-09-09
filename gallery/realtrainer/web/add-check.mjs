@@ -579,6 +579,42 @@ console.log("\n--- a diary card's own buttons ---");
 }
 
 
+console.log("\n--- the feature-vector dialog ---");
+// The one control the statistics panel has, and it did nothing. Its rules are
+// the reference's, read off `CalculateVectorsDialog.tsx`: five spans with
+// today as the one it opens on, and the calendars a vector can be built from —
+// training, nutrition, measurement, sleep, feelings, camp, test-log — which
+// leaves every PLAN out, because a plan has no entries to read.
+{
+  const v = open();
+  v.press("rt-home-tab-stats");
+  const tree = () => JSON.parse(v.a11yJson(1, "")).nodes;
+  const btn = (name) => tree().find((n) => n.role === "button" && n.name === name);
+  ok("the dialog opens", v.press("rt-stats-calc") &&
+     tree().some((n) => n.role === "heading" && n.name === "Laske feature vektorit"));
+  ok("with five spans", ["Tänään", "Viimeiset 7 päivää", "Viimeiset 14 päivää",
+     "Viimeiset 30 päivää", "Mukautettu aikaväli"].every((n) => !!btn(n)));
+  ok("and today is the one it opens on", (btn("Tänään") || {}).selected === true,
+     JSON.stringify((btn("Tänään") || {}).selected));
+  ok("another span can be chosen", v.press("rt-vec-30") &&
+     (btn("Viimeiset 30 päivää") || {}).selected === true && !(btn("Tänään") || {}).selected);
+  // Seven calendars of the seed's thirteen: the six plans and the two the
+  // reference leaves out are not things a vector is built from.
+  const cals = ["Unipäiväkirja", "Ravintopäiväkirja", "Harjoituspäiväkirja", "Mittaukset",
+                "Fiilispäiväkirja", "MINIMONSTER Training"];
+  ok("the calendars a vector can be built from", cals.every((n) => !!btn(n)),
+     cals.filter((n) => !btn(n)).join("|"));
+  ok("and no plan among them", !btn("Harjoitussuunnitelma") && !btn("Training Plan") &&
+     !btn("MINIMONSTER Plan"));
+  ok("they start selected", (btn("Mittaukset") || {}).selected === true);
+  ok("and one can be turned off", v.press("rt-vec-cal-mittaukset") &&
+     !(btn("Mittaukset") || {}).selected);
+  ok("and on again", v.press("rt-vec-cal-mittaukset") &&
+     (btn("Mittaukset") || {}).selected === true);
+  ok("Peruuta closes it", v.press("rt-vec-cancel") &&
+     !tree().some((n) => n.name === "Laske feature vektorit"));
+}
+
 console.log("");
 if (failed > 0) {
   console.log(`  ${failed} check(s) failed`);
