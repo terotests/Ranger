@@ -34,6 +34,10 @@
       "name": "Tallennetut muistiinpanot"
     },
     {
+      "fail": true,
+      "why": "THE NEXT REQUEST FAILS. There is no AI behind the reference either, so its canned question comes back as an error in the same frame; the simulator here would stream an answer over three seconds and the frame after the press would be a frame of two different things. Armed, both sides answer at once and the same way."
+    },
+    {
       "id": "rt-chat-feedback",
       "role": "button",
       "name": "Anna palautetta harjoittelustani"

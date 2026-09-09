@@ -5445,7 +5445,13 @@ class RealTrainerDemo {
         def n:int (array_length entries)
         for entries e:RtSeedEntry i {
             def item:RtSeedEntry (itemAt entries ((n - 1) - i))
-            def days:int (RtWeek.daysOf(item.date))
+            ; MINUTES, NOT DAYS. `[2026-02-09T00:15+02]` is a quarter past
+            ; midnight and the five entries beside it are not: the reference
+            ; puts it first of the six and this put it last, because the day
+            ; was all the key held. An entry with no time in its header keeps
+            ; midnight, which leaves every date with no time exactly as it
+            ; was.
+            def days:int (((RtWeek.daysOf(item.date)) * 1440) + (RealTrainerDemo.minuteOf(item.compact)))
             def placed:[RtSeedEntry]
             def placedKeys:[int]
             def done@(mutable):boolean false
@@ -5467,6 +5473,31 @@ class RealTrainerDemo {
             keys = placedKeys
         }
         return out
+    }
+
+    ; The time in the header, as minutes past midnight —
+    ; `[2026-02-09T00:15+02]` is 15. A header with no `T` in it, which is most
+    ; of them, is midnight.
+    sfn minuteOf:int (compact:string) {
+        def len:int (strlen compact)
+        if (len < 2) { return 0 }
+        if ((charAt compact 0) != 91) { return 0 }
+        def i@(mutable):int 1
+        def at@(mutable):int (0 - 1)
+        while (i < len) {
+            def code:int (charAt compact i)
+            if (code == 93) { break }
+            if (code == 84) {
+                at = i
+                break
+            }
+            i = (i + 1)
+        }
+        if (at < 0) { return 0 }
+        if ((at + 5) >= len) { return 0 }
+        def hh:int (to_int (?? (to_double (substring compact (at + 1) (at + 3))) 0.0))
+        def mm:int (to_int (?? (to_double (substring compact (at + 4) (at + 6))) 0.0))
+        return ((hh * 60) + mm)
     }
 
     ; The dashboard, as `DashboardView` has it on the phone: the heading and

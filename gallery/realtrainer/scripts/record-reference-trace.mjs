@@ -59,6 +59,12 @@ const ONLY = arg("--only", "");
 const PROBE = args.includes("--probe");
 // `--shots <dir>` saves a screenshot after every step, named after it.
 const SHOTS = arg("--shots", "");
+// `--yaml <substring>` prints the raw `ariaSnapshot` lines that contain it,
+// after every step. `snapshot()` turns that YAML into role/name/state and a
+// node that comes out wrong here comes out wrong there — the composer above
+// the Home feed reads as a `text` node and no textbox at all, and the only
+// way to see whether that is the app or the reading is to look at the line.
+const YAML = arg("--yaml", "");
 
 // --- the emulators, as the e2e helpers talk to them --------------------------
 const AUTH = "http://127.0.0.1:9099";
@@ -347,14 +353,21 @@ for (const name of fs.readdirSync(dir).filter((f) => f.endsWith(".json"))) {
           (e) => `${e.tagName.toLowerCase()}${e.className ? "." + String(e.className).split(" ").slice(0, 3).join(".") : ""}: ${(e.textContent || "").trim().slice(0, 60)}`,
         ),
       );
-      console.log(`    after ${step.id ?? step.name ?? `tick ${step.tick}`}:\n      ${seen.join("\n      ")}`);
+      console.log(`    after ${step.id ?? step.name ?? (step.fail !== undefined ? "fail" : `tick ${step.tick}`)}:\n      ${seen.join("\n      ")}`);
+    }
+    if (YAML) {
+      const raw = await page.locator("body").ariaSnapshot();
+      const all = raw.split("\n");
+      const hit = [];
+      all.forEach((l, i) => { if (l.includes(YAML)) hit.push(...all.slice(Math.max(0, i - 4), i + 5)); });
+      console.log(`    yaml after ${step.id ?? step.name ?? (step.fail !== undefined ? "fail" : `tick ${step.tick}`)}:\n      ${hit.join("\n      ")}`);
     }
     if (SHOTS) {
       fs.mkdirSync(SHOTS, { recursive: true });
       await page.screenshot({ path: path.join(SHOTS, `${name.replace(/\.json$/, "")}-${frames.length + 1}.png`) });
     }
     frames.push({
-      step: step.id ?? `tick ${step.tick}`,
+      step: step.id ?? (step.fail !== undefined ? "fail" : `tick ${step.tick}`),
       handled,
       // The machine's state, where a build exposes it; "" where it does not.
       // The Ranger side writes the same field from its own runner.

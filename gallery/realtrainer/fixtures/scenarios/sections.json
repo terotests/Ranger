@@ -1,5 +1,5 @@
 {
-  "_": "The bottom bar: every section the phone has, in the order the bar has them.",
+  "_": "The bottom bar: every section the phone has, in the order the bar has them. DO NOT RE-RECORD THIS ONE ON A DIFFERENT DAY. `rt-nav-calendar` goes to THIS week — the bar's calendar is today's, not the route's — so the reference trace carries the week it was recorded in, and the port's today is the fixture's. Recording it again in a later week replaces seven day rows with seven other day rows and the scenario reads 69%.",
   "id": "sections",
   "area": "kehys",
   "machine": "",

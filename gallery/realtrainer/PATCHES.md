@@ -118,6 +118,22 @@ at 100%. So the difference is not a rule the port applies everywhere; it is one
 button that was given a name because a send button with no name is a send
 button nobody can reach.
 
+The reading was checked against the app itself, not inferred from the trace.
+`record-reference-trace.mjs --yaml "Kirjoita merkintä"` prints the raw
+`ariaSnapshot` lines around a match, and on Home they are
+
+```
+- button "Lisää harjoitus"
+- button "Päivitä suunnitelma"
+- button "Lisää kuva"
+- text: "Kirjoita merkintä... esim. \"maanantai: juoksu 45min\""
+- button
+```
+
+— no textbox in the accessibility tree at all, and a send button with neither
+a name nor `[disabled]`, though the component that renders it does pass
+`disabled` when there is nothing to send.
+
 **Not fixed.** `traces/parity.json` holds those six scenarios where this row
 puts them, and this is the note that says why none of them is 100%.
 
