@@ -306,7 +306,7 @@ class MermaidCynefinFlow {
         MermaidCynefinFlow.quadrant(g backs "chaotic" 0.0 half half)
         MermaidCynefinFlow.quadrant(g backs "clear" half half half)
         ; And the fifth in the middle, over all four of them.
-        def mid:double (half * 0.46)
+        def mid:double (half * 0.62)
         def centre:FlowNode (FlowNode.create("sg-confusion" "confusion" (half - (mid * 0.5)) (half - (mid * 0.5))))
         centre.nodeType = "group"
         centre.width = mid
@@ -331,6 +331,9 @@ class MermaidCynefinFlow {
                 if (it.domain == name) {
                     def w:double (rect.w - 36.0)
                     def h:double 34.0
+                    if (name == "confusion") {
+                        h = 46.0
+                    }
                     def top:double ((rect.y + 46.0) + ((to_double slot) * (h + 10.0)))
                     def card:FlowNode (FlowNode.create(it.id it.label (rect.x + 18.0) top))
                     card.nodeType = "step"
@@ -361,6 +364,22 @@ class MermaidCynefinFlow {
                     e.markerEnd = "arrowclosed"
                     e.label = mv.label
                     e.cssClass = "link move"
+                    ; The quadrants TOUCH, so an arrow between their edges is
+                    ; a mark with no length. A move is drawn between the two
+                    ; domains' middles instead, shortened at both ends: it
+                    ; crosses the boundary, which is the thing being said.
+                    def a:FlowNode (g.nodeById(from))
+                    def b:FlowNode (g.nodeById(to))
+                    def ax:double (a.centerX())
+                    def ay:double (a.centerY())
+                    def bx:double (b.centerX())
+                    def by:double (b.centerY())
+                    e.edgeType = "straight"
+                    e.pinnedRoute = true
+                    push e.waypoints (ax + ((bx - ax) * 0.28))
+                    push e.waypoints (ay + ((by - ay) * 0.28))
+                    push e.waypoints (ax + ((bx - ax) * 0.72))
+                    push e.waypoints (ay + ((by - ay) * 0.72))
                     g.addEdge(e)
                 }
             }
@@ -416,8 +435,11 @@ class MermaidCynefinFlow {
             r.y = half
         }
         if (name == "confusion") {
+            ; Inside the middle box, not under it. Items dropped below the
+            ; centre land on the domain beneath and read as belonging to it,
+            ; which is the opposite of what `confusion` means.
             r.x = (half - (mid * 0.5))
-            r.y = ((half + (mid * 0.5)) + 12.0)
+            r.y = (half - (mid * 0.5))
             r.w = mid
             r.h = mid
         }

@@ -3576,6 +3576,21 @@ class RangerFlowTest {
         def first:MermaidCynefinItem (itemAt d.items 0)
         def item:FlowNode (g.nodeById(first.id))
         c.ok("an item is drawn inside its own domain" (item.x >= complex.x))
+        ; The middle domain's items go INSIDE it. Dropped below the centre
+        ; they land on the domain beneath and read as belonging to it, which
+        ; is the opposite of what `confusion` means.
+        def muddle:MermaidCynefinItem (itemAt d.items 5)
+        def muddleCard:FlowNode (g.nodeById(muddle.id))
+        c.eqStr("the last item is the one in the middle" muddle.domain "confusion")
+        c.ok("and its card is inside the middle box, not under it" (muddleCard.y >= centre.y))
+        c.ok("top and bottom both" ((muddleCard.y + muddleCard.height) <= (centre.y + centre.height)))
+        ; The quadrants touch, so an arrow between their EDGES has no length.
+        ; A move is drawn between the two domains' middles instead.
+        def move:FlowEdge (g.edgeAt(0))
+        c.eqInt("a move is pinned to a route of its own" (array_length move.waypoints) 4)
+        def x0:double (itemAt move.waypoints 0)
+        def x1:double (itemAt move.waypoints 2)
+        c.ok("which crosses the boundary rather than running along it" ((fabs (x1 - x0)) > 40.0))
         c.eqInt("a move is an arrow between two domains" (g.edgeCount()) 1)
         c.ok("a Cynefin framework is one this library draws" (MermaidReader.draws("cynefin")))
     }
