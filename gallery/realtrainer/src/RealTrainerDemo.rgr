@@ -370,6 +370,7 @@ treefactory Rt {
     tag EntryScoreOf EVGElement (props (className "rt-entry-score-of") (elementType 1))
     tag EntryRule EVGElement (props (className "rt-entry-hr-rule"))
     tag EntryChip EVGElement (props (className "rt-entry-chip") (elementType 1))
+    tag EntryQuality EVGElement (props (className "rt-entry-quality") (elementType 1))
     tag EntryKind EVGElement (props (className "rt-entry-kind") (elementType 1))
     tag CommentBtn EVGElement (props (className "rt-comment-btn") (role "button") (a11yFocusable true))
     tag CommentBtnTx EVGElement (props (className "rt-comment-btn-text") (elementType 1))
@@ -440,6 +441,17 @@ treefactory Rt {
     tag SetBtnTx EVGElement (props (className "rt-set-btn-text") (elementType 1) (a11yHidden true))
     tag SetLink  EVGElement (props (className "rt-set-link") (role "link") (a11yFocusable true))
     tag SetSelect EVGElement (props (className "rt-set-select") (role "combobox") (a11yFocusable true))
+    ; A PAGE OF ITS OWN, the way Harjoituspaikat and Tietopankki are pages in
+    ; the original: a banner, a main, and no shell around them — see
+    ; `traces/reference/more-sheet.json` and `traces/reference/more-rest.json`.
+    tag SetHd1   EVGElement (props (className "rt-set-hd") (elementType 1) (role "heading") (a11yLevel 1))
+    tag SubPage  EVGElement (props (className "rt-subpage"))
+    tag PageHead EVGElement (props (className "rt-page-head") (role "banner"))
+    tag PageMain EVGElement (props (className "rt-page-main") (role "main"))
+    tag PageHd   EVGElement (props (className "rt-page-hd") (elementType 1) (role "heading") (a11yLevel 1))
+    tag PageH2   EVGElement (props (className "rt-page-h2") (elementType 1) (role "heading") (a11yLevel 2))
+    tag PagePara EVGElement (props (className "rt-page-para") (elementType 1) (role "paragraph"))
+    tag PageCats EVGElement (props (className "rt-page-cats"))
     tag ThemeCard EVGElement (props (className "rt-theme-card") (role "button") (a11yFocusable true))
     tag ThemeSwatches EVGElement (props (className "rt-theme-swatches"))
     tag Swatch   EVGElement (props (className "rt-swatch") (a11yHidden true))
@@ -973,6 +985,8 @@ class RealTrainerDemo {
     def setMailField:InputCtl (new InputCtl())
     def setNickField:InputCtl (new InputCtl())
     def setHintField:InputCtl (new InputCtl())
+    def venueField:InputCtl (new InputCtl())
+    def knowField:InputCtl (new InputCtl())
     def setLang:SelectCtl (new SelectCtl())
     def setWeekStart:SelectCtl (new SelectCtl())
     def setDefaultView:SelectCtl (new SelectCtl())
@@ -1179,6 +1193,12 @@ class RealTrainerDemo {
         setHintField.tid = "rt-set-hint"
         setHintField.placeholder = "Lisää uusi ohje..."
         setHintField.name = setHintField.placeholder
+        venueField.tid = "rt-ven-search"
+        venueField.placeholder = "Etsi julkisia kuntosaleja..."
+        venueField.name = venueField.placeholder
+        knowField.tid = "rt-kn-search"
+        knowField.placeholder = "Hae tietopankista..."
+        knowField.name = knowField.placeholder
         setLang.tid = "rt-set-lang"
         setLang.name = ""
         setLang.addItem("fi" "Suomi" false)
@@ -2102,6 +2122,11 @@ class RealTrainerDemo {
         if ((kind == "food") || (kind == "drinking")) {
             named = false
         }
+        ; The same holds for an expense and for ground contacts: what the row
+        ; is called is the run after the glyph.
+        if ((kind == "expense") || (kind == "contacts")) {
+            named = false
+        }
         if named {
             el.addChild((tree Rt (DocLabel (props (id (rowId + "-label"))) label)))
         }
@@ -2122,6 +2147,18 @@ class RealTrainerDemo {
             partsClass = "rt-doc-parts rt-doc-parts-gap"
         }
         if (kind == "circuit") {
+            partsClass = "rt-doc-parts rt-doc-parts-gap"
+        }
+        if (kind == "expense") {
+            partsClass = "rt-doc-parts rt-doc-parts-gap"
+        }
+        if (kind == "contacts") {
+            partsClass = "rt-doc-parts rt-doc-parts-gap"
+        }
+        if (kind == "sleep") {
+            partsClass = "rt-doc-parts rt-doc-parts-gap"
+        }
+        if (kind == "measurement") {
             partsClass = "rt-doc-parts rt-doc-parts-gap"
         }
         def parts (tree Rt (DocParts (props (id (rowId + "-parts")) (className partsClass))))
@@ -3305,6 +3342,9 @@ class RealTrainerDemo {
         if (section == "settings") {
             this.settingsSection(body)
         }
+        if (section == "shared") {
+            this.sharedSection(body)
+        }
         main.addChild(body)
         return main
     }
@@ -3329,6 +3369,25 @@ class RealTrainerDemo {
     ; backend's, and there is no backend here. What a person can actually
     ; change — the language, the week's first day, which calendars show, the
     ; palette — is wired.
+    ; JAETUT KALENTERIT — a section inside the shell and not a page: the
+    ; header and the bottom bar stay, which is what `traces/reference/
+    ; more-rest.json` shows. One button per calendar, in the store's order,
+    ; each named by the calendar and the state it is in — none of them is
+    ; shared here, so every one of them reads "Ei jaettu".
+    fn sharedSection:void (body:EVGElement) {
+        def col (tree Rt (SetCol))
+        col.addChild((tree Rt (SetHd1 "Hallitse jakamista")))
+        col.addChild((tree Rt (SetNote "Hallitse päiväkirjojesi jakamisasetuksia. Voit jakaa päiväkirjasi muiden kanssa ja antaa heille katselu- tai yhteistyöoikeudet.")))
+        col.addChild((tree Rt (SetSub "Julkaise päiväkirja verkkoon")))
+        col.addChild((tree Rt (SetNote "Luo jaettava sivu harjoituspäiväkirjastasi.")))
+        col.addChild((this.setBtn("rt-share-publish" "Julkaise")))
+        def listed:[RtSeedCalendar] (seed.storeOrder())
+        for listed c:RtSeedCalendar i {
+            col.addChild((this.setBtn(("rt-share-cal-" + c.id) (c.name + " Ei jaettu"))))
+        }
+        body.addChild(col)
+    }
+
     fn settingsSection:void (body:EVGElement) {
         def col (tree Rt (SetCol))
         col.addChild((tree Rt (SetHd "Asetukset")))
@@ -4051,6 +4110,10 @@ class RealTrainerDemo {
             Drinking dr { }
             Circuit ci { }
             CircuitItem it { }
+            Expense ep { }
+            Sleep sl { }
+            Measurement ms { }
+            Contacts ct { }
         }
         return out
     }
@@ -4377,6 +4440,10 @@ class RealTrainerDemo {
                     Drinking dr { }
                     Circuit ci { }
                     CircuitItem it { }
+                    Expense ep { }
+                    Sleep sl { }
+                    Measurement ms { }
+                    Contacts ct { }
                 }
             }
             def at@(mutable):int -1
@@ -5050,6 +5117,66 @@ class RealTrainerDemo {
         page.addChild((tree Rt (CredDim "Ei vielä kuluhistoriaa")))
         page.addChild((tree Rt (CredSub "Yksityiskohtaiset kuitit")))
         page.addChild((tree Rt (CredDim "Ei vielä yksityiskohtaisia kuitteja")))
+        page.addChild((this.toasts()))
+        return page
+    }
+
+    ; HARJOITUSPAIKAT — a page of its own, and the bar cannot be reached from
+    ; it: the reference replaces the whole screen, header and bottom nav both.
+    ; Eleven stops, from `traces/reference/more-sheet.json`. Nothing is stored
+    ; yet, so it is the empty state the original shows on a new account.
+    fn venuesScreen:EVGElement () {
+        def page (tree Rt (SubPage))
+        def head (tree Rt (PageHead))
+        head.addChild((this.iconBtn("rt-ven-back" "" (RtIcons.arrowLeft("#f2f2f2")))))
+        head.addChild((tree Rt (PageHd "Harjoituspaikat")))
+        head.addChild((tree Rt (PagePara "0 paikkaa")))
+        head.addChild((tree Rt (Spacer)))
+        head.addChild((this.setBtn("rt-ven-add" "Lisää")))
+        page.addChild(head)
+        def main (tree Rt (PageMain))
+        main.addChild((this.fieldBox(venueField)))
+        main.addChild((tree Rt (PageH2 "Omat harjoituspaikat")))
+        main.addChild((tree Rt (PagePara "Ei harjoituspaikkoja vielä")))
+        main.addChild((this.setBtn("rt-ven-first" "Lisää ensimmäinen")))
+        page.addChild(main)
+        page.addChild((this.toasts()))
+        return page
+    }
+
+    ; TIETOPANKKI — a page too, but this one KEEPS the bottom bar, which is
+    ; why it is not the same shape as Harjoituspaikat and why the two are
+    ; written out rather than sharing one. The nine categories are the
+    ; original's, in its order; the store is empty on a new account.
+    fn knowledgeScreen:EVGElement () {
+        def page (tree Rt (SubPage))
+        def head (tree Rt (PageHead))
+        head.addChild((tree Rt (PageHd "Tietopankki")))
+        page.addChild(head)
+        def main (tree Rt (PageMain))
+        def top (tree Rt (Row (props (className "rt-page-row"))))
+        top.addChild((this.fieldBox(knowField)))
+        top.addChild((this.setBtn("rt-kn-add" "Lisää")))
+        main.addChild(top)
+        def cats:[string]
+        push cats "Kaikki"
+        push cats "Tekniikka"
+        push cats "Ravinto"
+        push cats "Palautuminen"
+        push cats "Liikkuvuus"
+        push cats "Voimaharjoittelu"
+        push cats "Kestävyys"
+        push cats "Elämänhallinta"
+        push cats "Muut"
+        def catRow (tree Rt (PageCats))
+        for cats cn:string ci {
+            catRow.addChild((this.setBtn(("rt-kn-cat-" + (to_string ci)) cn)))
+        }
+        main.addChild(catRow)
+        main.addChild((tree Rt (PagePara "Tietopankki on tyhjä")))
+        main.addChild((this.setBtn("rt-kn-first" "Lisää ensimmäinen")))
+        page.addChild(main)
+        page.addChild((this.bottomNav()))
         page.addChild((this.toasts()))
         return page
     }
@@ -6196,8 +6323,11 @@ class RealTrainerDemo {
             ; They used to be a line of text and the line lost things: a drink
             ; came out as "Drinking2dl | Maito", its calories and its protein
             ; gone. See `CompactStatBuilder.mealParts`.
-            if ((kind == "food") || (kind == "drinking")) {
-                def meal (tree Rt (Row (props (className "rt-entry-meal"))))
+            ; AN EXPENSE AND THE GROUND CONTACTS are the same row: `ExpenseRow`
+            ; and `ContactsRow` are `FoodRow` with one number instead of four
+            ; — a glyph and a name on the left, the value on the right.
+            if ((kind == "expense") || (kind == "contacts") || (kind == "food") || (kind == "drinking")) {
+                def meal (tree Rt (Row (props (className ("rt-entry-meal rt-entry-" + kind)))))
                 def mparts:[StatPart] (CompactStatBuilder.parts(row))
                 def nums (tree Rt (Row (props (className "rt-entry-meal-nums"))))
                 for mparts mp:StatPart mi {
@@ -6223,8 +6353,31 @@ class RealTrainerDemo {
                 rows.addChild((this.commentUnder(rowId)))
                 continue
             }
+            ; A NIGHT AND A BODY MEASUREMENT. `SleepRow` and `MeasurementRow`
+            ; have no right-hand end: the glyph, the value in mono and — for a
+            ; night that says how it went — the quality as a coloured pill.
+            if ((kind == "sleep") || (kind == "measurement")) {
+                def life (tree Rt (Row (props (className ("rt-entry-life rt-entry-" + kind)))))
+                def lparts:[StatPart] (CompactStatBuilder.parts(row))
+                for lparts lp:StatPart li {
+                    if (lp.kind == "meta") {
+                        life.addChild((tree Rt (EntryRowTx lp.text)))
+                        continue
+                    }
+                    if (lp.kind == "quality") {
+                        def pill (tree Rt (EntryQuality lp.text))
+                        pill.className = ("rt-entry-quality rt-q-" + lp.tone)
+                        life.addChild(pill)
+                        continue
+                    }
+                    life.addChild((tree Rt (EntryMono lp.text)))
+                }
+                rows.addChild(life)
+                rows.addChild((this.commentUnder(rowId)))
+                continue
+            }
             if (kind == "text") {
-                rows.addChild((tree Rt (EntryPara (props (id ("rt-entry-text-" + rowId))) (CompactStatBuilder.text(row)))))
+                rows.addChild((tree Rt (EntryPara (props (id ("rt-entry-text-" + rowId))) (CompactStatBuilder.lineText(row)))))
                 if (cardPreview == false) {
                     def tacts (tree Rt (Row (props (className "rt-entry-under"))))
                     tacts.addChild((this.iconBtn(("rt-entry-edit-" + rowId) "Muokkaa tekstiä" (RtIcons.penLine("#999999")))))
@@ -6321,7 +6474,7 @@ class RealTrainerDemo {
                             def nline (tree Rt (Row (props (className "rt-entry-run-note"))))
                             nline.addChild((tree Rt (Col (props (className "rt-entry-band")))))
                             def nid:string ((to_string i) + ("-" + (to_string si)))
-                            def np (tree Rt (EntryPara (props (id ("rt-entry-text-" + nid))) (CompactStatBuilder.text(next))))
+                            def np (tree Rt (EntryPara (props (id ("rt-entry-text-" + nid))) (CompactStatBuilder.lineText(next))))
                             np.className = "rt-entry-para rt-entry-para-italic"
                             nline.addChild(np)
                             notes.addChild(nline)
@@ -6353,7 +6506,7 @@ class RealTrainerDemo {
             }
             if ((kind != "unknown") && (kind != "summary")) {
                 def note@(mutable):string label
-                def more:string (CompactStatBuilder.text(row))
+                def more:string (CompactStatBuilder.lineText(row))
                 if ((strlen more) > 0) { note = ((note + " ") + more) }
                 if ((strlen note) > 0) {
                     rows.addChild((tree Rt (EntryNote note)))
@@ -6530,6 +6683,10 @@ class RealTrainerDemo {
             Drinking dr { }
             Circuit ci { }
             CircuitItem it { }
+            Expense ep { }
+            Sleep sl { }
+            Measurement ms { }
+            Contacts ct { }
         }
         return false
     }
@@ -6557,6 +6714,10 @@ class RealTrainerDemo {
             Drinking dr { }
             Circuit ci { }
             CircuitItem it { }
+            Expense ep { }
+            Sleep sl { }
+            Measurement ms { }
+            Contacts ct { }
         }
         return (CompactStatBuilder.text(row))
     }
@@ -6610,7 +6771,7 @@ class RealTrainerDemo {
         for doc.rows row:CompactRow ri {
             def kind:string (CompactStatBuilder.kind(row))
             if (kind == "text") {
-                card.addChild((tree Rt (EntryPara (props (id (("rt-entry-text-" + (to_string i)) + ("-" + (to_string ri))))) (CompactStatBuilder.text(row)))))
+                card.addChild((tree Rt (EntryPara (props (id (("rt-entry-text-" + (to_string i)) + ("-" + (to_string ri))))) (CompactStatBuilder.lineText(row)))))
             }
         }
     }
@@ -6639,6 +6800,10 @@ class RealTrainerDemo {
             Drinking dr { }
             Circuit ci { }
             CircuitItem it { }
+            Expense ep { }
+            Sleep sl { }
+            Measurement ms { }
+            Contacts ct { }
         }
         return (CompactStatBuilder.text(row))
     }
@@ -6666,6 +6831,10 @@ class RealTrainerDemo {
             Drinking dr { }
             Circuit ci { }
             CircuitItem it { }
+            Expense ep { }
+            Sleep sl { }
+            Measurement ms { }
+            Contacts ct { }
         }
         return 0
     }
@@ -7251,9 +7420,16 @@ class RealTrainerDemo {
                 moreOpen = false
                 return true
             }
+            ; VUOSILAKANA OPENS THE PLAN, not a list of plans. The reference
+            ; has no list behind this item: the sheet's item goes straight to
+            ; the year plan of the calendar in hand, with its toolbar, its
+            ; three tabs and its periods. The list is still a screen here —
+            ; `/summary/yearsheet` draws it — but it is not what this opens.
+            ; See `traces/reference/yearsheet-open.json`.
             if (id == "rt-more-yearsheet") {
                 moreOpen = false
                 ys.openList()
+                ys.openDetail()
                 docScroll = 0.0
                 scene = "yearsheet"
                 return true
@@ -7264,6 +7440,27 @@ class RealTrainerDemo {
                 moreOpen = false
                 scene = "app"
                 this.goSection("settings")
+                return true
+            }
+            ; Three more of the sheet's items are pages in the port now.
+            ; Harjoituspaikat and Tietopankki replace the screen; Jaetut
+            ; kalenterit is a section under the shell, as the original has it.
+            if (id == "rt-more-shared") {
+                moreOpen = false
+                scene = "app"
+                this.goSection("shared")
+                return true
+            }
+            if (id == "rt-more-venues") {
+                moreOpen = false
+                docScroll = 0.0
+                this.setScene("venues")
+                return true
+            }
+            if (id == "rt-more-knowledge") {
+                moreOpen = false
+                docScroll = 0.0
+                this.setScene("knowledge")
                 return true
             }
             if ((strlen id) > 7) {
@@ -7415,6 +7612,8 @@ class RealTrainerDemo {
         push a setMailField
         push a setNickField
         push a setHintField
+        push a venueField
+        push a knowField
         push a wizName
         push a wizDesc
         push a wizGoals
@@ -8155,6 +8354,12 @@ class RealTrainerDemo {
         if (scene == "credits") {
             root = (this.creditsScreen())
         }
+        if (scene == "venues") {
+            root = (this.venuesScreen())
+        }
+        if (scene == "knowledge") {
+            root = (this.knowledgeScreen())
+        }
         if (scene == "yearsheet") {
             root = (this.yearsheetScreen())
         }
@@ -8852,6 +9057,29 @@ class RealTrainerDemo {
             }
             if (id == "rt-cred-buy") {
                 return true
+            }
+            return false
+        }
+        ; Harjoituspaikat has a back and nothing else that does anything —
+        ; there is nowhere to add a venue TO. Tietopankki has no back at all
+        ; in the original: the bottom bar is how a person leaves it, so the
+        ; bar's five items are answered under it.
+        if (scene == "venues") {
+            if (id == "rt-ven-back") {
+                scene = "app"
+                docScroll = 0.0
+                this.rebuild()
+                return true
+            }
+            return false
+        }
+        if (scene == "knowledge") {
+            if ((strlen id) > 7) {
+                if ((substring id 0 7) == "rt-nav-") {
+                    scene = "app"
+                    docScroll = 0.0
+                    return (this.pressApp(id))
+                }
             }
             return false
         }

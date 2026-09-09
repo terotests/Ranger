@@ -58,6 +58,10 @@ const FAMILY = {
   CompactRow_Drinking: "drinking",
   CompactRow_Circuit: "circuit",
   CompactRow_CircuitItem: "circuitItem",
+  CompactRow_Expense: "expense",
+  CompactRow_Sleep: "sleep",
+  CompactRow_Measurement: "measurement",
+  CompactRow_Contacts: "contacts",
 };
 
 let failed = 0;

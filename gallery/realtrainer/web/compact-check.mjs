@@ -67,7 +67,7 @@ ok("every row is a shape case", rows.every((r) => typeof r.__rg_kind === "string
 const kinds = rows.map((r) => r.__rg_kind.replace("CompactRow_", ""));
 ok("the rows arrive in the order they were written",
    kinds.join(",") ===
-     "Summary,Phase,Section,Duration,Exercise,Exercise,Exercise,Exercise,Exercise,Pyramid,Section,Move,Split,Split,Split,Food,Drinking,Custom,Text,Text,Text,Text,Circuit,CircuitItem,CircuitItem,CircuitItem,Text,Unknown",
+     "Summary,Phase,Section,Duration,Exercise,Exercise,Exercise,Exercise,Exercise,Pyramid,Section,Move,Split,Split,Split,Food,Drinking,Custom,Sleep,Text,Text,Text,Circuit,CircuitItem,CircuitItem,CircuitItem,Text,Unknown",
    kinds.join(","));
 
 // Rows are found by what they ARE and not by where they sit: the fixture is a
@@ -123,13 +123,16 @@ ok("a custom row is name and value",
    spec(rows.find((r) => kindOf(r) === "Custom")) === "mieliala: ~4");
 ok("a run derives its pace",
    spec(rows.find((r) => kindOf(r) === "Move")) === "18min 3km @0:36/100m");
-// A life family has no row type of its own: the reference turns it into a line
-// of text with a fixed shape, and so does this.
-// The label and its value are separate parts, so the flat text has no space
-// between them — the space is the label's own margin, the way the reference
-// gives it one. Assert on the parts.
+// Four life families have a row of their own — an expense, a night, a body
+// measurement and ground contacts, because `ContentRows.tsx` draws each with a
+// component. The rest come out as a line of text with a fixed shape, and there
+// the label and its value are separate parts: the flat text has no space
+// between them because the space is the label's own margin, the way the
+// reference gives it one. Assert on the parts.
 const textParts = rows.filter((r) => kindOf(r) === "Text").map((r) => parts(r));
-const sleep = textParts.find((ps) => ps[0]?.text === "Sleep");
+// A night is a row of its own — `SleepRow` — and its duration reads as
+// `Intl.DurationFormat('fi', narrow)` writes it.
+const sleep = parts(rows.find((r) => kindOf(r) === "Sleep"));
 // A circuit's exercises are rows of their own, flattened under their header.
 const circuitItems = rows.filter((r) => kindOf(r) === "CircuitItem");
 ok("a circuit's exercises are rows of their own",
@@ -141,8 +144,8 @@ ok("and the header says how many rounds",
    spec(rows.find((r) => kindOf(r) === "Circuit")) === "3xcircuit",
    spec(rows.find((r) => kindOf(r) === "Circuit")));
 
-ok("a life family becomes a line of text",
-   sleep?.[0]?.tone === "label" && sleep?.[1]?.text === "7h",
+ok("a night is a row with a glyph and a duration",
+   sleep?.[0]?.text === "\u{1F634}" && sleep?.[1]?.text === "7t",
    JSON.stringify(sleep));
 ok("a family with no label is one plain run",
    textParts.some((ps) => ps.length === 1 && ps[0].text === "Location Kotisali"),

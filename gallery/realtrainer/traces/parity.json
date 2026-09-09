@@ -10,7 +10,7 @@
  "home-entry.json": 0.999,
  "home-notes.json": 0.464,
  "home-tabs.json": 0.952,
- "more-sheet.json": 0.444,
+ "more-sheet.json": 1,
  "plan-edit.json": 0.97,
  "plan-week.json": 1,
  "sections.json": 0.937,
@@ -22,8 +22,8 @@
  "home-stats.json": 0.952,
  "calendar-measure.json": 0.769,
  "chat-tools.json": 0.447,
- "more-rest.json": 0.407,
- "yearsheet-open.json": 0.473,
+ "more-rest.json": 1,
+ "yearsheet-open.json": 1,
  "calendar-day.json": 1,
  "yearsheet-edit.json": 0.409
 }

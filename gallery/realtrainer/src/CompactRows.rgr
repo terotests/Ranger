@@ -275,6 +275,54 @@ class CircuitSpec {
     }
 }
 
+; --- the life families that have a row of their own ---------------------
+;
+; `ContentRows.tsx` draws four of them and the rest not at all: an expense, a
+; night's sleep, a body measurement and the ground contacts of a plyometric
+; set each have a component, while a reminder, a location, a URL and a health
+; note fall through the switch to `default: return null`. They came out here
+; as a line of text, and a line of text lost the shape of them — "Expense" and
+; "4.50EUR" ran together because the label and the number are separate runs
+; with nothing between them. So these four are rows, like a meal and a drink.
+
+class ExpenseSpec {
+    def amountRaw@(mutable):string ""
+    def currency@(mutable):string ""
+    def description@(mutable):string ""
+
+    Constructor () {
+    }
+}
+
+; The hours and the minutes are worked out where the document is read, because
+; `formatSleepDuration` rounds before it formats and the rounding is the part
+; that can differ: 7.5 is `7t 30min` and 7.99 is `8t`, not `7t 59min`.
+class SleepSpec {
+    def hours@(mutable):int 0
+    def minutes@(mutable):int 0
+    def quality@(mutable):string ""
+
+    Constructor () {
+    }
+}
+
+class MeasurementSpec {
+    def measureType@(mutable):string ""
+    def value@(mutable):string ""
+    def unit@(mutable):string ""
+
+    Constructor () {
+    }
+}
+
+class ContactsSpec {
+    def name@(mutable):string ""
+    def count@(mutable):int 0
+
+    Constructor () {
+    }
+}
+
 shape CompactRow {
     case Section  { def name:string "" }
     case Text     { def text:string "" }
@@ -291,6 +339,10 @@ shape CompactRow {
     case Drinking { def spec:FoodSpec }
     case Circuit  { def spec:CircuitSpec }
     case CircuitItem { def spec:CircuitItemSpec }
+    case Expense  { def spec:ExpenseSpec }
+    case Sleep    { def spec:SleepSpec }
+    case Measurement { def spec:MeasurementSpec }
+    case Contacts { def spec:ContactsSpec }
 }
 
 ; =============================================================================
@@ -805,6 +857,80 @@ class CompactStatBuilder {
         return out
     }
 
+    ; AN EXPENSE. `ExpenseRow`: the glyph and what it was on the left, the
+    ; amount and its currency on the right in the brand colour. A currency the
+    ; line does not name is euros, as the component's `|| 'EUR'` says, and an
+    ; expense with nothing written after the pipe is `t('workout.blog.expense')`.
+    sfn expenseParts:[StatPart] (spec:ExpenseSpec) {
+        def out:[StatPart]
+        def said@(mutable):string spec.description
+        if ((strlen said) == 0) {
+            said = "Kulu"
+        }
+        def cur@(mutable):string spec.currency
+        if ((strlen cur) == 0) {
+            cur = "EUR"
+        }
+        push out (new StatPart("💰" "default" "meta"))
+        push out (new StatPart(said "default" "note"))
+        push out (new StatPart((spec.amountRaw + cur) "weight" "amount"))
+        return out
+    }
+
+    ; GROUND CONTACTS. `ContactsRow`: the shoe, the name of the drill, and the
+    ; count with its unit on the right. `Contacts 5x10` is fifty of them — the
+    ; parser has already multiplied the sets by the reps.
+    sfn contactsParts:[StatPart] (spec:ContactsSpec) {
+        def out:[StatPart]
+        def said@(mutable):string spec.name
+        if ((strlen said) == 0) {
+            said = "Maakontaktit"
+        }
+        push out (new StatPart("👟" "default" "meta"))
+        push out (new StatPart(said "default" "note"))
+        push out (new StatPart(((to_string spec.count) + " kontaktia") "muted" "count"))
+        return out
+    }
+
+    ; A NIGHT. `SleepRow`: the glyph, the duration in mono and the quality as a
+    ; coloured pill. The duration reads as `Intl.DurationFormat('fi', narrow)`
+    ; writes it — `7t 30min`, and `8t` when the minutes come to nothing.
+    sfn sleepParts:[StatPart] (spec:SleepSpec) {
+        def out:[StatPart]
+        push out (new StatPart("😴" "default" "meta"))
+        def said@(mutable):string ((to_string spec.hours) + "t")
+        if (spec.minutes > 0) {
+            said = ((said + " ") + ((to_string spec.minutes) + "min"))
+        }
+        push out (new StatPart(said "default" "duration"))
+        def q:string (CompactStatBuilder.sleepQuality(spec.quality))
+        if ((strlen q) > 0) {
+            push out (new StatPart(q spec.quality "quality"))
+        }
+        return out
+    }
+
+    sfn sleepQuality:string (key:string) {
+        if (key == "excellent") { return "Erinomainen" }
+        if (key == "good") { return "Hyvä" }
+        if (key == "fair") { return "Kohtalainen" }
+        if (key == "poor") { return "Huono" }
+        return ""
+    }
+
+    ; A BODY MEASUREMENT. `MeasurementRow`: the scales for a weight and the
+    ; chart for everything else, then the value and its unit in mono.
+    sfn measurementParts:[StatPart] (spec:MeasurementSpec) {
+        def out:[StatPart]
+        def glyph@(mutable):string "📊"
+        if (spec.measureType == "weight") {
+            glyph = "⚖️"
+        }
+        push out (new StatPart(glyph "default" "meta"))
+        push out (new StatPart((spec.value + spec.unit) "default" "value"))
+        return out
+    }
+
     sfn circuitParts:[StatPart] (e:CircuitSpec) {
         def out:[StatPart]
         push out (new StatPart(((to_string e.rounds) + "x") "default" "spec"))
@@ -1038,6 +1164,22 @@ class CompactStatBuilder {
                 def ispec:CircuitItemSpec (unwrap it.spec)
                 return (CompactStatBuilder.circuitItemParts(ispec))
             }
+            Expense ep {
+                def espec:ExpenseSpec (unwrap ep.spec)
+                return (CompactStatBuilder.expenseParts(espec))
+            }
+            Sleep sl {
+                def sspec:SleepSpec (unwrap sl.spec)
+                return (CompactStatBuilder.sleepParts(sspec))
+            }
+            Measurement ms {
+                def mspec:MeasurementSpec (unwrap ms.spec)
+                return (CompactStatBuilder.measurementParts(mspec))
+            }
+            Contacts ct {
+                def ctspec:ContactsSpec (unwrap ct.spec)
+                return (CompactStatBuilder.contactsParts(ctspec))
+            }
         }
         return out
     }
@@ -1049,6 +1191,23 @@ class CompactStatBuilder {
         def out@(mutable):string ""
         for parts p:StatPart i {
             out = (out + p.text)
+        }
+        return out
+    }
+
+    ; The same runs as ONE string, for a renderer that draws a row as a single
+    ; paragraph rather than as spans. `text` joins with nothing, because the
+    ; spacing a life row wants is a margin on its label — and a paragraph has
+    ; no margin to give, so `ReminderIlmoittautuminen päättyy` is what it drew.
+    ; Here the label gets a real space after it instead.
+    sfn lineText:string (row:CompactRow) {
+        def parts:[StatPart] (CompactStatBuilder.parts(row))
+        def out@(mutable):string ""
+        for parts p:StatPart i {
+            out = (out + p.text)
+            if (p.tone == "label") {
+                out = (out + " ")
+            }
         }
         return out
     }
@@ -1072,6 +1231,10 @@ class CompactStatBuilder {
             Drinking dr { return "drinking" }
             Circuit ci { return "circuit" }
             CircuitItem it { return "circuitItem" }
+            Expense ep { return "expense" }
+            Sleep sl { return "sleep" }
+            Measurement ms { return "measurement" }
+            Contacts ct { return "contacts" }
         }
         return "unknown"
     }
@@ -1134,6 +1297,20 @@ class CompactStatBuilder {
             CircuitItem it {
                 def ispec:CircuitItemSpec (unwrap it.spec)
                 return ispec.name
+            }
+            Expense ep {
+                def espec2:ExpenseSpec (unwrap ep.spec)
+                return espec2.description
+            }
+            Sleep sl {
+                return ""
+            }
+            Measurement ms {
+                return ""
+            }
+            Contacts ct {
+                def ctspec2:ContactsSpec (unwrap ct.spec)
+                return ctspec2.name
             }
         }
         return ""
@@ -1770,6 +1947,61 @@ class CompactRowMapper {
             push rows (new CompactRow.Drinking(dspec2))
             return
         }
+        if (node.type == "expense") {
+            def ex2:ExpenseNode (cast node to:ExpenseNode)
+            def espec3 (new ExpenseSpec)
+            espec3.amountRaw = ex2.amountRaw
+            espec3.currency = ex2.currency
+            if (ex2.hasDescription) {
+                espec3.description = ex2.description
+            }
+            push rows (new CompactRow.Expense(espec3))
+            return
+        }
+        if (node.type == "contacts") {
+            def co:ContactsNode (cast node to:ContactsNode)
+            def ctspec3 (new ContactsSpec)
+            if (co.hasName) {
+                ctspec3.name = co.name
+            }
+            if (co.hasCount) {
+                ctspec3.count = co.count
+            }
+            push rows (new CompactRow.Contacts(ctspec3))
+            return
+        }
+        if (node.type == "measurement") {
+            def me:MeasurementNode (cast node to:MeasurementNode)
+            def mspec3 (new MeasurementSpec)
+            mspec3.measureType = me.measureType
+            mspec3.value = me.valueRaw
+            if (me.hasUnit) {
+                mspec3.unit = me.unit
+            }
+            push rows (new CompactRow.Measurement(mspec3))
+            return
+        }
+        if (node.type == "sleep") {
+            def sn:SleepNode (cast node to:SleepNode)
+            def sspec3 (new SleepSpec)
+            ; `formatSleepDuration`: the whole hours, then the rest of the hour
+            ; rounded to minutes — and sixty minutes is the next hour, not a
+            ; sixty on the clock.
+            def hrs:double (CompactRowMapper.toNum(sn.durationRaw))
+            def whole@(mutable):int (to_int hrs)
+            def mins@(mutable):int (to_int ((((hrs - (int2double whole)) * 60.0)) + 0.5))
+            if (mins == 60) {
+                whole = (whole + 1)
+                mins = 0
+            }
+            sspec3.hours = whole
+            sspec3.minutes = mins
+            if (sn.hasQuality) {
+                sspec3.quality = sn.quality
+            }
+            push rows (new CompactRow.Sleep(sspec3))
+            return
+        }
         if (node.type == "custom") {
             def cu:CustomNode (cast node to:CustomNode)
             def cspec (new CustomSpec)
@@ -2012,6 +2244,18 @@ class CompactRowEdit {
             CircuitItem it {
                 return false
             }
+            Expense ep {
+                return false
+            }
+            Sleep sl {
+                return false
+            }
+            Measurement ms {
+                return false
+            }
+            Contacts ct {
+                return false
+            }
         }
         return false
     }
@@ -2063,6 +2307,18 @@ class CompactRowEdit {
             CircuitItem it {
                 return false
             }
+            Expense ep {
+                return false
+            }
+            Sleep sl {
+                return false
+            }
+            Measurement ms {
+                return false
+            }
+            Contacts ct {
+                return false
+            }
         }
         return false
     }
@@ -2112,6 +2368,18 @@ class CompactRowEdit {
                 return false
             }
             CircuitItem it {
+                return false
+            }
+            Expense ep {
+                return false
+            }
+            Sleep sl {
+                return false
+            }
+            Measurement ms {
+                return false
+            }
+            Contacts ct {
                 return false
             }
         }
@@ -2166,6 +2434,18 @@ class CompactRowEdit {
             CircuitItem it {
                 return 0
             }
+            Expense ep {
+                return 0
+            }
+            Sleep sl {
+                return 0
+            }
+            Measurement ms {
+                return 0
+            }
+            Contacts ct {
+                return 0
+            }
         }
         return 0
     }
@@ -2218,6 +2498,18 @@ class CompactRowEdit {
             CircuitItem it {
                 return 0
             }
+            Expense ep {
+                return 0
+            }
+            Sleep sl {
+                return 0
+            }
+            Measurement ms {
+                return 0
+            }
+            Contacts ct {
+                return 0
+            }
         }
         return 0
     }
@@ -2268,6 +2560,18 @@ class CompactRowEdit {
                 return 0
             }
             CircuitItem it {
+                return 0
+            }
+            Expense ep {
+                return 0
+            }
+            Sleep sl {
+                return 0
+            }
+            Measurement ms {
+                return 0
+            }
+            Contacts ct {
                 return 0
             }
         }
@@ -2336,6 +2640,14 @@ class CompactRowEdit {
             Circuit ci {
             }
             CircuitItem it {
+            }
+            Expense ep {
+            }
+            Sleep sl {
+            }
+            Measurement ms {
+            }
+            Contacts ct {
             }
         }
     }
@@ -2420,6 +2732,10 @@ class CompactWrite {
             Drinking dr { return "" }
             Circuit ci { return "" }
             CircuitItem it { return "" }
+            Expense ep { return "" }
+            Sleep sl { return "" }
+            Measurement ms { return "" }
+            Contacts ct { return "" }
         }
         return ""
     }

@@ -11,9 +11,9 @@ below went through the parser and the row layer on the way to being printed.
 | --- | --- |
 | Families | 32 |
 | The parser gives its own type | 32 / 32 |
-| Reaches a row type of its own | 16 / 32 |
+| Reaches a row type of its own | 20 / 32 |
 | Has L0 cases against the reference | 32 / 32 |
-| Drawn by the demo's own document | 14 / 14 that can be |
+| Drawn by the demo's own document | 15 / 18 that can be |
 
 **Reaching `text` is not a gap.** The reference gives a row type of its own
 only to what it draws specially and turns the rest into a line of text with a
@@ -32,7 +32,7 @@ would mean it became nothing.
 | `move` | ✅ | ✅ move | ✅ 4 | ✅ |
 | `split` | ✅ | ✅ split | ✅ 1 | ✅ |
 | `duration` | ✅ | ✅ duration | 🟡 2 | ✅ |
-| `contacts` | ✅ | 🟡 text | ✅ 1 | ❌ |
+| `contacts` | ✅ | ✅ contacts | 🟡 1 | ❌ |
 | `feeling` | ✅ | 🟡 text | ✅ 1 | ❌ |
 | `pain` | ✅ | 🟡 text | ✅ 1 | ❌ |
 | `vitals` | ✅ | 🟡 text | ✅ 1 | ❌ |
@@ -43,12 +43,12 @@ would mean it became nothing.
 | `custom` | ✅ | ✅ custom | ✅ 1 | ✅ |
 | `food` | ✅ | ✅ food | 🟡 2 | ✅ |
 | `drinking` | ✅ | ✅ drinking | 🟡 1 | ✅ |
-| `expense` | ✅ | 🟡 text | ✅ 2 | ❌ |
+| `expense` | ✅ | ✅ expense | 🟡 2 | ❌ |
 | `reminder` | ✅ | 🟡 text | ✅ 1 | ❌ |
 | `location` | ✅ | 🟡 text | ✅ 1 | ❌ |
 | `url` | ✅ | 🟡 text | ✅ 1 | ❌ |
-| `measurement` | ✅ | 🟡 text | ✅ 1 | ❌ |
-| `sleep` | ✅ | 🟡 text | ✅ 1 | ❌ |
+| `measurement` | ✅ | ✅ measurement | 🟡 1 | ❌ |
+| `sleep` | ✅ | ✅ sleep | 🟡 1 | ✅ |
 | `health` | ✅ | 🟡 text | ✅ 2 | ❌ |
 | `summary` | ✅ | ✅ summary | ✅ 1 | ✅ |
 | `interval` | ✅ | 🟡 text | ✅ 2 | ❌ |

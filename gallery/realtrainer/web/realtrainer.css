@@ -2678,6 +2678,14 @@
 .rt-entry-meal-name { color: var(--ink); font-family: Arial; font-size: 13px; height: 18px; }
 .rt-entry-meal-nums { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; }
 .rt-entry-meal-macro { color: #f59e0b; }
+/* A night and a body measurement: `SleepRow` and `MeasurementRow` have no
+   right-hand end, so the glyph and the value sit together on the left. */
+.rt-entry-life { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; padding: 4px 0px; }
+.rt-entry-quality { font-family: Arial; font-size: 11px; height: 14px; padding: 2px 8px; border-radius: 4px; }
+.rt-q-excellent { color: #4ade80; background-color: rgba(34, 197, 94, 0.2); }
+.rt-q-good { color: #60a5fa; background-color: rgba(59, 130, 246, 0.2); }
+.rt-q-fair { color: #facc15; background-color: rgba(234, 179, 8, 0.2); }
+.rt-q-poor { color: #f87171; background-color: rgba(239, 68, 68, 0.2); }
 
 /* --- the feature-vector dialog ----------------------------------------- */
 .rt-vec-sheet { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 10px; margin: 12px 0px; padding: 14px; border-radius: 14px; border-width: 1px; border-color: var(--line); background-color: var(--surface-2); }
@@ -2701,6 +2709,17 @@
 .rt-cred-buy { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; height: 44px; padding: 0px 14px; border-radius: 10px; background-color: var(--surface-3); cursor: pointer; }
 .rt-cred-buy:hover { background-color: #333333; }
 .rt-cred-buy-text { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 13px; height: 18px; }
+
+/* Harjoituspaikat and Tietopankki: a page with a banner and a main, and no
+   shell around them. The one keeps the bottom bar, the other does not. */
+.rt-subpage { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 12px; padding: 0px 16px 16px 16px; background-color: var(--bg); }
+.rt-page-head { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 12px; padding: 12px 0px; }
+.rt-page-main { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 10px; }
+.rt-page-hd { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 22px; height: 28px; }
+.rt-page-h2 { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 16px; height: 22px; }
+.rt-page-para { color: var(--ink-dim); font-family: Arial; font-size: 13px; height: 18px; }
+.rt-page-row { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; }
+.rt-page-cats { display: flex; flex-direction: row; flex-wrap: wrap; gap: 8px; }
 
 .rt-ys-head { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 12px; padding: 12px 16px; background-color: var(--bg); }
 .rt-ys-hd { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 17px; height: 22px; }

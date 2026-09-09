@@ -646,17 +646,28 @@
   "life-contacts": {
    "rows": [
     {
-     "type": "text",
+     "type": "contacts",
      "parts": [
       {
-       "text": "Contacts 30",
-       "tone": "muted",
+       "text": "👟",
+       "tone": "default",
        "kind": "meta"
+      },
+      {
+       "text": "Maakontaktit",
+       "tone": "default",
+       "kind": "note"
+      },
+      {
+       "text": "30 kontaktia",
+       "tone": "muted",
+       "kind": "count"
       }
      ]
     }
    ],
-   "oracle": "ts"
+   "oracle": "spec",
+   "deviation": "`ContentRows.tsx` has a component for each of these four — `ExpenseRow`, `SleepRow`, `MeasurementRow`, `ContactsRow` — and does not draw them through the library's parts at all. The library's own renderer turns them into a line of text where the label and the value are separate runs with nothing between them, so `Expense 4.50EUR | Bussilippu` reads as \"Expense4.50EUR | Bussilippu\" and `Contacts 5x10|konkka` drops the shoe and the unit. So these are rows of their own here, drawn as the app draws them."
   },
   "life-food": {
    "rows": [
@@ -729,47 +740,54 @@
   "life-expense": {
    "rows": [
     {
-     "type": "text",
+     "type": "expense",
      "parts": [
       {
-       "text": "Expense",
-       "tone": "label",
+       "text": "💰",
+       "tone": "default",
        "kind": "meta"
       },
       {
+       "text": "Kulu",
+       "tone": "default",
+       "kind": "note"
+      },
+      {
        "text": "45EUR",
-       "tone": "number",
-       "kind": "meta"
+       "tone": "weight",
+       "kind": "amount"
       }
      ]
     }
    ],
-   "oracle": "ts"
+   "oracle": "spec",
+   "deviation": "`ContentRows.tsx` has a component for each of these four — `ExpenseRow`, `SleepRow`, `MeasurementRow`, `ContactsRow` — and does not draw them through the library's parts at all. The library's own renderer turns them into a line of text where the label and the value are separate runs with nothing between them, so `Expense 4.50EUR | Bussilippu` reads as \"Expense4.50EUR | Bussilippu\" and `Contacts 5x10|konkka` drops the shoe and the unit. So these are rows of their own here, drawn as the app draws them."
   },
   "life-expense-described": {
    "rows": [
     {
-     "type": "text",
+     "type": "expense",
      "parts": [
       {
-       "text": "Expense",
-       "tone": "label",
+       "text": "💰",
+       "tone": "default",
        "kind": "meta"
+      },
+      {
+       "text": "sali",
+       "tone": "default",
+       "kind": "note"
       },
       {
        "text": "45EUR",
-       "tone": "number",
-       "kind": "meta"
-      },
-      {
-       "text": " | sali",
-       "tone": "default",
-       "kind": "meta"
+       "tone": "weight",
+       "kind": "amount"
       }
      ]
     }
    ],
-   "oracle": "ts"
+   "oracle": "spec",
+   "deviation": "`ContentRows.tsx` has a component for each of these four — `ExpenseRow`, `SleepRow`, `MeasurementRow`, `ContactsRow` — and does not draw them through the library's parts at all. The library's own renderer turns them into a line of text where the label and the value are separate runs with nothing between them, so `Expense 4.50EUR | Bussilippu` reads as \"Expense4.50EUR | Bussilippu\" and `Contacts 5x10|konkka` drops the shoe and the unit. So these are rows of their own here, drawn as the app draws them."
   },
   "life-reminder": {
    "rows": [
@@ -854,22 +872,23 @@
   "life-sleep": {
    "rows": [
     {
-     "type": "text",
+     "type": "sleep",
      "parts": [
       {
-       "text": "Sleep",
-       "tone": "label",
+       "text": "😴",
+       "tone": "default",
        "kind": "meta"
       },
       {
-       "text": "7h",
-       "tone": "number",
-       "kind": "meta"
+       "text": "7t",
+       "tone": "default",
+       "kind": "duration"
       }
      ]
     }
    ],
-   "oracle": "ts"
+   "oracle": "spec",
+   "deviation": "`ContentRows.tsx` has a component for each of these four — `ExpenseRow`, `SleepRow`, `MeasurementRow`, `ContactsRow` — and does not draw them through the library's parts at all. The library's own renderer turns them into a line of text where the label and the value are separate runs with nothing between them, so `Expense 4.50EUR | Bussilippu` reads as \"Expense4.50EUR | Bussilippu\" and `Contacts 5x10|konkka` drops the shoe and the unit. So these are rows of their own here, drawn as the app draws them."
   },
   "life-feeling": {
    "rows": [
@@ -904,17 +923,23 @@
   "life-measurement": {
    "rows": [
     {
-     "type": "text",
+     "type": "measurement",
      "parts": [
       {
-       "text": "weight 78.5kg",
-       "tone": "muted",
+       "text": "⚖️",
+       "tone": "default",
        "kind": "meta"
+      },
+      {
+       "text": "78.5kg",
+       "tone": "default",
+       "kind": "value"
       }
      ]
     }
    ],
-   "oracle": "ts"
+   "oracle": "spec",
+   "deviation": "`ContentRows.tsx` has a component for each of these four — `ExpenseRow`, `SleepRow`, `MeasurementRow`, `ContactsRow` — and does not draw them through the library's parts at all. The library's own renderer turns them into a line of text where the label and the value are separate runs with nothing between them, so `Expense 4.50EUR | Bussilippu` reads as \"Expense4.50EUR | Bussilippu\" and `Contacts 5x10|konkka` drops the shoe and the unit. So these are rows of their own here, drawn as the app draws them."
   },
   "life-location": {
    "rows": [
