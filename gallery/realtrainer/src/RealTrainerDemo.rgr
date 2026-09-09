@@ -479,6 +479,15 @@ treefactory Rt {
     tag ModalFoot EVGElement (props (className "rt-modal-foot"))
     tag ChatHd   EVGElement (props (className "rt-chat-hd") (id "rt-chat-hd") (elementType 1) (role "heading") (a11yLevel 2))
     tag ChatH3   EVGElement (props (className "rt-chat-h3") (elementType 1) (role "heading") (a11yLevel 3))
+    ; The workout notes page — `traces/reference/home-notes.json`. It opens
+    ; over the Home feed and keeps the two buttons above it, so it is a
+    ; section of Home and not a scene: a `main` of its own inside the shell's,
+    ; with the note list beside the editor.
+    tag NotesMain EVGElement (props (className "rt-notes-main") (role "main"))
+    tag NotesSide EVGElement (props (className "rt-notes-side") (role "complementary"))
+    tag NotesHd  EVGElement (props (className "rt-notes-hd") (elementType 1) (role "heading") (a11yLevel 1))
+    tag NotesPara EVGElement (props (className "rt-notes-para") (elementType 1) (role "paragraph"))
+    tag NotesTx  EVGElement (props (className "rt-notes-text") (elementType 1))
     tag ChatTools EVGElement (props (className "rt-chat-tools"))
     tag ChatTool EVGElement (props (className "rt-chat-tool") (role "button") (a11yFocusable true))
     tag ChatToolTx EVGElement (props (className "rt-chat-tool-text") (elementType 1))
@@ -989,6 +998,13 @@ class RealTrainerDemo {
     def setHintField:InputCtl (new InputCtl())
     ; Which of the chat's own drawers is open — the history, the saved notes
     ; or the AI instructions. One at a time, as the original has them.
+    ; Which card's notes are open, or -1. "Muistiinpanot" on a diary card is
+    ; not a panel on the card: it opens a page over the feed.
+    def notesCard@(mutable):int (0 - 1)
+    def noteDate:InputCtl (new InputCtl())
+    def noteTitle:InputCtl (new InputCtl())
+    def noteUrl:InputCtl (new InputCtl())
+    def noteBody:InputCtl (new InputCtl())
     def chatPanel@(mutable):string ""
     ; "Anna palautetta harjoittelustani" asks for an assessment, and the page
     ; renames itself to say so. A question a person types does not — see
@@ -1208,6 +1224,16 @@ class RealTrainerDemo {
         setHintField.tid = "rt-set-hint"
         setHintField.placeholder = "Lisää uusi ohje..."
         setHintField.name = setHintField.placeholder
+        noteDate.tid = "rt-notes-date"
+        noteTitle.tid = "rt-notes-title"
+        noteTitle.placeholder = "Uuden videon otsikko"
+        noteTitle.name = noteTitle.placeholder
+        noteUrl.tid = "rt-notes-url"
+        noteUrl.placeholder = "https://youtube.com/..."
+        noteUrl.name = noteUrl.placeholder
+        noteBody.tid = "rt-notes-body"
+        noteBody.placeholder = "# Otsikko Vapaamuotoinen muistiinpano..."
+        noteBody.name = noteBody.placeholder
         chatHintField.tid = "rt-chat-hint"
         chatHintField.placeholder = "Lisää uusi ohje..."
         chatHintField.name = chatHintField.placeholder
@@ -3683,6 +3709,12 @@ class RealTrainerDemo {
             actions.addChild((this.calButton("rt-plan-update" "Päivitä suunnitelma" (RtIcons.refreshCw("#ffffff")))))
         }
         body.addChild(actions)
+        ; The notes page takes the feed's place and leaves the two buttons
+        ; above it, which is where the reference leaves them.
+        if (notesCard >= 0) {
+            this.notesPage(body)
+            return
+        }
         def home (tree Rt (Col (props (className "rt-home"))))
         def entry (tree Rt (ModalRow))
         entry.addChild((this.iconBtn("rt-home-image" "Lisää kuva" (RtIcons.penLine("#999999")))))
@@ -4445,8 +4477,38 @@ class RealTrainerDemo {
                 name = ((name + " ") + wk)
             }
         }
-        b.a11yLabel = name
+        ; THE NAME IS TEXT CONTENT, and text content collapses. A drill
+        ; whose own name ends in a space — `@<150bpm | matka + ` is one the
+        ; corpus has — came out here with the space still in it and a double
+        ; space where the runs were joined. The browser never shows those, so
+        ; neither does this.
+        b.a11yLabel = (RealTrainerDemo.squish(name))
         return b
+    }
+
+    ; One string, spaced the way a browser spaces the runs it is made of:
+    ; leading and trailing space gone, and a run of them one space.
+    sfn squish:string (raw:string) {
+        def out@(mutable):string ""
+        def gap@(mutable):boolean false
+        def len:int (strlen raw)
+        def i@(mutable):int 0
+        while (i < len) {
+            def code:int (charAt raw i)
+            if ((code == 32) || (code == 9)) {
+                if ((strlen out) > 0) {
+                    gap = true
+                }
+            } {
+                if gap {
+                    out = (out + " ")
+                    gap = false
+                }
+                out = (out + (strfromcode code))
+            }
+            i = (i + 1)
+        }
+        return out
     }
 
     ; --- Home: Tilastot -------------------------------------------------------
@@ -7268,6 +7330,60 @@ class RealTrainerDemo {
         }
     }
 
+    ; THE WORKOUT NOTES PAGE — `traces/reference/home-notes.json`. The notes
+    ; kept for one diary entry: a date and Tallenna, the training links, the
+    ; video links out of the knowledge store, and a markdown field with its
+    ; rendered preview beside it.
+    ;
+    ; Nothing is stored: notes, the knowledge store and the search behind
+    ; "Hae ja linkitä treeni" are the backend's, and the reference itself
+    ; shows the empty state on a fresh account. What is drawn is what a
+    ; person sees there, and the one thing that is true here — which entry
+    ; the page was opened from — is drawn from the entry.
+    fn notesPage:void (body:EVGElement) {
+        def sorted:[RtSeedEntry] (RealTrainerDemo.sortByDateDesc((seed.selectedEntries())))
+        def eid@(mutable):string ""
+        def eday@(mutable):string ""
+        if (notesCard < (array_length sorted)) {
+            def e:RtSeedEntry (itemAt sorted notesCard)
+            eid = e.id
+            eday = e.date
+        }
+        noteDate.setValue(eday)
+        noteDate.name = eday
+        def page (tree Rt (Col (props (className "rt-notes"))))
+        def head (tree Rt (Row (props (className "rt-notes-head"))))
+        head.addChild((this.exButton("rt-entry-notes-back" "Takaisin" "Takaisin")))
+        head.addChild((tree Rt (NotesHd (props (id "rt-notes-hd")) "Harjoitusmuistiinpanot")))
+        page.addChild(head)
+        page.addChild((tree Rt (NotesPara ("Linkitetty entryyn: " + eid))))
+        def main (tree Rt (NotesMain))
+        def side (tree Rt (NotesSide))
+        side.addChild((this.exButton("rt-notes-new" "Uusi" "Uusi")))
+        side.addChild((tree Rt (NotesTx "AI-valittu: 0")))
+        side.addChild((tree Rt (NotesPara "Ei muistiinpanoja")))
+        main.addChild(side)
+        main.addChild((this.fieldBox(noteDate)))
+        main.addChild((this.exButton("rt-notes-save" "Tallenna" "Tallenna")))
+        main.addChild((tree Rt (NotesTx "Treenilinkitykset")))
+        main.addChild((this.exButton("rt-notes-unlink" "Poista linkki tähän treeniin" "Poista linkki tähän treeniin")))
+        main.addChild((this.exButton("rt-notes-link" "Hae ja linkitä treeni" "Hae ja linkitä treeni")))
+        main.addChild((this.exButton("rt-notes-entry" eid eid)))
+        main.addChild((tree Rt (NotesTx "Videolinkit tietovarastosta Tietovarastolinkkejä: 0")))
+        main.addChild((this.exButton("rt-notes-videos" "Hae tai selaa videoita" "Hae tai selaa videoita")))
+        main.addChild((this.fieldBox(noteTitle)))
+        main.addChild((this.fieldBox(noteUrl)))
+        main.addChild((this.exButton("rt-notes-store" "Lisää tietovarastoon" "Lisää tietovarastoon")))
+        main.addChild((this.fieldBox(noteBody)))
+        ; The preview: the markdown on the left and what it renders to on the
+        ; right, which for an empty note is the one heading the placeholder
+        ; carries.
+        main.addChild((tree Rt (NotesTx "# Muistiinpano")))
+        main.addChild((tree Rt (NotesHd (props (id "rt-notes-preview")) "Muistiinpano")))
+        page.addChild(main)
+        body.addChild(page)
+    }
+
     fn exButton:EVGElement (id:string label:string text:string) {
         def b (tree Rt (ExBtn))
         b.id = id
@@ -7534,6 +7650,25 @@ class RealTrainerDemo {
     }
 
     fn pressEntryCard:boolean (id:string) {
+        ; NOT UNDER THE REVIEW. It is a modal and the cards are beneath it;
+        ; the same reason the composer's field steps aside while it is up.
+        if review.open {
+            return false
+        }
+        ; "Muistiinpanot" opens the notes page over the feed, and Takaisin
+        ; closes it. Both were drawn and answered nothing.
+        if (id == "rt-entry-notes-back") {
+            notesCard = (0 - 1)
+            this.rebuild()
+            return true
+        }
+        def note:int (RealTrainerDemo.indexAfter(id "rt-entry-notes-"))
+        if (note >= 0) {
+            notesCard = note
+            docScroll = 0.0
+            this.rebuild()
+            return true
+        }
         ; The two panels a card opens over itself, and their ways out.
         if (id == "rt-entry-stats-close") {
             statsRow = ""
@@ -7895,6 +8030,10 @@ class RealTrainerDemo {
         push a setMailField
         push a setNickField
         push a setHintField
+        push a noteDate
+        push a noteTitle
+        push a noteUrl
+        push a noteBody
         push a chatHintField
         push a venueField
         push a knowField

@@ -2541,6 +2541,18 @@
 .rt-chat-tool:hover { background-color: var(--surface-3); }
 .rt-chat-tool-text { color: var(--ink); font-family: Arial; font-size: 12px; height: 16px; }
 .rt-chat-para { color: var(--ink-dim); font-family: Arial; font-size: 13px; height: 18px; }
+.rt-chat-h3 { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 14px; height: 20px; }
+/* The history and the saved notes, under the button that opened them. */
+.rt-chat-drawer { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 6px; padding: 10px; border-radius: 10px; border-width: 1px; border-color: var(--line); background-color: var(--surface-2); }
+.rt-chat-drawer-head { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; }
+/* The workout notes page, over the Home feed. */
+.rt-notes { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 10px; padding: 0px 4px 16px 4px; }
+.rt-notes-head { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 10px; }
+.rt-notes-main { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 8px; }
+.rt-notes-side { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 6px; padding: 10px; border-radius: 10px; border-width: 1px; border-color: var(--line); background-color: var(--surface-2); }
+.rt-notes-hd { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 18px; height: 24px; }
+.rt-notes-para { color: var(--ink-dim); font-family: Arial; font-size: 13px; height: 18px; }
+.rt-notes-text { color: var(--ink-dim); font-family: Arial; font-size: 12px; height: 16px; }
 .rt-chat-compose { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; width: 100%; }
 
 /* --- the chat log's rows, the More sheet, the phone's home and dashboard, the edit sheet --- */
