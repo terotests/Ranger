@@ -1,0 +1,19 @@
+{
+  "_": "A calendar that is not a training diary: Mittaukset, whose entries are measurements and not workouts, and its Home feed. `calendar-switch` changes to the plan calendar and stops there; this goes to a calendar whose CARDS are a different shape.",
+  "id": "calendar-measure",
+  "area": "kalenteri",
+  "machine": "",
+  "reference": { "route": "/calendar/cal-train?week=2026-02-09" },
+  "setup": [
+    { "page": "390x844" },
+    { "route": "/calendar/cal-train?week=2026-02-09" }
+  ],
+  "steps": [
+    { "tick": 500 },
+    { "id": "rt-calsel", "role": "button", "name": "💪 Harjoituspäiväkirja" },
+    { "id": "rt-cal-mittaukset", "role": "button", "name": "📝 Mittaukset" },
+    { "tick": 800 },
+    { "id": "rt-nav-home", "role": "button", "name": "Koti" },
+    { "tick": 1500, "why": "the feed arrives in chunks" }
+  ]
+}

@@ -434,9 +434,9 @@ is one no reader is ever handed.
 Four scenarios were added to go where the first thirteen never did, and three
 of them found something that is drawn and does not answer:
 
-Nine scenarios were added to go where the first thirteen never did, and the
-reference was recorded for eight of them — so what each gap should look like is
-on file rather than guessed at.
+Thirteen scenarios were added to go where the first thirteen never did, and the
+reference was recorded for twelve of them — so what each gap should look like is
+on file rather than guessed at. Nine of the twenty-five are at 100%.
 
 | Scenario | Parity | What the reference does, and this side does not |
 | --- | ---: | --- |
@@ -447,6 +447,10 @@ on file rather than guessed at.
 | `credits` | 14% | the header's **credit gauge** is on every screen of both sides. There it opens a page — AI-kreditit with what is used of what is available, a purchase panel with a price and Stripe under it, the credits history and the detailed receipts. Here it is drawn, carries the same long name a reader hears, and answers nothing |
 | `home-stats` | 54% | **Laske vektorit** opens a dialog there: a date range (Tänään, 7, 14, 30 päivää, Mukautettu), every calendar to pick from, what the calculation will do, and Peruuta beside it. Here it is the one control the statistics panel has |
 | `home-entry-edit` | 99.6% | **Lisää** on a card is not an add: it opens the card's action menu — Muokkaa AI:lla, Kopioi kuvana, Poista. **Poista** removes the entry and toasts "Merkintä poistettu". Both dead here |
+| `more-rest` | 41% | **Jaetut kalenterit** is a sharing page there — Hallitse jakamista, Julkaise päiväkirja verkkoon, and every calendar with whether it is shared. **Tietopankki** is a knowledge store — a search, eight category filters, an empty state and Lisää ensimmäinen. Both close the sheet here. **Vie tietokanta** adds nothing to either side's tree, which is the one item that matches |
+| `chat-tools` | 45% | **AI-ohjeet** opens an instructions panel: the general instructions with three suggestions to add, a Tee ehdotukset that has the AI write them, a field for a new one, and instructions per calendar type. **Keskusteluhistoria** and **Tallennetut muistiinpanot** are panels. **Anna palautetta** produces an AI-arvio with Kopioi koko keskustelu, Kopioi viesti and Tallenna muistiin. All five are drawn here and none answers |
+| `yearsheet-open` | 47% | opening the plan out of the Vuosilakana list goes to the plan's own view there — Aktiivinen suunnitelma, the current period, week 36 of 104 — and stays in the list here |
+| `calendar-measure` | 77% | a calendar whose entries are MEASUREMENTS and not workouts. The reference gives each metric a heading of its own — Hrv, Leposyke, Weight, Askeleet, Mets Huippu, Aktiiviset Kalorit, Treeni Aika — and this side draws a card of a different shape: 171 stops it does not have, 48 of the reference's it does not draw |
 | `dashboard` | 100% | the section and **Avaa suunnitelma** — the year plan with its JSON in and out, its three tabs and its periods — match |
 | `settings-theme` | — | `noReference`: Ocean and Sunrise are this port's own |
 

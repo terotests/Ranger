@@ -19,5 +19,9 @@
  "credits.json": 0.142,
  "dashboard.json": 1,
  "home-entry-edit.json": 0.996,
- "home-stats.json": 0.54
+ "home-stats.json": 0.54,
+ "calendar-measure.json": 0.769,
+ "chat-tools.json": 0.447,
+ "more-rest.json": 0.407,
+ "yearsheet-open.json": 0.473
 }

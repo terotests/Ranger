@@ -1,0 +1,53 @@
+{
+  "_": "The AI Chat's own tools, which `chat-send` and `chat-review` walk past on the way to the composer: a new conversation, the history, the saved notes, the AI instructions, and the one canned question. Five buttons on a screen two scenarios already open.",
+  "id": "chat-tools",
+  "area": "chat",
+  "machine": "",
+  "reference": {
+    "route": "/calendar/cal-train?week=2026-02-09"
+  },
+  "setup": [
+    {
+      "page": "390x844"
+    },
+    {
+      "route": "/calendar/cal-train?week=2026-02-09"
+    }
+  ],
+  "steps": [
+    {
+      "tick": 500
+    },
+    {
+      "id": "rt-nav-chat",
+      "role": "button",
+      "name": "AI Chat"
+    },
+    {
+      "id": "rt-chat-history",
+      "role": "button",
+      "name": "Keskusteluhistoria"
+    },
+    {
+      "id": "rt-chat-notes",
+      "role": "button",
+      "name": "Tallennetut muistiinpanot"
+    },
+    {
+      "id": "rt-chat-feedback",
+      "role": "button",
+      "name": "Anna palautetta harjoittelustani"
+    },
+    {
+      "id": "rt-chat-guide",
+      "role": "button",
+      "name": "AI-ohjeet",
+      "why": "LAST but one: the reference opens a panel over the screen for it and nothing behind it can be pressed while it is up"
+    },
+    {
+      "id": "rt-chat-new",
+      "role": "button",
+      "name": "Uusi keskustelu"
+    }
+  ]
+}
