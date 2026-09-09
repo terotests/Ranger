@@ -233,12 +233,8 @@ class MermaidRadarReader {
         def word:string (MermaidReader.firstWord(st))
         def kw:string (MermaidReader.lower((MermaidReader.upToPunct(word))))
         def rest:string (trim (substring st (strlen word) (strlen st)))
-        if (kw == "radar-beta") {
-            if ((strlen rest) > 0) {
-                this.statement(rest)
-            }
-            return
-        }
+        ; `radar-beta` is `radar` once the suffix is cut off, which is how
+        ; Mermaid's own detector reads it too.
         if (kw == "radar") {
             if ((strlen rest) > 0) {
                 this.statement(rest)

@@ -7,12 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- **Thirty-five of Mermaid's thirty-eight header keywords are drawn.** The
+- **Thirty-six of Mermaid's thirty-eight header keywords are drawn.** The
   matrix in `docs/MERMAID_PARITY.md` is read off Mermaid's own detector
   registry. It used to say thirty of thirty, and both numbers were wrong.
 
 ### Added
 
+- **Mermaid treemaps.** A tree whose branches are drawn to scale: the nesting
+  says what contains what and the area says how big each part is, so the one
+  thing this must not do is round a rectangle to make it look tidier. The
+  indentation is the whole of the syntax, a leaf carries `: value`, a branch is
+  worth the sum of what is under it, and `:::name` puts a class on a box. The
+  layout is not a slice down every level the same way — that makes slivers, and
+  a sliver a hundred times longer than it is wide has an area nobody can judge.
+  Each list of siblings is cut in two at the place nearest to halving its
+  weight and its rectangle is cut across the longer side in the same
+  proportion, so every step halves the weight and turns the grain ninety
+  degrees.
 - **Mermaid radar charts.** A bar chart bent into a circle: one spoke per axis,
   one closed line per subject, and the shape of that line is the comparison.
   The readings are read either as a plain list in axis order or as `name:

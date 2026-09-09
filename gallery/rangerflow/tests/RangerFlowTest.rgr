@@ -51,6 +51,7 @@ Import "../domains/mermaid/MermaidRailroadReader.rgr"
 Import "../domains/mermaid/MermaidInfoReader.rgr"
 Import "../domains/mermaid/MermaidPacketReader.rgr"
 Import "../domains/mermaid/MermaidRadarReader.rgr"
+Import "../domains/mermaid/MermaidTreemapReader.rgr"
 Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 
@@ -146,6 +147,7 @@ class RangerFlowTest {
         RangerFlowTest.testMermaidClassNotes(c)
         RangerFlowTest.testMermaidPacket(c)
         RangerFlowTest.testMermaidRadar(c)
+        RangerFlowTest.testMermaidTreemap(c)
         RangerFlowTest.testBusinessCharts(c)
         RangerFlowTest.testAuthoring(c)
         RangerFlowTest.testTreeLayouts(c)
@@ -4030,6 +4032,60 @@ class RangerFlowTest {
         def key:FlowNode (g.nodeById("key-1"))
         c.eqStr("and each curve gets a swatch in that curve's colour" key.bgColor (MermaidRadarFlow.colorAt(1)))
         c.ok("a radar chart is one this library draws" (MermaidReader.draws("radar")))
+    }
+
+    ; --------------------------------------------- Mermaid treemap --------
+    ; A treemap says two things at once, and the second one is the one that can
+    ; be got wrong quietly: the AREA is the number. So the assertions are about
+    ; area — twice the number is twice the box — and about the indentation,
+    ; which is the whole of the syntax.
+    sfn testMermaidTreemap:void (c:Checker) {
+        c.section("Mermaid treemaps")
+        def src:string "treemap-beta\n"
+        src = (src + "title Where it went\n")
+        src = (src + "\"Big\"\n")
+        src = (src + "    \"One\": 40\n")
+        src = (src + "    \"Two\": 20\n")
+        src = (src + "\"Small\": 30 :::warm\n")
+
+        def d:MermaidTreemap (MermaidTreemapReader.parse(src))
+        c.eqStr("the title is the line that says so" d.title "Where it went")
+        c.eqInt("a box per line" (d.nodeCount()) 4)
+        c.eqInt("and the indentation says which are at the top" (d.rootCount()) 2)
+        def big:MermaidTreemapNode (itemAt d.nodes 0)
+        c.eqStr("a name in quotes is the name without them" big.label "Big")
+        c.ok("a branch was given no number of its own" (big.hasValue == false))
+        c.ok("and is worth what is under it" ((fabs (big.total - 60.0)) < 0.001))
+        def one:MermaidTreemapNode (itemAt d.nodes 1)
+        c.eqInt("a line indented further is a child of the one above" one.parent 0)
+        c.ok("and carries the number it was given" ((fabs (one.total - 40.0)) < 0.001))
+        def small:MermaidTreemapNode (itemAt d.nodes 3)
+        c.eqInt("a line indented back out is not" small.parent -1)
+        c.eqStr("`:::` puts a class on a box" small.cssClass "warm")
+        c.ok("without eating the number in front of it" ((fabs (small.total - 30.0)) < 0.001))
+        c.ok("the total is the sum of the roots" ((fabs ((d.total()) - 90.0)) < 0.001))
+
+        def bare (new FlowStyle)
+        def g:FlowGraph (MermaidTreemapFlow.build(d bare))
+        c.eqInt("a treemap has no edges: the nesting is the relation" (g.edgeCount()) 0)
+        def bOne:FlowNode (g.nodeById(one.id))
+        def two:MermaidTreemapNode (itemAt d.nodes 2)
+        def bTwo:FlowNode (g.nodeById(two.id))
+        ; Twice the number is twice the AREA, not twice the width: a treemap
+        ; that scaled one side would be a bar chart drawn as squares.
+        def areaOne:double (bOne.width * bOne.height)
+        def areaTwo:double (bTwo.width * bTwo.height)
+        c.ok("twice the number is twice the area" ((fabs ((areaOne / areaTwo) - 2.0)) < 0.25))
+        def branch:FlowNode (g.nodeById(big.id))
+        c.ok("a child is drawn inside its parent" (bOne.x > branch.x))
+        c.ok("and within its walls" (((bOne.x + bOne.width)) <= ((branch.x + branch.width) + 0.001)))
+        c.ok("a branch writes its name in a strip at the top" (g.hasNode((big.id + "-name"))))
+        c.ok("and a leaf writes its number with its name" ((indexOf bOne.label "40") > 0))
+        c.eqStr("a leaf is coloured by the branch it belongs to" bOne.bgColor (MermaidTreemapFlow.colorAt(0)))
+        def far:FlowNode (g.nodeById(small.id))
+        c.eqStr("and a different branch is a different colour" far.bgColor (MermaidTreemapFlow.colorAt(1)))
+        c.eqStr("`treemap-beta` is the same word" (MermaidReader.otherDiagram("treemap-beta")) "treemap")
+        c.ok("a treemap is one this library draws" (MermaidReader.draws("treemap")))
     }
 
     ; The edge with a given id. `FlowGraph` indexes nodes by name and edges by

@@ -48,6 +48,7 @@ Import "../domains/mermaid/MermaidPieReader.rgr"
 Import "../domains/mermaid/MermaidXyReader.rgr"
 Import "../domains/mermaid/MermaidPacketReader.rgr"
 Import "../domains/mermaid/MermaidRadarReader.rgr"
+Import "../domains/mermaid/MermaidTreemapReader.rgr"
 Import "../domains/mermaid/MermaidSankeyReader.rgr"
 Import "../domains/mermaid/MermaidBlockReader.rgr"
 Import "../domains/mermaid/MermaidArchReader.rgr"
@@ -565,6 +566,10 @@ class RangerFlowDemo {
             this.runMermaidRailroad(srcOpt styleName)
             return
         }
+        if (d.diagramKind == "treemap") {
+            this.runMermaidTreemap(srcOpt styleName)
+            return
+        }
         if (d.diagramKind == "radar") {
             this.runMermaidRadar(srcOpt styleName)
             return
@@ -933,6 +938,27 @@ class RangerFlowDemo {
             title = "RangerFlow — Mermaid pie chart"
         }
         this.writeAll(v g "rangerflow-mermaid-pie" title)
+    }
+
+    ; A treemap: what contains what, and how big each part is.
+    fn runMermaidTreemap:void (src:string styleName:string) {
+        def tm:MermaidTreemap (MermaidTreemapReader.parse(src))
+        if ((tm.nodeCount()) == 0) {
+            print "  nothing in that treemap"
+            return
+        }
+        def style:FlowStyle (this.styleByName(styleName))
+        def g:FlowGraph (MermaidTreemapFlow.build(tm style))
+        print ("  model  " + (to_string (tm.nodeCount())) + " boxes, " + (to_string (tm.rootCount())) + " at the top, total " + (to_string (tm.total())))
+        print ("  graph  " + (to_string (g.nodeCount())) + " nodes, " + (to_string (g.edgeCount())) + " edges")
+        def v:FlowView (FlowView.of(g))
+        v.notation = "plain"
+        style.applyToTheme(v.theme)
+        def title:string tm.title
+        if ((strlen title) == 0) {
+            title = "RangerFlow — Mermaid treemap"
+        }
+        this.writeAll(v g "rangerflow-mermaid-treemap" title)
     }
 
     ; A radar chart: several things measured on the same set of scales.
