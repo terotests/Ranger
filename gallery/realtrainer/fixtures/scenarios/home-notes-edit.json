@@ -1,0 +1,19 @@
+{
+  "_": "The workout notes page's own controls, which nothing presses. `home-notes` opens the page and comes back out; this stays and presses the four that open something — a new note, the training-link search, the video search and Tallenna. Recorded so what each one opens is on file rather than guessed at.",
+  "id": "home-notes-edit",
+  "area": "koti",
+  "machine": "",
+  "reference": { "route": "/calendar/cal-train?week=2026-02-09" },
+  "setup": [
+    { "page": "390x844" },
+    { "route": "/calendar/cal-train?week=2026-02-09" }
+  ],
+  "steps": [
+    { "tick": 500 },
+    { "id": "rt-nav-home", "role": "button", "name": "Koti" },
+    { "tick": 1500, "why": "the feed arrives in chunks — see `feedShown`" },
+    { "id": "rt-entry-notes-0", "role": "button", "name": "Muistiinpanot", "nth": 0 },
+    { "id": "rt-notes-new", "role": "button", "name": "Uusi" },
+    { "id": "rt-notes-link", "role": "button", "name": "Hae ja linkitä treeni", "why": "LAST: it opens a search over the page and nothing behind it can be pressed — Hae tai selaa videoita and Tallenna both find nothing once it is up" }
+  ]
+}

@@ -1030,6 +1030,9 @@ class RealTrainerDemo {
     ; Which card's notes are open, or -1. "Muistiinpanot" on a diary card is
     ; not a panel on the card: it opens a page over the feed.
     def notesCard@(mutable):int (0 - 1)
+    ; The training search the notes page opens over itself.
+    def notesSearch@(mutable):boolean false
+    def notesSearchField:InputCtl (new InputCtl())
     def noteDate:InputCtl (new InputCtl())
     def noteTitle:InputCtl (new InputCtl())
     def noteUrl:InputCtl (new InputCtl())
@@ -1286,6 +1289,9 @@ class RealTrainerDemo {
         themeCase.addItem("upper" "Versaalit" false)
         themeCase.addItem("normal" "Normaali kirjainkoko" false)
         themeCase.value = "Versaalit"
+        notesSearchField.tid = "rt-notes-search"
+        notesSearchField.placeholder = "Hae otsikolla, päivällä tai kalenterilla"
+        notesSearchField.name = notesSearchField.placeholder
         noteDate.tid = "rt-notes-date"
         noteTitle.tid = "rt-notes-title"
         noteTitle.placeholder = "Uuden videon otsikko"
@@ -5589,19 +5595,34 @@ class RealTrainerDemo {
     ; ninety-workout diary parsed five thousand dates on every rebuild — two
     ; milliseconds a frame, for an order that had not changed. The key
     ; travels beside the entry instead.
+    ; MINUTES, NOT DAYS. `[2026-02-09T00:15+02]` is a quarter past midnight
+    ; and the five entries beside it are not: the reference puts it first of
+    ; the six and this put it last, because the day was all the key held. An
+    ; entry with no time in its header keeps midnight, which leaves every date
+    ; with no time exactly as it was.
     sfn sortByDateDesc:[RtSeedEntry] (entries:[RtSeedEntry]) {
+        return (RealTrainerDemo.sortByKeyDesc(entries true))
+    }
+
+    ; THE DAY ONLY, and not the time in the header. The training search behind
+    ; "Hae ja linkitä treeni" orders by the entry's DATE, so two workouts on
+    ; the same day fall back on the order the store gathered them in whatever
+    ; hour either was written at — which is why `cal-train-2026-04-10-1`, with
+    ; no time at all, comes before a 15:35 one there and after it in the feed.
+    sfn sortByDayDesc:[RtSeedEntry] (entries:[RtSeedEntry]) {
+        return (RealTrainerDemo.sortByKeyDesc(entries false))
+    }
+
+    sfn sortByKeyDesc:[RtSeedEntry] (entries:[RtSeedEntry] withTime:boolean) {
         def out@(mutable):[RtSeedEntry]
         def keys@(mutable):[int]
         def n:int (array_length entries)
         for entries e:RtSeedEntry i {
             def item:RtSeedEntry (itemAt entries ((n - 1) - i))
-            ; MINUTES, NOT DAYS. `[2026-02-09T00:15+02]` is a quarter past
-            ; midnight and the five entries beside it are not: the reference
-            ; puts it first of the six and this put it last, because the day
-            ; was all the key held. An entry with no time in its header keeps
-            ; midnight, which leaves every date with no time exactly as it
-            ; was.
-            def days:int (((RtWeek.daysOf(item.date)) * 1440) + (RealTrainerDemo.minuteOf(item.compact)))
+            def days@(mutable):int ((RtWeek.daysOf(item.date)) * 1440)
+            if withTime {
+                days = (days + (RealTrainerDemo.minuteOf(item.compact)))
+            }
             def placed:[RtSeedEntry]
             def placedKeys:[int]
             def done@(mutable):boolean false
@@ -7858,6 +7879,9 @@ class RealTrainerDemo {
         main.addChild((this.exButton("rt-notes-unlink" "Poista linkki tähän treeniin" "Poista linkki tähän treeniin")))
         main.addChild((this.exButton("rt-notes-link" "Hae ja linkitä treeni" "Hae ja linkitä treeni")))
         main.addChild((this.exButton("rt-notes-entry" eid eid)))
+        if notesSearch {
+            this.notesFinder(main eid)
+        }
         main.addChild((tree Rt (NotesTx "Videolinkit tietovarastosta Tietovarastolinkkejä: 0")))
         main.addChild((this.exButton("rt-notes-videos" "Hae tai selaa videoita" "Hae tai selaa videoita")))
         main.addChild((this.fieldBox(noteTitle)))
@@ -7871,6 +7895,54 @@ class RealTrainerDemo {
         main.addChild((tree Rt (NotesHd (props (id "rt-notes-preview")) "Muistiinpano")))
         page.addChild(main)
         body.addChild(page)
+    }
+
+    ; "HAE JA LINKITÄ TREENI" — every workout in every training calendar,
+    ; newest first, each with a Linkitä of its own. The one this note is
+    ; already linked to is counted and not offered, which is why the count
+    ; above the list is one more than the buttons under it.
+    ;
+    ; Two closes, as the original has them: the one over the page and the one
+    ; in the panel's own header.
+    fn notesFinder:void (main:EVGElement eid:string) {
+        main.addChild((this.exButton("rt-notes-search-close" "Sulje" "Sulje")))
+        main.addChild((tree Rt (NotesTx "Linkitä treenejä muistiinpanoon")))
+        main.addChild((this.exButton("rt-notes-search-x" "Sulje" "Sulje")))
+        main.addChild((this.fieldBox(notesSearchField)))
+        def all:[RtSeedEntry]
+        ; The store's order, not the file's: two workouts on the same day keep
+        ; the reverse of the order they were gathered in, and gathering them
+        ; calendar by calendar in a different order puts the wrong one first.
+        def inOrder:[RtSeedCalendar] (seed.storeOrder())
+        for inOrder c:RtSeedCalendar ci {
+            if (c.kind == "training") {
+                for seed.entries e:RtSeedEntry j {
+                    if (e.calendarId == c.id) { push all e }
+                }
+            }
+        }
+        def ordered:[RtSeedEntry] (RealTrainerDemo.sortByDayDesc(all))
+        main.addChild((tree Rt (NotesPara ((to_string (array_length ordered)) + " treeniä"))))
+        for ordered e:RtSeedEntry j {
+            def row (tree Rt (Row (props (className "rt-notes-hit"))))
+            row.addChild((tree Rt (NotesTx (((e.id + " ") + (RtWeek.fiDate(e.date))) + (" • " + (this.calendarNamed(e.calendarId)))))))
+            row.addChild((tree Rt (Spacer)))
+            ; The one already linked offers the way OUT of the link, not
+            ; another of it.
+            if (e.id == eid) {
+                row.addChild((this.exButton(("rt-notes-unlink-" + (to_string j)) "Poista linkki" "Poista linkki")))
+            } {
+                row.addChild((this.exButton(("rt-notes-link-" + (to_string j)) "Linkitä" "Linkitä")))
+            }
+            main.addChild(row)
+        }
+    }
+
+    fn calendarNamed:string (id:string) {
+        for seed.calendars c:RtSeedCalendar i {
+            if (c.id == id) { return c.name }
+        }
+        return id
     }
 
     fn exButton:EVGElement (id:string label:string text:string) {
@@ -8148,6 +8220,16 @@ class RealTrainerDemo {
         ; closes it. Both were drawn and answered nothing.
         if (id == "rt-entry-notes-back") {
             notesCard = (0 - 1)
+            this.rebuild()
+            return true
+        }
+        if (id == "rt-notes-link") {
+            notesSearch = true
+            this.rebuild()
+            return true
+        }
+        if ((id == "rt-notes-search-close") || (id == "rt-notes-search-x")) {
+            notesSearch = false
             this.rebuild()
             return true
         }
@@ -8551,6 +8633,7 @@ class RealTrainerDemo {
         push a setNickField
         push a setHintField
         push a teditName
+        push a notesSearchField
         push a noteDate
         push a noteTitle
         push a noteUrl
