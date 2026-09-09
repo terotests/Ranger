@@ -127,6 +127,7 @@ class RangerFlowTest {
         RangerFlowTest.testMermaidGantt(c)
         RangerFlowTest.testMermaidSequence(c)
         RangerFlowTest.testMermaidGit(c)
+        RangerFlowTest.testMermaidSubgraphEnds(c)
         RangerFlowTest.testMermaidKanban(c)
         RangerFlowTest.testMermaidQuadrant(c)
         RangerFlowTest.testMermaidPie(c)
@@ -3891,6 +3892,69 @@ class RangerFlowTest {
         def notInfo:MermaidInfo (MermaidInfoReader.parse("flowchart TD\n  a --> b\n"))
         c.ok("a diagram that never asked gets no answer" (notInfo.asked == false))
         c.ok("`info` is one this library draws" (MermaidReader.draws("info")))
+    }
+
+    ; --------------------------------------------- a link to a subgraph ---
+    ; `C --> O` where `subgraph O` exists means the GROUP. Mermaid keeps `O`
+    ; as a vertex all the same — the clustering is a drawing decision, not a
+    ; parsing one — so the model has to say what Mermaid's says and only the
+    ; drawing may differ. Both halves are checked here, because doing it to
+    ; the model instead deleted vertices Mermaid keeps.
+    sfn testMermaidSubgraphEnds:void (c:Checker) {
+        c.section("Mermaid links that name a subgraph")
+        def src:string "flowchart TB\n"
+        src = (src + "  C[\"Compiler\"]\n")
+        src = (src + "  subgraph O[\"Office\"]\n")
+        src = (src + "    W[\"Word\"]\n")
+        src = (src + "    E[\"Excel\"]\n")
+        src = (src + "  end\n")
+        src = (src + "  EVG[\"EVG\"]\n")
+        src = (src + "  C --> O\n")
+        src = (src + "  O --> EVG\n")
+
+        def d:MermaidDiagram (MermaidReader.parse(src))
+        ; The model is Mermaid's: `O` is a vertex and the links name it.
+        c.eqInt("the subgraph id stays a vertex, as it is in Mermaid" (d.nodeCount()) 5)
+        c.ok("under its own name" ((d.indexOfStep("O")) >= 0))
+        def first:FlowLink (itemAt d.chart.links 0)
+        c.eqStr("and the link still names it" first.target "O")
+        c.eqInt("one link per arrow written" (d.linkCount()) 2)
+
+        def bare (new FlowStyle)
+        def g:FlowGraph (MermaidFlow.styled(d bare))
+        ; The drawing is Mermaid's too: no box called O, and the arrows go to
+        ; the frame. Until this was fixed the layout got an extra box named
+        ; after the group and the arrows went to that instead.
+        c.ok("no box is drawn for the group's own id" ((g.hasNode("O")) == false))
+        c.ok("the frame is there to point at" (g.hasNode("sg-O")))
+        def toFrame:int 0
+        def fromFrame:int 0
+        def hidden:int 0
+        def i:int 0
+        while (i < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(i))
+            if e.hidden {
+                hidden = (hidden + 1)
+            } {
+                if (e.target == "sg-O") { toFrame = (toFrame + 1) }
+                if (e.source == "sg-O") { fromFrame = (fromFrame + 1) }
+            }
+            i = (i + 1)
+        }
+        c.eqInt("one arrow arrives at the frame, not one per member" toFrame 1)
+        c.eqInt("and one leaves it" fromFrame 1)
+        ; The layout ranks by longest path and has no idea what a group is, so
+        ; an arrow into ONE member would rank that member below its siblings
+        ; and the group would come apart. The stand-ins are what stop that.
+        c.ok("with a stand-in per remaining member, hidden" (hidden > 0))
+        def w:FlowNode (g.nodeById("W"))
+        def e2:FlowNode (g.nodeById("E"))
+        c.ok("so the members stay on one rank" ((fabs (w.y - e2.y)) < 1.0))
+        def cc:FlowNode (g.nodeById("C"))
+        def frame:FlowNode (g.nodeById("sg-O"))
+        c.ok("and the group sits below what points at it" (frame.y > cc.y))
+        def evg:FlowNode (g.nodeById("EVG"))
+        c.ok("and above what it points at" (evg.y > frame.y))
     }
 
     ; --------------------------------------------- a click is not an edit --

@@ -1,0 +1,42 @@
+flowchart TB
+  classDef lang fill:#1e1b4b,stroke:#312e81,color:#e0e7ff
+  classDef core fill:#0f766e,stroke:#115e59,color:#ecfdf5
+  classDef office fill:#fff7ed,stroke:#ea580c,color:#7c2d12
+  classDef data fill:#eff6ff,stroke:#2563eb,color:#1e3a8a
+  classDef live fill:#fdf2f8,stroke:#db2777,color:#9d174d
+
+  C["Ranger compiler"]
+
+  subgraph O["Office"]
+    W["Word"]
+    E["Excel"]
+    P["PowerPoint / ODP"]
+    B["Book"]
+    F["Figma"]
+  end
+
+  subgraph D["Data"]
+    RF["RangerFlow"]
+    V["Vela"]
+    DV["RangerDB Viewer"]
+    FS["Firesim"]
+    SQL["RangerSQL / RangerDB"]
+  end
+
+  subgraph A["Apps"]
+    RT["RealTrainer"]
+    G["Game engine"]
+    UI["UI + @process"]
+  end
+
+  EVG["EVG"]
+  PAINT["WebGL · SoftCanvas · PDF · CoreGraphics · Android · SDL2"]
+
+  C --> O & D & A
+  O & D & A --> EVG --> PAINT
+
+  class C lang
+  class EVG,PAINT core
+  class W,E,P,B,F office
+  class RF,V,DV,FS,SQL data
+  class RT,G,UI live

@@ -273,6 +273,17 @@ class MermaidDiagram {
     ; asked it to animate. Empty for the edges nobody named, which is most.
     def linkIds:[string]
     def linkAnimated:[boolean]
+    ; The subgraph an end of the link NAMED, where it named one. `C --> O`
+    ; with `subgraph O` above it means the group, not a node called O — so
+    ; the link is laid out against a member and drawn to the frame, and the
+    ; entry here is what says which frame.
+    def linkSourceGroup:[string]
+    def linkTargetGroup:[string]
+    ; A link that exists only so the LAYOUT ranks a group's members together.
+    ; One arrow is drawn to the frame; the rest are hidden once the frames
+    ; are there, because Mermaid draws one arrow to a cluster and so does
+    ; this.
+    def linkGhost:[boolean]
 
     def subgraphs:[MermaidSubgraph]
 
@@ -396,6 +407,28 @@ class MermaidDiagram {
         return -1
     }
 
+    ; Every node inside a subgraph, its nested subgraphs looked through: a
+    ; nested group is a member of its parent and is not a node to point at.
+    fn membersInto:void (groupId:string out:[string]) {
+        def at:int (this.indexOfSubgraph(groupId))
+        if (at < 0) {
+            return
+        }
+        def sg:MermaidSubgraph (itemAt subgraphs at)
+        def i:int 0
+        while (i < (array_length sg.members)) {
+            def m:string (itemAt sg.members i)
+            if ((this.indexOfStep(m)) >= 0) {
+                push out m
+            } {
+                if ((this.indexOfSubgraph(m)) >= 0) {
+                    this.membersInto(m out)
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
     ; The subgraph a node was declared in, or "" for one at the top level.
     fn ownerOf:string (nodeId:string) {
         def i:int 0
@@ -449,6 +482,7 @@ class MermaidDiagram {
     ; what THIS decision looks like.
     fn buildStyled:FlowGraph (style:FlowStyle) {
         def g:FlowGraph (chart.build())
+        this.expandGroupEnds(g)
         this.decorateShapes(g)
         if (style.strong) {
             this.paintClasses(g)
@@ -458,6 +492,122 @@ class MermaidDiagram {
         def first:int (style.applyTo(g))
         this.paintClasses(g)
         return g
+    }
+
+    ; `C --> O` where `subgraph O` is one of the groups means the GROUP, and
+    ; Mermaid draws one arrow to its border. `O` is a vertex in Mermaid's own
+    ; database all the same — the clustering is a drawing decision, not a
+    ; parsing one — so this is done to the GRAPH and the parsed model is left
+    ; exactly as Mermaid reads it. The parity harness is what says so: doing
+    ; it to the model deleted vertices Mermaid keeps.
+    ;
+    ; The layout has no idea what a group is. It ranks by longest path, so an
+    ; arrow into ONE member ranks that member below its siblings and the group
+    ; comes apart — which is why the link is expanded to every member here and
+    ; all but the first are hidden once the frames exist.
+    fn expandGroupEnds:void (g:FlowGraph) {
+        clear linkSourceGroup
+        clear linkTargetGroup
+        clear linkGhost
+        def n:int (g.edgeCount())
+        def extraFrom:[string]
+        def extraTo:[string]
+        def extraFromGroup:[string]
+        def extraToGroup:[string]
+        def i:int 0
+        while (i < n) {
+            def e:FlowEdge (g.edgeAt(i))
+            def fromGroup:string ""
+            def toGroup:string ""
+            def sources:[string]
+            def targets:[string]
+            if ((this.indexOfSubgraph(e.source)) >= 0) {
+                this.membersInto(e.source sources)
+                if ((array_length sources) > 0) {
+                    fromGroup = e.source
+                }
+            }
+            if ((this.indexOfSubgraph(e.target)) >= 0) {
+                this.membersInto(e.target targets)
+                if ((array_length targets) > 0) {
+                    toGroup = e.target
+                }
+            }
+            if ((strlen fromGroup) == 0) {
+                clear sources
+                push sources e.source
+            }
+            if ((strlen toGroup) == 0) {
+                clear targets
+                push targets e.target
+            }
+            e.source = (itemAt sources 0)
+            e.target = (itemAt targets 0)
+            push linkSourceGroup fromGroup
+            push linkTargetGroup toGroup
+            push linkGhost false
+            def a:int 0
+            while (a < (array_length sources)) {
+                def b:int 0
+                while (b < (array_length targets)) {
+                    if (a > 0) {
+                        push extraFrom (itemAt sources a)
+                        push extraTo (itemAt targets b)
+                        push extraFromGroup fromGroup
+                        push extraToGroup toGroup
+                    } {
+                        if (b > 0) {
+                            push extraFrom (itemAt sources a)
+                            push extraTo (itemAt targets b)
+                            push extraFromGroup fromGroup
+                            push extraToGroup toGroup
+                        }
+                    }
+                    b = (b + 1)
+                }
+                a = (a + 1)
+            }
+            i = (i + 1)
+        }
+        ; The stand-ins go in AFTER the originals, so every index the shape and
+        ; stroke tables were built against still names the edge it did.
+        def x:int 0
+        while (x < (array_length extraFrom)) {
+            def ghost:FlowEdge (FlowEdge.create("" (itemAt extraFrom x) (itemAt extraTo x)))
+            ghost.edgeType = "smoothstep"
+            ghost.markerEnd = ""
+            g.addEdge(ghost)
+            push linkSourceGroup (itemAt extraFromGroup x)
+            push linkTargetGroup (itemAt extraToGroup x)
+            push linkGhost true
+            x = (x + 1)
+        }
+        ; A node that is only there because a link named a subgraph is a node
+        ; the author never wrote. It is taken out of the DRAWING; the parsed
+        ; model still has it, because Mermaid's does.
+        def s:int 0
+        while (s < (array_length subgraphs)) {
+            def sg:MermaidSubgraph (itemAt subgraphs s)
+            if (g.hasNode(sg.id)) {
+                if ((this.usedAsGroup(sg.id)) ) {
+                    def gone:boolean (g.removeNode(sg.id))
+                }
+            }
+            s = (s + 1)
+        }
+        g.reindex()
+    }
+
+    ; Did any link name this subgraph as an end? Only then is the node of the
+    ; same name a stand-in rather than something the author drew.
+    fn usedAsGroup:boolean (id:string) {
+        def i:int 0
+        while (i < (array_length linkSourceGroup)) {
+            if ((itemAt linkSourceGroup i) == id) { return true }
+            if ((itemAt linkTargetGroup i) == id) { return true }
+            i = (i + 1)
+        }
+        return false
     }
 
     ; Everything the flowchart model could not carry: the outlines Mermaid has
@@ -1090,6 +1240,10 @@ class MermaidDiagram {
         frame.cssClass = "mermaid subgraph"
         frame.bgColor = "#f6f7fb"
         frame.borderColor = "#c9cede"
+        ; Sockets on all four sides, so an arrow that names the GROUP has a
+        ; top and a bottom to arrive at. Without them the router falls back to
+        ; the middle of the box and the line is drawn through the contents.
+        frame.addSideHandles()
         frame.syncFromModel()
         g.addNode(frame)
         ; The frame is made after the layout has run, which is after the sheet
@@ -1215,6 +1369,20 @@ class MermaidReader {
             }
         }
         return doc
+    }
+
+    sfn entryAt:string (list:[string] i:int) {
+        if (i < (array_length list)) {
+            return (itemAt list i)
+        }
+        return ""
+    }
+
+    sfn flagAt:boolean (list:[boolean] i:int) {
+        if (i < (array_length list)) {
+            return (itemAt list i)
+        }
+        return false
     }
 
     ; ------------------------------------------------------------- lines ----
@@ -2585,6 +2753,87 @@ class MermaidFlow {
         def refanned:int (EdgeLanes.assign(g))
         def again:int (OrthoRouter.repairAll(g))
         def frames:int (d.frameSubgraphs(g style))
+        def moved:int (MermaidFlow.attachGroupEnds(d g))
         return g
+    }
+
+    ; An arrow that named a subgraph is drawn to the FRAME, now that there is
+    ; one. It was laid out against a member so the ranks would come out right;
+    ; this is the second half of that, and it has to be after the frames
+    ; exist, which is after the layout.
+    sfn attachGroupEnds:int (d:MermaidDiagram g:FlowGraph) {
+        def moved:int 0
+        def n:int (g.edgeCount())
+        def i:int 0
+        while (i < n) {
+            if (i < (array_length d.linkSourceGroup)) {
+                def e:FlowEdge (g.edgeAt(i))
+                def from:string (itemAt d.linkSourceGroup i)
+                def to:string (itemAt d.linkTargetGroup i)
+                def changed:boolean false
+                if ((strlen from) > 0) {
+                    def fid:string (MermaidDiagram.frameIdOf(from))
+                    if (g.hasNode(fid)) {
+                        e.source = fid
+                        changed = true
+                    }
+                }
+                if ((strlen to) > 0) {
+                    def tid:string (MermaidDiagram.frameIdOf(to))
+                    if (g.hasNode(tid)) {
+                        e.target = tid
+                        changed = true
+                    }
+                }
+                if (i < (array_length d.linkGhost)) {
+                    if (itemAt d.linkGhost i) {
+                        ; A stand-in that did its work in the layout. One
+                        ; arrow is drawn to the frame; this is not it.
+                        e.hidden = true
+                    }
+                }
+                if changed {
+                    ; The route was worked out for the member it used to end
+                    ; at, so it is thrown away rather than bent: an edge that
+                    ; keeps a route to somewhere it no longer goes is worse
+                    ; than one with no route at all.
+                    clear e.waypoints
+                    e.pinnedRoute = false
+                    e.hasLaneX = false
+                    e.hasLaneY = false
+                    e.sourcePort = ""
+                    e.targetPort = ""
+                    ; And the sides are chosen again from where the two ends
+                    ; now ARE. A frame is a wide box, so an arrow left to the
+                    ; router's default sides runs off around it.
+                    g.reindex()
+                    if (g.hasNode(e.source)) {
+                        if (g.hasNode(e.target)) {
+                            def a:FlowNode (g.nodeById(e.source))
+                            def b:FlowNode (g.nodeById(e.target))
+                            def dx:double ((b.centerX()) - (a.centerX()))
+                            def dy:double ((b.centerY()) - (a.centerY()))
+                            ; By the chart's DIRECTION, not by which delta is
+                            ; larger. A frame is as wide as everything in it,
+                            ; so its middle is a long way sideways from an
+                            ; arrow that is simply coming down into it, and
+                            ; the larger delta says "across" when the reader
+                            ; can see it is "down".
+                            if (d.horizontal()) {
+                                MermaidDiagram.faceAcross(e dx)
+                            } {
+                                MermaidDiagram.faceDown(e dy)
+                            }
+                        }
+                    }
+                    moved = (moved + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        if (moved > 0) {
+            g.reindex()
+        }
+        return moved
     }
 }

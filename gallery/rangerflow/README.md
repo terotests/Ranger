@@ -181,6 +181,11 @@ It also reads what Mermaid 11 added: `A@{ shape: rounded, label: "…" }` for th
 shapes with no bracket spelling, named edges (`A e1@--> B`, `e1@{ animate: true }`),
 markdown strings, and ids with a `-` or a `.` in them.
 
+An arrow may name a **subgraph**: `C --> O` where `subgraph O` exists means
+the group, and one arrow is drawn to its frame. Mermaid keeps `O` as a vertex
+all the same — the clustering is a drawing decision, not a parsing one — so the
+model here says what Mermaid's says and only the drawing differs.
+
 What it drops on purpose: `click` (there is no browser to navigate),
 `linkStyle` by index, and `direction` inside a subgraph — RangerFlow lays the
 whole chart out one way. They are ignored rather than treated as errors, so a
