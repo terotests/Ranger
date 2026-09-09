@@ -40,52 +40,16 @@ function read(name) {
 }
 
 /**
- * Every diagram type the INSTALLED Mermaid ships, read off its own build.
+ * Every header keyword the installed Mermaid detects — the ORACLE's list.
  *
- * Not a list typed into this file: Mermaid publishes one chunk per diagram,
- * so the names are whatever this version actually carries, and a type added
- * upstream turns up here the next time the harness is installed. The header
- * keyword differs from the chunk name in four places — a flowchart opens with
- * `flowchart`, not `flow` — and that is the whole of the mapping.
+ * Not a list typed into this file, and no longer a list of chunk filenames
+ * either: five chunks are named `diagram-<hash>.mjs` and say nothing about
+ * which diagram they are, so reading names off filenames quietly missed five
+ * types. The oracle asks Mermaid's own detector registry instead, which is
+ * the list the parser itself consults.
  */
-function mermaidDiagramTypes() {
-  const dir = path.join(ROOT, "harness", "node_modules", "mermaid", "dist", "chunks", "mermaid.core");
-  if (!fs.existsSync(dir)) return [];
-  // The chunk name is not always the keyword. Where it is not, this says so.
-  const HEADER = {
-    flow: "flowchart", class: "classDiagram", "class-v2": "classDiagram",
-    state: "stateDiagram", "state-v2": "stateDiagram-v2", sequence: "sequenceDiagram",
-    er: "erDiagram", requirement: "requirementDiagram", quadrant: "quadrantChart",
-    c4: "C4Context", architecture: "architecture-beta", block: "block-beta",
-    sankey: "sankey-beta", xychart: "xychart-beta", packet: "packet-beta",
-    radar: "radar-beta", treemap: "treemap-beta", venn: "venn-beta",
-    wardley: "wardley-beta", cynefin: "cynefin-beta", ishikawa: "ishikawa-beta",
-    // Singular: the chunk is `swimlanes`, the header keyword `swimlane-beta`.
-    // Mermaid's own detector says so, and a matrix that asked about the wrong
-    // keyword would report a reader that recognises nothing as passing.
-    swimlanes: "swimlane-beta",
-    // Four headers for one picture, and none of them is the chunk's name:
-    // Mermaid's detectors want `railroad-beta` and `railroad-<notation>-beta`.
-    abnf: "railroad-abnf-beta", ebnf: "railroad-ebnf-beta",
-    peg: "railroad-peg-beta", railroad: "railroad-beta",
-  };
-  const names = new Set();
-  for (const file of fs.readdirSync(dir)) {
-    // …Diagram-HASH.mjs for most of them, and `<name>-definition-HASH.mjs`
-    // for the three that are packaged the other way.
-    const m = file.match(/^([a-zA-Z0-9]+)Diagram(-v2)?-[A-Z0-9]+\.mjs$/);
-    if (m) names.add(m[1] + (m[2] ?? ""));
-    const d = file.match(/^([a-zA-Z0-9]+)-definition-[A-Z0-9]+\.mjs$/);
-    if (d) names.add(d[1]);
-  }
-  // `class` and `class-v2` are one keyword with two renderers behind it, so
-  // the table has one row for it rather than two.
-  const rows = new Map();
-  for (const chunk of [...names].sort()) {
-    const header = HEADER[chunk] ?? chunk;
-    if (!rows.has(header)) rows.set(header, { chunk, header });
-  }
-  return [...rows.values()];
+function mermaidDiagramTypes(oracle) {
+  return (oracle?.types ?? []).map((t) => ({ header: t.header, type: t.type }));
 }
 
 const oracle = read("mermaid.json");
@@ -292,7 +256,8 @@ for (const want of oracle.diagrams) {
 // through to the flowchart parser.
 // Which kinds have a reader is the READER's answer, not this file's: the dump
 // asks `MermaidReader.draws` for every header and reports what it said.
-const types = mermaidDiagramTypes();
+const FLOWCHART = new Set(["flowchart", "flowchart-v2", "flowchart-elk"]);
+const types = mermaidDiagramTypes(oracle);
 const byHeader = new Map((ours.headers ?? []).map((h) => [h.header, h]));
 const coverage = [];
 for (const t of types) {
@@ -302,7 +267,10 @@ for (const t of types) {
   if (!kind || kind === "flowchart") {
     // Either it is the flowchart, or it fell through to the flowchart parser
     // — and for every other header that is the failure this table exists for.
-    verdict = t.header === "flowchart" ? "read" : "MISTAKEN FOR A FLOWCHART";
+    // `graph`, `flowchart` and `flowchart-elk` are one picture behind three of
+    // Mermaid's detectors — elk only changes which layout engine draws it — so
+    // reading any of them as a flowchart is the right answer, not a fall-through.
+    verdict = FLOWCHART.has(t.type) ? "read" : "MISTAKEN FOR A FLOWCHART";
   } else if (got?.draws) {
     verdict = "read";
   }

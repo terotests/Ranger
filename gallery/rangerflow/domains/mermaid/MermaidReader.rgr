@@ -1505,6 +1505,9 @@ class MermaidReader {
         if (word == "statediagram")       { return "state" }
         if (word == "erdiagram")          { return "er" }
         if (word == "requirementdiagram") { return "requirement" }
+        ; Mermaid's detector is `requirement(Diagram)?`, so the bare word is a
+        ; header too — and one that used to fall through to the flowchart.
+        if (word == "requirement")        { return "requirement" }
         if (word == "quadrantchart")      { return "quadrant" }
         if (word == "gitgraph")           { return "git" }
         if (word == "journey")            { return "journey" }
@@ -1521,6 +1524,8 @@ class MermaidReader {
         if (word == "architecture")       { return "architecture" }
         if (word == "radar")              { return "radar" }
         if (word == "treemap")            { return "treemap" }
+        if (word == "treeview")           { return "treeview" }
+        if (word == "eventmodeling")      { return "eventmodeling" }
         if (word == "info")               { return "info" }
         if (word == "c4context")          { return "c4" }
         if (word == "c4container")        { return "c4" }
