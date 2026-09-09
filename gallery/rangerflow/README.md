@@ -27,7 +27,7 @@ routing, auto-layout, large graphs — and produces something worth having.
 ## Run it
 
 ```bash
-npm run rangerflow:test        # 859 assertions: model, forces, router, editor, SQL, Mermaid, CSS, export
+npm run rangerflow:test        # 876 assertions: model, forces, router, editor, SQL, Mermaid, CSS, export
 npm run rangerflow:demo        # the e-commerce schema → SVG, PDF, HTML, JSON, scene
 npm run rangerflow:uml         # the same pipeline for a UML class diagram
 npm run rangerflow:flowchart   # an ATK flowchart in ISO 5807 shapes
@@ -326,6 +326,23 @@ has — `Person`, `System`, `Container`, `Component`, `Node` with their `_Ext`,
 `Db` and `Queue` variants — every boundary, nested, and `Rel`, `BiRel` and the
 directional variants. `UpdateElementStyle` and friends are dropped: the look
 here is a stylesheet's business.
+
+### …and the two that are placed rather than laid out
+
+A **timeline** runs along its axis in the order it was written, and a **user
+journey**'s height is the score against each task. Handing either to a layered
+layout would throw away the one quantity the diagram has, so both are placed by
+their reader: periods along the axis with their events under them, tasks along
+the axis at the height they scored, and sections as frames over the columns
+that belong to them.
+
+```mermaid
+journey
+    title My working day
+    section Go to work
+      Make tea: 5: Me
+      Do work: 1: Me, Cat
+```
 
 ### …measured against Mermaid itself
 

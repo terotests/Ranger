@@ -30,6 +30,8 @@ Import "../domains/mermaid/MermaidStateReader.rgr"
 Import "../domains/mermaid/MermaidMindMapReader.rgr"
 Import "../domains/mermaid/MermaidRequirementReader.rgr"
 Import "../domains/mermaid/MermaidC4Reader.rgr"
+Import "../domains/mermaid/MermaidTimelineReader.rgr"
+Import "../domains/mermaid/MermaidJourneyReader.rgr"
 Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 
@@ -104,6 +106,7 @@ class RangerFlowTest {
         RangerFlowTest.testMermaidMindMap(c)
         RangerFlowTest.testMermaidRequirements(c)
         RangerFlowTest.testMermaidC4(c)
+        RangerFlowTest.testMermaidPlaced(c)
         RangerFlowTest.testBusinessCharts(c)
         RangerFlowTest.testAuthoring(c)
         RangerFlowTest.testTreeLayouts(c)
@@ -2837,6 +2840,58 @@ class RangerFlowTest {
         c.eqStr("and a Rel at one" second.markerStart "")
         c.eqInt("nothing is drawn through a box" (EdgeOverlap.nodeCrossings(g)) 0)
         c.ok("a C4 diagram is one this library draws" (MermaidReader.draws("c4")))
+    }
+
+    ; ------------------------------------- the two Mermaid diagrams that are
+    ; PLACED rather than laid out: a timeline runs along its axis in the order
+    ; it was written, and a journey's height is the score. Handing either to a
+    ; layered layout would throw away the only quantity the diagram has.
+    sfn testMermaidPlaced:void (c:Checker) {
+        c.section("Mermaid timelines and journeys")
+        def tl:string "timeline\n"
+        tl = (tl + "    title A short history\n")
+        tl = (tl + "    section The nineties\n")
+        tl = (tl + "        1991 : The first web page\n")
+        tl = (tl + "        1995 : JavaScript : PHP\n")
+        tl = (tl + "    section Since\n")
+        tl = (tl + "        2017 : WebAssembly\n")
+        def t:MermaidTimeline (MermaidTimelineReader.parse(tl))
+        c.eqStr("the title is the line that says so" t.title "A short history")
+        c.eqInt("a period per line" (t.periodCount()) 3)
+        c.eqInt("and an event per colon after it" (t.eventCount()) 4)
+        c.eqInt("with the sections counted" (t.sectionCount()) 2)
+        def p:MermaidTimelinePeriod (itemAt t.periods 1)
+        c.eqStr("the period is what comes first" p.label "1995")
+        c.eqInt("and the rest are its events" (p.eventCount()) 2)
+        c.eqStr("under the section they were written in" p.section "The nineties")
+
+        def tg:FlowGraph (MermaidTimelineFlow.render(tl))
+        ; 3 periods + 4 events + 2 section frames.
+        c.eqInt("every period and event is a node" (tg.nodeCount()) 9)
+        def a:FlowNode (tg.nodeById("period0"))
+        def b:FlowNode (tg.nodeById("period1"))
+        c.ok("the periods run along the axis in the order written" (a.x < b.x))
+        def frame:FlowNode (tg.nodeAt(0))
+        c.eqStr("and a section is a frame behind them" frame.nodeType "group")
+
+        def jn:string "journey\n"
+        jn = (jn + "    title My working day\n")
+        jn = (jn + "    section Go to work\n")
+        jn = (jn + "      Make tea: 5: Me\n")
+        jn = (jn + "      Do work: 1: Me, Cat\n")
+        def j:MermaidJourney (MermaidJourneyReader.parse(jn))
+        c.eqInt("a task per line" (j.taskCount()) 2)
+        def task:MermaidJourneyTask (itemAt j.tasks 1)
+        c.eqStr("the name is what comes before the first colon" task.name "Do work")
+        c.eqInt("the score is the number after it" task.score 1)
+        c.eqStr("and the actors are the rest" task.actors "Me, Cat")
+
+        def jg:FlowGraph (MermaidJourneyFlow.render(jn))
+        def high:FlowNode (jg.nodeById("task0"))
+        def low:FlowNode (jg.nodeById("task1"))
+        c.ok("a five sits above a one, which is the whole point" (high.y < low.y))
+        c.ok("and the day runs left to right" (high.x < low.x))
+        c.ok("both are diagrams this library draws" ((MermaidReader.draws("timeline")) && (MermaidReader.draws("journey"))))
     }
 
     ; --------------------------------------------- a click is not an edit --

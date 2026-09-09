@@ -30,6 +30,8 @@ Import "../domains/mermaid/MermaidStateReader.rgr"
 Import "../domains/mermaid/MermaidMindMapReader.rgr"
 Import "../domains/mermaid/MermaidRequirementReader.rgr"
 Import "../domains/mermaid/MermaidC4Reader.rgr"
+Import "../domains/mermaid/MermaidTimelineReader.rgr"
+Import "../domains/mermaid/MermaidJourneyReader.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 Import "../layout/TreeLayouts.rgr"
 Import "../export/FlowExport.rgr"
@@ -650,6 +652,12 @@ class RangerFlowWeb {
         if (d.diagramKind == "c4") {
             return (this.loadMermaidC4(text styleName want))
         }
+        if (d.diagramKind == "timeline") {
+            return (this.loadMermaidTimeline(text styleName want))
+        }
+        if (d.diagramKind == "journey") {
+            return (this.loadMermaidJourney(text styleName want))
+        }
         if ((d.nodeCount()) == 0) {
             status = "no nodes in that Mermaid source"
             if ((strlen d.diagramKind) > 0) {
@@ -870,6 +878,63 @@ class RangerFlowWeb {
         }
         status = ((to_string (cd.boxCount())) + " elements, " + (to_string (cd.relationCount())) + " relations — " + what + ", " + want)
         return true
+    }
+
+    ; A timeline and a user journey are both PLACED rather than laid out: the
+    ; order is the axis, and in a journey the height is the score. A layered
+    ; pass over either would throw away the one quantity the diagram has.
+    fn loadMermaidTimeline:boolean (text:string styleName:string want:string) {
+        def td:MermaidTimeline (MermaidTimelineReader.parse(text))
+        if ((td.periodCount()) == 0) {
+            status = "no periods in that timeline"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidTimelineFlow.build(td style))
+        this.adoptPlaced(g style want)
+        def what:string td.title
+        if ((strlen what) == 0) {
+            what = "Mermaid timeline"
+        }
+        status = ((to_string (td.periodCount())) + " periods, " + (to_string (td.eventCount())) + " events — " + what + ", " + want)
+        return true
+    }
+
+    fn loadMermaidJourney:boolean (text:string styleName:string want:string) {
+        def jd:MermaidJourney (MermaidJourneyReader.parse(text))
+        if ((jd.taskCount()) == 0) {
+            status = "no tasks in that journey"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidJourneyFlow.build(jd style))
+        this.adoptPlaced(g style want)
+        def what:string jd.title
+        if ((strlen what) == 0) {
+            what = "Mermaid user journey"
+        }
+        status = ((to_string (jd.taskCount())) + " tasks — " + what + ", " + want)
+        return true
+    }
+
+    ; What the two placed diagrams share: the graph as it was built, with no
+    ; layout over the top of it.
+    fn adoptPlaced:void (g:FlowGraph style:FlowStyle want:string) {
+        this.adopt(g)
+        editor.view.notation = "plain"
+        layoutName = "none"
+        simRunning = false
+        editor.pinWhileDragging = false
+        style.applyToTheme(editor.view.theme)
+        if (want == "dark") {
+            editor.view.theme.name = "dark"
+        } {
+            editor.view.theme.name = "light"
+        }
     }
 
     ; The sample the dropdown shows, and the text the editing panel opens with.

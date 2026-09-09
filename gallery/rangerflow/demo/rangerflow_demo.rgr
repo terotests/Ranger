@@ -37,6 +37,8 @@ Import "../domains/mermaid/MermaidStateReader.rgr"
 Import "../domains/mermaid/MermaidMindMapReader.rgr"
 Import "../domains/mermaid/MermaidRequirementReader.rgr"
 Import "../domains/mermaid/MermaidC4Reader.rgr"
+Import "../domains/mermaid/MermaidTimelineReader.rgr"
+Import "../domains/mermaid/MermaidJourneyReader.rgr"
 Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 Import "../layout/LayeredLayout.rgr"
@@ -472,6 +474,14 @@ class RangerFlowDemo {
             this.runMermaidC4(srcOpt styleName)
             return
         }
+        if (d.diagramKind == "timeline") {
+            this.runMermaidTimeline(srcOpt styleName)
+            return
+        }
+        if (d.diagramKind == "journey") {
+            this.runMermaidJourney(srcOpt styleName)
+            return
+        }
         if ((strlen d.diagramKind) > 0) {
             if (d.diagramKind != "flowchart") {
                 print ("  this is a " + d.diagramKind + " diagram — this reads flowcharts and class diagrams")
@@ -659,6 +669,48 @@ class RangerFlowDemo {
             title = "RangerFlow — Mermaid C4 diagram"
         }
         this.writeAll(v g "rangerflow-mermaid-c4" title)
+    }
+
+    ; A timeline: the periods along the axis, the events under them.
+    fn runMermaidTimeline:void (src:string styleName:string) {
+        def td:MermaidTimeline (MermaidTimelineReader.parse(src))
+        if ((td.periodCount()) == 0) {
+            print "  no periods in that timeline"
+            return
+        }
+        def style:FlowStyle (this.styleByName(styleName))
+        def g:FlowGraph (MermaidTimelineFlow.build(td style))
+        print ("  model  " + (to_string (td.periodCount())) + " periods, " + (to_string (td.eventCount())) + " events, " + (to_string (td.sectionCount())) + " sections")
+        print ("  graph  " + (to_string (g.nodeCount())) + " nodes, " + (to_string (g.edgeCount())) + " edges")
+        def v:FlowView (FlowView.of(g))
+        v.notation = "plain"
+        style.applyToTheme(v.theme)
+        def title:string td.title
+        if ((strlen title) == 0) {
+            title = "RangerFlow — Mermaid timeline"
+        }
+        this.writeAll(v g "rangerflow-mermaid-timeline" title)
+    }
+
+    ; A user journey: the tasks along the axis, and the height is the score.
+    fn runMermaidJourney:void (src:string styleName:string) {
+        def jd:MermaidJourney (MermaidJourneyReader.parse(src))
+        if ((jd.taskCount()) == 0) {
+            print "  no tasks in that journey"
+            return
+        }
+        def style:FlowStyle (this.styleByName(styleName))
+        def g:FlowGraph (MermaidJourneyFlow.build(jd style))
+        print ("  model  " + (to_string (jd.taskCount())) + " tasks, " + (to_string (jd.sectionCount())) + " sections")
+        print ("  graph  " + (to_string (g.nodeCount())) + " nodes, " + (to_string (g.edgeCount())) + " edges")
+        def v:FlowView (FlowView.of(g))
+        v.notation = "plain"
+        style.applyToTheme(v.theme)
+        def title:string jd.title
+        if ((strlen title) == 0) {
+            title = "RangerFlow — Mermaid user journey"
+        }
+        this.writeAll(v g "rangerflow-mermaid-journey" title)
     }
 
     ; ------------------------------------------------------------- org -----

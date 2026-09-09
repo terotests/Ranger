@@ -1284,6 +1284,8 @@ class MermaidReader {
         if (kind == "mindmap")   { return true }
         if (kind == "requirement") { return true }
         if (kind == "c4")        { return true }
+        if (kind == "timeline")  { return true }
+        if (kind == "journey")   { return true }
         return false
     }
 

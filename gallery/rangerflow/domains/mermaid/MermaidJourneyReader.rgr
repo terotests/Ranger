@@ -1,0 +1,293 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MermaidJourneyReader.rgr — a user journey, drawn as the chart it is.
+; ============================================================================
+;
+; A user journey is a line of tasks with a SCORE against each one, and the
+; score is the whole point: it is how the day felt, and a drawing that puts
+; every task at the same height throws away the only quantity in the diagram.
+; So this one is placed rather than laid out — along the axis in the order the
+; tasks were written, and up or down by what they scored.
+;
+;   journey
+;       title My working day
+;       section Go to work
+;           Make tea: 5: Me
+;           Do work: 1: Me, Cat
+;
+;   5 │ ┌────────┐
+;     │ │Make tea│
+;   3 │ └────┬───┘
+;     │      └──────────────┐
+;   1 │                ┌────┴────┐
+;     │                │ Do work │
+;     └────────────────└─────────┘──────
+;
+; **What it reads.** `title`, `section`, and a task line — `Make tea: 5: Me,
+; Cat` — with the score and the actors. Sections become the frames a sub-flow
+; already has; the actors are written under the task, because a journey with
+; no names on it is a chart of one person's day.
+; ============================================================================
+
+Import "MermaidReader.rgr"
+Import "../../core/FlowStyleSheet.rgr"
+Import "../../layout/EdgeLanes.rgr"
+
+class MermaidJourneyTask {
+    def id:string ""
+    def name:string ""
+    def score:int 3
+    def actors:string ""
+    def section:string ""
+
+    Constructor () {
+    }
+}
+
+class MermaidJourney {
+    def title:string ""
+    def themeName:string ""
+    def tasks:[MermaidJourneyTask]
+    def sections:[string]
+
+    Constructor () {
+    }
+
+    fn taskCount:int () {
+        return (array_length tasks)
+    }
+
+    fn sectionCount:int () {
+        return (array_length sections)
+    }
+}
+
+class MermaidJourneyReader {
+    def doc:MermaidJourney (new MermaidJourney)
+    def section:string ""
+    def seq:int 0
+
+    Constructor () {
+    }
+
+    sfn parse:MermaidJourney (src:string) {
+        def r (new MermaidJourneyReader)
+        return (r.read(src))
+    }
+
+    fn read:MermaidJourney (src:string) {
+        def lines:[string] (strsplit src "\n")
+        def i:int 0
+        while (i < (array_length lines)) {
+            def raw:string (trim (itemAt lines i))
+            i = (i + 1)
+            def line:string (trim (MermaidJourneyReader.stripComment(raw)))
+            if ((strlen line) == 0) {
+                continue
+            }
+            this.statement(line)
+        }
+        return doc
+    }
+
+    sfn stripComment:string (line:string) {
+        def len:int (strlen line)
+        def i:int 0
+        while (i < len) {
+            def c:int (charAt line i)
+            if (c == 37) {
+                if ((i + 1) < len) {
+                    if ((charAt line (i + 1)) == 37) {
+                        return (substring line 0 i)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return line
+    }
+
+    fn statement:void (st:string) {
+        def word:string (MermaidReader.firstWord(st))
+        def kw:string (MermaidReader.lower(word))
+        def rest:string (trim (substring st (strlen word) (strlen st)))
+        if (kw == "journey")  { return }
+        if (kw == "acctitle") { return }
+        if (kw == "accdescr") { return }
+        if (kw == "title") {
+            doc.title = (MermaidReader.cleanLabel(rest))
+            return
+        }
+        if (kw == "section") {
+            section = (MermaidReader.cleanLabel(rest))
+            push doc.sections section
+            return
+        }
+        ; `Make tea: 5: Me, Cat` — the name, the score, and who was there.
+        def parts:[string] (strsplit st ":")
+        if ((array_length parts) < 2) {
+            return
+        }
+        def t (new MermaidJourneyTask)
+        t.name = (MermaidReader.cleanLabel((itemAt parts 0)))
+        if ((strlen t.name) == 0) {
+            return
+        }
+        t.id = ("task" + (to_string seq))
+        seq = (seq + 1)
+        t.section = section
+        def scoreText:string (trim (itemAt parts 1))
+        def score@(optional):int (str2int scoreText)
+        if (!null? score) {
+            t.score = (unwrap score)
+        }
+        if ((array_length parts) > 2) {
+            t.actors = (MermaidReader.cleanLabel((itemAt parts 2)))
+        }
+        push doc.tasks t
+    }
+}
+
+; ---------------------------------------------------------------------------
+; The pipeline
+; ---------------------------------------------------------------------------
+class MermaidJourneyFlow {
+    sfn parse:MermaidJourney (src:string) {
+        return (MermaidJourneyReader.parse(src))
+    }
+
+    sfn render:FlowGraph (src:string) {
+        def d:MermaidJourney (MermaidJourneyReader.parse(src))
+        def bare (new FlowStyle)
+        return (MermaidJourneyFlow.build(d bare))
+    }
+
+    sfn build:FlowGraph (d:MermaidJourney style:FlowStyle) {
+        def g (new FlowGraph)
+        def colWidth:double 170.0
+        def colGap:double 30.0
+        def taskH:double 62.0
+        ; Five steps of score, and enough room between them that a 5 and a 4
+        ; are told apart at a glance.
+        def step:double 54.0
+        def topPad:double 40.0
+        def x:double 0.0
+        def i:int 0
+        while (i < (array_length d.tasks)) {
+            def t:MermaidJourneyTask (itemAt d.tasks i)
+            def score:int t.score
+            if (score < 1) { score = 1 }
+            if (score > 5) { score = 5 }
+            def y:double (topPad + ((to_double (5 - score)) * step))
+            def label:string t.name
+            if ((strlen t.actors) > 0) {
+                label = ((t.name + (strfromcode 10)) + t.actors)
+            }
+            def n:FlowNode (FlowNode.create(t.id label x y))
+            n.nodeType = "step"
+            n.shape = "rect"
+            n.borderRadius = 10.0
+            n.width = colWidth
+            n.height = taskH
+            n.cssClass = ("mermaid task score-" + (to_string score))
+            n.addSideHandles()
+            n.syncFromModel()
+            g.addNode(n)
+            x = ((x + colWidth) + colGap)
+            i = (i + 1)
+        }
+        g.reindex()
+        def k:int 0
+        while ((k + 1) < (array_length d.tasks)) {
+            def a:MermaidJourneyTask (itemAt d.tasks k)
+            def b:MermaidJourneyTask (itemAt d.tasks (k + 1))
+            def e:FlowEdge (FlowEdge.create("" a.id b.id))
+            e.edgeType = "smoothstep"
+            e.markerEnd = "arrow"
+            e.cssClass = "link journey"
+            e.sourceHandle = 1
+            e.targetHandle = 3
+            g.addEdge(e)
+            k = (k + 1)
+        }
+        g.reindex()
+        def wrote:int (style.applyTo(g))
+        def frames:int (MermaidJourneyFlow.frameSections(d g style))
+        def moved:int (EdgeLanes.assign(g))
+        return g
+    }
+
+    sfn frameSections:int (d:MermaidJourney g:FlowGraph style:FlowStyle) {
+        def made:int 0
+        def s:int 0
+        while (s < (array_length d.sections)) {
+            def name:string (itemAt d.sections s)
+            def r (new FlowRect)
+            def i:int 0
+            while (i < (array_length d.tasks)) {
+                def t:MermaidJourneyTask (itemAt d.tasks i)
+                if (t.section == name) {
+                    MermaidJourneyFlow.growTo(r g t.id)
+                }
+                i = (i + 1)
+            }
+            if r.valid {
+                def pad:double 18.0
+                def head:double 26.0
+                def frameId:string ("sg-section" + (to_string s))
+                def frame:FlowNode (FlowNode.create(frameId name (r.x - pad) ((r.y - pad) - head)))
+                frame.nodeType = "group"
+                frame.width = (r.w + (pad * 2.0))
+                def hh:double ((r.h + (pad * 2.0)) + head)
+                frame.height = hh
+                frame.connectable = false
+                frame.cssClass = "mermaid section"
+                frame.bgColor = "#f6f7fb"
+                frame.borderColor = "#c9cede"
+                frame.syncFromModel()
+                g.addNode(frame)
+                style.styleNode(frame)
+                g.sendToBack(frameId)
+                made = (made + 1)
+            }
+            s = (s + 1)
+        }
+        return made
+    }
+
+    sfn growTo:void (r:FlowRect g:FlowGraph id:string) {
+        if ((g.hasNode(id)) == false) {
+            return
+        }
+        def n:FlowNode (g.nodeById(id))
+        def right:double (n.x + n.width)
+        def bottom:double (n.y + n.height)
+        if (r.valid == false) {
+            r.x = n.x
+            r.y = n.y
+            r.w = n.width
+            r.h = n.height
+            r.valid = true
+            return
+        }
+        if (n.x < r.x) {
+            def dw:double (r.x - n.x)
+            r.x = n.x
+            r.w = (r.w + dw)
+        }
+        if (n.y < r.y) {
+            def dh:double (r.y - n.y)
+            r.y = n.y
+            r.h = (r.h + dh)
+        }
+        def rr:double (r.x + r.w)
+        if (right > rr) {
+            r.w = (right - r.x)
+        }
+        def rb:double (r.y + r.h)
+        if (bottom > rb) {
+            r.h = (bottom - r.y)
+        }
+    }
+}

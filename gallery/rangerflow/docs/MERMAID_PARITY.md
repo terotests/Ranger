@@ -68,7 +68,7 @@ a flowchart is a page of invented boxes.
 | `gitGraph` | recognised as `git`, read as nothing |
 | `info` | recognised as `info`, read as nothing |
 | `ishikawa-beta` | recognised as `ishikawa`, read as nothing |
-| `journey` | recognised as `journey`, read as nothing |
+| `journey` | **drawn** — read as `journey` |
 | `kanban` | recognised as `kanban`, read as nothing |
 | `mindmap` | **drawn** — read as `mindmap` |
 | `peg` | recognised as `peg`, read as nothing |
@@ -81,7 +81,7 @@ a flowchart is a page of invented boxes.
 | `stateDiagram` | **drawn** — read as `state` |
 | `stateDiagram-v2` | **drawn** — read as `state` |
 | `swimlanes-beta` | recognised as `swimlanes`, read as nothing |
-| `timeline` | recognised as `timeline`, read as nothing |
+| `timeline` | **drawn** — read as `timeline` |
 | `venn-beta` | recognised as `venn`, read as nothing |
 | `wardley-beta` | recognised as `wardley`, read as nothing |
 | `xychart-beta` | recognised as `xychart`, read as nothing |

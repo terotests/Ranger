@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Mermaid timelines and user journeys** — the eighth and ninth types, and
+  the two that are PLACED rather than laid out. A timeline runs along its axis
+  in the order it was written, with the events under the period they belong to;
+  a journey's height is the score against each task. Handing either to a
+  layered layout would throw away the one quantity the diagram has: a chart
+  that puts a 5 and a 1 at the same height is not a journey. Sections become
+  the frames a sub-flow already has.
 - **Mermaid C4 diagrams.** The seventh type. C4 is a naming convention over a
   very ordinary picture — labelled boxes with a type and a sentence, dashed
   boundaries around groups of them, arrows carrying a protocol — and all three
