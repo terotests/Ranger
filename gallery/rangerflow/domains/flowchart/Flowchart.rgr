@@ -195,6 +195,9 @@ class Flowchart {
         def h:double 52.0
         ; Room for the second line the renderer is going to need.
         def wrapped:boolean (want > maxWidth)
+        if (Flowchart.hasBreak(s.label)) {
+            wrapped = true
+        }
         if wrapped {
             h = 68.0
         }
@@ -255,8 +258,43 @@ class Flowchart {
     ; The same generous estimate the view uses, without the font tables: a box
     ; measured a little wide is a box with air in it, and one measured narrow
     ; is a label with its tail cut off.
+    ;
+    ; The widest LINE rather than the whole string: a label that carries its
+    ; own break — Mermaid's `<br/>`, a caption typed as two lines — is as wide
+    ; as its longest part, and measuring it end to end would build a box wide
+    ; enough for a line nobody is going to draw.
     fn textWidth:double (t:string size:double) {
-        return ((to_double (strlen t)) * (size * 0.58))
+        def widest:int 0
+        def run:int 0
+        def i:int 0
+        while (i < (strlen t)) {
+            def c:int (charAt t i)
+            if (c == 10) {
+                if (run > widest) {
+                    widest = run
+                }
+                run = 0
+            } {
+                run = (run + 1)
+            }
+            i = (i + 1)
+        }
+        if (run > widest) {
+            widest = run
+        }
+        return ((to_double widest) * (size * 0.58))
+    }
+
+    ; A label that asked for a second line gets the height for one.
+    sfn hasBreak:boolean (t:string) {
+        def i:int 0
+        while (i < (strlen t)) {
+            if ((charAt t i) == 10) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
     }
 
     ; ---------------------------------------------------------- the faces ----

@@ -1,0 +1,17 @@
+%% A build pipeline, the kind of diagram a README actually carries.
+flowchart TD
+    push([git push]) --> ci{CI green?}
+    ci -->|no| fix[Fix the build]
+    fix --> push
+    ci -->|yes| review{Approved?}
+    review -->|no| changes[Address review]
+    changes --> push
+    review -->|yes| merge[[Merge to master]]
+    subgraph release [Release]
+        merge --> tag[/Tag the version/]
+        tag --> build[Build artifacts]
+        build --> publish[(Registry)]
+    end
+    publish --> done(((Released)))
+    classDef gate fill:#fff6e5,stroke:#d9a441
+    class ci,review gate

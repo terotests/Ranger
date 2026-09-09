@@ -85,6 +85,66 @@ class MermaidShape {
     sfn trapezoid:string ()    { return "trapezoid" }
     sfn trapezoidAlt:string () { return "trapezoidalt" }
 
+    ; `shape: rounded`, `shape: lean-r`, `shape: db`. Mermaid 11 gave every
+    ; shape a name and several of them aliases, and this is the subset that
+    ; maps onto an outline RangerFlow already draws. Anything else falls back
+    ; to a rectangle, which is what an unknown shape has always been.
+    sfn fromName:string (raw:string) {
+        def name:string (MermaidReader.lower((trim raw)))
+        if (name == "rect")               { return "square" }
+        if (name == "rectangle")          { return "square" }
+        if (name == "proc")               { return "square" }
+        if (name == "process")            { return "square" }
+        if (name == "rounded")            { return "round" }
+        if (name == "event")              { return "round" }
+        if (name == "stadium")            { return "stadium" }
+        if (name == "pill")               { return "stadium" }
+        if (name == "terminal")           { return "stadium" }
+        if (name == "subproc")            { return "subroutine" }
+        if (name == "subprocess")         { return "subroutine" }
+        if (name == "subroutine")         { return "subroutine" }
+        if (name == "framed-rectangle")   { return "subroutine" }
+        if (name == "cyl")                { return "cylinder" }
+        if (name == "cylinder")           { return "cylinder" }
+        if (name == "db")                 { return "cylinder" }
+        if (name == "database")           { return "cylinder" }
+        if (name == "circle")             { return "circle" }
+        if (name == "circ")               { return "circle" }
+        if (name == "diam")               { return "rhombus" }
+        if (name == "diamond")            { return "rhombus" }
+        if (name == "decision")           { return "rhombus" }
+        if (name == "question")           { return "rhombus" }
+        if (name == "hex")                { return "hexagon" }
+        if (name == "hexagon")            { return "hexagon" }
+        if (name == "prepare")            { return "hexagon" }
+        if (name == "lean-r")             { return "leanr" }
+        if (name == "lean-right")         { return "leanr" }
+        if (name == "in-out")             { return "leanr" }
+        if (name == "lean-l")             { return "leanl" }
+        if (name == "lean-left")          { return "leanl" }
+        if (name == "out-in")             { return "leanl" }
+        if (name == "trap-b")             { return "trapezoid" }
+        if (name == "trapezoid-bottom")   { return "trapezoid" }
+        if (name == "priority")           { return "trapezoid" }
+        if (name == "trap-t")             { return "trapezoidalt" }
+        if (name == "trapezoid-top")      { return "trapezoidalt" }
+        if (name == "manual")             { return "trapezoidalt" }
+        if (name == "dbl-circ")           { return "doublecircle" }
+        if (name == "double-circle")      { return "doublecircle" }
+        if (name == "odd")                { return "odd" }
+        ; Three more that RangerFlow has had since ISO 5807, under the names
+        ; Mermaid gave them.
+        if (name == "doc")                { return "doc" }
+        if (name == "document")           { return "doc" }
+        if (name == "card")               { return "card" }
+        if (name == "notch-rect")         { return "card" }
+        if (name == "notched-rectangle")  { return "card" }
+        if (name == "das")                { return "das" }
+        if (name == "h-cyl")              { return "das" }
+        if (name == "horizontal-cylinder") { return "das" }
+        return "square"
+    }
+
     ; Which flowchart vocabulary word a Mermaid shape is. The kind is what
     ; sizes the box — a decision needs room in its middle, a terminator is
     ; shallow — so it is chosen even for the shapes that then override the
@@ -99,6 +159,9 @@ class MermaidShape {
         if (shape == "leanl")        { return "io" }
         if (shape == "trapezoid")    { return "manual" }
         if (shape == "trapezoidalt") { return "manual" }
+        if (shape == "doc")          { return "document" }
+        if (shape == "card")         { return "note" }
+        if (shape == "das")          { return "database" }
         return "process"
     }
 }
@@ -177,6 +240,12 @@ class MermaidDiagram {
     def title:string ""
     ; "TD" | "TB" | "BT" | "LR" | "RL", as written in the header.
     def direction:string "TD"
+    ; Which diagram this is, as Mermaid names it — "flowchart" when the header
+    ; says `flowchart` or `graph`, and the keyword itself for the dozen other
+    ; kinds Mermaid draws. A sequence diagram read as a flowchart would produce
+    ; a page of nonsense nodes rather than an error, which is the one failure
+    ; mode a reader of somebody else's file must not have.
+    def diagramKind:string ""
     ; What `%%{init: {'theme':'forest'}}%%` asked for, if anything. Mermaid's
     ; theme names and RangerFlow's stylesheet themes are deliberately the same
     ; words, so a diagram that names one gets it here too.
@@ -200,6 +269,10 @@ class MermaidDiagram {
     def linkKinds:[string]
     def linkHeads:[string]
     def linkTails:[string]
+    ; The id an edge was given — `A e1@--> B` — and whether something later
+    ; asked it to animate. Empty for the edges nobody named, which is most.
+    def linkIds:[string]
+    def linkAnimated:[boolean]
 
     def subgraphs:[MermaidSubgraph]
 
@@ -414,6 +487,15 @@ class MermaidDiagram {
             if (e < (array_length linkKinds)) {
                 def ed:FlowEdge (g.edgeAt(e))
                 MermaidDiagram.applyStroke(ed (itemAt linkKinds e) (itemAt linkHeads e) (itemAt linkTails e))
+                if (e < (array_length linkIds)) {
+                    def named:string (itemAt linkIds e)
+                    if ((strlen named) > 0) {
+                        ed.id = named
+                    }
+                }
+                if (e < (array_length linkAnimated)) {
+                    ed.animated = (itemAt linkAnimated e)
+                }
             }
             e = (e + 1)
         }
@@ -499,6 +581,20 @@ class MermaidDiagram {
         }
     }
 
+    fn indexOfLink:int (id:string) {
+        if ((strlen id) == 0) {
+            return -1
+        }
+        def i:int 0
+        while (i < (array_length linkIds)) {
+            if ((itemAt linkIds i) == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
     fn indexOfDef:int (name:string) {
         def i:int 0
         while (i < (array_length defNames)) {
@@ -529,6 +625,12 @@ class MermaidDiagram {
             ; The UML final node is two rings, which is what a Mermaid double
             ; circle is and what it is nearly always used to mean.
             n.shape = "finalnode"
+            return
+        }
+        if (shape == "das") {
+            ; A drum on its side: the direct-access store, which is the shape
+            ; Mermaid calls `h-cyl` and ISO 5807 has always drawn.
+            n.shape = "directdata"
             return
         }
         if (shape == "odd") {
@@ -1032,6 +1134,7 @@ class MermaidReader {
     def stack:[string]
     def headerSeen:boolean false
     ; what `parseLink` last read
+    def linkId:string ""
     def linkKind:string "solid"
     def linkHead:string ""
     def linkTail:string ""
@@ -1083,6 +1186,23 @@ class MermaidReader {
             def line:string (trim (this.stripComment(raw)))
             if ((strlen line) == 0) {
                 continue
+            }
+            ; A quoted label may run past the end of its line — Mermaid's
+            ; markdown strings are usually written that way — so a statement
+            ; with a quote still open takes the next line with it, newline and
+            ; all, because that newline is a line the author asked for.
+            def guard:int 0
+            while (MermaidReader.quoteOpen(line)) {
+                if (i >= (array_length lines)) {
+                    break
+                }
+                def more:string (itemAt lines i)
+                i = (i + 1)
+                line = ((line + "\n") + (trim more))
+                guard = (guard + 1)
+                if (guard > 64) {
+                    break
+                }
             }
             def parts:[string] (MermaidReader.splitStatements(line))
             def k:int 0
@@ -1153,6 +1273,54 @@ class MermaidReader {
         }
     }
 
+    ; The other diagrams Mermaid draws, by the keyword each one opens with. A
+    ; `gitGraph:` or a `stateDiagram-v2` is matched by the word before the
+    ; punctuation, which is how Mermaid's own detectors find them.
+    sfn otherDiagram:string (kw:string) {
+        def word:string (MermaidReader.upToPunct(kw))
+        if (word == "sequencediagram")    { return "sequence" }
+        if (word == "classdiagram")       { return "class" }
+        if (word == "statediagram")       { return "state" }
+        if (word == "erdiagram")          { return "er" }
+        if (word == "requirementdiagram") { return "requirement" }
+        if (word == "quadrantchart")      { return "quadrant" }
+        if (word == "gitgraph")           { return "git" }
+        if (word == "journey")            { return "journey" }
+        if (word == "gantt")              { return "gantt" }
+        if (word == "pie")                { return "pie" }
+        if (word == "mindmap")            { return "mindmap" }
+        if (word == "timeline")           { return "timeline" }
+        if (word == "zenuml")             { return "zenuml" }
+        if (word == "sankey")             { return "sankey" }
+        if (word == "xychart")            { return "xychart" }
+        if (word == "block")              { return "block" }
+        if (word == "packet")             { return "packet" }
+        if (word == "kanban")             { return "kanban" }
+        if (word == "architecture")       { return "architecture" }
+        if (word == "radar")              { return "radar" }
+        if (word == "treemap")            { return "treemap" }
+        if (word == "info")               { return "info" }
+        if (word == "c4context")          { return "c4" }
+        if (word == "c4container")        { return "c4" }
+        if (word == "c4component")        { return "c4" }
+        if (word == "c4dynamic")          { return "c4" }
+        if (word == "c4deployment")       { return "c4" }
+        return ""
+    }
+
+    ; `statediagram-v2`, `xychart-beta`, `gitgraph:` — the name is what comes
+    ; before the version, the suffix or the colon.
+    sfn upToPunct:string (word:string) {
+        def i:int 0
+        while (i < (strlen word)) {
+            def c:int (charAt word i)
+            if (c == 45) { return (substring word 0 i) }
+            if (c == 58) { return (substring word 0 i) }
+            i = (i + 1)
+        }
+        return word
+    }
+
     sfn beginsWith:boolean (text:string prefix:string) {
         def len:int (strlen prefix)
         if ((strlen text) < len) {
@@ -1190,6 +1358,20 @@ class MermaidReader {
             i = (i + 1)
         }
         return line
+    }
+
+    ; True when the line ends with a quote still open. Comments are already
+    ; gone by this point, so every `"` counts.
+    sfn quoteOpen:boolean (line:string) {
+        def open:boolean false
+        def i:int 0
+        while (i < (strlen line)) {
+            if ((charAt line i) == 34) {
+                if open { open = false } { open = true }
+            }
+            i = (i + 1)
+        }
+        return open
     }
 
     ; `A --> B; B --> C` is two statements. A `;` inside a label or inside a
@@ -1234,6 +1416,20 @@ class MermaidReader {
     fn statement:void (st:string) {
         def word:string (MermaidReader.firstWord(st))
         def kw:string (MermaidReader.lower(word))
+        ; The header of a diagram this reader does not draw. Recorded and then
+        ; ignored: the caller gets an empty diagram and a name for why.
+        if ((strlen doc.diagramKind) == 0) {
+            def other:string (MermaidReader.otherDiagram(kw))
+            if ((strlen other) > 0) {
+                doc.diagramKind = other
+                return
+            }
+        }
+        if ((strlen doc.diagramKind) > 0) {
+            if (doc.diagramKind != "flowchart") {
+                return
+            }
+        }
         def rest:string (trim (substring st (strlen word) (strlen st)))
         if (kw == "flowchart") {
             this.header(rest)
@@ -1273,6 +1469,12 @@ class MermaidReader {
         ; the links by the order they were written, and `direction` inside a
         ; subgraph asks for a second layout inside the first.
         if (kw == "direction")   { return }
+        ; `e1@{ animate: true }` — an edge saying something about itself. A
+        ; node written the same way is read by `parseGraph`; this is only for
+        ; the ids that name a link, which have no node to hang a shape on.
+        if (this.edgeAttributes(st)) {
+            return
+        }
         if (kw == "click")       { return }
         if (kw == "linkstyle")   { return }
         if (kw == "acctitle")    { return }
@@ -1280,8 +1482,41 @@ class MermaidReader {
         this.parseGraph(st)
     }
 
+    fn edgeAttributes:boolean (st:string) {
+        def at:int (indexOf st "@{")
+        if (at <= 0) {
+            return false
+        }
+        def id:string (trim (substring st 0 at))
+        def which:int (doc.indexOfLink(id))
+        if (which < 0) {
+            return false
+        }
+        def close:int (MermaidReader.closeIn(st (at + 2) "}"))
+        if (close < 0) {
+            return false
+        }
+        def body:string (substring st (at + 2) close)
+        def parts:[string] (MermaidReader.splitTop(body 44))
+        def i:int 0
+        while (i < (array_length parts)) {
+            def item:string (trim (itemAt parts i))
+            def cut:int (indexOf item ":")
+            if (cut > 0) {
+                def key:string (MermaidReader.lower((trim (substring item 0 cut))))
+                def value:string (MermaidReader.lower((MermaidReader.cleanLabel((substring item (cut + 1) (strlen item))))))
+                if (key == "animate") {
+                    set_at doc.linkAnimated which (value == "true")
+                }
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
     fn header:void (rest:string) {
         headerSeen = true
+        doc.diagramKind = "flowchart"
         def dir:string (MermaidReader.upper((MermaidReader.firstWord(rest))))
         if (dir == "TD") { doc.direction = "TD" }
         if (dir == "TB") { doc.direction = "TB" }
@@ -1303,11 +1538,22 @@ class MermaidReader {
             }
             title = (MermaidReader.cleanLabel((substring rest (open + 1) close)))
         } {
-            id = (trim rest)
-            title = (MermaidReader.unquote(id))
+            ; `subgraph one` names the block AND titles it; `subgraph "A title"`
+            ; and `subgraph A title` only title it, and Mermaid gives those a
+            ; generated id — `subGraph0`, `subGraph1`. Matching the generated
+            ; name matters: it is what an edge to the block would have to say.
+            def bare:string (trim rest)
+            title = (MermaidReader.unquote(bare))
+            id = bare
+            if (title != bare) {
+                id = ""
+            }
+            if (MermaidReader.hasSpace(bare)) {
+                id = ""
+            }
         }
         if ((strlen id) == 0) {
-            id = ("group" + (to_string (array_length doc.subgraphs)))
+            id = ("subGraph" + (to_string (array_length doc.subgraphs)))
         }
         if ((strlen title) == 0) {
             title = id
@@ -1437,6 +1683,13 @@ class MermaidReader {
                 push doc.linkKinds linkKind
                 push doc.linkHeads linkHead
                 push doc.linkTails linkTail
+                ; An id names one edge, so in a fan-out it stays on the first.
+                def mine:string ""
+                if ((doc.indexOfLink(linkId)) < 0) {
+                    mine = linkId
+                }
+                push doc.linkIds mine
+                push doc.linkAnimated false
                 k = (k + 1)
             }
             i = (i + 1)
@@ -1478,30 +1731,83 @@ class MermaidReader {
         def start:int p
         while (p < n) {
             def c:int (charAt s p)
-            if ((MermaidReader.isIdentCode(c)) == false) {
-                break
+            if (MermaidReader.isIdentCode(c)) {
+                p = (p + 1)
+                continue
             }
-            p = (p + 1)
+            ; `node-1` and `node.2` are ids; `A-->B` and `A-.->B` are not. The
+            ; difference is what comes next: more of the id, or the start of a
+            ; link. Mermaid's lexer draws the line in the same place, and it is
+            ; the only reason a kebab-case id can be written at all.
+            if (MermaidReader.isJoinCode(c)) {
+                def nxt:int (this.peek((p + 1)))
+                if (MermaidReader.isIdentCode(nxt)) {
+                    p = (p + 1)
+                    continue
+                }
+            }
+            break
         }
         if (p == start) {
             return ""
         }
         def id:string (substring s start p)
-        def known:int (doc.indexOfStep(id))
         doc.ensureStep(id)
-        if (known < 0) {
-            this.noteMembership(id)
-        }
+        this.noteMembership(id)
+        this.readAttributes(id)
         this.readShape(id)
         this.readInlineClass(id)
         return id
     }
 
-    ; A node belongs to the subgraph it was first named in. Mermaid's rule, and
-    ; the reason it is applied on first mention only: `A --> B` inside a block
-    ; puts both in the block, and naming `A` again outside does not take it out.
+    ; `A@{ shape: rounded, label: "New syntax" }` — Mermaid 11's way of writing
+    ; a node, and the one that reaches the shapes with no bracket spelling of
+    ; their own. Only `shape` and `label` are read: the rest configures a
+    ; renderer this is not.
+    fn readAttributes:boolean (id:string) {
+        if ((this.matchAt(p "@{")) == false) {
+            return false
+        }
+        def close:int (MermaidReader.closeIn(s (p + 2) "}"))
+        if (close < 0) {
+            return false
+        }
+        def body:string (substring s (p + 2) close)
+        p = (close + 1)
+        def parts:[string] (MermaidReader.splitTop(body 44))
+        def i:int 0
+        while (i < (array_length parts)) {
+            def item:string (trim (itemAt parts i))
+            def cut:int (indexOf item ":")
+            if (cut > 0) {
+                def key:string (MermaidReader.lower((trim (substring item 0 cut))))
+                def value:string (MermaidReader.cleanLabel((substring item (cut + 1) (strlen item))))
+                if (key == "shape") {
+                    doc.setShape(id (MermaidShape.fromName(value)))
+                }
+                if (key == "label") {
+                    def at:int (doc.indexOfStep(id))
+                    if (at >= 0) {
+                        def st:FlowStep (itemAt doc.chart.steps at)
+                        st.label = value
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; A node belongs to the first subgraph that mentions it. That is Mermaid's
+    ; rule and it is not the same as "the first place it is mentioned": a node
+    ; named at the top of the file and again inside a block belongs to the
+    ; block, because the block is the only statement about where it lives.
+    ; Naming it again later, inside or outside, does not move it.
     fn noteMembership:void (id:string) {
         if ((array_length stack) == 0) {
+            return
+        }
+        if ((strlen (doc.ownerOf(id))) > 0) {
             return
         }
         def owner:string (last stack)
@@ -1685,10 +1991,19 @@ class MermaidReader {
             return false
         }
         def save:int p
+        linkId = ""
         linkKind = "solid"
         linkHead = ""
         linkTail = ""
         linkLabel = ""
+        ; `A e1@--> B`: a link may be given a name, and the name belongs to the
+        ; link rather than being a node standing between the two.
+        this.readLinkId()
+        this.skipSpace()
+        if (p >= n) {
+            p = save
+            return false
+        }
         def c0:int (charAt s p)
         if (c0 == 60) {
             linkTail = "arrowclosed"
@@ -1789,6 +2104,42 @@ class MermaidReader {
         return true
     }
 
+    ; An id and an `@`, with a link starting straight after it.
+    fn readLinkId:void () {
+        def save:int p
+        def start:int p
+        while (p < n) {
+            def c:int (charAt s p)
+            if ((MermaidReader.isIdentCode(c)) == false) {
+                break
+            }
+            p = (p + 1)
+        }
+        if (p == start) {
+            p = save
+            return
+        }
+        if (p >= n) {
+            p = save
+            return
+        }
+        if ((charAt s p) != 64) {
+            p = save
+            return
+        }
+        def after:int (this.peek((p + 1)))
+        def opens:boolean (MermaidReader.isStrokeCode(after))
+        if (after == 60) {
+            opens = true
+        }
+        if (opens == false) {
+            p = save
+            return
+        }
+        linkId = (substring s start p)
+        p = (p + 1)
+    }
+
     fn readArrowHead:string () {
         if (p >= n) {
             return ""
@@ -1861,6 +2212,14 @@ class MermaidReader {
         return false
     }
 
+    ; The two characters that may sit INSIDE an id but never start a link on
+    ; their own: `node-1`, `node.2`.
+    sfn isJoinCode:boolean (c:int) {
+        if (c == 45) { return true }
+        if (c == 46) { return true }
+        return false
+    }
+
     sfn isStrokeCode:boolean (c:int) {
         if (c == 45) { return true }
         if (c == 46) { return true }
@@ -1916,6 +2275,47 @@ class MermaidReader {
         return t
     }
 
+    ; Split on a character, ignoring the ones inside quotes or brackets.
+    sfn splitTop:[string] (t:string sep:int) {
+        def out:[string]
+        def depth:int 0
+        def q:boolean false
+        def start:int 0
+        def i:int 0
+        while (i < (strlen t)) {
+            def c:int (charAt t i)
+            if (c == 34) {
+                if q { q = false } { q = true }
+            }
+            if (q == false) {
+                if (c == 91) { depth = (depth + 1) }
+                if (c == 123) { depth = (depth + 1) }
+                if (c == 93) { depth = (depth - 1) }
+                if (c == 125) { depth = (depth - 1) }
+                if (c == sep) {
+                    if (depth <= 0) {
+                        push out (substring t start i)
+                        start = (i + 1)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        push out (substring t start (strlen t))
+        return out
+    }
+
+    sfn hasSpace:boolean (t:string) {
+        def i:int 0
+        while (i < (strlen t)) {
+            if (MermaidReader.isSpaceCode((charAt t i))) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
     sfn unquote:string (t:string) {
         def v:string (trim t)
         def len:int (strlen v)
@@ -1962,9 +2362,17 @@ class MermaidReader {
     ; into the characters they name.
     sfn cleanLabel:string (raw:string) {
         def t:string (MermaidReader.unquote(raw))
-        t = (MermaidReader.replaceAll(t "<br/>" " "))
-        t = (MermaidReader.replaceAll(t "<br />" " "))
-        t = (MermaidReader.replaceAll(t "<br>" " "))
+        ; A markdown string — ``"`**bold** text`"`` — is a label with formatting
+        ; in it. The formatting is dropped rather than rendered: there is no
+        ; rich text in the display list, and a label reading "**bold**" would be
+        ; worse than one reading "bold".
+        t = (MermaidReader.unbacktick(t))
+        ; `<br/>` is a line the author asked for, and the text layout can take
+        ; one — so it arrives as a newline rather than as a space.
+        def nl:string (strfromcode 10)
+        t = (MermaidReader.replaceAll(t "<br/>" nl))
+        t = (MermaidReader.replaceAll(t "<br />" nl))
+        t = (MermaidReader.replaceAll(t "<br>" nl))
         t = (MermaidReader.replaceAll(t "&nbsp;" " "))
         t = (MermaidReader.replaceAll(t "&lt;" "<"))
         t = (MermaidReader.replaceAll(t "&gt;" ">"))
@@ -1972,6 +2380,19 @@ class MermaidReader {
         t = (MermaidReader.replaceAll(t "#quot;" (strfromcode 34)))
         t = (MermaidReader.replaceAll(t "&amp;" "&"))
         return (trim t)
+    }
+
+    sfn unbacktick:string (t:string) {
+        def v:string (trim t)
+        def len:int (strlen v)
+        if (len >= 2) {
+            if ((charAt v 0) == 96) {
+                if ((charAt v (len - 1)) == 96) {
+                    return (trim (substring v 1 (len - 1)))
+                }
+            }
+        }
+        return v
     }
 
     sfn replaceAll:string (text:string find:string repl:string) {

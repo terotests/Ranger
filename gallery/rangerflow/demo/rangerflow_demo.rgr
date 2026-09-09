@@ -440,6 +440,18 @@ class RangerFlowDemo {
         }
         def d:MermaidDiagram (MermaidReader.parse(srcOpt))
         print ("  read   " + path)
+        ; Mermaid draws a dozen kinds of diagram and this reads one of them.
+        ; Saying so beats writing an empty page.
+        if ((strlen d.diagramKind) > 0) {
+            if (d.diagramKind != "flowchart") {
+                print ("  this is a " + d.diagramKind + " diagram, not a flowchart — nothing to draw")
+                return
+            }
+        }
+        if ((d.nodeCount()) == 0) {
+            print "  no nodes in that file — is it a flowchart?"
+            return
+        }
         print ("  model  " + (to_string (d.nodeCount())) + " nodes, " + (to_string (d.linkCount())) + " links, " + (to_string (d.subgraphCount())) + " subgraphs, direction " + d.direction)
         def style:FlowStyle (this.styleFor(styleName d))
         ; `--restyle`: the sheet after the diagram's own `classDef`, not before.

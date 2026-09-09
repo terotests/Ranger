@@ -1,0 +1,5 @@
+%% Constructs Mermaid's own parser rejects and this reader takes anyway.
+%% A trailing comment after a statement is a parse error in Mermaid 11.
+flowchart TD
+    A[Start] --> B[Middle] %% a comment where Mermaid will not have one
+    B --> C[End]

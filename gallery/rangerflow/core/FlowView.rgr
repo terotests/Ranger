@@ -362,6 +362,20 @@ class FlowView {
             def cand:string (substring t lineStart wEnd)
             def width:double (this.textWidthBold(cand size bold))
             def roomLeft:boolean ((array_length out.lines) < (maxLines - 1))
+            ; A newline in the source is a line the author asked for, so it is
+            ; taken before the width is even measured.
+            def hard:boolean (FlowText.hardBreakBefore(t (itemAt sp (i * 2))))
+            if hard {
+                if roomLeft {
+                    push out.lines (substring t lineStart lineEnd)
+                    push out.starts lineStart
+                    push out.ends lineEnd
+                    lineStart = (itemAt sp (i * 2))
+                    lineEnd = wEnd
+                    i = (i + 1)
+                    continue
+                }
+            }
             if (width <= maxWidth) {
                 lineEnd = wEnd
             } {

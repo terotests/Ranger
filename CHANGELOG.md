@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Mermaid parity, measured against Mermaid.** A claim of parity with a
+  format is worth what the person making it wanted it to be worth, so this one
+  is not a claim: `npm run rangerflow:mermaid:parity` hands every diagram in
+  `gallery/rangerflow/fixtures/mermaid/` to **Mermaid's own parser** (11.17,
+  under jsdom, in the parity harness) and compares its answer — vertices with
+  their shapes, edges with their strokes and arrowheads, subgraphs with their
+  members, the classes a `classDef` handed out — with what RangerFlow's reader
+  made of the same text. 182/182 checks over 26 examples, written up in
+  `docs/MERMAID_PARITY.md` by the run rather than by hand. What the corpus
+  turned up and the reader now does: ids with a `-` or a `.` in them
+  (`node-1`), Mermaid 11's `A@{ shape: rounded, label: "…" }` nodes with the
+  alias table that comes with it, named edges (`A e1@--> B`, `e1@{ animate:
+  true }`), markdown strings, labels that run past the end of their line,
+  `subgraph "A title"` named `subGraph0` the way Mermaid names it, and
+  Mermaid's real rule for what a subgraph contains — a node mentioned inside a
+  block belongs to it, even when it was named earlier outside. `<br/>` now
+  arrives as a newline and the text layout breaks on it, so a two-line label is
+  two lines. The dozen other diagrams Mermaid draws — sequence, class, state,
+  gantt, ER, … — are recognised by their header and read as nothing at all,
+  because a sequence diagram read as a flowchart is a page of invented boxes.
 - **A diagram's look, as a stylesheet.** EVG already carries a small
   print-safe CSS engine, so RangerFlow's colours are now something you write
   rather than something you pass: `gallery/rangerflow/core/FlowStyleSheet.rgr`

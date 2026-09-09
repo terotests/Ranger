@@ -140,6 +140,7 @@ Status keys: **✓** done · **~** partial · **·** not yet.
 | Schema grouping / multi-schema | ~ | `DBTable.schema` is modelled; no visual grouping yet |
 | SQL DDL import | ✓ | `SqlSchemaReader` |
 | Mermaid flowchart import | ✓ | `MermaidReader`: every shape and link, `subgraph`, `classDef` / `class` / `style`; `click` and `linkStyle` ignored |
+| Mermaid parity, measured | ✓ | `npm run rangerflow:mermaid:parity`: 26 examples through Mermaid's own parser and this reader, compared — see [`MERMAID_PARITY.md`](MERMAID_PARITY.md) |
 | Restyling a diagram with CSS | ✓ | `FlowStyle` over EVG's stylesheet engine: class selectors, `@vars`, `@media`, themes — nodes, edges and the canvas |
 | JSON import / export | ✓ | `FlowGraphJson` |
 | Prisma / DBML / ORM importers | · | on the list |
