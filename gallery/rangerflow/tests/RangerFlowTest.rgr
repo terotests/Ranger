@@ -24,6 +24,7 @@ Import "../domains/erd/SchemaToGraph.rgr"
 Import "../domains/uml/UMLModel.rgr"
 Import "../domains/flowchart/Flowchart.rgr"
 Import "../domains/mermaid/MermaidReader.rgr"
+Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 
 class Checker {
@@ -87,6 +88,8 @@ class RangerFlowTest {
         RangerFlowTest.testFlowchart(c)
         RangerFlowTest.testMermaid(c)
         RangerFlowTest.testMermaidLayout(c)
+        RangerFlowTest.testStyleSheet(c)
+        RangerFlowTest.testMermaidStyled(c)
         RangerFlowTest.testBusinessCharts(c)
         RangerFlowTest.testAuthoring(c)
         RangerFlowTest.testTreeLayouts(c)
@@ -2323,6 +2326,132 @@ class RangerFlowTest {
             c.eqInt("nothing is drawn through a step" (EdgeOverlap.nodeCrossings(dg)) 0)
             c.eqInt("and no two links are drawn as one line" (EdgeOverlap.pairs(dg 2.0)) 0)
         }
+    }
+
+    ; ---------------------------------------------------------- stylesheets --
+    ; The look, as CSS. EVG's own engine does the parsing and the cascade; what
+    ; is asserted here is the vocabulary — which property means which field —
+    ; and that a node can be reached by everything it is: its type, its shape,
+    ; its id and whatever the domain called it.
+    sfn testStyleSheet:void (c:Checker) {
+        c.section("stylesheets")
+        def g (new FlowGraph)
+        def a:FlowNode (FlowNode.create("a" "Start" 0.0 0.0))
+        a.nodeType = "step"
+        a.shape = "stadium"
+        a.cssClass = "terminator"
+        g.addNode(a)
+        def b:FlowNode (FlowNode.create("b" "Ok?" 0.0 120.0))
+        b.nodeType = "step"
+        b.shape = "diamond"
+        b.cssClass = "decision warn"
+        g.addNode(b)
+        def e:FlowEdge (FlowEdge.create("e1" "a" "b"))
+        e.cssClass = "link dotted"
+        g.addEdge(e)
+        g.reindex()
+
+        def css:string "@vars { --ink: #101010; --paper: #fdfdfd }\n"
+        css = (css + ".node { fill: #ffffff; stroke: #cccccc; color: var(--ink); border-width: 2px }\n")
+        css = (css + ".decision { fill: #fff6e5 }\n")
+        css = (css + ".shape-stadium { border-radius: 22px }\n")
+        css = (css + ".id-b { accent-color: #ff0000 }\n")
+        css = (css + ".edge { stroke: #445566; stroke-width: 1.5px; marker-end: none }\n")
+        css = (css + ".dotted { stroke-dasharray: 4px }\n")
+        css = (css + ".canvas { background: var(--paper); edge-color: #445566; background-variant: lines }\n")
+        css = (css + ".theme-dark .node { fill: #1b202a; color: #e6e9ef }\n")
+        def st:FlowStyle (FlowStyle.parse(css))
+        c.eqInt("the sheet parsed with nothing left over" (st.errorCount()) 0)
+        c.eqInt("every rule was kept" (st.ruleCount()) 8)
+
+        def wrote:int (st.applyTo(g))
+        c.ok("and it wrote something" (wrote > 0))
+        c.eqStr("a class from the domain paints the box" b.bgColor "#fff6e5")
+        c.eqStr("`.node` reaches a node with no classes of its own" a.bgColor "#ffffff")
+        c.eqStr("a var() is resolved before it arrives" a.textColor "#101010")
+        c.near("a length loses its unit" a.borderWidth 2.0 0.001)
+        c.near("the shape is a selector" a.borderRadius 22.0 0.001)
+        c.eqStr("and so is the id" b.accentColor "#ff0000")
+        c.eqStr("an edge is styled by the same sheet" e.strokeColor "#445566")
+        c.near("its width in the same units" e.strokeWidth 1.5 0.001)
+        c.near("and `stroke-dasharray` is the dash" e.dash 4.0 0.001)
+        c.eqStr("`none` means the model's empty rather than the word" e.markerEnd "")
+
+        ; The canvas: the values a renderer reads before it draws anything.
+        def theme (new FlowTheme)
+        def themed:int (st.applyToTheme(theme))
+        c.ok("the canvas rule reached the theme" (themed > 0))
+        c.eqStr("the paper is the sheet's" theme.background "#fdfdfd")
+        c.eqInt("and so is the grid" theme.backgroundVariant 2)
+
+        ; A theme-scoped rule beats an unscoped one, whatever the source order.
+        st.setTheme("dark")
+        st.applyTo(g)
+        c.eqStr("a theme-scoped rule wins" a.bgColor "#1b202a")
+        c.eqStr("...for every property it names" a.textColor "#e6e9ef")
+        ; The engine has exactly one precedence rule — theme-scoped beats
+        ; unscoped — and it is not specificity: `.theme-dark .node` wins over
+        ; `.decision` even though the second names the more particular thing.
+        ; That is why the looks that ship here vary a `@vars` block instead of
+        ; restating the rules under a theme.
+        c.eqStr("a theme-scoped rule beats an unscoped one, specific or not" b.bgColor "#1b202a")
+
+        ; The looks that ship with it.
+        c.ok("the built-in names are known" (FlowStyles.knows("forest")))
+        c.ok("...including print" (FlowStyles.knows("print")))
+        c.ok("and an invented one is not" ((FlowStyles.knows("neon")) == false))
+        def dark:FlowStyle (FlowStyle.named("dark"))
+        c.eqInt("the built-in sheet parses cleanly" (dark.errorCount()) 0)
+        def dt (new FlowTheme)
+        dark.applyToTheme(dt)
+        c.eqStr("and its canvas is dark" dt.background "#12151c")
+    }
+
+    ; A Mermaid diagram in a look it did not choose — and the one rule that
+    ; decides what the diagram still gets to say for itself.
+    sfn testMermaidStyled:void (c:Checker) {
+        c.section("Mermaid, restyled")
+        def src:string "%%{init: {'theme':'forest'}}%%\n"
+        src = (src + "flowchart TD\n")
+        src = (src + "    A([Start]) --> B{Ok?}\n")
+        src = (src + "    B --> C[Reject]\n")
+        src = (src + "    classDef stop fill:#fee,stroke:#c66\n")
+        src = (src + "    class C stop\n")
+        def d:MermaidDiagram (MermaidReader.parse(src))
+        c.eqStr("an init directive names a theme" d.themeName "forest")
+
+        ; The classes a sheet matches a Mermaid node by.
+        def plain:FlowGraph (d.build())
+        def bNode:FlowNode (plain.nodeById("B"))
+        c.ok("a node wears its kind" ((indexOf bNode.cssClass "decision") >= 0))
+        c.ok("and the Mermaid shape it was written as" ((indexOf bNode.cssClass "rhombus") >= 0))
+        def cNode:FlowNode (plain.nodeById("C"))
+        c.ok("and every classDef it was given" ((indexOf cNode.cssClass "stop") >= 0))
+
+        ; A sheet under the diagram: it paints what the diagram did not.
+        def sheet:FlowStyle (FlowStyle.parse(".node { fill: #101010 } .decision { fill: #202020 }"))
+        def g:FlowGraph (MermaidFlow.styled(d sheet))
+        def sB:FlowNode (g.nodeById("B"))
+        c.eqStr("the sheet paints a node the diagram said nothing about" sB.bgColor "#202020")
+        def sC:FlowNode (g.nodeById("C"))
+        c.eqStr("and a classDef still beats it" sC.bgColor "#fee")
+        c.eqStr("a dark fill from a classDef gets readable text" sC.textColor "#1f2430")
+
+        ; ...unless the caller says the sheet wins.
+        def strong:FlowStyle (FlowStyle.parse(".node { fill: #101010 } .decision { fill: #202020 }"))
+        strong.strong = true
+        def g2:FlowGraph (MermaidFlow.styled(d strong))
+        def s2C:FlowNode (g2.nodeById("C"))
+        c.eqStr("with the sheet last, the sheet wins" s2C.bgColor "#101010")
+
+        ; A subgraph frame is made after the layout, and still gets the look.
+        def sub:string "flowchart TD\n  subgraph one [One]\n    A --> B\n  end\n"
+        def sd:MermaidDiagram (MermaidReader.parse(sub))
+        def frameSheet:FlowStyle (FlowStyle.parse(".frame { fill: #001122; stroke: #334455 }"))
+        def fg:FlowGraph (MermaidFlow.styled(sd frameSheet))
+        def frame:FlowNode (fg.nodeById("sg-one"))
+        c.eqStr("the frame is styled too" frame.bgColor "#001122")
+        c.eqStr("border and all" frame.borderColor "#334455")
     }
 
     ; ------------------------------------------------------ business charts --

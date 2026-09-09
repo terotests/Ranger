@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A diagram's look, as a stylesheet.** EVG already carries a small
+  print-safe CSS engine, so RangerFlow's colours are now something you write
+  rather than something you pass: `gallery/rangerflow/core/FlowStyleSheet.rgr`
+  maps class selectors, `@vars`, `@media` and themes onto nodes, edges and the
+  canvas. A node answers to what it already is — `.node`, its type,
+  `.shape-diamond`, `.id-<id>` — plus the vocabulary its domain wrote, so a
+  Mermaid node wears its kind, the shape it was written as and every
+  `classDef` name it was given, and one sheet works on the next diagram too.
+  Five looks ship with it — default, forest, dark, neutral and print — as one
+  sheet whose themes vary a `@vars` block rather than restating the rules,
+  because the engine's one precedence rule is that theme-scoped beats
+  unscoped. `npm run rangerflow:mermaid -- --style=print` writes the printable
+  version; `--style=house.css` uses your own; `--restyle` lets the sheet beat
+  the diagram's own `classDef` instead of the other way round. The browser
+  page has a **look** dropdown beside the Mermaid box, and
+  `?scenario=mermaid&look=dark` picks one on load. Two gaps in the core it
+  needed: `FlowNode.textColor` was a field nothing painted (labels now use it,
+  and a `classDef` fill with no text colour gets a readable one computed from
+  its luma), and a node had no border weight of its own.
 - **Mermaid, rendered by RangerFlow.** Mermaid is how a diagram travels
   through a README, a ticket and a review, and it is also a diagram you cannot
   print, hit-test or drag a node in. `gallery/rangerflow/domains/mermaid`

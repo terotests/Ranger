@@ -246,12 +246,19 @@ function showMermaidBox(on) {
 }
 
 function renderMermaid() {
-  app.loadMermaid(mermaidSrc.value);
+  app.loadMermaidStyled(mermaidSrc.value, document.getElementById("mermaidstyle").value);
   app.fitView();
   syncControls();
 }
 
 document.getElementById("mermaidrender").addEventListener("click", renderMermaid);
+// The look is a stylesheet, and switching it re-renders the same text: the
+// sheet decides the fills, the paper and the edge colour in one move.
+bind("mermaidstyle", (e) => {
+  if (!app.setMermaidStyle(e.target.value)) renderMermaid();
+  app.fitView();
+  syncControls();
+});
 document.getElementById("mermaidsample").addEventListener("click", () => {
   mermaidSrc.value = engineClass().sampleMermaid();
   renderMermaid();
@@ -413,6 +420,13 @@ async function boot() {
   const wanted = params.get("scenario") || "erd";
   document.getElementById("scenario").value = wanted;
   showMermaidBox(wanted === "mermaid");
+  // `?look=dark` picks the Mermaid stylesheet on load, so a screenshot of a
+  // look is a URL rather than a click.
+  const look = params.get("look");
+  if (look) {
+    document.getElementById("mermaidstyle").value = look;
+    app.mermaidStyle = look;
+  }
   app.loadScenario(wanted);
   syncControls();
   app.fitView();

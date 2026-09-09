@@ -60,6 +60,7 @@
 ; ============================================================================
 
 Import "../flowchart/Flowchart.rgr"
+Import "../../core/FlowStyleSheet.rgr"
 Import "../../layout/LayeredLayout.rgr"
 Import "../../layout/EdgeLanes.rgr"
 Import "../../layout/OrthoRouter.rgr"
@@ -122,6 +123,29 @@ class MermaidStyle {
         if ((strlen fill) > 0)   { n.bgColor = fill }
         if ((strlen stroke) > 0) { n.borderColor = stroke }
         if ((strlen color) > 0)  { n.textColor = color }
+        ; A `classDef` that names a fill and no text colour is the common case,
+        ; and it beats whatever the look chose — so under a dark sheet it would
+        ; put pale text on a pale box. The fill decides: it is the one thing
+        ; the diagram actually said.
+        if ((strlen fill) > 0) {
+            if ((strlen color) == 0) {
+                n.textColor = (MermaidStyle.inkFor(fill))
+            }
+        }
+    }
+
+    ; Black on a light fill, white on a dark one — the sRGB luma every
+    ; contrast rule starts from, and enough of one for a label in a box.
+    sfn inkFor:string (fill:string) {
+        def c:EVGColor (EVGColor.parse(fill))
+        if (c.isSet == false) {
+            return ""
+        }
+        def luma:double ((((0.299 * c.r) + (0.587 * c.g)) + (0.114 * c.b)) / 255.0)
+        if (luma > 0.55) {
+            return "#1f2430"
+        }
+        return "#f5f7fa"
     }
 }
 
@@ -153,6 +177,10 @@ class MermaidDiagram {
     def title:string ""
     ; "TD" | "TB" | "BT" | "LR" | "RL", as written in the header.
     def direction:string "TD"
+    ; What `%%{init: {'theme':'forest'}}%%` asked for, if anything. Mermaid's
+    ; theme names and RangerFlow's stylesheet themes are deliberately the same
+    ; words, so a diagram that names one gets it here too.
+    def themeName:string ""
     def chart:Flowchart (new Flowchart)
 
     ; node id -> Mermaid shape name
@@ -343,9 +371,35 @@ class MermaidDiagram {
         return g
     }
 
+    ; The same graph, with a stylesheet applied in the middle: the sheet says
+    ; what a decision looks like, and the diagram's own `classDef` still says
+    ; what THIS decision looks like.
+    fn buildStyled:FlowGraph (style:FlowStyle) {
+        def g:FlowGraph (chart.build())
+        this.decorateShapes(g)
+        if (style.strong) {
+            this.paintClasses(g)
+            def last:int (style.applyTo(g))
+            return g
+        }
+        def first:int (style.applyTo(g))
+        this.paintClasses(g)
+        return g
+    }
+
     ; Everything the flowchart model could not carry: the outlines Mermaid has
     ; and ISO 5807 does not, the colours, and the four link strokes.
+    ;
+    ; In two halves, and the seam is where a stylesheet goes. The shapes and
+    ; the class lists come first, because a sheet matches on those; the
+    ; diagram's own `classDef` and `style` come last, because in Mermaid they
+    ; beat the theme and the reader would be surprised by anything else.
     fn decorate:void (g:FlowGraph) {
+        this.decorateShapes(g)
+        this.paintClasses(g)
+    }
+
+    fn decorateShapes:void (g:FlowGraph) {
         def i:int 0
         while (i < (array_length shapeIds)) {
             def id:string (itemAt shapeIds i)
@@ -355,6 +409,59 @@ class MermaidDiagram {
             }
             i = (i + 1)
         }
+        def e:int 0
+        while (e < (g.edgeCount())) {
+            if (e < (array_length linkKinds)) {
+                def ed:FlowEdge (g.edgeAt(e))
+                MermaidDiagram.applyStroke(ed (itemAt linkKinds e) (itemAt linkHeads e) (itemAt linkTails e))
+            }
+            e = (e + 1)
+        }
+        this.nameClasses(g)
+    }
+
+    ; What a stylesheet matches a node by: the Mermaid vocabulary it was
+    ; written in — the kind, the shape, and every `classDef` name it was given
+    ; — so `.decision`, `.cylinder` and `.warn` all reach it.
+    fn nameClasses:void (g:FlowGraph) {
+        def i:int 0
+        while (i < (array_length chart.steps)) {
+            def st:FlowStep (itemAt chart.steps i)
+            if (g.hasNode(st.id)) {
+                def n:FlowNode (g.nodeById(st.id))
+                def classes:string ("mermaid " + st.kind)
+                def shape:string (this.shapeOf(st.id))
+                if ((strlen shape) > 0) {
+                    classes = ((classes + " ") + shape)
+                }
+                def c:int 0
+                while (c < (array_length classTargets)) {
+                    if ((itemAt classTargets c) == st.id) {
+                        classes = ((classes + " ") + (itemAt classNames c))
+                    }
+                    c = (c + 1)
+                }
+                n.cssClass = classes
+            }
+            i = (i + 1)
+        }
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            if (k < (array_length linkKinds)) {
+                def ed2:FlowEdge (g.edgeAt(k))
+                def kind:string (itemAt linkKinds k)
+                def cls:string ("link " + kind)
+                if ((strlen ed2.label) > 0) {
+                    cls = (cls + " labelled")
+                }
+                ed2.cssClass = cls
+            }
+            k = (k + 1)
+        }
+    }
+
+    ; The diagram's own colours: `classDef`, `class`, `:::name` and `style`.
+    fn paintClasses:void (g:FlowGraph) {
         ; `classDef default` is the one that applies to everything, and it
         ; applies first so a named class can still override it.
         def dflt:int (this.indexOfDef("default"))
@@ -389,14 +496,6 @@ class MermaidDiagram {
                 ss.applyTo(nd4)
             }
             s = (s + 1)
-        }
-        def e:int 0
-        while (e < (g.edgeCount())) {
-            if (e < (array_length linkKinds)) {
-                def ed:FlowEdge (g.edgeAt(e))
-                MermaidDiagram.applyStroke(ed (itemAt linkKinds e) (itemAt linkHeads e) (itemAt linkTails e))
-            }
-            e = (e + 1)
         }
     }
 
@@ -801,7 +900,7 @@ class MermaidDiagram {
     ; A subgraph becomes what a sub-flow already is here: a group node, drawn
     ; behind its members, with them carrying its id in `parentId`. Deepest
     ; first, so an outer frame can measure the inner ones it contains.
-    fn frameSubgraphs:int (g:FlowGraph) {
+    fn frameSubgraphs:int (g:FlowGraph style:FlowStyle) {
         def made:int 0
         def deepest:int 0
         def i:int 0
@@ -818,7 +917,7 @@ class MermaidDiagram {
             while (k < (array_length subgraphs)) {
                 def sg2:MermaidSubgraph (itemAt subgraphs k)
                 if (sg2.depth == level) {
-                    def ok:boolean (this.frameOne(g sg2))
+                    def ok:boolean (this.frameOne(g sg2 style))
                     if ok {
                         made = (made + 1)
                     }
@@ -830,7 +929,7 @@ class MermaidDiagram {
         return made
     }
 
-    fn frameOne:boolean (g:FlowGraph sg:MermaidSubgraph) {
+    fn frameOne:boolean (g:FlowGraph sg:MermaidSubgraph style:FlowStyle) {
         def pad:double 20.0
         ; The frame is drawn with a band down its left side and its name across
         ; the top, so those two get room of their own rather than being drawn
@@ -886,10 +985,14 @@ class MermaidDiagram {
         frame.connectable = false
         ; Draggable, like a swimlane: the editor moves a group's children with
         ; it, and a box you cannot move is a box the reader will try to move.
+        frame.cssClass = "mermaid subgraph"
         frame.bgColor = "#f6f7fb"
         frame.borderColor = "#c9cede"
         frame.syncFromModel()
         g.addNode(frame)
+        ; The frame is made after the layout has run, which is after the sheet
+        ; was applied to everything else — so it asks for its own look here.
+        style.styleNode(frame)
         g.sendToBack(frameId)
         def m:int 0
         while (m < (array_length sg.members)) {
@@ -974,6 +1077,9 @@ class MermaidReader {
                 }
                 continue
             }
+            ; `%%{init: … }%%` is a comment to the stripper below, so what
+            ; this reader wants out of it has to be taken first.
+            this.readDirective(raw)
             def line:string (trim (this.stripComment(raw)))
             if ((strlen line) == 0) {
                 continue
@@ -992,6 +1098,70 @@ class MermaidReader {
     }
 
     ; ------------------------------------------------------------- lines ----
+    ; `%%{init: {'theme': 'forest'}}%%`. Only the theme is read: the rest of an
+    ; init directive configures a renderer this is not, and a diagram that
+    ; names a theme is asking for a look rather than for a layout engine.
+    fn readDirective:void (raw:string) {
+        if ((MermaidReader.beginsWith(raw "%%{")) == false) {
+            return
+        }
+        def at:int (indexOf raw "theme")
+        if (at < 0) {
+            return
+        }
+        def i:int (at + 5)
+        def n2:int (strlen raw)
+        ; …past the quote that closed the key, and the colon after it.
+        while (i < n2) {
+            def c:int (charAt raw i)
+            if (c == 58) {
+                i = (i + 1)
+                break
+            }
+            i = (i + 1)
+        }
+        while (i < n2) {
+            def c2:int (charAt raw i)
+            if (c2 == 34) { break }
+            if (c2 == 39) { break }
+            if ((MermaidReader.isSpaceCode(c2)) == false) {
+                if (c2 != 58) {
+                    break
+                }
+            }
+            i = (i + 1)
+        }
+        def quote:int 0
+        if (i < n2) {
+            def c3:int (charAt raw i)
+            if (c3 == 34) { quote = 34 }
+            if (c3 == 39) { quote = 39 }
+        }
+        if (quote == 0) {
+            return
+        }
+        i = (i + 1)
+        def start:int i
+        while (i < n2) {
+            if ((charAt raw i) == quote) {
+                break
+            }
+            i = (i + 1)
+        }
+        if (i > start) {
+            doc.themeName = (trim (substring raw start i))
+        }
+    }
+
+    sfn beginsWith:boolean (text:string prefix:string) {
+        def len:int (strlen prefix)
+        if ((strlen text) < len) {
+            return false
+        }
+        return ((substring text 0 len) == prefix)
+    }
+
+
     ; `%%` starts a comment, and `%%{init: …}%%` is a directive, which from
     ; here is a comment that happens to run to the end of the line. Neither
     ; counts inside a quoted label.
@@ -1845,7 +2015,25 @@ class MermaidFlow {
     }
 
     sfn build:FlowGraph (d:MermaidDiagram) {
-        def g:FlowGraph (d.build())
+        def bare (new FlowStyle)
+        return (MermaidFlow.styled(d bare))
+    }
+
+    ; The look a diagram asked for by name — `%%{init: {'theme':'forest'}}%%`
+    ; — or the default one when it did not.
+    sfn styleFor:FlowStyle (d:MermaidDiagram) {
+        def name:string d.themeName
+        if ((strlen name) == 0) {
+            name = "default"
+        }
+        if ((FlowStyles.knows(name)) == false) {
+            name = "default"
+        }
+        return (FlowStyle.named(name))
+    }
+
+    sfn styled:FlowGraph (d:MermaidDiagram style:FlowStyle) {
+        def g:FlowGraph (d.buildStyled(style))
         def lay:LayeredLayout (LayeredLayout.of(g))
         lay.direction = (d.layerDirection())
         lay.layerGap = 76.0
@@ -1874,7 +2062,7 @@ class MermaidFlow {
             def again:int (EdgeLanes.assign(g))
         }
         def repaired:int (OrthoRouter.repairAll(g))
-        def frames:int (d.frameSubgraphs(g))
+        def frames:int (d.frameSubgraphs(g style))
         return g
     }
 }

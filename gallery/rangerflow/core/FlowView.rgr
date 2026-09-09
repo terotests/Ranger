@@ -1230,6 +1230,9 @@ class FlowView {
             radius = (this.sl(n.borderRadius))
         }
         def bw:double (this.sl(theme.nodeBorderWidth))
+        if (n.borderWidth >= 0.0) {
+            bw = (this.sl(n.borderWidth))
+        }
         if (n.selected) {
             bw = (bw * 2.0)
         }
@@ -1472,7 +1475,8 @@ class FlowView {
         def lx:double (x + barW + (this.sl(8.0)))
         def ly:double (y + (this.sl(6.0)))
         this.paintEditRow(sc tag (lx - (this.sl(3.0))) (ly - (this.sl(2.0))) (tw + (this.sl(10.0))) (lay.size * 1.5))
-        def t:SceneItem (sc.text(label lx ly tw lay.size theme.nodeMutedText))
+        def laneInk:string (this.labelColor(n theme.nodeMutedText))
+        def t:SceneItem (sc.text(label lx ly tw lay.size laneInk))
         t.fontFamily = theme.fontFamily
         t.bold = true
         t.tag = tag
@@ -1527,8 +1531,19 @@ class FlowView {
         def cx:double (FlowShapes.labelCX(n.shape x y w h))
         def cy:double (FlowShapes.labelCY(n.shape x y w h))
         this.paintEditField(sc tag cx cy lay room)
-        def top:double (this.paintBlock(sc lay cx cy theme.nodeText tag false))
+        def shapeInk:string (this.labelColor(n theme.nodeText))
+        def top:double (this.paintBlock(sc lay cx cy shapeInk tag false))
         this.paintCaret(sc tag lay cx top false)
+    }
+
+    ; The colour a node's own label is set in. The theme's, unless the node
+    ; says otherwise — a stylesheet's `color`, or a domain that gave a box a
+    ; dark fill and has to put light text on it.
+    fn labelColor:string (n:FlowNode fallback:string) {
+        if ((strlen n.textColor) > 0) {
+            return n.textColor
+        }
+        return fallback
     }
 
     ; Two lines when there is room for two, one when there is not. Asking for
@@ -1556,7 +1571,8 @@ class FlowView {
         def cx:double (x + (w * 0.5))
         def cy:double (y + (h * 0.5))
         this.paintEditField(sc tag cx cy lay room)
-        def top:double (this.paintBlock(sc lay cx cy theme.nodeText tag false))
+        def plainInk:string (this.labelColor(n theme.nodeText))
+        def top:double (this.paintBlock(sc lay cx cy plainInk tag false))
         this.paintCaret(sc tag lay cx top false)
     }
 
@@ -1596,7 +1612,8 @@ class FlowView {
             def title:string (lay.lineAt(0))
             def ty0:double (y + ((headerH - (lay.size * 1.2)) * 0.5))
             this.paintEditRow(sc tag (x + pad) (y + (headerH * 0.12)) room (headerH * 0.76))
-            def t:SceneItem (sc.text(title (x + pad) ty0 room lay.size theme.headerText))
+            def headInk:string (this.labelColor(n theme.headerText))
+            def t:SceneItem (sc.text(title (x + pad) ty0 room lay.size headInk))
             t.fontFamily = theme.fontFamily
             t.bold = true
             t.tag = tag

@@ -27,11 +27,12 @@ routing, auto-layout, large graphs — and produces something worth having.
 ## Run it
 
 ```bash
-npm run rangerflow:test        # 656 assertions: model, forces, router, editor, SQL, Mermaid, export
+npm run rangerflow:test        # 690 assertions: model, forces, router, editor, SQL, Mermaid, CSS, export
 npm run rangerflow:demo        # the e-commerce schema → SVG, PDF, HTML, JSON, scene
 npm run rangerflow:uml         # the same pipeline for a UML class diagram
 npm run rangerflow:flowchart   # an ATK flowchart in ISO 5807 shapes
 npm run rangerflow:mermaid     # a Mermaid flowchart, read from fixtures/order_flow.mmd
+npm run rangerflow:mermaid -- --style=print   # …the same diagram in another look
 npm run rangerflow:org         # an organisation chart
 npm run rangerflow:process     # a swimlane process
 npm run rangerflow:force       # React Flow's force-layout example, in Ranger
@@ -121,6 +122,55 @@ What it reads, which is the flowchart dialect people actually write:
 | grouping | `subgraph … end`, nested, drawn as the frames a sub-flow already has |
 | styling | `classDef`, `class`, `:::name`, `style` — fill, stroke and text colour |
 | the rest | `%%` comments, `---` front matter with a title, quoted labels, `<br/>`, HTML entities |
+
+### The same diagram in another look
+
+The diagram says what it says; how it looks is somebody else's decision, and
+usually somebody else's file. EVG already carries a small print-safe CSS engine
+— class selectors, `@vars`, `@media`, themes — so the look is a **stylesheet**
+rather than a set of constructor arguments:
+
+```bash
+npm run rangerflow:mermaid -- --style=forest      # default | forest | dark | neutral | print
+npm run rangerflow:mermaid -- --style=house.css   # …or one of your own
+npm run rangerflow:mermaid -- --style=print --restyle   # …and let it win over the diagram
+```
+
+```css
+@vars       { --fill: #ffffff; --line: #b9c0cc; }
+@vars dark  { --fill: #1b202a; --line: #39414f; }
+.node       { fill: var(--fill); stroke: var(--line); border-width: 1px; }
+.decision   { fill: #fff6e5; }
+.warn       { fill: #fee; stroke: #c66; }     /* a Mermaid classDef name */
+.frame      { fill: #f6f7fb; }                /* a subgraph box */
+.edge       { stroke: #7b8494; stroke-width: 1.4px; }
+.canvas     { background: #f7f8fa; edge-color: #7b8494; background-variant: dots; }
+```
+
+Every node answers to what it already is — `.node`, its type, `.shape-diamond`,
+`.id-<id>` — plus whatever vocabulary the domain wrote: a Mermaid node wears its
+kind (`.decision`), the shape it was written as (`.rhombus`) and every
+`classDef` name it was given (`.warn`), and edges wear `.link` with
+`.solid` / `.dotted` / `.thick`. So a sheet written for one diagram works on the
+next one.
+
+| in a rule | means |
+| --- | --- |
+| on a node | `fill`, `stroke`, `color`, `accent-color`, `border-radius`, `border-width`, `shape`, `visibility` |
+| on an edge | `stroke`, `stroke-width`, `stroke-dasharray`, `marker-start`, `marker-end`, `edge-type`, `animated` |
+| on `.canvas` | the paper, the grid, the node and header defaults, the edge colour and width, the selection, the panels and the minimap, the fonts |
+
+By default the **diagram wins**: a Mermaid `classDef` still beats the sheet,
+because someone wrote that colour on purpose — and a `classDef` fill with no
+text colour gets a readable one computed from it, so a pale box in the dark look
+is not pale text on pale paper. `--restyle` (or `style.strong = true`) turns
+that around for when the house style is the point.
+
+`%%{init: {'theme':'forest'}}%%` in the source picks a look by name, which is
+the same word Mermaid uses for it. In the browser page the Mermaid panel has a
+**look** dropdown, and `?scenario=mermaid&look=dark` picks one on load.
+
+![the same diagram in the dark look, on the GPU](artifacts/scenario_mermaid_dark.png)
 
 What it drops on purpose: `click` (there is no browser to navigate),
 `linkStyle` by index, and `direction` inside a subgraph — RangerFlow lays the

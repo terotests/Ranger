@@ -10,6 +10,11 @@
 ;   npm run rangerflow:demo -- --bench 500  layout + scene timings at a size
 ;   npm run rangerflow:demo -- --flowchart  an ATK flowchart in ISO 5807 shapes
 ;   npm run rangerflow:demo -- --mermaid    a Mermaid flowchart, read from a file
+;   npm run rangerflow:demo -- --mermaid --style=print       …in another look
+;   npm run rangerflow:demo -- --mermaid --style=print --restyle  …and the sheet
+;                                           wins over the diagram's own classDef
+;                                           (default | forest | dark | neutral
+;                                            | print, or a path to a .css file)
 ;   npm run rangerflow:demo -- --org        an organisation chart
 ;   npm run rangerflow:demo -- --process    a swimlane process
 ;   npm run rangerflow:demo -- --drag       drop every node everywhere, count
@@ -26,6 +31,7 @@ Import "../domains/erd/SchemaToGraph.rgr"
 Import "../domains/uml/UMLModel.rgr"
 Import "../domains/flowchart/Flowchart.rgr"
 Import "../domains/mermaid/MermaidReader.rgr"
+Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 Import "../layout/LayeredLayout.rgr"
 Import "../layout/EdgeLanes.rgr"
@@ -44,6 +50,8 @@ class RangerFlowDemo {
         def mode:string "erd"
         def benchSize:int 0
         def mermaidPath:string "gallery/rangerflow/fixtures/order_flow.mmd"
+        def styleName:string ""
+        def restyle:boolean false
         def argCount:int (shell_arg_cnt)
         def i:int 0
         while (i < argCount) {
@@ -64,6 +72,10 @@ class RangerFlowDemo {
             }
             if (a == "--org")       { mode = "org" }
             if (a == "--process")   { mode = "process" }
+            if ((RangerFlowDemo.optionOf(a "--style=")) != "") {
+                styleName = (RangerFlowDemo.optionOf(a "--style="))
+            }
+            if (a == "--restyle") { restyle = true }
             if (a == "--bench") {
                 mode = "bench"
                 if ((i + 1) < argCount) {
@@ -79,7 +91,7 @@ class RangerFlowDemo {
         if (mode == "bench") { d.runBench(benchSize) }
         if (mode == "drag")  { d.runDrag() }
         if (mode == "flowchart") { d.runFlowchart() }
-        if (mode == "mermaid")   { d.runMermaid(mermaidPath) }
+        if (mode == "mermaid")   { d.runMermaid(mermaidPath styleName restyle) }
         if (mode == "org")       { d.runOrg() }
         if (mode == "process")   { d.runProcess() }
     }
@@ -378,7 +390,48 @@ class RangerFlowDemo {
     ; The same pipeline again, with the model read from a file somebody wrote
     ; in a README instead of built by hand. Everything after the first two
     ; lines is what the ERD, the UML diagram and the ATK chart already do.
-    fn runMermaid:void (path:string) {
+    ; `--style=print` and friends. The value rather than the flag, and "" when
+    ; this argument is a different flag altogether.
+    sfn optionOf:string (arg:string prefix:string) {
+        def len:int (strlen prefix)
+        if ((strlen arg) <= len) {
+            return ""
+        }
+        if ((substring arg 0 len) != prefix) {
+            return ""
+        }
+        return (substring arg len (strlen arg))
+    }
+
+    ; A look by name, a look by file, or the one the diagram asked for itself.
+    fn styleFor:FlowStyle (name:string diagram:MermaidDiagram) {
+        def want:string name
+        if ((strlen want) == 0) {
+            want = diagram.themeName
+        }
+        if ((strlen want) == 0) {
+            want = "default"
+        }
+        if (FlowStyles.knows(want)) {
+            print ("  style  " + want + " (built in)")
+            return (FlowStyle.named(want))
+        }
+        def css:string (?? (read_file "." want) "")
+        if ((strlen css) == 0) {
+            print ("  style  could not read " + want + " — using the default look")
+            return (FlowStyle.named("default"))
+        }
+        def s:FlowStyle (FlowStyle.parse(css))
+        print ("  style  " + want + ", " + (to_string (s.ruleCount())) + " rules")
+        def e:int 0
+        while (e < (s.errorCount())) {
+            print ("         ! " + (s.errorAt(e)))
+            e = (e + 1)
+        }
+        return s
+    }
+
+    fn runMermaid:void (path:string styleName:string restyle:boolean) {
         print "== RangerFlow: Mermaid =="
         def srcOpt:string (?? (read_file "." path) "")
         if ((strlen srcOpt) == 0) {
@@ -388,12 +441,18 @@ class RangerFlowDemo {
         def d:MermaidDiagram (MermaidReader.parse(srcOpt))
         print ("  read   " + path)
         print ("  model  " + (to_string (d.nodeCount())) + " nodes, " + (to_string (d.linkCount())) + " links, " + (to_string (d.subgraphCount())) + " subgraphs, direction " + d.direction)
-        def g:FlowGraph (MermaidFlow.build(d))
-        print ("  graph  " + (to_string (g.nodeCount())) + " nodes (frames included), " + (to_string (g.edgeCount())) + " edges")
+        def style:FlowStyle (this.styleFor(styleName d))
+        ; `--restyle`: the sheet after the diagram's own `classDef`, not before.
+        style.strong = restyle
+        def g:FlowGraph (MermaidFlow.styled(d style))
+        print ("  graph  " + (to_string (g.nodeCount())) + " nodes (frames included), " + (to_string (g.edgeCount())) + " edges, " + (to_string style.written) + " styled properties")
         print ("         edges drawn through an unrelated node: " + (to_string (EdgeOverlap.nodeCrossings(g))))
         print ("         edges crossing each other: " + (to_string (EdgeOverlap.edgeCrossings(g))))
         def v:FlowView (FlowView.of(g))
         v.notation = "plain"
+        ; The canvas too — the paper, the grid and the edge defaults are as
+        ; much a part of a look as the fills are.
+        style.applyToTheme(v.theme)
         def title:string d.title
         if ((strlen title) == 0) {
             title = "RangerFlow — Mermaid"

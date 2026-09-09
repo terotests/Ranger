@@ -1,0 +1,753 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; FlowStyleSheet.rgr — the look of a diagram, as CSS.
+; ============================================================================
+;
+; A diagram has two halves that want different authors. What it says — these
+; steps, this decision, that store — belongs to whoever wrote it. How it looks
+; — paper white or near-black, one accent or another, a border you can see in
+; print — belongs to whoever is going to read it, and they are usually not the
+; same person and never the same file.
+;
+; EVG already carries a small print-safe CSS engine (`EVGStyleSheet`: class
+; selectors, `@vars`, `@media`, themes), so this is not a second one. It is the
+; adapter between that engine and the graph model:
+;
+;   text  ──►  EVGStyleSheet  ──►  (property, value) pairs  ──►  FlowNode
+;                                                            ──►  FlowEdge
+;                                                            ──►  FlowTheme
+;
+; Every node is matched by the classes it already has — its type, its shape,
+; its id, and whatever vocabulary the domain wrote into `cssClass` (a Mermaid
+; `classDef` name, a flowchart kind) — so a sheet is written the way a sheet
+; is written:
+;
+;   @vars        { --fill: #ffffff; --line: #b9c0cc; }
+;   @vars dark   { --fill: #1b202a; --line: #39414f; }
+;   .node        { fill: var(--fill); stroke: var(--line); }
+;   .decision    { fill: #fff6e5; }
+;   .theme-dark .decision { fill: #3a3016; }
+;   .edge        { stroke: #7b8494; stroke-width: 1.4px; }
+;   #the id form is `.id-<node id>`, because the engine matches classes only
+;
+; The engine's own rules apply: a theme-scoped rule beats an unscoped one,
+; source order breaks ties, `var()` is resolved once per class list rather
+; than once per node, and a `@media` block needs a viewport stated before it
+; can be true of anything.
+;
+; What this file adds is the vocabulary — which CSS property means which field
+; of the model. That table is the whole of it, and it is deliberately small:
+; colours, a border weight, a corner radius, a dash pattern, and for the
+; canvas the theme values a renderer reads before it draws anything.
+; ============================================================================
+
+Import "GraphModel.rgr"
+Import "FlowTheme.rgr"
+Import "../../evg/EVGStyleSheet.rgr"
+
+class FlowStyle {
+    def sheet:EVGStyleSheet (new EVGStyleSheet)
+    ; The theme name, or a space-separated list of them — `EVGStyleSheet`
+    ; takes several at once so a look and a place can be scoped separately.
+    def theme:string ""
+    ; The element the plans are keyed on. It is never drawn and never written
+    ; to: `buildPlan` reads its class list and its four interaction bits, and
+    ; a node has none of those, so one scratch element serves the whole graph.
+    def scratch:EVGElement (new EVGElement())
+    ; class list -> plan slot, so a graph of two hundred nodes with six
+    ; distinct class lists scans the rules six times.
+    def plans:[string:int]
+    ; Whether the sheet gets the last word. Off, a diagram's own colours — a
+    ; Mermaid `classDef`, a domain's fill — beat it, which is what someone who
+    ; wrote those colours expects. On, the sheet is applied after them: "make
+    ; this look like our diagrams, whatever it says about itself".
+    def strong:boolean false
+    ; How many declarations the last `applyTo` wrote. Reported rather than
+    ; inferred: a sheet whose class names do not match anything looks exactly
+    ; like one that has nothing to say.
+    def written:int 0
+
+    Constructor () {
+    }
+
+    sfn parse:FlowStyle (css:string) {
+        def s (new FlowStyle)
+        s.load(css)
+        return s
+    }
+
+    ; One of the looks this file ships with — see `FlowStyles`.
+    sfn named:FlowStyle (name:string) {
+        def css:string (FlowStyles.sheet())
+        def s (new FlowStyle)
+        s.load(css)
+        s.theme = (FlowStyles.themeFor(name))
+        return s
+    }
+
+    fn load:void (css:string) {
+        sheet.reload(css)
+        def fresh:[string:int]
+        plans = fresh
+    }
+
+    fn setTheme:void (t:string) {
+        theme = t
+        def fresh:[string:int]
+        plans = fresh
+    }
+
+    ; A `@media` block has no truth value until the surface is stated.
+    fn setViewport:void (w:double h:double coarse:boolean) {
+        sheet.setViewport(w h coarse)
+        def fresh:[string:int]
+        plans = fresh
+    }
+
+    fn ruleCount:int () {
+        return (sheet.getRuleCount())
+    }
+
+    fn errorCount:int () {
+        return (sheet.getErrorCount())
+    }
+
+    fn errorAt:string (i:int) {
+        return (sheet.getError(i))
+    }
+
+    ; ------------------------------------------------------------- applying --
+    fn applyTo:int (g:FlowGraph) {
+        written = 0
+        if ((sheet.getRuleCount()) == 0) {
+            return 0
+        }
+        def i:int 0
+        while (i < (g.nodeCount())) {
+            def n:FlowNode (g.nodeAt(i))
+            this.styleNode(n)
+            i = (i + 1)
+        }
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            this.styleEdge(e)
+            k = (k + 1)
+        }
+        return written
+    }
+
+    fn styleNode:void (n:FlowNode) {
+        def classes:string (this.classesOfNode(n))
+        def slot:int (this.planFor(classes))
+        def count:int (sheet.planLength(slot))
+        def i:int 0
+        while (i < count) {
+            def name:string (sheet.planNameAt(slot i))
+            def value:string (sheet.planValueAt(slot i))
+            this.setNodeProp(n name value)
+            i = (i + 1)
+        }
+        n.syncFromModel()
+    }
+
+    fn styleEdge:void (e:FlowEdge) {
+        def classes:string (this.classesOfEdge(e))
+        def slot:int (this.planFor(classes))
+        def count:int (sheet.planLength(slot))
+        def i:int 0
+        while (i < count) {
+            def name:string (sheet.planNameAt(slot i))
+            def value:string (sheet.planValueAt(slot i))
+            this.setEdgeProp(e name value)
+            i = (i + 1)
+        }
+    }
+
+    ; The canvas — everything a renderer reads before it draws a single node.
+    ; Written as a rule like any other, because "the paper is off-white in
+    ; print and near-black on screen" is the same kind of decision as "a
+    ; decision diamond is pale orange".
+    fn applyToTheme:int (t:FlowTheme) {
+        def slot:int (this.planFor("canvas"))
+        def count:int (sheet.planLength(slot))
+        def i:int 0
+        while (i < count) {
+            def name:string (sheet.planNameAt(slot i))
+            def value:string (sheet.planValueAt(slot i))
+            this.setThemeProp(t name value)
+            i = (i + 1)
+        }
+        return count
+    }
+
+    ; The rules that match a class list, resolved once and replayed. The key is
+    ; the class list and the theme: a node has no hover or focus, so nothing
+    ; else about it can change the answer.
+    fn planFor:int (classes:string) {
+        def key:string ((classes + "|") + theme)
+        if (has plans key) {
+            return (unwrap (get plans key))
+        }
+        scratch.className = classes
+        def slot:int (sheet.buildPlan(scratch theme key))
+        set plans key slot
+        return slot
+    }
+
+    ; What a node answers to. The model's own vocabulary first — anything can
+    ; be styled without a domain having written a single class — and then
+    ; whatever the domain added.
+    fn classesOfNode:string (n:FlowNode) {
+        def out:string "node"
+        if ((strlen n.nodeType) > 0) {
+            out = ((out + " ") + n.nodeType)
+        }
+        if (n.nodeType == "group") {
+            ; The name a reader would reach for. A sub-flow box is a frame
+            ; whatever the domain that made it called it.
+            out = (out + " frame")
+        }
+        if ((strlen n.shape) > 0) {
+            out = (((out + " shape-") + n.shape))
+        }
+        if ((strlen n.id) > 0) {
+            out = ((out + " id-") + n.id)
+        }
+        if ((strlen n.cssClass) > 0) {
+            out = ((out + " ") + n.cssClass)
+        }
+        return out
+    }
+
+    fn classesOfEdge:string (e:FlowEdge) {
+        def out:string "edge"
+        if ((strlen e.edgeType) > 0) {
+            out = ((out + " type-") + e.edgeType)
+        }
+        if ((strlen e.id) > 0) {
+            out = ((out + " id-") + e.id)
+        }
+        if ((strlen e.cssClass) > 0) {
+            out = ((out + " ") + e.cssClass)
+        }
+        return out
+    }
+
+    ; ------------------------------------------------------- the vocabulary --
+    ; Which CSS property means which field. Both spellings of the hyphenated
+    ; ones are accepted, the way EVG's own `setAttribute` accepts them, so a
+    ; sheet and an attribute cannot mean different things by the same word.
+    fn setNodeProp:void (n:FlowNode name:string value:string) {
+        def p:string (FlowStyle.norm(name))
+        if (p == "fill") {
+            n.bgColor = (FlowStyle.colorOf(value))
+            written = (written + 1)
+            return
+        }
+        if (p == "background") {
+            n.bgColor = (FlowStyle.colorOf(value))
+            written = (written + 1)
+            return
+        }
+        if (p == "background-color") {
+            n.bgColor = (FlowStyle.colorOf(value))
+            written = (written + 1)
+            return
+        }
+        if (p == "stroke") {
+            n.borderColor = (FlowStyle.colorOf(value))
+            written = (written + 1)
+            return
+        }
+        if (p == "border-color") {
+            n.borderColor = (FlowStyle.colorOf(value))
+            written = (written + 1)
+            return
+        }
+        if (p == "color") {
+            n.textColor = (FlowStyle.colorOf(value))
+            written = (written + 1)
+            return
+        }
+        if (p == "accent-color") {
+            n.accentColor = (FlowStyle.colorOf(value))
+            written = (written + 1)
+            return
+        }
+        if (p == "border-radius") {
+            n.borderRadius = (FlowStyle.lengthOf(value -1.0))
+            written = (written + 1)
+            return
+        }
+        if (p == "border-width") {
+            n.borderWidth = (FlowStyle.lengthOf(value -1.0))
+            written = (written + 1)
+            return
+        }
+        if (p == "stroke-width") {
+            n.borderWidth = (FlowStyle.lengthOf(value -1.0))
+            written = (written + 1)
+            return
+        }
+        ; Not a colour and not a size: the outline itself. A sheet that turns
+        ; every decision into a hexagon is a sheet, not a second model.
+        if (p == "shape") {
+            n.shape = (trim value)
+            written = (written + 1)
+            return
+        }
+        if (p == "visibility") {
+            n.hidden = ((trim value) == "hidden")
+            written = (written + 1)
+            return
+        }
+    }
+
+    fn setEdgeProp:void (e:FlowEdge name:string value:string) {
+        def p:string (FlowStyle.norm(name))
+        if (p == "stroke") {
+            e.strokeColor = (FlowStyle.colorOf(value))
+            written = (written + 1)
+            return
+        }
+        if (p == "color") {
+            e.strokeColor = (FlowStyle.colorOf(value))
+            written = (written + 1)
+            return
+        }
+        if (p == "stroke-width") {
+            e.strokeWidth = (FlowStyle.lengthOf(value 0.0))
+            written = (written + 1)
+            return
+        }
+        if (p == "stroke-dasharray") {
+            e.dash = (FlowStyle.dashOf(value))
+            written = (written + 1)
+            return
+        }
+        if (p == "marker-end") {
+            e.markerEnd = (FlowStyle.markerOf(value))
+            written = (written + 1)
+            return
+        }
+        if (p == "marker-start") {
+            e.markerStart = (FlowStyle.markerOf(value))
+            written = (written + 1)
+            return
+        }
+        ; Which family of path the edge is drawn as — the one property here
+        ; that changes the route rather than the paint.
+        if (p == "edge-type") {
+            e.edgeType = (trim value)
+            written = (written + 1)
+            return
+        }
+        if (p == "animated") {
+            e.animated = ((trim value) == "true")
+            written = (written + 1)
+            return
+        }
+        if (p == "visibility") {
+            e.hidden = ((trim value) == "hidden")
+            written = (written + 1)
+            return
+        }
+    }
+
+    fn setThemeProp:void (t:FlowTheme name:string value:string) {
+        def p:string (FlowStyle.norm(name))
+        def col:string (FlowStyle.colorOf(value))
+        if (p == "background") {
+            t.background = col
+            return
+        }
+        if (p == "background-color") {
+            t.background = col
+            return
+        }
+        if (p == "dot-color") {
+            t.dotColor = col
+            return
+        }
+        if (p == "grid-color") {
+            t.gridColor = col
+            return
+        }
+        if (p == "background-variant") {
+            t.backgroundVariant = (FlowStyle.variantOf(value))
+            return
+        }
+        if (p == "node-fill") {
+            t.nodeFill = col
+            return
+        }
+        if (p == "node-border") {
+            t.nodeBorder = col
+            return
+        }
+        if (p == "node-color") {
+            t.nodeText = col
+            return
+        }
+        if (p == "muted-color") {
+            t.nodeMutedText = col
+            return
+        }
+        if (p == "node-radius") {
+            t.nodeRadius = (FlowStyle.lengthOf(value t.nodeRadius))
+            return
+        }
+        if (p == "node-border-width") {
+            t.nodeBorderWidth = (FlowStyle.lengthOf(value t.nodeBorderWidth))
+            return
+        }
+        if (p == "header-fill") {
+            t.headerFill = col
+            return
+        }
+        if (p == "header-color") {
+            t.headerText = col
+            return
+        }
+        if (p == "accent-color") {
+            t.headerAccent = col
+            return
+        }
+        if (p == "rule-color") {
+            t.sectionRule = col
+            return
+        }
+        if (p == "row-alt-fill") {
+            t.rowAltFill = col
+            return
+        }
+        if (p == "selected-border") {
+            t.selectedBorder = col
+            return
+        }
+        if (p == "selected-fill") {
+            t.selectedFill = col
+            return
+        }
+        if (p == "edge-color") {
+            t.edgeColor = col
+            return
+        }
+        if (p == "edge-width") {
+            t.edgeWidth = (FlowStyle.lengthOf(value t.edgeWidth))
+            return
+        }
+        if (p == "edge-label-color") {
+            t.edgeLabelText = col
+            return
+        }
+        if (p == "edge-label-fill") {
+            t.edgeLabelFill = col
+            return
+        }
+        if (p == "marker-size") {
+            t.markerSize = (FlowStyle.lengthOf(value t.markerSize))
+            return
+        }
+        if (p == "panel-fill") {
+            t.panelFill = col
+            return
+        }
+        if (p == "panel-border") {
+            t.panelBorder = col
+            return
+        }
+        if (p == "minimap-node") {
+            t.minimapNode = col
+            return
+        }
+        if (p == "minimap-view") {
+            t.minimapView = col
+            return
+        }
+        if (p == "shadow") {
+            t.nodeShadow = ((trim value) != "none")
+            return
+        }
+        if (p == "font-family") {
+            t.fontFamily = (FlowStyle.firstFamily(value))
+            return
+        }
+        if (p == "font-size") {
+            t.headerFontSize = (FlowStyle.lengthOf(value t.headerFontSize))
+            return
+        }
+        if (p == "label-font-size") {
+            t.labelFontSize = (FlowStyle.lengthOf(value t.labelFontSize))
+            return
+        }
+        if (p == "row-font-size") {
+            t.rowFontSize = (FlowStyle.lengthOf(value t.rowFontSize))
+            return
+        }
+    }
+
+    ; ------------------------------------------------------------- values ----
+    ; `backgroundColor` and `background-color` are the same property. EVG's own
+    ; `setAttribute` takes both spellings; a sheet read here would be the one
+    ; place they could drift apart.
+    sfn norm:string (name:string) {
+        def out:string ""
+        def t:string (trim name)
+        def i:int 0
+        while (i < (strlen t)) {
+            def c:int (charAt t i)
+            if (c >= 65) {
+                if (c <= 90) {
+                    out = (out + "-")
+                    c = (c + 32)
+                }
+            }
+            out = (out + (strfromcode c))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; "none" and "transparent" are how a sheet says "leave it to the theme",
+    ; and an empty string is how the model says the same thing.
+    sfn colorOf:string (value:string) {
+        def v:string (trim value)
+        if (v == "none") {
+            return ""
+        }
+        if (v == "transparent") {
+            return ""
+        }
+        if (v == "initial") {
+            return ""
+        }
+        return v
+    }
+
+    ; A CSS length, in the only unit a diagram has: `px`, or a bare number.
+    ; Anything else — `em`, `%`, `calc()` — has no meaning without a box to be
+    ; a fraction of, so it falls back rather than guessing.
+    sfn lengthOf:double (value:string fallback:double) {
+        def v:string (trim value)
+        def digits:string ""
+        def i:int 0
+        while (i < (strlen v)) {
+            def c:int (charAt v i)
+            def keep:boolean false
+            if (c == 45) { keep = true }
+            if (c == 46) { keep = true }
+            if (c >= 48) {
+                if (c <= 57) {
+                    keep = true
+                }
+            }
+            if (keep == false) {
+                i = (strlen v)
+            } {
+                digits = (digits + (strfromcode c))
+                i = (i + 1)
+            }
+        }
+        if ((strlen digits) == 0) {
+            return fallback
+        }
+        def parsed@(optional):double (to_double digits)
+        if (null? parsed) {
+            return fallback
+        }
+        return (unwrap parsed)
+    }
+
+    ; `stroke-dasharray: 5 5` and `stroke-dasharray: 5, 5` both mean a five-unit
+    ; dash here: the renderer draws one length, not a pattern.
+    sfn dashOf:double (value:string) {
+        def v:string (trim value)
+        if (v == "none") {
+            return 0.0
+        }
+        return (FlowStyle.lengthOf(v 0.0))
+    }
+
+    ; What is drawn where the edge meets the node. The names are the model's —
+    ; the decoration library knows them — with CSS's own `none`.
+    sfn markerOf:string (value:string) {
+        def v:string (trim value)
+        if (v == "none") {
+            return ""
+        }
+        if (v == "initial") {
+            return ""
+        }
+        return v
+    }
+
+    sfn variantOf:int (value:string) {
+        def v:string (trim value)
+        if (v == "none")  { return 0 }
+        if (v == "dots")  { return 1 }
+        if (v == "lines") { return 2 }
+        if (v == "cross") { return 3 }
+        return 1
+    }
+
+    ; `font-family: "Open Sans", sans-serif` — the first name, which is the
+    ; only one a font manager loaded by name can use.
+    sfn firstFamily:string (value:string) {
+        def v:string (trim value)
+        def cut:int (indexOf v ",")
+        if (cut > 0) {
+            v = (trim (substring v 0 cut))
+        }
+        def len:int (strlen v)
+        if (len >= 2) {
+            def q:int (charAt v 0)
+            if (q == 34) {
+                return (substring v 1 (len - 1))
+            }
+            if (q == 39) {
+                return (substring v 1 (len - 1))
+            }
+        }
+        return v
+    }
+}
+
+; ---------------------------------------------------------------------------
+; The looks that ship with it
+; ---------------------------------------------------------------------------
+; One sheet, several themes. Everything visible is written once in terms of a
+; variable, and a theme is nothing but a different `@vars` block — which is
+; both how CSS does it and the reason "the same diagram in the print look" is
+; a one-word change rather than a second stylesheet to keep in step.
+;
+; Variables rather than `.theme-dark .node { … }` rules, and that is not a
+; style preference: the engine's one precedence rule is that a theme-scoped
+; rule beats an unscoped one, ahead of how particular either is. A themed
+; `.node` would therefore win over a plain `.decision`, and every kind of box
+; in the dark look would be the same colour. A themed `@vars` block changes
+; what the same rules resolve to, and the cascade stays as it reads.
+;
+; The names are Mermaid's where Mermaid has one, because a diagram that says
+; `%%{init: {'theme':'forest'}}%%` should get something green here too.
+class FlowStyles {
+    sfn names:string () {
+        return "default forest dark neutral print"
+    }
+
+    sfn knows:boolean (name:string) {
+        def n:string (trim name)
+        if (n == "default") { return true }
+        if (n == "base")    { return true }
+        if (n == "forest")  { return true }
+        if (n == "dark")    { return true }
+        if (n == "neutral") { return true }
+        if (n == "print")   { return true }
+        return false
+    }
+
+    ; The theme to hand `FlowStyle`. "default" is the unscoped sheet, so it is
+    ; the absence of a theme rather than a theme of its own.
+    sfn themeFor:string (name:string) {
+        def n:string (trim name)
+        if (n == "default") { return "" }
+        if (n == "base")    { return "" }
+        return n
+    }
+
+    sfn sheet:string () {
+        def t:string "/* RangerFlow — the default look, and four variations. */\n"
+        t = (t + "@vars {\n")
+        t = (t + "  --paper: #f7f8fa;  --dots: #c9ced6;\n")
+        t = (t + "  --fill: #ffffff;   --line: #b9c0cc;  --ink: #1f2430;  --muted: #6b7280;\n")
+        t = (t + "  --header: #eef2f8; --accent: #2563eb; --selected: #eff6ff;\n")
+        t = (t + "  --edge: #7b8494;   --edge-width: 1.4px;\n")
+        t = (t + "  --start: #e8f1ff;  --decision: #fff6e5; --io: #eef7ee;\n")
+        t = (t + "  --store: #f3eefb;  --doc: #f6f6f9;      --note: #fdf8e6; --note-line: #c4b483;\n")
+        t = (t + "  --frame: #f6f7fb;  --frame-line: #c9cede;\n")
+        t = (t + "  --radius: 6px;     --border: 1px;       --dash: 5px;\n")
+        t = (t + "}\n")
+        ; Green, the way Mermaid's own forest is green: one hue, and the
+        ; vocabulary still readable through it.
+        t = (t + "@vars forest {\n")
+        t = (t + "  --paper: #f3f7f1;  --dots: #c2d6bd;\n")
+        t = (t + "  --fill: #ffffff;   --line: #8fae8b;  --ink: #1c2b1a;  --muted: #55704f;\n")
+        t = (t + "  --header: #e3efdf; --accent: #2f6b2a; --selected: #e6f2e2;\n")
+        t = (t + "  --edge: #5d7f57;\n")
+        t = (t + "  --start: #dcecd6;  --decision: #eef5d8; --io: #e6f2e2;\n")
+        t = (t + "  --store: #e2ece0;  --doc: #eef5ec;      --note: #f4f7e2; --note-line: #a8bf8e;\n")
+        t = (t + "  --frame: #eaf3e6;  --frame-line: #b6cdb0;\n")
+        t = (t + "}\n")
+        ; The same document at night. It is the theme `FlowTheme.dark` already
+        ; describes, said again where a sheet can reach it.
+        t = (t + "@vars dark {\n")
+        t = (t + "  --paper: #12151c;  --dots: #2b313c;\n")
+        t = (t + "  --fill: #1b202a;   --line: #39414f;  --ink: #e6e9ef;  --muted: #98a2b3;\n")
+        t = (t + "  --header: #232a36; --accent: #60a5fa; --selected: #1d2735;\n")
+        t = (t + "  --edge: #8b95a7;\n")
+        t = (t + "  --start: #1d2b3d;  --decision: #34301c; --io: #1f2f24;\n")
+        t = (t + "  --store: #2a2436;  --doc: #232833;      --note: #33301f; --note-line: #6b6142;\n")
+        t = (t + "  --frame: #191e27;  --frame-line: #333c4a;\n")
+        t = (t + "}\n")
+        ; No hue at all: the shapes carry the meaning and the greys stay out of
+        ; the way. This is the one to paste into a document that has its own
+        ; colours already.
+        t = (t + "@vars neutral {\n")
+        t = (t + "  --paper: #fafafa;  --dots: #d4d4d4;\n")
+        t = (t + "  --fill: #ffffff;   --line: #9ca3af;  --ink: #1c1c1c;  --muted: #6b7280;\n")
+        t = (t + "  --header: #f0f0f0; --accent: #4b5563; --selected: #ececec;\n")
+        t = (t + "  --edge: #6b7280;\n")
+        t = (t + "  --start: #f2f2f2;  --decision: #ececec; --io: #f5f5f5;\n")
+        t = (t + "  --store: #eeeeee;  --doc: #f5f5f5;      --note: #f7f7f2; --note-line: #b9b9a8;\n")
+        t = (t + "  --frame: #f4f4f4;  --frame-line: #cccccc;\n")
+        t = (t + "}\n")
+        ; For paper and for a photocopier: white fills, black outlines, and a
+        ; heavier border because toner is not a screen.
+        t = (t + "@vars print {\n")
+        t = (t + "  --paper: #ffffff;  --dots: #ffffff;\n")
+        t = (t + "  --fill: #ffffff;   --line: #111111;  --ink: #000000;  --muted: #333333;\n")
+        t = (t + "  --header: #ffffff; --accent: #000000; --selected: #ffffff;\n")
+        t = (t + "  --edge: #111111;   --edge-width: 1.1px;\n")
+        t = (t + "  --start: #ffffff;  --decision: #ffffff; --io: #ffffff;\n")
+        t = (t + "  --store: #ffffff;  --doc: #ffffff;      --note: #ffffff; --note-line: #111111;\n")
+        t = (t + "  --frame: #ffffff;  --frame-line: #555555;\n")
+        t = (t + "  --border: 1.2px;\n")
+        t = (t + "}\n")
+        t = (t + "\n")
+        t = (t + ".canvas {\n")
+        t = (t + "  background: var(--paper); dot-color: var(--dots); grid-color: var(--dots);\n")
+        t = (t + "  node-fill: var(--fill); node-border: var(--line); node-color: var(--ink);\n")
+        t = (t + "  muted-color: var(--muted); header-fill: var(--header); header-color: var(--ink);\n")
+        t = (t + "  accent-color: var(--accent); rule-color: var(--line);\n")
+        t = (t + "  selected-border: var(--accent); selected-fill: var(--selected);\n")
+        t = (t + "  edge-color: var(--edge); edge-width: var(--edge-width);\n")
+        t = (t + "  edge-label-color: var(--muted); edge-label-fill: var(--fill);\n")
+        t = (t + "  node-radius: var(--radius); node-border-width: var(--border);\n")
+        ; The controls, the minimap: they sit ON the drawing, so a look that
+        ; leaves them white leaves two looks on the screen at once.
+        t = (t + "  panel-fill: var(--fill); panel-border: var(--line);\n")
+        t = (t + "  minimap-node: var(--muted); minimap-view: var(--accent);\n")
+        t = (t + "}\n")
+        t = (t + ".canvas { background-variant: dots; }\n")
+        t = (t + ".theme-print .canvas { background-variant: none; shadow: none; }\n")
+        t = (t + "\n")
+        ; The vocabulary, in the order a cascade reads it: what every node is,
+        ; then what a kind of node is. A domain that writes no classes at all
+        ; still gets the first rule.
+        t = (t + ".node       { fill: var(--fill); stroke: var(--line); color: var(--ink); border-width: var(--border); }\n")
+        t = (t + ".terminator { fill: var(--start); }\n")
+        t = (t + ".decision   { fill: var(--decision); }\n")
+        t = (t + ".io         { fill: var(--io); }\n")
+        t = (t + ".database   { fill: var(--store); }\n")
+        t = (t + ".document   { fill: var(--doc); }\n")
+        t = (t + ".note       { fill: var(--note); stroke: var(--note-line); }\n")
+        t = (t + ".frame      { fill: var(--frame); stroke: var(--frame-line); }\n")
+        t = (t + "\n")
+        t = (t + ".edge       { stroke: var(--edge); stroke-width: var(--edge-width); }\n")
+        t = (t + ".thick      { stroke-width: 3px; }\n")
+        t = (t + ".dotted     { stroke-dasharray: var(--dash); }\n")
+        return t
+    }
+}

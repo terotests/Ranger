@@ -386,6 +386,14 @@ class FlowNode {
     def textColor:string ""
     def accentColor:string ""
     def borderRadius:double -1.0
+    ; -1 = the theme's. A per-node border weight exists because a stylesheet
+    ; can ask for one; nothing in the core sets it.
+    def borderWidth:double -1.0
+    ; What a stylesheet matches this node by, as a space-separated class list —
+    ; the same thing a `class` attribute is. A domain writes the vocabulary it
+    ; has (a Mermaid `classDef` name, a step kind), and `FlowStyle` adds what
+    ; the model already knows: the node type, the shape, the id.
+    def cssClass:string ""
 
     ; The angle the node is turned through, clockwise, in degrees. Zero for
     ; everything that was ever drawn before this existed, so nothing has to
@@ -1006,6 +1014,8 @@ class FlowEdge {
     def markerStart:string ""
     ; Dash pattern in flow units; 0 = solid.
     def dash:double 0.0
+    ; The class list a stylesheet matches this edge by. See `FlowNode.cssClass`.
+    def cssClass:string ""
     ; Overrides for which side the edge attaches to; -1 = use the node's.
     def sourceHandle:int -1
     def targetHandle:int -1

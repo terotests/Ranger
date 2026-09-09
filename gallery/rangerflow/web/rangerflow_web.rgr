@@ -46,6 +46,10 @@ class RangerFlowWeb {
     def viewH:double 800.0
     ; The fetched fixture, kept so the scenario picker can return to it.
     def fixtureSql:string ""
+    ; The last Mermaid source rendered, and the look it was rendered in. Kept
+    ; so changing the look is a re-render rather than a re-type.
+    def mermaidText:string ""
+    def mermaidStyle:string "default"
     ; Whether the viewer has taken the wheel. Until then a running simulation
     ; is allowed to reframe itself; after that it must not move under them.
     def userMoved:boolean false
@@ -281,7 +285,7 @@ class RangerFlowWeb {
         }
         if (name == "mermaid") {
             def sample:string (RangerFlowWeb.sampleMermaid())
-            return (this.loadMermaid(sample))
+            return (this.loadMermaidStyled(sample mermaidStyle))
         }
         if (name == "org") {
             return (this.loadOrgChart())
@@ -579,22 +583,62 @@ class RangerFlowWeb {
     ; pipeline does the layout, and the editor does not know where the graph
     ; came from.
     fn loadMermaid:boolean (text:string) {
+        return (this.loadMermaidStyled(text mermaidStyle))
+    }
+
+    ; The same source in another look. A stylesheet cannot change what the
+    ; diagram says, so this re-reads and re-lays-out rather than trying to
+    ; repaint in place — at these sizes it is a few milliseconds, and the
+    ; alternative is a second code path that can disagree with the first.
+    fn setMermaidStyle:boolean (name:string) {
+        mermaidStyle = name
+        if ((strlen mermaidText) == 0) {
+            return false
+        }
+        return (this.loadMermaidStyled(mermaidText name))
+    }
+
+    fn loadMermaidStyled:boolean (text:string styleName:string) {
         def d:MermaidDiagram (MermaidReader.parse(text))
         if ((d.nodeCount()) == 0) {
             status = "no nodes in that Mermaid source"
             return false
         }
-        def g:FlowGraph (MermaidFlow.build(d))
+        mermaidText = text
+        mermaidStyle = styleName
+        ; A diagram that names its own theme gets it, unless the reader has
+        ; picked one from the dropdown.
+        def want:string styleName
+        if ((strlen want) == 0) {
+            want = "default"
+        }
+        if (want == "default") {
+            if ((strlen d.themeName) > 0) {
+                if (FlowStyles.knows(d.themeName)) {
+                    want = d.themeName
+                }
+            }
+        }
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidFlow.styled(d style))
         this.adopt(g)
         editor.view.notation = "plain"
         layoutName = "layered"
         simRunning = false
         editor.pinWhileDragging = false
+        ; The paper as well as the boxes: a dark look on white paper is two
+        ; looks at once.
+        style.applyToTheme(editor.view.theme)
+        if (want == "dark") {
+            editor.view.theme.name = "dark"
+        } {
+            editor.view.theme.name = "light"
+        }
         def what:string d.title
         if ((strlen what) == 0) {
             what = ("Mermaid " + d.direction)
         }
-        status = ((to_string (d.nodeCount())) + " nodes, " + (to_string (d.linkCount())) + " links — " + what)
+        status = ((to_string (d.nodeCount())) + " nodes, " + (to_string (d.linkCount())) + " links — " + what + ", " + want)
         return true
     }
 
