@@ -414,7 +414,29 @@ An entry with a score shows it under its date, and one with feedback shows
 "AI-valmentajan palaute" at the end, as the blog view does. A frame is the accessibility tree: every button, heading,
 textbox, checkbox and landmark, in order, with `disabled` and `checked`. The
 diff is a longest common subsequence over that order, per frame, and the gate is
-the worst frame against `RT_TRACE_FLOOR` (0.9).
+the worst frame against `RT_TRACE_FLOOR` (0.93).
+
+A frame is taken once the app has finished building, the way the page's own
+mirror does (`main.js` syncs it only when `app.building()` is false): Home's
+diary arrives in chunks, and a tree with twelve of sixty-eight workouts in it
+is one no reader is ever handed.
+
+### What the scenarios do not press, and what happened when they did
+
+Four scenarios were added to go where the first thirteen never did, and three
+of them found something that is drawn and does not answer:
+
+| Scenario | What it walks | What it found |
+| --- | --- | --- |
+| `home-entry` | the diary card's own buttons | **all dead.** Muistiinpanot, Näytä tilastot, Lisää kommentti, Compact and JSON are drawn on every card — the reference's Home has three hundred of the comment button alone — and none of them does anything here. Poista, Lisää and Muokkaa tekstiä are the same and are not pressed, because a delete moves every card after it |
+| `home-drills` | Harjoitteet: the categories, the sort menu, a sort | the tab works; a **drill row** does not open the exercise behind it |
+| `more-sheet` | the bar's Lisää sheet, item by item | Vuosilakana and Asetukset are screens; **Harjoituspaikat, Tietopankki, Jaetut kalenterit and Vie tietokanta** close the sheet and land back where they started |
+| `settings-theme` | the settings page and its palettes | works; `noReference`, because Ocean and Sunrise are this port's own |
+
+`handled: false` in a committed trace is a gap recorded rather than
+remembered. What each of those buttons should DO is the reference's answer to
+give: run `rt:trace:reference` for these four on a machine that has the
+monorepo, and the shape comes back with it.
 
 What the traces found, in the order they found it: the reference's dialogs sit
 *before* the bottom bar in the tree and the add sheet *after* it; the bar's

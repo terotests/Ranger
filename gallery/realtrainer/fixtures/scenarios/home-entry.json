@@ -1,0 +1,67 @@
+{
+  "_": "The diary card's OWN buttons, which no scenario had ever pressed: the notes under the title, a row's statistics, a row's comment, and the two exports at the foot. Every one of them is drawn by both sides — the reference's Home carries three hundred of the comment button alone — and on this side every one of them is dead. `handled: false` in this trace is that, recorded rather than remembered. Poista is deliberately not here: a delete moves every card after it, and the gap is the same one.",
+  "id": "home-entry-actions",
+  "area": "koti",
+  "machine": "",
+  "reference": {
+    "route": "/calendar/cal-train?week=2026-02-09"
+  },
+  "setup": [
+    {
+      "page": "390x844"
+    },
+    {
+      "route": "/calendar/cal-train?week=2026-02-09"
+    }
+  ],
+  "steps": [
+    {
+      "tick": 500
+    },
+    {
+      "id": "rt-nav-home",
+      "role": "button",
+      "name": "Koti",
+      "why": "the bottom bar's Koti; the feed builds from the selected calendar"
+    },
+    {
+      "tick": 1500,
+      "why": "the feed arrives in chunks — see `feedShown`"
+    },
+    {
+      "id": "rt-entry-notes-0",
+      "role": "button",
+      "name": "Muistiinpanot",
+      "nth": 0,
+      "why": "the FIRST card's, on both sides: the reference draws sixty-eight of this button and takes the last by default"
+    },
+    {
+      "id": "rt-entry-stats-0-6",
+      "role": "button",
+      "name": "Näytä tilastot",
+      "nth": 0,
+      "why": "the first row that has statistics behind it"
+    },
+    {
+      "id": "rt-entry-comment-0-0",
+      "role": "button",
+      "name": "Lisää kommentti",
+      "nth": 0,
+      "why": "a comment on the first row of the first card"
+    },
+    {
+      "id": "rt-entry-compact-0",
+      "role": "button",
+      "name": "Compact",
+      "nth": 0,
+      "why": "the card's export as the text it was read from"
+    },
+    {
+      "id": "rt-entry-json-0",
+      "role": "button",
+      "name": "JSON",
+      "nth": 0,
+      "why": "and as the parser's own object"
+    }
+  ]
+}
