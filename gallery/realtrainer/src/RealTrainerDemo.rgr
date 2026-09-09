@@ -568,6 +568,7 @@ treefactory Rt {
     tag CredBuyTx EVGElement (props (className "rt-cred-buy-text") (elementType 1) (a11yHidden true))
     tag YsHead   EVGElement (props (className "rt-ys-head"))
     tag YsHd     EVGElement (props (className "rt-ys-hd") (elementType 1) (role "heading") (a11yLevel 1))
+    tag YsH2     EVGElement (props (className "rt-ys-h2") (elementType 1) (role "heading") (a11yLevel 2))
     tag YsH3     EVGElement (props (className "rt-ys-h3") (elementType 1) (role "heading") (a11yLevel 3))
     tag YsPara   EVGElement (props (className "rt-ys-para") (elementType 1) (role "paragraph"))
     tag YsTx     EVGElement (props (className "rt-ys-text") (elementType 1))
@@ -987,6 +988,11 @@ class RealTrainerDemo {
     def setHintField:InputCtl (new InputCtl())
     def venueField:InputCtl (new InputCtl())
     def knowField:InputCtl (new InputCtl())
+    def featFrom:InputCtl (new InputCtl())
+    def featTo:InputCtl (new InputCtl())
+    def featJson:InputCtl (new InputCtl())
+    def featPeriod:SelectCtl (new SelectCtl())
+    def featCycle:SelectCtl (new SelectCtl())
     def setLang:SelectCtl (new SelectCtl())
     def setWeekStart:SelectCtl (new SelectCtl())
     def setDefaultView:SelectCtl (new SelectCtl())
@@ -1199,6 +1205,27 @@ class RealTrainerDemo {
         knowField.tid = "rt-kn-search"
         knowField.placeholder = "Hae tietopankista..."
         knowField.name = knowField.placeholder
+        ; The Featuret page's own controls. The two dates are `<input
+        ; type="date">` in the original, which a reader hears by their label
+        ; and not by what is in them; the paste box is named by its
+        ; placeholder, as every unlabelled box here is.
+        featFrom.tid = "rt-ys-feat-from"
+        featFrom.name = "Alkaen"
+        featTo.tid = "rt-ys-feat-to"
+        featTo.name = "Asti"
+        featJson.tid = "rt-ys-feat-json"
+        featJson.placeholder = "{ \"version\": \"feature-vectors-v1\", \"dailyVectors\": [...] }"
+        featJson.name = featJson.placeholder
+        featPeriod.tid = "rt-ys-feat-period"
+        featPeriod.name = "Periodi"
+        featPeriod.addItem("custom" "Mukautettu aikaväli" false)
+        featPeriod.value = "Mukautettu aikaväli"
+        featCycle.tid = "rt-ys-feat-cycle"
+        featCycle.name = "Laskentasykli"
+        featCycle.addItem("daily" "Päivittäin" false)
+        featCycle.addItem("weekly" "Viikoittain" false)
+        featCycle.addItem("manual" "Manuaalinen" false)
+        featCycle.value = "Päivittäin"
         setLang.tid = "rt-set-lang"
         setLang.name = ""
         setLang.addItem("fi" "Suomi" false)
@@ -3544,6 +3571,10 @@ class RealTrainerDemo {
     fn setSelect:EVGElement (ctl:SelectCtl) {
         def box (tree Rt (SetSelect))
         box.id = ctl.tid
+        ; A select with no name is what the settings page's three are — the
+        ; word above them is a line of text — and the Featuret page's two
+        ; carry theirs. Either way it is the control's own.
+        box.a11yLabel = ctl.name
         box.addChild((tree Rt (SetBtnTx ctl.value)))
         return box
     }
@@ -5576,7 +5607,11 @@ class RealTrainerDemo {
         if (ys.view == "list") {
             this.ysList(body)
         } {
-            this.ysDetail(body)
+            if (ys.view == "features") {
+                this.ysFeatures(body)
+            } {
+                this.ysDetail(body)
+            }
         }
         main.addChild(body)
         ; The same shell as `appScreen`, without the header.
@@ -5622,6 +5657,103 @@ class RealTrainerDemo {
 
     ; One sheet: the header and its toolbar, an editor when one is on, the
     ; grid, the legend, and the periods with their example weeks.
+    ; THE FEATURET PAGE — `traces/reference/yearsheet-edit.json`. The tab is
+    ; a page of its own: the back arrow, the range to compute over, the two
+    ; selects, the three buttons that would call the backend, a box to paste
+    ; an export into, the user's own vectors and the fifteen the app derives.
+    ;
+    ; Nothing here computes: there is no backend, and the reference itself
+    ; shows every feature at zero on a fresh range. What is drawn but not
+    ; wired says so by being disabled where the original disables it.
+    fn ysFeatures:void (body:EVGElement) {
+        def head (tree Rt (YsHead))
+        head.addChild((this.iconBtn("rt-ys-feat-back" "" (RtIcons.arrowLeft("#f2f2f2")))))
+        def titles (tree Rt (Col))
+        titles.addChild((tree Rt (YsHd "Feature-vektorit (beta)")))
+        titles.addChild((tree Rt (YsPara (props (id "rt-ys-feat-sub")) "Testaa vektorilaskentaa päiväkirjamerkinnöistä valitulta aikaväliltä")))
+        head.addChild(titles)
+        body.addChild(head)
+        body.addChild((tree Rt (YsDim "Kokonaispiste: 0.00")))
+        def range (tree Rt (YsEditRow))
+        range.addChild((tree Rt (YsDim "Alkaen")))
+        range.addChild((this.fieldBox(featFrom)))
+        range.addChild((tree Rt (YsDim "Asti")))
+        range.addChild((this.fieldBox(featTo)))
+        body.addChild(range)
+        def picks (tree Rt (YsEditRow))
+        picks.addChild((tree Rt (YsDim "Periodi")))
+        picks.addChild((this.setSelect(featPeriod)))
+        picks.addChild((tree Rt (YsDim "Laskentasykli")))
+        picks.addChild((this.setSelect(featCycle)))
+        body.addChild(picks)
+        body.addChild((tree Rt (YsDim "Merkintöjä valitulla aikavälillä: 0 AI-laskennan maksimi aikaväli on 14 päivää.")))
+        def acts (tree Rt (YsTools))
+        def copy (this.ysTool("rt-ys-feat-copy" "Kopioi tulokset" (RtIcons.copy("#999999")) "rt-ys-tool"))
+        copy.a11yDisabled = true
+        acts.addChild(copy)
+        acts.addChild((this.ysTool("rt-ys-feat-paste" "Liitä" (RtIcons.clipboardPaste("#f2f2f2")) "rt-ys-tool")))
+        acts.addChild((this.ysTool("rt-ys-feat-run" "Suorita laskennat" (RtIcons.sparkles("#ffffff")) "rt-ys-tool rt-ys-tool-violet")))
+        body.addChild(acts)
+        body.addChild((tree Rt (YsDim "Voit liittää exportoidun feature-vectors JSONin tähän ilman serverikutsua.")))
+        def useJson (this.ysTool("rt-ys-feat-use" "Käytä liitettyä JSONia" (RtIcons.check("#999999")) "rt-ys-tool"))
+        useJson.a11yDisabled = true
+        body.addChild(useJson)
+        body.addChild((this.fieldBox(featJson)))
+        def own (tree Rt (YsPanel))
+        own.addChild((tree Rt (YsH2 (props (id "rt-ys-feat-own")) "Käyttäjäkohtaiset vektorit")))
+        own.addChild((this.ysTool("rt-ys-feat-add" "Lisää" (RtIcons.plus("#f2f2f2")) "rt-ys-tool")))
+        own.addChild((tree Rt (YsPara (props (id "rt-ys-feat-none")) "Ei vielä käyttäjäkohtaisia vektoreita")))
+        body.addChild(own)
+        def table (tree Rt (YsGrid))
+        def headRow (tree Rt (YsGridRow))
+        def cols:[string] ([] _:string ("Feature" "Arvo" "Lähde" "Confidence" "Paino" "Painotettu piste"))
+        for cols cn:string ci {
+            def hc (tree Rt (YsCell))
+            hc.addChild((tree Rt (YsCellTx cn)))
+            headRow.addChild(hc)
+        }
+        table.addChild(headRow)
+        def names:[string] (RealTrainerDemo.featureNames())
+        for names fn2:string fi {
+            def r (tree Rt (YsGridRow))
+            def c0 (tree Rt (YsCell))
+            c0.addChild((tree Rt (YsCellTx fn2)))
+            r.addChild(c0)
+            def c1 (tree Rt (YsCell))
+            c1.addChild((tree Rt (YsCellTx ("0.0 " + (RealTrainerDemo.featureUnit(fn2))))))
+            r.addChild(c1)
+            def rest:[string] ([] _:string ("estimated" "0.30" "1.00" "0.000"))
+            for rest rv:string ri {
+                def c (tree Rt (YsCell))
+                c.addChild((tree Rt (YsCellTx rv)))
+                r.addChild(c)
+            }
+            table.addChild(r)
+        }
+        body.addChild(table)
+        def trend (tree Rt (YsPanel))
+        trend.addChild((tree Rt (YsH2 (props (id "rt-ys-feat-trend")) "Feature trendi (normalisoitu)")))
+        for names fn3:string fj {
+            def line (tree Rt (YsEditRow))
+            line.addChild((tree Rt (YsDim fn3)))
+            line.addChild((tree Rt (YsDim "0%")))
+            trend.addChild(line)
+        }
+        body.addChild(trend)
+    }
+
+    ; The fifteen the app derives, in the order the reference's table lists
+    ; them — nutrition, then the endurance zones, then the strength scores.
+    sfn featureNames:[string] () {
+        return ([] _:string ("nutrition.fat_good_total" "nutrition.fat_bad_total" "nutrition.sugar_simple" "nutrition.sugar_complex" "endurance.zone1_minutes" "endurance.zone2_minutes" "endurance.zone3_minutes" "endurance.zone4_minutes" "endurance.zone5_minutes" "strength.neural_stress" "strength.max_strength_emphasis" "strength.power_emphasis" "strength.speed_strength_emphasis" "strength.strength_endurance_emphasis" "strength.hypertrophy_emphasis"))
+    }
+
+    sfn featureUnit:string (name:string) {
+        if (RtEntry.hasPrefix(name "nutrition.")) { return "g/day" }
+        if (RtEntry.hasPrefix(name "endurance.")) { return "min" }
+        return "score"
+    }
+
     fn ysDetail:void (body:EVGElement) {
         def head (tree Rt (YsHead))
         head.addChild((this.iconBtn("rt-ys-back" "" (RtIcons.arrowLeft("#f2f2f2")))))
@@ -5872,8 +6004,23 @@ class RealTrainerDemo {
             docScroll = 0.0
             return true
         }
+        ; The Featuret page: a back arrow and nothing else that does anything
+        ; — every button on it would call a backend there is none of here.
+        if (ys.view == "features") {
+            if (id == "rt-ys-feat-back") {
+                ys.openDetail()
+                docScroll = 0.0
+                return true
+            }
+            return false
+        }
         if (ys.view != "detail") {
             return false
+        }
+        if (id == "rt-ys-features") {
+            ys.openFeatures()
+            docScroll = 0.0
+            return true
         }
         if (id == "rt-ys-periods") { return (ys.toggleEditor("periods")) }
         if (id == "rt-ys-rows") { return (ys.toggleEditor("rows")) }
@@ -7614,6 +7761,9 @@ class RealTrainerDemo {
         push a setHintField
         push a venueField
         push a knowField
+        push a featFrom
+        push a featTo
+        push a featJson
         push a wizName
         push a wizDesc
         push a wizGoals

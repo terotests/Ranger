@@ -2724,6 +2724,7 @@
 .rt-ys-head { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 12px; padding: 12px 16px; background-color: var(--bg); }
 .rt-ys-hd { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 17px; height: 22px; }
 .rt-ys-h3 { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 14px; height: 20px; }
+.rt-ys-h2 { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 15px; height: 21px; }
 .rt-ys-para { color: var(--ink-dim); font-family: Arial; font-size: 12px; height: 16px; }
 .rt-ys-text { color: var(--ink); font-family: Arial; font-size: 13px; height: 18px; }
 .rt-ys-dim { color: var(--ink-dim); font-family: Arial; font-size: 11px; height: 16px; }
