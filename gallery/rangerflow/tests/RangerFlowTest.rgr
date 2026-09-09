@@ -50,6 +50,7 @@ Import "../domains/mermaid/MermaidWardleyReader.rgr"
 Import "../domains/mermaid/MermaidRailroadReader.rgr"
 Import "../domains/mermaid/MermaidInfoReader.rgr"
 Import "../domains/mermaid/MermaidPacketReader.rgr"
+Import "../domains/mermaid/MermaidRadarReader.rgr"
 Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 
@@ -144,6 +145,7 @@ class RangerFlowTest {
         RangerFlowTest.testMermaidRailroad(c)
         RangerFlowTest.testMermaidClassNotes(c)
         RangerFlowTest.testMermaidPacket(c)
+        RangerFlowTest.testMermaidRadar(c)
         RangerFlowTest.testBusinessCharts(c)
         RangerFlowTest.testAuthoring(c)
         RangerFlowTest.testTreeLayouts(c)
@@ -3962,6 +3964,72 @@ class RangerFlowTest {
         c.eqInt("five hand-written lines are five lines" hard 5)
         def soft:int (view.linesForText(200.0 12.0 "one long sentence with no breaks in it"))
         c.eqInt("and text with none of them still caps at three" soft 3)
+    }
+
+    ; --------------------------------------------- Mermaid radar ----------
+    ; The second diagram here with a SCALE in it, and it carries the xychart's
+    ; obligation: a reading of 85 has to be exactly as far out along its spoke
+    ; as 85 is between the middle and the rim.
+    sfn testMermaidRadar:void (c:Checker) {
+        c.section("Mermaid radar charts")
+        def src:string "radar-beta\n"
+        src = (src + "  title Grades\n")
+        src = (src + "  axis m[\"Math\"], s[\"Science\"]\n")
+        src = (src + "  axis e[\"English\"], h[\"History\"]\n")
+        src = (src + "  curve a[\"Alice\"]{100, 50, 0, 50}\n")
+        src = (src + "  curve b[\"Bob\"]{h: 100, m: 0}\n")
+        src = (src + "  max 100\n")
+        src = (src + "  min 0\n")
+        src = (src + "  ticks 4\n")
+        src = (src + "  graticule polygon\n")
+
+        def d:MermaidRadar (MermaidRadarReader.parse(src))
+        c.eqStr("the title is the line that says so" d.title "Grades")
+        c.eqInt("every `axis` line adds to the same set of spokes" (d.axisCount()) 4)
+        def ax:MermaidRadarAxis (itemAt d.axes 1)
+        c.eqStr("the name is what stands before the bracket" ax.id "s")
+        c.eqStr("and the label is what is inside it" ax.label "Science")
+        c.eqInt("a curve per `curve`" (d.curveCount()) 2)
+        def alice:MermaidRadarCurve (itemAt d.curves 0)
+        c.eqInt("a plain list is one reading per spoke, in order" (alice.count()) 4)
+        c.ok("and lands on the spokes in that order" ((fabs ((itemAt alice.values 0) - 100.0)) < 0.001))
+        ; `h: 100` says which spoke it belongs on, which is the only safe way
+        ; to write a curve that skips an axis.
+        def bob:MermaidRadarCurve (itemAt d.curves 1)
+        c.ok("a named reading goes to the axis it names" ((fabs ((itemAt bob.values 3) - 100.0)) < 0.001))
+        c.ok("and an axis nobody named reads as nothing" ((fabs (itemAt bob.values 1)) < 0.001))
+        c.eqInt("`ticks` is how many rings" d.ticks 4)
+        c.eqStr("`graticule` is which shape they are" d.graticule "polygon")
+        c.ok("`showLegend` is on unless it is turned off" d.showLegend)
+        c.ok("the scale is what `min` and `max` said" ((fabs ((d.high()) - 100.0)) < 0.001))
+
+        def bare (new FlowStyle)
+        def g:FlowGraph (MermaidRadarFlow.build(d bare))
+        c.eqInt("a radar has no edges: every line on it is a shape" (g.edgeCount()) 0)
+        def r:double (MermaidRadarFlow.radius())
+        ; The scale. Alice reads 100 on Math and 0 on English, so her point on
+        ; the first spoke is ON the rim and her point on the third is dead
+        ; centre — anything else and the chart is a lie about the numbers.
+        def full:FlowNode (g.nodeById("dot-0-0"))
+        def none:FlowNode (g.nodeById("dot-0-2"))
+        def cx:double r
+        def cy:double r
+        c.ok("a reading at the top of the scale sits on the rim" ((fabs (((full.centerY()) - cy) + r)) < 1.0))
+        c.ok("and one at the bottom sits in the middle" ((fabs ((none.centerY()) - cy)) < 1.0))
+        c.ok("the first axis is at twelve o'clock" ((fabs ((full.centerX()) - cx)) < 1.0))
+        ; The rings and spokes are lines, and a line here is a thin polygon:
+        ; the display list fills what it draws, so an unfilled ring would be a
+        ; ring painted in the paper's colour and lost on any other paper.
+        def ring:FlowNode (g.nodeById("ring-4-0"))
+        c.eqStr("a graticule ring is drawn, not routed" ring.shape "polygon")
+        c.ok("as a thin quadrilateral" ((array_length ring.shapePoints) == 8))
+        c.ok("with no stroke of its own" ((fabs ring.borderWidth) < 0.001))
+        c.ok("a polygon graticule has a corner on every spoke" ((g.hasNode("ring-4-3")) && ((g.hasNode("ring-4-4")) == false)))
+        c.ok("and a spoke for every axis" (g.hasNode("spoke-3")))
+        c.ok("each axis is named beside its spoke" (g.hasNode("axis-3")))
+        def key:FlowNode (g.nodeById("key-1"))
+        c.eqStr("and each curve gets a swatch in that curve's colour" key.bgColor (MermaidRadarFlow.colorAt(1)))
+        c.ok("a radar chart is one this library draws" (MermaidReader.draws("radar")))
     }
 
     ; The edge with a given id. `FlowGraph` indexes nodes by name and edges by

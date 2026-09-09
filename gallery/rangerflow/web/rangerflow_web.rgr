@@ -40,6 +40,7 @@ Import "../domains/mermaid/MermaidQuadrantReader.rgr"
 Import "../domains/mermaid/MermaidPieReader.rgr"
 Import "../domains/mermaid/MermaidXyReader.rgr"
 Import "../domains/mermaid/MermaidPacketReader.rgr"
+Import "../domains/mermaid/MermaidRadarReader.rgr"
 Import "../domains/mermaid/MermaidSankeyReader.rgr"
 Import "../domains/mermaid/MermaidBlockReader.rgr"
 Import "../domains/mermaid/MermaidArchReader.rgr"
@@ -724,6 +725,9 @@ class RangerFlowWeb {
         if (MermaidReader.isRailroad(d.diagramKind)) {
             return (this.loadMermaidRailroad(text styleName want))
         }
+        if (d.diagramKind == "radar") {
+            return (this.loadMermaidRadar(text styleName want))
+        }
         if (d.diagramKind == "packet") {
             return (this.loadMermaidPacket(text styleName want))
         }
@@ -1134,6 +1138,26 @@ class RangerFlowWeb {
             what = "Mermaid xychart"
         }
         status = ((to_string (xd.seriesCount())) + " series over " + (to_string (xd.slots())) + " readings — " + what + ", " + want)
+        return true
+    }
+
+    ; A radar chart: several things measured on the same set of scales.
+    fn loadMermaidRadar:boolean (text:string styleName:string want:string) {
+        def rd:MermaidRadar (MermaidRadarReader.parse(text))
+        if ((rd.axisCount()) == 0) {
+            status = "no axes in that radar chart"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidRadarFlow.build(rd style))
+        this.adoptPlaced(g style want)
+        def what:string rd.title
+        if ((strlen what) == 0) {
+            what = "Mermaid radar chart"
+        }
+        status = ((to_string (rd.curveCount())) + " curves over " + (to_string (rd.axisCount())) + " axes — " + what + ", " + want)
         return true
     }
 

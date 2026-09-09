@@ -7,12 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- **Thirty-four of Mermaid's thirty-eight header keywords are drawn.** The
+- **Thirty-five of Mermaid's thirty-eight header keywords are drawn.** The
   matrix in `docs/MERMAID_PARITY.md` is read off Mermaid's own detector
   registry. It used to say thirty of thirty, and both numbers were wrong.
 
 ### Added
 
+- **Mermaid radar charts.** A bar chart bent into a circle: one spoke per axis,
+  one closed line per subject, and the shape of that line is the comparison.
+  The readings are read either as a plain list in axis order or as `name:
+  value` pairs, which is the only safe way to write a curve that skips an axis;
+  `max`, `min`, `ticks`, `graticule` and `showLegend` are all read, and the
+  scale is honoured — a reading at the top of it sits on the rim and one at the
+  bottom sits dead centre, which is the whole of what a radar claims. Every
+  line on the chart is a thin quadrilateral given as `shapePoints`: the display
+  list fills whatever it draws, so an unfilled ring would have to be painted in
+  the paper's own colour and would be lost the moment the paper changed. The
+  curves are outlines with a dot at each reading rather than filled areas for
+  the same reason in reverse — there is no transparency in the display list,
+  and three filled curves are three opaque blobs with the last one drawn
+  winning.
 - **Mermaid packet diagrams.** A ruler with names written on it: every field is
   a range of bit numbers, the ruler is 32 bits wide, and the whole of the
   layout is arithmetic on those numbers. The one thing that needs care is the

@@ -1475,6 +1475,7 @@ class MermaidReader {
         if (kind == "peg")       { return true }
         if (kind == "info")      { return true }
         if (kind == "packet")    { return true }
+        if (kind == "radar")     { return true }
         return false
     }
 
