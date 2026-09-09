@@ -317,8 +317,26 @@ jobs:
       # gate that drives a real page, and the alternative — pointing at a
       # stock Chrome on the image — unpins the browser from the
       # playwright-core the harness uses.
+      #
+      # `--with-deps` runs `apt-get update`, and that reads EVERY source on
+      # the runner image — Google's chrome-stable repository among them. That
+      # repository publishes a Packages index newer than the Release file
+      # describing it, apt calls it a `Hash Sum mismatch` and exits 100, and
+      # the browser install dies on a repository this job has no use for.
+      # Not a flake: it failed two runs in a row and took the gate with it
+      # both times, because a red `gallery-editors` is a red `test-gate`.
+      #
+      # The libraries Playwright wants come from Ubuntu's own archives, so
+      # the third-party lists can go before apt is asked to read them. And if
+      # apt fails anyway, the BROWSER is what this job actually needs — the
+      # image already carries Chrome's shared libraries — so the fallback
+      # installs it without the system half rather than failing the suite.
       - name: Install Chromium for the browser-driven suites
-        run: npx playwright-core install --with-deps chromium
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.* \
+                     /etc/apt/sources.list.d/microsoft-prod.*
+          npx playwright-core install --with-deps chromium ||
+            npx playwright-core install chromium
 
       # The reference host's packages — xstate for the machine parity suites,
       # esbuild for the pages the browser-driven suites load. Without them the
