@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Mermaid Gantt charts.** The tenth type. The axis is the diagram, so the
+  reader does arithmetic: every date becomes a day number by the civil-calendar
+  formula (the only way to know that the 1st of March follows the 28th of
+  February in a year with no 29th), `after <id>` starts where that task
+  finished, and a bare duration follows the one before it. Bars are placed on a
+  real time axis scaled to the page; `done` / `active` / `crit` become classes
+  a stylesheet can match, and a milestone is drawn as the diamond it is.
 - **Mermaid timelines and user journeys** — the eighth and ninth types, and
   the two that are PLACED rather than laid out. A timeline runs along its axis
   in the order it was written, with the events under the period they belong to;

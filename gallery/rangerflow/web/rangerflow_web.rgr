@@ -32,6 +32,7 @@ Import "../domains/mermaid/MermaidRequirementReader.rgr"
 Import "../domains/mermaid/MermaidC4Reader.rgr"
 Import "../domains/mermaid/MermaidTimelineReader.rgr"
 Import "../domains/mermaid/MermaidJourneyReader.rgr"
+Import "../domains/mermaid/MermaidGanttReader.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 Import "../layout/TreeLayouts.rgr"
 Import "../export/FlowExport.rgr"
@@ -658,6 +659,9 @@ class RangerFlowWeb {
         if (d.diagramKind == "journey") {
             return (this.loadMermaidJourney(text styleName want))
         }
+        if (d.diagramKind == "gantt") {
+            return (this.loadMermaidGantt(text styleName want))
+        }
         if ((d.nodeCount()) == 0) {
             status = "no nodes in that Mermaid source"
             if ((strlen d.diagramKind) > 0) {
@@ -921,7 +925,29 @@ class RangerFlowWeb {
         return true
     }
 
-    ; What the two placed diagrams share: the graph as it was built, with no
+    ; A Gantt chart is placed too, and on a real axis: the dates decide where
+    ; the bars go, not the order they were written in.
+    fn loadMermaidGantt:boolean (text:string styleName:string want:string) {
+        def gd:MermaidGantt (MermaidGanttReader.parse(text))
+        if ((gd.taskCount()) == 0) {
+            status = "no tasks in that Gantt chart"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidGanttFlow.build(gd style))
+        this.adoptPlaced(g style want)
+        def what:string gd.title
+        if ((strlen what) == 0) {
+            what = "Mermaid Gantt chart"
+        }
+        def span:int ((gd.lastDay()) - (gd.firstDay()))
+        status = ((to_string (gd.taskCount())) + " tasks over " + (to_string span) + " days — " + what + ", " + want)
+        return true
+    }
+
+    ; What the placed diagrams share: the graph as it was built, with no
     ; layout over the top of it.
     fn adoptPlaced:void (g:FlowGraph style:FlowStyle want:string) {
         this.adopt(g)

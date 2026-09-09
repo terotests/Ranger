@@ -27,7 +27,7 @@ routing, auto-layout, large graphs — and produces something worth having.
 ## Run it
 
 ```bash
-npm run rangerflow:test        # 876 assertions: model, forces, router, editor, SQL, Mermaid, CSS, export
+npm run rangerflow:test        # 895 assertions: model, forces, router, editor, SQL, Mermaid, CSS, export
 npm run rangerflow:demo        # the e-commerce schema → SVG, PDF, HTML, JSON, scene
 npm run rangerflow:uml         # the same pipeline for a UML class diagram
 npm run rangerflow:flowchart   # an ATK flowchart in ISO 5807 shapes
@@ -343,6 +343,28 @@ journey
       Make tea: 5: Me
       Do work: 1: Me, Cat
 ```
+
+### …and Gantt charts
+
+The axis is the diagram: a chart that spaced its bars evenly instead of by date
+would be a list with rounded corners. So the reader does the arithmetic — every
+date becomes a day number by the civil-calendar formula, `after <id>` picks up
+where that task finished, a bare duration follows the one before it — and the
+bars are placed on a real time axis, scaled to the page so a two-year plan and
+a two-week one are both readable.
+
+```mermaid
+gantt
+    section Build
+        Write it :a1, 2024-01-01, 10d
+        Test it  :after a1, 5d
+        Release  :milestone, m1, 2024-02-01, 0d
+```
+
+`done`, `active` and `crit` become classes a stylesheet can match, and a
+milestone is drawn as the diamond it is. Dates are read as `YYYY-MM-DD`, which
+is `dateFormat`'s default; a chart in another format keeps its order and its
+durations.
 
 ### …measured against Mermaid itself
 

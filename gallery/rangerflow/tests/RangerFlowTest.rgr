@@ -32,6 +32,7 @@ Import "../domains/mermaid/MermaidRequirementReader.rgr"
 Import "../domains/mermaid/MermaidC4Reader.rgr"
 Import "../domains/mermaid/MermaidTimelineReader.rgr"
 Import "../domains/mermaid/MermaidJourneyReader.rgr"
+Import "../domains/mermaid/MermaidGanttReader.rgr"
 Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 
@@ -107,6 +108,7 @@ class RangerFlowTest {
         RangerFlowTest.testMermaidRequirements(c)
         RangerFlowTest.testMermaidC4(c)
         RangerFlowTest.testMermaidPlaced(c)
+        RangerFlowTest.testMermaidGantt(c)
         RangerFlowTest.testBusinessCharts(c)
         RangerFlowTest.testAuthoring(c)
         RangerFlowTest.testTreeLayouts(c)
@@ -2603,7 +2605,7 @@ class RangerFlowTest {
         c.eqStr("an ER diagram is named" asFlow.diagramKind "er")
         c.eqInt("and read as no flowchart at all" (asFlow.nodeCount()) 0)
         c.ok("but it is one this library draws" (MermaidReader.draws("er")))
-        c.ok("unlike a gantt chart" ((MermaidReader.draws("gantt")) == false))
+        c.ok("unlike a sequence diagram" ((MermaidReader.draws("sequence")) == false))
     }
 
     ; ------------------------------------------------ Mermaid state diagrams --
@@ -2892,6 +2894,56 @@ class RangerFlowTest {
         c.ok("a five sits above a one, which is the whole point" (high.y < low.y))
         c.ok("and the day runs left to right" (high.x < low.x))
         c.ok("both are diagrams this library draws" ((MermaidReader.draws("timeline")) && (MermaidReader.draws("journey"))))
+    }
+
+    ; ------------------------------------------------------ Mermaid Gantt --
+    ; The axis is the diagram: a chart that spaced its bars evenly instead of
+    ; by date would be a list with rounded corners. So the reader does the
+    ; arithmetic, and these are the sums.
+    sfn testMermaidGantt:void (c:Checker) {
+        c.section("Mermaid Gantt charts")
+        def src:string "gantt\n"
+        src = (src + "    title A release\n")
+        src = (src + "    dateFormat YYYY-MM-DD\n")
+        src = (src + "    section Build\n")
+        src = (src + "        Write it   :a1, 2024-01-01, 10d\n")
+        src = (src + "        Test it    :after a1, 5d\n")
+        src = (src + "        Sign off   :crit, done, 2024-01-20, 2d\n")
+        src = (src + "    section Ship\n")
+        src = (src + "        Release    :milestone, m1, 2024-02-01, 0d\n")
+        src = (src + "        Watch it   :1w\n")
+        def d:MermaidGantt (MermaidGanttReader.parse(src))
+        c.eqStr("the title is the line that says so" d.title "A release")
+        c.eqInt("a task per line" (d.taskCount()) 5)
+        c.eqInt("and the sections counted" (d.sectionCount()) 2)
+
+        def write:MermaidGanttTask (itemAt d.tasks 0)
+        c.eqStr("the name is what comes before the colon" write.name "Write it")
+        c.eqStr("the id is the token that is neither a date nor a duration" write.id "a1")
+        c.eqInt("`10d` is ten days" write.days 10)
+        ; 2024-01-01 is 19723 days after the epoch, by the civil calendar.
+        c.eqInt("a date is a day number" write.startDay 19723)
+        def test:MermaidGanttTask (itemAt d.tasks 1)
+        c.eqStr("`after a1` names what it waits for" test.after "a1")
+        c.eqInt("and starts where that one finished" test.startDay 19733)
+        def signoff:MermaidGanttTask (itemAt d.tasks 2)
+        c.ok("the tags are kept for a stylesheet to match" ((indexOf signoff.tags "crit") > 0))
+        def release:MermaidGanttTask (itemAt d.tasks 3)
+        c.ok("a milestone says so" release.milestone)
+        c.eqInt("and lasts no time at all" release.days 0)
+        def watch:MermaidGanttTask (itemAt d.tasks 4)
+        c.eqInt("`1w` is seven days" watch.days 7)
+        c.eqInt("and a task with no start follows the one before it" watch.startDay (release.endDay()))
+
+        def g:FlowGraph (MermaidGanttFlow.render(src))
+        def bar1:FlowNode (g.nodeById("a1"))
+        def bar2:FlowNode (g.nodeById("task1"))
+        c.ok("the bars are placed by date, not by order" (bar1.x < bar2.x))
+        c.ok("and their width is how long they take" (bar1.width > 0.0))
+        def milestone:FlowNode (g.nodeById("m1"))
+        c.eqStr("a milestone is drawn as the diamond it is" milestone.shape "diamond")
+        c.eqInt("what waits for what is the one relation a Gantt chart has" (g.edgeCount()) 1)
+        c.ok("a Gantt chart is one this library draws" (MermaidReader.draws("gantt")))
     }
 
     ; --------------------------------------------- a click is not an edit --

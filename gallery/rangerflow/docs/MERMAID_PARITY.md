@@ -64,7 +64,7 @@ a flowchart is a page of invented boxes.
 | `ebnf` | recognised as `ebnf`, read as nothing |
 | `erDiagram` | **drawn** — read as `er` |
 | `flowchart` | **drawn** — read as `flowchart` |
-| `gantt` | recognised as `gantt`, read as nothing |
+| `gantt` | **drawn** — read as `gantt` |
 | `gitGraph` | recognised as `git`, read as nothing |
 | `info` | recognised as `info`, read as nothing |
 | `ishikawa-beta` | recognised as `ishikawa`, read as nothing |

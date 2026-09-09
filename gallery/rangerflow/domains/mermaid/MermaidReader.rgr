@@ -1286,6 +1286,7 @@ class MermaidReader {
         if (kind == "c4")        { return true }
         if (kind == "timeline")  { return true }
         if (kind == "journey")   { return true }
+        if (kind == "gantt")     { return true }
         return false
     }
 
