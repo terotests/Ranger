@@ -2483,6 +2483,21 @@ class MermaidFlow {
             def again:int (EdgeLanes.assign(g))
         }
         def repaired:int (OrthoRouter.repairAll(g))
+        ; And then again, from what the repair actually left on the page.
+        ;
+        ; This is not belt and braces. `EdgeLanes.assign` fans the edges that
+        ; would otherwise be drawn along the same line apart, and it skips an
+        ; edge that already has a lane — so the lanes computed BEFORE the grid
+        ; router rewrote half the routes are the only lanes there will ever be,
+        ; and a second `assign` is a no-op that hides it. Resetting first is
+        ; what makes the fan see the routes as they now are.
+        ;
+        ; It was found the way these things are: the page looked wrong until
+        ; you clicked something, and then fixed itself. The click was doing
+        ; exactly this, in `pointerUp`.
+        EdgeLanes.resetLanes(g)
+        def refanned:int (EdgeLanes.assign(g))
+        def again:int (OrthoRouter.repairAll(g))
         def frames:int (d.frameSubgraphs(g style))
         return g
     }

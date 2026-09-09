@@ -101,13 +101,24 @@ class RangerFlowWeb {
         ; from, so a drag or a new connection invalidates both. The layout's
         ; routes are not recomputed — once a node has been moved by hand the
         ; layering it was routed against is no longer what is on screen.
-        if (simRunning == false) {
-            EdgeLanes.reset(graph)
-            EdgeLanes.assign(graph)
-            ; Whatever the drag put in somebody's way, routed round. Only the
-            ; broken edges are touched, so this costs a Dijkstra or two rather
-            ; than a rewrite of the diagram.
-            OrthoRouter.repairAll(graph)
+        ;
+        ; ONLY when something actually moved. This used to run on every pointer
+        ; up, so a click that selected a node — or missed everything — threw
+        ; away the routes the diagram was laid out with and drew them again
+        ; from scratch, and the picture rearranged itself under a reader who
+        ; had touched nothing. The editor already knows the difference: it sets
+        ; `onGraphChanged` when a gesture moved, connected or deleted
+        ; something, and a plain click does not.
+        if (editor.onGraphChanged) {
+            editor.onGraphChanged = false
+            if (simRunning == false) {
+                EdgeLanes.reset(graph)
+                EdgeLanes.assign(graph)
+                ; Whatever the drag put in somebody's way, routed round. Only
+                ; the broken edges are touched, so this costs a Dijkstra or two
+                ; rather than a rewrite of the diagram.
+                OrthoRouter.repairAll(graph)
+            }
         }
     }
 
