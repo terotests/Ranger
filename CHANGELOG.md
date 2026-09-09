@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Mermaid quadrant charts.** The fifteenth type: a scatter plot that has been
+  told what its corners mean. The numbers place the dots and nothing else may;
+  the one conversion the chart needs is that y counts up in the source and down
+  on the page, and getting it wrong puts every dot in the wrong quadrant while
+  the picture still looks fine. `radius:`, `color:` and `stroke-color:` are read
+  off the point's own line, `:::name` and `classDef` colour a group of them, and
+  a colour written on the point wins over the stylesheet.
 - **Mermaid kanban boards.** The fourteenth type, and the one with no edges in
   it at all: a board has columns and cards and the single relation "this is in
   that". Indentation is the hierarchy, `id[Label]` names either, and the

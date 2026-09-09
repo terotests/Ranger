@@ -753,6 +753,10 @@ class FlowStyles {
         t = (t + ".activation { fill: var(--header); stroke: var(--muted); border-width: 1.2px; }\n")
         t = (t + ".divider    { fill: var(--header); stroke: var(--frame-line); }\n")
         t = (t + ".destroy    { fill: var(--edge); stroke: var(--edge); }\n")
+        t = (t + ".point      { fill: var(--accent); stroke: var(--accent); }\n")
+        ; A label that names an axis is text on the paper, not a box with
+        ; words in it.
+        t = (t + ".axislabel  { fill: var(--paper); stroke: var(--paper); color: var(--muted); }\n")
         t = (t + "\n")
         t = (t + ".edge       { stroke: var(--edge); stroke-width: var(--edge-width); }\n")
         t = (t + ".thick      { stroke-width: 3px; }\n")

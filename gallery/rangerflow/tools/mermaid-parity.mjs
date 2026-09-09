@@ -155,11 +155,14 @@ function labelText(raw) {
 /** Mermaid names a diagram type several ways; this is the short one. */
 // `flowchart-elk` is the same language read by a different layout engine, and
 // RangerFlow has a layout engine of its own — so it is a flowchart here.
-// `gitGraph` is the one type whose short name differs between the two
-// vocabularies: Mermaid keeps the "graph", RangerFlow calls it `git` the way
-// it calls the others `er` and `c4`.
-const kindOf = (raw) =>
-  String(raw ?? "").toLowerCase().replace(/-v2$/, "").replace(/^flowchart-elk$/, "flowchart").replace(/^gitgraph$/, "git").replace(/diagram$/, "") || "";
+// Two types keep a word in Mermaid's name that RangerFlow's vocabulary drops,
+// the way it calls the others `er` and `c4`. Written out rather than pattern
+// matched: `xychart` would lose its "chart" to a rule and become `xy`.
+const SHORT_NAME = { gitgraph: "git", quadrantchart: "quadrant" };
+const kindOf = (raw) => {
+  const k = String(raw ?? "").toLowerCase().replace(/-v2$/, "").replace(/^flowchart-elk$/, "flowchart").replace(/diagram$/, "");
+  return SHORT_NAME[k] ?? k ?? "";
+};
 
 const dirOf = (raw) => (String(raw ?? "").toUpperCase() === "TD" ? "TB" : String(raw ?? "").toUpperCase());
 

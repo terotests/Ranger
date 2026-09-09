@@ -43,6 +43,7 @@ Import "../domains/mermaid/MermaidGanttReader.rgr"
 Import "../domains/mermaid/MermaidSequenceReader.rgr"
 Import "../domains/mermaid/MermaidGitReader.rgr"
 Import "../domains/mermaid/MermaidKanbanReader.rgr"
+Import "../domains/mermaid/MermaidQuadrantReader.rgr"
 Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 Import "../layout/LayeredLayout.rgr"
@@ -502,6 +503,10 @@ class RangerFlowDemo {
             this.runMermaidKanban(srcOpt styleName)
             return
         }
+        if (d.diagramKind == "quadrant") {
+            this.runMermaidQuadrant(srcOpt styleName)
+            return
+        }
         if ((strlen d.diagramKind) > 0) {
             if (d.diagramKind != "flowchart") {
                 print ("  this is a " + d.diagramKind + " diagram — this reads flowcharts and class diagrams")
@@ -816,6 +821,27 @@ class RangerFlowDemo {
             title = "RangerFlow — Mermaid kanban board"
         }
         this.writeAll(v g "rangerflow-mermaid-kanban" title)
+    }
+
+    ; A quadrant chart: the numbers place the dots, the corners name them.
+    fn runMermaidQuadrant:void (src:string styleName:string) {
+        def qd:MermaidQuadrant (MermaidQuadrantReader.parse(src))
+        if ((qd.pointCount()) == 0) {
+            print "  no points in that quadrant chart"
+            return
+        }
+        def style:FlowStyle (this.styleByName(styleName))
+        def g:FlowGraph (MermaidQuadrantFlow.build(qd style))
+        print ("  model  " + (to_string (qd.pointCount())) + " points, " + (to_string (qd.classCount())) + " classes")
+        print ("  graph  " + (to_string (g.nodeCount())) + " nodes, " + (to_string (g.edgeCount())) + " edges")
+        def v:FlowView (FlowView.of(g))
+        v.notation = "plain"
+        style.applyToTheme(v.theme)
+        def title:string qd.title
+        if ((strlen title) == 0) {
+            title = "RangerFlow — Mermaid quadrant chart"
+        }
+        this.writeAll(v g "rangerflow-mermaid-quadrant" title)
     }
 
     ; ------------------------------------------------------------- org -----

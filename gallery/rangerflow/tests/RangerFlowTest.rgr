@@ -36,6 +36,7 @@ Import "../domains/mermaid/MermaidGanttReader.rgr"
 Import "../domains/mermaid/MermaidSequenceReader.rgr"
 Import "../domains/mermaid/MermaidGitReader.rgr"
 Import "../domains/mermaid/MermaidKanbanReader.rgr"
+Import "../domains/mermaid/MermaidQuadrantReader.rgr"
 Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 
@@ -115,6 +116,7 @@ class RangerFlowTest {
         RangerFlowTest.testMermaidSequence(c)
         RangerFlowTest.testMermaidGit(c)
         RangerFlowTest.testMermaidKanban(c)
+        RangerFlowTest.testMermaidQuadrant(c)
         RangerFlowTest.testBusinessCharts(c)
         RangerFlowTest.testAuthoring(c)
         RangerFlowTest.testTreeLayouts(c)
@@ -3150,6 +3152,62 @@ class RangerFlowTest {
         def col3:FlowNode (g.nodeById("sg-done"))
         c.ok("every column reaches the bottom of the tallest" ((fabs (col3.height - col.height)) < 0.001))
         c.ok("a kanban board is one this library draws" (MermaidReader.draws("kanban")))
+    }
+
+    ; --------------------------------------------- Mermaid quadrant -------
+    ; The numbers place the dots. The one conversion this chart needs is that
+    ; y counts UP in the source and DOWN on the page, and getting it wrong
+    ; puts every dot in the wrong quadrant while the picture still looks fine.
+    sfn testMermaidQuadrant:void (c:Checker) {
+        c.section("Mermaid quadrant charts")
+        def src:string "quadrantChart\n"
+        src = (src + "    title Reach and engagement\n")
+        src = (src + "    x-axis Low Reach --> High Reach\n")
+        src = (src + "    y-axis Low Engagement --> High Engagement\n")
+        src = (src + "    quadrant-1 We should expand\n")
+        src = (src + "    quadrant-2 Need to promote\n")
+        src = (src + "    quadrant-3 Re-evaluate\n")
+        src = (src + "    quadrant-4 May be improved\n")
+        src = (src + "    classDef urgent fill: #b91c1c, stroke: #7f1d1d\n")
+        src = (src + "    Campaign A: [0.3, 0.6]\n")
+        src = (src + "    Campaign B: [0.45, 0.23]\n")
+        src = (src + "    Campaign C:::urgent: [0.57, 0.69] radius: 10\n")
+        src = (src + "    Campaign D: [0.78, 0.34] color: #00ff00\n")
+
+        def d:MermaidQuadrant (MermaidQuadrantReader.parse(src))
+        c.eqStr("the title is the line that says so" d.title "Reach and engagement")
+        c.eqStr("an axis has two ends and `-->` between them" d.xLeft "Low Reach")
+        c.eqStr("both of them" d.xRight "High Reach")
+        c.eqStr("and the y axis reads from the bottom up" d.yBottom "Low Engagement")
+        c.eqStr("with the far end last" d.yTop "High Engagement")
+        c.eqStr("quadrant 1 is the top right, the way mathematics numbers them" d.q1 "We should expand")
+        c.eqStr("and 3 the bottom left" d.q3 "Re-evaluate")
+        c.eqInt("a point per line that has a pair in brackets" (d.pointCount()) 4)
+        c.eqInt("and a class per classDef" (d.classCount()) 1)
+
+        def a:MermaidQuadrantPoint (itemAt d.points 0)
+        c.eqStr("the label is what stands before the colon" a.label "Campaign A")
+        c.ok("the first number is how far along" ((fabs (a.x - 0.3)) < 0.0001))
+        c.ok("and the second how far up" ((fabs (a.y - 0.6)) < 0.0001))
+        def cc:MermaidQuadrantPoint (itemAt d.points 2)
+        c.eqStr("`:::name` names a class rather than part of the label" cc.cssClass "urgent")
+        c.eqStr("which does not end up in the label either" cc.label "Campaign C")
+        c.ok("`radius:` sizes the dot" ((fabs (cc.radius - 10.0)) < 0.0001))
+        def dd:MermaidQuadrantPoint (itemAt d.points 3)
+        c.eqStr("`color:` is read off the same line" dd.color "#00ff00")
+
+        def g:FlowGraph (MermaidQuadrantFlow.render(src))
+        def pa:FlowNode (g.nodeById(a.id))
+        def b:MermaidQuadrantPoint (itemAt d.points 1)
+        def pb:FlowNode (g.nodeById(b.id))
+        c.ok("y counts up in the source and down on the page" (pa.y < pb.y))
+        c.ok("and x counts the same way in both" (pa.x < pb.x))
+        def pc:FlowNode (g.nodeById(cc.id))
+        c.eqStr("a classDef paints the dot it was given to" pc.bgColor "#b91c1c")
+        def pd:FlowNode (g.nodeById(dd.id))
+        c.eqStr("and a colour on the point itself wins over the sheet" pd.bgColor "#00ff00")
+        c.eqInt("the four corners are four frames, and there are no edges" (g.edgeCount()) 0)
+        c.ok("a quadrant chart is one this library draws" (MermaidReader.draws("quadrant")))
     }
 
     ; --------------------------------------------- a click is not an edit --

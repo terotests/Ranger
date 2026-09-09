@@ -453,6 +453,32 @@ board with no ticket, owner or priority on it is a list. The priority also
 becomes a class, so a stylesheet can colour the board by urgency without the
 reader having an opinion about which colour urgent is.
 
+### …and quadrant charts
+
+A scatter plot that has been told what its corners mean. The numbers do the
+placing — `[0.3, 0.6]` is three tenths along and six tenths up, and nothing may
+move it — and the four labels turn a cloud of dots into an argument about what
+to do next.
+
+```mermaid
+quadrantChart
+    x-axis Low Reach --> High Reach
+    y-axis Low Engagement --> High Engagement
+    quadrant-1 We should expand
+    quadrant-2 Need to promote
+    quadrant-3 Re-evaluate
+    quadrant-4 May be improved
+    Campaign A: [0.3, 0.6]
+    Campaign C: [0.57, 0.69] radius: 10, color: #b91c1c
+```
+
+Quadrant 1 is the top right and they go anticlockwise, the way mathematics
+numbers them. `radius:`, `color:` and `stroke-color:` are read off the point's
+own line, `:::name` and `classDef` colour a group of them, and a colour written
+on the point itself wins over the stylesheet — that is the author saying *this
+one is different*, and a sheet that painted over it would be answering a
+question nobody asked.
+
 ### …measured against Mermaid itself
 
 A claim of parity with a format is worth what the person making it wanted it to
