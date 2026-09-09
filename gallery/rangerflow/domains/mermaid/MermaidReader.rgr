@@ -1295,6 +1295,7 @@ class MermaidReader {
         if (kind == "xychart")   { return true }
         if (kind == "sankey")    { return true }
         if (kind == "block")     { return true }
+        if (kind == "architecture") { return true }
         return false
     }
 

@@ -41,6 +41,7 @@ Import "../domains/mermaid/MermaidPieReader.rgr"
 Import "../domains/mermaid/MermaidXyReader.rgr"
 Import "../domains/mermaid/MermaidSankeyReader.rgr"
 Import "../domains/mermaid/MermaidBlockReader.rgr"
+Import "../domains/mermaid/MermaidArchReader.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 Import "../layout/TreeLayouts.rgr"
 Import "../export/FlowExport.rgr"
@@ -694,6 +695,9 @@ class RangerFlowWeb {
         if (d.diagramKind == "block") {
             return (this.loadMermaidBlock(text styleName want))
         }
+        if (d.diagramKind == "architecture") {
+            return (this.loadMermaidArch(text styleName want))
+        }
         if ((d.nodeCount()) == 0) {
             status = "no nodes in that Mermaid source"
             if ((strlen d.diagramKind) > 0) {
@@ -1139,6 +1143,27 @@ class RangerFlowWeb {
             what = "Mermaid block diagram"
         }
         status = ((to_string (bd.blockCount())) + " blocks, " + (to_string (bd.linkCount())) + " arrows — " + what + ", " + want)
+        return true
+    }
+
+    ; An architecture diagram places itself: the sides in the connections
+    ; are the layout.
+    fn loadMermaidArch:boolean (text:string styleName:string want:string) {
+        def ad:MermaidArchitecture (MermaidArchReader.parse(text))
+        if ((ad.nodeCount()) == 0) {
+            status = "no services in that architecture diagram"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidArchFlow.build(ad style))
+        this.adoptPlaced(g style want)
+        def what:string ad.title
+        if ((strlen what) == 0) {
+            what = "Mermaid architecture diagram"
+        }
+        status = ((to_string (ad.serviceCount())) + " services, " + (to_string (ad.edgeCount())) + " connections — " + what + ", " + want)
         return true
     }
 

@@ -5,7 +5,7 @@
 > and asked what it understood. Nothing is transcribed, so nothing can be
 > transcribed wrong.
 
-Mermaid 11.17.2 · 35 diagrams · **200/200 checks agree (100%)**
+Mermaid 11.17.2 · 36 diagrams · **202/202 checks agree (100%)**
 
 | example | type | direction | nodes | labels | shapes | classes | edges | subgraphs |
 | --- | --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
@@ -44,6 +44,7 @@ Mermaid 11.17.2 · 35 diagrams · **200/200 checks agree (100%)**
 | `33_xychart.mmd` | xychart ✓ | — | — | — | — | — | — | — |
 | `34_sankey.mmd` | sankey ✓ | — | — | — | — | — | — | — |
 | `35_block.mmd` | block ✓ | — | — | — | — | — | — | — |
+| `36_architecture.mmd` | architecture ✓ | — | — | — | — | — | — | — |
 
 ## Read anyway
 
@@ -56,7 +57,7 @@ every one of these is a file somebody wrote and Mermaid would not draw.
 ## Mermaid's diagram types
 
 Read off the installed Mermaid's own build rather than typed here, so a type
-added upstream appears the next time the harness is installed. 19 of the 30 are drawn;
+added upstream appears the next time the harness is installed. 20 of the 30 are drawn;
 the rest have to be **recognised and refused**, because a header this reader
 does not know falls through to the flowchart parser, and a Wardley map read as
 a flowchart is a page of invented boxes.
@@ -64,7 +65,7 @@ a flowchart is a page of invented boxes.
 | header | RangerFlow |
 | --- | --- |
 | `abnf` | recognised as `abnf`, read as nothing |
-| `architecture-beta` | recognised as `architecture`, read as nothing |
+| `architecture-beta` | **drawn** — read as `architecture` |
 | `block-beta` | **drawn** — read as `block` |
 | `C4Context` | **drawn** — read as `c4` |
 | `classDiagram` | **drawn** — read as `class` |

@@ -574,6 +574,31 @@ with columns of its own, and the shapes are the flowchart's, because
 block is as wide as what is inside it and a row is as tall as the tallest thing
 in it, so everything is measured and then placed.
 
+### …and architecture diagrams
+
+`architecture-beta` writes a side on each end of every connection —
+`db:L -- R:server`, the database's left port joined to the server's right — and
+that is not decoration. It says where the two things are relative to one
+another, and it is the only placement information the diagram has. So it *is*
+the layout: the first service goes down, and every other one lands on the side
+its own connection asked for.
+
+```mermaid
+architecture-beta
+    group api(cloud)[API]
+    service db(database)[Database] in api
+    service disk1(disk)[Storage] in api
+    service server(server)[Server] in api
+    db:L -- R:server
+    disk1:T -- B:server
+```
+
+A layout engine asked to place these would produce a perfectly good picture of
+a different arrangement, so there is no layout engine here. Mermaid draws an
+icon from an icon pack; the shape library has outlines instead, and the icons
+that carry a meaning get the outline that means it — a database is a cylinder,
+a disk the same drum on its side.
+
 ### …measured against Mermaid itself
 
 A claim of parity with a format is worth what the person making it wanted it to

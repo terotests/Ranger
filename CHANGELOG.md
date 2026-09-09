@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Mermaid architecture diagrams.** The twentieth type. `architecture-beta`
+  writes a side on each end of every connection — `db:L -- R:server` — and that
+  is the only placement information the diagram has, so it is used as the
+  layout: every service lands on the side its own connection asked for. A
+  layout engine would draw a perfectly good picture of a different arrangement.
+  `group`, `service` and `junction` with their icons and `in` parents, all four
+  connection arrows, and `{group}` endpoints.
 - **Mermaid block diagrams.** The nineteenth type, and the only one that says
   where its own boxes go: `columns 3` and a list is arithmetic, so nothing here
   asks the layout engine anything. `id:n` spans columns, `space` leaves holes,

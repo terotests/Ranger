@@ -41,6 +41,7 @@ Import "../domains/mermaid/MermaidPieReader.rgr"
 Import "../domains/mermaid/MermaidXyReader.rgr"
 Import "../domains/mermaid/MermaidSankeyReader.rgr"
 Import "../domains/mermaid/MermaidBlockReader.rgr"
+Import "../domains/mermaid/MermaidArchReader.rgr"
 Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 
@@ -125,6 +126,7 @@ class RangerFlowTest {
         RangerFlowTest.testMermaidXyChart(c)
         RangerFlowTest.testMermaidSankey(c)
         RangerFlowTest.testMermaidBlock(c)
+        RangerFlowTest.testMermaidArchitecture(c)
         RangerFlowTest.testBusinessCharts(c)
         RangerFlowTest.testAuthoring(c)
         RangerFlowTest.testTreeLayouts(c)
@@ -3425,6 +3427,57 @@ class RangerFlowTest {
         c.eqStr("as does a style written on the block" (na.bgColor) "#f9f")
         c.eqInt("arrows are edges like anywhere else" (graph.edgeCount()) 2)
         c.ok("a block diagram is one this library draws" (MermaidReader.draws("block")))
+    }
+
+    ; --------------------------------------------- Mermaid architecture ---
+    ; The sides in the connections ARE the layout: `db:L -- R:server` puts the
+    ; server to the left of the database. A layout engine asked to place these
+    ; would draw a perfectly good picture of a different arrangement, so the
+    ; assertions are about the arrangement.
+    sfn testMermaidArchitecture:void (c:Checker) {
+        c.section("Mermaid architecture diagrams")
+        def src:string "architecture-beta\n"
+        src = (src + "    group api(cloud)[API]\n")
+        src = (src + "    service db(database)[Database] in api\n")
+        src = (src + "    service disk1(disk)[Storage] in api\n")
+        src = (src + "    service server(server)[Server] in api\n")
+        src = (src + "    junction j1 in api\n")
+        src = (src + "    db:L -- R:server\n")
+        src = (src + "    disk1:T -- B:server\n")
+        src = (src + "    server:B --> T:j1\n")
+
+        def d:MermaidArchitecture (MermaidArchReader.parse(src))
+        c.eqInt("a group is a node too" (d.groupCount()) 1)
+        c.eqInt("and the services are the rest" (d.serviceCount()) 4)
+        c.eqInt("a connection per line with sides on it" (d.edgeCount()) 3)
+        def db:MermaidArchNode (itemAt d.nodes 1)
+        c.eqStr("the icon is what stands in the brackets" db.icon "database")
+        c.eqStr("the label what stands in the square ones" db.label "Database")
+        c.eqStr("and `in` names the group it belongs to" db.parent "api")
+        def junction:MermaidArchNode (itemAt d.nodes 4)
+        c.ok("a junction is a place where lines meet" junction.isJunction)
+        c.eqStr("and has nothing written in it" junction.label "")
+        def e0:MermaidArchEdge (itemAt d.edges 0)
+        c.eqStr("each end of a connection carries its own side" e0.sourceSide "L")
+        c.eqStr("both of them" e0.targetSide "R")
+        c.ok("a plain `--` has no arrowhead" (e0.targetArrow == false))
+        def e2:MermaidArchEdge (itemAt d.edges 2)
+        c.ok("and `-->` has one at the far end" e2.targetArrow)
+        c.ok("but not at the near one" (e2.sourceArrow == false))
+
+        def bare (new FlowStyle)
+        def g:FlowGraph (MermaidArchFlow.build(d bare))
+        def nDb:FlowNode (g.nodeById("db"))
+        def nServer:FlowNode (g.nodeById("server"))
+        c.ok("`db:L` puts the server to the LEFT of the database" (nServer.x < nDb.x))
+        def nDisk:FlowNode (g.nodeById("disk1"))
+        c.ok("and `disk1:T` puts the disk BELOW the server it points up at" (nDisk.y > nServer.y))
+        c.eqStr("a database is drawn as the cylinder it is anywhere else" nDb.shape "cylinder")
+        def frame:FlowNode (g.nodeById("sg-api"))
+        c.ok("the group is drawn around whatever turned out to be inside it" (frame.x <= nServer.x))
+        c.ok("on both sides" ((frame.x + frame.width) >= (nDb.x + nDb.width)))
+        c.eqInt("a connection per edge" (g.edgeCount()) 3)
+        c.ok("an architecture diagram is one this library draws" (MermaidReader.draws("architecture")))
     }
 
     ; --------------------------------------------- a click is not an edit --
