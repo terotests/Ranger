@@ -41,6 +41,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { requireHostTool, MissingDomDeps, findChromium } from "../../ui/conformance/dom-adapter.mjs";
+import { stringifyTrace } from "../web/trace-format.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, "..");
@@ -362,7 +363,7 @@ for (const name of fs.readdirSync(dir).filter((f) => f.endsWith(".json"))) {
     });
   }
   const trace = { id: scenario.id, machine: scenario.machine, viewport: `${VW}x${VH}`, frames };
-  fs.writeFileSync(path.join(OUT, name), JSON.stringify(trace, null, 1) + "\n");
+  fs.writeFileSync(path.join(OUT, name), stringifyTrace(trace));
   console.log(
     `  recorded ${name} — ${frames.length} frames, ` +
       `${frames.filter((f) => !f.handled).length} step(s) found nothing to click`,

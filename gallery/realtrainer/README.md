@@ -436,7 +436,8 @@ of them found something that is drawn and does not answer:
 
 Thirteen scenarios were added to go where the first thirteen never did, and the
 reference was recorded for twelve of them — so what each gap should look like is
-on file rather than guessed at. Nine of the twenty-five are at 100%.
+on file rather than guessed at. Ten of the twenty-five are at 100%, and
+`credits` is the first gap they found that has been closed.
 
 | Scenario | Parity | What the reference does, and this side does not |
 | --- | ---: | --- |
@@ -444,7 +445,7 @@ on file rather than guessed at. Nine of the twenty-five are at 100%.
 | `home-notes` | 46% | **Muistiinpanot** on a card is not a panel on the card — it opens a workout notes page: the notes for that entry, a date and Tallenna, the training links (Hae ja linkitä treeni, the linked entry, Poista linkki tähän treeniin), the video links out of the knowledge store, and a markdown field with its rendered preview. Here the button does nothing |
 | `home-drills` | 77% | the tab, the categories and the sort all work, and both sides list the same six endurance drills in the same order — with different numbers: juoksu 29× there and 37× here, uinti 1.6km against 2.6km, rintauinti 3.0km against 16.2km. A drill row opens the exercise there and nothing here |
 | `home-entry` | 99.7% | **Näytä tilastot** opens a panel over the card with a heading, a summary and a Sulje of its own. **Compact** and **JSON** copy the entry to the clipboard and say so in a toast — two toasts, stacked, when both are pressed. All three are dead here |
-| `credits` | 14% | the header's **credit gauge** is on every screen of both sides. There it opens a page — AI-kreditit with what is used of what is available, a purchase panel with a price and Stripe under it, the credits history and the detailed receipts. Here it is drawn, carries the same long name a reader hears, and answers nothing |
+| `credits` | **100%** | the header's **credit gauge** was drawn on every screen and answered on none. It opens the page now — AI-kreditit with what is used of what is available, the one thing there is to buy with Stripe under it, and the two histories that are empty until a purchase writes to them — and the tree matches the reference's stop for stop. Closed |
 | `home-stats` | 54% | **Laske vektorit** opens a dialog there: a date range (Tänään, 7, 14, 30 päivää, Mukautettu), every calendar to pick from, what the calculation will do, and Peruuta beside it. Here it is the one control the statistics panel has |
 | `home-entry-edit` | 99.6% | **Lisää** on a card is not an add: it opens the card's action menu — Muokkaa AI:lla, Kopioi kuvana, Poista. **Poista** removes the entry and toasts "Merkintä poistettu". Both dead here |
 | `more-rest` | 41% | **Jaetut kalenterit** is a sharing page there — Hallitse jakamista, Julkaise päiväkirja verkkoon, and every calendar with whether it is shared. **Tietopankki** is a knowledge store — a search, eight category filters, an empty state and Lisää ensimmäinen. Both close the sheet here. **Vie tietokanta** adds nothing to either side's tree, which is the one item that matches |

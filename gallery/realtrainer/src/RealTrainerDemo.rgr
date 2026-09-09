@@ -514,6 +514,20 @@ treefactory Rt {
     tag WizBtnTx EVGElement (props (className "rt-wiz-btn-text") (elementType 1))
     ; The year sheet page: its header, the cards, the toolbar, the grid,
     ; the legend, the periods and their example weeks.
+    ; --- AI-kreditit ---------------------------------------------------------
+    ; The header's credit gauge opens a page of its own, as the original's
+    ; does: what is left of what was bought, one thing to buy, and the two
+    ; histories that are empty until something is.
+    tag Cred     EVGElement (props (className "rt-cred"))
+    tag CredHead EVGElement (props (className "rt-cred-head"))
+    tag CredHd   EVGElement (props (className "rt-cred-hd") (elementType 1) (role "heading") (a11yLevel 1))
+    tag CredSub  EVGElement (props (className "rt-cred-sub") (elementType 1) (role "heading") (a11yLevel 2))
+    tag CredPara EVGElement (props (className "rt-cred-para") (elementType 1) (role "paragraph"))
+    tag CredBig  EVGElement (props (className "rt-cred-big") (elementType 1))
+    tag CredDim  EVGElement (props (className "rt-cred-dim") (elementType 1))
+    tag CredCard EVGElement (props (className "rt-cred-card"))
+    tag CredBuy  EVGElement (props (className "rt-cred-buy") (id "rt-cred-buy") (role "button") (a11yFocusable true))
+    tag CredBuyTx EVGElement (props (className "rt-cred-buy-text") (elementType 1) (a11yHidden true))
     tag YsHead   EVGElement (props (className "rt-ys-head"))
     tag YsHd     EVGElement (props (className "rt-ys-hd") (elementType 1) (role "heading") (a11yLevel 1))
     tag YsH3     EVGElement (props (className "rt-ys-h3") (elementType 1) (role "heading") (a11yLevel 3))
@@ -4592,6 +4606,43 @@ class RealTrainerDemo {
     ; `CalendarWizard.tsx`, step by step: the header with the dots, the
     ; step's body, and the footer that goes back or on. Everything drawn is
     ; read from `wizard`; the gates are its.
+    ; THE CREDITS PAGE, drawn from the reference's own tree — see
+    ; `traces/reference/credits.json`. A page of its own, with none of the
+    ; shell on it: a back that carries no name (as every icon button in the
+    ; original does), the balance, the one thing there is to buy, and the two
+    ; histories that are empty until a purchase writes to them.
+    ;
+    ; The numbers are the header gauge's, because they are the same numbers:
+    ; `PhCredits` says "AI Credits: 100k" on every screen.
+    fn creditsScreen:EVGElement () {
+        def page (tree Rt (Cred))
+        def head (tree Rt (CredHead))
+        head.addChild((this.iconBtn("rt-cred-back" "" (RtIcons.arrowLeft("#f2f2f2")))))
+        head.addChild((tree Rt (CredHd "AI-kreditit")))
+        page.addChild(head)
+        def bal (tree Rt (CredCard))
+        bal.addChild((tree Rt (CredDim "Käytettävissä")))
+        bal.addChild((tree Rt (CredBig "100 000")))
+        bal.addChild((tree Rt (CredDim "Käytetty 0 / 100 000")))
+        page.addChild(bal)
+        page.addChild((tree Rt (CredSub "Osta lisää kredittejä")))
+        page.addChild((tree Rt (CredPara "Kreditit eivät vanhene ja lisätään nykyiseen saldoosi.")))
+        def buy (tree Rt (CredBuy))
+        buy.a11yLabel = "1 000 000 kredittiä €4,95 Osta"
+        buy.addChild((tree Rt (CredBuyTx "1 000 000 kredittiä")))
+        buy.addChild((tree Rt (Spacer)))
+        buy.addChild((tree Rt (CredBuyTx "€4,95")))
+        buy.addChild((tree Rt (CredBuyTx "Osta")))
+        page.addChild(buy)
+        page.addChild((tree Rt (CredDim "Maksu käsitellään turvallisesti Stripen kautta.")))
+        page.addChild((tree Rt (CredSub "Credits history")))
+        page.addChild((tree Rt (CredDim "Ei vielä kuluhistoriaa")))
+        page.addChild((tree Rt (CredSub "Yksityiskohtaiset kuitit")))
+        page.addChild((tree Rt (CredDim "Ei vielä yksityiskohtaisia kuitteja")))
+        page.addChild((this.toasts()))
+        return page
+    }
+
     fn wizardScreen:EVGElement () {
         def page (tree Rt (Wiz))
         def head (tree Rt (WizHead))
@@ -6478,6 +6529,13 @@ class RealTrainerDemo {
     }
 
     fn pressApp:boolean (id:string) {
+        ; THE CREDIT GAUGE IS A BUTTON, on every screen, and it was drawn on
+        ; every screen and answered on none — see ISSUES.md and
+        ; `traces/reference/credits.json`. It opens a page of its own.
+        if (id == "rt-credits") {
+            this.setScene("credits")
+            return true
+        }
         ; The calendar menu: the selector opens and closes it, an item picks
         ; a calendar and goes Home with it, "Luo uusi kalenteri" opens the
         ; wizard, and anything else closes it on the way.
@@ -7389,6 +7447,9 @@ class RealTrainerDemo {
         if (scene == "wizard") {
             root = (this.wizardScreen())
         }
+        if (scene == "credits") {
+            root = (this.creditsScreen())
+        }
         if (scene == "yearsheet") {
             root = (this.yearsheetScreen())
         }
@@ -8058,6 +8119,21 @@ class RealTrainerDemo {
         if (scene == "wizard") {
             if (this.pressWizard(id)) {
                 this.rebuild()
+                return true
+            }
+            return false
+        }
+        ; The credits page has one way out and one thing on it that is not a
+        ; heading. Buying is the backend's and there is no backend here, so
+        ; the button is a button and says nothing yet.
+        if (scene == "credits") {
+            if (id == "rt-cred-back") {
+                scene = "app"
+                docScroll = 0.0
+                this.rebuild()
+                return true
+            }
+            if (id == "rt-cred-buy") {
                 return true
             }
             return false

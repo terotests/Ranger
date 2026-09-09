@@ -2628,6 +2628,19 @@
 .rt-toast-text { color: var(--ink); font-family: Arial; font-size: 13px; height: 18px; }
 
 /* --- the year sheet ------------------------------------------------------------ */
+/* --- AI-kreditit: a page of its own, no shell on it --------------------- */
+.rt-cred { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 12px; padding: 0px 16px 16px 16px; background-color: var(--bg); }
+.rt-cred-head { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 12px; padding: 12px 0px; }
+.rt-cred-hd { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 22px; height: 28px; }
+.rt-cred-sub { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 16px; height: 22px; }
+.rt-cred-para { color: var(--ink-dim); font-family: Arial; font-size: 13px; height: 18px; }
+.rt-cred-big { color: var(--accent); font-family: Arial; font-weight: bold; font-size: 30px; height: 38px; }
+.rt-cred-dim { color: var(--ink-dim); font-family: Arial; font-size: 12px; height: 16px; }
+.rt-cred-card { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 4px; padding: 14px; border-radius: 12px; border-width: 1px; border-color: var(--line); background-color: var(--surface-2); }
+.rt-cred-buy { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; height: 44px; padding: 0px 14px; border-radius: 10px; background-color: var(--surface-3); cursor: pointer; }
+.rt-cred-buy:hover { background-color: #333333; }
+.rt-cred-buy-text { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 13px; height: 18px; }
+
 .rt-ys-head { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 12px; padding: 12px 16px; background-color: var(--bg); }
 .rt-ys-hd { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 17px; height: 22px; }
 .rt-ys-h3 { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 14px; height: 20px; }

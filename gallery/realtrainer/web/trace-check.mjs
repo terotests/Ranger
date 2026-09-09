@@ -25,6 +25,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
+import { stringifyTrace } from "./trace-format.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, "..");
@@ -170,7 +171,7 @@ let failed = 0;
 for (const name of fs.readdirSync(dir).filter((f) => f.endsWith(".json"))) {
   const { wrong, ...trace } = runScenario(path.join(dir, name));
   const target = path.join(out, name);
-  const text = JSON.stringify(trace, null, 1) + "\n";
+  const text = stringifyTrace(trace);
   if (wrong.length) {
     failed += 1;
     console.log(`  FAIL ${name} — the machine is not where the scenario says: ${wrong.join("; ")}`);
