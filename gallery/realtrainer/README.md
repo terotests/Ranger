@@ -514,7 +514,12 @@ npm run rt:coverage:check   # fail if it is stale  (CI)
 ```
 
 Reaching `text` is not scored as a gap: the reference gives a row type of its
-own only to what it draws specially. **Drawn** is the column that showed real
+own only to what it draws specially — which is a rule to check and not to
+assume. `food` and `drinking` reached `text` and should not have: the
+reference has a `FoodRow` and a `DrinkingRow` of its own, and the line the
+library builds instead loses things (a drink's calories and protein, a meal's
+name). They are rows of their own here now, and the three L0 cases that
+covered them are recorded as deviations with that reason. **Drawn** is the column that showed real
 work left — the families the demo's own document did not contain — and it is
 now full: every family with a row type of its own, `pyramid`, `split` and the
 `unknown` line included, has a line in `fixtures/session.compact` and is drawn

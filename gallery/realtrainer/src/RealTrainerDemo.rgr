@@ -2041,7 +2041,14 @@ class RealTrainerDemo {
         }
 
         def el (tree Rt (DocRow (props (id rowId) (className ("rt-doc-row rt-doc-" + kind)))))
-        if ((strlen label) > 0) {
+        ; A MEAL'S LABEL IS ITS DESCRIPTION, and the description is already the
+        ; second of its runs — see `CompactStatBuilder.mealParts`. Drawing the
+        ; label as well printed the food twice.
+        def named@(mutable):boolean ((strlen label) > 0)
+        if ((kind == "food") || (kind == "drinking")) {
+            named = false
+        }
+        if named {
             el.addChild((tree Rt (DocLabel (props (id (rowId + "-label"))) label)))
         }
         el.addChild((tree Rt (Spacer)))
@@ -3825,6 +3832,8 @@ class RealTrainerDemo {
             Phase ph { }
             Custom cu { }
             Unknown un { }
+            Food fo { }
+            Drinking dr { }
             Circuit ci { }
             CircuitItem it { }
         }
@@ -4149,6 +4158,8 @@ class RealTrainerDemo {
                     Phase ph { }
                     Duration du { }
                     Unknown un { }
+                    Food fo { }
+                    Drinking dr { }
                     Circuit ci { }
                     CircuitItem it { }
                 }
@@ -5963,6 +5974,40 @@ class RealTrainerDemo {
                 rows.addChild((this.commentUnder(rowId)))
                 continue
             }
+            ; A MEAL AND A DRINK. `ContentRows.tsx` draws them as one row with
+            ; two ends: the glyph and what was eaten on the left, and the
+            ; numbers on the right in mono — calories muted, protein in the
+            ; orange the app uses for a load, carbohydrate and fat in amber.
+            ; They used to be a line of text and the line lost things: a drink
+            ; came out as "Drinking2dl | Maito", its calories and its protein
+            ; gone. See `CompactStatBuilder.mealParts`.
+            if ((kind == "food") || (kind == "drinking")) {
+                def meal (tree Rt (Row (props (className "rt-entry-meal"))))
+                def mparts:[StatPart] (CompactStatBuilder.parts(row))
+                def nums (tree Rt (Row (props (className "rt-entry-meal-nums"))))
+                for mparts mp:StatPart mi {
+                    if (mp.kind == "meta") {
+                        meal.addChild((tree Rt (EntryRowTx mp.text)))
+                        continue
+                    }
+                    if (mp.kind == "note") {
+                        def name (tree Rt (EntryRowTx mp.text))
+                        name.className = "rt-entry-row-text rt-entry-meal-name"
+                        meal.addChild(name)
+                        meal.addChild((tree Rt (Spacer)))
+                        continue
+                    }
+                    def num (tree Rt (EntryMono mp.text))
+                    if (mp.tone == "weight") { num.className = "rt-entry-mono rt-entry-weight" }
+                    if (mp.tone == "spec") { num.className = "rt-entry-mono rt-entry-meal-macro" }
+                    if (mp.tone == "muted") { num.className = "rt-entry-mono rt-entry-muted" }
+                    nums.addChild(num)
+                }
+                meal.addChild(nums)
+                rows.addChild(meal)
+                rows.addChild((this.commentUnder(rowId)))
+                continue
+            }
             if (kind == "text") {
                 rows.addChild((tree Rt (EntryPara (props (id ("rt-entry-text-" + rowId))) (CompactStatBuilder.text(row)))))
                 if (cardPreview == false) {
@@ -6266,6 +6311,8 @@ class RealTrainerDemo {
             Custom cu { }
             Duration du { }
             Unknown un { }
+            Food fo { }
+            Drinking dr { }
             Circuit ci { }
             CircuitItem it { }
         }
@@ -6291,6 +6338,8 @@ class RealTrainerDemo {
             Phase ph { }
             Duration du { }
             Unknown un { }
+            Food fo { }
+            Drinking dr { }
             Circuit ci { }
             CircuitItem it { }
         }
@@ -6371,6 +6420,8 @@ class RealTrainerDemo {
             Phase ph { }
             Duration du { }
             Unknown un { }
+            Food fo { }
+            Drinking dr { }
             Circuit ci { }
             CircuitItem it { }
         }
@@ -6396,6 +6447,8 @@ class RealTrainerDemo {
             Custom cu { }
             Duration du { }
             Unknown un { }
+            Food fo { }
+            Drinking dr { }
             Circuit ci { }
             CircuitItem it { }
         }

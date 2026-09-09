@@ -67,7 +67,7 @@ ok("every row is a shape case", rows.every((r) => typeof r.__rg_kind === "string
 const kinds = rows.map((r) => r.__rg_kind.replace("CompactRow_", ""));
 ok("the rows arrive in the order they were written",
    kinds.join(",") ===
-     "Summary,Phase,Section,Duration,Exercise,Exercise,Exercise,Exercise,Exercise,Pyramid,Section,Move,Split,Split,Split,Custom,Text,Text,Text,Text,Circuit,CircuitItem,CircuitItem,CircuitItem,Text,Unknown",
+     "Summary,Phase,Section,Duration,Exercise,Exercise,Exercise,Exercise,Exercise,Pyramid,Section,Move,Split,Split,Split,Food,Drinking,Custom,Text,Text,Text,Text,Circuit,CircuitItem,CircuitItem,CircuitItem,Text,Unknown",
    kinds.join(","));
 
 // Rows are found by what they ARE and not by where they sit: the fixture is a

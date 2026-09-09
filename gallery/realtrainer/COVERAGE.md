@@ -11,9 +11,9 @@ below went through the parser and the row layer on the way to being printed.
 | --- | --- |
 | Families | 32 |
 | The parser gives its own type | 32 / 32 |
-| Reaches a row type of its own | 14 / 32 |
+| Reaches a row type of its own | 16 / 32 |
 | Has L0 cases against the reference | 32 / 32 |
-| Drawn by the demo's own document | 12 / 12 that can be |
+| Drawn by the demo's own document | 14 / 14 that can be |
 
 **Reaching `text` is not a gap.** The reference gives a row type of its own
 only to what it draws specially and turns the rest into a line of text with a
@@ -41,8 +41,8 @@ would mean it became nothing.
 | `meta` | ✅ | 🟡 text | ✅ 1 | ❌ |
 | `text` | ✅ | ✅ text | ✅ 2 | ✅ |
 | `custom` | ✅ | ✅ custom | ✅ 1 | ✅ |
-| `food` | ✅ | 🟡 text | ✅ 2 | ❌ |
-| `drinking` | ✅ | 🟡 text | ✅ 1 | ❌ |
+| `food` | ✅ | ✅ food | 🟡 2 | ✅ |
+| `drinking` | ✅ | ✅ drinking | 🟡 1 | ✅ |
 | `expense` | ✅ | 🟡 text | ✅ 2 | ❌ |
 | `reminder` | ✅ | 🟡 text | ✅ 1 | ❌ |
 | `location` | ✅ | 🟡 text | ✅ 1 | ❌ |

@@ -2634,6 +2634,12 @@
 .rt-card-hd { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 16px; height: 22px; }
 .rt-card-tx { color: var(--ink-dim); font-family: Arial; font-size: 13px; height: 18px; }
 
+/* --- a meal and a drink: description left, numbers right -------------- */
+.rt-entry-meal { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; padding: 4px 0px; }
+.rt-entry-meal-name { color: var(--ink); font-family: Arial; font-size: 13px; height: 18px; }
+.rt-entry-meal-nums { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; }
+.rt-entry-meal-macro { color: #f59e0b; }
+
 /* --- the feature-vector dialog ----------------------------------------- */
 .rt-vec-sheet { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 10px; margin: 12px 0px; padding: 14px; border-radius: 14px; border-width: 1px; border-color: var(--line); background-color: var(--surface-2); }
 .rt-vec-hd { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 16px; height: 22px; }

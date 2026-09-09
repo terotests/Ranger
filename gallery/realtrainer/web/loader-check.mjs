@@ -340,7 +340,7 @@ console.log("\n--- the document ---");
 app.press("rt-rail-log");
 ok("the rail opens the document", app.sceneName() === "document", app.sceneName());
 const doc = textsOf(listOf());
-ok("the whole document is drawn", doc.includes("26 riviä"), doc.join("|"));
+ok("the whole document is drawn", doc.includes("28 riviä"), doc.join("|"));
 ok("a summary is drawn", doc.includes("Kova mutta hallittu treeni"), doc.join("|"));
 ok("a phase carries its number", doc.includes("Phase1"), doc.join("|"));
 ok("a duration is drawn", doc.includes("10min") && doc.includes("Alkulämmittely"), doc.join("|"));
@@ -358,7 +358,7 @@ const docTree = JSON.parse(app.a11yJson(1, "")).nodes;
 ok("the list is a list", docTree.some((n) => n.id === "rt-doc-list" && n.role === "list"),
    JSON.stringify(docTree.find((n) => n.id === "rt-doc-list")));
 ok("with an item per row",
-   docTree.filter((n) => n.role === "listitem").length === 26,
+   docTree.filter((n) => n.role === "listitem").length === 28,
    docTree.filter((n) => n.role === "listitem").length + " items");
 
 // THE THREE FAMILIES NOTHING EVER DREW. The demo's document reached nine of
@@ -384,6 +384,20 @@ ok("and its own heart rate", doc.includes("132bpm") && doc.includes("141bpm"),
 // is a training diary that loses entries.
 ok("an unrecognised line is drawn as written",
    doc.includes("Kengat vaihtoon ensi viikolla"), doc.join("|"));
+
+// A MEAL AND A DRINK are rows of their own, with the numbers the reference
+// draws beside them: the library turns both into a line of text and the line
+// loses things — a drink's calories and protein, and a meal's name entirely.
+// See `CompactStatBuilder.mealParts` and the deviations `rt:l0` lists.
+ok("a meal draws its food and its numbers",
+   doc.includes("Kalapihvit, perunamuusi ja salaatti") && doc.includes("580 kcal") &&
+   doc.includes("26g prot") && doc.includes("60g hh") && doc.includes("12g rasva"),
+   doc.join("|"));
+ok("and a drink its volume with them",
+   doc.includes("Maito") && doc.includes("2dl") && doc.includes("92 kcal") &&
+   doc.includes("7g prot"), doc.join("|"));
+ok("neither is named twice",
+   doc.filter((t) => t === "Maito").length === 1, doc.filter((t) => t === "Maito").length + " times");
 
 // A circuit is a header and its exercises, flattened into the list under it.
 ok("a circuit draws its rounds and its variant",

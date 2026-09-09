@@ -661,62 +661,70 @@
   "life-food": {
    "rows": [
     {
-     "type": "text",
+     "type": "food",
      "parts": [
       {
-       "text": "Food",
-       "tone": "muted",
+       "text": "🍴",
+       "tone": "default",
        "kind": "meta"
+      },
+      {
+       "text": "Ateria",
+       "tone": "default",
+       "kind": "note"
       }
      ]
     }
    ],
-   "oracle": "ts"
+   "oracle": "spec",
+   "deviation": "`ContentRows.tsx` does not draw a meal or a drink through the library's parts at all: it has a FoodRow and a DrinkingRow, with the description on the left and the calories, protein, carbohydrate and fat on the right, each in its own colour. The library's own renderer drops what it cannot fit into one line — `Drinking 2dl 92kcal 7g/prot | Maito` comes back from it as \"Drinking\", \"2dl\", \" | Maito\" with the calories and the protein gone, and `Food kaurapuuro 300g` as the single word \"Food\". So these are rows of their own here, drawn as the app draws them."
   },
   "life-food-described": {
    "rows": [
     {
-     "type": "text",
+     "type": "food",
      "parts": [
       {
-       "text": "Food",
-       "tone": "label",
+       "text": "🍴",
+       "tone": "default",
        "kind": "meta"
       },
       {
-       "text": "| aamupala",
+       "text": "aamupala",
        "tone": "default",
-       "kind": "meta"
+       "kind": "note"
       }
      ]
     }
    ],
-   "oracle": "ts"
+   "oracle": "spec",
+   "deviation": "`ContentRows.tsx` does not draw a meal or a drink through the library's parts at all: it has a FoodRow and a DrinkingRow, with the description on the left and the calories, protein, carbohydrate and fat on the right, each in its own colour. The library's own renderer drops what it cannot fit into one line — `Drinking 2dl 92kcal 7g/prot | Maito` comes back from it as \"Drinking\", \"2dl\", \" | Maito\" with the calories and the protein gone, and `Food kaurapuuro 300g` as the single word \"Food\". So these are rows of their own here, drawn as the app draws them."
   },
   "life-drinking": {
    "rows": [
     {
-     "type": "text",
+     "type": "drinking",
      "parts": [
       {
-       "text": "Drinking",
-       "tone": "label",
+       "text": "🥛",
+       "tone": "default",
        "kind": "meta"
+      },
+      {
+       "text": "vesi",
+       "tone": "default",
+       "kind": "note"
       },
       {
        "text": "5dl",
-       "tone": "number",
-       "kind": "meta"
-      },
-      {
-       "text": " vesi",
-       "tone": "default",
-       "kind": "meta"
+       "tone": "muted",
+       "kind": "volume"
       }
      ]
     }
    ],
-   "oracle": "ts"
+   "oracle": "spec",
+   "deviation": "`ContentRows.tsx` does not draw a meal or a drink through the library's parts at all: it has a FoodRow and a DrinkingRow, with the description on the left and the calories, protein, carbohydrate and fat on the right, each in its own colour. The library's own renderer drops what it cannot fit into one line — `Drinking 2dl 92kcal 7g/prot | Maito` comes back from it as \"Drinking\", \"2dl\", \" | Maito\" with the calories and the protein gone, and `Food kaurapuuro 300g` as the single word \"Food\". So these are rows of their own here, drawn as the app draws them."
   },
   "life-expense": {
    "rows": [
