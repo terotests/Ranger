@@ -1,0 +1,745 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MermaidStateReader.rgr — a Mermaid state diagram, into the activity model.
+; ============================================================================
+;
+; A state machine and a UML activity diagram are the same picture with two
+; vocabularies over it: a filled circle to start, a ring to finish, a bar for
+; a fork, a diamond for a choice, and rounded boxes with arrows between them.
+; `domains/uml/UMLActivity` has drawn all five since the activity demo, so a
+; `stateDiagram` needs a reader and nothing else.
+;
+;   stateDiagram-v2
+;       [*] --> Still
+;       Still --> Moving : go
+;       state Moving {
+;           [*] --> Rolling
+;       }
+;       Moving --> Crash : hit
+;       Crash --> [*]
+;
+;         ●
+;         │
+;    ╭────┴────╮   go    ┌ Moving ─────────────╮
+;    │  Still  ├────────►│   ●──► Rolling      │
+;    ╰─────────╯         └─────────────────────┘
+;
+; **What it reads.** `[*]` as a start where it is the source and an end where
+; it is the target, once per scope; `A --> B : label` transitions; `state X { … }`
+; composite states, nested, drawn as the frames a sub-flow already has;
+; `state "a long name" as s`; `s : a description`, which becomes the second
+; line of the box; `<<fork>>`, `<<join>>` and `<<choice>>`; and `direction`.
+;
+; **What it drops.** `note` (a state machine's notes are prose about the
+; diagram rather than part of it), the `--` concurrency divider inside a
+; composite state, and `classDef` / `class` / `style`: the look is a
+; stylesheet's business here — see `core/FlowStyleSheet.rgr`.
+; ============================================================================
+
+Import "MermaidReader.rgr"
+Import "../uml/UMLActivity.rgr"
+
+; A composite state: a box with states inside it.
+class MermaidStateGroup {
+    def id:string ""
+    def title:string ""
+    def parent:string ""
+    def depth:int 0
+    def members:[string]
+
+    Constructor () {
+    }
+
+    fn memberCount:int () {
+        return (array_length members)
+    }
+}
+
+class MermaidStateDiagram {
+    def title:string ""
+    def direction:string "TB"
+    def themeName:string ""
+    def activity:ActivityDiagram (new ActivityDiagram)
+    def groups:[MermaidStateGroup]
+
+    Constructor () {
+    }
+
+    fn stateCount:int () {
+        return (array_length activity.nodes)
+    }
+
+    fn transitionCount:int () {
+        return (array_length activity.flows)
+    }
+
+    fn groupCount:int () {
+        return (array_length groups)
+    }
+
+    fn indexOfState:int (id:string) {
+        def i:int 0
+        while (i < (array_length activity.nodes)) {
+            def n:ActivityNode (itemAt activity.nodes i)
+            if (n.id == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; A state exists from the first time it is named, and its label is its
+    ; name until something gives it one.
+    fn ensureState:ActivityNode (id:string) {
+        def at:int (this.indexOfState(id))
+        if (at >= 0) {
+            return (itemAt activity.nodes at)
+        }
+        return (activity.action(id id))
+    }
+
+    fn indexOfGroup:int (id:string) {
+        def i:int 0
+        while (i < (array_length groups)) {
+            def gr:MermaidStateGroup (itemAt groups i)
+            if (gr.id == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn groupAt:MermaidStateGroup (i:int) {
+        return (itemAt groups i)
+    }
+
+    fn ownerOf:string (id:string) {
+        def i:int 0
+        while (i < (array_length groups)) {
+            def gr:MermaidStateGroup (itemAt groups i)
+            def k:int 0
+            while (k < (array_length gr.members)) {
+                if ((itemAt gr.members k) == id) {
+                    return gr.id
+                }
+                k = (k + 1)
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn layerDirection:string () {
+        if (direction == "LR") { return "LR" }
+        if (direction == "RL") { return "LR" }
+        return "TB"
+    }
+
+    sfn frameIdOf:string (groupId:string) {
+        return ("sg-" + groupId)
+    }
+
+    ; A transition can name a composite state — `Crash --> Repair` where
+    ; `Repair` is a box rather than a state. Mermaid draws the arrow to the
+    ; box's border; here it goes to the state the box STARTS at, which is what
+    ; entering a composite state means, and it leaves from the one it ends at.
+    ; Without this the name would also make a second, empty box beside the
+    ; frame that already carries it.
+    fn resolveComposites:void () {
+        def i:int 0
+        while (i < (array_length groups)) {
+            def gr:MermaidStateGroup (itemAt groups i)
+            def entry:string (this.terminalOf(gr true))
+            def exit:string (this.terminalOf(gr false))
+            def k:int 0
+            while (k < (array_length activity.flows)) {
+                def f:ActivityFlow (itemAt activity.flows k)
+                if (f.target == gr.id) {
+                    if ((strlen entry) > 0) {
+                        f.target = entry
+                    }
+                }
+                if (f.source == gr.id) {
+                    if ((strlen exit) > 0) {
+                        f.source = exit
+                    }
+                }
+                k = (k + 1)
+            }
+            ; …and the box is not also a state.
+            def me:int (this.indexOfState(gr.id))
+            if (me >= 0) {
+                remove_index activity.nodes me
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; The state a composite is entered at, or left from: its own `[*]` if it
+    ; has one, and otherwise the first thing in it.
+    fn terminalOf:string (gr:MermaidStateGroup wantStart:boolean) {
+        def fallback:string ""
+        def i:int 0
+        while (i < (array_length gr.members)) {
+            def id:string (itemAt gr.members i)
+            def at:int (this.indexOfState(id))
+            if (at >= 0) {
+                def n:ActivityNode (itemAt activity.nodes at)
+                if wantStart {
+                    if (n.kind == "initial") {
+                        return id
+                    }
+                } {
+                    if (n.kind == "final") {
+                        return id
+                    }
+                }
+                if ((strlen fallback) == 0) {
+                    if (n.kind == "action") {
+                        fallback = id
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return fallback
+    }
+}
+
+class MermaidStateReader {
+    def doc:MermaidStateDiagram (new MermaidStateDiagram)
+    ; The composite states currently open, innermost last.
+    def stack:[string]
+    ; One start and one end per scope, made the first time `[*]` is used there.
+    def starts:[string]
+    def ends:[string]
+    def scopes:[string]
+    def seq:int 0
+
+    Constructor () {
+    }
+
+    sfn parse:MermaidStateDiagram (src:string) {
+        def r (new MermaidStateReader)
+        return (r.read(src))
+    }
+
+    fn read:MermaidStateDiagram (src:string) {
+        def lines:[string] (strsplit src "\n")
+        def inFront:boolean false
+        def frontDone:boolean false
+        def i:int 0
+        while (i < (array_length lines)) {
+            def raw:string (trim (itemAt lines i))
+            i = (i + 1)
+            if (raw == "---") {
+                if (frontDone == false) {
+                    if inFront {
+                        inFront = false
+                        frontDone = true
+                    } {
+                        inFront = true
+                    }
+                    continue
+                }
+            }
+            if inFront {
+                def cut:int (indexOf raw ":")
+                if (cut > 0) {
+                    def key:string (trim (substring raw 0 cut))
+                    if ((MermaidReader.lower(key)) == "title") {
+                        def rest:string (trim (substring raw (cut + 1) (strlen raw)))
+                        doc.title = (MermaidReader.unquote(rest))
+                    }
+                }
+                continue
+            }
+            def line:string (trim (this.stripComment(raw)))
+            if ((strlen line) == 0) {
+                continue
+            }
+            this.statement(line)
+        }
+        doc.resolveComposites()
+        return doc
+    }
+
+    fn stripComment:string (line:string) {
+        def len:int (strlen line)
+        def q:boolean false
+        def i:int 0
+        while (i < len) {
+            def c:int (charAt line i)
+            if (c == 34) {
+                if q { q = false } { q = true }
+            }
+            if (q == false) {
+                if (c == 37) {
+                    if ((i + 1) < len) {
+                        if ((charAt line (i + 1)) == 37) {
+                            return (substring line 0 i)
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return line
+    }
+
+    ; ---------------------------------------------------------- statements --
+    fn statement:void (st:string) {
+        def word:string (MermaidReader.firstWord(st))
+        def kw:string (MermaidReader.lower(word))
+        def rest:string (trim (substring st (strlen word) (strlen st)))
+        if (kw == "statediagram")    { return }
+        if (kw == "statediagram-v2") { return }
+        if (kw == "direction") {
+            def dir:string (MermaidReader.upper((MermaidReader.firstWord(rest))))
+            if (dir == "TB") { doc.direction = "TB" }
+            if (dir == "TD") { doc.direction = "TB" }
+            if (dir == "LR") { doc.direction = "LR" }
+            if (dir == "RL") { doc.direction = "LR" }
+            if (dir == "BT") { doc.direction = "TB" }
+            return
+        }
+        ; Read and dropped — see the header.
+        if (kw == "note")     { return }
+        if (kw == "classdef") { return }
+        if (kw == "class")    { return }
+        if (kw == "style")    { return }
+        if (kw == "click")    { return }
+        if (kw == "acctitle") { return }
+        if (kw == "accdescr") { return }
+        ; The end of a composite state, and the concurrency divider that is
+        ; not one.
+        if (st == "}") {
+            if ((array_length stack) > 0) {
+                removeLast stack
+            }
+            return
+        }
+        if (st == "--") {
+            return
+        }
+        if (kw == "state") {
+            this.readState(rest)
+            return
+        }
+        if (this.readTransition(st)) {
+            return
+        }
+        ; `s2 : a description`, which is the other thing a colon can mean.
+        def colon:int (indexOf st ":")
+        if (colon > 0) {
+            def id:string (trim (substring st 0 colon))
+            def text:string (trim (substring st (colon + 1) (strlen st)))
+            if (MermaidStateReader.isName(id)) {
+                this.describe(id text)
+                return
+            }
+        }
+        if (MermaidStateReader.isName(st)) {
+            def n:ActivityNode (doc.ensureState(st))
+            this.noteMembership(st)
+        }
+    }
+
+    ; `state Moving { … }`, `state "Long name" as s2`, `state fork1 <<fork>>`.
+    fn readState:void (rest:string) {
+        def text:string (trim rest)
+        def opens:boolean false
+        def brace:int (indexOf text "{")
+        if (brace >= 0) {
+            opens = true
+            text = (trim (substring text 0 brace))
+        }
+        ; An annotation decides what the node IS, so it is read before the name
+        ; is trusted to be one.
+        def kind:string ""
+        def ann:int (indexOf text "<<")
+        if (ann >= 0) {
+            def close:int (indexOf text ">>")
+            if (close > ann) {
+                def word:string (MermaidReader.lower((trim (substring text (ann + 2) close))))
+                if (word == "fork")   { kind = (ActivityKind.fork()) }
+                if (word == "join")   { kind = (ActivityKind.joining()) }
+                if (word == "choice") { kind = (ActivityKind.decision()) }
+                if (word == "start")  { kind = (ActivityKind.initial()) }
+                if (word == "end")    { kind = (ActivityKind.final()) }
+                text = (trim (substring text 0 ann))
+            }
+        }
+        ; `"A long name" as s2`
+        def label:string ""
+        def id:string (trim text)
+        def asAt:int (MermaidStateReader.findWord(text "as"))
+        if (asAt > 0) {
+            label = (MermaidReader.cleanLabel((substring text 0 asAt)))
+            id = (trim (substring text (asAt + 2) (strlen text)))
+        }
+        if ((strlen id) == 0) {
+            return
+        }
+        if ((MermaidStateReader.isName(id)) == false) {
+            return
+        }
+        def known:int (doc.indexOfState(id))
+        def n:ActivityNode (doc.ensureState(id))
+        if ((strlen label) > 0) {
+            n.label = label
+        }
+        if ((strlen kind) > 0) {
+            n.kind = kind
+            ; A fork bar and a choice diamond carry no text of their own.
+            if ((ActivityKind.isSolid(kind))) {
+                n.label = ""
+            }
+        }
+        if (known < 0) {
+            this.noteMembership(id)
+        }
+        if opens {
+            ; A composite state is a box that holds states, and the box is not
+            ; also one of them.
+            def gr (new MermaidStateGroup)
+            gr.id = id
+            gr.title = n.label
+            if ((strlen gr.title) == 0) {
+                gr.title = id
+            }
+            gr.depth = (array_length stack)
+            if ((array_length stack) > 0) {
+                def parent:string (last stack)
+                gr.parent = parent
+                def at:int (doc.indexOfGroup(parent))
+                if (at >= 0) {
+                    def outer:MermaidStateGroup (doc.groupAt(at))
+                    push outer.members (MermaidStateDiagram.frameIdOf(id))
+                }
+            }
+            push doc.groups gr
+            push stack id
+            ; …so the state that opened it is dropped again.
+            def me:int (doc.indexOfState(id))
+            if (me >= 0) {
+                remove_index doc.activity.nodes me
+            }
+        }
+    }
+
+    fn describe:void (id:string text:string) {
+        def n:ActivityNode (doc.ensureState(id))
+        def what:string (MermaidReader.cleanLabel(text))
+        if ((strlen what) == 0) {
+            return
+        }
+        ; The description goes under the name, on a line of its own — which
+        ; the text layout can take since it learned about `<br/>`.
+        if (n.label == id) {
+            n.label = ((id + (strfromcode 10)) + what)
+        } {
+            n.label = ((n.label + (strfromcode 10)) + what)
+        }
+        this.noteMembership(id)
+    }
+
+    ; `[*] --> Still`, `Still --> Moving : go`.
+    fn readTransition:boolean (st:string) {
+        def arrow:int (indexOf st "-->")
+        if (arrow < 0) {
+            return false
+        }
+        def left:string (trim (substring st 0 arrow))
+        def rightAll:string (trim (substring st (arrow + 3) (strlen st)))
+        def label:string ""
+        def colon:int (indexOf rightAll ":")
+        if (colon >= 0) {
+            label = (MermaidReader.cleanLabel((substring rightAll (colon + 1) (strlen rightAll))))
+            rightAll = (trim (substring rightAll 0 colon))
+        }
+        def from:string (this.endpoint(left true))
+        def to:string (this.endpoint(rightAll false))
+        if ((strlen from) == 0) {
+            return false
+        }
+        if ((strlen to) == 0) {
+            return false
+        }
+        def f:ActivityFlow (doc.activity.flow(from to))
+        f.label = label
+        return true
+    }
+
+    ; `[*]` is a start where it is written first and an end where it is
+    ; written second — one of each per composite state, which is how Mermaid
+    ; draws it and the only reading that makes a nested machine legible.
+    fn endpoint:string (text:string asSource:boolean) {
+        def t:string (trim text)
+        if ((strlen t) == 0) {
+            return ""
+        }
+        if (t == "[*]") {
+            return (this.terminal(asSource))
+        }
+        if ((MermaidStateReader.isName(t)) == false) {
+            return ""
+        }
+        def known:int (doc.indexOfState(t))
+        def n:ActivityNode (doc.ensureState(t))
+        if (known < 0) {
+            this.noteMembership(t)
+        }
+        return t
+    }
+
+    fn terminal:string (asSource:boolean) {
+        def scope:string ""
+        if ((array_length stack) > 0) {
+            scope = (last stack)
+        }
+        def i:int 0
+        while (i < (array_length scopes)) {
+            if ((itemAt scopes i) == scope) {
+                if asSource {
+                    return (itemAt starts i)
+                }
+                return (itemAt ends i)
+            }
+            i = (i + 1)
+        }
+        ; Neither exists yet for this scope, so both are made and the one
+        ; asked for is handed back.
+        def base:string ("state" + (to_string seq))
+        seq = (seq + 1)
+        def startId:string (base + "-start")
+        def endId:string (base + "-end")
+        push scopes scope
+        push starts startId
+        push ends endId
+        def sNode:ActivityNode (doc.activity.node(startId "" (ActivityKind.initial())))
+        def eNode:ActivityNode (doc.activity.node(endId "" (ActivityKind.final())))
+        this.noteMembership(startId)
+        this.noteMembership(endId)
+        if asSource {
+            return startId
+        }
+        return endId
+    }
+
+    fn noteMembership:void (id:string) {
+        if ((array_length stack) == 0) {
+            return
+        }
+        if ((strlen (doc.ownerOf(id))) > 0) {
+            return
+        }
+        def owner:string (last stack)
+        def at:int (doc.indexOfGroup(owner))
+        if (at < 0) {
+            return
+        }
+        def gr:MermaidStateGroup (doc.groupAt(at))
+        push gr.members id
+    }
+
+    ; ------------------------------------------------------------ scanning --
+    ; Where the word `as` is, as a word rather than as two letters inside one.
+    sfn findWord:int (text:string word:string) {
+        def n:int (strlen text)
+        def w:int (strlen word)
+        def i:int 0
+        while (i < n) {
+            if ((i + w) <= n) {
+                if ((substring text i (i + w)) == word) {
+                    def before:boolean (i == 0)
+                    if (i > 0) {
+                        before = (MermaidReader.isSpaceCode((charAt text (i - 1))))
+                    }
+                    def after:boolean ((i + w) == n)
+                    if (((i + w) < n)) {
+                        after = (MermaidReader.isSpaceCode((charAt text (i + w))))
+                    }
+                    if before {
+                        if after {
+                            return i
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    sfn isName:boolean (text:string) {
+        def t:string (trim text)
+        if ((strlen t) == 0) {
+            return false
+        }
+        def i:int 0
+        while (i < (strlen t)) {
+            def c:int (charAt t i)
+            def ok:boolean (MermaidReader.isIdentCode(c))
+            if (c == 45) { ok = true }
+            if (c == 46) { ok = true }
+            if (ok == false) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+}
+
+; ---------------------------------------------------------------------------
+; The pipeline
+; ---------------------------------------------------------------------------
+class MermaidStateFlow {
+    sfn parse:MermaidStateDiagram (src:string) {
+        return (MermaidStateReader.parse(src))
+    }
+
+    sfn render:FlowGraph (src:string) {
+        def d:MermaidStateDiagram (MermaidStateReader.parse(src))
+        def bare (new FlowStyle)
+        return (MermaidStateFlow.build(d bare))
+    }
+
+    sfn build:FlowGraph (d:MermaidStateDiagram style:FlowStyle) {
+        def g:FlowGraph (d.activity.build())
+        def i:int 0
+        while (i < (g.nodeCount())) {
+            def n:FlowNode (g.nodeAt(i))
+            n.cssClass = "mermaid state"
+            i = (i + 1)
+        }
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            e.cssClass = "link transition"
+            k = (k + 1)
+        }
+        def wrote:int (style.applyTo(g))
+        def lay:LayeredLayout (LayeredLayout.of(g))
+        lay.direction = (d.layerDirection())
+        lay.layerGap = 76.0
+        lay.nodeGap = 44.0
+        if ((d.layerDirection()) == "LR") {
+            lay.layerGap = 120.0
+            lay.nodeGap = 36.0
+        }
+        lay.run()
+        ActivityDiagram.faceEdges(g)
+        def moved:int (EdgeLanes.assign(g))
+        def routed:int (lay.routeLongEdges())
+        EdgeLanes.resetLanes(g)
+        def refanned:int (EdgeLanes.assign(g))
+        def repaired:int (OrthoRouter.repairAll(g))
+        def frames:int (MermaidStateFlow.frameGroups(d g style))
+        return g
+    }
+
+    ; A composite state is the frame a sub-flow already is: drawn behind the
+    ; states it holds, and dragging it takes them with it.
+    sfn frameGroups:int (d:MermaidStateDiagram g:FlowGraph style:FlowStyle) {
+        def made:int 0
+        def deepest:int 0
+        def i:int 0
+        while (i < (d.groupCount())) {
+            def gr:MermaidStateGroup (d.groupAt(i))
+            if (gr.depth > deepest) {
+                deepest = gr.depth
+            }
+            i = (i + 1)
+        }
+        def level:int deepest
+        while (level >= 0) {
+            def k:int 0
+            while (k < (d.groupCount())) {
+                def gr2:MermaidStateGroup (d.groupAt(k))
+                if (gr2.depth == level) {
+                    if ((MermaidStateFlow.frameOne(g gr2 style))) {
+                        made = (made + 1)
+                    }
+                }
+                k = (k + 1)
+            }
+            level = (level - 1)
+        }
+        return made
+    }
+
+    sfn frameOne:boolean (g:FlowGraph gr:MermaidStateGroup style:FlowStyle) {
+        def pad:double 20.0
+        def bar:double 34.0
+        def head:double 22.0
+        def r (new FlowRect)
+        def i:int 0
+        while (i < (array_length gr.members)) {
+            def id:string (itemAt gr.members i)
+            if (g.hasNode(id)) {
+                def n:FlowNode (g.nodeById(id))
+                def right:double (n.x + n.width)
+                def bottom:double (n.y + n.height)
+                if (r.valid == false) {
+                    r.x = n.x
+                    r.y = n.y
+                    r.w = n.width
+                    r.h = n.height
+                    r.valid = true
+                } {
+                    if (n.x < r.x) {
+                        def dw:double (r.x - n.x)
+                        r.x = n.x
+                        r.w = (r.w + dw)
+                    }
+                    if (n.y < r.y) {
+                        def dh:double (r.y - n.y)
+                        r.y = n.y
+                        r.h = (r.h + dh)
+                    }
+                    def rr:double (r.x + r.w)
+                    if (right > rr) {
+                        r.w = (right - r.x)
+                    }
+                    def rb:double (r.y + r.h)
+                    if (bottom > rb) {
+                        r.h = (bottom - r.y)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if (r.valid == false) {
+            return false
+        }
+        def frameId:string (MermaidStateDiagram.frameIdOf(gr.id))
+        def frame:FlowNode (FlowNode.create(frameId gr.title (r.x - bar) ((r.y - pad) - head)))
+        frame.nodeType = "group"
+        frame.width = ((r.w + bar) + pad)
+        def hh:double ((r.h + (pad * 2.0)) + head)
+        frame.height = hh
+        frame.connectable = false
+        frame.cssClass = "mermaid composite"
+        frame.bgColor = "#f6f7fb"
+        frame.borderColor = "#c9cede"
+        frame.syncFromModel()
+        g.addNode(frame)
+        style.styleNode(frame)
+        g.sendToBack(frameId)
+        def m:int 0
+        while (m < (array_length gr.members)) {
+            def mid:string (itemAt gr.members m)
+            if (g.hasNode(mid)) {
+                def child:FlowNode (g.nodeById(mid))
+                child.parentId = frameId
+            }
+            m = (m + 1)
+        }
+        return true
+    }
+}

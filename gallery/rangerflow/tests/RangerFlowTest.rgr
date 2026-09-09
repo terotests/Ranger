@@ -26,6 +26,7 @@ Import "../domains/flowchart/Flowchart.rgr"
 Import "../domains/mermaid/MermaidReader.rgr"
 Import "../domains/mermaid/MermaidClassReader.rgr"
 Import "../domains/mermaid/MermaidErReader.rgr"
+Import "../domains/mermaid/MermaidStateReader.rgr"
 Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 
@@ -96,6 +97,7 @@ class RangerFlowTest {
         RangerFlowTest.testClickChangesNothing(c)
         RangerFlowTest.testMermaidClassDiagram(c)
         RangerFlowTest.testMermaidErDiagram(c)
+        RangerFlowTest.testMermaidStateDiagram(c)
         RangerFlowTest.testBusinessCharts(c)
         RangerFlowTest.testAuthoring(c)
         RangerFlowTest.testTreeLayouts(c)
@@ -2593,6 +2595,75 @@ class RangerFlowTest {
         c.eqInt("and read as no flowchart at all" (asFlow.nodeCount()) 0)
         c.ok("but it is one this library draws" (MermaidReader.draws("er")))
         c.ok("unlike a gantt chart" ((MermaidReader.draws("gantt")) == false))
+    }
+
+    ; ------------------------------------------------ Mermaid state diagrams --
+    ; A state machine and a UML activity diagram are the same picture with two
+    ; vocabularies over it, so this one needed a reader and nothing else.
+    sfn testMermaidStateDiagram:void (c:Checker) {
+        c.section("Mermaid state diagrams")
+        def src:string "stateDiagram-v2\n"
+        src = (src + "    [*] --> Still\n")
+        src = (src + "    Still --> [*]\n")
+        src = (src + "    Still --> Moving : go\n")
+        src = (src + "    state \"Rolling along\" as Moving\n")
+        src = (src + "    Moving : the wheels are turning\n")
+        src = (src + "    state pick <<choice>>\n")
+        src = (src + "    Moving --> pick\n")
+        src = (src + "    state Repair {\n")
+        src = (src + "        [*] --> Diagnose\n")
+        src = (src + "        Diagnose --> [*]\n")
+        src = (src + "    }\n")
+        src = (src + "    pick --> Repair : broken\n")
+        def d:MermaidStateDiagram (MermaidStateReader.parse(src))
+        ; Still, Moving, pick, Diagnose, and a start and an end in each of the
+        ; two scopes.
+        c.eqInt("every state named is a state" (d.stateCount()) 8)
+        c.eqInt("and every arrow a transition" (d.transitionCount()) 7)
+        c.eqInt("the block is one composite state" (d.groupCount()) 1)
+
+        def moving:ActivityNode (d.ensureState("Moving"))
+        c.ok("`as` renames a state" ((indexOf moving.label "Rolling along") == 0))
+        c.ok("and a colon adds a line under the name" ((indexOf moving.label "the wheels are turning") > 0))
+        def pick:ActivityNode (d.ensureState("pick"))
+        c.eqStr("<<choice>> is a decision" pick.kind "decision")
+
+        ; `[*]` is a start where it is written first and an end where it is
+        ; written second — one of each per scope.
+        def first:ActivityFlow (itemAt d.activity.flows 0)
+        def start:ActivityNode (d.ensureState(first.source))
+        c.eqStr("the first `[*]` is where the machine starts" start.kind "initial")
+        def second:ActivityFlow (itemAt d.activity.flows 1)
+        def end:ActivityNode (d.ensureState(second.target))
+        c.eqStr("and the second is where it stops" end.kind "final")
+        def labelled:ActivityFlow (itemAt d.activity.flows 2)
+        c.eqStr("a transition carries its label as written, unbracketed" labelled.label "go")
+
+        ; A transition to a composite state enters it at its own start, and
+        ; the box is not also a state of its own.
+        c.eqInt("the composite is a box rather than a box AND a state" (d.indexOfState("Repair")) -1)
+        def last:ActivityFlow (itemAt d.activity.flows 6)
+        def entered:ActivityNode (d.ensureState(last.target))
+        c.eqStr("so entering it means entering what it starts at" entered.kind "initial")
+
+        def g:FlowGraph (MermaidStateFlow.render(src))
+        def frame:FlowNode (g.nodeById("sg-Repair"))
+        c.eqStr("the composite is drawn as a group" frame.nodeType "group")
+        def firstNode:FlowNode (g.nodeAt(0))
+        c.eqStr("behind the states it holds" firstNode.id "sg-Repair")
+        def diag:FlowNode (g.nodeById("Diagnose"))
+        c.eqStr("which they belong to" diag.parentId "sg-Repair")
+        c.eqInt("nothing is drawn through a state" (EdgeOverlap.nodeCrossings(g)) 0)
+
+        ; The file it was written from.
+        def real:string (?? (read_file "." "gallery/rangerflow/fixtures/state_traffic.mmd") "")
+        if ((strlen real) > 0) {
+            def rd:MermaidStateDiagram (MermaidStateReader.parse(real))
+            c.eqStr("front matter titles a state diagram too" rd.title "A parcel, as a state machine")
+            def rg:FlowGraph (MermaidStateFlow.render(real))
+            c.eqInt("and it draws" (EdgeOverlap.nodeCrossings(rg)) 0)
+        }
+        c.ok("a state diagram is one this library draws" (MermaidReader.draws("state")))
     }
 
     ; --------------------------------------------- a click is not an edit --

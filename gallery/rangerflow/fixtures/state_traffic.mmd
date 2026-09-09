@@ -1,0 +1,24 @@
+---
+title: A parcel, as a state machine
+---
+stateDiagram-v2
+    [*] --> Ordered
+    Ordered --> Packed : picked
+    Packed --> Shipped : handed over
+    state Shipped {
+        [*] --> InTransit
+        InTransit --> AtDepot : scanned
+        AtDepot --> InTransit : loaded
+        InTransit --> [*] : arrived
+    }
+    Shipped --> Delivered : signed for
+    Shipped --> Lost : no scan for 14 days
+    state check <<choice>>
+    Delivered --> check
+    check --> Returned : refused
+    check --> [*] : accepted
+    Lost --> Refunded
+    Refunded --> [*]
+    Returned --> Refunded
+    Ordered : the customer has paid
+    Lost : nobody has scanned it

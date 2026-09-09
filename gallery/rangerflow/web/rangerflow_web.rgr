@@ -26,6 +26,7 @@ Import "../domains/flowchart/Flowchart.rgr"
 Import "../domains/mermaid/MermaidReader.rgr"
 Import "../domains/mermaid/MermaidClassReader.rgr"
 Import "../domains/mermaid/MermaidErReader.rgr"
+Import "../domains/mermaid/MermaidStateReader.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 Import "../layout/TreeLayouts.rgr"
 Import "../export/FlowExport.rgr"
@@ -634,6 +635,9 @@ class RangerFlowWeb {
         if (d.diagramKind == "er") {
             return (this.loadMermaidEr(text styleName want))
         }
+        if (d.diagramKind == "state") {
+            return (this.loadMermaidState(text styleName want))
+        }
         if ((d.nodeCount()) == 0) {
             status = "no nodes in that Mermaid source"
             if ((strlen d.diagramKind) > 0) {
@@ -727,6 +731,37 @@ class RangerFlowWeb {
             what = "Mermaid ER diagram"
         }
         status = ((to_string (ed.entityCount())) + " entities, " + (to_string (ed.relationCount())) + " relationships — " + what + ", " + want)
+        return true
+    }
+
+    ; `stateDiagram`, drawn with the activity vocabulary: a filled circle to
+    ; start, a ring to finish, a bar for a fork, a diamond for a choice.
+    fn loadMermaidState:boolean (text:string styleName:string want:string) {
+        def sd:MermaidStateDiagram (MermaidStateReader.parse(text))
+        if ((sd.stateCount()) == 0) {
+            status = "no states in that state diagram"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidStateFlow.build(sd style))
+        this.adopt(g)
+        editor.view.notation = "plain"
+        layoutName = "layered"
+        simRunning = false
+        editor.pinWhileDragging = false
+        style.applyToTheme(editor.view.theme)
+        if (want == "dark") {
+            editor.view.theme.name = "dark"
+        } {
+            editor.view.theme.name = "light"
+        }
+        def what:string sd.title
+        if ((strlen what) == 0) {
+            what = "Mermaid state diagram"
+        }
+        status = ((to_string (sd.stateCount())) + " states, " + (to_string (sd.transitionCount())) + " transitions — " + what + ", " + want)
         return true
     }
 

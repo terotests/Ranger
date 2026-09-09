@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Mermaid state diagrams.** The fourth type, and again no new renderer: a
+  state machine and a UML activity diagram are the same picture with two
+  vocabularies over it, so `MermaidStateReader` reads `stateDiagram` into
+  `domains/uml/UMLActivity` — the filled circle, the ring, the fork bar and
+  the choice diamond were already there. `[*]` becomes a start where it is
+  written first and an end where it is written second, one of each per scope;
+  `state X { … }` composite states are the frames a sub-flow already has,
+  nested, and a transition that names one enters it at the state it starts at
+  rather than making a second empty box beside the frame. `state "A long name"
+  as s`, `s : a description` on a second line, `<<fork>>` / `<<join>>` /
+  `<<choice>>` and `direction`. `ActivityFlow` grew a plain `label`, because a
+  state machine writes the event on the arrow and an activity diagram writes a
+  guard in brackets, and they are not the same thing.
 - **Mermaid ER diagrams — the third type, and the one this library was built
   for.** `erDiagram` is a schema, so
   `gallery/rangerflow/domains/mermaid/MermaidErReader.rgr` reads it into the

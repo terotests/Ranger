@@ -1280,6 +1280,7 @@ class MermaidReader {
         if (kind == "flowchart") { return true }
         if (kind == "class")     { return true }
         if (kind == "er")        { return true }
+        if (kind == "state")     { return true }
         return false
     }
 

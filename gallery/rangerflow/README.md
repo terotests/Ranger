@@ -27,7 +27,7 @@ routing, auto-layout, large graphs — and produces something worth having.
 ## Run it
 
 ```bash
-npm run rangerflow:test        # 790 assertions: model, forces, router, editor, SQL, Mermaid, CSS, export
+npm run rangerflow:test        # 808 assertions: model, forces, router, editor, SQL, Mermaid, CSS, export
 npm run rangerflow:demo        # the e-commerce schema → SVG, PDF, HTML, JSON, scene
 npm run rangerflow:uml         # the same pipeline for a UML class diagram
 npm run rangerflow:flowchart   # an ATK flowchart in ISO 5807 shapes
@@ -251,6 +251,30 @@ attachment the SQL reader produces needs a foreign key to know which column it
 starts at, and an ER diagram written by hand does not have one.
 
 ![the ER example, drawn with crow's feet](artifacts/scenario_mermaid_er.png)
+
+### …and state diagrams
+
+A state machine and a UML activity diagram are the same picture with two
+vocabularies over it, so `stateDiagram` needed a reader and nothing else: the
+filled circle, the ring, the fork bar and the choice diamond have been in
+`domains/uml/UMLActivity` since the activity demo.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Still
+    Still --> Moving : go
+    state Moving {
+        [*] --> Rolling
+    }
+    state pick <<choice>>
+```
+
+`[*]` is a start where it is written first and an end where it is written
+second, once per scope; `state X { … }` composite states are the frames a
+sub-flow already has, nested, and a transition into one enters it at the state
+it starts at; `state "A long name" as s`, `s : a description` (which becomes
+the second line of the box), `<<fork>>`, `<<join>>`, `<<choice>>` and
+`direction`. Notes and the `--` concurrency divider are dropped.
 
 ### …measured against Mermaid itself
 

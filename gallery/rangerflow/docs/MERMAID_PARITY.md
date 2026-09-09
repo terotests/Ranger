@@ -78,8 +78,8 @@ a flowchart is a page of invented boxes.
 | `requirementDiagram` | recognised as `requirement`, read as nothing |
 | `sankey-beta` | recognised as `sankey`, read as nothing |
 | `sequenceDiagram` | recognised as `sequence`, read as nothing |
-| `stateDiagram` | recognised as `state`, read as nothing |
-| `stateDiagram-v2` | recognised as `state`, read as nothing |
+| `stateDiagram` | **drawn** — read as `state` |
+| `stateDiagram-v2` | **drawn** — read as `state` |
 | `swimlanes-beta` | recognised as `swimlanes`, read as nothing |
 | `timeline` | recognised as `timeline`, read as nothing |
 | `venn-beta` | recognised as `venn`, read as nothing |
