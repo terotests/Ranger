@@ -29,6 +29,7 @@ Import "../domains/mermaid/MermaidErReader.rgr"
 Import "../domains/mermaid/MermaidStateReader.rgr"
 Import "../domains/mermaid/MermaidMindMapReader.rgr"
 Import "../domains/mermaid/MermaidRequirementReader.rgr"
+Import "../domains/mermaid/MermaidC4Reader.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 Import "../layout/TreeLayouts.rgr"
 Import "../export/FlowExport.rgr"
@@ -646,6 +647,9 @@ class RangerFlowWeb {
         if (d.diagramKind == "requirement") {
             return (this.loadMermaidRequirement(text styleName want))
         }
+        if (d.diagramKind == "c4") {
+            return (this.loadMermaidC4(text styleName want))
+        }
         if ((d.nodeCount()) == 0) {
             status = "no nodes in that Mermaid source"
             if ((strlen d.diagramKind) > 0) {
@@ -834,6 +838,37 @@ class RangerFlowWeb {
             what = "Mermaid requirement diagram"
         }
         status = ((to_string (rd.boxCount())) + " requirements, " + (to_string (rd.relationCount())) + " traces — " + what + ", " + want)
+        return true
+    }
+
+    ; C4: labelled boxes, dashed boundaries around groups of them, and arrows
+    ; that say what talks to what over which protocol.
+    fn loadMermaidC4:boolean (text:string styleName:string want:string) {
+        def cd:MermaidC4Diagram (MermaidC4Reader.parse(text))
+        if ((cd.boxCount()) == 0) {
+            status = "no elements in that C4 diagram"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidC4Flow.build(cd style))
+        this.adopt(g)
+        editor.view.notation = "uml"
+        layoutName = "layered"
+        simRunning = false
+        editor.pinWhileDragging = false
+        style.applyToTheme(editor.view.theme)
+        if (want == "dark") {
+            editor.view.theme.name = "dark"
+        } {
+            editor.view.theme.name = "light"
+        }
+        def what:string cd.title
+        if ((strlen what) == 0) {
+            what = cd.kind
+        }
+        status = ((to_string (cd.boxCount())) + " elements, " + (to_string (cd.relationCount())) + " relations — " + what + ", " + want)
         return true
     }
 

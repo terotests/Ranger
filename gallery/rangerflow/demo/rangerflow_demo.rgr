@@ -36,6 +36,7 @@ Import "../domains/mermaid/MermaidErReader.rgr"
 Import "../domains/mermaid/MermaidStateReader.rgr"
 Import "../domains/mermaid/MermaidMindMapReader.rgr"
 Import "../domains/mermaid/MermaidRequirementReader.rgr"
+Import "../domains/mermaid/MermaidC4Reader.rgr"
 Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 Import "../layout/LayeredLayout.rgr"
@@ -467,6 +468,10 @@ class RangerFlowDemo {
             this.runMermaidRequirement(srcOpt styleName)
             return
         }
+        if (d.diagramKind == "c4") {
+            this.runMermaidC4(srcOpt styleName)
+            return
+        }
         if ((strlen d.diagramKind) > 0) {
             if (d.diagramKind != "flowchart") {
                 print ("  this is a " + d.diagramKind + " diagram — this reads flowcharts and class diagrams")
@@ -632,6 +637,28 @@ class RangerFlowDemo {
             title = "RangerFlow — Mermaid requirement diagram"
         }
         this.writeAll(v g "rangerflow-mermaid-requirement" title)
+    }
+
+    ; A C4 diagram: boxes, boundaries and what talks to what.
+    fn runMermaidC4:void (src:string styleName:string) {
+        def cd:MermaidC4Diagram (MermaidC4Reader.parse(src))
+        if ((cd.boxCount()) == 0) {
+            print "  no elements in that C4 diagram"
+            return
+        }
+        def style:FlowStyle (this.styleByName(styleName))
+        def g:FlowGraph (MermaidC4Flow.build(cd style))
+        print ("  model  " + (to_string (cd.boxCount())) + " elements, " + (to_string (cd.relationCount())) + " relations, " + (to_string (cd.groupCount())) + " boundaries")
+        print ("  graph  " + (to_string (g.nodeCount())) + " nodes, " + (to_string (g.edgeCount())) + " edges")
+        print ("         edges drawn through an unrelated node: " + (to_string (EdgeOverlap.nodeCrossings(g))))
+        def v:FlowView (FlowView.of(g))
+        v.notation = "uml"
+        style.applyToTheme(v.theme)
+        def title:string cd.title
+        if ((strlen title) == 0) {
+            title = "RangerFlow — Mermaid C4 diagram"
+        }
+        this.writeAll(v g "rangerflow-mermaid-c4" title)
     }
 
     ; ------------------------------------------------------------- org -----

@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Mermaid C4 diagrams.** The seventh type. C4 is a naming convention over a
+  very ordinary picture — labelled boxes with a type and a sentence, dashed
+  boundaries around groups of them, arrows carrying a protocol — and all three
+  were already drawn here. Every element (`Person`, `System`, `Container`,
+  `Component`, `Node` and their `_Ext`, `Db`, `Queue` variants), every
+  boundary, nested, and `Rel` / `BiRel` / the directional variants with the
+  technology in brackets after the label. `UpdateElementStyle` and friends are
+  read and dropped.
 - **Mermaid requirement diagrams.** The sixth type, and another that needed
   no renderer: a SysML requirement diagram is a class diagram whose boxes are
   requirements, so `MermaidRequirementReader` reads it into the same UML model

@@ -58,7 +58,7 @@ a flowchart is a page of invented boxes.
 | `abnf` | recognised as `abnf`, read as nothing |
 | `architecture-beta` | recognised as `architecture`, read as nothing |
 | `block-beta` | recognised as `block`, read as nothing |
-| `C4Context` | recognised as `c4`, read as nothing |
+| `C4Context` | **drawn** — read as `c4` |
 | `classDiagram` | **drawn** — read as `class` |
 | `cynefin-beta` | recognised as `cynefin`, read as nothing |
 | `ebnf` | recognised as `ebnf`, read as nothing |

@@ -27,7 +27,7 @@ routing, auto-layout, large graphs — and produces something worth having.
 ## Run it
 
 ```bash
-npm run rangerflow:test        # 843 assertions: model, forces, router, editor, SQL, Mermaid, CSS, export
+npm run rangerflow:test        # 859 assertions: model, forces, router, editor, SQL, Mermaid, CSS, export
 npm run rangerflow:demo        # the e-commerce schema → SVG, PDF, HTML, JSON, scene
 npm run rangerflow:uml         # the same pipeline for a UML class diagram
 npm run rangerflow:flowchart   # an ATK flowchart in ISO 5807 shapes
@@ -316,6 +316,16 @@ requirementDiagram
 
 All six requirement types and `element`, every relationship Mermaid has, and
 both directions of writing one: `A - satisfies -> B` and `B <- satisfies - A`.
+
+### …and C4
+
+C4 is a naming convention over a very ordinary picture: labelled boxes with a
+type and a sentence in them, boundaries around groups of them, and arrows that
+say what talks to what over which protocol. Every element Mermaid's C4 support
+has — `Person`, `System`, `Container`, `Component`, `Node` with their `_Ext`,
+`Db` and `Queue` variants — every boundary, nested, and `Rel`, `BiRel` and the
+directional variants. `UpdateElementStyle` and friends are dropped: the look
+here is a stylesheet's business.
 
 ### …measured against Mermaid itself
 

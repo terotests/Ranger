@@ -29,6 +29,7 @@ Import "../domains/mermaid/MermaidErReader.rgr"
 Import "../domains/mermaid/MermaidStateReader.rgr"
 Import "../domains/mermaid/MermaidMindMapReader.rgr"
 Import "../domains/mermaid/MermaidRequirementReader.rgr"
+Import "../domains/mermaid/MermaidC4Reader.rgr"
 Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 
@@ -102,6 +103,7 @@ class RangerFlowTest {
         RangerFlowTest.testMermaidStateDiagram(c)
         RangerFlowTest.testMermaidMindMap(c)
         RangerFlowTest.testMermaidRequirements(c)
+        RangerFlowTest.testMermaidC4(c)
         RangerFlowTest.testBusinessCharts(c)
         RangerFlowTest.testAuthoring(c)
         RangerFlowTest.testTreeLayouts(c)
@@ -2784,6 +2786,57 @@ class RangerFlowTest {
         c.ok("with the fields in rows" ((topNode.sectionCount()) >= 1))
         c.eqInt("nothing is drawn through a box" (EdgeOverlap.nodeCrossings(g)) 0)
         c.ok("a requirement diagram is one this library draws" (MermaidReader.draws("requirement")))
+    }
+
+    ; --------------------------------------------------- Mermaid C4 diagrams --
+    ; C4 is a naming convention over a very ordinary picture: labelled boxes,
+    ; boundaries around groups of them, and arrows with a protocol on them.
+    sfn testMermaidC4:void (c:Checker) {
+        c.section("Mermaid C4 diagrams")
+        def src:string "C4Context\n"
+        src = (src + "    title Internet banking\n")
+        src = (src + "    Enterprise_Boundary(b0, \"The bank\") {\n")
+        src = (src + "        Person(customer, \"A customer\", \"Has accounts\")\n")
+        src = (src + "        System(banking, \"Internet banking\", \"Shows accounts\")\n")
+        src = (src + "        System_Boundary(b1, \"Back office\") {\n")
+        src = (src + "            SystemDb(core, \"Mainframe\", \"Holds the accounts\")\n")
+        src = (src + "        }\n")
+        src = (src + "    }\n")
+        src = (src + "    System_Ext(mail, \"E-mail\", \"Sends the letters\")\n")
+        src = (src + "    BiRel(customer, banking, \"Uses\")\n")
+        src = (src + "    Rel(banking, core, \"Reads\", \"Sync\")\n")
+        src = (src + "    UpdateElementStyle(customer, $fontColor=\"red\")\n")
+        def d:MermaidC4Diagram (MermaidC4Reader.parse(src))
+        c.eqStr("the title is the line that says so" d.title "Internet banking")
+        c.eqInt("every element is a box" (d.boxCount()) 4)
+        c.eqInt("every Rel is a relation" (d.relationCount()) 2)
+        c.eqInt("and every boundary a frame" (d.groupCount()) 2)
+
+        def person:UMLClass (d.ensureBox("customer"))
+        c.eqStr("a Person says it is one" person.stereotype "person")
+        def caption:UMLMember (itemAt person.attributes 0)
+        c.eqStr("the label is the first row" caption.name "A customer")
+        def note:UMLMember (itemAt person.attributes 1)
+        c.eqStr("and the description the second" note.name "Has accounts")
+        def ext:UMLClass (d.ensureBox("mail"))
+        c.eqStr("`_Ext` says the system is somebody else's" ext.stereotype "system, external")
+        def db:UMLClass (d.ensureBox("core"))
+        c.eqStr("and `Db` that it holds the data" db.stereotype "system, database")
+
+        def uses:UMLRelation (itemAt d.uml.relations 1)
+        c.eqStr("the technology rides in brackets after the label" uses.label "Reads [Sync]")
+
+        def g:FlowGraph (MermaidC4Flow.render(src))
+        def frame:FlowNode (g.nodeById("sg-b0"))
+        c.eqStr("a boundary is drawn as a group" frame.nodeType "group")
+        def inner:FlowNode (g.nodeById("core"))
+        c.eqStr("and the inner boundary holds what is inside it" inner.parentId "sg-b1")
+        def first:FlowEdge (g.edgeAt(0))
+        c.eqStr("a BiRel has an arrow at both ends" first.markerStart "arrow")
+        def second:FlowEdge (g.edgeAt(1))
+        c.eqStr("and a Rel at one" second.markerStart "")
+        c.eqInt("nothing is drawn through a box" (EdgeOverlap.nodeCrossings(g)) 0)
+        c.ok("a C4 diagram is one this library draws" (MermaidReader.draws("c4")))
     }
 
     ; --------------------------------------------- a click is not an edit --
