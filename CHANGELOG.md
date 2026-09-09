@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Mermaid Venn diagrams.** The twenty-fourth type. Two facts and one picture:
+  how big each set is, and how much of it is also in another one. Circles are
+  sized by area rather than by radius — a set twice as big is twice the ink —
+  and placed to overlap, because a Venn diagram whose circles miss each other
+  has drawn the one thing it exists to deny.
+
+### Changed
+
+- **Round shapes are round.** A circle's outline was a fixed twenty-four
+  straight pieces, which is right for a 40px node and visibly faceted on a
+  300px one. The piece count now follows the radius, and circles and ellipses
+  additionally carry the exact four-cubic-Bezier path for the backends that
+  draw a path rather than tessellate one — the point ring stays, because it is
+  what the WebGL backend fills and what a click is tested against.
+
+### Added
+
 - **Mermaid fishbone (Ishikawa) diagrams.** The twenty-third type. Indentation
   is the whole of Mermaid's grammar for it, so it is the whole of the reading:
   the first line is the effect, the lines under it the categories, and the

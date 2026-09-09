@@ -52,6 +52,7 @@ Import "../domains/mermaid/MermaidArchReader.rgr"
 Import "../domains/mermaid/MermaidSwimlaneReader.rgr"
 Import "../domains/mermaid/MermaidCynefinReader.rgr"
 Import "../domains/mermaid/MermaidIshikawaReader.rgr"
+Import "../domains/mermaid/MermaidVennReader.rgr"
 Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 Import "../layout/LayeredLayout.rgr"
@@ -545,6 +546,10 @@ class RangerFlowDemo {
         }
         if (d.diagramKind == "ishikawa") {
             this.runMermaidIshikawa(srcOpt styleName)
+            return
+        }
+        if (d.diagramKind == "venn") {
+            this.runMermaidVenn(srcOpt styleName)
             return
         }
         if ((strlen d.diagramKind) > 0) {
@@ -1050,6 +1055,27 @@ class RangerFlowDemo {
             title = "RangerFlow — Mermaid fishbone"
         }
         this.writeAll(v g "rangerflow-mermaid-ishikawa" title)
+    }
+
+    ; A Venn diagram: circles, and what is in more than one of them.
+    fn runMermaidVenn:void (src:string styleName:string) {
+        def vd:MermaidVenn (MermaidVennReader.parse(src))
+        if ((vd.setCount()) == 0) {
+            print "  no sets in that Venn diagram"
+            return
+        }
+        def style:FlowStyle (this.styleByName(styleName))
+        def g:FlowGraph (MermaidVennFlow.build(vd style))
+        print ("  model  " + (to_string (vd.setCount())) + " sets, " + (to_string (vd.unionCount())) + " overlaps")
+        print ("  graph  " + (to_string (g.nodeCount())) + " nodes, " + (to_string (g.edgeCount())) + " edges")
+        def v:FlowView (FlowView.of(g))
+        v.notation = "plain"
+        style.applyToTheme(v.theme)
+        def title:string vd.title
+        if ((strlen title) == 0) {
+            title = "RangerFlow — Mermaid Venn diagram"
+        }
+        this.writeAll(v g "rangerflow-mermaid-venn" title)
     }
 
     ; ------------------------------------------------------------- org -----

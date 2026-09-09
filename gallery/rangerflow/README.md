@@ -670,6 +670,25 @@ reading: the first line is the effect, the lines under it are the categories,
 and the lines under those are the causes — as deep as they go, because a cause
 of a cause is the thing the diagram was invented for.
 
+### …and Venn diagrams
+
+Two facts and one picture: how big each set is, and how much of it is also in
+another one. The circles are sized by their own numbers and by *area* rather
+than by radius — a set twice as big is twice the ink, which is what a reader
+compares — and they are placed to overlap, because a Venn diagram whose circles
+miss each other has drawn the one thing it exists to deny.
+
+```mermaid
+venn-beta
+    title What people brought
+    set A ["Apples"]: 30
+    set B ["Bananas"]: 20
+    union A,B ["Both"]: 10
+```
+
+Every label is written *on* the drawing rather than in a box over it: a label
+with a fill of its own hides the very overlap the diagram is about.
+
 ### …measured against Mermaid itself
 
 A claim of parity with a format is worth what the person making it wanted it to

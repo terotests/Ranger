@@ -1299,6 +1299,7 @@ class MermaidReader {
         if (kind == "swimlane")  { return true }
         if (kind == "cynefin")   { return true }
         if (kind == "ishikawa")  { return true }
+        if (kind == "venn")      { return true }
         return false
     }
 

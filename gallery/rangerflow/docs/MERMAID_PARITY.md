@@ -5,7 +5,7 @@
 > and asked what it understood. Nothing is transcribed, so nothing can be
 > transcribed wrong.
 
-Mermaid 11.17.2 · 39 diagrams · **208/208 checks agree (100%)**
+Mermaid 11.17.2 · 40 diagrams · **210/210 checks agree (100%)**
 
 | example | type | direction | nodes | labels | shapes | classes | edges | subgraphs |
 | --- | --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
@@ -48,6 +48,7 @@ Mermaid 11.17.2 · 39 diagrams · **208/208 checks agree (100%)**
 | `37_swimlane.mmd` | swimlane ✓ | — | — | — | — | — | — | — |
 | `38_cynefin.mmd` | cynefin ✓ | — | — | — | — | — | — | — |
 | `39_ishikawa.mmd` | ishikawa ✓ | — | — | — | — | — | — | — |
+| `40_venn.mmd` | venn ✓ | — | — | — | — | — | — | — |
 
 ## Read anyway
 
@@ -60,7 +61,7 @@ every one of these is a file somebody wrote and Mermaid would not draw.
 ## Mermaid's diagram types
 
 Read off the installed Mermaid's own build rather than typed here, so a type
-added upstream appears the next time the harness is installed. 23 of the 30 are drawn;
+added upstream appears the next time the harness is installed. 24 of the 30 are drawn;
 the rest have to be **recognised and refused**, because a header this reader
 does not know falls through to the flowchart parser, and a Wardley map read as
 a flowchart is a page of invented boxes.
@@ -94,7 +95,7 @@ a flowchart is a page of invented boxes.
 | `stateDiagram-v2` | **drawn** — read as `state` |
 | `swimlane-beta` | **drawn** — read as `swimlane` |
 | `timeline` | **drawn** — read as `timeline` |
-| `venn-beta` | recognised as `venn`, read as nothing |
+| `venn-beta` | **drawn** — read as `venn` |
 | `wardley-beta` | recognised as `wardley`, read as nothing |
 | `xychart-beta` | **drawn** — read as `xychart` |
 

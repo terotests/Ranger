@@ -45,6 +45,7 @@ Import "../domains/mermaid/MermaidArchReader.rgr"
 Import "../domains/mermaid/MermaidSwimlaneReader.rgr"
 Import "../domains/mermaid/MermaidCynefinReader.rgr"
 Import "../domains/mermaid/MermaidIshikawaReader.rgr"
+Import "../domains/mermaid/MermaidVennReader.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 Import "../layout/TreeLayouts.rgr"
 Import "../export/FlowExport.rgr"
@@ -710,6 +711,9 @@ class RangerFlowWeb {
         if (d.diagramKind == "ishikawa") {
             return (this.loadMermaidIshikawa(text styleName want))
         }
+        if (d.diagramKind == "venn") {
+            return (this.loadMermaidVenn(text styleName want))
+        }
         if ((d.nodeCount()) == 0) {
             status = "no nodes in that Mermaid source"
             if ((strlen d.diagramKind) > 0) {
@@ -1234,6 +1238,26 @@ class RangerFlowWeb {
         def g:FlowGraph (MermaidIshikawaFlow.build(fd style))
         this.adoptPlaced(g style want)
         status = ((to_string (fd.categoryCount())) + " categories, " + (to_string (fd.causeCount())) + " causes — " + fd.problem + ", " + want)
+        return true
+    }
+
+    ; A Venn diagram: circles sized by their own numbers.
+    fn loadMermaidVenn:boolean (text:string styleName:string want:string) {
+        def vd:MermaidVenn (MermaidVennReader.parse(text))
+        if ((vd.setCount()) == 0) {
+            status = "no sets in that Venn diagram"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidVennFlow.build(vd style))
+        this.adoptPlaced(g style want)
+        def what:string vd.title
+        if ((strlen what) == 0) {
+            what = "Mermaid Venn diagram"
+        }
+        status = ((to_string (vd.setCount())) + " sets, " + (to_string (vd.unionCount())) + " overlaps — " + what + ", " + want)
         return true
     }
 

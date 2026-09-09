@@ -45,6 +45,7 @@ Import "../domains/mermaid/MermaidArchReader.rgr"
 Import "../domains/mermaid/MermaidSwimlaneReader.rgr"
 Import "../domains/mermaid/MermaidCynefinReader.rgr"
 Import "../domains/mermaid/MermaidIshikawaReader.rgr"
+Import "../domains/mermaid/MermaidVennReader.rgr"
 Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 
@@ -133,6 +134,7 @@ class RangerFlowTest {
         RangerFlowTest.testMermaidSwimlane(c)
         RangerFlowTest.testMermaidCynefin(c)
         RangerFlowTest.testMermaidIshikawa(c)
+        RangerFlowTest.testMermaidVenn(c)
         RangerFlowTest.testBusinessCharts(c)
         RangerFlowTest.testAuthoring(c)
         RangerFlowTest.testTreeLayouts(c)
@@ -3649,6 +3651,64 @@ class RangerFlowTest {
         c.ok("a cause is further from the spine than what it causes" (cause.y < cat0.y))
         c.eqInt("a bone per category and per cause, the deep one included" (g.edgeCount()) 8)
         c.ok("a fishbone is one this library draws" (MermaidReader.draws("ishikawa")))
+    }
+
+    ; --------------------------------------------- Mermaid Venn -----------
+    ; Two facts and one picture: how big each set is, and how much of it is
+    ; also in another one. So the assertions are about the sizes — a Venn
+    ; diagram whose circles are all the same has thrown away half of what it
+    ; was given — and about the circles actually overlapping.
+    sfn testMermaidVenn:void (c:Checker) {
+        c.section("Mermaid Venn diagrams")
+        def src:string "venn-beta\n"
+        src = (src + "    title What people brought\n")
+        src = (src + "    set A [\"Apples\"]: 40\n")
+        src = (src + "    set B [\"Bananas\"]: 10\n")
+        src = (src + "    union A,B [\"Both\"]: 5\n")
+
+        def d:MermaidVenn (MermaidVennReader.parse(src))
+        c.eqStr("the title is the line that says so" d.title "What people brought")
+        c.eqInt("a subset per `set` and per `union`" (d.subsetCount()) 3)
+        c.eqInt("but only the plain ones are sets" (d.setCount()) 2)
+        c.eqInt("and the rest are overlaps" (d.unionCount()) 1)
+        def a:MermaidVennSet (itemAt d.subsets 0)
+        c.eqStr("the brackets hold the label" a.label "Apples")
+        c.eqStr("and the name is what stands before them" a.id "A")
+        c.ok("the number after the colon is the size" ((fabs (a.size - 40.0)) < 0.0001))
+        c.eqInt("a plain set has one member" (a.memberCount()) 1)
+        def both:MermaidVennSet (itemAt d.subsets 2)
+        c.ok("a union has more than one" (both.isUnion()))
+        c.eqInt("named on the same line, comma separated" (both.memberCount()) 2)
+        c.eqStr("which is how it knows which circles it lies between" (itemAt both.members 1) "B")
+
+        def bare (new FlowStyle)
+        def g:FlowGraph (MermaidVennFlow.build(d bare))
+        def ca:FlowNode (g.nodeById("set-A"))
+        def cb:FlowNode (g.nodeById("set-B"))
+        c.eqStr("a set is drawn as the circle it is" ca.shape "circle")
+        c.ok("a bigger set is a bigger circle" (ca.width > cb.width))
+        ; Four times the size is twice the width: the circles are sized by
+        ; AREA, because that is what a reader compares.
+        def ratio:double (ca.width / cb.width)
+        c.ok("and bigger by area, not by radius" ((fabs (ratio - 2.0)) < 0.05))
+        def gap:double (fabs ((cb.centerX()) - (ca.centerX())))
+        def reach:double ((ca.width + cb.width) * 0.5)
+        c.ok("two circles are placed so that they OVERLAP" (gap < reach))
+        c.ok("which is the one thing a Venn diagram exists to say" (gap > 0.0))
+        c.eqInt("a Venn diagram has no edges at all" (g.edgeCount()) 0)
+        ; A round outline is a polygon in the tessellating backends and a real
+        ; curve in the ones that draw a path, and the polygon's density
+        ; follows the radius: a fixed segment count is right for a 40px node
+        ; and visibly faceted on a 300px one.
+        def small:int (FlowShapes.segmentsFor(18.0 18.0))
+        def large:int (FlowShapes.segmentsFor(200.0 200.0))
+        c.ok("a small circle needs few pieces" (small <= 20))
+        c.ok("and a large one needs many more" (large > (small * 2)))
+        def arc:string (FlowShapes.arcPath("circle" 0.0 0.0 100.0 100.0))
+        c.ok("a circle also carries an exact curve for the vector backends" ((strlen arc) > 0))
+        c.ok("built of the four cubic arcs every drawing library uses" ((MermaidReader.replaceAll(arc "C" "")) != arc))
+        c.eqStr("and a shape with no curve in it carries none" (FlowShapes.arcPath("hexagon" 0.0 0.0 10.0 10.0)) "")
+        c.ok("a Venn diagram is one this library draws" (MermaidReader.draws("venn")))
     }
 
     ; --------------------------------------------- a click is not an edit --
