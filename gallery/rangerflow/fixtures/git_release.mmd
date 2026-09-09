@@ -1,0 +1,21 @@
+---
+title: A release, branch by branch
+---
+gitGraph
+    commit id: "init"
+    commit id: "readme" tag: "v0.1"
+    branch develop
+    checkout develop
+    commit id: "parser"
+    commit id: "reader"
+    branch feature
+    checkout feature
+    commit id: "shapes"
+    commit id: "oops" type: REVERSE
+    commit id: "fixed" type: HIGHLIGHT
+    checkout develop
+    merge feature id: "m-feature"
+    commit id: "polish"
+    checkout main
+    merge develop id: "m-release" tag: "v1.0"
+    cherry-pick id: "polish"

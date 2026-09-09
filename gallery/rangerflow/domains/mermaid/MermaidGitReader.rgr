@@ -1,0 +1,636 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MermaidGitReader.rgr — a git graph, which is a graph that already knows
+; where everything goes.
+; ============================================================================
+;
+; A `gitGraph` is the one diagram in Mermaid that carries its own layout in
+; its syntax. Commits go left to right in the order they were written, one row
+; per branch, and there is nothing for a layout engine to work out: the order
+; IS the history, and a pass that shortened an edge by moving a commit would
+; be claiming it happened at a different time.
+;
+;   main     ●───●───────────────●───●
+;                 ╲             ╱
+;   develop        ●───●───●───●
+;                       ╲
+;   feature             ●───●
+;
+; So this reader does the placing itself, the way the sequence and Gantt
+; readers next door do: a column counter that ticks once per commit, a lane
+; per branch, and edges from each commit to the one it came from — two of them
+; for a merge, because that is what a merge is.
+;
+; **What it reads.** `commit` with `id:`, `tag:` and `type:`, `branch` (with
+; `order:`), `checkout` / `switch`, `merge` with its own id, tag and type, and
+; `cherry-pick`. The four commit types Mermaid draws are drawn: NORMAL is a
+; disc, MERGE two rings, HIGHLIGHT a box, and REVERSE a disc struck through.
+; ============================================================================
+
+Import "MermaidReader.rgr"
+Import "../../core/FlowStyleSheet.rgr"
+
+class MermaidGitCommit {
+    def id:string ""
+    def branch:string ""
+    def tag:string ""
+    ; "NORMAL" | "REVERSE" | "HIGHLIGHT" | "MERGE" | "CHERRY_PICK"
+    def kind:string "NORMAL"
+    ; What is written under the dot. Usually the id; for a cherry-pick,
+    ; Mermaid writes what was picked, because that is the only interesting
+    ; thing about it.
+    def label:string ""
+    ; What it came from: the commit before it on its own branch, and — for a
+    ; merge or a cherry-pick — the one on the other branch.
+    def parent:string ""
+    def otherParent:string ""
+    ; Where it goes. The column is its place in the history and the lane is
+    ; its branch, and both are decided while reading rather than afterwards.
+    def column:int 0
+    def lane:int 0
+
+    Constructor () {
+    }
+}
+
+class MermaidGitBranch {
+    def name:string ""
+    ; `branch x order: 2`. -1 means "wherever it was declared".
+    def order:int -1
+    def lane:int 0
+
+    Constructor () {
+    }
+}
+
+class MermaidGit {
+    def title:string ""
+    ; "LR" | "TB" | "BT"
+    def direction:string "LR"
+    def commits:[MermaidGitCommit]
+    def branches:[MermaidGitBranch]
+
+    Constructor () {
+    }
+
+    fn commitCount:int () {
+        return (array_length commits)
+    }
+
+    fn branchCount:int () {
+        return (array_length branches)
+    }
+
+    fn indexOfBranch:int (name:string) {
+        def i:int 0
+        while (i < (array_length branches)) {
+            def b:MermaidGitBranch (itemAt branches i)
+            if (b.name == name) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn indexOfCommit:int (id:string) {
+        def i:int 0
+        while (i < (array_length commits)) {
+            def c:MermaidGitCommit (itemAt commits i)
+            if (c.id == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn mergeCount:int () {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length commits)) {
+            def c:MermaidGitCommit (itemAt commits i)
+            if (c.kind == "MERGE") {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+}
+
+class MermaidGitReader {
+    def doc:MermaidGit (new MermaidGit)
+    def current:string "main"
+    ; The head of each branch, in step with `doc.branches`.
+    def heads:[string]
+    def seq:int 0
+    def column:int 0
+
+    Constructor () {
+    }
+
+    sfn parse:MermaidGit (src:string) {
+        def r (new MermaidGitReader)
+        return (r.read(src))
+    }
+
+    fn read:MermaidGit (src:string) {
+        def lines:[string] (strsplit src "\n")
+        def i:int 0
+        while (i < (array_length lines)) {
+            def raw:string (trim (itemAt lines i))
+            i = (i + 1)
+            def line:string (trim (MermaidGitReader.stripComment(raw)))
+            if ((strlen line) == 0) {
+                continue
+            }
+            this.statement(line)
+        }
+        return doc
+    }
+
+    sfn stripComment:string (line:string) {
+        def len:int (strlen line)
+        def i:int 0
+        while (i < len) {
+            def c:int (charAt line i)
+            if (c == 37) {
+                if ((i + 1) < len) {
+                    if ((charAt line (i + 1)) == 37) {
+                        return (substring line 0 i)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return line
+    }
+
+    fn statement:void (st:string) {
+        def word:string (MermaidReader.firstWord(st))
+        def kw:string (MermaidReader.lower(word))
+        def rest:string (trim (substring st (strlen word) (strlen st)))
+        if (MermaidReader.beginsWith(kw "gitgraph")) {
+            ; `gitGraph LR:` / `gitGraph TB:` — and `gitGraph:` on its own.
+            def d:string (MermaidReader.upper((MermaidGitReader.bareWord(rest))))
+            if (d == "LR") { doc.direction = "LR" }
+            if (d == "TB") { doc.direction = "TB" }
+            if (d == "TD") { doc.direction = "TB" }
+            if (d == "BT") { doc.direction = "BT" }
+            return
+        }
+        if (MermaidReader.beginsWith(kw "acctitle")) { return }
+        if (MermaidReader.beginsWith(kw "accdescr")) { return }
+        if (kw == "title") {
+            doc.title = (MermaidReader.cleanLabel(rest))
+            return
+        }
+        if (MermaidReader.beginsWith(kw "commit")) {
+            this.commit(st "NORMAL" "")
+            return
+        }
+        if (kw == "branch") {
+            this.branch(rest)
+            return
+        }
+        if (kw == "checkout") {
+            this.checkout((MermaidGitReader.bareWord(rest)))
+            return
+        }
+        if (kw == "switch") {
+            this.checkout((MermaidGitReader.bareWord(rest)))
+            return
+        }
+        if (kw == "merge") {
+            def from:string (MermaidGitReader.bareWord(rest))
+            this.commit(st "MERGE" from)
+            return
+        }
+        if (MermaidReader.beginsWith(kw "cherry-pick")) {
+            def picked:string (MermaidGitReader.optionValue(st "id:"))
+            this.commit(st "CHERRY_PICK" "")
+            def n:int (array_length doc.commits)
+            if (n > 0) {
+                def c:MermaidGitCommit (itemAt doc.commits (n - 1))
+                c.otherParent = picked
+                c.label = ("cherry-pick " + picked)
+            }
+            return
+        }
+    }
+
+    ; The word a statement names, with its punctuation off: `checkout main;`
+    ; and `merge develop` both name one branch.
+    sfn bareWord:string (rest:string) {
+        def t:string (trim rest)
+        def w:string (MermaidReader.firstWord(t))
+        def clean:string (MermaidReader.unquote((trim w)))
+        def n:int (strlen clean)
+        while (n > 0) {
+            def c:int (charAt clean (n - 1))
+            if (c == 58) { n = (n - 1) } {
+                if (c == 59) { n = (n - 1) } {
+                    return (substring clean 0 n)
+                }
+            }
+        }
+        return ""
+    }
+
+    ; `commit id: "Normal" tag: "v1.0.0" type: REVERSE` — the value is either
+    ; quoted or a bare word, and both spellings appear in Mermaid's own docs.
+    sfn optionValue:string (st:string key:string) {
+        def at:int (MermaidGitReader.indexOfText(st key))
+        if (at < 0) {
+            return ""
+        }
+        def i:int (at + (strlen key))
+        def n:int (strlen st)
+        while (i < n) {
+            if ((charAt st i) != 32) {
+                break
+            }
+            i = (i + 1)
+        }
+        if (i >= n) {
+            return ""
+        }
+        if ((charAt st i) == 34) {
+            def close:int (i + 1)
+            while (close < n) {
+                if ((charAt st close) == 34) {
+                    return (substring st (i + 1) close)
+                }
+                close = (close + 1)
+            }
+            return (substring st (i + 1) n)
+        }
+        def end:int i
+        while (end < n) {
+            def c:int (charAt st end)
+            if (c == 32) { break }
+            if (c == 44) { break }
+            end = (end + 1)
+        }
+        return (substring st i end)
+    }
+
+    sfn indexOfText:int (text:string needle:string) {
+        def n:int (strlen needle)
+        def m:int (strlen text)
+        if (n == 0) {
+            return -1
+        }
+        def i:int 0
+        while ((i + n) <= m) {
+            def k:int 0
+            def hit:boolean true
+            while (k < n) {
+                if ((charAt text (i + k)) != (charAt needle k)) {
+                    hit = false
+                    break
+                }
+                k = (k + 1)
+            }
+            if hit {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn ensureBranch:int (name:string) {
+        def at:int (doc.indexOfBranch(name))
+        if (at >= 0) {
+            return at
+        }
+        def b (new MermaidGitBranch)
+        b.name = name
+        push doc.branches b
+        push heads ""
+        return (doc.indexOfBranch(name))
+    }
+
+    fn branch:void (rest:string) {
+        def name:string (MermaidGitReader.bareWord(rest))
+        if ((strlen name) == 0) {
+            return
+        }
+        ; A branch starts where the branch it was cut from stood, so the new
+        ; head is the old one: the first commit on it joins up to the history
+        ; rather than floating.
+        def fromIdx:int (this.ensureBranch(current))
+        def startFrom:string ""
+        if (fromIdx >= 0) {
+            startFrom = (itemAt heads fromIdx)
+        }
+        def at:int (this.ensureBranch(name))
+        def b:MermaidGitBranch (itemAt doc.branches at)
+        def ord:string (MermaidGitReader.optionValue(rest "order:"))
+        if ((strlen ord) > 0) {
+            def v@(optional):int (str2int (trim ord))
+            if (!null? v) {
+                b.order = (unwrap v)
+            }
+        }
+        set_at heads at startFrom
+        current = name
+    }
+
+    fn checkout:void (name:string) {
+        if ((strlen name) == 0) {
+            return
+        }
+        def at:int (this.ensureBranch(name))
+        current = name
+    }
+
+    fn commit:void (st:string kind:string mergedFrom:string) {
+        def branchAt:int (this.ensureBranch(current))
+        if (branchAt < 0) {
+            return
+        }
+        def c (new MermaidGitCommit)
+        c.branch = current
+        c.kind = kind
+        def given:string (MermaidGitReader.optionValue(st "id:"))
+        if (kind == "CHERRY_PICK") {
+            ; A cherry-pick's `id:` names the commit being picked, not this
+            ; one, so this one is given a name of its own.
+            given = ""
+        }
+        if ((strlen given) > 0) {
+            c.id = given
+        } {
+            c.id = (to_string seq)
+            seq = (seq + 1)
+        }
+        c.tag = (MermaidGitReader.optionValue(st "tag:"))
+        def t:string (MermaidReader.upper((MermaidGitReader.optionValue(st "type:"))))
+        if (kind == "NORMAL") {
+            if (t == "REVERSE")   { c.kind = "REVERSE" }
+            if (t == "HIGHLIGHT") { c.kind = "HIGHLIGHT" }
+        }
+        c.parent = (itemAt heads branchAt)
+        if ((strlen mergedFrom) > 0) {
+            def other:int (doc.indexOfBranch(mergedFrom))
+            if (other >= 0) {
+                c.otherParent = (itemAt heads other)
+            }
+        }
+        if ((strlen c.label) == 0) {
+            c.label = c.id
+        }
+        c.column = column
+        column = (column + 1)
+        push doc.commits c
+        set_at heads branchAt c.id
+    }
+}
+
+; ---------------------------------------------------------------------------
+; The pipeline
+; ---------------------------------------------------------------------------
+class MermaidGitFlow {
+    sfn parse:MermaidGit (src:string) {
+        return (MermaidGitReader.parse(src))
+    }
+
+    sfn render:FlowGraph (src:string) {
+        def d:MermaidGit (MermaidGitReader.parse(src))
+        def bare (new FlowStyle)
+        return (MermaidGitFlow.build(d bare))
+    }
+
+    sfn build:FlowGraph (d:MermaidGit style:FlowStyle) {
+        def g (new FlowGraph)
+        if ((d.commitCount()) == 0) {
+            return g
+        }
+        MermaidGitFlow.assignLanes(d)
+        def colStep:double 96.0
+        def laneStep:double 88.0
+        def left:double 150.0
+        def down:boolean false
+        if (d.direction == "TB") { down = true }
+        if (d.direction == "BT") { down = true }
+        def i:int 0
+        while (i < (array_length d.commits)) {
+            def c:MermaidGitCommit (itemAt d.commits i)
+            def along:double (left + ((to_double c.column) * colStep))
+            def across:double (30.0 + ((to_double c.lane) * laneStep))
+            def x:double along
+            def y:double across
+            if down {
+                x = across
+                y = along
+            }
+            def n:FlowNode (MermaidGitFlow.commitNode(c x y))
+            g.addNode(n)
+            i = (i + 1)
+        }
+        ; The branch names, one per lane, at the near end of the row.
+        def b:int 0
+        while (b < (array_length d.branches)) {
+            def br:MermaidGitBranch (itemAt d.branches b)
+            def across2:double (30.0 + ((to_double br.lane) * laneStep))
+            def bx:double 0.0
+            def by:double (across2 - 12.0)
+            if down {
+                bx = (across2 - 56.0)
+                by = 0.0
+            }
+            def label:FlowNode (FlowNode.create(("branch-" + br.name) br.name bx by))
+            label.nodeType = "branchlabel"
+            label.shape = "stadium"
+            label.width = 130.0
+            label.height = 30.0
+            label.connectable = false
+            label.cssClass = "mermaid branchlabel"
+            label.bgColor = "#eef2f8"
+            label.borderColor = "#b9c0cc"
+            label.syncFromModel()
+            g.addNode(label)
+            b = (b + 1)
+        }
+        g.reindex()
+        def k:int 0
+        while (k < (array_length d.commits)) {
+            def c2:MermaidGitCommit (itemAt d.commits k)
+            MermaidGitFlow.link(g c2.parent c2.id false)
+            def dashed:boolean (c2.kind == "CHERRY_PICK")
+            MermaidGitFlow.link(g c2.otherParent c2.id dashed)
+            k = (k + 1)
+        }
+        g.reindex()
+        def wrote:int (style.applyTo(g))
+        return g
+    }
+
+    sfn link:void (g:FlowGraph from:string to:string dashed:boolean) {
+        if ((strlen from) == 0) {
+            return
+        }
+        if ((g.hasNode(from)) == false) {
+            return
+        }
+        if ((g.hasNode(to)) == false) {
+            return
+        }
+        def e:FlowEdge (FlowEdge.create("" from to))
+        e.edgeType = "smoothstep"
+        e.markerEnd = ""
+        e.cssClass = "link commit"
+        if dashed {
+            e.dash = 5.0
+            e.cssClass = "link cherry"
+        }
+        g.addEdge(e)
+    }
+
+    sfn commitNode:FlowNode (c:MermaidGitCommit x:double y:double) {
+        def n:FlowNode (FlowNode.create(c.id "" x y))
+        n.nodeType = "commit"
+        n.shape = "circle"
+        n.width = 30.0
+        n.height = 30.0
+        n.connectable = false
+        n.cssClass = ("mermaid commit " + (MermaidGitFlow.classOf(c.kind)))
+        n.bgColor = "#ffffff"
+        n.borderColor = "#7b8494"
+        if (c.kind == "MERGE") {
+            ; Two rings: a merge is where two histories became one, and a disc
+            ; the same size as its neighbours does not say so.
+            n.shape = "finalnode"
+            n.width = 38.0
+            n.height = 38.0
+            n.x = (x - 4.0)
+            n.y = (y - 4.0)
+        }
+        if (c.kind == "HIGHLIGHT") {
+            n.shape = "rect"
+            n.width = 40.0
+            n.height = 28.0
+            n.borderRadius = 4.0
+            n.x = (x - 5.0)
+            n.y = (y + 1.0)
+        }
+        if (c.kind == "REVERSE") {
+            ; A commit that undoes one. Mermaid strikes it through; the same
+            ; cross, drawn as the shape it is.
+            n.shape = "polygon"
+            MermaidGitFlow.crossedDisc(n)
+        }
+        ; The id goes under the dot rather than inside it: a disc thirty across
+        ; has no room for a word, and Mermaid writes it underneath too.
+        def text:string c.label
+        if ((strlen text) == 0) {
+            text = c.id
+        }
+        def under:FlowAnnotation (n.addAnnotation(text 0.5 1.45))
+        under.fontSize = 11.0
+        under.width = 110.0
+        if ((strlen c.tag) > 0) {
+            def above:FlowAnnotation (n.addAnnotation(c.tag 0.5 (0.0 - 0.55)))
+            above.fontSize = 11.0
+            above.width = 110.0
+        }
+        n.syncFromModel()
+        return n
+    }
+
+    sfn classOf:string (kind:string) {
+        if (kind == "MERGE")       { return "merge" }
+        if (kind == "REVERSE")     { return "reverse" }
+        if (kind == "HIGHLIGHT")   { return "highlight" }
+        if (kind == "CHERRY_PICK") { return "cherry" }
+        return "normal"
+    }
+
+    ; The cross Mermaid strikes a reversed commit through with, drawn as the
+    ; shape it is: twelve points of a unit square. A disc with a different
+    ; colour would not say "this undid something" to anybody.
+    sfn crossedDisc:void (n:FlowNode) {
+        clear n.shapePoints
+        MermaidGitFlow.put(n 0.0 0.2)
+        MermaidGitFlow.put(n 0.2 0.0)
+        MermaidGitFlow.put(n 0.5 0.3)
+        MermaidGitFlow.put(n 0.8 0.0)
+        MermaidGitFlow.put(n 1.0 0.2)
+        MermaidGitFlow.put(n 0.7 0.5)
+        MermaidGitFlow.put(n 1.0 0.8)
+        MermaidGitFlow.put(n 0.8 1.0)
+        MermaidGitFlow.put(n 0.5 0.7)
+        MermaidGitFlow.put(n 0.2 1.0)
+        MermaidGitFlow.put(n 0.0 0.8)
+        MermaidGitFlow.put(n 0.3 0.5)
+    }
+
+    sfn put:void (n:FlowNode x:double y:double) {
+        push n.shapePoints x
+        push n.shapePoints y
+    }
+
+    ; Which row each branch gets. `order:` wins where it is given, and the
+    ; declaration order decides the rest — which is Mermaid's own rule, and
+    ; the reason `main` is at the top of nearly every git graph ever drawn.
+    sfn assignLanes:void (d:MermaidGit) {
+        def n:int (array_length d.branches)
+        def keys:[int]
+        def i:int 0
+        while (i < n) {
+            def b:MermaidGitBranch (itemAt d.branches i)
+            if (b.order >= 0) {
+                push keys (b.order * 1000)
+            } {
+                push keys ((i * 1000) + 500)
+            }
+            i = (i + 1)
+        }
+        ; A selection sort over a handful of branches: the smallest key not yet
+        ; placed takes the next lane.
+        def placed:[int]
+        def p:int 0
+        while (p < n) {
+            push placed 0
+            p = (p + 1)
+        }
+        def lane:int 0
+        while (lane < n) {
+            def best:int -1
+            def k:int 0
+            while (k < n) {
+                if ((itemAt placed k) == 0) {
+                    if (best < 0) {
+                        best = k
+                    } {
+                        if ((itemAt keys k) < (itemAt keys best)) {
+                            best = k
+                        }
+                    }
+                }
+                k = (k + 1)
+            }
+            if (best < 0) {
+                break
+            }
+            def b2:MermaidGitBranch (itemAt d.branches best)
+            b2.lane = lane
+            set_at placed best 1
+            lane = (lane + 1)
+        }
+        def c:int 0
+        while (c < (array_length d.commits)) {
+            def cm:MermaidGitCommit (itemAt d.commits c)
+            def at:int (d.indexOfBranch(cm.branch))
+            if (at >= 0) {
+                def bb:MermaidGitBranch (itemAt d.branches at)
+                cm.lane = bb.lane
+            }
+            c = (c + 1)
+        }
+    }
+}

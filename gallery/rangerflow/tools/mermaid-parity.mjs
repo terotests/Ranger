@@ -155,8 +155,11 @@ function labelText(raw) {
 /** Mermaid names a diagram type several ways; this is the short one. */
 // `flowchart-elk` is the same language read by a different layout engine, and
 // RangerFlow has a layout engine of its own — so it is a flowchart here.
+// `gitGraph` is the one type whose short name differs between the two
+// vocabularies: Mermaid keeps the "graph", RangerFlow calls it `git` the way
+// it calls the others `er` and `c4`.
 const kindOf = (raw) =>
-  String(raw ?? "").toLowerCase().replace(/-v2$/, "").replace(/^flowchart-elk$/, "flowchart").replace(/diagram$/, "") || "";
+  String(raw ?? "").toLowerCase().replace(/-v2$/, "").replace(/^flowchart-elk$/, "flowchart").replace(/^gitgraph$/, "git").replace(/diagram$/, "") || "";
 
 const dirOf = (raw) => (String(raw ?? "").toUpperCase() === "TD" ? "TB" : String(raw ?? "").toUpperCase());
 

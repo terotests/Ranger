@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Mermaid git graphs.** The twelfth type, and the one whose syntax already
+  contains its layout: commits run along the axis in the order they were
+  written, one row per branch, so nothing is asked of the layout engine. A
+  merge draws both of its parents and a cherry-pick a dashed line back to what
+  it picked; `id:`, `tag:`, `type:` and `order:` are read, and the four commit
+  types are drawn as the four shapes Mermaid draws.
 - **Mermaid sequence diagrams.** The eleventh type, and the one where both axes
   are content: who across the page, when down it. Nothing asks the layout
   engine anything — the columns are the participants in declaration order, the

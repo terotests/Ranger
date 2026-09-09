@@ -404,6 +404,32 @@ calls itself. `loop`, `alt`/`else`, `opt`, `par`/`and`, `critical`/`option`,
 `box` groups the ones declared inside it; `create` draws a participant where it
 is created and `destroy` ends its lifeline with the cross.
 
+### …and git graphs
+
+The one diagram whose syntax already contains its layout. Commits go along the
+axis in the order they were written and each branch gets a row, so there is
+nothing for a layout engine to work out: the order *is* the history, and a pass
+that shortened an edge by moving a commit would be claiming it happened at a
+different time.
+
+```mermaid
+gitGraph
+    commit id: "init"
+    commit id: "readme" tag: "v0.1"
+    branch develop order: 2
+    checkout develop
+    commit id: "parser"
+    commit id: "oops" type: REVERSE
+    checkout main
+    merge develop id: "m1" tag: "v1.0"
+    cherry-pick id: "parser"
+```
+
+A merge draws both its parents, because that is what a merge is; a cherry-pick
+draws a dashed line back to what it picked. The four commit types are the four
+Mermaid draws — NORMAL a disc, MERGE two rings, HIGHLIGHT a box, REVERSE a disc
+struck through — and `order:` moves a branch's row where it is given.
+
 ### …measured against Mermaid itself
 
 A claim of parity with a format is worth what the person making it wanted it to

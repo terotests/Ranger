@@ -5,7 +5,7 @@
 > and asked what it understood. Nothing is transcribed, so nothing can be
 > transcribed wrong.
 
-Mermaid 11.17.2 · 28 diagrams · **186/186 checks agree (100%)**
+Mermaid 11.17.2 · 29 diagrams · **188/188 checks agree (100%)**
 
 | example | type | direction | nodes | labels | shapes | classes | edges | subgraphs |
 | --- | --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
@@ -37,6 +37,7 @@ Mermaid 11.17.2 · 28 diagrams · **186/186 checks agree (100%)**
 | `26_beyond.mmd` | — | — | — | — | — | — | — | — |
 | `27_er.mmd` | er ✓ | — | — | — | — | — | — | — |
 | `28_sequence.mmd` | sequence ✓ | — | — | — | — | — | — | — |
+| `29_gitgraph.mmd` | git ✓ | — | — | — | — | — | — | — |
 
 ## Read anyway
 
@@ -66,7 +67,7 @@ a flowchart is a page of invented boxes.
 | `erDiagram` | **drawn** — read as `er` |
 | `flowchart` | **drawn** — read as `flowchart` |
 | `gantt` | **drawn** — read as `gantt` |
-| `gitGraph` | recognised as `git`, read as nothing |
+| `gitGraph` | **drawn** — read as `git` |
 | `info` | recognised as `info`, read as nothing |
 | `ishikawa-beta` | recognised as `ishikawa`, read as nothing |
 | `journey` | **drawn** — read as `journey` |

@@ -34,6 +34,7 @@ Import "../domains/mermaid/MermaidTimelineReader.rgr"
 Import "../domains/mermaid/MermaidJourneyReader.rgr"
 Import "../domains/mermaid/MermaidGanttReader.rgr"
 Import "../domains/mermaid/MermaidSequenceReader.rgr"
+Import "../domains/mermaid/MermaidGitReader.rgr"
 Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 
@@ -111,6 +112,7 @@ class RangerFlowTest {
         RangerFlowTest.testMermaidPlaced(c)
         RangerFlowTest.testMermaidGantt(c)
         RangerFlowTest.testMermaidSequence(c)
+        RangerFlowTest.testMermaidGit(c)
         RangerFlowTest.testBusinessCharts(c)
         RangerFlowTest.testAuthoring(c)
         RangerFlowTest.testTreeLayouts(c)
@@ -3045,6 +3047,62 @@ class RangerFlowTest {
         def custLife:FlowNode (g.nodeById("ll-Cust"))
         c.ok("a destroyed lifeline stops short of the others" (bankLife.height < custLife.height))
         c.ok("a sequence diagram is one this library draws" (MermaidReader.draws("sequence")))
+    }
+
+    ; --------------------------------------------- Mermaid git graph ------
+    ; A git graph carries its own layout: the order is the history. So what
+    ; there is to get wrong is the ancestry — which commit came from which —
+    ; and that is what these check.
+    sfn testMermaidGit:void (c:Checker) {
+        c.section("Mermaid git graphs")
+        def src:string "gitGraph\n"
+        src = (src + "    commit id: \"init\"\n")
+        src = (src + "    commit id: \"readme\" tag: \"v0.1\"\n")
+        src = (src + "    branch develop order: 2\n")
+        src = (src + "    checkout develop\n")
+        src = (src + "    commit id: \"parser\"\n")
+        src = (src + "    commit id: \"oops\" type: REVERSE\n")
+        src = (src + "    checkout main\n")
+        src = (src + "    merge develop id: \"m1\" tag: \"v1.0\"\n")
+        src = (src + "    cherry-pick id: \"parser\"\n")
+
+        def d:MermaidGit (MermaidGitReader.parse(src))
+        c.eqInt("`main` is a branch nobody had to declare" (d.branchCount()) 2)
+        c.eqInt("a commit per statement that makes one" (d.commitCount()) 6)
+        c.eqInt("and the merge is counted as what it is" (d.mergeCount()) 1)
+
+        def init:MermaidGitCommit (itemAt d.commits 0)
+        c.eqStr("the first commit is on the default branch" init.branch "main")
+        c.eqStr("and comes from nothing" init.parent "")
+        def readme:MermaidGitCommit (itemAt d.commits 1)
+        c.eqStr("the next one follows it" readme.parent "init")
+        c.eqStr("`tag:` is read off the same line" readme.tag "v0.1")
+
+        def parser:MermaidGitCommit (itemAt d.commits 2)
+        c.eqStr("a branch is cut where its parent stood" parser.parent "readme")
+        c.eqStr("and its commits belong to it" parser.branch "develop")
+        def oops:MermaidGitCommit (itemAt d.commits 3)
+        c.eqStr("`type:` names the kind" oops.kind "REVERSE")
+
+        def merge:MermaidGitCommit (itemAt d.commits 4)
+        c.eqStr("a merge is on the branch that was checked out" merge.branch "main")
+        c.eqStr("its first parent is that branch's head" merge.parent "readme")
+        c.eqStr("and its second is the head of the branch merged in" merge.otherParent "oops")
+        def pick:MermaidGitCommit (itemAt d.commits 5)
+        c.eqStr("a cherry-pick's `id:` names what was picked" pick.otherParent "parser")
+        c.eqStr("not the commit it makes" pick.kind "CHERRY_PICK")
+
+        def g:FlowGraph (MermaidGitFlow.render(src))
+        def a:FlowNode (g.nodeById("init"))
+        def b:FlowNode (g.nodeById("readme"))
+        c.ok("commits run along the axis in the order they happened" (a.x < b.x))
+        def p:FlowNode (g.nodeById("parser"))
+        c.ok("and a branch gets a row of its own" (p.y > a.y))
+        def m:FlowNode (g.nodeById("m1"))
+        c.eqStr("a merge is two rings, not one" m.shape "finalnode")
+        c.eqStr("a reversed commit is struck through" ((g.nodeById("oops")).shape) "polygon")
+        c.eqInt("an edge per parent — two for the merge and two for the pick" (g.edgeCount()) 7)
+        c.ok("a git graph is one this library draws" (MermaidReader.draws("git")))
     }
 
     ; --------------------------------------------- a click is not an edit --

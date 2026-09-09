@@ -140,6 +140,7 @@ Status keys: **✓** done · **~** partial · **·** not yet.
 | Schema grouping / multi-schema | ~ | `DBTable.schema` is modelled; no visual grouping yet |
 | SQL DDL import | ✓ | `SqlSchemaReader` |
 | Mermaid flowchart import | ✓ | `MermaidReader`: every shape and link, `subgraph`, `classDef` / `class` / `style`; `click` and `linkStyle` ignored |
+| Mermaid git graph import | ✓ | `MermaidGitReader`: `commit` / `branch` / `checkout` / `merge` / `cherry-pick`, `id:` `tag:` `type:` `order:`, both parents of a merge |
 | Mermaid sequence import | ✓ | `MermaidSequenceReader`: all ten arrow tokens, activation (explicit and `+`/`-`), notes, `loop` / `alt` / `opt` / `par` / `critical` / `break` / `rect`, `box`, `create` / `destroy`, `autonumber` |
 | Mermaid Gantt import | ✓ | `MermaidGanttReader`: dates as day numbers, `after <id>` chains, durations, milestones, tags as classes |
 | Mermaid timeline import | ✓ | `MermaidTimelineReader`: periods along the axis, events under them, sections as frames |

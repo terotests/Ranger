@@ -34,6 +34,7 @@ Import "../domains/mermaid/MermaidTimelineReader.rgr"
 Import "../domains/mermaid/MermaidJourneyReader.rgr"
 Import "../domains/mermaid/MermaidGanttReader.rgr"
 Import "../domains/mermaid/MermaidSequenceReader.rgr"
+Import "../domains/mermaid/MermaidGitReader.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 Import "../layout/TreeLayouts.rgr"
 Import "../export/FlowExport.rgr"
@@ -666,6 +667,9 @@ class RangerFlowWeb {
         if (d.diagramKind == "sequence") {
             return (this.loadMermaidSequence(text styleName want))
         }
+        if (d.diagramKind == "git") {
+            return (this.loadMermaidGit(text styleName want))
+        }
         if ((d.nodeCount()) == 0) {
             status = "no nodes in that Mermaid source"
             if ((strlen d.diagramKind) > 0) {
@@ -969,6 +973,27 @@ class RangerFlowWeb {
             what = "Mermaid sequence diagram"
         }
         status = ((to_string (sd.actorCount())) + " participants, " + (to_string (sd.messageCount())) + " messages — " + what + ", " + want)
+        return true
+    }
+
+    ; A git graph carries its own layout in its syntax: the order is the
+    ; history, and one row per branch.
+    fn loadMermaidGit:boolean (text:string styleName:string want:string) {
+        def gd:MermaidGit (MermaidGitReader.parse(text))
+        if ((gd.commitCount()) == 0) {
+            status = "no commits in that git graph"
+            return false
+        }
+        mermaidText = text
+        mermaidStyle = styleName
+        def style:FlowStyle (FlowStyle.named(want))
+        def g:FlowGraph (MermaidGitFlow.build(gd style))
+        this.adoptPlaced(g style want)
+        def what:string gd.title
+        if ((strlen what) == 0) {
+            what = "Mermaid git graph"
+        }
+        status = ((to_string (gd.commitCount())) + " commits on " + (to_string (gd.branchCount())) + " branches — " + what + ", " + want)
         return true
     }
 
