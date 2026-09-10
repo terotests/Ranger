@@ -167,7 +167,8 @@ node -e "
 node gallery/evg/web/tools/inline-assets.mjs \
   --html "$OUT/index.html" \
   --start "${ASSETS#,}" \
-  --preload "standalone.mjs,gl/evg-webgl.js,host/pptx-host.mjs" \
+  --preload-stamped "standalone.mjs,gl/evg-webgl.js" \
+  --preload "host/pptx-host.mjs,evg/assets-client.mjs" \
   --stamp "$STAMP" \
   --open-param open || exit 1
 

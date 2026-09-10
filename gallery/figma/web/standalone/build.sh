@@ -98,7 +98,8 @@ node gallery/evg/web/tools/minify.mjs --file "$OUT/fig_web.js" --keep FigWeb || 
 node gallery/evg/web/tools/inline-assets.mjs \
   --html "$OUT/index.html" \
   --start "fixtures/health.fig" \
-  --preload "standalone.mjs,gl/evg-webgl.js" \
+  --preload-stamped "standalone.mjs" \
+  --preload "gl/evg-webgl.js,evg/assets-client.mjs" \
   --stamp "$STAMP" || exit 1
 
 if grep -q "__BUILD__" "$OUT/index.html"; then

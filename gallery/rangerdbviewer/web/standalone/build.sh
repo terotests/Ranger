@@ -146,7 +146,8 @@ node -e "
 node gallery/evg/web/tools/inline-assets.mjs \
   --html "$OUT/index.html" \
   --start "${ASSETS#,}" \
-  --preload "standalone.mjs,gl/evg-webgl.js" \
+  --preload-stamped "standalone.mjs,gl/evg-webgl.js" \
+  --preload "evg/assets-client.mjs" \
   --stamp "$STAMP" || exit 1
 
 if grep -q "__BUILD__" "$OUT/index.html"; then

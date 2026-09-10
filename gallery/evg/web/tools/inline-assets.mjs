@@ -6,7 +6,8 @@
 //   node gallery/evg/web/tools/inline-assets.mjs \
 //     --html DIR/index.html \
 //     --start fonts/A.ttf,fonts/B.ttf,presets.txt,deck.pptx \
-//     --preload standalone.mjs,gl/evg-webgl.js \
+//     --preload-stamped standalone.mjs,gl/evg-webgl.js \
+//     --preload host/app-host.mjs,evg/assets-client.mjs \
 //     --stamp <build id>
 //
 // Every gallery page fetched its assets the same way and in the same wrong
@@ -35,12 +36,18 @@ const list = (name) => (flag(name, "") ? flag(name, "").split(",").filter(Boolea
 
 const html = flag("--html");
 const start = list("--start");
+// TWO LISTS, AND THE DIFFERENCE MATTERS. A preload whose URL is not the URL
+// the module actually imports is not a preload: it is a second download of the
+// same file. Builds stamp some of their module URLs with the build id and
+// leave others alone, so which list a module belongs in is the build's answer,
+// not a guess this tool can make.
+const preloadStamped = list("--preload-stamped");
 const preload = list("--preload");
 const stamp = flag("--stamp", "");
 const openParam = flag("--open-param");
 
 if (!html || !fs.existsSync(html)) {
-  console.error("usage: inline-assets.mjs --html <file> --start a,b --preload c,d [--stamp id] [--open-param open]");
+  console.error("usage: inline-assets.mjs --html <file> --start a,b [--preload-stamped c] [--preload d] [--stamp id] [--open-param open]");
   process.exit(2);
 }
 
@@ -74,8 +81,11 @@ lines.push("          window.__evgAssets[f] = fetch('./' + f).catch(function (e)
 lines.push("        });");
 lines.push("      })();");
 lines.push("    </script>");
-for (const mod of preload) {
+for (const mod of preloadStamped) {
   lines.push(`    <link rel="modulepreload" href="./${mod}${q}" />`);
+}
+for (const mod of preload) {
+  lines.push(`    <link rel="modulepreload" href="./${mod}" />`);
 }
 
 // After the charset, which must stay first, and before anything that could
@@ -87,4 +97,7 @@ if (!anchor.test(src)) {
 }
 src = src.replace(anchor, (m) => `${m}\n${lines.join("\n")}`);
 fs.writeFileSync(html, src);
-console.log(`  head starts ${start.length} assets${openParam ? " (+?" + openParam + ")" : ""}, preloads ${preload.length}`);
+console.log(
+  `  head starts ${start.length} assets${openParam ? " (+?" + openParam + ")" : ""}, ` +
+  `preloads ${preloadStamped.length + preload.length}`,
+);

@@ -119,7 +119,8 @@ node gallery/evg/web/tools/minify.mjs --file "$OUT/rangerflow_web.js" --keep Ran
 node gallery/evg/web/tools/inline-assets.mjs \
   --html "$OUT/index.html" \
   --start "ecommerce.sql" \
-  --preload "standalone.mjs,gl/evg-webgl.js" \
+  --preload-stamped "standalone.mjs,gl/evg-webgl.js" \
+  --preload "evg/assets-client.mjs" \
   --stamp "$STAMP" || exit 1
 
 if grep -q "__BUILD__" "$OUT/index.html"; then
