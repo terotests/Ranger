@@ -88,6 +88,20 @@ class MdStyle {
     def quoteBarColor:string "#d0d7de"
     def quoteBarWidth:double 3.0
     def quoteIndent:double 16.0
+    ; The space inside the bar, above the first line and below the last.
+    ;
+    ; Without it the bar began exactly at the top of the first line's box and
+    ; ended exactly where the next block started — flush against the text at
+    ; one end and dangling past it at the other, because what it was measuring
+    ; at the bottom was the last paragraph's trailing space rather than the
+    ; paragraph. A quote is a block with an inside; this is the inside.
+    def quotePadY:double 6.0
+    ; Quoted text is set in the muted colour, which is what every markdown
+    ; style does and what says "this is somebody else's sentence" without a
+    ; box around it. A link, a code span or a heading inside the quote keeps
+    ; its own colour: this is the colour of ordinary text in there, not a wash
+    ; over everything.
+    def quoteColor:string "#57606a"
 
     def listIndent:double 22.0
     def markerGap:double 8.0
@@ -281,6 +295,10 @@ class MdLayout {
     def cursorY:double 0.0
     def page:int 0
     def pageCount:int 1
+
+    ; How many block quotes deep the walk is, which is what `baseRun` reads to
+    ; decide the colour of ordinary text.
+    def quoteDepth:int 0
 
     ; the column being filled
     def contentX:double 0.0
@@ -720,6 +738,9 @@ class MdLayout {
         r.family = style.bodyFamily
         r.size = style.bodySize
         r.color = style.textColor
+        if (quoteDepth > 0) {
+            r.color = style.quoteColor
+        }
         return r
     }
 
@@ -844,12 +865,38 @@ class MdLayout {
     }
 
     fn blockQuote:void (node:MdNode x:double w:double) {
+        def pad:double style.quotePadY
         def top:double cursorY
         def innerX:double ((x + style.quoteBarWidth) + style.quoteIndent)
         def innerW:double (w - ((style.quoteBarWidth + style.quoteIndent)))
         def startPage:int page
+        def before:int (array_length boxes)
+        cursorY = (cursorY + pad)
+        quoteDepth = (quoteDepth + 1)
         this.blocks(node innerX innerW)
-        def bottom:double cursorY
+        quoteDepth = (quoteDepth - 1)
+        ; Where the CONTENT ended, which is not where the cursor is: `blocks`
+        ; leaves the cursor past the last child's own trailing space, and that
+        ; space belongs OUTSIDE the bar. Reading the bottom off the boxes it
+        ; just emitted works whatever the last child turned out to be — a
+        ; paragraph, a list, a table, a nested quote, a drawing — where
+        ; subtracting a paragraph's spacing would only work for a paragraph.
+        def inkBottom:double (top + pad)
+        def i:int before
+        def n:int (array_length boxes)
+        while (i < n) {
+            def b:MdBox (itemAt boxes i)
+            ; On this sheet only. A quote that crossed a break has boxes whose
+            ; y is measured from the top of another page.
+            if (b.page == page) {
+                def edge:double (b.y + b.h)
+                if (edge > inkBottom) {
+                    inkBottom = edge
+                }
+            }
+            i = (i + 1)
+        }
+        def bottom:double (inkBottom + pad)
         ; The bar is drawn per page, so a quote that spans a break gets one on
         ; each sheet rather than a single stripe that goes off the bottom.
         if (page == startPage) {
@@ -857,6 +904,7 @@ class MdLayout {
         } {
             this.emit((MdBox.rect(x contentTop style.quoteBarWidth (bottom - contentTop) style.quoteBarColor)))
         }
+        cursorY = (bottom + style.paraSpacing)
     }
 
     fn list:void (node:MdNode x:double w:double) {

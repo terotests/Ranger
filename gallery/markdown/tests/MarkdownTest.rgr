@@ -93,6 +93,7 @@ class MarkdownTest {
         this.furniture()
         this.tables()
         this.links()
+        this.quotes()
         this.presized()
         this.textEngine()
         print ""
@@ -513,6 +514,65 @@ class MarkdownTest {
     ; ----------------------------------------------------------------------
     ; The metadata block
     ; ----------------------------------------------------------------------
+    ; ----------------------------------------------------------------------
+    ; Block quotes: the bar has an inside, and the text is somebody else's
+    ; ----------------------------------------------------------------------
+    ;
+    ; The bar used to begin exactly at the top of the first line's box and end
+    ; exactly where the next block started, so it was flush against the text
+    ; at one end and dangling past it at the other — what it measured at the
+    ; bottom was the last paragraph's trailing space rather than the
+    ; paragraph.
+    fn quotes:void () {
+        def src:string "> What is this comment\n> Why?\n\nAfter the quote.\n"
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (new MdLayout())
+        l.layoutContinuous(doc 400.0)
+        def barTop:double 0.0
+        def barBottom:double 0.0
+        def bars:int 0
+        def quoteTop:double 1000000.0
+        def quoteBottom:double 0.0
+        def quoted:int 0
+        def afterTop:double 0.0
+        def i:int 0
+        def n:int (array_length l.boxes)
+        while (i < n) {
+            def b:MdBox (itemAt l.boxes i)
+            if ((b.kind == 1) && (b.fill == l.style.quoteBarColor)) {
+                bars = (bars + 1)
+                barTop = b.y
+                barBottom = (b.y + b.h)
+            }
+            if (b.kind == 0) {
+                if (b.color == l.style.quoteColor) {
+                    quoted = (quoted + 1)
+                    if (b.y < quoteTop) { quoteTop = b.y }
+                    def edge:double (b.y + b.h)
+                    if (edge > quoteBottom) { quoteBottom = edge }
+                } {
+                    if (b.text == "After the quote.") { afterTop = b.y }
+                }
+            }
+            i = (i + 1)
+        }
+        this.eqInt("one bar" bars 1)
+        this.ok("the quoted text is muted" (quoted == 2))
+        ; The two source lines are ONE paragraph with a soft break in it, which
+        ; is what CommonMark says and what every renderer of it draws: one
+        ; flowing line, wrapped where the column ends and not where the author
+        ; pressed return.
+        this.ok("a soft break inside a quote does not start a line" (quoteTop == (quoteBottom - 15.95)))
+        def above:double (quoteTop - barTop)
+        def below:double (barBottom - quoteBottom)
+        this.ok("the bar starts above the first line" (above > 1.0))
+        this.ok("and ends below the last" (below > 1.0))
+        def diff:double (above - below)
+        if (diff < 0.0) { diff = (0.0 - diff) }
+        this.ok("by the same amount" (diff < 0.01))
+        this.ok("and the next block clears it" (afterTop > barBottom))
+    }
+
     ; ----------------------------------------------------------------------
     ; Links: the destination survives the whole way to the paint
     ; ----------------------------------------------------------------------
