@@ -1,0 +1,184 @@
+#!/usr/bin/env node
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// THE FIRST PICTURE, COMPUTED AT BUILD TIME.
+//
+//   npm run rt:shot:sync     write it into index.html
+//   npm run rt:shot:check    fail if what is in index.html is stale
+//
+// PLAN_WEB_LOADING.md S3. A visitor waits for ~430 KB of gzipped bundle and a
+// fifth of a second of boot before the app can paint anything at all, and for
+// that whole time the page is one flat colour. It does not have to be: an EVG
+// frame is DATA — `EVGDisplayList` is rects, borders, clips and text runs in
+// paint order — so the parts of the first frame that do not depend on the
+// visitor can be computed here, in the build, and put in the document.
+//
+// WHAT IS TAKEN, and why so little. A frame is laid out for a size, and the
+// deployed page is laid out for the window, whose size this tool cannot know.
+// So it takes only the commands whose geometry is PINNED TO THE VIEWPORT — the
+// background, the top bar, the bottom bar, the rail — which are exactly the
+// commands that can be re-stated as CSS anchored to the same edges and be
+// correct at any size. Everything else (the cards, the text, the icons) waits
+// for the app, which is the half that measured it.
+//
+// HOW IT IS PROVED. The app is laid out at several sizes inside each of the
+// stylesheet's own breakpoint buckets, and on two different days. A box is
+// kept only if every probe agrees about it, edge for edge and colour for
+// colour. A bar whose height depended on the viewport, or on the date, would
+// disagree with itself and be dropped rather than baked wrong.
+//
+// The picture is removed by the host on the first PAINTED frame, not on the
+// script's arrival — `main.js`, and PLAN_WEB_LOADING.md S3.2.
+
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
+import { anchoredBox, keyOf, boxCss } from "./shell-rule.mjs";
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const APP = path.join(HERE, "..", "bin", "RealTrainerDemo.cjs");
+const INDEX = path.join(HERE, "index.html");
+if (!fs.existsSync(APP)) {
+  console.error("compiled app missing — run `npm run rt:build` first");
+  process.exit(3);
+}
+const require_ = createRequire(import.meta.url);
+const { RealTrainerDemo } = require_(APP);
+
+const read = (...p) => fs.readFileSync(path.join(HERE, ...p), "utf8");
+const CSS = read("realtrainer.css");
+const COMPACT = read("..", "fixtures", "session.compact");
+const PLAN = read("..", "fixtures", "machines", "planDialog.machine.json");
+const CHAT = read("..", "fixtures", "machines", "chat.machine.json");
+const SEED = read("..", "fixtures", "reference", "seed.json");
+
+// The stylesheet's own breakpoint, and nothing invented beside it: 767/768 is
+// where `realtrainer.css` folds the rail into a bottom bar, so it is where the
+// two baked pictures part.
+const BUCKETS = [
+  {
+    id: "p",
+    media: "(max-width: 767px)",
+    coarse: true,
+    probes: [[360, 640], [390, 844], [412, 915], [430, 932], [767, 700]],
+  },
+  {
+    id: "w",
+    media: "(min-width: 768px)",
+    coarse: false,
+    probes: [[768, 1024], [1024, 768], [1280, 800], [1440, 900], [1920, 1080]],
+  },
+];
+// Two days, a season apart. A box that moves with the calendar is not chrome.
+const DAYS = ["2026-02-09", "2026-08-24"];
+
+/** The app, set up exactly as `main.js` sets it up, laid out at one size. */
+function frameAt(w, h, today, coarse) {
+  const app = new RealTrainerDemo();
+  app.init(CSS, COMPACT);
+  app.loadPlanMachine(PLAN);
+  app.loadChatMachine(CHAT);
+  app.setToday(today);
+  app.loadReference(SEED);
+  app.setPointerCoarse(coarse);
+  app.setPageSize(w, h);
+  app.openRoute("/");
+  return JSON.parse(app.displayListJson()).cmds;
+}
+
+/** The boxes every probe in a bucket agrees about, in paint order. */
+function bakeBucket(bucket) {
+  const runs = [];
+  for (const [w, h] of bucket.probes) {
+    for (const day of DAYS) {
+      runs.push(
+        frameAt(w, h, day, bucket.coarse)
+          .map((c) => anchoredBox(c, w, h))
+          .filter(Boolean),
+      );
+    }
+  }
+  // Agreement is positional as well as structural: the boxes must be the same
+  // boxes in the same paint order, or what is baked is not a picture of any
+  // one frame.
+  const first = runs[0];
+  for (const run of runs.slice(1)) {
+    if (run.length !== first.length) return { boxes: [], why: `probe disagreement: ${first.length} vs ${run.length} boxes` };
+    for (let i = 0; i < run.length; i += 1) {
+      if (keyOf(run[i]) !== keyOf(first[i])) {
+        return { boxes: [], why: `probe disagreement at #${i}: ${keyOf(first[i])} vs ${keyOf(run[i])}` };
+      }
+    }
+  }
+  return { boxes: first, why: "" };
+}
+
+const baked = BUCKETS.map((b) => ({ bucket: b, ...bakeBucket(b) }));
+
+const styleLines = [];
+const bodyLines = [];
+styleLines.push("      /* Generated by web/snapshot.mjs — do not edit. The first picture,");
+styleLines.push("       * computed in the build from the app's own display list: the commands");
+styleLines.push("       * whose geometry is pinned to the viewport, restated as CSS that is");
+styleLines.push("       * pinned to the same edges. It paints while the bundle is still");
+styleLines.push("       * downloading and the host removes it on the first painted frame. */");
+styleLines.push("      #rt-t0 { position: fixed; inset: 0; z-index: 0; contain: strict; }");
+styleLines.push("      #rt-t0 i { position: absolute; display: block; box-sizing: border-box; }");
+styleLines.push("      #stage { z-index: 1; }");
+styleLines.push("      /* The pinned demo page lays the app out in a box, not in the window,");
+styleLines.push("       * so a picture anchored to the window would be a lie there. */");
+styleLines.push("      html[data-chrome] #rt-t0 { display: none; }");
+bodyLines.push('      <div id="rt-t0" aria-hidden="true">');
+for (const { bucket, boxes, why } of baked) {
+  if (why) {
+    styleLines.push(`      /* ${bucket.media}: nothing baked — ${why} */`);
+    continue;
+  }
+  styleLines.push(`      @media not all and ${bucket.media} { #rt-t0 .${bucket.id} { display: none; } }`);
+  boxes.forEach((b, i) => {
+    styleLines.push(`      #rt-t0 .${bucket.id}${i} { ${boxCss(b)}; }`);
+  });
+  boxes.forEach((_, i) => bodyLines.push(`        <i class="${bucket.id} ${bucket.id}${i}"></i>`));
+}
+bodyLines.push("      </div>");
+
+const STYLE_BEGIN = "      /* rt:t0 begin */";
+const STYLE_END = "      /* rt:t0 end */";
+const BODY_BEGIN = "    <!-- rt:t0 begin -->";
+const BODY_END = "    <!-- rt:t0 end -->";
+
+function splice(src, begin, end, lines) {
+  const i = src.indexOf(begin), j = src.indexOf(end);
+  if (i < 0 || j < 0) {
+    console.error(`index.html has no ${begin.trim()} … ${end.trim()} region`);
+    process.exit(3);
+  }
+  return src.slice(0, i + begin.length) + "\n" + lines.join("\n") + "\n" + src.slice(j);
+}
+
+let out = fs.readFileSync(INDEX, "utf8");
+out = splice(out, STYLE_BEGIN, STYLE_END, styleLines);
+out = splice(out, BODY_BEGIN, BODY_END, bodyLines);
+
+const argv = process.argv.slice(2);
+if (argv.includes("--print")) {
+  console.log(styleLines.join("\n") + "\n\n" + bodyLines.join("\n"));
+  process.exit(0);
+}
+const current = fs.readFileSync(INDEX, "utf8");
+const boxCount = baked.reduce((n, b) => n + b.boxes.length, 0);
+if (argv.includes("--check")) {
+  if (current === out) {
+    console.log(`index.html carries the current picture (${boxCount} boxes)`);
+    process.exit(0);
+  }
+  console.error("index.html is stale — run `npm run rt:shot:sync`");
+  process.exit(1);
+}
+fs.writeFileSync(INDEX, out);
+for (const { bucket, boxes, why } of baked) {
+  console.log(`  ${bucket.media}  ${why ? "nothing baked: " + why : boxes.length + " boxes"}`);
+  for (const b of boxes) console.log(`      ${boxCss(b)}`);
+}
+console.log(current === out ? "index.html unchanged" : "index.html updated");

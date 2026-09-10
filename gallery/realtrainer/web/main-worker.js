@@ -149,7 +149,26 @@ function applyReply(r) {
   }
   sceneEl.textContent = state.scene || "";
   canvas.style.cursor = state.overBar ? "default" : "";
+  retireFirstPicture();
   return true;
+}
+
+// --- the first picture, and when it is allowed to go ---------------------------
+//
+// `index.html` carries a picture of this app's chrome, computed in the build
+// from the app's own display list (web/snapshot.mjs). It paints while this
+// bundle is still downloading, and it is removed HERE — not when the script
+// arrived, not when the app was constructed, but when a live frame has been
+// PAINTED over it (PLAN_WEB_LOADING.md S3.2). Removing it a frame early is the
+// one blank frame the whole exercise exists to avoid.
+let firstPicture = document.getElementById("rt-t0");
+function retireFirstPicture() {
+  if (!firstPicture) return;
+  const layer = firstPicture;
+  firstPicture = null;
+  // A draw call is issued, not shown. Two frames on: by then the compositor
+  // has the pixels that replace what is being taken away.
+  requestAnimationFrame(() => requestAnimationFrame(() => layer.remove()));
 }
 
 // --- the accessibility mirror -------------------------------------------------

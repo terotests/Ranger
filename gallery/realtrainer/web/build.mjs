@@ -13,6 +13,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
+import { spawnSync } from "node:child_process";
 import { assertDomInstalled, MissingDomDeps } from "../../ui/conformance/dom-adapter.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -27,6 +28,19 @@ const domRequire = createRequire(path.join(DOM_DIR, "package.json"));
 
 if (!fs.existsSync(path.join(HERE, "..", "bin", "RealTrainerDemo.cjs"))) {
   console.error("compiled app missing — run `npm run rt:build` first");
+  process.exit(3);
+}
+
+// THE FIRST PICTURE MUST BE CURRENT. `index.html` carries a picture of the
+// app's chrome computed by `snapshot.mjs`, and a page that paints a stale one
+// replaces a flash with a subtler flash. So the build refuses rather than
+// shipping a picture of an app that no longer looks like that.
+const stale = spawnSync(process.execPath, [path.join(HERE, "snapshot.mjs"), "--check"], {
+  stdio: ["ignore", "pipe", "pipe"],
+});
+if (stale.status !== 0) {
+  process.stderr.write(stale.stderr.toString() || "");
+  console.error("the baked first picture is stale — run `npm run rt:shot:sync`");
   process.exit(3);
 }
 
