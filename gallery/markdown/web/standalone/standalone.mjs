@@ -445,6 +445,15 @@ function selftest() {
     const pageObjs = (text.match(/\/Type\s*\/Page[^s]/g) || []).length;
     say("pdf pages", pageObjs >= 1, pageObjs + " page objects");
     say("pdf embeds fonts", text.includes("FontFile2"));
+    // One PostScript name per FACE. All four faces of a family declare the
+    // same family name inside the file, and publishing them under it made
+    // every reader that caches an embedded program by `/BaseFont` draw the
+    // whole document in whichever face was drawn first — a page whose first
+    // word was bold came out bold throughout, on paper only.
+    const faces = text.match(/\/BaseFont\s*\/([^\s\/\]>]+)/g) || [];
+    const unique = new Set(faces);
+    say("pdf names each face once", faces.length > 1 && unique.size === faces.length,
+        faces.length + " font objects, " + unique.size + " names");
     say("pdf size", bytes.length > 2000, bytes.length + " bytes");
   } catch (e) {
     say("pdf", false, String(e));

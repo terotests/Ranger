@@ -918,7 +918,7 @@ class EVGPDFRenderer {
                 push objectOffsets (pdf.size())
                 pdf.writeString((to_string nextObjNum) + " 0 obj\n")
                 pdf.writeString("<< /Type /FontDescriptor")
-                pdf.writeString(" /FontName /" + (this.sanitizeFontName(ttfFont.fontFamily)))
+                pdf.writeString(" /FontName /" + (this.faceFontName(fontName ttfFont.fontFamily)))
                 pdf.writeString(" /Flags 32")
                 pdf.writeString(" /FontBBox [0 " + (to_string ttfFont.descender) + " 1000 " + (to_string ttfFont.ascender) + "]")
                 pdf.writeString(" /ItalicAngle 0")
@@ -950,7 +950,7 @@ class EVGPDFRenderer {
                 pdf.writeString((to_string nextObjNum) + " 0 obj\n")
                 pdf.writeString("<< /Type /Font")
                 pdf.writeString(" /Subtype /TrueType")
-                pdf.writeString(" /BaseFont /" + (this.sanitizeFontName(ttfFont.fontFamily)))
+                pdf.writeString(" /BaseFont /" + (this.faceFontName(fontName ttfFont.fontFamily)))
                 pdf.writeString(" /FirstChar 32")
                 pdf.writeString(" /LastChar 255")
                 pdf.writeString(" /Widths [")
@@ -1359,7 +1359,7 @@ class EVGPDFRenderer {
                 push objectOffsets (pdf.size())
                 pdf.writeString((to_string nextObjNum) + " 0 obj\n")
                 pdf.writeString("<< /Type /FontDescriptor")
-                pdf.writeString(" /FontName /" + (this.sanitizeFontName(ttfFont.fontFamily)))
+                pdf.writeString(" /FontName /" + (this.faceFontName(fontName ttfFont.fontFamily)))
                 pdf.writeString(" /Flags 32")  ; Symbolic
                 pdf.writeString(" /FontBBox [0 " + (to_string ttfFont.descender) + " 1000 " + (to_string ttfFont.ascender) + "]")
                 pdf.writeString(" /ItalicAngle 0")
@@ -1391,7 +1391,7 @@ class EVGPDFRenderer {
                 pdf.writeString((to_string nextObjNum) + " 0 obj\n")
                 pdf.writeString("<< /Type /Font")
                 pdf.writeString(" /Subtype /TrueType")
-                pdf.writeString(" /BaseFont /" + (this.sanitizeFontName(ttfFont.fontFamily)))
+                pdf.writeString(" /BaseFont /" + (this.faceFontName(fontName ttfFont.fontFamily)))
                 pdf.writeString(" /FirstChar 32")
                 pdf.writeString(" /LastChar 255")
                 pdf.writeString(" /Widths [")
@@ -2984,7 +2984,7 @@ class EVGPDFRenderer {
                 def fontFileObjNum:int nextObjNum
                 nextObjNum = nextObjNum + 1
 
-                def psName:string (this.sanitizeFontName(ttf.fontFamily))
+                def psName:string (this.faceFontName(family ttf.fontFamily))
 
                 push objectOffsets (pdf.size())
                 pdf.writeString((to_string nextObjNum) + " 0 obj\n")
@@ -3908,18 +3908,48 @@ class EVGPDFRenderer {
     }
     
     fn sanitizeFontName:string (name:string) {
-        ; Remove spaces and special characters from font name for PDF
+        ; A PDF name: no spaces, no delimiters, no `#`. A HYPHEN is none of
+        ; those and it is the character that separates a face from its family
+        ; in every PostScript name ever written — `OpenSans-Bold`. Stripping
+        ; it was what made `Open Sans` and `Open Sans-Bold` collide.
         def result:string ""
         def len:int (strlen name)
         def i 0
         while (i < len) {
             def ch:int (charAt name i)
-            ; Only allow alphanumeric characters
-            if (((ch >= 65) && (ch <= 90)) || ((ch >= 97) && (ch <= 122)) || ((ch >= 48) && (ch <= 57))) {
+            def alnum:boolean (((ch >= 65) && (ch <= 90)) || ((ch >= 97) && (ch <= 122)) || ((ch >= 48) && (ch <= 57)))
+            def joiner:boolean ((ch == 45) || (ch == 43))
+            if (alnum || joiner) {
                 result = result + (strfromcode ch)
             }
             i = i + 1
         }
         return result
+    }
+
+    ; The PostScript name a font object is published under.
+    ;
+    ; It has to be DISTINCT PER FACE, and it was not. The name came from
+    ; `ttfFont.fontFamily` — the family the FILE declares, which is `Open
+    ; Sans` for the regular, the bold, the italic and the bold-italic alike —
+    ; so all four were published as `/OpenSans`. Each carried its own
+    ; `/FontFile2`, so the file was correct by the letter of the specification
+    ; and wrong in every reader that caches an embedded program by its
+    ; `/BaseFont`: such a reader loads the first one and answers every later
+    ; request for `/OpenSans` with it. Whichever face was drawn first won the
+    ; document, and a page whose first word was bold came out bold throughout.
+    ;
+    ; The face the layout asked for is the name that separates them, and the
+    ; renderer already has it — it is the key it looked the file up with.
+    fn faceFontName:string (faceName:string fallback:string) {
+        def name:string faceName
+        if ((strlen name) == 0) {
+            name = fallback
+        }
+        def out:string (this.sanitizeFontName(name))
+        if ((strlen out) == 0) {
+            return "Font"
+        }
+        return out
     }
 }
