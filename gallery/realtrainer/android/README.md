@@ -20,7 +20,8 @@ npm run rt:android:ranger     # write the generated Kotlin and stop
 
 | | |
 | --- | --- |
-| `ranger/rt_android.rgr` | the viewport: the page is the view in dp, a press, a drag that scrolls and drops the press, the keyboard's text, the clock |
+| `ranger/rt_android.rgr` | the name the Kotlin host imports — one line, `class RtAndroid extends RtHost` |
+| `../src/RtHost.rgr` | the viewport, shared with iOS: the page is the view, a press, a drag that scrolls and drops the press, the keyboard's text, the clock. Android leaves the safe area at zero |
 | `ranger/check_rt_android.rgr` | all of the above, driven on Node — 40 checks |
 | `app/…/RealTrainerView.kt` | the only file that needs a device: `MotionEvent`, `Canvas`, `InputConnection` |
 | `app/…/MainActivity.kt` | five assets in, one view on screen |
