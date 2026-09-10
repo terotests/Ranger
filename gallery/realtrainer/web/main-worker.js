@@ -274,8 +274,11 @@ function syncClipboard() {
   navigator.clipboard?.writeText(text).catch(() => {});
 }
 
+// A press from the accessibility tree — a screen reader activating a node —
+// goes down and up like a finger, so it takes exactly a finger's path.
 function press(x, y) {
-  engine.post("@up", x, y);
+  engine.post("@down", x, y);
+  engine.post("@up");
   changed();
   syncTextSession();
 }
@@ -392,8 +395,12 @@ stage.addEventListener(
   { passive: false },
 );
 
+// WHAT IS LEFT OF THE GESTURES HERE. The state machine — a press a drag
+// cancels, the scrollbar's thumb, a lift that either throws the page or
+// activates what was marked — is `EvgHost`'s, in the worker beside the tree
+// (engine-worker.js). This end tracks only what the browser knows and the
+// worker cannot: which pointers are down, and how long a move took.
 let drag = null;
-let barGrab = null;
 // How many fingers are on the glass. A pinch is two, and the moment the
 // second arrives the drag is over: the app must not scroll the page out from
 // under a gesture the browser is using to zoom it.
@@ -402,84 +409,50 @@ canvas.addEventListener("pointerdown", (ev) => {
   down.add(ev.pointerId);
   if (down.size > 1) {
     drag = null;
-    barGrab = null;
-    engine.post("scrollHalt");
-    engine.post("setPressed", "");
+    engine.post("@cancel");
     dirty = true;
     return;
   }
   const [x, y] = at(ev);
   inputAt = performance.now();
   canvas.setPointerCapture(ev.pointerId);
-  // Whether the thumb took the press is the worker's to say; the drag is
-  // started on the answer, and moves before it arrives go to the page.
-  barGrab = engine.call("scrollbarGrab", x, y).then((took) => {
-    barGrab = null;
-    if (took) {
-      drag = { bar: true };
-      dirty = true;
-    }
-  });
-  drag = { y, moved: false, at: ev.timeStamp || performance.now() };
+  drag = { y, at: ev.timeStamp || performance.now() };
+  // One post, and no round trip. Whether the thumb took the press is decided
+  // beside the tree; this end used to ask and wait for the answer before it
+  // knew what kind of drag it had started.
   engine.post("@down", x, y);
   dirty = true;
 });
 canvas.addEventListener("pointerup", (ev) => {
   down.delete(ev.pointerId);
-  const [x, y] = at(ev);
-  const finish = () => {
-    if (drag?.bar) {
-      drag = null;
-      engine.post("scrollbarRelease");
-      dirty = true;
-      return;
-    }
-    const scrolled = drag?.moved;
-    drag = null;
-    if (scrolled) {
-      engine.post("scrollRelease");
-      engine.post("setPressed", "");
-      dirty = true;
-      return;
-    }
-    press(x, y);
-  };
-  if (barGrab) barGrab.then(finish); else finish();
+  drag = null;
+  engine.post("@up");
+  changed();
+  syncTextSession();
 });
 canvas.addEventListener("pointercancel", (ev) => {
   down.delete(ev && ev.pointerId);
-  if (drag?.bar) engine.post("scrollbarRelease");
   drag = null;
-  engine.post("scrollHalt");
-  engine.post("setPressed", "");
+  engine.post("@cancel");
   dirty = true;
 });
 canvas.addEventListener("pointermove", (ev) => {
   if (down.size > 1) return;
   const [x, y] = at(ev);
-  if (drag && drag.bar) {
-    engine.post("scrollbarDrag", y);
-    dirty = true;
-    scrolledAt = ev.timeStamp || performance.now();
-    return;
-  }
   if (drag) {
-    const dy = drag.y - y;
-    if (drag.moved || Math.abs(dy) > 6) {
-      if (!drag.moved) engine.post("setPressed", "");
-      const now = ev.timeStamp || performance.now();
-      const dt = now - drag.at;
-      drag.at = now;
-      drag.moved = true;
-      drag.y = y;
-      engine.post("scrollDrag", dy, dt);
-      dirty = true;
-      scrolledAt = now;
-    }
+    const now = ev.timeStamp || performance.now();
+    const dt = now - drag.at;
+    drag.at = now;
+    const dy = y - drag.y;
+    drag.y = y;
+    // The browser's own interval, not the frame's: a pointer event carries a
+    // timestamp and a touch callback does not, and the speed at the lift is
+    // what decides how far the page is thrown.
+    engine.post("@pan", dy, dt);
+    dirty = true;
+    scrolledAt = now;
     return;
   }
-  // One post, where main.js made three calls: the worker hovers what is
-  // under the point and says whether a frame is owed.
   engine.post("@hover", x, y);
   dirty = true;
 });

@@ -14,7 +14,7 @@
 import { serveEngine } from "../../evg/gl/evg-engine.js";
 import { installCanvasMeasurer } from "../../evg/gl/evg-measure.js";
 import { shiftsOf, effectOf } from "../../evg/gl/evg-list.js";
-import { RealTrainerDemo, EVGHostTextMeasurer, EVGDefaultMeasurer, RtCharts } from "./generated-host.js";
+import { RtHost, EVGHostTextMeasurer, EVGDefaultMeasurer, RtCharts } from "./generated-host.js";
 import { REALTRAINER_CSS, REALTRAINER_COMPACT, REALTRAINER_PLAN_MACHINE, REALTRAINER_CHAT_MACHINE } from "./generated.js";
 
 // The browser measures here too — `OffscreenCanvas` — and before the app
@@ -23,7 +23,13 @@ import { REALTRAINER_CSS, REALTRAINER_COMPACT, REALTRAINER_PLAN_MACHINE, REALTRA
 // request for every class in the app and nothing could then be dropped.
 const fontMeasure = installCanvasMeasurer({ EVGHostTextMeasurer, EVGDefaultMeasurer });
 
-let hovered = "";
+// THE SAME HOST THE PHONES USE, on this side of the wire. The gestures — a
+// press a drag cancels, the scrollbar's thumb, a lift that throws or
+// activates — are `EvgHost`'s, so this worker and the main-thread page and
+// the UIKit view all run one implementation of them. What stays below is the
+// engine plumbing: the calls the page posts still land on the app.
+let host = null;
+
 // The accessibility tree's generation and the host's focus, for the tree
 // that rides on every new build — the host reads it, it does not ask.
 let a11yGen = 0;
@@ -31,7 +37,8 @@ let a11yFocus = "";
 
 serveEngine({
   make(init) {
-    const app = new RealTrainerDemo();
+    host = new RtHost();
+    const app = host.demo;
     app.init(REALTRAINER_CSS, REALTRAINER_COMPACT);
     app.loadPlanMachine(REALTRAINER_PLAN_MACHINE);
     app.loadChatMachine(REALTRAINER_CHAT_MACHINE);
@@ -43,8 +50,10 @@ serveEngine({
     // this bundle, and it arrives as `loadReference` + `rebuild` posted from
     // `main-worker.js` — usually before the first frame, and if not, the app
     // draws what it has and takes the data when it comes.
-    app.setPointerCoarse(!!init.coarse);
-    if (init.w > 0 && init.h > 0) app.setPageSize(init.w, init.h);
+    // `began` rather than `setPageSize`: it hands the host the window, says
+    // whether the pointer is a finger, and opens it for business.
+    if (init.w > 0 && init.h > 0) host.began(init.w, init.h, !!init.coarse);
+    else app.setPointerCoarse(!!init.coarse);
     if (init.route) app.openRoute(init.route);
     // The charts, in their own chunk and asked for from HERE — the app is on
     // this thread, so this is where the maker has to be installed. Not
@@ -86,37 +95,37 @@ serveEngine({
       a11yFocus = id;
       return false;
     },
-    // The pointer moved with nothing pressed: the scrollbar first, then the
-    // element under it. Returns whether a frame is owed — the hover is
-    // where the stylesheet's :hover rule and its transition start.
+    // The pointer moved with nothing pressed. `hoverAt` is the scrollbar
+    // first and then the element under it, and it answers whether a frame is
+    // owed — the hover is where the stylesheet's :hover rule and the
+    // transition it declares start.
     hover(app, x, y) {
-      let dirty = false;
-      if (app.scrollbarHover(x, y)) dirty = true;
-      const id = app.overScrollbar() ? "" : app.hitId(x, y);
-      if (id !== hovered) {
-        hovered = id;
-        app.setHover(id);
-        dirty = true;
-      }
-      return dirty;
+      return host.hoverAt(x, y);
     },
     leave(app) {
-      hovered = "";
-      app.setHover("");
+      const changed = host.clearHover();
       app.scrollbarHover(-1, -1);
-      return true;
+      return changed || true;
     },
-    // A finger down: stop the page, mark what is under it.
+    // A finger down: catch the glide, take the thumb if that is what is under
+    // it, otherwise mark what is.
     down(app, x, y) {
-      app.scrollHalt();
-      app.setPressed(app.hitId(x, y));
+      host.pressAt(x, y);
       return true;
     },
-    // A tap: press what is under the point.
-    up(app, x, y) {
-      const id = app.hitId(x, y);
-      app.setPressed("");
-      return app.press(id);
+    // A drag, with the browser's own interval rather than the frame's: a
+    // pointer event carries a timestamp and a touch callback does not, so
+    // `panAt` takes the one the page has.
+    pan(app, dy, dtMs) {
+      return host.panAt(0, dy, dtMs);
+    },
+    // A lift: let the thumb go, or let a moving page carry on, or activate
+    // what was marked. The host knows which, because it marked it.
+    up(app) {
+      return host.releasePress();
+    },
+    cancel(app) {
+      return host.cancelPress();
     },
     // The faces finished loading on the page: measure again with them.
     refreshFonts(app) {

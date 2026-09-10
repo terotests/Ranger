@@ -17,7 +17,7 @@ each contained was the same, and this is what is left once that is shared.
 |---|---|---|
 | `EvgApp` | the conversation every host has with every app: a page size, a hit test, presses, hovers, scrolls, keys, a clock, a display list | `EvgApp.rgr` |
 | `EvgViewport` | a window, a safe area and where the page sits inside them: the fit, the scale, the pan, window point → page point | `EvgViewport.rgr` |
-| `EvgHost` | a host for an app that scrolls a document: the press a drag cancels, the fling timed against the host's clock, the keyboard's text | `EvgHost.rgr` |
+| `EvgHost` | a host for an app that scrolls a document: the press a drag cancels, the fling timed against the host's clock, the keyboard's text. Used by the UIKit view, the Android View, and the browser page in both its arrangements | `EvgHost.rgr` |
 | `UiWindowHost` | a host for a fixed-width page that is fitted, panned and pinched | `../ui/src/UiWindowHost.rgr` |
 | the painters | `EVGDisplayList` → CoreGraphics, Android `Canvas`, WebGL 2, DOM | `apple/`, `android/`, `gl/`, `html/` |
 
@@ -125,8 +125,14 @@ Two things stayed in the page, and both should:
   publishes what the frame means. Neither has anything to do with the
   viewport.
 
-**What has not moved is the Worker path.** `main-worker.js` and
-`engine-worker.js` still post app calls rather than host calls, so the page's
-default arrangement — the engine off the main thread — is the one place the
-old state machine survives. It is mechanical rather than difficult: the engine
-would serve the host instead of the app, and the posted names would change.
+The Worker arrangement — the page's default, with the engine off the main
+thread — shares it too. The worker holds the host beside the tree, so a
+press, a drag, a lift and a hover are six posts and no round trips; the page
+used to `await` the worker to find out whether the scrollbar's thumb had taken
+the press before it knew what kind of drag it had started.
+
+What is left in the page on both arrangements is what the browser knows and a
+host cannot: which pointers are down, and how long a move took. The second of
+those goes over as a number — `panAt` takes an interval where `panBy` reads
+the frame's clock, because a pointer event carries a timestamp and a touch
+callback does not.

@@ -202,6 +202,18 @@ class EvgHost {
         return started
     }
 
+    ; The same drag, from a host that has its own timestamps.
+    ;
+    ; `panBy` measures how long a move took from `nowMs`, which `tick`
+    ; advances — a touch callback on a phone carries no timestamp, so the
+    ; frame it arrived in is the best clock there is. A browser's pointer
+    ; event carries one, and a host that has a real interval should not have
+    ; to throw it away and use the frame's instead.
+    fn panAt:boolean (dx:double dy:double dtMs:double) {
+        nowMs = (nowMs + dtMs)
+        return (this.panBy(dx dy))
+    }
+
     fn panBy:boolean (dx:double dy:double) {
         if (started == false) {
             return false
