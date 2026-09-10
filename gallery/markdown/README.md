@@ -6,7 +6,7 @@ document, measured once, comes out as a PDF with its fonts embedded and as a
 display list a GPU can paint.
 
 ```bash
-npm run markdown:test          # 115 assertions on the parser, the layout, the diagrams
+npm run markdown:test          # 123 assertions on the parser, the layout, the diagrams
 npm run markdown:test:go       # …the same 115 compiled to Go (and :python to Python)
 npm run markdown:spec          # score against CommonMark's own 652 examples
 npm run markdown:demo          # the samples and this repository's README → PDF + HTML
@@ -93,7 +93,7 @@ web/
   markdown_web.rgr  the host seam: the only file a browser talks to
   standalone/       build.sh, index.html, standalone.mjs, smoke.mjs
 tests/
-  MarkdownTest.rgr  115 assertions, run on three targets
+  MarkdownTest.rgr  123 assertions, run on three targets
   MdSpecDump.rgr    renders the specification's examples for the harness
   MdEmbedProbe.rgr  what landed inside each diagram's box, off the display list
 harness/
@@ -244,24 +244,22 @@ shipped a PNG would also have draw commands.
 - **Raw HTML is shown, not obeyed.** `MdToHtml` passes it through, because
   that is what the specification scores. The viewer draws it as a dimmed code
   block: a canvas has nothing to hand a `<div>` to.
-- **No page furniture.** Front matter is parsed and kept, and nothing yet
-  reads `page:` or `margin:` out of it. Running heads, page numbers and a
-  table of contents are not written.
 - **A large document is slow to retype, though less than it was.**
   `npm run markdown:bench` times the stages separately:
 
   ```
   file             bytes   parse  layout  diagrams    tree   list   total
-  sample.md          938     5.5    12.1       0.7     6.6    1.2    26.0
-  code.md           1229     0.3     6.4       0.0     2.1    0.3     9.2
-  README.md        63196    18.7   134.9       0.7   113.2    5.2   272.7
-  ISSUES.md       137676    37.8   227.8       0.8   207.2    4.9   478.6
+  sample.md          938     6.0    11.4       0.7     5.9    1.2    25.2
+  code.md           1229     0.4     9.3       0.1     1.0    0.2    11.0
+  README.md        63196    20.6   116.1       0.8    80.5    5.1   223.0
+  ISSUES.md       137676    31.3   191.9       1.2   150.8    5.2   380.4
+  CHANGELOG.md    371166    49.0   469.1       1.8   193.9    20.6  734.5
   ```
 
   `tree` is the `EVGElement` tree, and **only the PDF pays it** — the canvas
   goes straight from the boxes to the draw commands. So retyping README costs
-  parse + layout + list = **159 ms**, down from 382 when this was first
-  measured. Two things got it there, both checked rather than assumed:
+  parse + layout + list = **142 ms**, down from 382 when this was first
+  measured. Three things got it there, each checked rather than assumed:
 
   - Everything this module hands over is absolutely placed with a box the
     layout already decided, so `MdToEvg` writes the box down as the *result*
@@ -270,11 +268,21 @@ shipped a PNG would also have draw commands.
     directly; `MarkdownTest.presized` compares the two roads command by
     command, which is what caught the one place they disagreed (a text
     command's height is the font's line box, not the line's).
+  - `breakRuns` no longer re-measures the whole open segment once per word.
+    It did, and that was quadratic in the segment — CHANGELOG.md, whose
+    paragraphs are long, spent 880 ms in layout for it. A kern pair depends
+    only on the two codepoints either side of the join, so measuring
+    `prevAtom + word` charges the same advance and the same pair the whole
+    string would be charged: the running total is the number the whole-string
+    measurement gives, and within a point of the break the whole string is
+    measured anyway. Layout went 880 → 460 ms there and 153 → 125 ms on this
+    file, with every box in four documents landing on the same coordinate as
+    before — that equality is how the change was checked.
 
-  What is left is the layout itself — 135 ms of measuring runs whole, which
-  is what makes the break land where the painter draws it. `PLAN.md` §9's
-  one-frame budget is still missed, by four rather than by forty, and the
-  scoped reparse is the remaining answer.
+  What is left is the layout itself — 116 ms of measuring segments whole,
+  which is what makes the break land where the painter draws it. `PLAN.md`
+  §9's one-frame budget is still missed, by three rather than by forty, and
+  the scoped reparse is the remaining answer.
 - **The source pane is a `<textarea>`.** Correct and unglamorous, which keeps
   the interesting half — parse, layout, paint, print — the only thing that
   can be wrong. Swapping in `gallery/text_editor` on the same canvas is the

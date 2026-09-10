@@ -1157,6 +1157,13 @@ class MdLayout {
         def usedWidth:double 0.0
         def openRun:int -1
         def openText:string ""
+        ; What `openText` measures, carried forward instead of measured again.
+        ; `prevAtom` is the last atom that went in, and `prevAtomW` what it
+        ; measures alone — the pair that lets the next atom be charged its
+        ; advance AND its kern without re-reading the whole segment.
+        def openW:double 0.0
+        def prevAtom:string ""
+        def prevAtomW:double 0.0
         def ai:int 0
         def an:int (array_length aText)
         def guard:int 0
@@ -1172,6 +1179,9 @@ class MdLayout {
                     usedWidth = (this.flushOpen(cur runs openRun openText usedWidth))
                     openRun = -1
                     openText = ""
+                    openW = 0.0
+                    prevAtom = ""
+                    prevAtomW = 0.0
                     def done:MdLine (this.finishLine(cur))
                     push lines done
                     cur = (new MdLine())
@@ -1187,14 +1197,45 @@ class MdLayout {
                         def t:string (itemAt aText ai)
                         def run:MdRun (itemAt runs r)
                         def candidate:double 0.0
+                        ; What the line measures with this atom on it, and —
+                        ; when it is taken — what the open segment then
+                        ; measures.
+                        ;
+                        ; Measuring `openText + t` outright is what this did
+                        ; first, and it re-read the whole open segment once per
+                        ; word: quadratic in the segment, with a cache entry
+                        ; per prefix. A kern pair depends only on the two
+                        ; codepoints either side of the join, so `prevAtom + t`
+                        ; is charged the same advance and the same pair as the
+                        ; whole string would be — the growth is
+                        ; `measure(prevAtom + t) - measure(prevAtom)`, and the
+                        ; running total stays the number a whole-string
+                        ; measurement gives.
+                        def grown:double 0.0
                         if (r == openRun) {
-                            candidate = (usedWidth + (this.measureRun((openText + t) run)))
+                            def joined:double (this.measureRun((prevAtom + t) run))
+                            grown = ((openW + joined) - prevAtomW)
+                            candidate = (usedWidth + grown)
+                            ; Near the break, throw the running total away and
+                            ; ask for the whole segment. A sum of parts and a
+                            ; single measurement agree to the last bit only by
+                            ; luck, and this is the one place where the last
+                            ; bit decides where the line ends.
+                            def slack:double (candidate - maxWidth)
+                            if (slack < 0.0) {
+                                slack = (0.0 - slack)
+                            }
+                            if (slack < 1.0) {
+                                grown = (this.measureRun((openText + t) run))
+                                candidate = (usedWidth + grown)
+                            }
                         } {
                             def openRunObj:MdRun run
                             if (openRun >= 0) { openRunObj = (itemAt runs openRun) }
-                            def openW:double 0.0
-                            if (openRun >= 0) { openW = (this.measureRun(openText openRunObj)) }
-                            candidate = ((usedWidth + openW) + (this.measureRun(t run)))
+                            def openExact:double 0.0
+                            if (openRun >= 0) { openExact = (this.measureRun(openText openRunObj)) }
+                            grown = (this.measureRun(t run))
+                            candidate = ((usedWidth + openExact) + grown)
                         }
                         def startsSegment:boolean (r != openRun)
                         if (isSpace && startsSegment) {
@@ -1212,6 +1253,9 @@ class MdLayout {
                             usedWidth = (this.flushOpen(cur runs openRun openText usedWidth))
                             openRun = -1
                             openText = ""
+                            openW = 0.0
+                            prevAtom = ""
+                            prevAtomW = 0.0
                             usedWidth = (usedWidth + (this.measureRun(t run)))
                             ai = (ai + 1)
                         } {
@@ -1220,6 +1264,9 @@ class MdLayout {
                             usedWidth = (this.flushOpen(cur runs openRun openText usedWidth))
                             openRun = -1
                             openText = ""
+                            openW = 0.0
+                            prevAtom = ""
+                            prevAtomW = 0.0
                             def wrapped:MdLine (this.finishLine(cur))
                             push lines wrapped
                             cur = (new MdLine())
@@ -1232,6 +1279,9 @@ class MdLayout {
                                 openRun = r
                                 openText = t
                             }
+                            openW = grown
+                            prevAtom = t
+                            prevAtomW = (this.measureRun(t run))
                             ai = (ai + 1)
                         }
                         }
@@ -1359,12 +1409,29 @@ class MdLayout {
         def cols:int (head.childCount())
         if (cols == 0) { return }
 
-        ; Natural widths first, then squeezed to the column if they do not
-        ; fit. A table that overflows its page is worse than a narrow one.
+        ; TWO widths per column, not one: what the cell wants if nothing
+        ; wrapped (MAX-CONTENT) and what it needs before a word has to be
+        ; broken in half (MIN-CONTENT).
+        ;
+        ; Scaling the max-content widths by one factor — which is what this
+        ; did — is only right when every column shrinks equally well, and a
+        ; column of one-word labels beside a column of paragraphs is the case
+        ; where it is not. `Area | Current expectation` in this repository's
+        ; own README came out with a first column narrower than the word
+        ; `Host/runtime`, which then ran out of its cell and across the text
+        ; in the next one: unreadable, and unreadable in a way a wider table
+        ; would not have been.
+        ;
+        ; So: no column below its min-content width, and the room that is left
+        ; shared out in proportion to how much each column would still like.
+        ; That is the table algorithm HTML has had since HTML 4 §17.5.2, and
+        ; it is what a browser does with this same markdown.
         def natural:[double]
+        def minimum:[double]
         def c:int 0
         while (c < cols) {
             def wid:double 0.0
+            def least:double 0.0
             def r:int 0
             while (r < rows) {
                 def row:MdNode (node.childAt(r))
@@ -1376,25 +1443,66 @@ class MdLayout {
                     def runs:[MdRun] (this.inlineRuns(cell base))
                     def cw:double (this.runsWidth(runs))
                     if (cw > wid) { wid = cw }
+                    ; The narrowest column this cell can be set in, asked of
+                    ; the line breaker itself rather than guessed from the
+                    ; text: break it into a column of one point and the widest
+                    ; line that comes back is the widest thing that cannot be
+                    ; broken. Guessing it from spaces would disagree with the
+                    ; breaker exactly where it matters — `ts_parser` is three
+                    ; runs and one word.
+                    def tight:[MdLine] (this.breakRuns(runs 1.0))
+                    def ti:int 0
+                    def tn:int (array_length tight)
+                    while (ti < tn) {
+                        def tl:MdLine (itemAt tight ti)
+                        if (tl.width > least) { least = tl.width }
+                        ti = (ti + 1)
+                    }
                 }
                 r = (r + 1)
             }
             push natural (wid + (style.cellPadX * 2.0))
+            push minimum (least + (style.cellPadX * 2.0))
             c = (c + 1)
         }
         def total:double 0.0
+        def leastTotal:double 0.0
         def k:int 0
         while (k < cols) {
             total = (total + (itemAt natural k))
+            leastTotal = (leastTotal + (itemAt minimum k))
             k = (k + 1)
         }
         def widths:[double]
-        def scale:double 1.0
-        if (total > w) { scale = (w / total) }
         def j:int 0
-        while (j < cols) {
-            push widths ((itemAt natural j) * scale)
-            j = (j + 1)
+        if (total <= w) {
+            ; It fits as written.
+            while (j < cols) {
+                push widths (itemAt natural j)
+                j = (j + 1)
+            }
+        } {
+            if (leastTotal >= w) {
+                ; Even unbreakable, it does not fit. The table is then wider
+                ; than the column it sits in, which is visible and honest;
+                ; squeezing below this point does not make it fit, it only
+                ; moves the overflow inside the cells where it lands on top of
+                ; the neighbouring text.
+                while (j < cols) {
+                    push widths (itemAt minimum j)
+                    j = (j + 1)
+                }
+            } {
+                def room:double (w - leastTotal)
+                def want:double (total - leastTotal)
+                while (j < cols) {
+                    def lo:double (itemAt minimum j)
+                    def hi:double (itemAt natural j)
+                    def share:double (((hi - lo) / want) * room)
+                    push widths (lo + share)
+                    j = (j + 1)
+                }
+            }
         }
 
         def r2:int 0

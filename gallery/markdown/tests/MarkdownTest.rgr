@@ -91,6 +91,8 @@ class MarkdownTest {
         this.highlight()
         this.frontMatter()
         this.furniture()
+        this.tables()
+        this.links()
         this.presized()
         this.textEngine()
         print ""
@@ -279,6 +281,46 @@ class MarkdownTest {
         def firstSeg:MdSeg (itemAt second.segs 0)
         def lead:int (charAt firstSeg.text 0)
         this.ok("no leading space" (lead != 32))
+
+        ; Every line is FULL: it fits, and the next word would not have.
+        ;
+        ; This is the invariant the width accumulator has to keep. `breakRuns`
+        ; no longer measures the whole open segment once per word — it carries
+        ; the total forward and charges each word its advance and its kern —
+        ; so an accumulator that drifted low would let a line run past the
+        ; column and one that drifted high would break it early. Both show up
+        ; here, and neither shows up in a test that only asks whether the text
+        ; wrapped.
+        def para:MdRun (new MdRun())
+        para.family = "Open Sans"
+        para.size = 11.0
+        para.text = "The quick brown fox jumps over the lazy dog while the printer waits for a line that is wide enough to be broken somewhere sensible and then broken again"
+        def paraRuns:[MdRun]
+        push paraRuns para
+        def wide:double 200.0
+        def filled:[MdLine] (l.breakRuns(paraRuns wide))
+        def fn:int (array_length filled)
+        this.ok("the paragraph took several lines" (fn > 3))
+        def tight:boolean true
+        def fits:boolean true
+        def fi:int 0
+        while (fi < fn) {
+            def ln:MdLine (itemAt filled fi)
+            if (ln.width > (wide + 0.001)) { fits = false }
+            if (fi < (fn - 1)) {
+                def here:MdSeg (itemAt ln.segs 0)
+                def nextLn:MdLine (itemAt filled (fi + 1))
+                def there:MdSeg (itemAt nextLn.segs 0)
+                def words:[string] (strsplit there.text " ")
+                def nextWord:string (itemAt words 0)
+                def joined:string ((here.text + " ") + nextWord)
+                def wouldBe:double (l.measureRun(joined para))
+                if (wouldBe <= wide) { tight = false }
+            }
+            fi = (fi + 1)
+        }
+        this.ok("no line runs past the column" fits)
+        this.ok("no line breaks before it had to" tight)
     }
 
     ; ----------------------------------------------------------------------
@@ -471,6 +513,101 @@ class MarkdownTest {
     ; ----------------------------------------------------------------------
     ; The metadata block
     ; ----------------------------------------------------------------------
+    ; ----------------------------------------------------------------------
+    ; Links: the destination survives the whole way to the paint
+    ; ----------------------------------------------------------------------
+    ;
+    ; `MdLayout` has carried a link on every segment since the first version
+    ; and both roads out of the boxes dropped it, so a link in the PDF was
+    ; blue ink and nothing else. The destination has to be on the ELEMENT,
+    ; because that is what `EVGPDFRenderer` walks to write `/Annots`.
+    fn links:void () {
+        def want:string "https://example.com/x"
+        def doc:MdNode (MdBlock.parseText("See [the license](https://example.com/x) for details.\n"))
+        def l:MdLayout (new MdLayout())
+        l.layoutContinuous(doc 400.0)
+        def kept:int 0
+        def i:int 0
+        def n:int (array_length l.boxes)
+        while (i < n) {
+            def b:MdBox (itemAt l.boxes i)
+            if (b.link == want) { kept = (kept + 1) }
+            i = (i + 1)
+        }
+        this.ok("the layout kept the destination" (kept > 0))
+        def root:EVGElement (MdToEvg.buildPage(l 400.0))
+        def mine:int (MarkdownTest.countHref(root want))
+        this.ok("and it reached the element tree" (mine > 0))
+        ; Nothing else claims one: an annotation over a word that is not a
+        ; link is worse than no annotation at all.
+        def all:int (MarkdownTest.countHref(root ""))
+        def others:int (all - mine)
+        this.eqInt("and only that" others 0)
+    }
+
+    ; How many elements in the subtree carry `want`. "" counts every element
+    ; that has any href at all.
+    sfn countHref:int (el:EVGElement want:string) {
+        def n:int 0
+        def has:boolean ((strlen el.href) > 0)
+        if ((strlen want) == 0) {
+            if has { n = 1 }
+        } {
+            if (el.href == want) { n = 1 }
+        }
+        def i:int 0
+        def c:int (array_length el.children)
+        while (i < c) {
+            def ch:EVGElement (itemAt el.children i)
+            def sub:int (MarkdownTest.countHref(ch want))
+            n = (n + sub)
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Tables: no cell writes outside its own column
+    ; ----------------------------------------------------------------------
+    ;
+    ; A column of one-word labels beside a column of paragraphs is the case
+    ; that broke: the widths were the unwrapped widths scaled by one factor,
+    ; which gave the label column less room than the word `Host/runtime`
+    ; needed, and the word then ran across the text in the cell next to it.
+    ; Two columns is not the interesting part — the RATIO between them is.
+    fn tables:void () {
+        def src:string "| Area | Current expectation |\n| --- | --- |\n| Host/runtime | Node.js is the primary supported host for the compiler, and the one the tests run on |\n| JavaScript | Best baseline target and the most reliable place to start when a new program is being written |\n"
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (new MdLayout())
+        l.layoutContinuous(doc 400.0)
+        def n:int (array_length l.boxes)
+        def texts:int 0
+        def contained:int 0
+        def i:int 0
+        while (i < n) {
+            def b:MdBox (itemAt l.boxes i)
+            if (b.kind == 0) {
+                texts = (texts + 1)
+                ; The cell this text sits in is the outline drawn around it.
+                def fits:boolean false
+                def j:int 0
+                while (j < n) {
+                    def o:MdBox (itemAt l.boxes j)
+                    if (o.kind == 2) {
+                        def insideY:boolean ((b.y >= (o.y - 0.01)) && (b.y < ((o.y + o.h) + 0.01)))
+                        def insideX:boolean ((b.x >= (o.x - 0.01)) && (((b.x + b.w)) <= ((o.x + o.w) + 0.01)))
+                        if (insideY && insideX) { fits = true }
+                    }
+                    j = (j + 1)
+                }
+                if fits { contained = (contained + 1) }
+            }
+            i = (i + 1)
+        }
+        this.ok("the table drew its cells" (texts > 5))
+        this.eqInt("every cell stays inside its own column" contained texts)
+    }
+
     fn frontMatter:void () {
         def doc:MdNode (MdBlock.parseText("---\ntitle: T\npage: A5\nmargin: 20mm\ntoc: true\n# a comment\n---\n\n# H\n"))
         def meta:MdMeta (MdFrontMatter.of(doc))

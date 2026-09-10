@@ -44,7 +44,7 @@ the design, including the parts that are not written.
 | **4** | the page: canvas, panes, sync | **done** — `/markdown/`, 14 checks in headless Chrome |
 | **5** | PDF in the tab | **done** — same layout, faces embedded, right page count |
 | **6** | highlighting, TOC, page furniture | **done** — 14 languages, a two-pass contents, running heads and folios |
-| **6b** | incremental reparse | **not done, and the budget is closer** — 382 ms at 63 KB became 159 ms once the canvas stopped building an element tree it never wanted. What is left is the text measurement |
+| **6b** | incremental reparse | **not done, and the budget is closer** — 382 ms at 63 KB became 142 ms: the canvas stopped building an element tree it never wanted, and `breakRuns` stopped re-measuring the whole open segment once per word. What is left is the text measurement itself |
 
 Two things the building changed about the design, both recorded here rather
 than quietly:
@@ -759,7 +759,7 @@ hour until the fifth failing example.
 | --- | --- | --- |
 | Emphasis and link resolution take longer than planned | likely | it is phase 1, with the score visible from the first day, so slippage shows as a number rather than as a surprise |
 | `RichDocument` resists markdown and the four additions become fourteen | possible | phase 3 is where this is discovered. The fallback is a markdown-owned layout model, which costs the DOCX-export bonus and nothing else |
-| The reparse budget is missed on a large document | **it is, by four** | `markdown:bench` measured 382 ms at 63 KB; pre-sizing the boxes and emitting the display list straight from them brought the canvas path to 159 ms, and `MarkdownTest.presized` holds the two roads to the same marks. The rest is the text measurement, and after that the scoped reparse in §9 |
+| The reparse budget is missed on a large document | **it is, by three** | `markdown:bench` measured 382 ms at 63 KB; pre-sizing the boxes and emitting the display list straight from them brought the canvas path to 159 ms, and `MarkdownTest.presized` holds the two roads to the same marks. Removing the quadratic re-measurement in `breakRuns` took it to 142, and halved the layout of a 371 KB file. The rest is the text measurement, and after that the scoped reparse in §9 |
 | `EVGPDFRenderer` turns out to touch a path in the browser | low | phase 0 asks, in twelve lines, before anything depends on the answer |
 | Mermaid's dialect moves and the extracted door falls behind | ongoing | the same risk `rangerflow:mermaid:parity` already tracks; sharing one door means one thing to keep current, not two |
 | The paged view and the PDF disagree | low | they are the same call with a different backend. The visual test diffs them |

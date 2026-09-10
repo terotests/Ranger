@@ -96,6 +96,20 @@ class EVGTextEngine {
     def runIndex:[string:int]
     def runStore:[EVGTextMetrics]
 
+    ; The last key's PREFIX, and the fields it was built from.
+    ;
+    ; Everything in a cache key except the text is the same from one call to
+    ; the next almost every time — a paragraph is measured word by word in one
+    ; face at one size — and building it was costing more than the lookup it
+    ; is for: two doubles turned into strings and six joins, per word. Five
+    ; comparisons and one join instead.
+    def keyPrefix:string ""
+    def keyKind:string ""
+    def keyFamily:string ""
+    def keySize:double -1.0
+    def keyMax:double -1.0
+    def keyMeasure:string ""
+
     ; Starts on the heuristic measurer so the engine is always usable; callers
     ; that care about print correctness install a real one via setMeasurer and
     ; turn on strict mode.
@@ -148,8 +162,26 @@ class EVGTextEngine {
     ; it is wrapped into, what the measurer would say, and the family. The TEXT
     ; GOES LAST because it is the one field that can contain the separator.
     fn cacheKey:string (kind:string fontFamily:string fontSize:double maxWidth:double text:string) {
-        return (kind + "\n" + (to_string fontSize) + "\n" + (to_string maxWidth)
-            + "\n" + (measurer.measureKey()) + "\n" + fontFamily + "\n" + text)
+        ; `measureKey` is asked every time on purpose: it is what a face
+        ; loaded after something was measured changes, and a prefix that
+        ; remembered it would hand back keys the new face has made stale.
+        def mk:string (measurer.measureKey())
+        def same:boolean true
+        if (kind != keyKind) { same = false }
+        if (fontFamily != keyFamily) { same = false }
+        if (fontSize != keySize) { same = false }
+        if (maxWidth != keyMax) { same = false }
+        if (mk != keyMeasure) { same = false }
+        if (! same) {
+            keyKind = kind
+            keyFamily = fontFamily
+            keySize = fontSize
+            keyMax = maxWidth
+            keyMeasure = mk
+            keyPrefix = (kind + "\n" + (to_string fontSize) + "\n" + (to_string maxWidth)
+                + "\n" + mk + "\n" + fontFamily + "\n")
+        }
+        return (keyPrefix + text)
     }
 
     fn setStrict:void (s:boolean) {
