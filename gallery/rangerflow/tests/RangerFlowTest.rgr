@@ -114,6 +114,7 @@ class RangerFlowTest {
         RangerFlowTest.testLaneOrdering(c)
         RangerFlowTest.testDragSweep(c)
         RangerFlowTest.testSegmentDrag(c)
+        RangerFlowTest.testEdgeEndGrips(c)
         RangerFlowTest.testShapes(c)
         RangerFlowTest.testFlowchart(c)
         RangerFlowTest.testMermaid(c)
@@ -494,6 +495,92 @@ class RangerFlowTest {
             i = (i + 1)
         }
         return n
+    }
+
+    sfn countPrefix:int (sc:FlowScene prefix:string) {
+        def n:int 0
+        def m:int (strlen prefix)
+        def i:int 0
+        while (i < (sc.count())) {
+            def it:SceneItem (sc.at(i))
+            if ((strlen it.tag) >= m) {
+                if ((substring it.tag 0 m) == prefix) {
+                    n = (n + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; ------------------------------------------- the grip on an edge's end ---
+    ; The reconnect gesture is older than the grip that shows it, and being
+    ; invisible it may as well not have existed: an end nobody can see is an
+    ; end nobody takes hold of. On a plain flowchart there is a second half to
+    ; it — no node there has handles of its own until something asks for them,
+    ; and an end that is not on a handle used to be an end that could not move.
+    sfn testEdgeEndGrips:void (c:Checker) {
+        c.section("the grip on a selected edge's end")
+        def g (new FlowGraph)
+        def a:FlowNode (g.node("a" "A" 0.0 0.0))
+        def b:FlowNode (g.node("b" "B" 400.0 0.0))
+        def d:FlowNode (g.node("d" "D" 400.0 300.0))
+        a.width = 150.0
+        a.height = 50.0
+        b.width = 150.0
+        b.height = 50.0
+        d.width = 150.0
+        d.height = 50.0
+        def e:FlowEdge (g.connect("a" "b"))
+        e.edgeType = "smoothstep"
+        g.reindex()
+        c.eqStr("a flowchart edge has no handle of its own" e.targetPort "")
+        def ed:FlowEditor (FlowEditor.of(g))
+        ed.setSize(1000.0 700.0)
+
+        def before:FlowScene (ed.view.build())
+        c.eqInt("an unselected edge draws no grips" (RangerFlowTest.countPrefix(before "edgeend:")) 0)
+        e.selected = true
+        def after:FlowScene (ed.view.build())
+        c.eqInt("a selected one draws one on each end" (RangerFlowTest.countPrefix(after "edgeend:")) 2)
+
+        def inp (new FlowInput)
+        inp.x = (ed.view.sx((g.endpointX(e false))))
+        inp.y = (ed.view.sy((g.endpointY(e false))))
+        c.ok("and the grip is where the hit test says it is" ((ed.edgeEndAt(inp.x inp.y)) >= 0))
+        ed.pointerDown(inp)
+        c.eqInt("pressing on it starts a reconnect" ed.mode 8)
+        c.ok("of the target end" (ed.reconnectAtSource == false))
+        def during:FlowScene (ed.view.build())
+        c.eqInt("the grips give way to the preview line" (RangerFlowTest.countPrefix(during "edgeend:")) 0)
+
+        inp.x = (ed.view.sx((d.x + (d.width * 0.5))))
+        inp.y = (ed.view.sy((d.y + (d.height * 0.5))))
+        ed.pointerMove(inp)
+        c.ok("another box is a place it can go" ed.view.connectValid)
+        ed.pointerUp(inp)
+        c.eqStr("the end moved to that box" e.target "d")
+        c.ok("landing on one of its handles" ((strlen e.targetPort) > 0))
+        c.eqInt("and no second edge was made" (g.edgeCount()) 1)
+        c.ok("nothing left running" (ed.idle()))
+
+        c.ok("the move is undoable" (ed.undo.undo(g)))
+        c.eqStr("undo puts the end back on the box it came from" e.target "b")
+        c.eqStr("with no handle it never had" e.targetPort "")
+        c.ok("redo is offered" (ed.undo.redo(g)))
+        c.eqStr("and moves it again" e.target "d")
+
+        ; An end may not be dropped on the box the other end is on.
+        def back (new FlowInput)
+        back.x = (ed.view.sx((g.endpointX(e false))))
+        back.y = (ed.view.sy((g.endpointY(e false))))
+        ed.pointerDown(back)
+        back.x = (ed.view.sx((a.x + (a.width * 0.5))))
+        back.y = (ed.view.sy((a.y + (a.height * 0.5))))
+        ed.pointerMove(back)
+        c.ok("its own other end is not a target" (ed.view.connectValid == false))
+        ed.pointerUp(back)
+        c.eqStr("so nothing moved" e.target "d")
     }
 
     ; ------------------------------------------------ moving an edge end ----
@@ -1968,11 +2055,14 @@ class RangerFlowTest {
         c.eqInt("and a repair pass keeps its hands off it" repaired 0)
         c.ok("leaving the corners as dragged" ((array_length e.waypoints) >= 8))
 
-        ; The first and last segments touch a port, so they are not on offer:
-        ; sliding one of those would detach the edge from the column it points
-        ; at, which is the whole point of a field-level port.
-        def sx0:double ((startX + (itemAt corners 2)) * 0.5)
-        def sy0:double ((startY + (itemAt corners 3)) * 0.5)
+        ; The first and last runs touch a port, so they cannot simply slide —
+        ; sliding one would take the end off the column it points at. They are
+        ; still on offer, because on a route that leaves a node downwards and
+        ; turns once they are the ONLY vertical runs, and refusing them left
+        ; such an edge movable up and down but never left and right. Grabbing
+        ; one splits it: a stub stays on the port, and the rest travels.
+        def sx0:double (startX + (((itemAt corners 2) - startX) * 0.75))
+        def sy0:double (startY + (((itemAt corners 3) - startY) * 0.75))
         def g2 (new FlowGraph)
         def a2:FlowNode (g2.node("a" "A" 0.0 0.0))
         def b2:FlowNode (g2.node("b" "B" 420.0 220.0))
@@ -1986,7 +2076,69 @@ class RangerFlowTest {
         def ed2:FlowEditor (FlowEditor.of(g2))
         ed2.setSize(1200.0 800.0)
         def stub:int (ed2.segmentAt(sx0 sy0))
-        c.eqInt("the stub that leaves the port is not draggable" stub -1)
+        c.ok("the run that leaves the port is grabbable too" (stub >= 0))
+        c.eqInt("and it is the first run of the route" (stub % 1000) 0)
+
+        def endX2:double (g2.endpointX(e2 true))
+        def endY2:double (g2.endpointY(e2 true))
+        def farX2:double (g2.endpointX(e2 false))
+        def farY2:double (g2.endpointY(e2 false))
+        def inp2 (new FlowInput)
+        inp2.x = sx0
+        inp2.y = sy0
+        ed2.pointerDown(inp2)
+        c.eqInt("pressing on it starts a segment drag" ed2.mode 6)
+        inp2.x = (sx0 + 40.0)
+        inp2.y = (sy0 + 40.0)
+        ed2.pointerMove(inp2)
+        ed2.pointerUp(inp2)
+        def held2:[double] e2.waypoints
+        def h2n:int (idiv (array_length held2) 2)
+        c.ok("the split gives the route corners of its own" (h2n >= 5))
+        ; The split put a stub corner in, so the run that travelled is the
+        ; THIRD point of the route and the one after it.
+        def moved2:double (itemAt held2 5)
+        if (ed2.segVertical) {
+            moved2 = (itemAt held2 4)
+        }
+        def wanted2:double (sy0 + 40.0)
+        if (ed2.segVertical) {
+            wanted2 = (sx0 + 40.0)
+        }
+        c.near("and the run followed the pointer across itself" moved2 wanted2 0.001)
+        c.near("the end stayed on its port" (itemAt held2 0) endX2 0.001)
+        c.near("at the same height" (itemAt held2 1) endY2 0.001)
+        def lastX2:double (itemAt held2 ((h2n - 1) * 2))
+        def lastY2At:int (((h2n - 1) * 2) + 1)
+        def lastY2:double (itemAt held2 lastY2At)
+        c.near("and the far end never moved" lastX2 farX2 0.001)
+        c.near("at all" lastY2 farY2 0.001)
+        def diag2:int 0
+        def j:int 0
+        while (j < (h2n - 1)) {
+            def jx:double (itemAt held2 (j * 2))
+            def jyAt:int ((j * 2) + 1)
+            def jy:double (itemAt held2 jyAt)
+            def kx:double (itemAt held2 ((j + 1) * 2))
+            def kyAt:int (((j + 1) * 2) + 1)
+            def ky:double (itemAt held2 kyAt)
+            def offX2:double (fabs (kx - jx))
+            def offY2:double (fabs (ky - jy))
+            if (offX2 > 0.001) {
+                if (offY2 > 0.001) {
+                    diag2 = (diag2 + 1)
+                }
+            }
+            j = (j + 1)
+        }
+        c.eqInt("the split route is orthogonal end to end" diag2 0)
+        c.ok("and it is undoable like any other reroute" (ed2.undo.undo(g2)))
+        c.eqInt("which hands the edge back to the router" (array_length e2.waypoints) 0)
+
+        ; The last few pixels belong to the end grip: a press there means
+        ; "take this end somewhere else", not "bend the line".
+        def nearEnd:int (ed2.segmentAt(endX2 endY2))
+        c.eqInt("the very end of the line is not a segment grab" nearEnd -1)
 
         ; A bezier has no segments to slide: its shape is a function of its
         ; ends, so offering a handle in the middle would be a lie.

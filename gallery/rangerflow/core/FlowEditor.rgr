@@ -160,6 +160,15 @@ class FlowUndo {
                     side = (to_int (itemAt e.oldX 0))
                 }
                 def atSource:boolean ((itemAt e.oldY 0) > 0.5)
+                ; Where the end belongs when it has no handle of its own: the
+                ; node is the whole of its address.
+                def wantNode:string ""
+                if ((array_length e.nodeIds) >= 2) {
+                    wantNode = (itemAt e.nodeIds 1)
+                    if reverse {
+                        wantNode = (itemAt e.nodeIds 0)
+                    }
+                }
                 def owner:int (g.portOwner(want))
                 if (owner >= 0) {
                     def on:FlowNode (g.nodeAt(owner))
@@ -175,6 +184,21 @@ class FlowUndo {
                     ed.pinnedRoute = false
                     clear ed.waypoints
                     g.reindex()
+                } {
+                    if ((strlen wantNode) > 0) {
+                        if atSource {
+                            ed.source = wantNode
+                            ed.sourcePort = ""
+                            ed.sourceHandle = side
+                        } {
+                            ed.target = wantNode
+                            ed.targetPort = ""
+                            ed.targetHandle = side
+                        }
+                        ed.pinnedRoute = false
+                        clear ed.waypoints
+                        g.reindex()
+                    }
                 }
             }
             return
@@ -546,6 +570,10 @@ class FlowEditor {
     def gripSize:double 10.0
     ; How near a segment the pointer has to be to grab it, in screen pixels.
     def segmentGrabSlop:double 7.0
+    ; How near an END of an edge the pointer has to be to take hold of it, in
+    ; screen pixels. The grip the view draws there is the same size, so what
+    ; you can see and what you can aim at agree.
+    def edgeEndGrabSlop:double 10.0
     ; Whether an edge's middle can be dragged sideways at all.
     def edgeSegmentDrag:boolean true
 
@@ -656,18 +684,26 @@ class FlowEditor {
     }
 
     ; Which segment of which edge is under the pointer, as `edge * 1000 +
-    ; segment`, or -1. Only the INTERIOR segments count: the first and last
-    ; touch a port, and moving one of those would detach the edge from the
-    ; column it is supposed to point at.
+    ; segment`, or -1. EVERY run counts, the first and the last included: a
+    ; route that leaves a node downwards and turns once has its only vertical
+    ; runs at the two ends, and refusing those meant such an edge could be
+    ; moved up and down but never left and right. The end runs cannot simply
+    ; slide — they touch a port — so `beginSegmentDrag` splits one when it is
+    ; grabbed, leaving a stub on the port and handing the rest to the pointer.
     ;
     ; A straight line and a bezier have no segments to speak of, so they are
     ; not offered — "drag it sideways" has no meaning for a curve whose shape
     ; is a function of its endpoints.
+    ;
+    ; The last few pixels at either end belong to the reconnect grip instead.
+    ; Both gestures start on the same line, and an end that reroutes when the
+    ; reader meant to move it is the more surprising of the two.
     fn segmentAt:int (sx:double sy:double) {
         if (edgeSegmentDrag == false) {
             return -1
         }
         def slop:double (segmentGrabSlop / view.viewport.zoom)
+        def endReach:double (edgeEndGrabSlop / view.viewport.zoom)
         def best:int -1
         def bestD:double slop
         def k:int 0
@@ -676,11 +712,20 @@ class FlowEditor {
             if (e.hidden == false) {
                 def corners:[double] (EdgeRouter.cornersFor(graph e))
                 def n:int (idiv (array_length corners) 2)
-                if (n >= 4) {
+                if (n >= 2) {
                     def fx:double (this.flowX(sx))
                     def fy:double (this.flowY(sy))
-                    def i:int 1
-                    while (i < (n - 2)) {
+                    def lastAt:int (((n - 1) * 2) + 1)
+                    def d0:double (FlowEditor.away((itemAt corners 0) (itemAt corners 1) fx fy))
+                    def d1:double (FlowEditor.away((itemAt corners ((n - 1) * 2)) (itemAt corners lastAt) fx fy))
+                    def onEnd:boolean false
+                    if (d0 <= endReach) { onEnd = true }
+                    if (d1 <= endReach) { onEnd = true }
+                    def i:int 0
+                    if onEnd {
+                        i = (n - 1)
+                    }
+                    while (i < (n - 1)) {
                         def ax:double (itemAt corners (i * 2))
                         def ayAt:int ((i * 2) + 1)
                         def ay:double (itemAt corners ayAt)
@@ -973,17 +1018,57 @@ class FlowEditor {
         return ((fabs (bx - ax)) < (fabs (by - ay)))
     }
 
+    ; A run that touches a port cannot slide across: taking it with it would
+    ; pull the end off the handle it points at. What CAN move is everything
+    ; past the first bend, so the run is cut in two — a short stub left on the
+    ; port, and the rest handed to the pointer. The two corners this puts in
+    ; start life on top of each other, which draws exactly the line that was
+    ; there until the pointer pulls them apart.
+    sfn splitTerminal:[double] (pts:[double] atStart:boolean) {
+        def n:int (idiv (array_length pts) 2)
+        if (n < 2) {
+            return pts
+        }
+        def ai:int 0
+        def bi:int 1
+        def cut:int 1
+        if (atStart == false) {
+            ai = (n - 2)
+            bi = (n - 1)
+            cut = (n - 1)
+        }
+        def ayAt:int ((ai * 2) + 1)
+        def byAt:int ((bi * 2) + 1)
+        def mx:double (((itemAt pts (ai * 2)) + (itemAt pts (bi * 2))) * 0.5)
+        def my:double (((itemAt pts ayAt) + (itemAt pts byAt)) * 0.5)
+        def out:[double]
+        def i:int 0
+        while (i < n) {
+            if (i == cut) {
+                push out mx
+                push out my
+                push out mx
+                push out my
+            }
+            def yAt:int ((i * 2) + 1)
+            push out (itemAt pts (i * 2))
+            push out (itemAt pts yAt)
+            i = (i + 1)
+        }
+        return out
+    }
+
     ; Take the edge's corners as they are, whoever produced them, and hold on
     ; to the original for one undo step.
     fn beginSegmentDrag:void (edgeIdx:int seg:int) {
         def e:FlowEdge (graph.edgeAt(edgeIdx))
         def corners:[double] (EdgeRouter.cornersFor(graph e))
         def n:int (idiv (array_length corners) 2)
-        if (seg < 1) {
+        if (seg < 0) {
             mode = 0
             return
         }
-        if (seg > (n - 3)) {
+        if (seg > (n - 2)) {
             mode = 0
             return
         }
@@ -993,12 +1078,8 @@ class FlowEditor {
             push segUndoBefore (itemAt e.waypoints w)
             w = (w + 1)
         }
-        clear e.waypoints
-        def c:int 0
-        while (c < (array_length corners)) {
-            push e.waypoints (itemAt corners c)
-            c = (c + 1)
-        }
+        ; Which way the run goes is read from the ORIGINAL corners: the split
+        ; below shortens it, it does not turn it.
         def ax:double (itemAt corners (seg * 2))
         def ayAt:int ((seg * 2) + 1)
         def ay:double (itemAt corners ayAt)
@@ -1006,12 +1087,29 @@ class FlowEditor {
         def byAt:int (((seg + 1) * 2) + 1)
         def by:double (itemAt corners byAt)
         segVertical = ((fabs (bx - ax)) < (fabs (by - ay)))
+        ; The far end first: cutting there leaves every index before it alone,
+        ; so a route made of one single run can be cut at both ends in turn.
+        def work:[double] corners
+        def index:int seg
+        if (seg == (n - 2)) {
+            work = (FlowEditor.splitTerminal(work false))
+        }
+        if (seg == 0) {
+            work = (FlowEditor.splitTerminal(work true))
+            index = (seg + 2)
+        }
+        clear e.waypoints
+        def c:int 0
+        while (c < (array_length work)) {
+            push e.waypoints (itemAt work c)
+            c = (c + 1)
+        }
         segStart = ay
         if segVertical {
             segStart = ax
         }
         segEdge = edgeIdx
-        segIndex = seg
+        segIndex = index
         mode = 6
     }
 
@@ -1852,7 +1950,7 @@ class FlowEditor {
     ; edge and which of its two ends: `index * 2` for the source, `+ 1` for
     ; the target. -1 for none.
     fn edgeEndAt:int (sx:double sy:double) {
-        def reach:double (10.0 / view.viewport.zoom)
+        def reach:double (edgeEndGrabSlop / view.viewport.zoom)
         def fx:double (this.flowX(sx))
         def fy:double (this.flowY(sy))
         def best:int -1
@@ -1870,16 +1968,20 @@ class FlowEditor {
             ; than something they discover.
             if (e.selected) {
             if (e.hidden == false) {
-                ; Only an end that is ON a handle can be moved to another one.
-                ; A node-to-node edge has nowhere to move to.
-                if ((strlen e.sourcePort) > 0) {
+                ; An end that sits on the node itself rather than on a handle
+                ; of its own moves just as well: `endReconnect` gives it the
+                ; handle it lands on, and until then the drawing asks the node
+                ; where the end is. Refusing those was why an edge on a plain
+                ; flowchart — where no node has ports until something asks for
+                ; them — could not be taken off one box and put on another.
+                if (e.sourceIndex >= 0) {
                     def d0:double (FlowEditor.away((graph.endpointX(e true)) (graph.endpointY(e true)) fx fy))
                     if (d0 <= bestD) {
                         bestD = d0
                         best = (i * 2)
                     }
                 }
-                if ((strlen e.targetPort) > 0) {
+                if (e.targetIndex >= 0) {
                     def d1:double (FlowEditor.away((graph.endpointX(e false)) (graph.endpointY(e false)) fx fy))
                     if (d1 <= bestD) {
                         bestD = d1
@@ -1916,6 +2018,23 @@ class FlowEditor {
         def anchor:string e.targetPort
         if (reconnectAtSource == false) {
             anchor = e.sourcePort
+        }
+        ; The preview is drawn FROM a handle, and the end that stays may not be
+        ; on one. Giving that node the four side handles is what a connection
+        ; started from it would do anyway, and it is the difference between a
+        ; line that follows the pointer and no line at all.
+        if ((strlen anchor) == 0) {
+            def keeper:string e.target
+            if (reconnectAtSource == false) {
+                keeper = e.source
+            }
+            def keeperAtSource:boolean (reconnectAtSource == false)
+            if (graph.hasNode(keeper)) {
+                def kn:FlowNode (graph.nodeById(keeper))
+                def kx:double (graph.endpointX(e keeperAtSource))
+                def ky:double (graph.endpointY(e keeperAtSource))
+                anchor = (this.nearestHandle(kn kx ky))
+            }
         }
         view.connectFrom = anchor
         view.connecting = true
@@ -1954,6 +2073,23 @@ class FlowEditor {
         } {
             if (p.role == "source") { return false }
         }
+        ; The end that stays may be on the node rather than on a handle, and
+        ; `canConnect` can say nothing about a pair whose other half has no id.
+        ; What is left to ask is whether this handle takes this end, and
+        ; whether the edge would join a node to itself.
+        if ((strlen other) == 0) {
+            def keeper:string e.target
+            if (reconnectAtSource == false) {
+                keeper = e.source
+            }
+            if (p.nodeId == keeper) {
+                return false
+            }
+            if reconnectAtSource {
+                return (p.acceptsSource())
+            }
+            return (p.acceptsTarget())
+        }
         if reconnectAtSource {
             return (graph.canConnect(toPort other))
         }
@@ -1980,6 +2116,15 @@ class FlowEditor {
                     entry.newText = toPort
                     push entry.oldX (to_double reconnectHandle)
                     push entry.newX (to_double p.side)
+                    ; The nodes, not only the handles: an end that was on the
+                    ; node itself has no port id to put back, and undo without
+                    ; this left such an edge where the pointer dropped it.
+                    if reconnectAtSource {
+                        push entry.nodeIds e.source
+                    } {
+                        push entry.nodeIds e.target
+                    }
+                    push entry.nodeIds p.nodeId
                     if reconnectAtSource {
                         push entry.oldY 1.0
                         e.source = p.nodeId
