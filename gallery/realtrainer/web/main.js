@@ -18,7 +18,7 @@ import { createDomPainter } from "../../evg/html/evg-dom.js";
 import { listOf, shiftsOf } from "../../evg/gl/evg-list.js";
 import { createA11yMirror, pressAtCentre } from "../../evg/gl/evg-a11y.js";
 import { createTextInputBridge } from "../../evg/gl/evg-textinput.js";
-import { RealTrainerDemo, RealTrainerModule } from "./generated-host.js";
+import { RealTrainerDemo, EVGHostTextMeasurer, EVGDefaultMeasurer } from "./generated-host.js";
 // The browser measures the text: every layout the app builds asks canvas
 // `measureText` in the face the painter draws with, instead of the advance
 // table. Installed before the app is constructed — the app keeps a layout.
@@ -31,7 +31,9 @@ const errEl = document.getElementById("err");
 const fpsEl = document.getElementById("fps");
 const sceneEl = document.getElementById("scene");
 
-const fontMeasure = installCanvasMeasurer(RealTrainerModule);
+// The two classes it needs, not the module: a namespace import would ask the
+// bundler for all 359 of them and nothing could be dropped. See build.mjs.
+const fontMeasure = installCanvasMeasurer({ EVGHostTextMeasurer, EVGDefaultMeasurer });
 window.__fontMeasure = fontMeasure;
 
 /** `YYYY-MM-DD` in the viewer's own timezone. */

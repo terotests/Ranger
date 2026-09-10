@@ -29,6 +29,8 @@ npm run rt:dom      # the app as retained DOM (?painter=dom): every node where t
                     # it, a scene change as creates and removes, a scroll as one transform
 npm run rt:shot:sync  # bake the first picture — the app's chrome, computed from its own
                     # display list, into index.html (rt:shot:check fails when it is stale)
+npm run rt:shaken   # the app the page ships (an ES module, tree-shaken by the bundler)
+                    # against the one the checks use, screen for screen and command for command
 npm run rt:boot     # when a visitor sees something and when they can use it: the real page
                     # in Chromium over a throttled, gzipped connection, both engines
 npm run rt:shell    # what the DOCUMENT shows before the app exists — the bundle is held at

@@ -14,12 +14,14 @@
 import { serveEngine } from "../../evg/gl/evg-engine.js";
 import { installCanvasMeasurer } from "../../evg/gl/evg-measure.js";
 import { shiftsOf, effectOf } from "../../evg/gl/evg-list.js";
-import * as RT from "../bin/RealTrainerDemo.cjs";
+import { RealTrainerDemo, EVGHostTextMeasurer, EVGDefaultMeasurer } from "./generated-host.js";
 import { REALTRAINER_CSS, REALTRAINER_COMPACT, REALTRAINER_PLAN_MACHINE, REALTRAINER_CHAT_MACHINE } from "./generated.js";
 
 // The browser measures here too — `OffscreenCanvas` — and before the app
 // exists, because the app keeps a layout from the moment it is made.
-const fontMeasure = installCanvasMeasurer(RT);
+// By name, not as a namespace — see build.mjs: a namespace import is a
+// request for every class in the app and nothing could then be dropped.
+const fontMeasure = installCanvasMeasurer({ EVGHostTextMeasurer, EVGDefaultMeasurer });
 
 let hovered = "";
 // The accessibility tree's generation and the host's focus, for the tree
@@ -29,7 +31,7 @@ let a11yFocus = "";
 
 serveEngine({
   make(init) {
-    const app = new RT.RealTrainerDemo();
+    const app = new RealTrainerDemo();
     app.init(REALTRAINER_CSS, REALTRAINER_COMPACT);
     app.loadPlanMachine(REALTRAINER_PLAN_MACHINE);
     app.loadChatMachine(REALTRAINER_CHAT_MACHINE);
