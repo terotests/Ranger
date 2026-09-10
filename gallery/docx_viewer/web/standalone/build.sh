@@ -75,6 +75,10 @@ node --input-type=module -e "
 cp "$WEB/index.html" "$OUT/index.html"
 cp "$WEB/standalone.mjs" "$OUT/standalone.mjs"
 
+# Minified when there is a minifier — see the tool for what that is worth and
+# why `DocxWeb` is the string it checks survived.
+node gallery/evg/web/tools/minify.mjs --file "$OUT/docx_web.js" --keep DocxWeb || exit 1
+
 mkdir -p "$OUT/gl" "$OUT/fonts"
 cp gallery/evg/gl/evg-webgl.js "$OUT/gl/evg-webgl.js"
 # ASSETS is what the page's head will be told to start fetching, collected as

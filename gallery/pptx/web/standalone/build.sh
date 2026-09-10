@@ -80,38 +80,10 @@ node --input-type=module -e "
   }
 " || exit 1
 
-# MINIFIED, WHEN THERE IS A MINIFIER. The generated bundle is machine-written
-# and reads like it — long identifiers, one statement per line, every temporary
-# named — and none of that survives to the browser usefully; the source it is
-# compiled from is a .rgr file in this repository. 3.49 MB becomes 2.27, and
-# 761 KB gzipped becomes 639.
-#
-# esbuild comes with the conformance host's dependencies, which this build does
-# not otherwise need, so a tree without them still builds — it just ships the
-# larger file and says so. `PPTX_NO_MINIFY=1` asks for the readable one.
+# Minified when there is a minifier — see the tool for what that is worth and
+# why `PptxWeb` is the string it checks survived.
 if [ "${PPTX_NO_MINIFY:-0}" != "1" ]; then
-  node --input-type=module -e "
-    import fs from 'fs';
-    import { createRequire } from 'node:module';
-    const p = '$STAGE/pptx_web.js';
-    let esbuild;
-    try {
-      esbuild = createRequire('$ROOT/gallery/ui/conformance/dom/package.json')('esbuild');
-    } catch (e) {
-      console.log('  (no esbuild — shipping the unminified bundle; npm run ui:conformance:install)');
-      process.exit(0);
-    }
-    const src = fs.readFileSync(p, 'utf8');
-    const out = esbuild.transformSync(src, { minify: true }).code;
-    // The one thing the page needs out of this file is the global the scope
-    // publishes. A minifier renames identifiers; it cannot rename a property.
-    if (!out.includes('PptxWeb')) {
-      console.error('minifying lost globalThis.PptxWeb');
-      process.exit(1);
-    }
-    fs.writeFileSync(p, out);
-    console.log('  minified ' + Math.round(src.length / 1024) + ' KB -> ' + Math.round(out.length / 1024) + ' KB');
-  " || exit 1
+  node gallery/evg/web/tools/minify.mjs --file "$STAGE/pptx_web.js" --keep PptxWeb || exit 1
 fi
 
 if [ "$(cd "$OUT" && pwd)" != "$(cd "$STAGE" && pwd)" ]; then

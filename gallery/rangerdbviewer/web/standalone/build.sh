@@ -102,6 +102,10 @@ cp "$WEB/index.html" "$OUT/index.html"
 cp "$WEB/standalone.mjs" "$OUT/standalone.mjs"
 cp "$WEB/selftest.mjs" "$OUT/selftest.mjs"
 
+# Minified when there is a minifier — see the tool for what that is worth and
+# why `RangerDbViewerWeb` is the string it checks survived.
+node gallery/evg/web/tools/minify.mjs --file "$OUT/rangerdbviewer_web.js" --keep RangerDbViewerWeb || exit 1
+
 mkdir -p "$OUT/gl" "$OUT/fonts"
 cp gallery/evg/gl/evg-webgl.js "$OUT/gl/evg-webgl.js"
 # ASSETS is what the page's head will be told to start fetching, collected as

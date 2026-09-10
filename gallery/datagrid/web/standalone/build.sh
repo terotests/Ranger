@@ -75,6 +75,10 @@ node --input-type=module -e "
 cp "$WEB/index.html" "$OUT/index.html"
 cp "$WEB/standalone.mjs" "$OUT/standalone.mjs"
 
+# Minified when there is a minifier — see the tool for what that is worth and
+# why `DataGridWeb` is the string it checks survived.
+node gallery/evg/web/tools/minify.mjs --file "$OUT/datagrid_web.js" --keep DataGridWeb || exit 1
+
 mkdir -p "$OUT/gl" "$OUT/fonts"
 cp gallery/evg/gl/evg-webgl.js "$OUT/gl/evg-webgl.js"
 # The accessibility mirror: the app's own a11y tree, as DOM over the canvas.
