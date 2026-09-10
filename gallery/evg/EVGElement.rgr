@@ -1398,7 +1398,38 @@ class EVGElement {
         return false
     }
 
+    ; Positioned against the VIEWPORT and not moved by a scroll — the one
+    ; thing that separates it from `absolute`, which is positioned against the
+    ; nearest container and travels with it.
+    fn isFixedPosition:boolean () {
+        return (position == "fixed")
+    }
+
+    ; The same walk as `moveSubtree`, except that a FIXED box and everything
+    ; under it stays where it is. A scroll moves the content of a container;
+    ; a fixed box is not content, it is furniture over the viewport, and the
+    ; whole point of the mode is that the page slides under it.
+    fn moveSubtreeUnfixed:void (dx:double dy:double) {
+        this.moveSelf(dx dy)
+        def i:int 0
+        def n:int (array_length children)
+        while (i < n) {
+            def kid:EVGElement (itemAt children i)
+            if (kid.isFixedPosition()) {
+            } {
+                kid.moveSubtreeUnfixed(dx dy)
+            }
+            i = (i + 1)
+        }
+    }
+
     fn hasAbsolutePosition:boolean () {
+        ; Fixed is out of flow by the same rule absolute is; where it differs
+        ; is which box it is positioned against, which is the layout's business
+        ; and not this one's.
+        if (position == "fixed") {
+            return true
+        }
         ; An overlay surface is out of flow by the same rule an absolutely
         ; positioned element is, and saying so here rather than adding a second
         ; condition to every size and space calculation in EVGLayout is the
@@ -3428,15 +3459,21 @@ class EVGElement {
         ; fault with a louder symptom — a popup that pushes the rows below it
         ; instead of covering them.
         ;
-        ; `fixed` maps to `absolute`: EVG has one out-of-flow mode and tests for
-        ; that string by name. The difference between them is which box you are
-        ; positioned against, and nothing here models a viewport separate from
-        ; the root, so calling it absolute is honest rather than approximate.
+        ; `fixed` IS ITS OWN MODE NOW. It used to map to `absolute` because
+        ; nothing here modelled a viewport separate from the root; `viewportW`
+        ; and `viewportH` are inherited down the tree, so the containing block
+        ; a fixed box wants is one field away, and the one thing that made the
+        ; difference visible — a scroll — is a single translation this can be
+        ; left out of. See `EVGLayout.layoutChildren` and `applyScroll`.
         ; `sticky` has no implementation at all and stays in flow, which is what
         ; it does until it sticks.
         if (name == "position") {
             def pv:string (trim value)
-            if ((pv == "absolute") || (pv == "fixed")) {
+            if (pv == "fixed") {
+                position = "fixed"
+                return
+            }
+            if (pv == "absolute") {
                 position = "absolute"
                 return
             }

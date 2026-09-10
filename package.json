@@ -723,6 +723,7 @@
     "evg:focus:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/EVGFocusTest.rgr -d=./gallery/evg/bin -o=EVGFocusTest.js -nodecli && node ./gallery/evg/bin/EVGFocusTest.js",
     "evg:stylevar:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/EVGStyleVarTest.rgr -d=./gallery/evg/bin -o=EVGStyleVarTest.js -nodecli && node ./gallery/evg/bin/EVGStyleVarTest.js",
     "evg:overlay:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/EVGOverlayTest.rgr -d=./gallery/evg/bin -o=EVGOverlayTest.js -nodecli && node ./gallery/evg/bin/EVGOverlayTest.js",
+    "evg:fixed:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/EVGFixedTest.rgr -d=./gallery/evg/bin -o=EVGFixedTest.js -nodecli && node ./gallery/evg/bin/EVGFixedTest.js",
     "evg:rtl:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/EVGRtlLayoutTest.rgr -d=./gallery/evg/bin -o=EVGRtlLayoutTest.js -nodecli && node ./gallery/evg/bin/EVGRtlLayoutTest.js",
     "evg:ruler:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/EVGRulerTest.rgr -d=./gallery/evg/bin -o=EVGRulerTest.js -nodecli && node ./gallery/evg/bin/EVGRulerTest.js",
     "evg:toolbar:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/EVGToolbarTest.rgr -d=./gallery/evg/bin -o=EVGToolbarTest.js -nodecli && node ./gallery/evg/bin/EVGToolbarTest.js",
