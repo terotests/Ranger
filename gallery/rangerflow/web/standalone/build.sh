@@ -79,6 +79,10 @@ cp "$WEB/index.html" "$OUT/index.html"
 cp "$WEB/standalone.mjs" "$OUT/standalone.mjs"
 mkdir -p "$OUT/gl" "$OUT/fonts"
 cp gallery/evg/gl/evg-webgl.js "$OUT/gl/evg-webgl.js"
+# The module half of the head this build writes, shared with every other
+# gallery page: it picks up the responses the head started.
+mkdir -p "$OUT/evg"
+cp gallery/evg/web/tools/assets-client.mjs "$OUT/evg/assets-client.mjs"
 FONT_SRC=gallery/pdf_writer/assets/fonts/Noto_Sans
 cp "$FONT_SRC/NotoSans-Regular.ttf" "$OUT/fonts/NotoSans-Regular.ttf"
 cp "$FONT_SRC/NotoSans-Bold.ttf" "$OUT/fonts/NotoSans-Bold.ttf"
@@ -107,6 +111,17 @@ node -e "
     .replace('./gl/evg-webgl.js', './gl/evg-webgl.js?v=' + stamp);
   fs.writeFileSync('$OUT/standalone.mjs', mjs);
 " || exit 1
+# Minified when there is a minifier, and a head that starts the one asset this
+# page cannot make for itself. The FONTS here are loaded by the browser through
+# `FontFace(url)` rather than by fetch, so they are not in this list: starting
+# them here would risk a second request rather than saving one.
+node gallery/evg/web/tools/minify.mjs --file "$OUT/rangerflow_web.js" --keep RangerFlowWeb || exit 1
+node gallery/evg/web/tools/inline-assets.mjs \
+  --html "$OUT/index.html" \
+  --start "ecommerce.sql" \
+  --preload "standalone.mjs,gl/evg-webgl.js" \
+  --stamp "$STAMP" || exit 1
+
 if grep -q "__BUILD__" "$OUT/index.html"; then
   echo "the build stamp was not written into $OUT/index.html" >&2
   exit 1

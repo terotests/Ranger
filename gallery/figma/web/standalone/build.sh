@@ -71,6 +71,10 @@ mkdir -p "$OUT/gl" "$OUT/fonts"
 mkdir -p "$OUT/fixtures"
 cp gallery/figma/fixtures/*.fig "$OUT/fixtures/"
 cp gallery/evg/gl/evg-webgl.js "$OUT/gl/evg-webgl.js"
+# The module half of the head this build writes, shared with every other
+# gallery page: it picks up the responses the head started.
+mkdir -p "$OUT/evg"
+cp gallery/evg/web/tools/assets-client.mjs "$OUT/evg/assets-client.mjs"
 for face in OpenSans-Regular OpenSans-Bold OpenSans-Italic OpenSans-BoldItalic; do
   cp "gallery/pdf_writer/assets/fonts/Open_Sans/$face.ttf" "$OUT/fonts/$face.ttf"
 done
@@ -87,6 +91,16 @@ node -e "
   fs.writeFileSync('$OUT/index.html',
     fs.readFileSync('$OUT/index.html', 'utf8').split('__BUILD__').join(stamp));
 " || exit 1
+# Minified when there is a minifier, and a head that starts the file the page
+# opens on. `?file=` names another one and is not started here: it is an
+# arbitrary path, and the module fetches it as it always did.
+node gallery/evg/web/tools/minify.mjs --file "$OUT/fig_web.js" --keep FigWeb || exit 1
+node gallery/evg/web/tools/inline-assets.mjs \
+  --html "$OUT/index.html" \
+  --start "fixtures/health.fig" \
+  --preload "standalone.mjs,gl/evg-webgl.js" \
+  --stamp "$STAMP" || exit 1
+
 if grep -q "__BUILD__" "$OUT/index.html"; then
   echo "the build stamp was not written into $OUT/index.html" >&2
   exit 1

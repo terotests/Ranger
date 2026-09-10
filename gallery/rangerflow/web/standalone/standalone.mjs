@@ -10,6 +10,9 @@
  * text runs are rasterized with, and a `.sql` file to open.
  */
 import { renderDisplayList } from "./gl/evg-webgl.js";
+// The fixture this page's head started fetching before the body was parsed —
+// see gallery/evg/web/tools/inline-assets.mjs, which writes that head.
+import { textOf } from "./evg/assets-client.mjs";
 
 // If the import above 404s, nothing below runs and the only evidence is a line
 // in the network panel. The page watches for this instead.
@@ -451,8 +454,7 @@ async function boot() {
   }
   // The schema fixture is the only thing the page cannot make for itself. It
   // is handed over once and kept, so the scenario picker can come back to it.
-  const res = await fetch("./ecommerce.sql");
-  app.setFixtureSql(await res.text());
+  app.setFixtureSql(await textOf("ecommerce.sql"));
 
   const params = new URLSearchParams(location.search);
   const wanted = params.get("scenario") || "erd";

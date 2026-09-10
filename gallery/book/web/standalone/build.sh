@@ -123,6 +123,18 @@ node -e "
     fs.readFileSync('$OUT/standalone.mjs', 'utf8')
       .replace('./gl/evg-webgl.js', './gl/evg-webgl.js?v=' + stamp));
 " || exit 1
+# Minified when there is a minifier.
+#
+# NOT the shared asset head, and this is deliberate. Every other gallery page
+# fetches its assets by plain name, so `inline-assets.mjs` can start them in
+# the head and the module can pick them up. This page fetches its own with
+# `cache: "no-store"` and a `?v=<stamp>` on every URL — a page about a book
+# that is edited while you watch it, where a stale asset is the bug — and
+# starting those requests without the query, or without the cache mode, would
+# be starting different requests. Giving the tool a stamp and a cache mode is
+# the fix, and it belongs with the next page that wants it rather than here.
+node gallery/evg/web/tools/minify.mjs --file "$OUT/book_web.js" --keep BookWeb || exit 1
+
 if grep -q "__BUILD__" "$OUT/index.html"; then
   echo "the build stamp was not written into $OUT/index.html" >&2
   exit 1
