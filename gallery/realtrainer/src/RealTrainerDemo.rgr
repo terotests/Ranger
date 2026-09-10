@@ -1043,6 +1043,17 @@ class RealTrainerDemo {
     ; `traces/reference/chat-send.json`, where the heading stays "AI Chat".
     def chatReview@(mutable):boolean false
     def chatHintField:InputCtl (new InputCtl())
+    ; Jaetut kalenterit: which calendar has its sharing open, or "".
+    def sharedOpen@(mutable):string ""
+    ; Tietopankki: the category filter, and whether the editor is over it.
+    def knowCat@(mutable):string "0"
+    def knowAdd@(mutable):boolean false
+    def knUrl:InputCtl (new InputCtl())
+    def knTitle:InputCtl (new InputCtl())
+    def knDesc:InputCtl (new InputCtl())
+    def knTags:InputCtl (new InputCtl())
+    def knCat:SelectCtl (new SelectCtl())
+    def knSub:SelectCtl (new SelectCtl())
     def venueField:InputCtl (new InputCtl())
     def knowField:InputCtl (new InputCtl())
     def featFrom:InputCtl (new InputCtl())
@@ -1305,6 +1316,24 @@ class RealTrainerDemo {
         chatHintField.tid = "rt-chat-hint"
         chatHintField.placeholder = "Lisää uusi ohje..."
         chatHintField.name = chatHintField.placeholder
+        knUrl.tid = "rt-kn-url"
+        knUrl.placeholder = "https://..."
+        knUrl.name = knUrl.placeholder
+        knTitle.tid = "rt-kn-title"
+        knTitle.placeholder = "Esim. Kuulan tekniikkadrillit"
+        knTitle.name = knTitle.placeholder
+        knDesc.tid = "rt-kn-desc"
+        knDesc.placeholder = "Omat muistiinpanot..."
+        knDesc.name = knDesc.placeholder
+        knTags.tid = "rt-kn-tags"
+        knTags.placeholder = "esim. kuula, tekniikka, drilli"
+        knTags.name = knTags.placeholder
+        knCat.tid = "rt-kn-cat"
+        knCat.name = ""
+        knCat.value = "Tekniikka"
+        knSub.tid = "rt-kn-sub"
+        knSub.name = ""
+        knSub.value = "— Valitse —"
         venueField.tid = "rt-ven-search"
         venueField.placeholder = "Etsi julkisia kuntosaleja..."
         venueField.name = venueField.placeholder
@@ -3559,6 +3588,14 @@ class RealTrainerDemo {
         def listed:[RtSeedCalendar] (seed.storeOrder())
         for listed c:RtSeedCalendar i {
             col.addChild((this.setBtn(("rt-share-cal-" + c.id) (c.name + " Ei jaettu"))))
+            ; A calendar opens to show what sharing it would mean. Nothing is
+            ; shared here — there is no backend to share with — and the
+            ; original says the same two lines about a calendar nobody has.
+            if (sharedOpen == c.id) {
+                col.addChild((this.setBtn(("rt-share-go-" + c.id) "Jaa")))
+                col.addChild((tree Rt (SetNote "Ei jaettu")))
+                col.addChild((tree Rt (SetNote "Jaa aloittaaksesi yhteistyön")))
+            }
         }
         body.addChild(col)
     }
@@ -5827,15 +5864,82 @@ class RealTrainerDemo {
         push cats "Muut"
         def catRow (tree Rt (PageCats))
         for cats cn:string ci {
-            catRow.addChild((this.setBtn(("rt-kn-cat-" + (to_string ci)) cn)))
+            def chip (this.setBtn(("rt-kn-cat-" + (to_string ci)) cn))
+            if (knowCat == (to_string ci)) {
+                chip.className = "rt-set-btn rt-set-btn-on"
+            }
+            catRow.addChild(chip)
         }
         main.addChild(catRow)
-        main.addChild((tree Rt (PagePara "Tietopankki on tyhjä")))
-        main.addChild((this.setBtn("rt-kn-first" "Lisää ensimmäinen")))
+        ; AN EMPTY STORE AND AN EMPTY FILTER ARE NOT THE SAME EMPTY. With no
+        ; category chosen the store is empty and offers to start it; with one
+        ; chosen there are simply no results, and nothing to press.
+        if (knowCat == "0") {
+            main.addChild((tree Rt (PagePara "Tietopankki on tyhjä")))
+            main.addChild((this.setBtn("rt-kn-first" "Lisää ensimmäinen")))
+        } {
+            main.addChild((tree Rt (PagePara "Ei hakutuloksia")))
+        }
         page.addChild(main)
+        ; THE BAR'S OWN SHEET, over this page. It keeps the bottom bar, so
+        ; "Lisää" has to open the sheet HERE — it used to leave the page and
+        ; open it back on the calendar, which is a button that answers by
+        ; navigating somewhere nobody asked for.
+        this.overlays(page)
         page.addChild((this.bottomNav()))
+        if knowAdd {
+            this.knowledgeEditor(page)
+        }
         page.addChild((this.toasts()))
         return page
+    }
+
+    ; "LISÄÄ" ON TIETOPANKKI opens the editor the original opens: a link, a
+    ; picture, a title and a description, what KIND of thing it is, where it
+    ; belongs, and its tags. Nothing is stored — the knowledge store is the
+    ; backend's — so Tallenna is disabled, which is where the original leaves
+    ; it until a title is typed. See `traces/reference/more-pages.json`.
+    fn knowledgeEditor:void (page:EVGElement) {
+        def box (tree Rt (Col (props (className "rt-kn-editor"))))
+        def head (tree Rt (Row (props (className "rt-kn-editor-head"))))
+        head.addChild((tree Rt (PageH2 (props (id "rt-kn-editor-hd")) "Lisää tietopankkiin")))
+        head.addChild((tree Rt (Spacer)))
+        head.addChild((this.iconBtn("rt-kn-editor-close" "" (RtIcons.x("#999999")))))
+        box.addChild(head)
+        box.addChild((tree Rt (PagePara "URL (valinnainen)")))
+        box.addChild((this.fieldBox(knUrl)))
+        box.addChild((tree Rt (PagePara "Kuva (liitä Ctrl+V tai valitse)")))
+        box.addChild((this.setBtn("rt-kn-image" "Liitä kuva (Ctrl+V) tai klikkaa valitaksesi")))
+        box.addChild((tree Rt (PagePara "Otsikko *")))
+        box.addChild((this.fieldBox(knTitle)))
+        box.addChild((tree Rt (PagePara "Kuvaus")))
+        box.addChild((this.fieldBox(knDesc)))
+        box.addChild((tree Rt (PagePara "Tyyppi")))
+        def kinds:[string]
+        push kinds "Video"
+        push kinds "Artikkeli"
+        push kinds "Resepti"
+        push kinds "Ohje"
+        push kinds "Linkki"
+        push kinds "Muistiinpano"
+        def kindRow (tree Rt (PageCats))
+        for kinds kn:string ki {
+            kindRow.addChild((this.setBtn(("rt-kn-kind-" + (to_string ki)) kn)))
+        }
+        box.addChild(kindRow)
+        box.addChild((tree Rt (PagePara "Kategoria")))
+        box.addChild((this.setSelect(knCat)))
+        box.addChild((tree Rt (PagePara "Alakategoria")))
+        box.addChild((this.setSelect(knSub)))
+        box.addChild((tree Rt (PagePara "Tagit (pilkulla erotettuna)")))
+        box.addChild((this.fieldBox(knTags)))
+        def acts (tree Rt (Row (props (className "rt-kn-editor-acts"))))
+        acts.addChild((this.setBtn("rt-kn-cancel" "Peruuta")))
+        def save (this.setBtn("rt-kn-save" "Tallenna"))
+        save.a11yDisabled = true
+        acts.addChild(save)
+        box.addChild(acts)
+        page.addChild(box)
     }
 
     fn wizardScreen:EVGElement () {
@@ -8504,6 +8608,24 @@ class RealTrainerDemo {
             setHintSet = (RealTrainerDemo.togglePanel(setHintSet ("kind-" + (substring id 12 (strlen id)))))
             return true
         }
+        ; Jaetut kalenterit and Tietopankki: the buttons on the two pages the
+        ; More sheet opens. See `traces/reference/more-pages.json`.
+        if (RtEntry.hasPrefix(id "rt-share-cal-")) {
+            sharedOpen = (RealTrainerDemo.togglePanel(sharedOpen (substring id 13 (strlen id))))
+            return true
+        }
+        if (RtEntry.hasPrefix(id "rt-kn-cat-")) {
+            knowCat = (substring id 10 (strlen id))
+            return true
+        }
+        if ((id == "rt-kn-add") || (id == "rt-kn-first")) {
+            knowAdd = true
+            return true
+        }
+        if ((id == "rt-kn-editor-close") || (id == "rt-kn-cancel")) {
+            knowAdd = false
+            return true
+        }
         if (id == "rt-set-own-theme") {
             themeEditor = true
             return true
@@ -8639,6 +8761,10 @@ class RealTrainerDemo {
         push a noteUrl
         push a noteBody
         push a chatHintField
+        push a knUrl
+        push a knTitle
+        push a knDesc
+        push a knTags
         push a venueField
         push a knowField
         push a featFrom
@@ -10104,11 +10230,26 @@ class RealTrainerDemo {
             return false
         }
         if (scene == "knowledge") {
+            ; The sheet opens over this page and its items are answered where
+            ; every other screen answers them.
+            if ((id == "rt-nav-more") || moreOpen) {
+                def tookMore:boolean (this.pressApp(id))
+                this.rebuild()
+                return tookMore
+            }
+            ; The page's own buttons — the categories and the editor.
+            if (RtEntry.hasPrefix(id "rt-kn-")) {
+                def tookKn:boolean (this.pressApp(id))
+                this.rebuild()
+                return tookKn
+            }
             if ((strlen id) > 7) {
                 if ((substring id 0 7) == "rt-nav-") {
                     scene = "app"
                     docScroll = 0.0
-                    return (this.pressApp(id))
+                    def tookNav:boolean (this.pressApp(id))
+                    this.rebuild()
+                    return tookNav
                 }
             }
             return false
