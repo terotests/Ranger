@@ -91,6 +91,7 @@ class MarkdownTest {
         this.highlight()
         this.frontMatter()
         this.furniture()
+        this.tables()
         this.presized()
         this.textEngine()
         print ""
@@ -511,6 +512,48 @@ class MarkdownTest {
     ; ----------------------------------------------------------------------
     ; The metadata block
     ; ----------------------------------------------------------------------
+    ; ----------------------------------------------------------------------
+    ; Tables: no cell writes outside its own column
+    ; ----------------------------------------------------------------------
+    ;
+    ; A column of one-word labels beside a column of paragraphs is the case
+    ; that broke: the widths were the unwrapped widths scaled by one factor,
+    ; which gave the label column less room than the word `Host/runtime`
+    ; needed, and the word then ran across the text in the cell next to it.
+    ; Two columns is not the interesting part — the RATIO between them is.
+    fn tables:void () {
+        def src:string "| Area | Current expectation |\n| --- | --- |\n| Host/runtime | Node.js is the primary supported host for the compiler, and the one the tests run on |\n| JavaScript | Best baseline target and the most reliable place to start when a new program is being written |\n"
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (new MdLayout())
+        l.layoutContinuous(doc 400.0)
+        def n:int (array_length l.boxes)
+        def texts:int 0
+        def contained:int 0
+        def i:int 0
+        while (i < n) {
+            def b:MdBox (itemAt l.boxes i)
+            if (b.kind == 0) {
+                texts = (texts + 1)
+                ; The cell this text sits in is the outline drawn around it.
+                def fits:boolean false
+                def j:int 0
+                while (j < n) {
+                    def o:MdBox (itemAt l.boxes j)
+                    if (o.kind == 2) {
+                        def insideY:boolean ((b.y >= (o.y - 0.01)) && (b.y < ((o.y + o.h) + 0.01)))
+                        def insideX:boolean ((b.x >= (o.x - 0.01)) && (((b.x + b.w)) <= ((o.x + o.w) + 0.01)))
+                        if (insideY && insideX) { fits = true }
+                    }
+                    j = (j + 1)
+                }
+                if fits { contained = (contained + 1) }
+            }
+            i = (i + 1)
+        }
+        this.ok("the table drew its cells" (texts > 5))
+        this.eqInt("every cell stays inside its own column" contained texts)
+    }
+
     fn frontMatter:void () {
         def doc:MdNode (MdBlock.parseText("---\ntitle: T\npage: A5\nmargin: 20mm\ntoc: true\n# a comment\n---\n\n# H\n"))
         def meta:MdMeta (MdFrontMatter.of(doc))
