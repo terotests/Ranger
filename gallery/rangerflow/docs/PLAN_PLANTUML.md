@@ -1,8 +1,11 @@
 # PlantUML in RangerFlow — the plan
 
-Status: **design, nothing built yet** · the oracle in §3 was *measured*, not
-imagined — every command in this document was run against PlantUML 1.2025.4 on
-2026-09-10 and the output is quoted as it came back.
+Status: **phase 3 (sequence) is built and drawing** · `npm run
+rangerflow:plantuml` · `domains/plantuml/` · the type sniff of §3 and the
+sequence grammar of phase 3 are in, with 68 assertions; phases 1, 2 and 4-8 are
+still design. The oracle in §3 was *measured*, not imagined — every command in
+this document was run against PlantUML 1.2025.4 on 2026-09-10 and the output is
+quoted as it came back.
 
 Mermaid arrived in RangerFlow as 31 readers, 38 recognised diagram types and a
 scorecard computed by Mermaid's own parser
@@ -324,11 +327,17 @@ link grammar (`--`, `..`, `-->`, `<|--`, `*--`, `o--`, `..>`, `#--`, `x--`,
 / `show`. **The largest single commit in the plan, and the one that scores the
 most.**
 
-**Phase 3 — sequence.** Its own grammar and its own layout (who across, when
-down — no layout to improve). Participants and their eight shapes, `activate` /
-`deactivate` / `destroy`, `alt`/`else`/`opt`/`loop`/`par`/`break`/`critical`/
-`group`, dividers `==`, delays `...`, references `ref over`, `box`, autonumber,
-`create`, self-messages, `->o`, `->x`, `-\`, `//--`.
+**Phase 3 — sequence.** ✅ **Done**, and done first rather than third: it is
+the diagram in the request that started this, and it proved the whole path
+before any of the harness existed. `PlantUmlSequenceReader` translates into
+`SeqDiagram` — the model and the placer that moved to `core/` so Mermaid and
+PlantUML could share them — and from there the drawing, the router, the four
+backends and the GPU scene were already written. Participants in all eight
+shapes, `activate`/`deactivate`/`destroy`, `alt`/`else`/`opt`/`loop`/`par`/
+`break`/`critical`/`group`, `==` dividers, `ref over`, `box`, autonumber,
+`create`, self-messages, `->o`, `->x`, the `\` and `/` half-heads and
+`-[#red]>` colours. On `fixtures/plantuml/` it agrees with PlantUML's own
+renderer participant for participant and message for message.
 
 **Phase 4 — state, activity, timing.** State reuses Phase 2's link grammar plus
 composite states, history `[H]`, forks, concurrent regions `--`. Activity is the
