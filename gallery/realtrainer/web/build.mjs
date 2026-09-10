@@ -159,13 +159,49 @@ for (const root of [...HOT_ROOTS, ...COLD_ROOTS]) {
   }
 }
 
-// What each class names. Identifiers only, and over-inclusion is safe: a name
-// that appears in a comment or a string keeps a class that could have gone,
-// never drops one that was needed.
+// COMMENTS ARE NOT REFERENCES, and reading them as if they were is not the
+// harmless over-inclusion it looks like. The first cut of this kept the entire
+// Vega-Lite compiler — 321 KB — on the first-frame path through a chain of
+// four doc comments: `@see VlDataset`, `@see VlChart`, "ready for VlCompile".
+// Nothing executes a comment, and nothing in the whole chain was code.
+//
+// Strings are left in. A name inside a string is not a reference either, but
+// dropping strings means tracking them anyway, and keeping them only ever
+// keeps a class that could have gone. Comments are where the cost was.
+const withoutComments = (text) => {
+  let out = "";
+  let i = 0;
+  let quote = "";           // the quote character we are inside, or ""
+  while (i < text.length) {
+    const c = text[i], next = text[i + 1];
+    if (quote) {
+      out += c;
+      if (c === "\\") { out += next ?? ""; i += 2; continue; }
+      if (c === quote) quote = "";
+      i += 1;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === "`") { quote = c; out += c; i += 1; continue; }
+    if (c === "/" && next === "/") {
+      while (i < text.length && text[i] !== "\n") i += 1;
+      continue;
+    }
+    if (c === "/" && next === "*") {
+      i += 2;
+      while (i < text.length && !(text[i] === "*" && text[i + 1] === "/")) i += 1;
+      i += 2;
+      continue;
+    }
+    out += c;
+    i += 1;
+  }
+  return out;
+};
+
 const refs = new Map();
 for (const [name, b] of blocks) {
   const found = new Set();
-  for (const m of b.lines.join("\n").matchAll(/[A-Za-z_$][A-Za-z0-9_$]*/g)) {
+  for (const m of withoutComments(b.lines.join("\n")).matchAll(/[A-Za-z_$][A-Za-z0-9_$]*/g)) {
     if (m[0] !== name && classNames.has(m[0])) found.add(m[0]);
   }
   refs.set(name, found);
