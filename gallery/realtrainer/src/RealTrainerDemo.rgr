@@ -1101,9 +1101,18 @@ class RealTrainerDemo {
     ; The plan arrives as TEXT rather than as a path: a browser has no
     ; filesystem, and the headless check should read the same bytes the page
     ; does rather than a fixture of its own.
+    ; `css` is either the stylesheet's source or the stylesheet already parsed
+    ; and written down (`EVGStyleSheet.toText`, PLAN_WEB_LOADING.md S5 C2).
+    ; The page hands over the written-down one — smaller on the wire and read
+    ; rather than parsed — and every check goes on handing over the source, so
+    ; there is one entry point and no second way for the two to disagree.
     fn init:void (css:string compact:string) {
         def s (new EVGStyleSheet())
-        s.parse(css)
+        if (EVGStyleSheet.isSheetText(css)) {
+            s.loadText(css)
+        } {
+            s.parse(css)
+        }
         sheet = s
         this.loadCompact(compact)
         this.setupControls()
