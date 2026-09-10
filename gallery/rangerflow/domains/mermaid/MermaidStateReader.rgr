@@ -64,6 +64,14 @@ class MermaidStateDiagram {
     def groups:[MermaidStateGroup]
 
     Constructor () {
+        ; Mermaid draws a state as its name with a little room round it, at
+        ; a face larger than the theme's, and that is what makes its pictures
+        ; read big: the text is most of the box, and a picture fitted to a
+        ; page is scaled by its boxes and gaps, not by its type.
+        activity.fontSize = 15.0
+        activity.padding = 32.0
+        activity.minWidth = 64.0
+        activity.boxHeight = 42.0
     }
 
     fn stateCount:int () {
@@ -628,17 +636,30 @@ class MermaidStateFlow {
         lay.direction = (d.layerDirection())
         lay.layerGap = 76.0
         lay.nodeGap = 44.0
+        ; A strip along the flow is drawn small when fitted to a page; let
+        ; the layout close its gaps towards a squarer picture. Across the
+        ; page the gap also holds the labels, written along the flow, so the
+        ; floor is whatever the longest of them needs.
+        lay.squareUp = true
+        lay.minLayerGap = 56.0
         if ((d.layerDirection()) == "LR") {
             lay.layerGap = 120.0
             lay.nodeGap = 36.0
+            def chars:int (lay.longestLabel())
+            def labelRoom:double (((to_double chars) * 6.6) + 48.0)
+            lay.minLayerGap = 72.0
+            if (labelRoom > 72.0) {
+                lay.minLayerGap = labelRoom
+            }
         }
         lay.run()
-        ActivityDiagram.faceEdges(g)
+        ActivityDiagram.faceEdgesAlong(g ((d.layerDirection()) == "LR"))
         def moved:int (EdgeLanes.assign(g))
         def routed:int (lay.routeLongEdges())
         EdgeLanes.resetLanes(g)
         def refanned:int (EdgeLanes.assign(g))
         def repaired:int (OrthoRouter.repairAll(g))
+        def parted:int (EdgeLanes.staggerLabels(g))
         def frames:int (MermaidStateFlow.frameGroups(d g style))
         return g
     }

@@ -1546,7 +1546,7 @@ class FlowView {
     ; a diamond is where the room is, and text set to the box would sit over
     ; the sloping sides.
     fn paintShapeLabel:void (sc:FlowScene n:FlowNode x:double y:double w:double h:double tag:string) {
-        def size:double (this.sl(theme.headerFontSize))
+        def size:double (this.sl((theme.headerFontSize * n.fontScale)))
         if (size < 5.0) {
             return
         }
