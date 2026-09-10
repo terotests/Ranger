@@ -274,8 +274,8 @@ class EdgeLanes {
                                     if ((fabs (down - at)) < (fabs (up - at))) {
                                         want = down
                                     }
-                                    def low:double ((itemAt wallA m) + margin)
-                                    def high:double ((itemAt wallB m) - margin)
+                                    def low:double ((EdgeLanes.lower((itemAt wallA m) (itemAt wallB m))) + margin)
+                                    def high:double ((EdgeLanes.upper((itemAt wallA m) (itemAt wallB m))) - margin)
                                     if (want < low) {
                                         want = up
                                     }
@@ -736,6 +736,11 @@ class EdgeLanes {
         if (horizA != horizB) {
             return false
         }
+        ; The walls are kept in travel order — `wallA` is the side the edge
+        ; comes in from, `wallB` the side it goes out to — because which way
+        ; an edge crosses the corridor decides which of its stubs a
+        ; neighbouring track runs past. Everything that wants the corridor
+        ; as a range takes the lower and upper of the two.
         def x1:double (g.endpointX(e true))
         def y1:double (g.endpointY(e true))
         def x2:double (g.endpointX(e false))
@@ -750,8 +755,8 @@ class EdgeLanes {
             set_at pos idx ((sgx + tgx) * 0.5)
             set_at lo idx (EdgeLanes.lower(sgy tgy))
             set_at hi idx (EdgeLanes.upper(sgy tgy))
-            set_at wallA idx (EdgeLanes.lower(sgx tgx))
-            set_at wallB idx (EdgeLanes.upper(sgx tgx))
+            set_at wallA idx sgx
+            set_at wallB idx tgx
             set_at entry idx sgy
             set_at exit idx tgy
             return true
@@ -760,8 +765,8 @@ class EdgeLanes {
         set_at pos idx ((sgy + tgy) * 0.5)
         set_at lo idx (EdgeLanes.lower(sgx tgx))
         set_at hi idx (EdgeLanes.upper(sgx tgx))
-        set_at wallA idx (EdgeLanes.lower(sgy tgy))
-        set_at wallB idx (EdgeLanes.upper(sgy tgy))
+        set_at wallA idx sgy
+        set_at wallB idx tgy
         set_at entry idx sgx
         set_at exit idx tgx
         return true
@@ -799,8 +804,8 @@ class EdgeLanes {
             while (q < (count - 1)) {
                 def u:int (itemAt order q)
                 def v:int (itemAt order (q + 1))
-                def asIs:int (EdgeLanes.crossCost(u v lo hi entry exit))
-                def flipped:int (EdgeLanes.crossCost(v u lo hi entry exit))
+                def asIs:int (EdgeLanes.crossCost(u v lo hi wallA wallB entry exit))
+                def flipped:int (EdgeLanes.crossCost(v u lo hi wallA wallB entry exit))
                 if (flipped < asIs) {
                     set_at order q v
                     set_at order (q + 1) u
@@ -822,7 +827,7 @@ class EdgeLanes {
         while (j < count) {
             def m2:int (itemAt order j)
             centre = (centre + (itemAt pos m2))
-            def room:double (((itemAt wallB m2) - (itemAt wallA m2)) - (margin * 2.0))
+            def room:double ((fabs ((itemAt wallB m2) - (itemAt wallA m2))) - (margin * 2.0))
             if (room < widest) {
                 widest = room
             }
@@ -865,17 +870,32 @@ class EdgeLanes {
 
     ; What it costs to put track `u` on the near side of track `v`.
     ;
-    ; With u nearer, u's track runs past the stub that brings v in, and v's
-    ; track runs past the stub that takes u out — each of those is a crossing
-    ; exactly when the stub lands inside the other track's span. Nothing else
-    ; can cross: v's outgoing stub leaves on the far side of u, and u's
-    ; incoming stub arrives on the near side of v.
-    sfn crossCost:int (u:int v:int lo:[double] hi:[double] entry:[double] exit:[double]) {
+    ; Each edge crosses the corridor by two stubs: one from the wall it comes
+    ; in by to its track, one from its track to the wall it goes out by. With
+    ; u nearer, u's track lies between the near wall and v's track, so the
+    ; stub v has on the NEAR wall runs past u's track — a crossing exactly
+    ; when that stub lands inside u's span. And v's track lies between u's
+    ; track and the far wall, so the stub u has on the FAR wall runs past
+    ; v's — a crossing when it lands inside v's span. The other two stubs
+    ; cannot meet anything. Which stub is on which wall depends on which
+    ; way the edge is going: two edges crossing the corridor opposite ways
+    ; — `pause` down and `resume` back up — have their near stubs at
+    ; opposite ends, and a cost that assumed they both went the same way
+    ; found the two orders equal and left them crossing twice.
+    sfn crossCost:int (u:int v:int lo:[double] hi:[double] wallA:[double] wallB:[double] entry:[double] exit:[double]) {
         def cost:int 0
-        if (EdgeLanes.strictlyInside((itemAt entry v) (itemAt lo u) (itemAt hi u))) {
+        def nearOfV:double (itemAt exit v)
+        if ((itemAt wallA v) < (itemAt wallB v)) {
+            nearOfV = (itemAt entry v)
+        }
+        def farOfU:double (itemAt entry u)
+        if ((itemAt wallA u) < (itemAt wallB u)) {
+            farOfU = (itemAt exit u)
+        }
+        if (EdgeLanes.strictlyInside(nearOfV (itemAt lo u) (itemAt hi u))) {
             cost = (cost + 1)
         }
-        if (EdgeLanes.strictlyInside((itemAt exit u) (itemAt lo v) (itemAt hi v))) {
+        if (EdgeLanes.strictlyInside(farOfU (itemAt lo v) (itemAt hi v))) {
             cost = (cost + 1)
         }
         return cost

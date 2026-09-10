@@ -303,6 +303,30 @@ class RouteQuality {
         return total
     }
 
+    ; Where two lines properly cross each other, counted corner list against
+    ; corner list. `EdgeOverlap.pairs` forgives a crossing near either end;
+    ; this one does not.
+    sfn crossingsBetween:int (g:FlowGraph a:FlowEdge b:FlowEdge) {
+        def ca:[double] (EdgeRouter.cornersFor(g a))
+        def cb:[double] (EdgeRouter.cornersFor(g b))
+        def na:int (idiv (array_length ca) 2)
+        def nb:int (idiv (array_length cb) 2)
+        def hits:int 0
+        def i:int 1
+        while (i < na) {
+            def j:int 1
+            while (j < nb) {
+                def hit:[double] (EdgeOverlap.crossingOf((itemAt ca ((i - 1) * 2)) (itemAt ca (((i - 1) * 2) + 1)) (itemAt ca (i * 2)) (itemAt ca ((i * 2) + 1)) (itemAt cb ((j - 1) * 2)) (itemAt cb (((j - 1) * 2) + 1)) (itemAt cb (j * 2)) (itemAt cb ((j * 2) + 1))))
+                if ((array_length hit) == 2) {
+                    hits = (hits + 1)
+                }
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+        return hits
+    }
+
     ; How many routed edges are drawn to somewhere other than their port:
     ; a route whose first or last corner is not where the edge's endpoint
     ; now is, after the fan has moved the endpoint.
@@ -3253,6 +3277,10 @@ class RangerFlowTest {
         c.eqInt("busy: `start` goes straight down" (RouteQuality.bends(bg start)) 0)
         c.eqInt("busy: and its `stop` straight back up beside it" (RouteQuality.bends(bg stop1)) 0)
         def resume:FlowEdge (RouteQuality.edgeBetween(bg "Paused" "Running"))
+        def pause:FlowEdge (RouteQuality.edgeBetween(bg "Running" "Paused"))
+        ; Down on one track and back up on the other: the one that goes
+        ; further across turns later, or the two cross twice in the corridor.
+        c.eqInt("busy: `pause` and `resume` do not cross each other" (RouteQuality.crossingsBetween(bg pause resume)) 0)
         def resumeLen:double (RouteQuality.lengthOf(bg resume))
         c.ok(("busy: a return to a neighbour does not go round the house (got " + (to_string resumeLen) + ")") (resumeLen < 260.0))
 

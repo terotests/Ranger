@@ -27,7 +27,7 @@ routing, auto-layout, large graphs — and produces something worth having.
 ## Run it
 
 ```bash
-npm run rangerflow:test        # 1474 assertions: model, forces, router, editor, SQL, Mermaid, CSS, export
+npm run rangerflow:test        # 1475 assertions: model, forces, router, editor, SQL, Mermaid, CSS, export
 npm run rangerflow:demo        # the e-commerce schema → SVG, PDF, HTML, JSON, scene
 npm run rangerflow:uml         # the same pipeline for a UML class diagram
 npm run rangerflow:flowchart   # an ATK flowchart in ISO 5807 shapes
@@ -1319,6 +1319,14 @@ matters most it is exactly backwards. Three classes inheriting from one: each
 edge goes down, across, and down again, and if the one that reaches furthest
 turns *first*, its long run passes through a neighbour that is still on its way
 down.
+
+Two edges crossing the corridor **opposite ways** — `pause` down and
+`resume` back up between the same two states — have their stubs on opposite
+walls, and a cost that assumed every edge went the same way found both
+orders equal and left them crossing twice. The walls are kept in travel
+order, so the cost knows which of an edge's two stubs is on the near wall and
+which on the far one; the one that reaches further across then turns later,
+and the pair runs side by side.
 
 ```text
 ordered by span                 ordered to cross least
