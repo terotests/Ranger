@@ -1,0 +1,56 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdSpecDump.rgr — render the specification's own examples, one file each.
+; ============================================================================
+;
+;   node MdSpecDump.js <casesDir> <outDir> <count>
+;
+; Driven by `tools/markdown-parity.mjs`, which splits the pinned spec into
+; `<casesDir>/0001.md` … and compares what lands in `<outDir>` with the HTML
+; the specification says each example should produce.
+;
+; One file per example rather than one stream with separators, because a
+; markdown corpus contains every separator anybody could think of — that is
+; what it is a corpus OF — and because a failing example is then a file you
+; can open beside the expected one.
+; ============================================================================
+
+Import "../src/MdBlock.rgr"
+Import "../src/MdToHtml.rgr"
+
+class MdSpecDump {
+    sfn main:void () {
+        def argc:int (shell_arg_cnt)
+        if (argc < 3) {
+            print "usage: MdSpecDump <casesDir> <outDir> <count>"
+            return
+        }
+        def casesDir:string (shell_arg 0)
+        def outDir:string (shell_arg 1)
+        def countArg:string (shell_arg 2)
+        def count:int (?? (str2int countArg) 0)
+        def i:int 1
+        def failed:int 0
+        while (i <= count) {
+            def name:string (MdSpecDump.pad4(i))
+            def inPath:string ((casesDir + "/") + (name + ".md"))
+            def text:string (?? (read_file "." inPath) "")
+            def html:string ""
+            def doc:MdNode (MdBlock.parseText(text))
+            html = (MdToHtml.render(doc))
+            def outPath:string ((outDir + "/") + (name + ".html"))
+            write_file "." outPath html
+            i = (i + 1)
+        }
+        print (("rendered " + (to_string count)) + " examples")
+    }
+
+    sfn pad4:string (n:int) {
+        def s:string (to_string n)
+        while ((strlen s) < 4) {
+            s = ("0" + s)
+        }
+        return s
+    }
+}

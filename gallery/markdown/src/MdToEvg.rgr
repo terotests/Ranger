@@ -1,0 +1,190 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdToEvg.rgr — laid-out boxes into the one tree every painter already reads.
+; ============================================================================
+;
+; `MdLayout` decided where everything goes. This turns that into `EVGElement`s
+; and then does nothing else: the PDF writer, the WebGL painter, the SVG and
+; HTML exporters and the SDL host all take it from here, and none of them has
+; to learn what a markdown document is.
+;
+;   [MdBox] ──► EVGElement ──► EVGPDFRenderer   → PDF, fonts embedded
+;                          ──► EVGHTMLRenderer  → HTML
+;                          ──► EVGDisplayList   → WebGL 2 / OpenGL
+;
+; Everything is ABSOLUTELY POSITIONED, which is the same shape
+; `FlowScene.toEvgTree` hands the exporters for a diagram. That is deliberate:
+; the layout above is the flow engine, so asking EVG to flow it again would be
+; two answers to one question, and the PDF and the canvas would each get a
+; different one. EVG is being used here as a painter, not as a layout engine.
+;
+; Two shapes come out:
+;
+;   buildPage    one `<div>` as tall as the document — what the canvas scrolls
+;   buildPrint   `<print>` / `<section>` / `<page>` — what the PDF writer
+;                already understands as a multi-page document
+; ============================================================================
+
+Import "MdLayout.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGUnit.rgr"
+Import "../../evg/EVGColor.rgr"
+
+class MdToEvg {
+    Constructor () {
+    }
+
+    ; ----------------------------------------------------------------------
+    ; One page, as tall as the document. The screen's shape.
+    ; ----------------------------------------------------------------------
+    sfn buildPage:EVGElement (layout:MdLayout width:double) {
+        def root:EVGElement (EVGElement.createDiv())
+        root.width = (EVGUnit.px(width))
+        root.height = (EVGUnit.px(layout.documentHeight))
+        root.pageWidth = width
+        root.pageHeight = layout.documentHeight
+        root.position = "relative"
+        root.backgroundColor = (EVGColor.parse("#ffffff"))
+        MdToEvg.fill(root layout 0 0.0)
+        return root
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Sheets. What is printed.
+    ; ----------------------------------------------------------------------
+    sfn buildPrint:EVGElement (layout:MdLayout) {
+        def root:EVGElement (EVGElement.createDiv())
+        root.tagName = "print"
+        def section:EVGElement (EVGElement.createDiv())
+        section.tagName = "section"
+        section.width = (EVGUnit.px(layout.style.pageWidth))
+        section.height = (EVGUnit.px(layout.style.pageHeight))
+        ; The margin is already in every coordinate this layout produced, so
+        ; the section's own must be zero — stated, not defaulted, because the
+        ; renderer's default is 40 and every box would move by it.
+        section.box.marginTop = (EVGUnit.px(0.0))
+        section.box.marginRight = (EVGUnit.px(0.0))
+        section.box.marginBottom = (EVGUnit.px(0.0))
+        section.box.marginLeft = (EVGUnit.px(0.0))
+        root.addChild(section)
+
+        def p:int 0
+        while (p < layout.pageCount) {
+            def page:EVGElement (EVGElement.createDiv())
+            page.tagName = "page"
+            page.width = (EVGUnit.px(layout.style.pageWidth))
+            page.height = (EVGUnit.px(layout.style.pageHeight))
+            page.pageWidth = layout.style.pageWidth
+            page.pageHeight = layout.style.pageHeight
+            page.position = "relative"
+            page.backgroundColor = (EVGColor.parse("#ffffff"))
+            MdToEvg.fill(page layout p 0.0)
+            section.addChild(page)
+            p = (p + 1)
+        }
+        return root
+    }
+
+    ; ----------------------------------------------------------------------
+    ; The boxes of one page
+    ; ----------------------------------------------------------------------
+    sfn fill:void (parent:EVGElement layout:MdLayout page:int yOffset:double) {
+        def i:int 0
+        def n:int (array_length layout.boxes)
+        while (i < n) {
+            def b:MdBox (itemAt layout.boxes i)
+            if (b.page == page) {
+                def el:EVGElement (MdToEvg.element(b yOffset))
+                parent.addChild(el)
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn element:EVGElement (b:MdBox yOffset:double) {
+        if (b.kind == 0) {
+            return (MdToEvg.textElement(b yOffset))
+        }
+        if (b.kind == 1) {
+            def r:EVGElement (EVGElement.createDiv())
+            MdToEvg.place(r b yOffset)
+            r.backgroundColor = (EVGColor.parse(b.fill))
+            return r
+        }
+        if (b.kind == 2) {
+            def o:EVGElement (EVGElement.createDiv())
+            MdToEvg.place(o b yOffset)
+            MdToEvg.border(o b.stroke b.strokeWidth)
+            return o
+        }
+        ; an embed's slot: the outline, and what it was going to be
+        def slot:EVGElement (EVGElement.createDiv())
+        MdToEvg.place(slot b yOffset)
+        MdToEvg.border(slot b.stroke b.strokeWidth)
+        return slot
+    }
+
+    sfn place:void (el:EVGElement b:MdBox yOffset:double) {
+        el.position = "absolute"
+        el.left = (EVGUnit.px(b.x))
+        el.top = (EVGUnit.px((b.y + yOffset)))
+        el.width = (EVGUnit.px(b.w))
+        el.height = (EVGUnit.px(b.h))
+    }
+
+    ; A border is written in two places in EVG and each painter reads one of
+    ; them, so both are set. `effectiveBorderWidthPx` exists for the same
+    ; reason and is the reader; this is the writer.
+    sfn border:void (el:EVGElement color:string width:double) {
+        def c:EVGColor (EVGColor.parse(color))
+        el.borderWidth = (EVGUnit.px(width))
+        el.borderColor = c
+        el.box.borderWidth = (EVGUnit.px(width))
+        el.box.borderWidthPx = width
+        el.box.borderColor = c
+    }
+
+    sfn textElement:EVGElement (b:MdBox yOffset:double) {
+        def t:EVGElement (EVGElement.createSpan())
+        ; `tagName == "text"` is what the PDF and HTML renderers switch on to
+        ; paint a string. A div with textContent lays out and prints nothing.
+        t.tagName = "text"
+        t.position = "absolute"
+        t.left = (EVGUnit.px(b.x))
+        t.top = (EVGUnit.px((b.y + yOffset)))
+        t.width = (EVGUnit.px(b.w))
+        t.height = (EVGUnit.px(b.h))
+        t.textContent = b.text
+        t.fontSize = (EVGUnit.px(b.size))
+        t.inheritedFontSize = b.size
+        t.lineHeight = 1.0
+        t.color = (EVGColor.parse(b.color))
+        ; The face is named in FULL rather than as a family plus a weight
+        ; flag, and `fontWeight` is left alone.
+        ;
+        ; `fontWeight: bold` would be resolved by the measurer into
+        ; `Open Sans-Bold` and by the HTML exporter into the family `Open
+        ; Sans` with the browser synthesising the weight — two different
+        ; faces, so a run measured at one width is drawn at another and every
+        ; segment after it on the line sits a gap too far right. Naming the
+        ; face makes the measurer, the font manager and the `@font-face` rule
+        ; agree, and it is the only spelling that survives bold-italic:
+        ; `Open Sans-Italic` plus a bold flag asks for `Open Sans-Italic-Bold`
+        ; and gets nothing.
+        if (b.bold && b.italic) {
+            t.fontFamily = (b.family + "-BoldItalic")
+        } {
+            if b.bold {
+                t.fontFamily = (b.family + "-Bold")
+            } {
+                if b.italic {
+                    t.fontFamily = (b.family + "-Italic")
+                } {
+                    t.fontFamily = b.family
+                }
+            }
+        }
+        return t
+    }
+}

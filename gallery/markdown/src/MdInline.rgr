@@ -1,0 +1,1747 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdInline.rgr — phase 2 of the CommonMark algorithm: what is inside a line.
+; ============================================================================
+;
+; The block parser hands each leaf block its raw text; this turns that text
+; into emphasis, code spans, links, images, autolinks and the rest. It is the
+; half of markdown where the difficulty lives, and the reason is one rule:
+;
+;     `*` opens emphasis or closes it depending on what is on BOTH sides of
+;     it, and which `*` pairs with which is decided after the whole line has
+;     been read — not while it is being read.
+;
+; So the parse is two passes over one line. The first walks it left to right
+; and pushes every run of `*`, `_` or `~` onto a delimiter stack as a plain
+; text node. The second — `processEmphasis` — walks the stack backwards from
+; each closer looking for the nearest opener that may match it, and rewrites
+; the nodes between them into an `emph` or `strong`. `***a***`, `*a **b** c*`
+; and `*a *b* c*` all come out of that one loop; a parser that decides at the
+; first `*` gets all three wrong.
+;
+; **Why an index-linked list.** The rewrite moves a run of siblings into a new
+; node and deletes the delimiters' own text nodes, from the middle, while a
+; stack still points at them. The reference implementation uses a doubly
+; linked list for exactly that. Ranger has arrays, so the list is
+; `nodes` + `nx` + `pv`: three arrays where an index, once handed out, stays
+; valid however much of the list is unlinked around it. Building the same
+; thing out of array splices would need every delimiter's index rewritten on
+; every edit, which is the bug this shape does not have.
+; ============================================================================
+
+Import "MdNode.rgr"
+Import "MdChar.rgr"
+Import "MdEntities.rgr"
+
+; One run of `*`, `_` or `~`, waiting to find out what it is.
+class MdDelim {
+    def cc:int 0
+    def numdelims:int 0
+    def origdelims:int 0
+    ; index into the inline parser's node list
+    def node:int -1
+    def canOpen:boolean false
+    def canClose:boolean false
+    ; the stack is a linked list too, for the same reason the nodes are
+    def prev:int -1
+    def next:int -1
+    def removed:boolean false
+
+    Constructor () {
+    }
+}
+
+; One `[` or `![`, waiting for its `]`.
+class MdBracket {
+    def node:int -1
+    ; subject position just after the bracket
+    def index:int 0
+    def image:boolean false
+    def active:boolean true
+    def bracketAfter:boolean false
+    ; the delimiter stack top when this bracket was pushed, so a link's
+    ; contents are emphasised without touching anything outside it
+    def prevDelim:int -1
+
+    Constructor () {
+    }
+}
+
+class MdInline {
+    def subject:string ""
+    def pos:int 0
+    def refs:[string:MdLinkRef]
+    def entities:MdEntities (new MdEntities())
+
+    ; the inline node list: nodes, and the links between them
+    def nodes:[MdNode]
+    def nx:[int]
+    def pv:[int]
+    def head:int -1
+    def tail:int -1
+
+    ; the delimiter stack
+    def delims:[MdDelim]
+    def delimTop:int -1
+
+    ; the bracket stack, innermost last
+    def brackets:[MdBracket]
+
+    Constructor () {
+    }
+
+    ; ----------------------------------------------------------------------
+    ; The node list
+    ; ----------------------------------------------------------------------
+    fn appendNode:int (n:MdNode) {
+        push nodes n
+        push nx -1
+        push pv tail
+        def count:int (array_length nodes)
+        def idx:int (count - 1)
+        if (tail >= 0) {
+            set_at nx tail idx
+        } {
+            head = idx
+        }
+        tail = idx
+        return idx
+    }
+
+    fn insertAfter:int (at:int n:MdNode) {
+        push nodes n
+        push nx -1
+        push pv -1
+        def count:int (array_length nodes)
+        def idx:int (count - 1)
+        def after:int (itemAt nx at)
+        set_at pv idx at
+        set_at nx idx after
+        set_at nx at idx
+        if (after >= 0) {
+            set_at pv after idx
+        } {
+            tail = idx
+        }
+        return idx
+    }
+
+    fn unlink:void (i:int) {
+        def p:int (itemAt pv i)
+        def n:int (itemAt nx i)
+        if (p >= 0) {
+            set_at nx p n
+        } {
+            head = n
+        }
+        if (n >= 0) {
+            set_at pv n p
+        } {
+            tail = p
+        }
+        set_at nx i -1
+        set_at pv i -1
+    }
+
+    fn nodeAt:MdNode (i:int) {
+        return (itemAt nodes i)
+    }
+
+    ; The last node in the list, or -1. Used by the newline rule, which has to
+    ; look at the text that came just before it.
+    fn lastIndex:int () {
+        return tail
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Entry point
+    ; ----------------------------------------------------------------------
+    fn parse:void (block:MdNode raw:string map:[string:MdLinkRef]) {
+        subject = (trim raw)
+        pos = 0
+        refs = map
+        clear nodes
+        clear nx
+        clear pv
+        head = -1
+        tail = -1
+        clear delims
+        delimTop = -1
+        clear brackets
+        def more:boolean true
+        while more {
+            more = (this.parseInline())
+        }
+        this.processEmphasis(-1)
+        this.collectInto(block)
+    }
+
+    fn collectInto:void (block:MdNode) {
+        def i:int head
+        while (i >= 0) {
+            def n:MdNode (itemAt nodes i)
+            block.add(n)
+            i = (itemAt nx i)
+        }
+    }
+
+    fn peek:int () {
+        def n:int (strlen subject)
+        if (pos < n) {
+            return (charAt subject pos)
+        }
+        return -1
+    }
+
+    fn peekAt:int (i:int) {
+        def n:int (strlen subject)
+        if (i < 0) { return -1 }
+        if (i < n) {
+            return (charAt subject i)
+        }
+        return -1
+    }
+
+    fn addText:int (v:string) {
+        def n:MdNode (MdNode.text(v))
+        return (this.appendNode(n))
+    }
+
+    fn parseInline:boolean () {
+        def c:int (this.peek())
+        if (c < 0) {
+            return false
+        }
+        def handled:boolean false
+        if (c == 10) { handled = (this.parseNewline()) }
+        if (c == 92) { handled = (this.parseBackslash()) }
+        if (c == 96) { handled = (this.parseBackticks()) }
+        if (c == 42) { handled = (this.handleDelim(c)) }
+        if (c == 95) { handled = (this.handleDelim(c)) }
+        if (c == 126) { handled = (this.handleDelim(c)) }
+        if (c == 91) { handled = (this.parseOpenBracket()) }
+        if (c == 33) { handled = (this.parseBang()) }
+        if (c == 93) { handled = (this.parseCloseBracket()) }
+        if (c == 60) {
+            handled = (this.parseAutolink())
+            if (! handled) {
+                handled = (this.parseHtmlTag())
+            }
+        }
+        if (c == 38) { handled = (this.parseEntity()) }
+        if (MdInline.isOrdinary(c)) { handled = (this.parseString()) }
+        if (! handled) {
+            pos = (pos + 1)
+            def one:string (MdChar.fromCode(c))
+            this.addText(one)
+        }
+        return true
+    }
+
+    ; Everything that is not the first character of some construct. Kept as a
+    ; test rather than as the specification's character class regex so the run
+    ; scanner and this cannot disagree about where a run ends.
+    sfn isOrdinary:boolean (c:int) {
+        if (c == 10) { return false }
+        if (c == 92) { return false }
+        if (c == 96) { return false }
+        if (c == 42) { return false }
+        if (c == 95) { return false }
+        if (c == 126) { return false }
+        if (c == 91) { return false }
+        if (c == 93) { return false }
+        if (c == 33) { return false }
+        if (c == 60) { return false }
+        if (c == 38) { return false }
+        return true
+    }
+
+    fn parseString:boolean () {
+        def start:int pos
+        def n:int (strlen subject)
+        def going:boolean true
+        while going {
+            if (pos >= n) { going = false }
+            if going {
+                def c:int (charAt subject pos)
+                def ordinary:boolean (MdInline.isOrdinary(c))
+                if ordinary {
+                    pos = (pos + 1)
+                } {
+                    going = false
+                }
+            }
+        }
+        if (pos == start) {
+            return false
+        }
+        def v:string (substring subject start pos)
+        this.addText(v)
+        return true
+    }
+
+    ; A newline is a soft break, or a hard one when the line before it ended
+    ; in a backslash or in two or more spaces.
+    fn parseNewline:boolean () {
+        pos = (pos + 1)
+        def last:int tail
+        def hard:boolean false
+        if (last >= 0) {
+            def ln:MdNode (itemAt nodes last)
+            if (ln.kind == "text") {
+                def lit:string ln.literal
+                def cut:int (MdInline.trailingSpaces(lit))
+                if (cut >= 2) { hard = true }
+                if (cut > 0) {
+                    def keep:int ((strlen lit) - cut)
+                    ln.literal = (substring lit 0 keep)
+                }
+            }
+        }
+        def br:MdNode (MdNode.create((? hard "linebreak" "softbreak")))
+        this.appendNode(br)
+        ; leading spaces on the next line are not content
+        def n:int (strlen subject)
+        while (pos < n) {
+            def c:int (charAt subject pos)
+            if (c != 32) { break }
+            pos = (pos + 1)
+        }
+        return true
+    }
+
+    sfn trailingSpaces:int (v:string) {
+        def n:int (strlen v)
+        def i:int n
+        while (i > 0) {
+            def c:int (charAt v (i - 1))
+            if (c != 32) { break }
+            i = (i - 1)
+        }
+        return (n - i)
+    }
+
+    fn parseBackslash:boolean () {
+        pos = (pos + 1)
+        def c:int (this.peek())
+        if (c == 10) {
+            pos = (pos + 1)
+            def br:MdNode (MdNode.create("linebreak"))
+            this.appendNode(br)
+            return true
+        }
+        if (MdChar.isAsciiPunct(c)) {
+            pos = (pos + 1)
+            this.addText((MdChar.fromCode(c)))
+            return true
+        }
+        this.addText("\\")
+        return true
+    }
+
+    ; A backtick string of length n closes on the next backtick string of
+    ; exactly n. This runs before everything else, which is why the inside of
+    ; a code span is never emphasised.
+    fn parseBackticks:boolean () {
+        def start:int pos
+        def openLen:int (this.scanRun(96))
+        def n:int (strlen subject)
+        def afterOpen:int pos
+        def scan:int pos
+        while (scan < n) {
+            def c:int (charAt subject scan)
+            if (c == 96) {
+                def runStart:int scan
+                while (scan < n) {
+                    def c2:int (charAt subject scan)
+                    if (c2 != 96) { break }
+                    scan = (scan + 1)
+                }
+                def runLen:int (scan - runStart)
+                if (runLen == openLen) {
+                    def body:string (substring subject afterOpen runStart)
+                    def flat:string (MdInline.collapseNewlines(body))
+                    def code:MdNode (MdNode.create("code"))
+                    code.literal = (MdInline.stripOneSpace(flat))
+                    this.appendNode(code)
+                    pos = scan
+                    return true
+                }
+            } {
+                scan = (scan + 1)
+            }
+        }
+        ; no closer: the run is literal text
+        pos = afterOpen
+        def lit:string (substring subject start afterOpen)
+        this.addText(lit)
+        return true
+    }
+
+    ; The run of `c` starting at `pos`, consumed. Returns its length.
+    fn scanRun:int (c:int) {
+        def n:int (strlen subject)
+        def start:int pos
+        while (pos < n) {
+            def cur:int (charAt subject pos)
+            if (cur != c) { break }
+            pos = (pos + 1)
+        }
+        return (pos - start)
+    }
+
+    sfn collapseNewlines:string (v:string) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen v)
+        while (i < n) {
+            def c:int (charAt v i)
+            if (c == 10) {
+                out = (out + " ")
+            } {
+                out = (out + (substring v i (i + 1)))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; "If the resulting string both begins and ends with a space character,
+    ; but does not consist entirely of space characters, a single space
+    ; character is removed from the front and back."
+    sfn stripOneSpace:string (v:string) {
+        def n:int (strlen v)
+        if (n < 2) { return v }
+        def first:int (charAt v 0)
+        def last:int (charAt v (n - 1))
+        if (first != 32) { return v }
+        if (last != 32) { return v }
+        def allSpace:boolean true
+        def i:int 0
+        while (i < n) {
+            if ((charAt v i) != 32) {
+                allSpace = false
+                break
+            }
+            i = (i + 1)
+        }
+        if allSpace { return v }
+        return (substring v 1 (n - 1))
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Emphasis: the delimiter stack
+    ; ----------------------------------------------------------------------
+
+    ; A run of `*`, `_` or `~`, and whether it may open, close, or both.
+    ; "Left-flanking" and "right-flanking" are decided by the characters on
+    ; either side of the whole run — which is why the run has to be measured
+    ; before anything can be decided about it.
+    fn handleDelim:boolean (cc:int) {
+        def startPos:int pos
+        def charBefore:int 10
+        if (startPos > 0) {
+            charBefore = (charAt subject (startPos - 1))
+        }
+        def numdelims:int (this.scanRun(cc))
+        if (numdelims == 0) {
+            return false
+        }
+        def charAfter:int (this.peek())
+        if (charAfter < 0) { charAfter = 10 }
+
+        def afterIsWs:boolean (MdChar.isUnicodeWhitespace(charAfter))
+        def afterIsPunct:boolean (MdChar.isUnicodePunct(charAfter))
+        def beforeIsWs:boolean (MdChar.isUnicodeWhitespace(charBefore))
+        def beforeIsPunct:boolean (MdChar.isUnicodePunct(charBefore))
+
+        def leftFlanking:boolean false
+        if (! afterIsWs) {
+            if (! afterIsPunct) {
+                leftFlanking = true
+            } {
+                if (beforeIsWs || beforeIsPunct) {
+                    leftFlanking = true
+                }
+            }
+        }
+        def rightFlanking:boolean false
+        if (! beforeIsWs) {
+            if (! beforeIsPunct) {
+                rightFlanking = true
+            } {
+                if (afterIsWs || afterIsPunct) {
+                    rightFlanking = true
+                }
+            }
+        }
+        def canOpen:boolean false
+        def canClose:boolean false
+        if (cc == 95) {
+            ; `_` may not open or close inside a word, so that snake_case_names
+            ; survive being written down.
+            if (leftFlanking && ((! rightFlanking) || beforeIsPunct)) { canOpen = true }
+            if (rightFlanking && ((! leftFlanking) || afterIsPunct)) { canClose = true }
+        } {
+            canOpen = leftFlanking
+            canClose = rightFlanking
+        }
+
+        def lit:string (substring subject startPos pos)
+        def idx:int (this.addText(lit))
+
+        def d:MdDelim (new MdDelim())
+        d.cc = cc
+        d.numdelims = numdelims
+        d.origdelims = numdelims
+        d.node = idx
+        d.canOpen = canOpen
+        d.canClose = canClose
+        d.prev = delimTop
+        d.next = -1
+        push delims d
+        def dcount:int (array_length delims)
+        def di:int (dcount - 1)
+        if (delimTop >= 0) {
+            def top:MdDelim (itemAt delims delimTop)
+            top.next = di
+        }
+        delimTop = di
+        return true
+    }
+
+    fn removeDelimiter:void (i:int) {
+        def d:MdDelim (itemAt delims i)
+        if d.removed { return }
+        d.removed = true
+        if (d.prev >= 0) {
+            def p:MdDelim (itemAt delims d.prev)
+            p.next = d.next
+        }
+        if (d.next >= 0) {
+            def n:MdDelim (itemAt delims d.next)
+            n.prev = d.prev
+        } {
+            delimTop = d.prev
+        }
+    }
+
+    fn removeDelimitersBetween:void (opener:int closer:int) {
+        def o:MdDelim (itemAt delims opener)
+        def c:MdDelim (itemAt delims closer)
+        if (o.next != closer) {
+            o.next = closer
+            c.prev = opener
+        }
+    }
+
+    ; The second pass. Walk forward from the bottom of the stack; at every
+    ; closer, walk backwards for the nearest opener that may match it, and
+    ; rewrite what lies between the two.
+    fn processEmphasis:void (stackBottom:int) {
+        def openersBottom:[int]
+        def ob:int 0
+        while (ob < 12) {
+            push openersBottom stackBottom
+            ob = (ob + 1)
+        }
+        ; the first closer above the bottom
+        def closer:int delimTop
+        while (closer >= 0) {
+            def cd0:MdDelim (itemAt delims closer)
+            if (cd0.prev == stackBottom) { break }
+            closer = cd0.prev
+        }
+        while (closer >= 0) {
+            def cd:MdDelim (itemAt delims closer)
+            if (! cd.canClose) {
+                closer = cd.next
+            } {
+                def slot:int (MdInline.openersSlot(cd.cc cd.origdelims))
+                def bottom:int (itemAt openersBottom slot)
+                def opener:int cd.prev
+                def openerFound:boolean false
+                while (opener >= 0) {
+                    if (opener == stackBottom) { break }
+                    if (opener == bottom) { break }
+                    def od0:MdDelim (itemAt delims opener)
+                    def oddMatch:boolean false
+                    if (cd.canOpen || od0.canClose) {
+                        if ((cd.origdelims % 3) != 0) {
+                            def sum:int (od0.origdelims + cd.origdelims)
+                            if ((sum % 3) == 0) { oddMatch = true }
+                        }
+                    }
+                    if ((od0.cc == cd.cc) && od0.canOpen && (! oddMatch)) {
+                        openerFound = true
+                        break
+                    }
+                    opener = od0.prev
+                }
+                def oldCloser:int closer
+                def didPair:boolean false
+                if openerFound {
+                    def od:MdDelim (itemAt delims opener)
+                    def useDelims:int 1
+                    if ((cd.numdelims >= 2) && (od.numdelims >= 2)) { useDelims = 2 }
+                    def strike:boolean (cd.cc == 126)
+                    def allowed:boolean true
+                    if strike {
+                        ; GFM strikes through with one or two tildes and with
+                        ; nothing else: three is a fence, not emphasis.
+                        if (cd.origdelims > 2) { allowed = false }
+                        if (od.origdelims > 2) { allowed = false }
+                        if allowed {
+                            useDelims = (? (od.numdelims < cd.numdelims) od.numdelims cd.numdelims)
+                        }
+                    }
+                    if allowed {
+                        didPair = true
+                        def openerNode:MdNode (itemAt nodes od.node)
+                        def closerNode:MdNode (itemAt nodes cd.node)
+                        od.numdelims = (od.numdelims - useDelims)
+                        cd.numdelims = (cd.numdelims - useDelims)
+                        def ol:int (strlen openerNode.literal)
+                        openerNode.literal = (substring openerNode.literal 0 (ol - useDelims))
+                        def cl:int (strlen closerNode.literal)
+                        closerNode.literal = (substring closerNode.literal 0 (cl - useDelims))
+
+                        def kind:string (? (useDelims == 1) "emph" "strong")
+                        if strike { kind = "strike" }
+                        def wrap:MdNode (MdNode.create(kind))
+                        def tmp:int (itemAt nx od.node)
+                        def scanning:boolean true
+                        while scanning {
+                            if (tmp < 0) { scanning = false }
+                            if scanning {
+                                if (tmp == cd.node) {
+                                    scanning = false
+                                } {
+                                    def nxt:int (itemAt nx tmp)
+                                    this.unlink(tmp)
+                                    def moved:MdNode (itemAt nodes tmp)
+                                    wrap.add(moved)
+                                    tmp = nxt
+                                }
+                            }
+                        }
+                        this.insertAfter(od.node wrap)
+                        this.removeDelimitersBetween(opener closer)
+                        if (od.numdelims == 0) {
+                            this.unlink(od.node)
+                            this.removeDelimiter(opener)
+                        }
+                        if (cd.numdelims == 0) {
+                            def after:int cd.next
+                            this.unlink(cd.node)
+                            this.removeDelimiter(closer)
+                            closer = after
+                        }
+                    } {
+                        openerFound = false
+                    }
+                }
+                if (! didPair) {
+                    if (! openerFound) {
+                        def old:MdDelim (itemAt delims oldCloser)
+                        set_at openersBottom slot old.prev
+                        if (! old.canOpen) {
+                            this.removeDelimiter(oldCloser)
+                        }
+                        closer = old.next
+                    }
+                }
+            }
+        }
+        ; everything above the bottom is spent
+        def guard:boolean true
+        while guard {
+            if (delimTop < 0) { guard = false }
+            if guard {
+                if (delimTop == stackBottom) {
+                    guard = false
+                } {
+                    this.removeDelimiter(delimTop)
+                }
+            }
+        }
+    }
+
+    ; The specification's own trick: a separate lower bound per delimiter
+    ; character AND per run length modulo three, because the "rule of three"
+    ; makes runs of different lengths fail to match for different reasons.
+    sfn openersSlot:int (cc:int origdelims:int) {
+        def m:int (origdelims % 3)
+        if (cc == 95) { return (2 + m) }
+        if (cc == 42) { return (5 + m) }
+        if (cc == 126) { return (8 + m) }
+        return 0
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Links and images
+    ; ----------------------------------------------------------------------
+    fn parseOpenBracket:boolean () {
+        def startPos:int pos
+        pos = (pos + 1)
+        def idx:int (this.addText("["))
+        ; The bracket's own position, not the one after it: a shortcut
+        ; reference takes its label from `[` to `]` INCLUDING the brackets,
+        ; which is what `normalizeReference` then strips.
+        this.pushBracket(idx startPos false)
+        return true
+    }
+
+    fn parseBang:boolean () {
+        def startPos:int pos
+        pos = (pos + 1)
+        def nxt:int (this.peek())
+        if (nxt == 91) {
+            pos = (pos + 1)
+            def idx:int (this.addText("!["))
+            ; The `[`, not the `!` and not the character after: an image's
+            ; shortcut label runs from the bracket to its partner.
+            def bracketPos:int (startPos + 1)
+            this.pushBracket(idx bracketPos true)
+            return true
+        }
+        this.addText("!")
+        return true
+    }
+
+    fn pushBracket:void (node:int index:int image:boolean) {
+        def n:int (array_length brackets)
+        if (n > 0) {
+            def top:MdBracket (itemAt brackets (n - 1))
+            top.bracketAfter = true
+        }
+        def b:MdBracket (new MdBracket())
+        b.node = node
+        b.index = index
+        b.image = image
+        b.active = true
+        b.prevDelim = delimTop
+        push brackets b
+    }
+
+    fn popBracket:void () {
+        def n:int (array_length brackets)
+        if (n > 0) {
+            removeLast brackets
+        }
+    }
+
+    fn parseCloseBracket:boolean () {
+        pos = (pos + 1)
+        def startPos:int pos
+        def bn:int (array_length brackets)
+        if (bn == 0) {
+            this.addText("]")
+            return true
+        }
+        def opener:MdBracket (itemAt brackets (bn - 1))
+        if (! opener.active) {
+            this.addText("]")
+            this.popBracket()
+            return true
+        }
+        def isImage:boolean opener.image
+        def savePos:int pos
+        def matched:boolean false
+        def dest:string ""
+        def title:string ""
+
+        def nxt:int (this.peek())
+        if (nxt == 40) {
+            pos = (pos + 1)
+            this.spnl()
+            def d:string (this.parseLinkDestination())
+            if (d != " FAIL") {
+                this.spnl()
+                def beforeTitle:int pos
+                def prevCh:int (this.peekAt((pos - 1)))
+                if (MdChar.isUnicodeWhitespace(prevCh)) {
+                    def t:string (this.parseLinkTitle())
+                    if (t != " FAIL") {
+                        title = t
+                    } {
+                        pos = beforeTitle
+                    }
+                }
+                this.spnl()
+                def cl:int (this.peek())
+                if (cl == 41) {
+                    pos = (pos + 1)
+                    dest = d
+                    matched = true
+                }
+            }
+            if (! matched) {
+                pos = savePos
+                title = ""
+            }
+        }
+
+        if (! matched) {
+            def beforeLabel:int pos
+            def n:int (this.parseLinkLabel())
+            def reflabel:string ""
+            def haveLabel:boolean false
+            if (n > 2) {
+                reflabel = (substring subject beforeLabel (beforeLabel + n))
+                haveLabel = true
+            } {
+                if (! opener.bracketAfter) {
+                    reflabel = (substring subject opener.index startPos)
+                    haveLabel = true
+                }
+            }
+            if (n == 0) {
+                pos = savePos
+            }
+            if haveLabel {
+                def key:string (MdInline.normalizeReference(reflabel))
+                if (has refs key) {
+                    def blank:MdLinkRef (MdLinkRef.create("" "" ""))
+                    def r:MdLinkRef (?? (get refs key) blank)
+                    dest = r.destination
+                    title = r.title
+                    matched = true
+                }
+            }
+        }
+
+        if matched {
+            def kind:string (? isImage "image" "link")
+            def node:MdNode (MdNode.create(kind))
+            node.destination = dest
+            node.title = title
+            ; Emphasis inside the link is resolved FIRST, while its nodes are
+            ; still on the flat list. The reference implementation does this
+            ; after moving them, because there the list IS the tree and a
+            ; moved node keeps its siblings; here the two are separate, and a
+            ; node moved into `node.children` can no longer be walked from
+            ; `nx`. Same pairs either way — `prevDelim` is what stops a `*`
+            ; inside the link pairing with one outside it.
+            this.processEmphasis(opener.prevDelim)
+            def tmp:int (itemAt nx opener.node)
+            while (tmp >= 0) {
+                def after:int (itemAt nx tmp)
+                this.unlink(tmp)
+                def moved:MdNode (itemAt nodes tmp)
+                node.add(moved)
+                tmp = after
+            }
+            this.appendNode(node)
+            this.popBracket()
+            this.unlink(opener.node)
+            if (! isImage) {
+                ; No links inside links: every earlier link opener is spent.
+                def i:int 0
+                def cnt:int (array_length brackets)
+                while (i < cnt) {
+                    def b:MdBracket (itemAt brackets i)
+                    if (! b.image) {
+                        b.active = false
+                    }
+                    i = (i + 1)
+                }
+            }
+            return true
+        }
+        this.popBracket()
+        pos = startPos
+        this.addText("]")
+        return true
+    }
+
+    ; Optional whitespace, at most one newline.
+    fn spnl:boolean () {
+        def n:int (strlen subject)
+        def seenNewline:boolean false
+        def going:boolean true
+        while going {
+            if (pos >= n) { going = false }
+            if going {
+                def c:int (charAt subject pos)
+                if (c == 10) {
+                    if seenNewline {
+                        going = false
+                    } {
+                        seenNewline = true
+                        pos = (pos + 1)
+                    }
+                } {
+                    if (MdChar.isSpaceOrTab(c)) {
+                        pos = (pos + 1)
+                    } {
+                        going = false
+                    }
+                }
+            }
+        }
+        return true
+    }
+
+    ; `<a b>` or a bare run with balanced parentheses. The sentinel " FAIL"
+    ; rather than an optional, so an EMPTY destination — which is legal —
+    ; stays distinguishable from no destination at all.
+    fn parseLinkDestination:string () {
+        def n:int (strlen subject)
+        def lead:int (this.peek())
+        if (lead == 60) {
+            def i:int (pos + 1)
+            def out:string ""
+            while (i < n) {
+                def c:int (charAt subject i)
+                if (c == 62) {
+                    pos = (i + 1)
+                    return (MdInline.unescape(out))
+                }
+                if (c == 60) { return " FAIL" }
+                if (c == 10) { return " FAIL" }
+                if (c == 92) {
+                    def nc:int (this.peekAt((i + 1)))
+                    if (MdChar.isAsciiPunct(nc)) {
+                        out = (out + (substring subject i (i + 2)))
+                        i = (i + 2)
+                    } {
+                        out = (out + "\\")
+                        i = (i + 1)
+                    }
+                } {
+                    out = (out + (substring subject i (i + 1)))
+                    i = (i + 1)
+                }
+            }
+            return " FAIL"
+        }
+        def start:int pos
+        def depth:int 0
+        def i2:int pos
+        def going:boolean true
+        while going {
+            if (i2 >= n) { going = false }
+            if going {
+                def c:int (charAt subject i2)
+                if (c == 92) {
+                    def nc:int (this.peekAt((i2 + 1)))
+                    if (MdChar.isAsciiPunct(nc)) {
+                        i2 = (i2 + 2)
+                    } {
+                        i2 = (i2 + 1)
+                    }
+                } {
+                    if (c == 40) {
+                        depth = (depth + 1)
+                        if (depth > 32) { return " FAIL" }
+                        i2 = (i2 + 1)
+                    } {
+                        if (c == 41) {
+                            if (depth < 1) {
+                                going = false
+                            } {
+                                depth = (depth - 1)
+                                i2 = (i2 + 1)
+                            }
+                        } {
+                            if (c <= 32) {
+                                ; ASCII space and control, and nothing else:
+                                ; a non-breaking space is a character in a
+                                ; URL, not the end of one.
+                                going = false
+                            } {
+                                if (c == 127) {
+                                    going = false
+                                } {
+                                    i2 = (i2 + 1)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (depth != 0) { return " FAIL" }
+        if (i2 == start) {
+            ; `[a]()` has an empty destination; `[a]: ` has none at all.
+            def next:int (this.peekAt(i2))
+            if (next != 41) { return " FAIL" }
+        }
+        def raw:string (substring subject start i2)
+        pos = i2
+        return (MdInline.unescape(raw))
+    }
+
+    fn parseLinkTitle:string () {
+        def n:int (strlen subject)
+        def c:int (this.peek())
+        if (c < 0) { return " FAIL" }
+        def closer:int 0
+        if (c == 34) { closer = 34 }
+        if (c == 39) { closer = 39 }
+        if (c == 40) { closer = 41 }
+        if (closer == 0) { return " FAIL" }
+        def i:int (pos + 1)
+        def out:string ""
+        while (i < n) {
+            def ch:int (charAt subject i)
+            if (ch == closer) {
+                pos = (i + 1)
+                return (MdInline.unescape(out))
+            }
+            if ((c == 40) && (ch == 40)) { return " FAIL" }
+            if (ch == 92) {
+                def nc:int (this.peekAt((i + 1)))
+                if (MdChar.isAsciiPunct(nc)) {
+                    out = (out + (substring subject i (i + 2)))
+                    i = (i + 2)
+                } {
+                    out = (out + "\\")
+                    i = (i + 1)
+                }
+            } {
+                out = (out + (substring subject i (i + 1)))
+                i = (i + 1)
+            }
+        }
+        return " FAIL"
+    }
+
+    ; The length of a `[…]` label starting at `pos`, or 0. Consumes it.
+    fn parseLinkLabel:int () {
+        def n:int (strlen subject)
+        def lead:int (this.peek())
+        if (lead != 91) { return 0 }
+        def i:int (pos + 1)
+        while (i < n) {
+            def c:int (charAt subject i)
+            if (c == 93) {
+                def len:int ((i + 1) - pos)
+                if (len > 1002) { return 0 }
+                pos = (i + 1)
+                return len
+            }
+            if (c == 91) {
+                return 0
+            }
+            if (c == 92) {
+                i = (i + 2)
+            } {
+                i = (i + 1)
+            }
+        }
+        return 0
+    }
+
+    ; Case-folded and whitespace-collapsed. The specification folds with
+    ; Unicode case folding; this folds ASCII, which is every label anybody
+    ; writes — stated here rather than left to be discovered.
+    sfn normalizeReference:string (raw:string) {
+        def n:int (strlen raw)
+        def inner:string raw
+        if (n >= 2) {
+            def first:int (charAt raw 0)
+            if (first == 91) {
+                inner = (substring raw 1 (n - 1))
+            }
+        }
+        def t:string (trim inner)
+        def out:string ""
+        def i:int 0
+        def m:int (strlen t)
+        def lastWasSpace:boolean false
+        while (i < m) {
+            def c:int (charAt t i)
+            if (MdChar.isUnicodeWhitespace(c)) {
+                if (! lastWasSpace) {
+                    out = (out + " ")
+                }
+                lastWasSpace = true
+            } {
+                lastWasSpace = false
+                def folded:int (MdChar.foldCase(c))
+                if (folded != c) {
+                    out = (out + (MdChar.fromCode(folded)))
+                } {
+                    out = (out + (substring t i (i + 1)))
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Backslash escapes and entity references, for the two places the parser
+    ; has to resolve them itself: a link destination and a title.
+    sfn unescape:string (v:string) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen v)
+        def ents:MdEntities (new MdEntities())
+        while (i < n) {
+            def c:int (charAt v i)
+            if (c == 92) {
+                def nc:int -1
+                if ((i + 1) < n) { nc = (charAt v (i + 1)) }
+                if (MdChar.isAsciiPunct(nc)) {
+                    out = (out + (MdChar.fromCode(nc)))
+                    i = (i + 2)
+                } {
+                    out = (out + "\\")
+                    i = (i + 1)
+                }
+            } {
+                if (c == 38) {
+                    def taken:int (MdInline.entityAt(v i ents))
+                    if (taken > 0) {
+                        def decoded:string (MdInline.entityValue(v i taken ents))
+                        out = (out + decoded)
+                        i = (i + taken)
+                    } {
+                        out = (out + "&")
+                        i = (i + 1)
+                    }
+                } {
+                    out = (out + (substring v i (i + 1)))
+                    i = (i + 1)
+                }
+            }
+        }
+        return out
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Entities, autolinks and raw HTML
+    ; ----------------------------------------------------------------------
+    fn parseEntity:boolean () {
+        def taken:int (MdInline.entityAt(subject pos entities))
+        if (taken == 0) {
+            return false
+        }
+        def value:string (MdInline.entityValue(subject pos taken entities))
+        this.addText(value)
+        pos = (pos + taken)
+        return true
+    }
+
+    ; The length of the entity starting at `i`, `&` and `;` included, or 0.
+    sfn entityAt:int (v:string i:int ents:MdEntities) {
+        def n:int (strlen v)
+        def amp:int (charAt v i)
+        if (amp != 38) { return 0 }
+        def j:int (i + 1)
+        if (j >= n) { return 0 }
+        def c:int (charAt v j)
+        if (c == 35) {
+            j = (j + 1)
+            if (j >= n) { return 0 }
+            def c2:int (charAt v j)
+            def hex:boolean false
+            if ((c2 == 120) || (c2 == 88)) {
+                hex = true
+                j = (j + 1)
+            }
+            def digits:int 0
+            def scanning:boolean true
+            while scanning {
+                if (j >= n) { scanning = false }
+                if scanning {
+                    def d:int (charAt v j)
+                    def ok:boolean false
+                    if hex {
+                        ok = (MdChar.isHexDigit(d))
+                    } {
+                        ok = (MdChar.isDigit(d))
+                    }
+                    if (! ok) {
+                        scanning = false
+                    } {
+                        digits = (digits + 1)
+                        j = (j + 1)
+                    }
+                }
+            }
+            if (digits == 0) { return 0 }
+            def maxd:int (? hex 6 7)
+            if (digits > maxd) { return 0 }
+            if (j >= n) { return 0 }
+            def semi:int (charAt v j)
+            if (semi != 59) { return 0 }
+            return ((j + 1) - i)
+        }
+        def len:int 0
+        def going:boolean true
+        while going {
+            if (j >= n) { going = false }
+            if going {
+                def d2:int (charAt v j)
+                if (! (MdChar.isAlnum(d2))) {
+                    going = false
+                } {
+                    len = (len + 1)
+                    j = (j + 1)
+                }
+            }
+        }
+        if (len < 2) { return 0 }
+        if (len > 32) { return 0 }
+        if (j >= n) { return 0 }
+        def semi2:int (charAt v j)
+        if (semi2 != 59) { return 0 }
+        def name:string (substring v (i + 1) j)
+        def found:string (ents.lookup(name))
+        def flen:int (strlen found)
+        if (flen == 0) { return 0 }
+        return ((j + 1) - i)
+    }
+
+    sfn entityValue:string (v:string i:int taken:int ents:MdEntities) {
+        def body:string (substring v (i + 1) ((i + taken) - 1))
+        def c:int (charAt body 0)
+        if (c == 35) {
+            def blen:int (strlen body)
+            def rest:string (substring body 1 blen)
+            def cp:int 0
+            def c2:int (charAt rest 0)
+            if ((c2 == 120) || (c2 == 88)) {
+                def rlen:int (strlen rest)
+                def hexPart:string (substring rest 1 rlen)
+                cp = (MdEntities.parseHex(hexPart))
+            } {
+                cp = (?? (str2int rest) 0)
+            }
+            if (cp == 0) { cp = 65533 }
+            if (cp > 1114111) { cp = 65533 }
+            if ((cp >= 55296) && (cp <= 57343)) { cp = 65533 }
+            return (MdChar.fromCode(cp))
+        }
+        return (ents.lookup(body))
+    }
+
+    ; `<https://example.com>` and `<user@example.com>`.
+    fn parseAutolink:boolean () {
+        def n:int (strlen subject)
+        def close:int -1
+        def i:int (pos + 1)
+        def going:boolean true
+        while going {
+            if (i >= n) { going = false }
+            if going {
+                def c:int (charAt subject i)
+                if (c == 62) {
+                    close = i
+                    going = false
+                } {
+                    if (c == 60) { return false }
+                    if (MdChar.isUnicodeWhitespace(c)) { return false }
+                    i = (i + 1)
+                }
+            }
+        }
+        if (close < 0) { return false }
+        def body:string (substring subject (pos + 1) close)
+        def blen:int (strlen body)
+        if (blen == 0) { return false }
+        if (MdInline.isUriAutolink(body)) {
+            def node:MdNode (MdNode.create("link"))
+            node.destination = body
+            def label:MdNode (MdNode.text(body))
+            node.add(label)
+            this.appendNode(node)
+            pos = (close + 1)
+            return true
+        }
+        if (MdInline.isEmailAutolink(body)) {
+            def node2:MdNode (MdNode.create("link"))
+            node2.destination = ("mailto:" + body)
+            def label2:MdNode (MdNode.text(body))
+            node2.add(label2)
+            this.appendNode(node2)
+            pos = (close + 1)
+            return true
+        }
+        return false
+    }
+
+    sfn isUriAutolink:boolean (v:string) {
+        def n:int (strlen v)
+        def colon:int -1
+        def i:int 0
+        while (i < n) {
+            def ci:int (charAt v i)
+            if (ci == 58) {
+                colon = i
+                i = n
+            } {
+                i = (i + 1)
+            }
+        }
+        ; The scheme is 2 to 32 characters. One is not a scheme — `<m:abc>`
+        ; is text, and reading it as a link is how a mail merge placeholder
+        ; turns into a hyperlink.
+        if (colon < 2) { return false }
+        if (colon > 32) { return false }
+        def first:int (charAt v 0)
+        if (! (MdChar.isLetter(first))) { return false }
+        def j:int 1
+        while (j < colon) {
+            def c:int (charAt v j)
+            def ok:boolean (MdChar.isAlnum(c))
+            if (c == 43) { ok = true }
+            if (c == 45) { ok = true }
+            if (c == 46) { ok = true }
+            if (! ok) { return false }
+            j = (j + 1)
+        }
+        def k:int (colon + 1)
+        while (k < n) {
+            def c2:int (charAt v k)
+            if (c2 < 33) { return false }
+            if (c2 == 60) { return false }
+            if (c2 == 62) { return false }
+            k = (k + 1)
+        }
+        return true
+    }
+
+    sfn isEmailAutolink:boolean (v:string) {
+        def n:int (strlen v)
+        def at:int -1
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt v i)
+            if (c == 64) {
+                if (at >= 0) { return false }
+                at = i
+            }
+            i = (i + 1)
+        }
+        if (at < 1) { return false }
+        if (at == (n - 1)) { return false }
+        def j:int 0
+        while (j < at) {
+            def c1:int (charAt v j)
+            def ok:boolean (MdChar.isAlnum(c1))
+            if (MdInline.isEmailLocalPunct(c1)) { ok = true }
+            if (! ok) { return false }
+            j = (j + 1)
+        }
+        def k:int (at + 1)
+        def labelLen:int 0
+        while (k < n) {
+            def c2:int (charAt v k)
+            if (c2 == 46) {
+                if (labelLen == 0) { return false }
+                labelLen = 0
+            } {
+                def ok2:boolean (MdChar.isAlnum(c2))
+                if (c2 == 45) { ok2 = true }
+                if (! ok2) { return false }
+                labelLen = (labelLen + 1)
+                if (labelLen > 63) { return false }
+            }
+            k = (k + 1)
+        }
+        if (labelLen == 0) { return false }
+        return true
+    }
+
+    sfn isEmailLocalPunct:boolean (c:int) {
+        if (c == 46) { return true }
+        if (c == 33) { return true }
+        if (c == 35) { return true }
+        if (c == 36) { return true }
+        if (c == 37) { return true }
+        if (c == 38) { return true }
+        if (c == 39) { return true }
+        if (c == 42) { return true }
+        if (c == 43) { return true }
+        if (c == 47) { return true }
+        if (c == 61) { return true }
+        if (c == 63) { return true }
+        if (c == 94) { return true }
+        if (c == 95) { return true }
+        if (c == 96) { return true }
+        if (c == 123) { return true }
+        if (c == 124) { return true }
+        if (c == 125) { return true }
+        if (c == 126) { return true }
+        if (c == 45) { return true }
+        return false
+    }
+
+    ; A raw HTML tag, comment, processing instruction, declaration or CDATA.
+    ; Recognised and carried verbatim: the HTML exporter prints it, and the
+    ; viewer shows it as what it is rather than obeying it.
+    fn parseHtmlTag:boolean () {
+        def taken:int (MdInline.htmlTagLength(subject pos))
+        if (taken == 0) { return false }
+        def node:MdNode (MdNode.create("html_inline"))
+        node.literal = (substring subject pos (pos + taken))
+        this.appendNode(node)
+        pos = (pos + taken)
+        return true
+    }
+
+    sfn htmlTagLength:int (v:string i:int) {
+        def n:int (strlen v)
+        def lead:int (charAt v i)
+        if (lead != 60) { return 0 }
+        if ((i + 1) >= n) { return 0 }
+        def c:int (charAt v (i + 1))
+        if (c == 33) {
+            def c2:int -1
+            if ((i + 2) < n) { c2 = (charAt v (i + 2)) }
+            if (c2 == 45) {
+                return (MdInline.scanComment(v i))
+            }
+            if (c2 == 91) {
+                return (MdInline.scanUntil(v i "]]>"))
+            }
+            if (MdChar.isLetter(c2)) {
+                return (MdInline.scanUntil(v i ">"))
+            }
+            return 0
+        }
+        if (c == 63) {
+            return (MdInline.scanUntil(v i "?>"))
+        }
+        if (c == 47) {
+            return (MdInline.scanCloseTag(v i))
+        }
+        if (MdChar.isLetter(c)) {
+            return (MdInline.scanOpenTag(v i))
+        }
+        return 0
+    }
+
+    sfn scanUntil:int (v:string i:int marker:string) {
+        def n:int (strlen v)
+        def m:int (strlen marker)
+        def j:int (i + 1)
+        while ((j + m) <= n) {
+            def probe:string (substring v j (j + m))
+            if (probe == marker) {
+                return ((j + m) - i)
+            }
+            j = (j + 1)
+        }
+        return 0
+    }
+
+    sfn scanComment:int (v:string i:int) {
+        def n:int (strlen v)
+        if ((i + 4) > n) { return 0 }
+        def open:string (substring v i (i + 4))
+        if (open != "<!--") { return 0 }
+        ; `<!-->` and `<!--->` are EMPTY comments and end where they are, not
+        ; at some `-->` later on the line. CommonMark 0.31 added both; a
+        ; parser that only knows the general form reads the rest of the line
+        ; as comment text and swallows whatever comes after it.
+        def after:int -1
+        if ((i + 4) < n) { after = (charAt v (i + 4)) }
+        if (after == 62) { return 5 }
+        if (after == 45) {
+            def after2:int -1
+            if ((i + 5) < n) { after2 = (charAt v (i + 5)) }
+            if (after2 == 62) { return 6 }
+        }
+        def j:int (i + 4)
+        while ((j + 3) <= n) {
+            def probe:string (substring v j (j + 3))
+            if (probe == "-->") {
+                return ((j + 3) - i)
+            }
+            j = (j + 1)
+        }
+        return 0
+    }
+
+    sfn scanCloseTag:int (v:string i:int) {
+        def n:int (strlen v)
+        def j:int (i + 2)
+        if (j >= n) { return 0 }
+        def first:int (charAt v j)
+        if (! (MdChar.isLetter(first))) { return 0 }
+        j = (j + 1)
+        def going:boolean true
+        while going {
+            if (j >= n) { going = false }
+            if going {
+                def c:int (charAt v j)
+                def ok:boolean (MdChar.isAlnum(c))
+                if (c == 45) { ok = true }
+                if (! ok) {
+                    going = false
+                } {
+                    j = (j + 1)
+                }
+            }
+        }
+        def ws:boolean true
+        while ws {
+            if (j >= n) { ws = false }
+            if ws {
+                def c2:int (charAt v j)
+                if (! (MdChar.isUnicodeWhitespace(c2))) {
+                    ws = false
+                } {
+                    j = (j + 1)
+                }
+            }
+        }
+        if (j >= n) { return 0 }
+        def gt:int (charAt v j)
+        if (gt != 62) { return 0 }
+        return ((j + 1) - i)
+    }
+
+    sfn scanOpenTag:int (v:string i:int) {
+        def n:int (strlen v)
+        def j:int (i + 1)
+        def first:int (charAt v j)
+        if (! (MdChar.isLetter(first))) { return 0 }
+        j = (j + 1)
+        def name:boolean true
+        while name {
+            if (j >= n) { name = false }
+            if name {
+                def c:int (charAt v j)
+                def ok:boolean (MdChar.isAlnum(c))
+                if (c == 45) { ok = true }
+                if (! ok) {
+                    name = false
+                } {
+                    j = (j + 1)
+                }
+            }
+        }
+        def more:boolean true
+        while more {
+            def wsStart:int j
+            def ws:boolean true
+            while ws {
+                if (j >= n) { ws = false }
+                if ws {
+                    def c2:int (charAt v j)
+                    if (! (MdChar.isUnicodeWhitespace(c2))) {
+                        ws = false
+                    } {
+                        j = (j + 1)
+                    }
+                }
+            }
+            if (j == wsStart) {
+                more = false
+            } {
+                def an:int (MdInline.scanAttribute(v j))
+                if (an == 0) {
+                    j = wsStart
+                    more = false
+                } {
+                    j = (j + an)
+                }
+            }
+        }
+        def trail:boolean true
+        while trail {
+            if (j >= n) { trail = false }
+            if trail {
+                def c3:int (charAt v j)
+                if (! (MdChar.isUnicodeWhitespace(c3))) {
+                    trail = false
+                } {
+                    j = (j + 1)
+                }
+            }
+        }
+        if (j >= n) { return 0 }
+        def slash:int (charAt v j)
+        if (slash == 47) {
+            j = (j + 1)
+        }
+        if (j >= n) { return 0 }
+        def gt:int (charAt v j)
+        if (gt != 62) { return 0 }
+        return ((j + 1) - i)
+    }
+
+    sfn scanAttribute:int (v:string i:int) {
+        def n:int (strlen v)
+        def j:int i
+        def c:int (charAt v j)
+        def ok:boolean (MdChar.isLetter(c))
+        if (c == 95) { ok = true }
+        if (c == 58) { ok = true }
+        if (! ok) { return 0 }
+        j = (j + 1)
+        def name:boolean true
+        while name {
+            if (j >= n) { name = false }
+            if name {
+                def c2:int (charAt v j)
+                def ok2:boolean (MdChar.isAlnum(c2))
+                if (c2 == 95) { ok2 = true }
+                if (c2 == 58) { ok2 = true }
+                if (c2 == 46) { ok2 = true }
+                if (c2 == 45) { ok2 = true }
+                if (! ok2) {
+                    name = false
+                } {
+                    j = (j + 1)
+                }
+            }
+        }
+        def nameEnd:int j
+        def k:int j
+        def ws:boolean true
+        while ws {
+            if (k >= n) { ws = false }
+            if ws {
+                def c3:int (charAt v k)
+                if (! (MdChar.isUnicodeWhitespace(c3))) {
+                    ws = false
+                } {
+                    k = (k + 1)
+                }
+            }
+        }
+        if (k >= n) { return (nameEnd - i) }
+        def eq:int (charAt v k)
+        if (eq != 61) { return (nameEnd - i) }
+        k = (k + 1)
+        def ws2:boolean true
+        while ws2 {
+            if (k >= n) { ws2 = false }
+            if ws2 {
+                def c4:int (charAt v k)
+                if (! (MdChar.isUnicodeWhitespace(c4))) {
+                    ws2 = false
+                } {
+                    k = (k + 1)
+                }
+            }
+        }
+        if (k >= n) { return 0 }
+        def q:int (charAt v k)
+        if ((q == 34) || (q == 39)) {
+            k = (k + 1)
+            while (k < n) {
+                def c5:int (charAt v k)
+                if (c5 == q) {
+                    return ((k + 1) - i)
+                }
+                k = (k + 1)
+            }
+            return 0
+        }
+        def started:int k
+        def bare:boolean true
+        while bare {
+            if (k >= n) { bare = false }
+            if bare {
+                def c6:int (charAt v k)
+                def stop:boolean (MdChar.isUnicodeWhitespace(c6))
+                if (c6 == 34) { stop = true }
+                if (c6 == 39) { stop = true }
+                if (c6 == 61) { stop = true }
+                if (c6 == 60) { stop = true }
+                if (c6 == 62) { stop = true }
+                if (c6 == 96) { stop = true }
+                if stop {
+                    bare = false
+                } {
+                    k = (k + 1)
+                }
+            }
+        }
+        if (k == started) { return 0 }
+        return (k - i)
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Link reference definitions
+    ; ----------------------------------------------------------------------
+    ;
+    ; `[label]: /url "title"` at the head of a paragraph. Called by the BLOCK
+    ; parser, because a definition is not content: it is stripped off the
+    ; front of the paragraph when the paragraph closes, and a paragraph that
+    ; was nothing but definitions disappears. The scanners it needs — label,
+    ; destination, title — are the ones a link already uses, which is why this
+    ; lives here rather than there.
+    ;
+    ; Returns the number of characters consumed, or 0.
+    fn parseReference:int (text:string map:[string:MdLinkRef]) {
+        subject = text
+        pos = 0
+        def startPos:int 0
+        def matchChars:int (this.parseLinkLabel())
+        if (matchChars == 0) { return 0 }
+        def rawlabel:string (substring text 0 matchChars)
+        def colon:int (this.peek())
+        if (colon != 58) { return 0 }
+        pos = (pos + 1)
+        this.spnl()
+        def dest:string (this.parseLinkDestination())
+        if (dest == " FAIL") { return 0 }
+        def beforeTitle:int pos
+        this.spnl()
+        def title:string ""
+        def haveTitle:boolean false
+        if (pos != beforeTitle) {
+            def t:string (this.parseLinkTitle())
+            if (t != " FAIL") {
+                title = t
+                haveTitle = true
+            }
+        }
+        if (! haveTitle) {
+            title = ""
+            pos = beforeTitle
+        }
+        ; Whatever follows has to be the end of the line. A title that is not
+        ; may still be a definition without it, so that case is retried.
+        def atEnd:boolean (this.spaceToEndOfLine())
+        if (! atEnd) {
+            if (! haveTitle) { return 0 }
+            title = ""
+            pos = beforeTitle
+            atEnd = (this.spaceToEndOfLine())
+            if (! atEnd) { return 0 }
+        }
+        def norm:string (MdInline.normalizeReference(rawlabel))
+        def nlen:int (strlen norm)
+        if (nlen == 0) { return 0 }
+        if (! (has map norm)) {
+            def ref:MdLinkRef (MdLinkRef.create(norm dest title))
+            set map norm ref
+        }
+        return (pos - startPos)
+    }
+
+    ; Spaces, then a newline or the end. Consumes the newline.
+    fn spaceToEndOfLine:boolean () {
+        def n:int (strlen subject)
+        def i:int pos
+        def going:boolean true
+        while going {
+            if (i >= n) { going = false }
+            if going {
+                def c:int (charAt subject i)
+                if (MdChar.isSpaceOrTab(c)) { i = (i + 1) } { going = false }
+            }
+        }
+        if (i >= n) {
+            pos = i
+            return true
+        }
+        def c2:int (charAt subject i)
+        if (c2 == 10) {
+            pos = (i + 1)
+            return true
+        }
+        return false
+    }
+}

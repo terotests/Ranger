@@ -1,0 +1,11 @@
+{
+  "name": "ranger-markdown-harness",
+  "private": true,
+  "description": "Oracles for the markdown parity score. Not part of the build: the pinned CommonMark spec is checked in, and these are only needed to regenerate the entity table or to compare against a reference implementation.",
+  "type": "module",
+  "dependencies": {
+    "character-entities": "^2.0.2",
+    "commonmark": "^0.31.2",
+    "markdown-it": "^14.1.0"
+  }
+}

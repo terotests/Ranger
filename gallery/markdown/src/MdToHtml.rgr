@@ -1,0 +1,482 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdToHtml.rgr — the AST as HTML, byte for byte the way the spec wants it.
+; ============================================================================
+;
+; This exporter is not how the viewer draws anything: the viewer lays boxes
+; out and paints them, and never builds a string of tags. It exists because
+; HTML is the only form of the answer a specification can check, and
+; CommonMark's 652 examples are 652 pairs of (markdown, expected HTML)
+; compared as exact strings.
+;
+; So this file is the parser's test surface. Everything it gets wrong is a
+; parser bug that would otherwise be found by looking at a page and
+; squinting — the whitespace after a `<li>`, whether a tight list's item has
+; a `<p>` in it, whether an empty destination is `href=""` — and each of
+; those is a real difference in the tree.
+;
+; Raw HTML is passed through, which is what the specification says a renderer
+; may do and what makes 44 of those examples pass. The VIEWER does not obey
+; it — a canvas has no DOM to hand a `<div>` to, so it shows the markup as
+; what it is. Two different answers to one question, on purpose: this one is
+; scored, the other one is drawn.
+; ============================================================================
+
+Import "MdNode.rgr"
+Import "MdChar.rgr"
+
+class MdToHtml {
+    ; A tight list's items hold their paragraphs' contents without the <p>.
+    def tight:boolean false
+    def out:string ""
+
+    Constructor () {
+    }
+
+    sfn render:string (doc:MdNode) {
+        def r:MdToHtml (new MdToHtml())
+        r.walkChildren(doc)
+        return r.out
+    }
+
+    ; ------------------------------------------------------------------
+    ; The output buffer, and the one rule that makes a list come out right.
+    ; ------------------------------------------------------------------
+    ;
+    ; `cr` is a newline THAT IS NOT WRITTEN when there is already one at the
+    ; end. Every block puts one before and after itself and lets this decide,
+    ; which is how `<li>` ends up hugging its text in a tight list —
+    ; `<li>foo` — and on its own line when the item opens with a block —
+    ; `<li>\n<pre>`. Writing "\n" unconditionally gives the first shape
+    ; everywhere and quietly fails 14 examples that all look like whitespace.
+    fn lit:void (v:string) {
+        out = (out + v)
+    }
+
+    fn cr:void () {
+        def n:int (strlen out)
+        if (n == 0) { return }
+        def last:int (charAt out (n - 1))
+        if (last == 10) { return }
+        out = (out + "\n")
+    }
+
+    fn walkChildren:void (node:MdNode) {
+        def i:int 0
+        def n:int (node.childCount())
+        while (i < n) {
+            def c:MdNode (node.childAt(i))
+            this.walk(c)
+            i = (i + 1)
+        }
+    }
+
+    fn walk:void (node:MdNode) {
+        def kind:string node.kind
+
+        if (kind == "text") {
+            this.lit((MdToHtml.escape(node.literal)))
+            return
+        }
+        if (kind == "softbreak") {
+            this.lit("\n")
+            return
+        }
+        if (kind == "linebreak") {
+            this.lit("<br />")
+            this.cr()
+            return
+        }
+        if (kind == "code") {
+            this.lit("<code>")
+            this.lit((MdToHtml.escape(node.literal)))
+            this.lit("</code>")
+            return
+        }
+        if (kind == "html_inline") {
+            this.lit(node.literal)
+            return
+        }
+        if (kind == "emph") {
+            this.lit("<em>")
+            this.walkChildren(node)
+            this.lit("</em>")
+            return
+        }
+        if (kind == "strong") {
+            this.lit("<strong>")
+            this.walkChildren(node)
+            this.lit("</strong>")
+            return
+        }
+        if (kind == "strike") {
+            this.lit("<del>")
+            this.walkChildren(node)
+            this.lit("</del>")
+            return
+        }
+        if (kind == "link") {
+            def href:string (MdToHtml.escapeUrl(node.destination))
+            this.lit((("<a href=\"" + href) + "\""))
+            def tlen:int (strlen node.title)
+            if (tlen > 0) {
+                this.lit(((" title=\"" + (MdToHtml.escape(node.title))) + "\""))
+            }
+            this.lit(">")
+            this.walkChildren(node)
+            this.lit("</a>")
+            return
+        }
+        if (kind == "image") {
+            def src:string (MdToHtml.escapeUrl(node.destination))
+            def alt:string (node.plainText())
+            this.lit((((("<img src=\"" + src) + "\" alt=\"") + (MdToHtml.escape(alt))) + "\""))
+            def tlen2:int (strlen node.title)
+            if (tlen2 > 0) {
+                this.lit(((" title=\"" + (MdToHtml.escape(node.title))) + "\""))
+            }
+            this.lit(" />")
+            return
+        }
+
+        if (kind == "paragraph") {
+            if tight {
+                this.walkChildren(node)
+                return
+            }
+            this.cr()
+            this.lit("<p>")
+            this.walkChildren(node)
+            this.lit("</p>")
+            this.cr()
+            return
+        }
+        if (kind == "heading") {
+            def lv:string (to_string node.level)
+            this.cr()
+            this.lit((("<h" + lv) + ">"))
+            this.walkChildren(node)
+            this.lit((("</h" + lv) + ">"))
+            this.cr()
+            return
+        }
+        if (kind == "thematic_break") {
+            this.cr()
+            this.lit("<hr />")
+            this.cr()
+            return
+        }
+        if (kind == "html_block") {
+            this.cr()
+            this.lit(node.literal)
+            this.cr()
+            return
+        }
+        if (kind == "front_matter") {
+            return
+        }
+        if (kind == "code_block") {
+            def cls:string ""
+            def lang:string (MdToHtml.firstWord(node.info))
+            def llen:int (strlen lang)
+            if (llen > 0) {
+                cls = ((" class=\"language-" + (MdToHtml.escape(lang))) + "\"")
+            }
+            this.cr()
+            this.lit((("<pre><code" + cls) + ">"))
+            this.lit((MdToHtml.escape(node.literal)))
+            this.lit("</code></pre>")
+            this.cr()
+            return
+        }
+        if (kind == "block_quote") {
+            def wasTight:boolean tight
+            tight = false
+            this.cr()
+            this.lit("<blockquote>")
+            this.cr()
+            this.walkChildren(node)
+            this.cr()
+            this.lit("</blockquote>")
+            this.cr()
+            tight = wasTight
+            return
+        }
+        if (kind == "list") {
+            def wasTight2:boolean tight
+            tight = node.listTight
+            def open:string "<ul>"
+            def close:string "</ul>"
+            if node.listOrdered {
+                def startAttr:string ""
+                if (node.listStart != 1) {
+                    startAttr = ((" start=\"" + (to_string node.listStart)) + "\"")
+                }
+                open = (("<ol" + startAttr) + ">")
+                close = "</ol>"
+            }
+            this.cr()
+            this.lit(open)
+            this.cr()
+            this.walkChildren(node)
+            this.cr()
+            this.lit(close)
+            this.cr()
+            tight = wasTight2
+            return
+        }
+        if (kind == "item") {
+            this.lit("<li>")
+            if (node.taskState >= 0) {
+                def checked:string (? (node.taskState == 1) " checked=\"\"" "")
+                this.lit((("<input" + checked) + " disabled=\"\" type=\"checkbox\" /> "))
+            }
+            this.walkChildren(node)
+            this.lit("</li>")
+            this.cr()
+            return
+        }
+
+        if (kind == "table") {
+            this.walkTable(node)
+            return
+        }
+        this.walkChildren(node)
+    }
+
+    fn walkTable:void (node:MdNode) {
+        def rows:int (node.childCount())
+        this.cr()
+        this.lit("<table>")
+        this.cr()
+        if (rows == 0) {
+            this.lit("</table>")
+            this.cr()
+            return
+        }
+        def head:MdNode (node.childAt(0))
+        this.lit("<thead>")
+        this.cr()
+        this.lit("<tr>")
+        this.cr()
+        def cells:int (head.childCount())
+        def i:int 0
+        while (i < cells) {
+            def cell:MdNode (head.childAt(i))
+            this.walkCell(cell "th")
+            i = (i + 1)
+        }
+        this.lit("</tr>")
+        this.cr()
+        this.lit("</thead>")
+        this.cr()
+        if (rows > 1) {
+            this.lit("<tbody>")
+            this.cr()
+            def r:int 1
+            while (r < rows) {
+                def row:MdNode (node.childAt(r))
+                this.lit("<tr>")
+                this.cr()
+                def c:int 0
+                def rc:int (row.childCount())
+                while (c < rc) {
+                    def cell2:MdNode (row.childAt(c))
+                    this.walkCell(cell2 "td")
+                    c = (c + 1)
+                }
+                this.lit("</tr>")
+                this.cr()
+                r = (r + 1)
+            }
+            this.lit("</tbody>")
+            this.cr()
+        }
+        this.lit("</table>")
+        this.cr()
+    }
+
+    fn walkCell:void (cell:MdNode tag:string) {
+        def attr:string ""
+        def alen:int (strlen cell.align)
+        if (alen > 0) {
+            attr = ((" align=\"" + cell.align) + "\"")
+        }
+        this.lit(((("<" + tag) + attr) + ">"))
+        this.walkChildren(cell)
+        this.lit((("</" + tag) + ">"))
+        this.cr()
+    }
+
+    sfn firstWord:string (info:string) {
+        def n:int (strlen info)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt info i)
+            if (MdChar.isUnicodeWhitespace(c)) {
+                return (substring info 0 i)
+            }
+            i = (i + 1)
+        }
+        return info
+    }
+
+    sfn escape:string (v:string) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen v)
+        while (i < n) {
+            def c:int (charAt v i)
+            if (c == 38) {
+                out = (out + "&amp;")
+            } {
+                if (c == 60) {
+                    out = (out + "&lt;")
+                } {
+                    if (c == 62) {
+                        out = (out + "&gt;")
+                    } {
+                        if (c == 34) {
+                            out = (out + "&quot;")
+                        } {
+                            out = (out + (substring v i (i + 1)))
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; A destination, the way a browser would take it: percent-encoded where
+    ; it has to be, left alone where it is already, and then XML-escaped.
+    ;
+    ; The two-step matters. `/a?b&c` has to come out as `/a?b&amp;c` — the
+    ; `&` is legal in a URL and illegal in an attribute — and `/a b` has to
+    ; come out as `/a%20b`, which is not an escaping question at all.
+    sfn escapeUrl:string (v:string) {
+        def enc:string (MdToHtml.percentEncode(v))
+        return (MdToHtml.escape(enc))
+    }
+
+    sfn percentEncode:string (v:string) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen v)
+        while (i < n) {
+            def c:int (charAt v i)
+            if (MdToHtml.isUrlSafe(c)) {
+                out = (out + (substring v i (i + 1)))
+                i = (i + 1)
+            } {
+                if (c == 37) {
+                    ; An existing escape stays one rather than becoming %25.
+                    def h1:int -1
+                    def h2:int -1
+                    if ((i + 2) < n) {
+                        h1 = (charAt v (i + 1))
+                        h2 = (charAt v (i + 2))
+                    }
+                    if ((MdChar.isHexDigit(h1)) && (MdChar.isHexDigit(h2))) {
+                        out = (out + (substring v i (i + 3)))
+                        i = (i + 3)
+                    } {
+                        out = (out + "%25")
+                        i = (i + 1)
+                    }
+                } {
+                    def cp:int (MdToHtml.codePointAt(v i))
+                    def units:int (MdToHtml.unitsAt(v i))
+                    out = (out + (MdToHtml.encodeUtf8Percent(cp)))
+                    i = (i + units)
+                }
+            }
+        }
+        return out
+    }
+
+    ; What `encodeURI` leaves alone.
+    sfn isUrlSafe:boolean (c:int) {
+        if (MdChar.isAlnum(c)) { return true }
+        if (c == 59) { return true }
+        if (c == 44) { return true }
+        if (c == 47) { return true }
+        if (c == 63) { return true }
+        if (c == 58) { return true }
+        if (c == 64) { return true }
+        if (c == 38) { return true }
+        if (c == 61) { return true }
+        if (c == 43) { return true }
+        if (c == 36) { return true }
+        if (c == 45) { return true }
+        if (c == 95) { return true }
+        if (c == 46) { return true }
+        if (c == 33) { return true }
+        if (c == 126) { return true }
+        if (c == 42) { return true }
+        if (c == 39) { return true }
+        if (c == 40) { return true }
+        if (c == 41) { return true }
+        if (c == 35) { return true }
+        return false
+    }
+
+    sfn codePointAt:int (v:string i:int) {
+        def u:int (charAt v i)
+        if ((u >= 55296) && (u <= 56319)) {
+            def n:int (strlen v)
+            if ((i + 1) < n) {
+                def lo:int (charAt v (i + 1))
+                if ((lo >= 56320) && (lo <= 57343)) {
+                    return ((((u - 55296) * 1024) + (lo - 56320)) + 65536)
+                }
+            }
+        }
+        return u
+    }
+
+    sfn unitsAt:int (v:string i:int) {
+        def u:int (charAt v i)
+        if ((u >= 55296) && (u <= 56319)) {
+            def n:int (strlen v)
+            if ((i + 1) < n) {
+                def lo:int (charAt v (i + 1))
+                if ((lo >= 56320) && (lo <= 57343)) {
+                    return 2
+                }
+            }
+        }
+        return 1
+    }
+
+    sfn encodeUtf8Percent:string (cp:int) {
+        if (cp < 128) {
+            return (MdToHtml.pct(cp))
+        }
+        if (cp < 2048) {
+            def b1:int (192 + (idiv cp 64))
+            def b2:int (128 + (cp % 64))
+            return ((MdToHtml.pct(b1)) + (MdToHtml.pct(b2)))
+        }
+        if (cp < 65536) {
+            def c1:int (224 + (idiv cp 4096))
+            def c2:int (128 + ((idiv cp 64) % 64))
+            def c3:int (128 + (cp % 64))
+            return (((MdToHtml.pct(c1)) + (MdToHtml.pct(c2))) + (MdToHtml.pct(c3)))
+        }
+        def d1:int (240 + (idiv cp 262144))
+        def d2:int (128 + ((idiv cp 4096) % 64))
+        def d3:int (128 + ((idiv cp 64) % 64))
+        def d4:int (128 + (cp % 64))
+        return ((((MdToHtml.pct(d1)) + (MdToHtml.pct(d2))) + (MdToHtml.pct(d3))) + (MdToHtml.pct(d4)))
+    }
+
+    sfn pct:string (b:int) {
+        def digits:string "0123456789ABCDEF"
+        def hi:int (idiv b 16)
+        def lo:int (b % 16)
+        return (("%" + (substring digits hi (hi + 1))) + (substring digits lo (lo + 1)))
+    }
+}

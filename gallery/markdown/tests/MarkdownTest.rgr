@@ -1,0 +1,303 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MarkdownTest.rgr — the parser, the layout and the EVG bridge.
+; ============================================================================
+;
+;   npm run markdown:test            on JavaScript
+;   npm run markdown:test:go         …the same assertions, compiled to Go
+;   npm run markdown:test:python     …and to Python
+;
+; The 652 CommonMark examples are checked elsewhere (`npm run markdown:spec`),
+; because they need the specification file and a comparison the harness does.
+; What is here is everything that file cannot see: that the tree has the shape
+; the viewer walks, that a line broken across four faces comes out contiguous,
+; and that the EVG tree the PDF writer is handed has text in it rather than
+; empty divs.
+;
+; Running on three targets is not decoration either. The parser is meant to be
+; portable, and the two places that portability actually breaks — `charAt` on
+; a byte string, and integer division — are both in the hot path here.
+; ============================================================================
+
+Import "../src/MdBlock.rgr"
+Import "../src/MdToHtml.rgr"
+Import "../src/MdLayout.rgr"
+Import "../src/MdToEvg.rgr"
+
+class MarkdownTest {
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    sfn main:void () {
+        def t:MarkdownTest (new MarkdownTest())
+        t.run()
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eq:void (name:string got:string want:string) {
+        if (got == want) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+            print ("    got  " + got)
+            print ("    want " + want)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        if (got == want) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            def g:string (to_string got)
+            def w:string (to_string want)
+            print ("  FAIL " + name)
+            print (("    got  " + g) + ("  want " + w))
+        }
+    }
+
+    fn html:string (src:string) {
+        def doc:MdNode (MdBlock.parseText(src))
+        return (MdToHtml.render(doc))
+    }
+
+    fn run:void () {
+        this.blocks()
+        this.inlines()
+        this.gfm()
+        this.sourceMap()
+        this.layout()
+        this.evg()
+        print ""
+        def p:string (to_string passed)
+        def f:string (to_string failed)
+        print (("passed=" + p) + (" failed=" + f))
+        if (failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+
+    ; ----------------------------------------------------------------------
+    fn blocks:void () {
+        this.eq("atx" (this.html("# Title\n")) "<h1>Title</h1>\n")
+        this.eq("atx closed" (this.html("## Two ##\n")) "<h2>Two</h2>\n")
+        this.eq("setext" (this.html("Title\n=====\n")) "<h1>Title</h1>\n")
+        this.eq("para" (this.html("hello\n")) "<p>hello</p>\n")
+        this.eq("rule" (this.html("***\n")) "<hr />\n")
+        this.eq("quote" (this.html("> hi\n")) "<blockquote>\n<p>hi</p>\n</blockquote>\n")
+        this.eq("fence" (this.html("```rgr\nx\n```\n")) "<pre><code class=\"language-rgr\">x\n</code></pre>\n")
+        this.eq("indented code" (this.html("    x\n")) "<pre><code>x\n</code></pre>\n")
+        this.eq("tight list" (this.html("- a\n- b\n")) "<ul>\n<li>a</li>\n<li>b</li>\n</ul>\n")
+        this.eq("loose list" (this.html("- a\n\n- b\n")) "<ul>\n<li>\n<p>a</p>\n</li>\n<li>\n<p>b</p>\n</li>\n</ul>\n")
+        this.eq("ordered start" (this.html("3. a\n")) "<ol start=\"3\">\n<li>a</li>\n</ol>\n")
+        ; a nested list opens on its own line inside the item
+        this.eq("nested list" (this.html("- a\n  - b\n")) "<ul>\n<li>a\n<ul>\n<li>b</li>\n</ul>\n</li>\n</ul>\n")
+        ; a tab is four columns, not four spaces
+        this.eq("tab code" (this.html("\tfoo\n")) "<pre><code>foo\n</code></pre>\n")
+        ; a paragraph inside a quote continues without the marker
+        def lazy:string (this.html("> one\ntwo\n"))
+        this.eq("lazy continuation" lazy "<blockquote>\n<p>one\ntwo</p>\n</blockquote>\n")
+    }
+
+    fn inlines:void () {
+        this.eq("emph" (this.html("*a*\n")) "<p><em>a</em></p>\n")
+        this.eq("strong" (this.html("**a**\n")) "<p><strong>a</strong></p>\n")
+        this.eq("both" (this.html("***a***\n")) "<p><em><strong>a</strong></em></p>\n")
+        this.eq("intraword underscore" (this.html("a_b_c\n")) "<p>a_b_c</p>\n")
+        this.eq("code span" (this.html("`a`\n")) "<p><code>a</code></p>\n")
+        this.eq("code span keeps stars" (this.html("`*a*`\n")) "<p><code>*a*</code></p>\n")
+        this.eq("link" (this.html("[a](/b)\n")) "<p><a href=\"/b\">a</a></p>\n")
+        this.eq("link title" (this.html("[a](/b \"t\")\n")) "<p><a href=\"/b\" title=\"t\">a</a></p>\n")
+        this.eq("image" (this.html("![a](/b)\n")) "<p><img src=\"/b\" alt=\"a\" /></p>\n")
+        this.eq("autolink" (this.html("<https://a.example>\n")) "<p><a href=\"https://a.example\">https://a.example</a></p>\n")
+        this.eq("entity" (this.html("&amp;\n")) "<p>&amp;</p>\n")
+        this.eq("named entity" (this.html("&auml;\n")) "<p>ä</p>\n")
+        this.eq("escape" (this.html("\\*a\\*\n")) "<p>*a*</p>\n")
+        this.eq("hard break" (this.html("a  \nb\n")) "<p>a<br />\nb</p>\n")
+        ; emphasis INSIDE a link: the delimiters must pair inside the brackets
+        def nested:string (this.html("*foo [*bar*](/url)*\n"))
+        this.eq("emph in link" nested "<p><em>foo <a href=\"/url\"><em>bar</em></a></em></p>\n")
+        ; a reference defined after the paragraph that uses it
+        def ref:string (this.html("[a]\n\n[a]: /url \"t\"\n"))
+        this.eq("reference" ref "<p><a href=\"/url\" title=\"t\">a</a></p>\n")
+        ; percent-encoding, and `&` in an attribute
+        this.eq("url encode" (this.html("[a](/x y)\n")) "<p>[a](/x y)</p>\n")
+        this.eq("url amp" (this.html("[a](/x?b&c)\n")) "<p><a href=\"/x?b&amp;c\">a</a></p>\n")
+    }
+
+    fn gfm:void () {
+        def table:string (this.html("| a | b |\n| --- | ---: |\n| 1 | 2 |\n"))
+        def want:string "<table>\n<thead>\n<tr>\n<th>a</th>\n<th align=\"right\">b</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>1</td>\n<td align=\"right\">2</td>\n</tr>\n</tbody>\n</table>\n"
+        this.eq("table" table want)
+        ; without pipes it is a setext heading, not a one-column table
+        this.eq("not a table" (this.html("Foo\n---\n")) "<h2>Foo</h2>\n")
+        this.eq("strike" (this.html("~~a~~\n")) "<p><del>a</del></p>\n")
+        def task:string (this.html("- [x] done\n"))
+        this.ok("task checked" ((strlen task) > 0))
+        def doc:MdNode (MdBlock.parseText("- [x] done\n- [ ] not\n"))
+        def list:MdNode (doc.childAt(0))
+        def first:MdNode (list.childAt(0))
+        def second:MdNode (list.childAt(1))
+        this.eqInt("task state checked" first.taskState 1)
+        this.eqInt("task state unchecked" second.taskState 0)
+        ; the marker is not left in the text
+        def para:MdNode (first.childAt(0))
+        def text:MdNode (para.childAt(0))
+        this.eq("task text" text.literal "done")
+        ; front matter is metadata, and is not drawn as a heading
+        def fm:MdNode (MdBlock.parseText("---\ntitle: T\n---\n\nbody\n"))
+        def head:MdNode (fm.childAt(0))
+        this.eq("front matter kind" head.kind "front_matter")
+        this.eq("front matter body" head.literal "title: T\n")
+        this.eqInt("front matter blocks" (fm.childCount()) 2)
+    }
+
+    fn sourceMap:void () {
+        ; Every block remembers where it came from. The viewer puts a caret
+        ; back in the source with this, so an offset that is wrong is a caret
+        ; in the wrong paragraph rather than a visible fault.
+        def doc:MdNode (MdBlock.parseText("# one\n\nsecond\n\nthird\n"))
+        def h:MdNode (doc.childAt(0))
+        def p1:MdNode (doc.childAt(1))
+        def p2:MdNode (doc.childAt(2))
+        this.eqInt("srcStart heading" h.srcStart 0)
+        this.eqInt("srcStart para 1" p1.srcStart 7)
+        this.eqInt("srcStart para 2" p2.srcStart 15)
+        this.ok("srcEnd after start" (p1.srcEnd > p1.srcStart))
+    }
+
+    fn layout:void () {
+        def doc:MdNode (MdBlock.parseText("# H\n\nsome **bold** and `code` text\n"))
+        def l:MdLayout (new MdLayout())
+        l.layoutContinuous(doc 400.0)
+        def n:int (array_length l.boxes)
+        this.ok("layout produced boxes" (n > 3))
+        this.ok("document has height" (l.documentHeight > 0.0))
+
+        ; The claim this module exists to make: one line, several faces, and
+        ; the segments meet exactly. A gap here is a gap on the printed page.
+        def runs:[MdRun]
+        def a:MdRun (new MdRun())
+        a.family = "Open Sans"
+        a.size = 11.0
+        a.text = "some "
+        push runs a
+        def b:MdRun (new MdRun())
+        b.family = "Open Sans"
+        b.size = 11.0
+        b.bold = true
+        b.text = "bold"
+        push runs b
+        def c:MdRun (new MdRun())
+        c.family = "Open Sans"
+        c.size = 11.0
+        ; No leading space: a space that OPENS a run is deliberately laid as
+        ; advance rather than as text (see MdLayout.breakRuns), so a run that
+        ; begins with one would leave a legitimate gap here and this test
+        ; would be asserting the wrong invariant.
+        c.text = "and more"
+        push runs c
+        def lines:[MdLine] (l.breakRuns(runs 10000.0))
+        this.eqInt("one wide line" (array_length lines) 1)
+        def line:MdLine (itemAt lines 0)
+        def segs:int (array_length line.segs)
+        this.ok("several segments" (segs >= 3))
+        def contiguous:boolean true
+        def i:int 1
+        while (i < segs) {
+            def prev:MdSeg (itemAt line.segs (i - 1))
+            def cur:MdSeg (itemAt line.segs i)
+            def edge:double (prev.x + prev.w)
+            def gap:double (cur.x - edge)
+            if (gap > 0.001) { contiguous = false }
+            if (gap < -0.001) { contiguous = false }
+            i = (i + 1)
+        }
+        this.ok("segments are contiguous" contiguous)
+        this.ok("line has height" (line.height > 0.0))
+
+        ; And with a run that DOES begin with a space, the segments never
+        ; overlap and the gap is that space — which is the shape that makes
+        ; the printed page and the preview agree.
+        def spaced:[MdRun]
+        push spaced a
+        push spaced b
+        def d:MdRun (new MdRun())
+        d.family = "Open Sans"
+        d.size = 11.0
+        d.text = " and more"
+        push spaced d
+        def slines:[MdLine] (l.breakRuns(spaced 10000.0))
+        def sline:MdLine (itemAt slines 0)
+        def sn:int (array_length sline.segs)
+        def noOverlap:boolean true
+        def k:int 1
+        while (k < sn) {
+            def prev2:MdSeg (itemAt sline.segs (k - 1))
+            def cur2:MdSeg (itemAt sline.segs k)
+            def edge2:double (prev2.x + prev2.w)
+            if (cur2.x < (edge2 - 0.001)) { noOverlap = false }
+            k = (k + 1)
+        }
+        this.ok("spaced segments never overlap" noOverlap)
+        def lastSeg:MdSeg (itemAt sline.segs (sn - 1))
+        def lead2:int (charAt lastSeg.text 0)
+        this.ok("boundary space is not text" (lead2 != 32))
+
+        ; A narrow column wraps, and a wrapped line does not start with the
+        ; space it wrapped at.
+        def narrow:[MdLine] (l.breakRuns(runs 40.0))
+        this.ok("narrow wraps" ((array_length narrow) > 1))
+        def second:MdLine (itemAt narrow 1)
+        def firstSeg:MdSeg (itemAt second.segs 0)
+        def lead:int (charAt firstSeg.text 0)
+        this.ok("no leading space" (lead != 32))
+    }
+
+    fn evg:void () {
+        def doc:MdNode (MdBlock.parseText("# H\n\ntext\n\n```\ncode\n```\n"))
+        def l:MdLayout (new MdLayout())
+        l.layoutContinuous(doc 400.0)
+        def root:EVGElement (MdToEvg.buildPage(l 400.0))
+        def kids:int (root.getChildCount())
+        this.ok("evg tree has children" (kids > 0))
+
+        ; `tagName == "text"` is what the PDF and HTML renderers switch on. A
+        ; div with textContent lays out and prints NOTHING, which is exactly
+        ; what the first exported page did.
+        def texts:int 0
+        def i:int 0
+        while (i < kids) {
+            def el:EVGElement (root.getChild(i))
+            if (el.tagName == "text") { texts = (texts + 1) }
+            i = (i + 1)
+        }
+        this.ok("evg tree paints text" (texts > 0))
+
+        ; Paged output is the shape the PDF writer already understands.
+        def p:MdLayout (new MdLayout())
+        p.layoutPaged(doc)
+        def printRoot:EVGElement (MdToEvg.buildPrint(p))
+        this.eq("print root" printRoot.tagName "print")
+        def section:EVGElement (printRoot.getChild(0))
+        this.eq("section" section.tagName "section")
+        def page:EVGElement (section.getChild(0))
+        this.eq("page" page.tagName "page")
+        this.eqInt("one page for a short document" (section.getChildCount()) 1)
+    }
+}

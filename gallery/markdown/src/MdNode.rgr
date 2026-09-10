@@ -1,0 +1,261 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdNode.rgr — the markdown AST.
+; ============================================================================
+;
+; One class, a `kind` string, and children. Not a class per node type: the
+; parity dump has to walk this generically and compare it with a reference
+; implementation's XML, and a switch on a string does that in one loop where
+; a type hierarchy would need a visitor per target language.
+;
+; The kinds are CommonMark's own names, so the XML this dumps and the XML
+; `commonmark` (the JS reference) dumps can be diffed without a translation
+; table in between — the one thing MERMAID_PARITY.md needed and did not have.
+;
+;   blocks   document block_quote list item code_block html_block paragraph
+;            heading thematic_break table table_row table_cell
+;   inlines  text softbreak linebreak code html_inline emph strong strike
+;            link image
+;
+; Every node carries `srcStart` / `srcEnd`: byte offsets into the text it was
+; parsed from. The viewer needs them to put a caret where a reader clicked,
+; and the incremental reparse needs them to know what to throw away.
+; ============================================================================
+
+class MdNode {
+    def kind:string "text"
+    ; text / code / html content. Empty for containers.
+    def literal:string ""
+    def children:[MdNode]
+
+    ; heading level 1..6; for an item, the marker's content indent.
+    def level:int 0
+    ; fenced code: the info string, verbatim, before the first space.
+    def info:string ""
+    def fenced:boolean false
+
+    ; list / item
+    def listOrdered:boolean false
+    def listStart:int 1
+    def listTight:boolean true
+    ; "." or ")" for ordered, the bullet character for unordered.
+    def listDelim:string ""
+    ; -1 = not a task item, 0 = unchecked, 1 = checked (GFM).
+    def taskState:int -1
+
+    ; link / image
+    def destination:string ""
+    def title:string ""
+
+    ; table: the column alignment, "" | "left" | "center" | "right"
+    def align:string ""
+    def isHeader:boolean false
+
+    ; source map, in characters, into the document the parser was handed.
+    def srcStart:int 0
+    def srcEnd:int 0
+
+    ; ------------------------------------------------------------------
+    ; Parser state. It lives on the node rather than in a table beside it
+    ; for the reason cmark's own reference implementation puts it there:
+    ; the block algorithm walks a stack of half-built nodes and asks each
+    ; one whether this line continues it, and a parallel structure would
+    ; have to be kept in step with the tree through every open and close.
+    ; None of it survives `finalize` in a way a consumer should read.
+    ; ------------------------------------------------------------------
+    def open:boolean true
+    def lines:[string]
+    def lastLineBlank:boolean false
+    def lastLineChecked:boolean false
+    ; fenced code
+    def fenceChar:int 0
+    def fenceLength:int 0
+    def fenceOffset:int 0
+    ; html block start condition, 1..7
+    def htmlBlockType:int 0
+    ; list item: the marker's own offset, and the width of marker plus the
+    ; spaces after it — together, the indent a continuation line needs
+    def markerOffset:int 0
+    def padding:int 0
+    ; a list's marker character, kept so a different one starts a new list
+    def listBulletChar:int 0
+
+    Constructor () {
+    }
+
+    sfn create:MdNode (kind:string) {
+        def n:MdNode (new MdNode())
+        n.kind = kind
+        return n
+    }
+
+    sfn text:MdNode (value:string) {
+        def n:MdNode (new MdNode())
+        n.kind = "text"
+        n.literal = value
+        return n
+    }
+
+    fn add:void (child:MdNode) {
+        push children child
+    }
+
+    fn childCount:int () {
+        return (array_length children)
+    }
+
+    fn childAt:MdNode (i:int) {
+        return (itemAt children i)
+    }
+
+    fn lastChild:MdNode () {
+        def n:int (array_length children)
+        return (itemAt children (n - 1))
+    }
+
+    fn hasChildren:boolean () {
+        def n:int (array_length children)
+        return (n > 0)
+    }
+
+    ; Whether this node may hold inline children. The block parser leaves the
+    ; raw text in `literal` on these and the inline parser replaces it.
+    fn isLeaf:boolean () {
+        if (kind == "paragraph") { return true }
+        if (kind == "heading") { return true }
+        if (kind == "table_cell") { return true }
+        return false
+    }
+
+    ; The concatenated text of an inline subtree — what a heading anchor, an
+    ; image's alt text and a footnote's back-reference are made of.
+    fn plainText:string () {
+        if (kind == "text") { return literal }
+        if (kind == "code") { return literal }
+        if (kind == "softbreak") { return " " }
+        if (kind == "linebreak") { return " " }
+        def out:string ""
+        def i:int 0
+        def n:int (array_length children)
+        while (i < n) {
+            def c:MdNode (itemAt children i)
+            def part:string (c.plainText())
+            out = (out + part)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; ------------------------------------------------------------------
+    ; The XML the reference implementation prints, so the two can be diffed.
+    ; ------------------------------------------------------------------
+    fn toXml:string () {
+        def out:string "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+        out = (out + "<!DOCTYPE document SYSTEM \"CommonMark.dtd\">\n")
+        def body:string (this.xmlNode(0))
+        return (out + body)
+    }
+
+    fn xmlNode:string (depth:int) {
+        def pad:string (MdNode.spaces(depth))
+        def name:string kind
+        def attrs:string ""
+        if (kind == "heading") {
+            attrs = (attrs + " level=\"" + (to_string level) + "\"")
+        }
+        if (kind == "list") {
+            if listOrdered {
+                attrs = (attrs + " type=\"ordered\" start=\"" + (to_string listStart) + "\"")
+                attrs = (attrs + " delimiter=\"" + (? (listDelim == ".") "period" "paren") + "\"")
+            } {
+                attrs = (attrs + " type=\"bullet\"")
+            }
+            attrs = (attrs + " tight=\"" + (? listTight "true" "false") + "\"")
+        }
+        if (kind == "code_block") {
+            if ((strlen info) > 0) {
+                attrs = (attrs + " info=\"" + (MdNode.xmlEscape(info)) + "\"")
+            }
+        }
+        if (kind == "link") {
+            attrs = (attrs + " destination=\"" + (MdNode.xmlEscape(destination)) + "\"")
+            attrs = (attrs + " title=\"" + (MdNode.xmlEscape(title)) + "\"")
+        }
+        if (kind == "image") {
+            attrs = (attrs + " destination=\"" + (MdNode.xmlEscape(destination)) + "\"")
+            attrs = (attrs + " title=\"" + (MdNode.xmlEscape(title)) + "\"")
+        }
+        def hasLit:boolean false
+        if (kind == "text") { hasLit = true }
+        if (kind == "code") { hasLit = true }
+        if (kind == "code_block") { hasLit = true }
+        if (kind == "html_block") { hasLit = true }
+        if (kind == "html_inline") { hasLit = true }
+        def kids:int (array_length children)
+        if (kids == 0) {
+            if hasLit {
+                def esc:string (MdNode.xmlEscape(literal))
+                return (pad + "<" + name + attrs + ">" + esc + "</" + name + ">\n")
+            }
+            return (pad + "<" + name + attrs + " />\n")
+        }
+        def out:string (pad + "<" + name + attrs + ">\n")
+        def i:int 0
+        while (i < kids) {
+            def c:MdNode (itemAt children i)
+            def part:string (c.xmlNode((depth + 1)))
+            out = (out + part)
+            i = (i + 1)
+        }
+        return (out + pad + "</" + name + ">\n")
+    }
+
+    sfn spaces:string (n:int) {
+        def out:string ""
+        def i:int 0
+        while (i < n) {
+            out = (out + "  ")
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn xmlEscape:string (v:string) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen v)
+        while (i < n) {
+            def c:int (charAt v i)
+            if (c == 38) { out = (out + "&amp;") }
+            if (c == 60) { out = (out + "&lt;") }
+            if (c == 62) { out = (out + "&gt;") }
+            if (c == 34) { out = (out + "&quot;") }
+            if ((c != 38) && (c != 60) && (c != 62) && (c != 34)) {
+                out = (out + (substring v i (i + 1)))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+}
+
+; A link reference definition, collected while the blocks are being parsed and
+; consulted while the inlines are — because a link on line 3 may resolve
+; against a definition on line 900.
+class MdLinkRef {
+    def label:string ""
+    def destination:string ""
+    def title:string ""
+
+    Constructor () {
+    }
+
+    sfn create:MdLinkRef (label:string dest:string title:string) {
+        def r:MdLinkRef (new MdLinkRef())
+        r.label = label
+        r.destination = dest
+        r.title = title
+        return r
+    }
+}

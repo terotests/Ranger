@@ -30,8 +30,33 @@ PDF** button that builds the file in the tab.
                    → WebGL / SDL          → EVGPDFRenderer  → PDF     → PNG
 ```
 
-Status: **design**. Nothing under `gallery/markdown/` is written yet. This
-file is what it should be when it is.
+Status: **phases 1–3 built**, and the numbers below are measured rather than
+hoped for. What exists today is in [`README.md`](README.md); this file stays
+the design, including the parts that are not written.
+
+| | | |
+| --- | --- | --- |
+| **1** | blocks, inlines, `MdToHtml`, the spec harness | **done** — 651/652, ratcheted |
+| **2** | GFM, front matter | **done** — tables, task lists, strikethrough, YAML |
+| **3** | `MdLayout`, `MdToEvg`, PDF | **done** — `npm run markdown:demo` prints this repository's README as 38 pages |
+| **0** | the three seams (§5) | **one of three**: `breakRuns` exists, in `MdLayout` rather than in EVG (see below) |
+| **4** | the page: canvas, panes, sync, `mermaid` | not started |
+| **5** | PDF in the tab | not started |
+| **6** | highlighting, TOC, incremental reparse | not started |
+
+Two things the building changed about the design, both recorded here rather
+than quietly:
+
+- **`breakRuns` landed in `MdLayout`, not in `EVGTextEngine`.** §5.1 argued it
+  belongs in EVG so `docx_viewer` gains from it too, and that is still right.
+  It was written here first because the markdown layout needed it working
+  before it could need it shared; moving it is a refactor with a test suite
+  already behind it.
+- **Raw HTML is passed through by `MdToHtml` and refused by the viewer.**
+  §14 said it would be refused everywhere. That would have cost 44 spec
+  examples for nothing: the exporter exists only to be scored, so it prints
+  the markup, and the canvas — which has nothing to hand a `<div>` to — draws
+  it as a dimmed code block. Two answers to one question, on purpose.
 
 ---
 
@@ -708,7 +733,7 @@ hour until the fifth failing example.
 
 | | Why |
 | --- | --- |
-| **Raw HTML** | CommonMark says a renderer may pass `<div>` through. A canvas has nothing to pass it to, and implementing an HTML subset is implementing a second document model. HTML blocks are **parsed** — they must be, or the block structure around them is wrong — and rendered as a dimmed code block, so the 44 spec examples show as a deliberate 0/44 rather than as breakage. The parity table says so in a footnote. |
+| **Raw HTML** | Implementing an HTML subset is implementing a second document model. HTML blocks are **parsed** — they must be, or the block structure around them is wrong — and `MdToHtml` prints them verbatim, which is what the specification scores and what makes those 44 examples pass. The VIEWER refuses them: a canvas has nothing to hand a `<div>` to, so it draws the markup as a dimmed code block. (This is a change from the first draft of this document, which refused them in both places and would have thrown away the score for it.) |
 | **MDX / JSX** | a different language with a JavaScript runtime under it |
 | **Math** | `$$…$$` is an `MdEmbed` slot with no handler behind it. TeX layout is a project, not a phase — and once there is a handler, the mechanism in §7 is already the right one |
 | **Wiki links, Obsidian, Zettel** | no specification, no oracle, no way to be right |
