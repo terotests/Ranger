@@ -90,6 +90,16 @@ drag, the fling, the keys — is drivable without a device.
 this be refactored at all. A Mac and an emulator are then needed only for the
 Swift and the Kotlin on top.
 
+They run on every push, as the `shared-hosts` job:
+
+```sh
+npm run hosts:verify   # the three host checks — 164 assertions, ~45 s
+npm run rt:node        # the app driven headlessly — ~50 s
+```
+
+The browser gates — `rt:shell`, `rt:dom`, `rt:frame`, `rt:split`, `rt:boot` —
+want Chromium and the conformance host's dependencies, and are run by hand.
+
 **5. Write the platform glue.** What genuinely cannot be shared: unpacking a
 `UITouch` or a `MotionEvent`, running a display link, handing a `CGContext` or
 a `Canvas` to the painter, owning the keyboard. RealTrainer's is 397 lines of

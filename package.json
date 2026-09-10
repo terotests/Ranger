@@ -946,6 +946,8 @@
     "rt:shaken": "npm run rt:page --silent && node gallery/realtrainer/web/shaken-check.mjs",
     "rt:sheet": "npm run rt:build --silent && node gallery/realtrainer/web/sheet-check.mjs",
     "rt:split": "npm run rt:page --silent && node gallery/realtrainer/web/split-check.mjs",
+    "hosts:verify": "bash gallery/realtrainer/ios/scripts/verify.sh && bash gallery/realtrainer/android/scripts/verify.sh && bash gallery/ui/ios/scripts/verify.sh",
+    "rt:node": "npm run rt:build --silent && node gallery/realtrainer/web/loader-check.mjs && node gallery/realtrainer/web/add-check.mjs && node gallery/realtrainer/web/scroll-check.mjs && node gallery/realtrainer/web/theme-check.mjs && node gallery/realtrainer/web/clock-check.mjs && node gallery/realtrainer/web/keys-check.mjs && node gallery/realtrainer/web/sheet-check.mjs",
     "rt:frame": "npm run rt:page --silent && node gallery/realtrainer/web/frame-check.mjs && node gallery/realtrainer/web/frame-check.mjs --engine worker",
     "rt:shots": "npm run rt:page --silent && node gallery/realtrainer/web/frame-check.mjs --png gallery/realtrainer/web/shots/realtrainer.png",
     "rt:web": "npm run rt:page --silent && node gallery/realtrainer/web/serve.mjs",
