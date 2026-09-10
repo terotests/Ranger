@@ -110,6 +110,21 @@ class PlantUmlLink {
     }
 }
 
+; A note. PlantUML counts one as an entity of its own and gives it a generated
+; id; here it keeps whatever id the author wrote (`note "x" as N1`) or one of
+; ours, because a note is not a thing anybody refers to twice.
+class PlantUmlNote {
+    def id:string ""
+    def text:string ""
+    ; The entity it is pinned to, "" while it is still floating.
+    def target:string ""
+    ; "left" | "right" | "top" | "bottom"
+    def placement:string "right"
+
+    Constructor () {
+    }
+}
+
 ; A `package`, `namespace`, `node { }` or `together { }` — anything that opens
 ; a brace and holds entities rather than members.
 class PlantUmlGroup {
@@ -137,8 +152,25 @@ class PlantUmlEntityModel {
     def entities:[PlantUmlEntity]
     def links:[PlantUmlLink]
     def groups:[PlantUmlGroup]
+    def notes:[PlantUmlNote]
 
     Constructor () {
+    }
+
+    fn noteCount:int () {
+        return (array_length notes)
+    }
+
+    fn indexOfNote:int (id:string) {
+        def i:int 0
+        while (i < (array_length notes)) {
+            def n:PlantUmlNote (itemAt notes i)
+            if (n.id == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
     }
 
     fn entityCount:int () {
@@ -207,8 +239,13 @@ class PlantUmlEntityReader {
     def openIds:[string]
     def openKinds:[string]
     def groupSeq:int 0
-    ; A `note … end note` that has not closed yet.
+    ; A `note … end note` that has not closed yet, and what it will become.
     def noteOpen:boolean false
+    def noteText:string ""
+    def notePlacement:string "right"
+    def noteTarget:string ""
+    def noteId:string ""
+    def noteSeq:int 0
 
     Constructor () {
     }
@@ -360,11 +397,17 @@ class PlantUmlEntityReader {
         if noteOpen {
             def lw0:string (PlantUmlText.lower(st))
             if (lw0 == "end note") {
-                noteOpen = false
+                this.closeNote()
+                return
             }
             if (lw0 == "endnote") {
-                noteOpen = false
+                this.closeNote()
+                return
             }
+            if ((strlen noteText) > 0) {
+                noteText = (noteText + "\n")
+            }
+            noteText = (noteText + (PlantUmlText.label(st)))
             return
         }
         ; A closing brace ends whatever the last opening one started.
@@ -984,15 +1027,110 @@ class PlantUmlEntityReader {
     }
 
     ; -------------------------------------------------------------- notes ---
-    ; Notes are read so they cannot be mistaken for anything else, and drawn
-    ; only where they are pinned to something. A floating `note "x" as N1` and
-    ; the link that attaches it are two statements, and the second one is a
-    ; link like any other.
+    ; `note left of Order : one line`, the same thing over several lines until
+    ; `end note`, and the floating `note "text" as N1` that a later `N1 .. X`
+    ; pins to something.
+    ;
+    ; PlantUML counts a note as an entity of its own and gives it a generated
+    ; id. It is kept apart from the entities here, because a note is prose
+    ; about the program rather than part of it — and because a note handed to
+    ; the layout pushes the classes apart to make room for a sentence, and the
+    ; sentence ends up in the middle of the inheritance it was commenting on.
     fn note:void (st:string) {
-        def colon:int (PlantUmlEntityReader.topLevel(st 58))
-        if (colon < 0) {
-            noteOpen = true
+        def rest:string (PlantUmlText.restWords(st))
+        def lw:string (PlantUmlText.lower(rest))
+        def placement:string "right"
+        def after:int 0
+        if (PlantUmlText.beginsWith(lw "left of")) {
+            placement = "left"
+            after = 7
         }
+        if (PlantUmlText.beginsWith(lw "right of")) {
+            placement = "right"
+            after = 8
+        }
+        if (PlantUmlText.beginsWith(lw "top of")) {
+            placement = "top"
+            after = 6
+        }
+        if (PlantUmlText.beginsWith(lw "bottom of")) {
+            placement = "bottom"
+            after = 9
+        }
+        ; `note "text" as N1` — a note with no home yet.
+        if (after == 0) {
+            this.floatingNote(rest)
+            return
+        }
+        def tail:string (trim (substring rest after (strlen rest)))
+        def colon:int (PlantUmlEntityReader.topLevel(tail 58))
+        def who:string tail
+        def text:string ""
+        def inline:boolean false
+        if (colon >= 0) {
+            who = (trim (substring tail 0 colon))
+            text = (trim (substring tail (colon + 1) (strlen tail)))
+            inline = true
+        }
+        def target:string (PlantUmlEntityReader.plainName(who))
+        noteSeq = (noteSeq + 1)
+        def id:string ("__note" + (to_string noteSeq))
+        if inline {
+            def n (new PlantUmlNote)
+            n.id = id
+            n.text = (PlantUmlText.label(text))
+            n.target = target
+            n.placement = placement
+            push doc.notes n
+            return
+        }
+        noteOpen = true
+        noteText = ""
+        notePlacement = placement
+        noteTarget = target
+        noteId = id
+    }
+
+    ; `note "One store per backend." as N1`, and the multi-line form of it.
+    fn floatingNote:void (rest:string) {
+        def at:int (PlantUmlEntityReader.asWordAt(rest))
+        noteSeq = (noteSeq + 1)
+        def id:string ("__note" + (to_string noteSeq))
+        def body:string rest
+        if (at >= 0) {
+            def left:string (trim (substring rest 0 at))
+            def right:string (trim (substring rest (at + 4) (strlen rest)))
+            body = left
+            id = (PlantUmlText.unquote(right))
+        }
+        def quoted:string (PlantUmlText.unquote(body))
+        if (quoted != body) {
+            def n (new PlantUmlNote)
+            n.id = id
+            n.text = (PlantUmlText.label(quoted))
+            n.target = ""
+            n.placement = "right"
+            push doc.notes n
+            return
+        }
+        ; No quoted text, so the words run on until `end note`.
+        noteOpen = true
+        noteText = ""
+        notePlacement = "right"
+        noteTarget = ""
+        noteId = id
+    }
+
+    fn closeNote:void () {
+        noteOpen = false
+        def n (new PlantUmlNote)
+        n.id = noteId
+        n.text = noteText
+        n.target = noteTarget
+        n.placement = notePlacement
+        push doc.notes n
+        noteText = ""
+        noteTarget = ""
     }
 
     ; -------------------------------------------------------------- links ---
@@ -1033,6 +1171,13 @@ class PlantUmlEntityReader {
         def rightCard:string (PlantUmlEntityReader.leadingQuote(right))
         def leftName:string (PlantUmlEntityReader.dropTrailingQuote(left))
         def rightName:string (PlantUmlEntityReader.dropLeadingQuote(right))
+        ; `N1 .. Order` does not make a link: it gives the floating note a home.
+        if (this.pinNote(leftName rightName)) {
+            return true
+        }
+        if (this.pinNote(rightName leftName)) {
+            return true
+        }
         def leftKw:string (PlantUmlEntityReader.bracketKeyword(leftName))
         def rightKw:string (PlantUmlEntityReader.bracketKeyword(rightName))
         def source:string (this.ensure(leftName leftKw))
@@ -1056,6 +1201,17 @@ class PlantUmlEntityReader {
         l.arrowAtTarget = (PlantUmlEntityReader.plainArrowRight(tok))
         l.arrowAtSource = (PlantUmlEntityReader.plainArrowLeft(tok))
         push doc.links l
+        return true
+    }
+
+    fn pinNote:boolean (noteName:string otherName:string) {
+        def id:string (PlantUmlEntityReader.plainName(noteName))
+        def at:int (doc.indexOfNote(id))
+        if (at < 0) {
+            return false
+        }
+        def n:PlantUmlNote (itemAt doc.notes at)
+        n.target = (PlantUmlEntityReader.plainName(otherName))
         return true
     }
 
@@ -1471,6 +1627,7 @@ class PlantUmlEntityFlow {
         def refanned:int (EdgeLanes.assign(g))
         def repaired:int (OrthoRouter.repairAll(g))
         this.frames()
+        this.notes()
         g.reindex()
         return g
     }
@@ -1951,6 +2108,119 @@ class PlantUmlEntityFlow {
             gid = gr.parent
         }
         return gid
+    }
+
+    ; ------------------------------------------------------------- notes ----
+    ; Placed after everything else, and never handed to the layout: a ranked
+    ; note pushes the classes apart to make room for a sentence, and the
+    ; sentence ends up in the middle of the inheritance it was commenting on.
+    ; It goes beside its entity instead, with the dashed leader UML has always
+    ; drawn; a note pinned to nothing goes above the diagram.
+    fn notes:void () {
+        if ((array_length doc.notes) == 0) {
+            return
+        }
+        def bounds:FlowRect (g.bounds())
+        def loose:double bounds.x
+        def i:int 0
+        while (i < (array_length doc.notes)) {
+            def nt:PlantUmlNote (itemAt doc.notes i)
+            i = (i + 1)
+            def w:double (PlantUmlEntityFlow.noteWidth(nt.text))
+            def h:double (PlantUmlEntityFlow.noteHeight(nt.text))
+            def n:FlowNode (FlowNode.create(nt.id nt.text 0.0 0.0))
+            n.nodeType = "note"
+            n.shape = "note"
+            n.width = w
+            n.height = h
+            n.connectable = false
+            n.cssClass = "plantuml note"
+            if ((g.hasNode(nt.target)) == false) {
+                n.x = loose
+                n.y = ((bounds.y - h) - 40.0)
+                loose = ((loose + w) + 20.0)
+                n.syncFromModel()
+                g.addNode(n)
+                continue
+            }
+            def owner:FlowNode (g.nodeById(nt.target))
+            def gap:double 44.0
+            n.x = ((owner.x + owner.width) + gap)
+            n.y = owner.y
+            if (nt.placement == "left") {
+                n.x = ((owner.x - w) - gap)
+            }
+            if (nt.placement == "top") {
+                n.x = owner.x
+                n.y = ((owner.y - h) - gap)
+            }
+            if (nt.placement == "bottom") {
+                n.x = owner.x
+                n.y = ((owner.y + owner.height) + gap)
+            }
+            n.syncFromModel()
+            g.addNode(n)
+            g.reindex()
+            def e:FlowEdge (FlowEdge.create(("note-" + nt.id) nt.target nt.id))
+            e.edgeType = "straight"
+            e.markerEnd = ""
+            e.dash = 4.0
+            e.cssClass = "plantuml note-leader"
+            g.addEdge(e)
+        }
+    }
+
+    sfn noteWidth:double (text:string) {
+        def longest:int (PlantUmlEntityFlow.longestLine(text))
+        def w:double ((to_double longest) * 6.4)
+        w = (w + 24.0)
+        if (w < 110.0) {
+            w = 110.0
+        }
+        if (w > 280.0) {
+            w = 280.0
+        }
+        return w
+    }
+
+    sfn noteHeight:double (text:string) {
+        def lines:int (PlantUmlEntityFlow.lineCount(text))
+        def h:double ((to_double lines) * 16.0)
+        h = (h + 22.0)
+        if (h < 42.0) {
+            h = 42.0
+        }
+        return h
+    }
+
+    sfn longestLine:int (text:string) {
+        def best:int 0
+        def run:int 0
+        def i:int 0
+        while (i < (strlen text)) {
+            def c:int (charAt text i)
+            i = (i + 1)
+            if (c == 10) {
+                if (run > best) { best = run }
+                run = 0
+                continue
+            }
+            run = (run + 1)
+        }
+        if (run > best) { best = run }
+        return best
+    }
+
+    sfn lineCount:int (text:string) {
+        def n:int 1
+        def i:int 0
+        while (i < (strlen text)) {
+            if ((charAt text i) == 10) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
     }
 
     ; ------------------------------------------------------------ frames ----

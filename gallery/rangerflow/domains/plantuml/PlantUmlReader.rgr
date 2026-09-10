@@ -435,7 +435,9 @@ class PlantUmlReader {
 
     ; Whether this implementation draws that kind, or only knows the name.
     sfn draws:boolean (kind:string) {
-        if (kind == "sequence") { return true }
+        if (kind == "sequence")    { return true }
+        if (kind == "class")       { return true }
+        if (kind == "description") { return true }
         return false
     }
 

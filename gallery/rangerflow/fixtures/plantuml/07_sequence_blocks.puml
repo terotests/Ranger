@@ -1,0 +1,18 @@
+@startuml
+autonumber 10 5
+participant Client
+participant Server
+Client -> Server ++ : connect
+return session
+group retry policy
+  Client ->> Server: ping
+  Server -->> Client: pong
+end
+critical locked
+  Client -> Server: write
+else failed
+  Client -> Server: rollback
+end
+== settled ==
+Client ->x Server: close
+@enduml

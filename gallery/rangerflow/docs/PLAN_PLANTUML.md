@@ -1,10 +1,10 @@
 # PlantUML in RangerFlow — the plan
 
-Status: **phases 2 and 3 are built and drawing** · `npm run
-rangerflow:plantuml` · `domains/plantuml/` · the type sniff, the sequence
-grammar and the entity core — class, object, component, deployment, use case
-and ArchiMate — are in, with 123 assertions; phases 1 and 4-8 are still
-design. The oracle in §3 was *measured*, not imagined — every command in
+Status: **phases 1, 2 and 3 are built** · `npm run rangerflow:plantuml` ·
+`npm run rangerflow:plantuml:parity` → **65/65 checks over 16 examples**,
+computed by PlantUML 1.2025.4 · the type sniff, the sequence grammar, the
+entity core (class, object, component, deployment, use case, ArchiMate) and the
+parity harness are in, with 123 assertions; phases 4-8 are still design. The oracle in §3 was *measured*, not imagined — every command in
 this document was run against PlantUML 1.2025.4 on 2026-09-10 and the output is
 quoted as it came back.
 
@@ -311,12 +311,24 @@ boundary, not a limitation, and it gets its own tests.**
 Each phase ends green — tests passing, parity regenerated, a number that went
 up. Phase 1 is the one that decides whether the rest is real.
 
-**Phase 1 — the oracle and the corpus.** `harness/oracles/plantuml_oracle.mjs`
-(fetch + pin the jar, `-checkonly`, `-Playout=smetana -tsvg`, `-txmi`,
-`-tscxml`, `-language`, one JSON out), `fixtures/plantuml/` with ~60 files
-covering all twenty types and the awkward corners, `tools/plantuml-parity.mjs`
-scoring nothing yet. **Deliverable: a parity doc that says 0%, computed
-honestly.** Everything after this is measured against something.
+**Phase 1 — the oracle and the corpus.** ✅ **Done**, and it went last rather
+than first: the sequence and entity readers were built against the oracle run
+by hand, and the harness is what turned those one-off checks into a standing
+number. `harness/oracles/plantuml_oracle.mjs` fetches and pins the jar, runs
+`-checkonly`, `-Playout=smetana -tsvg` and `-language`, and writes one JSON;
+`tests/PlantUmlParityDump.rgr` writes RangerFlow's; `tools/plantuml-parity.mjs`
+scores them into `docs/PLANTUML_PARITY.md`. Sixteen fixtures so far, not sixty.
+
+Two things the plan got right and one it did not. Right: `-Playout=smetana` is
+load-bearing, and the harness fails loudly on the Graphviz error image rather
+than scoring it as an empty diagram. Right: `-checkonly` is the check that
+catches invented syntax. Not foreseen: **PlantUML counts a note as an entity**
+and gives it an id it made up (`GMN9`), so an entity whose id appears nowhere in
+the file the author wrote is flagged as generated and counted rather than named.
+
+Still to do here: `-txmi` and `-tscxml` are not yet read (they are the A′ tier —
+class members and state transitions), and the corpus wants the other diagram
+types and the awkward corners.
 
 **Phase 2 — the entity core.** ✅ **Done.** `PlantUmlReader` (header
 detection, the `@start*` family, multi-diagram files, both comment spellings)

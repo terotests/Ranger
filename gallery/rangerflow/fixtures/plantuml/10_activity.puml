@@ -1,0 +1,10 @@
+@startuml
+start
+:read order;
+if (in stock?) then (yes)
+  :reserve;
+else (no)
+  :backorder;
+endif
+stop
+@enduml

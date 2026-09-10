@@ -1,0 +1,19 @@
+@startuml
+class "Repository" as Repo {
+  +find(id: int): Entity
+  +save(e: Entity): void
+}
+class SqlRepository
+class CacheRepository
+enum Status {
+  NEW
+  PAID
+  SHIPPED
+}
+Repo <|-- SqlRepository
+Repo <|-- CacheRepository
+SqlRepository ..> Status
+note left of Repo
+  One store per backend.
+end note
+@enduml

@@ -1,0 +1,9 @@
+@startuml
+!$who = "Customer"
+' a comment that is not a statement
+/' and a block one
+   over two lines '/
+class Order
+class Payment
+Order --> Payment : pays
+@enduml

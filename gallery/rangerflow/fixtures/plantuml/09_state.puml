@@ -1,0 +1,6 @@
+@startuml
+[*] --> Idle
+Idle --> Running : start
+Running --> Idle : stop
+Running --> [*]
+@enduml
