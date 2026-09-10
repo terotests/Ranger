@@ -413,7 +413,7 @@ function selftest() {
 
   // Typing changes the drawing.
   const before = app.commandCount();
-  app.setSource(sourceEl.value + "\n\n## A heading the test typed\n\nand a line under it.\n");
+  app.setSource(sourceEl.value + "\n\n## A heading the test typed\n\nand a line under it, with [a link](https://example.com/typed) in it.\n");
   say("typing redraws", app.commandCount() > before, before + " → " + app.commandCount());
 
   // Scrolling moves it.
@@ -454,6 +454,11 @@ function selftest() {
     const unique = new Set(faces);
     say("pdf names each face once", faces.length > 1 && unique.size === faces.length,
         faces.length + " font objects, " + unique.size + " names");
+    // A link in the PDF is a `/Annots` entry, not blue ink. The typed source
+    // above ends with one, so this is checked on a document the test wrote
+    // rather than on whatever sample happened to be open.
+    const annots = (text.match(/\/Subtype\s*\/Link/g) || []).length;
+    say("pdf links are clickable", annots >= 1, annots + " link annotations");
     say("pdf size", bytes.length > 2000, bytes.length + " bytes");
   } catch (e) {
     say("pdf", false, String(e));

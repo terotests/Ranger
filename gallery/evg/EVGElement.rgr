@@ -127,6 +127,19 @@ class EVGElement {
     ; unkeyed siblings — the same rule every library that has this uses, and
     ; the reason a reordered list needs keys to animate.
     def key:string ""
+    ; Where this box goes when it is followed: a URL, or `#name` for a place
+    ; in this same document.
+    ;
+    ; A destination is not application logic — PDF has `/Annots`, SVG has
+    ; `<a>`, HTML has `<a>` — and a renderer that cannot say it is the one
+    ; missing something. What it deliberately does NOT say is what following
+    ; it means: the PDF writes an annotation and stops, and an interactive
+    ; host asks the display list what is under the pointer and decides for
+    ; itself. Nothing here navigates.
+    ;
+    ; It applies to the subtree, the way `<a>` does, so a link may be a word,
+    ; a row or a card without the thing inside it knowing.
+    def href:string ""
     def tagName:string "div"
     def elementType:int 0
     
@@ -1532,6 +1545,25 @@ class EVGElement {
     ; was measured in the regular cut and drawn in the wider bold one, and
     ; wrapped a line later than the box it had been given. Both sides go
     ; through here now, which is §4.1 rule 1: one face, one measurement.
+    ; The destination in force here: this element's own, or the nearest
+    ; ancestor's. `<a>` wrapping a row is the shape this exists for.
+    fn effectiveHref:string () {
+        if ((strlen href) > 0) {
+            return href
+        }
+        def p@(optional):EVGElement parent
+        def guard:int 0
+        while ((!null? p) && (guard < 4096)) {
+            def up:EVGElement (unwrap p)
+            if ((strlen up.href) > 0) {
+                return up.href
+            }
+            p = up.parent
+            guard = (guard + 1)
+        }
+        return ""
+    }
+
     fn effectiveFontFamily:string () {
         if (fontWeight == "bold") {
             return (fontFamily + "-Bold")
@@ -2827,6 +2859,10 @@ class EVGElement {
         }
         if (name == "id") {
             id = value
+            return
+        }
+        if (name == "href") {
+            href = value
             return
         }
         if (name == "key") {

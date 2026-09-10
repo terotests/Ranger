@@ -446,6 +446,12 @@ class MdToEvg {
         t.inheritedFontSize = b.size
         t.lineHeight = 1.0
         t.color = (EVGColor.parse(b.color))
+        ; Where the word goes when it is followed. The layout has carried it
+        ; on every segment since the first version and both roads out dropped
+        ; it, so a link in the PDF was blue ink and nothing else.
+        if ((strlen b.link) > 0) {
+            t.href = b.link
+        }
         ; The face is named in FULL rather than as a family plus a weight
         ; flag, and `fontWeight` is left alone.
         ;

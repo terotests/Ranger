@@ -92,6 +92,7 @@ class MarkdownTest {
         this.frontMatter()
         this.furniture()
         this.tables()
+        this.links()
         this.presized()
         this.textEngine()
         print ""
@@ -512,6 +513,59 @@ class MarkdownTest {
     ; ----------------------------------------------------------------------
     ; The metadata block
     ; ----------------------------------------------------------------------
+    ; ----------------------------------------------------------------------
+    ; Links: the destination survives the whole way to the paint
+    ; ----------------------------------------------------------------------
+    ;
+    ; `MdLayout` has carried a link on every segment since the first version
+    ; and both roads out of the boxes dropped it, so a link in the PDF was
+    ; blue ink and nothing else. The destination has to be on the ELEMENT,
+    ; because that is what `EVGPDFRenderer` walks to write `/Annots`.
+    fn links:void () {
+        def want:string "https://example.com/x"
+        def doc:MdNode (MdBlock.parseText("See [the license](https://example.com/x) for details.\n"))
+        def l:MdLayout (new MdLayout())
+        l.layoutContinuous(doc 400.0)
+        def kept:int 0
+        def i:int 0
+        def n:int (array_length l.boxes)
+        while (i < n) {
+            def b:MdBox (itemAt l.boxes i)
+            if (b.link == want) { kept = (kept + 1) }
+            i = (i + 1)
+        }
+        this.ok("the layout kept the destination" (kept > 0))
+        def root:EVGElement (MdToEvg.buildPage(l 400.0))
+        def mine:int (MarkdownTest.countHref(root want))
+        this.ok("and it reached the element tree" (mine > 0))
+        ; Nothing else claims one: an annotation over a word that is not a
+        ; link is worse than no annotation at all.
+        def all:int (MarkdownTest.countHref(root ""))
+        def others:int (all - mine)
+        this.eqInt("and only that" others 0)
+    }
+
+    ; How many elements in the subtree carry `want`. "" counts every element
+    ; that has any href at all.
+    sfn countHref:int (el:EVGElement want:string) {
+        def n:int 0
+        def has:boolean ((strlen el.href) > 0)
+        if ((strlen want) == 0) {
+            if has { n = 1 }
+        } {
+            if (el.href == want) { n = 1 }
+        }
+        def i:int 0
+        def c:int (array_length el.children)
+        while (i < c) {
+            def ch:EVGElement (itemAt el.children i)
+            def sub:int (MarkdownTest.countHref(ch want))
+            n = (n + sub)
+            i = (i + 1)
+        }
+        return n
+    }
+
     ; ----------------------------------------------------------------------
     ; Tables: no cell writes outside its own column
     ; ----------------------------------------------------------------------

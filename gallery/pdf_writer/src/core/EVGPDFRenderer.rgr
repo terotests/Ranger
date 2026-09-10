@@ -175,6 +175,17 @@ class EVGPDFRenderer {
     def fontManager:FontManager (new FontManager())
     def embeddedFonts:[EmbeddedFont]
     def usedFontNames:[string]
+    ; Link annotations, gathered while the content stream is written and
+    ; emitted on the page dictionary afterwards. A page's ink and its
+    ; annotations live in different parts of the file, so they are collected
+    ; here rather than written where they are found.
+    def linkPage:[int]
+    def linkUrl:[string]
+    def linkX:[double]
+    def linkY:[double]
+    def linkW:[double]
+    def linkH:[double]
+    def curLinkPage:int 0
     ; Fallback faces reached through a Type0/Identity-H resource, named /E1..
     ; alongside the WinAnsi /F1.. ones. Kept separate rather than converting
     ; every font to Identity-H: that would change the byte encoding, the
@@ -861,8 +872,10 @@ class EVGPDFRenderer {
         
         ; Build content streams for all pages (this collects fonts and images)
         def contentDataList:[buffer]
+        this.clearLinks()
         def pgi:int 0
         while (pgi < numPages) {
+            curLinkPage = pgi
             def pg:EVGElement (itemAt allPages pgi)
             def pgWidth:double (itemAt allPageWidths pgi)
             def pgHeight:double (itemAt allPageHeights pgi)
@@ -1176,6 +1189,7 @@ class EVGPDFRenderer {
             def bx1:string (this.pageBoxes(pgWidth pgHeight))
             pdf.writeString(bx1)
             pdf.writeString(" /Contents " + (to_string contentObjN) + " 0 R")
+            pdf.writeString((this.annotsFor(pi2)))
             pdf.writeString(" /Resources <<")
             pdf.writeString(" /Font <<")
             def ffi:int 0
@@ -1321,6 +1335,7 @@ class EVGPDFRenderer {
         
         ; Build content stream for the page (this also collects used fonts)
         streamBuffer.clear()
+        this.clearLinks()
         this.beginBleedShift()
         this.renderElement(root 0.0 0.0)
         this.endBleedShift()
@@ -1597,6 +1612,7 @@ class EVGPDFRenderer {
         def bx2:string (this.pageBoxes(pageWidth pageHeight))
         pdf.writeString(bx2)
         pdf.writeString(" /Contents " + (to_string contentObjNum) + " 0 R")
+        pdf.writeString((this.annotsFor(0)))
         pdf.writeString(" /Resources <<")
         ; Add font references
         pdf.writeString(" /Font <<")
@@ -1736,6 +1752,15 @@ class EVGPDFRenderer {
 
         ; PDF uses bottom-left origin, flip Y
         def pdfY:double (pageHeight - y - h)
+
+        ; Where this box goes when it is followed. The element's OWN href, not
+        ; the inherited one: a link on a row would otherwise be written once
+        ; for the row and once more for every word inside it, and a reader
+        ; given four annotations stacked on the same rectangle reports four
+        ; links.
+        if ((strlen el.href) > 0) {
+            this.noteLink(el.href x pdfY w h)
+        }
         
         ; Get border radius
         def borderRadius:double 0.0
@@ -3348,6 +3373,119 @@ class EVGPDFRenderer {
     ; Translate the page content up and right into the trim area of an
     ; oversized sheet. A no-op when no bleed was asked for, so ordinary output
     ; is byte-identical.
+    ; ----------------------------------------------------------------------
+    ; Links
+    ; ----------------------------------------------------------------------
+    ;
+    ; A PDF carries its link targets beside the content stream, not in it:
+    ; `/Annots` on the page dictionary, each entry a rectangle in page space
+    ; and a destination. So the ink is written first and the rectangles are
+    ; remembered as they go past.
+    fn clearLinks:void () {
+        clear linkPage
+        clear linkUrl
+        clear linkX
+        clear linkY
+        clear linkW
+        clear linkH
+        curLinkPage = 0
+    }
+
+    fn noteLink:void (url:string x:double y:double w:double h:double) {
+        if ((strlen url) == 0) {
+            return
+        }
+        ; A rectangle with no area is one no reader will ever hit.
+        if (w <= 0.0) {
+            return
+        }
+        if (h <= 0.0) {
+            return
+        }
+        ; The bleed shift is a `cm` on the content stream and annotations are
+        ; not content, so what the translate does to the ink has to be done to
+        ; the rectangle by hand.
+        def dx:double 0.0
+        if (bleed > 0.0) {
+            dx = bleed
+        }
+        push linkPage curLinkPage
+        push linkUrl url
+        push linkX (x + dx)
+        push linkY (y + dx)
+        push linkW w
+        push linkH h
+    }
+
+    ; One page's `/Annots`, written straight into the page dictionary.
+    ;
+    ; The annotation dictionaries are DIRECT objects rather than indirect
+    ; ones. That is legal, and it means adding links changes no object number
+    ; and therefore nothing in the xref table — a file with no links is
+    ; byte-for-byte the file it was before any of this existed.
+    fn annotsFor:string (page:int) {
+        def n:int (array_length linkPage)
+        def any:boolean false
+        def out:string " /Annots ["
+        def i:int 0
+        while (i < n) {
+            if ((itemAt linkPage i) == page) {
+                any = true
+                def x:double (itemAt linkX i)
+                def y:double (itemAt linkY i)
+                def w:double (itemAt linkW i)
+                def h:double (itemAt linkH i)
+                def x2:double (x + w)
+                def y2:double (y + h)
+                out = (out + " << /Type /Annot /Subtype /Link")
+                out = (out + " /Rect [" + (this.formatNum(x)) + " " + (this.formatNum(y)) + " " + (this.formatNum(x2)) + " " + (this.formatNum(y2)) + "]")
+                ; No border of the reader's own. The layout already coloured
+                ; the link the way the document wanted it, and a viewer that
+                ; draws a black box around every link on top of that is the
+                ; reason `/Border [0 0 0]` is on essentially every link in
+                ; every PDF ever produced.
+                out = (out + " /Border [0 0 0]")
+                out = (out + " /A << /S /URI /URI (" + (this.escapeUri((itemAt linkUrl i))) + ") >> >>")
+            }
+            i = (i + 1)
+        }
+        if (! any) {
+            return ""
+        }
+        return (out + " ]")
+    }
+
+    ; A URI inside a PDF literal string. Only three characters have to go:
+    ; the two parentheses and the backslash. Everything above ASCII is left
+    ; alone, because a URI that reaches here with raw non-ASCII in it is
+    ; already not a URI — percent-encoding is the author's job and re-encoding
+    ; it here would double it.
+    fn escapeUri:string (url:string) {
+        def out:string ""
+        def n:int (strlen url)
+        def i:int 0
+        while (i < n) {
+            def ch:int (charAt url i)
+            if (ch == 40) {
+                out = (out + "\\(")
+            } {
+                if (ch == 41) {
+                    out = (out + "\\)")
+                } {
+                    if (ch == 92) {
+                        out = (out + "\\\\")
+                    } {
+                        if (ch >= 32) {
+                            out = (out + (strfromcode ch))
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
     fn beginBleedShift:void () {
         if (bleed > 0.0) {
             streamBuffer.writeString("q\n")

@@ -9,10 +9,12 @@ belongs in the renderer.
    HTML shape, so a form can be built out of EVG the way one is built out of
    HTML.
 
-Status: **design**. Nothing here is built. §2 is small and the recommendation
-is to build it; §4 is the answer to "does application logic leak into the
-renderer here", and the answer is *for the link no, for the form yes — unless
-one thing is dropped*.
+Status: **the PDF half is built** — `EVGElement.href`, `/Annots` out of
+`EVGPDFRenderer`, and the markdown module no longer dropping the destination
+it had all along ([§3](#3-order-of-work-and-what-each-step-is-checked-by)).
+The display-list field and the hit test are not; §4 is design only, and is the
+answer to "does application logic leak into the renderer here" — *for the link
+no, for the form yes, unless one thing is dropped*.
 
 ---
 
@@ -73,13 +75,19 @@ with the destination as its description instead of an unnamed run of text.
 
 ## 3. Order of work, and what each step is checked by
 
-| # | step | evidence |
-|---|---|---|
-| 1 | `href` on the element; carried into both roads of the display list | a test asserting the same link on the tree-built and directly-built lists — `MarkdownTest.presized` is the shape |
-| 2 | `/Annots` out of `EVGPDFRenderer` | count the `/Link` annotations in the emitted bytes and check one `/Rect` against the laid-out box |
-| 3 | `MdToEvg` stops dropping `MdBox.link` | the markdown PDF has as many link annotations as the document has links |
-| 4 | `linkAt` over the display list; the standalone page follows one | the page's self-test clicks a known link and reads back the destination |
-| 5 | internal destinations, and the table of contents jumping | a `/Dest` per contents entry, page number checked against the layout |
+| # | step | evidence | |
+|---|---|---|---|
+| 1 | `href` on the element, applying to the subtree | `MarkdownTest.links` — the destination reaches the tree, and nothing else carries one | **done** |
+| 2 | `/Annots` out of `EVGPDFRenderer`, per page | a two-page fixture whose two links land on the two pages they were written on | **done** |
+| 3 | `MdToEvg` stops dropping `MdBox.link` | the page's self-test types a link, builds the PDF in the tab and counts `/Subtype /Link` | **done** |
+| 4 | the same string on the display-list command, for hosts that are not paper | one test asserting the tree-built and directly-built lists agree, the shape `MarkdownTest.presized` already has | |
+| 5 | `linkAt` over the display list; the standalone page follows one | the page's self-test clicks a known link and reads back the destination | |
+| 6 | internal destinations, and the table of contents jumping | a `/Dest` per contents entry, page number checked against the layout | |
+
+The annotation dictionaries are written as DIRECT objects inside the page's
+`/Annots` array rather than as indirect ones. That is legal, and it means a
+link costs no object number: a document with no links is byte-for-byte the
+file it was before any of this existed, and the xref logic was not touched.
 
 ## 4. Forms: keep the shape, drop the verb
 
