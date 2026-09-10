@@ -102,7 +102,21 @@ function runScenario(file) {
   // here a press is by id and there by role and name. A `fail` step is this
   // side's only: it arms the failure the reference has anyway.
   const apply = (step) => {
-    if (step.tick !== undefined) return app.tick(step.tick);
+    // A TICK IS FRAMES, not one long delta. `app.tick(900)` is nothing a page
+    // ever does: a simulator that hands over its answer a chunk per frame got
+    // one chunk out of nine hundred milliseconds, and the reply the reference
+    // already has never arrived. Sixteen and seven tenths at a time, which is
+    // what `main.js` gives it.
+    if (step.tick !== undefined) {
+      let moved = false;
+      let spent = 0;
+      while (spent < step.tick) {
+        const slice = Math.min(16.7, step.tick - spent);
+        moved = app.tick(slice) || moved;
+        spent += slice;
+      }
+      return moved;
+    }
     if (step.page !== undefined) {
       const [w, h] = step.page.split("x").map(Number);
       app.setPageSize(w, h);
@@ -152,10 +166,10 @@ function runScenario(file) {
     settle();
     const state = machineState(app, scenario.machine);
     if (step.state !== undefined && step.state !== state) {
-      wrong.push(`${step.id ?? `tick ${step.tick}`}: in ${state}, wanted ${step.state}`);
+      wrong.push(`${step.id ?? (step.fail !== undefined ? "fail" : `tick ${step.tick}`)}: in ${state}, wanted ${step.state}`);
     }
     return {
-      step: step.id ?? `tick ${step.tick}`,
+      step: step.id ?? (step.fail !== undefined ? "fail" : `tick ${step.tick}`),
       handled: !!handled,
       state,
       nodes: snapshot(app),

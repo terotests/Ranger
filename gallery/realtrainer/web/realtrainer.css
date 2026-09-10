@@ -2553,6 +2553,7 @@
 .rt-notes-hd { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 18px; height: 24px; }
 .rt-notes-para { color: var(--ink-dim); font-family: Arial; font-size: 13px; height: 18px; }
 .rt-notes-text { color: var(--ink-dim); font-family: Arial; font-size: 12px; height: 16px; }
+.rt-notes-hit { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; padding: 4px 0px; }
 /* The measurement calendar: a summary card per thing measured, then the
    readings as lines rather than as cards. */
 .rt-ms { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 10px; padding: 8px 0px; }

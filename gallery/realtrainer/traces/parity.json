@@ -20,10 +20,12 @@
  "dashboard.json": 1,
  "home-entry-edit.json": 0.999,
  "home-stats.json": 0.952,
- "calendar-measure.json": 0.975,
- "chat-tools.json": 0.913,
+ "calendar-measure.json": 0.985,
+ "chat-tools.json": 0.973,
  "more-rest.json": 1,
  "yearsheet-open.json": 1,
  "calendar-day.json": 1,
- "yearsheet-edit.json": 1
+ "yearsheet-edit.json": 1,
+ "settings-controls.json": 1,
+ "home-notes-edit.json": 0.999
 }
