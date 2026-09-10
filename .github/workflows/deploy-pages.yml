@@ -243,8 +243,12 @@ jobs:
           node gallery/realtrainer/web/build.mjs --out "$GITHUB_WORKSPACE/_site/realtrainer"
           test -s "$GITHUB_WORKSPACE/_site/realtrainer/index.html"
           test -s "$GITHUB_WORKSPACE/_site/realtrainer/bundle.js"
+          # The bundle is minified, so these are STRING LITERALS and not
+          # identifiers: a minifier renames `createDomPainter` and cannot
+          # touch the class name the DOM painter puts on every node it makes.
+          # Assert on what survives, or this step goes green on an empty file.
           grep -q "RealTrainerDemo" "$GITHUB_WORKSPACE/_site/realtrainer/bundle.js"
-          grep -q "createDomPainter" "$GITHUB_WORKSPACE/_site/realtrainer/bundle.js"
+          grep -q "evg-node" "$GITHUB_WORKSPACE/_site/realtrainer/bundle.js"
           test -s "$GITHUB_WORKSPACE/_site/realtrainer/bundle-worker.js"
           test -s "$GITHUB_WORKSPACE/_site/realtrainer/worker-bundle.js"
           test -s "$GITHUB_WORKSPACE/_site/evg/responsive/evg-dom.js"
