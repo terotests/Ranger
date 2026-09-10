@@ -4,3 +4,5 @@ worker-bundle.js
 generated.js
 generated-host.js
 seed.json
+chunk-*.js
+build-manifest.json

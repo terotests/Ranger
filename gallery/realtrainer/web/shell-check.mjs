@@ -46,6 +46,12 @@ if (!fs.existsSync(path.join(HERE, "bundle.js"))) {
   process.exit(3);
 }
 
+// The chunks the page can paint without, as the build wrote them down. They
+// are held back the same way the bundle is: if the first frame needs one, this
+// check hangs rather than passing quietly.
+const MANIFEST = JSON.parse(fs.readFileSync(path.join(HERE, "build-manifest.json"), "utf8"));
+const DEFERRED = new Set(MANIFEST.deferred || []);
+
 // Nothing here is timed. The bundle's request is held OPEN while the document
 // is examined and released afterwards, so a slow machine makes this check
 // slower and never makes it flaky.
@@ -54,11 +60,14 @@ const TYPES = {
   ".cjs": "text/javascript", ".css": "text/css", ".json": "application/json",
 };
 // A gate the check re-arms before each page load: the bundle request waits on
-// whatever promise is current, and `openGate()` lets it through.
-let gate = null;
-const armGate = () => { let open; gate = { wait: new Promise((r) => { open = r; }), open }; };
-const openGate = () => gate.open();
-armGate();
+// whatever promise is current, and opening it lets those requests through.
+// TWO of them: the bundle is released to get a first frame, the deferred
+// chunks only afterwards — which is how "the app painted without them" is
+// asserted rather than assumed.
+const makeGate = () => { let open; const g = { wait: new Promise((r) => { open = r; }) }; g.open = open; return g; };
+let bundleGate = makeGate();
+let deferGate = makeGate();
+const armGate = () => { bundleGate = makeGate(); deferGate = makeGate(); };
 const server = createServer(async (req, res) => {
   const rel = decodeURIComponent(new URL(req.url, "http://x").pathname);
   const file = path.join(ROOT, rel.slice(1));
@@ -66,8 +75,11 @@ const server = createServer(async (req, res) => {
     res.writeHead(404).end("not found");
     return;
   }
-  // The one file the page cannot paint without — held until the check says so.
-  if (/bundle(-worker)?\.js$/.test(rel)) await gate.wait;
+  // The one file the page cannot paint without — held until the check says
+  // so. And with it every chunk the build called deferred, which is the
+  // stronger claim: the first frame is drawn while they are still held.
+  if (DEFERRED.has(path.basename(rel))) await deferGate.wait;
+  else if (/bundle(-worker)?\.js$/.test(rel)) await bundleGate.wait;
   res.writeHead(200, { "content-type": TYPES[path.extname(file)] || "application/octet-stream" }).end(fs.readFileSync(file));
 });
 await new Promise((r) => server.listen(0, r));
@@ -171,7 +183,7 @@ for (const VIEW of FIT_VIEWS) {
       );
     }
 
-    openGate();
+    bundleGate.open();
     // `__lastList` is a getter and answers before anything is drawn; `__lastStats`
     // is written BY a draw, which is the thing being waited for.
     await page.waitForFunction("window.__lastStats !== undefined", null, { timeout: 30000 });
@@ -246,6 +258,35 @@ for (const VIEW of FIT_VIEWS) {
       }
     }
     ok("every baked box is where the live frame put it", drift === 0, `${drift} of ${n} differ`);
+    // --- the deferred half ------------------------------------------------
+    // Vela's chart compiler is 55 KB gzipped and only the statistics tab
+    // wants it, so nothing on the path to this frame names it and it arrives
+    // in a chunk of its own afterwards (RtCharts.rgr, charts-chunk.js). Two
+    // things have to be true and neither shows up in a size: it really did
+    // arrive in a SEPARATE request, and when it did the curves are drawn.
+    // Everything above happened while the deferred chunks were still held at
+    // the server, which is the assertion: the app painted without them.
+    ok("the app painted while the deferred chunks were held", DEFERRED.size > 0, `${DEFERRED.size} deferred`);
+    ok("and had not asked for the chart maker yet",
+       (await page.evaluate("window.__rtChartsReady === true")) === false);
+    deferGate.open();
+    await page.waitForFunction("window.__rtChartsReady === true", null, { timeout: 30000 });
+    const curves = await page.evaluate(async () => {
+      // Where `scroll-check.mjs` goes for the statistics: the tab is on Home,
+      // and Home has statistics to draw only once a training calendar is open.
+      const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+      window.__app.openRoute("/calendar/cal-train");
+      await wait(300);
+      window.__app.press("rt-nav-home");
+      await wait(300);
+      window.__app.press("rt-home-tab-stats");
+      await wait(600);
+      const cmds = JSON.parse(window.__lastList).cmds;
+      return { paths: cmds.filter((c) => c.k === 6 || c.k === 7).length, total: cmds.length };
+    });
+    ok("and the statistics draw their curves", curves.paths > 20,
+       `${curves.paths} path commands of ${curves.total}`);
+
     ok(
       "the picture is taken off once the app has painted",
       await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(
@@ -272,7 +313,8 @@ for (const VIEW of FIT_VIEWS) {
   ok("so is the aside", before.aside);
   ok("and the prose with it", before.text.includes("RealTrainer"), before.text.slice(0, 40));
 
-  openGate();
+  bundleGate.open();
+  deferGate.open();
   // `__lastList` is a getter and answers before anything is drawn; `__lastStats`
   // is written BY a draw, which is the thing being waited for.
   await page.waitForFunction("window.__lastStats !== undefined", null, { timeout: 30000 });

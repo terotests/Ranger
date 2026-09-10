@@ -14,7 +14,7 @@
 import { serveEngine } from "../../evg/gl/evg-engine.js";
 import { installCanvasMeasurer } from "../../evg/gl/evg-measure.js";
 import { shiftsOf, effectOf } from "../../evg/gl/evg-list.js";
-import { RealTrainerDemo, EVGHostTextMeasurer, EVGDefaultMeasurer } from "./generated-host.js";
+import { RealTrainerDemo, EVGHostTextMeasurer, EVGDefaultMeasurer, RtCharts } from "./generated-host.js";
 import { REALTRAINER_CSS, REALTRAINER_COMPACT, REALTRAINER_PLAN_MACHINE, REALTRAINER_CHAT_MACHINE } from "./generated.js";
 
 // The browser measures here too — `OffscreenCanvas` — and before the app
@@ -46,6 +46,13 @@ serveEngine({
     app.setPointerCoarse(!!init.coarse);
     if (init.w > 0 && init.h > 0) app.setPageSize(init.w, init.h);
     if (init.route) app.openRoute(init.route);
+    // The charts, in their own chunk and asked for from HERE — the app is on
+    // this thread, so this is where the maker has to be installed. Not
+    // awaited: the first frame is worth more than the curves on a tab nobody
+    // has opened yet, and the rebuild below puts them in when they arrive.
+    import("./charts-chunk.js")
+      .then(() => { app.rebuild(); })
+      .catch((e) => console.warn("charts unavailable:", e));
     return app;
   },
   display: (app) => app.display(),
@@ -55,6 +62,9 @@ serveEngine({
   // the ones its checks make, so none of them is a round trip.
   state: (app) => ({
     scene: app.sceneName(),
+    // Whether the deferred chart maker has arrived (RtCharts.rgr). The host
+    // has no other way to know: the chunk is imported on THIS thread.
+    charts: RtCharts.installCount(),
     field: app.focusedField(),
     velocity: app.scrollVelocity(),
     overBar: app.overScrollbar(),

@@ -715,4 +715,16 @@ Promise.all([document.fonts.ready, seedOrDeadline]).then(() => {
   booted = true;
   paintAll();
   requestAnimationFrame(step);
+  // AND NOW THE CHARTS. Vela's compiler is 440 KB of the app and only the
+  // statistics tab wants it, so nothing on the path to this frame names it
+  // and the bundler gave it a chunk of its own (RtCharts.rgr,
+  // charts-chunk.js). Asked for here, after a frame is up: the cards draw
+  // their numbers without curves until it lands, and with them after.
+  import("./charts-chunk.js")
+    .then(() => {
+      window.__rtChartsReady = true;
+      app.rebuild();
+      paintAll();
+    })
+    .catch((e) => console.warn("charts unavailable:", e));
 });

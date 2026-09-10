@@ -246,21 +246,13 @@ jobs:
         run: |
           npm run rt:build --silent
           node gallery/realtrainer/web/build.mjs --out "$GITHUB_WORKSPACE/_site/realtrainer"
-          test -s "$GITHUB_WORKSPACE/_site/realtrainer/index.html"
-          test -s "$GITHUB_WORKSPACE/_site/realtrainer/bundle.js"
-          # The bundle is minified, so these are STRING LITERALS and not
-          # identifiers: a minifier renames `createDomPainter` and cannot
-          # touch the class name the DOM painter puts on every node it makes.
-          # Assert on what survives, or this step goes green on an empty file.
-          grep -q "RealTrainerDemo" "$GITHUB_WORKSPACE/_site/realtrainer/bundle.js"
-          grep -q "evg-node" "$GITHUB_WORKSPACE/_site/realtrainer/bundle.js"
-          test -s "$GITHUB_WORKSPACE/_site/realtrainer/bundle-worker.js"
-          test -s "$GITHUB_WORKSPACE/_site/realtrainer/worker-bundle.js"
-          # The reference data is a FILE beside the page now, fetched in
-          # parallel with the bundle rather than compiled into it. A page
-          # deployed without it draws a real screen with an empty diary, and
-          # nothing else here would notice.
-          test -s "$GITHUB_WORKSPACE/_site/realtrainer/seed.json"
+          # The page is not one file: the entries import chunks with hashed
+          # names, the reference data is a file fetched beside them, and the
+          # chart compiler is a chunk asked for only after the first frame. So
+          # the check is the build's own manifest against the directory —
+          # every script shipped, something still deferred, the app really in
+          # the bytes.
+          node gallery/realtrainer/web/verify-out.mjs "$GITHUB_WORKSPACE/_site/realtrainer"
           test -s "$GITHUB_WORKSPACE/_site/evg/responsive/evg-dom.js"
 
       # ---- the firesim workbench at /firesim/ ------------------------------

@@ -39,7 +39,14 @@ if (!fs.existsSync(BIN)) {
   process.exit(3);
 }
 const require_ = createRequire(import.meta.url);
-const { RealTrainerDemo } = require_(BIN);
+const { RealTrainerDemo, RtCharts, RtVelaChartMaker } = require_(BIN);
+// THE CHART MAKER, INSTALLED. The app asks `RtCharts` for one rather than
+// naming Vela, so that the browser build can leave a 440 KB chart compiler
+// out of its first download and fetch it after the first frame
+// (RtCharts.rgr, and web/charts-chunk.js). A host that wants curves has to
+// say so, and this check is a host: it is the one that asserts they are
+// drawn at all.
+RtCharts.install(new RtVelaChartMaker());
 
 const read = (...p) => fs.readFileSync(path.join(ROOT, ...p), "utf8");
 const CSS = read("web", "realtrainer.css");

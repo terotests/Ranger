@@ -165,6 +165,9 @@ function applyReply(r) {
   }
   sceneEl.textContent = state.scene || "";
   canvas.style.cursor = state.overBar ? "default" : "";
+  // The chart chunk is imported inside the worker, so its arrival reaches
+  // this thread the way everything else does: on the frame's state.
+  if (state.charts > 0) window.__rtChartsReady = true;
   retireFirstPicture();
   return true;
 }

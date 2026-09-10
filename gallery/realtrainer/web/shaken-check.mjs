@@ -47,8 +47,12 @@ try {
 const SHAKEN = path.join(BIN, "RealTrainerDemo.shaken.cjs");
 await esbuild.build({
   stdin: {
+    // Both halves: the page's entry and the chunk it asks for after the first
+    // frame. Bundled together HERE on purpose — this check is about what the
+    // tree shaker left behind, not about when it arrives.
     contents:
-      'export { RealTrainerDemo, EVGHostTextMeasurer, EVGDefaultMeasurer } from "./RealTrainerDemo.mjs";',
+      'export { RealTrainerDemo, EVGHostTextMeasurer, EVGDefaultMeasurer, RtCharts } from "./RealTrainerDemo.mjs";\n' +
+      'export { RtVelaChartMaker } from "./RealTrainerDemo.charts.mjs";',
     resolveDir: BIN,
     loader: "js",
   },
@@ -62,6 +66,13 @@ await esbuild.build({
 
 const whole = require_(path.join(BIN, "RealTrainerDemo.cjs"));
 const shaken = require_(SHAKEN);
+
+// The chart maker, installed on both — the app asks `RtCharts` for one rather
+// than naming Vela (RtCharts.rgr), so a host that wants curves says so. The
+// page says it from `charts-chunk.js` once a frame is up; this check says it
+// here, because what it is comparing is the drawing and not the timing.
+whole.RtCharts.install(new whole.RtVelaChartMaker());
+shaken.RtCharts.install(new shaken.RtVelaChartMaker());
 
 const read = (...p) => fs.readFileSync(path.join(HERE, ...p), "utf8");
 const CSS = read("realtrainer.css");
