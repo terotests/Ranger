@@ -730,7 +730,7 @@ against the commit this document was written on, in Chromium at 390×844 over
 | | first paint | app painted | before the first frame |
 |---|---:|---:|---:|
 | before | 144 ms * | 2182 ms | 587 KB |
-| now | 148 ms | 1104 ms | 311 KB (+55 KB after) |
+| now | 156 ms | 976 ms | 233 KB (+129 KB after it) |
 
 \* and "before" is worse than it looks: that first paint is a header and a
 paragraph of English, which are then hidden. Now it is the app's own chrome,
@@ -762,9 +762,15 @@ The repo's habit is that a claim is a check. The same applies here:
 - **time to first pixel** and **time to first interactive frame**, taken in
   headless Chrome by the existing `frame-check.mjs` harness with the network
   throttled to a fixed profile, so the number means the same thing twice;
-- **the hot set**, from the coverage profile: a gate that fails when a class
-  that was cold becomes reachable from the entry chunk. That is the check that
-  keeps the split from rotting, and without it the split *will* rot;
+- **the hot set**: a gate that fails when a class that was deferred becomes
+  reachable from the entry again. Built, as `rt:split` — it reads what the
+  bundler says each entry statically reaches, gzips exactly those files, and
+  holds the total against a number in `split-budget.json`, then asserts the
+  named classes are still in the deferred module. Everything the seams in §4
+  found was invisible to every other check: one doc comment, one re-export,
+  one `new` in a screen, and the bytes walk back with nothing to show for it.
+  The budget may shrink and must not grow, so a commit that raises it is
+  making an argument;
 - **snapshot drift** (§3.1): the baked list against the live first frame,
   exactly, and the SVG against the painted frame within a stated tolerance —
   the tolerance being a checked-in number that may shrink and must not grow;
