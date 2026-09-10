@@ -38,7 +38,7 @@ class MdBench {
         def b:MdBench (new MdBench())
         b.loadFonts()
         print ""
-        print "  file                 bytes   parse  layout  diagrams     evg   list   total"
+        print "  file                 bytes   parse  layout  diagrams    tree   list   total"
         print "  ───────────────────────────────────────────────────────────────────────────"
         def argc:int (shell_arg_cnt)
         if (argc > 0) {
@@ -98,16 +98,10 @@ class MdBench {
         l.layoutContinuous(doc 820.0)
         def t3:double (wall_clock_ms)
 
+        ; The tree the PDF takes, and the list the canvas takes, timed apart.
         def root:EVGElement (MdToEvg.buildPage(l 820.0))
-        def le:EVGLayout (new EVGLayout())
-        if fontsLoaded {
-            le.setMeasurer(measurer)
-        }
-        le.setPageSize(820.0 l.documentHeight)
-        le.layout(root)
         def t35:double (wall_clock_ms)
-        def dl:EVGDisplayList (new EVGDisplayList())
-        dl.build(root)
+        def dl:EVGDisplayList (MdToEvg.toDisplayList(l 820.0))
         def t4:double (wall_clock_ms)
 
         def parseMs:double (t1 - t0)

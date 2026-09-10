@@ -6,8 +6,8 @@ document, measured once, comes out as a PDF with its fonts embedded and as a
 display list a GPU can paint.
 
 ```bash
-npm run markdown:test          # 107 assertions on the parser, the layout, the diagrams
-npm run markdown:test:go       # …the same 107 compiled to Go (and :python to Python)
+npm run markdown:test          # 115 assertions on the parser, the layout, the diagrams
+npm run markdown:test:go       # …the same 115 compiled to Go (and :python to Python)
 npm run markdown:spec          # score against CommonMark's own 652 examples
 npm run markdown:demo          # the samples and this repository's README → PDF + HTML
 npm run markdown:pdf -- FILE   # …any file you name
@@ -93,7 +93,7 @@ web/
   markdown_web.rgr  the host seam: the only file a browser talks to
   standalone/       build.sh, index.html, standalone.mjs, smoke.mjs
 tests/
-  MarkdownTest.rgr  107 assertions, run on three targets
+  MarkdownTest.rgr  115 assertions, run on three targets
   MdSpecDump.rgr    renders the specification's examples for the harness
   MdEmbedProbe.rgr  what landed inside each diagram's box, off the display list
 harness/
@@ -227,6 +227,14 @@ shipped a PNG would also have draw commands.
   font, so code is set in the sans face that is there. It is measured and
   painted with the same one — the geometry is honest — but it is not
   monospaced. A missing asset, not a layout decision.
+- **A shared EVG bug this module found, and fixed.**
+  `EVGTextEngine.breakLines` returned *no lines on Go*, at any width, because
+  it filled a list it had been passed rather than returning one — and on Go
+  an array parameter is a slice, so the append landed on a copy. Every
+  display list built from an element tree drew no text on that target.
+  Nothing caught it because EVG's own suites run on JavaScript only; this
+  one runs on three, and `MarkdownTest.textEngine` is the canary that keeps
+  it caught.
 - **The HTML preview cannot draw a diagram's edges.** `EVGHTMLRenderer`
   emits every `<svg>` at 24 pixels in the corner; RangerFlow's own HTML
   export has the same hole, so this is a defect in a shared exporter rather
@@ -239,28 +247,34 @@ shipped a PNG would also have draw commands.
 - **No page furniture.** Front matter is parsed and kept, and nothing yet
   reads `page:` or `margin:` out of it. Running heads, page numbers and a
   table of contents are not written.
-- **A large document is slow to retype, and now there is a number for it.**
-  `npm run markdown:bench` times the four stages separately:
+- **A large document is slow to retype, though less than it was.**
+  `npm run markdown:bench` times the stages separately:
 
   ```
-  file             bytes   parse  layout  diagrams     evg   list   total
-  sample.md          938     4.7     9.2       0.6    23.5    3.4    41.3
-  mermaid.md         794     0.4     1.4      28.9     4.6    4.3    39.5
-  README.md        63196    17.6   107.2       0.5   217.8   39.3   382.4
-  ISSUES.md       137676    28.9   195.6       0.4   372.4   62.2   659.4
+  file             bytes   parse  layout  diagrams    tree   list   total
+  sample.md          938     5.5    12.1       0.7     6.6    1.2    26.0
+  code.md           1229     0.3     6.4       0.0     2.1    0.3     9.2
+  README.md        63196    18.7   134.9       0.7   113.2    5.2   272.7
+  ISSUES.md       137676    37.8   227.8       0.8   207.2    4.9   478.6
   ```
 
-  `PLAN.md` §9 budgeted one frame at 200 KB. That is missed by a factor of
-  about forty, and the measurement says exactly where: the **parse is cheap**
-  (18 ms at 63 KB), and more than half the cost is `EVGLayout` re-deriving
-  positions this module has already computed — every element it is handed is
-  absolutely placed with an explicit left, top, width and height. Skipping
-  that pass for the elements this module owns is the obvious fix and is not
-  a small one, because the embedded diagram scenes still need it. The scoped
-  reparse in §9 is the second.
+  `tree` is the `EVGElement` tree, and **only the PDF pays it** — the canvas
+  goes straight from the boxes to the draw commands. So retyping README costs
+  parse + layout + list = **159 ms**, down from 382 when this was first
+  measured. Two things got it there, both checked rather than assumed:
 
-  What the page actually opens with — a 1 KB sample — is 40 ms, and typing
-  there is a keystroke. Choosing README from the dropdown and typing is not.
+  - Everything this module hands over is absolutely placed with a box the
+    layout already decided, so `MdToEvg` writes the box down as the *result*
+    as well as the style and `EVGLayout` need not re-derive it.
+  - The canvas never wanted a tree. `MdToEvg.toDisplayList` emits the marks
+    directly; `MarkdownTest.presized` compares the two roads command by
+    command, which is what caught the one place they disagreed (a text
+    command's height is the font's line box, not the line's).
+
+  What is left is the layout itself — 135 ms of measuring runs whole, which
+  is what makes the break land where the painter draws it. `PLAN.md` §9's
+  one-frame budget is still missed, by four rather than by forty, and the
+  scoped reparse is the remaining answer.
 - **The source pane is a `<textarea>`.** Correct and unglamorous, which keeps
   the interesting half — parse, layout, paint, print — the only thing that
   can be wrong. Swapping in `gallery/text_editor` on the same canvas is the

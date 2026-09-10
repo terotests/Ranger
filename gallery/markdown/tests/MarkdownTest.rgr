@@ -27,6 +27,7 @@ Import "../src/MdToEvg.rgr"
 Import "../src/MdMermaid.rgr"
 Import "../src/MdCodeHighlight.rgr"
 Import "../src/MdFrontMatter.rgr"
+Import "../../evg/EVGTextEngine.rgr"
 Import "../../evg/EVGLayout.rgr"
 Import "../../evg/EVGDisplayList.rgr"
 
@@ -90,6 +91,8 @@ class MarkdownTest {
         this.highlight()
         this.frontMatter()
         this.furniture()
+        this.presized()
+        this.textEngine()
         print ""
         def p:string (to_string passed)
         def f:string (to_string failed)
@@ -549,6 +552,102 @@ class MarkdownTest {
             i = (i + 1)
         }
         return false
+    }
+
+    ; ----------------------------------------------------------------------
+    ; The layout pass that does not have to run
+    ; ----------------------------------------------------------------------
+    ;
+    ; Everything `MdToEvg` hands over is absolutely placed with a box the
+    ; layout above already decided, and it writes that box down as the RESULT
+    ; as well as the style. So `EVGLayout` over such a tree is asking an
+    ; engine to re-derive what it is being given — 218 ms of a 382 ms
+    ; document, per `markdown:bench`.
+    ;
+    ; This is the check that lets it be skipped: build the same page twice,
+    ; once through the engine and once not, and compare every command. If the
+    ; two ever differ, the pre-sizing is wrong and the fast path has to go —
+    ; which is a thing this test says rather than a thing a reader notices in
+    ; a PDF.
+    fn presized:void () {
+        def src:string "# Heading\n\nSome **bold** words and `code` in a paragraph that is long enough to wrap at least once at this width.\n\n- a list item\n- another\n\n> a quote\n\n```js\nconst x = 1; // note\n```\n\n| a | b |\n| --- | ---: |\n| 1 | 2 |\n"
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (new MdLayout())
+        l.layoutContinuous(doc 420.0)
+        this.ok("no diagram, so no engine needed" (! (MdToEvg.needsEngine(l))))
+
+        def withEngine:EVGDisplayList (MarkdownTest.listOf(l 420.0 true))
+        def without:EVGDisplayList (MdToEvg.toDisplayList(l 420.0))
+        def a:int (array_length withEngine.cmds)
+        def b:int (array_length without.cmds)
+        this.eqInt("the direct list has the same number of commands" b a)
+        if (a == b) {
+            def same:boolean true
+            def i:int 0
+            while (i < a) {
+                def ca:EVGDrawCmd (itemAt withEngine.cmds i)
+                def cb:EVGDrawCmd (itemAt without.cmds i)
+                if (ca.kind != cb.kind) { same = false }
+                if (! (MarkdownTest.near(ca.x cb.x))) { same = false }
+                if (! (MarkdownTest.near(ca.y cb.y))) { same = false }
+                if (! (MarkdownTest.near(ca.w cb.w))) { same = false }
+                if (! (MarkdownTest.near(ca.h cb.h))) { same = false }
+                if (ca.text != cb.text) { same = false }
+                if (ca.fontFamily != cb.fontFamily) { same = false }
+                i = (i + 1)
+            }
+            this.ok("every command is identical" same)
+        }
+
+        ; A page with a diagram on it still needs the engine, and says so.
+        def withDiagram:MdNode (MdBlock.parseText("text\n\n```mermaid\nflowchart LR\n  A --> B\n```\n"))
+        def l2:MdLayout (new MdLayout())
+        MdMermaid.prepare(withDiagram l2.embeds (420.0 - (l2.style.margin * 2.0)) "default")
+        l2.layoutContinuous(withDiagram 420.0)
+        this.ok("a diagram needs the engine" (MdToEvg.needsEngine(l2)))
+    }
+
+    sfn near:boolean (a:double b:double) {
+        def d:double (a - b)
+        if (d < 0.0) { d = (0.0 - d) }
+        return (d < 0.01)
+    }
+
+    sfn listOf:EVGDisplayList (l:MdLayout width:double engine:boolean) {
+        def root:EVGElement (MdToEvg.buildPage(l width))
+        if engine {
+            def le:EVGLayout (new EVGLayout())
+            le.setPageSize(width l.documentHeight)
+            le.layout(root)
+        }
+        def dl:EVGDisplayList (new EVGDisplayList())
+        dl.build(root)
+        return dl
+    }
+
+    ; ----------------------------------------------------------------------
+    ; A canary for the engine underneath
+    ; ----------------------------------------------------------------------
+    ;
+    ; `EVGTextEngine.breakLines` returned NO lines on Go, at any width,
+    ; because it filled a list it had been passed rather than returning one —
+    ; and on Go an array parameter is a slice, so the append landed on a copy.
+    ; Every display list built from an element tree drew no text on that
+    ; target. Nothing caught it: EVG's own suites run on JavaScript only, and
+    ; this one runs on three.
+    ;
+    ; So the assertion lives here, where it is actually exercised, until EVG
+    ; grows a cross-target suite of its own.
+    fn textEngine:void () {
+        def e:EVGTextEngine (new EVGTextEngine())
+        def wide:[string] (e.breakToStrings("hello world" "Open Sans" 11.0 400.0))
+        this.eqInt("a line that fits is one line" (array_length wide) 1)
+        def none:[string] (e.breakToStrings("hello world" "Open Sans" 11.0 0.0))
+        this.eqInt("width 0 means do not wrap, not do not return" (array_length none) 1)
+        def narrow:[string] (e.breakToStrings("hello world" "Open Sans" 11.0 30.0))
+        this.ok("a narrow column wraps" ((array_length narrow) >= 2))
+        def para:[string] (e.breakToStrings("one\ntwo" "Open Sans" 11.0 0.0))
+        this.eqInt("a newline is a line" (array_length para) 2)
     }
 
     fn evg:void () {

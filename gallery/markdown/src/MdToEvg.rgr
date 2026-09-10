@@ -31,9 +31,168 @@ Import "MdEmbed.rgr"
 Import "../../evg/EVGElement.rgr"
 Import "../../evg/EVGUnit.rgr"
 Import "../../evg/EVGColor.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGDisplayList.rgr"
 
 class MdToEvg {
+    ; Colours, parsed once. A document is a few colours repeated a few
+    ; thousand times, and `EVGColor.parse` is a scan of a string.
+    def colorKeys:[string]
+    def colorVals:[EVGColor]
+
     Constructor () {
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Straight to the draw commands
+    ; ----------------------------------------------------------------------
+    ;
+    ; The canvas does not need an element tree. It needs a list of marks, and
+    ; every box this module produced is already one: a rectangle, an outline
+    ; or a run of text, in page coordinates, with its face and its colour
+    ; decided. Building three thousand `EVGElement`s in order to walk them
+    ; back into three thousand `EVGDrawCmd`s is a round trip through a shape
+    ; neither end wanted — `markdown:bench` put it at 133 ms of a 342 ms
+    ; document, more than the parse.
+    ;
+    ; The PDF still takes the tree: `EVGPDFRenderer` reads elements, and it is
+    ; the tree that carries the `<print>` / `<page>` structure it paginates by.
+    ; So there are two roads out of the same boxes, and the checked claim is
+    ; that they draw the same thing — `MarkdownTest.presized` compares them
+    ; command by command.
+    ;
+    ; A DIAGRAM is the exception in both directions: its geometry lives in a
+    ; `FlowScene`'s own element subtree, so that one goes through the engine
+    ; and its commands are appended where the slot is.
+    sfn toDisplayList:EVGDisplayList (layout:MdLayout width:double) {
+        def b:MdToEvg (new MdToEvg())
+        return (b.paint(layout width 0.0 layout.documentHeight false))
+    }
+
+    sfn sheetsToDisplayList:EVGDisplayList (layout:MdLayout gap:double) {
+        def b:MdToEvg (new MdToEvg())
+        def ph:double layout.style.pageHeight
+        def n:double (to_double layout.pageCount)
+        def total:double (((n * (ph + gap)) - gap))
+        return (b.paint(layout layout.style.pageWidth gap total true))
+    }
+
+    fn paint:EVGDisplayList (layout:MdLayout width:double gap:double total:double paged:boolean) {
+        def out:EVGDisplayList (new EVGDisplayList())
+        def ph:double layout.style.pageHeight
+        ; The paper. One sheet in continuous mode, one per page otherwise.
+        if paged {
+            this.rect(out 0.0 0.0 width total "#eef0f4")
+            def p:int 0
+            while (p < layout.pageCount) {
+                def dy:double ((to_double p) * (ph + gap))
+                this.rect(out 0.0 dy width ph "#ffffff")
+                p = (p + 1)
+            }
+        } {
+            this.rect(out 0.0 0.0 width total "#ffffff")
+        }
+        def i:int 0
+        def n:int (array_length layout.boxes)
+        while (i < n) {
+            def box:MdBox (itemAt layout.boxes i)
+            def dy:double 0.0
+            if paged {
+                dy = ((to_double box.page) * (ph + gap))
+            }
+            this.paintBox(out layout box dy)
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn paintBox:void (out:EVGDisplayList layout:MdLayout box:MdBox dy:double) {
+        def y:double (box.y + dy)
+        if (box.kind == 1) {
+            this.rect(out box.x y box.w box.h box.fill)
+            return
+        }
+        if (box.kind == 2) {
+            def c:EVGDrawCmd (new EVGDrawCmd())
+            c.kind = 1
+            c.x = box.x
+            c.y = y
+            c.w = box.w
+            c.h = box.h
+            c.thickness = box.strokeWidth
+            this.tint(c box.stroke)
+            push out.cmds c
+            return
+        }
+        if (box.kind == 0) {
+            def t:EVGDrawCmd (new EVGDrawCmd())
+            t.kind = 3
+            t.x = box.x
+            t.y = y
+            t.w = box.w
+            t.h = box.h
+            ; The command's height is the FONT'S line box, not the line's.
+            ; `textElement` sets `lineHeight = 1.0` and the walk resolves that
+            ; to the size, so a painter reading `h` gets the size — and a
+            ; direct list that handed it the leading instead would put every
+            ; baseline a few points low. Checked by `MarkdownTest.presized`,
+            ; which is how this was found rather than seen.
+            t.h = box.size
+            t.text = box.text
+            t.fontSize = box.size
+            t.fontFamily = (layout.style.faceFor(box.family box.bold box.italic))
+            this.tint(t box.color)
+            push out.cmds t
+            return
+        }
+        ; An embed: the scene's own subtree, through the engine, appended
+        ; where the slot is.
+        def idx:int (layout.embeds.find(box.embedKind box.embedSource box.w))
+        if (idx < 0) { return }
+        def e:MdEmbedEntry (layout.embeds.entryAt(idx))
+        if (! e.ok) { return }
+        def root:EVGElement (unwrap e.root)
+        MdToEvg.put(root box.x y box.w box.h)
+        def le:EVGLayout (new EVGLayout())
+        le.setPageSize(box.w box.h)
+        le.layout(root)
+        def one:EVGDisplayList (new EVGDisplayList())
+        one.build(root)
+        out.appendFrom(one)
+    }
+
+    fn rect:void (out:EVGDisplayList x:double y:double w:double h:double fill:string) {
+        def c:EVGDrawCmd (new EVGDrawCmd())
+        c.kind = 0
+        c.x = x
+        c.y = y
+        c.w = w
+        c.h = h
+        this.tint(c fill)
+        push out.cmds c
+    }
+
+    fn tint:void (c:EVGDrawCmd value:string) {
+        def col:EVGColor (this.colorOf(value))
+        c.r = (col.red())
+        c.g = (col.green())
+        c.b = (col.blue())
+        c.a = (col.alpha())
+    }
+
+    fn colorOf:EVGColor (value:string) {
+        def i:int 0
+        def n:int (array_length colorKeys)
+        while (i < n) {
+            if ((itemAt colorKeys i) == value) {
+                return (itemAt colorVals i)
+            }
+            i = (i + 1)
+        }
+        def col:EVGColor (EVGColor.parse(value))
+        push colorKeys value
+        push colorVals col
+        return col
     }
 
     ; ----------------------------------------------------------------------
@@ -47,6 +206,8 @@ class MdToEvg {
         root.pageHeight = layout.documentHeight
         root.position = "relative"
         root.backgroundColor = (EVGColor.parse("#ffffff"))
+        MdToEvg.put(root 0.0 0.0 width layout.documentHeight)
+        root.position = "relative"
         MdToEvg.fill(root layout 0 0.0)
         return root
     }
@@ -72,6 +233,8 @@ class MdToEvg {
         root.pageHeight = total
         root.position = "relative"
         root.backgroundColor = (EVGColor.parse("#eef0f4"))
+        MdToEvg.put(root 0.0 0.0 pw total)
+        root.position = "relative"
         def p:int 0
         while (p < n) {
             def dy:double ((to_double p) * (ph + gap))
@@ -81,11 +244,7 @@ class MdToEvg {
             ; scene's paths are placed by the box their container gives them,
             ; and a container one level deeper does not give them one.
             def paper:EVGElement (EVGElement.createDiv())
-            paper.position = "absolute"
-            paper.left = (EVGUnit.px(0.0))
-            paper.top = (EVGUnit.px(dy))
-            paper.width = (EVGUnit.px(pw))
-            paper.height = (EVGUnit.px(ph))
+            MdToEvg.put(paper 0.0 dy pw ph)
             paper.backgroundColor = (EVGColor.parse("#ffffff"))
             root.addChild(paper)
             MdToEvg.fill(root layout p dy)
@@ -96,6 +255,23 @@ class MdToEvg {
 
     sfn sheetGap:double () {
         return 24.0
+    }
+
+    ; Does this page still need `EVGLayout` run over it?
+    ;
+    ; Only for the diagrams. Their subtrees come from `FlowScene` and are
+    ; sized by the engine — a scene's paths are placed by the box their
+    ; container gives them and have no left or top of their own. Everything
+    ; else on the page arrived pre-sized above.
+    sfn needsEngine:boolean (layout:MdLayout) {
+        def i:int 0
+        def n:int (array_length layout.boxes)
+        while (i < n) {
+            def b:MdBox (itemAt layout.boxes i)
+            if (b.kind == 3) { return true }
+            i = (i + 1)
+        }
+        return false
     }
 
     ; ----------------------------------------------------------------------
@@ -177,11 +353,7 @@ class MdToEvg {
             return
         }
         def root:EVGElement (unwrap e.root)
-        root.position = "absolute"
-        root.left = (EVGUnit.px(b.x))
-        root.top = (EVGUnit.px((b.y + yOffset)))
-        root.width = (EVGUnit.px(b.w))
-        root.height = (EVGUnit.px(b.h))
+        MdToEvg.put(root b.x (b.y + yOffset) b.w b.h)
         ; The scene's own paper is dropped. A diagram in a document sits on
         ; the document's page; painting the editor's canvas behind it puts a
         ; grey slab across a white sheet.
@@ -213,11 +385,37 @@ class MdToEvg {
     }
 
     sfn place:void (el:EVGElement b:MdBox yOffset:double) {
+        MdToEvg.put(el b.x (b.y + yOffset) b.w b.h)
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Placed AND pre-sized
+    ; ----------------------------------------------------------------------
+    ;
+    ; The box is written twice: once as the style a layout engine would
+    ; resolve, and once as the result it would resolve it to.
+    ;
+    ; That looks redundant and is the point. Everything this module hands over
+    ; is absolutely placed with a left, a top, a width and a height that the
+    ; layout above already decided — so running `EVGLayout` over it is asking
+    ; a layout engine to re-derive numbers it is being given. `markdown:bench`
+    ; put that at 218 ms of a 382 ms document, more than the parse and the
+    ; layout together. Writing the answer down as well as the question lets
+    ; the pass be skipped for the elements this module owns; the style stays
+    ; because an EMBEDDED diagram's subtree still goes through the engine, and
+    ; it is the same tree.
+    sfn put:void (el:EVGElement x:double y:double w:double h:double) {
         el.position = "absolute"
-        el.left = (EVGUnit.px(b.x))
-        el.top = (EVGUnit.px((b.y + yOffset)))
-        el.width = (EVGUnit.px(b.w))
-        el.height = (EVGUnit.px(b.h))
+        el.left = (EVGUnit.px(x))
+        el.top = (EVGUnit.px(y))
+        el.width = (EVGUnit.px(w))
+        el.height = (EVGUnit.px(h))
+        el.calculatedX = x
+        el.calculatedY = y
+        el.calculatedWidth = w
+        el.calculatedHeight = h
+        el.calculatedInnerWidth = w
+        el.calculatedInnerHeight = h
     }
 
     ; A border is written in two places in EVG and each painter reads one of
@@ -237,11 +435,12 @@ class MdToEvg {
         ; `tagName == "text"` is what the PDF and HTML renderers switch on to
         ; paint a string. A div with textContent lays out and prints nothing.
         t.tagName = "text"
-        t.position = "absolute"
-        t.left = (EVGUnit.px(b.x))
-        t.top = (EVGUnit.px((b.y + yOffset)))
-        t.width = (EVGUnit.px(b.w))
-        t.height = (EVGUnit.px(b.h))
+        MdToEvg.put(t b.x (b.y + yOffset) b.w b.h)
+        ; The line is ALREADY broken — that is what the layout above did, and
+        ; it did it across four faces, which is more than a re-break here
+        ; could do. Saying so stops every painter re-wrapping the run against
+        ; its own box, which is both wasted work and a chance to disagree.
+        t.whiteSpace = "nowrap"
         t.textContent = b.text
         t.fontSize = (EVGUnit.px(b.size))
         t.inheritedFontSize = b.size

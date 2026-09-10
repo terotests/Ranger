@@ -166,27 +166,16 @@ class MarkdownWeb {
     ; document shows what will be printed — the same call, the same breaks,
     ; and the reader can see where page four starts before they print it.
     fn buildList:void () {
-        def out:EVGDisplayList (new EVGDisplayList())
         listOffset = 0.0
+        ; Straight to the commands: the canvas never wanted an element tree,
+        ; and building one only to walk it back was 133 ms of a 342 ms
+        ; document. `MarkdownTest.presized` holds the two roads to the same
+        ; marks, command by command.
+        def out:EVGDisplayList (new EVGDisplayList())
         if paged {
-            def gap:double (MdToEvg.sheetGap())
-            def root:EVGElement (MdToEvg.buildSheets(layout gap))
-            def le:EVGLayout (new EVGLayout())
-            if (!null? measurer) {
-                le.setMeasurer((unwrap measurer))
-            }
-            le.setPageSize(layout.style.pageWidth (this.documentHeight()))
-            le.layout(root)
-            out.build(root)
+            out = (MdToEvg.sheetsToDisplayList(layout (MdToEvg.sheetGap())))
         } {
-            def root:EVGElement (MdToEvg.buildPage(layout viewW))
-            def le:EVGLayout (new EVGLayout())
-            if (!null? measurer) {
-                le.setMeasurer((unwrap measurer))
-            }
-            le.setPageSize(viewW layout.documentHeight)
-            le.layout(root)
-            out.build(root)
+            out = (MdToEvg.toDisplayList(layout viewW))
         }
         docList = out
     }
