@@ -424,15 +424,39 @@ exists (`EVGStyleCache`) — and ship the serialised form; parse text in
 development only. This is the same move as the baked frame, one level up:
 compute at build time what does not depend on the visitor.
 
-Measured before building it, and the numbers say wait. The parse is **12 ms of
-the 26 ms cold `init`** on a desktop (~50 ms on a phone), not the 30 ms this
-document first claimed — that figure was the whole of `init`, cold. And the
-cheap version of the idea does not work: putting the sheet through esbuild's
-CSS minifier takes it from 18.0 KB to 9.6 KB gzipped, but the app's own parser
-is then *slower* on it (6.6 ms against 4.9 ms warm), and 8.5 KB against a
-373 KB bundle is 2 % bought with a second CSS dialect to be equivalent to. The
-real version needs a serialiser and a loader on the Ranger side, and it should
-be done when the boot line is otherwise clean — after §4, not before it.
+Built. `EVGStyleSheet.toText()` and `loadText()` write down what the parser
+kept — 786 rules, 3436 declarations, 75 palette entries — in a line-and-tab
+format with a version on the first line, and `RealTrainerDemo.init` takes
+either the source or the artifact and tells them apart by the header.
+
+The win is not the one this document projected, and the difference is worth
+keeping in mind for the next artifact:
+
+| | source | written down |
+|---|---:|---:|
+| on the wire, gzipped | 18.0 KB | **12.2 KB** |
+| cold, in a fresh process | 12.3 ms | 10.5 ms |
+| warm | 8.1 ms | 3.2 ms |
+
+The bytes are the real prize, and for a reason that generalises: what is
+written down is what the parser KEPT, so every comment, every space and every
+selector it did not need is gone with it. The time is not: the cold number is
+dominated by JIT warm-up rather than by the algorithm, so a projection from a
+JavaScript mock (which said 10 ms) was wrong by a factor of five. Measure the
+artifact in the runtime that will read it, not in a sketch of it.
+
+Two things learned in the building. Most of the reading cost was *unescaping*
+— nearly no CSS value contains a backslash or a tab, and rebuilding eleven
+thousand strings that were already their own escaping cost more than
+everything else together; both directions scan before they build. And the
+cheap version of the idea is worse than useless: putting the sheet through
+esbuild's CSS minifier gives 9.6 KB gzipped but the app's own parser is
+*slower* on the result, and it buys a second CSS dialect to be equivalent to.
+
+What is still on the table is bigger than either: the parser itself is on the
+first-frame path only because `parse` is a method of the class that holds the
+rules. Move the parsing to a class of its own and a page that ships the
+artifact need not carry the CSS parser at all.
 
 **C3 — the loader should cover a wait, not follow it.** On the pages that show
 it, `fillMs = 2600` is a
@@ -717,7 +741,7 @@ which the app paints over.
 | 1 ✅ | C4 + C5: page shell, minify, split files, preload | kills the visible flash; ~30–40 % off the wire for free | none |
 | 2 | Drop the TTF/raster stack from the browser build (dead code there) | ~158 KB raw | low |
 | 3 ✅ | A1: baked first frame inline, with the drift gate | **T0** — a real picture in one RTT | low; gate makes it safe |
-| 4 ◑ | C1 (done) + C2 (measured, deferred): seed and stylesheet out of the boot line | ~60 ms and 400 KB off the first frame | low |
+| 4 ✅ | C1 + C2: seed and stylesheet out of the boot line | ~60 ms and 400 KB off the first frame | low |
 | 5 ✅ | §6: `?engine=worker` becomes the default | the app's parse and boot stop blocking the first paint and the compositor | medium; the worker host exists and is checked |
 | 6 ◑ | §4 B1 → B2: profile-guided split, charts and cold routes out of the entry chunk | **T1** at budget | medium |
 | 7 | §4 B3: chunking in the compiler, with a manifest | every Ranger web app gets the ladder | large, but it is the point |
