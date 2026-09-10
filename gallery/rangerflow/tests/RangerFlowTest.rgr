@@ -56,6 +56,7 @@ Import "../domains/mermaid/MermaidTreeViewReader.rgr"
 Import "../domains/mermaid/MermaidEventModelReader.rgr"
 Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
+Import "../domains/plantuml/PlantUmlSequenceReader.rgr"
 
 class Checker {
     def passed:int 0
@@ -131,6 +132,8 @@ class RangerFlowTest {
         RangerFlowTest.testMermaidPlaced(c)
         RangerFlowTest.testMermaidGantt(c)
         RangerFlowTest.testMermaidSequence(c)
+        RangerFlowTest.testPlantUmlKinds(c)
+        RangerFlowTest.testPlantUmlSequence(c)
         RangerFlowTest.testMermaidGit(c)
         RangerFlowTest.testMermaidSubgraphEnds(c)
         RangerFlowTest.testMermaidKanban(c)
@@ -3054,6 +3057,180 @@ class RangerFlowTest {
     ; who, across, and when, down. So the assertions are about ORDER and about
     ; the two things a reader would otherwise have to take on trust — that the
     ; arrow means what the token said, and that the bar covers what was active.
+    ; ------------------------------------------------------------ PlantUML --
+    ; What an `@startuml` body turns out to be.
+    ;
+    ; The expected answers are not opinions: each was asked of PlantUML
+    ; 1.2025.4 as a two-line file and read off the `data-diagram-type` its own
+    ; renderer writes into the SVG. See docs/PLAN_PLANTUML.md §3.
+    sfn testPlantUmlKinds:void (c:Checker) {
+        c.section("PlantUML — which diagram is this")
+
+        def bare:string "@startuml\nA --> B\n@enduml\n"
+        c.eqStr("a bare arrow is a message, as PlantUML reads it" (PlantUmlReader.kindOf(bare)) "sequence")
+
+        def assoc:string "@startuml\nA -- B\n@enduml\n"
+        c.eqStr("a line with no head on it is an association" (PlantUmlReader.kindOf(assoc)) "class")
+
+        def comp:string "@startuml\n[Web] --> [API]\n@enduml\n"
+        c.eqStr("a bracket is a component" (PlantUmlReader.kindOf(comp)) "description")
+
+        def uc:string "@startuml\nactor User\nUser --> (Buy)\n@enduml\n"
+        c.eqStr("`actor` alone does not make it a sequence diagram" (PlantUmlReader.kindOf(uc)) "description")
+
+        def cls:string "@startuml\nA -> B: x\nclass C\n@enduml\n"
+        c.eqStr("one `class` outweighs a message" (PlantUmlReader.kindOf(cls)) "class")
+
+        def st:string "@startuml\n[*] --> Idle\nIdle --> Busy : go\n@enduml\n"
+        c.eqStr("`[*]` belongs to nothing but a state machine" (PlantUmlReader.kindOf(st)) "state")
+
+        def act:string "@startuml\nstart\n:read order;\nstop\n@enduml\n"
+        c.eqStr("`start` and a `:action;` are an activity" (PlantUmlReader.kindOf(act)) "activity")
+
+        def seq:string "@startuml\nparticipant A\nA -> B: x\n@enduml\n"
+        c.eqStr("and a declared participant settles it" (PlantUmlReader.kindOf(seq)) "sequence")
+
+        ; The `@start` words that commit a file before a line is read.
+        c.eqStr("`@startmindmap` needs no sniffing" (PlantUmlReader.openerKind("@startmindmap")) "mindmap")
+        c.eqStr("nor does `@startgantt`" (PlantUmlReader.openerKind("@startgantt")) "gantt")
+        c.eqStr("`@startsalt` and `@startwire` are the same diagram" (PlantUmlReader.openerKind("@startwire")) "salt")
+        c.eqStr("`@startuml` commits to nothing" (PlantUmlReader.openerKind("@startuml")) "")
+        ; Recognised and refused, rather than read as entities: a ditaa block
+        ; parsed as a component diagram is a page of invented boxes.
+        c.eqStr("ditaa is named so it cannot fall through" (PlantUmlReader.openerKind("@startditaa")) "ditaa")
+        c.ok("and it is not one this reader draws" ((PlantUmlReader.draws("ditaa")) == false))
+        c.ok("the sequence diagram is" (PlantUmlReader.draws("sequence")))
+
+        ; Comments, in both spellings, and the preprocessor.
+        def cmt:string "@startuml\n' a whole line\nA -> B: x /' and a tail '/\n!include foo.puml\n@enduml\n"
+        def doc:PlantUmlSource (PlantUmlReader.read(cmt))
+        c.eqInt("a `'` line and a `/' … '/` tail leave one statement" (doc.lineCount()) 1)
+        c.eqInt("and the `!include` is counted where it was dropped" (doc.directiveCount()) 1)
+
+        def multi:string "@startuml\nA -> B: one\n@enduml\n@startuml\nC -> D: two\n@enduml\n"
+        def first:PlantUmlSource (PlantUmlReader.read(multi))
+        c.eqInt("a file with two diagrams in it gives up the first" (first.lineCount()) 1)
+
+        def titled:string "@startuml\ntitle **Order** checkout\nA -> B: x\n@enduml\n"
+        def td:PlantUmlSource (PlantUmlReader.read(titled))
+        c.eqStr("the title is taken, and its Creole markers are not drawn" td.title "Order checkout")
+    }
+
+    sfn testPlantUmlSequence:void (c:Checker) {
+        c.section("PlantUML sequence diagrams")
+        def src:string "@startuml\n"
+        src = (src + "title Checkout\n")
+        src = (src + "autonumber\n")
+        src = (src + "actor \"The Customer\" as Cust\n")
+        src = (src + "box Shop\n")
+        src = (src + "participant Web\n")
+        src = (src + "participant API as \"Order API\"\n")
+        src = (src + "end box\n")
+        src = (src + "database Bank\n")
+        src = (src + "Cust -> Web: place order\n")
+        src = (src + "Web ->> API ++ : POST /orders\n")
+        src = (src + "API -> API: validate\n")
+        src = (src + "API -->> Web -- : 201\n")
+        src = (src + "note over Web, API: nothing is paid yet\n")
+        src = (src + "loop until settled\n")
+        src = (src + "Web -[#red]> Bank: authorise\n")
+        src = (src + "alt accepted\n")
+        src = (src + "Bank --> Web: approved\n")
+        src = (src + "else declined\n")
+        src = (src + "Bank ->x Web: no\n")
+        src = (src + "end\n")
+        src = (src + "end\n")
+        src = (src + "destroy Bank\n")
+        src = (src + "Web <- Cust: receipt\n")
+        src = (src + "@enduml\n")
+
+        def d:SeqDiagram (PlantUmlSequenceReader.parse(src))
+        c.eqStr("the title comes off the `title` line" d.title "Checkout")
+        c.eqInt("a participant per declaration, in the order declared" (d.actorCount()) 4)
+        def cust:SeqActor (itemAt d.actors 0)
+        c.eqStr("`\"name\" as id` puts the quoted half in the label" cust.name "The Customer")
+        c.eqStr("and the bare half in the id" cust.id "Cust")
+        c.ok("`actor` is remembered as one" cust.isActor)
+        def api:SeqActor (itemAt d.actors 2)
+        c.eqStr("`id as \"name\"` is the same declaration written backwards" api.name "Order API")
+        c.eqStr("with the id still the bare half" api.id "API")
+        c.eqStr("a participant declared inside a box knows which" api.box "Shop")
+        def bank:SeqActor (itemAt d.actors 3)
+        c.eqStr("one declared after `end box` does not" bank.box "")
+        c.eqInt("the box is counted once" (d.boxCount()) 1)
+        c.ok("`autonumber` numbers the messages" d.autonumber)
+
+        c.eqInt("every arrow is a message" (d.messageCount()) 8)
+        c.eqInt("and the note is not one" (d.noteCount()) 1)
+        c.eqInt("`loop` and `alt` are the two blocks" (d.blockCount()) 2)
+
+        def first:SeqStep (itemAt d.steps 0)
+        c.eqStr("the sender is what stands before the arrow" first.source "Cust")
+        c.eqStr("the receiver what stands after it" first.target "Web")
+        c.eqStr("and the text what follows the colon" first.text "place order")
+        c.eqInt("numbering starts at one" first.number 1)
+        c.eqStr("`->` carries a filled head" first.head "arrowclosed")
+        c.eqStr("and a single dash is not a reply" first.stroke "solid")
+
+        def second:SeqStep (itemAt d.steps 1)
+        c.ok("`++` after the arrow activates the receiver" second.activates)
+        c.eqStr("`->>` is the open head" second.head "arrow")
+        def selfCall:SeqStep (itemAt d.steps 2)
+        c.eqStr("a participant may send to itself" selfCall.source selfCall.target)
+        def reply:SeqStep (itemAt d.steps 3)
+        c.eqStr("two dashes make it a reply" reply.stroke "dotted")
+        c.ok("and `--` after it deactivates the sender" reply.deactivates)
+
+        def note:SeqStep (itemAt d.steps 4)
+        c.eqStr("`over A, B` spans from the first name" note.source "Web")
+        c.eqStr("to the last one named" note.target "API")
+        c.eqStr("and it is placed over rather than beside" note.placement "over")
+
+        ; A backwards arrow is the same message written the other way round,
+        ; and a diagram that drew it as it was typed would reverse the story.
+        def backwards:SeqStep (itemAt d.steps ((d.stepCount()) - 1))
+        c.eqStr("`A <- B` sends from B" backwards.source "Cust")
+        c.eqStr("to A" backwards.target "Web")
+
+        ; The tokens, one at a time, because a diagram that draws `->x` as a
+        ; plain arrow is telling the reader the message arrived.
+        c.eqStr("`->x` is a cross" (PlantUmlSequenceReader.headOf("->x")) "cross")
+        c.eqStr("`->>` is the open head" (PlantUmlSequenceReader.headOf("->>")) "arrow")
+        c.eqStr("`->` is the filled one" (PlantUmlSequenceReader.headOf("->")) "arrowclosed")
+        c.eqStr("`-->` is dotted" (PlantUmlSequenceReader.strokeOf("-->")) "dotted")
+        c.eqStr("`->` is not" (PlantUmlSequenceReader.strokeOf("->")) "solid")
+        c.eqStr("the colour comes out of the arrow" (PlantUmlSequenceReader.dropColour("A -[#red]> B")) "A -> B")
+        c.eqInt("a name with a dash in it is not an arrow" (PlantUmlSequenceReader.arrowAt("order-service is here")) -1)
+
+        ; `return` replies to whoever called, and to nobody when nobody did.
+        def rsrc:string "@startuml\nA -> B ++ : ask\nreturn answer\n@enduml\n"
+        def rd:SeqDiagram (PlantUmlSequenceReader.parse(rsrc))
+        c.eqInt("`return` is a message of its own" (rd.messageCount()) 2)
+        def ret:SeqStep (itemAt rd.steps 1)
+        c.eqStr("sent back by the one that was called" ret.source "B")
+        c.eqStr("to the one that called it" ret.target "A")
+        c.eqStr("dotted, because a reply is" ret.stroke "dotted")
+        c.ok("and it closes the activation it replies out of" ret.deactivates)
+
+        ; The multi-line note, which runs until `end note`.
+        def nsrc:string "@startuml\nA -> B: x\nnote right of B\nfirst line\nsecond line\nend note\n@enduml\n"
+        def nd:SeqDiagram (PlantUmlSequenceReader.parse(nsrc))
+        c.eqInt("a note may run over several lines" (nd.noteCount()) 1)
+        def nstep:SeqStep (itemAt nd.steps 1)
+        c.eqStr("and keeps the breaks the author typed" nstep.text "first line\nsecond line")
+        c.eqStr("beside the participant it was pinned to" nstep.source "B")
+        c.eqStr("on the side it was put" nstep.placement "right")
+
+        ; And the drawing, which is the shared one in core/.
+        def g:FlowGraph (PlantUmlSequenceReader.render(src))
+        def wl:FlowNode (g.nodeById("ll-Web"))
+        def al:FlowNode (g.nodeById("ll-API"))
+        c.ok("the columns are in declaration order, left to right" (wl.x < al.x))
+        def head:FlowNode (g.nodeById("Cust"))
+        c.eqStr("the participant box is drawn from the alias" head.label "The Customer")
+        c.eqInt("an arrow per message" (g.edgeCount()) 8)
+    }
+
     sfn testMermaidSequence:void (c:Checker) {
         c.section("Mermaid sequence diagrams")
         def src:string "sequenceDiagram\n"
