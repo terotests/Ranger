@@ -117,9 +117,11 @@ of it took.
 | | what it does | where |
 |---|---|---|
 | `inline-assets.mjs` | writes the head that starts every asset before the body is parsed, from the list the build already has | `web/tools/` |
-| `assets-client.mjs` | the module half: picks those responses up by name | `web/tools/` |
+| `assets-client.mjs` | the module half: picks those responses up by name, and registers the faces with the browser | `web/tools/` |
 | `minify.mjs` | minifies a compiled bundle and checks the global its scope publishes survived | `web/tools/` |
 | `boot-bench.mjs` | first paint and first painted frame, on a throttled, gzipped connection | `web/tools/` |
+
+All seven gallery pages are built this way.
 
 The order assets were fetched in was the same mistake everywhere: the page
 loaded its engine, ran its module, and only then asked for its fonts, then its
@@ -140,9 +142,23 @@ node gallery/evg/web/tools/inline-assets.mjs \
 import { bytesOf, textOf, asRangerBuffer } from "./evg/assets-client.mjs";
 ```
 
-Collect `$ASSETS` as the build copies the files, never as a second list: an
+Three rules, each of which was learned the hard way:
+
+**Collect `$ASSETS` as the build copies the files**, never as a second list. An
 asset named in one place and not the other is either fetched twice or waited
 for and never started, and neither shows up as an error.
+
+**A preload whose URL is not the URL the module imports is a second
+download.** Builds stamp some module URLs with the build id and leave others
+alone, which is why there are two flags: `--preload-stamped` and `--preload`.
+
+**Register the faces from the bytes the page already has** (`registerFaces`),
+and declare no `@font-face` for them. A canvas asking for a CSS-declared
+family makes the browser load the CSS copy on top of the bytes you fetched —
+measured, before this was fixed, as nine font requests for eight faces on
+pptx and twelve for eight on book. The other half of that rule matters more: a
+page that registers nothing measures in one face and draws in another, and a
+caret ends up most of a letter past the end of a word.
 
 What it was worth, on the 4 Mbps / 60 ms / 4× CPU bench:
 
