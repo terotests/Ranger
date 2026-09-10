@@ -1,0 +1,377 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MermaidRender.rgr — one door: Mermaid text in, something drawable out.
+; ============================================================================
+;
+; RangerFlow reads twenty-six Mermaid dialects, and until this file the code
+; that picked between them lived inside the web page's own facade —
+; thirty branches interleaved with editor state, theme switching and status
+; strings, callable from nowhere else. Anything that wanted a diagram out of
+; Mermaid text had to copy that dispatch, and a copy is a thing that falls
+; behind: the set went from one dialect to twenty-six in a few months.
+;
+;   text ──► kindOf   ──► which reader
+;        ──► draw     ──► FlowGraph, and the notation it is drawn in
+;        ──► sceneOf  ──► FlowScene, fitted to a width
+;
+; From `FlowScene` it is the same four backends the editor uses:
+; `toEvgTree()` for PDF and HTML, `toDisplayList()` for the GPU, `toSvg()`
+; for a file.
+;
+; **Never scaled up.** `sceneOf` fits a diagram that is wider than the space
+; it is given and leaves a smaller one alone. A three-node flowchart in a
+; column of prose should be a three-node flowchart, not a poster.
+;
+; What this does NOT do is anything an editor needs — selection, dragging,
+; undo, a status line. Those stay in the editor. This is the reading and the
+; drawing, which is the part a printed page and a markdown document want.
+; ============================================================================
+
+Import "MermaidReader.rgr"
+Import "MermaidClassReader.rgr"
+Import "MermaidErReader.rgr"
+Import "MermaidStateReader.rgr"
+Import "MermaidMindMapReader.rgr"
+Import "MermaidRequirementReader.rgr"
+Import "MermaidC4Reader.rgr"
+Import "MermaidTimelineReader.rgr"
+Import "MermaidJourneyReader.rgr"
+Import "MermaidGanttReader.rgr"
+Import "MermaidSequenceReader.rgr"
+Import "MermaidGitReader.rgr"
+Import "MermaidKanbanReader.rgr"
+Import "MermaidQuadrantReader.rgr"
+Import "MermaidPieReader.rgr"
+Import "MermaidXyReader.rgr"
+Import "MermaidSankeyReader.rgr"
+Import "MermaidBlockReader.rgr"
+Import "MermaidArchReader.rgr"
+Import "MermaidSwimlaneReader.rgr"
+Import "MermaidCynefinReader.rgr"
+Import "MermaidIshikawaReader.rgr"
+Import "MermaidVennReader.rgr"
+Import "MermaidWardleyReader.rgr"
+Import "MermaidRailroadReader.rgr"
+Import "MermaidInfoReader.rgr"
+Import "../../core/FlowView.rgr"
+Import "../../core/FlowStyleSheet.rgr"
+
+; What came back. `ok` false with a `kind` set means "recognised, and nothing
+; here draws one yet" — which is a different answer from "that is not Mermaid"
+; and is worth telling a reader apart.
+class MermaidDrawing {
+    def ok:boolean false
+    def kind:string ""
+    def notation:string "plain"
+    def title:string ""
+    def graph:FlowGraph (new FlowGraph)
+
+    Constructor () {
+    }
+}
+
+class MermaidRender {
+    ; The dialect, or "" when the text is not a Mermaid diagram at all.
+    sfn kindOf:string (text:string) {
+        def d:MermaidDiagram (MermaidReader.parse(text))
+        return d.diagramKind
+    }
+
+    ; The notation a dialect is drawn in. Three of them are UML shapes and one
+    ; is crow's foot; everything else is drawn plain.
+    sfn notationFor:string (kind:string) {
+        if (kind == "class") { return "uml" }
+        if (kind == "requirement") { return "uml" }
+        if (kind == "c4") { return "uml" }
+        if (kind == "er") { return "crowfoot" }
+        return "plain"
+    }
+
+    ; Text, and the look to draw it in, into a laid-out graph.
+    sfn draw:MermaidDrawing (text:string style:FlowStyle) {
+        def out:MermaidDrawing (new MermaidDrawing())
+        def d:MermaidDiagram (MermaidReader.parse(text))
+        def kind:string d.diagramKind
+        out.kind = kind
+        out.notation = (MermaidRender.notationFor(kind))
+        out.title = d.title
+
+        if (kind == "class") {
+            def cd:MermaidClassDiagram (MermaidClassReader.parse(text))
+            def n:int (cd.classCount())
+            if (n == 0) { return out }
+            out.title = cd.title
+            out.graph = (MermaidClassFlow.build(cd style))
+            out.ok = true
+            return out
+        }
+        if (kind == "er") {
+            def ed:MermaidErDiagram (MermaidErReader.parse(text))
+            def n:int (ed.entityCount())
+            if (n == 0) { return out }
+            out.title = ed.title
+            out.graph = (MermaidErFlow.build(ed style))
+            out.ok = true
+            return out
+        }
+        if (kind == "state") {
+            def sd:MermaidStateDiagram (MermaidStateReader.parse(text))
+            def n:int (sd.stateCount())
+            if (n == 0) { return out }
+            out.title = sd.title
+            out.graph = (MermaidStateFlow.build(sd style))
+            out.ok = true
+            return out
+        }
+        if (kind == "mindmap") {
+            def md:MermaidMindMap (MermaidMindMapReader.parse(text))
+            def n:int (md.nodeCount())
+            if (n == 0) { return out }
+            out.title = md.title
+            out.graph = (MermaidMindMapFlow.build(md style))
+            out.ok = true
+            return out
+        }
+        if (kind == "requirement") {
+            def rd:MermaidRequirementDiagram (MermaidRequirementReader.parse(text))
+            def n:int (rd.boxCount())
+            if (n == 0) { return out }
+            out.title = rd.title
+            out.graph = (MermaidRequirementFlow.build(rd style))
+            out.ok = true
+            return out
+        }
+        if (kind == "c4") {
+            def c4:MermaidC4Diagram (MermaidC4Reader.parse(text))
+            def n:int (c4.boxCount())
+            if (n == 0) { return out }
+            out.title = c4.title
+            out.graph = (MermaidC4Flow.build(c4 style))
+            out.ok = true
+            return out
+        }
+        if (kind == "timeline") {
+            def td:MermaidTimeline (MermaidTimelineReader.parse(text))
+            def n:int (td.periodCount())
+            if (n == 0) { return out }
+            out.title = td.title
+            out.graph = (MermaidTimelineFlow.build(td style))
+            out.ok = true
+            return out
+        }
+        if (kind == "journey") {
+            def jd:MermaidJourney (MermaidJourneyReader.parse(text))
+            def n:int (jd.taskCount())
+            if (n == 0) { return out }
+            out.title = jd.title
+            out.graph = (MermaidJourneyFlow.build(jd style))
+            out.ok = true
+            return out
+        }
+        if (kind == "gantt") {
+            def gd:MermaidGantt (MermaidGanttReader.parse(text))
+            def n:int (gd.taskCount())
+            if (n == 0) { return out }
+            out.title = gd.title
+            out.graph = (MermaidGanttFlow.build(gd style))
+            out.ok = true
+            return out
+        }
+        if (kind == "sequence") {
+            def qd:MermaidSequence (MermaidSequenceReader.parse(text))
+            def n:int (qd.actorCount())
+            if (n == 0) { return out }
+            out.title = qd.title
+            out.graph = (MermaidSequenceFlow.build(qd style))
+            out.ok = true
+            return out
+        }
+        if (kind == "git") {
+            def gt:MermaidGit (MermaidGitReader.parse(text))
+            def n:int (gt.commitCount())
+            if (n == 0) { return out }
+            out.title = gt.title
+            out.graph = (MermaidGitFlow.build(gt style))
+            out.ok = true
+            return out
+        }
+        if (kind == "kanban") {
+            def kd:MermaidKanban (MermaidKanbanReader.parse(text))
+            def n:int (kd.columnCount())
+            if (n == 0) { return out }
+            out.title = kd.title
+            out.graph = (MermaidKanbanFlow.build(kd style))
+            out.ok = true
+            return out
+        }
+        if (kind == "quadrant") {
+            def qq:MermaidQuadrant (MermaidQuadrantReader.parse(text))
+            def n:int (qq.pointCount())
+            if (n == 0) { return out }
+            out.title = qq.title
+            out.graph = (MermaidQuadrantFlow.build(qq style))
+            out.ok = true
+            return out
+        }
+        if (kind == "pie") {
+            def pd:MermaidPie (MermaidPieReader.parse(text))
+            def n:int (pd.sliceCount())
+            if (n == 0) { return out }
+            out.title = pd.title
+            out.graph = (MermaidPieFlow.build(pd style))
+            out.ok = true
+            return out
+        }
+        if (kind == "xychart") {
+            def xd:MermaidXyChart (MermaidXyReader.parse(text))
+            def n:int (xd.seriesCount())
+            if (n == 0) { return out }
+            out.title = xd.title
+            out.graph = (MermaidXyFlow.build(xd style))
+            out.ok = true
+            return out
+        }
+        if (kind == "sankey") {
+            def kd2:MermaidSankey (MermaidSankeyReader.parse(text))
+            def n:int (kd2.nodeCount())
+            if (n == 0) { return out }
+            out.title = kd2.title
+            out.graph = (MermaidSankeyFlow.build(kd2 style))
+            out.ok = true
+            return out
+        }
+        if (kind == "block") {
+            def bd:MermaidBlockDiagram (MermaidBlockReader.parse(text))
+            def n:int (bd.blockCount())
+            if (n == 0) { return out }
+            out.title = bd.title
+            out.graph = (MermaidBlockFlow.build(bd style))
+            out.ok = true
+            return out
+        }
+        if (kind == "architecture") {
+            def ad:MermaidArchitecture (MermaidArchReader.parse(text))
+            def n:int (ad.serviceCount())
+            if (n == 0) { return out }
+            out.title = ad.title
+            out.graph = (MermaidArchFlow.build(ad style))
+            out.ok = true
+            return out
+        }
+        if (kind == "swimlane") {
+            def wd:MermaidDiagram (MermaidSwimlaneFlow.parse(text))
+            def n:int (wd.nodeCount())
+            if (n == 0) { return out }
+            out.title = wd.title
+            out.graph = (MermaidSwimlaneFlow.build(wd style))
+            out.ok = true
+            return out
+        }
+        if (kind == "cynefin") {
+            def cy:MermaidCynefin (MermaidCynefinReader.parse(text))
+            def n:int (cy.itemCount())
+            if (n == 0) { return out }
+            out.title = cy.title
+            out.graph = (MermaidCynefinFlow.build(cy style))
+            out.ok = true
+            return out
+        }
+        if (kind == "ishikawa") {
+            def fd:MermaidIshikawa (MermaidIshikawaReader.parse(text))
+            def n:int (fd.categoryCount())
+            if (n == 0) { return out }
+            out.title = fd.problem
+            out.graph = (MermaidIshikawaFlow.build(fd style))
+            out.ok = true
+            return out
+        }
+        if (kind == "venn") {
+            def vd:MermaidVenn (MermaidVennReader.parse(text))
+            def n:int (vd.setCount())
+            if (n == 0) { return out }
+            out.title = vd.title
+            out.graph = (MermaidVennFlow.build(vd style))
+            out.ok = true
+            return out
+        }
+        if (kind == "wardley") {
+            def wm:MermaidWardley (MermaidWardleyReader.parse(text))
+            def n:int (wm.nodeCount())
+            if (n == 0) { return out }
+            out.title = wm.title
+            out.graph = (MermaidWardleyFlow.build(wm style))
+            out.ok = true
+            return out
+        }
+        if (MermaidReader.isRailroad(kind)) {
+            def rr:MermaidRailroad (MermaidRailroadReader.parse(text))
+            def n:int (rr.ruleCount())
+            if (n == 0) { return out }
+            out.title = rr.title
+            out.graph = (MermaidRailroadFlow.build(rr style))
+            out.ok = true
+            return out
+        }
+        if (kind == "info") {
+            def id:MermaidInfo (MermaidInfoReader.parse(text))
+            out.title = id.text
+            out.graph = (MermaidInfoFlow.build(id style))
+            out.ok = true
+            return out
+        }
+
+        ; A flowchart, which is the dialect people actually write — and the
+        ; fallback for a header this reader does not know, because a graph
+        ; with nodes in it is worth drawing whatever it called itself.
+        def n:int (d.nodeCount())
+        if (n == 0) { return out }
+        if ((strlen kind) == 0) { out.kind = "flowchart" }
+        out.graph = (MermaidFlow.styled(d style))
+        out.ok = true
+        return out
+    }
+
+    ; ----------------------------------------------------------------------
+    ; A scene, fitted
+    ; ----------------------------------------------------------------------
+    ;
+    ; `maxWidth` is the space the caller has. A diagram wider than that is
+    ; scaled onto it; a narrower one is left at its natural size, so a small
+    ; diagram in a wide column stays small.
+    sfn sceneOf:FlowScene (text:string styleName:string maxWidth:double padding:double) {
+        def style:FlowStyle (FlowStyle.named(styleName))
+        return (MermaidRender.sceneStyled(text style maxWidth padding))
+    }
+
+    sfn sceneStyled:FlowScene (text:string style:FlowStyle maxWidth:double padding:double) {
+        def drawing:MermaidDrawing (MermaidRender.draw(text style))
+        if (! drawing.ok) {
+            return (new FlowScene)
+        }
+        def v:FlowView (FlowView.of(drawing.graph))
+        v.notation = drawing.notation
+        style.applyToTheme(v.theme)
+        ; No canvas. The editor's paper and its grid of dots are part of an
+        ; EDITOR; a diagram sitting in a column of prose or on a printed page
+        ; should be the diagram and nothing else.
+        ;
+        ; Both halves are needed. `showBackground` stops the grid; the paper
+        ; is a separate fill and follows the theme, so a diagram dropped into
+        ; a white document otherwise arrives on a grey slab.
+        v.showBackground = false
+        v.theme.background = "#ffffff"
+        def natural:FlowScene (v.buildForExport(padding))
+        if (maxWidth <= 0.0) {
+            return natural
+        }
+        if (natural.worldW <= maxWidth) {
+            return natural
+        }
+        ; Too wide: the same diagram on a page the width of the column, with
+        ; the height taken from the natural aspect so nothing is squashed.
+        def scale:double (maxWidth / natural.worldW)
+        def h:double (natural.worldH * scale)
+        return (v.buildForPage(maxWidth h 0.0))
+    }
+}

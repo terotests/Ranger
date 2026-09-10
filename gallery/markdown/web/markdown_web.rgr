@@ -1,0 +1,368 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; markdown_web.rgr — the whole module in a tab, with no host behind it.
+; ============================================================================
+;
+;   text typed in the page ──► MdBlock ──► MdLayout ──► MdToEvg
+;                                                          │
+;                                            ┌─────────────┴─────────────┐
+;                                            ▼                           ▼
+;                                     EVGDisplayList              EVGPDFRenderer
+;                                     → evg-webgl.js              → a .pdf the
+;                                       (the canvas)                browser saves
+;
+; This is the only file in the module that a browser talks to, and it is a
+; SEAM rather than an application: every method is one call into the engine,
+; so the same parse, the same layout and the same PDF run in the page as run
+; on the command line. A keystroke is a function call; there is no server.
+;
+; **The fonts are the page's job.** Nothing here reads a file — the page
+; fetches the four faces and hands the bytes to `attachFont`, and after that
+; the layout, the canvas and the PDF all measure through the same
+; `TTFTextMeasurer`. Skip that and the three disagree: EVG measures with a
+; guessed table, the canvas draws with whatever the system had, and the PDF
+; embeds nothing. That is the failure `EVGTextEngine` warns about, and it
+; looks like a line-breaking bug.
+; ============================================================================
+
+Import "../src/MdBlock.rgr"
+Import "../src/MdLayout.rgr"
+Import "../src/MdToEvg.rgr"
+Import "../src/MdToHtml.rgr"
+Import "../src/MdMermaid.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../pdf_writer/src/core/EVGPDFRenderer.rgr"
+Import "../../pdf_writer/src/fonts/FontManager.rgr"
+
+class MarkdownWeb {
+    def source:string ""
+    def doc:MdNode (MdNode.create("document"))
+    def layout:MdLayout (new MdLayout())
+    def docList:EVGDisplayList (new EVGDisplayList())
+    ; Where `docList` currently sits. The list is moved to the scroll position
+    ; rather than copied there: `appendFrom` shares its commands, so a copy
+    ; would alias the original and the second scroll would move it twice.
+    def listOffset:double 0.0
+
+    def fontManager:FontManager (new FontManager())
+    def faceCount:int 0
+    def measurer@(optional):TTFTextMeasurer
+
+    def viewW:double 900.0
+    def viewH:double 700.0
+    def scrollY:double 0.0
+    def styleName:string "default"
+    ; false: one column as tall as the document. true: sheets, with the page
+    ; breaks the PDF will have.
+    def paged:boolean false
+
+    def statusText:string "ready"
+    def blocks:int 0
+    def diagrams:int 0
+    def pages:int 1
+    def built:boolean false
+
+    Constructor () {
+    }
+
+    fn init:void (w:double h:double) {
+        viewW = w
+        viewH = h
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Fonts
+    ; ----------------------------------------------------------------------
+    ;
+    ; One face at a time, by the name the layout asks for: `Open Sans`,
+    ; `Open Sans-Bold`, `Open Sans-Italic`, `Open Sans-BoldItalic`. The name
+    ; carries the variant instead of a weight flag, because that is the one
+    ; spelling the measurer, the font manager and a `@font-face` rule all
+    ; resolve the same way.
+    fn attachFont:boolean (name:string data:buffer) {
+        def ok:boolean (fontManager.loadFontBuffer(name data))
+        if ok {
+            faceCount = (faceCount + 1)
+            def m:TTFTextMeasurer (new TTFTextMeasurer(fontManager))
+            measurer = m
+            layout.setMeasurer(m)
+        }
+        return ok
+    }
+
+    fn fontsReady:boolean () {
+        return (faceCount > 0)
+    }
+
+    ; ----------------------------------------------------------------------
+    ; The document
+    ; ----------------------------------------------------------------------
+    fn setSource:void (text:string) {
+        source = text
+        this.rebuild()
+    }
+
+    fn setStyle:void (name:string) {
+        styleName = name
+        this.rebuild()
+    }
+
+    fn setPaged:void (v:boolean) {
+        paged = v
+        this.rebuild()
+    }
+
+    fn resize:void (w:double h:double) {
+        def changed:boolean (w != viewW)
+        viewW = w
+        viewH = h
+        if changed {
+            this.rebuild()
+        }
+    }
+
+    fn contentWidth:double () {
+        def m:double layout.style.margin
+        if paged {
+            return (layout.style.pageWidth - (m * 2.0))
+        }
+        return (viewW - (m * 2.0))
+    }
+
+    fn rebuild:void () {
+        doc = (MdBlock.parseText(source))
+        blocks = (doc.childCount())
+        def fresh:MdLayout (new MdLayout())
+        if (!null? measurer) {
+            fresh.setMeasurer((unwrap measurer))
+        }
+        layout = fresh
+        ; The document's own page size and margins, before anything is
+        ; measured against them.
+        layout.applyMeta(doc)
+        ; The diagrams first, at the width of the column they will land in: a
+        ; page cannot be broken around a drawing whose height nobody has asked
+        ; for, and a drawing prepared at another width is one the layout will
+        ; not find.
+        def cw:double (this.contentWidth())
+        MdMermaid.prepare(doc layout.embeds cw styleName)
+        diagrams = (layout.embeds.count())
+        if paged {
+            layout.layoutPaged(doc)
+        } {
+            layout.layoutContinuous(doc viewW)
+        }
+        pages = layout.pageCount
+        this.buildList()
+        built = true
+        this.setStatus()
+    }
+
+    ; The whole document as one display list, in document coordinates.
+    ;
+    ; Paged mode stacks the sheets with a gap, so scrolling through a printed
+    ; document shows what will be printed — the same call, the same breaks,
+    ; and the reader can see where page four starts before they print it.
+    fn buildList:void () {
+        listOffset = 0.0
+        ; Straight to the commands: the canvas never wanted an element tree,
+        ; and building one only to walk it back was 133 ms of a 342 ms
+        ; document. `MarkdownTest.presized` holds the two roads to the same
+        ; marks, command by command.
+        def out:EVGDisplayList (new EVGDisplayList())
+        if paged {
+            out = (MdToEvg.sheetsToDisplayList(layout (MdToEvg.sheetGap())))
+        } {
+            out = (MdToEvg.toDisplayList(layout viewW))
+        }
+        docList = out
+    }
+
+    fn setStatus:void () {
+        def b:string (to_string blocks)
+        def d:string (to_string diagrams)
+        def n:int (array_length docList.cmds)
+        def c:string (to_string n)
+        def h:int (to_int (this.documentHeight()))
+        statusText = ((((b + " blocks, ") + d) + " diagrams, ") + c + " draw commands")
+        if paged {
+            statusText = ((statusText + ", ") + (to_string pages) + " pages")
+        }
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Scrolling and painting
+    ; ----------------------------------------------------------------------
+    fn documentHeight:double () {
+        if paged {
+            def gap:double (MdToEvg.sheetGap())
+            def n:double (to_double layout.pageCount)
+            return ((n * (layout.style.pageHeight + gap)) - gap)
+        }
+        return layout.documentHeight
+    }
+
+    fn maxScroll:double () {
+        def h:double (this.documentHeight())
+        def m:double (h - viewH)
+        if (m < 0.0) { return 0.0 }
+        return m
+    }
+
+    fn scrollTo:void (y:double) {
+        def m:double (this.maxScroll())
+        def want:double y
+        if (want < 0.0) { want = 0.0 }
+        if (want > m) { want = m }
+        scrollY = want
+    }
+
+    fn scrollBy:void (dy:double) {
+        def y:double (scrollY + dy)
+        this.scrollTo(y)
+    }
+
+    ; The commands for what is on screen, in screen coordinates, in the
+    ; envelope the WebGL painter reads: `{width, height, list}`. The list
+    ; alone is what `toJson` gives, and the painter reaches for `doc.list.cmds`
+    ; — handing it the bare list is a page that draws nothing and says
+    ; "cannot read properties of undefined".
+    fn frame:string () {
+        def want:double (0.0 - scrollY)
+        def delta:double (want - listOffset)
+        if (delta != 0.0) {
+            docList.offsetBy(0.0 delta)
+            listOffset = want
+        }
+        def body:string (docList.toJson())
+        def w:string (EVGDisplayList.num(viewW))
+        def h:string (EVGDisplayList.num(viewH))
+        return ((((("{\"width\":" + w) + ",\"height\":") + h) + ",\"list\":") + body) + "}"
+    }
+
+    fn commandCount:int () {
+        return (array_length docList.cmds)
+    }
+
+    ; ----------------------------------------------------------------------
+    ; What the page asks about
+    ; ----------------------------------------------------------------------
+    fn status:string () {
+        return statusText
+    }
+
+    fn ready:boolean () {
+        return built
+    }
+
+    fn scrollPosition:double () {
+        return scrollY
+    }
+
+    fn diagramCount:int () {
+        return diagrams
+    }
+
+    fn blockCount:int () {
+        return blocks
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Out of the tab
+    ; ----------------------------------------------------------------------
+    ;
+    ; The PDF is built HERE, in the page, from the same layout the canvas is
+    ; showing — not fetched from anywhere. A canvas has one page as far as
+    ; `window.print()` is concerned, so the browser's own print dialog would
+    ; produce a single clipped sheet; this produces the sheets the layout
+    ; decided, with the faces the reader's own browser fetched embedded in
+    ; them.
+    fn pdf:buffer () {
+        def print:MdLayout (new MdLayout())
+        if (!null? measurer) {
+            print.setMeasurer((unwrap measurer))
+        }
+        print.applyMeta(doc)
+        def cw:double (print.style.pageWidth - (print.style.margin * 2.0))
+        MdMermaid.prepare(doc print.embeds cw styleName)
+        print.layoutPaged(doc)
+        def root:EVGElement (MdToEvg.buildPrint(print))
+        def renderer (new EVGPDFRenderer())
+        renderer.init(renderer)
+        renderer.setPageSize(print.style.pageWidth print.style.pageHeight)
+        if (faceCount > 0) {
+            renderer.setFontManager(fontManager)
+            if (!null? measurer) {
+                renderer.setMeasurer((unwrap measurer))
+            }
+        }
+        return (renderer.render(root))
+    }
+
+    fn pdfPageCount:int () {
+        return pages
+    }
+
+    fn html:string () {
+        return (MdToHtml.render(doc))
+    }
+
+    ; ----------------------------------------------------------------------
+    ; The two panes, kept in step
+    ; ----------------------------------------------------------------------
+    ;
+    ; Every block remembers the characters it was parsed from, so a click on
+    ; the drawing is an offset in the source and a caret in the source is a
+    ; place to scroll the drawing to. Neither pane has to know how the other
+    ; one works.
+    fn sourceOffsetAt:int (x:double y:double) {
+        def docY:double (y + scrollY)
+        def best:int -1
+        def bestY:double (0.0 - 1000000.0)
+        def i:int 0
+        def n:int (doc.childCount())
+        while (i < n) {
+            def b:MdNode (doc.childAt(i))
+            def top:double (this.topOf(b))
+            if (top <= docY) {
+                if (top > bestY) {
+                    bestY = top
+                    best = b.srcStart
+                }
+            }
+            i = (i + 1)
+        }
+        return best
+    }
+
+    ; Where a source offset ended up on the drawing.
+    fn offsetToY:double (offset:int) {
+        def best:double 0.0
+        def i:int 0
+        def n:int (doc.childCount())
+        while (i < n) {
+            def b:MdNode (doc.childAt(i))
+            if (b.srcStart <= offset) {
+                best = (this.topOf(b))
+            }
+            i = (i + 1)
+        }
+        return best
+    }
+
+    ; The top of a block on the drawing: the first box it produced, which
+    ; every box now remembers. No map on the side to keep in step.
+    fn topOf:double (block:MdNode) {
+        def i:int (layout.firstBoxOf(block.srcStart))
+        if (i < 0) { return 0.0 }
+        def b:MdBox (itemAt layout.boxes i)
+        if paged {
+            def gap:double (MdToEvg.sheetGap())
+            def sheet:double (layout.style.pageHeight + gap)
+            return (b.y + ((to_double b.page) * sheet))
+        }
+        return b.y
+    }
+}

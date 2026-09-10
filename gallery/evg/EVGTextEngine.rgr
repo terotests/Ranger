@@ -268,7 +268,7 @@ class EVGTextEngine {
         while (p < (array_length paragraphs)) {
             def para:string (itemAt paragraphs p)
             if (maxWidth <= 0.0) {
-                this.pushLine(out para fontFamily fontSize)
+                push out (this.measuredLine(para fontFamily fontSize))
             } {
                 def words:[string] (strsplit para " ")
                 ; How many TOKENS are on the line, not how many characters.
@@ -314,7 +314,7 @@ class EVGTextEngine {
                     ; asked for; it can only undo a round trip that should
                     ; have been the identity.
                     if (((testWidth - maxWidth) > (EVGTextEngine.fitEpsilon())) && (tokensOnLine > 0)) {
-                        this.pushLine(out currentLine fontFamily fontSize)
+                        push out (this.measuredLine(currentLine fontFamily fontSize))
                         currentLine = word
                         tokensOnLine = 1
                     } {
@@ -325,25 +325,37 @@ class EVGTextEngine {
                 }
                 ; An empty paragraph is still a line — blank lines take vertical
                 ; space, and dropping them would shorten the block.
-                this.pushLine(out currentLine fontFamily fontSize)
+                push out (this.measuredLine(currentLine fontFamily fontSize))
             }
             p = (p + 1)
         }
 
         if ((array_length out) == 0) {
-            this.pushLine(out "" fontFamily fontSize)
+            push out (this.measuredLine("" fontFamily fontSize))
         }
         return out
     }
 
-    fn pushLine:void (out:[EVGTextLine] text:string fontFamily:string fontSize:double) {
+    ; One measured line, RETURNED rather than pushed into a list the caller
+    ; passed in.
+    ;
+    ; It used to take the list. That works on JavaScript, where an array
+    ; parameter is the caller's array, and does nothing on Go, where it is a
+    ; slice and the append lands on a copy — so `breakLines` returned NO lines
+    ; on Go at any width, and every display list built from an element tree
+    ; drew no text there at all. Nothing warns in between: the JavaScript
+    ; suites pass and the Go ones draw an empty page.
+    ;
+    ; Found from `gallery/markdown`, whose own layout had hit the same trap
+    ; a week earlier and left a note about it.
+    fn measuredLine:EVGTextLine (text:string fontFamily:string fontSize:double) {
         def m:EVGTextMetrics (measurer.measureText(text fontFamily fontSize))
         def line (new EVGTextLine())
         line.text = text
         line.width = m.width
         line.ascent = m.ascent
         line.descent = m.descent
-        push out line
+        return line
     }
 
     ; Number of lines `text` occupies at `maxWidth` — the wrap and the height
