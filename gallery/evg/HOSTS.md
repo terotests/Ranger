@@ -108,19 +108,25 @@ once is fixed on both.
 frame — where `EvgHost` is the inner viewport. A host that wanted both would
 own an `EvgHost` and call it from `pumpInput`.
 
-**The browser does not use `EvgHost` yet**, and it is the one place the same
-logic is still written twice. `realtrainer/web/main.js` has its own copy of
-the press a drag cancels, the scrollbar grab, the hover, the drag's velocity —
-the same state machine, in JavaScript. Two things have to be settled before it
-can move over, and neither is mechanical:
+**The browser uses `EvgHost` too**, on the main-thread path. `main.js` had its
+own copy of the press a drag cancels, the scrollbar grab, the hover and the
+drag's velocity — the same state machine, in JavaScript — and now makes the
+same six calls a UIKit view makes: `pressAt`, `panBy`, `releasePress`,
+`cancelPress`, `hoverAt`, `clearHover`, with `key`, `typeText` and `tick`
+beside them. It is 26 lines shorter and, more to the point, a rule fixed on a
+phone is now fixed here.
 
-- **Focus.** `EvgHost.releasePress` decides focus itself — a press on a field
-  focuses it, a press elsewhere blurs it. The browser gives that to
-  `evg-textinput.js`, which owns a real DOM field so a phone keyboard has
-  something to attach to. One of the two has to give.
-- **The wheel.** A wheel is not a finger and has no native counterpart, so it
-  stays in the page whatever else moves.
+Two things stayed in the page, and both should:
 
-Until then the browser is the odd one out, and the honest reading of that is
-that the shared host is proven on two platforms and two applications rather
-than on four.
+- **The wheel.** A wheel is not a finger and has no native counterpart. It
+  goes straight to the app, as it always did.
+- **The keyboard's own element.** `evg-textinput.js` owns a real DOM field so
+  a phone keyboard has something to attach to, and the accessibility mirror
+  publishes what the frame means. Neither has anything to do with the
+  viewport.
+
+**What has not moved is the Worker path.** `main-worker.js` and
+`engine-worker.js` still post app calls rather than host calls, so the page's
+default arrangement — the engine off the main thread — is the one place the
+old state machine survives. It is mechanical rather than difficult: the engine
+would serve the host instead of the app, and the posted names would change.

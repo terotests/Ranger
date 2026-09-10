@@ -907,7 +907,7 @@
     "firesim:demo:shots": "npm run firesim:demo:page --silent && node gallery/firesim/tests/page-render-check.mjs --shots gallery/firesim/demo/shots",
     "firesim:demo:web": "npm run firesim:demo:page --silent && node gallery/firesim/demo/serve.mjs",
     "firesim:serve": "npm run firesim:build --silent && node gallery/firesim/host/serve.mjs",
-    "rt:build": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr:./lib node bin/output.js -es6 -nodemodule ./gallery/realtrainer/src/RealTrainerDemo.rgr -d=./gallery/realtrainer/bin -o=RealTrainerDemo.cjs",
+    "rt:build": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr:./lib node bin/output.js -es6 -nodemodule ./gallery/realtrainer/src/RtHost.rgr -d=./gallery/realtrainer/bin -o=RealTrainerDemo.cjs",
     "rt:compact:build": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./gallery/realtrainer/src/CompactRows.rgr -d=./gallery/realtrainer/bin -o=CompactRows.cjs",
     "statechart:build": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./gallery/statechart/src/Statechart.rgr -d=./gallery/statechart/bin -o=Statechart.cjs && RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./gallery/statechart/src/StatechartJson.rgr -d=./gallery/statechart/bin -o=StatechartJson.cjs",
     "statechart:viz:build": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/statechart/demo/statechart_viz.rgr -d=./gallery/statechart/bin -o=statechart_viz.js -nodecli",

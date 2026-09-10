@@ -134,7 +134,7 @@ if (appSource.includes("require(")) {
 // The cut is computed, not listed. What is listed is the ROOTS — the classes
 // the page's entries name — and the cold root, which is the class the seam
 // was cut in front of.
-const HOT_ROOTS = ["RealTrainerDemo", "EVGHostTextMeasurer", "EVGDefaultMeasurer", "RtCharts", "RtChartMaker"];
+const HOT_ROOTS = ["RealTrainerDemo", "RtHost", "EVGHostTextMeasurer", "EVGDefaultMeasurer", "RtCharts", "RtChartMaker"];
 const COLD_ROOTS = ["RtVelaChartMaker"];
 
 // One block per class: its declaration and the static assignments that follow
@@ -301,7 +301,7 @@ fs.writeFileSync(
     // Named, never a namespace: see above. `EVGHostTextMeasurer` and
     // `EVGDefaultMeasurer` are the two classes the browser's text measurer
     // installs itself into (`gallery/evg/gl/evg-measure.js`).
-    'export { RealTrainerDemo, EVGHostTextMeasurer, EVGDefaultMeasurer, RtCharts }\n' +
+    'export { RealTrainerDemo, RtHost, EVGHostTextMeasurer, EVGDefaultMeasurer, RtCharts }\n' +
     '  from "../bin/RealTrainerDemo.mjs";\n' +
     // …and NOT the deferred half. Re-exporting it from here would put a
     // static edge from the page's entry to the cold module and the bundler

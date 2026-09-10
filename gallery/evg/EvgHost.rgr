@@ -79,11 +79,13 @@ class EvgHost {
     ; its own app — one takes a stylesheet and a seed, another takes a file —
     ; and then calls this: the window is taken, the page is laid out for it,
     ; and the host is open for business.
-    fn began:void (w:double h:double) {
+    ; `coarse` is a finger rather than a mouse, as the host reports it: the
+    ; stylesheet's `(pointer: coarse)` block gives the targets their size. A
+    ; phone says true and means it; a browser asks a media query and may mean
+    ; either, which is why this is a parameter and not an assumption.
+    fn began:void (w:double h:double coarse:boolean) {
         vp.resize(w h)
-        ; A finger, not a mouse: the stylesheet's `(pointer: coarse)` block
-        ; gives the targets their size.
-        app.setPointerCoarse(true)
+        app.setPointerCoarse(coarse)
         started = true
         this.fitPage()
     }

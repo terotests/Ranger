@@ -49,7 +49,7 @@ class RtHost extends EvgHost {
         if ((strlen seed) > 0) {
             demo.loadReference(seed)
         }
-        this.began(w h)
+        this.began(w h true)
         demo.openRoute("/")
     }
 
