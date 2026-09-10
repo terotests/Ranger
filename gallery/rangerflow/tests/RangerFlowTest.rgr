@@ -279,6 +279,30 @@ class RouteQuality {
         return b
     }
 
+    ; How many times the line turns. A line that could be straight and is
+    ; not has two.
+    sfn bends:int (g:FlowGraph e:FlowEdge) {
+        def c:[double] (EdgeRouter.cornersFor(g e))
+        def n:int (idiv (array_length c) 2)
+        if (n < 2) {
+            return 0
+        }
+        return (n - 2)
+    }
+
+    sfn totalBends:int (g:FlowGraph) {
+        def total:int 0
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            if (e.hidden == false) {
+                total = (total + (RouteQuality.bends(g e)))
+            }
+            k = (k + 1)
+        }
+        return total
+    }
+
     ; How many routed edges are drawn to somewhere other than their port:
     ; a route whose first or last corner is not where the edge's endpoint
     ; now is, after the fan has moved the endpoint.
@@ -3155,6 +3179,13 @@ class RangerFlowTest {
         def arrive:double (RouteQuality.squareness(g longE false))
         c.ok(("that arrives straight down into the end (got " + (to_string arrive) + ")") (arrive > 0.99))
         c.eqInt("and every route ends where its port is" (RouteQuality.looseEnds(g)) 0)
+        ; The two boxes stand in one column, so the two lines between them
+        ; can be straight: the fan puts each slot opposite the slot the same
+        ; edge has at the other end.
+        c.eqInt("a line that can be straight is straight — down" (RouteQuality.bends(g fwd)) 0)
+        c.eqInt("a line that can be straight is straight — and back up" (RouteQuality.bends(g back)) 0)
+        def turns:int (RouteQuality.totalBends(g))
+        c.ok(("the whole picture turns few corners (got " + (to_string turns) + ")") (turns <= 6))
 
         ; The same machine across the page.
         def across:string ("stateDiagram-v2\n    direction LR\n" + (substring src 15 (strlen src)))
@@ -3169,6 +3200,12 @@ class RangerFlowTest {
         def lgap:double (RouteQuality.closestParallel(lg))
         c.ok(("across the page: no two lines closer than 8 (got " + (to_string lgap) + ")") (lgap >= 8.0))
         c.eqInt("across the page: every route ends at its port" (RouteQuality.looseEnds(lg)) 0)
+        ; Five boxes in a row are a strip, and a strip fitted to a page is
+        ; drawn small. The layout closes its gaps as far as the corridors
+        ; allow: from 120 to what the busiest corridor needs.
+        def strip:FlowRect (lg.bounds())
+        c.ok(("across the page: the strip closed its gaps (got " + (to_string strip.w) + " wide)") (strip.w < 780.0))
+        c.ok("but not so far that two lines share a corridor" ((EdgeOverlap.pairs(lg 2.0)) == 0))
 
         ; A busier one: a pair of transitions each way, two ways back to the
         ; start, and a transition to itself.
@@ -3199,6 +3236,9 @@ class RangerFlowTest {
         c.ok("busy: the far return was routed" ((array_length stop2.waypoints) >= 6))
         def stops:double (fabs ((bg.endpointX(stop1 false)) - (bg.endpointX(stop2 false))))
         c.ok(("busy: two arrivals at one side get slots of their own (got " + (to_string stops) + ")") (stops >= 8.0))
+        def start:FlowEdge (RouteQuality.edgeBetween(bg "Idle" "Running"))
+        c.eqInt("busy: `start` goes straight down" (RouteQuality.bends(bg start)) 0)
+        c.eqInt("busy: and its `stop` straight back up beside it" (RouteQuality.bends(bg stop1)) 0)
         def resume:FlowEdge (RouteQuality.edgeBetween(bg "Paused" "Running"))
         def resumeLen:double (RouteQuality.lengthOf(bg resume))
         c.ok(("busy: a return to a neighbour does not go round the house (got " + (to_string resumeLen) + ")") (resumeLen < 260.0))
@@ -3227,6 +3267,49 @@ class RangerFlowTest {
         def farrive:double (RouteQuality.squareness(fg flong false))
         c.ok(("flowchart: the long edge arrives straight in (got " + (to_string farrive) + ")") (farrive > 0.99))
         c.eqInt("flowchart: every route ends at its port" (RouteQuality.looseEnds(fg)) 0)
+
+        ; Closing the gaps, on its own: a chain of six boxes down the page is
+        ; four times taller than it is wide, so the gaps go to their floor —
+        ; and no further, because the floor is what a corridor with one edge
+        ; in it needs. Off, the gaps are as asked.
+        def chain (new FlowGraph)
+        def b:int 0
+        while (b < 6) {
+            def nd:FlowNode (chain.node(("b" + (to_string b)) ("box " + (to_string b)) 0.0 0.0))
+            nd.width = 120.0
+            nd.height = 50.0
+            if (b > 0) {
+                chain.connect(("b" + (to_string (b - 1))) ("b" + (to_string b)))
+            }
+            b = (b + 1)
+        }
+        def asked:LayeredLayout (LayeredLayout.of(chain))
+        asked.direction = "TB"
+        asked.layerGap = 76.0
+        asked.run()
+        def tall:double (asked.extentAlong())
+        c.near("with the gaps as asked, six boxes and five gaps" tall 680.0 0.5)
+        def squared:LayeredLayout (LayeredLayout.of(chain))
+        squared.direction = "TB"
+        squared.layerGap = 76.0
+        squared.squareUp = true
+        squared.run()
+        def shorter:double (squared.extentAlong())
+        c.near("squared up, the gaps close to the floor" squared.layerGap 56.0 0.001)
+        c.near("and the column is that much shorter" shorter 580.0 0.5)
+        def b1:FlowNode (chain.nodeById("b1"))
+        def b2:FlowNode (chain.nodeById("b2"))
+        c.near("with every box placed on the new gap" (b2.y - b1.y) 106.0 0.5)
+        ; A gap a busy corridor needs is not closed. Two more edges into the
+        ; same corridor want three tracks there.
+        chain.connect("b2" "b3")
+        chain.connect("b3" "b2")
+        def busyLay:LayeredLayout (LayeredLayout.of(chain))
+        busyLay.direction = "TB"
+        busyLay.layerGap = 76.0
+        busyLay.squareUp = true
+        busyLay.run()
+        c.ok(("a corridor with three edges keeps the room they need (got " + (to_string busyLay.layerGap) + ")") (busyLay.layerGap >= 76.0))
     }
 
     ; ---------------------------------------------------- Mermaid mind maps --

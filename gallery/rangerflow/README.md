@@ -27,7 +27,7 @@ routing, auto-layout, large graphs — and produces something worth having.
 ## Run it
 
 ```bash
-npm run rangerflow:test        # 1458 assertions: model, forces, router, editor, SQL, Mermaid, CSS, export
+npm run rangerflow:test        # 1470 assertions: model, forces, router, editor, SQL, Mermaid, CSS, export
 npm run rangerflow:demo        # the e-commerce schema → SVG, PDF, HTML, JSON, scene
 npm run rangerflow:uml         # the same pipeline for a UML class diagram
 npm run rangerflow:flowchart   # an ATK flowchart in ISO 5807 shapes
@@ -1466,12 +1466,35 @@ altogether. Three things were wrong, and each is a rule now:
   insisting they were fifteen pixels apart. `EdgeLanes` now slides the ends
   of a route — the end and the straight run out of it — to where the port is.
 
+Two more rules came from the same picture once those were fixed:
+
+- **A line that can be straight is straight.** The fan used to spread a
+  side's slots evenly about its centre, so `Still --> Moving` left at one
+  offset and arrived at another and every such pair was a small Z. Each slot
+  now *wishes* to sit exactly opposite where its edge is going; two that wish
+  for the same place are pushed `fanGap` apart, the group is slid back as
+  near its wishes as the side's room allows, and it runs twice so the far
+  end's slot is the one the first pass chose. Two boxes in one column get two
+  straight lines between them, and a label on each is slid along its own
+  line when the two would print on each other (`EdgeLanes.staggerLabels`).
+- **A strip closes its gaps.** A drawing fitted to a page is scaled by its
+  longer side, so five states in a row across the page were read at half the
+  size the same five would be down it. `LayeredLayout.squareUp` narrows the
+  layer gap towards a picture no more than `squareRatio` times longer along
+  the flow than across it — never below what the busiest corridor needs for
+  its stubs and a track per edge (`corridorNeed`), nor, across the page,
+  below what the longest label written along the flow needs. The Mermaid
+  pipelines ask for it; the schema and UML layouts keep their gaps as set.
+
 `RouteQuality` in the test suite turns those into numbers on known diagrams,
 so a change to one router cannot quietly undo another's: the length of a
 line; how **square** it meets its box, as the cosine between its last leg and
 the side's normal, held at 45° or better on every end; the closest two lines
 of different edges run **side by side**, held at eight pixels; and that every
-route ends where its port is. The bounds are the pictures that looked wrong.
+route ends where its port is; how many corners a line turns, held at none
+for the lines that can be straight; and that a strip across the page came out
+narrower than its gaps as asked. The bounds are the pictures that looked
+wrong.
 
 ### …and where the reader says, instead
 

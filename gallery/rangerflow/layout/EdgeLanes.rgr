@@ -59,6 +59,10 @@ class EdgeLanes {
     def margin:double 10.0
     ; The offset the router leaves the node by, which is where a trunk starts.
     def stubOffset:double 20.0
+    ; How far apart two slots on one side are kept. Not less than `spacing`,
+    ; or two straight lines the fan lined up would be found too close by the
+    ; corridor pass and bent apart again.
+    def fanGap:double 16.0
 
     Constructor () {
     }
@@ -341,81 +345,160 @@ class EdgeLanes {
         }
         def total:int (array_length keys0)
         def moved:int 0
-        def done:[boolean]
-        def d:int 0
-        while (d < total) {
-            push done false
-            d = (d + 1)
-        }
-        def i:int 0
-        while (i < total) {
-            if ((itemAt done i) == false) {
-                def key:string (itemAt keys0 i)
-                def group:[int]
-                def keys:[double]
-                def j:int i
-                while (j < total) {
-                    if ((itemAt keys0 j) == key) {
-                        set_at done j true
-                        push group j
-                        ; Ordered by where the far end of the edge is, so the
-                        ; fan opens towards the things it connects to and its
-                        ; own strands do not cross.
-                        def e2:FlowEdge (g.edgeAt((itemAt edgeIdx j)))
-                        def far:boolean ((itemAt atSource j) == false)
-                        def side:int (g.edgeSide(e2 (itemAt atSource j)))
-                        def along:double (g.endpointY(e2 far))
-                        if (EdgeLanes.alongX(side)) {
-                            along = (g.endpointX(e2 far))
-                        }
-                        push keys along
-                    }
-                    j = (j + 1)
-                }
-                def count:int (array_length group)
-                if (count > 1) {
-                    EdgeLanes.sortByKey(group keys)
-                    def firstSlot:int (itemAt group 0)
-                    def anyEdge:FlowEdge (g.edgeAt((itemAt edgeIdx firstSlot)))
-                    def side0:int (g.edgeSide(anyEdge (itemAt atSource firstSlot)))
-                    def owner:FlowNode (EdgeLanes.ownerOf(g anyEdge (itemAt atSource firstSlot)))
-                    ; How much room the fan has depends on which side it is on:
-                    ; a row's height down a left or right edge, and a share of
-                    ; the node's width across a top or bottom one. The spread
-                    ; stays inside the row, because the point of a field-level
-                    ; port is that the edge visibly meets THAT column and an
-                    ; arrival nudged into the next row would misstate the schema.
-                    def room:double (owner.width * 0.5)
-                    if ((EdgeLanes.alongX(side0)) == false) {
-                        room = (owner.rowHeight - 6.0)
-                        if ((owner.sectionCount()) == 0) {
-                            room = (owner.height * 0.5)
-                        }
-                    }
-                    if (room < 4.0) {
-                        room = 4.0
-                    }
-                    def gap:double (room / (to_double count))
-                    def half:double ((gap * (to_double (count - 1))) * 0.5)
-                    def t:int 0
-                    while (t < count) {
-                        def slot:int (itemAt group t)
-                        def e3:FlowEdge (g.edgeAt((itemAt edgeIdx slot)))
-                        def nudge:double ((gap * (to_double t)) - half)
-                        if (itemAt atSource slot) {
-                            e3.portNudgeSource = nudge
-                        } {
-                            e3.portNudgeTarget = nudge
-                        }
-                        moved = (moved + 1)
-                        t = (t + 1)
-                    }
-                }
+        ; Two passes. A slot is chosen by where the edge's far end is, and
+        ; the far end is itself a slot being chosen: the first pass sees the
+        ; far ends at their handles' centres, the second sees them where the
+        ; first pass put them — which is what lines up a slot at one node
+        ; with the slot the same edge got at the other, and makes a line
+        ; that could be straight straight.
+        def pass:int 0
+        while (pass < 2) {
+            moved = 0
+            def done:[boolean]
+            def d:int 0
+            while (d < total) {
+                push done false
+                d = (d + 1)
             }
-            i = (i + 1)
+            def i:int 0
+            while (i < total) {
+                if ((itemAt done i) == false) {
+                    def key:string (itemAt keys0 i)
+                    def group:[int]
+                    def keys:[double]
+                    def j:int i
+                    while (j < total) {
+                        if ((itemAt keys0 j) == key) {
+                            set_at done j true
+                            push group j
+                            ; Ordered by where the far end of the edge is, so
+                            ; the fan opens towards the things it connects to
+                            ; and its own strands do not cross.
+                            def e2:FlowEdge (g.edgeAt((itemAt edgeIdx j)))
+                            def far:boolean ((itemAt atSource j) == false)
+                            def side:int (g.edgeSide(e2 (itemAt atSource j)))
+                            def along:double (g.endpointY(e2 far))
+                            if (EdgeLanes.alongX(side)) {
+                                along = (g.endpointX(e2 far))
+                            }
+                            push keys along
+                        }
+                        j = (j + 1)
+                    }
+                    def count:int (array_length group)
+                    if (count > 1) {
+                        EdgeLanes.sortByKey(group keys)
+                        moved = (moved + (this.placeFan(g group keys edgeIdx atSource)))
+                    }
+                }
+                i = (i + 1)
+            }
+            pass = (pass + 1)
         }
         this.slideRoutedEnds(g)
         return moved
+    }
+
+    ; One side's slots. Each edge would like to leave exactly opposite where
+    ; it is going, so that the line between the two is straight; two that
+    ; want the same place are pushed apart to `fanGap`, the group is moved
+    ; back as a whole to sit as near its wishes as it can, and it is kept
+    ; inside the room the side has. When the room is too small for the gap,
+    ; the slots are spread evenly across it instead — closer than they should
+    ; be, but each still its own.
+    ;
+    ; How much room there is depends on which side it is on: a row's height
+    ; down a left or right edge, and a share of the node's width across a
+    ; top or bottom one. The spread stays inside the row, because the point
+    ; of a field-level port is that the edge visibly meets THAT column and
+    ; an arrival nudged into the next row would misstate the schema.
+    fn placeFan:int (g:FlowGraph group:[int] keys:[double] edgeIdx:[int] atSource:[boolean]) {
+        def count:int (array_length group)
+        def firstSlot:int (itemAt group 0)
+        def anyEdge:FlowEdge (g.edgeAt((itemAt edgeIdx firstSlot)))
+        def side0:int (g.edgeSide(anyEdge (itemAt atSource firstSlot)))
+        def owner:FlowNode (EdgeLanes.ownerOf(g anyEdge (itemAt atSource firstSlot)))
+        def room:double (owner.width * 0.5)
+        if ((EdgeLanes.alongX(side0)) == false) {
+            room = (owner.rowHeight - 6.0)
+            if ((owner.sectionCount()) == 0) {
+                room = (owner.height * 0.5)
+            }
+        }
+        if (room < 4.0) {
+            room = 4.0
+        }
+        def half:double (room * 0.5)
+        ; Where the side's own handle is, so a wish can be a nudge from it.
+        def centre:double 0.0
+        def wish:[double]
+        def at:[double]
+        def t:int 0
+        while (t < count) {
+            def slot:int (itemAt group t)
+            def e:FlowEdge (g.edgeAt((itemAt edgeIdx slot)))
+            def here:boolean (itemAt atSource slot)
+            def own:double (g.endpointY(e here))
+            def nudge:double e.portNudgeTarget
+            if here {
+                nudge = e.portNudgeSource
+            }
+            if (EdgeLanes.alongX(side0)) {
+                own = (g.endpointX(e here))
+            }
+            centre = (own - nudge)
+            def w:double ((itemAt keys t) - centre)
+            if (w < (0.0 - half)) { w = (0.0 - half) }
+            if (w > half) { w = half }
+            push wish w
+            push at w
+            t = (t + 1)
+        }
+        ; Push apart, then slide the whole group back towards its wishes.
+        def f:int 1
+        while (f < count) {
+            def least:double ((itemAt at (f - 1)) + fanGap)
+            if ((itemAt at f) < least) {
+                set_at at f least
+            }
+            f = (f + 1)
+        }
+        def drift:double 0.0
+        def m:int 0
+        while (m < count) {
+            drift = (drift + ((itemAt at m) - (itemAt wish m)))
+            m = (m + 1)
+        }
+        drift = (drift / (to_double count))
+        def lowest:double ((itemAt at 0) - drift)
+        def highest:double ((itemAt at (count - 1)) - drift)
+        def shift:double (0.0 - drift)
+        if (lowest < (0.0 - half)) {
+            shift = (shift + ((0.0 - half) - lowest))
+            highest = (highest + ((0.0 - half) - lowest))
+        }
+        if (highest > half) {
+            shift = (shift + (half - highest))
+        }
+        def fits:boolean (((itemAt at 0) + shift) >= ((0.0 - half) - 0.01))
+        def s:int 0
+        while (s < count) {
+            def slot2:int (itemAt group s)
+            def e3:FlowEdge (g.edgeAt((itemAt edgeIdx slot2)))
+            def nudge2:double ((itemAt at s) + shift)
+            if (fits == false) {
+                def gap:double (room / (to_double count))
+                def spread:double ((gap * (to_double (count - 1))) * 0.5)
+                nudge2 = ((gap * (to_double s)) - spread)
+            }
+            if (itemAt atSource slot2) {
+                e3.portNudgeSource = nudge2
+            } {
+                e3.portNudgeTarget = nudge2
+            }
+            s = (s + 1)
+        }
+        return count
     }
 
     ; An edge that already carries a route — the layered layout's corridor
@@ -487,6 +570,119 @@ class EdgeLanes {
                 p = -1
             }
         }
+    }
+
+    ; ------------------------------------------------------------ labels --
+    ; Two labels drawn on top of each other read as one word. Lines the fan
+    ; has just lined up side by side — `start` down and `stop` back up
+    ; sixteen pixels from it — have their midpoints at the same height, and
+    ; their labels, centred on those midpoints, on each other. Where two
+    ; labels' boxes overlap they are slid apart along their own lines, one
+    ; back and one forward, until they clear. The label stays on its line;
+    ; only where along it changes.
+    sfn staggerLabels:int (g:FlowGraph) {
+        def moved:int 0
+        def round:int 0
+        while (round < 3) {
+            def any:boolean false
+            def a:int 0
+            while (a < (g.edgeCount())) {
+                def ea:FlowEdge (g.edgeAt(a))
+                if (EdgeLanes.hasLabel(ea)) {
+                    def b:int (a + 1)
+                    while (b < (g.edgeCount())) {
+                        def eb:FlowEdge (g.edgeAt(b))
+                        if (EdgeLanes.hasLabel(eb)) {
+                            if (EdgeLanes.partLabels(g ea eb)) {
+                                any = true
+                                moved = (moved + 1)
+                            }
+                        }
+                        b = (b + 1)
+                    }
+                }
+                a = (a + 1)
+            }
+            if any {
+                round = (round + 1)
+            } {
+                round = 3
+            }
+        }
+        return moved
+    }
+
+    sfn hasLabel:boolean (e:FlowEdge) {
+        if e.hidden {
+            return false
+        }
+        return ((strlen e.label) > 0)
+    }
+
+    ; The box a label takes, near enough: the theme's 11px face.
+    sfn labelWidth:double (e:FlowEdge) {
+        return (((to_double (strlen e.label)) * 6.6) + 12.0)
+    }
+
+    ; Whether an edge is, on the whole, going up or down the page.
+    sfn runsVertical:boolean (g:FlowGraph e:FlowEdge) {
+        def dx:double (fabs ((g.endpointX(e false)) - (g.endpointX(e true))))
+        def dy:double (fabs ((g.endpointY(e false)) - (g.endpointY(e true))))
+        return (dy >= dx)
+    }
+
+    sfn partLabels:boolean (g:FlowGraph a:FlowEdge b:FlowEdge) {
+        def pa:EdgePath (EdgeRouter.route(g a))
+        def pb:EdgePath (EdgeRouter.route(g b))
+        pa.flatten(4)
+        pb.flatten(4)
+        def ax:double ((pa.midX()) + a.labelDX)
+        def ay:double ((pa.midY()) + a.labelDY)
+        def bx:double ((pb.midX()) + b.labelDX)
+        def by:double ((pb.midY()) + b.labelDY)
+        def height:double 18.0
+        def overX:double ((((EdgeLanes.labelWidth(a)) + (EdgeLanes.labelWidth(b))) * 0.5) - (fabs (ax - bx)))
+        def overY:double (height - (fabs (ay - by)))
+        if (overX <= 0.0) {
+            return false
+        }
+        if (overY <= 0.0) {
+            return false
+        }
+        ; Each slides along its own line, away from the other. Two lines
+        ; running the same way part by the overlap between them; on a line
+        ; running the other way the slide clears the box in one move.
+        if (EdgeLanes.runsVertical(g a)) {
+            def stepA:double ((overY * 0.5) + 2.0)
+            if (ay > by) {
+                a.labelDY = (a.labelDY + stepA)
+            } {
+                a.labelDY = (a.labelDY - stepA)
+            }
+        } {
+            def stepAx:double ((overX * 0.5) + 2.0)
+            if (ax > bx) {
+                a.labelDX = (a.labelDX + stepAx)
+            } {
+                a.labelDX = (a.labelDX - stepAx)
+            }
+        }
+        if (EdgeLanes.runsVertical(g b)) {
+            def stepB:double ((overY * 0.5) + 2.0)
+            if (by >= ay) {
+                b.labelDY = (b.labelDY + stepB)
+            } {
+                b.labelDY = (b.labelDY - stepB)
+            }
+        } {
+            def stepBx:double ((overX * 0.5) + 2.0)
+            if (bx >= ax) {
+                b.labelDX = (b.labelDX + stepBx)
+            } {
+                b.labelDX = (b.labelDX - stepBx)
+            }
+        }
+        return true
     }
 
     ; ------------------------------------------------------------- trunks --
