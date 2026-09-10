@@ -220,9 +220,16 @@ class LayeredLayout {
                         hi = la
                     }
                     if (hi > lo) {
-                        set_at count lo ((itemAt count lo) + 1)
                         if ((hi - lo) > 1) {
+                            set_at count lo ((itemAt count lo) + 1)
                             set_at count (hi - 1) ((itemAt count (hi - 1)) + 1)
+                        } {
+                            ; Two neighbours near enough in line get a
+                            ; straight line from the fan, which turns
+                            ; nowhere and needs no track.
+                            if ((this.canBeStraight(e)) == false) {
+                                set_at count lo ((itemAt count lo) + 1)
+                            }
                         }
                     }
                 }
@@ -241,6 +248,22 @@ class LayeredLayout {
             busiest = 1
         }
         return (56.0 + ((to_double (busiest - 1)) * 14.0))
+    }
+
+    ; Whether the fan could join these two ends with one straight line: the
+    ; two nodes' centres across the flow are within the reach of the slots
+    ; on the two sides put together — a third of each box out from its
+    ; middle, which is the room `EdgeLanes` gives a box's top and bottom.
+    fn canBeStraight:boolean (e:FlowEdge) {
+        def a:FlowNode (graph.nodeAt(e.sourceIndex))
+        def b:FlowNode (graph.nodeAt(e.targetIndex))
+        def apart:double (fabs ((a.centerX()) - (b.centerX())))
+        def reach:double ((a.width + b.width) * 0.35)
+        if (direction != "TB") {
+            apart = (fabs ((a.centerY()) - (b.centerY())))
+            reach = ((a.height + b.height) * 0.25)
+        }
+        return (apart <= reach)
     }
 
     ; The longest label on any edge, in characters — what a gap along the
@@ -847,6 +870,14 @@ class LayeredLayout {
             return false
         }
         def flip:boolean (itemAt edgeReversed edgeIdx)
+        ; The lane each dummy was given, with a wobble taken out: two
+        ; layers of different widths centre differently, so a chain's lane
+        ; could move four pixels between one layer and the next, and the
+        ; route got two corners for a jog nobody could see the reason for.
+        ; A run of dummies whose lanes are within half a lane's room of each
+        ; other is drawn down one lane, their mean, which is still inside
+        ; the room every one of them was given.
+        def lanes:[double] (this.straightenedLanes(chain))
         ; Which side to leave from, before asking where the endpoints are.
         ; `faceNeighbours` points every source the way the layout runs, which
         ; is right for an edge going forwards and wrong for one going back: a
@@ -877,7 +908,7 @@ class LayeredLayout {
                 idx = ((count - 1) - i)
             }
             def dv:int (itemAt chain idx)
-            def lane:double (itemAt vCross dv)
+            def lane:double (itemAt lanes idx)
             ; Enter the layer on the side the edge is coming from and leave on
             ; the other. Pushing them in layer order regardless meant a back
             ; edge crossed each layer the wrong way round: the corner list
@@ -933,6 +964,44 @@ class LayeredLayout {
         e.hasLaneX = false
         e.hasLaneY = false
         return true
+    }
+
+    fn straightenedLanes:[double] (chain:[int]) {
+        def out:[double]
+        def n:int (array_length chain)
+        def near:double (edgeGap * 0.5)
+        def i:int 0
+        while (i < n) {
+            ; The run starting here: every following dummy whose lane is
+            ; within `near` of this one's.
+            def first:double (itemAt vCross (itemAt chain i))
+            def sum:double 0.0
+            def count:int 0
+            def j:int i
+            def going:boolean true
+            while (j < n) {
+                if going {
+                    def lane:double (itemAt vCross (itemAt chain j))
+                    if ((fabs (lane - first)) <= near) {
+                        sum = (sum + lane)
+                        count = (count + 1)
+                        j = (j + 1)
+                    } {
+                        going = false
+                    }
+                } {
+                    j = n
+                }
+            }
+            def mean:double (sum / (to_double count))
+            def k:int 0
+            while (k < count) {
+                push out mean
+                k = (k + 1)
+            }
+            i = (i + count)
+        }
+        return out
     }
 
     ; Point each end at the corridor it actually meets.

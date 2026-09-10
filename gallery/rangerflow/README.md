@@ -27,7 +27,7 @@ routing, auto-layout, large graphs — and produces something worth having.
 ## Run it
 
 ```bash
-npm run rangerflow:test        # 1470 assertions: model, forces, router, editor, SQL, Mermaid, CSS, export
+npm run rangerflow:test        # 1474 assertions: model, forces, router, editor, SQL, Mermaid, CSS, export
 npm run rangerflow:demo        # the e-commerce schema → SVG, PDF, HTML, JSON, scene
 npm run rangerflow:uml         # the same pipeline for a UML class diagram
 npm run rangerflow:flowchart   # an ATK flowchart in ISO 5807 shapes
@@ -1485,6 +1485,19 @@ Two more rules came from the same picture once those were fixed:
   its stubs and a track per edge (`corridorNeed`), nor, across the page,
   below what the longest label written along the flow needs. The Mermaid
   pipelines ask for it; the schema and UML layouts keep their gaps as set.
+
+And the one that is not about lines at all. Mermaid's picture *read* bigger,
+and not because of its routing: a drawing fitted to a page is scaled by its
+boxes and gaps, not by its type, and Mermaid's box is the word in it with a
+little room round it, set at a face larger than the theme's. The state reader
+now asks `ActivityDiagram` for the same proportions — 15px type, 16px either
+side of the word, a box 42 tall, no 120px minimum — and carries the ratio on
+each node (`FlowNode.fontScale`), so a stylesheet's `font-size` still scales
+the whole picture. With the gaps closed to what the corridors need, Mermaid's
+first state example comes out a quarter shorter and its type half again as
+large on the page. A chained edge past two layers of different widths no
+longer jogs the few pixels their lanes differ by, either: a wobble under half
+a lane's room is drawn down one lane.
 
 `RouteQuality` in the test suite turns those into numbers on known diagrams,
 so a change to one router cannot quietly undo another's: the length of a

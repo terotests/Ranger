@@ -110,9 +110,16 @@ class ActivityDiagram {
     def title:string ""
     def nodes:[ActivityNode]
     def flows:[ActivityFlow]
+    ; The face the labels are measured at, and the box drawn round them: the
+    ; room either side of the text, the least width a box may have, and its
+    ; height. The theme sets type at 13, so a diagram that asks for more
+    ; carries the ratio on its nodes. The defaults are the activity demo's
+    ; even boxes; Mermaid's state diagrams size theirs to the word in them.
     def fontSize:double 13.0
+    def padding:double 34.0
     def minWidth:double 120.0
     def maxWidth:double 190.0
+    def boxHeight:double 50.0
 
     Constructor () {
     }
@@ -188,12 +195,13 @@ class ActivityDiagram {
         def n:FlowNode (FlowNode.create(a.id label 0.0 0.0))
         n.nodeType = "activity"
         n.shape = (ActivityKind.shapeFor(a.kind))
-        def want:double ((this.textWidth(a.label fontSize)) + 34.0)
+        n.fontScale = (fontSize / 13.0)
+        def want:double ((this.textWidth(a.label fontSize)) + padding)
         def w:double want
         if (w < minWidth) { w = minWidth }
         if (w > maxWidth) { w = maxWidth }
-        def h:double 50.0
-        if (want > maxWidth) { h = 66.0 }
+        def h:double boxHeight
+        if (want > maxWidth) { h = (boxHeight + 16.0) }
         if (a.kind == "decision") {
             w = (w * 1.4)
             h = 82.0

@@ -359,6 +359,10 @@ class FlowNode {
     ; rectangle every table and class has always been; a flowchart's meaning
     ; lives here, because a decision that is not a diamond is not a decision.
     def shape:string "rect"
+    ; The size this node's own label is set at, relative to the theme's
+    ; header size. A state box sized to its text asks for a larger face than
+    ; a schema's column list; a stylesheet's `font-size` still scales both.
+    def fontScale:double 1.0
     ; For `shape = "polygon"`: the ring, in unit coordinates across the box.
     ; Empty for every other shape, which knows its own.
     def shapePoints:[double]

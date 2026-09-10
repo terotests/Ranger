@@ -399,6 +399,19 @@ class EdgeLanes {
         return moved
     }
 
+    ; How much of a top or bottom side the slots may use. A box's edge is
+    ; straight nearly to its corners, so a box sized to its text still has
+    ; room for three slots; a diamond or a circle has its border where the
+    ; bounding box is only at the middle, and a slot far out would meet air.
+    sfn sideShare:double (shape:string) {
+        if (shape == "rect") { return 0.7 }
+        if (shape == "action") { return 0.7 }
+        if (shape == "roundrect") { return 0.7 }
+        if (shape == "subroutine") { return 0.7 }
+        if (shape == "stadium") { return 0.6 }
+        return 0.5
+    }
+
     ; One side's slots. Each edge would like to leave exactly opposite where
     ; it is going, so that the line between the two is straight; two that
     ; want the same place are pushed apart to `fanGap`, the group is moved
@@ -418,11 +431,11 @@ class EdgeLanes {
         def anyEdge:FlowEdge (g.edgeAt((itemAt edgeIdx firstSlot)))
         def side0:int (g.edgeSide(anyEdge (itemAt atSource firstSlot)))
         def owner:FlowNode (EdgeLanes.ownerOf(g anyEdge (itemAt atSource firstSlot)))
-        def room:double (owner.width * 0.5)
+        def room:double (owner.width * (EdgeLanes.sideShare(owner.shape)))
         if ((EdgeLanes.alongX(side0)) == false) {
             room = (owner.rowHeight - 6.0)
             if ((owner.sectionCount()) == 0) {
-                room = (owner.height * 0.5)
+                room = (owner.height * (EdgeLanes.sideShare(owner.shape)))
             }
         }
         if (room < 4.0) {

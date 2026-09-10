@@ -64,6 +64,14 @@ class MermaidStateDiagram {
     def groups:[MermaidStateGroup]
 
     Constructor () {
+        ; Mermaid draws a state as its name with a little room round it, at
+        ; a face larger than the theme's, and that is what makes its pictures
+        ; read big: the text is most of the box, and a picture fitted to a
+        ; page is scaled by its boxes and gaps, not by its type.
+        activity.fontSize = 15.0
+        activity.padding = 32.0
+        activity.minWidth = 64.0
+        activity.boxHeight = 42.0
     }
 
     fn stateCount:int () {

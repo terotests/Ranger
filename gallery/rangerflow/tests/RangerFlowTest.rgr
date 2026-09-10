@@ -3186,6 +3186,19 @@ class RangerFlowTest {
         c.eqInt("a line that can be straight is straight — and back up" (RouteQuality.bends(g back)) 0)
         def turns:int (RouteQuality.totalBends(g))
         c.ok(("the whole picture turns few corners (got " + (to_string turns) + ")") (turns <= 6))
+        ; The chain past two states of different widths used to jog four
+        ; pixels between their lanes; a wobble that small is drawn straight.
+        c.ok(("the routed edge runs down one lane (got " + (to_string (RouteQuality.bends(g longE))) + " bends)") ((RouteQuality.bends(g longE)) <= 4))
+
+        ; What makes the picture read big when it is fitted to a page: the
+        ; boxes are the size of the words in them, the type in them is larger
+        ; than the theme's, and the gaps are what the corridors need. The
+        ; column comes out a quarter shorter than with even boxes and gaps.
+        def still:FlowNode (g.nodeById("Still"))
+        c.ok(("a state is its name with room round it (got " + (to_string still.width) + " wide)") (still.width < 90.0))
+        c.near("set larger than the theme's face" still.fontScale (15.0 / 13.0) 0.001)
+        def column:FlowRect (g.bounds())
+        c.ok(("and the column closed its gaps (got " + (to_string column.h) + " tall)") (column.h < 420.0))
 
         ; The same machine across the page.
         def across:string ("stateDiagram-v2\n    direction LR\n" + (substring src 15 (strlen src)))
@@ -3300,16 +3313,24 @@ class RangerFlowTest {
         def b1:FlowNode (chain.nodeById("b1"))
         def b2:FlowNode (chain.nodeById("b2"))
         c.near("with every box placed on the new gap" (b2.y - b1.y) 106.0 0.5)
-        ; A gap a busy corridor needs is not closed. Two more edges into the
-        ; same corridor want three tracks there.
-        chain.connect("b2" "b3")
-        chain.connect("b3" "b2")
+        ; A gap a busy corridor needs is not closed. Two more boxes beside
+        ; the fourth, both fed from the third, put two edges in that corridor
+        ; that have to turn — the one straight down still turns nowhere —
+        ; and the gap keeps a track for each.
+        def side:int 0
+        while (side < 2) {
+            def extra:FlowNode (chain.node(("s" + (to_string side)) "beside" 0.0 0.0))
+            extra.width = 120.0
+            extra.height = 50.0
+            chain.connect("b2" ("s" + (to_string side)))
+            side = (side + 1)
+        }
         def busyLay:LayeredLayout (LayeredLayout.of(chain))
         busyLay.direction = "TB"
         busyLay.layerGap = 76.0
         busyLay.squareUp = true
         busyLay.run()
-        c.ok(("a corridor with three edges keeps the room they need (got " + (to_string busyLay.layerGap) + ")") (busyLay.layerGap >= 76.0))
+        c.near("a corridor with two edges that turn keeps a track for each" busyLay.layerGap 70.0 0.001)
     }
 
     ; ---------------------------------------------------- Mermaid mind maps --
