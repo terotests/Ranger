@@ -414,7 +414,79 @@ class EdgeLanes {
             }
             i = (i + 1)
         }
+        this.slideRoutedEnds(g)
         return moved
+    }
+
+    ; An edge that already carries a route — the layered layout's corridor
+    ; chain, or the grid router's way round something — was drawn from where
+    ; its ends were at the time, and the fan has just moved them. Until this
+    ; the route stayed where it was and the slot went unused: two chained
+    ; edges into one side both kept the centre they were drawn to, one on
+    ; top of the other, with the fan insisting they were fifteen pixels
+    ; apart. The route is kept and its ends follow it: the first leg leaves a
+    ; port straight and the last arrives straight, so sliding the end and the
+    ; corner it turns at along the port's side keeps every corner square.
+    fn slideRoutedEnds:void (g:FlowGraph) {
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            if (e.pinnedRoute == false) {
+                if ((array_length e.waypoints) >= 6) {
+                    this.slideEnd(g e true)
+                    this.slideEnd(g e false)
+                }
+            }
+            k = (k + 1)
+        }
+    }
+
+    fn slideEnd:void (g:FlowGraph e:FlowEdge atSource:boolean) {
+        def n:int (idiv (array_length e.waypoints) 2)
+        def side:int (g.edgeSide(e atSource))
+        ; The coordinate the slot runs along: x on a top or bottom port, y on
+        ; a left or right one. The other one is the leg's own direction.
+        def axis:int 1
+        if (EdgeLanes.alongX(side)) {
+            axis = 0
+        }
+        def want:double (g.endpointY(e atSource))
+        if (axis == 0) {
+            want = (g.endpointX(e atSource))
+        }
+        def first:int 0
+        def step:int 1
+        if (atSource == false) {
+            first = (n - 1)
+            step = -1
+        }
+        def have:double (itemAt e.waypoints ((first * 2) + axis))
+        def d:double (want - have)
+        if ((fabs d) < 0.01) {
+            return
+        }
+        ; The run out of the port: every corner that shares the port's own
+        ; coordinate, up to the one where the route turns. A route whose very
+        ; first leg is not straight out of the port was placed by something
+        ; with its own reasons, and is left alone.
+        def second:int (first + step)
+        if ((fabs ((itemAt e.waypoints ((second * 2) + axis)) - have)) > 0.01) {
+            return
+        }
+        def p:int first
+        while (p >= 0) {
+            if (p < n) {
+                def at:int ((p * 2) + axis)
+                if ((fabs ((itemAt e.waypoints at) - have)) < 0.01) {
+                    set_at e.waypoints at ((itemAt e.waypoints at) + d)
+                    p = (p + step)
+                } {
+                    p = -1
+                }
+            } {
+                p = -1
+            }
+        }
     }
 
     ; ------------------------------------------------------------- trunks --

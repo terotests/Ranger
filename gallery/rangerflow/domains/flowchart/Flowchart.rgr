@@ -317,13 +317,21 @@ class Flowchart {
                     } {
                         ; A loop back up the page leaves and arrives sideways,
                         ; so it goes round the outside instead of back through
-                        ; everything it just came past.
-                        if ((b.centerX()) < (a.centerX())) {
-                            e.sourceHandle = 3
-                            e.targetHandle = 3
+                        ; everything it just came past — unless there is
+                        ; nothing between the two boxes, in which case the
+                        ; outside is a detour round nothing and the loop goes
+                        ; straight back up the corridor.
+                        if (g.corridorClear(a b true)) {
+                            e.sourceHandle = 0
+                            e.targetHandle = 2
                         } {
-                            e.sourceHandle = 1
-                            e.targetHandle = 1
+                            if ((b.centerX()) < (a.centerX())) {
+                                e.sourceHandle = 3
+                                e.targetHandle = 3
+                            } {
+                                e.sourceHandle = 1
+                                e.targetHandle = 1
+                            }
                         }
                     }
                     ; A branch that goes sideways rather than down leaves by

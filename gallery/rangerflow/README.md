@@ -27,7 +27,7 @@ routing, auto-layout, large graphs — and produces something worth having.
 ## Run it
 
 ```bash
-npm run rangerflow:test        # 895 assertions: model, forces, router, editor, SQL, Mermaid, CSS, export
+npm run rangerflow:test        # 1458 assertions: model, forces, router, editor, SQL, Mermaid, CSS, export
 npm run rangerflow:demo        # the e-commerce schema → SVG, PDF, HTML, JSON, scene
 npm run rangerflow:uml         # the same pipeline for a UML class diagram
 npm run rangerflow:flowchart   # an ATK flowchart in ISO 5807 shapes
@@ -1436,6 +1436,42 @@ The two are the same table dropped into a gap barely wider than itself, where
 the edges that have to cross the gap have nowhere else to be. The suite runs a
 smaller version of the same sweep, so a change that breaks this fails a test
 rather than a screenshot.
+
+### …and what a drawn line is measured by
+
+A picture is not a test, and every one of these was a picture first. Mermaid's
+own first state example — `Still --> Moving`, `Moving --> Still` — came out
+with the return drawn round the outside, two pixels from the line leaving for
+the end state, and the arrow that should have pointed back up was easy to miss
+altogether. Three things were wrong, and each is a rule now:
+
+- **A return to a neighbour goes straight back.** `Moving --> Still` used to
+  leave and arrive sideways so it would go round whatever it had come past,
+  which for two boxes one above the other is a detour round nothing. When the
+  corridor between the two is empty (`FlowGraph.corridorClear`) the return
+  leaves by the top and arrives at the bottom, and the fan at each side gives
+  the two directions slots of their own — the two lines Mermaid draws. It goes
+  round only when something stands in that corridor. The state reader now
+  faces its edges by the direction it was given, so `direction LR` gets the
+  same treatment a quarter turn round instead of the top-to-bottom rules.
+- **A routed edge arrives square on.** The long-edge chains turned their last
+  corner at the level of the target's port, which put the final leg *along*
+  the top of the box with the arrow pointing sideways at a handle facing up.
+  The last corner is now turned at the port's stub point, twenty pixels out,
+  the same place every stepped edge turns — and not at the corridor's centre,
+  which is where the short edges keep their tracks.
+- **A routed edge keeps its slot.** The fan moves an endpoint along its side;
+  a route drawn before the fan ran still ended where the port used to be, so
+  two chained edges into one side were drawn to one point with the fan
+  insisting they were fifteen pixels apart. `EdgeLanes` now slides the ends
+  of a route — the end and the straight run out of it — to where the port is.
+
+`RouteQuality` in the test suite turns those into numbers on known diagrams,
+so a change to one router cannot quietly undo another's: the length of a
+line; how **square** it meets its box, as the cosine between its last leg and
+the side's normal, held at 45° or better on every end; the closest two lines
+of different edges run **side by side**, held at eight pixels; and that every
+route ends where its port is. The bounds are the pictures that looked wrong.
 
 ### …and where the reader says, instead
 

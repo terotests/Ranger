@@ -633,7 +633,7 @@ class MermaidStateFlow {
             lay.nodeGap = 36.0
         }
         lay.run()
-        ActivityDiagram.faceEdges(g)
+        ActivityDiagram.faceEdgesAlong(g ((d.layerDirection()) == "LR"))
         def moved:int (EdgeLanes.assign(g))
         def routed:int (lay.routeLongEdges())
         EdgeLanes.resetLanes(g)

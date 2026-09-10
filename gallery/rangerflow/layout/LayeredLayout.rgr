@@ -728,6 +728,9 @@ class LayeredLayout {
         def pts:[double]
         push pts x1
         push pts y1
+        ; Where the route leaves the last corridor, kept so the final leg can
+        ; be made to arrive straight.
+        def lastLeave:double 0.0
         def i:int 0
         while (i < count) {
             def idx:int i
@@ -758,8 +761,22 @@ class LayeredLayout {
                 push pts lane
                 push pts leave
             }
+            lastLeave = leave
             i = (i + 1)
         }
+        ; The last corner is turned short of the node, not on it.
+        ; `orthogonalise` resolves a diagonal by going along the flow first,
+        ; which is right for leaving — down out of the port, then across to
+        ; the lane — and wrong for arriving: down the lane to the level of
+        ; the port, then across to it, is a line drawn along the node's top
+        ; edge with the arrow pointing sideways at a handle that faces up.
+        ; So the route is sent to the port's stub point — the same twenty
+        ; pixels out that every stepped edge turns at — and arrives from
+        ; there straight in. The corridor's centre is not used for that last
+        ; turn because the centre is where the short edges keep their tracks.
+        def s2:int (graph.edgeSide(e false))
+        push pts (x2 + ((FlowPosition.normalX(s2)) * 20.0))
+        push pts (y2 + ((FlowPosition.normalY(s2)) * 20.0))
         push pts x2
         push pts y2
         def corners:[double] (LayeredLayout.orthogonalise(pts horizontal))

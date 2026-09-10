@@ -332,7 +332,7 @@ class OrthoRouter {
         def bx:double (x2 + ((FlowPosition.normalX(s2)) * stubLen))
         def by:double (y2 + ((FlowPosition.normalY(s2)) * stubLen))
 
-        this.collectObstacles(g e pad)
+        this.collectObstacles(g e pad stubLen)
         this.collectGrid(ax ay bx by)
         def nx:int (array_length xs)
         def ny:int (array_length ys)
@@ -395,22 +395,28 @@ class OrthoRouter {
     }
 
     ; ---------------------------------------------------------- the grid ----
-    fn collectObstacles:void (g:FlowGraph e:FlowEdge inflate:double) {
+    fn collectObstacles:void (g:FlowGraph e:FlowEdge inflate:double ownStub:double) {
         clear ox
         clear oy
         clear ow
         clear oh
+        ; The edge's own nodes block too — a route may not cut through the
+        ; table it starts at. They keep their margin as long as the stub
+        ; reaches past it, so the route does not run along the box's own
+        ; border on its way round; a stub that has already been shortened to
+        ; fit stands inside the margin, and then the box is left uninflated
+        ; rather than swallowing the stub.
+        def own:double inflate
+        if (own >= ownStub) {
+            own = 0.0
+        }
         def i:int 0
         while (i < (g.nodeCount())) {
             def n:FlowNode (g.nodeAt(i))
             if (EdgeOverlap.blocks(n)) {
-                ; The edge's own nodes block too — a route may not cut through
-                ; the table it starts at — but they are not inflated, because
-                ; the stub already stands `stub` away from them and an inflated
-                ; box would swallow it.
                 def pad:double inflate
-                if (i == e.sourceIndex) { pad = 0.0 }
-                if (i == e.targetIndex) { pad = 0.0 }
+                if (i == e.sourceIndex) { pad = own }
+                if (i == e.targetIndex) { pad = own }
                 push ox (n.x - pad)
                 push oy (n.y - pad)
                 push ow (n.width + (pad * 2.0))

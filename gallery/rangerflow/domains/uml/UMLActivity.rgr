@@ -275,6 +275,18 @@ class ActivityDiagram {
     ; incoming ones straight in, because a bar with an arrow leaving its end
     ; is a bar nobody reads as a fork.
     sfn faceEdges:void (g:FlowGraph) {
+        ActivityDiagram.faceEdgesAlong(g false)
+    }
+
+    ; The same, told which way the flow runs. A flow that goes back up the
+    ; page — `Moving --> Still` under `Still --> Moving` — used to leave and
+    ; arrive sideways and go round the outside, which for two boxes one above
+    ; the other is a detour round nothing, drawn on top of whatever else was
+    ; using that side. When the corridor between the two boxes is empty the
+    ; return goes straight back through it, and the fan-out gives the two
+    ; directions their own slots. It only goes round when something is in
+    ; the way.
+    sfn faceEdgesAlong:void (g:FlowGraph horizontal:boolean) {
         def k:int 0
         while (k < (g.edgeCount())) {
             def e:FlowEdge (g.edgeAt(k))
@@ -282,21 +294,103 @@ class ActivityDiagram {
                 if (e.targetIndex >= 0) {
                     def a:FlowNode (g.nodeAt(e.sourceIndex))
                     def b:FlowNode (g.nodeAt(e.targetIndex))
-                    if ((b.centerY()) > (a.centerY())) {
-                        e.sourceHandle = 2
-                        e.targetHandle = 0
+                    if horizontal {
+                        ActivityDiagram.faceAcross(g e a b)
                     } {
-                        if ((b.centerX()) < (a.centerX())) {
-                            e.sourceHandle = 3
-                            e.targetHandle = 3
-                        } {
-                            e.sourceHandle = 1
-                            e.targetHandle = 1
-                        }
+                        ActivityDiagram.faceDown(g e a b)
                     }
                 }
             }
             k = (k + 1)
         }
+    }
+
+    ; Top-to-bottom: forwards is down. Backwards goes straight up through an
+    ; empty corridor, across when the two stand side by side, and round the
+    ; outside otherwise.
+    sfn faceDown:void (g:FlowGraph e:FlowEdge a:FlowNode b:FlowNode) {
+        if (e.sourceIndex == e.targetIndex) {
+            ; A transition to itself: a loop off one side.
+            e.sourceHandle = 1
+            e.targetHandle = 1
+            return
+        }
+        if ((b.centerY()) > (a.centerY())) {
+            e.sourceHandle = 2
+            e.targetHandle = 0
+            return
+        }
+        if (g.corridorClear(a b true)) {
+            e.sourceHandle = 0
+            e.targetHandle = 2
+            return
+        }
+        if (ActivityDiagram.sideBySide(a b true)) {
+            if ((b.centerX()) < (a.centerX())) {
+                e.sourceHandle = 3
+                e.targetHandle = 1
+            } {
+                e.sourceHandle = 1
+                e.targetHandle = 3
+            }
+            return
+        }
+        if ((b.centerX()) < (a.centerX())) {
+            e.sourceHandle = 3
+            e.targetHandle = 3
+        } {
+            e.sourceHandle = 1
+            e.targetHandle = 1
+        }
+    }
+
+    ; Left-to-right: the same rules a quarter turn round.
+    sfn faceAcross:void (g:FlowGraph e:FlowEdge a:FlowNode b:FlowNode) {
+        if (e.sourceIndex == e.targetIndex) {
+            e.sourceHandle = 2
+            e.targetHandle = 2
+            return
+        }
+        if ((b.centerX()) > (a.centerX())) {
+            e.sourceHandle = 1
+            e.targetHandle = 3
+            return
+        }
+        if (g.corridorClear(a b false)) {
+            e.sourceHandle = 3
+            e.targetHandle = 1
+            return
+        }
+        if (ActivityDiagram.sideBySide(a b false)) {
+            if ((b.centerY()) < (a.centerY())) {
+                e.sourceHandle = 0
+                e.targetHandle = 2
+            } {
+                e.sourceHandle = 2
+                e.targetHandle = 0
+            }
+            return
+        }
+        if ((b.centerY()) < (a.centerY())) {
+            e.sourceHandle = 0
+            e.targetHandle = 0
+        } {
+            e.sourceHandle = 2
+            e.targetHandle = 2
+        }
+    }
+
+    ; Two nodes in the same row (or, across the page, the same column): their
+    ; extents along the flow overlap, so there is no corridor between them and
+    ; the line has to leave by the side that faces the other.
+    sfn sideBySide:boolean (a:FlowNode b:FlowNode vertical:boolean) {
+        if vertical {
+            if ((a.y + a.height) <= b.y) { return false }
+            if ((b.y + b.height) <= a.y) { return false }
+            return true
+        }
+        if ((a.x + a.width) <= b.x) { return false }
+        if ((b.x + b.width) <= a.x) { return false }
+        return true
     }
 }
