@@ -728,7 +728,8 @@ class EVGLayout {
     ; surfaces alike. That is what a browser does: an absolute box is
     ; positioned against this one, so it belongs to its content, and a dropdown
     ; opened from a row inside a scrolled panel travels with the row. Only
-    ; `position: fixed` escapes, and EVG has no such thing.
+    ; `position: fixed` escapes — it is furniture over the viewport rather than
+    ; content, and `moveSubtreeUnfixed` is the walk that steps over it.
     ;
     ; It reuses the mover the RTL mirror already had. One function that walks a
     ; placed subtree and adds an offset to it is enough; a second one would be
@@ -789,7 +790,11 @@ class EVGLayout {
         }
         def j:int 0
         while (j < (el.getChildCount())) {
-            this.translateSubtree((el.getChild(j)) (0.0 - el.scrollLeft) (0.0 - el.scrollTop))
+            def moved:EVGElement (el.getChild(j))
+            if (moved.isFixedPosition()) {
+            } {
+                moved.moveSubtreeUnfixed((0.0 - el.scrollLeft) (0.0 - el.scrollTop))
+            }
             j = (j + 1)
         }
     }
@@ -857,6 +862,12 @@ class EVGLayout {
     ; document of a thousand rows a frame touches the rows near the viewport
     ; and one node per row elsewhere, not every box in the document.
     fn shiftNear:void (kid:EVGElement dx:double dy:double clip:EVGElement) {
+        ; A FIXED BOX IS NOT SCROLLED, here either. `applyScroll` steps over it
+        ; on a full layout and this is the incremental path; a rule kept in one
+        ; of the two is a rule that holds until the frame after the first one.
+        if (kid.isFixedPosition()) {
+            return
+        }
         kid.moveSelf(dx dy)
         if (this.nearClip(kid clip)) {
             def tx:double (kid.shiftDx + dx)
@@ -1329,6 +1340,26 @@ class EVGLayout {
             
             ; Skip absolute positioned elements in flow
             if child.isAbsolute {
+                ; A FIXED BOX IS POSITIONED AGAINST THE VIEWPORT, not against
+                ; this parent: its `top`, `right`, `bottom` and `left` and every
+                ; percentage inside it resolve against the page, and its origin
+                ; is the page's own (0,0) — so unlike an absolute child it is
+                ; NOT translated to the parent's content corner afterwards.
+                ; `applyScroll` then leaves it alone, which is the whole
+                ; difference between the two modes.
+                if (child.isFixedPosition()) {
+                    child.unitsResolved = false
+                    child.resolveUnits(child.viewportW child.viewportH)
+                    def wasRowF:boolean layingOutAlongRow
+                    def wasShrinkF:boolean columnCrossShrinks
+                    layingOutAlongRow = (isColumn == false)
+                    columnCrossShrinks = (this.crossShrinksUnder(parent))
+                    this.layoutElement(child 0.0 0.0 child.viewportW child.viewportH)
+                    layingOutAlongRow = wasRowF
+                    columnCrossShrinks = wasShrinkF
+                    i = i + 1
+                    continue
+                }
                 ; Layer elements use parent's full dimensions, not inner dimensions
                 if ((child.tagName == "layer") || (child.tagName == "Layer")) {
                     ; Re-resolve Layer dimensions with parent's full width/height
@@ -2618,7 +2649,7 @@ class EVGLayout {
             ; `isAbsolute`, so a rail the sheet had folded away still claimed
             ; its icons' width from the row and the page beside it came up
             ; 32px short.
-            if ((kid.position == "absolute") || (kid.isHidden())) {
+            if (kid.isAbsolute || (kid.isHidden())) {
             } {
                 ; RESOLVE THE KID FIRST. Its padding and border live in
                 ; `kid.box` as pixels, and `resolveUnits` is what puts them

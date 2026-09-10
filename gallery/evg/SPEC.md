@@ -199,7 +199,22 @@ Multi-line text input.
 | `right` | unit | Distance from parent's right edge | Enables absolute positioning |
 | `bottom` | unit | Distance from parent's bottom edge | Enables absolute positioning |
 
+| `position` | string | `relative` (default), `absolute` or `fixed` | See below |
+
 **Note:** When `left`, `top`, `right`, or `bottom` is set, the element uses **absolute positioning** and is removed from the flow layout.
+
+**`position: fixed`** is out of flow the same way, and differs in two things:
+it is positioned against the **viewport** rather than against its parent — its
+`left`/`top`/`right`/`bottom` and every percentage inside it resolve against the
+page — and **a scroll does not move it**. That is the mode: the content slides
+under the furniture. Both scroll paths honour it, the full layout's
+`applyScroll` and the incremental `scrollOnlyFrom`. It is checked by
+`npm run evg:fixed:test`.
+
+One limit: a fixed box inside a container that clips still clips against that
+container. In CSS a fixed box escapes an ancestor's `overflow`; here the clip
+stack is built from the tree, so it does not. Put the bar beside the scroller
+rather than inside it.
 
 ### 4.3 Spacing Attributes
 

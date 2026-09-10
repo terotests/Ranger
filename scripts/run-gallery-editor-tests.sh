@@ -92,6 +92,7 @@ SUITES=(
   # 24-grid, and it failed the first time it was run.
   evg:toolbar:test
   evg:overlay:test
+  evg:fixed:test
   evg:style:test
   # `@vars` and `var()`: the palette a theme replaces instead of ninety rules.
   # Two of its checks are not about colour — that a name nobody defined is

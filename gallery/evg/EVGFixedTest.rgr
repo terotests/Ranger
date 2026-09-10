@@ -1,0 +1,208 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EVGFixedTest — `position: fixed`
+; ==============================================================================
+;
+; `fixed` used to be read from a stylesheet and turned into `absolute`, because
+; nothing modelled a viewport separate from the root. Two things make the real
+; mode cheap: `viewportW`/`viewportH` are already inherited down every element,
+; so the containing block is a field away; and a scroll is ONE translation over
+; a subtree, so leaving a box out of it is one branch.
+;
+; What is asserted, in order of how badly each one bites when it is wrong:
+;
+;   * it takes no space in its parent's flow, the way an absolute box does not;
+;   * `top`/`left` are measured from the PAGE, not from the parent — a bar 64
+;     tall with `bottom: 0` sits on the bottom of the viewport whatever box it
+;     was written inside;
+;   * a percentage inside it resolves against the page, not against the parent;
+;   * and A SCROLL DOES NOT MOVE IT. That is the whole mode: the content slides
+;     under the furniture. Both scroll paths are checked — the full layout's
+;     `applyScroll` and the incremental `scrollOnlyFrom` — because a rule kept
+;     in one of the two holds until the frame after the first one.
+; ==============================================================================
+
+Import "EVGElement.rgr"
+Import "EVGUnit.rgr"
+Import "EVGLayout.rgr"
+
+class FixedCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got " + (to_string got) + " want " + (to_string want))
+        }
+        this.ok(name good)
+    }
+}
+
+class EVGFixedTest {
+
+    sfn box:EVGElement (id:string w:double h:double) {
+        def el (EVGElement.createDiv())
+        el.id = id
+        el.setAttribute("width" ((to_string (to_int w)) + "px"))
+        el.setAttribute("height" ((to_string (to_int h)) + "px"))
+        return el
+    }
+
+    sfn laidOut:EVGLayout (root:EVGElement) {
+        def lay (new EVGLayout())
+        lay.setPageSize(400.0 800.0)
+        lay.layout(root)
+        return lay
+    }
+
+    ; A page with a column in it, the column holding two rows and a bar that
+    ; is fixed to the bottom of the PAGE — not of the column, which is what
+    ; makes the mode worth having.
+    sfn buildPage:EVGElement () {
+        def page:EVGElement (EVGFixedTest.box("page" 400.0 800.0))
+        page.setAttribute("flex-direction" "column")
+        def col:EVGElement (EVGFixedTest.box("col" 300.0 500.0))
+        col.setAttribute("flex-direction" "column")
+        col.setAttribute("margin-left" "50px")
+        col.setAttribute("margin-top" "100px")
+        col.addChild((EVGFixedTest.box("row1" 300.0 60.0)))
+        col.addChild((EVGFixedTest.box("row2" 300.0 60.0)))
+        def bar:EVGElement (EVGFixedTest.box("bar" 400.0 64.0))
+        bar.setAttribute("position" "fixed")
+        bar.setAttribute("left" "0px")
+        bar.setAttribute("bottom" "0px")
+        col.addChild(bar)
+        page.addChild(col)
+        return page
+    }
+
+    sfn testOutOfFlow:void (c:FixedCheck) {
+        print ""
+        print "--- out of flow ---"
+        def page:EVGElement (EVGFixedTest.buildPage())
+        def lay:EVGLayout (EVGFixedTest.laidOut(page))
+        def col:EVGElement (page.getChild(0))
+        def row2:EVGElement (col.getChild(1))
+        c.ok("a fixed box is out of flow" ((col.getChild(2)).isAbsolute))
+        ; Two 60-tall rows, so the second ends 120 below the column's content
+        ; top. A bar that took space would have pushed nothing, but a bar that
+        ; was IN flow would have taken the 64 after it — this is the assertion
+        ; that says the rows are the only things the column stacked.
+        c.eqInt("the rows stack as if it were not there"
+                (to_int ((row2.calculatedY + row2.calculatedHeight) - col.calculatedY)) 120)
+    }
+
+    sfn testAgainstViewport:void (c:FixedCheck) {
+        print ""
+        print "--- positioned against the page ---"
+        def page:EVGElement (EVGFixedTest.buildPage())
+        def lay:EVGLayout (EVGFixedTest.laidOut(page))
+        def col:EVGElement (page.getChild(0))
+        def bar:EVGElement (col.getChild(2))
+        ; The column starts at x=50, y=100. An ABSOLUTE bar with left:0 would
+        ; be at the column's content corner; a fixed one is at the page's.
+        c.eqInt("left is the page's left" (to_int bar.calculatedX) 0)
+        c.eqInt("bottom is the page's bottom" (to_int bar.calculatedY) 736)
+        c.eqInt("and it is as wide as it asked" (to_int bar.calculatedWidth) 400)
+    }
+
+    sfn testPercentAgainstViewport:void (c:FixedCheck) {
+        print ""
+        print "--- a percentage inside it ---"
+        def page:EVGElement (EVGFixedTest.box("page" 400.0 800.0))
+        page.setAttribute("flex-direction" "column")
+        def col:EVGElement (EVGFixedTest.box("col" 200.0 400.0))
+        def bar (EVGElement.createDiv())
+        bar.id = "bar"
+        bar.setAttribute("position" "fixed")
+        bar.setAttribute("left" "0px")
+        bar.setAttribute("top" "0px")
+        bar.setAttribute("width" "50%")
+        bar.setAttribute("height" "40px")
+        col.addChild(bar)
+        page.addChild(col)
+        def lay:EVGLayout (EVGFixedTest.laidOut(page))
+        ; Half the PAGE, not half the 200-wide column it was written in.
+        c.eqInt("50% is half the page" (to_int bar.calculatedWidth) 200)
+    }
+
+    ; A scrolling panel with a fixed bar inside it. The rows move; the bar does
+    ; not. Both scroll paths, because there are two.
+    sfn buildScroller:EVGElement () {
+        def page:EVGElement (EVGFixedTest.box("page" 400.0 800.0))
+        page.setAttribute("flex-direction" "column")
+        def panel:EVGElement (EVGFixedTest.box("panel" 400.0 300.0))
+        panel.setAttribute("flex-direction" "column")
+        panel.setAttribute("overflow" "hidden")
+        def i:int 0
+        while (i < 10) {
+            panel.addChild((EVGFixedTest.box(("row" + (to_string i)) 400.0 60.0)))
+            i = (i + 1)
+        }
+        def bar:EVGElement (EVGFixedTest.box("bar" 400.0 64.0))
+        bar.setAttribute("position" "fixed")
+        bar.setAttribute("left" "0px")
+        bar.setAttribute("bottom" "0px")
+        panel.addChild(bar)
+        page.addChild(panel)
+        return page
+    }
+
+    sfn testScrollLeavesItAlone:void (c:FixedCheck) {
+        print ""
+        print "--- a scroll moves the content, not the furniture ---"
+        def page:EVGElement (EVGFixedTest.buildScroller())
+        def panel:EVGElement (page.getChild(0))
+        panel.scrollTop = 120.0
+        def lay:EVGLayout (EVGFixedTest.laidOut(page))
+        def row0:EVGElement (panel.getChild(0))
+        def bar:EVGElement (panel.getChild(10))
+        c.eqInt("the first row went up by the scroll" (to_int row0.calculatedY) (0 - 120))
+        c.eqInt("the bar stayed on the bottom" (to_int bar.calculatedY) 736)
+    }
+
+    sfn testScrollOnlyLeavesItAlone:void (c:FixedCheck) {
+        print ""
+        print "--- and the incremental path leaves it alone too ---"
+        def page:EVGElement (EVGFixedTest.buildScroller())
+        def panel:EVGElement (page.getChild(0))
+        def lay:EVGLayout (EVGFixedTest.laidOut(page))
+        def row0:EVGElement (panel.getChild(0))
+        def bar:EVGElement (panel.getChild(10))
+        def wasRow:double row0.calculatedY
+        def wasBar:double bar.calculatedY
+        panel.scrollTop = 90.0
+        lay.scrollOnlyFrom(panel)
+        c.eqInt("the row moved by the delta" (to_int (row0.calculatedY - wasRow)) (0 - 90))
+        c.eqInt("the bar did not move at all" (to_int (bar.calculatedY - wasBar)) 0)
+    }
+
+    sfn main:void () {
+        def c (new FixedCheck())
+        print "=== EVG position: fixed ==="
+        EVGFixedTest.testOutOfFlow(c)
+        EVGFixedTest.testAgainstViewport(c)
+        EVGFixedTest.testPercentAgainstViewport(c)
+        EVGFixedTest.testScrollLeavesItAlone(c)
+        EVGFixedTest.testScrollOnlyLeavesItAlone(c)
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed > 0) {
+            print "FAILURES"
+        } {
+            print "ALL PASS"
+        }
+    }
+}
