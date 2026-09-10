@@ -217,6 +217,41 @@ const closure = (roots) => {
   }
   return seen;
 };
+// `--why <Class>` answers the question the sizes provoke: what keeps this on
+// the first-frame path? It prints the shortest chain of references from a root
+// to it, with the line that makes each link, which is how the doc-comment
+// chain that kept Vega-Lite was found.
+const whyAt = argv.indexOf("--why");
+if (whyAt >= 0) {
+  const target = argv[whyAt + 1];
+  if (!blocks.has(target)) {
+    console.error(`no class ${target} in the compiled app`);
+    process.exit(3);
+  }
+  const prev = new Map(HOT_ROOTS.map((r) => [r, null]));
+  const queue = [...HOT_ROOTS];
+  while (queue.length) {
+    const n = queue.shift();
+    if (n === target) break;
+    for (const r of refs.get(n) || []) if (!prev.has(r)) { prev.set(r, n); queue.push(r); }
+  }
+  if (!prev.has(target)) {
+    console.log(`${target} is not reachable from the first-frame roots`);
+    process.exit(0);
+  }
+  const chain = [];
+  for (let n = target; n; n = prev.get(n)) chain.push(n);
+  chain.reverse();
+  console.log(chain.join(" -> "));
+  for (let i = 0; i < chain.length - 1; i += 1) {
+    const from = chain[i], to = chain[i + 1];
+    const line = withoutComments(blocks.get(from).lines.join("\n"))
+      .split("\n").find((l) => new RegExp(`\\b${to}\\b`).test(l)) || "";
+    console.log(`  ${from} names ${to}:  ${line.trim().slice(0, 100)}`);
+  }
+  process.exit(0);
+}
+
 const hot = closure(HOT_ROOTS);
 const cold = [...closure(COLD_ROOTS)].filter((n) => !hot.has(n));
 const coldSet = new Set(cold);

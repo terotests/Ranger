@@ -100,9 +100,6 @@ Import "stats/ExerciseStats.rgr"
 ; behind this import and is deliberately not NAMED anywhere in this file —
 ; see RtCharts.rgr.
 Import "RtCharts.rgr"
-Import "../../vela/src/VlCommand.rgr"
-Import "../../vela/src/VlEvgList.rgr"
-Import "../../game_engine/ui/UITextRenderer.rgr"
 Import "../../ui/src/SelectCtl.rgr"
 Import "../../ui/src/NumberCtl.rgr"
 Import "../../ui/src/InputCtl.rgr"
@@ -865,8 +862,6 @@ class RealTrainerDemo {
     ; The Tilastot curves of the current tree, and their commands kept by
     ; data and size.
     def charts:[RtChartDef]
-    def chartKeys:[string]
-    def chartLists:[VlCommandList]
     ; The calendar menu is down — `showDropdown`.
     def calMenuOpen@(mutable):boolean false
     ; THE MENU, OPEN. It scrolls on its own when it is taller than the page
@@ -5478,41 +5473,22 @@ class RealTrainerDemo {
     ; scrolled container's layer, so a kept list moved the page out from under
     ; it. The `addLayerClip` here was the patch for the second of those, and
     ; being in the walk is the answer to both.
+    ; THE WHOLE OF A CHART IS BEHIND THE SEAM, not just its commands. This
+    ; loop finds the boxes the layout gave the cards and hands each one to the
+    ; maker; everything after that — Vela, the bridge, the text renderer that
+    ; carries a font manager — is in the deferred half. Until a maker is
+    ; installed the cards draw with their numbers and without their curves.
     fn registerCharts:void (dl:EVGDisplayList lay:EVGLayout r:EVGElement) {
         if ((array_length charts) == 0) { return }
-        def tr (new UITextRenderer())
+        def maker:RtChartMaker (RtCharts.maker())
         for charts def0:RtChartDef i {
             def box:EVGElement (RealTrainerDemo.findEl(r def0.id))
             if ((strlen box.id) == 0) { continue }
             def w:int (to_int box.calculatedWidth)
             def h:int (to_int box.calculatedHeight)
             if ((w < 10) || (h < 10)) { continue }
-            def list:VlCommandList (this.chartCommands(def0 w h))
-            ; Into a list of its own, then handed over: the bridge writes
-            ; commands, and what is wanted here is the commands.
-            def one (new EVGDisplayList())
-            one.setTextEngine((lay.getTextEngine()))
-            def bridge (new VlEvgList())
-            bridge.emit(one list tr box.calculatedX box.calculatedY 1.0)
-            dl.paintAt(def0.id one)
+            maker.paint(dl lay def0 w h box.calculatedX box.calculatedY)
         }
-    }
-
-    ; The commands for one chart at one size, kept: a paint that changed
-    ; nothing about the data draws the same picture.
-    fn chartCommands:VlCommandList (def0:RtChartDef w:int h:int) {
-        def key@(mutable):string ((def0.id + ":") + ((to_string w) + ("x" + (to_string h))))
-        for def0.values v:double i { key = ((key + ",") + (to_string v)) }
-        for chartKeys ck:string i {
-            if (ck == key) { return (itemAt chartLists i) }
-        }
-        ; THROUGH THE SEAM, not to a class this file names: `RtCharts.rgr`
-        ; says why. Until a maker is installed this answers with no commands
-        ; and the card draws without its curve.
-        def list:VlCommandList (RtCharts.maker().build(def0 w h))
-        push chartKeys key
-        push chartLists list
-        return list
     }
 
 

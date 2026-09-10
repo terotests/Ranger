@@ -25,6 +25,15 @@ Import "../../vela/src/VlChart.rgr"
 Import "../../vela/src/VlCompile.rgr"
 Import "../../vela/src/VlRuntime.rgr"
 Import "../../vela/src/VlCommand.rgr"
+; The bridge from Vela's commands to EVG's, and the text renderer it draws
+; labels with. Both are behind the seam and not in front of it: the renderer
+; alone reaches FontManager and TrueTypeFont, ~170 KB of font parsing and
+; software rasterising that a browser painting on the GPU never runs.
+Import "../../vela/src/VlEvgList.rgr"
+Import "../../game_engine/ui/UITextRenderer.rgr"
+Import "../../evg/EVGElement.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGDisplayList.rgr"
 
 ; One chart on one card: what the statistics screen collected, and all the
 ; maker is given.
@@ -39,9 +48,12 @@ class RtChartDef {
 ; has not arrived: no commands, so the card draws its frame and its numbers
 ; and no curve, and the next rebuild after the install draws the curve.
 class RtChartMaker {
-    fn build:VlCommandList (def0:RtChartDef w:int h:int) {
-        def empty (new VlCommandList())
-        return empty
+    ; Paint one chart into `dl` at the box the layout gave it. The base draws
+    ; nothing at all, and deliberately touches no Vela class: everything
+    ; between a chart definition and commands on a display list is behind the
+    ; seam, which is what lets the whole of it — the compiler, the runtime,
+    ; the bridge and the text renderer — be fetched after the first frame.
+    fn paint:void (dl:EVGDisplayList lay:EVGLayout def0:RtChartDef w:int h:int x:double y:double) {
     }
 }
 
@@ -81,6 +93,39 @@ class RtCharts @singleton(true) {
 ; THE COLD HALF. Nothing in the app names this class; the chunk does, and
 ; that is the whole mechanism.
 class RtVelaChartMaker extends RtChartMaker {
+    ; One renderer for every chart and every frame, rather than one per frame:
+    ; it carries a font manager, and building that twelve times a second was
+    ; never the point.
+    def tr:UITextRenderer (new UITextRenderer())
+    ; The commands for a chart at a size, kept: a paint that changed nothing
+    ; about the data draws the same picture. The cache lives HERE and not on
+    ; the app, because the app may not name a `VlCommandList` — see above.
+    def chartKeys:[string]
+    def chartLists:[VlCommandList]
+
+    fn paint:void (dl:EVGDisplayList lay:EVGLayout def0:RtChartDef w:int h:int x:double y:double) {
+        def list:VlCommandList (this.commandsFor(def0 w h))
+        ; Into a list of its own, then handed over: the bridge writes
+        ; commands, and what is wanted here is the commands.
+        def one (new EVGDisplayList())
+        one.setTextEngine((lay.getTextEngine()))
+        def bridge (new VlEvgList())
+        bridge.emit(one list tr x y 1.0)
+        dl.paintAt(def0.id one)
+    }
+
+    fn commandsFor:VlCommandList (def0:RtChartDef w:int h:int) {
+        def key@(mutable):string ((def0.id + ":") + ((to_string w) + ("x" + (to_string h))))
+        for def0.values v:double i { key = ((key + ",") + (to_string v)) }
+        for chartKeys ck:string i {
+            if (ck == key) { return (itemAt chartLists i) }
+        }
+        def list:VlCommandList (this.build(def0 w h))
+        push chartKeys key
+        push chartLists list
+        return list
+    }
+
     fn build:VlCommandList (def0:RtChartDef w:int h:int) {
         def n:int (array_length def0.values)
         def lo@(mutable):double (itemAt def0.values 0)
