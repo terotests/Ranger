@@ -76,6 +76,7 @@ Import "../../ui/src/TableCtl.rgr"
 Import "../../ui/src/ToggleCtl.rgr"
 Import "../../ui/src/AccordionCtl.rgr"
 Import "../../ui/src/RadioGroupCtl.rgr"
+Import "../../evg/EvgApp.rgr"
 Import "../../evg/EVGElement.rgr"
 Import "../../evg/EVGUnit.rgr"
 Import "../../evg/EVGLayout.rgr"
@@ -664,7 +665,11 @@ treefactory Rt {
 
 ; One curve on the Tilastot tab: the values, the colour, and the id of the
 ; box the layout places for it.
-class RealTrainerDemo {
+; The app answers the conversation every EVG host has with every EVG app
+; (`gallery/evg/EvgApp.rgr`): a page size, a hit test, presses, scrolls, keys,
+; a clock, a display list. Extending it is what lets one host — the browser
+; page, the UIKit view, the Android View — drive this app without naming it.
+class RealTrainerDemo extends EvgApp {
 
     ; --- the timings, in one place -------------------------------------------
     ;
@@ -10034,6 +10039,11 @@ class RealTrainerDemo {
     ; A hover or a press that is already the case is not a change: a finger
     ; that lifts after a drag which unpressed the row at its first move
     ; starts its glide without a layout in front of it.
+    ; `hovered` as the host's question — see `EvgApp.hoveredId`.
+    fn hoveredId:string () {
+        return hovered
+    }
+
     fn setHover:void (id:string) {
         if (hovered == id) {
             return
