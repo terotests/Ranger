@@ -76,16 +76,28 @@ cp "$WEB/standalone.mjs" "$OUT/standalone.mjs"
 
 mkdir -p "$OUT/gl" "$OUT/fonts" "$OUT/assets"
 cp gallery/evg/gl/evg-webgl.js "$OUT/gl/evg-webgl.js"
+# The module half of the head this build writes, shared with every other
+# gallery page: it picks up the responses the head started.
+mkdir -p "$OUT/evg"
+cp gallery/evg/web/tools/assets-client.mjs "$OUT/evg/assets-client.mjs"
+# ASSETS is what the head will start, collected as the files are copied so the
+# list cannot disagree with what was shipped.
+ASSETS=""
 for face in OpenSans-Regular OpenSans-Bold OpenSans-Italic OpenSans-BoldItalic; do
   cp "gallery/pdf_writer/assets/fonts/Open_Sans/$face.ttf" "$OUT/fonts/$face.ttf"
+  ASSETS="$ASSETS,fonts/$face.ttf"
 done
 # The display faces. The sample book is typeset, not merely filled in: Cinzel
 # for the title and the chapter openings, Josefin Sans for the captions and the
 # folios. Measuring and painting both go through them, so they have to be here.
 cp gallery/pdf_writer/assets/fonts/Cinzel/Cinzel-Regular.ttf "$OUT/fonts/Cinzel-Regular.ttf"
+ASSETS="$ASSETS,fonts/Cinzel-Regular.ttf"
 cp gallery/pdf_writer/assets/fonts/Cinzel/Cinzel-Bold.ttf "$OUT/fonts/Cinzel-Bold.ttf"
+ASSETS="$ASSETS,fonts/Cinzel-Bold.ttf"
 cp gallery/pdf_writer/assets/fonts/Josefin_Sans/JosefinSans-Regular.ttf "$OUT/fonts/JosefinSans-Regular.ttf"
+ASSETS="$ASSETS,fonts/JosefinSans-Regular.ttf"
 cp gallery/pdf_writer/assets/fonts/Josefin_Sans/JosefinSans-Bold.ttf "$OUT/fonts/JosefinSans-Bold.ttf"
+ASSETS="$ASSETS,fonts/JosefinSans-Bold.ttf"
 # The book's photographs. The page fetches them under the same paths the
 # document names, so the display list's `src` is also the texture key.
 for img in Example_scaled.jpg GPS_test.jpg Canon_40D_scaled.jpg; do
@@ -96,11 +108,13 @@ done
 # there is something to try without owning a Mac.
 mkdir -p "$OUT/fixtures"
 cp gallery/book/fixtures/AlbumData.xml "$OUT/fixtures/AlbumData.xml"
+ASSETS="$ASSETS,fixtures/AlbumData.xml"
 # The 187 DrawingML preset geometries, for the shape picker. The emoji in it
 # carry their own outlines and need no file; the presets are formulae and
 # cannot be drawn without this one, so leaving it out gives a picker that
 # lists every preset and draws a blank cell for each.
 cp gallery/office/geom/assets/presets.txt "$OUT/presets.txt"
+ASSETS="$ASSETS,presets.txt"
 
 # --- the build stamp ---------------------------------------------------------
 # A rebuilt page a browser will not fetch is indistinguishable from a page that
@@ -123,6 +137,24 @@ node -e "
     fs.readFileSync('$OUT/standalone.mjs', 'utf8')
       .replace('./gl/evg-webgl.js', './gl/evg-webgl.js?v=' + stamp));
 " || exit 1
+# Minified when there is a minifier, and the head that starts every asset.
+#
+# `--cache no-store` and `--asset-query v` are this page's own: it fetches
+# everything with that cache mode and carries the reader's own `?v=` on to
+# each URL — a page about a book edited while you watch it, where a stale
+# asset IS the bug. A head that started the same files without the mode or the
+# query would be starting different requests, so the tool takes both.
+node gallery/evg/web/tools/minify.mjs --file "$OUT/book_web.js" --keep BookWeb || exit 1
+
+node gallery/evg/web/tools/inline-assets.mjs \
+  --html "$OUT/index.html" \
+  --start "${ASSETS#,}" \
+  --preload-stamped "standalone.mjs" \
+  --preload "gl/evg-webgl.js,evg/assets-client.mjs" \
+  --stamp "$STAMP" \
+  --cache no-store \
+  --asset-query v || exit 1
+
 if grep -q "__BUILD__" "$OUT/index.html"; then
   echo "the build stamp was not written into $OUT/index.html" >&2
   exit 1

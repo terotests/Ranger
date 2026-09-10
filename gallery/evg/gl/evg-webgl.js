@@ -391,10 +391,13 @@ export const verbatim = (t) => LRO + t + PDF;
  *  two walks agree. Default is what it always was.
  */
 let fallbackStack = "sans-serif";
+let loadedFamilies = new Set();
 export function setFontFallback(families) {
-  const list = (families || []).filter((f) => f && f.length).map((f) => `"${f}"`);
-  list.push("sans-serif");
-  fallbackStack = list.join(", ");
+  const list = (families || []).filter((f) => f && f.length);
+  // The same list, kept as a SET, answers a second question: is the family a
+  // command names one the page actually loaded? See `familyOf`.
+  loadedFamilies = new Set(list);
+  fallbackStack = list.map((f) => `"${f}"`).concat("sans-serif").join(", ");
 }
 
 /** One place that turns a TEXT command into a CSS font shorthand — it was
@@ -405,9 +408,23 @@ export function setFontFallback(families) {
 // element — a convention for the TTF measurers, and to a browser a family
 // nobody has. The weight is given separately. `evg-measure.js` strips the
 // same suffix, so the layout measured with the face this draws with.
-const familyOf = (c) => (c.font && c.font.endsWith("-Bold") ? c.font.slice(0, -5) : c.font || "");
+//
+// UNLESS the page loaded that exact family. A producer may name the FACE
+// rather than a family plus a weight flag — it is the only spelling that
+// survives bold-italic, since `Open Sans-Italic` plus a bold flag asks for
+// `Open Sans-Italic-Bold` and gets nothing — and such a page registers
+// `Open Sans-Bold` as a family of its own. Stripping the suffix there drew
+// bold runs in the REGULAR face: about 7% narrow, so nothing looked bold and
+// every run after one on the line sat a gap too far right, which is what a
+// reader sees as a huge space in the middle of a sentence. The page's own
+// pool, the one it hands `setFontFallback`, is what decides.
+const familyOf = (c) => {
+  const f = c.font || "";
+  if (loadedFamilies.has(f)) return f;
+  return f.endsWith("-Bold") ? f.slice(0, -5) : f;
+};
 
-function fontSpec(c, dpr) {
+export function fontSpec(c, dpr) {
   return `${c.italic ? "italic " : ""}${c.weight ? c.weight + " " : ""}${c.size * dpr}px "${familyOf(c)}", ${fallbackStack}`;
 }
 

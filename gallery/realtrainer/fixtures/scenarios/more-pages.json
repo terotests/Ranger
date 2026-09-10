@@ -1,0 +1,24 @@
+{
+  "_": "The three More-sheet pages' own controls. `more-sheet` and `more-rest` open Harjoituspaikat, Tietopankki and Jaetut kalenterit and stop; this presses what is on them — a category on the knowledge store, its Lisää, a calendar's sharing state, and Julkaise. Recorded so what each one opens is on file rather than guessed at.",
+  "id": "more-pages",
+  "area": "navigaatio",
+  "machine": "",
+  "reference": { "route": "/calendar/cal-train?week=2026-02-09" },
+  "setup": [
+    { "page": "390x844" },
+    { "route": "/calendar/cal-train?week=2026-02-09" }
+  ],
+  "steps": [
+    { "tick": 500 },
+    { "id": "rt-nav-more", "role": "button", "name": "Lisää" },
+    { "id": "rt-more-shared", "role": "button", "name": "Jaetut kalenterit" },
+    { "tick": 600 },
+    { "id": "rt-share-cal-unipaivakirja", "role": "button", "name": "Unipäiväkirja Ei jaettu" },
+    { "tick": 600 },
+    { "id": "rt-nav-more", "role": "button", "name": "Lisää" },
+    { "id": "rt-more-knowledge", "role": "button", "name": "Tietopankki" },
+    { "tick": 600 },
+    { "id": "rt-kn-cat-2", "role": "button", "name": "Ravinto" },
+    { "id": "rt-kn-add", "role": "button", "name": "Lisää", "nth": 0, "why": "LAST: the reference opens an editor over the page" }
+  ]
+}

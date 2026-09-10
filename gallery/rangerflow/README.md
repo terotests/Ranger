@@ -27,7 +27,7 @@ routing, auto-layout, large graphs — and produces something worth having.
 ## Run it
 
 ```bash
-npm run rangerflow:test        # 895 assertions: model, forces, router, editor, SQL, Mermaid, CSS, export
+npm run rangerflow:test        # 1475 assertions: model, forces, router, editor, SQL, Mermaid, CSS, export
 npm run rangerflow:demo        # the e-commerce schema → SVG, PDF, HTML, JSON, scene
 npm run rangerflow:uml         # the same pipeline for a UML class diagram
 npm run rangerflow:flowchart   # an ATK flowchart in ISO 5807 shapes
@@ -125,6 +125,21 @@ npm run rangerflow:demo -- --mermaid path/to/diagram.mmd
 def d:MermaidDiagram (MermaidReader.parse(text))
 def g:FlowGraph (MermaidFlow.build(d))      ; parsed, laid out, routed, framed
 ```
+
+For anything that just wants a drawing — a printed page, a markdown document,
+another gallery — [`MermaidRender`](domains/mermaid/MermaidRender.rgr) is the
+door: text in, a `FlowScene` out, no editor, and every dialect below behind
+one call. It never scales a diagram UP, so a three-node flowchart in a column
+of prose stays a three-node flowchart.
+
+```ranger
+def sc:FlowScene (MermaidRender.sceneOf(text "default" columnWidth 10.0))
+def root:EVGElement (sc.toEvgTree())        ; → PDF, HTML; or toDisplayList() → GPU
+```
+
+`gallery/markdown` draws its ```mermaid fences through it. The web facade's
+own loaders still carry a copy of the dispatch, because they also report what
+each dialect counts; moving those summaries here is what collapses the two.
 
 ![Mermaid pasted into the page and drawn on the GPU](artifacts/scenario_mermaid.png)
 
@@ -1452,6 +1467,14 @@ edge goes down, across, and down again, and if the one that reaches furthest
 turns *first*, its long run passes through a neighbour that is still on its way
 down.
 
+Two edges crossing the corridor **opposite ways** — `pause` down and
+`resume` back up between the same two states — have their stubs on opposite
+walls, and a cost that assumed every edge went the same way found both
+orders equal and left them crossing twice. The walls are kept in travel
+order, so the cost knows which of an edge's two stubs is on the near wall and
+which on the far one; the one that reaches further across then turns later,
+and the pair runs side by side.
+
 ```text
 ordered by span                 ordered to cross least
 ┌───┐  ┌───┐  ┌───┐             ┌───┐  ┌───┐  ┌───┐
@@ -1569,14 +1592,98 @@ the edges that have to cross the gap have nowhere else to be. The suite runs a
 smaller version of the same sweep, so a change that breaks this fails a test
 rather than a screenshot.
 
+### …and what a drawn line is measured by
+
+A picture is not a test, and every one of these was a picture first. Mermaid's
+own first state example — `Still --> Moving`, `Moving --> Still` — came out
+with the return drawn round the outside, two pixels from the line leaving for
+the end state, and the arrow that should have pointed back up was easy to miss
+altogether. Three things were wrong, and each is a rule now:
+
+- **A return to a neighbour goes straight back.** `Moving --> Still` used to
+  leave and arrive sideways so it would go round whatever it had come past,
+  which for two boxes one above the other is a detour round nothing. When the
+  corridor between the two is empty (`FlowGraph.corridorClear`) the return
+  leaves by the top and arrives at the bottom, and the fan at each side gives
+  the two directions slots of their own — the two lines Mermaid draws. It goes
+  round only when something stands in that corridor. The state reader now
+  faces its edges by the direction it was given, so `direction LR` gets the
+  same treatment a quarter turn round instead of the top-to-bottom rules.
+- **A routed edge arrives square on.** The long-edge chains turned their last
+  corner at the level of the target's port, which put the final leg *along*
+  the top of the box with the arrow pointing sideways at a handle facing up.
+  The last corner is now turned at the port's stub point, twenty pixels out,
+  the same place every stepped edge turns — and not at the corridor's centre,
+  which is where the short edges keep their tracks.
+- **A routed edge keeps its slot.** The fan moves an endpoint along its side;
+  a route drawn before the fan ran still ended where the port used to be, so
+  two chained edges into one side were drawn to one point with the fan
+  insisting they were fifteen pixels apart. `EdgeLanes` now slides the ends
+  of a route — the end and the straight run out of it — to where the port is.
+
+Two more rules came from the same picture once those were fixed:
+
+- **A line that can be straight is straight.** The fan used to spread a
+  side's slots evenly about its centre, so `Still --> Moving` left at one
+  offset and arrived at another and every such pair was a small Z. Each slot
+  now *wishes* to sit exactly opposite where its edge is going; two that wish
+  for the same place are pushed `fanGap` apart, the group is slid back as
+  near its wishes as the side's room allows, and it runs twice so the far
+  end's slot is the one the first pass chose. Two boxes in one column get two
+  straight lines between them, and a label on each is slid along its own
+  line when the two would print on each other (`EdgeLanes.staggerLabels`).
+- **A strip closes its gaps.** A drawing fitted to a page is scaled by its
+  longer side, so five states in a row across the page were read at half the
+  size the same five would be down it. `LayeredLayout.squareUp` narrows the
+  layer gap towards a picture no more than `squareRatio` times longer along
+  the flow than across it — never below what the busiest corridor needs for
+  its stubs and a track per edge (`corridorNeed`), nor, across the page,
+  below what the longest label written along the flow needs. The Mermaid
+  pipelines ask for it; the schema and UML layouts keep their gaps as set.
+
+And the one that is not about lines at all. Mermaid's picture *read* bigger,
+and not because of its routing: a drawing fitted to a page is scaled by its
+boxes and gaps, not by its type, and Mermaid's box is the word in it with a
+little room round it, set at a face larger than the theme's. The state reader
+now asks `ActivityDiagram` for the same proportions — 15px type, 16px either
+side of the word, a box 42 tall, no 120px minimum — and carries the ratio on
+each node (`FlowNode.fontScale`), so a stylesheet's `font-size` still scales
+the whole picture. With the gaps closed to what the corridors need, Mermaid's
+first state example comes out a quarter shorter and its type half again as
+large on the page. A chained edge past two layers of different widths no
+longer jogs the few pixels their lanes differ by, either: a wobble under half
+a lane's room is drawn down one lane.
+
+`RouteQuality` in the test suite turns those into numbers on known diagrams,
+so a change to one router cannot quietly undo another's: the length of a
+line; how **square** it meets its box, as the cosine between its last leg and
+the side's normal, held at 45° or better on every end; the closest two lines
+of different edges run **side by side**, held at eight pixels; and that every
+route ends where its port is; how many corners a line turns, held at none
+for the lines that can be straight; and that a strip across the page came out
+narrower than its gaps as asked. The bounds are the pictures that looked
+wrong.
+
 ### …and where the reader says, instead
 
-A router is a suggestion. Grab any **interior segment** of a stepped edge and
-drag it: a vertical run slides left and right, a horizontal one up and down, and
-nothing goes diagonal, because orthogonality is the property the whole router
-exists to keep. The first and last segments are not on offer — they touch a
-port, and sliding one would detach the edge from the column it is supposed to
-point at, which is the whole point of a field-level port.
+A router is a suggestion. Grab **any run** of a stepped edge and drag it: a
+vertical run slides left and right, a horizontal one up and down, and nothing
+goes diagonal, because orthogonality is the property the whole router exists to
+keep.
+
+The first and last runs touch a port, so they cannot simply slide — that would
+pull the end off the column it points at, which is the whole point of a
+field-level port. They are still on offer, because on a route that leaves a node
+downwards and turns once they are the *only* vertical runs, and refusing them
+left such an edge movable up and down but never left and right. Grabbing one
+splits it in two: a stub stays on the port, and the rest travels with the
+pointer.
+
+The last ten pixels at either end belong to the **end grip** instead — the round
+handle a selected edge grows on each of its ends. Drag one onto another box and
+the edge follows; drop it on nothing and the end goes back where it was. It
+works on an edge whose ends are on named handles and on one that only knows
+which box it points at, which is every edge on a plain flowchart.
 
 A hand-placed route sets `FlowEdge.pinnedRoute`, and after that the lane pass,
 the repair pass and the layout all leave it alone: overruling the reader is
@@ -1755,8 +1862,7 @@ squared its bounding box where d3 doubles from the first point, which moved
 every node 23 px after a single tick. All three are fixed, and the numbers
 above are what the meter says now.
 
-Still `todo`, and the meter says so: edge reconnection by dragging an end,
-sub-flows (`parentId` is carried but not enforced), a node toolbar, pinch-zoom
+Still `todo`, and the meter says so: sub-flows (`parentId` is carried but not enforced), a node toolbar, pinch-zoom
 gestures, helper lines, `panOnScroll`, `connectOnClick`, and a drag-handle
 selector.
 

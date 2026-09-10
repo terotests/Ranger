@@ -87,8 +87,11 @@ console.log("--- the page loads ---");
 // (gallery/evg/gl/evg-engine.js) — same page, same painter, same checks —
 // which is how that host is held to this one.
 const engineAt = args.indexOf("--engine");
-const engine = engineAt >= 0 ? args[engineAt + 1] : "";
-const engineParam = engine ? `&engine=${engine}` : "";
+const engine = engineAt >= 0 ? args[engineAt + 1] : "main";
+// STATED, NOT DEFAULTED. The page runs the engine in a Worker unless asked
+// otherwise, so leaving the query off would drive the Worker host twice and
+// never the main-thread one.
+const engineParam = `&engine=${engine}`;
 console.log(`--- the engine ${engine === "worker" ? "in a Worker" : "on the main thread"} ---`);
 await page.goto(`http://127.0.0.1:${port}/gallery/realtrainer/web/index.html?page=980x760&gl=preserve${engineParam}`, { waitUntil: "networkidle" });
 await page.waitForFunction("window.__lastStats !== undefined", null, { timeout: 20000 }).catch(() => {});

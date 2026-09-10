@@ -1,0 +1,255 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdFrontMatter.rgr — the metadata block, read.
+; ============================================================================
+;
+;   ---
+;   title: Design notes
+;   page: A4
+;   margin: 20mm
+;   runningHead: title
+;   pageNumbers: bottom-center
+;   toc: true
+;   ---
+;
+; The block parser already keeps this — it has to, or `title: …` is drawn as
+; a paragraph — and until now nothing read it. This does: it is the YAML
+; subset a front-matter block actually uses, which is `key: value` and
+; nothing else. No anchors, no nesting, no flow sequences. A document that
+; wants those wants a configuration file.
+;
+; Everything has a default and a file with no front matter renders, so this
+; can only ever make a page more specific — never fail it.
+; ============================================================================
+
+Import "MdNode.rgr"
+Import "MdChar.rgr"
+
+class MdMeta {
+    def keys:[string]
+    def values:[string]
+
+    Constructor () {
+    }
+
+    fn has:boolean (key:string) {
+        return ((this.indexOfKey(key)) >= 0)
+    }
+
+    fn indexOfKey:int (key:string) {
+        def want:string (MdChar.lower(key))
+        def i:int 0
+        def n:int (array_length keys)
+        while (i < n) {
+            if ((itemAt keys i) == want) { return i }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn get:string (key:string fallback:string) {
+        def i:int (this.indexOfKey(key))
+        if (i < 0) { return fallback }
+        return (itemAt values i)
+    }
+
+    fn flag:boolean (key:string fallback:boolean) {
+        def v:string (MdChar.lower((this.get(key ""))))
+        if (v == "") { return fallback }
+        if (v == "true") { return true }
+        if (v == "yes") { return true }
+        if (v == "on") { return true }
+        if (v == "1") { return true }
+        return false
+    }
+
+    fn put:void (key:string value:string) {
+        push keys (MdChar.lower(key))
+        push values value
+    }
+
+    fn count:int () {
+        return (array_length keys)
+    }
+}
+
+class MdFrontMatter {
+    ; The document's front matter, or an empty set. Only the FIRST block
+    ; counts: a `---` further down is a thematic break and the parser has
+    ; already treated it as one.
+    sfn of:MdMeta (doc:MdNode) {
+        def meta:MdMeta (new MdMeta())
+        def n:int (doc.childCount())
+        if (n == 0) { return meta }
+        def first:MdNode (doc.childAt(0))
+        if (first.kind != "front_matter") { return meta }
+        MdFrontMatter.parseInto(first.literal meta)
+        return meta
+    }
+
+    sfn parseInto:void (text:string meta:MdMeta) {
+        def lines:[string] (strsplit text "\n")
+        def i:int 0
+        def n:int (array_length lines)
+        while (i < n) {
+            def raw:string (itemAt lines i)
+            def line:string (trim raw)
+            def len:int (strlen line)
+            if (len > 0) {
+                def first:int (charAt line 0)
+                if (first != 35) {
+                    def cut:int (MdFrontMatter.colonAt(line))
+                    if (cut > 0) {
+                        def key:string (trim (substring line 0 cut))
+                        def rest:string (trim (substring line (cut + 1) len))
+                        meta.put(key (MdFrontMatter.unquote(rest)))
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn colonAt:int (line:string) {
+        def n:int (strlen line)
+        def i:int 0
+        while (i < n) {
+            if ((charAt line i) == 58) { return i }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    sfn unquote:string (v:string) {
+        def n:int (strlen v)
+        if (n < 2) { return v }
+        def a:int (charAt v 0)
+        def b:int (charAt v (n - 1))
+        if ((a == 34) && (b == 34)) { return (substring v 1 (n - 1)) }
+        if ((a == 39) && (b == 39)) { return (substring v 1 (n - 1)) }
+        return v
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Lengths
+    ; ----------------------------------------------------------------------
+    ;
+    ; A page is measured in points because that is what a PDF is measured in,
+    ; and nobody writes margins in points. `20mm`, `0.75in`, `56pt` and a bare
+    ; number all arrive here; the bare number is points, stated rather than
+    ; guessed.
+    ; `length` is a name the compiler resolves elsewhere; this is `points`.
+    sfn points:double (v:string fallback:double) {
+        def t:string (MdChar.lower((trim v)))
+        def n:int (strlen t)
+        if (n == 0) { return fallback }
+        def unit:string ""
+        def digits:string t
+        if (n > 2) {
+            def tail:string (substring t (n - 2) n)
+            if ((tail == "mm") || (tail == "cm") || (tail == "in") || (tail == "pt") || (tail == "px")) {
+                unit = tail
+                digits = (substring t 0 (n - 2))
+            }
+        }
+        def value:double (MdFrontMatter.number(digits))
+        if (value <= 0.0) { return fallback }
+        if (unit == "mm") { return (value * 2.8346456692913385) }
+        if (unit == "cm") { return (value * 28.346456692913385) }
+        if (unit == "in") { return (value * 72.0) }
+        return value
+    }
+
+    ; A decimal, without a locale and without an exception. Anything that is
+    ; not a number is 0, and every caller treats 0 as "keep the default".
+    sfn number:double (v:string) {
+        def n:int (strlen v)
+        def whole:double 0.0
+        def frac:double 0.0
+        def scale:double 1.0
+        def seenDot:boolean false
+        def any:boolean false
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt v i)
+            if (MdChar.isDigit(c)) {
+                any = true
+                def d:double (to_double (c - 48))
+                if seenDot {
+                    scale = (scale * 10.0)
+                    frac = (frac + (d / scale))
+                } {
+                    whole = ((whole * 10.0) + d)
+                }
+            } {
+                if (c == 46) {
+                    if seenDot { return 0.0 }
+                    seenDot = true
+                } {
+                    return 0.0
+                }
+            }
+            i = (i + 1)
+        }
+        if (! any) { return 0.0 }
+        return (whole + frac)
+    }
+
+    ; The named page sizes, in points, plus `210x297mm` for anything else.
+    sfn pageWidth:double (name:string fallback:double) {
+        def t:string (MdChar.lower((trim name)))
+        if (t == "a3") { return 841.89 }
+        if (t == "a4") { return 595.28 }
+        if (t == "a5") { return 419.53 }
+        if (t == "letter") { return 612.0 }
+        if (t == "legal") { return 612.0 }
+        def x:int (MdFrontMatter.xAt(t))
+        if (x > 0) {
+            def unit:string (MdFrontMatter.unitOf(t))
+            def w:string ((substring t 0 x) + unit)
+            return (MdFrontMatter.points(w fallback))
+        }
+        return fallback
+    }
+
+    sfn pageHeight:double (name:string fallback:double) {
+        def t:string (MdChar.lower((trim name)))
+        if (t == "a3") { return 1190.55 }
+        if (t == "a4") { return 841.89 }
+        if (t == "a5") { return 595.28 }
+        if (t == "letter") { return 792.0 }
+        if (t == "legal") { return 1008.0 }
+        def x:int (MdFrontMatter.xAt(t))
+        if (x > 0) {
+            def n:int (strlen t)
+            def h:string (substring t (x + 1) n)
+            return (MdFrontMatter.points(h fallback))
+        }
+        return fallback
+    }
+
+    sfn xAt:int (t:string) {
+        def n:int (strlen t)
+        def i:int 0
+        while (i < n) {
+            if ((charAt t i) == 120) { return i }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; `210x297mm` gives its unit once, at the end, and the width has to borrow
+    ; it — otherwise the page is 210 points wide and 297 millimetres tall.
+    sfn unitOf:string (t:string) {
+        def n:int (strlen t)
+        if (n < 2) { return "" }
+        def tail:string (substring t (n - 2) n)
+        if (tail == "mm") { return "mm" }
+        if (tail == "cm") { return "cm" }
+        if (tail == "in") { return "in" }
+        if (tail == "pt") { return "pt" }
+        if (tail == "px") { return "px" }
+        return ""
+    }
+}

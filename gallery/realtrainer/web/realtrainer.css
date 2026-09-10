@@ -2748,14 +2748,24 @@
 
 /* Harjoituspaikat and Tietopankki: a page with a banner and a main, and no
    shell around them. The one keeps the bottom bar, the other does not. */
-.rt-subpage { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 12px; padding: 0px 16px 16px 16px; background-color: var(--bg); }
+.rt-subpage { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 12px; padding: 0px 16px 16px 16px; height: 100%; background-color: var(--bg); }
 .rt-page-head { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 12px; padding: 12px 0px; }
-.rt-page-main { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 10px; }
+/* The main grows to fill what the fixed bar does not take, and carries the
+   bar's height as padding so the last row on the page is not behind it. */
+.rt-page-main { display: flex; flex-direction: column; flex-wrap: nowrap; flex-grow: 1; gap: 10px; padding-bottom: 72px; }
+/* The bar on a page of its own is fixed to the bottom of the viewport — see
+   `position: fixed` in EVG's SPEC.md. It is inset by the page's own padding,
+   which is why the left is 16 and not 0. */
+.rt-page-nav { position: fixed; left: 16px; right: 16px; bottom: 16px; }
 .rt-page-hd { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 22px; height: 28px; }
 .rt-page-h2 { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 16px; height: 22px; }
 .rt-page-para { color: var(--ink-dim); font-family: Arial; font-size: 13px; height: 18px; }
 .rt-page-row { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; }
 .rt-page-cats { display: flex; flex-direction: row; flex-wrap: wrap; gap: 8px; }
+.rt-kn-editor { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 8px; padding: 14px; border-radius: 12px; border-width: 1px; border-color: var(--line); background-color: var(--surface-2); }
+.rt-kn-editor-head { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; }
+.rt-kn-editor-acts { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; }
+.rt-set-btn-on { border-color: var(--accent); }
 
 .rt-ys-head { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 12px; padding: 12px 16px; background-color: var(--bg); }
 .rt-ys-hd { color: var(--ink); font-family: Arial; font-weight: bold; font-size: 17px; height: 22px; }

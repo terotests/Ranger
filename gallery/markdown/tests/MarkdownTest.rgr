@@ -1,0 +1,966 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MarkdownTest.rgr — the parser, the layout and the EVG bridge.
+; ============================================================================
+;
+;   npm run markdown:test            on JavaScript
+;   npm run markdown:test:go         …the same assertions, compiled to Go
+;   npm run markdown:test:python     …and to Python
+;
+; The 652 CommonMark examples are checked elsewhere (`npm run markdown:spec`),
+; because they need the specification file and a comparison the harness does.
+; What is here is everything that file cannot see: that the tree has the shape
+; the viewer walks, that a line broken across four faces comes out contiguous,
+; and that the EVG tree the PDF writer is handed has text in it rather than
+; empty divs.
+;
+; Running on three targets is not decoration either. The parser is meant to be
+; portable, and the two places that portability actually breaks — `charAt` on
+; a byte string, and integer division — are both in the hot path here.
+; ============================================================================
+
+Import "../src/MdBlock.rgr"
+Import "../src/MdToHtml.rgr"
+Import "../src/MdLayout.rgr"
+Import "../src/MdToEvg.rgr"
+Import "../src/MdMermaid.rgr"
+Import "../src/MdCodeHighlight.rgr"
+Import "../src/MdFrontMatter.rgr"
+Import "../../evg/EVGTextEngine.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+
+class MarkdownTest {
+    def passed:int 0
+    def failed:int 0
+
+    Constructor () {
+    }
+
+    sfn main:void () {
+        def t:MarkdownTest (new MarkdownTest())
+        t.run()
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eq:void (name:string got:string want:string) {
+        if (got == want) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+            print ("    got  " + got)
+            print ("    want " + want)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        if (got == want) {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            def g:string (to_string got)
+            def w:string (to_string want)
+            print ("  FAIL " + name)
+            print (("    got  " + g) + ("  want " + w))
+        }
+    }
+
+    fn html:string (src:string) {
+        def doc:MdNode (MdBlock.parseText(src))
+        return (MdToHtml.render(doc))
+    }
+
+    fn run:void () {
+        this.blocks()
+        this.inlines()
+        this.gfm()
+        this.sourceMap()
+        this.layout()
+        this.evg()
+        this.mermaid()
+        this.highlight()
+        this.frontMatter()
+        this.furniture()
+        this.tables()
+        this.links()
+        this.quotes()
+        this.lists()
+        this.presized()
+        this.textEngine()
+        print ""
+        def p:string (to_string passed)
+        def f:string (to_string failed)
+        print (("passed=" + p) + (" failed=" + f))
+        if (failed == 0) {
+            print "ALL PASS"
+        } {
+            print "FAILURES"
+        }
+    }
+
+    ; ----------------------------------------------------------------------
+    fn blocks:void () {
+        this.eq("atx" (this.html("# Title\n")) "<h1>Title</h1>\n")
+        this.eq("atx closed" (this.html("## Two ##\n")) "<h2>Two</h2>\n")
+        this.eq("setext" (this.html("Title\n=====\n")) "<h1>Title</h1>\n")
+        this.eq("para" (this.html("hello\n")) "<p>hello</p>\n")
+        this.eq("rule" (this.html("***\n")) "<hr />\n")
+        this.eq("quote" (this.html("> hi\n")) "<blockquote>\n<p>hi</p>\n</blockquote>\n")
+        this.eq("fence" (this.html("```rgr\nx\n```\n")) "<pre><code class=\"language-rgr\">x\n</code></pre>\n")
+        this.eq("indented code" (this.html("    x\n")) "<pre><code>x\n</code></pre>\n")
+        this.eq("tight list" (this.html("- a\n- b\n")) "<ul>\n<li>a</li>\n<li>b</li>\n</ul>\n")
+        this.eq("loose list" (this.html("- a\n\n- b\n")) "<ul>\n<li>\n<p>a</p>\n</li>\n<li>\n<p>b</p>\n</li>\n</ul>\n")
+        this.eq("ordered start" (this.html("3. a\n")) "<ol start=\"3\">\n<li>a</li>\n</ol>\n")
+        ; a nested list opens on its own line inside the item
+        this.eq("nested list" (this.html("- a\n  - b\n")) "<ul>\n<li>a\n<ul>\n<li>b</li>\n</ul>\n</li>\n</ul>\n")
+        ; a tab is four columns, not four spaces
+        this.eq("tab code" (this.html("\tfoo\n")) "<pre><code>foo\n</code></pre>\n")
+        ; a paragraph inside a quote continues without the marker
+        def lazy:string (this.html("> one\ntwo\n"))
+        this.eq("lazy continuation" lazy "<blockquote>\n<p>one\ntwo</p>\n</blockquote>\n")
+    }
+
+    fn inlines:void () {
+        this.eq("emph" (this.html("*a*\n")) "<p><em>a</em></p>\n")
+        this.eq("strong" (this.html("**a**\n")) "<p><strong>a</strong></p>\n")
+        this.eq("both" (this.html("***a***\n")) "<p><em><strong>a</strong></em></p>\n")
+        this.eq("intraword underscore" (this.html("a_b_c\n")) "<p>a_b_c</p>\n")
+        this.eq("code span" (this.html("`a`\n")) "<p><code>a</code></p>\n")
+        this.eq("code span keeps stars" (this.html("`*a*`\n")) "<p><code>*a*</code></p>\n")
+        this.eq("link" (this.html("[a](/b)\n")) "<p><a href=\"/b\">a</a></p>\n")
+        this.eq("link title" (this.html("[a](/b \"t\")\n")) "<p><a href=\"/b\" title=\"t\">a</a></p>\n")
+        this.eq("image" (this.html("![a](/b)\n")) "<p><img src=\"/b\" alt=\"a\" /></p>\n")
+        this.eq("autolink" (this.html("<https://a.example>\n")) "<p><a href=\"https://a.example\">https://a.example</a></p>\n")
+        this.eq("entity" (this.html("&amp;\n")) "<p>&amp;</p>\n")
+        this.eq("named entity" (this.html("&auml;\n")) "<p>ä</p>\n")
+        this.eq("escape" (this.html("\\*a\\*\n")) "<p>*a*</p>\n")
+        this.eq("hard break" (this.html("a  \nb\n")) "<p>a<br />\nb</p>\n")
+        ; emphasis INSIDE a link: the delimiters must pair inside the brackets
+        def nested:string (this.html("*foo [*bar*](/url)*\n"))
+        this.eq("emph in link" nested "<p><em>foo <a href=\"/url\"><em>bar</em></a></em></p>\n")
+        ; a reference defined after the paragraph that uses it
+        def ref:string (this.html("[a]\n\n[a]: /url \"t\"\n"))
+        this.eq("reference" ref "<p><a href=\"/url\" title=\"t\">a</a></p>\n")
+        ; percent-encoding, and `&` in an attribute
+        this.eq("url encode" (this.html("[a](/x y)\n")) "<p>[a](/x y)</p>\n")
+        this.eq("url amp" (this.html("[a](/x?b&c)\n")) "<p><a href=\"/x?b&amp;c\">a</a></p>\n")
+    }
+
+    fn gfm:void () {
+        def table:string (this.html("| a | b |\n| --- | ---: |\n| 1 | 2 |\n"))
+        def want:string "<table>\n<thead>\n<tr>\n<th>a</th>\n<th align=\"right\">b</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>1</td>\n<td align=\"right\">2</td>\n</tr>\n</tbody>\n</table>\n"
+        this.eq("table" table want)
+        ; without pipes it is a setext heading, not a one-column table
+        this.eq("not a table" (this.html("Foo\n---\n")) "<h2>Foo</h2>\n")
+        this.eq("strike" (this.html("~~a~~\n")) "<p><del>a</del></p>\n")
+        def task:string (this.html("- [x] done\n"))
+        this.ok("task checked" ((strlen task) > 0))
+        def doc:MdNode (MdBlock.parseText("- [x] done\n- [ ] not\n"))
+        def list:MdNode (doc.childAt(0))
+        def first:MdNode (list.childAt(0))
+        def second:MdNode (list.childAt(1))
+        this.eqInt("task state checked" first.taskState 1)
+        this.eqInt("task state unchecked" second.taskState 0)
+        ; the marker is not left in the text
+        def para:MdNode (first.childAt(0))
+        def text:MdNode (para.childAt(0))
+        this.eq("task text" text.literal "done")
+        ; front matter is metadata, and is not drawn as a heading
+        def fm:MdNode (MdBlock.parseText("---\ntitle: T\n---\n\nbody\n"))
+        def head:MdNode (fm.childAt(0))
+        this.eq("front matter kind" head.kind "front_matter")
+        this.eq("front matter body" head.literal "title: T\n")
+        this.eqInt("front matter blocks" (fm.childCount()) 2)
+    }
+
+    fn sourceMap:void () {
+        ; Every block remembers where it came from. The viewer puts a caret
+        ; back in the source with this, so an offset that is wrong is a caret
+        ; in the wrong paragraph rather than a visible fault.
+        def doc:MdNode (MdBlock.parseText("# one\n\nsecond\n\nthird\n"))
+        def h:MdNode (doc.childAt(0))
+        def p1:MdNode (doc.childAt(1))
+        def p2:MdNode (doc.childAt(2))
+        this.eqInt("srcStart heading" h.srcStart 0)
+        this.eqInt("srcStart para 1" p1.srcStart 7)
+        this.eqInt("srcStart para 2" p2.srcStart 15)
+        this.ok("srcEnd after start" (p1.srcEnd > p1.srcStart))
+    }
+
+    fn layout:void () {
+        def doc:MdNode (MdBlock.parseText("# H\n\nsome **bold** and `code` text\n"))
+        def l:MdLayout (new MdLayout())
+        l.layoutContinuous(doc 400.0)
+        def n:int (array_length l.boxes)
+        this.ok("layout produced boxes" (n > 3))
+        this.ok("document has height" (l.documentHeight > 0.0))
+
+        ; The claim this module exists to make: one line, several faces, and
+        ; the segments meet exactly. A gap here is a gap on the printed page.
+        def runs:[MdRun]
+        def a:MdRun (new MdRun())
+        a.family = "Open Sans"
+        a.size = 11.0
+        a.text = "some "
+        push runs a
+        def b:MdRun (new MdRun())
+        b.family = "Open Sans"
+        b.size = 11.0
+        b.bold = true
+        b.text = "bold"
+        push runs b
+        def c:MdRun (new MdRun())
+        c.family = "Open Sans"
+        c.size = 11.0
+        ; No leading space: a space that OPENS a run is deliberately laid as
+        ; advance rather than as text (see MdLayout.breakRuns), so a run that
+        ; begins with one would leave a legitimate gap here and this test
+        ; would be asserting the wrong invariant.
+        c.text = "and more"
+        push runs c
+        def lines:[MdLine] (l.breakRuns(runs 10000.0))
+        this.eqInt("one wide line" (array_length lines) 1)
+        def line:MdLine (itemAt lines 0)
+        def segs:int (array_length line.segs)
+        this.ok("several segments" (segs >= 3))
+        def contiguous:boolean true
+        def i:int 1
+        while (i < segs) {
+            def prev:MdSeg (itemAt line.segs (i - 1))
+            def cur:MdSeg (itemAt line.segs i)
+            def edge:double (prev.x + prev.w)
+            def gap:double (cur.x - edge)
+            if (gap > 0.001) { contiguous = false }
+            if (gap < -0.001) { contiguous = false }
+            i = (i + 1)
+        }
+        this.ok("segments are contiguous" contiguous)
+        this.ok("line has height" (line.height > 0.0))
+
+        ; And with a run that DOES begin with a space, the segments never
+        ; overlap and the gap is that space — which is the shape that makes
+        ; the printed page and the preview agree.
+        def spaced:[MdRun]
+        push spaced a
+        push spaced b
+        def d:MdRun (new MdRun())
+        d.family = "Open Sans"
+        d.size = 11.0
+        d.text = " and more"
+        push spaced d
+        def slines:[MdLine] (l.breakRuns(spaced 10000.0))
+        def sline:MdLine (itemAt slines 0)
+        def sn:int (array_length sline.segs)
+        def noOverlap:boolean true
+        def k:int 1
+        while (k < sn) {
+            def prev2:MdSeg (itemAt sline.segs (k - 1))
+            def cur2:MdSeg (itemAt sline.segs k)
+            def edge2:double (prev2.x + prev2.w)
+            if (cur2.x < (edge2 - 0.001)) { noOverlap = false }
+            k = (k + 1)
+        }
+        this.ok("spaced segments never overlap" noOverlap)
+        def lastSeg:MdSeg (itemAt sline.segs (sn - 1))
+        def lead2:int (charAt lastSeg.text 0)
+        this.ok("boundary space is not text" (lead2 != 32))
+
+        ; A narrow column wraps, and a wrapped line does not start with the
+        ; space it wrapped at.
+        def narrow:[MdLine] (l.breakRuns(runs 40.0))
+        this.ok("narrow wraps" ((array_length narrow) > 1))
+        def second:MdLine (itemAt narrow 1)
+        def firstSeg:MdSeg (itemAt second.segs 0)
+        def lead:int (charAt firstSeg.text 0)
+        this.ok("no leading space" (lead != 32))
+
+        ; Every line is FULL: it fits, and the next word would not have.
+        ;
+        ; This is the invariant the width accumulator has to keep. `breakRuns`
+        ; no longer measures the whole open segment once per word — it carries
+        ; the total forward and charges each word its advance and its kern —
+        ; so an accumulator that drifted low would let a line run past the
+        ; column and one that drifted high would break it early. Both show up
+        ; here, and neither shows up in a test that only asks whether the text
+        ; wrapped.
+        def para:MdRun (new MdRun())
+        para.family = "Open Sans"
+        para.size = 11.0
+        para.text = "The quick brown fox jumps over the lazy dog while the printer waits for a line that is wide enough to be broken somewhere sensible and then broken again"
+        def paraRuns:[MdRun]
+        push paraRuns para
+        def wide:double 200.0
+        def filled:[MdLine] (l.breakRuns(paraRuns wide))
+        def fn:int (array_length filled)
+        this.ok("the paragraph took several lines" (fn > 3))
+        def tight:boolean true
+        def fits:boolean true
+        def fi:int 0
+        while (fi < fn) {
+            def ln:MdLine (itemAt filled fi)
+            if (ln.width > (wide + 0.001)) { fits = false }
+            if (fi < (fn - 1)) {
+                def here:MdSeg (itemAt ln.segs 0)
+                def nextLn:MdLine (itemAt filled (fi + 1))
+                def there:MdSeg (itemAt nextLn.segs 0)
+                def words:[string] (strsplit there.text " ")
+                def nextWord:string (itemAt words 0)
+                def joined:string ((here.text + " ") + nextWord)
+                def wouldBe:double (l.measureRun(joined para))
+                if (wouldBe <= wide) { tight = false }
+            }
+            fi = (fi + 1)
+        }
+        this.ok("no line runs past the column" fits)
+        this.ok("no line breaks before it had to" tight)
+    }
+
+    ; ----------------------------------------------------------------------
+    ; A fenced diagram
+    ; ----------------------------------------------------------------------
+    fn mermaid:void () {
+        def src:string "text\n\n```mermaid\nflowchart LR\n  A[Write] --> B[Print]\n```\n\nafter\n"
+        def doc:MdNode (MdBlock.parseText(src))
+        this.eqInt("blocks around the fence" (doc.childCount()) 3)
+        def node:MdNode (doc.childAt(1))
+        ; A fence whose info names a drawing is not a code block
+        this.eq("fence became an embed" node.kind "embed")
+        this.eq("embed info" node.info "mermaid")
+
+        ; …but HTML has no diagram in it, so there it is code again
+        def html:string (MdToHtml.render(doc))
+        this.ok("html keeps the source" (MarkdownTest.hasSub(html "flowchart LR")))
+        this.ok("html marks it as a code block" (MarkdownTest.hasSub(html "<pre><code")))
+
+        ; A layout with nothing prepared leaves a labelled slot rather than a
+        ; hole: the reader is told what was there.
+        def bare:MdLayout (new MdLayout())
+        bare.layoutContinuous(doc 500.0)
+        def slots:int (MarkdownTest.countKind(bare 3))
+        this.eqInt("an unprepared fence is still a slot" slots 1)
+
+        ; Prepared, it is a drawing with a height of its own.
+        def l:MdLayout (new MdLayout())
+        ; The SAME width the layout will use. A diagram prepared at another
+        ; width is a diagram the layout will not find — it is keyed by the
+        ; width it was laid out at, so that re-flowing a document narrower
+        ; re-runs the graph layout instead of stretching a stale one.
+        def contentW:double (500.0 - (l.style.margin * 2.0))
+        MdMermaid.prepare(doc l.embeds contentW "default")
+        this.eqInt("one diagram prepared" (l.embeds.count()) 1)
+        def h:double (l.embeds.heightFor("mermaid" node.literal contentW))
+        this.ok("the diagram has a height" (h > 10.0))
+        l.layoutContinuous(doc 500.0)
+
+        ; And the marks really land inside its box. The HTML exporter cannot
+        ; draw a scene's paths — it emits every `<svg>` 24 pixels wide in the
+        ; corner, and RangerFlow's own HTML export has the same hole — so the
+        ; DISPLAY LIST is the evidence here, and it is also what the GPU
+        ; painter draws and what the PDF writer agrees with.
+        def root:EVGElement (MdToEvg.buildPage(l 500.0))
+        def layout:EVGLayout (new EVGLayout())
+        layout.setPageSize(500.0 l.documentHeight)
+        layout.layout(root)
+        def dl:EVGDisplayList (new EVGDisplayList())
+        dl.build(root)
+        def box:MdBox (MarkdownTest.firstOfKind(l 3))
+        def paths:int 0
+        def strokes:int 0
+        def i:int 0
+        def n:int (array_length dl.cmds)
+        while (i < n) {
+            def c:EVGDrawCmd (itemAt dl.cmds i)
+            def inside:boolean true
+            if (c.x < (box.x - 1.0)) { inside = false }
+            if (c.y < (box.y - 1.0)) { inside = false }
+            if (c.x > ((box.x + box.w) + 1.0)) { inside = false }
+            if (c.y > ((box.y + box.h) + 1.0)) { inside = false }
+            if inside {
+                if (c.kind == 6) { paths = (paths + 1) }
+                if (c.kind == 7) { strokes = (strokes + 1) }
+            }
+            i = (i + 1)
+        }
+        ; the node outlines are paths and the edges between them are strokes
+        this.ok("the diagram drew shapes in its box" (paths > 0))
+        this.ok("the diagram drew its edges" (strokes > 0))
+
+        ; A fence that is not a diagram stays code.
+        def plain:MdNode (MdBlock.parseText("```js\nconst x = 1;\n```\n"))
+        def code:MdNode (plain.childAt(0))
+        this.eq("a js fence is code" code.kind "code_block")
+    }
+
+    sfn countKind:int (l:MdLayout kind:int) {
+        def c:int 0
+        def i:int 0
+        def n:int (array_length l.boxes)
+        while (i < n) {
+            def b:MdBox (itemAt l.boxes i)
+            if (b.kind == kind) { c = (c + 1) }
+            i = (i + 1)
+        }
+        return c
+    }
+
+    sfn firstOfKind:MdBox (l:MdLayout kind:int) {
+        def i:int 0
+        def n:int (array_length l.boxes)
+        while (i < n) {
+            def b:MdBox (itemAt l.boxes i)
+            if (b.kind == kind) { return b }
+            i = (i + 1)
+        }
+        return (new MdBox())
+    }
+
+    sfn hasSub:boolean (v:string needle:string) {
+        def n:int (strlen needle)
+        def m:int (strlen v)
+        def i:int 0
+        while ((i + n) <= m) {
+            if ((substring v i (i + n)) == needle) { return true }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Code, coloured
+    ; ----------------------------------------------------------------------
+    fn highlight:void () {
+        def js:MdLanguage (MdCodeHighlight.languageFor("js"))
+        this.ok("js is known" js.known)
+        def one:MdHighlightedLine (MdCodeHighlight.line("const x = 1; // note" js 0))
+        def kinds:string (MarkdownTest.kindsOf(one))
+        ; keyword, plain, number, plain, comment — in that order
+        this.ok("keyword found" (MarkdownTest.hasSub(kinds "1")))
+        this.ok("number found" (MarkdownTest.hasSub(kinds "4")))
+        this.ok("comment found" (MarkdownTest.hasSub(kinds "3")))
+        this.eqInt("line ends outside a comment" one.state 0)
+
+        ; a string, and the escape inside it
+        def two:MdHighlightedLine (MdCodeHighlight.line("var s = \"a\\\"b\";" js 0))
+        this.ok("string found" (MarkdownTest.hasSub((MarkdownTest.kindsOf(two)) "2")))
+
+        ; a block comment crosses lines, and the state says so
+        def open:MdHighlightedLine (MdCodeHighlight.line("/* opened" js 0))
+        this.eqInt("block comment stays open" open.state 1)
+        def mid:MdHighlightedLine (MdCodeHighlight.line("still comment" js 1))
+        this.eq("a continued comment is all comment" (MarkdownTest.kindsOf(mid)) "3")
+        def close:MdHighlightedLine (MdCodeHighlight.line("done */ const y = 2" js 1))
+        this.eqInt("and it closes" close.state 0)
+        this.ok("code after the comment" (MarkdownTest.hasSub((MarkdownTest.kindsOf(close)) "1")))
+
+        ; `;` opens a comment in Ranger and divides in JavaScript
+        def rgr:MdLanguage (MdCodeHighlight.languageFor("rgr"))
+        def r1:MdHighlightedLine (MdCodeHighlight.line("def x:int 1  ; a note" rgr 0))
+        this.ok("ranger comment" (MarkdownTest.hasSub((MarkdownTest.kindsOf(r1)) "3")))
+
+        ; an unknown language still gets its strings, and no keywords
+        def none:MdLanguage (MdCodeHighlight.languageFor("brainfuck"))
+        this.ok("unknown language" (! none.known))
+
+        ; and the layout really emits one box per token
+        def doc:MdNode (MdBlock.parseText("```js\nconst x = 1;\n```\n"))
+        def l:MdLayout (new MdLayout())
+        l.layoutContinuous(doc 400.0)
+        def colours:int (MarkdownTest.distinctColours(l))
+        this.ok("a code block has several colours" (colours >= 3))
+    }
+
+    sfn kindsOf:string (line:MdHighlightedLine) {
+        def out:string ""
+        def i:int 0
+        def n:int (array_length line.tokens)
+        while (i < n) {
+            def t:MdToken (itemAt line.tokens i)
+            out = (out + (to_string t.kind))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn distinctColours:int (l:MdLayout) {
+        def seen:[string]
+        def i:int 0
+        def n:int (array_length l.boxes)
+        while (i < n) {
+            def b:MdBox (itemAt l.boxes i)
+            if (b.kind == 0) {
+                def known:boolean false
+                def j:int 0
+                def m:int (array_length seen)
+                while (j < m) {
+                    if ((itemAt seen j) == b.color) { known = true }
+                    j = (j + 1)
+                }
+                if (! known) { push seen b.color }
+            }
+            i = (i + 1)
+        }
+        return (array_length seen)
+    }
+
+    ; ----------------------------------------------------------------------
+    ; The metadata block
+    ; ----------------------------------------------------------------------
+    ; ----------------------------------------------------------------------
+    ; Lists: nesting, tightness, and a marker column that fits its markers
+    ; ----------------------------------------------------------------------
+    ;
+    ; A TIGHT list — no blank line between its items — is one whose items are
+    ; not paragraphs, and paragraph spacing was what they were charged: a
+    ; five-item shopping list was set with the same air between its items as
+    ; between two paragraphs of prose. The distinction was in the parser and on
+    ; the node all along, and only the two extra points a loose list adds were
+    ; ever read.
+    fn lists:void () {
+        def src:string "- one\n- two\n  - two a\n  - two b\n- three\n\nAfter.\n"
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (new MdLayout())
+        l.layoutContinuous(doc 400.0)
+        def one:MdBox (MarkdownTest.boxOf(l "one"))
+        def two:MdBox (MarkdownTest.boxOf(l "two"))
+        def twoA:MdBox (MarkdownTest.boxOf(l "two a"))
+        def three:MdBox (MarkdownTest.boxOf(l "three"))
+        def after:MdBox (MarkdownTest.boxOf(l "After."))
+        this.ok("the list was laid out" (one.h > 0.0))
+
+        ; Each level is one step further in, and the step is the style's.
+        def step:double (twoA.x - two.x)
+        this.ok("a nested item is one step in" ((step > (l.style.listIndent - 0.01)) && (step < (l.style.listIndent + 0.01))))
+
+        ; Tight items sit a line apart, not a paragraph apart.
+        def gap:double ((two.y - one.y) - one.h)
+        this.ok("a tight list is tight" ((gap > (l.style.listTightSpacing - 0.01)) && (gap < (l.style.listTightSpacing + 0.01))))
+        ; …and the list as a whole still clears what follows it.
+        def tail:double (after.y - (three.y + three.h))
+        this.ok("but the list still clears the next block" (tail > (l.style.listTightSpacing + 1.0)))
+
+        ; A LOOSE list — a blank line between the items — keeps the air.
+        def loose:MdNode (MdBlock.parseText("- one\n\n- two\n"))
+        def l2:MdLayout (new MdLayout())
+        l2.layoutContinuous(loose 400.0)
+        def lo1:MdBox (MarkdownTest.boxOf(l2 "one"))
+        def lo2:MdBox (MarkdownTest.boxOf(l2 "two"))
+        def looseGap:double ((lo2.y - lo1.y) - lo1.h)
+        this.ok("a loose list is loose" (looseGap > (gap + 1.0)))
+
+        ; A nested ordered list counts from one again.
+        def nums:MdNode (MdBlock.parseText("1. a\n1. b\n   1. x\n   1. y\n"))
+        def l3:MdLayout (new MdLayout())
+        l3.layoutContinuous(nums 400.0)
+        this.eqInt("the nested numbers start again" (MarkdownTest.countText(l3 "1.")) 2)
+        this.eqInt("and go on from there" (MarkdownTest.countText(l3 "2.")) 2)
+
+        ; A marker wider than the step pushes the text out instead of writing
+        ; across it.
+        def wide:MdNode (MdBlock.parseText("99. a\n100. b\n101. c\n"))
+        def l4:MdLayout (new MdLayout())
+        l4.layoutContinuous(wide 400.0)
+        def m:MdBox (MarkdownTest.boxOf(l4 "100."))
+        def t:MdBox (MarkdownTest.boxOf(l4 "b"))
+        this.ok("a three-digit marker has a width of its own" (m.w > 12.0))
+        this.ok("and the text clears it" (t.x >= ((m.x + m.w) + l4.style.markerGap)))
+    }
+
+    ; The first box drawing exactly this text. A box with no text is never it.
+    sfn boxOf:MdBox (l:MdLayout t:string) {
+        def i:int 0
+        def n:int (array_length l.boxes)
+        while (i < n) {
+            def b:MdBox (itemAt l.boxes i)
+            if (b.text == t) { return b }
+            i = (i + 1)
+        }
+        return (new MdBox())
+    }
+
+    sfn countText:int (l:MdLayout t:string) {
+        def c:int 0
+        def i:int 0
+        def n:int (array_length l.boxes)
+        while (i < n) {
+            def b:MdBox (itemAt l.boxes i)
+            if (b.text == t) { c = (c + 1) }
+            i = (i + 1)
+        }
+        return c
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Block quotes: the bar has an inside, and the text is somebody else's
+    ; ----------------------------------------------------------------------
+    ;
+    ; The bar used to begin exactly at the top of the first line's box and end
+    ; exactly where the next block started, so it was flush against the text
+    ; at one end and dangling past it at the other — what it measured at the
+    ; bottom was the last paragraph's trailing space rather than the
+    ; paragraph.
+    fn quotes:void () {
+        def src:string "> What is this comment\n> Why?\n\nAfter the quote.\n"
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (new MdLayout())
+        l.layoutContinuous(doc 400.0)
+        def barTop:double 0.0
+        def barBottom:double 0.0
+        def bars:int 0
+        def quoteTop:double 1000000.0
+        def quoteBottom:double 0.0
+        def quoted:int 0
+        def afterTop:double 0.0
+        def i:int 0
+        def n:int (array_length l.boxes)
+        while (i < n) {
+            def b:MdBox (itemAt l.boxes i)
+            if ((b.kind == 1) && (b.fill == l.style.quoteBarColor)) {
+                bars = (bars + 1)
+                barTop = b.y
+                barBottom = (b.y + b.h)
+            }
+            if (b.kind == 0) {
+                if (b.color == l.style.quoteColor) {
+                    quoted = (quoted + 1)
+                    if (b.y < quoteTop) { quoteTop = b.y }
+                    def edge:double (b.y + b.h)
+                    if (edge > quoteBottom) { quoteBottom = edge }
+                } {
+                    if (b.text == "After the quote.") { afterTop = b.y }
+                }
+            }
+            i = (i + 1)
+        }
+        this.eqInt("one bar" bars 1)
+        this.ok("the quoted text is muted" (quoted == 2))
+        ; The two source lines are ONE paragraph with a soft break in it, which
+        ; is what CommonMark says and what every renderer of it draws: one
+        ; flowing line, wrapped where the column ends and not where the author
+        ; pressed return.
+        this.ok("a soft break inside a quote does not start a line" (quoteTop == (quoteBottom - 15.95)))
+        def above:double (quoteTop - barTop)
+        def below:double (barBottom - quoteBottom)
+        this.ok("the bar starts above the first line" (above > 1.0))
+        this.ok("and ends below the last" (below > 1.0))
+        def diff:double (above - below)
+        if (diff < 0.0) { diff = (0.0 - diff) }
+        this.ok("by the same amount" (diff < 0.01))
+        this.ok("and the next block clears it" (afterTop > barBottom))
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Links: the destination survives the whole way to the paint
+    ; ----------------------------------------------------------------------
+    ;
+    ; `MdLayout` has carried a link on every segment since the first version
+    ; and both roads out of the boxes dropped it, so a link in the PDF was
+    ; blue ink and nothing else. The destination has to be on the ELEMENT,
+    ; because that is what `EVGPDFRenderer` walks to write `/Annots`.
+    fn links:void () {
+        def want:string "https://example.com/x"
+        def doc:MdNode (MdBlock.parseText("See [the license](https://example.com/x) for details.\n"))
+        def l:MdLayout (new MdLayout())
+        l.layoutContinuous(doc 400.0)
+        def kept:int 0
+        def i:int 0
+        def n:int (array_length l.boxes)
+        while (i < n) {
+            def b:MdBox (itemAt l.boxes i)
+            if (b.link == want) { kept = (kept + 1) }
+            i = (i + 1)
+        }
+        this.ok("the layout kept the destination" (kept > 0))
+        def root:EVGElement (MdToEvg.buildPage(l 400.0))
+        def mine:int (MarkdownTest.countHref(root want))
+        this.ok("and it reached the element tree" (mine > 0))
+        ; Nothing else claims one: an annotation over a word that is not a
+        ; link is worse than no annotation at all.
+        def all:int (MarkdownTest.countHref(root ""))
+        def others:int (all - mine)
+        this.eqInt("and only that" others 0)
+    }
+
+    ; How many elements in the subtree carry `want`. "" counts every element
+    ; that has any href at all.
+    sfn countHref:int (el:EVGElement want:string) {
+        def n:int 0
+        def has:boolean ((strlen el.href) > 0)
+        if ((strlen want) == 0) {
+            if has { n = 1 }
+        } {
+            if (el.href == want) { n = 1 }
+        }
+        def i:int 0
+        def c:int (array_length el.children)
+        while (i < c) {
+            def ch:EVGElement (itemAt el.children i)
+            def sub:int (MarkdownTest.countHref(ch want))
+            n = (n + sub)
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Tables: no cell writes outside its own column
+    ; ----------------------------------------------------------------------
+    ;
+    ; A column of one-word labels beside a column of paragraphs is the case
+    ; that broke: the widths were the unwrapped widths scaled by one factor,
+    ; which gave the label column less room than the word `Host/runtime`
+    ; needed, and the word then ran across the text in the cell next to it.
+    ; Two columns is not the interesting part — the RATIO between them is.
+    fn tables:void () {
+        def src:string "| Area | Current expectation |\n| --- | --- |\n| Host/runtime | Node.js is the primary supported host for the compiler, and the one the tests run on |\n| JavaScript | Best baseline target and the most reliable place to start when a new program is being written |\n"
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (new MdLayout())
+        l.layoutContinuous(doc 400.0)
+        def n:int (array_length l.boxes)
+        def texts:int 0
+        def contained:int 0
+        def i:int 0
+        while (i < n) {
+            def b:MdBox (itemAt l.boxes i)
+            if (b.kind == 0) {
+                texts = (texts + 1)
+                ; The cell this text sits in is the outline drawn around it.
+                def fits:boolean false
+                def j:int 0
+                while (j < n) {
+                    def o:MdBox (itemAt l.boxes j)
+                    if (o.kind == 2) {
+                        def insideY:boolean ((b.y >= (o.y - 0.01)) && (b.y < ((o.y + o.h) + 0.01)))
+                        def insideX:boolean ((b.x >= (o.x - 0.01)) && (((b.x + b.w)) <= ((o.x + o.w) + 0.01)))
+                        if (insideY && insideX) { fits = true }
+                    }
+                    j = (j + 1)
+                }
+                if fits { contained = (contained + 1) }
+            }
+            i = (i + 1)
+        }
+        this.ok("the table drew its cells" (texts > 5))
+        this.eqInt("every cell stays inside its own column" contained texts)
+    }
+
+    fn frontMatter:void () {
+        def doc:MdNode (MdBlock.parseText("---\ntitle: T\npage: A5\nmargin: 20mm\ntoc: true\n# a comment\n---\n\n# H\n"))
+        def meta:MdMeta (MdFrontMatter.of(doc))
+        this.eqInt("four keys, not the comment" (meta.count()) 4)
+        this.eq("title" (meta.get("title" "")) "T")
+        this.ok("toc" (meta.flag("toc" false)))
+        this.ok("absent flag keeps its default" (meta.flag("nosuch" true)))
+
+        ; lengths, in the units people write them in
+        def mm:double (MdFrontMatter.points("20mm" 0.0))
+        this.ok("20mm is about 56.7pt" ((mm > 56.6) && (mm < 56.8)))
+        def inch:double (MdFrontMatter.points("0.75in" 0.0))
+        this.ok("0.75in is 54pt" ((inch > 53.9) && (inch < 54.1)))
+        def bare:double (MdFrontMatter.points("48" 0.0))
+        this.ok("a bare number is points" ((bare > 47.9) && (bare < 48.1)))
+        def bad:double (MdFrontMatter.points("wide" 12.0))
+        this.ok("nonsense keeps the default" ((bad > 11.9) && (bad < 12.1)))
+
+        ; the named sizes, and one given as a measurement
+        def a5w:double (MdFrontMatter.pageWidth("A5" 0.0))
+        this.ok("A5 width" ((a5w > 419.0) && (a5w < 420.0)))
+        def customH:double (MdFrontMatter.pageHeight("210x297mm" 0.0))
+        this.ok("210x297mm is 841pt tall" ((customH > 841.0) && (customH < 842.5)))
+        def customW:double (MdFrontMatter.pageWidth("210x297mm" 0.0))
+        this.ok("…and 595pt wide — the unit is shared" ((customW > 594.0) && (customW < 596.0)))
+
+        ; and it reaches the layout
+        def l:MdLayout (new MdLayout())
+        l.applyMeta(doc)
+        this.ok("the page shrank to A5" (l.style.pageWidth < 500.0))
+        this.eq("the title is kept" l.style.title "T")
+        this.ok("the contents were asked for" l.style.wantToc)
+
+        ; a document with no front matter is untouched
+        def plain:MdNode (MdBlock.parseText("# H\n"))
+        def l2:MdLayout (new MdLayout())
+        l2.applyMeta(plain)
+        this.ok("A4 by default" (l2.style.pageWidth > 500.0))
+    }
+
+    ; ----------------------------------------------------------------------
+    ; What sits in the margins
+    ; ----------------------------------------------------------------------
+    fn furniture:void () {
+        def src:string "---\ntitle: T\nrunningHead: title\npageNumbers: bottom-center\ntoc: true\n---\n\n# One\n\ntext\n\n## Two\n\nmore\n"
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (new MdLayout())
+        l.applyMeta(doc)
+        l.layoutPaged(doc)
+
+        ; the contents list both headings, with the page each is on
+        def hasOne:boolean (MarkdownTest.hasText(l "One"))
+        def hasTwo:boolean (MarkdownTest.hasText(l "Two"))
+        this.ok("contents lists the first heading" hasOne)
+        this.ok("contents lists the second" hasTwo)
+        this.ok("a Contents heading" (MarkdownTest.hasText(l "Contents")))
+        ; the running head, and the folio
+        this.ok("the folio is drawn" (MarkdownTest.hasText(l "1")))
+
+        ; both headings are recorded with the page they start on
+        this.eqInt("two headings recorded" (array_length l.headPage) 2)
+
+        ; without front matter there is no furniture and no contents
+        def bare:MdNode (MdBlock.parseText("# One\n\ntext\n"))
+        def l2:MdLayout (new MdLayout())
+        l2.applyMeta(bare)
+        l2.layoutPaged(bare)
+        this.ok("no contents when none was asked for" (! (MarkdownTest.hasText(l2 "Contents"))))
+    }
+
+    sfn hasText:boolean (l:MdLayout what:string) {
+        def i:int 0
+        def n:int (array_length l.boxes)
+        while (i < n) {
+            def b:MdBox (itemAt l.boxes i)
+            if (b.kind == 0) {
+                if (b.text == what) { return true }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; ----------------------------------------------------------------------
+    ; The layout pass that does not have to run
+    ; ----------------------------------------------------------------------
+    ;
+    ; Everything `MdToEvg` hands over is absolutely placed with a box the
+    ; layout above already decided, and it writes that box down as the RESULT
+    ; as well as the style. So `EVGLayout` over such a tree is asking an
+    ; engine to re-derive what it is being given — 218 ms of a 382 ms
+    ; document, per `markdown:bench`.
+    ;
+    ; This is the check that lets it be skipped: build the same page twice,
+    ; once through the engine and once not, and compare every command. If the
+    ; two ever differ, the pre-sizing is wrong and the fast path has to go —
+    ; which is a thing this test says rather than a thing a reader notices in
+    ; a PDF.
+    fn presized:void () {
+        def src:string "# Heading\n\nSome **bold** words and `code` in a paragraph that is long enough to wrap at least once at this width.\n\n- a list item\n- another\n\n> a quote\n\n```js\nconst x = 1; // note\n```\n\n| a | b |\n| --- | ---: |\n| 1 | 2 |\n"
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (new MdLayout())
+        l.layoutContinuous(doc 420.0)
+        this.ok("no diagram, so no engine needed" (! (MdToEvg.needsEngine(l))))
+
+        def withEngine:EVGDisplayList (MarkdownTest.listOf(l 420.0 true))
+        def without:EVGDisplayList (MdToEvg.toDisplayList(l 420.0))
+        def a:int (array_length withEngine.cmds)
+        def b:int (array_length without.cmds)
+        this.eqInt("the direct list has the same number of commands" b a)
+        if (a == b) {
+            def same:boolean true
+            def i:int 0
+            while (i < a) {
+                def ca:EVGDrawCmd (itemAt withEngine.cmds i)
+                def cb:EVGDrawCmd (itemAt without.cmds i)
+                if (ca.kind != cb.kind) { same = false }
+                if (! (MarkdownTest.near(ca.x cb.x))) { same = false }
+                if (! (MarkdownTest.near(ca.y cb.y))) { same = false }
+                if (! (MarkdownTest.near(ca.w cb.w))) { same = false }
+                if (! (MarkdownTest.near(ca.h cb.h))) { same = false }
+                if (ca.text != cb.text) { same = false }
+                if (ca.fontFamily != cb.fontFamily) { same = false }
+                i = (i + 1)
+            }
+            this.ok("every command is identical" same)
+        }
+
+        ; A page with a diagram on it still needs the engine, and says so.
+        def withDiagram:MdNode (MdBlock.parseText("text\n\n```mermaid\nflowchart LR\n  A --> B\n```\n"))
+        def l2:MdLayout (new MdLayout())
+        MdMermaid.prepare(withDiagram l2.embeds (420.0 - (l2.style.margin * 2.0)) "default")
+        l2.layoutContinuous(withDiagram 420.0)
+        this.ok("a diagram needs the engine" (MdToEvg.needsEngine(l2)))
+    }
+
+    sfn near:boolean (a:double b:double) {
+        def d:double (a - b)
+        if (d < 0.0) { d = (0.0 - d) }
+        return (d < 0.01)
+    }
+
+    sfn listOf:EVGDisplayList (l:MdLayout width:double engine:boolean) {
+        def root:EVGElement (MdToEvg.buildPage(l width))
+        if engine {
+            def le:EVGLayout (new EVGLayout())
+            le.setPageSize(width l.documentHeight)
+            le.layout(root)
+        }
+        def dl:EVGDisplayList (new EVGDisplayList())
+        dl.build(root)
+        return dl
+    }
+
+    ; ----------------------------------------------------------------------
+    ; A canary for the engine underneath
+    ; ----------------------------------------------------------------------
+    ;
+    ; `EVGTextEngine.breakLines` returned NO lines on Go, at any width,
+    ; because it filled a list it had been passed rather than returning one —
+    ; and on Go an array parameter is a slice, so the append landed on a copy.
+    ; Every display list built from an element tree drew no text on that
+    ; target. Nothing caught it: EVG's own suites run on JavaScript only, and
+    ; this one runs on three.
+    ;
+    ; So the assertion lives here, where it is actually exercised, until EVG
+    ; grows a cross-target suite of its own.
+    fn textEngine:void () {
+        def e:EVGTextEngine (new EVGTextEngine())
+        def wide:[string] (e.breakToStrings("hello world" "Open Sans" 11.0 400.0))
+        this.eqInt("a line that fits is one line" (array_length wide) 1)
+        def none:[string] (e.breakToStrings("hello world" "Open Sans" 11.0 0.0))
+        this.eqInt("width 0 means do not wrap, not do not return" (array_length none) 1)
+        def narrow:[string] (e.breakToStrings("hello world" "Open Sans" 11.0 30.0))
+        this.ok("a narrow column wraps" ((array_length narrow) >= 2))
+        def para:[string] (e.breakToStrings("one\ntwo" "Open Sans" 11.0 0.0))
+        this.eqInt("a newline is a line" (array_length para) 2)
+    }
+
+    fn evg:void () {
+        def doc:MdNode (MdBlock.parseText("# H\n\ntext\n\n```\ncode\n```\n"))
+        def l:MdLayout (new MdLayout())
+        l.layoutContinuous(doc 400.0)
+        def root:EVGElement (MdToEvg.buildPage(l 400.0))
+        def kids:int (root.getChildCount())
+        this.ok("evg tree has children" (kids > 0))
+
+        ; `tagName == "text"` is what the PDF and HTML renderers switch on. A
+        ; div with textContent lays out and prints NOTHING, which is exactly
+        ; what the first exported page did.
+        def texts:int 0
+        def i:int 0
+        while (i < kids) {
+            def el:EVGElement (root.getChild(i))
+            if (el.tagName == "text") { texts = (texts + 1) }
+            i = (i + 1)
+        }
+        this.ok("evg tree paints text" (texts > 0))
+
+        ; Paged output is the shape the PDF writer already understands.
+        def p:MdLayout (new MdLayout())
+        p.layoutPaged(doc)
+        def printRoot:EVGElement (MdToEvg.buildPrint(p))
+        this.eq("print root" printRoot.tagName "print")
+        def section:EVGElement (printRoot.getChild(0))
+        this.eq("section" section.tagName "section")
+        def page:EVGElement (section.getChild(0))
+        this.eq("page" page.tagName "page")
+        this.eqInt("one page for a short document" (section.getChildCount()) 1)
+    }
+}

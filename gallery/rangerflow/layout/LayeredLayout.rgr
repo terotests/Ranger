@@ -66,6 +66,17 @@ class LayeredLayout {
     ; whatever stands between their ends. It exists so the difference can be
     ; measured rather than asserted — see `testLongEdgeRouting`.
     def useDummies:boolean true
+    ; A picture fitted to a page is scaled by its longer side, so a diagram
+    ; that is a long strip along its flow is drawn small: five states in a
+    ; row across the page are read at half the size the same five would be
+    ; down it. With this on, a layout that came out more than `squareRatio`
+    ; times longer along the flow than across it closes its layer gaps —
+    ; never below `minLayerGap`, which is what the stubs, the corridor's
+    ; tracks and any label written along the flow need — until it is that
+    ; ratio, or the gaps are at their floor. Off, the gaps are as asked.
+    def squareUp:boolean false
+    def squareRatio:double 1.5
+    def minLayerGap:double 56.0
 
     ; per node
     def layerOf:[int]
@@ -118,6 +129,157 @@ class LayeredLayout {
         this.buildVertices()
         this.orderVertices()
         this.assignCoordinates()
+        if squareUp {
+            if (this.closeGaps()) {
+                this.assignCoordinates()
+            }
+        }
+    }
+
+    ; The extent of the picture along the flow, and across it.
+    fn extentAlong:double () {
+        def lc:int (this.layerCount())
+        if (lc == 0) {
+            return 0.0
+        }
+        return ((itemAt layerMain (lc - 1)) + (itemAt layerDepth (lc - 1)))
+    }
+
+    fn extentAcross:double () {
+        def widest:double 0.0
+        def v:int 0
+        while (v < (this.vertexCount())) {
+            def l:int (itemAt vLayer v)
+            def far:double ((itemAt vCross v) + ((itemAt vExtent v) * 0.5))
+            if (far > widest) {
+                widest = far
+            }
+            v = (v + 1)
+        }
+        return widest
+    }
+
+    ; Narrow the layer gap as far as the ratio asks and the floor allows.
+    ; True if it changed, in which case the coordinates have to be assigned
+    ; again with the new gap.
+    fn closeGaps:boolean () {
+        def lc:int (this.layerCount())
+        if (lc < 2) {
+            return false
+        }
+        if (layerGap <= minLayerGap) {
+            return false
+        }
+        def along:double (this.extentAlong())
+        def across:double (this.extentAcross())
+        def want:double (across * squareRatio)
+        if (along <= want) {
+            return false
+        }
+        def gaps:double (to_double (lc - 1))
+        def narrower:double (layerGap - ((along - want) / gaps))
+        def floor:double (this.corridorNeed())
+        if (floor < minLayerGap) {
+            floor = minLayerGap
+        }
+        if (narrower < floor) {
+            narrower = floor
+        }
+        if (narrower >= layerGap) {
+            return false
+        }
+        layerGap = narrower
+        return true
+    }
+
+    ; The gap the busiest corridor needs: two stubs, a margin inside each,
+    ; and a track per edge that turns in it — the edges between the two
+    ; layers either side, and the long edges that enter or leave a chain
+    ; there. Closing a gap below this leaves the corridor pass no room, and
+    ; two edges that should have had tracks of their own are drawn on one
+    ; line.
+    fn corridorNeed:double () {
+        def lc:int (this.layerCount())
+        def count:[int]
+        def i:int 0
+        while (i < lc) {
+            push count 0
+            i = (i + 1)
+        }
+        def k:int 0
+        while (k < (graph.edgeCount())) {
+            def e:FlowEdge (graph.edgeAt(k))
+            if (e.sourceIndex >= 0) {
+                if (e.targetIndex >= 0) {
+                    def la:int (itemAt layerOf e.sourceIndex)
+                    def lb:int (itemAt layerOf e.targetIndex)
+                    def lo:int la
+                    def hi:int lb
+                    if (lb < la) {
+                        lo = lb
+                        hi = la
+                    }
+                    if (hi > lo) {
+                        if ((hi - lo) > 1) {
+                            set_at count lo ((itemAt count lo) + 1)
+                            set_at count (hi - 1) ((itemAt count (hi - 1)) + 1)
+                        } {
+                            ; Two neighbours near enough in line get a
+                            ; straight line from the fan, which turns
+                            ; nowhere and needs no track.
+                            if ((this.canBeStraight(e)) == false) {
+                                set_at count lo ((itemAt count lo) + 1)
+                            }
+                        }
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+        def busiest:int 0
+        def c:int 0
+        while (c < lc) {
+            if ((itemAt count c) > busiest) {
+                busiest = (itemAt count c)
+            }
+            c = (c + 1)
+        }
+        if (busiest < 1) {
+            busiest = 1
+        }
+        return (56.0 + ((to_double (busiest - 1)) * 14.0))
+    }
+
+    ; Whether the fan could join these two ends with one straight line: the
+    ; two nodes' centres across the flow are within the reach of the slots
+    ; on the two sides put together — a third of each box out from its
+    ; middle, which is the room `EdgeLanes` gives a box's top and bottom.
+    fn canBeStraight:boolean (e:FlowEdge) {
+        def a:FlowNode (graph.nodeAt(e.sourceIndex))
+        def b:FlowNode (graph.nodeAt(e.targetIndex))
+        def apart:double (fabs ((a.centerX()) - (b.centerX())))
+        def reach:double ((a.width + b.width) * 0.35)
+        if (direction != "TB") {
+            apart = (fabs ((a.centerY()) - (b.centerY())))
+            reach = ((a.height + b.height) * 0.25)
+        }
+        return (apart <= reach)
+    }
+
+    ; The longest label on any edge, in characters — what a gap along the
+    ; flow has to hold when labels are written along it.
+    fn longestLabel:int () {
+        def longest:int 0
+        def k:int 0
+        while (k < (graph.edgeCount())) {
+            def e:FlowEdge (graph.edgeAt(k))
+            def len:int (strlen e.label)
+            if (len > longest) {
+                longest = len
+            }
+            k = (k + 1)
+        }
+        return longest
     }
 
     ; A pair of intrusive linked lists rather than arrays of arrays: one
@@ -708,6 +870,14 @@ class LayeredLayout {
             return false
         }
         def flip:boolean (itemAt edgeReversed edgeIdx)
+        ; The lane each dummy was given, with a wobble taken out: two
+        ; layers of different widths centre differently, so a chain's lane
+        ; could move four pixels between one layer and the next, and the
+        ; route got two corners for a jog nobody could see the reason for.
+        ; A run of dummies whose lanes are within half a lane's room of each
+        ; other is drawn down one lane, their mean, which is still inside
+        ; the room every one of them was given.
+        def lanes:[double] (this.straightenedLanes(chain))
         ; Which side to leave from, before asking where the endpoints are.
         ; `faceNeighbours` points every source the way the layout runs, which
         ; is right for an edge going forwards and wrong for one going back: a
@@ -728,6 +898,9 @@ class LayeredLayout {
         def pts:[double]
         push pts x1
         push pts y1
+        ; Where the route leaves the last corridor, kept so the final leg can
+        ; be made to arrive straight.
+        def lastLeave:double 0.0
         def i:int 0
         while (i < count) {
             def idx:int i
@@ -735,7 +908,7 @@ class LayeredLayout {
                 idx = ((count - 1) - i)
             }
             def dv:int (itemAt chain idx)
-            def lane:double (itemAt vCross dv)
+            def lane:double (itemAt lanes idx)
             ; Enter the layer on the side the edge is coming from and leave on
             ; the other. Pushing them in layer order regardless meant a back
             ; edge crossed each layer the wrong way round: the corner list
@@ -758,8 +931,22 @@ class LayeredLayout {
                 push pts lane
                 push pts leave
             }
+            lastLeave = leave
             i = (i + 1)
         }
+        ; The last corner is turned short of the node, not on it.
+        ; `orthogonalise` resolves a diagonal by going along the flow first,
+        ; which is right for leaving — down out of the port, then across to
+        ; the lane — and wrong for arriving: down the lane to the level of
+        ; the port, then across to it, is a line drawn along the node's top
+        ; edge with the arrow pointing sideways at a handle that faces up.
+        ; So the route is sent to the port's stub point — the same twenty
+        ; pixels out that every stepped edge turns at — and arrives from
+        ; there straight in. The corridor's centre is not used for that last
+        ; turn because the centre is where the short edges keep their tracks.
+        def s2:int (graph.edgeSide(e false))
+        push pts (x2 + ((FlowPosition.normalX(s2)) * 20.0))
+        push pts (y2 + ((FlowPosition.normalY(s2)) * 20.0))
         push pts x2
         push pts y2
         def corners:[double] (LayeredLayout.orthogonalise(pts horizontal))
@@ -777,6 +964,44 @@ class LayeredLayout {
         e.hasLaneX = false
         e.hasLaneY = false
         return true
+    }
+
+    fn straightenedLanes:[double] (chain:[int]) {
+        def out:[double]
+        def n:int (array_length chain)
+        def near:double (edgeGap * 0.5)
+        def i:int 0
+        while (i < n) {
+            ; The run starting here: every following dummy whose lane is
+            ; within `near` of this one's.
+            def first:double (itemAt vCross (itemAt chain i))
+            def sum:double 0.0
+            def count:int 0
+            def j:int i
+            def going:boolean true
+            while (j < n) {
+                if going {
+                    def lane:double (itemAt vCross (itemAt chain j))
+                    if ((fabs (lane - first)) <= near) {
+                        sum = (sum + lane)
+                        count = (count + 1)
+                        j = (j + 1)
+                    } {
+                        going = false
+                    }
+                } {
+                    j = n
+                }
+            }
+            def mean:double (sum / (to_double count))
+            def k:int 0
+            while (k < count) {
+                push out mean
+                k = (k + 1)
+            }
+            i = (i + count)
+        }
+        return out
     }
 
     ; Point each end at the corridor it actually meets.

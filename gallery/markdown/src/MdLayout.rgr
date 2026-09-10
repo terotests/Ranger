@@ -1,0 +1,1746 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdLayout.rgr — the AST, laid out. Boxes with coordinates, and nothing drawn.
+; ============================================================================
+;
+; This is the half the viewer actually uses. `MdToHtml` exists so the parser
+; can be scored against a specification; this exists so the document can be
+; PRINTED and DRAWN, which is a different problem with a different answer:
+; there is no DOM under it, so the position of every line is decided here.
+;
+;   MdNode tree ──► MdLayout ──► [MdBox] ──► MdToEvg ──► EVGElement
+;                                                          │
+;                                        ┌─────────────────┴───────────────┐
+;                                        ▼                                 ▼
+;                                EVGPDFRenderer                   EVGDisplayList
+;                                    → PDF                          → WebGL
+;
+; **The one thing EVG could not already do.** `EVGTextEngine.breakLines`
+; breaks a paragraph of ONE font at ONE size. A markdown paragraph is
+;
+;     some **bold** words and `code` and *italic*
+;
+; — one line, four faces, and the break has to be found across all of them.
+; `breakRuns` below is that: the same greedy algorithm, with the accumulator
+; carrying a change of face instead of only a width, and each SEGMENT
+; measured whole so the real advance of a space inside a run is included
+; rather than guessed. A line's height and baseline are the maximum over its
+; segments, so a 9pt code span inside 11pt prose sits on the right baseline
+; instead of half a line up.
+;
+; Everything is in POINTS, because the output that cannot be re-flowed later
+; is the PDF. The screen scales; the page does not.
+; ============================================================================
+
+Import "MdNode.rgr"
+Import "MdChar.rgr"
+Import "MdEmbed.rgr"
+Import "MdCodeHighlight.rgr"
+Import "MdFrontMatter.rgr"
+Import "../../evg/EVGTextEngine.rgr"
+
+; ----------------------------------------------------------------------------
+; What the document looks like. Not a stylesheet yet — the values a stylesheet
+; will set, in one place, so the layout never has a number written into it.
+; ----------------------------------------------------------------------------
+class MdStyle {
+    def bodyFamily:string "Open Sans"
+    ; There is no monospace face in `gallery/pdf_writer/assets/fonts`, so
+    ; code is set in the sans face that is there. It is measured and painted
+    ; with the same one, which is what keeps the geometry honest; it is not
+    ; monospaced, which is a missing asset and not a layout decision.
+    def monoFamily:string "Noto Sans"
+    def headingFamily:string "Open Sans"
+
+    def bodySize:double 11.0
+    def lineHeight:double 1.45
+    def paraSpacing:double 9.0
+
+    def h1Size:double 24.0
+    def h2Size:double 19.0
+    def h3Size:double 15.5
+    def h4Size:double 13.0
+    def h5Size:double 11.5
+    def h6Size:double 11.0
+    def headingSpaceBefore:double 16.0
+    def headingSpaceAfter:double 7.0
+
+    def codeSize:double 9.5
+    def codeLineHeight:double 1.42
+    def codePadding:double 9.0
+    def codeBackground:string "#f6f8fa"
+    def codeBorder:string "#e2e6ea"
+    ; The five colours a listing is read with. Not a theme yet — the values a
+    ; stylesheet will set, in one place.
+    def codeKeyword:string "#cf222e"
+    def codeString:string "#0a3069"
+    def codeComment:string "#6e7781"
+    def codeNumber:string "#0550ae"
+    def codePlain:string "#1f2328"
+    def highlightCode:boolean true
+
+    def textColor:string "#1f2328"
+    def mutedColor:string "#57606a"
+    def linkColor:string "#0969da"
+    def ruleColor:string "#d8dee4"
+
+    def quoteBarColor:string "#d0d7de"
+    def quoteBarWidth:double 3.0
+    def quoteIndent:double 16.0
+    ; The space inside the bar, above the first line and below the last.
+    ;
+    ; Without it the bar began exactly at the top of the first line's box and
+    ; ended exactly where the next block started — flush against the text at
+    ; one end and dangling past it at the other, because what it was measuring
+    ; at the bottom was the last paragraph's trailing space rather than the
+    ; paragraph. A quote is a block with an inside; this is the inside.
+    def quotePadY:double 6.0
+    ; Quoted text is set in the muted colour, which is what every markdown
+    ; style does and what says "this is somebody else's sentence" without a
+    ; box around it. A link, a code span or a heading inside the quote keeps
+    ; its own colour: this is the colour of ordinary text in there, not a wash
+    ; over everything.
+    def quoteColor:string "#57606a"
+
+    def listIndent:double 22.0
+    def markerGap:double 8.0
+    ; What separates two items of a TIGHT list — one with no blank line
+    ; between its items.
+    ;
+    ; CommonMark's whole definition of tightness is that such an item's text
+    ; is not a paragraph, and a paragraph's spacing is what was being charged:
+    ; a five-item shopping list was set with the same air between the items as
+    ; between two paragraphs of prose, which is what a LOOSE list is for. The
+    ; distinction is in the parser, was on the node, and only the two extra
+    ; points a loose list adds were ever read.
+    def listTightSpacing:double 3.0
+
+    def tableBorder:string "#d0d7de"
+    def tableHeadBackground:string "#f6f8fa"
+    def cellPadX:double 7.0
+    def cellPadY:double 5.0
+
+    def pageWidth:double 595.28
+    def pageHeight:double 841.89
+    def margin:double 56.0
+
+    ; Page furniture. All off by default: a document that said nothing about
+    ; itself gets a plain page, which is what a README wants.
+    def title:string ""
+    ; "" | "title" | "h1"
+    def runningHead:string ""
+    ; "" | "bottom-center" | "bottom-right" | "bottom-outer"
+    def pageNumbers:string ""
+    def wantToc:boolean false
+    def breakOnH1:boolean false
+    def furnitureSize:double 8.5
+
+    ; An embedded diagram that is wider than the column is scaled down to it,
+    ; never up: a three-node flowchart should not become a poster.
+    def embedSpacing:double 12.0
+
+    Constructor () {
+    }
+
+    ; The colour a token of that kind is set in.
+    fn codeColor:string (kind:int) {
+        if (kind == 1) { return codeKeyword }
+        if (kind == 2) { return codeString }
+        if (kind == 3) { return codeComment }
+        if (kind == 4) { return codeNumber }
+        return codePlain
+    }
+
+    fn headingSize:double (level:int) {
+        if (level == 1) { return h1Size }
+        if (level == 2) { return h2Size }
+        if (level == 3) { return h3Size }
+        if (level == 4) { return h4Size }
+        if (level == 5) { return h5Size }
+        return h6Size
+    }
+
+    ; The face, by the convention the font manager and the measurer share:
+    ; the weight is a `-Bold` suffix and the slant is part of the family name.
+    fn faceFor:string (family:string bold:boolean italic:boolean) {
+        if (bold && italic) { return (family + "-BoldItalic") }
+        if italic { return (family + "-Italic") }
+        if bold { return (family + "-Bold") }
+        return family
+    }
+}
+
+; One piece of inline text with one look.
+class MdRun {
+    def text:string ""
+    def family:string ""
+    def size:double 11.0
+    def bold:boolean false
+    def italic:boolean false
+    def color:string "#1f2328"
+    ; inline code gets a tinted box behind it
+    def code:boolean false
+    ; a link's destination, kept so the viewer can hit-test it later
+    def link:string ""
+    ; a forced break — two spaces at the end of a line, or a backslash
+    def hardBreak:boolean false
+
+    Constructor () {
+    }
+
+    fn copyStyle:MdRun () {
+        def r:MdRun (new MdRun())
+        r.family = family
+        r.size = size
+        r.bold = bold
+        r.italic = italic
+        r.color = color
+        r.code = code
+        r.link = link
+        return r
+    }
+}
+
+; A run, placed.
+class MdSeg {
+    def text:string ""
+    def family:string ""
+    def size:double 11.0
+    def bold:boolean false
+    def italic:boolean false
+    def color:string "#1f2328"
+    def code:boolean false
+    def link:string ""
+    def x:double 0.0
+    def w:double 0.0
+
+    Constructor () {
+    }
+}
+
+class MdLine {
+    def segs:[MdSeg]
+    def width:double 0.0
+    def height:double 0.0
+    def ascent:double 0.0
+
+    Constructor () {
+    }
+}
+
+; One thing to draw. The layout produces a flat list of these and the EVG
+; bridge turns each into an element; nothing above this file knows about
+; markdown and nothing below it knows about layout.
+class MdBox {
+    ; 0 text, 1 filled rectangle, 2 rectangle outline, 3 an embed's slot
+    def kind:int 0
+    def x:double 0.0
+    def y:double 0.0
+    def w:double 0.0
+    def h:double 0.0
+    def text:string ""
+    def family:string "Open Sans"
+    def size:double 11.0
+    def bold:boolean false
+    def italic:boolean false
+    def color:string "#1f2328"
+    def fill:string ""
+    def stroke:string ""
+    def strokeWidth:double 0.0
+    def link:string ""
+    ; the source of an embed, for whoever can draw it
+    def embedKind:string ""
+    def embedSource:string ""
+    def page:int 0
+    ; The character this box's block began at, in the source text. Stamped by
+    ; the layout, not by the author: it is what lets a click on a drawing find
+    ; a caret in the text a reader typed.
+    def srcStart:int -1
+
+    Constructor () {
+    }
+
+    sfn text:MdBox (t:string x:double y:double w:double h:double) {
+        def b:MdBox (new MdBox())
+        b.kind = 0
+        b.text = t
+        b.x = x
+        b.y = y
+        b.w = w
+        b.h = h
+        return b
+    }
+
+    sfn rect:MdBox (x:double y:double w:double h:double fill:string) {
+        def b:MdBox (new MdBox())
+        b.kind = 1
+        b.x = x
+        b.y = y
+        b.w = w
+        b.h = h
+        b.fill = fill
+        return b
+    }
+
+    sfn outline:MdBox (x:double y:double w:double h:double stroke:string width:double) {
+        def b:MdBox (new MdBox())
+        b.kind = 2
+        b.x = x
+        b.y = y
+        b.w = w
+        b.h = h
+        b.stroke = stroke
+        b.strokeWidth = width
+        return b
+    }
+}
+
+class MdLayout {
+    def style:MdStyle (new MdStyle())
+    def engine:EVGTextEngine (new EVGTextEngine())
+    def boxes:[MdBox]
+
+    ; the cursor
+    def cursorY:double 0.0
+    def page:int 0
+    def pageCount:int 1
+
+    ; How many block quotes deep the walk is, which is what `baseRun` reads to
+    ; decide the colour of ordinary text.
+    def quoteDepth:int 0
+
+    ; Inside an item of a TIGHT list, where a paragraph is not a paragraph.
+    def inTightItem:boolean false
+    ; How many lists deep. Only the outermost one is separated from what
+    ; follows it — a nested list is followed by its parent's next item, not by
+    ; a new block.
+    def listDepth:int 0
+
+    ; the column being filled
+    def contentX:double 0.0
+    def contentW:double 0.0
+    def contentTop:double 0.0
+    def contentBottom:double 0.0
+
+    ; 0 means one page as tall as the document — the screen's mode.
+    def paginate:boolean false
+
+    ; What a handler prepared for the fenced diagrams in this document. Empty
+    ; unless somebody filled it: the layout can lay a document out without
+    ; one, and leaves a labelled slot where a diagram would have gone.
+    def embeds:MdEmbedCache (new MdEmbedCache())
+
+    ; The height the document turned out to be, in continuous mode.
+    def documentHeight:double 0.0
+
+    ; The block being laid out, so every box it emits can say where in the
+    ; source it came from.
+    def currentSrc:int -1
+
+    ; The headings this document has, and the page each landed on. Collected
+    ; while laying out; used by the table of contents on the pass after.
+    def headText:[string]
+    def headLevel:[int]
+    def headPage:[int]
+    def headY:[double]
+    ; What a previous pass learned, so the table of contents can print page
+    ; numbers that are right. All three, not just the pages: on the second
+    ; pass the live tables above are still being filled in AS the contents
+    ; print, so reading them there lists whatever has been seen so far —
+    ; which is one heading.
+    def knownPages:[int]
+    def knownText:[string]
+    def knownLevel:[int]
+    def tocLines:int 0
+
+    Constructor () {
+    }
+
+    fn setMeasurer:void (m:EVGTextMeasurer) {
+        engine.setMeasurer(m)
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Entry points
+    ; ----------------------------------------------------------------------
+
+    ; Front matter into the look of the page. Called before either layout;
+    ; a document with no front matter is unchanged by it.
+    fn applyMeta:void (doc:MdNode) {
+        def meta:MdMeta (MdFrontMatter.of(doc))
+        if ((meta.count()) == 0) { return }
+        def page:string (meta.get("page" ""))
+        def plen:int (strlen page)
+        if (plen > 0) {
+            style.pageWidth = (MdFrontMatter.pageWidth(page style.pageWidth))
+            style.pageHeight = (MdFrontMatter.pageHeight(page style.pageHeight))
+        }
+        def margin:string (meta.get("margin" ""))
+        def mlen:int (strlen margin)
+        if (mlen > 0) {
+            style.margin = (MdFrontMatter.points(margin style.margin))
+        }
+        style.title = (meta.get("title" ""))
+        style.runningHead = (MdChar.lower((meta.get("runninghead" ""))))
+        style.pageNumbers = (MdChar.lower((meta.get("pagenumbers" ""))))
+        style.wantToc = (meta.flag("toc" false))
+        style.breakOnH1 = (meta.flag("breakonh1" false))
+        if (meta.has("highlight")) {
+            style.highlightCode = (meta.flag("highlight" true))
+        }
+    }
+
+    ; One page, as tall as it needs to be. What the canvas scrolls.
+    fn layoutContinuous:void (doc:MdNode width:double) {
+        clear boxes
+        this.resetHeadings()
+        paginate = false
+        page = 0
+        pageCount = 1
+        contentX = style.margin
+        contentW = (width - (style.margin * 2.0))
+        contentTop = style.margin
+        contentBottom = 0.0
+        cursorY = contentTop
+        this.layoutBody(doc)
+        documentHeight = (cursorY + style.margin)
+    }
+
+    ; Sheets of a stated size, with the breaks decided here. What is printed.
+    fn layoutPaged:void (doc:MdNode) {
+        clear boxes
+        this.resetHeadings()
+        paginate = true
+        page = 0
+        pageCount = 1
+        contentX = style.margin
+        contentW = (style.pageWidth - (style.margin * 2.0))
+        contentTop = style.margin
+        contentBottom = (style.pageHeight - style.margin)
+        cursorY = contentTop
+        this.layoutBody(doc)
+        this.emitFurniture()
+        documentHeight = style.pageHeight
+    }
+
+    ; ----------------------------------------------------------------------
+    ; A table of contents, and what sits in the margins
+    ; ----------------------------------------------------------------------
+    ;
+    ; The contents are laid out TWICE, and the reason is the oldest one in
+    ; typesetting: the page numbers depend on where the blocks fall, and where
+    ; the blocks fall depends on how tall the contents are. So the first pass
+    ; reserves exactly the height the list will need — a number that does not
+    ; depend on the page numbers at all, only on how many headings there are —
+    ; and the second pass fills the reserved space in. Nothing moves between
+    ; the two, so the numbers are right rather than nearly right.
+    fn tocHeight:double () {
+        if (tocLines == 0) { return 0.0 }
+        def lh:double (style.bodySize * style.lineHeight)
+        def head:double ((style.h2Size * style.lineHeight) + style.headingSpaceAfter)
+        return (((head + (lh * (to_double tocLines))) + style.headingSpaceBefore) + style.paraSpacing)
+    }
+
+    fn emitToc:void (x:double w:double) {
+        if (tocLines == 0) { return }
+        def lh:double (style.bodySize * style.lineHeight)
+        cursorY = (cursorY + style.headingSpaceBefore)
+        def hy:double (this.reserve((style.h2Size * style.lineHeight)))
+        def h:MdBox (MdBox.text("Contents" x hy w (style.h2Size * style.lineHeight)))
+        h.family = style.headingFamily
+        h.size = style.h2Size
+        h.bold = true
+        h.color = style.textColor
+        this.emit(h)
+        cursorY = ((hy + (style.h2Size * style.lineHeight)) + style.headingSpaceAfter)
+
+        def i:int 0
+        def n:int (array_length knownPages)
+        while (i < n) {
+            def level:int (itemAt knownLevel i)
+            if (level <= 3) {
+                def y:double (this.reserve(lh))
+                def indent:double ((to_double (level - 1)) * 14.0)
+                def label:MdBox (MdBox.text((itemAt knownText i) (x + indent) y (w - indent) lh))
+                label.family = style.bodyFamily
+                label.size = style.bodySize
+                label.color = style.textColor
+                this.emit(label)
+                ; The page number, right-aligned against the column's edge.
+                def num:string (to_string ((itemAt knownPages i) + 1))
+                def probe:MdRun (new MdRun())
+                probe.family = style.bodyFamily
+                probe.size = style.bodySize
+                def nw:double (this.measureRun(num probe))
+                def nb:MdBox (MdBox.text(num ((x + w) - nw) y nw lh))
+                nb.family = style.bodyFamily
+                nb.size = style.bodySize
+                nb.color = style.mutedColor
+                this.emit(nb)
+                cursorY = (y + lh)
+            }
+            i = (i + 1)
+        }
+        cursorY = (cursorY + style.paraSpacing)
+    }
+
+    ; The running head and the folio, on every sheet. Emitted after the
+    ; content, because until then nobody knows how many sheets there are.
+    fn emitFurniture:void () {
+        if (! paginate) { return }
+        def wantHead:boolean ((strlen style.runningHead) > 0)
+        def wantNum:boolean ((strlen style.pageNumbers) > 0)
+        if ((! wantHead) && (! wantNum)) { return }
+        if (style.runningHead == "none") { wantHead = false }
+        if (style.pageNumbers == "none") { wantNum = false }
+        def savedPage:int page
+        def x:double contentX
+        def w:double contentW
+        def lh:double (style.furnitureSize * 1.3)
+        def p:int 0
+        while (p < pageCount) {
+            page = p
+            if wantHead {
+                def text:string (this.headFor(p))
+                def tlen:int (strlen text)
+                if (tlen > 0) {
+                    def hy:double ((contentTop - lh) - 6.0)
+                    def b:MdBox (MdBox.text(text x hy w lh))
+                    b.family = style.bodyFamily
+                    b.size = style.furnitureSize
+                    b.color = style.mutedColor
+                    this.emit(b)
+                    this.emit((MdBox.rect(x (contentTop - 5.0) w 0.5 style.ruleColor)))
+                }
+            }
+            if wantNum {
+                def num:string (to_string (p + 1))
+                def probe:MdRun (new MdRun())
+                probe.family = style.bodyFamily
+                probe.size = style.furnitureSize
+                def nw:double (this.measureRun(num probe))
+                def ny:double (contentBottom + 10.0)
+                def nx:double ((x + (w / 2.0)) - (nw / 2.0))
+                if (style.pageNumbers == "bottom-right") {
+                    nx = ((x + w) - nw)
+                }
+                if (style.pageNumbers == "bottom-outer") {
+                    ; Outer is right on a recto and left on a verso, counting
+                    ; the first sheet as page one.
+                    def recto:boolean ((p % 2) == 0)
+                    if recto { nx = ((x + w) - nw) } { nx = x }
+                }
+                def nb:MdBox (MdBox.text(num nx ny nw lh))
+                nb.family = style.bodyFamily
+                nb.size = style.furnitureSize
+                nb.color = style.mutedColor
+                this.emit(nb)
+            }
+            p = (p + 1)
+        }
+        page = savedPage
+    }
+
+    ; What the running head says on that sheet.
+    fn headFor:string (p:int) {
+        if (style.runningHead == "title") { return style.title }
+        if (style.runningHead != "h1") { return "" }
+        def best:string ""
+        def i:int 0
+        def n:int (array_length headText)
+        while (i < n) {
+            if ((itemAt headLevel i) == 1) {
+                if ((itemAt headPage i) <= p) {
+                    best = (itemAt headText i)
+                }
+            }
+            i = (i + 1)
+        }
+        return best
+    }
+
+    ; The body, in one pass or in two.
+    ;
+    ; Two when the document asked for a table of contents, because the page
+    ; numbers in it depend on where the blocks fall and where the blocks fall
+    ; depends on how tall it is. The first pass leaves a gap of exactly the
+    ; right height and learns the pages; the second fills the gap in. Nothing
+    ; moves between them.
+    fn layoutBody:void (doc:MdNode) {
+        tocLines = 0
+        if style.wantToc {
+            tocLines = (MdLayout.countHeadings(doc))
+        }
+        if (tocLines == 0) {
+            this.bodyPass(doc 0)
+            return
+        }
+        this.bodyPass(doc 1)
+        clear knownPages
+        clear knownText
+        clear knownLevel
+        def i:int 0
+        def n:int (array_length headPage)
+        while (i < n) {
+            push knownPages (itemAt headPage i)
+            push knownText (itemAt headText i)
+            push knownLevel (itemAt headLevel i)
+            i = (i + 1)
+        }
+        clear boxes
+        this.resetHeadings()
+        page = 0
+        pageCount = 1
+        cursorY = contentTop
+        this.bodyPass(doc 2)
+    }
+
+    ; `mode`: 0 no contents, 1 reserve the space, 2 fill it in.
+    fn bodyPass:void (doc:MdNode mode:int) {
+        def placed:boolean (mode == 0)
+        def i:int 0
+        def n:int (doc.childCount())
+        while (i < n) {
+            def child:MdNode (doc.childAt(i))
+            this.block(child contentX contentW)
+            if (! placed) {
+                ; After the title, which is where a reader looks for it; at
+                ; the very top when the document has no heading at all.
+                def afterTitle:boolean (child.kind == "heading")
+                def atTop:boolean (child.kind == "front_matter")
+                if (afterTitle || (i == 0)) {
+                    if (! atTop) {
+                        if (mode == 1) {
+                            cursorY = (cursorY + (this.tocHeight()))
+                        } {
+                            this.emitToc(contentX contentW)
+                        }
+                        placed = true
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn countHeadings:int (doc:MdNode) {
+        def c:int 0
+        def i:int 0
+        def n:int (doc.childCount())
+        while (i < n) {
+            def child:MdNode (doc.childAt(i))
+            if (child.kind == "heading") {
+                if (child.level <= 3) { c = (c + 1) }
+            }
+            i = (i + 1)
+        }
+        return c
+    }
+
+    fn resetHeadings:void () {
+        clear headText
+        clear headLevel
+        clear headPage
+        clear headY
+    }
+
+    ; Room for `h` more, or a new sheet. Returns the y to draw at.
+    fn reserve:double (h:double) {
+        if paginate {
+            if ((cursorY + h) > contentBottom) {
+                page = (page + 1)
+                pageCount = (page + 1)
+                cursorY = contentTop
+            }
+        }
+        return cursorY
+    }
+
+    fn emit:void (b:MdBox) {
+        b.page = page
+        b.srcStart = currentSrc
+        push boxes b
+    }
+
+    ; The first box a block produced, or -1. The two panes of the viewer are
+    ; kept in step through this and nothing else.
+    fn firstBoxOf:int (srcStart:int) {
+        def i:int 0
+        def n:int (array_length boxes)
+        while (i < n) {
+            def b:MdBox (itemAt boxes i)
+            if (b.srcStart == srcStart) { return i }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Blocks
+    ; ----------------------------------------------------------------------
+    fn blocks:void (parent:MdNode x:double w:double) {
+        def i:int 0
+        def n:int (parent.childCount())
+        while (i < n) {
+            def child:MdNode (parent.childAt(i))
+            this.block(child x w)
+            i = (i + 1)
+        }
+    }
+
+    fn block:void (node:MdNode x:double w:double) {
+        def outerSrc:int currentSrc
+        if (node.srcStart >= 0) { currentSrc = node.srcStart }
+        this.blockInner(node x w)
+        currentSrc = outerSrc
+    }
+
+    fn blockInner:void (node:MdNode x:double w:double) {
+        def kind:string node.kind
+        if (kind == "paragraph") {
+            def runs:[MdRun] (this.inlineRuns(node (this.baseRun())))
+            this.paragraph(runs x w)
+            def gap:double style.paraSpacing
+            if inTightItem {
+                gap = style.listTightSpacing
+            }
+            cursorY = (cursorY + gap)
+            return
+        }
+        if (kind == "heading") {
+            this.heading(node x w)
+            return
+        }
+        if (kind == "thematic_break") {
+            def y:double (this.reserve(14.0))
+            this.emit((MdBox.rect(x (y + 6.0) w 1.0 style.ruleColor)))
+            cursorY = (y + 14.0)
+            return
+        }
+        if (kind == "code_block") {
+            this.codeBlock(node x w)
+            return
+        }
+        if (kind == "html_block") {
+            ; A canvas has nothing to hand a `<div>` to. The markup is shown
+            ; as what it is — which is also more honest than dropping it.
+            def shown:MdNode (MdNode.create("code_block"))
+            shown.literal = node.literal
+            shown.info = "html"
+            this.codeBlock(shown x w)
+            return
+        }
+        if (kind == "block_quote") {
+            this.blockQuote(node x w)
+            return
+        }
+        if (kind == "list") {
+            this.list(node x w)
+            return
+        }
+        if (kind == "table") {
+            this.table(node x w)
+            return
+        }
+        if (kind == "front_matter") {
+            return
+        }
+        if (kind == "embed") {
+            this.embed(node x w)
+            return
+        }
+        ; anything unexpected still shows its contents rather than vanishing
+        this.blocks(node x w)
+    }
+
+    fn baseRun:MdRun () {
+        def r:MdRun (new MdRun())
+        r.family = style.bodyFamily
+        r.size = style.bodySize
+        r.color = style.textColor
+        if (quoteDepth > 0) {
+            r.color = style.quoteColor
+        }
+        return r
+    }
+
+    fn heading:void (node:MdNode x:double w:double) {
+        if (style.breakOnH1 && (node.level == 1)) {
+            ; A chapter opener starts its own sheet — but not the first one,
+            ; which would be a blank page before the title.
+            if (paginate && ((array_length boxes) > 0)) {
+                page = (page + 1)
+                pageCount = (page + 1)
+                cursorY = contentTop
+            }
+        }
+        def size:double (style.headingSize(node.level))
+        def base:MdRun (new MdRun())
+        base.family = style.headingFamily
+        base.size = size
+        base.bold = true
+        base.color = style.textColor
+        def runs:[MdRun] (this.inlineRuns(node base))
+        cursorY = (cursorY + style.headingSpaceBefore)
+        ; Recorded BEFORE the lines are placed, so the page is the page the
+        ; heading starts on rather than the one it may have spilled onto.
+        def at:double (this.reserve((size * style.lineHeight)))
+        push headText (node.plainText())
+        push headLevel node.level
+        push headPage page
+        push headY at
+        this.paragraph(runs x w)
+        if (node.level <= 2) {
+            def y:double cursorY
+            this.emit((MdBox.rect(x (y + 4.0) w 1.0 style.ruleColor)))
+            cursorY = (y + 5.0)
+        }
+        cursorY = (cursorY + style.headingSpaceAfter)
+    }
+
+    fn codeBlock:void (node:MdNode x:double w:double) {
+        def lines:[string] (strsplit node.literal "\n")
+        def count:int (array_length lines)
+        ; a fenced block ends in a newline, which is not a line of code
+        if (count > 0) {
+            def lastLine:string (itemAt lines (count - 1))
+            def lastLen:int (strlen lastLine)
+            if (lastLen == 0) { count = (count - 1) }
+        }
+        if (count < 1) { count = 1 }
+        def lh:double (style.codeSize * style.codeLineHeight)
+        def boxH:double ((lh * (to_double count)) + (style.codePadding * 2.0))
+        def y:double (this.reserve(boxH))
+        this.emit((MdBox.rect(x y w boxH style.codeBackground)))
+        this.emit((MdBox.outline(x y w boxH style.codeBorder 1.0)))
+        def ty:double (y + style.codePadding)
+        def lang:MdLanguage (MdCodeHighlight.languageFor((MdLayout.firstWord(node.info))))
+        def state:int 0
+        def tx0:double (x + style.codePadding)
+        def i:int 0
+        while (i < count) {
+            def ln:string (itemAt lines i)
+            if style.highlightCode {
+                def hl:MdHighlightedLine (MdCodeHighlight.line(ln lang state))
+                state = hl.state
+                this.codeLine(hl tx0 ty lh)
+            } {
+                def b:MdBox (MdBox.text(ln tx0 ty (w - (style.codePadding * 2.0)) lh))
+                b.family = style.monoFamily
+                b.size = style.codeSize
+                b.color = style.textColor
+                this.emit(b)
+            }
+            ty = (ty + lh)
+            i = (i + 1)
+        }
+        cursorY = ((y + boxH) + style.paraSpacing)
+    }
+
+    ; One line of code, token by token. Each is measured and placed after the
+    ; one before it, exactly as a paragraph's segments are — the face is the
+    ; same for all of them, so what varies is only the colour, and the run
+    ; still has to be measured because the face is not monospaced.
+    fn codeLine:void (hl:MdHighlightedLine x0:double y:double lh:double) {
+        def probe:MdRun (new MdRun())
+        probe.family = style.monoFamily
+        probe.size = style.codeSize
+        def cx:double x0
+        def i:int 0
+        def n:int (array_length hl.tokens)
+        while (i < n) {
+            def t:MdToken (itemAt hl.tokens i)
+            def tlen:int (strlen t.text)
+            if (tlen > 0) {
+                ; The whitespace at either end of a token is laid as advance
+                ; rather than as text — the same rule a paragraph's segments
+                ; follow, and for the same reason: a space has no glyph, and a
+                ; consumer that trims the edges of a text run then draws the
+                ; geometry the PDF draws. Without it `const frame` prints
+                ; correctly and previews as `constframe`.
+                def lead:int (MdLayout.leadingSpaces(t.text))
+                def trail:int (MdLayout.trailingSpaces(t.text tlen lead))
+                if (lead > 0) {
+                    def gap:string (substring t.text 0 lead)
+                    cx = (cx + (this.measureRun(gap probe)))
+                }
+                def core:string (substring t.text lead (tlen - trail))
+                def clen:int (strlen core)
+                if (clen > 0) {
+                    def wid:double (this.measureRun(core probe))
+                    def b:MdBox (MdBox.text(core cx y wid lh))
+                    b.family = style.monoFamily
+                    b.size = style.codeSize
+                    b.color = (style.codeColor(t.kind))
+                    this.emit(b)
+                    cx = (cx + wid)
+                }
+                if (trail > 0) {
+                    def tail:string (substring t.text (tlen - trail) tlen)
+                    cx = (cx + (this.measureRun(tail probe)))
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    fn blockQuote:void (node:MdNode x:double w:double) {
+        def pad:double style.quotePadY
+        def top:double cursorY
+        def innerX:double ((x + style.quoteBarWidth) + style.quoteIndent)
+        def innerW:double (w - ((style.quoteBarWidth + style.quoteIndent)))
+        def startPage:int page
+        def before:int (array_length boxes)
+        cursorY = (cursorY + pad)
+        quoteDepth = (quoteDepth + 1)
+        ; A quote is a block with paragraphs in it wherever it stands, even
+        ; inside a tight list item.
+        def wasTight:boolean inTightItem
+        inTightItem = false
+        this.blocks(node innerX innerW)
+        inTightItem = wasTight
+        quoteDepth = (quoteDepth - 1)
+        ; Where the CONTENT ended, which is not where the cursor is: `blocks`
+        ; leaves the cursor past the last child's own trailing space, and that
+        ; space belongs OUTSIDE the bar. Reading the bottom off the boxes it
+        ; just emitted works whatever the last child turned out to be — a
+        ; paragraph, a list, a table, a nested quote, a drawing — where
+        ; subtracting a paragraph's spacing would only work for a paragraph.
+        def inkBottom:double (top + pad)
+        def i:int before
+        def n:int (array_length boxes)
+        while (i < n) {
+            def b:MdBox (itemAt boxes i)
+            ; On this sheet only. A quote that crossed a break has boxes whose
+            ; y is measured from the top of another page.
+            if (b.page == page) {
+                def edge:double (b.y + b.h)
+                if (edge > inkBottom) {
+                    inkBottom = edge
+                }
+            }
+            i = (i + 1)
+        }
+        def bottom:double (inkBottom + pad)
+        ; The bar is drawn per page, so a quote that spans a break gets one on
+        ; each sheet rather than a single stripe that goes off the bottom.
+        if (page == startPage) {
+            this.emit((MdBox.rect(x top style.quoteBarWidth (bottom - top) style.quoteBarColor)))
+        } {
+            this.emit((MdBox.rect(x contentTop style.quoteBarWidth (bottom - contentTop) style.quoteBarColor)))
+        }
+        cursorY = (bottom + style.paraSpacing)
+    }
+
+    fn list:void (node:MdNode x:double w:double) {
+        def items:int (node.childCount())
+        def i:int 0
+        def number:int node.listStart
+        listDepth = (listDepth + 1)
+        def wasTight:boolean inTightItem
+        ; How far the text is indented, which is as far as the WIDEST marker
+        ; needs and never less than the style's own step.
+        ;
+        ; It was the step alone. `1.` fits inside it and `100.` does not, so a
+        ; list long enough to reach three digits wrote its numbers across the
+        ; first letters of its own items — and the box the marker claimed
+        ; stayed the same width as the number grew, which is a lie anything
+        ; that clips or hit-tests a box would have believed.
+        def probe:MdRun (this.baseRun())
+        def widest:double 0.0
+        def probeNum:int node.listStart
+        def k:int 0
+        while (k < items) {
+            def probeItem:MdNode (node.childAt(k))
+            def pm:string (MdLayout.markerFor(node probeItem probeNum))
+            if node.listOrdered {
+                probeNum = (probeNum + 1)
+            }
+            def pw:double (this.measureRun(pm probe))
+            if (pw > widest) {
+                widest = pw
+            }
+            k = (k + 1)
+        }
+        def indent:double style.listIndent
+        def need:double (widest + style.markerGap)
+        if (need > indent) {
+            indent = need
+        }
+        while (i < items) {
+            def item:MdNode (node.childAt(i))
+            def marker:string (MdLayout.markerFor(node item number))
+            if node.listOrdered {
+                number = (number + 1)
+            }
+            def innerX:double (x + indent)
+            def innerW:double (w - indent)
+            def markerY:double cursorY
+            def markerPage:int page
+            inTightItem = node.listTight
+            this.blocks(item innerX innerW)
+            inTightItem = wasTight
+            ; The marker is emitted with the page the item STARTED on, which
+            ; is where its first line went.
+            def savedPage:int page
+            page = markerPage
+            def markerW:double (this.measureRun(marker probe))
+            def mb:MdBox (MdBox.text(marker x markerY markerW (style.bodySize * style.lineHeight)))
+            mb.family = style.bodyFamily
+            mb.size = style.bodySize
+            mb.color = style.mutedColor
+            this.emit(mb)
+            page = savedPage
+            if (! node.listTight) {
+                cursorY = (cursorY + 2.0)
+            }
+            i = (i + 1)
+        }
+        listDepth = (listDepth - 1)
+        ; The list's own separation from whatever follows it, which the items
+        ; stopped providing when the list went tight. Only the OUTERMOST list
+        ; gets it: a nested list is followed by its parent's next item, and an
+        ; item's worth of air is what that wants.
+        if (listDepth == 0) {
+            if node.listTight {
+                def extra:double (style.paraSpacing - style.listTightSpacing)
+                if (extra > 0.0) {
+                    cursorY = (cursorY + extra)
+                }
+            }
+        }
+    }
+
+    ; A fenced diagram. The layout cannot draw one and must still leave a
+    ; hole of the right height — so it asks the cache, which a handler filled
+    ; before layout began. A diagram nobody prepared is a labelled slot: an
+    ; empty rectangle tells a reader nothing, and a silent omission tells
+    ; them less.
+    fn embed:void (node:MdNode x:double w:double) {
+        def kind:string (MdLayout.firstWord(node.info))
+        def known:double (embeds.heightFor(kind node.literal w))
+        def drawn:boolean (known > 0.0)
+        def h:double 64.0
+        if drawn { h = known }
+        def y:double (this.reserve(h))
+        def b:MdBox (new MdBox())
+        b.kind = 3
+        b.x = x
+        b.y = y
+        b.w = w
+        b.h = h
+        b.embedKind = kind
+        b.embedSource = node.literal
+        this.emit(b)
+        if (! drawn) {
+            b.stroke = style.codeBorder
+            b.strokeWidth = 1.0
+            def note:string (embeds.noteFor(kind node.literal w))
+            def nlen:int (strlen note)
+            if (nlen == 0) { note = (kind + " — no handler prepared this one") }
+            def label:MdBox (MdBox.text(note (x + style.codePadding) (y + style.codePadding) (w - (style.codePadding * 2.0)) (style.bodySize * style.lineHeight)))
+            label.family = style.bodyFamily
+            label.size = style.bodySize
+            label.italic = true
+            label.color = style.mutedColor
+            this.emit(label)
+        }
+        cursorY = ((y + h) + style.embedSpacing)
+    }
+
+    ; What stands in front of an item: a bullet, a number, or a task box. One
+    ; place, because the measuring pass and the drawing pass have to agree —
+    ; they did not have to before, when the column was a constant.
+    sfn markerFor:string (list:MdNode item:MdNode number:int) {
+        if (item.taskState >= 0) {
+            return (? (item.taskState == 1) "☑" "☐")
+        }
+        if list.listOrdered {
+            return ((to_string number) + list.listDelim)
+        }
+        return "•"
+    }
+
+    sfn firstWord:string (info:string) {
+        def n:int (strlen info)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt info i)
+            if (c == 32) { return (substring info 0 i) }
+            if (c == 9) { return (substring info 0 i) }
+            i = (i + 1)
+        }
+        return info
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Inlines → runs
+    ; ----------------------------------------------------------------------
+    ; Returning the array rather than filling one that was passed in.
+    ;
+    ; `push` into an array PARAMETER works on JavaScript and does nothing on
+    ; Go, where the parameter is a slice and the append lands on a copy. The
+    ; JavaScript suite passed and the Go suite laid out an empty page; there
+    ; is no warning in between, so the rule here is that an array is a return
+    ; value and never an out-parameter.
+    fn inlineRuns:[MdRun] (node:MdNode base:MdRun) {
+        return (this.collectRuns(node base))
+    }
+
+    fn collectRuns:[MdRun] (node:MdNode base:MdRun) {
+        def out:[MdRun]
+        def i:int 0
+        def n:int (node.childCount())
+        while (i < n) {
+            def c:MdNode (node.childAt(i))
+            def kind:string c.kind
+            if (kind == "text") {
+                def r:MdRun (base.copyStyle())
+                r.text = c.literal
+                push out r
+            }
+            if (kind == "softbreak") {
+                def sb:MdRun (base.copyStyle())
+                sb.text = " "
+                push out sb
+            }
+            if (kind == "linebreak") {
+                def lb:MdRun (base.copyStyle())
+                lb.hardBreak = true
+                push out lb
+            }
+            if (kind == "code") {
+                def cr:MdRun (base.copyStyle())
+                cr.family = style.monoFamily
+                cr.size = (base.size * 0.92)
+                cr.code = true
+                cr.bold = false
+                cr.italic = false
+                cr.text = c.literal
+                push out cr
+            }
+            if (kind == "html_inline") {
+                def hr:MdRun (base.copyStyle())
+                hr.family = style.monoFamily
+                hr.size = (base.size * 0.92)
+                hr.color = style.mutedColor
+                hr.text = c.literal
+                push out hr
+            }
+            if (kind == "emph") {
+                def er:MdRun (base.copyStyle())
+                er.italic = true
+                def nested:[MdRun] (this.collectRuns(c er))
+                def ni:int 0
+                def nn:int (array_length nested)
+                while (ni < nn) {
+                    push out (itemAt nested ni)
+                    ni = (ni + 1)
+                }
+            }
+            if (kind == "strong") {
+                def sr:MdRun (base.copyStyle())
+                sr.bold = true
+                def nested:[MdRun] (this.collectRuns(c sr))
+                def ni:int 0
+                def nn:int (array_length nested)
+                while (ni < nn) {
+                    push out (itemAt nested ni)
+                    ni = (ni + 1)
+                }
+            }
+            if (kind == "strike") {
+                def kr:MdRun (base.copyStyle())
+                kr.color = style.mutedColor
+                def nested:[MdRun] (this.collectRuns(c kr))
+                def ni:int 0
+                def nn:int (array_length nested)
+                while (ni < nn) {
+                    push out (itemAt nested ni)
+                    ni = (ni + 1)
+                }
+            }
+            if (kind == "link") {
+                def lr:MdRun (base.copyStyle())
+                lr.color = style.linkColor
+                lr.link = c.destination
+                def nested:[MdRun] (this.collectRuns(c lr))
+                def ni:int 0
+                def nn:int (array_length nested)
+                while (ni < nn) {
+                    push out (itemAt nested ni)
+                    ni = (ni + 1)
+                }
+            }
+            if (kind == "image") {
+                ; An image the layout has no bytes for still says what it was.
+                def ir:MdRun (base.copyStyle())
+                ir.italic = true
+                ir.color = style.mutedColor
+                def alt:string (c.plainText())
+                ir.text = (("[" + alt) + "]")
+                push out ir
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; ----------------------------------------------------------------------
+    ; A paragraph: runs in, positioned lines out
+    ; ----------------------------------------------------------------------
+    fn paragraph:void (runs:[MdRun] x:double w:double) {
+        def lines:[MdLine] (this.breakRuns(runs w))
+        def i:int 0
+        def n:int (array_length lines)
+        while (i < n) {
+            def ln:MdLine (itemAt lines i)
+            def y:double (this.reserve(ln.height))
+            def s:int 0
+            def sn:int (array_length ln.segs)
+            while (s < sn) {
+                def seg:MdSeg (itemAt ln.segs s)
+                if seg.code {
+                    ; the tint behind an inline code span, drawn first
+                    def pad:double 2.0
+                    def bg:MdBox (MdBox.rect(((x + seg.x) - pad) (y + 1.0) (seg.w + (pad * 2.0)) (ln.height - 2.0) style.codeBackground))
+                    this.emit(bg)
+                }
+                def b:MdBox (MdBox.text(seg.text (x + seg.x) y seg.w ln.height))
+                b.family = seg.family
+                b.size = seg.size
+                b.bold = seg.bold
+                b.italic = seg.italic
+                b.color = seg.color
+                b.link = seg.link
+                this.emit(b)
+                s = (s + 1)
+            }
+            cursorY = (y + ln.height)
+            i = (i + 1)
+        }
+    }
+
+    fn measureRun:double (text:string r:MdRun) {
+        def len:int (strlen text)
+        if (len == 0) { return 0.0 }
+        def face:string (style.faceFor(r.family r.bold r.italic))
+        def m:EVGTextMetrics (engine.measureRun(text face r.size))
+        return m.width
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Breaking a line across several faces
+    ; ----------------------------------------------------------------------
+    ;
+    ; The algorithm `EVGTextEngine` uses, with one change: the accumulator is
+    ; a list of segments rather than a string, so a change of face is a new
+    ; segment instead of the end of the line. Each segment is measured WHOLE
+    ; — not as a sum of word widths plus a guessed space — which is what
+    ; makes the break land where the painter will draw it.
+    fn breakRuns:[MdLine] (runs:[MdRun] maxWidth:double) {
+        def lines:[MdLine]
+
+        ; --- atoms: words, runs of spaces, and forced breaks ---------------
+        def aText:[string]
+        def aRun:[int]
+        def aSpace:[boolean]
+        def aBreak:[boolean]
+        def ri:int 0
+        def rn:int (array_length runs)
+        while (ri < rn) {
+            def r:MdRun (itemAt runs ri)
+            if r.hardBreak {
+                push aText ""
+                push aRun ri
+                push aSpace false
+                push aBreak true
+            } {
+                def t:string r.text
+                def tn:int (strlen t)
+                def i:int 0
+                while (i < tn) {
+                    def start:int i
+                    def c:int (charAt t i)
+                    def isSpace:boolean (MdChar.isSpaceOrTab(c))
+                    def scanning:boolean true
+                    while scanning {
+                        if (i >= tn) { scanning = false }
+                        if scanning {
+                            def c2:int (charAt t i)
+                            def s2:boolean (MdChar.isSpaceOrTab(c2))
+                            if (s2 == isSpace) { i = (i + 1) } { scanning = false }
+                        }
+                    }
+                    push aText (substring t start i)
+                    push aRun ri
+                    push aSpace isSpace
+                    push aBreak false
+                }
+            }
+            ri = (ri + 1)
+        }
+
+        ; --- the greedy fill ----------------------------------------------
+        def cur:MdLine (new MdLine())
+        def usedWidth:double 0.0
+        def openRun:int -1
+        def openText:string ""
+        ; What `openText` measures, carried forward instead of measured again.
+        ; `prevAtom` is the last atom that went in, and `prevAtomW` what it
+        ; measures alone — the pair that lets the next atom be charged its
+        ; advance AND its kern without re-reading the whole segment.
+        def openW:double 0.0
+        def prevAtom:string ""
+        def prevAtomW:double 0.0
+        def ai:int 0
+        def an:int (array_length aText)
+        def guard:int 0
+        while (ai < an) {
+            guard = (guard + 1)
+            if (guard > 2000000) { ai = an }
+            if (ai < an) {
+                def hard:boolean (itemAt aBreak ai)
+                def isSpace:boolean (itemAt aSpace ai)
+                def segCount:int (array_length cur.segs)
+                def lineEmpty:boolean ((segCount == 0) && ((strlen openText) == 0))
+                if hard {
+                    usedWidth = (this.flushOpen(cur runs openRun openText usedWidth))
+                    openRun = -1
+                    openText = ""
+                    openW = 0.0
+                    prevAtom = ""
+                    prevAtomW = 0.0
+                    def done:MdLine (this.finishLine(cur))
+                    push lines done
+                    cur = (new MdLine())
+                    usedWidth = 0.0
+                    ai = (ai + 1)
+                } {
+                    if (isSpace && lineEmpty) {
+                        ; a wrapped line does not begin with the space it
+                        ; wrapped at
+                        ai = (ai + 1)
+                    } {
+                        def r:int (itemAt aRun ai)
+                        def t:string (itemAt aText ai)
+                        def run:MdRun (itemAt runs r)
+                        def candidate:double 0.0
+                        ; What the line measures with this atom on it, and —
+                        ; when it is taken — what the open segment then
+                        ; measures.
+                        ;
+                        ; Measuring `openText + t` outright is what this did
+                        ; first, and it re-read the whole open segment once per
+                        ; word: quadratic in the segment, with a cache entry
+                        ; per prefix. A kern pair depends only on the two
+                        ; codepoints either side of the join, so `prevAtom + t`
+                        ; is charged the same advance and the same pair as the
+                        ; whole string would be — the growth is
+                        ; `measure(prevAtom + t) - measure(prevAtom)`, and the
+                        ; running total stays the number a whole-string
+                        ; measurement gives.
+                        def grown:double 0.0
+                        if (r == openRun) {
+                            def joined:double (this.measureRun((prevAtom + t) run))
+                            grown = ((openW + joined) - prevAtomW)
+                            candidate = (usedWidth + grown)
+                            ; Near the break, throw the running total away and
+                            ; ask for the whole segment. A sum of parts and a
+                            ; single measurement agree to the last bit only by
+                            ; luck, and this is the one place where the last
+                            ; bit decides where the line ends.
+                            def slack:double (candidate - maxWidth)
+                            if (slack < 0.0) {
+                                slack = (0.0 - slack)
+                            }
+                            if (slack < 1.0) {
+                                grown = (this.measureRun((openText + t) run))
+                                candidate = (usedWidth + grown)
+                            }
+                        } {
+                            def openRunObj:MdRun run
+                            if (openRun >= 0) { openRunObj = (itemAt runs openRun) }
+                            def openExact:double 0.0
+                            if (openRun >= 0) { openExact = (this.measureRun(openText openRunObj)) }
+                            grown = (this.measureRun(t run))
+                            candidate = ((usedWidth + openExact) + grown)
+                        }
+                        def startsSegment:boolean (r != openRun)
+                        if (isSpace && startsSegment) {
+                            ; A space that would OPEN a segment becomes pure
+                            ; advance instead of text.
+                            ;
+                            ; It has no glyph, so nothing is lost — and every
+                            ; consumer that trims the edges of a text run (an
+                            ; HTML preview does; so does anything that treats
+                            ; a run as a line box) then draws the same
+                            ; geometry as the PDF. Before this, `[LICENSE]`
+                            ; followed by ` for details` lost the space
+                            ; between them in the preview while the PDF kept
+                            ; it: one layout, two pictures.
+                            usedWidth = (this.flushOpen(cur runs openRun openText usedWidth))
+                            openRun = -1
+                            openText = ""
+                            openW = 0.0
+                            prevAtom = ""
+                            prevAtomW = 0.0
+                            usedWidth = (usedWidth + (this.measureRun(t run)))
+                            ai = (ai + 1)
+                        } {
+                        def overflows:boolean ((candidate > maxWidth) && (! lineEmpty) && (! isSpace))
+                        if overflows {
+                            usedWidth = (this.flushOpen(cur runs openRun openText usedWidth))
+                            openRun = -1
+                            openText = ""
+                            openW = 0.0
+                            prevAtom = ""
+                            prevAtomW = 0.0
+                            def wrapped:MdLine (this.finishLine(cur))
+                            push lines wrapped
+                            cur = (new MdLine())
+                            usedWidth = 0.0
+                        } {
+                            if (r == openRun) {
+                                openText = (openText + t)
+                            } {
+                                usedWidth = (this.flushOpen(cur runs openRun openText usedWidth))
+                                openRun = r
+                                openText = t
+                            }
+                            openW = grown
+                            prevAtom = t
+                            prevAtomW = (this.measureRun(t run))
+                            ai = (ai + 1)
+                        }
+                        }
+                    }
+                }
+            }
+        }
+        usedWidth = (this.flushOpen(cur runs openRun openText usedWidth))
+        def leftover:int (array_length cur.segs)
+        def any:int (array_length lines)
+        if ((leftover > 0) || (any == 0)) {
+            def last:MdLine (this.finishLine(cur))
+            push lines last
+        }
+        return lines
+    }
+
+    ; The open segment, measured and placed. Returns the new used width.
+    fn flushOpen:double (cur:MdLine runs:[MdRun] openRun:int openText:string usedWidth:double) {
+        if (openRun < 0) { return usedWidth }
+        def len:int (strlen openText)
+        if (len == 0) { return usedWidth }
+        def run:MdRun (itemAt runs openRun)
+        def seg:MdSeg (new MdSeg())
+        seg.text = openText
+        seg.family = run.family
+        seg.size = run.size
+        seg.bold = run.bold
+        seg.italic = run.italic
+        seg.color = run.color
+        seg.code = run.code
+        seg.link = run.link
+        seg.x = usedWidth
+        seg.w = (this.measureRun(openText run))
+        push cur.segs seg
+        return (usedWidth + seg.w)
+    }
+
+    ; A line's height and baseline are the maximum over its segments, so a
+    ; small code span inside larger prose does not pull the line up.
+    fn finishLine:MdLine (cur:MdLine) {
+        def n:int (array_length cur.segs)
+        def height:double (style.bodySize * style.lineHeight)
+        def ascent:double (style.bodySize * 0.9)
+        def width:double 0.0
+        if (n > 0) {
+            ; the trailing space a wrap left behind is not part of the line
+            def last:MdSeg (itemAt cur.segs (n - 1))
+            def trimmed:string (MdLayout.trimTrailing(last.text))
+            def tlen:int (strlen trimmed)
+            def olen:int (strlen last.text)
+            if (tlen != olen) {
+                last.text = trimmed
+                def r:MdRun (new MdRun())
+                r.family = last.family
+                r.size = last.size
+                r.bold = last.bold
+                r.italic = last.italic
+                last.w = (this.measureRun(trimmed r))
+            }
+            height = 0.0
+            def i:int 0
+            while (i < n) {
+                def seg:MdSeg (itemAt cur.segs i)
+                def face:string (style.faceFor(seg.family seg.bold seg.italic))
+                def m:EVGTextMetrics (engine.measureRun("Hg" face seg.size))
+                def h:double (seg.size * style.lineHeight)
+                if (h > height) { height = h }
+                if (m.ascent > ascent) { ascent = m.ascent }
+                width = (seg.x + seg.w)
+                i = (i + 1)
+            }
+        }
+        cur.height = height
+        cur.ascent = ascent
+        cur.width = width
+        return cur
+    }
+
+    sfn leadingSpaces:int (v:string) {
+        def n:int (strlen v)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt v i)
+            if (! (MdChar.isSpaceOrTab(c))) { return i }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn trailingSpaces:int (v:string n:int lead:int) {
+        def i:int n
+        def going:boolean true
+        while going {
+            if (i <= lead) { going = false }
+            if going {
+                def c:int (charAt v (i - 1))
+                if (MdChar.isSpaceOrTab(c)) { i = (i - 1) } { going = false }
+            }
+        }
+        return (n - i)
+    }
+
+    sfn trimTrailing:string (v:string) {
+        def n:int (strlen v)
+        def i:int n
+        def going:boolean true
+        while going {
+            if (i <= 0) { going = false }
+            if going {
+                def c:int (charAt v (i - 1))
+                if (MdChar.isSpaceOrTab(c)) { i = (i - 1) } { going = false }
+            }
+        }
+        return (substring v 0 i)
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Tables
+    ; ----------------------------------------------------------------------
+    fn table:void (node:MdNode x:double w:double) {
+        def rows:int (node.childCount())
+        if (rows == 0) { return }
+        def head:MdNode (node.childAt(0))
+        def cols:int (head.childCount())
+        if (cols == 0) { return }
+
+        ; TWO widths per column, not one: what the cell wants if nothing
+        ; wrapped (MAX-CONTENT) and what it needs before a word has to be
+        ; broken in half (MIN-CONTENT).
+        ;
+        ; Scaling the max-content widths by one factor — which is what this
+        ; did — is only right when every column shrinks equally well, and a
+        ; column of one-word labels beside a column of paragraphs is the case
+        ; where it is not. `Area | Current expectation` in this repository's
+        ; own README came out with a first column narrower than the word
+        ; `Host/runtime`, which then ran out of its cell and across the text
+        ; in the next one: unreadable, and unreadable in a way a wider table
+        ; would not have been.
+        ;
+        ; So: no column below its min-content width, and the room that is left
+        ; shared out in proportion to how much each column would still like.
+        ; That is the table algorithm HTML has had since HTML 4 §17.5.2, and
+        ; it is what a browser does with this same markdown.
+        def natural:[double]
+        def minimum:[double]
+        def c:int 0
+        while (c < cols) {
+            def wid:double 0.0
+            def least:double 0.0
+            def r:int 0
+            while (r < rows) {
+                def row:MdNode (node.childAt(r))
+                def rc:int (row.childCount())
+                if (c < rc) {
+                    def cell:MdNode (row.childAt(c))
+                    def base:MdRun (this.baseRun())
+                    if cell.isHeader { base.bold = true }
+                    def runs:[MdRun] (this.inlineRuns(cell base))
+                    def cw:double (this.runsWidth(runs))
+                    if (cw > wid) { wid = cw }
+                    ; The narrowest column this cell can be set in, asked of
+                    ; the line breaker itself rather than guessed from the
+                    ; text: break it into a column of one point and the widest
+                    ; line that comes back is the widest thing that cannot be
+                    ; broken. Guessing it from spaces would disagree with the
+                    ; breaker exactly where it matters — `ts_parser` is three
+                    ; runs and one word.
+                    def tight:[MdLine] (this.breakRuns(runs 1.0))
+                    def ti:int 0
+                    def tn:int (array_length tight)
+                    while (ti < tn) {
+                        def tl:MdLine (itemAt tight ti)
+                        if (tl.width > least) { least = tl.width }
+                        ti = (ti + 1)
+                    }
+                }
+                r = (r + 1)
+            }
+            push natural (wid + (style.cellPadX * 2.0))
+            push minimum (least + (style.cellPadX * 2.0))
+            c = (c + 1)
+        }
+        def total:double 0.0
+        def leastTotal:double 0.0
+        def k:int 0
+        while (k < cols) {
+            total = (total + (itemAt natural k))
+            leastTotal = (leastTotal + (itemAt minimum k))
+            k = (k + 1)
+        }
+        def widths:[double]
+        def j:int 0
+        if (total <= w) {
+            ; It fits as written.
+            while (j < cols) {
+                push widths (itemAt natural j)
+                j = (j + 1)
+            }
+        } {
+            if (leastTotal >= w) {
+                ; Even unbreakable, it does not fit. The table is then wider
+                ; than the column it sits in, which is visible and honest;
+                ; squeezing below this point does not make it fit, it only
+                ; moves the overflow inside the cells where it lands on top of
+                ; the neighbouring text.
+                while (j < cols) {
+                    push widths (itemAt minimum j)
+                    j = (j + 1)
+                }
+            } {
+                def room:double (w - leastTotal)
+                def want:double (total - leastTotal)
+                while (j < cols) {
+                    def lo:double (itemAt minimum j)
+                    def hi:double (itemAt natural j)
+                    def share:double (((hi - lo) / want) * room)
+                    push widths (lo + share)
+                    j = (j + 1)
+                }
+            }
+        }
+
+        def r2:int 0
+        while (r2 < rows) {
+            def row:MdNode (node.childAt(r2))
+            this.tableRow(row x widths cols)
+            r2 = (r2 + 1)
+        }
+        cursorY = (cursorY + style.paraSpacing)
+    }
+
+    fn runsWidth:double (runs:[MdRun]) {
+        def total:double 0.0
+        def i:int 0
+        def n:int (array_length runs)
+        while (i < n) {
+            def r:MdRun (itemAt runs i)
+            total = (total + (this.measureRun(r.text r)))
+            i = (i + 1)
+        }
+        return total
+    }
+
+    fn tableRow:void (row:MdNode x:double widths:[double] cols:int) {
+        ; Every cell is broken to its own column first, so the row is as tall
+        ; as the tallest of them.
+        def heights:[double]
+        def rowH:double 0.0
+        def c:int 0
+        def rc:int (row.childCount())
+        while (c < cols) {
+            def h:double ((style.bodySize * style.lineHeight) + (style.cellPadY * 2.0))
+            if (c < rc) {
+                def cell:MdNode (row.childAt(c))
+                def base:MdRun (this.baseRun())
+                if cell.isHeader { base.bold = true }
+                def runs:[MdRun] (this.inlineRuns(cell base))
+                def inner:double ((itemAt widths c) - (style.cellPadX * 2.0))
+                def lines:[MdLine] (this.breakRuns(runs inner))
+                def sum:double 0.0
+                def i:int 0
+                def n:int (array_length lines)
+                while (i < n) {
+                    def ln:MdLine (itemAt lines i)
+                    sum = (sum + ln.height)
+                    i = (i + 1)
+                }
+                h = (sum + (style.cellPadY * 2.0))
+            }
+            push heights h
+            if (h > rowH) { rowH = h }
+            c = (c + 1)
+        }
+        def y:double (this.reserve(rowH))
+        def cx:double x
+        def c2:int 0
+        while (c2 < cols) {
+            def cw:double (itemAt widths c2)
+            def isHead:boolean false
+            if (c2 < rc) {
+                def cell0:MdNode (row.childAt(c2))
+                isHead = cell0.isHeader
+            }
+            if isHead {
+                this.emit((MdBox.rect(cx y cw rowH style.tableHeadBackground)))
+            }
+            this.emit((MdBox.outline(cx y cw rowH style.tableBorder 1.0)))
+            if (c2 < rc) {
+                def cell:MdNode (row.childAt(c2))
+                def base:MdRun (this.baseRun())
+                if cell.isHeader { base.bold = true }
+                def runs:[MdRun] (this.inlineRuns(cell base))
+                def inner:double (cw - (style.cellPadX * 2.0))
+                def lines:[MdLine] (this.breakRuns(runs inner))
+                def ty:double (y + style.cellPadY)
+                def i:int 0
+                def n:int (array_length lines)
+                while (i < n) {
+                    def ln:MdLine (itemAt lines i)
+                    def s:int 0
+                    def sn:int (array_length ln.segs)
+                    while (s < sn) {
+                        def seg:MdSeg (itemAt ln.segs s)
+                        def tx:double ((cx + style.cellPadX) + seg.x)
+                        if (cell.align == "right") {
+                            tx = ((((cx + cw) - style.cellPadX) - ln.width) + seg.x)
+                        }
+                        if (cell.align == "center") {
+                            def free:double (inner - ln.width)
+                            tx = (((cx + style.cellPadX) + (free / 2.0)) + seg.x)
+                        }
+                        def b:MdBox (MdBox.text(seg.text tx ty seg.w ln.height))
+                        b.family = seg.family
+                        b.size = seg.size
+                        b.bold = seg.bold
+                        b.italic = seg.italic
+                        b.color = seg.color
+                        b.link = seg.link
+                        this.emit(b)
+                        s = (s + 1)
+                    }
+                    ty = (ty + ln.height)
+                    i = (i + 1)
+                }
+            }
+            cx = (cx + cw)
+            c2 = (c2 + 1)
+        }
+        cursorY = (y + rowH)
+    }
+}

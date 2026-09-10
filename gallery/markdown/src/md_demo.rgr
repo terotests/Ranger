@@ -1,0 +1,199 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; md_demo.rgr — a markdown file, printed.
+; ============================================================================
+;
+;   npm run markdown:demo                      README.md → PDF + HTML
+;   npm run markdown:pdf -- path/to/file.md    …any file
+;
+; The whole pipeline in one program, and the only place in the module that
+; touches a disk:
+;
+;   read ──► MdBlock ──► MdLayout ──► MdToEvg ──► EVGPDFRenderer  → .pdf
+;                                             ──► EVGHTMLRenderer → .html
+;
+; The fonts are loaded rather than hoped for. Without them the PDF writer
+; falls back to guessed widths, and a line that fits on screen runs off the
+; page — the exact failure `EVGTextEngine` warns about — so the same
+; `TTFTextMeasurer` measures the layout and the paint.
+; ============================================================================
+
+Import "MdBlock.rgr"
+Import "MdLayout.rgr"
+Import "MdToEvg.rgr"
+Import "MdMermaid.rgr"
+Import "../../pdf_writer/src/core/EVGPDFRenderer.rgr"
+Import "../../pdf_writer/src/core/EVGHTMLRenderer.rgr"
+Import "../../pdf_writer/src/fonts/FontManager.rgr"
+
+class MdDemo {
+    def fontManager:FontManager (new FontManager())
+    def fontsLoaded:boolean false
+
+    Constructor () {
+    }
+
+    sfn main:void () {
+        def d:MdDemo (new MdDemo())
+        def argc:int (shell_arg_cnt)
+        def input:string "README.md"
+        def outDir:string "gallery/markdown/out"
+        if (argc > 0) { input = (shell_arg 0) }
+        if (argc > 1) { outDir = (shell_arg 1) }
+        d.run(input outDir)
+    }
+
+    fn loadFonts:void () {
+        fontManager.addFontsDirectory("gallery/pdf_writer/assets/fonts")
+        this.loadFamily("Open_Sans" "OpenSans")
+        this.loadFamily("Noto_Sans" "NotoSans")
+        def n:int (fontManager.getFontCount())
+        fontsLoaded = (n > 0)
+    }
+
+    fn loadFamily:void (dirName:string prefix:string) {
+        fontManager.loadFont(((dirName + "/") + (prefix + "-Regular.ttf")))
+        fontManager.loadFont(((dirName + "/") + (prefix + "-Bold.ttf")))
+        fontManager.loadFont(((dirName + "/") + (prefix + "-Italic.ttf")))
+        fontManager.loadFont(((dirName + "/") + (prefix + "-BoldItalic.ttf")))
+    }
+
+    fn run:void (input:string outDir:string) {
+        def text:string (?? (read_file "." input) "")
+        def len:int (strlen text)
+        if (len == 0) {
+            print ("md_demo: nothing to read at " + input)
+            return
+        }
+        this.loadFonts()
+        if (! fontsLoaded) {
+            print "md_demo: no fonts loaded — the PDF will be measured with guessed widths"
+        }
+
+        def doc:MdNode (MdBlock.parseText(text))
+        def blocks:int (doc.childCount())
+        ; Bound once: Ranger cannot do arithmetic on a call's result in place.
+        def stem:string (MdDemo.baseName(input))
+
+        def measurer:TTFTextMeasurer (new TTFTextMeasurer(fontManager))
+
+        ; ---- the page, printed -------------------------------------------
+        def paged:MdLayout (new MdLayout())
+        if fontsLoaded {
+            paged.setMeasurer(measurer)
+        }
+        ; The fences are drawn BEFORE the layout, because a page cannot be
+        ; broken around a diagram whose height nobody has asked for. They are
+        ; prepared at the width of the column they will land in, so a printed
+        ; diagram is laid out at the printed width rather than scaled from a
+        ; screen — which is the whole reason to keep it as geometry.
+        paged.applyMeta(doc)
+        def printWidth:double (paged.style.pageWidth - (paged.style.margin * 2.0))
+        MdMermaid.prepare(doc paged.embeds printWidth "default")
+        def diagrams:int (paged.embeds.count())
+        paged.layoutPaged(doc)
+        def printRoot:EVGElement (MdToEvg.buildPrint(paged))
+        def renderer (new EVGPDFRenderer())
+        renderer.init(renderer)
+        renderer.setPageSize(paged.style.pageWidth paged.style.pageHeight)
+        if fontsLoaded {
+            renderer.setFontManager(fontManager)
+            renderer.setMeasurer(measurer)
+        }
+        def pdf:buffer (renderer.render(printRoot))
+        def pdfPath:string (((outDir + "/") + stem) + ".pdf")
+        buffer_write_file "." pdfPath pdf
+
+        ; ---- the same document, scrolled ---------------------------------
+        def flowing:MdLayout (new MdLayout())
+        if fontsLoaded {
+            flowing.setMeasurer(measurer)
+        }
+        flowing.applyMeta(doc)
+        def screenWidth:double (820.0 - (flowing.style.margin * 2.0))
+        MdMermaid.prepare(doc flowing.embeds screenWidth "default")
+        flowing.layoutContinuous(doc 820.0)
+        def pageRoot:EVGElement (MdToEvg.buildPage(flowing 820.0))
+        def html (new EVGHTMLRenderer())
+        html.setPageSize(820.0 flowing.documentHeight)
+        html.setTitle(stem)
+        ; The same faces the layout measured with, embedded as `@font-face`.
+        ; Without this the browser substitutes a fallback and every line is
+        ; drawn narrower than it was measured — which looks like a bug in the
+        ; line breaker and is a bug in the preview.
+        if fontsLoaded {
+            html.setFontManager(fontManager)
+            html.setMeasurer(measurer)
+            html.setEmbedAssets(true)
+            ; Each FACE by name, because the exporter's own name mapping
+            ; guesses `OpenSans-Bold.ttf` beside the page rather than inside
+            ; the family's directory, and a `@font-face` that 404s is a
+            ; preview drawn in a fallback that was never measured.
+            MdDemo.registerFaces(html "Open Sans" "Open_Sans" "OpenSans")
+            MdDemo.registerFaces(html "Noto Sans" "Noto_Sans" "NotoSans")
+        }
+        def htmlOut:string (html.render(pageRoot))
+        def htmlPath:string (((outDir + "/") + stem) + ".html")
+        write_file "." htmlPath htmlOut
+
+        ; ---- and the sheets, as they will print --------------------------
+        def sheets:EVGElement (MdToEvg.buildSheets(paged (MdToEvg.sheetGap())))
+        def sheetsHtml (new EVGHTMLRenderer())
+        def gap:double (MdToEvg.sheetGap())
+        def stackH:double (((to_double paged.pageCount) * (paged.style.pageHeight + gap)) - gap)
+        sheetsHtml.setPageSize(paged.style.pageWidth stackH)
+        sheetsHtml.setTitle((stem + " — sheets"))
+        if fontsLoaded {
+            sheetsHtml.setFontManager(fontManager)
+            sheetsHtml.setMeasurer(measurer)
+            sheetsHtml.setEmbedAssets(true)
+            MdDemo.registerFaces(sheetsHtml "Open Sans" "Open_Sans" "OpenSans")
+            MdDemo.registerFaces(sheetsHtml "Noto Sans" "Noto_Sans" "NotoSans")
+        }
+        def sheetsOut:string (sheetsHtml.render(sheets))
+        def sheetsPath:string (((outDir + "/") + stem) + "-sheets.html")
+        write_file "." sheetsPath sheetsOut
+
+        print ""
+        print (("  " + input) + ":")
+        def boxCount:int (array_length paged.boxes)
+        def tall:int (to_int flowing.documentHeight)
+        print ("    blocks      " + (to_string blocks))
+        print ("    boxes       " + (to_string boxCount))
+        print ("    pages       " + (to_string paged.pageCount))
+        print ("    diagrams    " + (to_string diagrams))
+        print (("    scroll      " + (to_string tall)) + " pt tall")
+        print ("    " + pdfPath)
+        print ("    " + htmlPath)
+        print ("    " + sheetsPath)
+        print ""
+    }
+
+    sfn registerFaces:void (html:EVGHTMLRenderer family:string dir:string prefix:string) {
+        def root:string ("gallery/pdf_writer/assets/fonts/" + dir + "/" + prefix)
+        html.addFontFile(family (root + "-Regular.ttf"))
+        html.addFontFile((family + "-Bold") (root + "-Bold.ttf"))
+        html.addFontFile((family + "-Italic") (root + "-Italic.ttf"))
+        html.addFontFile((family + "-BoldItalic") (root + "-BoldItalic.ttf"))
+    }
+
+    sfn baseName:string (path:string) {
+        def n:int (strlen path)
+        def start:int 0
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt path i)
+            if (c == 47) { start = (i + 1) }
+            i = (i + 1)
+        }
+        def end:int n
+        def j:int start
+        while (j < n) {
+            def c2:int (charAt path j)
+            if (c2 == 46) { end = j }
+            j = (j + 1)
+        }
+        return (substring path start end)
+    }
+}

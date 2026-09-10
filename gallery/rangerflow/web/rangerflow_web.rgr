@@ -265,8 +265,17 @@ class RangerFlowWeb {
             }
             return "ns-resize"
         }
+        ; An end being carried to another handle.
+        if (editor.mode == 8) {
+            return "grabbing"
+        }
         if (editor.mode != 0) {
             return ""
+        }
+        ; The end grips come first, the same way the hit test takes them
+        ; first: they sit on top of the last few pixels of the line.
+        if ((editor.edgeEndAt(x y)) >= 0) {
+            return "grab"
         }
         def hit:int (editor.segmentAt(x y))
         if (hit < 0) {

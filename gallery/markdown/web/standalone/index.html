@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Markdown — Ranger</title>
+<style>
+  :root {
+    --bg: #eef0f4;
+    --panel: #ffffff;
+    --ink: #1f2328;
+    --muted: #57606a;
+    --line: #d8dee4;
+    --accent: #0969da;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%;
+    background: var(--bg); color: var(--ink);
+    font: 13px/1.45 -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    overscroll-behavior: none;
+  }
+  /* `dvh` rather than `%`: on a phone the address bar changes the viewport,
+     and a page sized to the tallest of them leaves a band of nothing. */
+  #app { display: flex; flex-direction: column; height: 100dvh; min-height: 100%; }
+
+  header {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 8px 12px; background: var(--panel);
+    border-bottom: 1px solid var(--line);
+  }
+  header h1 {
+    margin: 0 6px 0 0; font-size: 14px; font-weight: 600; letter-spacing: -0.01em;
+  }
+  button, select {
+    font: inherit; padding: 5px 10px;
+    border: 1px solid var(--line); border-radius: 6px;
+    background: #fff; color: var(--ink); cursor: pointer;
+  }
+  button:hover:not(:disabled), select:hover { border-color: #b9c0cc; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  #status { color: var(--muted); margin-left: auto; font-variant-numeric: tabular-nums; }
+  #build { color: var(--muted); opacity: 0.7; }
+
+  main { display: flex; flex: 1; min-height: 0; }
+  #sourcePane {
+    width: 38%; min-width: 240px; display: flex; flex-direction: column;
+    border-right: 1px solid var(--line); background: var(--panel);
+  }
+  #source {
+    flex: 1; width: 100%; resize: none; border: 0; outline: none;
+    padding: 12px 14px; background: transparent; color: var(--ink);
+    font: 12.5px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    tab-size: 4;
+  }
+  #viewPane { flex: 1; min-width: 0; position: relative; background: var(--bg); }
+  #screen { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  #screen:focus { outline: none; }
+
+  #hint {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    color: var(--muted); text-align: center; pointer-events: none;
+  }
+
+  /* The chrome folds on a phone: the source above, the drawing below. */
+  @media (max-width: 720px) {
+    main { flex-direction: column; }
+    #sourcePane { width: 100%; height: 40%; border-right: 0; border-bottom: 1px solid var(--line); }
+    #viewPane { flex: 1; }
+    header h1 { width: 100%; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>Markdown, drawn by EVG</h1>
+    <select id="sample" title="Open a document">
+      <option value="mermaid">with diagrams</option>
+      <option value="sample">a bit of everything</option>
+      <option value="readme">this repository's README</option>
+    </select>
+    <button id="openFile" type="button">open .md…</button>
+    <select id="mode" title="How the document is laid out">
+      <option value="scroll">continuous</option>
+      <option value="paged">paged (A4)</option>
+    </select>
+    <button id="pdf" type="button">⬇ PDF</button>
+    <button id="html" type="button">⬇ HTML</button>
+    <span id="status">starting…</span>
+    <span id="build">build __BUILD__</span>
+  </header>
+  <main>
+    <div id="sourcePane">
+      <textarea id="source" spellcheck="false" aria-label="Markdown source"></textarea>
+    </div>
+    <div id="viewPane">
+      <canvas id="screen" tabindex="0" aria-label="The document, drawn"></canvas>
+      <div id="hint">loading the engine…</div>
+    </div>
+  </main>
+</div>
+<input id="filepick" type="file" accept=".md,.markdown,text/markdown,text/plain" hidden />
+<script src="./markdown_web.js?v=__BUILD__"></script>
+<script type="module" src="./standalone.mjs?v=__BUILD__"></script>
+</body>
+</html>

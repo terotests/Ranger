@@ -102,10 +102,21 @@ cp "$WEB/index.html" "$OUT/index.html"
 cp "$WEB/standalone.mjs" "$OUT/standalone.mjs"
 cp "$WEB/selftest.mjs" "$OUT/selftest.mjs"
 
+# Minified when there is a minifier — see the tool for what that is worth and
+# why `RangerDbViewerWeb` is the string it checks survived.
+node gallery/evg/web/tools/minify.mjs --file "$OUT/rangerdbviewer_web.js" --keep RangerDbViewerWeb || exit 1
+
 mkdir -p "$OUT/gl" "$OUT/fonts"
 cp gallery/evg/gl/evg-webgl.js "$OUT/gl/evg-webgl.js"
+# ASSETS is what the page's head will be told to start fetching, collected as
+# the files are copied so the list and the copy cannot disagree — see
+# gallery/evg/web/tools/inline-assets.mjs. The module half is shared too.
+ASSETS=""
+mkdir -p "$OUT/evg"
+cp gallery/evg/web/tools/assets-client.mjs "$OUT/evg/assets-client.mjs"
 for face in OpenSans-Regular OpenSans-Bold OpenSans-Italic OpenSans-BoldItalic; do
   cp "gallery/pdf_writer/assets/fonts/Open_Sans/$face.ttf" "$OUT/fonts/$face.ttf"
+  ASSETS="$ASSETS,fonts/$face.ttf"
 done
 
 # --- the build stamp ---------------------------------------------------------
@@ -131,6 +142,14 @@ node -e "
     .replace('./gl/evg-webgl.js', './gl/evg-webgl.js?v=' + stamp);
   fs.writeFileSync('$OUT/standalone.mjs', mjs);
 " || exit 1
+# The head that starts every asset before the body is parsed.
+node gallery/evg/web/tools/inline-assets.mjs \
+  --html "$OUT/index.html" \
+  --start "${ASSETS#,}" \
+  --preload-stamped "standalone.mjs,gl/evg-webgl.js" \
+  --preload "evg/assets-client.mjs" \
+  --stamp "$STAMP" || exit 1
+
 if grep -q "__BUILD__" "$OUT/index.html"; then
   echo "the build stamp was not written into $OUT/index.html" >&2
   exit 1

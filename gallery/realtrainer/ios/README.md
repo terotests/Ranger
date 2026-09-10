@@ -19,7 +19,8 @@ npm run rt:ios:swift      # write the generated Swift and stop
 
 | | |
 | --- | --- |
-| `ranger/rt_ios.rgr` | the viewport: contain fit, safe area, window point → page point, pinch, pan, the clock |
+| `ranger/rt_ios.rgr` | the name the Swift host imports — one line, `class RtIos extends RtHost` |
+| `../src/RtHost.rgr` | the viewport, shared with Android: safe area, window point → page point, the press, the pan, the clock |
 | `ranger/check_rt_ios.rgr` | all of the above, driven on Node — 55 checks |
 | `ios/RealTrainerView.swift` | the only file that needs a device: `UITouch`, `CADisplayLink`, `CGContext` |
 | `ios/AppDelegate.swift`, `ios/main.swift` | a window, in code — there is no Xcode project |

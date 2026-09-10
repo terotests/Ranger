@@ -2723,11 +2723,23 @@ class MermaidFlow {
         lay.direction = (d.layerDirection())
         lay.layerGap = 76.0
         lay.nodeGap = 44.0
+        ; A strip along the flow is drawn small when fitted to a page; let
+        ; the layout close its gaps towards a squarer picture. Across the
+        ; page the gap also holds the labels, written along the flow, so the
+        ; floor is whatever the longest of them needs.
+        lay.squareUp = true
+        lay.minLayerGap = 56.0
         if (d.horizontal()) {
             ; Across the page the gap has to hold a label as well as the line,
             ; and a label is written along the flow rather than across it.
             lay.layerGap = 120.0
             lay.nodeGap = 36.0
+            def chars:int (lay.longestLabel())
+            def labelRoom:double (((to_double chars) * 6.6) + 48.0)
+            lay.minLayerGap = 72.0
+            if (labelRoom > 72.0) {
+                lay.minLayerGap = labelRoom
+            }
         }
         lay.run()
         def shuffled:int (d.clusterLayers(g lay))
@@ -2762,6 +2774,7 @@ class MermaidFlow {
         EdgeLanes.resetLanes(g)
         def refanned:int (EdgeLanes.assign(g))
         def again:int (OrthoRouter.repairAll(g))
+        def parted:int (EdgeLanes.staggerLabels(g))
         def frames:int (d.frameSubgraphs(g style))
         def moved:int (MermaidFlow.attachGroupEnds(d g))
         return g

@@ -1,0 +1,5 @@
+bin/
+out/
+harness/out/
+harness/node_modules/
+web/standalone/dist/

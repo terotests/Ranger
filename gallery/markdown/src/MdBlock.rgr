@@ -1,0 +1,1622 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdBlock.rgr — phase 1 of the CommonMark algorithm: the shape of a document.
+; ============================================================================
+;
+; One pass, line by line, over a stack of blocks that are still open.
+;
+;   for each line
+;       walk the stack from the top, asking each open block whether this line
+;       continues it, and stop at the first that says no
+;       try to open new blocks in what is left of the line
+;       give the remainder to the deepest block that accepts text
+;
+; Everything markdown does that surprises people falls out of those three
+; steps. A paragraph inside a block quote continues without its `>` because
+; the paragraph is still open and the quote was matched lazily. A list becomes
+; loose because a blank line was seen while an item was open. `---` is a
+; heading when a paragraph is open above it and a thematic break when one is
+; not — the same line, decided by the stack.
+;
+; The stack is an array and everything refers to a block by its INDEX in it,
+; never by identity: closing a block is popping the array, and "the deepest
+; matched container" is a number. The reference implementation uses parent
+; pointers for this; an index is the same information without a cycle in the
+; tree, and Ranger has to serialise that tree on several targets.
+;
+; What is deliberately not here: tabs are expanded by column exactly as the
+; specification says (a tab advances to the next four-column stop and may be
+; only partly consumed), because getting that wrong is silently wrong — a
+; document looks right and lays out with the wrong indentation.
+; ============================================================================
+
+Import "MdNode.rgr"
+Import "MdChar.rgr"
+Import "MdInline.rgr"
+
+class MdBlock {
+    def doc:MdNode (MdNode.create("document"))
+    def refs:[string:MdLinkRef]
+    def inline:MdInline (new MdInline())
+
+    ; the open-block stack, root first
+    def stack:[MdNode]
+
+    ; the line being read
+    def line:string ""
+    def lineNumber:int 0
+    def offset:int 0
+    def column:int 0
+    def nextNonspace:int 0
+    def nextNonspaceColumn:int 0
+    def indent:int 0
+    def indented:boolean false
+    def blank:boolean false
+    def partiallyConsumedTab:boolean false
+
+    def allClosed:boolean true
+    def lastMatched:int 0
+    def container:int 0
+
+    ; where the current line starts in the document, for the source map
+    def lineStart:int 0
+
+    ; What `parseListMarker` found. Fields rather than a record because the
+    ; caller needs six values back and a function returns one.
+    def pendingOrdered:boolean false
+    def pendingStart:int 1
+    def pendingDelim:string ""
+    def pendingBullet:int 0
+    def pendingMarkerOffset:int 0
+    def pendingPadding:int 0
+
+    Constructor () {
+    }
+
+    sfn codeIndent:int () {
+        return 4
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Entry point
+    ; ----------------------------------------------------------------------
+    sfn parseText:MdNode (text:string) {
+        def p:MdBlock (new MdBlock())
+        return (p.run(text))
+    }
+
+    fn run:MdNode (text:string) {
+        doc = (MdNode.create("document"))
+        clear stack
+        push stack doc
+        lineNumber = 0
+        lineStart = 0
+        def src:string (MdBlock.normalizeSource(text))
+        def lines:[string] (strsplit src "\n")
+        def n:int (array_length lines)
+        ; A trailing newline makes `strsplit` produce one empty line that was
+        ; never in the document. Reading it would end a paragraph twice.
+        def count:int n
+        if (count > 0) {
+            def lastLine:string (itemAt lines (count - 1))
+            def lastLen:int (strlen lastLine)
+            def srcLen:int (strlen src)
+            if ((lastLen == 0) && (srcLen > 0)) {
+                count = (count - 1)
+            }
+        }
+        def i:int (this.frontMatter(lines count))
+        while (i < count) {
+            def ln:string (itemAt lines i)
+            this.incorporateLine(ln)
+            def lnLen:int (strlen ln)
+            lineStart = ((lineStart + lnLen) + 1)
+            i = (i + 1)
+        }
+        def guard:int 0
+        def depth:int (array_length stack)
+        while (depth > 0) {
+            this.finalizeTop()
+            depth = (array_length stack)
+            guard = (guard + 1)
+            if (guard > 100000) { depth = 0 }
+        }
+        this.processInlines(doc doc 0)
+        return doc
+    }
+
+    ; YAML front matter: `---` on the very first line, and everything to the
+    ; next `---` or `...`. Not CommonMark — under CommonMark the first line is
+    ; a thematic break and the rest is prose — but it is how every markdown
+    ; document that has metadata carries it, and a viewer that renders
+    ; `title: …` as a paragraph is a viewer nobody would use.
+    ;
+    ; Returns the line to start the real parse at.
+    fn frontMatter:int (lines:[string] count:int) {
+        if (count < 3) { return 0 }
+        def first:string (itemAt lines 0)
+        if (first != "---") { return 0 }
+        def i:int 1
+        while (i < count) {
+            def ln:string (itemAt lines i)
+            if ((ln == "---") || (ln == "...")) {
+                ; Every non-empty line between the fences has to carry a key,
+                ; or this is not metadata. Without the test, `---` over `Foo`
+                ; over `---` — a thematic break and a setext heading, which
+                ; the specification has an example for — is eaten as though
+                ; it were front matter.
+                if (! (MdBlock.looksLikeYaml(lines 1 i))) { return 0 }
+                def node:MdNode (MdNode.create("front_matter"))
+                def body:string ""
+                def j:int 1
+                while (j < i) {
+                    body = ((body + (itemAt lines j)) + "\n")
+                    j = (j + 1)
+                }
+                node.literal = body
+                node.srcStart = 0
+                doc.add(node)
+                def k:int 0
+                while (k <= i) {
+                    def consumed:string (itemAt lines k)
+                    def clen:int (strlen consumed)
+                    lineStart = ((lineStart + clen) + 1)
+                    k = (k + 1)
+                }
+                return (i + 1)
+            }
+            i = (i + 1)
+        }
+        return 0
+    }
+
+    sfn looksLikeYaml:boolean (lines:[string] from:int to:int) {
+        def any:boolean false
+        def i:int from
+        while (i < to) {
+            def ln:string (itemAt lines i)
+            def t:string (trim ln)
+            def n:int (strlen t)
+            if (n > 0) {
+                def first:int (charAt t 0)
+                if (first != 35) {
+                    def colon:int -1
+                    def j:int 0
+                    while (j < n) {
+                        def c:int (charAt t j)
+                        if ((c == 58) && (colon < 0)) { colon = j }
+                        j = (j + 1)
+                    }
+                    if (colon < 1) { return false }
+                    any = true
+                }
+            }
+            i = (i + 1)
+        }
+        return any
+    }
+
+    ; Line endings, and the null character the specification replaces.
+    sfn normalizeSource:string (text:string) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen text)
+        while (i < n) {
+            def c:int (charAt text i)
+            if (c == 13) {
+                def nc:int -1
+                if ((i + 1) < n) { nc = (charAt text (i + 1)) }
+                out = (out + "\n")
+                if (nc == 10) { i = (i + 1) }
+            } {
+                if (c == 0) {
+                    out = (out + (MdChar.fromCode(65533)))
+                } {
+                    out = (out + (substring text i (i + 1)))
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; ----------------------------------------------------------------------
+    ; The stack
+    ; ----------------------------------------------------------------------
+    fn tipIndex:int () {
+        def n:int (array_length stack)
+        return (n - 1)
+    }
+
+    fn tip:MdNode () {
+        def n:int (array_length stack)
+        return (itemAt stack (n - 1))
+    }
+
+    fn nodeAt:MdNode (i:int) {
+        return (itemAt stack i)
+    }
+
+    sfn canContain:boolean (parentKind:string childKind:string) {
+        if (parentKind == "document") { return (childKind != "item") }
+        if (parentKind == "block_quote") { return (childKind != "item") }
+        if (parentKind == "item") { return (childKind != "item") }
+        if (parentKind == "list") { return (childKind == "item") }
+        return false
+    }
+
+    sfn acceptsLines:boolean (kind:string) {
+        if (kind == "paragraph") { return true }
+        if (kind == "code_block") { return true }
+        if (kind == "html_block") { return true }
+        return false
+    }
+
+    fn addChild:MdNode (kind:string startCol:int) {
+        def going:boolean true
+        while going {
+            def t:MdNode (this.tip())
+            if (MdBlock.canContain(t.kind kind)) {
+                going = false
+            } {
+                this.finalizeTop()
+            }
+        }
+        def node:MdNode (MdNode.create(kind))
+        node.srcStart = (lineStart + startCol)
+        node.srcEnd = node.srcStart
+        def parent:MdNode (this.tip())
+        parent.add(node)
+        push stack node
+        container = (this.tipIndex())
+        return node
+    }
+
+    fn closeUnmatchedBlocks:void () {
+        if allClosed { return }
+        def going:boolean true
+        while going {
+            def top:int (this.tipIndex())
+            if (top > lastMatched) {
+                this.finalizeTop()
+            } {
+                going = false
+            }
+        }
+        allClosed = true
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Scanning the current line
+    ; ----------------------------------------------------------------------
+    fn charAtOffset:int (i:int) {
+        def n:int (strlen line)
+        if (i < 0) { return -1 }
+        if (i >= n) { return -1 }
+        return (charAt line i)
+    }
+
+    fn findNextNonspace:void () {
+        def i:int offset
+        def cols:int column
+        def n:int (strlen line)
+        def going:boolean true
+        while going {
+            if (i >= n) { going = false }
+            if going {
+                def c:int (charAt line i)
+                if (c == 32) {
+                    i = (i + 1)
+                    cols = (cols + 1)
+                } {
+                    if (c == 9) {
+                        i = (i + 1)
+                        cols = (cols + (4 - (cols % 4)))
+                    } {
+                        going = false
+                    }
+                }
+            }
+        }
+        blank = (i >= n)
+        nextNonspace = i
+        nextNonspaceColumn = cols
+        indent = (nextNonspaceColumn - column)
+        indented = (indent >= 4)
+    }
+
+    ; `columns` true measures the advance in COLUMNS, which is what a partly
+    ; consumed tab means: `>\tfoo` inside a quote leaves two of the tab's four
+    ; columns behind, and they are content.
+    fn advanceOffset:void (count:int columns:boolean) {
+        def n:int (strlen line)
+        def left:int count
+        def going:boolean true
+        while going {
+            if (left <= 0) { going = false }
+            if going {
+                if (offset >= n) { going = false }
+            }
+            if going {
+                def c:int (charAt line offset)
+                if (c == 9) {
+                    def charsToTab:int (4 - (column % 4))
+                    if columns {
+                        def isPartial:boolean (charsToTab > left)
+                        partiallyConsumedTab = isPartial
+                        def adv:int (? isPartial left charsToTab)
+                        column = (column + adv)
+                        if (! isPartial) {
+                            offset = (offset + 1)
+                        }
+                        left = (left - adv)
+                    } {
+                        partiallyConsumedTab = false
+                        column = (column + charsToTab)
+                        offset = (offset + 1)
+                        left = (left - 1)
+                    }
+                } {
+                    partiallyConsumedTab = false
+                    offset = (offset + 1)
+                    column = (column + 1)
+                    left = (left - 1)
+                }
+            }
+        }
+    }
+
+    fn advanceNextNonspace:void () {
+        offset = nextNonspace
+        column = nextNonspaceColumn
+        partiallyConsumedTab = false
+    }
+
+    fn addLine:void () {
+        def t:MdNode (this.tip())
+        def prefix:string ""
+        if partiallyConsumedTab {
+            offset = (offset + 1)
+            def charsToTab:int (4 - (column % 4))
+            def k:int 0
+            while (k < charsToTab) {
+                prefix = (prefix + " ")
+                k = (k + 1)
+            }
+        }
+        def n:int (strlen line)
+        def rest:string (substring line offset n)
+        push t.lines (prefix + rest)
+    }
+
+    ; ----------------------------------------------------------------------
+    ; One line
+    ; ----------------------------------------------------------------------
+    fn incorporateLine:void (ln:string) {
+        line = ln
+        lineNumber = (lineNumber + 1)
+        offset = 0
+        column = 0
+        blank = false
+        partiallyConsumedTab = false
+
+        def oldTip:int (this.tipIndex())
+        def allMatched:boolean true
+        container = 0
+        def idx:int 1
+        def depth:int (array_length stack)
+        def going:boolean true
+        while going {
+            if (idx >= depth) { going = false }
+            if going {
+                def node:MdNode (itemAt stack idx)
+                this.findNextNonspace()
+                def r:int (this.continueBlock(node idx))
+                if (r == 0) {
+                    container = idx
+                    idx = (idx + 1)
+                }
+                if (r == 1) {
+                    allMatched = false
+                    container = (idx - 1)
+                    going = false
+                }
+                if (r == 2) {
+                    ; the line was a closing fence, and is spent
+                    return
+                }
+            }
+        }
+
+        allClosed = (container == oldTip)
+        lastMatched = container
+
+        def t0:MdNode (itemAt stack container)
+        def matchedLeaf:boolean false
+        if (t0.kind != "paragraph") {
+            matchedLeaf = (MdBlock.acceptsLines(t0.kind))
+        }
+
+        def trying:boolean true
+        while trying {
+            if matchedLeaf { trying = false }
+            if trying {
+                this.findNextNonspace()
+                def lead:int (this.charAtOffset(nextNonspace))
+                if ((! indented) && (! (MdBlock.maybeSpecial(lead)))) {
+                    this.advanceNextNonspace()
+                    trying = false
+                } {
+                    def r:int (this.tryStarts())
+                    if (r == 0) {
+                        this.advanceNextNonspace()
+                        trying = false
+                    }
+                    if (r == 1) {
+                        container = (this.tipIndex())
+                    }
+                    if (r == 2) {
+                        container = (this.tipIndex())
+                        matchedLeaf = true
+                    }
+                }
+            }
+        }
+
+        def tipNow:MdNode (this.tip())
+        if ((! allClosed) && (! blank) && (tipNow.kind == "paragraph")) {
+            ; a lazy continuation line: the paragraph is still open even
+            ; though the container that holds it was not matched
+            this.addLine()
+            return
+        }
+
+        this.closeUnmatchedBlocks()
+        def cont:MdNode (itemAt stack container)
+        def hasKids:boolean (cont.hasChildren())
+        if (blank && hasKids) {
+            def lastKid:MdNode (cont.lastChild())
+            lastKid.lastLineBlank = true
+        }
+        def lastLineBlank:boolean blank
+        if (cont.kind == "block_quote") { lastLineBlank = false }
+        if ((cont.kind == "code_block") && cont.fenced) { lastLineBlank = false }
+        if (cont.kind == "item") {
+            def kids:boolean (cont.hasChildren())
+            if ((! kids) && (cont.srcStart >= lineStart)) { lastLineBlank = false }
+        }
+        def up:int container
+        while (up >= 0) {
+            def anc:MdNode (itemAt stack up)
+            anc.lastLineBlank = lastLineBlank
+            up = (up - 1)
+        }
+
+        if (MdBlock.acceptsLines(cont.kind)) {
+            this.addLine()
+            if (cont.kind == "html_block") {
+                if ((cont.htmlBlockType >= 1) && (cont.htmlBlockType <= 5)) {
+                    def n:int (strlen line)
+                    def rest:string (substring line offset n)
+                    if (MdBlock.htmlBlockCloses(cont.htmlBlockType rest)) {
+                        this.finalizeThrough(container)
+                    }
+                }
+            }
+            return
+        }
+        def n2:int (strlen line)
+        if ((offset < n2) && (! blank)) {
+            this.addChild("paragraph" offset)
+            this.advanceNextNonspace()
+            this.addLine()
+        }
+    }
+
+    ; Close everything down to and including the block at `idx`.
+    fn finalizeThrough:void (idx:int) {
+        def going:boolean true
+        while going {
+            def top:int (this.tipIndex())
+            if (top >= idx) {
+                this.finalizeTop()
+            } {
+                going = false
+            }
+            if (top <= 0) { going = false }
+        }
+    }
+
+    ; The first character of anything that can start a block. Purely a
+    ; shortcut: a line of ordinary prose never gets as far as the starts.
+    sfn maybeSpecial:boolean (c:int) {
+        if (c == 35) { return true }
+        if (c == 96) { return true }
+        if (c == 126) { return true }
+        if (c == 42) { return true }
+        if (c == 43) { return true }
+        if (c == 95) { return true }
+        if (c == 61) { return true }
+        if (c == 60) { return true }
+        if (c == 62) { return true }
+        if (c == 45) { return true }
+        if (MdChar.isDigit(c)) { return true }
+        return false
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Does this line continue that block?  0 yes, 1 no, 2 the line is spent
+    ; ----------------------------------------------------------------------
+    fn continueBlock:int (node:MdNode idx:int) {
+        def kind:string node.kind
+        if (kind == "block_quote") {
+            def c:int (this.charAtOffset(nextNonspace))
+            if ((! indented) && (c == 62)) {
+                this.advanceNextNonspace()
+                this.advanceOffset(1 false)
+                def after:int (this.charAtOffset(offset))
+                if (MdChar.isSpaceOrTab(after)) {
+                    this.advanceOffset(1 true)
+                }
+                return 0
+            }
+            return 1
+        }
+        if (kind == "item") {
+            if blank {
+                def kids:boolean (node.hasChildren())
+                if (! kids) { return 1 }
+                this.advanceNextNonspace()
+                return 0
+            }
+            def want:int (node.markerOffset + node.padding)
+            if (indent >= want) {
+                this.advanceOffset(want true)
+                return 0
+            }
+            return 1
+        }
+        if (kind == "list") { return 0 }
+        if (kind == "document") { return 0 }
+        if (kind == "heading") { return 1 }
+        if (kind == "thematic_break") { return 1 }
+        if (kind == "table") { return 1 }
+        if (kind == "front_matter") { return 1 }
+        if (kind == "code_block") {
+            if node.fenced {
+                if (! indented) {
+                    def closeLen:int (MdBlock.closingFenceLength(line nextNonspace node.fenceChar))
+                    if (closeLen >= node.fenceLength) {
+                        this.finalizeThrough(idx)
+                        return 2
+                    }
+                }
+                def eat:int (? (node.fenceOffset < indent) node.fenceOffset indent)
+                this.advanceOffset(eat true)
+                return 0
+            }
+            if (indent >= 4) {
+                this.advanceOffset(4 true)
+                return 0
+            }
+            if blank {
+                this.advanceNextNonspace()
+                return 0
+            }
+            return 1
+        }
+        if (kind == "html_block") {
+            if (blank && (node.htmlBlockType >= 6)) { return 1 }
+            return 0
+        }
+        if (kind == "paragraph") {
+            if blank { return 1 }
+            return 0
+        }
+        return 0
+    }
+
+    ; The length of a closing fence at `from`, or 0 when the rest of the line
+    ; is not one: a closer needs the same character, at least as many of them,
+    ; and nothing after it.
+    sfn closingFenceLength:int (ln:string from:int ch:int) {
+        def n:int (strlen ln)
+        def i:int from
+        def count:int 0
+        while (i < n) {
+            def c:int (charAt ln i)
+            if (c != ch) {
+                i = n
+            } {
+                count = (count + 1)
+                i = (i + 1)
+            }
+        }
+        if (count < 3) { return 0 }
+        def j:int (from + count)
+        while (j < n) {
+            def c2:int (charAt ln j)
+            if (! (MdChar.isSpaceOrTab(c2))) { return 0 }
+            j = (j + 1)
+        }
+        return count
+    }
+
+    ; ----------------------------------------------------------------------
+    ; New blocks.  0 nothing, 1 a container opened, 2 a leaf opened
+    ; ----------------------------------------------------------------------
+    fn tryStarts:int () {
+        def r:int (this.startBlockQuote())
+        if (r != 0) { return r }
+        r = (this.startAtxHeading())
+        if (r != 0) { return r }
+        r = (this.startFencedCode())
+        if (r != 0) { return r }
+        r = (this.startHtmlBlock())
+        if (r != 0) { return r }
+        r = (this.startSetextHeading())
+        if (r != 0) { return r }
+        r = (this.startThematicBreak())
+        if (r != 0) { return r }
+        r = (this.startListItem())
+        if (r != 0) { return r }
+        r = (this.startIndentedCode())
+        if (r != 0) { return r }
+        return 0
+    }
+
+    fn startBlockQuote:int () {
+        if indented { return 0 }
+        def c:int (this.charAtOffset(nextNonspace))
+        if (c != 62) { return 0 }
+        this.advanceNextNonspace()
+        this.advanceOffset(1 false)
+        def after:int (this.charAtOffset(offset))
+        if (MdChar.isSpaceOrTab(after)) {
+            this.advanceOffset(1 true)
+        }
+        this.closeUnmatchedBlocks()
+        this.addChild("block_quote" nextNonspace)
+        return 1
+    }
+
+    fn startAtxHeading:int () {
+        if indented { return 0 }
+        def n:int (strlen line)
+        def i:int nextNonspace
+        def hashes:int 0
+        def scanning:boolean true
+        while scanning {
+            if (i >= n) { scanning = false }
+            if scanning {
+                def c:int (charAt line i)
+                if (c == 35) {
+                    hashes = (hashes + 1)
+                    i = (i + 1)
+                } {
+                    scanning = false
+                }
+            }
+        }
+        if (hashes < 1) { return 0 }
+        if (hashes > 6) { return 0 }
+        def after:int (this.charAtOffset(i))
+        if (after >= 0) {
+            if (! (MdChar.isSpaceOrTab(after))) { return 0 }
+        }
+        this.advanceNextNonspace()
+        this.advanceOffset(hashes false)
+        this.closeUnmatchedBlocks()
+        def h:MdNode (this.addChild("heading" nextNonspace))
+        h.level = hashes
+        def rest:string (substring line offset n)
+        h.literal = (MdBlock.stripAtxClosing(rest))
+        this.advanceOffset((n - offset) false)
+        return 2
+    }
+
+    ; "## foo ##" is `foo`; "## foo #bar" is `foo #bar`; "## #" is empty.
+    sfn stripAtxClosing:string (raw:string) {
+        def t:string (trim raw)
+        def n:int (strlen t)
+        if (n == 0) { return "" }
+        def i:int n
+        def hashes:int 0
+        def scanning:boolean true
+        while scanning {
+            if (i <= 0) { scanning = false }
+            if scanning {
+                def c:int (charAt t (i - 1))
+                if (c == 35) {
+                    hashes = (hashes + 1)
+                    i = (i - 1)
+                } {
+                    scanning = false
+                }
+            }
+        }
+        if (hashes == 0) { return t }
+        if (i == 0) { return "" }
+        def before:int (charAt t (i - 1))
+        if (! (MdChar.isSpaceOrTab(before))) { return t }
+        return (trim (substring t 0 i))
+    }
+
+    fn startFencedCode:int () {
+        if indented { return 0 }
+        def n:int (strlen line)
+        def i:int nextNonspace
+        def ch:int (this.charAtOffset(i))
+        if ((ch != 96) && (ch != 126)) { return 0 }
+        def count:int 0
+        def scanning:boolean true
+        while scanning {
+            if (i >= n) { scanning = false }
+            if scanning {
+                def c:int (charAt line i)
+                if (c == ch) {
+                    count = (count + 1)
+                    i = (i + 1)
+                } {
+                    scanning = false
+                }
+            }
+        }
+        if (count < 3) { return 0 }
+        if (ch == 96) {
+            ; A backtick fence may not have a backtick in its info string, or
+            ; `` `a` `` in a paragraph would open a code block.
+            def j:int i
+            while (j < n) {
+                def c2:int (charAt line j)
+                if (c2 == 96) { return 0 }
+                j = (j + 1)
+            }
+        }
+        this.closeUnmatchedBlocks()
+        def cb:MdNode (this.addChild("code_block" nextNonspace))
+        cb.fenced = true
+        cb.fenceLength = count
+        cb.fenceChar = ch
+        cb.fenceOffset = indent
+        this.advanceNextNonspace()
+        this.advanceOffset(count false)
+        return 2
+    }
+
+    fn startHtmlBlock:int () {
+        if indented { return 0 }
+        def c:int (this.charAtOffset(nextNonspace))
+        if (c != 60) { return 0 }
+        def n:int (strlen line)
+        def rest:string (substring line nextNonspace n)
+        def cont:MdNode (itemAt stack container)
+        def t:int 1
+        while (t <= 7) {
+            if (MdBlock.htmlBlockOpens(t rest)) {
+                def ok:boolean true
+                if (t == 7) {
+                    ; Type 7 may not interrupt a paragraph — otherwise every
+                    ; line beginning with a tag would end the one above it.
+                    if (cont.kind == "paragraph") { ok = false }
+                    def tipNow:MdNode (this.tip())
+                    if ((! allClosed) && (! blank) && (tipNow.kind == "paragraph")) { ok = false }
+                }
+                if ok {
+                    this.closeUnmatchedBlocks()
+                    def hb:MdNode (this.addChild("html_block" offset))
+                    hb.htmlBlockType = t
+                    return 2
+                }
+            }
+            t = (t + 1)
+        }
+        return 0
+    }
+
+    fn startSetextHeading:int () {
+        if indented { return 0 }
+        def cont:MdNode (itemAt stack container)
+        if (cont.kind != "paragraph") { return 0 }
+        def n:int (strlen line)
+        def rest:string (substring line nextNonspace n)
+        def level:int (MdBlock.setextLevel(rest))
+        if (level == 0) { return 0 }
+        this.closeUnmatchedBlocks()
+        def para:MdNode (this.tip())
+        if (para.kind != "paragraph") { return 0 }
+        this.stripReferences(para)
+        def joined:string (MdBlock.joinLines(para.lines))
+        def body:string (trim joined)
+        def blen:int (strlen body)
+        if (blen == 0) { return 0 }
+        para.kind = "heading"
+        para.level = level
+        para.literal = body
+        clear para.lines
+        this.advanceOffset((n - offset) false)
+        return 2
+    }
+
+    sfn setextLevel:int (rest:string) {
+        def t:string (trim rest)
+        def n:int (strlen t)
+        if (n == 0) { return 0 }
+        def c:int (charAt t 0)
+        if ((c != 61) && (c != 45)) { return 0 }
+        def i:int 0
+        while (i < n) {
+            def c2:int (charAt t i)
+            if (c2 != c) { return 0 }
+            i = (i + 1)
+        }
+        if (c == 61) { return 1 }
+        return 2
+    }
+
+    fn startThematicBreak:int () {
+        if indented { return 0 }
+        def n:int (strlen line)
+        def rest:string (substring line nextNonspace n)
+        if (! (MdBlock.isThematicBreak(rest))) { return 0 }
+        this.closeUnmatchedBlocks()
+        this.addChild("thematic_break" nextNonspace)
+        this.advanceOffset((n - offset) false)
+        return 2
+    }
+
+    sfn isThematicBreak:boolean (rest:string) {
+        def n:int (strlen rest)
+        def ch:int 0
+        def count:int 0
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt rest i)
+            if (MdChar.isSpaceOrTab(c)) {
+                i = (i + 1)
+            } {
+                if ((c != 42) && (c != 45) && (c != 95)) { return false }
+                if (ch == 0) { ch = c }
+                if (c != ch) { return false }
+                count = (count + 1)
+                i = (i + 1)
+            }
+        }
+        return (count >= 3)
+    }
+
+    fn startListItem:int () {
+        def cont:MdNode (itemAt stack container)
+        if (indented && (cont.kind != "list")) { return 0 }
+        def marker:int (this.parseListMarker(cont))
+        if (marker == 0) { return 0 }
+        this.closeUnmatchedBlocks()
+        def t:MdNode (this.tip())
+        def needList:boolean true
+        if (t.kind == "list") {
+            if (MdBlock.listsMatch(t pendingOrdered pendingDelim pendingBullet)) {
+                needList = false
+            }
+        }
+        if needList {
+            def lst:MdNode (this.addChild("list" nextNonspace))
+            lst.listOrdered = pendingOrdered
+            lst.listStart = pendingStart
+            lst.listDelim = pendingDelim
+            lst.listBulletChar = pendingBullet
+            lst.listTight = true
+        }
+        def item:MdNode (this.addChild("item" nextNonspace))
+        item.markerOffset = pendingMarkerOffset
+        item.padding = pendingPadding
+        item.listOrdered = pendingOrdered
+        return 1
+    }
+
+    sfn listsMatch:boolean (lst:MdNode ordered:boolean delim:string bullet:int) {
+        if (lst.listOrdered != ordered) { return false }
+        if ordered { return (lst.listDelim == delim) }
+        return (lst.listBulletChar == bullet)
+    }
+
+    ; The marker's shape is returned through fields rather than a record,
+    ; because the caller needs six values and Ranger has one return.
+    fn parseListMarker:int (cont:MdNode) {
+        if (indent >= 4) { return 0 }
+        def n:int (strlen line)
+        def i:int nextNonspace
+        def c:int (this.charAtOffset(i))
+        def markerLen:int 0
+        pendingOrdered = false
+        pendingStart = 1
+        pendingDelim = ""
+        pendingBullet = 0
+        pendingMarkerOffset = indent
+        if ((c == 42) || (c == 43) || (c == 45)) {
+            pendingBullet = c
+            markerLen = 1
+        } {
+            def digits:int 0
+            def value:int 0
+            def j:int i
+            def scanning:boolean true
+            while scanning {
+                if (j >= n) { scanning = false }
+                if scanning {
+                    def d:int (charAt line j)
+                    if (MdChar.isDigit(d)) {
+                        value = ((value * 10) + (d - 48))
+                        digits = (digits + 1)
+                        j = (j + 1)
+                    } {
+                        scanning = false
+                    }
+                }
+            }
+            if (digits == 0) { return 0 }
+            if (digits > 9) { return 0 }
+            def d2:int (this.charAtOffset(j))
+            if ((d2 != 46) && (d2 != 41)) { return 0 }
+            ; An ordered list may only interrupt a paragraph when it starts
+            ; at 1, so that "The year 1988. It was" stays one paragraph.
+            if (cont.kind == "paragraph") {
+                if (value != 1) { return 0 }
+            }
+            pendingOrdered = true
+            pendingStart = value
+            pendingDelim = (? (d2 == 46) "." ")")
+            markerLen = (digits + 1)
+        }
+        def afterMarker:int (this.charAtOffset((i + markerLen)))
+        if (afterMarker >= 0) {
+            if (! (MdChar.isSpaceOrTab(afterMarker))) { return 0 }
+        }
+        ; A list may not interrupt a paragraph with an empty first item.
+        if (cont.kind == "paragraph") {
+            def k:int (i + markerLen)
+            def hasContent:boolean false
+            while (k < n) {
+                def c3:int (charAt line k)
+                if (! (MdChar.isSpaceOrTab(c3))) {
+                    hasContent = true
+                    k = n
+                } {
+                    k = (k + 1)
+                }
+            }
+            if (! hasContent) { return 0 }
+        }
+        this.advanceNextNonspace()
+        this.advanceOffset(markerLen true)
+        def spacesStartCol:int column
+        def spacesStartOffset:int offset
+        def going:boolean true
+        while going {
+            this.advanceOffset(1 true)
+            def nc:int (this.charAtOffset(offset))
+            def within:boolean ((column - spacesStartCol) < 5)
+            if (! within) { going = false }
+            if going {
+                if (! (MdChar.isSpaceOrTab(nc))) { going = false }
+            }
+        }
+        def afterSpaces:int (this.charAtOffset(offset))
+        def blankItem:boolean (afterSpaces < 0)
+        def spacesAfter:int (column - spacesStartCol)
+        if ((spacesAfter >= 5) || (spacesAfter < 1) || blankItem) {
+            pendingPadding = (markerLen + 1)
+            column = spacesStartCol
+            offset = spacesStartOffset
+            def sp:int (this.charAtOffset(offset))
+            if (MdChar.isSpaceOrTab(sp)) {
+                this.advanceOffset(1 true)
+            }
+        } {
+            pendingPadding = (markerLen + spacesAfter)
+        }
+        return 1
+    }
+
+    fn startIndentedCode:int () {
+        if (! indented) { return 0 }
+        def t:MdNode (this.tip())
+        if (t.kind == "paragraph") { return 0 }
+        if blank { return 0 }
+        this.advanceOffset(4 true)
+        this.closeUnmatchedBlocks()
+        this.addChild("code_block" offset)
+        return 2
+    }
+
+    ; ----------------------------------------------------------------------
+    ; HTML blocks: seven start conditions, five end conditions
+    ; ----------------------------------------------------------------------
+    sfn htmlBlockOpens:boolean (t:int rest:string) {
+        def n:int (strlen rest)
+        if (n < 2) { return false }
+        def low:string (MdChar.lower(rest))
+        if (t == 1) {
+            if (MdBlock.startsWithAny(low "<script" "<pre" "<textarea" "<style")) {
+                def name:int (MdBlock.tagNameEndFrom(low 1))
+                def after:int -1
+                if (name < n) { after = (charAt low name) }
+                if (after < 0) { return true }
+                if (after == 62) { return true }
+                if (MdChar.isUnicodeWhitespace(after)) { return true }
+            }
+            return false
+        }
+        if (t == 2) { return (MdBlock.hasPrefix(rest "<!--")) }
+        if (t == 3) { return (MdBlock.hasPrefix(rest "<?")) }
+        if (t == 4) {
+            if (! (MdBlock.hasPrefix(rest "<!"))) { return false }
+            if (n < 3) { return false }
+            return (MdChar.isLetter((charAt rest 2)))
+        }
+        if (t == 5) { return (MdBlock.hasPrefix(low "<![cdata[")) }
+        if (t == 6) {
+            def i:int 1
+            if ((charAt low 1) == 47) { i = 2 }
+            def j:int i
+            while (j < n) {
+                def c:int (charAt low j)
+                if (! (MdChar.isAlnum(c))) {
+                    j = n
+                } {
+                    j = (j + 1)
+                }
+            }
+            def end:int (MdBlock.tagNameEndFrom(low i))
+            def name:string (substring low i end)
+            if (! (MdBlock.isBlockTag(name))) { return false }
+            def after:int -1
+            if (end < n) { after = (charAt low end) }
+            if (after < 0) { return true }
+            if (after == 62) { return true }
+            if (MdChar.isUnicodeWhitespace(after)) { return true }
+            if (after == 47) {
+                def after2:int -1
+                if ((end + 1) < n) { after2 = (charAt low (end + 1)) }
+                if (after2 == 62) { return true }
+            }
+            return false
+        }
+        if (t == 7) {
+            def taken:int (MdInline.htmlTagLength(rest 0))
+            if (taken == 0) { return false }
+            def k:int taken
+            while (k < n) {
+                def c2:int (charAt rest k)
+                if (! (MdChar.isUnicodeWhitespace(c2))) { return false }
+                k = (k + 1)
+            }
+            return true
+        }
+        return false
+    }
+
+    sfn htmlBlockCloses:boolean (t:int rest:string) {
+        def low:string (MdChar.lower(rest))
+        if (t == 1) {
+            if (MdBlock.hasSub(low "</script>")) { return true }
+            if (MdBlock.hasSub(low "</pre>")) { return true }
+            if (MdBlock.hasSub(low "</textarea>")) { return true }
+            if (MdBlock.hasSub(low "</style>")) { return true }
+            return false
+        }
+        if (t == 2) { return (MdBlock.hasSub(rest "-->")) }
+        if (t == 3) { return (MdBlock.hasSub(rest "?>")) }
+        if (t == 4) { return (MdBlock.hasSub(rest ">")) }
+        if (t == 5) { return (MdBlock.hasSub(rest "]]>")) }
+        return false
+    }
+
+    sfn tagNameEndFrom:int (low:string from:int) {
+        def n:int (strlen low)
+        def j:int from
+        def going:boolean true
+        while going {
+            if (j >= n) { going = false }
+            if going {
+                def c:int (charAt low j)
+                if (MdChar.isAlnum(c)) { j = (j + 1) } { going = false }
+            }
+        }
+        return j
+    }
+
+    sfn hasPrefix:boolean (v:string prefix:string) {
+        def n:int (strlen prefix)
+        def m:int (strlen v)
+        if (m < n) { return false }
+        return ((substring v 0 n) == prefix)
+    }
+
+    sfn hasSub:boolean (v:string needle:string) {
+        def n:int (strlen needle)
+        def m:int (strlen v)
+        def i:int 0
+        while ((i + n) <= m) {
+            if ((substring v i (i + n)) == needle) { return true }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn startsWithAny:boolean (low:string a:string b:string c:string d:string) {
+        if (MdBlock.hasPrefix(low a)) { return true }
+        if (MdBlock.hasPrefix(low b)) { return true }
+        if (MdBlock.hasPrefix(low c)) { return true }
+        if (MdBlock.hasPrefix(low d)) { return true }
+        return false
+    }
+
+    ; The block-level tag names of HTML block type 6, as the specification
+    ; lists them. A name not here starts a type 7 block instead, which is the
+    ; one that may not interrupt a paragraph.
+    sfn isBlockTag:boolean (name:string) {
+        def names:string " address article aside base basefont blockquote body caption center col colgroup dd details dialog dir div dl dt fieldset figcaption figure footer form frame frameset h1 h2 h3 h4 h5 h6 head header hr html iframe legend li link main menu menuitem nav noframes ol optgroup option p param search section summary table tbody td tfoot th thead title tr track ul "
+        def probe:string ((" " + name) + " ")
+        return (MdBlock.hasSub(names probe))
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Closing a block
+    ; ----------------------------------------------------------------------
+    sfn joinLines:string (lines:[string]) {
+        def out:string ""
+        def i:int 0
+        def n:int (array_length lines)
+        while (i < n) {
+            out = ((out + (itemAt lines i)) + "\n")
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn finalizeTop:void () {
+        def n:int (array_length stack)
+        if (n == 0) { return }
+        def node:MdNode (itemAt stack (n - 1))
+        node.open = false
+        node.srcEnd = lineStart
+        def kind:string node.kind
+        if (kind == "paragraph") {
+            this.stripReferences(node)
+            def joined:string (MdBlock.joinLines(node.lines))
+            def body:string (trim joined)
+            node.literal = body
+            clear node.lines
+            def blen:int (strlen body)
+            if (blen == 0) {
+                ; nothing but reference definitions: the paragraph was never
+                ; content, and leaving it would print an empty <p>
+                removeLast stack
+                if ((n - 2) >= 0) {
+                    def parent:MdNode (itemAt stack (n - 2))
+                    removeLast parent.children
+                }
+                return
+            }
+            this.maybeTable(node)
+        }
+        if (kind == "heading") {
+            def hl:int (array_length node.lines)
+            if (hl > 0) {
+                def joined2:string (MdBlock.joinLines(node.lines))
+                node.literal = (trim joined2)
+                clear node.lines
+            }
+        }
+        if (kind == "html_block") {
+            def raw:string (MdBlock.joinLines(node.lines))
+            node.literal = (MdBlock.stripTrailingNewlines(raw))
+            clear node.lines
+        }
+        if (kind == "code_block") {
+            if node.fenced {
+                def all:[string] node.lines
+                def cnt:int (array_length all)
+                def infoLine:string ""
+                if (cnt > 0) { infoLine = (itemAt all 0) }
+                node.info = (MdInline.unescape((trim infoLine)))
+                def body:string ""
+                def i:int 1
+                while (i < cnt) {
+                    body = ((body + (itemAt all i)) + "\n")
+                    i = (i + 1)
+                }
+                node.literal = body
+                ; A fence whose info string names something drawable is not
+                ; code: it is a slot the layout has to leave a hole for. The
+                ; block structure is identical either way, so this is a
+                ; relabelling at the end rather than a second block start.
+                if (MdBlock.isEmbedInfo(node.info)) {
+                    node.kind = "embed"
+                }
+            } {
+                def raw2:string (MdBlock.joinLines(node.lines))
+                node.literal = (MdBlock.stripTrailingBlankLines(raw2))
+            }
+            clear node.lines
+        }
+        if (kind == "list") {
+            node.listTight = (MdBlock.listIsTight(node))
+        }
+        removeLast stack
+    }
+
+    ; The info strings that name a drawing rather than a language. One entry
+    ; today; `vega` and `sql` are the next two, and each is a handler beside
+    ; MdMermaid rather than a branch in here.
+    sfn isEmbedInfo:boolean (info:string) {
+        def first:string (MdBlock.firstWord(info))
+        if (first == "mermaid") { return true }
+        return false
+    }
+
+    sfn firstWord:string (info:string) {
+        def n:int (strlen info)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt info i)
+            if (c == 32) { return (substring info 0 i) }
+            if (c == 9) { return (substring info 0 i) }
+            i = (i + 1)
+        }
+        return info
+    }
+
+    sfn stripTrailingNewlines:string (v:string) {
+        def n:int (strlen v)
+        def i:int n
+        def going:boolean true
+        while going {
+            if (i <= 0) { going = false }
+            if going {
+                def c:int (charAt v (i - 1))
+                if (c == 10) { i = (i - 1) } { going = false }
+            }
+        }
+        return (substring v 0 i)
+    }
+
+    ; An indented code block loses the blank lines at its end, and keeps one
+    ; newline: `    foo\n\n\n` is one line of code.
+    ;
+    ; Only spaces that FOLLOW a newline go: `    foo  ` keeps its two trailing
+    ; spaces, because they are code and not layout.
+    sfn stripTrailingBlankLines:string (v:string) {
+        def n:int (strlen v)
+        def cut:int n
+        def i:int n
+        def going:boolean true
+        while going {
+            if (i <= 0) { going = false }
+            if going {
+                def c:int (charAt v (i - 1))
+                if (c == 32) {
+                    i = (i - 1)
+                } {
+                    if (c == 10) {
+                        i = (i - 1)
+                        cut = i
+                    } {
+                        going = false
+                    }
+                }
+            }
+        }
+        if (cut == 0) { return "" }
+        return ((substring v 0 cut) + "\n")
+    }
+
+    sfn listIsTight:boolean (lst:MdNode) {
+        def items:int (lst.childCount())
+        def i:int 0
+        while (i < items) {
+            def item:MdNode (lst.childAt(i))
+            def isLast:boolean (i == (items - 1))
+            def itemBlank:boolean (MdBlock.endsWithBlankLine(item))
+            if (itemBlank && (! isLast)) { return false }
+            def kids:int (item.childCount())
+            def j:int 0
+            while (j < kids) {
+                def sub:MdNode (item.childAt(j))
+                def subLast:boolean (j == (kids - 1))
+                if (MdBlock.endsWithBlankLine(sub)) {
+                    if ((! isLast) || (! subLast)) { return false }
+                }
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; A block's own flag, or — for a list or an item — the flag of whatever
+    ; it ends with. The flag is reset on every ancestor of the line being
+    ; read, so by the time a list's tightness is decided its own flag may be
+    ; false while the item that actually met the blank line still says true.
+    sfn endsWithBlankLine:boolean (node:MdNode) {
+        def cur:MdNode node
+        def going:boolean true
+        def guard:int 0
+        while going {
+            if cur.lastLineBlank { return true }
+            def kind:string cur.kind
+            def descend:boolean false
+            if (kind == "list") { descend = true }
+            if (kind == "item") { descend = true }
+            if (descend && (cur.hasChildren())) {
+                cur = (cur.lastChild())
+            } {
+                going = false
+            }
+            guard = (guard + 1)
+            if (guard > 1000) { going = false }
+        }
+        return false
+    }
+
+    ; Link reference definitions at the head of a paragraph, moved into the
+    ; map and off the front of the text.
+    fn stripReferences:void (para:MdNode) {
+        def joined:string (MdBlock.joinLines(para.lines))
+        def rest:string joined
+        def going:boolean true
+        while going {
+            def n:int (strlen rest)
+            if (n == 0) { going = false }
+            if going {
+                def c:int (charAt rest 0)
+                if (c != 91) { going = false }
+            }
+            if going {
+                def taken:int (inline.parseReference(rest refs))
+                if (taken == 0) {
+                    going = false
+                } {
+                    def n2:int (strlen rest)
+                    rest = (substring rest taken n2)
+                }
+            }
+        }
+        if (rest != joined) {
+            clear para.lines
+            def parts:[string] (strsplit rest "\n")
+            def i:int 0
+            def cnt:int (array_length parts)
+            def last:int (cnt - 1)
+            while (i < cnt) {
+                def p:string (itemAt parts i)
+                def plen:int (strlen p)
+                def skip:boolean false
+                if ((i == last) && (plen == 0)) { skip = true }
+                if (! skip) { push para.lines p }
+                i = (i + 1)
+            }
+        }
+    }
+
+    ; ----------------------------------------------------------------------
+    ; GFM tables
+    ; ----------------------------------------------------------------------
+    ;
+    ; A table is recognised where the reference implementation recognises it:
+    ; when a paragraph is closed and its SECOND line is a delimiter row with
+    ; the same number of cells as its first. Until that second line arrives
+    ; the two are indistinguishable from prose, which is why this is a
+    ; rewrite at finalize rather than a block start.
+    fn maybeTable:void (para:MdNode) {
+        def lines:[string] (strsplit para.literal "\n")
+        def n:int (array_length lines)
+        if (n < 2) { return }
+        def header:string (itemAt lines 0)
+        def delim:string (itemAt lines 1)
+        if (! (MdBlock.hasSub(delim "|"))) {
+            ; A table has pipes in it. Without this, `Foo` over `---` is a
+            ; one-column table rather than what everyone writes it as.
+            return
+        }
+        def aligns:[string] (MdBlock.parseDelimiterRow(delim))
+        def cols:int (array_length aligns)
+        if (cols == 0) { return }
+        def headCells:[string] (MdBlock.splitRow(header))
+        def headCount:int (array_length headCells)
+        if (headCount != cols) { return }
+
+        para.kind = "table"
+        para.literal = ""
+        def head:MdNode (MdNode.create("table_row"))
+        head.isHeader = true
+        def i:int 0
+        while (i < cols) {
+            def cell:MdNode (MdNode.create("table_cell"))
+            cell.isHeader = true
+            cell.align = (itemAt aligns i)
+            cell.literal = (trim (itemAt headCells i))
+            head.add(cell)
+            i = (i + 1)
+        }
+        para.add(head)
+        def r:int 2
+        while (r < n) {
+            def rowText:string (itemAt lines r)
+            def cells:[string] (MdBlock.splitRow(rowText))
+            def row:MdNode (MdNode.create("table_row"))
+            def c:int 0
+            while (c < cols) {
+                def cell2:MdNode (MdNode.create("table_cell"))
+                cell2.align = (itemAt aligns c)
+                def cn:int (array_length cells)
+                if (c < cn) {
+                    cell2.literal = (trim (itemAt cells c))
+                } {
+                    cell2.literal = ""
+                }
+                row.add(cell2)
+                c = (c + 1)
+            }
+            para.add(row)
+            r = (r + 1)
+        }
+    }
+
+    ; `| --- | :-: |` → the alignments, or an empty list when the line is not
+    ; a delimiter row at all.
+    sfn parseDelimiterRow:[string] (raw:string) {
+        def out:[string]
+        def cells:[string] (MdBlock.splitRow(raw))
+        def n:int (array_length cells)
+        if (n == 0) { return out }
+        def i:int 0
+        while (i < n) {
+            def cell:string (trim (itemAt cells i))
+            def m:int (strlen cell)
+            if (m == 0) {
+                clear out
+                return out
+            }
+            def left:boolean false
+            def right:boolean false
+            def start:int 0
+            def end:int m
+            if ((charAt cell 0) == 58) {
+                left = true
+                start = 1
+            }
+            if ((charAt cell (m - 1)) == 58) {
+                right = true
+                end = (m - 1)
+            }
+            if (start >= end) {
+                clear out
+                return out
+            }
+            def j:int start
+            while (j < end) {
+                def c:int (charAt cell j)
+                if (c != 45) {
+                    clear out
+                    return out
+                }
+                j = (j + 1)
+            }
+            def a:string ""
+            if (left && right) { a = "center" }
+            if (left && (! right)) { a = "left" }
+            if ((! left) && right) { a = "right" }
+            push out a
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; A row into its cells: the outer pipes are optional, and `\|` is a pipe
+    ; in a cell rather than a cell boundary.
+    sfn splitRow:[string] (raw:string) {
+        def out:[string]
+        def t:string (trim raw)
+        def n:int (strlen t)
+        if (n == 0) { return out }
+        def start:int 0
+        def end:int n
+        if ((charAt t 0) == 124) { start = 1 }
+        if (n > 1) {
+            def lastCh:int (charAt t (n - 1))
+            def prev:int (charAt t (n - 2))
+            if ((lastCh == 124) && (prev != 92)) { end = (n - 1) }
+        }
+        if (start >= end) { return out }
+        def cur:string ""
+        def i:int start
+        while (i < end) {
+            def c:int (charAt t i)
+            if (c == 92) {
+                def nc:int -1
+                if ((i + 1) < end) { nc = (charAt t (i + 1)) }
+                if (nc == 124) {
+                    cur = (cur + "|")
+                    i = (i + 2)
+                } {
+                    cur = (cur + (substring t i (i + 1)))
+                    i = (i + 1)
+                }
+            } {
+                if (c == 124) {
+                    push out cur
+                    cur = ""
+                    i = (i + 1)
+                } {
+                    cur = (cur + (substring t i (i + 1)))
+                    i = (i + 1)
+                }
+            }
+        }
+        push out cur
+        return out
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Inlines, once the whole tree is known
+    ; ----------------------------------------------------------------------
+    fn processInlines:void (node:MdNode parent:MdNode index:int) {
+        if (node.isLeaf()) {
+            def raw:string node.literal
+            ; Before the inline pass, not after: `[x]` becomes a bracket the
+            ; link parser has already taken apart into three text nodes, and
+            ; the checkbox is no longer a thing you can see in the tree.
+            if ((node.kind == "paragraph") && (index == 0)) {
+                raw = (MdBlock.markTaskItem(raw parent))
+            }
+            node.literal = ""
+            inline.parse(node raw refs)
+            return
+        }
+        def i:int 0
+        def n:int (node.childCount())
+        while (i < n) {
+            def c:MdNode (node.childAt(i))
+            this.processInlines(c node i)
+            i = (i + 1)
+        }
+    }
+
+    ; GFM task lists: an item whose first paragraph opens with `[ ]` or `[x]`
+    ; is a checkbox, and the marker is not part of the text. Returns the text
+    ; with the marker taken off.
+    sfn markTaskItem:string (raw:string parent:MdNode) {
+        if (parent.kind != "item") { return raw }
+        def n:int (strlen raw)
+        if (n < 3) { return raw }
+        def open:int (charAt raw 0)
+        def close:int (charAt raw 2)
+        if (open != 91) { return raw }
+        if (close != 93) { return raw }
+        def mark:int (charAt raw 1)
+        def state:int -1
+        if (mark == 32) { state = 0 }
+        if (mark == 120) { state = 1 }
+        if (mark == 88) { state = 1 }
+        if (state < 0) { return raw }
+        if (n > 3) {
+            def after:int (charAt raw 3)
+            if (! (MdChar.isSpaceOrTab(after))) { return raw }
+        }
+        parent.taskState = state
+        def rest:string (substring raw 3 n)
+        return (MdBlock.stripOneLeadingSpace(rest))
+    }
+
+    sfn stripOneLeadingSpace:string (v:string) {
+        def n:int (strlen v)
+        if (n == 0) { return v }
+        def c:int (charAt v 0)
+        if (MdChar.isSpaceOrTab(c)) {
+            return (substring v 1 n)
+        }
+        return v
+    }
+}

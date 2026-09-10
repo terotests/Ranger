@@ -1,0 +1,116 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdMermaid.rgr — a ```mermaid fence, drawn.
+; ============================================================================
+;
+; ````markdown
+; ```mermaid
+; flowchart LR
+;   A[Write] --> B{Render?} -->|yes| C[Print]
+; ```
+; ````
+;
+; Mermaid is how a diagram travels through a README, a ticket and a review.
+; What it is not, ordinarily, is something you can print: the usual renderer
+; is a browser, and a browser gives you a picture of a page rather than a
+; page. Here the fence is read by RangerFlow's own reader, laid out by its
+; own layout, and lands on the page as GEOMETRY — vector paths and text runs
+; with the fonts embedded, the same commands the GPU painter draws.
+;
+;   fence text ──► MermaidRender.sceneOf ──► FlowScene ──► toEvgTree()
+;                                                              │
+;                                              the same elements the rest of
+;                                              the document is made of
+;
+; Nothing is rasterised on either path, and the diagram is laid out at the
+; width of the column it lands in rather than scaled from a screen — which
+; is the whole reason to keep it as geometry rather than as a picture.
+;
+; This is the ONLY file in the markdown module that knows RangerFlow exists.
+; Everything downstream sees an `EVGElement` and a size, through
+; `MdEmbedCache`.
+; ============================================================================
+
+Import "MdNode.rgr"
+Import "MdEmbed.rgr"
+Import "../../rangerflow/domains/mermaid/MermaidRender.rgr"
+
+class MdMermaid {
+    sfn infoName:string () {
+        return "mermaid"
+    }
+
+    ; The padding around a diagram, in its own units, before it becomes a
+    ; block in a column of prose.
+    sfn padding:double () {
+        return 10.0
+    }
+
+    ; Render every `mermaid` fence in the document at `width`, into the cache
+    ; the layout will ask. Called before layout, because a page cannot be
+    ; broken around a diagram whose height nobody has asked for yet.
+    sfn prepare:void (doc:MdNode cache:MdEmbedCache width:double styleName:string) {
+        MdMermaid.walk(doc cache width styleName)
+    }
+
+    sfn walk:void (node:MdNode cache:MdEmbedCache width:double styleName:string) {
+        if (node.kind == "embed") {
+            def kind:string (MdMermaid.firstWord(node.info))
+            if (kind == "mermaid") {
+                MdMermaid.render(node cache width styleName)
+            }
+        }
+        def i:int 0
+        def n:int (node.childCount())
+        while (i < n) {
+            def c:MdNode (node.childAt(i))
+            MdMermaid.walk(c cache width styleName)
+            i = (i + 1)
+        }
+    }
+
+    sfn render:void (node:MdNode cache:MdEmbedCache width:double styleName:string) {
+        def already:int (cache.find("mermaid" node.literal width))
+        if (already >= 0) { return }
+
+        def e:MdEmbedEntry (new MdEmbedEntry())
+        e.kind = "mermaid"
+        e.source = node.literal
+        e.atWidth = width
+
+        def pad:double (MdMermaid.padding())
+        def sc:FlowScene (MermaidRender.sceneOf(node.literal styleName width pad))
+        if (sc.worldW <= 0.0) {
+            ; Recognised or not, say which. "a gantt diagram — recognised, and
+            ; nothing draws one here yet" is a different fact from "that is
+            ; not Mermaid", and a reader can act on the difference.
+            def kind:string (MermaidRender.kindOf(node.literal))
+            def klen:int (strlen kind)
+            if (klen > 0) {
+                e.note = (("a " + kind) + " diagram — read, but nothing drew it")
+            } {
+                e.note = "not a diagram this reader knows"
+            }
+            cache.add(e)
+            return
+        }
+        e.width = sc.worldW
+        e.height = sc.worldH
+        e.root = (sc.toEvgTree())
+        e.ok = true
+        cache.add(e)
+    }
+
+    sfn firstWord:string (info:string) {
+        def n:int (strlen info)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt info i)
+            if (c == 32) { return (substring info 0 i) }
+            if (c == 9) { return (substring info 0 i) }
+            i = (i + 1)
+        }
+        return info
+    }
+}

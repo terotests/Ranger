@@ -1,0 +1,189 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+; ==============================================================================
+; EvgApp.rgr — what a host may ask of any EVG application.
+; ==============================================================================
+;
+; PLAN_WEB_LOADING.md S8. Every Ranger application that draws through EVG is
+; driven the same way: it is given a page size and a pointer kind, it is asked
+; what is under a coordinate, it is told about presses, hovers, scrolls, keys
+; and the passing of time, and it hands back a display list. Four hosts —
+; a browser page, a UIKit view, an Android View, and whatever comes next —
+; have each written that conversation out against one concrete app class.
+;
+; This is the conversation, named. An app extends it, overrides what it
+; answers, and is then drivable by a host that has never heard of it; a host
+; holds an `EvgApp` and works for every app rather than for one.
+;
+; THE DEFAULTS ARE NOT PLACEHOLDERS. They are what an app that does not do a
+; thing should do when asked: nothing happened, nothing is under the point,
+; the list is empty. A host may call anything on any app without asking first
+; whether it is the kind of app that answers.
+;
+; What is NOT here is anything an app is free to invent: how it is loaded,
+; what data it takes, what its routes are called. `init` is deliberately
+; absent for the same reason — one app takes a stylesheet and a document,
+; another takes neither, and a base class that guessed would be a base class
+; every app had to work around.
+
+Import "EVGDisplayList.rgr"
+
+class EvgApp {
+
+    ; --- the frame ------------------------------------------------------------
+
+    ; The display list as it stands. A host paints this and asks for nothing
+    ; else; it is the whole of what is on the screen.
+    fn display:EVGDisplayList () {
+        def empty (new EVGDisplayList())
+        return empty
+    }
+
+    ; Time passed. True means something moved and the host should paint —
+    ; an animation, a fling, a transition — so a host that gets false may
+    ; leave the last frame where it is.
+    fn tick:boolean (dtMs:double) {
+        return false
+    }
+
+    ; Lay the page out again from the tree it has. A host calls this when
+    ; something it owns changed under the app: a font arrived, a chunk landed.
+    fn rebuild:void () {
+    }
+
+    ; --- the surface ----------------------------------------------------------
+
+    fn setPageSize:void (w:double h:double) {
+    }
+
+    fn widthPx:double () {
+        return 0.0
+    }
+
+    fn heightPx:double () {
+        return 0.0
+    }
+
+    ; A finger rather than a mouse, as the host reports it. A stylesheet's
+    ; `(pointer: coarse)` block answers for the size of the targets.
+    fn setPointerCoarse:void (c:boolean) {
+    }
+
+    ; --- the pointer ----------------------------------------------------------
+
+    ; What is under a page point, as an element id, or "" for nothing. This is
+    ; the app's own hit test: a host resolves a coordinate by asking, never by
+    ; keeping a copy of the layout.
+    fn hitId:string (px:double py:double) {
+        return ""
+    }
+
+    fn press:boolean (id:string) {
+        return false
+    }
+
+    fn setHover:void (id:string) {
+    }
+
+    ; What the app believes is hovered. A host needs it to tell a move that
+    ; changed something from a move that did not, and it asks rather than
+    ; reading a field: a field is a coupling to one app, a question is not.
+    fn hoveredId:string () {
+        return ""
+    }
+
+    fn setPressed:void (id:string) {
+    }
+
+    fn setFocus:void (id:string) {
+    }
+
+    ; --- scrolling ------------------------------------------------------------
+    ;
+    ; The document's own scroll, and the scrollbar's thumb as a separate
+    ; gesture. `dtMs` is what makes a throw the same throw on every platform:
+    ; the velocity is measured from the host's real clock rather than from an
+    ; assumed frame rate.
+
+    fn scrollDrag:boolean (dy:double dtMs:double) {
+        return false
+    }
+
+    fn scrollRelease:boolean () {
+        return false
+    }
+
+    fn scrollHalt:void () {
+    }
+
+    fn scrollbarGrab:boolean (px:double py:double) {
+        return false
+    }
+
+    fn scrollbarDrag:boolean (py:double) {
+        return false
+    }
+
+    fn scrollbarRelease:boolean () {
+        return false
+    }
+
+    fn scrollbarHover:boolean (px:double py:double) {
+        return false
+    }
+
+    fn overScrollbar:boolean () {
+        return false
+    }
+
+    ; --- text -----------------------------------------------------------------
+    ;
+    ; A host owns the keyboard and the app owns the caret: what crosses is
+    ; text and named keys, never a key code.
+
+    fn typeText:boolean (text:string) {
+        return false
+    }
+
+    fn keyWith:boolean (k:string shift:boolean ctrl:boolean) {
+        return false
+    }
+
+    fn hasField:boolean (tid:string) {
+        return false
+    }
+
+    ; The focused field's text, selection and kind, as JSON — what a native
+    ; text input needs to agree with the app about what is being edited.
+    fn fieldStateJson:string (tid:string) {
+        return ""
+    }
+
+    fn focusedField:string () {
+        return ""
+    }
+
+    ; --- where the app is -----------------------------------------------------
+
+    fn openRoute:boolean (route:string) {
+        return false
+    }
+
+    ; What the app calls the screen it is on. Hosts show it in a status line
+    ; and checks assert on it.
+    fn sceneName:string () {
+        return ""
+    }
+
+    ; --- what went wrong ------------------------------------------------------
+    ;
+    ; A stylesheet that did not parse is not a crash and must not be silent:
+    ; the app keeps the complaints and a host decides whether to show them.
+
+    fn styleErrorCount:int () {
+        return 0
+    }
+
+    fn styleErrorAt:string (i:int) {
+        return ""
+    }
+}

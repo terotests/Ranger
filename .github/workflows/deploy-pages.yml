@@ -36,9 +36,14 @@
 #                page is the window — one tree, and the stylesheet's @media
 #                blocks fold the rail or the bottom bar at 768px — so it is
 #                the phone app on a phone and the desktop app on a desktop.
-#                ?painter=dom paints the same app as DOM nodes kept across
-#                frames (gallery/evg/html/evg-dom.js on EVGHostTree);
-#                ?engine=worker runs the app in a Worker (evg-engine.js).
+#                The app runs in a Worker and its frames are painted on the
+#                main thread (evg-engine.js); ?engine=main keeps it on the
+#                main thread, and ?painter=dom — which paints the same app as
+#                DOM nodes kept across frames (gallery/evg/html/evg-dom.js on
+#                EVGHostTree) — requires that. The document carries a picture
+#                of the app's chrome, computed in the build from its own
+#                display list (web/snapshot.mjs), so nothing is blank while
+#                the bundle is on its way.
 #                /evg/responsive/?painter=dom is the same painter on the
 #                responsive page.
 #   /rangerflow/ -> the node-graph editor: a database schema parsed from a .sql
@@ -55,6 +60,12 @@
 #                Ranger builds in memory instead.
 #                Timed against OpenFig on the same bytes when that library
 #                is present; the sample deck is built from Ranger.
+#   /markdown/ -> the markdown viewer: a CommonMark parser written in Ranger,
+#                laid out by its own line breaker and drawn on the GPU. Type in
+#                the left pane and the right one redraws; ```mermaid fences are
+#                read by RangerFlow's reader and land on the page as geometry,
+#                not as pictures. **Download PDF** builds the file in the tab —
+#                sheets, page breaks and embedded fonts — with no server.
 #   /docs/    -> the language documentation. The operator reference is generated
 #                from compiler/Lang.rgr and lib/*.rgr by docs/tools, and the
 #                examples on it are compiled by the compiler built in this job,
@@ -114,6 +125,9 @@ on:
       # The graph editor at /rangerflow/ is built from these — the domains it
       # reads (SQL, UML, Mermaid), the layout and the exporters included.
       - "gallery/rangerflow/**"
+      # The markdown viewer at /markdown/. It draws its diagrams through
+      # rangerflow's Mermaid reader, which is why that path is above this one.
+      - "gallery/markdown/**"
       - "gallery/zip/**"
       - ".github/workflows/deploy-pages.yml"
   # A published release republishes the site, so the documentation on
@@ -232,12 +246,13 @@ jobs:
         run: |
           npm run rt:build --silent
           node gallery/realtrainer/web/build.mjs --out "$GITHUB_WORKSPACE/_site/realtrainer"
-          test -s "$GITHUB_WORKSPACE/_site/realtrainer/index.html"
-          test -s "$GITHUB_WORKSPACE/_site/realtrainer/bundle.js"
-          grep -q "RealTrainerDemo" "$GITHUB_WORKSPACE/_site/realtrainer/bundle.js"
-          grep -q "createDomPainter" "$GITHUB_WORKSPACE/_site/realtrainer/bundle.js"
-          test -s "$GITHUB_WORKSPACE/_site/realtrainer/bundle-worker.js"
-          test -s "$GITHUB_WORKSPACE/_site/realtrainer/worker-bundle.js"
+          # The page is not one file: the entries import chunks with hashed
+          # names, the reference data is a file fetched beside them, and the
+          # chart compiler is a chunk asked for only after the first frame. So
+          # the check is the build's own manifest against the directory —
+          # every script shipped, something still deferred, the app really in
+          # the bytes.
+          node gallery/realtrainer/web/verify-out.mjs "$GITHUB_WORKSPACE/_site/realtrainer"
           test -s "$GITHUB_WORKSPACE/_site/evg/responsive/evg-dom.js"
 
       # ---- the firesim workbench at /firesim/ ------------------------------
@@ -409,6 +424,31 @@ jobs:
       - name: Check the Fig reader parses and pastes
         run: node gallery/figma/web/standalone/smoke.mjs
 
+      # ---- The markdown viewer at /markdown/ -------------------------------
+      # A CommonMark parser in Ranger, its own line breaker, and the same WebGL
+      # painter every other page here uses. The build script compiles the
+      # facade and checks the bundle defines its class with `require` undefined
+      # — which is what a browser looks like, and which is also the only proof
+      # that the PDF writer on this page never reaches for a file.
+      - name: Build the markdown viewer
+        run: bash gallery/markdown/web/standalone/build.sh --out "$GITHUB_WORKSPACE/_site/markdown"
+
+      - name: Check the markdown page has an engine
+        run: |
+          test -s "$GITHUB_WORKSPACE/_site/markdown/index.html"
+          test -s "$GITHUB_WORKSPACE/_site/markdown/markdown_web.js"
+          test -s "$GITHUB_WORKSPACE/_site/markdown/standalone.mjs"
+          test -s "$GITHUB_WORKSPACE/_site/markdown/gl/evg-webgl.js"
+          # The page fetches these itself on load, so a missing one is a blank
+          # canvas rather than a 404 anyone would notice.
+          test -s "$GITHUB_WORKSPACE/_site/markdown/fonts/OpenSans-Regular.ttf"
+          test -s "$GITHUB_WORKSPACE/_site/markdown/fonts/OpenSans-Bold.ttf"
+          test -s "$GITHUB_WORKSPACE/_site/markdown/samples/mermaid.md"
+          grep -q "MarkdownWeb" "$GITHUB_WORKSPACE/_site/markdown/markdown_web.js"
+          # Without the Mermaid reader in the bundle every fence on the sample
+          # renders as a code block, which no screenshot would flag.
+          grep -q "MermaidRender" "$GITHUB_WORKSPACE/_site/markdown/markdown_web.js"
+
       # ---- RangerFlow at /rangerflow/ --------------------------------------
       # The graph editor with no host process: the schema is parsed in the tab,
       # the Mermaid box is read by the same reader the tests drive, and the
@@ -431,8 +471,9 @@ jobs:
           grep -q "RangerFlowWeb" "$GITHUB_WORKSPACE/_site/rangerflow/rangerflow_web.js"
           # The Mermaid box is part of the page rather than a separate demo;
           # without the reader in the bundle the dropdown has an entry that
-          # renders nothing.
-          grep -q "MermaidReader" "$GITHUB_WORKSPACE/_site/rangerflow/rangerflow_web.js"
+          # renders nothing. The bundle is minified, so a class name is gone --
+          # `framed-rectangle` is a shape alias only MermaidReader spells out.
+          grep -q "framed-rectangle" "$GITHUB_WORKSPACE/_site/rangerflow/rangerflow_web.js"
 
       # Does the engine agree with ITSELF? The frame is published twice — as
       # JSON, where every field arrives with its name, and as packed

@@ -59,6 +59,10 @@ class EdgeLanes {
     def margin:double 10.0
     ; The offset the router leaves the node by, which is where a trunk starts.
     def stubOffset:double 20.0
+    ; How far apart two slots on one side are kept. Not less than `spacing`,
+    ; or two straight lines the fan lined up would be found too close by the
+    ; corridor pass and bent apart again.
+    def fanGap:double 16.0
 
     Constructor () {
     }
@@ -270,8 +274,8 @@ class EdgeLanes {
                                     if ((fabs (down - at)) < (fabs (up - at))) {
                                         want = down
                                     }
-                                    def low:double ((itemAt wallA m) + margin)
-                                    def high:double ((itemAt wallB m) - margin)
+                                    def low:double ((EdgeLanes.lower((itemAt wallA m) (itemAt wallB m))) + margin)
+                                    def high:double ((EdgeLanes.upper((itemAt wallA m) (itemAt wallB m))) - margin)
                                     if (want < low) {
                                         want = up
                                     }
@@ -341,80 +345,357 @@ class EdgeLanes {
         }
         def total:int (array_length keys0)
         def moved:int 0
-        def done:[boolean]
-        def d:int 0
-        while (d < total) {
-            push done false
-            d = (d + 1)
-        }
-        def i:int 0
-        while (i < total) {
-            if ((itemAt done i) == false) {
-                def key:string (itemAt keys0 i)
-                def group:[int]
-                def keys:[double]
-                def j:int i
-                while (j < total) {
-                    if ((itemAt keys0 j) == key) {
-                        set_at done j true
-                        push group j
-                        ; Ordered by where the far end of the edge is, so the
-                        ; fan opens towards the things it connects to and its
-                        ; own strands do not cross.
-                        def e2:FlowEdge (g.edgeAt((itemAt edgeIdx j)))
-                        def far:boolean ((itemAt atSource j) == false)
-                        def side:int (g.edgeSide(e2 (itemAt atSource j)))
-                        def along:double (g.endpointY(e2 far))
-                        if (EdgeLanes.alongX(side)) {
-                            along = (g.endpointX(e2 far))
+        ; Two passes. A slot is chosen by where the edge's far end is, and
+        ; the far end is itself a slot being chosen: the first pass sees the
+        ; far ends at their handles' centres, the second sees them where the
+        ; first pass put them — which is what lines up a slot at one node
+        ; with the slot the same edge got at the other, and makes a line
+        ; that could be straight straight.
+        def pass:int 0
+        while (pass < 2) {
+            moved = 0
+            def done:[boolean]
+            def d:int 0
+            while (d < total) {
+                push done false
+                d = (d + 1)
+            }
+            def i:int 0
+            while (i < total) {
+                if ((itemAt done i) == false) {
+                    def key:string (itemAt keys0 i)
+                    def group:[int]
+                    def keys:[double]
+                    def j:int i
+                    while (j < total) {
+                        if ((itemAt keys0 j) == key) {
+                            set_at done j true
+                            push group j
+                            ; Ordered by where the far end of the edge is, so
+                            ; the fan opens towards the things it connects to
+                            ; and its own strands do not cross.
+                            def e2:FlowEdge (g.edgeAt((itemAt edgeIdx j)))
+                            def far:boolean ((itemAt atSource j) == false)
+                            def side:int (g.edgeSide(e2 (itemAt atSource j)))
+                            def along:double (g.endpointY(e2 far))
+                            if (EdgeLanes.alongX(side)) {
+                                along = (g.endpointX(e2 far))
+                            }
+                            push keys along
                         }
-                        push keys along
+                        j = (j + 1)
                     }
-                    j = (j + 1)
+                    def count:int (array_length group)
+                    if (count > 1) {
+                        EdgeLanes.sortByKey(group keys)
+                        moved = (moved + (this.placeFan(g group keys edgeIdx atSource)))
+                    }
                 }
-                def count:int (array_length group)
-                if (count > 1) {
-                    EdgeLanes.sortByKey(group keys)
-                    def firstSlot:int (itemAt group 0)
-                    def anyEdge:FlowEdge (g.edgeAt((itemAt edgeIdx firstSlot)))
-                    def side0:int (g.edgeSide(anyEdge (itemAt atSource firstSlot)))
-                    def owner:FlowNode (EdgeLanes.ownerOf(g anyEdge (itemAt atSource firstSlot)))
-                    ; How much room the fan has depends on which side it is on:
-                    ; a row's height down a left or right edge, and a share of
-                    ; the node's width across a top or bottom one. The spread
-                    ; stays inside the row, because the point of a field-level
-                    ; port is that the edge visibly meets THAT column and an
-                    ; arrival nudged into the next row would misstate the schema.
-                    def room:double (owner.width * 0.5)
-                    if ((EdgeLanes.alongX(side0)) == false) {
-                        room = (owner.rowHeight - 6.0)
-                        if ((owner.sectionCount()) == 0) {
-                            room = (owner.height * 0.5)
-                        }
-                    }
-                    if (room < 4.0) {
-                        room = 4.0
-                    }
-                    def gap:double (room / (to_double count))
-                    def half:double ((gap * (to_double (count - 1))) * 0.5)
-                    def t:int 0
-                    while (t < count) {
-                        def slot:int (itemAt group t)
-                        def e3:FlowEdge (g.edgeAt((itemAt edgeIdx slot)))
-                        def nudge:double ((gap * (to_double t)) - half)
-                        if (itemAt atSource slot) {
-                            e3.portNudgeSource = nudge
-                        } {
-                            e3.portNudgeTarget = nudge
-                        }
-                        moved = (moved + 1)
-                        t = (t + 1)
-                    }
+                i = (i + 1)
+            }
+            pass = (pass + 1)
+        }
+        this.slideRoutedEnds(g)
+        return moved
+    }
+
+    ; How much of a top or bottom side the slots may use. A box's edge is
+    ; straight nearly to its corners, so a box sized to its text still has
+    ; room for three slots; a diamond or a circle has its border where the
+    ; bounding box is only at the middle, and a slot far out would meet air.
+    sfn sideShare:double (shape:string) {
+        if (shape == "rect") { return 0.7 }
+        if (shape == "action") { return 0.7 }
+        if (shape == "roundrect") { return 0.7 }
+        if (shape == "subroutine") { return 0.7 }
+        if (shape == "stadium") { return 0.6 }
+        return 0.5
+    }
+
+    ; One side's slots. Each edge would like to leave exactly opposite where
+    ; it is going, so that the line between the two is straight; two that
+    ; want the same place are pushed apart to `fanGap`, the group is moved
+    ; back as a whole to sit as near its wishes as it can, and it is kept
+    ; inside the room the side has. When the room is too small for the gap,
+    ; the slots are spread evenly across it instead — closer than they should
+    ; be, but each still its own.
+    ;
+    ; How much room there is depends on which side it is on: a row's height
+    ; down a left or right edge, and a share of the node's width across a
+    ; top or bottom one. The spread stays inside the row, because the point
+    ; of a field-level port is that the edge visibly meets THAT column and
+    ; an arrival nudged into the next row would misstate the schema.
+    fn placeFan:int (g:FlowGraph group:[int] keys:[double] edgeIdx:[int] atSource:[boolean]) {
+        def count:int (array_length group)
+        def firstSlot:int (itemAt group 0)
+        def anyEdge:FlowEdge (g.edgeAt((itemAt edgeIdx firstSlot)))
+        def side0:int (g.edgeSide(anyEdge (itemAt atSource firstSlot)))
+        def owner:FlowNode (EdgeLanes.ownerOf(g anyEdge (itemAt atSource firstSlot)))
+        def room:double (owner.width * (EdgeLanes.sideShare(owner.shape)))
+        if ((EdgeLanes.alongX(side0)) == false) {
+            room = (owner.rowHeight - 6.0)
+            if ((owner.sectionCount()) == 0) {
+                room = (owner.height * (EdgeLanes.sideShare(owner.shape)))
+            }
+        }
+        if (room < 4.0) {
+            room = 4.0
+        }
+        def half:double (room * 0.5)
+        ; Where the side's own handle is, so a wish can be a nudge from it.
+        def centre:double 0.0
+        def wish:[double]
+        def at:[double]
+        def t:int 0
+        while (t < count) {
+            def slot:int (itemAt group t)
+            def e:FlowEdge (g.edgeAt((itemAt edgeIdx slot)))
+            def here:boolean (itemAt atSource slot)
+            def own:double (g.endpointY(e here))
+            def nudge:double e.portNudgeTarget
+            if here {
+                nudge = e.portNudgeSource
+            }
+            if (EdgeLanes.alongX(side0)) {
+                own = (g.endpointX(e here))
+            }
+            centre = (own - nudge)
+            def w:double ((itemAt keys t) - centre)
+            if (w < (0.0 - half)) { w = (0.0 - half) }
+            if (w > half) { w = half }
+            push wish w
+            push at w
+            t = (t + 1)
+        }
+        ; Push apart, then slide the whole group back towards its wishes.
+        def f:int 1
+        while (f < count) {
+            def least:double ((itemAt at (f - 1)) + fanGap)
+            if ((itemAt at f) < least) {
+                set_at at f least
+            }
+            f = (f + 1)
+        }
+        def drift:double 0.0
+        def m:int 0
+        while (m < count) {
+            drift = (drift + ((itemAt at m) - (itemAt wish m)))
+            m = (m + 1)
+        }
+        drift = (drift / (to_double count))
+        def lowest:double ((itemAt at 0) - drift)
+        def highest:double ((itemAt at (count - 1)) - drift)
+        def shift:double (0.0 - drift)
+        if (lowest < (0.0 - half)) {
+            shift = (shift + ((0.0 - half) - lowest))
+            highest = (highest + ((0.0 - half) - lowest))
+        }
+        if (highest > half) {
+            shift = (shift + (half - highest))
+        }
+        def fits:boolean (((itemAt at 0) + shift) >= ((0.0 - half) - 0.01))
+        def s:int 0
+        while (s < count) {
+            def slot2:int (itemAt group s)
+            def e3:FlowEdge (g.edgeAt((itemAt edgeIdx slot2)))
+            def nudge2:double ((itemAt at s) + shift)
+            if (fits == false) {
+                def gap:double (room / (to_double count))
+                def spread:double ((gap * (to_double (count - 1))) * 0.5)
+                nudge2 = ((gap * (to_double s)) - spread)
+            }
+            if (itemAt atSource slot2) {
+                e3.portNudgeSource = nudge2
+            } {
+                e3.portNudgeTarget = nudge2
+            }
+            s = (s + 1)
+        }
+        return count
+    }
+
+    ; An edge that already carries a route — the layered layout's corridor
+    ; chain, or the grid router's way round something — was drawn from where
+    ; its ends were at the time, and the fan has just moved them. Until this
+    ; the route stayed where it was and the slot went unused: two chained
+    ; edges into one side both kept the centre they were drawn to, one on
+    ; top of the other, with the fan insisting they were fifteen pixels
+    ; apart. The route is kept and its ends follow it: the first leg leaves a
+    ; port straight and the last arrives straight, so sliding the end and the
+    ; corner it turns at along the port's side keeps every corner square.
+    fn slideRoutedEnds:void (g:FlowGraph) {
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            if (e.pinnedRoute == false) {
+                if ((array_length e.waypoints) >= 6) {
+                    this.slideEnd(g e true)
+                    this.slideEnd(g e false)
                 }
             }
-            i = (i + 1)
+            k = (k + 1)
+        }
+    }
+
+    fn slideEnd:void (g:FlowGraph e:FlowEdge atSource:boolean) {
+        def n:int (idiv (array_length e.waypoints) 2)
+        def side:int (g.edgeSide(e atSource))
+        ; The coordinate the slot runs along: x on a top or bottom port, y on
+        ; a left or right one. The other one is the leg's own direction.
+        def axis:int 1
+        if (EdgeLanes.alongX(side)) {
+            axis = 0
+        }
+        def want:double (g.endpointY(e atSource))
+        if (axis == 0) {
+            want = (g.endpointX(e atSource))
+        }
+        def first:int 0
+        def step:int 1
+        if (atSource == false) {
+            first = (n - 1)
+            step = -1
+        }
+        def have:double (itemAt e.waypoints ((first * 2) + axis))
+        def d:double (want - have)
+        if ((fabs d) < 0.01) {
+            return
+        }
+        ; The run out of the port: every corner that shares the port's own
+        ; coordinate, up to the one where the route turns. A route whose very
+        ; first leg is not straight out of the port was placed by something
+        ; with its own reasons, and is left alone.
+        def second:int (first + step)
+        if ((fabs ((itemAt e.waypoints ((second * 2) + axis)) - have)) > 0.01) {
+            return
+        }
+        def p:int first
+        while (p >= 0) {
+            if (p < n) {
+                def at:int ((p * 2) + axis)
+                if ((fabs ((itemAt e.waypoints at) - have)) < 0.01) {
+                    set_at e.waypoints at ((itemAt e.waypoints at) + d)
+                    p = (p + step)
+                } {
+                    p = -1
+                }
+            } {
+                p = -1
+            }
+        }
+    }
+
+    ; ------------------------------------------------------------ labels --
+    ; Two labels drawn on top of each other read as one word. Lines the fan
+    ; has just lined up side by side — `start` down and `stop` back up
+    ; sixteen pixels from it — have their midpoints at the same height, and
+    ; their labels, centred on those midpoints, on each other. Where two
+    ; labels' boxes overlap they are slid apart along their own lines, one
+    ; back and one forward, until they clear. The label stays on its line;
+    ; only where along it changes.
+    sfn staggerLabels:int (g:FlowGraph) {
+        def moved:int 0
+        def round:int 0
+        while (round < 3) {
+            def any:boolean false
+            def a:int 0
+            while (a < (g.edgeCount())) {
+                def ea:FlowEdge (g.edgeAt(a))
+                if (EdgeLanes.hasLabel(ea)) {
+                    def b:int (a + 1)
+                    while (b < (g.edgeCount())) {
+                        def eb:FlowEdge (g.edgeAt(b))
+                        if (EdgeLanes.hasLabel(eb)) {
+                            if (EdgeLanes.partLabels(g ea eb)) {
+                                any = true
+                                moved = (moved + 1)
+                            }
+                        }
+                        b = (b + 1)
+                    }
+                }
+                a = (a + 1)
+            }
+            if any {
+                round = (round + 1)
+            } {
+                round = 3
+            }
         }
         return moved
+    }
+
+    sfn hasLabel:boolean (e:FlowEdge) {
+        if e.hidden {
+            return false
+        }
+        return ((strlen e.label) > 0)
+    }
+
+    ; The box a label takes, near enough: the theme's 11px face.
+    sfn labelWidth:double (e:FlowEdge) {
+        return (((to_double (strlen e.label)) * 6.6) + 12.0)
+    }
+
+    ; Whether an edge is, on the whole, going up or down the page.
+    sfn runsVertical:boolean (g:FlowGraph e:FlowEdge) {
+        def dx:double (fabs ((g.endpointX(e false)) - (g.endpointX(e true))))
+        def dy:double (fabs ((g.endpointY(e false)) - (g.endpointY(e true))))
+        return (dy >= dx)
+    }
+
+    sfn partLabels:boolean (g:FlowGraph a:FlowEdge b:FlowEdge) {
+        def pa:EdgePath (EdgeRouter.route(g a))
+        def pb:EdgePath (EdgeRouter.route(g b))
+        pa.flatten(4)
+        pb.flatten(4)
+        def ax:double ((pa.midX()) + a.labelDX)
+        def ay:double ((pa.midY()) + a.labelDY)
+        def bx:double ((pb.midX()) + b.labelDX)
+        def by:double ((pb.midY()) + b.labelDY)
+        def height:double 18.0
+        def overX:double ((((EdgeLanes.labelWidth(a)) + (EdgeLanes.labelWidth(b))) * 0.5) - (fabs (ax - bx)))
+        def overY:double (height - (fabs (ay - by)))
+        if (overX <= 0.0) {
+            return false
+        }
+        if (overY <= 0.0) {
+            return false
+        }
+        ; Each slides along its own line, away from the other. Two lines
+        ; running the same way part by the overlap between them; on a line
+        ; running the other way the slide clears the box in one move.
+        if (EdgeLanes.runsVertical(g a)) {
+            def stepA:double ((overY * 0.5) + 2.0)
+            if (ay > by) {
+                a.labelDY = (a.labelDY + stepA)
+            } {
+                a.labelDY = (a.labelDY - stepA)
+            }
+        } {
+            def stepAx:double ((overX * 0.5) + 2.0)
+            if (ax > bx) {
+                a.labelDX = (a.labelDX + stepAx)
+            } {
+                a.labelDX = (a.labelDX - stepAx)
+            }
+        }
+        if (EdgeLanes.runsVertical(g b)) {
+            def stepB:double ((overY * 0.5) + 2.0)
+            if (by >= ay) {
+                b.labelDY = (b.labelDY + stepB)
+            } {
+                b.labelDY = (b.labelDY - stepB)
+            }
+        } {
+            def stepBx:double ((overX * 0.5) + 2.0)
+            if (bx >= ax) {
+                b.labelDX = (b.labelDX + stepBx)
+            } {
+                b.labelDX = (b.labelDX - stepBx)
+            }
+        }
+        return true
     }
 
     ; ------------------------------------------------------------- trunks --
@@ -455,6 +736,11 @@ class EdgeLanes {
         if (horizA != horizB) {
             return false
         }
+        ; The walls are kept in travel order — `wallA` is the side the edge
+        ; comes in from, `wallB` the side it goes out to — because which way
+        ; an edge crosses the corridor decides which of its stubs a
+        ; neighbouring track runs past. Everything that wants the corridor
+        ; as a range takes the lower and upper of the two.
         def x1:double (g.endpointX(e true))
         def y1:double (g.endpointY(e true))
         def x2:double (g.endpointX(e false))
@@ -469,8 +755,8 @@ class EdgeLanes {
             set_at pos idx ((sgx + tgx) * 0.5)
             set_at lo idx (EdgeLanes.lower(sgy tgy))
             set_at hi idx (EdgeLanes.upper(sgy tgy))
-            set_at wallA idx (EdgeLanes.lower(sgx tgx))
-            set_at wallB idx (EdgeLanes.upper(sgx tgx))
+            set_at wallA idx sgx
+            set_at wallB idx tgx
             set_at entry idx sgy
             set_at exit idx tgy
             return true
@@ -479,8 +765,8 @@ class EdgeLanes {
         set_at pos idx ((sgy + tgy) * 0.5)
         set_at lo idx (EdgeLanes.lower(sgx tgx))
         set_at hi idx (EdgeLanes.upper(sgx tgx))
-        set_at wallA idx (EdgeLanes.lower(sgy tgy))
-        set_at wallB idx (EdgeLanes.upper(sgy tgy))
+        set_at wallA idx sgy
+        set_at wallB idx tgy
         set_at entry idx sgx
         set_at exit idx tgx
         return true
@@ -518,8 +804,8 @@ class EdgeLanes {
             while (q < (count - 1)) {
                 def u:int (itemAt order q)
                 def v:int (itemAt order (q + 1))
-                def asIs:int (EdgeLanes.crossCost(u v lo hi entry exit))
-                def flipped:int (EdgeLanes.crossCost(v u lo hi entry exit))
+                def asIs:int (EdgeLanes.crossCost(u v lo hi wallA wallB entry exit))
+                def flipped:int (EdgeLanes.crossCost(v u lo hi wallA wallB entry exit))
                 if (flipped < asIs) {
                     set_at order q v
                     set_at order (q + 1) u
@@ -541,7 +827,7 @@ class EdgeLanes {
         while (j < count) {
             def m2:int (itemAt order j)
             centre = (centre + (itemAt pos m2))
-            def room:double (((itemAt wallB m2) - (itemAt wallA m2)) - (margin * 2.0))
+            def room:double ((fabs ((itemAt wallB m2) - (itemAt wallA m2))) - (margin * 2.0))
             if (room < widest) {
                 widest = room
             }
@@ -584,17 +870,32 @@ class EdgeLanes {
 
     ; What it costs to put track `u` on the near side of track `v`.
     ;
-    ; With u nearer, u's track runs past the stub that brings v in, and v's
-    ; track runs past the stub that takes u out — each of those is a crossing
-    ; exactly when the stub lands inside the other track's span. Nothing else
-    ; can cross: v's outgoing stub leaves on the far side of u, and u's
-    ; incoming stub arrives on the near side of v.
-    sfn crossCost:int (u:int v:int lo:[double] hi:[double] entry:[double] exit:[double]) {
+    ; Each edge crosses the corridor by two stubs: one from the wall it comes
+    ; in by to its track, one from its track to the wall it goes out by. With
+    ; u nearer, u's track lies between the near wall and v's track, so the
+    ; stub v has on the NEAR wall runs past u's track — a crossing exactly
+    ; when that stub lands inside u's span. And v's track lies between u's
+    ; track and the far wall, so the stub u has on the FAR wall runs past
+    ; v's — a crossing when it lands inside v's span. The other two stubs
+    ; cannot meet anything. Which stub is on which wall depends on which
+    ; way the edge is going: two edges crossing the corridor opposite ways
+    ; — `pause` down and `resume` back up — have their near stubs at
+    ; opposite ends, and a cost that assumed they both went the same way
+    ; found the two orders equal and left them crossing twice.
+    sfn crossCost:int (u:int v:int lo:[double] hi:[double] wallA:[double] wallB:[double] entry:[double] exit:[double]) {
         def cost:int 0
-        if (EdgeLanes.strictlyInside((itemAt entry v) (itemAt lo u) (itemAt hi u))) {
+        def nearOfV:double (itemAt exit v)
+        if ((itemAt wallA v) < (itemAt wallB v)) {
+            nearOfV = (itemAt entry v)
+        }
+        def farOfU:double (itemAt entry u)
+        if ((itemAt wallA u) < (itemAt wallB u)) {
+            farOfU = (itemAt exit u)
+        }
+        if (EdgeLanes.strictlyInside(nearOfV (itemAt lo u) (itemAt hi u))) {
             cost = (cost + 1)
         }
-        if (EdgeLanes.strictlyInside((itemAt exit u) (itemAt lo v) (itemAt hi v))) {
+        if (EdgeLanes.strictlyInside(farOfU (itemAt lo v) (itemAt hi v))) {
             cost = (cost + 1)
         }
         return cost

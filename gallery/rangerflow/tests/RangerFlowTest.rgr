@@ -99,6 +99,261 @@ class Checker {
     }
 }
 
+; ---------------------------------------------------------------------------
+; RouteQuality — what a drawn line is measured by.
+; ---------------------------------------------------------------------------
+; The routers are judged by pictures, and a picture is not a test. These are
+; the numbers a reader's eye takes from a diagram without knowing it does:
+; how long a line is, whether it meets its box square on, and how close it
+; runs beside its neighbours. A known diagram and a bound on each is what
+; keeps a change to one router from quietly undoing what another one got
+; right — the return arrow that went round the outside, the two arrivals
+; drawn as one line.
+class RouteQuality {
+    sfn edgeBetween:FlowEdge (g:FlowGraph from:string to:string) {
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            if (e.source == from) {
+                if (e.target == to) {
+                    return e
+                }
+            }
+            k = (k + 1)
+        }
+        return (g.edgeAt(0))
+    }
+
+    ; The length of the line as drawn, corner to corner.
+    sfn lengthOf:double (g:FlowGraph e:FlowEdge) {
+        def c:[double] (EdgeRouter.cornersFor(g e))
+        def n:int (idiv (array_length c) 2)
+        def total:double 0.0
+        def i:int 1
+        while (i < n) {
+            def dx:double ((itemAt c (i * 2)) - (itemAt c ((i - 1) * 2)))
+            def dy:double ((itemAt c ((i * 2) + 1)) - (itemAt c (((i - 1) * 2) + 1)))
+            total = (total + (sqrt ((dx * dx) + (dy * dy))))
+            i = (i + 1)
+        }
+        return total
+    }
+
+    ; How square a line meets its box at one end: the cosine of the angle
+    ; between the leg that touches the box and the side's outward normal.
+    ; 1 is straight in, 0 is a line drawn along the side, and 0.7071 is the
+    ; 45° a reader still takes for an arrival. A curve has no corners and
+    ; is not judged.
+    sfn squareness:double (g:FlowGraph e:FlowEdge atSource:boolean) {
+        def c:[double] (EdgeRouter.cornersFor(g e))
+        def n:int (idiv (array_length c) 2)
+        if (n < 2) {
+            return 1.0
+        }
+        def lx:double ((itemAt c 2) - (itemAt c 0))
+        def ly:double ((itemAt c 3) - (itemAt c 1))
+        if (atSource == false) {
+            def lastAt:int ((n - 1) * 2)
+            lx = ((itemAt c (lastAt - 2)) - (itemAt c lastAt))
+            ly = ((itemAt c (lastAt - 1)) - (itemAt c (lastAt + 1)))
+        }
+        def len:double (sqrt ((lx * lx) + (ly * ly)))
+        if (len < 0.001) {
+            return 1.0
+        }
+        def side:int (g.edgeSide(e atSource))
+        def dot:double ((lx * (FlowPosition.normalX(side))) + (ly * (FlowPosition.normalY(side))))
+        return (dot / len)
+    }
+
+    ; The least square end on the whole diagram.
+    sfn leastSquare:double (g:FlowGraph) {
+        def least:double 1.0
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            if (e.hidden == false) {
+                def a:double (RouteQuality.squareness(g e true))
+                def b:double (RouteQuality.squareness(g e false))
+                if (a < least) { least = a }
+                if (b < least) { least = b }
+            }
+            k = (k + 1)
+        }
+        return least
+    }
+
+    ; The closest two straight runs of different edges come while running
+    ; side by side — both vertical or both horizontal, and overlapping along
+    ; their length by more than a touch. Runs that only meet end to end are
+    ; not beside each other. 0 is two lines drawn as one.
+    sfn closestParallel:double (g:FlowGraph) {
+        def owner:[int]
+        def x1:[double]
+        def y1:[double]
+        def x2:[double]
+        def y2:[double]
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            if (e.hidden == false) {
+                def c:[double] (EdgeRouter.cornersFor(g e))
+                def n:int (idiv (array_length c) 2)
+                def i:int 1
+                while (i < n) {
+                    push owner k
+                    push x1 (itemAt c ((i - 1) * 2))
+                    push y1 (itemAt c (((i - 1) * 2) + 1))
+                    push x2 (itemAt c (i * 2))
+                    push y2 (itemAt c ((i * 2) + 1))
+                    i = (i + 1)
+                }
+            }
+            k = (k + 1)
+        }
+        def closest:double 1000000.0
+        def m:int (array_length owner)
+        def a:int 0
+        while (a < m) {
+            def b:int (a + 1)
+            while (b < m) {
+                if ((itemAt owner a) != (itemAt owner b)) {
+                    def d:double (RouteQuality.besideBy(x1 y1 x2 y2 a b))
+                    if (d >= 0.0) {
+                        if (d < closest) {
+                            closest = d
+                        }
+                    }
+                }
+                b = (b + 1)
+            }
+            a = (a + 1)
+        }
+        return closest
+    }
+
+    ; The distance between two runs that lie beside each other, or -1 when
+    ; they do not.
+    sfn besideBy:double (x1:[double] y1:[double] x2:[double] y2:[double] a:int b:int) {
+        def touch:double 0.5
+        def aVert:boolean ((fabs ((itemAt x2 a) - (itemAt x1 a))) < 0.01)
+        def bVert:boolean ((fabs ((itemAt x2 b) - (itemAt x1 b))) < 0.01)
+        def aHoriz:boolean ((fabs ((itemAt y2 a) - (itemAt y1 a))) < 0.01)
+        def bHoriz:boolean ((fabs ((itemAt y2 b) - (itemAt y1 b))) < 0.01)
+        if aVert {
+            if bVert {
+                def lo:double (RouteQuality.lowOf((itemAt y1 a) (itemAt y2 a)))
+                def hi:double (RouteQuality.highOf((itemAt y1 a) (itemAt y2 a)))
+                def lo2:double (RouteQuality.lowOf((itemAt y1 b) (itemAt y2 b)))
+                def hi2:double (RouteQuality.highOf((itemAt y1 b) (itemAt y2 b)))
+                def from:double (RouteQuality.highOf(lo lo2))
+                def to:double (RouteQuality.lowOf(hi hi2))
+                if ((to - from) > touch) {
+                    return (fabs ((itemAt x1 a) - (itemAt x1 b)))
+                }
+                return -1.0
+            }
+        }
+        if aHoriz {
+            if bHoriz {
+                def lo3:double (RouteQuality.lowOf((itemAt x1 a) (itemAt x2 a)))
+                def hi3:double (RouteQuality.highOf((itemAt x1 a) (itemAt x2 a)))
+                def lo4:double (RouteQuality.lowOf((itemAt x1 b) (itemAt x2 b)))
+                def hi4:double (RouteQuality.highOf((itemAt x1 b) (itemAt x2 b)))
+                def from2:double (RouteQuality.highOf(lo3 lo4))
+                def to2:double (RouteQuality.lowOf(hi3 hi4))
+                if ((to2 - from2) > touch) {
+                    return (fabs ((itemAt y1 a) - (itemAt y1 b)))
+                }
+                return -1.0
+            }
+        }
+        return -1.0
+    }
+
+    sfn lowOf:double (a:double b:double) {
+        if (a < b) { return a }
+        return b
+    }
+
+    sfn highOf:double (a:double b:double) {
+        if (a > b) { return a }
+        return b
+    }
+
+    ; How many times the line turns. A line that could be straight and is
+    ; not has two.
+    sfn bends:int (g:FlowGraph e:FlowEdge) {
+        def c:[double] (EdgeRouter.cornersFor(g e))
+        def n:int (idiv (array_length c) 2)
+        if (n < 2) {
+            return 0
+        }
+        return (n - 2)
+    }
+
+    sfn totalBends:int (g:FlowGraph) {
+        def total:int 0
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            if (e.hidden == false) {
+                total = (total + (RouteQuality.bends(g e)))
+            }
+            k = (k + 1)
+        }
+        return total
+    }
+
+    ; Where two lines properly cross each other, counted corner list against
+    ; corner list. `EdgeOverlap.pairs` forgives a crossing near either end;
+    ; this one does not.
+    sfn crossingsBetween:int (g:FlowGraph a:FlowEdge b:FlowEdge) {
+        def ca:[double] (EdgeRouter.cornersFor(g a))
+        def cb:[double] (EdgeRouter.cornersFor(g b))
+        def na:int (idiv (array_length ca) 2)
+        def nb:int (idiv (array_length cb) 2)
+        def hits:int 0
+        def i:int 1
+        while (i < na) {
+            def j:int 1
+            while (j < nb) {
+                def hit:[double] (EdgeOverlap.crossingOf((itemAt ca ((i - 1) * 2)) (itemAt ca (((i - 1) * 2) + 1)) (itemAt ca (i * 2)) (itemAt ca ((i * 2) + 1)) (itemAt cb ((j - 1) * 2)) (itemAt cb (((j - 1) * 2) + 1)) (itemAt cb (j * 2)) (itemAt cb ((j * 2) + 1))))
+                if ((array_length hit) == 2) {
+                    hits = (hits + 1)
+                }
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+        return hits
+    }
+
+    ; How many routed edges are drawn to somewhere other than their port:
+    ; a route whose first or last corner is not where the edge's endpoint
+    ; now is, after the fan has moved the endpoint.
+    sfn looseEnds:int (g:FlowGraph) {
+        def loose:int 0
+        def k:int 0
+        while (k < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(k))
+            def n:int (array_length e.waypoints)
+            if (n >= 4) {
+                def offStart:boolean false
+                if ((fabs ((itemAt e.waypoints 0) - (g.endpointX(e true)))) > 0.01) { offStart = true }
+                if ((fabs ((itemAt e.waypoints 1) - (g.endpointY(e true)))) > 0.01) { offStart = true }
+                if ((fabs ((itemAt e.waypoints (n - 2)) - (g.endpointX(e false)))) > 0.01) { offStart = true }
+                if ((fabs ((itemAt e.waypoints (n - 1)) - (g.endpointY(e false)))) > 0.01) { offStart = true }
+                if offStart {
+                    loose = (loose + 1)
+                }
+            }
+            k = (k + 1)
+        }
+        return loose
+    }
+}
+
 class RangerFlowTest {
     sfn main:void () {
         def c (new Checker)
@@ -116,6 +371,7 @@ class RangerFlowTest {
         RangerFlowTest.testLaneOrdering(c)
         RangerFlowTest.testDragSweep(c)
         RangerFlowTest.testSegmentDrag(c)
+        RangerFlowTest.testEdgeEndGrips(c)
         RangerFlowTest.testShapes(c)
         RangerFlowTest.testFlowchart(c)
         RangerFlowTest.testMermaid(c)
@@ -127,6 +383,7 @@ class RangerFlowTest {
         RangerFlowTest.testMermaidClassDiagram(c)
         RangerFlowTest.testMermaidErDiagram(c)
         RangerFlowTest.testMermaidStateDiagram(c)
+        RangerFlowTest.testRouteQuality(c)
         RangerFlowTest.testMermaidMindMap(c)
         RangerFlowTest.testMermaidRequirements(c)
         RangerFlowTest.testMermaidC4(c)
@@ -499,6 +756,92 @@ class RangerFlowTest {
             i = (i + 1)
         }
         return n
+    }
+
+    sfn countPrefix:int (sc:FlowScene prefix:string) {
+        def n:int 0
+        def m:int (strlen prefix)
+        def i:int 0
+        while (i < (sc.count())) {
+            def it:SceneItem (sc.at(i))
+            if ((strlen it.tag) >= m) {
+                if ((substring it.tag 0 m) == prefix) {
+                    n = (n + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; ------------------------------------------- the grip on an edge's end ---
+    ; The reconnect gesture is older than the grip that shows it, and being
+    ; invisible it may as well not have existed: an end nobody can see is an
+    ; end nobody takes hold of. On a plain flowchart there is a second half to
+    ; it — no node there has handles of its own until something asks for them,
+    ; and an end that is not on a handle used to be an end that could not move.
+    sfn testEdgeEndGrips:void (c:Checker) {
+        c.section("the grip on a selected edge's end")
+        def g (new FlowGraph)
+        def a:FlowNode (g.node("a" "A" 0.0 0.0))
+        def b:FlowNode (g.node("b" "B" 400.0 0.0))
+        def d:FlowNode (g.node("d" "D" 400.0 300.0))
+        a.width = 150.0
+        a.height = 50.0
+        b.width = 150.0
+        b.height = 50.0
+        d.width = 150.0
+        d.height = 50.0
+        def e:FlowEdge (g.connect("a" "b"))
+        e.edgeType = "smoothstep"
+        g.reindex()
+        c.eqStr("a flowchart edge has no handle of its own" e.targetPort "")
+        def ed:FlowEditor (FlowEditor.of(g))
+        ed.setSize(1000.0 700.0)
+
+        def before:FlowScene (ed.view.build())
+        c.eqInt("an unselected edge draws no grips" (RangerFlowTest.countPrefix(before "edgeend:")) 0)
+        e.selected = true
+        def after:FlowScene (ed.view.build())
+        c.eqInt("a selected one draws one on each end" (RangerFlowTest.countPrefix(after "edgeend:")) 2)
+
+        def inp (new FlowInput)
+        inp.x = (ed.view.sx((g.endpointX(e false))))
+        inp.y = (ed.view.sy((g.endpointY(e false))))
+        c.ok("and the grip is where the hit test says it is" ((ed.edgeEndAt(inp.x inp.y)) >= 0))
+        ed.pointerDown(inp)
+        c.eqInt("pressing on it starts a reconnect" ed.mode 8)
+        c.ok("of the target end" (ed.reconnectAtSource == false))
+        def during:FlowScene (ed.view.build())
+        c.eqInt("the grips give way to the preview line" (RangerFlowTest.countPrefix(during "edgeend:")) 0)
+
+        inp.x = (ed.view.sx((d.x + (d.width * 0.5))))
+        inp.y = (ed.view.sy((d.y + (d.height * 0.5))))
+        ed.pointerMove(inp)
+        c.ok("another box is a place it can go" ed.view.connectValid)
+        ed.pointerUp(inp)
+        c.eqStr("the end moved to that box" e.target "d")
+        c.ok("landing on one of its handles" ((strlen e.targetPort) > 0))
+        c.eqInt("and no second edge was made" (g.edgeCount()) 1)
+        c.ok("nothing left running" (ed.idle()))
+
+        c.ok("the move is undoable" (ed.undo.undo(g)))
+        c.eqStr("undo puts the end back on the box it came from" e.target "b")
+        c.eqStr("with no handle it never had" e.targetPort "")
+        c.ok("redo is offered" (ed.undo.redo(g)))
+        c.eqStr("and moves it again" e.target "d")
+
+        ; An end may not be dropped on the box the other end is on.
+        def back (new FlowInput)
+        back.x = (ed.view.sx((g.endpointX(e false))))
+        back.y = (ed.view.sy((g.endpointY(e false))))
+        ed.pointerDown(back)
+        back.x = (ed.view.sx((a.x + (a.width * 0.5))))
+        back.y = (ed.view.sy((a.y + (a.height * 0.5))))
+        ed.pointerMove(back)
+        c.ok("its own other end is not a target" (ed.view.connectValid == false))
+        ed.pointerUp(back)
+        c.eqStr("so nothing moved" e.target "d")
     }
 
     ; ------------------------------------------------ moving an edge end ----
@@ -1973,11 +2316,14 @@ class RangerFlowTest {
         c.eqInt("and a repair pass keeps its hands off it" repaired 0)
         c.ok("leaving the corners as dragged" ((array_length e.waypoints) >= 8))
 
-        ; The first and last segments touch a port, so they are not on offer:
-        ; sliding one of those would detach the edge from the column it points
-        ; at, which is the whole point of a field-level port.
-        def sx0:double ((startX + (itemAt corners 2)) * 0.5)
-        def sy0:double ((startY + (itemAt corners 3)) * 0.5)
+        ; The first and last runs touch a port, so they cannot simply slide —
+        ; sliding one would take the end off the column it points at. They are
+        ; still on offer, because on a route that leaves a node downwards and
+        ; turns once they are the ONLY vertical runs, and refusing them left
+        ; such an edge movable up and down but never left and right. Grabbing
+        ; one splits it: a stub stays on the port, and the rest travels.
+        def sx0:double (startX + (((itemAt corners 2) - startX) * 0.75))
+        def sy0:double (startY + (((itemAt corners 3) - startY) * 0.75))
         def g2 (new FlowGraph)
         def a2:FlowNode (g2.node("a" "A" 0.0 0.0))
         def b2:FlowNode (g2.node("b" "B" 420.0 220.0))
@@ -1991,7 +2337,69 @@ class RangerFlowTest {
         def ed2:FlowEditor (FlowEditor.of(g2))
         ed2.setSize(1200.0 800.0)
         def stub:int (ed2.segmentAt(sx0 sy0))
-        c.eqInt("the stub that leaves the port is not draggable" stub -1)
+        c.ok("the run that leaves the port is grabbable too" (stub >= 0))
+        c.eqInt("and it is the first run of the route" (stub % 1000) 0)
+
+        def endX2:double (g2.endpointX(e2 true))
+        def endY2:double (g2.endpointY(e2 true))
+        def farX2:double (g2.endpointX(e2 false))
+        def farY2:double (g2.endpointY(e2 false))
+        def inp2 (new FlowInput)
+        inp2.x = sx0
+        inp2.y = sy0
+        ed2.pointerDown(inp2)
+        c.eqInt("pressing on it starts a segment drag" ed2.mode 6)
+        inp2.x = (sx0 + 40.0)
+        inp2.y = (sy0 + 40.0)
+        ed2.pointerMove(inp2)
+        ed2.pointerUp(inp2)
+        def held2:[double] e2.waypoints
+        def h2n:int (idiv (array_length held2) 2)
+        c.ok("the split gives the route corners of its own" (h2n >= 5))
+        ; The split put a stub corner in, so the run that travelled is the
+        ; THIRD point of the route and the one after it.
+        def moved2:double (itemAt held2 5)
+        if (ed2.segVertical) {
+            moved2 = (itemAt held2 4)
+        }
+        def wanted2:double (sy0 + 40.0)
+        if (ed2.segVertical) {
+            wanted2 = (sx0 + 40.0)
+        }
+        c.near("and the run followed the pointer across itself" moved2 wanted2 0.001)
+        c.near("the end stayed on its port" (itemAt held2 0) endX2 0.001)
+        c.near("at the same height" (itemAt held2 1) endY2 0.001)
+        def lastX2:double (itemAt held2 ((h2n - 1) * 2))
+        def lastY2At:int (((h2n - 1) * 2) + 1)
+        def lastY2:double (itemAt held2 lastY2At)
+        c.near("and the far end never moved" lastX2 farX2 0.001)
+        c.near("at all" lastY2 farY2 0.001)
+        def diag2:int 0
+        def j:int 0
+        while (j < (h2n - 1)) {
+            def jx:double (itemAt held2 (j * 2))
+            def jyAt:int ((j * 2) + 1)
+            def jy:double (itemAt held2 jyAt)
+            def kx:double (itemAt held2 ((j + 1) * 2))
+            def kyAt:int (((j + 1) * 2) + 1)
+            def ky:double (itemAt held2 kyAt)
+            def offX2:double (fabs (kx - jx))
+            def offY2:double (fabs (ky - jy))
+            if (offX2 > 0.001) {
+                if (offY2 > 0.001) {
+                    diag2 = (diag2 + 1)
+                }
+            }
+            j = (j + 1)
+        }
+        c.eqInt("the split route is orthogonal end to end" diag2 0)
+        c.ok("and it is undoable like any other reroute" (ed2.undo.undo(g2)))
+        c.eqInt("which hands the edge back to the router" (array_length e2.waypoints) 0)
+
+        ; The last few pixels belong to the end grip: a press there means
+        ; "take this end somewhere else", not "bend the line".
+        def nearEnd:int (ed2.segmentAt(endX2 endY2))
+        c.eqInt("the very end of the line is not a segment grab" nearEnd -1)
 
         ; A bezier has no segments to slide: its shape is a function of its
         ; ends, so offering a handle in the middle would be a lie.
@@ -2763,6 +3171,199 @@ class RangerFlowTest {
             c.eqInt("and it draws" (EdgeOverlap.nodeCrossings(rg)) 0)
         }
         c.ok("a state diagram is one this library draws" (MermaidReader.draws("state")))
+    }
+
+    ; ------------------------------------------------------- route quality --
+    ; Known diagrams, measured. Each bound here was a picture that looked
+    ; wrong first: the return arrow drawn round the outside two pixels from
+    ; the exit line, the long edge arriving along the top of the box with its
+    ; arrow pointing sideways, two arrivals at one side drawn on one line.
+    sfn testRouteQuality:void (c:Checker) {
+        c.section("Route quality on known diagrams")
+        ; Mermaid's own first state example.
+        def src:string "stateDiagram-v2\n"
+        src = (src + "    [*] --> Still\n")
+        src = (src + "    Still --> [*]\n")
+        src = (src + "    Still --> Moving\n")
+        src = (src + "    Moving --> Still\n")
+        src = (src + "    Moving --> Crash\n")
+        src = (src + "    Crash --> [*]\n")
+        def g:FlowGraph (MermaidStateFlow.render(src))
+        c.eqInt("nothing is drawn through a state" (EdgeOverlap.nodeCrossings(g)) 0)
+        c.eqInt("no two lines lie on each other or cross" (EdgeOverlap.pairs(g 2.0)) 0)
+        def back:FlowEdge (RouteQuality.edgeBetween(g "Moving" "Still"))
+        c.eqInt("the return leaves by the top" (g.edgeSide(back true)) 0)
+        c.eqInt("and arrives at the bottom above it" (g.edgeSide(back false)) 2)
+        def backLen:double (RouteQuality.lengthOf(g back))
+        c.ok(("and is short, because the two are neighbours (got " + (to_string backLen) + ")") (backLen < 120.0))
+        def fwd:FlowEdge (RouteQuality.edgeBetween(g "Still" "Moving"))
+        def slotGap:double (fabs ((g.endpointX(fwd true)) - (g.endpointX(back false))))
+        c.ok(("the two directions have slots of their own (got " + (to_string slotGap) + ")") (slotGap >= 8.0))
+        def sq:double (RouteQuality.leastSquare(g))
+        c.ok(("every line meets its box at 45° or better (got " + (to_string sq) + ")") (sq >= 0.7071))
+        def gap:double (RouteQuality.closestParallel(g))
+        c.ok(("no two lines run side by side closer than 8 (got " + (to_string gap) + ")") (gap >= 8.0))
+        def longE:FlowEdge (RouteQuality.edgeBetween(g "Still" "state0-end"))
+        c.ok("the edge past two states carries a route" ((array_length longE.waypoints) >= 6))
+        def arrive:double (RouteQuality.squareness(g longE false))
+        c.ok(("that arrives straight down into the end (got " + (to_string arrive) + ")") (arrive > 0.99))
+        c.eqInt("and every route ends where its port is" (RouteQuality.looseEnds(g)) 0)
+        ; The two boxes stand in one column, so the two lines between them
+        ; can be straight: the fan puts each slot opposite the slot the same
+        ; edge has at the other end.
+        c.eqInt("a line that can be straight is straight — down" (RouteQuality.bends(g fwd)) 0)
+        c.eqInt("a line that can be straight is straight — and back up" (RouteQuality.bends(g back)) 0)
+        def turns:int (RouteQuality.totalBends(g))
+        c.ok(("the whole picture turns few corners (got " + (to_string turns) + ")") (turns <= 6))
+        ; The chain past two states of different widths used to jog four
+        ; pixels between their lanes; a wobble that small is drawn straight.
+        c.ok(("the routed edge runs down one lane (got " + (to_string (RouteQuality.bends(g longE))) + " bends)") ((RouteQuality.bends(g longE)) <= 4))
+
+        ; What makes the picture read big when it is fitted to a page: the
+        ; boxes are the size of the words in them, the type in them is larger
+        ; than the theme's, and the gaps are what the corridors need. The
+        ; column comes out a quarter shorter than with even boxes and gaps.
+        def still:FlowNode (g.nodeById("Still"))
+        c.ok(("a state is its name with room round it (got " + (to_string still.width) + " wide)") (still.width < 90.0))
+        c.near("set larger than the theme's face" still.fontScale (15.0 / 13.0) 0.001)
+        def column:FlowRect (g.bounds())
+        c.ok(("and the column closed its gaps (got " + (to_string column.h) + " tall)") (column.h < 420.0))
+
+        ; The same machine across the page.
+        def across:string ("stateDiagram-v2\n    direction LR\n" + (substring src 15 (strlen src)))
+        def lg:FlowGraph (MermaidStateFlow.render(across))
+        c.eqInt("across the page: nothing through a state" (EdgeOverlap.nodeCrossings(lg)) 0)
+        c.eqInt("across the page: no line on another" (EdgeOverlap.pairs(lg 2.0)) 0)
+        def lback:FlowEdge (RouteQuality.edgeBetween(lg "Moving" "Still"))
+        c.eqInt("across the page: the return leaves by the left" (lg.edgeSide(lback true)) 3)
+        c.eqInt("and arrives at the right of the state before it" (lg.edgeSide(lback false)) 1)
+        def lsq:double (RouteQuality.leastSquare(lg))
+        c.ok(("across the page: every line meets its box square (got " + (to_string lsq) + ")") (lsq >= 0.7071))
+        def lgap:double (RouteQuality.closestParallel(lg))
+        c.ok(("across the page: no two lines closer than 8 (got " + (to_string lgap) + ")") (lgap >= 8.0))
+        c.eqInt("across the page: every route ends at its port" (RouteQuality.looseEnds(lg)) 0)
+        ; Five boxes in a row are a strip, and a strip fitted to a page is
+        ; drawn small. The layout closes its gaps as far as the corridors
+        ; allow: from 120 to what the busiest corridor needs.
+        def strip:FlowRect (lg.bounds())
+        c.ok(("across the page: the strip closed its gaps (got " + (to_string strip.w) + " wide)") (strip.w < 780.0))
+        c.ok("but not so far that two lines share a corridor" ((EdgeOverlap.pairs(lg 2.0)) == 0))
+
+        ; A busier one: a pair of transitions each way, two ways back to the
+        ; start, and a transition to itself.
+        def busy:string "stateDiagram-v2\n"
+        busy = (busy + "    [*] --> Idle\n")
+        busy = (busy + "    Idle --> Idle : tick\n")
+        busy = (busy + "    Idle --> Running : start\n")
+        busy = (busy + "    Running --> Paused : pause\n")
+        busy = (busy + "    Paused --> Running : resume\n")
+        busy = (busy + "    Running --> Idle : stop\n")
+        busy = (busy + "    Paused --> Idle : stop\n")
+        busy = (busy + "    Running --> Done : finish\n")
+        busy = (busy + "    Done --> [*]\n")
+        def bg:FlowGraph (MermaidStateFlow.render(busy))
+        c.eqInt("busy: nothing through a state" (EdgeOverlap.nodeCrossings(bg)) 0)
+        c.eqInt("busy: no line on another" (EdgeOverlap.pairs(bg 2.0)) 0)
+        def bsq:double (RouteQuality.leastSquare(bg))
+        c.ok(("busy: every line meets its box square (got " + (to_string bsq) + ")") (bsq >= 0.7071))
+        def bgap:double (RouteQuality.closestParallel(bg))
+        c.ok(("busy: no two lines closer than 8 (got " + (to_string bgap) + ")") (bgap >= 8.0))
+        c.eqInt("busy: every route ends at its port" (RouteQuality.looseEnds(bg)) 0)
+        ; Two `stop`s into Idle from below: one a neighbour, one routed past
+        ; Running. They used to arrive on one line, the routed one drawn to
+        ; where its port was before the fan moved it.
+        def stop1:FlowEdge (RouteQuality.edgeBetween(bg "Running" "Idle"))
+        def stop2:FlowEdge (RouteQuality.edgeBetween(bg "Paused" "Idle"))
+        c.eqInt("busy: a neighbour's return goes straight up" (bg.edgeSide(stop1 true)) 0)
+        c.ok("busy: the far return was routed" ((array_length stop2.waypoints) >= 6))
+        def stops:double (fabs ((bg.endpointX(stop1 false)) - (bg.endpointX(stop2 false))))
+        c.ok(("busy: two arrivals at one side get slots of their own (got " + (to_string stops) + ")") (stops >= 8.0))
+        def start:FlowEdge (RouteQuality.edgeBetween(bg "Idle" "Running"))
+        c.eqInt("busy: `start` goes straight down" (RouteQuality.bends(bg start)) 0)
+        c.eqInt("busy: and its `stop` straight back up beside it" (RouteQuality.bends(bg stop1)) 0)
+        def resume:FlowEdge (RouteQuality.edgeBetween(bg "Paused" "Running"))
+        def pause:FlowEdge (RouteQuality.edgeBetween(bg "Running" "Paused"))
+        ; Down on one track and back up on the other: the one that goes
+        ; further across turns later, or the two cross twice in the corridor.
+        c.eqInt("busy: `pause` and `resume` do not cross each other" (RouteQuality.crossingsBetween(bg pause resume)) 0)
+        def resumeLen:double (RouteQuality.lengthOf(bg resume))
+        c.ok(("busy: a return to a neighbour does not go round the house (got " + (to_string resumeLen) + ")") (resumeLen < 260.0))
+
+        ; The flowchart reader draws the same picture and is held to the same
+        ; numbers.
+        def fsrc:string "flowchart TD\n"
+        fsrc = (fsrc + "  S((start)) --> Still\n")
+        fsrc = (fsrc + "  Still --> E(((end)))\n")
+        fsrc = (fsrc + "  Still --> Moving\n")
+        fsrc = (fsrc + "  Moving --> Still\n")
+        fsrc = (fsrc + "  Moving --> Crash\n")
+        fsrc = (fsrc + "  Crash --> E\n")
+        def fd:MermaidDiagram (MermaidReader.parse(fsrc))
+        def fg:FlowGraph (MermaidFlow.build(fd))
+        c.eqInt("flowchart: nothing through a node" (EdgeOverlap.nodeCrossings(fg)) 0)
+        c.eqInt("flowchart: no line on another" (EdgeOverlap.pairs(fg 2.0)) 0)
+        def fsq:double (RouteQuality.leastSquare(fg))
+        c.ok(("flowchart: every line meets its box square (got " + (to_string fsq) + ")") (fsq >= 0.7071))
+        def fgap:double (RouteQuality.closestParallel(fg))
+        c.ok(("flowchart: no two lines closer than 8 (got " + (to_string fgap) + ")") (fgap >= 8.0))
+        def fback:FlowEdge (RouteQuality.edgeBetween(fg "Moving" "Still"))
+        def fbackLen:double (RouteQuality.lengthOf(fg fback))
+        c.ok(("flowchart: the return is short (got " + (to_string fbackLen) + ")") (fbackLen < 120.0))
+        def flong:FlowEdge (RouteQuality.edgeBetween(fg "Still" "E"))
+        def farrive:double (RouteQuality.squareness(fg flong false))
+        c.ok(("flowchart: the long edge arrives straight in (got " + (to_string farrive) + ")") (farrive > 0.99))
+        c.eqInt("flowchart: every route ends at its port" (RouteQuality.looseEnds(fg)) 0)
+
+        ; Closing the gaps, on its own: a chain of six boxes down the page is
+        ; four times taller than it is wide, so the gaps go to their floor —
+        ; and no further, because the floor is what a corridor with one edge
+        ; in it needs. Off, the gaps are as asked.
+        def chain (new FlowGraph)
+        def b:int 0
+        while (b < 6) {
+            def nd:FlowNode (chain.node(("b" + (to_string b)) ("box " + (to_string b)) 0.0 0.0))
+            nd.width = 120.0
+            nd.height = 50.0
+            if (b > 0) {
+                chain.connect(("b" + (to_string (b - 1))) ("b" + (to_string b)))
+            }
+            b = (b + 1)
+        }
+        def asked:LayeredLayout (LayeredLayout.of(chain))
+        asked.direction = "TB"
+        asked.layerGap = 76.0
+        asked.run()
+        def tall:double (asked.extentAlong())
+        c.near("with the gaps as asked, six boxes and five gaps" tall 680.0 0.5)
+        def squared:LayeredLayout (LayeredLayout.of(chain))
+        squared.direction = "TB"
+        squared.layerGap = 76.0
+        squared.squareUp = true
+        squared.run()
+        def shorter:double (squared.extentAlong())
+        c.near("squared up, the gaps close to the floor" squared.layerGap 56.0 0.001)
+        c.near("and the column is that much shorter" shorter 580.0 0.5)
+        def b1:FlowNode (chain.nodeById("b1"))
+        def b2:FlowNode (chain.nodeById("b2"))
+        c.near("with every box placed on the new gap" (b2.y - b1.y) 106.0 0.5)
+        ; A gap a busy corridor needs is not closed. Two more boxes beside
+        ; the fourth, both fed from the third, put two edges in that corridor
+        ; that have to turn — the one straight down still turns nowhere —
+        ; and the gap keeps a track for each.
+        def side:int 0
+        while (side < 2) {
+            def extra:FlowNode (chain.node(("s" + (to_string side)) "beside" 0.0 0.0))
+            extra.width = 120.0
+            extra.height = 50.0
+            chain.connect("b2" ("s" + (to_string side)))
+            side = (side + 1)
+        }
+        def busyLay:LayeredLayout (LayeredLayout.of(chain))
+        busyLay.direction = "TB"
+        busyLay.layerGap = 76.0
+        busyLay.squareUp = true
+        busyLay.run()
+        c.near("a corridor with two edges that turn keeps a track for each" busyLay.layerGap 70.0 0.001)
     }
 
     ; ---------------------------------------------------- Mermaid mind maps --

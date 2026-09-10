@@ -80,6 +80,12 @@ node --input-type=module -e "
   }
 " || exit 1
 
+# Minified when there is a minifier — see the tool for what that is worth and
+# why `PptxWeb` is the string it checks survived.
+if [ "${PPTX_NO_MINIFY:-0}" != "1" ]; then
+  node gallery/evg/web/tools/minify.mjs --file "$STAGE/pptx_web.js" --keep PptxWeb || exit 1
+fi
+
 if [ "$(cd "$OUT" && pwd)" != "$(cd "$STAGE" && pwd)" ]; then
   cp "$STAGE/pptx_web.js" "$OUT/pptx_web.js"
 fi
@@ -92,11 +98,20 @@ cp "$WEB/standalone.mjs" "$OUT/standalone.mjs"
 # stamped into the build id below with everything else.
 mkdir -p "$OUT/host"
 cp "$WEB/../host/pptx-host.mjs" "$OUT/host/pptx-host.mjs"
+# The other half of the head this build writes: the module that picks up the
+# responses it started. Shared with every other gallery page.
+mkdir -p "$OUT/evg"
+cp gallery/evg/web/tools/assets-client.mjs "$OUT/evg/assets-client.mjs"
 
 mkdir -p "$OUT/gl" "$OUT/fonts"
 cp gallery/evg/gl/evg-webgl.js "$OUT/gl/evg-webgl.js"
+# ASSETS is what the page's head will be told to start fetching, collected as
+# the files are copied so the list and the copy cannot disagree — see
+# gallery/evg/web/tools/inline-assets.mjs.
+ASSETS=""
 for face in OpenSans-Regular OpenSans-Bold OpenSans-Italic OpenSans-BoldItalic; do
   cp "gallery/pdf_writer/assets/fonts/Open_Sans/$face.ttf" "$OUT/fonts/$face.ttf"
+  ASSETS="$ASSETS,fonts/$face.ttf"
 done
 # The fallback pool: emoji, the geometric bullets, and Arabic. The desktop
 # build loads every face in the font directory and the browser build only ever
@@ -104,16 +119,19 @@ done
 # it with the system's own font — right-looking glyphs, wrong every number.
 for face in Noto_Emoji/NotoEmoji-Regular Noto_Sans/NotoSans-Regular El_Messiri/ElMessiri-Regular El_Messiri/ElMessiri-Bold; do
   cp "gallery/pdf_writer/assets/fonts/$face.ttf" "$OUT/fonts/$(basename "$face").ttf"
+  ASSETS="$ASSETS,fonts/$(basename "$face").ttf"
 done
 # The 187 preset geometries, as data. The page fetches this and hands it to
 # the viewer the way it hands over the fonts: without it a browser build falls
 # back to the hand-written table, so every shape the specification defines and
 # nobody typed in comes out as a rectangle.
 cp gallery/office/geom/assets/presets.txt "$OUT/presets.txt"
+ASSETS="$ASSETS,presets.txt"
 
 # A deck to open on load. The page reads it with fetch and hands the bytes to
 # the viewer, exactly as it does with a file the user picks.
 cp gallery/pptx/fixtures/20-business-deck.pptx "$OUT/deck.pptx"
+ASSETS="$ASSETS,deck.pptx"
 # …and the SAME deck as an OpenDocument presentation, which is the point of
 # shipping it: pressing the button swaps the format and not the document, so
 # a difference on screen is a difference between the two readers rather than
@@ -131,7 +149,7 @@ cp gallery/odp/fixtures/20-business-deck.odp "$OUT/sample.odp"
 STAMP=$(node -e "
   const fs = require('fs'), crypto = require('crypto');
   const h = crypto.createHash('sha1');
-  for (const f of ['$OUT/pptx_web.js', '$OUT/standalone.mjs', '$OUT/host/pptx-host.mjs', '$OUT/gl/evg-webgl.js']) h.update(fs.readFileSync(f));
+  for (const f of ['$OUT/pptx_web.js', '$OUT/standalone.mjs', '$OUT/host/pptx-host.mjs', '$OUT/gl/evg-webgl.js', '$OUT/evg/assets-client.mjs']) h.update(fs.readFileSync(f));
   process.stdout.write(h.digest('hex').slice(0, 10));
 ")
 node -e "
@@ -143,6 +161,17 @@ node -e "
     fs.readFileSync('$OUT/standalone.mjs', 'utf8')
       .replace('./gl/evg-webgl.js', './gl/evg-webgl.js?v=' + stamp));
 " || exit 1
+# The head that starts every asset before the body is parsed, and preloads the
+# module graph the browser would otherwise not discover until the script at the
+# end of the body had been fetched and run.
+node gallery/evg/web/tools/inline-assets.mjs \
+  --html "$OUT/index.html" \
+  --start "${ASSETS#,}" \
+  --preload-stamped "standalone.mjs,gl/evg-webgl.js" \
+  --preload "host/pptx-host.mjs,evg/assets-client.mjs" \
+  --stamp "$STAMP" \
+  --open-param open || exit 1
+
 if grep -q "__BUILD__" "$OUT/index.html"; then
   echo "the build stamp was not written into $OUT/index.html" >&2
   exit 1

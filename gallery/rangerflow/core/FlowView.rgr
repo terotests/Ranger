@@ -88,6 +88,12 @@ class FlowView {
     ; drawn and hit-tested by the same arithmetic.
     def menu:FlowMenu (new FlowMenu)
     def showPorts:boolean true
+    ; A round grip on each end of a SELECTED edge — JointJS's arrowhead tool.
+    ; The reconnect gesture was there long before the grip was, and being
+    ; invisible it may as well not have been: an end you cannot see you can
+    ; take hold of is an end nobody takes hold of.
+    def showEdgeEnds:boolean true
+    def edgeEndRadius:double 4.5
     def culling:boolean true
     ; Where two lines cross, one hops over the other. Off for a diagram with
     ; no crossings to speak of costs nothing; on, it is the only honest answer
@@ -511,6 +517,7 @@ class FlowView {
         if showPorts {
             this.paintPorts(sc)
         }
+        this.paintEdgeEnds(sc)
         if connecting {
             this.paintConnection(sc)
         }
@@ -1539,7 +1546,7 @@ class FlowView {
     ; a diamond is where the room is, and text set to the box would sit over
     ; the sloping sides.
     fn paintShapeLabel:void (sc:FlowScene n:FlowNode x:double y:double w:double h:double tag:string) {
-        def size:double (this.sl(theme.headerFontSize))
+        def size:double (this.sl((theme.headerFontSize * n.fontScale)))
         if (size < 5.0) {
             return
         }
@@ -1950,6 +1957,62 @@ class FlowView {
                 dot.tag = ("port:" + p.id)
             }
             i = (i + 1)
+        }
+    }
+
+    ; ----------------------------------------------------------- edge ends ---
+    ; The two grips a selected edge gets, one on each end. They are drawn on
+    ; top of everything else the diagram has, because an end that meets a
+    ; handle sits exactly where the handle's own dot is and the grip is the
+    ; one of the two the reader is being offered.
+    fn paintEdgeEnds:void (sc:FlowScene) {
+        if (showEdgeEnds == false) {
+            return
+        }
+        ; The same gate the export uses to leave the chrome out: a printed
+        ; diagram has nothing to grab.
+        if (showPorts == false) {
+            return
+        }
+        ; While an end is in the air the preview line says where it is going.
+        ; Drawing the grips as well would put a dot on the end that is not
+        ; moving and one under the pointer, and neither is the story.
+        if connecting {
+            return
+        }
+        def k:int 0
+        while (k < (graph.edgeCount())) {
+            def e:FlowEdge (graph.edgeAt(k))
+            if (e.selected) {
+                if (e.hidden == false) {
+                    if (e.sourceIndex >= 0) {
+                        if (e.targetIndex >= 0) {
+                            this.paintEdgeEnd(sc e true)
+                            this.paintEdgeEnd(sc e false)
+                        }
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+    }
+
+    fn paintEdgeEnd:void (sc:FlowScene e:FlowEdge atSource:boolean) {
+        def r:double (this.sl(edgeEndRadius))
+        if (r < 3.0) {
+            r = 3.0
+        }
+        def px:double (this.sx((graph.endpointX(e atSource))))
+        def py:double (this.sy((graph.endpointY(e atSource))))
+        def dot:SceneItem (sc.rect((px - r) (py - r) (r * 2.0) (r * 2.0) theme.portFill))
+        dot.radius = r
+        dot.stroke = theme.edgeSelected
+        dot.strokeWidth = 2.0
+        def which:string ("edgeend:" + e.id)
+        if atSource {
+            dot.tag = (which + ":source")
+        } {
+            dot.tag = (which + ":target")
         }
     }
 

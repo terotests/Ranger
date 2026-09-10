@@ -359,6 +359,10 @@ class FlowNode {
     ; rectangle every table and class has always been; a flowchart's meaning
     ; lives here, because a decision that is not a diamond is not a decision.
     def shape:string "rect"
+    ; The size this node's own label is set at, relative to the theme's
+    ; header size. A state box sized to its text asks for a larger face than
+    ; a schema's column list; a stylesheet's `font-size` still scales both.
+    def fontScale:double 1.0
     ; For `shape = "polygon"`: the ring, in unit coordinates across the box.
     ; Empty for every other shape, which knows its own.
     def shapePoints:[double]
@@ -1513,6 +1517,70 @@ class FlowGraph {
         }
         def t:FlowNode (this.nodeById(e.target))
         return t.targetPosition
+    }
+
+    ; Whether the gap between two nodes is empty — the strip that spans both
+    ; of them across the flow and runs from the one to the other along it.
+    ; `vertical` is the flow: true when the strip lies between a's bottom and
+    ; b's top (or the other way up), false when it lies between their sides.
+    ; This is what decides whether an edge doubling back to the node it came
+    ; from can go straight there through the corridor, or has to go round the
+    ; outside because something stands in that corridor. Nodes that overlap
+    ; along the flow have no gap, and the answer is no.
+    fn corridorClear:boolean (a:FlowNode b:FlowNode vertical:boolean) {
+        def x0:double a.x
+        def x1:double (a.x + a.width)
+        def y0:double a.y
+        def y1:double (a.y + a.height)
+        if (b.x < x0) { x0 = b.x }
+        if ((b.x + b.width) > x1) { x1 = (b.x + b.width) }
+        if (b.y < y0) { y0 = b.y }
+        if ((b.y + b.height) > y1) { y1 = (b.y + b.height) }
+        if vertical {
+            def upper:FlowNode a
+            def lower:FlowNode b
+            if (b.y < a.y) {
+                upper = b
+                lower = a
+            }
+            y0 = (upper.y + upper.height)
+            y1 = lower.y
+        } {
+            def left:FlowNode a
+            def right:FlowNode b
+            if (b.x < a.x) {
+                left = b
+                right = a
+            }
+            x0 = (left.x + left.width)
+            x1 = right.x
+        }
+        if (x1 <= x0) {
+            return false
+        }
+        if (y1 <= y0) {
+            return false
+        }
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def n:FlowNode (itemAt nodes i)
+            def skip:boolean n.hidden
+            if (n.nodeType == "group") { skip = true }
+            if (n.id == a.id) { skip = true }
+            if (n.id == b.id) { skip = true }
+            if (skip == false) {
+                def inside:boolean true
+                if ((n.x + n.width) <= x0) { inside = false }
+                if (n.x >= x1) { inside = false }
+                if ((n.y + n.height) <= y0) { inside = false }
+                if (n.y >= y1) { inside = false }
+                if inside {
+                    return false
+                }
+            }
+            i = (i + 1)
+        }
+        return true
     }
 
     ; Every index the hot paths read, rebuilt in one pass. Call it after any

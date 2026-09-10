@@ -1,0 +1,423 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdCodeHighlight.rgr — colour for a fenced code block.
+; ============================================================================
+;
+; Deliberately unambitious. There is no highlighter in this repository —
+; `text_editor`'s `EditorStyle` carries a weight and a face per run and
+; nothing lexical — so rather than reach for a parser per language this is one
+; small lexer with a table: a line-comment marker, a block-comment pair, the
+; quote characters, and a keyword list.
+;
+; Six colours, and they are the things a reader's eye actually uses to find
+; its place in a printed listing:
+;
+;   keyword   comment   string   number   plain
+;
+; That covers fourteen languages to the standard a page wants, in a few
+; hundred lines. Where the repository has a real parser — `gallery/ts_parser`,
+; `gallery/js_parser` — it can be swapped in for those two languages later;
+; that is an upgrade for two, not a prerequisite for fourteen.
+;
+; **State crosses lines**, because a block comment does. The caller keeps the
+; number it got back and hands it in with the next line; a highlighter that
+; forgets is one that colours the second line of a comment as code.
+; ============================================================================
+
+Import "MdChar.rgr"
+
+class MdTokenKind {
+    sfn plain:int ()   { return 0 }
+    sfn keyword:int () { return 1 }
+    sfn string:int ()  { return 2 }
+    sfn comment:int () { return 3 }
+    sfn number:int ()  { return 4 }
+}
+
+class MdToken {
+    def text:string ""
+    def kind:int 0
+
+    Constructor () {
+    }
+
+    sfn create:MdToken (text:string kind:int) {
+        def t:MdToken (new MdToken())
+        t.text = text
+        t.kind = kind
+        return t
+    }
+}
+
+; One line's tokens, and what the NEXT line inherits: 0 ordinary, 1 inside a
+; block comment.
+class MdHighlightedLine {
+    def tokens:[MdToken]
+    def state:int 0
+
+    Constructor () {
+    }
+}
+
+; How one language is spelled. Not a grammar — the four facts a listing needs
+; coloured correctly.
+class MdLanguage {
+    def known:boolean false
+    def lineComment:string ""
+    def lineComment2:string ""
+    def blockOpen:string ""
+    def blockClose:string ""
+    ; the quote characters, as a string of them
+    def quotes:string "\"'"
+    ; space-delimited, space-terminated, so a lookup is one substring test
+    def keywords:string " "
+
+    Constructor () {
+    }
+}
+
+class MdCodeHighlight {
+    ; The info string's first word, lowercased, into a language. An unknown
+    ; name is not an error: it is a listing with no keywords, which still gets
+    ; its strings, its numbers and its comments if the defaults happen to fit.
+    sfn languageFor:MdLanguage (name:string) {
+        def n:string (MdChar.lower(name))
+        def l:MdLanguage (new MdLanguage())
+
+        if ((n == "js") || (n == "javascript") || (n == "jsx") || (n == "mjs")) {
+            l.known = true
+            l.lineComment = "//"
+            l.blockOpen = "/*"
+            l.blockClose = "*/"
+            l.quotes = "\"'`"
+            l.keywords = " await async break case catch class const continue debugger default delete do else export extends finally for from function get if import in instanceof let new of return set static super switch this throw try typeof var void while with yield true false null undefined "
+            return l
+        }
+        if ((n == "ts") || (n == "typescript") || (n == "tsx")) {
+            l.known = true
+            l.lineComment = "//"
+            l.blockOpen = "/*"
+            l.blockClose = "*/"
+            l.quotes = "\"'`"
+            l.keywords = " abstract any as asserts await async boolean break case catch class const constructor continue declare default delete do else enum export extends finally for from function get if implements import in infer instanceof interface is keyof let namespace never new number of private protected public readonly return set static string super switch symbol this throw try type typeof undefined union unknown var void while yield true false null "
+            return l
+        }
+        if (n == "go") {
+            l.known = true
+            l.lineComment = "//"
+            l.blockOpen = "/*"
+            l.blockClose = "*/"
+            l.quotes = "\"'`"
+            l.keywords = " break case chan const continue default defer else fallthrough for func go goto if import interface map package range return select struct switch type var nil true false make new len cap append copy delete panic recover string int int8 int16 int32 int64 uint uint8 uint16 uint32 uint64 float32 float64 bool byte rune error "
+            return l
+        }
+        if ((n == "py") || (n == "python")) {
+            l.known = true
+            l.lineComment = "#"
+            l.quotes = "\"'"
+            l.keywords = " and as assert async await break class continue def del elif else except finally for from global if import in is lambda None nonlocal not or pass raise return True False try while with yield self print len range str int float dict list set tuple "
+            return l
+        }
+        if ((n == "rs") || (n == "rust")) {
+            l.known = true
+            l.lineComment = "//"
+            l.blockOpen = "/*"
+            l.blockClose = "*/"
+            l.keywords = " as async await break const continue crate dyn else enum extern false fn for if impl in let loop match mod move mut pub ref return self Self static struct super trait true type unsafe use where while String Vec Option Some None Result Ok Err Box i8 i16 i32 i64 u8 u16 u32 u64 usize isize f32 f64 bool char str "
+            return l
+        }
+        if (n == "swift") {
+            l.known = true
+            l.lineComment = "//"
+            l.blockOpen = "/*"
+            l.blockClose = "*/"
+            l.keywords = " associatedtype break case catch class continue default defer deinit do else enum extension fallthrough false fileprivate for func guard if import in init inout internal is let nil open operator private protocol public repeat rethrows return self Self static struct subscript super switch throw throws true try typealias var where while Int Double String Bool Array Dictionary Optional "
+            return l
+        }
+        if ((n == "kt") || (n == "kotlin")) {
+            l.known = true
+            l.lineComment = "//"
+            l.blockOpen = "/*"
+            l.blockClose = "*/"
+            l.keywords = " as break by catch class companion const continue crossinline data do else enum external false final finally for fun get if import in infix init inline interface internal is lateinit null object open operator out override package private protected public reified return sealed set super suspend this throw true try typealias val var vararg when where while Int Long Double Float String Boolean List Map Set Array Unit Any "
+            return l
+        }
+        if ((n == "cs") || (n == "csharp") || (n == "c#")) {
+            l.known = true
+            l.lineComment = "//"
+            l.blockOpen = "/*"
+            l.blockClose = "*/"
+            l.keywords = " abstract as base bool break byte case catch char checked class const continue decimal default delegate do double else enum event explicit extern false finally fixed float for foreach get goto if implicit in int interface internal is lock long namespace new null object operator out override params private protected public readonly ref return sbyte sealed set short sizeof stackalloc static string struct switch this throw true try typeof uint ulong unchecked unsafe ushort using var virtual void volatile while var async await "
+            return l
+        }
+        if (n == "java") {
+            l.known = true
+            l.lineComment = "//"
+            l.blockOpen = "/*"
+            l.blockClose = "*/"
+            l.keywords = " abstract assert boolean break byte case catch char class const continue default do double else enum extends final finally float for goto if implements import instanceof int interface long native new package private protected public return short static strictfp super switch synchronized this throw throws transient try var void volatile while true false null String Integer List Map "
+            return l
+        }
+        if ((n == "c") || (n == "cpp") || (n == "c++") || (n == "cc") || (n == "h") || (n == "hpp")) {
+            l.known = true
+            l.lineComment = "//"
+            l.blockOpen = "/*"
+            l.blockClose = "*/"
+            l.keywords = " auto bool break case catch char class const constexpr continue default delete do double else enum explicit extern false float for friend goto if inline int long namespace new nullptr operator private protected public return short signed sizeof static struct switch template this throw true try typedef typename union unsigned using virtual void volatile while size_t std string vector "
+            return l
+        }
+        if (n == "sql") {
+            l.known = true
+            l.lineComment = "--"
+            l.blockOpen = "/*"
+            l.blockClose = "*/"
+            l.quotes = "'\""
+            l.keywords = " ADD ALL ALTER AND AS ASC BETWEEN BY CASE CHECK COLUMN CONSTRAINT CREATE CROSS DEFAULT DELETE DESC DISTINCT DROP ELSE END EXISTS FOREIGN FROM FULL GROUP HAVING IN INDEX INNER INSERT INTO IS JOIN KEY LEFT LIKE LIMIT NOT NULL ON OR ORDER OUTER PRIMARY REFERENCES RIGHT SELECT SET TABLE THEN UNION UNIQUE UPDATE VALUES VIEW WHEN WHERE WITH add all alter and as asc between by case check column constraint create cross default delete desc distinct drop else end exists foreign from full group having in index inner insert into is join key left like limit not null on or order outer primary references right select set table then union unique update values view when where with int integer text varchar boolean timestamp serial decimal numeric date "
+            return l
+        }
+        if (n == "json") {
+            l.known = true
+            l.quotes = "\""
+            l.keywords = " true false null "
+            return l
+        }
+        if ((n == "sh") || (n == "bash") || (n == "shell") || (n == "zsh") || (n == "console")) {
+            l.known = true
+            l.lineComment = "#"
+            l.quotes = "\"'"
+            l.keywords = " case do done elif else esac fi for function if in return select then time until while cd echo export local read set source unset npm node git bash python3 "
+            return l
+        }
+        if ((n == "rgr") || (n == "ranger")) {
+            l.known = true
+            ; Ranger is LISP-shaped: `;` opens a comment and runs to the end.
+            l.lineComment = ";"
+            l.quotes = "\""
+            l.keywords = " class def fn sfn return if while for break continue new push pop switch case default Import Extends Enum record shape trait operator flag plugin true false null this self void int double string boolean char buffer charbuffer "
+            return l
+        }
+        if ((n == "css") || (n == "scss") || (n == "less")) {
+            l.known = true
+            l.lineComment = "//"
+            l.blockOpen = "/*"
+            l.blockClose = "*/"
+            l.keywords = " important media supports keyframes import from to and not only var calc rgb rgba hsl url "
+            return l
+        }
+        if ((n == "yml") || (n == "yaml") || (n == "toml") || (n == "ini")) {
+            l.known = true
+            l.lineComment = "#"
+            l.quotes = "\"'"
+            l.keywords = " true false null yes no on off "
+            return l
+        }
+        ; Not a language this table knows. Comments and keywords are left
+        ; alone; a quoted run is still a quoted run in almost everything, so
+        ; the strings are still coloured.
+        return l
+    }
+
+    ; One line, with the state the previous line ended in.
+    sfn line:MdHighlightedLine (text:string lang:MdLanguage state:int) {
+        def out:MdHighlightedLine (new MdHighlightedLine())
+        out.state = state
+        def n:int (strlen text)
+        def i:int 0
+        def plainFrom:int 0
+
+        ; Inside a block comment from the line before.
+        if (state == 1) {
+            def close:int (MdCodeHighlight.findSub(text 0 lang.blockClose))
+            if (close < 0) {
+                push out.tokens (MdToken.create(text (MdTokenKind.comment())))
+                return out
+            }
+            def endAt:int (close + (strlen lang.blockClose))
+            push out.tokens (MdToken.create((substring text 0 endAt) (MdTokenKind.comment())))
+            out.state = 0
+            i = endAt
+            plainFrom = endAt
+        }
+
+        def going:boolean true
+        while going {
+            if (i >= n) { going = false }
+            if going {
+                def c:int (charAt text i)
+
+                ; a line comment runs to the end
+                def lc:int (MdCodeHighlight.matchAt(text i lang.lineComment))
+                def lc2:int (MdCodeHighlight.matchAt(text i lang.lineComment2))
+                if ((lc > 0) || (lc2 > 0)) {
+                    MdCodeHighlight.flush(out text plainFrom i)
+                    push out.tokens (MdToken.create((substring text i n) (MdTokenKind.comment())))
+                    i = n
+                    plainFrom = n
+                    going = false
+                } {
+                    def bo:int (MdCodeHighlight.matchAt(text i lang.blockOpen))
+                    if (bo > 0) {
+                        MdCodeHighlight.flush(out text plainFrom i)
+                        def close:int (MdCodeHighlight.findSub(text (i + bo) lang.blockClose))
+                        if (close < 0) {
+                            push out.tokens (MdToken.create((substring text i n) (MdTokenKind.comment())))
+                            out.state = 1
+                            i = n
+                            plainFrom = n
+                        } {
+                            def endAt:int (close + (strlen lang.blockClose))
+                            push out.tokens (MdToken.create((substring text i endAt) (MdTokenKind.comment())))
+                            i = endAt
+                            plainFrom = endAt
+                        }
+                    } {
+                        if (MdCodeHighlight.isQuote(c lang.quotes)) {
+                            MdCodeHighlight.flush(out text plainFrom i)
+                            def endAt:int (MdCodeHighlight.endOfString(text i c))
+                            push out.tokens (MdToken.create((substring text i endAt) (MdTokenKind.string())))
+                            i = endAt
+                            plainFrom = endAt
+                        } {
+                            if (MdChar.isDigit(c)) {
+                                ; a digit inside a name is part of the name
+                                def prevOk:boolean true
+                                if (i > 0) {
+                                    def p:int (charAt text (i - 1))
+                                    if (MdCodeHighlight.isWordChar(p)) { prevOk = false }
+                                }
+                                if prevOk {
+                                    MdCodeHighlight.flush(out text plainFrom i)
+                                    def endAt:int (MdCodeHighlight.endOfNumber(text i))
+                                    push out.tokens (MdToken.create((substring text i endAt) (MdTokenKind.number())))
+                                    i = endAt
+                                    plainFrom = endAt
+                                } {
+                                    i = (i + 1)
+                                }
+                            } {
+                                if (MdCodeHighlight.isWordStart(c)) {
+                                    def endAt:int (MdCodeHighlight.endOfWord(text i))
+                                    def word:string (substring text i endAt)
+                                    if (MdCodeHighlight.isKeyword(word lang.keywords)) {
+                                        MdCodeHighlight.flush(out text plainFrom i)
+                                        push out.tokens (MdToken.create(word (MdTokenKind.keyword())))
+                                        plainFrom = endAt
+                                    }
+                                    i = endAt
+                                } {
+                                    i = (i + 1)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        MdCodeHighlight.flush(out text plainFrom n)
+        return out
+    }
+
+    sfn flush:void (out:MdHighlightedLine text:string from:int to:int) {
+        if (to <= from) { return }
+        push out.tokens (MdToken.create((substring text from to) (MdTokenKind.plain())))
+    }
+
+    ; The length of `what` when it starts at `i`, or 0. An EMPTY `what` never
+    ; matches, which is how a language with no block comment — or no line
+    ; comment — says so without needing a flag beside it.
+    sfn matchAt:int (text:string i:int what:string) {
+        def m:int (strlen what)
+        if (m == 0) { return 0 }
+        def n:int (strlen text)
+        if ((i + m) > n) { return 0 }
+        if ((substring text i (i + m)) == what) { return m }
+        return 0
+    }
+
+    ; `indexOf` is a name the compiler resolves elsewhere — defining one here
+    ; compiles and then fails at every call site — so this is `findSub`.
+    sfn findSub:int (text:string from:int what:string) {
+        def m:int (strlen what)
+        if (m == 0) { return -1 }
+        def n:int (strlen text)
+        def i:int from
+        while ((i + m) <= n) {
+            if ((substring text i (i + m)) == what) { return i }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    sfn isQuote:boolean (c:int quotes:string) {
+        def n:int (strlen quotes)
+        def i:int 0
+        while (i < n) {
+            if ((charAt quotes i) == c) { return true }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; Through the closing quote, or to the end of the line. A backslash escapes
+    ; the next character, so `"a\"b"` is one string and not two.
+    sfn endOfString:int (text:string from:int quote:int) {
+        def n:int (strlen text)
+        def i:int (from + 1)
+        while (i < n) {
+            def c:int (charAt text i)
+            if (c == 92) {
+                i = (i + 2)
+            } {
+                if (c == quote) { return (i + 1) }
+                i = (i + 1)
+            }
+        }
+        return n
+    }
+
+    sfn endOfNumber:int (text:string from:int) {
+        def n:int (strlen text)
+        def i:int from
+        while (i < n) {
+            def c:int (charAt text i)
+            def ok:boolean (MdChar.isHexDigit(c))
+            if (c == 46) { ok = true }
+            if (c == 120) { ok = true }
+            if (c == 88) { ok = true }
+            if (c == 95) { ok = true }
+            if (! ok) { return i }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn isWordStart:boolean (c:int) {
+        if (MdChar.isLetter(c)) { return true }
+        if (c == 95) { return true }
+        if (c == 35) { return true }
+        return false
+    }
+
+    sfn isWordChar:boolean (c:int) {
+        if (MdChar.isAlnum(c)) { return true }
+        if (c == 95) { return true }
+        return false
+    }
+
+    sfn endOfWord:int (text:string from:int) {
+        def n:int (strlen text)
+        def i:int (from + 1)
+        while (i < n) {
+            def c:int (charAt text i)
+            if (! (MdCodeHighlight.isWordChar(c))) { return i }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn isKeyword:boolean (word:string keywords:string) {
+        def probe:string ((" " + word) + " ")
+        return (MdCodeHighlight.findSub(keywords 0 probe) >= 0)
+    }
+}

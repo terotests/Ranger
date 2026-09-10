@@ -75,10 +75,21 @@ node --input-type=module -e "
 cp "$WEB/index.html" "$OUT/index.html"
 cp "$WEB/standalone.mjs" "$OUT/standalone.mjs"
 
+# Minified when there is a minifier — see the tool for what that is worth and
+# why `DocxWeb` is the string it checks survived.
+node gallery/evg/web/tools/minify.mjs --file "$OUT/docx_web.js" --keep DocxWeb || exit 1
+
 mkdir -p "$OUT/gl" "$OUT/fonts"
 cp gallery/evg/gl/evg-webgl.js "$OUT/gl/evg-webgl.js"
+# ASSETS is what the page's head will be told to start fetching, collected as
+# the files are copied so the list and the copy cannot disagree — see
+# gallery/evg/web/tools/inline-assets.mjs. The module half is shared too.
+ASSETS=""
+mkdir -p "$OUT/evg"
+cp gallery/evg/web/tools/assets-client.mjs "$OUT/evg/assets-client.mjs"
 for face in OpenSans-Regular OpenSans-Bold OpenSans-Italic OpenSans-BoldItalic; do
   cp "gallery/pdf_writer/assets/fonts/Open_Sans/$face.ttf" "$OUT/fonts/$face.ttf"
+  ASSETS="$ASSETS,fonts/$face.ttf"
 done
 # The fallback pool: emoji, the geometric bullets, and Arabic. The desktop
 # build loads every face in the font directory and the browser build only ever
@@ -86,10 +97,12 @@ done
 # it with the system's own font — right-looking glyphs, wrong every number.
 for face in Noto_Emoji/NotoEmoji-Regular Noto_Sans/NotoSans-Regular El_Messiri/ElMessiri-Regular El_Messiri/ElMessiri-Bold; do
   cp "gallery/pdf_writer/assets/fonts/$face.ttf" "$OUT/fonts/$(basename "$face").ttf"
+  ASSETS="$ASSETS,fonts/$(basename "$face").ttf"
 done
 # A deck to open on load. The page reads it with fetch and hands the bytes to
 # the viewer, exactly as it does with a file the user picks.
 cp gallery/docx_viewer/fixtures/20-business-report.docx "$OUT/document.docx"
+ASSETS="$ASSETS,document.docx"
 
 # A chart on the clipboard, so the page's self test can paste one and prove it
 # stays a chart here. This is a real copy out of the spreadsheet — the same
@@ -142,6 +155,14 @@ node -e "
     fs.readFileSync('$OUT/standalone.mjs', 'utf8')
       .replace('./gl/evg-webgl.js', './gl/evg-webgl.js?v=' + stamp));
 " || exit 1
+# The head that starts every asset before the body is parsed.
+node gallery/evg/web/tools/inline-assets.mjs \
+  --html "$OUT/index.html" \
+  --start "${ASSETS#,}" \
+  --preload-stamped "standalone.mjs,gl/evg-webgl.js" \
+  --preload "evg/assets-client.mjs" \
+  --stamp "$STAMP" || exit 1
+
 if grep -q "__BUILD__" "$OUT/index.html"; then
   echo "the build stamp was not written into $OUT/index.html" >&2
   exit 1

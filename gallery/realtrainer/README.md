@@ -27,11 +27,25 @@ npm run rt:frame    # the same app in Chromium, checked at the pixels — twice:
                     # press costs, pointer-down to the frame that showed it
 npm run rt:dom      # the app as retained DOM (?painter=dom): every node where the engine put
                     # it, a scene change as creates and removes, a scroll as one transform
+npm run rt:shot:sync  # bake the first picture — the app's chrome, computed from its own
+                    # display list, into index.html (rt:shot:check fails when it is stale)
+npm run rt:split    # what a visitor downloads before the first frame, in bytes, against a
+                    # budget — and the classes put behind a seam, still behind it
+npm run rt:sheet    # the stylesheet the page ships (parsed at build time, written down)
+                    # against the CSS it came from: rule for rule, and screen for screen
+npm run rt:shaken   # the app the page ships (an ES module, tree-shaken by the bundler)
+                    # against the one the checks use, screen for screen and command for command
+npm run rt:boot     # when a visitor sees something and when they can use it: the real page
+                    # in Chromium over a throttled, gzipped connection, both engines
+npm run rt:shell    # what the DOCUMENT shows before the app exists — the bundle is held at
+                    # the server and the page examined in the gap: nothing paints that is
+                    # then taken away, and the stage does not move when the app arrives
 ```
 
-Live, from the same sources: [the WebGL page](https://terotests.github.io/Ranger/realtrainer/),
+Live, from the same sources: [the WebGL page](https://terotests.github.io/Ranger/realtrainer/)
+— which runs the app in a Worker and paints its frames on the main thread —
 [as DOM nodes](https://terotests.github.io/Ranger/realtrainer/?painter=dom),
-[with the engine in a Worker](https://terotests.github.io/Ranger/realtrainer/?engine=worker).
+[with the engine on the main thread](https://terotests.github.io/Ranger/realtrainer/?engine=main).
 
 ![the loader](web/shots/realtrainer.png)
 

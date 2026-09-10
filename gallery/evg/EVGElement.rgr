@@ -127,6 +127,19 @@ class EVGElement {
     ; unkeyed siblings — the same rule every library that has this uses, and
     ; the reason a reordered list needs keys to animate.
     def key:string ""
+    ; Where this box goes when it is followed: a URL, or `#name` for a place
+    ; in this same document.
+    ;
+    ; A destination is not application logic — PDF has `/Annots`, SVG has
+    ; `<a>`, HTML has `<a>` — and a renderer that cannot say it is the one
+    ; missing something. What it deliberately does NOT say is what following
+    ; it means: the PDF writes an annotation and stops, and an interactive
+    ; host asks the display list what is under the pointer and decides for
+    ; itself. Nothing here navigates.
+    ;
+    ; It applies to the subtree, the way `<a>` does, so a link may be a word,
+    ; a row or a card without the thing inside it knowing.
+    def href:string ""
     def tagName:string "div"
     def elementType:int 0
     
@@ -1398,7 +1411,38 @@ class EVGElement {
         return false
     }
 
+    ; Positioned against the VIEWPORT and not moved by a scroll — the one
+    ; thing that separates it from `absolute`, which is positioned against the
+    ; nearest container and travels with it.
+    fn isFixedPosition:boolean () {
+        return (position == "fixed")
+    }
+
+    ; The same walk as `moveSubtree`, except that a FIXED box and everything
+    ; under it stays where it is. A scroll moves the content of a container;
+    ; a fixed box is not content, it is furniture over the viewport, and the
+    ; whole point of the mode is that the page slides under it.
+    fn moveSubtreeUnfixed:void (dx:double dy:double) {
+        this.moveSelf(dx dy)
+        def i:int 0
+        def n:int (array_length children)
+        while (i < n) {
+            def kid:EVGElement (itemAt children i)
+            if (kid.isFixedPosition()) {
+            } {
+                kid.moveSubtreeUnfixed(dx dy)
+            }
+            i = (i + 1)
+        }
+    }
+
     fn hasAbsolutePosition:boolean () {
+        ; Fixed is out of flow by the same rule absolute is; where it differs
+        ; is which box it is positioned against, which is the layout's business
+        ; and not this one's.
+        if (position == "fixed") {
+            return true
+        }
         ; An overlay surface is out of flow by the same rule an absolutely
         ; positioned element is, and saying so here rather than adding a second
         ; condition to every size and space calculation in EVGLayout is the
@@ -1532,6 +1576,25 @@ class EVGElement {
     ; was measured in the regular cut and drawn in the wider bold one, and
     ; wrapped a line later than the box it had been given. Both sides go
     ; through here now, which is §4.1 rule 1: one face, one measurement.
+    ; The destination in force here: this element's own, or the nearest
+    ; ancestor's. `<a>` wrapping a row is the shape this exists for.
+    fn effectiveHref:string () {
+        if ((strlen href) > 0) {
+            return href
+        }
+        def p@(optional):EVGElement parent
+        def guard:int 0
+        while ((!null? p) && (guard < 4096)) {
+            def up:EVGElement (unwrap p)
+            if ((strlen up.href) > 0) {
+                return up.href
+            }
+            p = up.parent
+            guard = (guard + 1)
+        }
+        return ""
+    }
+
     fn effectiveFontFamily:string () {
         if (fontWeight == "bold") {
             return (fontFamily + "-Bold")
@@ -2829,6 +2892,10 @@ class EVGElement {
             id = value
             return
         }
+        if (name == "href") {
+            href = value
+            return
+        }
         if (name == "key") {
             key = value
             return
@@ -3428,15 +3495,21 @@ class EVGElement {
         ; fault with a louder symptom — a popup that pushes the rows below it
         ; instead of covering them.
         ;
-        ; `fixed` maps to `absolute`: EVG has one out-of-flow mode and tests for
-        ; that string by name. The difference between them is which box you are
-        ; positioned against, and nothing here models a viewport separate from
-        ; the root, so calling it absolute is honest rather than approximate.
+        ; `fixed` IS ITS OWN MODE NOW. It used to map to `absolute` because
+        ; nothing here modelled a viewport separate from the root; `viewportW`
+        ; and `viewportH` are inherited down the tree, so the containing block
+        ; a fixed box wants is one field away, and the one thing that made the
+        ; difference visible — a scroll — is a single translation this can be
+        ; left out of. See `EVGLayout.layoutChildren` and `applyScroll`.
         ; `sticky` has no implementation at all and stays in flow, which is what
         ; it does until it sticks.
         if (name == "position") {
             def pv:string (trim value)
-            if ((pv == "absolute") || (pv == "fixed")) {
+            if (pv == "fixed") {
+                position = "fixed"
+                return
+            }
+            if (pv == "absolute") {
                 position = "absolute"
                 return
             }
