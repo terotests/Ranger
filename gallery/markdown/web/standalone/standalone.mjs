@@ -19,7 +19,7 @@
  * "Open Sans" and let the system answer, the three would disagree and it
  * would look like a bug in the line breaker.
  */
-import { renderDisplayList } from "./gl/evg-webgl.js";
+import { renderDisplayList, setFontFallback, fontSpec, verbatim } from "./gl/evg-webgl.js";
 
 // If the import above 404s, nothing below runs and the only evidence is a
 // line in the network panel. The page watches for this instead.
@@ -299,16 +299,16 @@ async function start() {
 
   // The faces, into the engine AND into the browser: the first pair measures
   // the layout, the second pair paints it.
-  const loaded = [];
+  const got = new Array(FACES.length).fill(false);
   await Promise.all(
-    FACES.map(async ([name, file]) => {
+    FACES.map(async ([name, file], i) => {
       try {
         const bytes = await bytesOf("./fonts/" + file);
         const ok = app.attachFont(name, asRangerBuffer(bytes.slice(0)));
         const face = new FontFace(name, bytes);
         await face.load();
         document.fonts.add(face);
-        if (ok) loaded.push(name);
+        got[i] = ok;
       } catch (e) {
         // A missing face is not fatal: the layout falls back to a measured
         // table and says so. Silence would be worse.
@@ -316,6 +316,21 @@ async function start() {
       }
     })
   );
+  // In FACES order, not in the order the fetches finished: the painter walks
+  // this list per CODEPOINT the way `FontManager` does, and a walk in another
+  // order answers a missing glyph from another face.
+  const loaded = FACES.filter((_, i) => got[i]).map(([name]) => name);
+  // What the layout measured with, told to the thing that draws it.
+  //
+  // Two things ride on this. The pool is the fallback chain, so a codepoint
+  // the text face has no glyph for is drawn from the same face it was
+  // MEASURED from. And the names are the FACES — `Open Sans-Bold`, not `Open
+  // Sans` plus a weight — which is how the painter knows not to strip the
+  // suffix and draw bold runs in the regular face. Without this the page
+  // measured 11pt Open Sans Bold and drew 11pt Open Sans: nothing looked
+  // bold, and every run after a bold one sat about 7% of its width too far
+  // right — a huge space in the middle of a sentence.
+  setFontFallback(loaded);
   if (loaded.length === 0) {
     showStatus("no fonts — measuring with a guessed table");
   }
@@ -357,6 +372,39 @@ function selftest() {
   // that rasterized on a server and shipped a PNG would also "have commands".
   const texts = cmds.filter((c) => c.k === 3).length;
   say("drawn as text runs", texts > 10, texts + " text runs");
+
+  // What the layout MEASURED and what the browser will DRAW have to be the
+  // same number, or every run after the first on a line sits at an x nobody
+  // measured. It went wrong for bold: the layout measured `Open Sans-Bold`
+  // and the painter, stripping the suffix and finding no weight on the
+  // command, drew `Open Sans` — 7% narrower, so nothing looked bold and the
+  // rest of the sentence sat a visible gap too far right. A screenshot could
+  // not see it; two numbers can.
+  const mctx = document.createElement("canvas").getContext("2d");
+  const drawnWidth = (c) => {
+    mctx.font = fontSpec(c, 1);
+    return mctx.measureText(verbatim(c.text)).width;
+  };
+  const wide = (c) => c.k === 3 && c.text && c.text.length > 8;
+  const boldRun = cmds.find((c) => wide(c) && c.font && c.font.endsWith("-Bold"));
+  say("a bold run is on the page", !!boldRun, boldRun ? boldRun.font : "none");
+  if (boldRun) {
+    const drawn = drawnWidth(boldRun);
+    say(
+      "bold is drawn at the width it was measured",
+      Math.abs(drawn - boldRun.w) <= Math.max(0.5, boldRun.w * 0.005),
+      drawn.toFixed(2) + " vs " + boldRun.w.toFixed(2)
+    );
+  }
+  const plainRun = cmds.find((c) => wide(c) && c.font && !c.font.endsWith("-Bold"));
+  if (plainRun) {
+    const drawn = drawnWidth(plainRun);
+    say(
+      "and so is the rest",
+      Math.abs(drawn - plainRun.w) <= Math.max(0.5, plainRun.w * 0.005),
+      drawn.toFixed(2) + " vs " + plainRun.w.toFixed(2)
+    );
+  }
 
   // …and a diagram must arrive as geometry, not as a labelled box.
   const paths = cmds.filter((c) => c.k === 6 || c.k === 7).length;
