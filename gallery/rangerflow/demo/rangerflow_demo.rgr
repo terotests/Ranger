@@ -847,13 +847,13 @@ class RangerFlowDemo {
 
     ; A sequence diagram: the participants across the page, time down it.
     fn runMermaidSequence:void (src:string styleName:string) {
-        def sd:MermaidSequence (MermaidSequenceReader.parse(src))
+        def sd:SeqDiagram (MermaidSequenceReader.parse(src))
         if ((sd.actorCount()) == 0) {
             print "  no participants in that sequence diagram"
             return
         }
         def style:FlowStyle (this.styleByName(styleName))
-        def g:FlowGraph (MermaidSequenceFlow.build(sd style))
+        def g:FlowGraph (SeqDiagramFlow.build(sd style))
         print ("  model  " + (to_string (sd.actorCount())) + " participants, " + (to_string (sd.messageCount())) + " messages, " + (to_string (sd.blockCount())) + " blocks")
         print ("  graph  " + (to_string (g.nodeCount())) + " nodes, " + (to_string (g.edgeCount())) + " edges")
         def v:FlowView (FlowView.of(g))

@@ -1034,7 +1034,7 @@ class RangerFlowWeb {
     ; A sequence diagram: who across the page, when down it. Both axes carry
     ; meaning, so there is nothing for a layout to improve.
     fn loadMermaidSequence:boolean (text:string styleName:string want:string) {
-        def sd:MermaidSequence (MermaidSequenceReader.parse(text))
+        def sd:SeqDiagram (MermaidSequenceReader.parse(text))
         if ((sd.actorCount()) == 0) {
             status = "no participants in that sequence diagram"
             return false
@@ -1042,7 +1042,7 @@ class RangerFlowWeb {
         mermaidText = text
         mermaidStyle = styleName
         def style:FlowStyle (FlowStyle.named(want))
-        def g:FlowGraph (MermaidSequenceFlow.build(sd style))
+        def g:FlowGraph (SeqDiagramFlow.build(sd style))
         this.adoptPlaced(g style want)
         def what:string sd.title
         if ((strlen what) == 0) {
