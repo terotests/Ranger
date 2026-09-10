@@ -1424,12 +1424,24 @@ rather than a screenshot.
 
 ### …and where the reader says, instead
 
-A router is a suggestion. Grab any **interior segment** of a stepped edge and
-drag it: a vertical run slides left and right, a horizontal one up and down, and
-nothing goes diagonal, because orthogonality is the property the whole router
-exists to keep. The first and last segments are not on offer — they touch a
-port, and sliding one would detach the edge from the column it is supposed to
-point at, which is the whole point of a field-level port.
+A router is a suggestion. Grab **any run** of a stepped edge and drag it: a
+vertical run slides left and right, a horizontal one up and down, and nothing
+goes diagonal, because orthogonality is the property the whole router exists to
+keep.
+
+The first and last runs touch a port, so they cannot simply slide — that would
+pull the end off the column it points at, which is the whole point of a
+field-level port. They are still on offer, because on a route that leaves a node
+downwards and turns once they are the *only* vertical runs, and refusing them
+left such an edge movable up and down but never left and right. Grabbing one
+splits it in two: a stub stays on the port, and the rest travels with the
+pointer.
+
+The last ten pixels at either end belong to the **end grip** instead — the round
+handle a selected edge grows on each of its ends. Drag one onto another box and
+the edge follows; drop it on nothing and the end goes back where it was. It
+works on an edge whose ends are on named handles and on one that only knows
+which box it points at, which is every edge on a plain flowchart.
 
 A hand-placed route sets `FlowEdge.pinnedRoute`, and after that the lane pass,
 the repair pass and the layout all leave it alone: overruling the reader is
@@ -1608,8 +1620,7 @@ squared its bounding box where d3 doubles from the first point, which moved
 every node 23 px after a single tick. All three are fixed, and the numbers
 above are what the meter says now.
 
-Still `todo`, and the meter says so: edge reconnection by dragging an end,
-sub-flows (`parentId` is carried but not enforced), a node toolbar, pinch-zoom
+Still `todo`, and the meter says so: sub-flows (`parentId` is carried but not enforced), a node toolbar, pinch-zoom
 gestures, helper lines, `panOnScroll`, `connectOnClick`, and a drag-handle
 selector.
 
