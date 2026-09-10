@@ -93,6 +93,8 @@ class MarkdownTest {
         this.furniture()
         this.tables()
         this.links()
+        this.quotes()
+        this.lists()
         this.presized()
         this.textEngine()
         print ""
@@ -513,6 +515,149 @@ class MarkdownTest {
     ; ----------------------------------------------------------------------
     ; The metadata block
     ; ----------------------------------------------------------------------
+    ; ----------------------------------------------------------------------
+    ; Lists: nesting, tightness, and a marker column that fits its markers
+    ; ----------------------------------------------------------------------
+    ;
+    ; A TIGHT list — no blank line between its items — is one whose items are
+    ; not paragraphs, and paragraph spacing was what they were charged: a
+    ; five-item shopping list was set with the same air between its items as
+    ; between two paragraphs of prose. The distinction was in the parser and on
+    ; the node all along, and only the two extra points a loose list adds were
+    ; ever read.
+    fn lists:void () {
+        def src:string "- one\n- two\n  - two a\n  - two b\n- three\n\nAfter.\n"
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (new MdLayout())
+        l.layoutContinuous(doc 400.0)
+        def one:MdBox (MarkdownTest.boxOf(l "one"))
+        def two:MdBox (MarkdownTest.boxOf(l "two"))
+        def twoA:MdBox (MarkdownTest.boxOf(l "two a"))
+        def three:MdBox (MarkdownTest.boxOf(l "three"))
+        def after:MdBox (MarkdownTest.boxOf(l "After."))
+        this.ok("the list was laid out" (one.h > 0.0))
+
+        ; Each level is one step further in, and the step is the style's.
+        def step:double (twoA.x - two.x)
+        this.ok("a nested item is one step in" ((step > (l.style.listIndent - 0.01)) && (step < (l.style.listIndent + 0.01))))
+
+        ; Tight items sit a line apart, not a paragraph apart.
+        def gap:double ((two.y - one.y) - one.h)
+        this.ok("a tight list is tight" ((gap > (l.style.listTightSpacing - 0.01)) && (gap < (l.style.listTightSpacing + 0.01))))
+        ; …and the list as a whole still clears what follows it.
+        def tail:double (after.y - (three.y + three.h))
+        this.ok("but the list still clears the next block" (tail > (l.style.listTightSpacing + 1.0)))
+
+        ; A LOOSE list — a blank line between the items — keeps the air.
+        def loose:MdNode (MdBlock.parseText("- one\n\n- two\n"))
+        def l2:MdLayout (new MdLayout())
+        l2.layoutContinuous(loose 400.0)
+        def lo1:MdBox (MarkdownTest.boxOf(l2 "one"))
+        def lo2:MdBox (MarkdownTest.boxOf(l2 "two"))
+        def looseGap:double ((lo2.y - lo1.y) - lo1.h)
+        this.ok("a loose list is loose" (looseGap > (gap + 1.0)))
+
+        ; A nested ordered list counts from one again.
+        def nums:MdNode (MdBlock.parseText("1. a\n1. b\n   1. x\n   1. y\n"))
+        def l3:MdLayout (new MdLayout())
+        l3.layoutContinuous(nums 400.0)
+        this.eqInt("the nested numbers start again" (MarkdownTest.countText(l3 "1.")) 2)
+        this.eqInt("and go on from there" (MarkdownTest.countText(l3 "2.")) 2)
+
+        ; A marker wider than the step pushes the text out instead of writing
+        ; across it.
+        def wide:MdNode (MdBlock.parseText("99. a\n100. b\n101. c\n"))
+        def l4:MdLayout (new MdLayout())
+        l4.layoutContinuous(wide 400.0)
+        def m:MdBox (MarkdownTest.boxOf(l4 "100."))
+        def t:MdBox (MarkdownTest.boxOf(l4 "b"))
+        this.ok("a three-digit marker has a width of its own" (m.w > 12.0))
+        this.ok("and the text clears it" (t.x >= ((m.x + m.w) + l4.style.markerGap)))
+    }
+
+    ; The first box drawing exactly this text. A box with no text is never it.
+    sfn boxOf:MdBox (l:MdLayout t:string) {
+        def i:int 0
+        def n:int (array_length l.boxes)
+        while (i < n) {
+            def b:MdBox (itemAt l.boxes i)
+            if (b.text == t) { return b }
+            i = (i + 1)
+        }
+        return (new MdBox())
+    }
+
+    sfn countText:int (l:MdLayout t:string) {
+        def c:int 0
+        def i:int 0
+        def n:int (array_length l.boxes)
+        while (i < n) {
+            def b:MdBox (itemAt l.boxes i)
+            if (b.text == t) { c = (c + 1) }
+            i = (i + 1)
+        }
+        return c
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Block quotes: the bar has an inside, and the text is somebody else's
+    ; ----------------------------------------------------------------------
+    ;
+    ; The bar used to begin exactly at the top of the first line's box and end
+    ; exactly where the next block started, so it was flush against the text
+    ; at one end and dangling past it at the other — what it measured at the
+    ; bottom was the last paragraph's trailing space rather than the
+    ; paragraph.
+    fn quotes:void () {
+        def src:string "> What is this comment\n> Why?\n\nAfter the quote.\n"
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (new MdLayout())
+        l.layoutContinuous(doc 400.0)
+        def barTop:double 0.0
+        def barBottom:double 0.0
+        def bars:int 0
+        def quoteTop:double 1000000.0
+        def quoteBottom:double 0.0
+        def quoted:int 0
+        def afterTop:double 0.0
+        def i:int 0
+        def n:int (array_length l.boxes)
+        while (i < n) {
+            def b:MdBox (itemAt l.boxes i)
+            if ((b.kind == 1) && (b.fill == l.style.quoteBarColor)) {
+                bars = (bars + 1)
+                barTop = b.y
+                barBottom = (b.y + b.h)
+            }
+            if (b.kind == 0) {
+                if (b.color == l.style.quoteColor) {
+                    quoted = (quoted + 1)
+                    if (b.y < quoteTop) { quoteTop = b.y }
+                    def edge:double (b.y + b.h)
+                    if (edge > quoteBottom) { quoteBottom = edge }
+                } {
+                    if (b.text == "After the quote.") { afterTop = b.y }
+                }
+            }
+            i = (i + 1)
+        }
+        this.eqInt("one bar" bars 1)
+        this.ok("the quoted text is muted" (quoted == 2))
+        ; The two source lines are ONE paragraph with a soft break in it, which
+        ; is what CommonMark says and what every renderer of it draws: one
+        ; flowing line, wrapped where the column ends and not where the author
+        ; pressed return.
+        this.ok("a soft break inside a quote does not start a line" (quoteTop == (quoteBottom - 15.95)))
+        def above:double (quoteTop - barTop)
+        def below:double (barBottom - quoteBottom)
+        this.ok("the bar starts above the first line" (above > 1.0))
+        this.ok("and ends below the last" (below > 1.0))
+        def diff:double (above - below)
+        if (diff < 0.0) { diff = (0.0 - diff) }
+        this.ok("by the same amount" (diff < 0.01))
+        this.ok("and the next block clears it" (afterTop > barBottom))
+    }
+
     ; ----------------------------------------------------------------------
     ; Links: the destination survives the whole way to the paint
     ; ----------------------------------------------------------------------
