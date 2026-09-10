@@ -126,11 +126,20 @@ cp "$WEB/standalone.mjs" "$OUT/standalone.mjs"
 # stamped into the build id below with everything else.
 mkdir -p "$OUT/host"
 cp "$WEB/../host/pptx-host.mjs" "$OUT/host/pptx-host.mjs"
+# The other half of the head this build writes: the module that picks up the
+# responses it started. Shared with every other gallery page.
+mkdir -p "$OUT/evg"
+cp gallery/evg/web/tools/assets-client.mjs "$OUT/evg/assets-client.mjs"
 
 mkdir -p "$OUT/gl" "$OUT/fonts"
 cp gallery/evg/gl/evg-webgl.js "$OUT/gl/evg-webgl.js"
+# ASSETS is what the page's head will be told to start fetching, collected as
+# the files are copied so the list and the copy cannot disagree — see
+# gallery/evg/web/tools/inline-assets.mjs.
+ASSETS=""
 for face in OpenSans-Regular OpenSans-Bold OpenSans-Italic OpenSans-BoldItalic; do
   cp "gallery/pdf_writer/assets/fonts/Open_Sans/$face.ttf" "$OUT/fonts/$face.ttf"
+  ASSETS="$ASSETS,fonts/$face.ttf"
 done
 # The fallback pool: emoji, the geometric bullets, and Arabic. The desktop
 # build loads every face in the font directory and the browser build only ever
@@ -138,16 +147,19 @@ done
 # it with the system's own font — right-looking glyphs, wrong every number.
 for face in Noto_Emoji/NotoEmoji-Regular Noto_Sans/NotoSans-Regular El_Messiri/ElMessiri-Regular El_Messiri/ElMessiri-Bold; do
   cp "gallery/pdf_writer/assets/fonts/$face.ttf" "$OUT/fonts/$(basename "$face").ttf"
+  ASSETS="$ASSETS,fonts/$(basename "$face").ttf"
 done
 # The 187 preset geometries, as data. The page fetches this and hands it to
 # the viewer the way it hands over the fonts: without it a browser build falls
 # back to the hand-written table, so every shape the specification defines and
 # nobody typed in comes out as a rectangle.
 cp gallery/office/geom/assets/presets.txt "$OUT/presets.txt"
+ASSETS="$ASSETS,presets.txt"
 
 # A deck to open on load. The page reads it with fetch and hands the bytes to
 # the viewer, exactly as it does with a file the user picks.
 cp gallery/pptx/fixtures/20-business-deck.pptx "$OUT/deck.pptx"
+ASSETS="$ASSETS,deck.pptx"
 # …and the SAME deck as an OpenDocument presentation, which is the point of
 # shipping it: pressing the button swaps the format and not the document, so
 # a difference on screen is a difference between the two readers rather than
@@ -162,32 +174,10 @@ cp gallery/odp/fixtures/20-business-deck.odp "$OUT/sample.odp"
 # `?v=<hash of the build>` — the URL changes only when the bytes do — and the
 # same stamp is printed in the page's status bar, so "which build am I looking
 # at" is a thing you read rather than a thing you guess.
-# THE HEAD'S LIST AND THE MODULE'S MUST AGREE. `index.html` starts every asset
-# fetching before this module exists, and `standalone.mjs` picks the responses
-# up by name. A face named in one and not the other is a face fetched twice, or
-# one the page waits for and nobody started — neither of which shows up as an
-# error, only as a slower page.
-node -e "
-  const fs = require('fs');
-  const html = fs.readFileSync('$OUT/index.html', 'utf8');
-  const mod = fs.readFileSync('$OUT/standalone.mjs', 'utf8');
-  const inHead = new Set([...html.matchAll(/\"fonts\/([A-Za-z0-9_-]+\.ttf)\"/g)].map((m) => m[1]));
-  const inModule = new Set([...mod.matchAll(/\"([A-Za-z0-9_-]+\.ttf)\"/g)].map((m) => m[1]));
-  const missing = [...inModule].filter((f) => !inHead.has(f));
-  const extra = [...inHead].filter((f) => !inModule.has(f));
-  if (missing.length || extra.length) {
-    console.error('the head and standalone.mjs disagree about the fonts');
-    if (missing.length) console.error('  the module wants, the head does not start: ' + missing.join(', '));
-    if (extra.length) console.error('  the head starts, the module never asks for: ' + extra.join(', '));
-    process.exit(1);
-  }
-  if (!inHead.size) { console.error('the head starts no fonts at all'); process.exit(1); }
-" || exit 1
-
 STAMP=$(node -e "
   const fs = require('fs'), crypto = require('crypto');
   const h = crypto.createHash('sha1');
-  for (const f of ['$OUT/pptx_web.js', '$OUT/standalone.mjs', '$OUT/host/pptx-host.mjs', '$OUT/gl/evg-webgl.js']) h.update(fs.readFileSync(f));
+  for (const f of ['$OUT/pptx_web.js', '$OUT/standalone.mjs', '$OUT/host/pptx-host.mjs', '$OUT/gl/evg-webgl.js', '$OUT/evg/assets-client.mjs']) h.update(fs.readFileSync(f));
   process.stdout.write(h.digest('hex').slice(0, 10));
 ")
 node -e "
@@ -199,6 +189,16 @@ node -e "
     fs.readFileSync('$OUT/standalone.mjs', 'utf8')
       .replace('./gl/evg-webgl.js', './gl/evg-webgl.js?v=' + stamp));
 " || exit 1
+# The head that starts every asset before the body is parsed, and preloads the
+# module graph the browser would otherwise not discover until the script at the
+# end of the body had been fetched and run.
+node gallery/evg/web/tools/inline-assets.mjs \
+  --html "$OUT/index.html" \
+  --start "${ASSETS#,}" \
+  --preload "standalone.mjs,gl/evg-webgl.js,host/pptx-host.mjs" \
+  --stamp "$STAMP" \
+  --open-param open || exit 1
+
 if grep -q "__BUILD__" "$OUT/index.html"; then
   echo "the build stamp was not written into $OUT/index.html" >&2
   exit 1

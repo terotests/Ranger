@@ -12,6 +12,10 @@
  */
 import { renderDisplayList, loadImages, markColoredSlots, verbatim, setFontFallback } from "./gl/evg-webgl.js";
 import { attachPointer, attachKeys, createMediaCache, decodeScene, sceneStamp } from "./host/pptx-host.mjs";
+// The assets this page's head started fetching before the body was parsed —
+// see gallery/evg/web/tools/inline-assets.mjs, which writes that head, and
+// assets-client.mjs, which is this half of it.
+import { responseFor, bytesOf, asRangerBuffer } from "./evg/assets-client.mjs";
 
 // The page watches for this: if the imports above fail, nothing below runs
 // and the only evidence anywhere is a 404 in the network panel.
@@ -100,37 +104,6 @@ async function registerBrowserFaces(bytes) {
   }));
 }
 const DECK = "deck.pptx";
-
-function asRangerBuffer(ab) {
-  ab._view = new DataView(ab);
-  return ab;
-}
-
-// THE REQUEST WAS ALREADY MADE. `index.html` starts every asset in the head,
-// before this module exists, so what happens here is picking up a response
-// rather than asking for one — see the note there. A page that somehow lacks
-// the head's promises (an editor serving this file directly) still works: it
-// asks, as it always did.
-function responseFor(path) {
-  const name = path.replace(/^\.\//, "");
-  const started = (window.__pptxAssets || {})[name];
-  // A CLONE, and never the response itself. A body can be read once, and the
-  // deck is read twice — `boot` opens it, and `?selftest=1` opens it again to
-  // prove the editor can reopen what it just saved. Handing out the original
-  // made the second read fail with "body stream already read", which is what
-  // the smoke check said the moment this was written the obvious way.
-  if (started) {
-    return Promise.resolve(started).then((r) => (r instanceof Error ? r : r.clone()));
-  }
-  return fetch("./" + name);
-}
-
-async function bytesOf(name) {
-  const res = await responseFor(name);
-  if (res instanceof Error) throw res;
-  if (!res.ok) throw new Error(name + " → " + res.status);
-  return asRangerBuffer(await res.arrayBuffer());
-}
 
 /**
  * The engine is a classic <script> beside this module, and it is BUILT rather

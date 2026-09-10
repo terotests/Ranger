@@ -10,48 +10,6 @@
     <meta name="theme-color" content="#14171c" />
     <title>Ranger PPTX — a PowerPoint editor with no server behind it</title>
     <meta name="description" content="Open, edit and save a .pptx in the browser, and open a .odp beside it. The package is parsed and drawn in the page; nothing is uploaded." />
-    <!-- EVERY ASSET, STARTED HERE.
-       * The editor used to fetch its fonts, then its shape catalogue, then its
-       * deck, each one waiting for the last, and none of them starting until
-       * the 3.5 MB engine had arrived and `standalone.mjs` had run. On a mid
-       * connection that was 4.8 seconds to the first frame, of which the
-       * chain was most: 2.4 s to the last font, 4.0 s to the presets, 4.1 s
-       * to the deck.
-       *
-       * Nothing about that order was necessary. These requests need no code,
-       * so they go out while the code is still coming — in the head, before
-       * the body is parsed — and `standalone.mjs` awaits the promises rather
-       * than making them. What a visitor waits for is the LONGEST of the
-       * downloads instead of their sum.
-       *
-       * The list is duplicated from `standalone.mjs`, and it is checked: the
-       * build fails if the two disagree. A silent divergence here would mean
-       * a face fetched twice or a face the page waits for twice. -->
-    <script>
-      (function () {
-        var files = [
-          "fonts/OpenSans-Regular.ttf", "fonts/OpenSans-Bold.ttf",
-          "fonts/OpenSans-Italic.ttf", "fonts/OpenSans-BoldItalic.ttf",
-          "fonts/NotoEmoji-Regular.ttf", "fonts/NotoSans-Regular.ttf",
-          "fonts/ElMessiri-Regular.ttf", "fonts/ElMessiri-Bold.ttf",
-          "presets.txt"
-        ];
-        // `?open=` names a file to open instead of the deck, and is
-        // restricted to a plain name so a query string cannot make the page
-        // fetch somewhere else — the same rule `standalone.mjs` applies.
-        var wanted = new URLSearchParams(location.search).get("open");
-        files.push(wanted && /^[\w.-]+$/.test(wanted) ? wanted : "deck.pptx");
-        window.__pptxAssets = {};
-        files.forEach(function (f) {
-          window.__pptxAssets[f] = fetch("./" + f).catch(function (e) { return e; });
-        });
-      })();
-    </script>
-    <!-- …and the module graph, which the browser would otherwise not discover
-         until the script at the end of the body had been fetched and run. -->
-    <link rel="modulepreload" href="./standalone.mjs?v=__BUILD__" />
-    <link rel="modulepreload" href="./gl/evg-webgl.js?v=__BUILD__" />
-    <link rel="modulepreload" href="./host/pptx-host.mjs" />
     <style>
       @font-face { font-family: "Open Sans"; src: url("./fonts/OpenSans-Regular.ttf") format("truetype"); font-weight: 400; font-style: normal; }
       @font-face { font-family: "Open Sans"; src: url("./fonts/OpenSans-Bold.ttf") format("truetype"); font-weight: 700; font-style: normal; }
