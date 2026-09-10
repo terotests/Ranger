@@ -407,11 +407,21 @@ route's slice, not a year. Same for the two statechart JSONs: they belong to
 dialogs, so they should load when a dialog does.
 
 **C2 — the stylesheet as an artifact, not as text.** 92 KB of CSS is parsed at
-runtime on every load on every device, for 30 ms, to produce a deterministic
-result. Serialise `EVGStyleSheet` after parsing — the machinery to think about
-this exists (`EVGStyleCache`) — and ship the serialised form; parse text in
+runtime on every load on every device to produce a deterministic result.
+Serialise `EVGStyleSheet` after parsing — the machinery to think about this
+exists (`EVGStyleCache`) — and ship the serialised form; parse text in
 development only. This is the same move as the baked frame, one level up:
 compute at build time what does not depend on the visitor.
+
+Measured before building it, and the numbers say wait. The parse is **12 ms of
+the 26 ms cold `init`** on a desktop (~50 ms on a phone), not the 30 ms this
+document first claimed — that figure was the whole of `init`, cold. And the
+cheap version of the idea does not work: putting the sheet through esbuild's
+CSS minifier takes it from 18.0 KB to 9.6 KB gzipped, but the app's own parser
+is then *slower* on it (6.6 ms against 4.9 ms warm), and 8.5 KB against a
+373 KB bundle is 2 % bought with a second CSS dialect to be equivalent to. The
+real version needs a serialiser and a loader on the Ranger side, and it should
+be done when the boot line is otherwise clean — after §4, not before it.
 
 **C3 — the loader should cover a wait, not follow it.** On the pages that show
 it, `fillMs = 2600` is a
@@ -678,13 +688,26 @@ a screen whose content is not knowable at build time.
 
 Cheap and certain first; nothing later depends on a bet made earlier.
 
+Rows 1–5 are built. What the deployed page costs now, against the commit this
+document was written on, in Chromium at 390×844 over 4 Mbps with 60 ms per
+request and a 4× CPU throttle (`npm run rt:boot`):
+
+| | first paint | app painted | on the wire |
+|---|---:|---:|---:|
+| before | 144 ms * | 2182 ms | 587 KB |
+| now | 140 ms | 1245 ms | 442 KB |
+
+\* and "before" is worse than it looks: that first paint is a header and a
+paragraph of English, which are then hidden. Now it is the app's own chrome,
+which the app paints over.
+
 | # | Work | Buys | Risk |
 |---|---|---|---|
-| 1 | C4 + C5: page shell, minify, split files, preload | kills the visible flash; ~30–40 % off the wire for free | none |
+| 1 ✅ | C4 + C5: page shell, minify, split files, preload | kills the visible flash; ~30–40 % off the wire for free | none |
 | 2 | Drop the TTF/raster stack from the browser build (dead code there) | ~158 KB raw | low |
-| 3 | A1: baked first frame inline, with the drift gate | **T0** — a real picture in one RTT | low; gate makes it safe |
-| 4 | C1 + C2: seed and stylesheet out of the boot line | ~60 ms and 400 KB off the first frame | low |
-| 5 | §6: `?engine=worker` becomes the default | the app's parse and boot stop blocking the first paint and the compositor | medium; the worker host exists and is checked |
+| 3 ✅ | A1: baked first frame inline, with the drift gate | **T0** — a real picture in one RTT | low; gate makes it safe |
+| 4 ◑ | C1 (done) + C2 (measured, deferred): seed and stylesheet out of the boot line | ~60 ms and 400 KB off the first frame | low |
+| 5 ✅ | §6: `?engine=worker` becomes the default | the app's parse and boot stop blocking the first paint and the compositor | medium; the worker host exists and is checked |
 | 6 | §4 B1 → B2: profile-guided split, charts and cold routes out of the entry chunk | **T1** at budget | medium |
 | 7 | §4 B3: chunking in the compiler, with a manifest | every Ranger web app gets the ladder | large, but it is the point |
 | 8 | §7: streaming instantiation and `wasm-split` for the WASM builds | the same ladder on the other backend | medium |
