@@ -11,9 +11,15 @@
     <title>Ranger PPTX — a PowerPoint editor with no server behind it</title>
     <meta name="description" content="Open, edit and save a .pptx in the browser, and open a .odp beside it. The package is parsed and drawn in the page; nothing is uploaded." />
     <style>
-      @font-face { font-family: "Open Sans"; src: url("./fonts/OpenSans-Regular.ttf") format("truetype"); font-weight: 400; font-style: normal; }
-      @font-face { font-family: "Open Sans"; src: url("./fonts/OpenSans-Bold.ttf") format("truetype"); font-weight: 700; font-style: normal; }
-      @font-face { font-family: "Open Sans"; src: url("./fonts/OpenSans-Italic.ttf") format("truetype"); font-weight: 400; font-style: italic; }
+      /* NO `@font-face` HERE, deliberately. Three of them declared "Open Sans"
+         from the same three files this page already fetches, and nothing in
+         this stylesheet uses that family — the CANVAS does, and the browser
+         answers a canvas asking for a CSS-declared family by loading the CSS
+         one. Measured: with the rules the page makes nine font requests for
+         eight faces, every time. `registerBrowserFaces` in standalone.mjs
+         hands `document.fonts` the very bytes the page has, before anything
+         is drawn, so the declaration is a second source of truth for what the
+         page has, and one that costs a download. */
       :root { --ink: #1a1f2b; --muted: #5c6b80; --accent: #b4451f; }
       * { box-sizing: border-box; }
       html, body {

@@ -3,6 +3,8 @@
  * OpenFig-core is loaded only for the live parse-time comparison.
  */
 import { renderDisplayList, loadImages } from "./gl/evg-webgl.js";
+// The file this page's head started fetching before the body was parsed.
+import { responseFor } from "./evg/assets-client.mjs";
 import { figmaClipboard, figmaClipboardName, readFigmaClipboard, FIG_FILE_RE } from "./clipboard.mjs";
 
 window.__pageStarted = true;
@@ -658,7 +660,10 @@ async function openUrl(url, page, frame) {
     await openBuffer(await res.arrayBuffer(), url.split("/").pop());
   } else {
     try {
-      const res = await fetch(DEFAULT_FILE);
+      // The head started this before the body was parsed — see
+      // gallery/evg/web/tools/inline-assets.mjs.
+      const res = await responseFor(DEFAULT_FILE);
+      if (res instanceof Error) throw res;
       if (!res.ok) throw new Error(DEFAULT_FILE + ": " + res.status);
       await openBuffer(await res.arrayBuffer(), DEFAULT_FILE.split("/").pop());
     } catch (err) {

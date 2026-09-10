@@ -5,12 +5,83 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>RealTrainer — a Ranger app on the GPU</title>
     <link rel="icon" href="data:," />
+    <!-- THE PAGE MODE, DECIDED BEFORE THE FIRST PAINT.
+       * This page has two shapes: the app filling the window, which is what a
+       * visitor gets, and the documented demo with a header and an aside,
+       * which is what `?page=WxH` pins for the checks and the screenshots.
+       * It used to choose the second in HTML and correct it from `main.js`,
+       * which meant the header and the prose painted as soon as the document
+       * parsed and were hidden again only once the whole bundle had arrived
+       * and run — a paragraph of English on screen for as long as a second,
+       * and then gone. That flash is not a rendering problem and no amount of
+       * chunking would have fixed it: the document simply said the wrong
+       * thing first.
+       *
+       * So the query is read HERE, in a few synchronous lines in the head,
+       * before the body exists. The result is an attribute the stylesheet
+       * keys on and a value the hosts read back, so the chrome the document
+       * shows and the size the app lays out for cannot disagree. -->
+    <script>
+      (function () {
+        var p = new URLSearchParams(location.search).get("page");
+        var fit = !p || p === "fit";
+        var w = 0, h = 0;
+        if (!fit) {
+          var parts = p.split("x");
+          w = Number(parts[0]);
+          h = Number(parts[1]);
+        }
+        window.__rtPage = { fit: fit, w: w > 0 ? w : 0, h: h > 0 ? h : 0 };
+        if (!fit) document.documentElement.setAttribute("data-chrome", "");
+        // And start the bundle now rather than when the module script at the
+        // end of the body runs. The script that imports it cannot execute
+        // until the document has been parsed; this link does not wait.
+        // WHERE THE ENGINE RUNS. In a Worker unless asked otherwise: the app
+        // is ~370 KB of JavaScript to fetch, parse and boot, and on this
+        // thread all of that is time the page cannot paint or scroll in.
+        // `?painter=dom` has no worker host, so it stays here; `?engine=main`
+        // asks for the old arrangement explicitly.
+        var painter = new URLSearchParams(location.search).get("painter");
+        var engineParam = new URLSearchParams(location.search).get("engine");
+        var useWorker = painter !== "dom" && engineParam !== "main";
+        window.__rtPage.worker = useWorker;
+        // THE DATA, STARTED HERE. The seed is a file rather than a string in
+        // the bundle, and this line is why: the request goes out during the
+        // head, in parallel with the bundle's, so a visitor waits for the
+        // longer of the two rather than for their sum. The hosts read the
+        // promise; nothing here waits for it.
+        window.__rtSeed = fetch("./seed.json")
+          .then(function (r) { return r.ok ? r.text() : ""; })
+          .catch(function () { return ""; });
+        var pre = document.createElement("link");
+        pre.rel = "modulepreload";
+        pre.href = useWorker ? "./bundle-worker.js" : "./bundle.js";
+        document.head.appendChild(pre);
+        // AND THE WORKER ITSELF, STARTED HERE. Not a preload hint — the
+        // Worker. Its script is the big one, and if it is created by the host
+        // bundle then the two downloads are in series for no reason: the
+        // worker cannot begin until the host has arrived and run. Made here it
+        // fetches, parses and boots the app while the host is still coming.
+        //
+        // Safe because the engine says nothing until it is spoken to: the
+        // worker replies to `init` and posts nothing unprompted
+        // (gallery/evg/gl/evg-engine.js), so there is no message to miss
+        // between now and the moment the host attaches its listener.
+        if (useWorker) {
+          try {
+            window.__rtWorker = new Worker("./worker-bundle.js", { type: "module" });
+          } catch (e) {
+            window.__rtWorker = null;
+          }
+        }
+      })();
+    </script>
     <style>
       :root { color-scheme: dark; --bg:#07090d; --panel:#10151f; --line:#1e2836; --ink:#e6ebf5; --dim:#8ea1bd; --accent:#38bdf8; }
       * { box-sizing: border-box; }
       html, body { height: 100%; }
       body {
-        margin: 0; background: var(--bg); color: var(--ink);
+        margin: 0; background: var(--bg); color: var(--ink); overflow: hidden;
         font: 14px/1.6 ui-sans-serif, system-ui, "Noto Sans", sans-serif;
       }
       header {
@@ -23,8 +94,13 @@
         margin-left: auto; color: var(--accent); font: 12px ui-monospace, monospace;
         display: flex; gap: 12px;
       }
-      main { display: flex; gap: 24px; padding: 20px; flex-wrap: wrap; }
-      #stage { position: relative; }
+      /* THE DEFAULT IS THE APP, and the window is its viewport. Anything that
+       * is documentation about the app — the header, the aside — is not in
+       * this shape at all, so it never paints and never has to be taken back
+       * off the screen. `[data-chrome]` below is the other shape. */
+      main { display: flex; gap: 0; padding: 0; flex-wrap: wrap; }
+      #stage { position: relative; width: 100vw; height: 100vh; height: 100dvh; }
+      header, aside { display: none; }
       /* `touch-action: pinch-zoom` and not `none`. `none` gives the app every
        * gesture, which is right for the one-finger drag it scrolls with — and
        * it took the PINCH as well, so a page iOS had zoomed into (it does that
@@ -32,22 +108,59 @@
        * the canvas, which is the whole page. `pinch-zoom` keeps the panning
        * here, where the app scrolls its own content, and hands the browser
        * back the one gesture the app has no answer for. */
-      canvas { display: block; border-radius: 12px; touch-action: pinch-zoom; }
+      canvas { display: block; touch-action: pinch-zoom; }
       #stage .evg-a11y :focus-visible { outline: 2px solid #a5b4fc; outline-offset: -2px; border-radius: 8px; }
       aside { max-width: 42ch; color: var(--dim); font-size: 12.5px; }
       aside h2 { color: var(--ink); font-size: 12px; text-transform: uppercase; letter-spacing: .09em; margin: 18px 0 6px; }
       aside p { margin: 0 0 10px; }
       code { background: #172033; padding: 1px 5px; border-radius: 4px; color: #cbd5e1; }
       #err { color: #f87171; white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 12px; padding: 0 20px; }
-      /* The page as the window: no chrome around the stage, no rounded corners. */
-      body.fit { overflow: hidden; }
-      body.fit header, body.fit aside { display: none; }
-      body.fit main { padding: 0; gap: 0; }
-      body.fit #stage { width: 100vw; height: 100vh; }
-      body.fit canvas { border-radius: 0; }
+      /* `?page=WxH`: the demo page, with the prose and a stage at a pinned
+       * size. The checks and the screenshots open this one. */
+      html[data-chrome] body { overflow: auto; }
+      html[data-chrome] header { display: flex; }
+      html[data-chrome] aside { display: block; }
+      html[data-chrome] main { gap: 24px; padding: 20px; }
+      html[data-chrome] #stage { width: auto; height: auto; }
+      html[data-chrome] canvas { border-radius: 12px; }
+      /* rt:t0 begin */
+      /* Generated by web/snapshot.mjs — do not edit. The first picture,
+       * computed in the build from the app's own display list: the commands
+       * whose geometry is pinned to the viewport, restated as CSS that is
+       * pinned to the same edges. It paints while the bundle is still
+       * downloading and the host removes it on the first painted frame. */
+      #rt-t0 { position: fixed; inset: 0; z-index: 0; contain: strict; }
+      #rt-t0 i { position: absolute; display: block; box-sizing: border-box; }
+      #stage { z-index: 1; }
+      /* The pinned demo page lays the app out in a box, not in the window,
+       * so a picture anchored to the window would be a lie there. */
+      html[data-chrome] #rt-t0 { display: none; }
+      @media not all and (max-width: 767px) { #rt-t0 .p { display: none; } }
+      #rt-t0 .p0 { left:0;right:0;top:0;bottom:0;background:#121212; }
+      #rt-t0 .p1 { left:0;right:0;top:0;height:56px;background:#171717; }
+      #rt-t0 .p2 { left:0;right:0;top:0;height:56px;border:1px solid #2e2e2e; }
+      #rt-t0 .p3 { left:0;right:0;bottom:0;height:64px;background:#171717; }
+      #rt-t0 .p4 { left:0;right:0;bottom:0;height:64px;border:1px solid #2e2e2e; }
+      @media not all and (min-width: 768px) { #rt-t0 .w { display: none; } }
+      #rt-t0 .w0 { left:0;right:0;top:0;bottom:0;background:#121212; }
+      #rt-t0 .w1 { left:0;width:56px;top:0;bottom:0;background:#171717; }
+      #rt-t0 .w2 { left:0;width:56px;top:0;bottom:0;border:1px solid #2e2e2e; }
+      /* rt:t0 end */
     </style>
   </head>
   <body>
+    <!-- rt:t0 begin -->
+      <div id="rt-t0" aria-hidden="true">
+        <i class="p p0"></i>
+        <i class="p p1"></i>
+        <i class="p p2"></i>
+        <i class="p p3"></i>
+        <i class="p p4"></i>
+        <i class="w w0"></i>
+        <i class="w w1"></i>
+        <i class="w w2"></i>
+      </div>
+    <!-- rt:t0 end -->
     <header>
       <h1>RealTrainer — a Ranger app painted by EVG's WebGL painter</h1>
       <div class="badge"><span id="scene">loading</span><span id="fps">–</span></div>
@@ -99,11 +212,11 @@
     </main>
     <div id="err"></div>
     <script type="module">
-      // `?engine=worker` runs the Ranger app in a Worker and paints its frames
-      // here (gallery/evg/gl/evg-engine.js); the default keeps it on this
-      // thread. Same app, same painter, same checks.
-      const engine = new URLSearchParams(location.search).get("engine");
-      import(engine === "worker" ? "./bundle-worker.js" : "./bundle.js");
+      // The Ranger app runs in a Worker and its frames are painted here
+      // (gallery/evg/gl/evg-engine.js). `?engine=main` keeps it on this
+      // thread, and `?painter=dom` requires that. Same app, same painter,
+      // same checks — the head settled which, and preloaded it.
+      import(window.__rtPage.worker ? "./bundle-worker.js" : "./bundle.js");
     </script>
   </body>
 </html>

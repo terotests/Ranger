@@ -36,9 +36,14 @@
 #                page is the window — one tree, and the stylesheet's @media
 #                blocks fold the rail or the bottom bar at 768px — so it is
 #                the phone app on a phone and the desktop app on a desktop.
-#                ?painter=dom paints the same app as DOM nodes kept across
-#                frames (gallery/evg/html/evg-dom.js on EVGHostTree);
-#                ?engine=worker runs the app in a Worker (evg-engine.js).
+#                The app runs in a Worker and its frames are painted on the
+#                main thread (evg-engine.js); ?engine=main keeps it on the
+#                main thread, and ?painter=dom — which paints the same app as
+#                DOM nodes kept across frames (gallery/evg/html/evg-dom.js on
+#                EVGHostTree) — requires that. The document carries a picture
+#                of the app's chrome, computed in the build from its own
+#                display list (web/snapshot.mjs), so nothing is blank while
+#                the bundle is on its way.
 #                /evg/responsive/?painter=dom is the same painter on the
 #                responsive page.
 #   /rangerflow/ -> the node-graph editor: a database schema parsed from a .sql
@@ -241,12 +246,13 @@ jobs:
         run: |
           npm run rt:build --silent
           node gallery/realtrainer/web/build.mjs --out "$GITHUB_WORKSPACE/_site/realtrainer"
-          test -s "$GITHUB_WORKSPACE/_site/realtrainer/index.html"
-          test -s "$GITHUB_WORKSPACE/_site/realtrainer/bundle.js"
-          grep -q "RealTrainerDemo" "$GITHUB_WORKSPACE/_site/realtrainer/bundle.js"
-          grep -q "createDomPainter" "$GITHUB_WORKSPACE/_site/realtrainer/bundle.js"
-          test -s "$GITHUB_WORKSPACE/_site/realtrainer/bundle-worker.js"
-          test -s "$GITHUB_WORKSPACE/_site/realtrainer/worker-bundle.js"
+          # The page is not one file: the entries import chunks with hashed
+          # names, the reference data is a file fetched beside them, and the
+          # chart compiler is a chunk asked for only after the first frame. So
+          # the check is the build's own manifest against the directory —
+          # every script shipped, something still deferred, the app really in
+          # the bytes.
+          node gallery/realtrainer/web/verify-out.mjs "$GITHUB_WORKSPACE/_site/realtrainer"
           test -s "$GITHUB_WORKSPACE/_site/evg/responsive/evg-dom.js"
 
       # ---- the firesim workbench at /firesim/ ------------------------------

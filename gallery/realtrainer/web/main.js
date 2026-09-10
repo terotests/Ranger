@@ -18,12 +18,12 @@ import { createDomPainter } from "../../evg/html/evg-dom.js";
 import { listOf, shiftsOf } from "../../evg/gl/evg-list.js";
 import { createA11yMirror, pressAtCentre } from "../../evg/gl/evg-a11y.js";
 import { createTextInputBridge } from "../../evg/gl/evg-textinput.js";
-import { RealTrainerDemo, RealTrainerModule } from "./generated-host.js";
+import { RtHost, EVGHostTextMeasurer, EVGDefaultMeasurer } from "./generated-host.js";
 // The browser measures the text: every layout the app builds asks canvas
 // `measureText` in the face the painter draws with, instead of the advance
 // table. Installed before the app is constructed — the app keeps a layout.
 import { installCanvasMeasurer } from "../../evg/gl/evg-measure.js";
-import { REALTRAINER_CSS, REALTRAINER_COMPACT, REALTRAINER_PLAN_MACHINE, REALTRAINER_CHAT_MACHINE, REALTRAINER_SEED } from "./generated.js";
+import { REALTRAINER_CSS, REALTRAINER_COMPACT, REALTRAINER_PLAN_MACHINE, REALTRAINER_CHAT_MACHINE } from "./generated.js";
 
 const stage = document.getElementById("stage");
 const canvas = document.getElementById("c");
@@ -31,7 +31,9 @@ const errEl = document.getElementById("err");
 const fpsEl = document.getElementById("fps");
 const sceneEl = document.getElementById("scene");
 
-const fontMeasure = installCanvasMeasurer(RealTrainerModule);
+// The two classes it needs, not the module: a namespace import would ask the
+// bundler for all 359 of them and nothing could be dropped. See build.mjs.
+const fontMeasure = installCanvasMeasurer({ EVGHostTextMeasurer, EVGDefaultMeasurer });
 window.__fontMeasure = fontMeasure;
 
 /** `YYYY-MM-DD` in the viewer's own timezone. */
@@ -40,7 +42,19 @@ function localIsoDay(d) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
-const app = new RealTrainerDemo();
+// THE SAME HOST THE PHONES USE. `RtHost` (gallery/realtrainer/src/RtHost.rgr,
+// on `gallery/evg/EvgHost.rgr`) is the viewport the UIKit view and the Android
+// View put around this app: the window and the safe area, a window point to a
+// page point, the press a drag cancels, the fling timed against the host's own
+// clock, the keyboard's text. This page used to have its own copy of all of
+// that in JavaScript — see gallery/evg/HOSTS.md — and a rule fixed on a phone
+// was a rule this page still had wrong.
+//
+// `app` is the same object it always was: the host holds it, and everything
+// here that is about the APPLICATION rather than about the window goes on
+// talking to it directly.
+const host = new RtHost();
+const app = host.demo;
 app.init(REALTRAINER_CSS, REALTRAINER_COMPACT);
 app.loadPlanMachine(REALTRAINER_PLAN_MACHINE);
 app.loadChatMachine(REALTRAINER_CHAT_MACHINE);
@@ -54,7 +68,37 @@ app.loadChatMachine(REALTRAINER_CHAT_MACHINE);
 // it is yesterday for the first hours of the morning and the calendar opens on
 // the wrong day for anyone awake early.
 app.setToday(localIsoDay(new Date()));
-app.loadReference(REALTRAINER_SEED);
+
+// THE DATA, WHICH IS NOT PART OF THE PROGRAM. A year of reference data — 407 KB
+// of it — used to be a string literal inside this bundle: downloaded before
+// the first byte of the app could run, and parsed before the first pixel. The
+// document's head starts fetching it as a file instead (index.html), so the
+// two downloads overlap; it is applied the moment it lands.
+//
+// It is nearly always here before the first frame, because it is a sixth of
+// the bundle's size and started earlier. When it is not, the app paints what
+// it has — a real screen with an empty diary — and takes the data after.
+let seedPending = null;
+let seedDone = false;
+let booted = false;
+function applySeed(text) {
+  if (seedDone || !text) return;
+  seedDone = true;
+  if (!booted) { seedPending = text; return; }
+  app.loadReference(text);
+  app.rebuild();
+  paintAll();
+}
+const seedText = (window.__rtSeed || Promise.resolve("")).catch(() => "");
+seedText.then(applySeed);
+// What the first frame is allowed to wait for. Not the seed itself: a request
+// that never answers must not be able to hold the page, so this resolves on
+// the seed OR on a deadline, whichever is first.
+const SEED_WAIT_MS = 1500;
+const seedOrDeadline = Promise.race([
+  seedText,
+  new Promise((r) => setTimeout(r, SEED_WAIT_MS)),
+]);
 // `?page=390x844&route=/calendar/cal-plan?week=2026-02-09` opens the app the
 // way the reference recorder opens the original: a phone, on a route.
 // `page=fit` is the phone itself: the page is the viewport, and so is any
@@ -65,20 +109,21 @@ app.loadReference(REALTRAINER_SEED);
 // `@media` blocks answer for the width. `page=390x844` pins a size, which is
 // what the checks want.
 const params = new URLSearchParams(location.search);
-const pageParam = params.get("page");
-const fit = !pageParam || pageParam === "fit";
+// The page mode was settled in the document's head, before anything painted
+// (see index.html). Reading it back is what keeps the chrome the document
+// shows and the size the app lays out for from ever disagreeing — they used
+// to be decided in two places, a second apart.
+const { fit, w: pinnedW, h: pinnedH } = window.__rtPage;
 // A finger rather than a mouse, as the browser reports it: the sheet's
 // `@media (pointer: coarse)` block makes the targets bigger for it.
 const coarseQuery = window.matchMedia ? window.matchMedia("(pointer: coarse)") : null;
-app.setPointerCoarse(!!(coarseQuery && coarseQuery.matches));
 {
-  if (fit) {
-    document.body.classList.add("fit");
-    app.setPageSize(stage.clientWidth, stage.clientHeight);
-  } else {
-    const [w, h] = pageParam.split("x").map(Number);
-    if (w > 0 && h > 0) app.setPageSize(w, h);
-  }
+  // `began` rather than `setPageSize`: it is what tells the host the window,
+  // says whether the pointer is a finger, and opens it for business — the
+  // same call `RtHost.start` makes on a phone.
+  if (fit) host.began(stage.clientWidth, stage.clientHeight, !!(coarseQuery && coarseQuery.matches));
+  else if (pinnedW > 0 && pinnedH > 0) host.began(pinnedW, pinnedH, !!(coarseQuery && coarseQuery.matches));
+  else host.began(app.widthPx(), app.heightPx(), !!(coarseQuery && coarseQuery.matches));
   const route = params.get("route");
   if (route) app.openRoute(route);
   else if (fit) app.openRoute("/");
@@ -274,13 +319,14 @@ function paint() {
   if (domPainter) {
     try {
       errEl.textContent = "";
-      const host = JSON.parse(app.hostJson());
-      window.__lastHost = domPainter.apply({ width: app.widthPx(), height: app.heightPx(), host });
+      const hostTree = JSON.parse(app.hostJson());
+      window.__lastHost = domPainter.apply({ width: app.widthPx(), height: app.heightPx(), host: hostTree });
       if (inputAt) {
         window.__latency = performance.now() - inputAt;
         inputAt = 0;
       }
       sceneEl.textContent = app.sceneName();
+      retireFirstPicture();
     } catch (e) {
       errEl.textContent = String((e && e.stack) || e);
     }
@@ -305,9 +351,28 @@ function paint() {
       inputAt = 0;
     }
     sceneEl.textContent = app.sceneName();
+    retireFirstPicture();
   } catch (e) {
     errEl.textContent = String((e && e.stack) || e);
   }
+}
+
+// --- the first picture, and when it is allowed to go ---------------------------
+//
+// `index.html` carries a picture of this app's chrome, computed in the build
+// from the app's own display list (web/snapshot.mjs). It paints while this
+// bundle is still downloading, and it is removed HERE — not when the script
+// arrived, not when the app was constructed, but when a live frame has been
+// PAINTED over it (PLAN_WEB_LOADING.md S3.2). Removing it a frame early is the
+// one blank frame the whole exercise exists to avoid.
+let firstPicture = document.getElementById("rt-t0");
+function retireFirstPicture() {
+  if (!firstPicture) return;
+  const layer = firstPicture;
+  firstPicture = null;
+  // A draw call is issued, not shown. Two frames on: by then the compositor
+  // has the pixels that replace what is being taken away.
+  requestAnimationFrame(() => requestAnimationFrame(() => layer.remove()));
 }
 
 // The accessibility tree. `now` is the frame's clock; pass nothing to mean
@@ -360,10 +425,12 @@ function syncClipboard() {
   navigator.clipboard?.writeText(text).catch(() => {});
 }
 
+// A press from the accessibility tree — a screen reader activating a node —
+// is a press: down and then up, through the host, so it takes exactly the
+// path a finger takes and cannot drift from it.
 function press(x, y) {
-  const id = app.hitId(x, y);
-  app.setPressed("");
-  if (app.press(id)) paintAll();
+  host.pressAt(x, y);
+  if (host.releasePress()) paintAll();
   syncClipboard();
   syncTextSession();
 }
@@ -384,7 +451,7 @@ const MENU_KEYS = new Set(["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "H
 document.addEventListener("keydown", (ev) => {
   if (!MENU_KEYS.has(ev.key)) return;
   if (!app.menuOpen() && app.focusedField()) return;
-  if (app.keyWith(ev.key, ev.shiftKey, ev.ctrlKey || ev.metaKey)) {
+  if (host.key(ev.key, ev.shiftKey, ev.ctrlKey || ev.metaKey)) {
     ev.preventDefault();
     paintAll();
     syncMirror();
@@ -419,7 +486,7 @@ const textInput = createTextInputBridge({
     // page — so the ring and the reader's cursor ended up in different
     // places. Now `EVGFocus` picks the next control and the mirror follows.
     if (k.key === "Tab") {
-      const took = app.keyWith("Tab", k.shiftKey, false);
+      const took = host.key("Tab", k.shiftKey, false);
       textInput.release();
       syncTextSession();
       paintAll();
@@ -427,7 +494,7 @@ const textInput = createTextInputBridge({
       return took;
     }
     if (k.key !== "Escape" && k.key !== "Enter") return false;
-    const took = app.keyWith(k.key, k.shiftKey, k.ctrlKey || k.metaKey);
+    const took = host.key(k.key, k.shiftKey, k.ctrlKey || k.metaKey);
     syncTextSession();
     if (took) paintAll();
     return took;
@@ -473,109 +540,64 @@ const down = new Set();
 canvas.addEventListener("pointerdown", (ev) => {
   down.add(ev.pointerId);
   if (down.size > 1) {
+    // A second finger: the drag is over, and the app must not scroll the page
+    // out from under a gesture the browser is using to zoom it.
     drag = null;
-    app.scrollHalt();
-    app.setPressed("");
+    host.cancelPress();
     paint();
     return;
   }
   const [x, y] = at(ev);
   inputAt = performance.now();
-  // The scrollbar's thumb takes the press: the moves that follow drag the
-  // page by the thumb, not by the finger, and nothing under it is pressed.
-  if (app.scrollbarGrab(x, y)) {
-    drag = { bar: true };
-    canvas.setPointerCapture(ev.pointerId);
-    dirty = true;
-    return;
-  }
-  // Putting a finger down stops the page where it is, the way it does on a
-  // phone: a glide is caught, not ridden out.
-  app.scrollHalt();
-  drag = { y, moved: false, at: ev.timeStamp || performance.now() };
+  // Everything a finger down means is `pressAt`: catch the glide where it is,
+  // take the scrollbar's thumb if that is what is under it, otherwise mark
+  // what is. The same call the UIKit view and the Android View make.
+  host.pressAt(x, y);
+  drag = { y };
   canvas.setPointerCapture(ev.pointerId);
-  app.setPressed(app.hitId(x, y));
   paint();
 });
 canvas.addEventListener("pointerup", (ev) => {
   down.delete(ev.pointerId);
-  const [x, y] = at(ev);
-  if (drag?.bar) {
-    drag = null;
-    app.scrollbarRelease();
-    dirty = true;
-    return;
-  }
-  const scrolled = drag?.moved;
   drag = null;
-  if (scrolled) {
-    // Let go while still moving and the page carries on. The app decides
-    // whether that was a throw or a stop, from the speed it tracked.
-    app.scrollRelease();
-    app.setPressed("");
-    dirty = true;
-    return;
-  }
-  press(x, y);
+  // And everything a finger UP means is `releasePress`: let the thumb go, or
+  // let a moving page carry on, or activate what was marked — the host knows
+  // which, because it is the one that marked it.
+  if (host.releasePress()) paintAll();
+  else dirty = true;
+  syncClipboard();
+  syncTextSession();
 });
 canvas.addEventListener("pointercancel", (ev) => {
   down.delete(ev && ev.pointerId);
-  if (drag?.bar) app.scrollbarRelease();
   drag = null;
-  app.scrollHalt();
-  app.setPressed("");
+  host.cancelPress();
   paint();
 });
 canvas.addEventListener("pointermove", (ev) => {
   if (down.size > 1) return;
   const [x, y] = at(ev);
-  if (drag && drag.bar) {
-    if (app.scrollbarDrag(y)) {
+  if (drag) {
+    const dy = y - drag.y;
+    drag.y = y;
+    // NOT painted from here. The frame loop draws once per frame however many
+    // moves the browser delivers — a finger reports faster than the screen
+    // refreshes, and painting per event is painting frames nobody ever sees.
+    //
+    // `panBy` is the whole gesture: past six points of travel the mark comes
+    // off what was pressed, the thumb is dragged instead if the thumb is what
+    // was taken, and the app is told how long the move took as well as how
+    // far, because that is what decides where a lift throws it.
+    if (host.panBy(0, dy)) {
       dirty = true;
       scrolledAt = ev.timeStamp || performance.now();
     }
     return;
   }
-  if (drag) {
-    const dy = drag.y - y;
-    if (drag.moved || Math.abs(dy) > 6) {
-      // The moment a touch becomes a drag the row under it is no longer
-      // pressed — as on a phone — and, as on the iOS host, that is the
-      // one layout the drag costs: the lift finds nothing pressed and the
-      // glide starts without one.
-      if (!drag.moved) app.setPressed("");
-      const now = ev.timeStamp || performance.now();
-      const dt = now - drag.at;
-      drag.at = now;
-      drag.moved = true;
-      drag.y = y;
-      // NOT painted from here. The frame loop draws once per frame however
-      // many moves the browser delivers — a finger reports faster than the
-      // screen refreshes, and painting per event is painting frames nobody
-      // ever sees. The app is told how long the move took as well as how far,
-      // because that is what decides where a lift throws it.
-      if (app.scrollDrag(dy, dt)) {
-        dirty = true;
-        scrolledAt = now;
-      }
-    }
-    return;
-  }
   // The scrollbar first: the pointer on its thumb lights it, and hovers
-  // nothing under it.
-  if (app.scrollbarHover(x, y)) dirty = true;
-  const id = app.overScrollbar() ? "" : app.hitId(x, y);
+  // nothing under it. `hoverAt` does both.
+  if (host.hoverAt(x, y)) dirty = true;
   canvas.style.cursor = app.overScrollbar() ? "default" : "";
-  if (id === hovered) return;
-  hovered = id;
-  app.setHover(id);
-  // One frame, to lay the page out with the new hover state: that is where
-  // the stylesheet's :hover rule is applied and the transition it declares
-  // is started. `hitId` above does not lay anything out any more — the app
-  // keeps the last layout until something changes it, and a hover is the
-  // change — so without this the fade would wait for the next thing that
-  // asked for a frame.
-  dirty = true;
 });
 // The resize path, as gallery/evg/web/responsive has it: a ResizeObserver on
 // the stage rather than only a window listener, because the two differ where
@@ -594,7 +616,9 @@ if (fit) {
     if (key === lastKey) return;
     lastKey = key;
     app.setPointerCoarse(coarse);
-    app.setPageSize(w, h);
+    // Through the host: it holds the window and the safe area, and the app is
+    // laid out for what is left. The phones call exactly this on a rotation.
+    host.resize(w, h);
     sizeCanvas();
     paintAll();
   };
@@ -604,12 +628,12 @@ if (fit) {
 }
 
 canvas.addEventListener("pointerleave", () => {
-  hovered = "";
-  app.setHover("");
+  // Nothing is under a pointer that has left. `clearHover` is the host's
+  // answer and it is the same one on a phone, where a finger lifting leaves.
+  if (host.clearHover()) dirty = true;
   app.scrollbarHover(-1, -1);
   dirty = true;
 });
-let hovered = "";
 
 // --- the frame loop ----------------------------------------------------------
 //
@@ -625,7 +649,7 @@ function step(now) {
   // `tick` carries the glide forward as well as the clock, and says whether
   // anything moved.
   const gliding = app.scrollVelocity() !== 0;
-  const ticked = app.tick(dt);
+  const ticked = host.tick(dt);
   if (gliding) scrolledAt = now;
   const moving =
     drag !== null ||
@@ -653,11 +677,28 @@ function step(now) {
 
 // The first frame waits for the faces the list names, so the wordmark is not
 // measured in one font and drawn in another.
-document.fonts.ready.then(() => {
+Promise.all([document.fonts.ready, seedOrDeadline]).then(() => {
   // The faces are in: forget what was measured with the fallback and lay
   // the page out again with the real ones.
   fontMeasure.refresh();
+  if (seedPending) {
+    app.loadReference(seedPending);
+    seedPending = null;
+  }
   app.rebuild();
+  booted = true;
   paintAll();
   requestAnimationFrame(step);
+  // AND NOW THE CHARTS. Vela's compiler is 440 KB of the app and only the
+  // statistics tab wants it, so nothing on the path to this frame names it
+  // and the bundler gave it a chunk of its own (RtCharts.rgr,
+  // charts-chunk.js). Asked for here, after a frame is up: the cards draw
+  // their numbers without curves until it lands, and with them after.
+  import("./charts-chunk.js")
+    .then(() => {
+      window.__rtChartsReady = true;
+      app.rebuild();
+      paintAll();
+    })
+    .catch((e) => console.warn("charts unavailable:", e));
 });

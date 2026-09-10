@@ -76,6 +76,7 @@ Import "../../ui/src/TableCtl.rgr"
 Import "../../ui/src/ToggleCtl.rgr"
 Import "../../ui/src/AccordionCtl.rgr"
 Import "../../ui/src/RadioGroupCtl.rgr"
+Import "../../evg/EvgApp.rgr"
 Import "../../evg/EVGElement.rgr"
 Import "../../evg/EVGUnit.rgr"
 Import "../../evg/EVGLayout.rgr"
@@ -96,12 +97,10 @@ Import "RtCalendar.rgr"
 Import "CalendarWizard.rgr"
 Import "RtYearSheet.rgr"
 Import "stats/ExerciseStats.rgr"
-Import "../../vela/src/VlChart.rgr"
-Import "../../vela/src/VlCompile.rgr"
-Import "../../vela/src/VlRuntime.rgr"
-Import "../../vela/src/VlCommand.rgr"
-Import "../../vela/src/VlEvgList.rgr"
-Import "../../game_engine/ui/UITextRenderer.rgr"
+; The chart maker and the seam in front of it. The Vela compiler comes in
+; behind this import and is deliberately not NAMED anywhere in this file —
+; see RtCharts.rgr.
+Import "RtCharts.rgr"
 Import "../../ui/src/SelectCtl.rgr"
 Import "../../ui/src/NumberCtl.rgr"
 Import "../../ui/src/InputCtl.rgr"
@@ -666,13 +665,11 @@ treefactory Rt {
 
 ; One curve on the Tilastot tab: the values, the colour, and the id of the
 ; box the layout places for it.
-class RtChartDef {
-    def id@(mutable):string ""
-    def color@(mutable):string ""
-    def values:[double]
-}
-
-class RealTrainerDemo {
+; The app answers the conversation every EVG host has with every EVG app
+; (`gallery/evg/EvgApp.rgr`): a page size, a hit test, presses, scrolls, keys,
+; a clock, a display list. Extending it is what lets one host — the browser
+; page, the UIKit view, the Android View — drive this app without naming it.
+class RealTrainerDemo extends EvgApp {
 
     ; --- the timings, in one place -------------------------------------------
     ;
@@ -870,8 +867,6 @@ class RealTrainerDemo {
     ; The Tilastot curves of the current tree, and their commands kept by
     ; data and size.
     def charts:[RtChartDef]
-    def chartKeys:[string]
-    def chartLists:[VlCommandList]
     ; The calendar menu is down — `showDropdown`.
     def calMenuOpen@(mutable):boolean false
     ; THE MENU, OPEN. It scrolls on its own when it is taller than the page
@@ -1106,9 +1101,18 @@ class RealTrainerDemo {
     ; The plan arrives as TEXT rather than as a path: a browser has no
     ; filesystem, and the headless check should read the same bytes the page
     ; does rather than a fixture of its own.
+    ; `css` is either the stylesheet's source or the stylesheet already parsed
+    ; and written down (`EVGStyleSheet.toText`, PLAN_WEB_LOADING.md S5 C2).
+    ; The page hands over the written-down one — smaller on the wire and read
+    ; rather than parsed — and every check goes on handing over the source, so
+    ; there is one entry point and no second way for the two to disagree.
     fn init:void (css:string compact:string) {
         def s (new EVGStyleSheet())
-        s.parse(css)
+        if (EVGStyleSheet.isSheetText(css)) {
+            s.loadText(css)
+        } {
+            s.parse(css)
+        }
         sheet = s
         this.loadCompact(compact)
         this.setupControls()
@@ -5474,115 +5478,24 @@ class RealTrainerDemo {
     ; scrolled container's layer, so a kept list moved the page out from under
     ; it. The `addLayerClip` here was the patch for the second of those, and
     ; being in the walk is the answer to both.
+    ; THE WHOLE OF A CHART IS BEHIND THE SEAM, not just its commands. This
+    ; loop finds the boxes the layout gave the cards and hands each one to the
+    ; maker; everything after that — Vela, the bridge, the text renderer that
+    ; carries a font manager — is in the deferred half. Until a maker is
+    ; installed the cards draw with their numbers and without their curves.
     fn registerCharts:void (dl:EVGDisplayList lay:EVGLayout r:EVGElement) {
         if ((array_length charts) == 0) { return }
-        def tr (new UITextRenderer())
+        def maker:RtChartMaker (RtCharts.maker())
         for charts def0:RtChartDef i {
             def box:EVGElement (RealTrainerDemo.findEl(r def0.id))
             if ((strlen box.id) == 0) { continue }
             def w:int (to_int box.calculatedWidth)
             def h:int (to_int box.calculatedHeight)
             if ((w < 10) || (h < 10)) { continue }
-            def list:VlCommandList (this.chartCommands(def0 w h))
-            ; Into a list of its own, then handed over: the bridge writes
-            ; commands, and what is wanted here is the commands.
-            def one (new EVGDisplayList())
-            one.setTextEngine((lay.getTextEngine()))
-            def bridge (new VlEvgList())
-            bridge.emit(one list tr box.calculatedX box.calculatedY 1.0)
-            dl.paintAt(def0.id one)
+            maker.paint(dl lay def0 w h box.calculatedX box.calculatedY)
         }
     }
 
-    ; The commands for one chart at one size, kept: a paint that changed
-    ; nothing about the data draws the same picture.
-    fn chartCommands:VlCommandList (def0:RtChartDef w:int h:int) {
-        def key@(mutable):string ((def0.id + ":") + ((to_string w) + ("x" + (to_string h))))
-        for def0.values v:double i { key = ((key + ",") + (to_string v)) }
-        for chartKeys ck:string i {
-            if (ck == key) { return (itemAt chartLists i) }
-        }
-        def list:VlCommandList (RealTrainerDemo.buildChart(def0 w h))
-        push chartKeys key
-        push chartLists list
-        return list
-    }
-
-    sfn buildChart:VlCommandList (def0:RtChartDef w:int h:int) {
-        def n:int (array_length def0.values)
-        def lo@(mutable):double (itemAt def0.values 0)
-        def hi@(mutable):double lo
-        for def0.values v:double i {
-            if (v < lo) { lo = v }
-            if (v > hi) { hi = v }
-        }
-        if (hi <= lo) { hi = (lo + 1.0) }
-        ; A hair of room over and under, so the line's width is not clipped
-        ; at the top and the bottom of the plot.
-        def pad:double ((hi - lo) * 0.06)
-        lo = (lo - pad)
-        hi = (hi + pad)
-        def xs:[double]
-        for def0.values v:double i { push xs (int2double i) }
-        def data:VlDataset (VlDataset.create())
-        data.numbers("i" xs)
-        data.numbers("v" def0.values)
-        def last:VlDataset (VlDataset.create())
-        def lastX:[double]
-        def lastV:[double]
-        push lastX (int2double (n - 1))
-        push lastV (itemAt def0.values (n - 1))
-        last.numbers("i" lastX)
-        last.numbers("v" lastV)
-        def xScale:VlJson (RealTrainerDemo.domainJson(0.0 (int2double (n - 1))))
-        def yScale:VlJson (RealTrainerDemo.domainJson(lo hi))
-        def chart (VlChart.create(data))
-        chart.size(w h)
-        chart.background("#171717")
-        chart.configJson((RealTrainerDemo.plainConfig()))
-        chart.area().interpolate("monotone").markColor(def0.color).markOpacity(0.18).x("i").scaleJson(xScale).noAxis().y("v").scaleJson(yScale).noAxis()
-        chart.line().interpolate("monotone").markColor(def0.color).strokeWidth(2.0).x("i").scaleJson(xScale).noAxis().y("v").scaleJson(yScale).noAxis()
-        def dot (VlChart.create(last))
-        dot.size(w h)
-        dot.background("#171717")
-        dot.configJson((RealTrainerDemo.plainConfig()))
-        dot.point().filled(true).markColor(def0.color).markSize(36.0).x("i").scaleJson(xScale).noAxis().y("v").scaleJson(yScale).noAxis()
-        def list:VlCommandList (RealTrainerDemo.runChart(chart))
-        def dots:VlCommandList (RealTrainerDemo.runChart(dot))
-        ; The point's commands after the curve's, so it is drawn over it —
-        ; its background dropped, as it would cover the curve.
-        for dots.commands c:VlDrawCommand i {
-            if ((c.op == "rect") && (i == 0)) { continue }
-            push list.commands c
-        }
-        return list
-    }
-
-    ; No padding, no frame around the plot: the card is the frame.
-    sfn plainConfig:VlJson () {
-        def p (new VlJsonParser())
-        return (p.parse("{\"padding\":0,\"view\":{\"stroke\":null}}"))
-    }
-
-    sfn domainJson:VlJson (lo:double hi:double) {
-        def p (new VlJsonParser())
-        return (p.parse((((("{\"domain\":[" + (to_string lo)) + ",") + (to_string hi)) + "],\"nice\":false,\"zero\":false}")))
-    }
-
-    ; Vega-Lite → Vega → scene → commands, and an empty list for a chart
-    ; that refused somewhere on the way.
-    sfn runChart:VlCommandList (chart:VlChart) {
-        def empty (new VlCommandList())
-        if ((array_length chart.errors) > 0) { return empty }
-        def spec:VlJson (chart.toSpec())
-        def compiler (new VlCompile())
-        def vg:VlJson (compiler.compileSpec(spec))
-        if ((array_length compiler.errors) > 0) { return empty }
-        def rt (new VlRuntime())
-        def scene:VlSceneMark (rt.run(vg))
-        if ((array_length rt.errors) > 0) { return empty }
-        return (VlSceneCommands.build(scene))
-    }
 
     ; An element by id, or one with an empty id when there is none — which is
     ; how the two callers below ask, and why this exists next to `byId`.
@@ -10126,6 +10039,11 @@ class RealTrainerDemo {
     ; A hover or a press that is already the case is not a change: a finger
     ; that lifts after a drag which unpressed the row at its first move
     ; starts its glide without a layout in front of it.
+    ; `hovered` as the host's question — see `EvgApp.hoveredId`.
+    fn hoveredId:string () {
+        return hovered
+    }
+
     fn setHover:void (id:string) {
         if (hovered == id) {
             return

@@ -39,24 +39,30 @@ const fpsEl = document.getElementById("fps");
 const sceneEl = document.getElementById("scene");
 
 const params = new URLSearchParams(location.search);
-const pageParam = params.get("page");
-const fit = !pageParam || pageParam === "fit";
+// The page mode was settled in the document's head, before anything painted
+// (see index.html). Reading it back is what keeps the chrome the document
+// shows and the size the app lays out for from ever disagreeing — they used
+// to be decided in two places, a second apart.
+const { fit, w: pinnedW, h: pinnedH } = window.__rtPage;
 const coarseQuery = window.matchMedia ? window.matchMedia("(pointer: coarse)") : null;
 const coarse = !!(coarseQuery && coarseQuery.matches);
 
 let W = 0, H = 0;
 if (fit) {
-  document.body.classList.add("fit");
   W = stage.clientWidth;
   H = stage.clientHeight;
-} else {
-  const [w, h] = pageParam.split("x").map(Number);
-  if (w > 0 && h > 0) { W = w; H = h; }
+} else if (pinnedW > 0 && pinnedH > 0) {
+  W = pinnedW;
+  H = pinnedH;
 }
 const route = params.get("route") || (fit ? "/" : "");
 
 // The worker, and the app inside it.
-const worker = new Worker(new URL("./worker-bundle.js", import.meta.url), { type: "module" });
+// The document's head made it, so that its script started downloading with
+// this one rather than after it (index.html). Making one here is the fallback
+// for anything that loads this module some other way.
+const worker = window.__rtWorker
+  || new Worker(new URL("./worker-bundle.js", import.meta.url), { type: "module" });
 /** `YYYY-MM-DD` in the viewer's own timezone — `toISOString()` is UTC, which
  *  is yesterday here for the first hours of the morning. */
 function localIsoDay(d) {
@@ -65,6 +71,18 @@ function localIsoDay(d) {
 }
 
 const engine = connectEngine(worker, { w: W, h: H, coarse, route, today: localIsoDay(new Date()) });
+// The seed, as a file the head started fetching in parallel with this bundle
+// (index.html). The worker's app is made without it and takes it as two posted
+// calls — which is the whole point of the engine protocol: what the page used
+// to do synchronously, it posts.
+(window.__rtSeed || Promise.resolve(""))
+  .then((text) => {
+    if (!text) return;
+    engine.post("loadReference", text);
+    engine.post("rebuild");
+    changed();
+  })
+  .catch(() => {});
 engine.onError((e) => { errEl.textContent = e.during + "\n" + e.message; });
 
 const dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -147,7 +165,29 @@ function applyReply(r) {
   }
   sceneEl.textContent = state.scene || "";
   canvas.style.cursor = state.overBar ? "default" : "";
+  // The chart chunk is imported inside the worker, so its arrival reaches
+  // this thread the way everything else does: on the frame's state.
+  if (state.charts > 0) window.__rtChartsReady = true;
+  retireFirstPicture();
   return true;
+}
+
+// --- the first picture, and when it is allowed to go ---------------------------
+//
+// `index.html` carries a picture of this app's chrome, computed in the build
+// from the app's own display list (web/snapshot.mjs). It paints while this
+// bundle is still downloading, and it is removed HERE — not when the script
+// arrived, not when the app was constructed, but when a live frame has been
+// PAINTED over it (PLAN_WEB_LOADING.md S3.2). Removing it a frame early is the
+// one blank frame the whole exercise exists to avoid.
+let firstPicture = document.getElementById("rt-t0");
+function retireFirstPicture() {
+  if (!firstPicture) return;
+  const layer = firstPicture;
+  firstPicture = null;
+  // A draw call is issued, not shown. Two frames on: by then the compositor
+  // has the pixels that replace what is being taken away.
+  requestAnimationFrame(() => requestAnimationFrame(() => layer.remove()));
 }
 
 // --- the accessibility mirror -------------------------------------------------
@@ -234,8 +274,11 @@ function syncClipboard() {
   navigator.clipboard?.writeText(text).catch(() => {});
 }
 
+// A press from the accessibility tree — a screen reader activating a node —
+// goes down and up like a finger, so it takes exactly a finger's path.
 function press(x, y) {
-  engine.post("@up", x, y);
+  engine.post("@down", x, y);
+  engine.post("@up");
   changed();
   syncTextSession();
 }
@@ -352,8 +395,12 @@ stage.addEventListener(
   { passive: false },
 );
 
+// WHAT IS LEFT OF THE GESTURES HERE. The state machine — a press a drag
+// cancels, the scrollbar's thumb, a lift that either throws the page or
+// activates what was marked — is `EvgHost`'s, in the worker beside the tree
+// (engine-worker.js). This end tracks only what the browser knows and the
+// worker cannot: which pointers are down, and how long a move took.
 let drag = null;
-let barGrab = null;
 // How many fingers are on the glass. A pinch is two, and the moment the
 // second arrives the drag is over: the app must not scroll the page out from
 // under a gesture the browser is using to zoom it.
@@ -362,84 +409,50 @@ canvas.addEventListener("pointerdown", (ev) => {
   down.add(ev.pointerId);
   if (down.size > 1) {
     drag = null;
-    barGrab = null;
-    engine.post("scrollHalt");
-    engine.post("setPressed", "");
+    engine.post("@cancel");
     dirty = true;
     return;
   }
   const [x, y] = at(ev);
   inputAt = performance.now();
   canvas.setPointerCapture(ev.pointerId);
-  // Whether the thumb took the press is the worker's to say; the drag is
-  // started on the answer, and moves before it arrives go to the page.
-  barGrab = engine.call("scrollbarGrab", x, y).then((took) => {
-    barGrab = null;
-    if (took) {
-      drag = { bar: true };
-      dirty = true;
-    }
-  });
-  drag = { y, moved: false, at: ev.timeStamp || performance.now() };
+  drag = { y, at: ev.timeStamp || performance.now() };
+  // One post, and no round trip. Whether the thumb took the press is decided
+  // beside the tree; this end used to ask and wait for the answer before it
+  // knew what kind of drag it had started.
   engine.post("@down", x, y);
   dirty = true;
 });
 canvas.addEventListener("pointerup", (ev) => {
   down.delete(ev.pointerId);
-  const [x, y] = at(ev);
-  const finish = () => {
-    if (drag?.bar) {
-      drag = null;
-      engine.post("scrollbarRelease");
-      dirty = true;
-      return;
-    }
-    const scrolled = drag?.moved;
-    drag = null;
-    if (scrolled) {
-      engine.post("scrollRelease");
-      engine.post("setPressed", "");
-      dirty = true;
-      return;
-    }
-    press(x, y);
-  };
-  if (barGrab) barGrab.then(finish); else finish();
+  drag = null;
+  engine.post("@up");
+  changed();
+  syncTextSession();
 });
 canvas.addEventListener("pointercancel", (ev) => {
   down.delete(ev && ev.pointerId);
-  if (drag?.bar) engine.post("scrollbarRelease");
   drag = null;
-  engine.post("scrollHalt");
-  engine.post("setPressed", "");
+  engine.post("@cancel");
   dirty = true;
 });
 canvas.addEventListener("pointermove", (ev) => {
   if (down.size > 1) return;
   const [x, y] = at(ev);
-  if (drag && drag.bar) {
-    engine.post("scrollbarDrag", y);
-    dirty = true;
-    scrolledAt = ev.timeStamp || performance.now();
-    return;
-  }
   if (drag) {
-    const dy = drag.y - y;
-    if (drag.moved || Math.abs(dy) > 6) {
-      if (!drag.moved) engine.post("setPressed", "");
-      const now = ev.timeStamp || performance.now();
-      const dt = now - drag.at;
-      drag.at = now;
-      drag.moved = true;
-      drag.y = y;
-      engine.post("scrollDrag", dy, dt);
-      dirty = true;
-      scrolledAt = now;
-    }
+    const now = ev.timeStamp || performance.now();
+    const dt = now - drag.at;
+    drag.at = now;
+    const dy = y - drag.y;
+    drag.y = y;
+    // The browser's own interval, not the frame's: a pointer event carries a
+    // timestamp and a touch callback does not, and the speed at the lift is
+    // what decides how far the page is thrown.
+    engine.post("@pan", dy, dt);
+    dirty = true;
+    scrolledAt = now;
     return;
   }
-  // One post, where main.js made three calls: the worker hovers what is
-  // under the point and says whether a frame is owed.
   engine.post("@hover", x, y);
   dirty = true;
 });

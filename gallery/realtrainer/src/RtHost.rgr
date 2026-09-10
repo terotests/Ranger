@@ -1,0 +1,61 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+; ==============================================================================
+; RtHost.rgr — RealTrainer behind a window, on every platform.
+; ==============================================================================
+;
+; What is left of a port once the viewport is shared. `EvgHost`
+; (`gallery/evg/EvgHost.rgr`) holds the window, the safe area, the point
+; conversion, the press, the pan, the fling's clock and the keyboard; this
+; adds the two things that are RealTrainer's own — how it is loaded, and the
+; section its shell is showing — and names the app.
+;
+; The Swift host imports `RtIos` and the Kotlin host `RtAndroid`; both are one
+; line each (`ios/ranger/rt_ios.rgr`, `android/ranger/rt_android.rgr`), and
+; both are this.
+
+Import "../../evg/EvgHost.rgr"
+Import "RealTrainerDemo.rgr"
+
+class RtHost extends EvgHost {
+
+    ; The app twice: once as itself, for the five calls that are its own, and
+    ; once as `EvgApp` in `app`, which is all `EvgHost` ever sees.
+    def demo:RealTrainerDemo (new RealTrainerDemo)
+
+    Constructor () {
+        app = demo
+    }
+
+    ; THE DEVICE'S CLOCK. Ranger has no date type and no `now()` — a clock
+    ; inside a reducer is what makes a state machine untestable — so the app
+    ; takes today as a value and the host hands it in. Call it BEFORE `start`:
+    ; the seed's entries are anchored to today.
+    fn setToday:boolean (iso:string) {
+        return (demo.setToday(iso))
+    }
+
+    ; The window and the five texts a host embeds: the stylesheet, the
+    ; session's COMPACT, the two state machines and the reference seed. An
+    ; empty machine or seed is left unloaded rather than parsed, so a build
+    ; that lacks one still opens the page.
+    fn start:void (w:double h:double css:string compact:string planMachine:string chatMachine:string seed:string) {
+        demo.init(css compact)
+        if ((strlen planMachine) > 0) {
+            demo.loadPlanMachine(planMachine)
+        }
+        if ((strlen chatMachine) > 0) {
+            demo.loadChatMachine(chatMachine)
+        }
+        if ((strlen seed) > 0) {
+            demo.loadReference(seed)
+        }
+        this.began(w h true)
+        demo.openRoute("/")
+    }
+
+    ; The section the shell is showing: home, calendar, dashboard, chat.
+    fn sectionName:string () {
+        return (demo.sectionName())
+    }
+
+}

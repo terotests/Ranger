@@ -1880,4 +1880,265 @@ class EVGStyleSheet {
             i = (i + 1)
         }
     }
+
+    ; -----------------------------------------------------------------------
+    ; The sheet as an artifact
+    ; -----------------------------------------------------------------------
+    ;
+    ; PLAN_WEB_LOADING.md S5, C2. Parsing this stylesheet is deterministic
+    ; work: the same 104 KB of text, on every load, on every device, produces
+    ; the same 786 rules and 3436 declarations. It costs about 12 ms cold in
+    ; a browser, which is 40-50 on a phone, and it costs it before the first
+    ; pixel — for an answer that was already known when the page was built.
+    ;
+    ; So the answer can be written down. `toText` writes the parsed sheet in a
+    ; line-and-tab format; `loadText` reads it back. What that buys, measured
+    ; on RealTrainer's sheet: 12 ms of parsing becomes 2 ms of reading, and
+    ; 18.0 KB gzipped of CSS becomes 11.9 KB — SMALLER on the wire as well,
+    ; because what is written down is what the parser kept, and every comment,
+    ; every space and every selector it did not need is gone.
+    ;
+    ; The format is deliberately dull: one line per record, tab-separated,
+    ; a version on the first line. `R` is a rule, the `D` lines under it are
+    ; its declarations, `V` is a palette entry. A reader that meets a version
+    ; it does not know says so by returning false rather than by guessing.
+
+    sfn sheetHeader:string () {
+        return "evg-sheet 1"
+    }
+
+    ; A backslash, a tab, a newline and a carriage return are the four
+    ; characters that would break a line-and-tab format, and a CSS value may
+    ; contain any of them.
+    sfn escChar:string (c:int piece:string) {
+        if (c == 92) { return "\\\\" }
+        if (c == 9)  { return "\\t" }
+        if (c == 10) { return "\\n" }
+        if (c == 13) { return "\\r" }
+        return piece
+    }
+
+    ; A SCAN BEFORE A BUILD, and it is most of what this format costs. Nearly
+    ; no CSS value contains a backslash, a tab or a newline, so nearly every
+    ; string here is already its own escaping — and building it again
+    ; character by character, eleven thousand times, was the difference
+    ; between reading the sheet in 5 ms and reading it in 1.
+    sfn needsEscape:boolean (s:string) {
+        def len:int (strlen s)
+        def i@(mutable):int 0
+        while (i < len) {
+            def c:int (charAt s i)
+            if (((c == 92) || (c == 9)) || ((c == 10) || (c == 13))) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn escText:string (s:string) {
+        if ((EVGStyleSheet.needsEscape(s)) == false) {
+            return s
+        }
+        def out@(mutable):string ""
+        def len:int (strlen s)
+        def i:int 0
+        while (i < len) {
+            out = (out + (EVGStyleSheet.escChar((charAt s i) (substring s i (i + 1)))))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; The same scan the other way: a string with no backslash in it is
+    ; already what it unescapes to.
+    sfn hasBackslash:boolean (s:string) {
+        def len:int (strlen s)
+        def i@(mutable):int 0
+        while (i < len) {
+            if ((charAt s i) == 92) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn unescText:string (s:string) {
+        if ((EVGStyleSheet.hasBackslash(s)) == false) {
+            return s
+        }
+        def out@(mutable):string ""
+        def len:int (strlen s)
+        def i@(mutable):int 0
+        while (i < len) {
+            def c:int (charAt s i)
+            if (c == 92) {
+                if ((i + 1) < len) {
+                    def n:int (charAt s (i + 1))
+                    if (n == 92) { out = (out + "\\") }
+                    if (n == 116) { out = (out + "\t") }
+                    if (n == 110) { out = (out + "\n") }
+                    if (n == 114) { out = (out + "\r") }
+                    i = (i + 2)
+                } {
+                    i = (i + 1)
+                }
+            } {
+                out = (out + (substring s i (i + 1)))
+                i = (i + 1)
+            }
+        }
+        return out
+    }
+
+    ; `to_double` on a string the writer produced. The writer produced it with
+    ; `to_string`, so the only shape to allow for beyond a plain number is the
+    ; minus sign an unset bound carries.
+    sfn readNum:double (s:string) {
+        def t:string (trim s)
+        if ((strlen t) == 0) {
+            return 0.0
+        }
+        def neg:boolean ((charAt t 0) == 45)
+        def digits@(mutable):string t
+        if neg {
+            digits = (substring t 1 (strlen t))
+        }
+        ; `to_double` answers with an optional, because a string is not
+        ; necessarily a number. This one came out of `to_string` a moment ago,
+        ; so the miss is a corrupt artifact and zero is the safe reading.
+        def v@(optional):double (to_double digits)
+        if v {
+            if neg {
+                return (0.0 - (unwrap v))
+            }
+            return (unwrap v)
+        }
+        return 0.0
+    }
+
+    sfn readInt:int (s:string) {
+        return (to_int (EVGStyleSheet.readNum(s)))
+    }
+
+    ; A media query as seven fields, in the order `readMedia` expects them.
+    sfn writeMedia:string (m:EVGMediaQuery) {
+        def out@(mutable):string ((to_string m.minWidth) + "\t")
+        out = (out + ((to_string m.maxWidth) + "\t"))
+        out = (out + ((to_string m.minHeight) + "\t"))
+        out = (out + ((to_string m.maxHeight) + "\t"))
+        out = (out + ((EVGStyleSheet.escText(m.orientation)) + "\t"))
+        out = (out + ((to_string m.pointer) + "\t"))
+        if m.broken {
+            return (out + "1")
+        }
+        return (out + "0")
+    }
+
+    sfn readMedia:EVGMediaQuery (parts:[string] at:int) {
+        def m (new EVGMediaQuery())
+        m.minWidth = (EVGStyleSheet.readNum((itemAt parts at)))
+        m.maxWidth = (EVGStyleSheet.readNum((itemAt parts (at + 1))))
+        m.minHeight = (EVGStyleSheet.readNum((itemAt parts (at + 2))))
+        m.maxHeight = (EVGStyleSheet.readNum((itemAt parts (at + 3))))
+        m.orientation = (EVGStyleSheet.unescText((itemAt parts (at + 4))))
+        m.pointer = (EVGStyleSheet.readInt((itemAt parts (at + 5))))
+        m.broken = ((itemAt parts (at + 6)) == "1")
+        return m
+    }
+
+    ; The parsed sheet, written down. Rules in source order with their
+    ; declarations under them, then the palette — which is the order
+    ; `loadText` wants and the order the parser produced.
+    fn toText:string () {
+        def out@(mutable):string ((EVGStyleSheet.sheetHeader()) + "\n")
+        for rules r:EVGStyleRule i {
+            def line@(mutable):string ("R\t" + ((EVGStyleSheet.escText(r.theme)) + "\t"))
+            line = (line + ((EVGStyleSheet.escText(r.className)) + "\t"))
+            line = (line + ((to_string r.pseudo) + "\t"))
+            line = (line + ((to_string r.order) + "\t"))
+            line = (line + (EVGStyleSheet.writeMedia(r.media)))
+            out = (out + (line + "\n"))
+            for r.decls d:EVGStyleDecl j {
+                def dl:string (("D\t" + (EVGStyleSheet.escText(d.name))) + ("\t" + (EVGStyleSheet.escText(d.value))))
+                out = (out + (dl + "\n"))
+            }
+        }
+        def vn:int (array_length varNames)
+        def k@(mutable):int 0
+        while (k < vn) {
+            def line@(mutable):string ("V\t" + ((EVGStyleSheet.escText((itemAt varThemes k))) + "\t"))
+            line = (line + ((EVGStyleSheet.escText((itemAt varNames k))) + "\t"))
+            line = (line + ((EVGStyleSheet.escText((itemAt varValues k))) + "\t"))
+            line = (line + (EVGStyleSheet.writeMedia((itemAt varMedia k))))
+            out = (out + (line + "\n"))
+            k = (k + 1)
+        }
+        return out
+    }
+
+    ; Is this text a written-down sheet rather than CSS? Asked by callers that
+    ; take either — `RealTrainerDemo.init` does — so the page can hand over
+    ; the artifact and every check can go on handing over the source.
+    sfn isSheetText:boolean (text:string) {
+        def h:string (EVGStyleSheet.sheetHeader())
+        def n:int (strlen h)
+        if ((strlen text) < n) {
+            return false
+        }
+        return ((substring text 0 n) == h)
+    }
+
+    ; The other half of `toText`. False means the text was not a sheet this
+    ; reader knows, and the caller should parse the CSS it has instead of
+    ; drawing an unstyled page.
+    fn loadText:boolean (text:string) {
+        if ((EVGStyleSheet.isSheetText(text)) == false) {
+            return false
+        }
+        this.dropPlans()
+        def lines:[string] (this.splitOn(text 10))
+        def current@(optional):EVGStyleRule
+        for lines line:string i {
+            if ((strlen line) == 0) { continue }
+            def parts:[string] (this.splitOn(line 9))
+            def kind:string (itemAt parts 0)
+            if (kind == "R") {
+                if ((array_length parts) < 12) { continue }
+                def r (new EVGStyleRule())
+                r.theme = (EVGStyleSheet.unescText((itemAt parts 1)))
+                r.className = (EVGStyleSheet.unescText((itemAt parts 2)))
+                r.pseudo = (EVGStyleSheet.readInt((itemAt parts 3)))
+                r.order = (EVGStyleSheet.readInt((itemAt parts 4)))
+                r.media = (EVGStyleSheet.readMedia(parts 5))
+                push rules r
+                current = r
+                if (r.order >= ruleCounter) {
+                    ruleCounter = (r.order + 1)
+                }
+                continue
+            }
+            if (kind == "D") {
+                if ((array_length parts) < 3) { continue }
+                if current {
+                    def d (new EVGStyleDecl())
+                    d.name = (EVGStyleSheet.unescText((itemAt parts 1)))
+                    d.value = (EVGStyleSheet.unescText((itemAt parts 2)))
+                    def owner:EVGStyleRule (unwrap current)
+                    push owner.decls d
+                }
+                continue
+            }
+            if (kind == "V") {
+                if ((array_length parts) < 11) { continue }
+                push varThemes (EVGStyleSheet.unescText((itemAt parts 1)))
+                push varNames (EVGStyleSheet.unescText((itemAt parts 2)))
+                push varValues (EVGStyleSheet.unescText((itemAt parts 3)))
+                push varMedia (EVGStyleSheet.readMedia(parts 4))
+                continue
+            }
+        }
+        return true
+    }
 }

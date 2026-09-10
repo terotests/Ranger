@@ -14,6 +14,9 @@
  */
 import { renderDisplayList, loadImages, setFontFallback } from "./gl/evg-webgl.js";
 import { createA11yMirror, pressAtCentre } from "./gl/evg-a11y.js";
+// The assets this page's head started fetching before the body was parsed —
+// see gallery/evg/web/tools/inline-assets.mjs, which writes that head.
+import { bytesOf, asRangerBuffer } from "./evg/assets-client.mjs";
 
 // The page watches for this: if the imports above fail, nothing below runs
 // and the only evidence anywhere is a 404 in the network panel.
@@ -99,22 +102,9 @@ async function registerBrowserFaces(bytes) {
   }));
 }
 
-const WORKBOOK = "./business-workbook.xlsx";
+const WORKBOOK = "business-workbook.xlsx";
 
-/** A Ranger `buffer` is an ArrayBuffer with a DataView hung off it — that is
- *  what the compiled runtime reads through, so bytes arriving from fetch() have
- *  to be dressed the same way before the app will take them. */
-function asRangerBuffer(arrayBuffer) {
-  const ab = arrayBuffer;
-  ab._view = new DataView(ab);
-  return ab;
-}
 
-async function bytesOf(url) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(url + " → " + res.status);
-  return asRangerBuffer(await res.arrayBuffer());
-}
 
 /**
  * The engine is a classic <script> beside this module, and it is BUILT rather
@@ -595,7 +585,7 @@ async function maybeDecryptWorkbook(ab, password) {
 
 async function boot() {
   statusEl.textContent = "loading fonts";
-  const faces = await Promise.all(FONTS.map(([, file]) => bytesOf("./fonts/" + file)));
+  const faces = await Promise.all(FONTS.map(([, file]) => bytesOf("fonts/" + file)));
   FONTS.forEach(([family], i) => {
     if (family) web.addFont(family, faces[i]);
     else web.addFace(faces[i]);

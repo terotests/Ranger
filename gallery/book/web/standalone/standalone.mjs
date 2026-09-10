@@ -11,6 +11,20 @@
  * function call, and the next frame is drawn from the list that call produced.
  */
 import { renderDisplayList, loadImages } from "./gl/evg-webgl.js";
+// The assets this page's head started fetching before the body was parsed,
+// with this page's own cache mode and its own `?v=` — see
+// gallery/evg/web/tools/inline-assets.mjs, which writes that head.
+import { bytesOf, textOf, asRangerBuffer, registerFaces } from "./evg/assets-client.mjs";
+
+/** The book's own images, fetched when the document names one. Not in the
+ *  head's list — which asset a page needs is known before it loads, and which
+ *  picture a book asks for is not — so this is a plain fetch, with the cache
+ *  mode and the stamp the rest of the page uses. */
+async function fetchBuffer(url) {
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new Error("could not fetch " + url);
+  return asRangerBuffer(await res.arrayBuffer());
+}
 
 const canvas = document.getElementById("view");
 const metaEl = document.getElementById("meta");
@@ -30,16 +44,6 @@ if (!gl) {
   throw new Error("WebGL 2 required");
 }
 
-/** An ArrayBuffer as the thing Ranger's `buffer` type is: it carries a DataView. */
-function asRangerBuffer(ab) {
-  ab._view = new DataView(ab);
-  return ab;
-}
-async function fetchBuffer(url) {
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error("could not fetch " + url);
-  return asRangerBuffer(await res.arrayBuffer());
-}
 
 const web = new globalThis.BookWeb();
 web.start(1180, 800);
@@ -57,6 +61,20 @@ const FACES = [
 // The families beyond the default one. A face is registered under the name in
 // its own file; this is how the layout learns it may measure with it.
 const FAMILIES = ["Cinzel", "Josefin Sans"];
+
+/** What each face is called to the BROWSER, so the canvas rasterises with the
+ *  faces the layout measured. These were `@font-face` rules in index.html,
+ *  which made the browser fetch the files a second time. */
+const FACE_CSS = {
+  "OpenSans-Regular.ttf": { family: "Open Sans", weight: "400", style: "normal" },
+  "OpenSans-Bold.ttf": { family: "Open Sans", weight: "700", style: "normal" },
+  "OpenSans-Italic.ttf": { family: "Open Sans", weight: "400", style: "italic" },
+  "OpenSans-BoldItalic.ttf": { family: "Open Sans", weight: "700", style: "italic" },
+  "Cinzel-Regular.ttf": { family: "Cinzel", weight: "400", style: "normal" },
+  "Cinzel-Bold.ttf": { family: "Cinzel", weight: "700", style: "normal" },
+  "JosefinSans-Regular.ttf": { family: "Josefin Sans", weight: "400", style: "normal" },
+  "JosefinSans-Bold.ttf": { family: "Josefin Sans", weight: "700", style: "normal" },
+};
 
 /**
  * Textures, kept between frames.
@@ -132,16 +150,20 @@ async function boot() {
   // trim while the picture on screen is drawn in the right font by the
   // browser's own atlas. Measuring and painting disagreeing is exactly the
   // failure this stack is built to prevent, and it hides well.
-  let first = true;
-  for (const face of FACES) {
-    const bytes = await fetchBuffer("./fonts/" + face + q);
-    if (first) {
-      web.addFont("Open Sans", bytes);
-      first = false;
-    } else {
-      web.addFace(bytes);
-    }
-  }
+  // ALL OF THEM AT ONCE. This was a `for` loop with an `await` in it, so eight
+  // faces were eight round trips one after another; the head has already
+  // started every one of them, and this is where they are collected.
+  const faces = await Promise.all(FACES.map((face) => bytesOf("fonts/" + face)));
+  faces.forEach((bytes, i) => {
+    if (i === 0) web.addFont("Open Sans", bytes);
+    else web.addFace(bytes);
+  });
+  // …and the same bytes to the browser, which is what the canvas rasterises
+  // with. This page used to declare the files in CSS instead, and the browser
+  // loaded four of them a second time: a CSS font request and a `fetch()` are
+  // not the same request.
+  await registerFaces(FACES.map((file, i) => ({ bytes: faces[i], ...FACE_CSS[file] })));
+  await document.fonts.ready;
   for (const fam of FAMILIES) web.noteFamily(fam);
   // The DrawingML preset geometries, for the shape picker.
   //
@@ -151,8 +173,7 @@ async function boot() {
   // each and refuses to insert one — which looks like a rendering bug rather
   // than a missing asset, because the emoji beside them are fine.
   try {
-    const presets = await fetch("./presets.txt" + q, { cache: "no-store" });
-    if (presets.ok) web.loadPresets(await presets.text());
+    web.loadPresets(await textOf("presets.txt"));
   } catch (e) {
     /* the picker still lists them; it simply cannot draw them */
   }
@@ -239,7 +260,7 @@ async function bundledPictures() {
 /** The fixture library that ships in the build, opened as if it were dropped. */
 async function openBundledAlbum() {
   const wanted = new URLSearchParams(location.search).get("albumName") || "";
-  const xml = await fetch("./fixtures/AlbumData.xml").then((r) => r.text());
+  const xml = await textOf("fixtures/AlbumData.xml");
   const files = [new File([xml], "AlbumData.xml", { type: "text/xml" }), ...(await bundledPictures())];
   return openAlbum(files, wanted);
 }

@@ -9,6 +9,9 @@
  * now, and the browser draws them.
  */
 import { renderDisplayList, loadImages, setFontFallback } from "./gl/evg-webgl.js";
+// The assets this page's head started fetching before the body was parsed —
+// see gallery/evg/web/tools/inline-assets.mjs, which writes that head.
+import { bytesOf, asRangerBuffer } from "./evg/assets-client.mjs";
 
 // The page watches for this: if the imports above fail, nothing below runs
 // and the only evidence anywhere is a 404 in the network panel.
@@ -84,18 +87,8 @@ async function registerBrowserFaces(bytes) {
   }));
 }
 
-const DOCUMENT = "./document.docx";
+const DOCUMENT = "document.docx";
 
-function asRangerBuffer(ab) {
-  ab._view = new DataView(ab);
-  return ab;
-}
-
-async function bytesOf(url) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(url + " → " + res.status);
-  return asRangerBuffer(await res.arrayBuffer());
-}
 
 /**
  * The engine is a classic <script> beside this module, and it is BUILT rather
@@ -551,7 +544,7 @@ async function selftest() {
 
 async function boot() {
   statusEl.textContent = "loading fonts";
-  const faces = await Promise.all(FONTS.map(([, file]) => bytesOf("./fonts/" + file)));
+  const faces = await Promise.all(FONTS.map(([, file]) => bytesOf("fonts/" + file)));
   FONTS.forEach(([family], i) => {
     if (family) web.addFont(family, faces[i]);
     else web.addFace(faces[i]);

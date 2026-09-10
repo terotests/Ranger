@@ -12,6 +12,10 @@
  */
 import { renderDisplayList, loadImages, markColoredSlots, verbatim, setFontFallback } from "./gl/evg-webgl.js";
 import { attachPointer, attachKeys, createMediaCache, decodeScene, sceneStamp } from "./host/pptx-host.mjs";
+// The assets this page's head started fetching before the body was parsed —
+// see gallery/evg/web/tools/inline-assets.mjs, which writes that head, and
+// assets-client.mjs, which is this half of it.
+import { responseFor, bytesOf, asRangerBuffer } from "./evg/assets-client.mjs";
 
 // The page watches for this: if the imports above fail, nothing below runs
 // and the only evidence anywhere is a 404 in the network panel.
@@ -99,18 +103,7 @@ async function registerBrowserFaces(bytes) {
     }
   }));
 }
-const DECK = "./deck.pptx";
-
-function asRangerBuffer(ab) {
-  ab._view = new DataView(ab);
-  return ab;
-}
-
-async function bytesOf(url) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(url + " → " + res.status);
-  return asRangerBuffer(await res.arrayBuffer());
-}
+const DECK = "deck.pptx";
 
 /**
  * The engine is a classic <script> beside this module, and it is BUILT rather
@@ -1430,7 +1423,7 @@ async function selftest() {
 
 async function boot() {
   statusEl.textContent = "loading fonts";
-  const faces = await Promise.all(FONTS.map(([, file]) => bytesOf("./fonts/" + file)));
+  const faces = await Promise.all(FONTS.map(([, file]) => bytesOf("fonts/" + file)));
   FONTS.forEach(([family], i) => {
     if (family) web.addFont(family, faces[i]);
     else web.addFace(faces[i]);
@@ -1447,8 +1440,8 @@ async function boot() {
   // typed in — 153 of them — comes out as a rectangle.
   statusEl.textContent = "loading shapes";
   try {
-    const presets = await fetch("./presets.txt");
-    if (presets.ok) web.loadPresets(await presets.text());
+    const presets = await responseFor("presets.txt");
+    if (!(presets instanceof Error) && presets.ok) web.loadPresets(await presets.text());
   } catch (e) {
     // A page that cannot reach the catalogue still opens the deck; it draws
     // the shapes it always drew. Failing the whole load over it would be
@@ -1463,7 +1456,7 @@ async function boot() {
   const wanted = new URLSearchParams(location.search).get("open");
   const openName = wanted && /^[\w.-]+$/.test(wanted) ? wanted : null;
   statusEl.textContent = "loading " + (openName || "deck");
-  const deck = await bytesOf(openName ? "./" + openName : DECK);
+  const deck = await bytesOf(openName || DECK);
   if (web.openDeck(deck, openName || "deck.pptx")) {
     statusEl.textContent = web.deckName() + " · " + web.status()
       + (web.readOnly && web.readOnly() ? " · read-only" : "");
