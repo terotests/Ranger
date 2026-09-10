@@ -1,0 +1,156 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; md_bench.rgr — how long a document takes, per stage.
+; ============================================================================
+;
+;   npm run markdown:bench
+;
+; The page claims a keystroke is a function call. That claim has a budget
+; behind it — one frame, for the documents the page opens with — and a claim
+; with a budget is worth measuring rather than repeating.
+;
+; Four stages, timed separately, because they fail differently: the PARSE is
+; linear in the text, the LAYOUT is linear in the words and needs the font,
+; the DIAGRAMS run a graph layout each, and the DISPLAY LIST walks the boxes.
+; A document that is slow tells you which of the four to look at.
+;
+; The corpus is this repository: its README is 63 KB and its ISSUES.md is
+; 138 KB, which is larger than anything a reader is likely to paste in.
+; ============================================================================
+
+Import "../src/MdBlock.rgr"
+Import "../src/MdLayout.rgr"
+Import "../src/MdToEvg.rgr"
+Import "../src/MdMermaid.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+Import "../../pdf_writer/src/fonts/FontManager.rgr"
+
+class MdBench {
+    def fontManager:FontManager (new FontManager())
+    def fontsLoaded:boolean false
+
+    Constructor () {
+    }
+
+    sfn main:void () {
+        def b:MdBench (new MdBench())
+        b.loadFonts()
+        print ""
+        print "  file                 bytes   parse  layout  diagrams     evg   list   total"
+        print "  ───────────────────────────────────────────────────────────────────────────"
+        def argc:int (shell_arg_cnt)
+        if (argc > 0) {
+            def i:int 0
+            while (i < argc) {
+                b.run((shell_arg i))
+                i = (i + 1)
+            }
+        } {
+            b.run("gallery/markdown/fixtures/sample.md")
+            b.run("gallery/markdown/fixtures/mermaid.md")
+            b.run("gallery/markdown/fixtures/code.md")
+            b.run("README.md")
+            b.run("ISSUES.md")
+            b.run("CHANGELOG.md")
+        }
+        print ""
+    }
+
+    fn loadFonts:void () {
+        fontManager.addFontsDirectory("gallery/pdf_writer/assets/fonts")
+        this.loadFamily("Open_Sans" "OpenSans")
+        this.loadFamily("Noto_Sans" "NotoSans")
+        def n:int (fontManager.getFontCount())
+        fontsLoaded = (n > 0)
+    }
+
+    fn loadFamily:void (dirName:string prefix:string) {
+        fontManager.loadFont(((dirName + "/") + (prefix + "-Regular.ttf")))
+        fontManager.loadFont(((dirName + "/") + (prefix + "-Bold.ttf")))
+        fontManager.loadFont(((dirName + "/") + (prefix + "-Italic.ttf")))
+        fontManager.loadFont(((dirName + "/") + (prefix + "-BoldItalic.ttf")))
+    }
+
+    fn run:void (path:string) {
+        def text:string (?? (read_file "." path) "")
+        def bytes:int (strlen text)
+        if (bytes == 0) {
+            print (("  " + path) + "  — could not read it")
+            return
+        }
+        def measurer:TTFTextMeasurer (new TTFTextMeasurer(fontManager))
+
+        def t0:double (wall_clock_ms)
+        def doc:MdNode (MdBlock.parseText(text))
+        def t1:double (wall_clock_ms)
+
+        def l:MdLayout (new MdLayout())
+        if fontsLoaded {
+            l.setMeasurer(measurer)
+        }
+        l.applyMeta(doc)
+        def cw:double (820.0 - (l.style.margin * 2.0))
+        MdMermaid.prepare(doc l.embeds cw "default")
+        def t2:double (wall_clock_ms)
+
+        l.layoutContinuous(doc 820.0)
+        def t3:double (wall_clock_ms)
+
+        def root:EVGElement (MdToEvg.buildPage(l 820.0))
+        def le:EVGLayout (new EVGLayout())
+        if fontsLoaded {
+            le.setMeasurer(measurer)
+        }
+        le.setPageSize(820.0 l.documentHeight)
+        le.layout(root)
+        def t35:double (wall_clock_ms)
+        def dl:EVGDisplayList (new EVGDisplayList())
+        dl.build(root)
+        def t4:double (wall_clock_ms)
+
+        def parseMs:double (t1 - t0)
+        def diagramMs:double (t2 - t1)
+        def layoutMs:double (t3 - t2)
+        def evgMs:double (t35 - t3)
+        def listMs:double (t4 - t35)
+        def totalMs:double (t4 - t0)
+
+        def name:string (MdBench.pad(path 20))
+        def line:string ("  " + name)
+        line = (line + (MdBench.padLeft((to_string bytes) 8)))
+        line = (line + (MdBench.padLeft((MdBench.ms(parseMs)) 8)))
+        line = (line + (MdBench.padLeft((MdBench.ms(layoutMs)) 8)))
+        line = (line + (MdBench.padLeft((MdBench.ms(diagramMs)) 10)))
+        line = (line + (MdBench.padLeft((MdBench.ms(evgMs)) 8)))
+        line = (line + (MdBench.padLeft((MdBench.ms(listMs)) 7)))
+        line = (line + (MdBench.padLeft((MdBench.ms(totalMs)) 8)))
+        print line
+    }
+
+    ; One decimal, without a formatter. `to_string` on a double prints
+    ; whatever the target prints, and three targets print three things.
+    sfn ms:string (v:double) {
+        def tenths:int (to_int ((v * 10.0) + 0.5))
+        def whole:int (idiv tenths 10)
+        def rest:int (tenths % 10)
+        return ((to_string whole) + "." + (to_string rest))
+    }
+
+    sfn pad:string (v:string n:int) {
+        def out:string v
+        while ((strlen out) < n) {
+            out = (out + " ")
+        }
+        return out
+    }
+
+    sfn padLeft:string (v:string n:int) {
+        def out:string v
+        while ((strlen out) < n) {
+            out = (" " + out)
+        }
+        return out
+    }
+}

@@ -52,7 +52,54 @@ class MdToEvg {
     }
 
     ; ----------------------------------------------------------------------
-    ; Sheets. What is printed.
+    ; Sheets, stacked. What a reader scrolls through before printing.
+    ; ----------------------------------------------------------------------
+    ;
+    ; The same pages the PDF gets, one under the other with a gap, so the
+    ; breaks a reader sees on screen are the breaks the printer makes. One
+    ; tree rather than one per page: the canvas and the HTML preview both want
+    ; a single thing to lay out, and a sheet is an absolutely placed box like
+    ; any other.
+    sfn buildSheets:EVGElement (layout:MdLayout gap:double) {
+        def pw:double layout.style.pageWidth
+        def ph:double layout.style.pageHeight
+        def n:int layout.pageCount
+        def total:double (((to_double n) * (ph + gap)) - gap)
+        def root:EVGElement (EVGElement.createDiv())
+        root.width = (EVGUnit.px(pw))
+        root.height = (EVGUnit.px(total))
+        root.pageWidth = pw
+        root.pageHeight = total
+        root.position = "relative"
+        root.backgroundColor = (EVGColor.parse("#eef0f4"))
+        def p:int 0
+        while (p < n) {
+            def dy:double ((to_double p) * (ph + gap))
+            ; The paper is a rectangle in the same tree as everything else,
+            ; and the page's boxes are offset onto it rather than nested
+            ; inside it. Nesting reads better and costs the diagrams: a
+            ; scene's paths are placed by the box their container gives them,
+            ; and a container one level deeper does not give them one.
+            def paper:EVGElement (EVGElement.createDiv())
+            paper.position = "absolute"
+            paper.left = (EVGUnit.px(0.0))
+            paper.top = (EVGUnit.px(dy))
+            paper.width = (EVGUnit.px(pw))
+            paper.height = (EVGUnit.px(ph))
+            paper.backgroundColor = (EVGColor.parse("#ffffff"))
+            root.addChild(paper)
+            MdToEvg.fill(root layout p dy)
+            p = (p + 1)
+        }
+        return root
+    }
+
+    sfn sheetGap:double () {
+        return 24.0
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Sheets, separately. What is printed.
     ; ----------------------------------------------------------------------
     sfn buildPrint:EVGElement (layout:MdLayout) {
         def root:EVGElement (EVGElement.createDiv())

@@ -88,6 +88,7 @@ class MdDemo {
         ; prepared at the width of the column they will land in, so a printed
         ; diagram is laid out at the printed width rather than scaled from a
         ; screen — which is the whole reason to keep it as geometry.
+        paged.applyMeta(doc)
         def printWidth:double (paged.style.pageWidth - (paged.style.margin * 2.0))
         MdMermaid.prepare(doc paged.embeds printWidth "default")
         def diagrams:int (paged.embeds.count())
@@ -109,6 +110,7 @@ class MdDemo {
         if fontsLoaded {
             flowing.setMeasurer(measurer)
         }
+        flowing.applyMeta(doc)
         def screenWidth:double (820.0 - (flowing.style.margin * 2.0))
         MdMermaid.prepare(doc flowing.embeds screenWidth "default")
         flowing.layoutContinuous(doc 820.0)
@@ -135,6 +137,24 @@ class MdDemo {
         def htmlPath:string (((outDir + "/") + stem) + ".html")
         write_file "." htmlPath htmlOut
 
+        ; ---- and the sheets, as they will print --------------------------
+        def sheets:EVGElement (MdToEvg.buildSheets(paged (MdToEvg.sheetGap())))
+        def sheetsHtml (new EVGHTMLRenderer())
+        def gap:double (MdToEvg.sheetGap())
+        def stackH:double (((to_double paged.pageCount) * (paged.style.pageHeight + gap)) - gap)
+        sheetsHtml.setPageSize(paged.style.pageWidth stackH)
+        sheetsHtml.setTitle((stem + " — sheets"))
+        if fontsLoaded {
+            sheetsHtml.setFontManager(fontManager)
+            sheetsHtml.setMeasurer(measurer)
+            sheetsHtml.setEmbedAssets(true)
+            MdDemo.registerFaces(sheetsHtml "Open Sans" "Open_Sans" "OpenSans")
+            MdDemo.registerFaces(sheetsHtml "Noto Sans" "Noto_Sans" "NotoSans")
+        }
+        def sheetsOut:string (sheetsHtml.render(sheets))
+        def sheetsPath:string (((outDir + "/") + stem) + "-sheets.html")
+        write_file "." sheetsPath sheetsOut
+
         print ""
         print (("  " + input) + ":")
         def boxCount:int (array_length paged.boxes)
@@ -146,6 +166,7 @@ class MdDemo {
         print (("    scroll      " + (to_string tall)) + " pt tall")
         print ("    " + pdfPath)
         print ("    " + htmlPath)
+        print ("    " + sheetsPath)
         print ""
     }
 

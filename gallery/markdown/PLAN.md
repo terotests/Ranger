@@ -43,7 +43,8 @@ the design, including the parts that are not written.
 | **`mermaid`** | the fence, drawn (§7) | **done** — `MermaidRender` extracted, all 26 dialects, geometry not raster |
 | **4** | the page: canvas, panes, sync | **done** — `/markdown/`, 14 checks in headless Chrome |
 | **5** | PDF in the tab | **done** — same layout, faces embedded, right page count |
-| **6** | highlighting, TOC, incremental reparse | not started |
+| **6** | highlighting, TOC, page furniture | **done** — 14 languages, a two-pass contents, running heads and folios |
+| **6b** | incremental reparse | **measured, not done** — `markdown:bench` says 382 ms at 63 KB against a one-frame budget, and says why |
 
 Two things the building changed about the design, both recorded here rather
 than quietly:
@@ -758,7 +759,7 @@ hour until the fifth failing example.
 | --- | --- | --- |
 | Emphasis and link resolution take longer than planned | likely | it is phase 1, with the score visible from the first day, so slippage shows as a number rather than as a surprise |
 | `RichDocument` resists markdown and the four additions become fourteen | possible | phase 3 is where this is discovered. The fallback is a markdown-owned layout model, which costs the DOCX-export bonus and nothing else |
-| The reparse budget is missed on a large document | possible | measured in phase 4 and fixed in phase 6, with the scoped-reparse plan in §9 already written down |
+| The reparse budget is missed on a large document | **it is** | `markdown:bench` measures it: 382 ms at 63 KB against a one-frame budget. The parse is not the problem (18 ms of it); over half is `EVGLayout` re-deriving positions this module already computed. Two fixes, in order: pre-size the elements this module owns so that pass can be skipped, then the scoped reparse in §9 |
 | `EVGPDFRenderer` turns out to touch a path in the browser | low | phase 0 asks, in twelve lines, before anything depends on the answer |
 | Mermaid's dialect moves and the extracted door falls behind | ongoing | the same risk `rangerflow:mermaid:parity` already tracks; sharing one door means one thing to keep current, not two |
 | The paged view and the PDF disagree | low | they are the same call with a different backend. The visual test diffs them |

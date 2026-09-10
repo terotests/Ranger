@@ -25,6 +25,8 @@ Import "../src/MdToHtml.rgr"
 Import "../src/MdLayout.rgr"
 Import "../src/MdToEvg.rgr"
 Import "../src/MdMermaid.rgr"
+Import "../src/MdCodeHighlight.rgr"
+Import "../src/MdFrontMatter.rgr"
 Import "../../evg/EVGLayout.rgr"
 Import "../../evg/EVGDisplayList.rgr"
 
@@ -85,6 +87,9 @@ class MarkdownTest {
         this.layout()
         this.evg()
         this.mermaid()
+        this.highlight()
+        this.frontMatter()
+        this.furniture()
         print ""
         def p:string (to_string passed)
         def f:string (to_string failed)
@@ -378,6 +383,169 @@ class MarkdownTest {
         def i:int 0
         while ((i + n) <= m) {
             if ((substring v i (i + n)) == needle) { return true }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; ----------------------------------------------------------------------
+    ; Code, coloured
+    ; ----------------------------------------------------------------------
+    fn highlight:void () {
+        def js:MdLanguage (MdCodeHighlight.languageFor("js"))
+        this.ok("js is known" js.known)
+        def one:MdHighlightedLine (MdCodeHighlight.line("const x = 1; // note" js 0))
+        def kinds:string (MarkdownTest.kindsOf(one))
+        ; keyword, plain, number, plain, comment — in that order
+        this.ok("keyword found" (MarkdownTest.hasSub(kinds "1")))
+        this.ok("number found" (MarkdownTest.hasSub(kinds "4")))
+        this.ok("comment found" (MarkdownTest.hasSub(kinds "3")))
+        this.eqInt("line ends outside a comment" one.state 0)
+
+        ; a string, and the escape inside it
+        def two:MdHighlightedLine (MdCodeHighlight.line("var s = \"a\\\"b\";" js 0))
+        this.ok("string found" (MarkdownTest.hasSub((MarkdownTest.kindsOf(two)) "2")))
+
+        ; a block comment crosses lines, and the state says so
+        def open:MdHighlightedLine (MdCodeHighlight.line("/* opened" js 0))
+        this.eqInt("block comment stays open" open.state 1)
+        def mid:MdHighlightedLine (MdCodeHighlight.line("still comment" js 1))
+        this.eq("a continued comment is all comment" (MarkdownTest.kindsOf(mid)) "3")
+        def close:MdHighlightedLine (MdCodeHighlight.line("done */ const y = 2" js 1))
+        this.eqInt("and it closes" close.state 0)
+        this.ok("code after the comment" (MarkdownTest.hasSub((MarkdownTest.kindsOf(close)) "1")))
+
+        ; `;` opens a comment in Ranger and divides in JavaScript
+        def rgr:MdLanguage (MdCodeHighlight.languageFor("rgr"))
+        def r1:MdHighlightedLine (MdCodeHighlight.line("def x:int 1  ; a note" rgr 0))
+        this.ok("ranger comment" (MarkdownTest.hasSub((MarkdownTest.kindsOf(r1)) "3")))
+
+        ; an unknown language still gets its strings, and no keywords
+        def none:MdLanguage (MdCodeHighlight.languageFor("brainfuck"))
+        this.ok("unknown language" (! none.known))
+
+        ; and the layout really emits one box per token
+        def doc:MdNode (MdBlock.parseText("```js\nconst x = 1;\n```\n"))
+        def l:MdLayout (new MdLayout())
+        l.layoutContinuous(doc 400.0)
+        def colours:int (MarkdownTest.distinctColours(l))
+        this.ok("a code block has several colours" (colours >= 3))
+    }
+
+    sfn kindsOf:string (line:MdHighlightedLine) {
+        def out:string ""
+        def i:int 0
+        def n:int (array_length line.tokens)
+        while (i < n) {
+            def t:MdToken (itemAt line.tokens i)
+            out = (out + (to_string t.kind))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn distinctColours:int (l:MdLayout) {
+        def seen:[string]
+        def i:int 0
+        def n:int (array_length l.boxes)
+        while (i < n) {
+            def b:MdBox (itemAt l.boxes i)
+            if (b.kind == 0) {
+                def known:boolean false
+                def j:int 0
+                def m:int (array_length seen)
+                while (j < m) {
+                    if ((itemAt seen j) == b.color) { known = true }
+                    j = (j + 1)
+                }
+                if (! known) { push seen b.color }
+            }
+            i = (i + 1)
+        }
+        return (array_length seen)
+    }
+
+    ; ----------------------------------------------------------------------
+    ; The metadata block
+    ; ----------------------------------------------------------------------
+    fn frontMatter:void () {
+        def doc:MdNode (MdBlock.parseText("---\ntitle: T\npage: A5\nmargin: 20mm\ntoc: true\n# a comment\n---\n\n# H\n"))
+        def meta:MdMeta (MdFrontMatter.of(doc))
+        this.eqInt("four keys, not the comment" (meta.count()) 4)
+        this.eq("title" (meta.get("title" "")) "T")
+        this.ok("toc" (meta.flag("toc" false)))
+        this.ok("absent flag keeps its default" (meta.flag("nosuch" true)))
+
+        ; lengths, in the units people write them in
+        def mm:double (MdFrontMatter.points("20mm" 0.0))
+        this.ok("20mm is about 56.7pt" ((mm > 56.6) && (mm < 56.8)))
+        def inch:double (MdFrontMatter.points("0.75in" 0.0))
+        this.ok("0.75in is 54pt" ((inch > 53.9) && (inch < 54.1)))
+        def bare:double (MdFrontMatter.points("48" 0.0))
+        this.ok("a bare number is points" ((bare > 47.9) && (bare < 48.1)))
+        def bad:double (MdFrontMatter.points("wide" 12.0))
+        this.ok("nonsense keeps the default" ((bad > 11.9) && (bad < 12.1)))
+
+        ; the named sizes, and one given as a measurement
+        def a5w:double (MdFrontMatter.pageWidth("A5" 0.0))
+        this.ok("A5 width" ((a5w > 419.0) && (a5w < 420.0)))
+        def customH:double (MdFrontMatter.pageHeight("210x297mm" 0.0))
+        this.ok("210x297mm is 841pt tall" ((customH > 841.0) && (customH < 842.5)))
+        def customW:double (MdFrontMatter.pageWidth("210x297mm" 0.0))
+        this.ok("…and 595pt wide — the unit is shared" ((customW > 594.0) && (customW < 596.0)))
+
+        ; and it reaches the layout
+        def l:MdLayout (new MdLayout())
+        l.applyMeta(doc)
+        this.ok("the page shrank to A5" (l.style.pageWidth < 500.0))
+        this.eq("the title is kept" l.style.title "T")
+        this.ok("the contents were asked for" l.style.wantToc)
+
+        ; a document with no front matter is untouched
+        def plain:MdNode (MdBlock.parseText("# H\n"))
+        def l2:MdLayout (new MdLayout())
+        l2.applyMeta(plain)
+        this.ok("A4 by default" (l2.style.pageWidth > 500.0))
+    }
+
+    ; ----------------------------------------------------------------------
+    ; What sits in the margins
+    ; ----------------------------------------------------------------------
+    fn furniture:void () {
+        def src:string "---\ntitle: T\nrunningHead: title\npageNumbers: bottom-center\ntoc: true\n---\n\n# One\n\ntext\n\n## Two\n\nmore\n"
+        def doc:MdNode (MdBlock.parseText(src))
+        def l:MdLayout (new MdLayout())
+        l.applyMeta(doc)
+        l.layoutPaged(doc)
+
+        ; the contents list both headings, with the page each is on
+        def hasOne:boolean (MarkdownTest.hasText(l "One"))
+        def hasTwo:boolean (MarkdownTest.hasText(l "Two"))
+        this.ok("contents lists the first heading" hasOne)
+        this.ok("contents lists the second" hasTwo)
+        this.ok("a Contents heading" (MarkdownTest.hasText(l "Contents")))
+        ; the running head, and the folio
+        this.ok("the folio is drawn" (MarkdownTest.hasText(l "1")))
+
+        ; both headings are recorded with the page they start on
+        this.eqInt("two headings recorded" (array_length l.headPage) 2)
+
+        ; without front matter there is no furniture and no contents
+        def bare:MdNode (MdBlock.parseText("# One\n\ntext\n"))
+        def l2:MdLayout (new MdLayout())
+        l2.applyMeta(bare)
+        l2.layoutPaged(bare)
+        this.ok("no contents when none was asked for" (! (MarkdownTest.hasText(l2 "Contents"))))
+    }
+
+    sfn hasText:boolean (l:MdLayout what:string) {
+        def i:int 0
+        def n:int (array_length l.boxes)
+        while (i < n) {
+            def b:MdBox (itemAt l.boxes i)
+            if (b.kind == 0) {
+                if (b.text == what) { return true }
+            }
             i = (i + 1)
         }
         return false

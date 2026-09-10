@@ -36,6 +36,8 @@
 Import "MdNode.rgr"
 Import "MdChar.rgr"
 Import "MdEmbed.rgr"
+Import "MdCodeHighlight.rgr"
+Import "MdFrontMatter.rgr"
 Import "../../evg/EVGTextEngine.rgr"
 
 ; ----------------------------------------------------------------------------
@@ -69,6 +71,14 @@ class MdStyle {
     def codePadding:double 9.0
     def codeBackground:string "#f6f8fa"
     def codeBorder:string "#e2e6ea"
+    ; The five colours a listing is read with. Not a theme yet — the values a
+    ; stylesheet will set, in one place.
+    def codeKeyword:string "#cf222e"
+    def codeString:string "#0a3069"
+    def codeComment:string "#6e7781"
+    def codeNumber:string "#0550ae"
+    def codePlain:string "#1f2328"
+    def highlightCode:boolean true
 
     def textColor:string "#1f2328"
     def mutedColor:string "#57606a"
@@ -91,11 +101,31 @@ class MdStyle {
     def pageHeight:double 841.89
     def margin:double 56.0
 
+    ; Page furniture. All off by default: a document that said nothing about
+    ; itself gets a plain page, which is what a README wants.
+    def title:string ""
+    ; "" | "title" | "h1"
+    def runningHead:string ""
+    ; "" | "bottom-center" | "bottom-right" | "bottom-outer"
+    def pageNumbers:string ""
+    def wantToc:boolean false
+    def breakOnH1:boolean false
+    def furnitureSize:double 8.5
+
     ; An embedded diagram that is wider than the column is scaled down to it,
     ; never up: a three-node flowchart should not become a poster.
     def embedSpacing:double 12.0
 
     Constructor () {
+    }
+
+    ; The colour a token of that kind is set in.
+    fn codeColor:string (kind:int) {
+        if (kind == 1) { return codeKeyword }
+        if (kind == 2) { return codeString }
+        if (kind == 3) { return codeComment }
+        if (kind == 4) { return codeNumber }
+        return codePlain
     }
 
     fn headingSize:double (level:int) {
@@ -273,6 +303,22 @@ class MdLayout {
     ; source it came from.
     def currentSrc:int -1
 
+    ; The headings this document has, and the page each landed on. Collected
+    ; while laying out; used by the table of contents on the pass after.
+    def headText:[string]
+    def headLevel:[int]
+    def headPage:[int]
+    def headY:[double]
+    ; What a previous pass learned, so the table of contents can print page
+    ; numbers that are right. All three, not just the pages: on the second
+    ; pass the live tables above are still being filled in AS the contents
+    ; print, so reading them there lists whatever has been seen so far —
+    ; which is one heading.
+    def knownPages:[int]
+    def knownText:[string]
+    def knownLevel:[int]
+    def tocLines:int 0
+
     Constructor () {
     }
 
@@ -284,9 +330,36 @@ class MdLayout {
     ; Entry points
     ; ----------------------------------------------------------------------
 
+    ; Front matter into the look of the page. Called before either layout;
+    ; a document with no front matter is unchanged by it.
+    fn applyMeta:void (doc:MdNode) {
+        def meta:MdMeta (MdFrontMatter.of(doc))
+        if ((meta.count()) == 0) { return }
+        def page:string (meta.get("page" ""))
+        def plen:int (strlen page)
+        if (plen > 0) {
+            style.pageWidth = (MdFrontMatter.pageWidth(page style.pageWidth))
+            style.pageHeight = (MdFrontMatter.pageHeight(page style.pageHeight))
+        }
+        def margin:string (meta.get("margin" ""))
+        def mlen:int (strlen margin)
+        if (mlen > 0) {
+            style.margin = (MdFrontMatter.points(margin style.margin))
+        }
+        style.title = (meta.get("title" ""))
+        style.runningHead = (MdChar.lower((meta.get("runninghead" ""))))
+        style.pageNumbers = (MdChar.lower((meta.get("pagenumbers" ""))))
+        style.wantToc = (meta.flag("toc" false))
+        style.breakOnH1 = (meta.flag("breakonh1" false))
+        if (meta.has("highlight")) {
+            style.highlightCode = (meta.flag("highlight" true))
+        }
+    }
+
     ; One page, as tall as it needs to be. What the canvas scrolls.
     fn layoutContinuous:void (doc:MdNode width:double) {
         clear boxes
+        this.resetHeadings()
         paginate = false
         page = 0
         pageCount = 1
@@ -295,13 +368,14 @@ class MdLayout {
         contentTop = style.margin
         contentBottom = 0.0
         cursorY = contentTop
-        this.blocks(doc contentX contentW)
+        this.layoutBody(doc)
         documentHeight = (cursorY + style.margin)
     }
 
     ; Sheets of a stated size, with the breaks decided here. What is printed.
     fn layoutPaged:void (doc:MdNode) {
         clear boxes
+        this.resetHeadings()
         paginate = true
         page = 0
         pageCount = 1
@@ -310,8 +384,230 @@ class MdLayout {
         contentTop = style.margin
         contentBottom = (style.pageHeight - style.margin)
         cursorY = contentTop
-        this.blocks(doc contentX contentW)
+        this.layoutBody(doc)
+        this.emitFurniture()
         documentHeight = style.pageHeight
+    }
+
+    ; ----------------------------------------------------------------------
+    ; A table of contents, and what sits in the margins
+    ; ----------------------------------------------------------------------
+    ;
+    ; The contents are laid out TWICE, and the reason is the oldest one in
+    ; typesetting: the page numbers depend on where the blocks fall, and where
+    ; the blocks fall depends on how tall the contents are. So the first pass
+    ; reserves exactly the height the list will need — a number that does not
+    ; depend on the page numbers at all, only on how many headings there are —
+    ; and the second pass fills the reserved space in. Nothing moves between
+    ; the two, so the numbers are right rather than nearly right.
+    fn tocHeight:double () {
+        if (tocLines == 0) { return 0.0 }
+        def lh:double (style.bodySize * style.lineHeight)
+        def head:double ((style.h2Size * style.lineHeight) + style.headingSpaceAfter)
+        return (((head + (lh * (to_double tocLines))) + style.headingSpaceBefore) + style.paraSpacing)
+    }
+
+    fn emitToc:void (x:double w:double) {
+        if (tocLines == 0) { return }
+        def lh:double (style.bodySize * style.lineHeight)
+        cursorY = (cursorY + style.headingSpaceBefore)
+        def hy:double (this.reserve((style.h2Size * style.lineHeight)))
+        def h:MdBox (MdBox.text("Contents" x hy w (style.h2Size * style.lineHeight)))
+        h.family = style.headingFamily
+        h.size = style.h2Size
+        h.bold = true
+        h.color = style.textColor
+        this.emit(h)
+        cursorY = ((hy + (style.h2Size * style.lineHeight)) + style.headingSpaceAfter)
+
+        def i:int 0
+        def n:int (array_length knownPages)
+        while (i < n) {
+            def level:int (itemAt knownLevel i)
+            if (level <= 3) {
+                def y:double (this.reserve(lh))
+                def indent:double ((to_double (level - 1)) * 14.0)
+                def label:MdBox (MdBox.text((itemAt knownText i) (x + indent) y (w - indent) lh))
+                label.family = style.bodyFamily
+                label.size = style.bodySize
+                label.color = style.textColor
+                this.emit(label)
+                ; The page number, right-aligned against the column's edge.
+                def num:string (to_string ((itemAt knownPages i) + 1))
+                def probe:MdRun (new MdRun())
+                probe.family = style.bodyFamily
+                probe.size = style.bodySize
+                def nw:double (this.measureRun(num probe))
+                def nb:MdBox (MdBox.text(num ((x + w) - nw) y nw lh))
+                nb.family = style.bodyFamily
+                nb.size = style.bodySize
+                nb.color = style.mutedColor
+                this.emit(nb)
+                cursorY = (y + lh)
+            }
+            i = (i + 1)
+        }
+        cursorY = (cursorY + style.paraSpacing)
+    }
+
+    ; The running head and the folio, on every sheet. Emitted after the
+    ; content, because until then nobody knows how many sheets there are.
+    fn emitFurniture:void () {
+        if (! paginate) { return }
+        def wantHead:boolean ((strlen style.runningHead) > 0)
+        def wantNum:boolean ((strlen style.pageNumbers) > 0)
+        if ((! wantHead) && (! wantNum)) { return }
+        if (style.runningHead == "none") { wantHead = false }
+        if (style.pageNumbers == "none") { wantNum = false }
+        def savedPage:int page
+        def x:double contentX
+        def w:double contentW
+        def lh:double (style.furnitureSize * 1.3)
+        def p:int 0
+        while (p < pageCount) {
+            page = p
+            if wantHead {
+                def text:string (this.headFor(p))
+                def tlen:int (strlen text)
+                if (tlen > 0) {
+                    def hy:double ((contentTop - lh) - 6.0)
+                    def b:MdBox (MdBox.text(text x hy w lh))
+                    b.family = style.bodyFamily
+                    b.size = style.furnitureSize
+                    b.color = style.mutedColor
+                    this.emit(b)
+                    this.emit((MdBox.rect(x (contentTop - 5.0) w 0.5 style.ruleColor)))
+                }
+            }
+            if wantNum {
+                def num:string (to_string (p + 1))
+                def probe:MdRun (new MdRun())
+                probe.family = style.bodyFamily
+                probe.size = style.furnitureSize
+                def nw:double (this.measureRun(num probe))
+                def ny:double (contentBottom + 10.0)
+                def nx:double ((x + (w / 2.0)) - (nw / 2.0))
+                if (style.pageNumbers == "bottom-right") {
+                    nx = ((x + w) - nw)
+                }
+                if (style.pageNumbers == "bottom-outer") {
+                    ; Outer is right on a recto and left on a verso, counting
+                    ; the first sheet as page one.
+                    def recto:boolean ((p % 2) == 0)
+                    if recto { nx = ((x + w) - nw) } { nx = x }
+                }
+                def nb:MdBox (MdBox.text(num nx ny nw lh))
+                nb.family = style.bodyFamily
+                nb.size = style.furnitureSize
+                nb.color = style.mutedColor
+                this.emit(nb)
+            }
+            p = (p + 1)
+        }
+        page = savedPage
+    }
+
+    ; What the running head says on that sheet.
+    fn headFor:string (p:int) {
+        if (style.runningHead == "title") { return style.title }
+        if (style.runningHead != "h1") { return "" }
+        def best:string ""
+        def i:int 0
+        def n:int (array_length headText)
+        while (i < n) {
+            if ((itemAt headLevel i) == 1) {
+                if ((itemAt headPage i) <= p) {
+                    best = (itemAt headText i)
+                }
+            }
+            i = (i + 1)
+        }
+        return best
+    }
+
+    ; The body, in one pass or in two.
+    ;
+    ; Two when the document asked for a table of contents, because the page
+    ; numbers in it depend on where the blocks fall and where the blocks fall
+    ; depends on how tall it is. The first pass leaves a gap of exactly the
+    ; right height and learns the pages; the second fills the gap in. Nothing
+    ; moves between them.
+    fn layoutBody:void (doc:MdNode) {
+        tocLines = 0
+        if style.wantToc {
+            tocLines = (MdLayout.countHeadings(doc))
+        }
+        if (tocLines == 0) {
+            this.bodyPass(doc 0)
+            return
+        }
+        this.bodyPass(doc 1)
+        clear knownPages
+        clear knownText
+        clear knownLevel
+        def i:int 0
+        def n:int (array_length headPage)
+        while (i < n) {
+            push knownPages (itemAt headPage i)
+            push knownText (itemAt headText i)
+            push knownLevel (itemAt headLevel i)
+            i = (i + 1)
+        }
+        clear boxes
+        this.resetHeadings()
+        page = 0
+        pageCount = 1
+        cursorY = contentTop
+        this.bodyPass(doc 2)
+    }
+
+    ; `mode`: 0 no contents, 1 reserve the space, 2 fill it in.
+    fn bodyPass:void (doc:MdNode mode:int) {
+        def placed:boolean (mode == 0)
+        def i:int 0
+        def n:int (doc.childCount())
+        while (i < n) {
+            def child:MdNode (doc.childAt(i))
+            this.block(child contentX contentW)
+            if (! placed) {
+                ; After the title, which is where a reader looks for it; at
+                ; the very top when the document has no heading at all.
+                def afterTitle:boolean (child.kind == "heading")
+                def atTop:boolean (child.kind == "front_matter")
+                if (afterTitle || (i == 0)) {
+                    if (! atTop) {
+                        if (mode == 1) {
+                            cursorY = (cursorY + (this.tocHeight()))
+                        } {
+                            this.emitToc(contentX contentW)
+                        }
+                        placed = true
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    sfn countHeadings:int (doc:MdNode) {
+        def c:int 0
+        def i:int 0
+        def n:int (doc.childCount())
+        while (i < n) {
+            def child:MdNode (doc.childAt(i))
+            if (child.kind == "heading") {
+                if (child.level <= 3) { c = (c + 1) }
+            }
+            i = (i + 1)
+        }
+        return c
+    }
+
+    fn resetHeadings:void () {
+        clear headText
+        clear headLevel
+        clear headPage
+        clear headY
     }
 
     ; Room for `h` more, or a new sheet. Returns the y to draw at.
@@ -428,6 +724,15 @@ class MdLayout {
     }
 
     fn heading:void (node:MdNode x:double w:double) {
+        if (style.breakOnH1 && (node.level == 1)) {
+            ; A chapter opener starts its own sheet — but not the first one,
+            ; which would be a blank page before the title.
+            if (paginate && ((array_length boxes) > 0)) {
+                page = (page + 1)
+                pageCount = (page + 1)
+                cursorY = contentTop
+            }
+        }
         def size:double (style.headingSize(node.level))
         def base:MdRun (new MdRun())
         base.family = style.headingFamily
@@ -436,6 +741,13 @@ class MdLayout {
         base.color = style.textColor
         def runs:[MdRun] (this.inlineRuns(node base))
         cursorY = (cursorY + style.headingSpaceBefore)
+        ; Recorded BEFORE the lines are placed, so the page is the page the
+        ; heading starts on rather than the one it may have spilled onto.
+        def at:double (this.reserve((size * style.lineHeight)))
+        push headText (node.plainText())
+        push headLevel node.level
+        push headPage page
+        push headY at
         this.paragraph(runs x w)
         if (node.level <= 2) {
             def y:double cursorY
@@ -461,18 +773,74 @@ class MdLayout {
         this.emit((MdBox.rect(x y w boxH style.codeBackground)))
         this.emit((MdBox.outline(x y w boxH style.codeBorder 1.0)))
         def ty:double (y + style.codePadding)
+        def lang:MdLanguage (MdCodeHighlight.languageFor((MdLayout.firstWord(node.info))))
+        def state:int 0
+        def tx0:double (x + style.codePadding)
         def i:int 0
         while (i < count) {
             def ln:string (itemAt lines i)
-            def b:MdBox (MdBox.text(ln (x + style.codePadding) ty (w - (style.codePadding * 2.0)) lh))
-            b.family = style.monoFamily
-            b.size = style.codeSize
-            b.color = style.textColor
-            this.emit(b)
+            if style.highlightCode {
+                def hl:MdHighlightedLine (MdCodeHighlight.line(ln lang state))
+                state = hl.state
+                this.codeLine(hl tx0 ty lh)
+            } {
+                def b:MdBox (MdBox.text(ln tx0 ty (w - (style.codePadding * 2.0)) lh))
+                b.family = style.monoFamily
+                b.size = style.codeSize
+                b.color = style.textColor
+                this.emit(b)
+            }
             ty = (ty + lh)
             i = (i + 1)
         }
         cursorY = ((y + boxH) + style.paraSpacing)
+    }
+
+    ; One line of code, token by token. Each is measured and placed after the
+    ; one before it, exactly as a paragraph's segments are — the face is the
+    ; same for all of them, so what varies is only the colour, and the run
+    ; still has to be measured because the face is not monospaced.
+    fn codeLine:void (hl:MdHighlightedLine x0:double y:double lh:double) {
+        def probe:MdRun (new MdRun())
+        probe.family = style.monoFamily
+        probe.size = style.codeSize
+        def cx:double x0
+        def i:int 0
+        def n:int (array_length hl.tokens)
+        while (i < n) {
+            def t:MdToken (itemAt hl.tokens i)
+            def tlen:int (strlen t.text)
+            if (tlen > 0) {
+                ; The whitespace at either end of a token is laid as advance
+                ; rather than as text — the same rule a paragraph's segments
+                ; follow, and for the same reason: a space has no glyph, and a
+                ; consumer that trims the edges of a text run then draws the
+                ; geometry the PDF draws. Without it `const frame` prints
+                ; correctly and previews as `constframe`.
+                def lead:int (MdLayout.leadingSpaces(t.text))
+                def trail:int (MdLayout.trailingSpaces(t.text tlen lead))
+                if (lead > 0) {
+                    def gap:string (substring t.text 0 lead)
+                    cx = (cx + (this.measureRun(gap probe)))
+                }
+                def core:string (substring t.text lead (tlen - trail))
+                def clen:int (strlen core)
+                if (clen > 0) {
+                    def wid:double (this.measureRun(core probe))
+                    def b:MdBox (MdBox.text(core cx y wid lh))
+                    b.family = style.monoFamily
+                    b.size = style.codeSize
+                    b.color = (style.codeColor(t.kind))
+                    this.emit(b)
+                    cx = (cx + wid)
+                }
+                if (trail > 0) {
+                    def tail:string (substring t.text (tlen - trail) tlen)
+                    cx = (cx + (this.measureRun(tail probe)))
+                }
+            }
+            i = (i + 1)
+        }
     }
 
     fn blockQuote:void (node:MdNode x:double w:double) {
@@ -941,6 +1309,30 @@ class MdLayout {
         cur.ascent = ascent
         cur.width = width
         return cur
+    }
+
+    sfn leadingSpaces:int (v:string) {
+        def n:int (strlen v)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt v i)
+            if (! (MdChar.isSpaceOrTab(c))) { return i }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn trailingSpaces:int (v:string n:int lead:int) {
+        def i:int n
+        def going:boolean true
+        while going {
+            if (i <= lead) { going = false }
+            if going {
+                def c:int (charAt v (i - 1))
+                if (MdChar.isSpaceOrTab(c)) { i = (i - 1) } { going = false }
+            }
+        }
+        return (n - i)
     }
 
     sfn trimTrailing:string (v:string) {

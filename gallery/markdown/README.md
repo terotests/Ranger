@@ -6,12 +6,13 @@ document, measured once, comes out as a PDF with its fonts embedded and as a
 display list a GPU can paint.
 
 ```bash
-npm run markdown:test          # 73 assertions on the parser, the layout, the diagrams
-npm run markdown:test:go       # …the same 73 compiled to Go (and :python to Python)
+npm run markdown:test          # 107 assertions on the parser, the layout, the diagrams
+npm run markdown:test:go       # …the same 107 compiled to Go (and :python to Python)
 npm run markdown:spec          # score against CommonMark's own 652 examples
 npm run markdown:demo          # the samples and this repository's README → PDF + HTML
 npm run markdown:pdf -- FILE   # …any file you name
 npm run markdown:embed         # where every diagram's marks actually landed
+npm run markdown:bench         # how long each stage takes, per document
 npm run markdown:web:serve     # the viewer, in a browser, with no server behind it
 npm run markdown:web:test      # …and drive it in headless Chrome
 ```
@@ -84,18 +85,22 @@ src/
   MdLayout.rgr      the AST laid out: styles, runs, line breaking, pagination
   MdToEvg.rgr       boxes → EVGElement, continuous or `<print>`/`<page>`
   MdEmbed.rgr       the slot a fenced diagram fills, keyed by source and width
+  MdCodeHighlight.rgr  a small lexer, fourteen languages, five colours
+  MdFrontMatter.rgr    the YAML subset a metadata block actually uses
   MdMermaid.rgr     the ```mermaid handler — the only file that knows RangerFlow
   md_demo.rgr       the only file that touches a disk
 web/
   markdown_web.rgr  the host seam: the only file a browser talks to
   standalone/       build.sh, index.html, standalone.mjs, smoke.mjs
 tests/
-  MarkdownTest.rgr  73 assertions, run on three targets
+  MarkdownTest.rgr  107 assertions, run on three targets
   MdSpecDump.rgr    renders the specification's examples for the harness
   MdEmbedProbe.rgr  what landed inside each diagram's box, off the display list
 harness/
   spec/             CommonMark 0.31.2, pinned (CC-BY-SA-4.0)
   floor.json        the ratchet: a section may not score lower than this
+bench/
+  md_bench.rgr      four stages, timed separately
 tools/
   markdown-parity.mjs   the score, and docs/COMMONMARK_PARITY.md
   gen-entities.mjs      regenerates the entity table
@@ -234,10 +239,28 @@ shipped a PNG would also have draw commands.
 - **No page furniture.** Front matter is parsed and kept, and nothing yet
   reads `page:` or `margin:` out of it. Running heads, page numbers and a
   table of contents are not written.
-- **Every keystroke reparses the whole document.** Fast enough at the sizes
-  the page opens with — the status line says how many milliseconds, so it is
-  measured rather than assumed — and wrong for a very large file. The scoped
-  reparse is [`PLAN.md`](PLAN.md) §9.
+- **A large document is slow to retype, and now there is a number for it.**
+  `npm run markdown:bench` times the four stages separately:
+
+  ```
+  file             bytes   parse  layout  diagrams     evg   list   total
+  sample.md          938     4.7     9.2       0.6    23.5    3.4    41.3
+  mermaid.md         794     0.4     1.4      28.9     4.6    4.3    39.5
+  README.md        63196    17.6   107.2       0.5   217.8   39.3   382.4
+  ISSUES.md       137676    28.9   195.6       0.4   372.4   62.2   659.4
+  ```
+
+  `PLAN.md` §9 budgeted one frame at 200 KB. That is missed by a factor of
+  about forty, and the measurement says exactly where: the **parse is cheap**
+  (18 ms at 63 KB), and more than half the cost is `EVGLayout` re-deriving
+  positions this module has already computed — every element it is handed is
+  absolutely placed with an explicit left, top, width and height. Skipping
+  that pass for the elements this module owns is the obvious fix and is not
+  a small one, because the embedded diagram scenes still need it. The scoped
+  reparse in §9 is the second.
+
+  What the page actually opens with — a 1 KB sample — is 40 ms, and typing
+  there is a keystroke. Choosing README from the dropdown and typing is not.
 - **The source pane is a `<textarea>`.** Correct and unglamorous, which keeps
   the interesting half — parse, layout, paint, print — the only thing that
   can be wrong. Swapping in `gallery/text_editor` on the same canvas is the

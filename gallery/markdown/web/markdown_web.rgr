@@ -139,6 +139,9 @@ class MarkdownWeb {
             fresh.setMeasurer((unwrap measurer))
         }
         layout = fresh
+        ; The document's own page size and margins, before anything is
+        ; measured against them.
+        layout.applyMeta(doc)
         ; The diagrams first, at the width of the column they will land in: a
         ; page cannot be broken around a drawing whose height nobody has asked
         ; for, and a drawing prepared at another width is one the layout will
@@ -166,24 +169,15 @@ class MarkdownWeb {
         def out:EVGDisplayList (new EVGDisplayList())
         listOffset = 0.0
         if paged {
-            def gap:double 24.0
-            def sheetH:double layout.style.pageHeight
-            def p:int 0
-            while (p < layout.pageCount) {
-                def root:EVGElement (this.pageElement(p))
-                def le:EVGLayout (new EVGLayout())
-                if (!null? measurer) {
-                    le.setMeasurer((unwrap measurer))
-                }
-                le.setPageSize(layout.style.pageWidth sheetH)
-                le.layout(root)
-                def one:EVGDisplayList (new EVGDisplayList())
-                one.build(root)
-                def dy:double ((to_double p) * (sheetH + gap))
-                one.offsetBy(0.0 dy)
-                out.appendFrom(one)
-                p = (p + 1)
+            def gap:double (MdToEvg.sheetGap())
+            def root:EVGElement (MdToEvg.buildSheets(layout gap))
+            def le:EVGLayout (new EVGLayout())
+            if (!null? measurer) {
+                le.setMeasurer((unwrap measurer))
             }
+            le.setPageSize(layout.style.pageWidth (this.documentHeight()))
+            le.layout(root)
+            out.build(root)
         } {
             def root:EVGElement (MdToEvg.buildPage(layout viewW))
             def le:EVGLayout (new EVGLayout())
@@ -195,21 +189,6 @@ class MarkdownWeb {
             out.build(root)
         }
         docList = out
-    }
-
-    ; One sheet, as an element tree. The white paper is drawn here rather than
-    ; by the page, so a sheet in the scroll and a sheet in the PDF are the
-    ; same rectangle.
-    fn pageElement:EVGElement (p:int) {
-        def root:EVGElement (EVGElement.createDiv())
-        root.width = (EVGUnit.px(layout.style.pageWidth))
-        root.height = (EVGUnit.px(layout.style.pageHeight))
-        root.pageWidth = layout.style.pageWidth
-        root.pageHeight = layout.style.pageHeight
-        root.position = "relative"
-        root.backgroundColor = (EVGColor.parse("#ffffff"))
-        MdToEvg.fill(root layout p 0.0)
-        return root
     }
 
     fn setStatus:void () {
@@ -229,7 +208,7 @@ class MarkdownWeb {
     ; ----------------------------------------------------------------------
     fn documentHeight:double () {
         if paged {
-            def gap:double 24.0
+            def gap:double (MdToEvg.sheetGap())
             def n:double (to_double layout.pageCount)
             return ((n * (layout.style.pageHeight + gap)) - gap)
         }
@@ -316,6 +295,7 @@ class MarkdownWeb {
         if (!null? measurer) {
             print.setMeasurer((unwrap measurer))
         }
+        print.applyMeta(doc)
         def cw:double (print.style.pageWidth - (print.style.margin * 2.0))
         MdMermaid.prepare(doc print.embeds cw styleName)
         print.layoutPaged(doc)
@@ -390,7 +370,7 @@ class MarkdownWeb {
         if (i < 0) { return 0.0 }
         def b:MdBox (itemAt layout.boxes i)
         if paged {
-            def gap:double 24.0
+            def gap:double (MdToEvg.sheetGap())
             def sheet:double (layout.style.pageHeight + gap)
             return (b.y + ((to_double b.page) * sheet))
         }
