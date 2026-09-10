@@ -57,6 +57,7 @@ Import "../domains/mermaid/MermaidEventModelReader.rgr"
 Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 Import "../domains/plantuml/PlantUmlSequenceReader.rgr"
+Import "../domains/plantuml/PlantUmlEntityReader.rgr"
 
 class Checker {
     def passed:int 0
@@ -134,6 +135,7 @@ class RangerFlowTest {
         RangerFlowTest.testMermaidSequence(c)
         RangerFlowTest.testPlantUmlKinds(c)
         RangerFlowTest.testPlantUmlSequence(c)
+        RangerFlowTest.testPlantUmlEntities(c)
         RangerFlowTest.testMermaidGit(c)
         RangerFlowTest.testMermaidSubgraphEnds(c)
         RangerFlowTest.testMermaidKanban(c)
@@ -3057,6 +3059,158 @@ class RangerFlowTest {
     ; who, across, and when, down. So the assertions are about ORDER and about
     ; the two things a reader would otherwise have to take on trust — that the
     ; arrow means what the token said, and that the bar covers what was active.
+    ; The entity family: class, object, component, deployment, use case and
+    ; ArchiMate — one grammar, six diagram types.
+    ;
+    ; The expected entity ids, cluster names and link endpoints below are what
+    ; PlantUML 1.2025.4 reports for `fixtures/plantuml/02_class.puml` and
+    ; `03_component.puml`, read off the `class="entity"`, `class="cluster"` and
+    ; `class="link"` groups its own renderer writes into the SVG.
+    sfn testPlantUmlEntities:void (c:Checker) {
+        c.section("PlantUML — entities, links and packages")
+        def src:string "@startuml\n"
+        src = (src + "package \"orders\" {\n")
+        src = (src + "abstract class Order {\n")
+        src = (src + "+id: int\n")
+        src = (src + "#placedAt: Date\n")
+        src = (src + "{abstract} +total(): Money\n")
+        src = (src + "}\n")
+        src = (src + "class StandardOrder\n")
+        src = (src + "class OrderLine\n")
+        src = (src + "}\n")
+        src = (src + "package \"billing\" {\n")
+        src = (src + "interface Payable\n")
+        src = (src + "class Invoice {\n")
+        src = (src + "{static} +next(): string\n")
+        src = (src + "}\n")
+        src = (src + "}\n")
+        src = (src + "class Customer\n")
+        src = (src + "Order <|-- StandardOrder\n")
+        src = (src + "Order *-- \"1..*\" OrderLine : contains\n")
+        src = (src + "Customer \"1\" o-- \"many\" Order : places\n")
+        src = (src + "Order ..|> Payable\n")
+        src = (src + "Invoice ..> Order : bills\n")
+        src = (src + "@enduml\n")
+
+        def d:PlantUmlEntityModel (PlantUmlEntityReader.parse(src))
+        c.eqStr("the sniff reads it as a class diagram" d.kind "class")
+        c.eqInt("an entity per declaration" (d.entityCount()) 6)
+        c.eqInt("a package per `package`" (d.groupCount()) 2)
+        c.eqInt("and the members inside them" (d.memberCount()) 4)
+        c.eqInt("a link per relation" (d.linkCount()) 5)
+
+        def order:PlantUmlEntity (d.entityById("Order"))
+        c.eqStr("`abstract class X` is a class, not an entity called class" order.keyword "abstract")
+        c.eqStr("declared inside the package it was written in" order.parent "orders")
+        c.eqInt("with its three members" (order.memberCount()) 3)
+        def m0:PlantUmlMember (itemAt order.members 0)
+        c.eqStr("a leading `+` is the visibility, not the name" m0.visibility "+")
+        c.eqStr("the name is what follows it" m0.text "id")
+        c.eqStr("and the type goes in its own column" m0.detail "int")
+        def m2:PlantUmlMember (itemAt order.members 2)
+        c.ok("`{abstract}` is read off the member" m2.isAbstract)
+        c.ok("and parentheses make it an operation" m2.isOperation)
+        def inv:PlantUmlEntity (d.entityById("Invoice"))
+        def im:PlantUmlMember (itemAt inv.members 0)
+        c.ok("`{static}` likewise" im.isStatic)
+
+        def cust:PlantUmlEntity (d.entityById("Customer"))
+        c.eqStr("a class declared outside every package belongs to none" cust.parent "")
+
+        ; The ornaments. UML puts each on the end that OWNS the relationship,
+        ; and an inheritance drawn the other way round says the opposite of
+        ; what the author wrote.
+        def inh:PlantUmlLink (itemAt d.links 0)
+        c.eqStr("`<|--` is inheritance" inh.kind "inheritance")
+        c.ok("with the triangle on the supertype, which is named first" inh.markAtSource)
+        def comp:PlantUmlLink (itemAt d.links 1)
+        c.eqStr("`*--` is composition" comp.kind "composition")
+        c.eqStr("the multiplicity beside the end it was written against" comp.targetCard "1..*")
+        c.eqStr("and the label after the colon" comp.label "contains")
+        def agg:PlantUmlLink (itemAt d.links 2)
+        c.eqStr("`o--` is aggregation" agg.kind "aggregation")
+        c.eqStr("its near multiplicity read too" agg.sourceCard "1")
+        c.eqStr("and its far one" agg.targetCard "many")
+        def impl:PlantUmlLink (itemAt d.links 3)
+        c.eqStr("`..|>` is realisation, because the line is dotted" impl.kind "implementation")
+        c.ok("and it is drawn dashed" impl.dashed)
+        def dep:PlantUmlLink (itemAt d.links 4)
+        c.eqStr("a dotted line with a plain head is a dependency" dep.kind "dependency")
+
+        ; The drawing: a frame per package, and no frame around a class that
+        ; belongs to no package.
+        def g:FlowGraph (PlantUmlEntityReader.render(src))
+        c.eqInt("a node per entity, plus a frame per package" (g.nodeCount()) 8)
+        c.ok("the package is drawn as a frame" (g.hasNode("__frame_orders")))
+        c.ok("and so is the other one" (g.hasNode("__frame_billing")))
+        def fr:FlowNode (g.nodeById("__frame_orders"))
+        def loose:FlowNode (g.nodeById("Customer"))
+        def frRight:double (fr.x + fr.width)
+        def looseRight:double (loose.x + loose.width)
+        def outsideLeft:boolean (looseRight <= fr.x)
+        def outsideRight:boolean (loose.x >= frRight)
+        def outside:boolean outsideLeft
+        if outsideRight {
+            outside = true
+        }
+        c.ok("a class in no package stands outside every frame" outside)
+
+        ; --- and the description family, which is the same reader ---
+        def csrc:string "@startuml\n"
+        csrc = (csrc + "actor Customer\n")
+        csrc = (csrc + "package \"edge\" {\n")
+        csrc = (csrc + "[Storefront] as SF\n")
+        csrc = (csrc + "}\n")
+        csrc = (csrc + "node \"cluster\" {\n")
+        csrc = (csrc + "[Order API] as API\n")
+        csrc = (csrc + "queue \"events\" as Q\n")
+        csrc = (csrc + "}\n")
+        csrc = (csrc + "database \"Postgres\" as DB\n")
+        csrc = (csrc + "Customer --> SF\n")
+        csrc = (csrc + "SF --> API\n")
+        csrc = (csrc + "API --> Q\n")
+        csrc = (csrc + "API --> DB\n")
+        csrc = (csrc + "@enduml\n")
+
+        def cd:PlantUmlEntityModel (PlantUmlEntityReader.parse(csrc))
+        c.eqStr("a bracket makes it a description diagram" cd.kind "description")
+        c.eqInt("five entities, none of them invented" (cd.entityCount()) 5)
+        c.eqInt("two containers" (cd.groupCount()) 2)
+        c.eqInt("four links" (cd.linkCount()) 4)
+        def sf:PlantUmlEntity (cd.entityById("SF"))
+        c.eqStr("`[Storefront] as SF` puts the bracket half in the label" sf.name "Storefront")
+        c.eqStr("and the alias in the id" sf.id "SF")
+        c.eqStr("the bracket is the keyword when none is written" sf.keyword "component")
+        c.eqStr("declared inside the package it was written in" sf.parent "edge")
+        def q:PlantUmlEntity (cd.entityById("Q"))
+        c.eqStr("`queue \"events\" as Q` reads the same way round" q.name "events")
+        c.eqStr("a `node { }` holds entities rather than members" q.parent "cluster")
+
+        ; The shapes, which are the only place the six diagram types differ.
+        c.eqStr("a use case is an ellipse" (PlantUmlEntityReader.shapeFor("usecase")) "ellipse")
+        c.eqStr("a database is a cylinder" (PlantUmlEntityReader.shapeFor("database")) "cylinder")
+        c.eqStr("a component is a framed rectangle" (PlantUmlEntityReader.shapeFor("component")) "predefined")
+        c.eqStr("an actor is a stadium" (PlantUmlEntityReader.shapeFor("actor")) "stadium")
+
+        ; `left to right direction` turns the page on its side.
+        def lrsrc:string "@startuml\nleft to right direction\nactor U\nU --> (Buy)\n@enduml\n"
+        def lr:PlantUmlEntityModel (PlantUmlEntityReader.parse(lrsrc))
+        c.eqStr("`left to right direction` is obeyed" lr.direction "LR")
+        def uc:PlantUmlEntity (lr.entityById("Buy"))
+        c.eqStr("a parenthesised name is a use case" uc.keyword "usecase")
+
+        ; The link scanner, one token at a time.
+        c.eqStr("`<|--` is inheritance" (PlantUmlEntityReader.kindOf("<|--")) "inheritance")
+        c.eqStr("`<|..` is realisation" (PlantUmlEntityReader.kindOf("<|..")) "implementation")
+        c.eqStr("`*--` is composition" (PlantUmlEntityReader.kindOf("*--")) "composition")
+        c.eqStr("`--o` is aggregation" (PlantUmlEntityReader.kindOf("--o")) "aggregation")
+        c.eqStr("`..>` is a dependency" (PlantUmlEntityReader.kindOf("..>")) "dependency")
+        c.eqStr("`--` on its own is an association" (PlantUmlEntityReader.kindOf("--")) "association")
+        c.eqInt("a hyphen inside a name is not a link" (PlantUmlEntityReader.linkAt("order-service")) -1)
+        c.eqStr("a direction hint is read past, not tripped over" (PlantUmlEntityReader.linkToken("A -up-> B" 2)) "-up->")
+        c.eqStr("and so is a colour" (PlantUmlEntityReader.linkToken("A -[#red]-> B" 2)) "-[#red]->")
+    }
+
     ; ------------------------------------------------------------ PlantUML --
     ; What an `@startuml` body turns out to be.
     ;

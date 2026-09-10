@@ -1,9 +1,10 @@
 # PlantUML in RangerFlow — the plan
 
-Status: **phase 3 (sequence) is built and drawing** · `npm run
-rangerflow:plantuml` · `domains/plantuml/` · the type sniff of §3 and the
-sequence grammar of phase 3 are in, with 68 assertions; phases 1, 2 and 4-8 are
-still design. The oracle in §3 was *measured*, not imagined — every command in
+Status: **phases 2 and 3 are built and drawing** · `npm run
+rangerflow:plantuml` · `domains/plantuml/` · the type sniff, the sequence
+grammar and the entity core — class, object, component, deployment, use case
+and ArchiMate — are in, with 123 assertions; phases 1 and 4-8 are still
+design. The oracle in §3 was *measured*, not imagined — every command in
 this document was run against PlantUML 1.2025.4 on 2026-09-10 and the output is
 quoted as it came back.
 
@@ -317,15 +318,25 @@ covering all twenty types and the awkward corners, `tools/plantuml-parity.mjs`
 scoring nothing yet. **Deliverable: a parity doc that says 0%, computed
 honestly.** Everything after this is measured against something.
 
-**Phase 2 — the entity core.** `PlantUmlReader` (header detection, `@start*`
-family, multi-diagram files, comments `'` and `/' … '/`, `@startuml` inside a
-larger file) and `PlantUmlEntityReader` covering `CLASS` and `DESCRIPTION`:
-declarations with `as` aliases and quoted names, stereotypes `<<…>>`, the full
-link grammar (`--`, `..`, `-->`, `<|--`, `*--`, `o--`, `..>`, `#--`, `x--`,
-`}--`, lengths `---`, directions `-up->`, cardinalities `"1" -- "many"`),
-`package`/`namespace`/`together` nesting, `note` in its five placements, `hide`
-/ `show`. **The largest single commit in the plan, and the one that scores the
-most.**
+**Phase 2 — the entity core.** ✅ **Done.** `PlantUmlReader` (header
+detection, the `@start*` family, multi-diagram files, both comment spellings)
+and `PlantUmlEntityReader` covering `CLASS` and `DESCRIPTION`: all 43
+declaration keywords, aliases in both directions, quoted names, stereotypes,
+the bracket notations, members with visibility and `{static}`/`{abstract}`, the
+full link grammar with lengths, direction hints, decorations, cardinalities and
+labels, and `package`/`namespace`/`together` plus every container keyword that
+opens a brace.
+
+One thing had to be built that the plan did not foresee: **a package is a band,
+not a bounding box.** A frame drawn round wherever the layout happened to leave
+the members will swallow a class that belongs to no package, and a package that
+claims a class it never declared is a diagram that says something false. Each
+root package now gets a column of its own and keeps it in every layer. Ranking
+inside a cluster the way Graphviz does is still not done, and is what a diagram
+with many packages would want.
+
+Still open here: notes are recognised and dropped rather than drawn, and the
+`note "x" as N1` / `N1 .. Class` pair with it.
 
 **Phase 3 — sequence.** ✅ **Done**, and done first rather than third: it is
 the diagram in the request that started this, and it proved the whole path

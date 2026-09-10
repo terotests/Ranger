@@ -983,11 +983,45 @@ name but not yet draw. A header nobody recognises must not fall through to the
 entity parser; that is the one failure a reader of somebody else's file may not
 have.
 
+### Six diagram types, one grammar
+
+PlantUML's class, object, component, deployment, use-case and ArchiMate
+diagrams are not six languages. They are an **entity**, a **link** and a
+**cluster**, with a different word in front of the entity and a different shape
+drawn for it — and PlantUML's own renderer says so without being asked: all six
+emit the same `class="entity"`, `class="link"` and `class="cluster"` groups into
+their SVG. So `PlantUmlEntityReader` is one reader, and the shape table is the
+only place the six part company.
+
+![a PlantUML class diagram, read and drawn by RangerFlow](artifacts/plantuml_class.png)
+
+| | |
+| --- | --- |
+| declarations | all 43 keywords PlantUML lists — the list is read off `plantuml.jar -language`, not typed from a web page — with aliases in both directions, quoted names, stereotypes, and the `[Component]` and `(Use case)` bracket notations |
+| members | `+` `-` `#` `~` visibility, `{static}`, `{abstract}`, `--` separators, and the one-line form `Order : +id: int` |
+| links | `--` `..` `-->` `<--` `<\|--` `--\|>` `<\|..` `..\|>` `*--` `--*` `o--` `--o` `..>`, with lengths (`--->`), direction hints (`-up->`), `[hidden]` and `[#colour]`, cardinalities (`A "1" *-- "many" B`) and labels |
+| clusters | `package`, `namespace`, `together`, and every container keyword that opens a `{ }` — `node`, `folder`, `frame`, `cloud`, `rectangle`, `card`, … |
+| the page | `left to right direction`, and `title` |
+
+![a PlantUML component diagram in the same pipeline](artifacts/plantuml_component.png)
+
+**A package is a band, not a bounding box.** A layered layout has no idea that
+six of its nodes belong together, so it will happily put a class that belongs to
+no package between two that do — and a frame drawn round the members afterwards
+swallows the stranger. Ordering each layer separately does not fix it either: a
+package whose members land in layers one and four still spans everything in
+between. So each root package gets a **column of its own** and keeps it in every
+layer. A frame then cannot reach outside its column, two frames cannot overlap,
+and a package cannot claim a class it never declared. It is not what Graphviz
+does — it ranks inside a cluster as well — and a diagram with many packages comes
+out wide. A wide diagram is not a false one.
+
 **And it agrees with PlantUML about these files.** Handed `fixtures/plantuml/`,
-PlantUML's own renderer reports the same five participants and the same eleven
-messages, endpoint for endpoint and in the same order. Making that a standing
-score over a real corpus — with the class, component and state readers beside
-this one — is [`docs/PLAN_PLANTUML.md`](docs/PLAN_PLANTUML.md).
+PlantUML's own renderer reports the same entities, the same clusters and the
+same links — id for id, endpoint for endpoint, in the same order — for the
+sequence, class, component and use-case diagrams alike. Making that a standing
+score over a real corpus, with the state and activity readers beside these, is
+[`docs/PLAN_PLANTUML.md`](docs/PLAN_PLANTUML.md).
 
 ## …and in a window
 

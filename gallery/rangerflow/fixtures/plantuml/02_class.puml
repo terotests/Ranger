@@ -1,0 +1,43 @@
+@startuml
+title Order domain
+
+package "orders" {
+  abstract class Order {
+    +id: int
+    #placedAt: Date
+    {abstract} +total(): Money
+    +addLine(line: OrderLine): void
+  }
+
+  class StandardOrder
+  class SubscriptionOrder
+
+  class OrderLine {
+    +sku: string
+    +qty: int
+  }
+}
+
+package "billing" {
+  interface Payable {
+    +charge(amount: Money): Receipt
+  }
+
+  class Invoice {
+    +number: string
+    {static} +next(): string
+  }
+}
+
+class Customer {
+  +name: string
+  +email: string
+}
+
+Order <|-- StandardOrder
+Order <|-- SubscriptionOrder
+Order *-- "1..*" OrderLine : contains
+Customer "1" o-- "many" Order : places
+Order ..|> Payable
+Invoice ..> Order : bills
+@enduml
