@@ -211,6 +211,11 @@ under the furniture. Both scroll paths honour it, the full layout's
 `applyScroll` and the incremental `scrollOnlyFrom`. It is checked by
 `npm run evg:fixed:test`.
 
+`left` and `right` (or `top` and `bottom`) BOTH set with no `width` (or
+`height`) stretches the box between them, CSS 2.1 10.3.7 — that is how a bar
+inset by 16 on each side is written without knowing the page's width. It
+applies to `absolute` as well as `fixed`.
+
 One limit: a fixed box inside a container that clips still clips against that
 container. In CSS a fixed box escapes an ancestor's `overflow`; here the clip
 stack is built from the tree, so it does not. Put the bar beside the scroller

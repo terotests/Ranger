@@ -5886,7 +5886,14 @@ class RealTrainerDemo {
         ; open it back on the calendar, which is a button that answers by
         ; navigating somewhere nobody asked for.
         this.overlays(page)
-        page.addChild((this.bottomNav()))
+        ; THE BAR IS FURNITURE, NOT CONTENT. `position: fixed` puts it on the
+        ; bottom of the PAGE rather than after the last thing on it, so the
+        ; store can grow past the screen without taking the bar with it. The
+        ; main above it carries the bar's height as padding, which is what
+        ; keeps the last row reachable.
+        def bar:EVGElement (this.bottomNav())
+        bar.className = "rt-ph-nav rt-page-nav"
+        page.addChild(bar)
         if knowAdd {
             this.knowledgeEditor(page)
         }

@@ -2135,7 +2135,28 @@ class EVGLayout {
 
     fn layoutAbsolute:void (element:EVGElement parentWidth:double parentHeight:double) {
         ; Position absolutely positioned element
-        
+
+        ; BOTH EDGES AND NO SIZE IS A STRETCH. CSS 2.1 10.3.7: with `left` and
+        ; `right` both set and `width: auto`, the width is what is left of the
+        ; containing block between them. Without this the box kept its
+        ; content's width and `right` was simply dropped — a bar written
+        ; `left: 16; right: 16` came out as wide as its five icons.
+        if ((element.left.isSet && element.right.isSet) && (element.width.isSet == false)) {
+            def spanW:double ((((parentWidth - element.left.pixels) - element.right.pixels) - element.box.marginLeftPx) - element.box.marginRightPx)
+            if (spanW > 0.0) {
+                element.calculatedWidth = spanW
+                element.calculatedInnerWidth = (element.box.getInnerWidth(spanW))
+            }
+        }
+        if ((element.top.isSet && element.bottom.isSet) && (element.height.isSet == false)) {
+            def spanH:double ((((parentHeight - element.top.pixels) - element.bottom.pixels) - element.box.marginTopPx) - element.box.marginBottomPx)
+            if (spanH > 0.0) {
+                element.calculatedHeight = spanH
+                element.calculatedInnerHeight = (element.box.getInnerHeight(spanH))
+                element.hasDefiniteHeight = true
+            }
+        }
+
         ; X position
         if element.left.isSet {
             element.calculatedX = element.left.pixels + element.box.marginLeftPx
