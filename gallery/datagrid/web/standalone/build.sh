@@ -79,35 +79,64 @@ mkdir -p "$OUT/gl" "$OUT/fonts"
 cp gallery/evg/gl/evg-webgl.js "$OUT/gl/evg-webgl.js"
 # The accessibility mirror: the app's own a11y tree, as DOM over the canvas.
 cp gallery/evg/gl/evg-a11y.js "$OUT/gl/evg-a11y.js"
+# The module half of the head this build writes, shared with every other
+# gallery page: it picks up the responses the head started.
+mkdir -p "$OUT/evg"
+cp gallery/evg/web/tools/assets-client.mjs "$OUT/evg/assets-client.mjs"
 # Web Crypto decrypt for password-protected .xlsx (OLE / Agile encryption).
 mkdir -p "$OUT/ooxml-encryption"
 cp -a gallery/datagrid/src/xlsx/vendor/ooxml-encryption/dist "$OUT/ooxml-encryption/"
 cp gallery/datagrid/src/xlsx/vendor/ooxml-encryption/LICENSE "$OUT/ooxml-encryption/LICENSE" 2>/dev/null || true
 FONT_SRC=gallery/pdf_writer/assets/fonts
+# ASSETS is what the page's head will be told to start fetching, collected as
+# the files are copied so the list and the copy cannot disagree — see
+# gallery/evg/web/tools/inline-assets.mjs.
+ASSETS=""
 cp "$FONT_SRC/Open_Sans/OpenSans-Regular.ttf" "$OUT/fonts/OpenSans-Regular.ttf"
+ASSETS="$ASSETS,fonts/OpenSans-Regular.ttf"
 cp "$FONT_SRC/Open_Sans/OpenSans-Bold.ttf" "$OUT/fonts/OpenSans-Bold.ttf"
+ASSETS="$ASSETS,fonts/OpenSans-Bold.ttf"
 cp "$FONT_SRC/Open_Sans/OpenSans-Italic.ttf" "$OUT/fonts/OpenSans-Italic.ttf"
+ASSETS="$ASSETS,fonts/OpenSans-Italic.ttf"
 cp "$FONT_SRC/Open_Sans/OpenSans-BoldItalic.ttf" "$OUT/fonts/OpenSans-BoldItalic.ttf"
+ASSETS="$ASSETS,fonts/OpenSans-BoldItalic.ttf"
 cp "$FONT_SRC/Noto_Sans/NotoSans-Regular.ttf" "$OUT/fonts/NotoSans-Regular.ttf"
+ASSETS="$ASSETS,fonts/NotoSans-Regular.ttf"
 cp "$FONT_SRC/Noto_Sans/NotoSans-Bold.ttf" "$OUT/fonts/NotoSans-Bold.ttf"
+ASSETS="$ASSETS,fonts/NotoSans-Bold.ttf"
 # The rest of the fallback pool the desktop build loads: emoji and Arabic.
 cp "$FONT_SRC/Noto_Emoji/NotoEmoji-Regular.ttf" "$OUT/fonts/NotoEmoji-Regular.ttf"
+ASSETS="$ASSETS,fonts/NotoEmoji-Regular.ttf"
 cp "$FONT_SRC/El_Messiri/ElMessiri-Regular.ttf" "$OUT/fonts/ElMessiri-Regular.ttf"
+ASSETS="$ASSETS,fonts/ElMessiri-Regular.ttf"
 cp "$FONT_SRC/El_Messiri/ElMessiri-Bold.ttf" "$OUT/fonts/ElMessiri-Bold.ttf"
+ASSETS="$ASSETS,fonts/ElMessiri-Bold.ttf"
 cp "$FONT_SRC/Noto_Sans/NotoSans-Italic.ttf" "$OUT/fonts/NotoSans-Italic.ttf"
+ASSETS="$ASSETS,fonts/NotoSans-Italic.ttf"
 cp "$FONT_SRC/Noto_Sans/NotoSans-BoldItalic.ttf" "$OUT/fonts/NotoSans-BoldItalic.ttf"
+ASSETS="$ASSETS,fonts/NotoSans-BoldItalic.ttf"
 cp "$FONT_SRC/Helvetica/Helvetica.ttf" "$OUT/fonts/Helvetica.ttf"
+ASSETS="$ASSETS,fonts/Helvetica.ttf"
 cp "$FONT_SRC/Droid_Serif/DroidSerif.ttf" "$OUT/fonts/DroidSerif.ttf"
+ASSETS="$ASSETS,fonts/DroidSerif.ttf"
 cp "$FONT_SRC/Droid_Serif/DroidSerif-Bold.ttf" "$OUT/fonts/DroidSerif-Bold.ttf"
+ASSETS="$ASSETS,fonts/DroidSerif-Bold.ttf"
 cp "$FONT_SRC/Droid_Serif/DroidSerif-Italic.ttf" "$OUT/fonts/DroidSerif-Italic.ttf"
+ASSETS="$ASSETS,fonts/DroidSerif-Italic.ttf"
 cp "$FONT_SRC/Droid_Serif/DroidSerif-BoldItalic.ttf" "$OUT/fonts/DroidSerif-BoldItalic.ttf"
+ASSETS="$ASSETS,fonts/DroidSerif-BoldItalic.ttf"
 cp "$FONT_SRC/Josefin_Sans/JosefinSans-Regular.ttf" "$OUT/fonts/JosefinSans-Regular.ttf"
+ASSETS="$ASSETS,fonts/JosefinSans-Regular.ttf"
 cp "$FONT_SRC/Josefin_Sans/JosefinSans-Bold.ttf" "$OUT/fonts/JosefinSans-Bold.ttf"
+ASSETS="$ASSETS,fonts/JosefinSans-Bold.ttf"
 cp "$FONT_SRC/Josefin_Sans/JosefinSans-Italic.ttf" "$OUT/fonts/JosefinSans-Italic.ttf"
+ASSETS="$ASSETS,fonts/JosefinSans-Italic.ttf"
 cp "$FONT_SRC/Josefin_Sans/JosefinSans-BoldItalic.ttf" "$OUT/fonts/JosefinSans-BoldItalic.ttf"
+ASSETS="$ASSETS,fonts/JosefinSans-BoldItalic.ttf"
 # A workbook to open on load. The page reads it with fetch and hands the bytes
 # to the app, exactly as it does with a file the user picks.
 cp gallery/datagrid/fixtures/business-workbook.xlsx "$OUT/business-workbook.xlsx"
+ASSETS="$ASSETS,business-workbook.xlsx"
 
 # --- the build stamp ---------------------------------------------------------
 # A rebuilt page that a browser will not fetch is indistinguishable from a page
@@ -138,6 +167,15 @@ node -e "
     .replace('./gl/evg-a11y.js', './gl/evg-a11y.js?v=' + stamp);
   fs.writeFileSync('$OUT/standalone.mjs', mjs);
 " || exit 1
+# The head that starts every asset before the body is parsed, and preloads the
+# module graph the browser would otherwise not discover until the script at the
+# end of the body had run.
+node gallery/evg/web/tools/inline-assets.mjs \
+  --html "$OUT/index.html" \
+  --start "${ASSETS#,}" \
+  --preload "standalone.mjs,gl/evg-webgl.js,gl/evg-a11y.js" \
+  --stamp "$STAMP" || exit 1
+
 if grep -q "__BUILD__" "$OUT/index.html"; then
   echo "the build stamp was not written into $OUT/index.html" >&2
   exit 1
