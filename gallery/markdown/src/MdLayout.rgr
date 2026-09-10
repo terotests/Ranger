@@ -199,6 +199,10 @@ class MdBox {
     def embedKind:string ""
     def embedSource:string ""
     def page:int 0
+    ; The character this box's block began at, in the source text. Stamped by
+    ; the layout, not by the author: it is what lets a click on a drawing find
+    ; a caret in the text a reader typed.
+    def srcStart:int -1
 
     Constructor () {
     }
@@ -265,6 +269,10 @@ class MdLayout {
     ; The height the document turned out to be, in continuous mode.
     def documentHeight:double 0.0
 
+    ; The block being laid out, so every box it emits can say where in the
+    ; source it came from.
+    def currentSrc:int -1
+
     Constructor () {
     }
 
@@ -320,7 +328,21 @@ class MdLayout {
 
     fn emit:void (b:MdBox) {
         b.page = page
+        b.srcStart = currentSrc
         push boxes b
+    }
+
+    ; The first box a block produced, or -1. The two panes of the viewer are
+    ; kept in step through this and nothing else.
+    fn firstBoxOf:int (srcStart:int) {
+        def i:int 0
+        def n:int (array_length boxes)
+        while (i < n) {
+            def b:MdBox (itemAt boxes i)
+            if (b.srcStart == srcStart) { return i }
+            i = (i + 1)
+        }
+        return -1
     }
 
     ; ----------------------------------------------------------------------
@@ -337,6 +359,13 @@ class MdLayout {
     }
 
     fn block:void (node:MdNode x:double w:double) {
+        def outerSrc:int currentSrc
+        if (node.srcStart >= 0) { currentSrc = node.srcStart }
+        this.blockInner(node x w)
+        currentSrc = outerSrc
+    }
+
+    fn blockInner:void (node:MdNode x:double w:double) {
         def kind:string node.kind
         if (kind == "paragraph") {
             def runs:[MdRun] (this.inlineRuns(node (this.baseRun())))

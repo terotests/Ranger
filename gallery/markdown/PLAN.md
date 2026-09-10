@@ -39,10 +39,10 @@ the design, including the parts that are not written.
 | **1** | blocks, inlines, `MdToHtml`, the spec harness | **done** — 651/652, ratcheted |
 | **2** | GFM, front matter | **done** — tables, task lists, strikethrough, YAML |
 | **3** | `MdLayout`, `MdToEvg`, PDF | **done** — `npm run markdown:demo` prints this repository's README as 38 pages |
-| **0** | the three seams (§5) | **two of three**: `breakRuns` exists (in `MdLayout`, not EVG — see below), and `MermaidRender` is extracted. `EVGPDFRenderer` with no filesystem is still unasked |
+| **0** | the three seams (§5) | **three of three**: `breakRuns` exists (in `MdLayout`, not EVG — see below), `MermaidRender` is extracted, and `EVGPDFRenderer` runs with `require` undefined — the build script asks on every build |
 | **`mermaid`** | the fence, drawn (§7) | **done** — `MermaidRender` extracted, all 26 dialects, geometry not raster |
-| **4** | the page: canvas, panes, sync | not started |
-| **5** | PDF in the tab | not started |
+| **4** | the page: canvas, panes, sync | **done** — `/markdown/`, 14 checks in headless Chrome |
+| **5** | PDF in the tab | **done** — same layout, faces embedded, right page count |
 | **6** | highlighting, TOC, incremental reparse | not started |
 
 Two things the building changed about the design, both recorded here rather

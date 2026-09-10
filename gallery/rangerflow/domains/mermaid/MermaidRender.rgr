@@ -355,7 +355,12 @@ class MermaidRender {
         ; No canvas. The editor's paper and its grid of dots are part of an
         ; EDITOR; a diagram sitting in a column of prose or on a printed page
         ; should be the diagram and nothing else.
+        ;
+        ; Both halves are needed. `showBackground` stops the grid; the paper
+        ; is a separate fill and follows the theme, so a diagram dropped into
+        ; a white document otherwise arrives on a grey slab.
         v.showBackground = false
+        v.theme.background = "#ffffff"
         def natural:FlowScene (v.buildForExport(padding))
         if (maxWidth <= 0.0) {
             return natural

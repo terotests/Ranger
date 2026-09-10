@@ -12,6 +12,8 @@ npm run markdown:spec          # score against CommonMark's own 652 examples
 npm run markdown:demo          # the samples and this repository's README → PDF + HTML
 npm run markdown:pdf -- FILE   # …any file you name
 npm run markdown:embed         # where every diagram's marks actually landed
+npm run markdown:web:serve     # the viewer, in a browser, with no server behind it
+npm run markdown:web:test      # …and drive it in headless Chrome
 ```
 
 **651 of 652** CommonMark 0.31.2 examples, compared as exact strings against
@@ -84,6 +86,9 @@ src/
   MdEmbed.rgr       the slot a fenced diagram fills, keyed by source and width
   MdMermaid.rgr     the ```mermaid handler — the only file that knows RangerFlow
   md_demo.rgr       the only file that touches a disk
+web/
+  markdown_web.rgr  the host seam: the only file a browser talks to
+  standalone/       build.sh, index.html, standalone.mjs, smoke.mjs
 tests/
   MarkdownTest.rgr  73 assertions, run on three targets
   MdSpecDump.rgr    renders the specification's examples for the harness
@@ -153,6 +158,60 @@ must. `MdEmbedCache` holds only `EVGElement` and two doubles, so `MdLayout`
 and `MdToEvg` never learn that a graph editor exists — `MdMermaid` is the
 only file in the module that imports one.
 
+## The page
+
+**[terotests.github.io/Ranger/markdown/](https://terotests.github.io/Ranger/markdown/)** —
+source on the left, the document on the right on a WebGL 2 canvas, and a
+button that builds a PDF in the tab. No host process: a keystroke is a
+function call.
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│ with diagrams ▾  open .md…  continuous ▾  ⬇ PDF  ⬇ HTML   10 blocks… │
+├───────────────────────────┬──────────────────────────────────────────┤
+│ # A document with…        │  A document with diagrams in it          │
+│                           │  ────────────────────────────────        │
+│ ```mermaid                │    ┌─────┐      ◇        yes   ┌───────┐ │
+│ flowchart LR              │    │Write├─────►Render?├───────►│ Print │ │
+│   A[Write] --> B{Render?} │    └─────┘      │              └───────┘ │
+│ ```                       │                                          │
+│  (a textarea)             │        (a WebGL 2 canvas)                 │
+└───────────────────────────┴──────────────────────────────────────────┘
+```
+
+The two panes are kept in step by the character offsets the parser recorded
+and nothing else: a click on the drawing puts the caret in the source, and
+moving the caret scrolls the drawing. **continuous** is one column as tall as
+the document; **paged** is A4 sheets with the breaks the PDF will have, so a
+reader can see where page four starts before printing it.
+
+**The PDF is built in the tab**, from the same layout the canvas is showing,
+with the faces the reader's own browser fetched embedded in it. Not the
+browser's print dialog: a canvas is one page as far as `window.print()` is
+concerned, so that route gives a single clipped sheet.
+
+**The faces are fetched, not named.** The layout measures with the TTF the PDF
+embeds, so the line breaks on the canvas and the line breaks on the page are
+the same line breaks. Ask the system for "Open Sans" instead and the three
+disagree — and it looks like a bug in the line breaker.
+
+**The page checks itself.** `?selftest=1` runs fourteen assertions inside the
+page and writes the verdict into the DOM; `npm run markdown:web:test` reads it
+back out of headless Chrome. They are the checks a screenshot cannot make:
+
+```
+PASS webgl2                    PASS paged has sheets (2 sheets)
+PASS fonts attached            PASS paged redraws (98 commands)
+PASS commands (95 commands)    PASS pdf header (%PDF-)
+PASS drawn as text runs (34)   PASS pdf pages (2 page objects)
+PASS diagram is geometry (18)  PASS pdf embeds fonts
+PASS diagrams read (3)         PASS pdf size (137181 bytes)
+PASS typing redraws (95 → 98)  PASS scrolling moves it
+```
+
+"Drawn as text runs" is there because a page that rasterized on a server and
+shipped a PNG would also have draw commands.
+
 ## Where it stops
 
 - **One CommonMark example fails**: `[ẞ]` matching `[SS]`. Reference labels
@@ -175,8 +234,13 @@ only file in the module that imports one.
 - **No page furniture.** Front matter is parsed and kept, and nothing yet
   reads `page:` or `margin:` out of it. Running heads, page numbers and a
   table of contents are not written.
-- **No page yet.** The GitHub Pages viewer — a source pane, a WebGL canvas
-  and a PDF built in the tab — is the next phase, and the layout above is
-  what it will draw.
+- **Every keystroke reparses the whole document.** Fast enough at the sizes
+  the page opens with — the status line says how many milliseconds, so it is
+  measured rather than assumed — and wrong for a very large file. The scoped
+  reparse is [`PLAN.md`](PLAN.md) §9.
+- **The source pane is a `<textarea>`.** Correct and unglamorous, which keeps
+  the interesting half — parse, layout, paint, print — the only thing that
+  can be wrong. Swapping in `gallery/text_editor` on the same canvas is the
+  next step there.
 
 The design these are measured against is [`PLAN.md`](PLAN.md).

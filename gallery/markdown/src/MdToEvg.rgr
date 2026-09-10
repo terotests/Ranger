@@ -135,6 +135,10 @@ class MdToEvg {
         root.top = (EVGUnit.px((b.y + yOffset)))
         root.width = (EVGUnit.px(b.w))
         root.height = (EVGUnit.px(b.h))
+        ; The scene's own paper is dropped. A diagram in a document sits on
+        ; the document's page; painting the editor's canvas behind it puts a
+        ; grey slab across a white sheet.
+        root.backgroundColor = (EVGColor.noColor())
         parent.addChild(root)
     }
 
