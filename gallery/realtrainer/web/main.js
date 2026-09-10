@@ -65,20 +65,18 @@ app.loadReference(REALTRAINER_SEED);
 // `@media` blocks answer for the width. `page=390x844` pins a size, which is
 // what the checks want.
 const params = new URLSearchParams(location.search);
-const pageParam = params.get("page");
-const fit = !pageParam || pageParam === "fit";
+// The page mode was settled in the document's head, before anything painted
+// (see index.html). Reading it back is what keeps the chrome the document
+// shows and the size the app lays out for from ever disagreeing — they used
+// to be decided in two places, a second apart.
+const { fit, w: pinnedW, h: pinnedH } = window.__rtPage;
 // A finger rather than a mouse, as the browser reports it: the sheet's
 // `@media (pointer: coarse)` block makes the targets bigger for it.
 const coarseQuery = window.matchMedia ? window.matchMedia("(pointer: coarse)") : null;
 app.setPointerCoarse(!!(coarseQuery && coarseQuery.matches));
 {
-  if (fit) {
-    document.body.classList.add("fit");
-    app.setPageSize(stage.clientWidth, stage.clientHeight);
-  } else {
-    const [w, h] = pageParam.split("x").map(Number);
-    if (w > 0 && h > 0) app.setPageSize(w, h);
-  }
+  if (fit) app.setPageSize(stage.clientWidth, stage.clientHeight);
+  else if (pinnedW > 0 && pinnedH > 0) app.setPageSize(pinnedW, pinnedH);
   const route = params.get("route");
   if (route) app.openRoute(route);
   else if (fit) app.openRoute("/");

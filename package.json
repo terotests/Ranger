@@ -939,6 +939,7 @@
     "rt:check": "npm run rt:build --silent && node gallery/realtrainer/web/loader-check.mjs",
     "rt:page": "npm run rt:build --silent && node gallery/realtrainer/web/build.mjs",
     "rt:dom": "npm run rt:page --silent && node gallery/realtrainer/web/dom-check.mjs",
+    "rt:shell": "npm run rt:page --silent && node gallery/realtrainer/web/shell-check.mjs",
     "rt:frame": "npm run rt:page --silent && node gallery/realtrainer/web/frame-check.mjs && node gallery/realtrainer/web/frame-check.mjs --engine worker",
     "rt:shots": "npm run rt:page --silent && node gallery/realtrainer/web/frame-check.mjs --png gallery/realtrainer/web/shots/realtrainer.png",
     "rt:web": "npm run rt:page --silent && node gallery/realtrainer/web/serve.mjs",

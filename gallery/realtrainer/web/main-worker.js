@@ -39,19 +39,21 @@ const fpsEl = document.getElementById("fps");
 const sceneEl = document.getElementById("scene");
 
 const params = new URLSearchParams(location.search);
-const pageParam = params.get("page");
-const fit = !pageParam || pageParam === "fit";
+// The page mode was settled in the document's head, before anything painted
+// (see index.html). Reading it back is what keeps the chrome the document
+// shows and the size the app lays out for from ever disagreeing — they used
+// to be decided in two places, a second apart.
+const { fit, w: pinnedW, h: pinnedH } = window.__rtPage;
 const coarseQuery = window.matchMedia ? window.matchMedia("(pointer: coarse)") : null;
 const coarse = !!(coarseQuery && coarseQuery.matches);
 
 let W = 0, H = 0;
 if (fit) {
-  document.body.classList.add("fit");
   W = stage.clientWidth;
   H = stage.clientHeight;
-} else {
-  const [w, h] = pageParam.split("x").map(Number);
-  if (w > 0 && h > 0) { W = w; H = h; }
+} else if (pinnedW > 0 && pinnedH > 0) {
+  W = pinnedW;
+  H = pinnedH;
 }
 const route = params.get("route") || (fit ? "/" : "");
 

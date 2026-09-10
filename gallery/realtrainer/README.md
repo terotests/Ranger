@@ -27,6 +27,9 @@ npm run rt:frame    # the same app in Chromium, checked at the pixels — twice:
                     # press costs, pointer-down to the frame that showed it
 npm run rt:dom      # the app as retained DOM (?painter=dom): every node where the engine put
                     # it, a scene change as creates and removes, a scroll as one transform
+npm run rt:shell    # what the DOCUMENT shows before the app exists — the bundle is held at
+                    # the server and the page examined in the gap: nothing paints that is
+                    # then taken away, and the stage does not move when the app arrives
 ```
 
 Live, from the same sources: [the WebGL page](https://terotests.github.io/Ranger/realtrainer/),

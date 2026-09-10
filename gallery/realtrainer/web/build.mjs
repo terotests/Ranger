@@ -100,10 +100,19 @@ const noFilesystem = {
   },
 };
 
+// MINIFIED. The generated app is machine-written and reads like it — long
+// identifiers, one statement per line, every temporary named — and none of
+// that survives to the browser usefully. What the page ships is the behaviour,
+// and the source it is compiled from is a `.rgr` file in the repository, not
+// this bundle. Property names are left alone by esbuild, which is what the
+// Ranger objects and every check that reaches into them depend on.
+const MINIFY = process.env.RT_NO_MINIFY !== "1";
+
 await esbuild.build({
   entryPoints: [path.join(HERE, "main.js")],
   bundle: true,
   format: "esm",
+  minify: MINIFY,
   outfile: path.join(HERE, "bundle.js"),
   plugins: [noFilesystem],
   logLevel: "info",
@@ -115,6 +124,7 @@ await esbuild.build({
   entryPoints: [path.join(HERE, "main-worker.js")],
   bundle: true,
   format: "esm",
+  minify: MINIFY,
   outfile: path.join(HERE, "bundle-worker.js"),
   plugins: [noFilesystem],
   logLevel: "info",
@@ -123,6 +133,7 @@ await esbuild.build({
   entryPoints: [path.join(HERE, "engine-worker.js")],
   bundle: true,
   format: "esm",
+  minify: MINIFY,
   outfile: path.join(HERE, "worker-bundle.js"),
   plugins: [noFilesystem],
   logLevel: "info",
