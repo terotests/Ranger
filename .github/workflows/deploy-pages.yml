@@ -471,8 +471,9 @@ jobs:
           grep -q "RangerFlowWeb" "$GITHUB_WORKSPACE/_site/rangerflow/rangerflow_web.js"
           # The Mermaid box is part of the page rather than a separate demo;
           # without the reader in the bundle the dropdown has an entry that
-          # renders nothing.
-          grep -q "MermaidReader" "$GITHUB_WORKSPACE/_site/rangerflow/rangerflow_web.js"
+          # renders nothing. The bundle is minified, so a class name is gone --
+          # `framed-rectangle` is a shape alias only MermaidReader spells out.
+          grep -q "framed-rectangle" "$GITHUB_WORKSPACE/_site/rangerflow/rangerflow_web.js"
 
       # Does the engine agree with ITSELF? The frame is published twice — as
       # JSON, where every field arrives with its name, and as packed
