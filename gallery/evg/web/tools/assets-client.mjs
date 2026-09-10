@@ -58,3 +58,38 @@ export async function textOf(path) {
   if (!res.ok) throw new Error(path + " → " + res.status);
   return res.text();
 }
+
+/**
+ * The same faces again, this time to the BROWSER — and it is the half that is
+ * easy to leave out.
+ *
+ * An EVG page loads its fonts into the app's own font manager, which is what
+ * the LAYOUT measures with: how wide a title is, where a line breaks, where a
+ * caret goes. Nothing tells `document.fonts` about them, so when the painter
+ * rasterises a run through a 2D canvas the browser has never heard of the
+ * family and draws its own sans instead — same string, same pixel size,
+ * different face, different width, and a caret most of a letter past the end
+ * of the word.
+ *
+ * A page can declare the same files in CSS instead, and that works — but the
+ * browser then LOADS THEM AGAIN, because a CSS font request and a `fetch()`
+ * are not the same request. Registering the bytes the page already has is the
+ * same result without the second download.
+ *
+ * `faces` is `{ bytes, family, weight, style }`; a face the browser refuses
+ * to parse is one family drawn in a substitute, which is bad but is not a
+ * reason to leave the page blank.
+ */
+export async function registerFaces(faces) {
+  if (typeof FontFace !== "function" || typeof document === "undefined" || !document.fonts) return;
+  await Promise.all(faces.map(async (f) => {
+    if (!f || !f.family) return;
+    try {
+      const face = new FontFace(f.family, f.bytes, { weight: f.weight || "400", style: f.style || "normal" });
+      await face.load();
+      document.fonts.add(face);
+    } catch (e) {
+      console.warn("could not register " + f.family + " with the browser:", e);
+    }
+  }));
+}

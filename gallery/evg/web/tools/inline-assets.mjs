@@ -8,7 +8,7 @@
 //     --start fonts/A.ttf,fonts/B.ttf,presets.txt,deck.pptx \
 //     --preload-stamped standalone.mjs,gl/evg-webgl.js \
 //     --preload host/app-host.mjs,evg/assets-client.mjs \
-//     --stamp <build id>
+//     --stamp <build id> [--cache no-store] [--asset-query v]
 //
 // Every gallery page fetched its assets the same way and in the same wrong
 // order: after its engine had loaded and its module had run, one await at a
@@ -45,6 +45,13 @@ const preloadStamped = list("--preload-stamped");
 const preload = list("--preload");
 const stamp = flag("--stamp", "");
 const openParam = flag("--open-param");
+// A page that fetches its assets with a cache mode, or that carries its own
+// `?v=` on to them, must have the head start THOSE requests and not merely
+// similar ones — a different mode or a different query is a different request,
+// and starting the wrong one leaves the module waiting for a response nobody
+// began while paying for one nobody wanted.
+const cacheMode = flag("--cache");
+const assetQuery = flag("--asset-query");
 
 if (!html || !fs.existsSync(html)) {
   console.error("usage: inline-assets.mjs --html <file> --start a,b [--preload-stamped c] [--preload d] [--stamp id] [--open-param open]");
@@ -75,9 +82,18 @@ if (openParam) {
   lines.push(`        var wanted = new URLSearchParams(location.search).get(${JSON.stringify(openParam)});`);
   lines.push("        if (wanted && /^[\\w.-]+$/.test(wanted)) files.push(wanted);");
 }
+if (assetQuery) {
+  lines.push("        // The page's own stamp, carried on to every asset, because that is");
+  lines.push("        // the URL the module will ask for.");
+  lines.push(`        var stamp = new URLSearchParams(location.search).get(${JSON.stringify(assetQuery)});`);
+  lines.push(`        var q = stamp ? '?${assetQuery}=' + encodeURIComponent(stamp) : '';`);
+} else {
+  lines.push("        var q = '';");
+}
+lines.push(`        var opts = ${cacheMode ? JSON.stringify({ cache: cacheMode }) : "undefined"};`);
 lines.push("        window.__evgAssets = {};");
 lines.push("        files.forEach(function (f) {");
-lines.push("          window.__evgAssets[f] = fetch('./' + f).catch(function (e) { return e; });");
+lines.push("          window.__evgAssets[f] = fetch('./' + f + q, opts).catch(function (e) { return e; });");
 lines.push("        });");
 lines.push("      })();");
 lines.push("    </script>");

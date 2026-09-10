@@ -5,16 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Ranger Book Editor</title>
     <style>
+      /* NO `@font-face` HERE. Seven of them declared the same files this page
+         fetches anyway, and nothing in this stylesheet uses one — the canvas
+         does, and the browser answers that by loading the CSS copy on top of
+         the bytes the page has. Measured: twelve font requests for eight
+         faces. `registerFaces` in standalone.mjs hands `document.fonts` the
+         bytes, before anything is drawn. */
       /* The WebGL text atlas rasterizes with the BROWSER's fonts, so the page
          has to have the same faces the engine measured with — otherwise the
          layout is Cinzel and the picture is whatever sans-serif was to hand. */
-      @font-face { font-family: "Open Sans"; src: url("./fonts/OpenSans-Regular.ttf") format("truetype"); font-weight: 400; font-style: normal; }
-      @font-face { font-family: "Open Sans"; src: url("./fonts/OpenSans-Bold.ttf") format("truetype"); font-weight: 700; font-style: normal; }
-      @font-face { font-family: "Open Sans"; src: url("./fonts/OpenSans-Italic.ttf") format("truetype"); font-weight: 400; font-style: italic; }
-      @font-face { font-family: "Cinzel"; src: url("./fonts/Cinzel-Regular.ttf") format("truetype"); font-weight: 400; font-style: normal; }
-      @font-face { font-family: "Cinzel"; src: url("./fonts/Cinzel-Bold.ttf") format("truetype"); font-weight: 700; font-style: normal; }
-      @font-face { font-family: "Josefin Sans"; src: url("./fonts/JosefinSans-Regular.ttf") format("truetype"); font-weight: 400; font-style: normal; }
-      @font-face { font-family: "Josefin Sans"; src: url("./fonts/JosefinSans-Bold.ttf") format("truetype"); font-weight: 700; font-style: normal; }
       :root {
         color-scheme: light;
         --bg: #f2f0eb;
