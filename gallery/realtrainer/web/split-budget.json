@@ -1,0 +1,19 @@
+{
+  "_": "What the first download may cost and what may not be in it. PLAN_WEB_LOADING.md S11. These numbers may shrink and must not grow; when one has to grow, the commit that raises it is the argument.",
+  "firstFrameGzip": {
+    "worker": 238000,
+    "main": 236000
+  },
+  "deferredGzipMax": 135000,
+  "mustBeDeferred": [
+    "VlCompile",
+    "VlRuntime",
+    "VlChart",
+    "VlEvgList",
+    "UITextRenderer",
+    "FontManager",
+    "TrueTypeFont",
+    "RasterText",
+    "TTFTextMeasurer"
+  ]
+}

@@ -29,6 +29,8 @@ npm run rt:dom      # the app as retained DOM (?painter=dom): every node where t
                     # it, a scene change as creates and removes, a scroll as one transform
 npm run rt:shot:sync  # bake the first picture — the app's chrome, computed from its own
                     # display list, into index.html (rt:shot:check fails when it is stale)
+npm run rt:split    # what a visitor downloads before the first frame, in bytes, against a
+                    # budget — and the classes put behind a seam, still behind it
 npm run rt:sheet    # the stylesheet the page ships (parsed at build time, written down)
                     # against the CSS it came from: rule for rule, and screen for screen
 npm run rt:shaken   # the app the page ships (an ES module, tree-shaken by the bundler)

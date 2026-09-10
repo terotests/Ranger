@@ -451,14 +451,39 @@ const produced = Object.keys(result.metafile.outputs).map((p) => path.basename(p
 // deployment can check they were shipped. The bundler knows which they are —
 // this only asks it.
 const deferred = new Set();
-for (const out of Object.values(result.metafile.outputs)) {
+const staticImports = {};
+for (const [file, out] of Object.entries(result.metafile.outputs)) {
+  const name = path.basename(file);
+  staticImports[name] = [];
   for (const imp of out.imports || []) {
     if (imp.kind === "dynamic-import") deferred.add(path.basename(imp.path));
+    if (imp.kind === "import-statement") staticImports[name].push(path.basename(imp.path));
   }
 }
+// What a visitor downloads before the first frame, per arrangement. A budget
+// on "the bundle" stopped meaning anything the moment there were chunks.
+const reach = (start) => {
+  const seen = new Set();
+  const queue = [...start];
+  while (queue.length) {
+    const n = queue.pop();
+    if (seen.has(n) || deferred.has(n)) continue;
+    seen.add(n);
+    for (const r of staticImports[n] || []) queue.push(r);
+  }
+  return [...seen];
+};
 fs.writeFileSync(
   path.join(HERE, "build-manifest.json"),
-  JSON.stringify({ scripts: produced, deferred: [...deferred] }, null, 2) + "\n",
+  JSON.stringify({
+    scripts: produced,
+    deferred: [...deferred],
+    imports: staticImports,
+    firstFrame: {
+      worker: reach(["bundle-worker.js", "worker-bundle.js"]),
+      main: reach(["bundle.js"]),
+    },
+  }, null, 2) + "\n",
 );
 
 if (OUT) {
