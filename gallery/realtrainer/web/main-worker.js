@@ -58,7 +58,11 @@ if (fit) {
 const route = params.get("route") || (fit ? "/" : "");
 
 // The worker, and the app inside it.
-const worker = new Worker(new URL("./worker-bundle.js", import.meta.url), { type: "module" });
+// The document's head made it, so that its script started downloading with
+// this one rather than after it (index.html). Making one here is the fallback
+// for anything that loads this module some other way.
+const worker = window.__rtWorker
+  || new Worker(new URL("./worker-bundle.js", import.meta.url), { type: "module" });
 /** `YYYY-MM-DD` in the viewer's own timezone — `toISOString()` is UTC, which
  *  is yesterday here for the first hours of the morning. */
 function localIsoDay(d) {

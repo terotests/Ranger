@@ -942,6 +942,7 @@
     "rt:shot:sync": "npm run rt:build --silent && node gallery/realtrainer/web/snapshot.mjs",
     "rt:shot:check": "npm run rt:build --silent && node gallery/realtrainer/web/snapshot.mjs --check",
     "rt:shell": "npm run rt:page --silent && node gallery/realtrainer/web/shell-check.mjs",
+    "rt:boot": "npm run rt:page --silent && node gallery/realtrainer/web/boot-bench.mjs",
     "rt:frame": "npm run rt:page --silent && node gallery/realtrainer/web/frame-check.mjs && node gallery/realtrainer/web/frame-check.mjs --engine worker",
     "rt:shots": "npm run rt:page --silent && node gallery/realtrainer/web/frame-check.mjs --png gallery/realtrainer/web/shots/realtrainer.png",
     "rt:web": "npm run rt:page --silent && node gallery/realtrainer/web/serve.mjs",

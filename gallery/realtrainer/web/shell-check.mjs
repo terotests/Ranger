@@ -93,7 +93,18 @@ const ok = (what, cond, detail = "") => {
 
 /** What the document shows, asked of the live page. */
 const shellOf = () => ({
-  text: document.body.innerText.replace(/\s+/g, " ").trim(),
+  // Everything written on the page EXCEPT the accessibility mirror, which is
+  // transparent DOM over the canvas publishing what the frame means — text
+  // that is supposed to be there and that a screen reader is supposed to find.
+  // What must not be there is page furniture: a header, an aside, prose.
+  text: [...document.body.querySelectorAll("*")]
+    .filter((el) => el.getClientRects().length > 0)   // VISIBLE, not merely present
+    .filter((el) => !el.closest(".evg-a11y") && el.children.length === 0)
+    .map((el) => (el.textContent || "").trim())
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim(),
   header: !!document.querySelector("header")?.getClientRects().length,
   aside: !!document.querySelector("aside")?.getClientRects().length,
   stage: (() => {
@@ -167,7 +178,7 @@ for (const VIEW of FIT_VIEWS) {
 
     console.log("--- after it runs ---");
     const after = await page.evaluate(shellOf);
-    ok("still nothing written", after.text === "", JSON.stringify(after.text.slice(0, 60)));
+    ok("still no page furniture written on it", after.text === "", JSON.stringify(after.text.slice(0, 60)));
     ok("still no header", !after.header);
     ok("still no aside", !after.aside);
     ok(

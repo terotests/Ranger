@@ -36,6 +36,15 @@
         // And start the bundle now rather than when the module script at the
         // end of the body runs. The script that imports it cannot execute
         // until the document has been parsed; this link does not wait.
+        // WHERE THE ENGINE RUNS. In a Worker unless asked otherwise: the app
+        // is ~370 KB of JavaScript to fetch, parse and boot, and on this
+        // thread all of that is time the page cannot paint or scroll in.
+        // `?painter=dom` has no worker host, so it stays here; `?engine=main`
+        // asks for the old arrangement explicitly.
+        var painter = new URLSearchParams(location.search).get("painter");
+        var engineParam = new URLSearchParams(location.search).get("engine");
+        var useWorker = painter !== "dom" && engineParam !== "main";
+        window.__rtPage.worker = useWorker;
         // THE DATA, STARTED HERE. The seed is a file rather than a string in
         // the bundle, and this line is why: the request goes out during the
         // head, in parallel with the bundle's, so a visitor waits for the
@@ -44,11 +53,27 @@
         window.__rtSeed = fetch("./seed.json")
           .then(function (r) { return r.ok ? r.text() : ""; })
           .catch(function () { return ""; });
-        var engine = new URLSearchParams(location.search).get("engine");
         var pre = document.createElement("link");
         pre.rel = "modulepreload";
-        pre.href = engine === "worker" ? "./bundle-worker.js" : "./bundle.js";
+        pre.href = useWorker ? "./bundle-worker.js" : "./bundle.js";
         document.head.appendChild(pre);
+        // AND THE WORKER ITSELF, STARTED HERE. Not a preload hint — the
+        // Worker. Its script is the big one, and if it is created by the host
+        // bundle then the two downloads are in series for no reason: the
+        // worker cannot begin until the host has arrived and run. Made here it
+        // fetches, parses and boots the app while the host is still coming.
+        //
+        // Safe because the engine says nothing until it is spoken to: the
+        // worker replies to `init` and posts nothing unprompted
+        // (gallery/evg/gl/evg-engine.js), so there is no message to miss
+        // between now and the moment the host attaches its listener.
+        if (useWorker) {
+          try {
+            window.__rtWorker = new Worker("./worker-bundle.js", { type: "module" });
+          } catch (e) {
+            window.__rtWorker = null;
+          }
+        }
       })();
     </script>
     <style>
@@ -187,11 +212,11 @@
     </main>
     <div id="err"></div>
     <script type="module">
-      // `?engine=worker` runs the Ranger app in a Worker and paints its frames
-      // here (gallery/evg/gl/evg-engine.js); the default keeps it on this
-      // thread. Same app, same painter, same checks.
-      const engine = new URLSearchParams(location.search).get("engine");
-      import(engine === "worker" ? "./bundle-worker.js" : "./bundle.js");
+      // The Ranger app runs in a Worker and its frames are painted here
+      // (gallery/evg/gl/evg-engine.js). `?engine=main` keeps it on this
+      // thread, and `?painter=dom` requires that. Same app, same painter,
+      // same checks — the head settled which, and preloaded it.
+      import(window.__rtPage.worker ? "./bundle-worker.js" : "./bundle.js");
     </script>
   </body>
 </html>
