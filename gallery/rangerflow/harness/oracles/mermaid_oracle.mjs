@@ -18,7 +18,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { JSDOM } from "jsdom";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -90,6 +90,68 @@ async function read(file) {
   return out;
 }
 
+// ------------------------------------------------------- the type registry -
+/**
+ * Every header keyword the installed Mermaid can DETECT, asked of Mermaid.
+ *
+ * Not a list of chunk filenames: a chunk is not always named after its
+ * diagram. Five of them are called `diagram-<hash>.mjs` and carry no name at
+ * all, which is how `packet`, `radar`, `treemap`, `treeView` and
+ * `eventmodeling` stayed out of a matrix whose whole job was to notice a
+ * diagram with no reader. The registry the parser itself consults is the only
+ * list that cannot be short.
+ *
+ * Keywords rather than renderers: `graph` and `flowchart` draw one picture
+ * through two of Mermaid's detectors, and a reader has to know both words, so
+ * both are rows. Each keyword is read off a detector's own regular expression
+ * and then handed back to that detector — a keyword derived wrongly is dropped
+ * here rather than quietly asked of RangerFlow's reader as Mermaid's.
+ */
+async function types() {
+  const dist = path.join(HERE, "..", "node_modules", "mermaid", "dist");
+  const src = fs.readFileSync(path.join(dist, "mermaid.core.mjs"), "utf8");
+  // `detectors` is the live registry. mermaid.core imports it from a chunk
+  // whose hash changes with every release, so the path is read, never typed.
+  const imp = src.match(/import\s*\{[^}]*\bdetectors\b[^}]*\}\s*from\s*"([^"]+)"/);
+  if (!imp) return [];
+  const api = await import(pathToFileURL(path.join(dist, imp[1])).href);
+  const rows = new Map();
+  for (const [id, plugin] of Object.entries(api.detectors ?? {})) {
+    // `error` and `---` are Mermaid's own two entries, not diagram types.
+    if (id === "error" || id === "---") continue;
+    for (const header of headersOf(String(plugin.detector))) {
+      if (rows.has(header)) continue;
+      let owns = false;
+      try { owns = plugin.detector(header + "\n", {}) === true; } catch { owns = false; }
+      if (!owns) continue;
+      // …and what Mermaid resolves the keyword to once every detector has had
+      // a look, which is the renderer it would actually reach for.
+      let type = "";
+      try { type = api.detectType(header + "\n"); } catch { type = ""; }
+      rows.set(header, { header, type, detector: id });
+    }
+  }
+  return [...rows.values()].sort((a, b) => a.header.localeCompare(b.header));
+}
+
+/** Every keyword a detector's regular expressions open with. */
+function headersOf(source) {
+  // A detector is one or more `/^\s*<keyword>…/.test(txt)`. Two of them test
+  // several — the flowchart answers to both `graph` and `flowchart` — so all
+  // of them are read, and the caller checks each against the detector itself.
+  const out = [];
+  for (const m of source.matchAll(/\/\^\\s\*([^/]+)\//g)) {
+    const k = m[1]
+      // Groups go first: a `|` inside one is not an alternative keyword.
+      .replace(/\(\?:[^)]*\)[?*]?/g, "")     // `(?:[\s:]|$)` is what follows the keyword
+      .replace(/\([^)]*\)\?/g, "")           // `(-beta)?` is optional, so leave it off
+      .replace(/\\b/g, "")
+      .split("|")[0];                      // `C4Context|C4Container|…`
+    if (k) out.push(k);
+  }
+  return out;
+}
+
 const files = fs.readdirSync(CORPUS).filter((f) => f.endsWith(".mmd")).sort();
 const diagrams = [];
 for (const file of files) diagrams.push(await read(file));
@@ -98,6 +160,7 @@ fs.mkdirSync(path.dirname(OUT), { recursive: true });
 // The version of the thing that answered, read from the package that answered.
 const pkg = path.join(HERE, "..", "node_modules", "mermaid", "package.json");
 const version = fs.existsSync(pkg) ? JSON.parse(fs.readFileSync(pkg, "utf8")).version : "";
-fs.writeFileSync(OUT, JSON.stringify({ version, diagrams }, null, 1));
+const known = await types();
+fs.writeFileSync(OUT, JSON.stringify({ version, types: known, diagrams }, null, 1));
 const flow = diagrams.filter((d) => d.nodes.length > 0).length;
-console.log(`  mermaid oracle: ${diagrams.length} diagrams (${flow} flowcharts) → ${path.relative(process.cwd(), OUT)}`);
+console.log(`  mermaid oracle: ${diagrams.length} diagrams (${flow} flowcharts), ${known.length} header keywords → ${path.relative(process.cwd(), OUT)}`);

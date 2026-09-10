@@ -1,0 +1,424 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MermaidPacketReader.rgr — a diagram whose x axis is bits.
+; ============================================================================
+;
+; A packet diagram is a ruler with names written on it. Every field is a range
+; of bit numbers, the ruler is `bitsPerRow` bits wide, and a field that runs
+; off the end of a row carries on at the start of the next one:
+;
+;    0                              15 16                             31
+;   ┌────────────────────────────────┬────────────────────────────────┐
+;   │          Source Port           │        Destination Port        │
+;   ├────────────────────────────────┴────────────────────────────────┤
+;   │                        Sequence Number                          │
+;   └─────────────────────────────────────────────────────────────────┘
+;
+; So the whole of the layout is arithmetic on bit numbers, and the one thing
+; that needs care is the wrap: `192-255` is not one box, it is two boxes on
+; two rows with the same name in both, and a reader that drew it as one box
+; would be drawing a field 64 bits wide on a ruler 32 bits long.
+;
+; **What it reads.** `packet` and `packet-beta`, YAML front matter and `title`,
+; and the three ways of writing a range that Mermaid takes: `0-15: "Name"`,
+; `32: "Name"` for a single bit, and `+16: "Name"` for the next sixteen bits
+; after whatever came before.
+;
+; The bit numbers above the boxes are the diagram: a field drawn without them
+; is a row of words. They are drawn as their own labels, at the two ends of
+; each box, and left off where a box is too narrow to hold them apart.
+; ============================================================================
+
+Import "MermaidReader.rgr"
+Import "../../core/FlowStyleSheet.rgr"
+
+class MermaidPacketField {
+    def start:int 0
+    def endBit:int 0
+    def label:string ""
+
+    Constructor () {
+    }
+
+    fn bits:int () {
+        return ((endBit - start) + 1)
+    }
+}
+
+class MermaidPacket {
+    def title:string ""
+    ; Mermaid's own default, and the one every protocol diagram is drawn on.
+    def bitsPerRow:int 32
+    def fields:[MermaidPacketField]
+
+    Constructor () {
+    }
+
+    fn fieldCount:int () {
+        return (array_length fields)
+    }
+
+    ; The last bit any field claims, which is what says how many rows there are.
+    fn lastBit:int () {
+        def top:int -1
+        def i:int 0
+        while (i < (array_length fields)) {
+            def f:MermaidPacketField (itemAt fields i)
+            if (f.endBit > top) {
+                top = f.endBit
+            }
+            i = (i + 1)
+        }
+        return top
+    }
+
+    fn rowCount:int () {
+        def top:int (this.lastBit())
+        if (top < 0) {
+            return 0
+        }
+        return ((idiv top bitsPerRow) + 1)
+    }
+}
+
+class MermaidPacketReader {
+    def doc:MermaidPacket (new MermaidPacket)
+    ; Where `+n` starts counting from: the bit after the last one claimed.
+    def cursor:int 0
+
+    Constructor () {
+    }
+
+    sfn parse:MermaidPacket (src:string) {
+        def r (new MermaidPacketReader)
+        return (r.read(src))
+    }
+
+    fn read:MermaidPacket (src:string) {
+        def lines:[string] (strsplit src "\n")
+        def inFront:boolean false
+        def frontDone:boolean false
+        def i:int 0
+        while (i < (array_length lines)) {
+            def raw:string (trim (itemAt lines i))
+            i = (i + 1)
+            if (raw == "---") {
+                if (frontDone == false) {
+                    if inFront {
+                        inFront = false
+                        frontDone = true
+                    } {
+                        inFront = true
+                    }
+                    continue
+                }
+            }
+            if inFront {
+                def cut:int (indexOf raw ":")
+                if (cut > 0) {
+                    def key:string (trim (substring raw 0 cut))
+                    def lowKey:string (MermaidReader.lower(key))
+                    if (lowKey == "title") {
+                        def val:string (trim (substring raw (cut + 1) (strlen raw)))
+                        doc.title = (MermaidReader.unquote(val))
+                    }
+                }
+                continue
+            }
+            def line:string (trim (MermaidPacketReader.stripComment(raw)))
+            if ((strlen line) == 0) {
+                continue
+            }
+            this.statement(line)
+        }
+        return doc
+    }
+
+    sfn stripComment:string (line:string) {
+        def len:int (strlen line)
+        def i:int 0
+        while (i < len) {
+            def c:int (charAt line i)
+            if (c == 37) {
+                if ((i + 1) < len) {
+                    def d:int (charAt line (i + 1))
+                    if (d == 37) {
+                        return (substring line 0 i)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return line
+    }
+
+    fn statement:void (st:string) {
+        def word:string (MermaidReader.firstWord(st))
+        def kw:string (MermaidReader.lower(word))
+        def rest:string (trim (substring st (strlen word) (strlen st)))
+        if (MermaidReader.beginsWith(kw "packet")) {
+            ; `packet-beta` and `packet` are the same word to a reader, and
+            ; anything after it on the line is the next statement.
+            if ((strlen rest) > 0) {
+                this.statement(rest)
+            }
+            return
+        }
+        if (MermaidReader.beginsWith(kw "acctitle")) { return }
+        if (MermaidReader.beginsWith(kw "accdescr")) { return }
+        if (kw == "title") {
+            doc.title = (MermaidReader.cleanLabel(rest))
+            return
+        }
+        this.field(st)
+    }
+
+    ; `0-15: "Source Port"`, `32: "Flag"`, `+16: "Window"`.
+    fn field:void (st:string) {
+        def cut:int (indexOf st ":")
+        if (cut <= 0) {
+            return
+        }
+        def range:string (trim (substring st 0 cut))
+        if ((strlen range) == 0) {
+            return
+        }
+        def name:string (trim (substring st (cut + 1) (strlen st)))
+        def f (new MermaidPacketField)
+        f.label = (MermaidReader.cleanLabel(name))
+        if ((charAt range 0) == 43) {
+            ; `+n` is a width, not a position: it starts where the last one
+            ; stopped, which is the only reason this reader keeps a cursor.
+            def width:int (MermaidPacketReader.intOf((substring range 1 (strlen range)) 0))
+            if (width < 1) {
+                return
+            }
+            f.start = cursor
+            f.endBit = ((cursor + width) - 1)
+        } {
+            def dash:int (indexOf range "-")
+            if (dash > 0) {
+                f.start = (MermaidPacketReader.intOf((substring range 0 dash) 0))
+                f.endBit = (MermaidPacketReader.intOf((substring range (dash + 1) (strlen range)) 0))
+            } {
+                f.start = (MermaidPacketReader.intOf(range 0))
+                f.endBit = f.start
+            }
+        }
+        if (f.endBit < f.start) {
+            f.endBit = f.start
+        }
+        cursor = (f.endBit + 1)
+        push doc.fields f
+    }
+
+    sfn intOf:int (text:string fallback:int) {
+        def t:string (trim text)
+        if ((strlen t) == 0) {
+            return fallback
+        }
+        def v@(optional):double (str2double t)
+        if (null? v) {
+            return fallback
+        }
+        def d:double (unwrap v)
+        return (to_int d)
+    }
+}
+
+; ============================================================================
+; MermaidPacketFlow — the ruler, drawn.
+; ============================================================================
+class MermaidPacketFlow {
+    Constructor () {
+    }
+
+    ; How wide one bit is on the page. Wide enough that a 32-bit row holds a
+    ; name like "Destination Port" without the letters touching the walls —
+    ; and, where the diagram has one-bit fields with words in them, wide
+    ; enough for the narrowest of those too. A TCP header's flags are single
+    ; bits called URG and ACK, and a ruler scaled to the wide fields draws
+    ; them as six boxes with an ellipsis in each, which says nothing at all.
+    ;
+    ; Not unboundedly, though: one bit labelled "Reserved" would stretch a
+    ; 32-bit row to two thousand pixels for the sake of one word, so the
+    ; stretch stops at half again and that label is the one that gets cut.
+    sfn bitWidthFor:double (d:MermaidPacket) {
+        def base:double 27.0
+        def want:double base
+        def i:int 0
+        while (i < (array_length d.fields)) {
+            def f:MermaidPacketField (itemAt d.fields i)
+            def bits:int (f.bits())
+            if (bits > 0) {
+                ; The same estimate the other readers size their boxes with:
+                ; there is no font measurer this side of the view.
+                def need:double (((to_double (strlen f.label)) * 7.0) + 14.0)
+                def per:double (need / (to_double bits))
+                if (per > want) {
+                    want = per
+                }
+            }
+            i = (i + 1)
+        }
+        def cap:double (base * 1.5)
+        if (want > cap) {
+            want = cap
+        }
+        return want
+    }
+
+    sfn rowHeight:double () {
+        return 42.0
+    }
+
+    ; The band above each row where the bit numbers live.
+    sfn rulerHeight:double () {
+        return 22.0
+    }
+
+    sfn build:FlowGraph (d:MermaidPacket style:FlowStyle) {
+        def g (new FlowGraph)
+        def rows:int (d.rowCount())
+        if (rows == 0) {
+            return g
+        }
+        def bw:double (MermaidPacketFlow.bitWidthFor(d))
+        def rh:double (MermaidPacketFlow.rowHeight())
+        def ruler:double (MermaidPacketFlow.rulerHeight())
+        def top:double 0.0
+        if ((strlen d.title) > 0) {
+            def rowWidth:double ((to_double d.bitsPerRow) * bw)
+            MermaidPacketFlow.label(g "packet-title" d.title 0.0 0.0 rowWidth 34.0 "mermaid packet title axislabel")
+            top = 48.0
+        }
+        def i:int 0
+        while (i < (array_length d.fields)) {
+            def f:MermaidPacketField (itemAt d.fields i)
+            ; The wrap. A field is as many boxes as it crosses rows, and every
+            ; one of them carries the name: a box on the second row labelled
+            ; with nothing is a box the reader has to count back to identify.
+            def bit:int f.start
+            def seg:int 0
+            while (bit <= f.endBit) {
+                def row:int (idiv bit d.bitsPerRow)
+                def rowEnd:int ((((row + 1) * d.bitsPerRow)) - 1)
+                def segEnd:int f.endBit
+                if (segEnd > rowEnd) {
+                    segEnd = rowEnd
+                }
+                def col:int (bit - (row * d.bitsPerRow))
+                def x:double ((to_double col) * bw)
+                def y:double (top + ((to_double row) * (rh + ruler)) + ruler)
+                def w:double ((to_double ((segEnd - bit) + 1)) * bw)
+                def id:string ((("fld-" + (to_string f.start)) + "-") + (to_string seg))
+                def n:FlowNode (FlowNode.create(id f.label x y))
+                n.nodeType = "field"
+                n.shape = "rect"
+                n.width = w
+                n.height = rh
+                n.borderRadius = 2.0
+                n.connectable = false
+                n.draggable = false
+                n.cssClass = ("mermaid packet field " + (MermaidPacketFlow.fieldClass(i)))
+                n.bgColor = (MermaidPacketFlow.colorAt(i))
+                n.syncFromModel()
+                g.addNode(n)
+                MermaidPacketFlow.ticks(g id bit segEnd x y w bw)
+                bit = (segEnd + 1)
+                seg = (seg + 1)
+            }
+            i = (i + 1)
+        }
+        g.reindex()
+        def wrote:int (style.applyTo(g))
+        ; The fills are the diagram: a sheet may say otherwise by matching
+        ; `.field-3`, but twelve fields in one colour is one field drawn twelve
+        ; times, and the boundaries between them stop being visible.
+        def c:int 0
+        while (c < (array_length d.fields)) {
+            MermaidPacketFlow.repaint(g d c)
+            c = (c + 1)
+        }
+        return g
+    }
+
+    ; The two bit numbers over one box. They are what makes it a packet
+    ; diagram rather than a row of words, so they are drawn even where the box
+    ; is one bit wide — but then only once, because `7` and `7` at both ends
+    ; of a 27-pixel box is two numbers on top of each other.
+    sfn ticks:void (g:FlowGraph id:string from:int upto:int x:double y:double w:double bw:double) {
+        def h:double 18.0
+        def ty:double (y - 20.0)
+        def tw:double 34.0
+        if (tw > w) {
+            tw = w
+        }
+        MermaidPacketFlow.label(g (id + "-a") (to_string from) x ty tw h "mermaid packet tick axislabel")
+        if (upto == from) {
+            return
+        }
+        ; Two numbers need room to be two numbers; below that the box says
+        ; where it starts and the next box says where the next one does.
+        if (w < (bw * 2.0)) {
+            return
+        }
+        MermaidPacketFlow.label(g (id + "-b") (to_string upto) ((x + w) - tw) ty tw h "mermaid packet tick axislabel")
+    }
+
+    sfn label:void (g:FlowGraph id:string text:string x:double y:double w:double h:double cls:string) {
+        if ((strlen text) == 0) {
+            return
+        }
+        def n:FlowNode (FlowNode.create(id text x y))
+        n.nodeType = "axislabel"
+        n.shape = "rect"
+        n.width = w
+        n.height = h
+        n.connectable = false
+        n.draggable = false
+        n.cssClass = cls
+        n.syncFromModel()
+        g.addNode(n)
+    }
+
+    sfn repaint:void (g:FlowGraph d:MermaidPacket index:int) {
+        def f:MermaidPacketField (itemAt d.fields index)
+        def seg:int 0
+        while (seg < 64) {
+            def id:string ((("fld-" + (to_string f.start)) + "-") + (to_string seg))
+            if ((g.hasNode(id)) == false) {
+                return
+            }
+            def n:FlowNode (g.nodeById(id))
+            n.bgColor = (MermaidPacketFlow.colorAt(index))
+            n.borderColor = "#1f2430"
+            n.syncFromModel()
+            seg = (seg + 1)
+        }
+    }
+
+    sfn fieldClass:string (index:int) {
+        return ("field-" + (to_string (index % 12)))
+    }
+
+    ; Neighbouring fields have to be told apart at a glance, so the palette
+    ; walks rather than repeats: two fields next to each other are never the
+    ; same colour, and none of them is dark enough to swallow its own label.
+    sfn colorAt:string (index:int) {
+        def i:int (index % 12)
+        if (i == 0)  { return "#dbe7f3" }
+        if (i == 1)  { return "#fbe3cd" }
+        if (i == 2)  { return "#dcecd6" }
+        if (i == 3)  { return "#f7dada" }
+        if (i == 4)  { return "#d7ecea" }
+        if (i == 5)  { return "#ecdcea" }
+        if (i == 6)  { return "#f7eecb" }
+        if (i == 7)  { return "#e6ddd4" }
+        if (i == 8)  { return "#e6e3e1" }
+        if (i == 9)  { return "#fbdfe2" }
+        if (i == 10) { return "#e0dedd" }
+        return "#e5dcc6"
+    }
+}

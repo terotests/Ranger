@@ -49,6 +49,11 @@ Import "../domains/mermaid/MermaidVennReader.rgr"
 Import "../domains/mermaid/MermaidWardleyReader.rgr"
 Import "../domains/mermaid/MermaidRailroadReader.rgr"
 Import "../domains/mermaid/MermaidInfoReader.rgr"
+Import "../domains/mermaid/MermaidPacketReader.rgr"
+Import "../domains/mermaid/MermaidRadarReader.rgr"
+Import "../domains/mermaid/MermaidTreemapReader.rgr"
+Import "../domains/mermaid/MermaidTreeViewReader.rgr"
+Import "../domains/mermaid/MermaidEventModelReader.rgr"
 Import "../core/FlowStyleSheet.rgr"
 Import "../domains/business/BusinessCharts.rgr"
 
@@ -127,6 +132,7 @@ class RangerFlowTest {
         RangerFlowTest.testMermaidGantt(c)
         RangerFlowTest.testMermaidSequence(c)
         RangerFlowTest.testMermaidGit(c)
+        RangerFlowTest.testMermaidSubgraphEnds(c)
         RangerFlowTest.testMermaidKanban(c)
         RangerFlowTest.testMermaidQuadrant(c)
         RangerFlowTest.testMermaidPie(c)
@@ -140,6 +146,12 @@ class RangerFlowTest {
         RangerFlowTest.testMermaidVenn(c)
         RangerFlowTest.testMermaidWardley(c)
         RangerFlowTest.testMermaidRailroad(c)
+        RangerFlowTest.testMermaidClassNotes(c)
+        RangerFlowTest.testMermaidPacket(c)
+        RangerFlowTest.testMermaidRadar(c)
+        RangerFlowTest.testMermaidTreemap(c)
+        RangerFlowTest.testMermaidTreeView(c)
+        RangerFlowTest.testMermaidEventModel(c)
         RangerFlowTest.testBusinessCharts(c)
         RangerFlowTest.testAuthoring(c)
         RangerFlowTest.testTreeLayouts(c)
@@ -396,13 +408,53 @@ class RangerFlowTest {
         ed.pointerDown(inp)
         ed.pointerUp(inp)
         c.ok("armed again, from a handle already in use" (ed.pending()))
+        ; Genuinely empty canvas. The bottom-right corner is the minimap,
+        ; which is chrome and answers a press of its own.
         def nowhere (new FlowInput)
         nowhere.x = 900.0
-        nowhere.y = 620.0
+        nowhere.y = 200.0
         ed.pointerDown(nowhere)
         ed.pointerUp(nowhere)
         c.eqInt("a click on nothing makes no edge" (g.edgeCount()) n1)
         c.ok("and cancels the connection" ((ed.pending()) == false))
+
+        ; The minimap is a place to GO, not a thing to drag. Until it was hit
+        ; tested, a press meant for it fell through to the pane and panned the
+        ; canvas — which drags the content, so the view moved the opposite way
+        ; to the one the reader pushed.
+        def onMap (new FlowInput)
+        onMap.x = ((ed.view.width - 60.0))
+        onMap.y = ((ed.view.height - 60.0))
+        c.ok("the bottom-right corner is the minimap" (ed.view.minimapAt(onMap.x onMap.y)))
+        def beforeX:double ed.view.viewport.x
+        def beforeY:double ed.view.viewport.y
+        ed.pointerDown(onMap)
+        c.eqInt("and a press on it steers rather than pans" ed.mode 9)
+        def steeredY:double ed.view.viewport.y
+        ed.pointerUp(onMap)
+        c.ok("the view moved" (((fabs (steeredY - beforeY)) + (fabs (ed.view.viewport.x - beforeX))) > 0.5))
+        ; What the press means, said in the coordinates it is about: the flow
+        ; point in the middle of the screen. A point higher on the map has to
+        ; put a HIGHER part of the diagram there. Panning moved it the other
+        ; way, and that is what "mirrored" looked like.
+        def midY:double (ed.view.height * 0.5)
+        def sawY:double (ed.view.viewport.toFlowY(midY))
+        def higher (new FlowInput)
+        higher.x = onMap.x
+        higher.y = (onMap.y - 40.0)
+        ed.pointerDown(higher)
+        def sawHigher:double (ed.view.viewport.toFlowY(midY))
+        ed.pointerUp(higher)
+        c.ok("and a point higher on the map centres a higher part of the diagram" (sawHigher < sawY))
+        def midX:double (ed.view.width * 0.5)
+        def sawX:double (ed.view.viewport.toFlowX(midX))
+        def righter (new FlowInput)
+        righter.x = (onMap.x + 40.0)
+        righter.y = higher.y
+        ed.pointerDown(righter)
+        def sawRight:double (ed.view.viewport.toFlowX(midX))
+        ed.pointerUp(righter)
+        c.ok("and a point further right, a part further right" (sawRight > sawX))
         c.ok("leaving the editor idle" (ed.idle()))
 
         ; Dragging from a handle still works exactly as it did.
@@ -2973,7 +3025,27 @@ class RangerFlowTest {
         c.ok("and their width is how long they take" (bar1.width > 0.0))
         def milestone:FlowNode (g.nodeById("m1"))
         c.eqStr("a milestone is drawn as the diamond it is" milestone.shape "diamond")
-        c.eqInt("what waits for what is the one relation a Gantt chart has" (g.edgeCount()) 1)
+        ; `after a1` is arithmetic on the start date and nothing else. Mermaid
+        ; draws no dependency arrow, and an arrow drawn here would be a claim
+        ; about the plan that the plan does not make.
+        c.eqInt("a Gantt chart has no edges at all" (g.edgeCount()) 0)
+        c.eqInt("and `after` shows as the date it produced" (test.startDay) 19733)
+        ; The axis is the diagram: a chart that spaced its bars evenly would be
+        ; a list with rounded corners, and one with no dates on it is a chart
+        ; you cannot read a date off.
+        def tick:FlowNode (g.nodeById("gtick-0"))
+        c.ok("the axis is labelled with dates" ((indexOf tick.label "-") > 0))
+        c.eqStr("read back out of the day numbers the reader made" (MermaidGanttFlow.dateText(19723)) "2024-01-01")
+        c.eqStr("and the last day of a leap February is not the first of March" (MermaidGanttFlow.dateText(19782)) "2024-02-29")
+        c.ok("with a rule down the chart at every one" (g.hasNode("gline-0")))
+        ; Two sections whose dates overlap have overlapping bounding boxes, so
+        ; a band per box draws one on top of the other and loses the label
+        ; underneath. A band is a run of consecutive rows instead.
+        def b0:FlowNode (g.nodeById("gband-0"))
+        def b1:FlowNode (g.nodeById("gband-1"))
+        c.ok("each section is a band of its own" ((b0.y + b0.height) <= (b1.y + 0.001)))
+        c.ok("and every band keeps its name" (g.hasNode("gband-1-name")))
+        c.ok("the bars are filled, not outlined" ((strlen bar1.bgColor) > 0))
         c.ok("a Gantt chart is one this library draws" (MermaidReader.draws("gantt")))
     }
 
@@ -3851,6 +3923,445 @@ class RangerFlowTest {
         def notInfo:MermaidInfo (MermaidInfoReader.parse("flowchart TD\n  a --> b\n"))
         c.ok("a diagram that never asked gets no answer" (notInfo.asked == false))
         c.ok("`info` is one this library draws" (MermaidReader.draws("info")))
+    }
+
+    ; --------------------------------------------- Mermaid class notes ----
+    ; A note is prose ABOUT the program rather than part of it, which is what
+    ; decides both of the questions here: it is not given to the layout, and
+    ; the line breaks in it are the author's rather than the wrapper's.
+    sfn testMermaidClassNotes:void (c:Checker) {
+        c.section("Mermaid class diagram notes")
+        def src:string "classDiagram\n"
+        src = (src + "note \"From Duck till Zebra\"\n")
+        src = (src + "Animal <|-- Duck\n")
+        src = (src + "note for Duck \"can fly<br>can swim<br>can dive<br>can help in debugging\"\n")
+
+        def d:MermaidClassDiagram (MermaidClassReader.parse(src))
+        c.eqInt("both notes are read" (d.noteCount()) 2)
+        def loose:MermaidClassNote (itemAt d.notes 0)
+        c.eqStr("a bare note is the words in the quotes" loose.text "From Duck till Zebra")
+        c.ok("and belongs to no class" ((loose.pinned()) == false))
+        def pinned:MermaidClassNote (itemAt d.notes 1)
+        c.eqStr("`note for Duck` names the class" pinned.target "Duck")
+        c.ok("and is pinned to it" (pinned.pinned()))
+        c.eqInt("`<br>` is a line the author asked for" (FlowText.hardLines(pinned.text)) 4)
+        c.eqInt("a note is not a class" (d.classCount()) 2)
+
+        def bare (new FlowStyle)
+        def g:FlowGraph (MermaidClassFlow.build(d bare))
+        def n0:FlowNode (g.nodeById("note-0"))
+        def n1:FlowNode (g.nodeById("note-1"))
+        c.eqStr("a note is drawn with the folded corner" n1.shape "note")
+        c.eqStr("and carries its own words" n0.label "From Duck till Zebra")
+        def duck:FlowNode (g.nodeById("Duck"))
+        c.ok("a pinned note stands beside its class" (n1.x < duck.x))
+        c.ok("and level with it" ((fabs ((n1.centerY()) - (duck.centerY()))) < 1.0))
+        c.ok("and does not overlap it" (((n1.x + n1.width) < duck.x)))
+        c.ok("it is tall enough for every line the author wrote" (n1.height > 80.0))
+        def leader:FlowEdge (RangerFlowTest.edgeNamed(g "noteline-1"))
+        c.ok("the leader is dashed" (leader.dash > 0.0))
+        c.eqStr("with nothing on the end of it" leader.markerEnd "")
+        c.ok("and goes where it was put, not where a router would send it" leader.pinnedRoute)
+        c.eqInt("a note with no class gets no leader" (g.edgeCount()) 2)
+        ; Three lines is the cap for text that WRAPPED. Text broken by hand is
+        ; not wrapped text, and merging two of its lines rewrites the sentence.
+        def view:FlowView (FlowView.of(g))
+        def hard:int (view.linesForText(200.0 12.0 "a\nb\nc\nd\ne"))
+        c.eqInt("five hand-written lines are five lines" hard 5)
+        def soft:int (view.linesForText(200.0 12.0 "one long sentence with no breaks in it"))
+        c.eqInt("and text with none of them still caps at three" soft 3)
+    }
+
+    ; --------------------------------------------- Mermaid radar ----------
+    ; The second diagram here with a SCALE in it, and it carries the xychart's
+    ; obligation: a reading of 85 has to be exactly as far out along its spoke
+    ; as 85 is between the middle and the rim.
+    sfn testMermaidRadar:void (c:Checker) {
+        c.section("Mermaid radar charts")
+        def src:string "radar-beta\n"
+        src = (src + "  title Grades\n")
+        src = (src + "  axis m[\"Math\"], s[\"Science\"]\n")
+        src = (src + "  axis e[\"English\"], h[\"History\"]\n")
+        src = (src + "  curve a[\"Alice\"]{100, 50, 0, 50}\n")
+        src = (src + "  curve b[\"Bob\"]{h: 100, m: 0}\n")
+        src = (src + "  max 100\n")
+        src = (src + "  min 0\n")
+        src = (src + "  ticks 4\n")
+        src = (src + "  graticule polygon\n")
+
+        def d:MermaidRadar (MermaidRadarReader.parse(src))
+        c.eqStr("the title is the line that says so" d.title "Grades")
+        c.eqInt("every `axis` line adds to the same set of spokes" (d.axisCount()) 4)
+        def ax:MermaidRadarAxis (itemAt d.axes 1)
+        c.eqStr("the name is what stands before the bracket" ax.id "s")
+        c.eqStr("and the label is what is inside it" ax.label "Science")
+        c.eqInt("a curve per `curve`" (d.curveCount()) 2)
+        def alice:MermaidRadarCurve (itemAt d.curves 0)
+        c.eqInt("a plain list is one reading per spoke, in order" (alice.count()) 4)
+        c.ok("and lands on the spokes in that order" ((fabs ((itemAt alice.values 0) - 100.0)) < 0.001))
+        ; `h: 100` says which spoke it belongs on, which is the only safe way
+        ; to write a curve that skips an axis.
+        def bob:MermaidRadarCurve (itemAt d.curves 1)
+        c.ok("a named reading goes to the axis it names" ((fabs ((itemAt bob.values 3) - 100.0)) < 0.001))
+        c.ok("and an axis nobody named reads as nothing" ((fabs (itemAt bob.values 1)) < 0.001))
+        c.eqInt("`ticks` is how many rings" d.ticks 4)
+        c.eqStr("`graticule` is which shape they are" d.graticule "polygon")
+        c.ok("`showLegend` is on unless it is turned off" d.showLegend)
+        c.ok("the scale is what `min` and `max` said" ((fabs ((d.high()) - 100.0)) < 0.001))
+
+        def bare (new FlowStyle)
+        def g:FlowGraph (MermaidRadarFlow.build(d bare))
+        c.eqInt("a radar has no edges: every line on it is a shape" (g.edgeCount()) 0)
+        def r:double (MermaidRadarFlow.radius())
+        ; The scale. Alice reads 100 on Math and 0 on English, so her point on
+        ; the first spoke is ON the rim and her point on the third is dead
+        ; centre — anything else and the chart is a lie about the numbers.
+        def full:FlowNode (g.nodeById("dot-0-0"))
+        def none:FlowNode (g.nodeById("dot-0-2"))
+        def cx:double r
+        def cy:double r
+        c.ok("a reading at the top of the scale sits on the rim" ((fabs (((full.centerY()) - cy) + r)) < 1.0))
+        c.ok("and one at the bottom sits in the middle" ((fabs ((none.centerY()) - cy)) < 1.0))
+        c.ok("the first axis is at twelve o'clock" ((fabs ((full.centerX()) - cx)) < 1.0))
+        ; The rings and spokes are lines, and a line here is a thin polygon:
+        ; the display list fills what it draws, so an unfilled ring would be a
+        ; ring painted in the paper's colour and lost on any other paper.
+        def ring:FlowNode (g.nodeById("ring-4-0"))
+        c.eqStr("a graticule ring is drawn, not routed" ring.shape "polygon")
+        c.ok("as a thin quadrilateral" ((array_length ring.shapePoints) == 8))
+        c.ok("with no stroke of its own" ((fabs ring.borderWidth) < 0.001))
+        c.ok("a polygon graticule has a corner on every spoke" ((g.hasNode("ring-4-3")) && ((g.hasNode("ring-4-4")) == false)))
+        c.ok("and a spoke for every axis" (g.hasNode("spoke-3")))
+        c.ok("each axis is named beside its spoke" (g.hasNode("axis-3")))
+        def key:FlowNode (g.nodeById("key-1"))
+        c.eqStr("and each curve gets a swatch in that curve's colour" key.bgColor (MermaidRadarFlow.colorAt(1)))
+        c.ok("a radar chart is one this library draws" (MermaidReader.draws("radar")))
+    }
+
+    ; --------------------------------------------- Mermaid treemap --------
+    ; A treemap says two things at once, and the second one is the one that can
+    ; be got wrong quietly: the AREA is the number. So the assertions are about
+    ; area — twice the number is twice the box — and about the indentation,
+    ; which is the whole of the syntax.
+    sfn testMermaidTreemap:void (c:Checker) {
+        c.section("Mermaid treemaps")
+        def src:string "treemap-beta\n"
+        src = (src + "title Where it went\n")
+        src = (src + "\"Big\"\n")
+        src = (src + "    \"One\": 40\n")
+        src = (src + "    \"Two\": 20\n")
+        src = (src + "\"Small\": 30 :::warm\n")
+
+        def d:MermaidTreemap (MermaidTreemapReader.parse(src))
+        c.eqStr("the title is the line that says so" d.title "Where it went")
+        c.eqInt("a box per line" (d.nodeCount()) 4)
+        c.eqInt("and the indentation says which are at the top" (d.rootCount()) 2)
+        def big:MermaidTreemapNode (itemAt d.nodes 0)
+        c.eqStr("a name in quotes is the name without them" big.label "Big")
+        c.ok("a branch was given no number of its own" (big.hasValue == false))
+        c.ok("and is worth what is under it" ((fabs (big.total - 60.0)) < 0.001))
+        def one:MermaidTreemapNode (itemAt d.nodes 1)
+        c.eqInt("a line indented further is a child of the one above" one.parent 0)
+        c.ok("and carries the number it was given" ((fabs (one.total - 40.0)) < 0.001))
+        def small:MermaidTreemapNode (itemAt d.nodes 3)
+        c.eqInt("a line indented back out is not" small.parent -1)
+        c.eqStr("`:::` puts a class on a box" small.cssClass "warm")
+        c.ok("without eating the number in front of it" ((fabs (small.total - 30.0)) < 0.001))
+        c.ok("the total is the sum of the roots" ((fabs ((d.total()) - 90.0)) < 0.001))
+
+        def bare (new FlowStyle)
+        def g:FlowGraph (MermaidTreemapFlow.build(d bare))
+        c.eqInt("a treemap has no edges: the nesting is the relation" (g.edgeCount()) 0)
+        def bOne:FlowNode (g.nodeById(one.id))
+        def two:MermaidTreemapNode (itemAt d.nodes 2)
+        def bTwo:FlowNode (g.nodeById(two.id))
+        ; Twice the number is twice the AREA, not twice the width: a treemap
+        ; that scaled one side would be a bar chart drawn as squares.
+        def areaOne:double (bOne.width * bOne.height)
+        def areaTwo:double (bTwo.width * bTwo.height)
+        c.ok("twice the number is twice the area" ((fabs ((areaOne / areaTwo) - 2.0)) < 0.25))
+        def branch:FlowNode (g.nodeById(big.id))
+        c.ok("a child is drawn inside its parent" (bOne.x > branch.x))
+        c.ok("and within its walls" (((bOne.x + bOne.width)) <= ((branch.x + branch.width) + 0.001)))
+        c.ok("a branch writes its name in a strip at the top" (g.hasNode((big.id + "-name"))))
+        c.ok("and a leaf writes its number with its name" ((indexOf bOne.label "40") > 0))
+        c.eqStr("a leaf is coloured by the branch it belongs to" bOne.bgColor (MermaidTreemapFlow.colorAt(0)))
+        def far:FlowNode (g.nodeById(small.id))
+        c.eqStr("and a different branch is a different colour" far.bgColor (MermaidTreemapFlow.colorAt(1)))
+        c.eqStr("`treemap-beta` is the same word" (MermaidReader.otherDiagram("treemap-beta")) "treemap")
+        c.ok("a treemap is one this library draws" (MermaidReader.draws("treemap")))
+    }
+
+    ; --------------------------------------------- Mermaid tree view ------
+    ; The same hierarchy the treemap draws by area, drawn as an outline. The
+    ; order is the order it was written and nothing sorts it, so what the
+    ; assertions are about is the three annotations — which are cut off the end
+    ; of a line in an order that is not arbitrary.
+    sfn testMermaidTreeView:void (c:Checker) {
+        c.section("Mermaid tree views")
+        def src:string "treeView-beta\n"
+        src = (src + "title RangerFlow\n")
+        src = (src + "core\n")
+        src = (src + "    FlowView.rgr ## the view and its text fitting\n")
+        src = (src + "    GraphModel.rgr icon(fa:file) ::: warm ## nodes and edges\n")
+        src = (src + "tests\n")
+
+        def d:MermaidTreeView (MermaidTreeViewReader.parse(src))
+        c.eqStr("the title is the line that says so" d.title "RangerFlow")
+        c.eqInt("a row per line" (d.nodeCount()) 4)
+        c.eqInt("and the indentation says which are at the top" (d.rootCount()) 2)
+        def one:MermaidTreeViewNode (itemAt d.nodes 1)
+        c.eqInt("a line indented further is a child of the one above" one.parent 0)
+        c.eqStr("`##` is a description written beside the row" one.description "the view and its text fitting")
+        c.eqStr("and is not part of the name" one.label "FlowView.rgr")
+        ; The description runs to the end of the line, so it is cut off FIRST
+        ; or it swallows the other two annotations whole.
+        def two:MermaidTreeViewNode (itemAt d.nodes 2)
+        c.eqStr("three annotations on one row still leave the name" two.label "GraphModel.rgr")
+        c.eqStr("`icon(…)` names an icon" two.icon "fa:file")
+        c.eqStr("`:::` puts a class on the row" two.cssClass "warm")
+        c.eqStr("and the description is still the description" two.description "nodes and edges")
+        def last:MermaidTreeViewNode (itemAt d.nodes 3)
+        c.eqInt("a line indented back out is a root again" last.parent -1)
+        c.eqInt("three levels deep is a depth of two" (d.maxDepth()) 1)
+
+        def bare (new FlowStyle)
+        def g:FlowGraph (MermaidTreeViewFlow.build(d bare))
+        c.eqInt("a tree view has no edges: the rules are drawn, not routed" (g.edgeCount()) 0)
+        def core:MermaidTreeViewNode (itemAt d.nodes 0)
+        def rCore:FlowNode (g.nodeById(core.id))
+        def rOne:FlowNode (g.nodeById(one.id))
+        c.ok("a child is indented under its parent" (rOne.x > rCore.x))
+        c.ok("and stands on the row below it" (rOne.y > rCore.y))
+        def rLast:FlowNode (g.nodeById(last.id))
+        c.ok("a root is back at the margin" ((fabs (rLast.x - rCore.x)) < 0.001))
+        c.ok("every row is marked" (g.hasNode((one.id + "-mark"))))
+        c.ok("and a description is written beside it" (g.hasNode((one.id + "-note"))))
+        ; Mermaid resolves `icon(fa:file)` against an icon pack and there is
+        ; none here. The name is kept where it can be read rather than turned
+        ; into a picture this library would be guessing at.
+        def rTwo:FlowNode (g.nodeById(two.id))
+        c.eqStr("an icon nobody can draw is still an icon somebody asked for" rTwo.tooltip "icon(fa:file)")
+        c.ok("the elbows are drawn as rules" (g.hasNode("tvline-0")))
+        ; `otherDiagram` is asked the keyword in lower case, the way the
+        ; statement reader hands it over — Mermaid's own detector is
+        ; case-sensitive about the header and this reader is not.
+        c.eqStr("`treeView-beta` is a word this reader knows" (MermaidReader.otherDiagram("treeview-beta")) "treeview")
+        def d2:MermaidDiagram (MermaidReader.parse("treeView-beta\n  a\n"))
+        c.eqStr("as it is written, capital V and all" d2.diagramKind "treeview")
+        c.ok("a tree view is one this library draws" (MermaidReader.draws("treeview")))
+    }
+
+    ; --------------------------------------------- Mermaid event model ----
+    ; Time across the page, kind down it. The lane a frame lands in is decided
+    ; by the word the author used and is not a choice: an event drawn in the
+    ; command lane is a different diagram. So that is what the assertions are
+    ; about, along with the nine spellings Mermaid gives five kinds.
+    sfn testMermaidEventModel:void (c:Checker) {
+        c.section("Mermaid event models")
+        def src:string "eventmodeling\n"
+        src = (src + "entity Order\n")
+        src = (src + "tf 1 ui OrderScreen\n")
+        src = (src + "tf 2 command PlaceOrder ->> 1\n")
+        src = (src + "tf 3 evt OrderPlaced ->> 2\n")
+        src = (src + "tf 4 readmodel OpenOrders ->> 3 [[OrderJson]]\n")
+        src = (src + "rf 5 ui Again ->> 4\n")
+        src = (src + "gwt 2\n")
+        src = (src + "given evt OrderPlaced\n")
+        src = (src + "when cmd PlaceOrder\n")
+        src = (src + "then evt OrderPlaced\n")
+
+        def d:MermaidEventModel (MermaidEventModelReader.parse(src))
+        c.eqInt("a frame per `tf` and per `rf`" (d.frameCount()) 5)
+        c.eqInt("and a declaration per `entity`" (d.declaredCount()) 1)
+        def f1:MermaidEmFrame (itemAt d.frames 0)
+        c.eqStr("the number is the frame's name" f1.name "1")
+        c.eqStr("and what follows the kind is the entity" f1.entity "OrderScreen")
+        ; Nine spellings, five kinds: the lane is chosen by the kind, so the
+        ; spellings have to collapse before anything is placed.
+        def f2:MermaidEmFrame (itemAt d.frames 1)
+        c.eqStr("`command` and `cmd` are one kind" f2.kind "cmd")
+        def f4:MermaidEmFrame (itemAt d.frames 3)
+        c.eqStr("so are `readmodel` and `rmo`" f4.kind "rmo")
+        c.eqStr("`[[…]]` points at a declared data block" f4.dataRef "OrderJson")
+        c.eqInt("`->>` says which frame this one follows" (array_length f2.sources) 1)
+        c.eqStr("by that frame's number" (itemAt f2.sources 0) "1")
+        def f5:MermaidEmFrame (itemAt d.frames 4)
+        c.ok("`rf` is a frame where the story starts again" f5.reset)
+        c.eqInt("the lanes are Mermaid's three" (MermaidEventModel.laneOf("ui")) 0)
+        c.eqInt("a command shares its lane with a read model" (MermaidEventModel.laneOf("cmd")) (MermaidEventModel.laneOf("rmo")))
+        c.ok("and an event has one of its own" ((MermaidEventModel.laneOf("evt")) != (MermaidEventModel.laneOf("cmd"))))
+        c.eqInt("a `gwt` per block" (d.gwtCount()) 1)
+        def gw:MermaidEmGwt (itemAt d.gwts 0)
+        c.eqStr("hung on the frame it names" gw.frame "2")
+        c.eqInt("with its givens" (array_length gw.givens) 1)
+        c.eqInt("its whens" (array_length gw.whens) 1)
+        c.eqInt("and its thens" (array_length gw.thens) 1)
+
+        def bare (new FlowStyle)
+        def g:FlowGraph (MermaidEventModelFlow.build(d bare))
+        def screen:FlowNode (g.nodeById("frame-1"))
+        def place:FlowNode (g.nodeById("frame-2"))
+        def placed:FlowNode (g.nodeById("frame-3"))
+        c.ok("the frames run left to right in the order written" (place.x > screen.x))
+        c.ok("a command stands below the screen that raised it" (place.y > screen.y))
+        c.ok("and an event below the command" (placed.y > place.y))
+        c.eqStr("a command is drawn in the colour event modelling gives it" place.bgColor (MermaidEventModelFlow.fillFor("cmd")))
+        c.ok("all three lanes are drawn, whether or not anything is in them" ((g.hasNode("lane-0")) && (g.hasNode("lane-2"))))
+        c.ok("each with its name beside it" (g.hasNode("lane-1-name")))
+        c.eqInt("an arrow per `->>`, and none besides" (g.edgeCount()) 4)
+        c.ok("a reset frame is marked with a rule" (g.hasNode("reset-5")))
+        c.ok("a data reference is written under its box" (g.hasNode("frame-4-data")))
+        c.ok("and the given/when/then goes below the lanes" (g.hasNode("gwt-0")))
+        ; Mermaid's own grammar rejects `title` in an event model, and a reader
+        ; that accepted one would take a file Mermaid will not take.
+        def titled:MermaidEventModel (MermaidEventModelReader.parse("eventmodeling\ntitle Nope\ntf 1 ui A\n"))
+        c.eqInt("a title is not part of this diagram" (titled.frameCount()) 1)
+        c.ok("an event model is one this library draws" (MermaidReader.draws("eventmodeling")))
+    }
+
+    ; The edge with a given id. `FlowGraph` indexes nodes by name and edges by
+    ; nothing, because an edge is normally reached from the node it leaves.
+    sfn edgeNamed:FlowEdge (g:FlowGraph id:string) {
+        def i:int 0
+        while (i < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(i))
+            if (e.id == id) {
+                return e
+            }
+            i = (i + 1)
+        }
+        return (new FlowEdge)
+    }
+
+    ; --------------------------------------------- Mermaid packet ---------
+    ; A packet diagram is arithmetic on bit numbers, and the arithmetic that
+    ; matters is the WRAP: a field of 64 bits on a 32-bit ruler is two boxes
+    ; on two rows, not one box twice as wide as the diagram.
+    sfn testMermaidPacket:void (c:Checker) {
+        c.section("Mermaid packet diagrams")
+        def src:string "---\n"
+        src = (src + "title: \"TCP Packet\"\n")
+        src = (src + "---\n")
+        src = (src + "packet\n")
+        src = (src + "0-15: \"Source Port\"\n")
+        src = (src + "16-31: \"Destination Port\"\n")
+        src = (src + "32-63: \"Sequence Number\"\n")
+        src = (src + "64: \"URG\"\n")
+        src = (src + "+7: \"Flags\"\n")
+        src = (src + "192-255: \"Data\"\n")
+
+        def d:MermaidPacket (MermaidPacketReader.parse(src))
+        c.eqStr("the title comes out of the front matter" d.title "TCP Packet")
+        c.eqInt("one field per line" (d.fieldCount()) 6)
+        def f0:MermaidPacketField (itemAt d.fields 0)
+        c.eqInt("`0-15` starts at nought" f0.start 0)
+        c.eqInt("and ends at fifteen" f0.endBit 15)
+        c.eqInt("which is sixteen bits, not fifteen" (f0.bits()) 16)
+        def one:MermaidPacketField (itemAt d.fields 3)
+        c.eqInt("a bare number is one bit wide" (one.bits()) 1)
+        def plus:MermaidPacketField (itemAt d.fields 4)
+        c.eqInt("`+7` starts where the last field stopped" plus.start 65)
+        c.eqInt("and is seven bits long" (plus.bits()) 7)
+        c.eqInt("the ruler is 32 bits wide unless told otherwise" d.bitsPerRow 32)
+        c.eqInt("256 bits is eight rows of it" (d.rowCount()) 8)
+
+        def bare (new FlowStyle)
+        def g:FlowGraph (MermaidPacketFlow.build(d bare))
+        c.eqInt("a packet diagram has no edges" (g.edgeCount()) 0)
+        def first:FlowNode (g.nodeById("fld-0-0"))
+        c.eqStr("a field is a box with its name in it" first.label "Source Port")
+        def second:FlowNode (g.nodeById("fld-16-0"))
+        c.ok("the next field is to its right" (second.x > first.x))
+        c.ok("on the same row" ((fabs (second.y - first.y)) < 0.001))
+        def third:FlowNode (g.nodeById("fld-32-0"))
+        c.ok("and bit 32 has wrapped onto the next one" (third.y > first.y))
+        c.ok("starting back at the left margin" ((fabs (third.x - first.x)) < 0.001))
+        ; The wrap. `192-255` is 64 bits on a 32-bit ruler, so it is two boxes.
+        def wideA:FlowNode (g.nodeById("fld-192-0"))
+        def wideB:FlowNode (g.nodeById("fld-192-1"))
+        c.ok("a field longer than the ruler is drawn twice" (wideB.y > wideA.y))
+        c.eqStr("with its name in both halves" wideB.label "Data")
+        c.ok("and neither half is wider than the ruler" (wideA.width <= ((to_double d.bitsPerRow) * (MermaidPacketFlow.bitWidthFor(d)))))
+        ; The bit numbers are the diagram: without them it is a row of words.
+        def tick:FlowNode (g.nodeById("fld-0-0-a"))
+        c.eqStr("each box says which bit it starts at" tick.label "0")
+        def tickEnd:FlowNode (g.nodeById("fld-0-0-b"))
+        c.eqStr("and which one it ends at" tickEnd.label "15")
+        c.ok("the numbers sit above the box, not in it" (tick.y < first.y))
+        c.ok("a one-bit field says its number once" ((g.hasNode("fld-64-0-b")) == false))
+        ; A ruler scaled to the wide fields draws `URG` as an ellipsis.
+        def flags:string "packet\n0: \"URG\"\n1-31: \"Rest\"\n"
+        def fd:MermaidPacket (MermaidPacketReader.parse(flags))
+        def wide:double (MermaidPacketFlow.bitWidthFor(fd))
+        c.ok("a one-bit field with a word in it widens the ruler" (wide > 27.0))
+        def plain:MermaidPacket (MermaidPacketReader.parse("packet\n0-31: \"A\"\n"))
+        c.ok("and one without leaves it alone" ((fabs ((MermaidPacketFlow.bitWidthFor(plain)) - 27.0)) < 0.001))
+        c.eqStr("`packet-beta` is the same word" (MermaidReader.otherDiagram("packet-beta")) "packet")
+        c.ok("a packet diagram is one this library draws" (MermaidReader.draws("packet")))
+    }
+
+    ; --------------------------------------------- a link to a subgraph ---
+    ; `C --> O` where `subgraph O` exists means the GROUP. Mermaid keeps `O`
+    ; as a vertex all the same — the clustering is a drawing decision, not a
+    ; parsing one — so the model has to say what Mermaid's says and only the
+    ; drawing may differ. Both halves are checked here, because doing it to
+    ; the model instead deleted vertices Mermaid keeps.
+    sfn testMermaidSubgraphEnds:void (c:Checker) {
+        c.section("Mermaid links that name a subgraph")
+        def src:string "flowchart TB\n"
+        src = (src + "  C[\"Compiler\"]\n")
+        src = (src + "  subgraph O[\"Office\"]\n")
+        src = (src + "    W[\"Word\"]\n")
+        src = (src + "    E[\"Excel\"]\n")
+        src = (src + "  end\n")
+        src = (src + "  EVG[\"EVG\"]\n")
+        src = (src + "  C --> O\n")
+        src = (src + "  O --> EVG\n")
+
+        def d:MermaidDiagram (MermaidReader.parse(src))
+        ; The model is Mermaid's: `O` is a vertex and the links name it.
+        c.eqInt("the subgraph id stays a vertex, as it is in Mermaid" (d.nodeCount()) 5)
+        c.ok("under its own name" ((d.indexOfStep("O")) >= 0))
+        def first:FlowLink (itemAt d.chart.links 0)
+        c.eqStr("and the link still names it" first.target "O")
+        c.eqInt("one link per arrow written" (d.linkCount()) 2)
+
+        def bare (new FlowStyle)
+        def g:FlowGraph (MermaidFlow.styled(d bare))
+        ; The drawing is Mermaid's too: no box called O, and the arrows go to
+        ; the frame. Until this was fixed the layout got an extra box named
+        ; after the group and the arrows went to that instead.
+        c.ok("no box is drawn for the group's own id" ((g.hasNode("O")) == false))
+        c.ok("the frame is there to point at" (g.hasNode("sg-O")))
+        def toFrame:int 0
+        def fromFrame:int 0
+        def hidden:int 0
+        def i:int 0
+        while (i < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(i))
+            if e.hidden {
+                hidden = (hidden + 1)
+            } {
+                if (e.target == "sg-O") { toFrame = (toFrame + 1) }
+                if (e.source == "sg-O") { fromFrame = (fromFrame + 1) }
+            }
+            i = (i + 1)
+        }
+        c.eqInt("one arrow arrives at the frame, not one per member" toFrame 1)
+        c.eqInt("and one leaves it" fromFrame 1)
+        ; The layout ranks by longest path and has no idea what a group is, so
+        ; an arrow into ONE member would rank that member below its siblings
+        ; and the group would come apart. The stand-ins are what stop that.
+        c.ok("with a stand-in per remaining member, hidden" (hidden > 0))
+        def w:FlowNode (g.nodeById("W"))
+        def e2:FlowNode (g.nodeById("E"))
+        c.ok("so the members stay on one rank" ((fabs (w.y - e2.y)) < 1.0))
+        def cc:FlowNode (g.nodeById("C"))
+        def frame:FlowNode (g.nodeById("sg-O"))
+        c.ok("and the group sits below what points at it" (frame.y > cc.y))
+        def evg:FlowNode (g.nodeById("EVG"))
+        c.ok("and above what it points at" (evg.y > frame.y))
     }
 
     ; --------------------------------------------- a click is not an edit --

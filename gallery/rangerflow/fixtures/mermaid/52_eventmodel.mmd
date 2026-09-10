@@ -1,0 +1,13 @@
+eventmodeling
+entity Order
+tf 1 ui OrderScreen
+tf 2 cmd PlaceOrder ->> 1
+tf 3 evt OrderPlaced ->> 2
+tf 4 rmo OpenOrders ->> 3
+tf 5 pcr ShipIt ->> 4
+tf 6 cmd Ship ->> 5
+tf 7 evt Shipped ->> 6
+gwt 2
+given evt OrderPlaced
+when cmd PlaceOrder
+then evt OrderPlaced

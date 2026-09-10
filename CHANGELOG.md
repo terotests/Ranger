@@ -7,9 +7,138 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- **All thirty of Mermaid's diagram types are now drawn.** The matrix in
-  `docs/MERMAID_PARITY.md` is read off the installed Mermaid's own build, and
-  every row of it says *drawn*.
+- **All thirty-eight of Mermaid's header keywords are drawn.** The matrix in
+  `docs/MERMAID_PARITY.md` is read off Mermaid's own detector registry — the
+  record its parser itself consults. It used to say thirty of thirty, and both
+  of those numbers were wrong.
+
+### Added
+
+- **Mermaid event models.** Time across the page, kind down it: each `tf` is a
+  time frame and lands in the lane its kind belongs to, under the three names
+  Mermaid's own config gives them. The lane is not a choice — an event drawn in
+  the command lane is a different diagram — and the nine spellings Mermaid
+  gives five kinds collapse to five before anything is placed. `->>` is the
+  only edge on the page, `rf` marks where the story starts again, `[[Name]]`
+  points at a declared `data` block, and a `gwt` block is drawn below the lanes
+  because a test of the model is not part of it. There is no `title`: Mermaid's
+  own grammar rejects one here, and a reader that took a file Mermaid will not
+  take would be claiming a parity it does not have.
+- **Mermaid tree views.** The same hierarchy the treemap draws by area, drawn
+  as an outline: one row per entry, indented under its parent, with elbow rules
+  that say which row belongs to which. Indentation is the hierarchy, ` ::: name`
+  puts a class on a row, ` ## words` is a description beside it and
+  ` icon(name)` names an icon — and the three are cut off the end of a line in
+  the one order that cannot go wrong, the description first, because it runs to
+  the end of the line and would swallow the other two. Mermaid resolves an icon
+  name against an icon pack and there is none here: inventing a picture for a
+  name this library has never seen would be worse than drawing none, so the
+  marker says only what this reader knows — whether the row has anything under
+  it — and the icon name is kept on the row as its tooltip rather than dropped.
+- **Mermaid treemaps.** A tree whose branches are drawn to scale: the nesting
+  says what contains what and the area says how big each part is, so the one
+  thing this must not do is round a rectangle to make it look tidier. The
+  indentation is the whole of the syntax, a leaf carries `: value`, a branch is
+  worth the sum of what is under it, and `:::name` puts a class on a box. The
+  layout is not a slice down every level the same way — that makes slivers, and
+  a sliver a hundred times longer than it is wide has an area nobody can judge.
+  Each list of siblings is cut in two at the place nearest to halving its
+  weight and its rectangle is cut across the longer side in the same
+  proportion, so every step halves the weight and turns the grain ninety
+  degrees.
+- **Mermaid radar charts.** A bar chart bent into a circle: one spoke per axis,
+  one closed line per subject, and the shape of that line is the comparison.
+  The readings are read either as a plain list in axis order or as `name:
+  value` pairs, which is the only safe way to write a curve that skips an axis;
+  `max`, `min`, `ticks`, `graticule` and `showLegend` are all read, and the
+  scale is honoured — a reading at the top of it sits on the rim and one at the
+  bottom sits dead centre, which is the whole of what a radar claims. Every
+  line on the chart is a thin quadrilateral given as `shapePoints`: the display
+  list fills whatever it draws, so an unfilled ring would have to be painted in
+  the paper's own colour and would be lost the moment the paper changed. The
+  curves are outlines with a dot at each reading rather than filled areas for
+  the same reason in reverse — there is no transparency in the display list,
+  and three filled curves are three opaque blobs with the last one drawn
+  winning.
+- **Mermaid packet diagrams.** A ruler with names written on it: every field is
+  a range of bit numbers, the ruler is 32 bits wide, and the whole of the
+  layout is arithmetic on those numbers. The one thing that needs care is the
+  wrap — `192-255` is not one box, it is two boxes on two rows with the same
+  name in both, because a field 64 bits wide does not fit on a 32-bit ruler.
+  All three ways of writing a range are read: `0-15:`, `32:` for a single bit,
+  and `+16:` for the next sixteen after whatever came before. The bit numbers
+  above the boxes are the diagram rather than decoration, so they are drawn at
+  both ends of every box; and a header whose flags are one-bit fields called
+  `URG` and `ACK` widens the ruler until those words fit, because six boxes
+  with an ellipsis in each say nothing at all.
+
+### Fixed
+
+- **The diagram-type matrix was measured against a list that could not be
+  complete.** It discovered Mermaid's types by listing
+  `dist/chunks/mermaid.core/*.mjs` and reading the name out of each filename —
+  but five of those chunks are called `diagram-<hash>.mjs` and say nothing
+  about which diagram they hold, so five types were invisible to the very
+  matrix that exists to notice a type with no reader: `packet`, `radar`,
+  `treemap`, `treeView` and `eventmodeling`. The fault was in the meter, which
+  is the third one of that class here, after the swimlane and railroad
+  keywords. The oracle now imports Mermaid's own `detectors` registry — the
+  record the parser itself consults — reads each keyword off the detector's
+  regular expression, and hands the keyword back to that detector to check it;
+  a keyword derived wrongly is dropped rather than asked of this reader as
+  Mermaid's. Keywords rather than renderers, because `graph` and `flowchart`
+  are one picture behind two detectors and a reader has to know both words.
+  `harness/out/mermaid.json` carries the list, so the dump script and the
+  parity tool stop guessing and the hand-written chunk→header map is gone.
+- **A Gantt chart had no date axis, unfilled bars, and one section band drawn
+  on top of another.** The axis is the diagram — a chart that spaced its bars
+  evenly instead of by date would be a list with rounded corners — and there
+  was none: no ticks, no dates, no rules. It has one now, labelled with real
+  dates turned back out of the day numbers by the inverse of the civil-calendar
+  formula that made them rather than by a second calendar, counted from the
+  first day so the left edge of the chart is never the one without a label.
+  The bands were framed around the bounding box of each section's bars, and two
+  sections whose dates overlap have overlapping boxes: one band was drawn over
+  another and the label underneath was lost. A band is a run of consecutive
+  rows now, which is what a section is. The bars are filled rather than
+  outlined, with a colour for `done`, `active` and `crit`, and are exactly as
+  long as the task is — the old 96-pixel minimum was a lie about a short task,
+  so a bar too narrow for its name gets the name beside it instead. The
+  dependency arrow between `after` tasks is gone: `after <id>` is arithmetic on
+  the start date, and an arrow between the bars claims something about the plan
+  that the plan does not say.
+- **`note` in a class diagram was read and thrown away.** Both spellings are
+  drawn now: `note "text"` stands on its own, and `note for Duck "text"` is
+  pinned to its class with the dashed leader UML has always drawn — no
+  arrowhead, because a comment does not depend on what it comments on. They are
+  placed after the layout rather than laid out with it: a note is prose about
+  the program rather than part of it, and a note given a rank pushes the
+  classes apart to make room for a sentence and lands in the middle of the
+  inheritance it was describing.
+- **A hand-written line break could be silently merged with the next line.** A
+  node label was capped at three lines, which is right for text that WRAPPED —
+  a paragraph in a box is not a label — and wrong for text the author broke
+  themselves: `can fly<br>can swim<br>can dive<br>can help in debugging` came
+  out as three lines with the last two run together, which is a sentence nobody
+  wrote. Hard breaks now raise the cap, and the height still decides whether
+  they fit: the text shrinks first and is cut last, exactly as before.
+- **An arrow to a subgraph pointed at a box that was not there.** `C --> A`
+  where `subgraph A` exists means the group, and Mermaid keeps `A` as a vertex
+  all the same — the clustering is a drawing decision, not a parsing one. This
+  reader drew both: the frame *and* a phantom node called `A` beside it, so a
+  diagram whose arrows all end at subgraphs came out with a second, empty copy
+  of every group. The expansion now happens when the GRAPH is built rather than
+  in the model, which is what keeps the parity dump agreeing with Mermaid's own
+  parser: an edge to a group becomes an edge to every member of it, with all
+  but the drawn one hidden. Pointing at a single member instead would split the
+  group across ranks, because the layout ranks by longest path. Frames grew
+  side handles so an edge can land on one, and an edge to a frame faces it by
+  the direction of the layout rather than by the larger delta — a frame is
+  wide, so "larger delta" always chose sideways.
+- **Three headers fell through to the flowchart parser.** `requirement`
+  (Mermaid's detector is `requirement(Diagram)?`, and only the long spelling
+  was known), `treeView-beta` and `eventmodeling`. The corrected matrix found
+  all three on its first run.
 
 ### Added
 

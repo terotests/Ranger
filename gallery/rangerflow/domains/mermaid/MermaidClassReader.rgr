@@ -44,13 +44,33 @@
 ; ornament on the end the syntax names, cardinalities in quotes on either
 ; side, and a `: label` after.
 ;
-; **What it drops.** `note`, `namespace` (the classes inside are read, the
-; grouping is not), `style`, `cssClass`, `click`, `callback` and `link`: a
-; class diagram is a picture of a program, and a hyperlink is not part of one.
+; **Notes.** `note "text"` stands on its own and `note for Duck "text"` is
+; pinned to a class with a dashed leader, which is how UML has always drawn a
+; comment. They are placed after the layout rather than laid out: a note is not
+; part of the program the diagram is about, and a layout that ranked it like a
+; class would push the classes apart to make room for prose.
+;
+; **What it drops.** `namespace` (the classes inside are read, the grouping is
+; not), `style`, `cssClass`, `click`, `callback` and `link`: a class diagram is
+; a picture of a program, and a hyperlink is not part of one.
 ; ============================================================================
 
 Import "MermaidReader.rgr"
 Import "../uml/UMLModel.rgr"
+
+; A comment on the diagram, or on one class in it.
+class MermaidClassNote {
+    def text:string ""
+    ; Empty for a `note "…"` that stands on its own.
+    def target:string ""
+
+    Constructor () {
+    }
+
+    fn pinned:boolean () {
+        return ((strlen target) > 0)
+    }
+}
 
 class MermaidClassDiagram {
     def title:string ""
@@ -60,12 +80,17 @@ class MermaidClassDiagram {
     def uml:UMLDiagram (new UMLDiagram)
     ; What `%%{init: {'theme':'forest'}}%%` asked for, if anything.
     def themeName:string ""
+    def notes:[MermaidClassNote]
 
     Constructor () {
     }
 
     fn classCount:int () {
         return (array_length uml.classes)
+    }
+
+    fn noteCount:int () {
+        return (array_length notes)
     }
 
     fn relationCount:int () {
@@ -206,8 +231,11 @@ class MermaidClassReader {
             if (dir == "BT") { doc.direction = "TB" }
             return
         }
+        if (kw == "note") {
+            this.readNote(rest)
+            return
+        }
         ; Read and dropped — see the header.
-        if (kw == "note")      { return }
         if (kw == "namespace") { return }
         if (kw == "style")     { return }
         if (kw == "cssclass")  { return }
@@ -255,6 +283,26 @@ class MermaidClassReader {
     }
 
     ; `class Duck`, `class Duck {`, `class Duck["A label"]`.
+    ; `note "text"` and `note for Duck "text"`. The quotes are Mermaid's, and
+    ; what is inside them is prose: `<br>` in it is a line break the author
+    ; asked for, so it stays one.
+    fn readNote:void (rest:string) {
+        def body:string (trim rest)
+        def n (new MermaidClassNote)
+        def head:string (MermaidReader.lower((MermaidReader.firstWord(body))))
+        if (head == "for") {
+            def after:string (trim (substring body 3 (strlen body)))
+            def who:string (MermaidReader.firstWord(after))
+            n.target = who
+            body = (trim (substring after (strlen who) (strlen after)))
+        }
+        n.text = (MermaidReader.cleanLabel(body))
+        if ((strlen n.text) == 0) {
+            return
+        }
+        push doc.notes n
+    }
+
     fn readClass:void (rest:string) {
         def name:string (trim rest)
         def opens:boolean false
@@ -733,6 +781,136 @@ class MermaidClassFlow {
         EdgeLanes.resetLanes(g)
         def refanned:int (EdgeLanes.assign(g))
         def repaired:int (OrthoRouter.repairAll(g))
+        MermaidClassFlow.addNotes(g d)
         return g
+    }
+
+    ; The notes, placed after everything else. A note is prose about the
+    ; program rather than part of it, so it is not given to the layout: a
+    ; ranked note pushes the classes apart to make room for a sentence, and
+    ; the sentence ends up in the middle of the inheritance it was commenting
+    ; on. It goes beside its class instead, with the dashed leader UML has
+    ; always drawn, and a note with no class goes above the diagram.
+    sfn addNotes:void (g:FlowGraph d:MermaidClassDiagram) {
+        if ((d.noteCount()) == 0) {
+            return
+        }
+        def minX:double 0.0
+        def minY:double 0.0
+        def has:boolean false
+        def i:int 0
+        while (i < (g.nodeCount())) {
+            def n:FlowNode (g.nodeAt(i))
+            if (has == false) {
+                minX = n.x
+                minY = n.y
+                has = true
+            } {
+                if (n.x < minX) { minX = n.x }
+                if (n.y < minY) { minY = n.y }
+            }
+            i = (i + 1)
+        }
+        def loose:double minY
+        def k:int 0
+        while (k < (array_length d.notes)) {
+            def note:MermaidClassNote (itemAt d.notes k)
+            def id:string ("note-" + (to_string k))
+            def w:double (MermaidClassFlow.noteWidth(note.text))
+            def h:double (MermaidClassFlow.noteHeight(note.text))
+            def x:double minX
+            def y:double (loose - (h + 60.0))
+            def pinned:boolean false
+            if (note.pinned()) {
+                if (g.hasNode(note.target)) {
+                    def to:FlowNode (g.nodeById(note.target))
+                    x = ((to.x - w) - 80.0)
+                    y = ((to.centerY()) - (h * 0.5))
+                    pinned = true
+                }
+            }
+            def n2:FlowNode (FlowNode.create(id note.text x y))
+            n2.nodeType = "note"
+            n2.shape = "note"
+            n2.width = w
+            n2.height = h
+            n2.connectable = true
+            n2.cssClass = "mermaid note"
+            n2.bgColor = "#fdf8e6"
+            n2.borderColor = "#c9bd8e"
+            n2.syncFromModel()
+            g.addNode(n2)
+            if (pinned == false) {
+                ; Stack the loose ones rather than piling them on one spot.
+                loose = (y - 12.0)
+            }
+            if pinned {
+                def e:FlowEdge (FlowEdge.create(("noteline-" + (to_string k)) id note.target))
+                ; A leader, not a relation: dashed, and with nothing on the end
+                ; of it. An arrowhead would make the comment point at the class
+                ; as though it were a dependency.
+                e.dash = 4.0
+                e.markerEnd = ""
+                e.markerStart = ""
+                e.cssClass = "link noteline"
+                e.pinnedRoute = true
+                clear e.waypoints
+                def to2:FlowNode (g.nodeById(note.target))
+                push e.waypoints (x + w)
+                push e.waypoints (y + (h * 0.5))
+                push e.waypoints to2.x
+                push e.waypoints (to2.centerY())
+                g.addEdge(e)
+            }
+            k = (k + 1)
+        }
+        g.reindex()
+    }
+
+    ; A note is as wide as its longest line and no wider than a paragraph
+    ; anybody reads across — beyond that the text layout wraps it.
+    sfn noteWidth:double (text:string) {
+        def longest:int (MermaidClassFlow.longestLine(text))
+        def w:double (((to_double longest) * 6.6) + 26.0)
+        if (w < 120.0) { w = 120.0 }
+        if (w > 320.0) { w = 320.0 }
+        return w
+    }
+
+    sfn noteHeight:double (text:string) {
+        def lines:int (MermaidClassFlow.lineCount(text))
+        def h:double (((to_double lines) * 17.0) + 22.0)
+        if (h < 40.0) { h = 40.0 }
+        return h
+    }
+
+    sfn longestLine:int (text:string) {
+        def best:int 0
+        def run:int 0
+        def i:int 0
+        while (i < (strlen text)) {
+            def c:int (charAt text i)
+            if (c == 10) {
+                if (run > best) { best = run }
+                run = 0
+            } {
+                run = (run + 1)
+            }
+            i = (i + 1)
+        }
+        if (run > best) { best = run }
+        return best
+    }
+
+    sfn lineCount:int (text:string) {
+        def n:int 1
+        def i:int 0
+        while (i < (strlen text)) {
+            if ((charAt text i) == 10) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
     }
 }

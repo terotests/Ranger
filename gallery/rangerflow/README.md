@@ -181,6 +181,11 @@ It also reads what Mermaid 11 added: `A@{ shape: rounded, label: "…" }` for th
 shapes with no bracket spelling, named edges (`A e1@--> B`, `e1@{ animate: true }`),
 markdown strings, and ids with a `-` or a `.` in them.
 
+An arrow may name a **subgraph**: `C --> O` where `subgraph O` exists means
+the group, and one arrow is drawn to its frame. Mermaid keeps `O` as a vertex
+all the same — the clustering is a drawing decision, not a parsing one — so the
+model here says what Mermaid's says and only the drawing differs.
+
 What it drops on purpose: `click` (there is no browser to navigate),
 `linkStyle` by index, and `direction` inside a subgraph — RangerFlow lays the
 whole chart out one way. They are ignored rather than treated as errors, so a
@@ -195,8 +200,7 @@ as the UML final node, which is the same two rings.
 
 ### …and class diagrams
 
-Mermaid draws thirty kinds of diagram and this reads all of them. The second
-one was already here before the reading started: a `classDiagram` is the UML
+Mermaid answers to thirty-eight header keywords and this reads all of them. The second one was already here before the reading started: a `classDiagram` is the UML
 model RangerFlow has had all along, so it is drawn with the same compartment
 node the schema editor uses — the hollow triangle at the supertype, the filled diamond at the
 whole, the dashed line for a realization.
@@ -218,15 +222,26 @@ an attribute and `name(params) returnType` for an operation, `$` for static and
 cardinalities and their label, and the ornament goes on the end the syntax
 names — the class written FIRST is the one being pointed at.
 
+`note "text"` stands on its own and `note for Duck "text"` is pinned to a class
+with the dashed leader UML has always drawn. Notes are placed *after* the
+layout rather than laid out with it: a note is prose about the program rather
+than part of it, and a layout that ranked one like a class would push the
+classes apart to make room for a sentence.
+
 Everything else Mermaid draws — git graphs, architecture diagrams, the `-beta`
-charts — has a reader of its own further down this page. **All thirty of
-Mermaid's diagram types are drawn.** The table is in
-[`docs/MERMAID_PARITY.md`](docs/MERMAID_PARITY.md), and it is read off the
-installed Mermaid's own build rather than typed by hand, so a diagram type
-added upstream shows up as one nobody has taught this reader about — and a
-header this reader did not know would fall through to the flowchart parser and
-produce a page of invented boxes, which is the one failure a reader of somebody
-else's file must not have.
+charts — has a reader of its own further down this page. **All thirty-eight of
+Mermaid's header keywords are drawn.** The table is in
+[`docs/MERMAID_PARITY.md`](docs/MERMAID_PARITY.md), and the list of keywords
+comes from **Mermaid's own detector registry** rather than being typed by hand,
+so a diagram type added upstream shows up as one nobody has taught this reader
+about — and a header this reader did not know would fall through to the
+flowchart parser and produce a page of invented boxes, which is the one failure
+a reader of somebody else's file must not have.
+
+That list used to be discovered by reading the names off Mermaid's chunk
+filenames, and five chunks are called `diagram-<hash>.mjs` and carry no name at
+all — so five types were invisible to the very matrix that exists to catch a
+type with no reader. The count said thirty when it was thirty-eight.
 
 ### …and ER diagrams
 
@@ -363,10 +378,26 @@ gantt
         Release  :milestone, m1, 2024-02-01, 0d
 ```
 
-`done`, `active` and `crit` become classes a stylesheet can match, and a
-milestone is drawn as the diamond it is. Dates are read as `YYYY-MM-DD`, which
-is `dateFormat`'s default; a chart in another format keeps its order and its
-durations.
+A Gantt is three things in one picture and the bars are only one of them.
+Without the **date axis** a reader cannot say when anything happens, so the
+axis carries real dates — turned back out of the day numbers by the inverse of
+the formula that made them, rather than by a second calendar — with a rule down
+the chart at every tick, counted from the first day so the left edge is never
+the one without a label. Without the **section bands** a reader cannot say
+whose work it is, so each section is a strip with its name in the gutter. The
+bands are cut from the task order rather than fitted around each section's
+bounding box: two sections whose dates overlap have overlapping boxes, and a
+band per box draws one on top of another and loses the label underneath.
+
+Bars are filled rather than outlined, and exactly as long as the task is — a
+minimum width would be a lie about a short task, so a bar too narrow for its
+name gets the name beside it instead. `done`, `active` and `crit` each get a
+fill as well as a class a stylesheet can match, and a milestone is drawn as the
+diamond it is. There is not one edge in the output: `after <id>` is arithmetic
+on the start date, and an arrow drawn between the two bars would be a claim
+about the plan that the plan does not make. Dates are read as `YYYY-MM-DD`,
+which is `dateFormat`'s default; a chart in another format keeps its order and
+its durations.
 
 ### …and sequence diagrams
 
@@ -746,6 +777,138 @@ Mermaid and does not know Mermaid's version, so it gives the same *kind* of
 answer and not the same answer — it says what it is. A version number invented
 on the spot would be printed in a box and believed.
 
+### …and event models
+
+Time across the page, kind down it. Each `tf` is a time frame and lands in the
+lane its kind belongs to — Mermaid's own three, under the names its config
+gives them: UI/Automation, Command/Read Model, Events.
+
+```mermaid
+eventmodeling
+tf 1 ui OrderScreen
+tf 2 cmd PlaceOrder ->> 1
+tf 3 evt OrderPlaced ->> 2
+tf 4 rmo OpenOrders ->> 3
+```
+
+The lane is not a choice: an event drawn in the command lane is a different
+diagram. Mermaid gives five kinds nine spellings (`cmd`/`command`,
+`rmo`/`readmodel`, …) and they collapse to five before anything is placed.
+`->>` says which earlier frames a frame follows and is the only edge on the
+page; `rf` marks where the story starts again; `[[Name]]` points at a declared
+`data` block; and a `gwt` block is drawn below the lanes, because a test of the
+model is not part of it.
+
+There is no `title`. Mermaid's own grammar rejects one here, and a reader that
+took a file Mermaid will not take would be claiming a parity it does not have.
+
+### …and tree views
+
+The same hierarchy a treemap draws by area, drawn instead as an outline: one
+row per entry, indented under its parent, with the elbow rules that say which
+row belongs to which.
+
+```mermaid
+treeView-beta
+core
+    FlowView.rgr ## the view and its text fitting
+    GraphModel.rgr icon(fa:file)
+domains ::: warm
+```
+
+Indentation is the hierarchy, ` ::: name` puts a class on a row, ` ## words` is
+a description written beside it, and ` icon(name)` names an icon. The three are
+cut off the end of a line in the one order that cannot go wrong — the
+description first, because it runs to the end of the line and would otherwise
+swallow the other two.
+
+Mermaid resolves `icon(fa:folder)` against an icon pack and there is none here.
+Inventing a picture for a name this library has never seen would be worse than
+drawing none, so the marker on each row says only what this reader actually
+knows — whether the row has anything under it — and the icon name is kept on
+the row as its tooltip rather than thrown away.
+
+### …and treemaps
+
+A tree whose branches are drawn to scale: the nesting says what contains what,
+and the **area** says how big each part is.
+
+```mermaid
+treemap-beta
+"src"
+    "core": 4600
+    "domains": 13500
+"docs": 2500
+```
+
+The indentation is the whole of the syntax — a line indented further is a child
+of the one above it — a leaf carries `: value`, a branch is worth the sum of
+what is under it, and `:::name` puts a class on a box.
+
+The layout is not a slice down every level the same way: that makes slivers,
+and a sliver a hundred times longer than it is wide has an area nobody can
+judge. Each list of siblings is cut in two at the place nearest to halving its
+weight, and its rectangle is cut across the **longer** side in the same
+proportion — so every step halves the weight and turns the grain ninety
+degrees, which keeps the boxes near square without the bookkeeping a squarified
+layout needs.
+
+### …and radar charts
+
+A bar chart bent into a circle: one spoke per axis, one closed line per
+subject, and the shape of that line is the comparison.
+
+```mermaid
+radar-beta
+  axis m["Math"], s["Science"], e["English"]
+  axis h["History"], g["Geography"], a["Art"]
+  curve a["Alice"]{85, 90, 80, 70, 75, 90}
+  curve b["Bob"]{70, 75, 85, 80, 90, 85}
+  max 100
+```
+
+The readings are either a plain list in axis order or `name: value` pairs that
+say which spoke each one belongs on — the only safe way to write a curve that
+skips an axis. `max`, `min`, `ticks`, `graticule circle|polygon` and
+`showLegend` are Mermaid's options and all of them are read.
+
+Everything on it is a line rather than a shape: the graticule rings, the spokes
+and the curves are thin quadrilaterals given as `shapePoints`, because the
+display list fills whatever it draws and an unfilled ring would have to be
+painted in the paper's own colour — which stops working the moment the paper
+changes. That is also why the curves are outlines with a dot at each reading
+rather than filled areas: there is no transparency in the display list, and
+three filled curves are three opaque blobs with the last one drawn winning.
+
+### …and packet diagrams
+
+A ruler with names written on it. Every field is a range of bit numbers, the
+ruler is 32 bits wide, and the whole of the layout is arithmetic on those
+numbers:
+
+```mermaid
+packet
+0-15: "Source Port"
+16-31: "Destination Port"
+32-63: "Sequence Number"
+106: "URG"
+192-255: "Data (variable length)"
+```
+
+The one thing that needs care is the **wrap**: `192-255` is 64 bits on a 32-bit
+ruler, so it is two boxes on two rows with the name in both — a reader that
+drew it as one box would be drawing a field twice as wide as the diagram, and a
+second row labelled with nothing is a row you have to count back to identify.
+All three ways of writing a range are read: `0-15:`, `32:` for a single bit,
+and `+16:` for the next sixteen bits after whatever came before.
+
+The bit numbers above the boxes are the diagram rather than decoration, so both
+ends of every box carry one. And a TCP header's flags are single bits called
+`URG` and `ACK`: a ruler scaled to the wide fields draws them as six boxes with
+an ellipsis in each, which says nothing at all, so the ruler widens until the
+narrowest label fits — up to half again, after which one word is not worth two
+thousand pixels of row.
+
 ### …measured against Mermaid itself
 
 A claim of parity with a format is worth what the person making it wanted it to
@@ -759,7 +922,7 @@ npm run rangerflow:mermaid:parity -- --diff  # …and every difference in full
 Every diagram in `fixtures/mermaid/` is handed to **Mermaid's own parser**, and
 what comes back — vertices with their shapes, edges with their strokes and
 arrowheads, subgraphs with their members — is compared with what this reader
-made of the same text. Currently **184/184 checks over 27 examples**, including
+made of the same text. Currently **234/234 checks over 52 examples**, including
 three diagrams of other kinds that must be refused rather than read. The table
 is [`docs/MERMAID_PARITY.md`](docs/MERMAID_PARITY.md), regenerated by the run;
 the corpus is where a new example goes when Mermaid grows one.

@@ -1,0 +1,672 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MermaidTreemapReader.rgr — a tree whose branches are drawn to scale.
+; ============================================================================
+;
+; A treemap says two things at once: what contains what, and how big each part
+; is. The nesting is the tree and the AREA is the number, so the one thing this
+; file must not do is round a rectangle to make it look tidier — a box twice
+; the area of its neighbour has to be twice the number, or the picture is a
+; nicer-looking lie than a bar chart would have been.
+;
+;   ┌─────────────────────────┬───────────────┐
+;   │ Category A              │ Category B    │
+;   │ ┌──────────┬──────────┐ │ ┌───────────┐ │
+;   │ │ Item A1  │ Item A2  │ │ │ Item B1   │ │
+;   │ │    30    │    20    │ │ │    25     │ │
+;   │ └──────────┴──────────┘ │ └───────────┘ │
+;   └─────────────────────────┴───────────────┘
+;
+; **What it reads.** The indentation is the hierarchy, which is the whole of
+; the syntax: a line indented further than the one above it is a child of it.
+; A leaf carries `: value`, a branch carries none and is worth the sum of what
+; is under it, `:::name` puts a class on a box, and `classDef` is read and kept
+; for a stylesheet to match. `treemap` and `treemap-beta` are both the header.
+;
+; **How it is laid out.** Not by slicing every level the same way — that makes
+; slivers, and a sliver a hundred times longer than it is wide has an area
+; nobody can judge. The list is split into two runs of roughly equal weight and
+; the rectangle is cut across its LONGER side, over and over: each cut halves
+; the weight and turns the grain ninety degrees, which keeps the boxes near
+; square without the bookkeeping a squarified layout needs.
+; ============================================================================
+
+Import "MermaidReader.rgr"
+Import "../../core/FlowStyleSheet.rgr"
+
+class MermaidTreemapNode {
+    def id:string ""
+    def label:string ""
+    ; What the file said, for a leaf. A branch is worth what is under it.
+    def own:double 0.0
+    def hasValue:boolean false
+    def cssClass:string ""
+    ; Index into the document's flat list, or -1 for a root.
+    def parent:int -1
+    def depth:int 0
+    ; Filled in by the builder: the sum of this subtree.
+    def total:double 0.0
+    ; Which top-level branch this belongs to, which is what the colour says.
+    def band:int 0
+
+    Constructor () {
+    }
+}
+
+class MermaidTreemap {
+    def title:string ""
+    def nodes:[MermaidTreemapNode]
+    ; `classDef name …` — kept by name so a sheet can match what the file
+    ; named, even though the properties are the sheet's business.
+    def classNames:[string]
+
+    Constructor () {
+    }
+
+    fn nodeCount:int () {
+        return (array_length nodes)
+    }
+
+    fn childCount:int (idx:int) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def c:MermaidTreemapNode (itemAt nodes i)
+            if (c.parent == idx) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    fn rootCount:int () {
+        return (this.childCount(-1))
+    }
+
+    ; The sum of a subtree, worked out once and remembered. A branch that was
+    ; also given a number keeps its own: the file said so, and a total that
+    ; disagreed with its parts is the author's statement to make.
+    fn settle:void () {
+        def i:int ((array_length nodes) - 1)
+        while (i >= 0) {
+            def n:MermaidTreemapNode (itemAt nodes i)
+            def sum:double 0.0
+            def k:int 0
+            while (k < (array_length nodes)) {
+                def c:MermaidTreemapNode (itemAt nodes k)
+                if (c.parent == i) {
+                    sum = (sum + c.total)
+                }
+                k = (k + 1)
+            }
+            if (sum > 0.0) {
+                n.total = sum
+            } {
+                n.total = n.own
+            }
+            i = (i - 1)
+        }
+    }
+
+    fn total:double () {
+        def sum:double 0.0
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def n:MermaidTreemapNode (itemAt nodes i)
+            if (n.parent < 0) {
+                sum = (sum + n.total)
+            }
+            i = (i + 1)
+        }
+        return sum
+    }
+}
+
+class MermaidTreemapReader {
+    def doc:MermaidTreemap (new MermaidTreemap)
+    ; The indentation of each open level, so a line can be told which one it
+    ; belongs to. Indentation is the whole of this syntax.
+    def indents:[int]
+    def owners:[int]
+    def seq:int 0
+
+    Constructor () {
+    }
+
+    sfn parse:MermaidTreemap (src:string) {
+        def r (new MermaidTreemapReader)
+        return (r.read(src))
+    }
+
+    fn read:MermaidTreemap (src:string) {
+        def lines:[string] (strsplit src "\n")
+        def inFront:boolean false
+        def frontDone:boolean false
+        def i:int 0
+        while (i < (array_length lines)) {
+            def raw:string (itemAt lines i)
+            i = (i + 1)
+            def flat:string (trim raw)
+            if (flat == "---") {
+                if (frontDone == false) {
+                    if inFront {
+                        inFront = false
+                        frontDone = true
+                    } {
+                        inFront = true
+                    }
+                    continue
+                }
+            }
+            if inFront {
+                def cut:int (indexOf flat ":")
+                if (cut > 0) {
+                    def key:string (MermaidReader.lower((trim (substring flat 0 cut))))
+                    if (key == "title") {
+                        def val:string (trim (substring flat (cut + 1) (strlen flat)))
+                        doc.title = (MermaidReader.unquote(val))
+                    }
+                }
+                continue
+            }
+            def line:string (MermaidTreemapReader.stripComment(raw))
+            if ((strlen (trim line)) == 0) {
+                continue
+            }
+            this.statement(line)
+        }
+        doc.settle()
+        this.bands()
+        return doc
+    }
+
+    sfn stripComment:string (line:string) {
+        def len:int (strlen line)
+        def q:boolean false
+        def i:int 0
+        while (i < len) {
+            def c:int (charAt line i)
+            if (c == 34) {
+                if q { q = false } { q = true }
+            }
+            if (q == false) {
+                if (c == 37) {
+                    if ((i + 1) < len) {
+                        def d:int (charAt line (i + 1))
+                        if (d == 37) {
+                            return (substring line 0 i)
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return line
+    }
+
+    fn statement:void (raw:string) {
+        def indent:int (MermaidTreemapReader.indentOf(raw))
+        def st:string (trim raw)
+        def word:string (MermaidReader.firstWord(st))
+        def kw:string (MermaidReader.lower((MermaidReader.upToPunct(word))))
+        def rest:string (trim (substring st (strlen word) (strlen st)))
+        ; `treemap-beta` and `treemap` are one word once the suffix is cut off,
+        ; which is how Mermaid's own detector reads it too.
+        if (kw == "treemap") {
+            if ((strlen rest) > 0) {
+                this.statement(rest)
+            }
+            return
+        }
+        if (MermaidReader.beginsWith(kw "acctitle")) { return }
+        if (MermaidReader.beginsWith(kw "accdescr")) { return }
+        if (kw == "title") {
+            doc.title = (MermaidReader.cleanLabel(rest))
+            return
+        }
+        if (kw == "classdef") {
+            def name:string (MermaidReader.firstWord(rest))
+            if ((strlen name) > 0) {
+                push doc.classNames name
+            }
+            return
+        }
+        this.entry(indent st)
+    }
+
+    ; `"Item A1": 30 :::hot` — a name, an optional number, an optional class.
+    fn entry:void (indent:int st:string) {
+        def body:string st
+        def n (new MermaidTreemapNode)
+        ; The class marker first: it is the only part that cannot contain a
+        ; colon, so finding it before the value keeps `:::` from being read as
+        ; a separator and two empty ones.
+        def mark:int (MermaidTreemapReader.indexOfText(body ":::"))
+        if (mark >= 0) {
+            n.cssClass = (trim (substring body (mark + 3) (strlen body)))
+            body = (trim (substring body 0 mark))
+        }
+        def cut:int (MermaidTreemapReader.valueColon(body))
+        if (cut >= 0) {
+            def num:string (trim (substring body (cut + 1) (strlen body)))
+            n.own = (MermaidTreemapReader.numberOf(num 0.0))
+            n.hasValue = true
+            body = (trim (substring body 0 cut))
+        }
+        n.label = (MermaidReader.cleanLabel(body))
+        if ((strlen n.label) == 0) {
+            return
+        }
+        n.parent = (this.levelFor(indent))
+        n.depth = ((array_length owners) - 1)
+        seq = (seq + 1)
+        n.id = ("tm" + (to_string seq))
+        n.total = n.own
+        push doc.nodes n
+        ; This line is now the open level at its own indentation: whatever is
+        ; indented further belongs to it.
+        push indents indent
+        push owners ((array_length doc.nodes) - 1)
+    }
+
+    ; Which node a line at this indentation is a child of. Deeper than the last
+    ; one means a child of it; the same or less means an aunt, so the open
+    ; levels are closed until one of them is shallower than this line.
+    fn levelFor:int (indent:int) {
+        while ((array_length indents) > 0) {
+            def top:int (itemAt indents ((array_length indents) - 1))
+            if (indent > top) {
+                return (itemAt owners ((array_length owners) - 1))
+            }
+            removeLast indents
+            removeLast owners
+        }
+        return -1
+    }
+
+    ; Which top-level branch each node is under. The colour of a box says which
+    ; part of the tree it is in, so it has to be inherited rather than counted
+    ; per level: two leaves of the same branch that were coloured by their own
+    ; position would say they belong to different things.
+    fn bands:void () {
+        def band:int 0
+        def i:int 0
+        while (i < (array_length doc.nodes)) {
+            def n:MermaidTreemapNode (itemAt doc.nodes i)
+            if (n.parent < 0) {
+                n.band = band
+                band = (band + 1)
+            } {
+                def p:MermaidTreemapNode (itemAt doc.nodes n.parent)
+                n.band = p.band
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; The colon that separates a name from its number, skipping any inside
+    ; quotes: `"Time: spent": 30` names one thing and is worth thirty.
+    sfn valueColon:int (t:string) {
+        def q:boolean false
+        def i:int 0
+        while (i < (strlen t)) {
+            def c:int (charAt t i)
+            if (c == 34) {
+                if q { q = false } { q = true }
+            }
+            if (q == false) {
+                if (c == 58) {
+                    return i
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    sfn indentOf:int (line:string) {
+        def n:int 0
+        def i:int 0
+        while (i < (strlen line)) {
+            def c:int (charAt line i)
+            if (c == 32) {
+                n = (n + 1)
+            } {
+                if (c == 9) {
+                    ; A tab is one level however wide it is drawn, and four
+                    ; columns is what every editor in this corpus writes.
+                    n = (n + 4)
+                } {
+                    return n
+                }
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn numberOf:double (text:string fallback:double) {
+        def t:string (MermaidReader.unquote((trim text)))
+        ; `1,200` is one number with a thousands separator in it, and Mermaid's
+        ; own token for a number allows the comma.
+        t = (MermaidReader.replaceAll(t "," ""))
+        t = (MermaidReader.replaceAll(t "_" ""))
+        if ((strlen t) == 0) {
+            return fallback
+        }
+        def v@(optional):double (str2double t)
+        if (null? v) {
+            return fallback
+        }
+        return (unwrap v)
+    }
+
+    sfn indexOfText:int (text:string needle:string) {
+        def n:int (strlen needle)
+        def m:int (strlen text)
+        if (n == 0) {
+            return -1
+        }
+        def i:int 0
+        while ((i + n) <= m) {
+            def k:int 0
+            def hit:boolean true
+            while (k < n) {
+                if ((charAt text (i + k)) != (charAt needle k)) {
+                    hit = false
+                    k = n
+                }
+                k = (k + 1)
+            }
+            if hit {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+}
+
+; ============================================================================
+; MermaidTreemapFlow — the areas, worked out.
+; ============================================================================
+class MermaidTreemapFlow {
+    Constructor () {
+    }
+
+    sfn width:double ()  { return 900.0 }
+    sfn height:double () { return 560.0 }
+    ; The strip at the top of a branch that its name is written in.
+    sfn headerHeight:double () { return 22.0 }
+    sfn gap:double () { return 3.0 }
+
+    sfn build:FlowGraph (d:MermaidTreemap style:FlowStyle) {
+        def g (new FlowGraph)
+        if ((d.nodeCount()) == 0) {
+            return g
+        }
+        def w:double (MermaidTreemapFlow.width())
+        def h:double (MermaidTreemapFlow.height())
+        def top:double 0.0
+        if ((strlen d.title) > 0) {
+            MermaidTreemapFlow.label(g "tm-title" d.title 0.0 0.0 w 30.0 "mermaid treemap title axislabel")
+            top = 40.0
+        }
+        def roots:[int] (MermaidTreemapFlow.childrenOf(d -1))
+        MermaidTreemapFlow.placeRun(g d roots 0 (array_length roots) 0.0 top w h)
+        g.reindex()
+        def wrote:int (style.applyTo(g))
+        ; The fills after the sheet: a treemap in one colour is a picture of
+        ; the nesting with the "which part of the tree" thrown away.
+        def i:int 0
+        while (i < (d.nodeCount())) {
+            def n:MermaidTreemapNode (itemAt d.nodes i)
+            if (g.hasNode(n.id)) {
+                def box:FlowNode (g.nodeById(n.id))
+                box.bgColor = (MermaidTreemapFlow.fillFor(d n))
+                box.borderColor = (MermaidTreemapFlow.inkFor(n))
+                box.syncFromModel()
+            }
+            i = (i + 1)
+        }
+        return g
+    }
+
+    ; One run of siblings into one rectangle. The run is cut in two at the
+    ; place that comes nearest to halving its weight, and the rectangle is cut
+    ; across its longer side in the same proportion — so each step both halves
+    ; the list and turns the grain, which is what keeps the boxes near square.
+    sfn placeRun:void (g:FlowGraph d:MermaidTreemap idx:[int] from:int to:int x:double y:double w:double h:double) {
+        def count:int (to - from)
+        if (count <= 0) {
+            return
+        }
+        if (count == 1) {
+            MermaidTreemapFlow.placeOne(g d (itemAt idx from) x y w h)
+            return
+        }
+        def total:double (MermaidTreemapFlow.weight(d idx from to))
+        def half:double (total * 0.5)
+        def cut:int (from + 1)
+        def run:double (MermaidTreemapFlow.weight(d idx from (from + 1)))
+        def best:double (fabs (run - half))
+        def k:int (from + 1)
+        while (k < to) {
+            def next:double (run + (MermaidTreemapFlow.weight(d idx k (k + 1))))
+            def score:double (fabs (next - half))
+            if (score < best) {
+                best = score
+                run = next
+                cut = (k + 1)
+            } {
+                k = to
+            }
+            k = (k + 1)
+        }
+        def share:double 0.5
+        if (total > 0.0) {
+            share = ((MermaidTreemapFlow.weight(d idx from cut)) / total)
+        }
+        if (share < 0.02) { share = 0.02 }
+        if (share > 0.98) { share = 0.98 }
+        if (w >= h) {
+            def lw:double (w * share)
+            MermaidTreemapFlow.placeRun(g d idx from cut x y lw h)
+            MermaidTreemapFlow.placeRun(g d idx cut to (x + lw) y (w - lw) h)
+        } {
+            def th:double (h * share)
+            MermaidTreemapFlow.placeRun(g d idx from cut x y w th)
+            MermaidTreemapFlow.placeRun(g d idx cut to x (y + th) w (h - th))
+        }
+    }
+
+    ; One node in one rectangle, and its children in what is left of it.
+    sfn placeOne:void (g:FlowGraph d:MermaidTreemap i:int x:double y:double w:double h:double) {
+        def n:MermaidTreemapNode (itemAt d.nodes i)
+        def gap:double (MermaidTreemapFlow.gap())
+        def bx:double (x + gap)
+        def by:double (y + gap)
+        def bw:double (w - (gap * 2.0))
+        def bh:double (h - (gap * 2.0))
+        if (bw < 2.0) { bw = 2.0 }
+        if (bh < 2.0) { bh = 2.0 }
+        def kids:[int] (MermaidTreemapFlow.childrenOf(d i))
+        def leaf:boolean ((array_length kids) == 0)
+        def box:FlowNode (FlowNode.create(n.id "" bx by))
+        box.nodeType = "tile"
+        box.shape = "rect"
+        box.width = bw
+        box.height = bh
+        box.borderRadius = 3.0
+        box.connectable = false
+        box.draggable = false
+        box.cssClass = ("mermaid treemap tile " + (MermaidTreemapFlow.bandClass(n.band)) + " " + n.cssClass)
+        if leaf {
+            ; A leaf carries its own name and number; a branch carries its name
+            ; in a strip at the top so its children can have the rest.
+            box.label = (MermaidTreemapFlow.leafText(n))
+        }
+        box.syncFromModel()
+        g.addNode(box)
+        if leaf {
+            return
+        }
+        def head:double (MermaidTreemapFlow.headerHeight())
+        if (bh > (head * 2.5)) {
+            MermaidTreemapFlow.label(g (n.id + "-name") n.label (bx + 6.0) (by + 2.0) (bw - 12.0) head "mermaid treemap branchname axislabel")
+        } {
+            head = 0.0
+        }
+        MermaidTreemapFlow.placeRun(g d kids 0 (array_length kids) (bx + 1.0) ((by + head) + 1.0) (bw - 2.0) ((bh - head) - 2.0))
+    }
+
+    ; A leaf says what it is and how much of it there is. The number is the
+    ; point of the picture, so it is written rather than left to the area.
+    sfn leafText:string (n:MermaidTreemapNode) {
+        if (n.hasValue == false) {
+            return n.label
+        }
+        return ((n.label + (strfromcode 10)) + (MermaidTreemapFlow.numberText(n.total)))
+    }
+
+    ; The children of a node, in the order they were written, biggest first.
+    ; The split layout works down a list, so a list that starts with the big
+    ; ones gives the big ones the first and squarest cuts.
+    sfn childrenOf:[int] (d:MermaidTreemap parent:int) {
+        def out:[int]
+        def i:int 0
+        while (i < (d.nodeCount())) {
+            def n:MermaidTreemapNode (itemAt d.nodes i)
+            if (n.parent == parent) {
+                push out i
+            }
+            i = (i + 1)
+        }
+        ; Insertion sort: a treemap's fan-out is a handful, and a stable sort
+        ; keeps two equal parts in the order the file wrote them.
+        def a:int 1
+        while (a < (array_length out)) {
+            def v:int (itemAt out a)
+            def vw:double (MermaidTreemapFlow.valueOf(d v))
+            def b:int (a - 1)
+            def going:boolean true
+            while (going) {
+                going = false
+                if (b >= 0) {
+                    def other:int (itemAt out b)
+                    if ((MermaidTreemapFlow.valueOf(d other)) < vw) {
+                        set out (b + 1) other
+                        b = (b - 1)
+                        going = true
+                    }
+                }
+            }
+            set out (b + 1) v
+            a = (a + 1)
+        }
+        return out
+    }
+
+    sfn valueOf:double (d:MermaidTreemap i:int) {
+        def n:MermaidTreemapNode (itemAt d.nodes i)
+        return n.total
+    }
+
+    sfn weight:double (d:MermaidTreemap idx:[int] from:int to:int) {
+        def sum:double 0.0
+        def i:int from
+        while (i < to) {
+            sum = (sum + (MermaidTreemapFlow.valueOf(d (itemAt idx i))))
+            i = (i + 1)
+        }
+        if (sum <= 0.0) {
+            ; A subtree with no numbers in it still has to be drawn, and every
+            ; part of it is worth the same as every other.
+            sum = (to_double (to - from))
+        }
+        return sum
+    }
+
+    sfn label:void (g:FlowGraph id:string text:string x:double y:double w:double h:double cls:string) {
+        if ((strlen text) == 0) {
+            return
+        }
+        if (w < 12.0) {
+            return
+        }
+        def n:FlowNode (FlowNode.create(id text x y))
+        n.nodeType = "axislabel"
+        n.shape = "rect"
+        n.width = w
+        n.height = h
+        n.connectable = false
+        n.draggable = false
+        n.cssClass = cls
+        n.syncFromModel()
+        g.addNode(n)
+    }
+
+    ; A branch is the pale ground its children stand on; a leaf is the colour
+    ; of the branch it belongs to. Two leaves under one branch that were
+    ; coloured by their own position would say they were unrelated.
+    sfn fillFor:string (d:MermaidTreemap n:MermaidTreemapNode) {
+        if ((d.childCount((MermaidTreemapFlow.slotOf(d n)))) > 0) {
+            return "#eef0f6"
+        }
+        return (MermaidTreemapFlow.colorAt(n.band))
+    }
+
+    sfn inkFor:string (n:MermaidTreemapNode) {
+        return "#ffffff"
+    }
+
+    sfn slotOf:int (d:MermaidTreemap n:MermaidTreemapNode) {
+        def i:int 0
+        while (i < (d.nodeCount())) {
+            def other:MermaidTreemapNode (itemAt d.nodes i)
+            if (other.id == n.id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    sfn bandClass:string (index:int) {
+        return ("band-" + (to_string (index % 12)))
+    }
+
+    sfn colorAt:string (index:int) {
+        def i:int (index % 12)
+        if (i == 0)  { return "#9db8dd" }
+        if (i == 1)  { return "#f3b978" }
+        if (i == 2)  { return "#96c68d" }
+        if (i == 3)  { return "#eb9c9c" }
+        if (i == 4)  { return "#9fd0cc" }
+        if (i == 5)  { return "#cfa9c6" }
+        if (i == 6)  { return "#eddb92" }
+        if (i == 7)  { return "#c0a894" }
+        if (i == 8)  { return "#cdc7c4" }
+        if (i == 9)  { return "#f5b8be" }
+        if (i == 10) { return "#adaaa9" }
+        return "#c6b184"
+    }
+
+    sfn numberText:string (v:double) {
+        def whole:int (to_int v)
+        def back:double (to_double whole)
+        if ((fabs (v - back)) < 0.0005) {
+            return (to_string whole)
+        }
+        def hundredths:int (to_int ((v * 100.0) + 0.5))
+        def a:int (idiv hundredths 100)
+        def b:int (hundredths - (a * 100))
+        def frac:string (to_string b)
+        if (b < 10) {
+            frac = ("0" + frac)
+        }
+        return ((to_string a) + "." + frac)
+    }
+}

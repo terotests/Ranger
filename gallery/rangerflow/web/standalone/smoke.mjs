@@ -124,7 +124,7 @@ async function checkOne(chrome, scenario, shot) {
     `http://127.0.0.1:${PORT}/index.html?selftest=1` +
     (scenario ? `&scenario=${encodeURIComponent(scenario)}` : "");
   const run = await runChrome(chrome, [
-    ...CHROME_FLAGS, "--virtual-time-budget=25000", "--dump-dom", url,
+    ...CHROME_FLAGS, "--virtual-time-budget=40000", "--dump-dom", url,
   ]);
   const dom = run.stdout || "";
   if (process.env.SMOKE_DEBUG) {
@@ -158,6 +158,17 @@ async function checkOne(chrome, scenario, shot) {
   if (!(marks > 50)) problems.push(`almost nothing was drawn (quads=${num(/quads=(\d+)/)} paths=${num(/paths=(\d+)/)})`);
   if (!(num(/paths=(\d+)/) > 0)) problems.push("no vector path was drawn — the edges are missing");
   if (num(/skippedFills=(\d+)/) !== 0) problems.push("fills were skipped: " + num(/skippedFills=(\d+)/));
+  // What you see has to be where you can click. When the drawing buffer and
+  // the element it is displayed in disagree, the browser scales one into the
+  // other and every hit test in the core lands somewhere else — worst at the
+  // bottom of the canvas, which is exactly where the zoom buttons and the
+  // minimap live. The Mermaid scenario is the one that used to fail it: its
+  // panel shortens the canvas without resizing the window.
+  const drift = Number(/drift=([0-9.]+)/.exec(selftest)?.[1] ?? "0");
+  if (!(drift > 0.99 && drift < 1.01)) {
+    problems.push(`the canvas is drawn at ${drift.toFixed(3)}× the size it is clicked at`);
+  }
+
   // Every scenario has to put something on the screen; only the schema has a
   // known node count to check against.
   if (label === "erd") {

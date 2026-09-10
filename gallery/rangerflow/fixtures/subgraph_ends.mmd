@@ -1,0 +1,13 @@
+flowchart TB
+  C["Ranger compiler"]
+  subgraph O["Office"]
+    W["Word"]
+    E["Excel"]
+  end
+  subgraph D["Data"]
+    RF["RangerFlow"]
+    V["Vela"]
+  end
+  EVG["EVG"]
+  C --> O & D
+  O & D --> EVG

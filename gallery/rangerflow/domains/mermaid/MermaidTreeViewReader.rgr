@@ -1,0 +1,500 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MermaidTreeViewReader.rgr — a tree drawn the way a file browser draws one.
+; ============================================================================
+;
+; The same hierarchy a treemap draws by area, drawn instead as an outline: one
+; row per entry, indented under its parent, with the elbow rules that say which
+; row belongs to which. No layout engine is asked anything — the order is the
+; order it was written, and that is the point of the diagram.
+;
+;   src
+;   ├── core
+;   │   └── FlowView.rgr        the view
+;   └── domains
+;   docs
+;
+; **What it reads.** Indentation is the hierarchy. A name is bare or quoted,
+; ` ::: name` puts a class on a row, ` ## words` is a description written
+; beside it, and ` icon(name)` names an icon.
+;
+; **Icons.** Mermaid resolves `icon(fa:folder)` against an icon pack, and there
+; is no icon pack here. Inventing a picture for a name this library has never
+; seen would be worse than drawing none, so the marker says only what this
+; reader actually knows — whether the row has anything under it — and the name
+; that was asked for is kept on the row as its tooltip rather than thrown away.
+; ============================================================================
+
+Import "MermaidReader.rgr"
+Import "../../core/FlowStyleSheet.rgr"
+
+class MermaidTreeViewNode {
+    def id:string ""
+    def label:string ""
+    def description:string ""
+    def icon:string ""
+    def cssClass:string ""
+    def parent:int -1
+    def depth:int 0
+    ; Filled in by the builder: which row it landed on.
+    def row:int 0
+
+    Constructor () {
+    }
+}
+
+class MermaidTreeView {
+    def title:string ""
+    def nodes:[MermaidTreeViewNode]
+
+    Constructor () {
+    }
+
+    fn nodeCount:int () {
+        return (array_length nodes)
+    }
+
+    fn childCount:int (idx:int) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def c:MermaidTreeViewNode (itemAt nodes i)
+            if (c.parent == idx) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    fn rootCount:int () {
+        return (this.childCount(-1))
+    }
+
+    fn maxDepth:int () {
+        def d:int 0
+        def i:int 0
+        while (i < (array_length nodes)) {
+            def n:MermaidTreeViewNode (itemAt nodes i)
+            if (n.depth > d) {
+                d = n.depth
+            }
+            i = (i + 1)
+        }
+        return d
+    }
+}
+
+class MermaidTreeViewReader {
+    def doc:MermaidTreeView (new MermaidTreeView)
+    def indents:[int]
+    def owners:[int]
+    def seq:int 0
+
+    Constructor () {
+    }
+
+    sfn parse:MermaidTreeView (src:string) {
+        def r (new MermaidTreeViewReader)
+        return (r.read(src))
+    }
+
+    fn read:MermaidTreeView (src:string) {
+        def lines:[string] (strsplit src "\n")
+        def inFront:boolean false
+        def frontDone:boolean false
+        def i:int 0
+        while (i < (array_length lines)) {
+            def raw:string (itemAt lines i)
+            i = (i + 1)
+            def flat:string (trim raw)
+            if (flat == "---") {
+                if (frontDone == false) {
+                    if inFront {
+                        inFront = false
+                        frontDone = true
+                    } {
+                        inFront = true
+                    }
+                    continue
+                }
+            }
+            if inFront {
+                def cut:int (indexOf flat ":")
+                if (cut > 0) {
+                    def key:string (MermaidReader.lower((trim (substring flat 0 cut))))
+                    if (key == "title") {
+                        def val:string (trim (substring flat (cut + 1) (strlen flat)))
+                        doc.title = (MermaidReader.unquote(val))
+                    }
+                }
+                continue
+            }
+            def line:string (MermaidTreeViewReader.stripComment(raw))
+            if ((strlen (trim line)) == 0) {
+                continue
+            }
+            this.statement(line)
+        }
+        return doc
+    }
+
+    sfn stripComment:string (line:string) {
+        def len:int (strlen line)
+        def q:boolean false
+        def i:int 0
+        while (i < len) {
+            def c:int (charAt line i)
+            if (c == 34) {
+                if q { q = false } { q = true }
+            }
+            if (q == false) {
+                if (c == 37) {
+                    if ((i + 1) < len) {
+                        def d:int (charAt line (i + 1))
+                        if (d == 37) {
+                            return (substring line 0 i)
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return line
+    }
+
+    fn statement:void (raw:string) {
+        def indent:int (MermaidTreeViewReader.indentOf(raw))
+        def st:string (trim raw)
+        def word:string (MermaidReader.firstWord(st))
+        def kw:string (MermaidReader.lower((MermaidReader.upToPunct(word))))
+        def rest:string (trim (substring st (strlen word) (strlen st)))
+        ; `treeView-beta` is `treeView` once the suffix is cut off, which is how
+        ; Mermaid's own detector reads it too.
+        if (kw == "treeview") {
+            if ((strlen rest) > 0) {
+                this.statement(rest)
+            }
+            return
+        }
+        if (MermaidReader.beginsWith(kw "acctitle")) { return }
+        if (MermaidReader.beginsWith(kw "accdescr")) { return }
+        if (kw == "title") {
+            doc.title = (MermaidReader.cleanLabel(rest))
+            return
+        }
+        this.entry(indent st)
+    }
+
+    ; `core ::: warm icon(fa:folder) ## the middle of it`. The three
+    ; annotations are cut off the end in the order that cannot go wrong: the
+    ; description last, because it runs to the end of the line and would
+    ; swallow the other two.
+    fn entry:void (indent:int st:string) {
+        def body:string st
+        def n (new MermaidTreeViewNode)
+        def hash:int (MermaidTreeViewReader.indexOfText(body "##"))
+        if (hash >= 0) {
+            n.description = (trim (substring body (hash + 2) (strlen body)))
+            body = (trim (substring body 0 hash))
+        }
+        def icon:int (MermaidTreeViewReader.indexOfText(body "icon("))
+        if (icon >= 0) {
+            def close:int (MermaidTreeViewReader.closeAfter(body (icon + 5)))
+            n.icon = (trim (substring body (icon + 5) close))
+            def after:string (trim (substring body (close + 1) (strlen body)))
+            body = ((trim (substring body 0 icon)) + " " + after)
+            body = (trim body)
+        }
+        def mark:int (MermaidTreeViewReader.indexOfText(body ":::"))
+        if (mark >= 0) {
+            def tail:string (trim (substring body (mark + 3) (strlen body)))
+            n.cssClass = (MermaidReader.firstWord(tail))
+            def left:string (trim (substring body 0 mark))
+            def spare:string (trim (substring tail (strlen n.cssClass) (strlen tail)))
+            body = (trim (left + " " + spare))
+        }
+        n.label = (MermaidReader.cleanLabel(body))
+        if ((strlen n.label) == 0) {
+            return
+        }
+        n.parent = (this.levelFor(indent))
+        n.depth = (array_length owners)
+        seq = (seq + 1)
+        n.id = ("tv" + (to_string seq))
+        push doc.nodes n
+        push indents indent
+        push owners ((array_length doc.nodes) - 1)
+    }
+
+    ; Which node a line at this indentation belongs under — the same rule the
+    ; mind map and the treemap use, because it is the same syntax.
+    fn levelFor:int (indent:int) {
+        while ((array_length indents) > 0) {
+            def top:int (itemAt indents ((array_length indents) - 1))
+            if (indent > top) {
+                return (itemAt owners ((array_length owners) - 1))
+            }
+            removeLast indents
+            removeLast owners
+        }
+        return -1
+    }
+
+    sfn closeAfter:int (t:string from:int) {
+        def i:int from
+        while (i < (strlen t)) {
+            if ((charAt t i) == 41) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return (strlen t)
+    }
+
+    sfn indentOf:int (line:string) {
+        def n:int 0
+        def i:int 0
+        while (i < (strlen line)) {
+            def c:int (charAt line i)
+            if (c == 32) {
+                n = (n + 1)
+            } {
+                if (c == 9) {
+                    n = (n + 4)
+                } {
+                    return n
+                }
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    sfn indexOfText:int (text:string needle:string) {
+        def n:int (strlen needle)
+        def m:int (strlen text)
+        if (n == 0) {
+            return -1
+        }
+        def i:int 0
+        while ((i + n) <= m) {
+            def k:int 0
+            def hit:boolean true
+            while (k < n) {
+                if ((charAt text (i + k)) != (charAt needle k)) {
+                    hit = false
+                    k = n
+                }
+                k = (k + 1)
+            }
+            if hit {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+}
+
+; ============================================================================
+; MermaidTreeViewFlow — the outline, drawn.
+; ============================================================================
+class MermaidTreeViewFlow {
+    Constructor () {
+    }
+
+    sfn rowHeight:double ()  { return 30.0 }
+    sfn indentWidth:double () { return 28.0 }
+    sfn markerSize:double ()  { return 11.0 }
+
+    sfn build:FlowGraph (d:MermaidTreeView style:FlowStyle) {
+        def g (new FlowGraph)
+        if ((d.nodeCount()) == 0) {
+            return g
+        }
+        def rowH:double (MermaidTreeViewFlow.rowHeight())
+        def step:double (MermaidTreeViewFlow.indentWidth())
+        def top:double 0.0
+        if ((strlen d.title) > 0) {
+            MermaidTreeViewFlow.label(g "tv-title" d.title 0.0 0.0 360.0 30.0 "mermaid treeview title axislabel")
+            top = 42.0
+        }
+        ; The rows, in the order they were written. A tree browser that sorted
+        ; them would be answering a question nobody asked.
+        def i:int 0
+        while (i < (d.nodeCount())) {
+            def n:MermaidTreeViewNode (itemAt d.nodes i)
+            n.row = i
+            def y:double (top + ((to_double i) * rowH))
+            def x:double ((to_double n.depth) * step)
+            MermaidTreeViewFlow.row(g d n i x y rowH)
+            i = (i + 1)
+        }
+        ; The elbows. They are drawn after the rows and pushed behind them, so
+        ; a rule never crosses a name.
+        def lines:int (MermaidTreeViewFlow.elbows(g d top rowH step))
+        g.reindex()
+        def wrote:int (style.applyTo(g))
+        def k:int 0
+        while (k < lines) {
+            g.sendToBack(("tvline-" + (to_string k)))
+            k = (k + 1)
+        }
+        MermaidTreeViewFlow.repaint(g d)
+        return g
+    }
+
+    sfn row:void (g:FlowGraph d:MermaidTreeView n:MermaidTreeViewNode idx:int x:double y:double rowH:double) {
+        def mark:double (MermaidTreeViewFlow.markerSize())
+        def branch:boolean ((d.childCount(idx)) > 0)
+        ; The marker says the one thing this reader actually knows about the
+        ; row: whether there is anything under it. A folder that turned out to
+        ; be a file is worse than no folder at all.
+        def dot:FlowNode (FlowNode.create((n.id + "-mark") "" (x + 6.0) ((y + (rowH * 0.5)) - (mark * 0.5))))
+        dot.nodeType = "marker"
+        dot.shape = "rect"
+        dot.width = mark
+        dot.height = mark
+        dot.borderRadius = 2.0
+        if (branch == false) {
+            dot.shape = "circle"
+            dot.width = (mark * 0.6)
+            dot.height = (mark * 0.6)
+            dot.x = ((x + 6.0) + ((mark - (mark * 0.6)) * 0.5))
+            dot.y = ((y + (rowH * 0.5)) - ((mark * 0.6) * 0.5))
+        }
+        dot.connectable = false
+        dot.draggable = false
+        dot.borderWidth = 0.0
+        dot.cssClass = "mermaid treeview marker"
+        dot.syncFromModel()
+        g.addNode(dot)
+        def w:double (((to_double (strlen n.label)) * 7.2) + 20.0)
+        if (w < 60.0) { w = 60.0 }
+        def name:FlowNode (FlowNode.create(n.id n.label (x + 22.0) (y + 3.0)))
+        name.nodeType = "row"
+        name.shape = "rect"
+        name.width = w
+        name.height = (rowH - 6.0)
+        name.borderRadius = 4.0
+        name.connectable = false
+        name.cssClass = ("mermaid treeview row " + n.cssClass)
+        ; The icon Mermaid would have drawn. There is no icon pack here, so the
+        ; name is kept where it can be read rather than turned into a picture
+        ; this library would be guessing at.
+        if ((strlen n.icon) > 0) {
+            name.tooltip = ("icon(" + n.icon + ")")
+        }
+        name.syncFromModel()
+        g.addNode(name)
+        if ((strlen n.description) > 0) {
+            def dw:double (((to_double (strlen n.description)) * 6.6) + 16.0)
+            MermaidTreeViewFlow.label(g (n.id + "-note") n.description ((x + 30.0) + w) (y + 3.0) dw (rowH - 6.0) "mermaid treeview note axislabel")
+        }
+    }
+
+    ; One elbow per row that has a parent: down the parent's gutter to this
+    ; row, and across into it. Axis-aligned, so a plain rectangle IS the rule.
+    sfn elbows:int (g:FlowGraph d:MermaidTreeView top:double rowH:double step:double) {
+        def made:int 0
+        def i:int 0
+        while (i < (d.nodeCount())) {
+            def n:MermaidTreeViewNode (itemAt d.nodes i)
+            if (n.parent >= 0) {
+                def p:MermaidTreeViewNode (itemAt d.nodes n.parent)
+                def gx:double (((to_double p.depth) * step) + 11.0)
+                def py:double ((top + ((to_double p.row) * rowH)) + (rowH * 0.5))
+                def cy:double ((top + ((to_double i) * rowH)) + (rowH * 0.5))
+                def cx:double (((to_double n.depth) * step) + 6.0)
+                MermaidTreeViewFlow.rule(g ("tvline-" + (to_string made)) (gx - 0.5) (py + 8.0) 1.0 ((cy - py) - 8.0))
+                made = (made + 1)
+                MermaidTreeViewFlow.rule(g ("tvline-" + (to_string made)) gx (cy - 0.5) (cx - gx) 1.0)
+                made = (made + 1)
+            }
+            i = (i + 1)
+        }
+        return made
+    }
+
+    sfn rule:void (g:FlowGraph id:string x:double y:double w:double h:double) {
+        if (w < 0.6) { w = 0.6 }
+        if (h < 0.6) { h = 0.6 }
+        def n:FlowNode (FlowNode.create(id "" x y))
+        n.nodeType = "rule"
+        n.shape = "rect"
+        n.width = w
+        n.height = h
+        n.connectable = false
+        n.draggable = false
+        n.borderWidth = 0.0
+        n.borderRadius = 0.0
+        n.bgColor = "#c3c9d8"
+        n.borderColor = "#c3c9d8"
+        n.cssClass = "mermaid treeview rule"
+        n.syncFromModel()
+        g.addNode(n)
+    }
+
+    sfn label:void (g:FlowGraph id:string text:string x:double y:double w:double h:double cls:string) {
+        if ((strlen text) == 0) {
+            return
+        }
+        def n:FlowNode (FlowNode.create(id text x y))
+        n.nodeType = "axislabel"
+        n.shape = "rect"
+        n.width = w
+        n.height = h
+        n.connectable = false
+        n.draggable = false
+        n.cssClass = cls
+        n.syncFromModel()
+        g.addNode(n)
+    }
+
+    ; After the sheet, so the rules keep being rules: the theme's node fill
+    ; over a one-pixel rectangle is a one-pixel rectangle in the wrong colour,
+    ; and a tree with no rules on it is a list with ragged left edges.
+    sfn repaint:void (g:FlowGraph d:MermaidTreeView) {
+        def i:int 0
+        while (i < (d.nodeCount())) {
+            def n:MermaidTreeViewNode (itemAt d.nodes i)
+            def branch:boolean ((d.childCount(i)) > 0)
+            def id:string (n.id + "-mark")
+            if (g.hasNode(id)) {
+                def dot:FlowNode (g.nodeById(id))
+                def ink:string "#8a93a8"
+                if branch {
+                    ink = (MermaidTreeViewFlow.colorAt(n.depth))
+                }
+                dot.bgColor = ink
+                dot.borderColor = ink
+                dot.syncFromModel()
+            }
+            i = (i + 1)
+        }
+        def k:int 0
+        while (k < 4096) {
+            def id:string ("tvline-" + (to_string k))
+            if ((g.hasNode(id)) == false) {
+                return
+            }
+            def r:FlowNode (g.nodeById(id))
+            r.bgColor = "#c3c9d8"
+            r.borderColor = "#c3c9d8"
+            r.syncFromModel()
+            k = (k + 1)
+        }
+    }
+
+    sfn colorAt:string (depth:int) {
+        def i:int (depth % 6)
+        if (i == 0) { return "#4c78a8" }
+        if (i == 1) { return "#f58518" }
+        if (i == 2) { return "#54a24b" }
+        if (i == 3) { return "#b279a2" }
+        if (i == 4) { return "#72b7b2" }
+        return "#9d755d"
+    }
+}

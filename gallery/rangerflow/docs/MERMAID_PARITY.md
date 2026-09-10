@@ -5,7 +5,7 @@
 > and asked what it understood. Nothing is transcribed, so nothing can be
 > transcribed wrong.
 
-Mermaid 11.17.2 · 46 diagrams · **222/222 checks agree (100%)**
+Mermaid 11.17.2 · 52 diagrams · **234/234 checks agree (100%)**
 
 | example | type | direction | nodes | labels | shapes | classes | edges | subgraphs |
 | --- | --- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
@@ -55,6 +55,12 @@ Mermaid 11.17.2 · 46 diagrams · **222/222 checks agree (100%)**
 | `44_railroad_peg.mmd` | peg ✓ | — | — | — | — | — | — | — |
 | `45_railroad.mmd` | railroad ✓ | — | — | — | — | — | — | — |
 | `46_info.mmd` | info ✓ | — | — | — | — | — | — | — |
+| `47_packet.mmd` | packet ✓ | — | — | — | — | — | — | — |
+| `48_gantt2.mmd` | gantt ✓ | — | — | — | — | — | — | — |
+| `49_radar.mmd` | radar ✓ | — | — | — | — | — | — | — |
+| `50_treemap.mmd` | treemap ✓ | — | — | — | — | — | — | — |
+| `51_treeview.mmd` | treeview ✓ | — | — | — | — | — | — | — |
+| `52_eventmodel.mmd` | eventmodeling ✓ | — | — | — | — | — | — | — |
 
 ## Read anyway
 
@@ -67,43 +73,51 @@ every one of these is a file somebody wrote and Mermaid would not draw.
 ## Mermaid's diagram types
 
 Read off the installed Mermaid's own build rather than typed here, so a type
-added upstream appears the next time the harness is installed. 30 of the 30 are drawn;
+added upstream appears the next time the harness is installed. 38 of the 38 are drawn;
 the rest have to be **recognised and refused**, because a header this reader
 does not know falls through to the flowchart parser, and a Wardley map read as
 a flowchart is a page of invented boxes.
 
 | header | RangerFlow |
 | --- | --- |
-| `railroad-abnf-beta` | **drawn** — read as `abnf` |
-| `architecture-beta` | **drawn** — read as `architecture` |
-| `block-beta` | **drawn** — read as `block` |
+| `architecture` | **drawn** — read as `architecture` |
+| `block` | **drawn** — read as `block` |
 | `C4Context` | **drawn** — read as `c4` |
 | `classDiagram` | **drawn** — read as `class` |
+| `classDiagram-v2` | **drawn** — read as `class` |
 | `cynefin-beta` | **drawn** — read as `cynefin` |
-| `railroad-ebnf-beta` | **drawn** — read as `ebnf` |
 | `erDiagram` | **drawn** — read as `er` |
+| `eventmodeling` | **drawn** — read as `eventmodeling` |
 | `flowchart` | **drawn** — read as `flowchart` |
+| `flowchart-elk` | **drawn** — read as `flowchart` |
 | `gantt` | **drawn** — read as `gantt` |
 | `gitGraph` | **drawn** — read as `git` |
+| `graph` | **drawn** — read as `flowchart` |
 | `info` | **drawn** — read as `info` |
-| `ishikawa-beta` | **drawn** — read as `ishikawa` |
+| `ishikawa` | **drawn** — read as `ishikawa` |
 | `journey` | **drawn** — read as `journey` |
 | `kanban` | **drawn** — read as `kanban` |
 | `mindmap` | **drawn** — read as `mindmap` |
-| `railroad-peg-beta` | **drawn** — read as `peg` |
+| `packet` | **drawn** — read as `packet` |
 | `pie` | **drawn** — read as `pie` |
 | `quadrantChart` | **drawn** — read as `quadrant` |
+| `radar-beta` | **drawn** — read as `radar` |
+| `railroad-abnf-beta` | **drawn** — read as `abnf` |
 | `railroad-beta` | **drawn** — read as `railroad` |
-| `requirementDiagram` | **drawn** — read as `requirement` |
-| `sankey-beta` | **drawn** — read as `sankey` |
+| `railroad-ebnf-beta` | **drawn** — read as `ebnf` |
+| `railroad-peg-beta` | **drawn** — read as `peg` |
+| `requirement` | **drawn** — read as `requirement` |
+| `sankey` | **drawn** — read as `sankey` |
 | `sequenceDiagram` | **drawn** — read as `sequence` |
 | `stateDiagram` | **drawn** — read as `state` |
 | `stateDiagram-v2` | **drawn** — read as `state` |
 | `swimlane-beta` | **drawn** — read as `swimlane` |
 | `timeline` | **drawn** — read as `timeline` |
+| `treemap` | **drawn** — read as `treemap` |
+| `treeView-beta` | **drawn** — read as `treeview` |
 | `venn-beta` | **drawn** — read as `venn` |
 | `wardley-beta` | **drawn** — read as `wardley` |
-| `xychart-beta` | **drawn** — read as `xychart` |
+| `xychart` | **drawn** — read as `xychart` |
 
 ## What this compares
 

@@ -63,12 +63,36 @@ function engineClass() {
 const app = new (engineClass())();
 let dpr = Math.min(window.devicePixelRatio || 1, 2);
 
+// The drawing buffer has to match the element it is displayed in. When it
+// does not, the browser SCALES the buffer into the element and every hit test
+// in the core — which works in honest CSS pixels — points somewhere else: you
+// have to click below what you can see, and the further down the canvas the
+// worse it gets, which puts the zoom buttons and the minimap in the worst
+// place on the surface.
+//
+// A `window.resize` listener alone does not see it. The canvas is `inset: 0`
+// inside a `flex: 1` box, so it also changes height when the Mermaid panel
+// opens, when the header wraps to a second row, when the footer grows — none
+// of which resizes the window. So the element is watched instead of the
+// window, which covers all of those and the window too.
 function resize() {
   dpr = Math.min(window.devicePixelRatio || 1, 2);
   const w = canvas.clientWidth, h = canvas.clientHeight;
-  canvas.width = Math.round(w * dpr);
-  canvas.height = Math.round(h * dpr);
+  if (w === 0 || h === 0) return;
+  const bw = Math.round(w * dpr), bh = Math.round(h * dpr);
+  if (canvas.width === bw && canvas.height === bh) return;
+  canvas.width = bw;
+  canvas.height = bh;
   app.resize(w, h);
+}
+
+let sizeWatch = null;
+
+/** How far the buffer has drifted from the element, as a ratio. 1 is honest. */
+function sizeDrift() {
+  const h = canvas.clientHeight;
+  if (h === 0 || canvas.height === 0) return 1;
+  return (canvas.height / dpr) / h;
 }
 
 // ---- input ---------------------------------------------------------------
@@ -381,6 +405,12 @@ document.getElementById("file").addEventListener("change", async (ev) => {
 let frames = 0, lastFps = performance.now();
 
 function frame() {
+  // The drawing buffer is a property of THIS frame, so it is decided here.
+  // A `ResizeObserver` alone was not enough — it depends on the browser
+  // delivering an observation before the paint, and when it does not, the
+  // buffer is stretched into the element and every hit test in the core
+  // points somewhere else. Two integer comparisons per frame buy certainty.
+  resize();
   const doc = JSON.parse(app.frame());
   const stats = renderDisplayList(gl, doc, { dpr });
   cmdsEl.textContent =
@@ -411,6 +441,14 @@ async function boot() {
   await loadFonts();
   resize();
   window.addEventListener("resize", resize);
+  // Setting the drawing buffer does not change the element's CSS size, so
+  // this cannot loop; `resize` returns early when nothing actually moved.
+  if (typeof ResizeObserver === "function") {
+    // Kept in a variable on purpose: an observer with no reference to it is
+    // a well-known way to have one collected out from under you.
+    sizeWatch = new ResizeObserver(() => resize());
+    sizeWatch.observe(canvas);
+  }
   // The schema fixture is the only thing the page cannot make for itself. It
   // is handed over once and kept, so the scenario picker can come back to it.
   const res = await fetch("./ecommerce.sql");
@@ -439,15 +477,34 @@ async function boot() {
     // WebGL2RenderingContext, that it has the stencil buffer a filled path
     // needs, that the scene left GL draw calls behind, and that no fill was
     // skipped for want of one.
+    // One frame first: the ResizeObserver runs after the layout that opened
+    // the Mermaid panel, so measuring before it would report a drift the
+    // reader never sees.
+    // The layout has to settle first. `showMermaidBox` above shortened the
+    // canvas, and a `ResizeObserver` delivers AFTER the animation-frame
+    // callbacks of the frame it belongs to — so one awaited frame is not
+    // enough and two are. Only when it is actually needed: every awaited
+    // frame here is virtual time the headless harness has to have left over.
+    for (let i = 0; i < 2; i += 1) {
+      if (Math.abs(sizeDrift() - 1) < 0.005) break;
+      await new Promise((go) => requestAnimationFrame(go));
+    }
+    // Measured BEFORE the verdict is revealed: the `<pre>` below the footer
+    // takes its room from the canvas, so showing it is itself a resize, and
+    // reading the drift afterwards would report one the reader never sees.
+    const drift = sizeDrift();
     const line = app.selfTest();
     const glOk = gl instanceof WebGL2RenderingContext;
     const stencil = gl.getContextAttributes().stencil === true;
     const doc = JSON.parse(app.sceneJson());
     const stats = renderDisplayList(gl, doc, { dpr });
     selfTestEl.hidden = false;
+    // `drift` is the one number that says whether what you see is where you
+    // can click: the drawing buffer against the element it is scaled into.
     selfTestEl.textContent =
       `${line}\nwebgl2=${glOk} stencil=${stencil} quads=${stats.drawn} ` +
-      `paths=${stats.paths} runs=${stats.runs} skippedFills=${stats.skippedFills}`;
+      `paths=${stats.paths} runs=${stats.runs} skippedFills=${stats.skippedFills} ` +
+      `drift=${drift.toFixed(3)}`;
   }
   requestAnimationFrame(frame);
 }

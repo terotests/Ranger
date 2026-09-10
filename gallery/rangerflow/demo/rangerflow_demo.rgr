@@ -46,6 +46,11 @@ Import "../domains/mermaid/MermaidKanbanReader.rgr"
 Import "../domains/mermaid/MermaidQuadrantReader.rgr"
 Import "../domains/mermaid/MermaidPieReader.rgr"
 Import "../domains/mermaid/MermaidXyReader.rgr"
+Import "../domains/mermaid/MermaidPacketReader.rgr"
+Import "../domains/mermaid/MermaidRadarReader.rgr"
+Import "../domains/mermaid/MermaidTreemapReader.rgr"
+Import "../domains/mermaid/MermaidTreeViewReader.rgr"
+Import "../domains/mermaid/MermaidEventModelReader.rgr"
 Import "../domains/mermaid/MermaidSankeyReader.rgr"
 Import "../domains/mermaid/MermaidBlockReader.rgr"
 Import "../domains/mermaid/MermaidArchReader.rgr"
@@ -563,6 +568,26 @@ class RangerFlowDemo {
             this.runMermaidRailroad(srcOpt styleName)
             return
         }
+        if (d.diagramKind == "eventmodeling") {
+            this.runMermaidEventModel(srcOpt styleName)
+            return
+        }
+        if (d.diagramKind == "treeview") {
+            this.runMermaidTreeView(srcOpt styleName)
+            return
+        }
+        if (d.diagramKind == "treemap") {
+            this.runMermaidTreemap(srcOpt styleName)
+            return
+        }
+        if (d.diagramKind == "radar") {
+            this.runMermaidRadar(srcOpt styleName)
+            return
+        }
+        if (d.diagramKind == "packet") {
+            this.runMermaidPacket(srcOpt styleName)
+            return
+        }
         if (d.diagramKind == "info") {
             this.runMermaidInfo(srcOpt styleName)
             return
@@ -923,6 +948,108 @@ class RangerFlowDemo {
             title = "RangerFlow — Mermaid pie chart"
         }
         this.writeAll(v g "rangerflow-mermaid-pie" title)
+    }
+
+    ; An event model: time across the page, kind down it.
+    fn runMermaidEventModel:void (src:string styleName:string) {
+        def em:MermaidEventModel (MermaidEventModelReader.parse(src))
+        if ((em.frameCount()) == 0) {
+            print "  no time frames in that event model"
+            return
+        }
+        def style:FlowStyle (this.styleByName(styleName))
+        def g:FlowGraph (MermaidEventModelFlow.build(em style))
+        print ("  model  " + (to_string (em.frameCount())) + " frames, " + (to_string (em.declaredCount())) + " declared, " + (to_string (em.gwtCount())) + " given/when/then")
+        print ("  graph  " + (to_string (g.nodeCount())) + " nodes, " + (to_string (g.edgeCount())) + " edges")
+        def v:FlowView (FlowView.of(g))
+        v.notation = "plain"
+        style.applyToTheme(v.theme)
+        this.writeAll(v g "rangerflow-mermaid-eventmodel" "RangerFlow — Mermaid event model")
+    }
+
+    ; A tree view: the same hierarchy as an outline rather than by area.
+    fn runMermaidTreeView:void (src:string styleName:string) {
+        def tv:MermaidTreeView (MermaidTreeViewReader.parse(src))
+        if ((tv.nodeCount()) == 0) {
+            print "  nothing in that tree"
+            return
+        }
+        def style:FlowStyle (this.styleByName(styleName))
+        def g:FlowGraph (MermaidTreeViewFlow.build(tv style))
+        print ("  model  " + (to_string (tv.nodeCount())) + " rows, " + (to_string ((tv.maxDepth()) + 1)) + " deep, " + (to_string (tv.rootCount())) + " at the top")
+        print ("  graph  " + (to_string (g.nodeCount())) + " nodes, " + (to_string (g.edgeCount())) + " edges")
+        def v:FlowView (FlowView.of(g))
+        v.notation = "plain"
+        style.applyToTheme(v.theme)
+        def title:string tv.title
+        if ((strlen title) == 0) {
+            title = "RangerFlow — Mermaid tree view"
+        }
+        this.writeAll(v g "rangerflow-mermaid-treeview" title)
+    }
+
+    ; A treemap: what contains what, and how big each part is.
+    fn runMermaidTreemap:void (src:string styleName:string) {
+        def tm:MermaidTreemap (MermaidTreemapReader.parse(src))
+        if ((tm.nodeCount()) == 0) {
+            print "  nothing in that treemap"
+            return
+        }
+        def style:FlowStyle (this.styleByName(styleName))
+        def g:FlowGraph (MermaidTreemapFlow.build(tm style))
+        print ("  model  " + (to_string (tm.nodeCount())) + " boxes, " + (to_string (tm.rootCount())) + " at the top, total " + (to_string (tm.total())))
+        print ("  graph  " + (to_string (g.nodeCount())) + " nodes, " + (to_string (g.edgeCount())) + " edges")
+        def v:FlowView (FlowView.of(g))
+        v.notation = "plain"
+        style.applyToTheme(v.theme)
+        def title:string tm.title
+        if ((strlen title) == 0) {
+            title = "RangerFlow — Mermaid treemap"
+        }
+        this.writeAll(v g "rangerflow-mermaid-treemap" title)
+    }
+
+    ; A radar chart: several things measured on the same set of scales.
+    fn runMermaidRadar:void (src:string styleName:string) {
+        def rd:MermaidRadar (MermaidRadarReader.parse(src))
+        if ((rd.axisCount()) == 0) {
+            print "  no axes in that radar chart"
+            return
+        }
+        def style:FlowStyle (this.styleByName(styleName))
+        def g:FlowGraph (MermaidRadarFlow.build(rd style))
+        print ("  model  " + (to_string (rd.curveCount())) + " curves over " + (to_string (rd.axisCount())) + " axes")
+        print ("  graph  " + (to_string (g.nodeCount())) + " nodes, " + (to_string (g.edgeCount())) + " edges")
+        def v:FlowView (FlowView.of(g))
+        v.notation = "plain"
+        style.applyToTheme(v.theme)
+        def title:string rd.title
+        if ((strlen title) == 0) {
+            title = "RangerFlow — Mermaid radar chart"
+        }
+        this.writeAll(v g "rangerflow-mermaid-radar" title)
+    }
+
+    ; A packet diagram: a ruler with names on it, and the ruler wraps.
+    fn runMermaidPacket:void (src:string styleName:string) {
+        def pk:MermaidPacket (MermaidPacketReader.parse(src))
+        if ((pk.fieldCount()) == 0) {
+            print "  no fields in that packet diagram"
+            return
+        }
+        def style:FlowStyle (this.styleByName(styleName))
+        def g:FlowGraph (MermaidPacketFlow.build(pk style))
+        def bits:int ((pk.lastBit()) + 1)
+        print ("  model  " + (to_string (pk.fieldCount())) + " fields over " + (to_string bits) + " bits, " + (to_string (pk.rowCount())) + " rows")
+        print ("  graph  " + (to_string (g.nodeCount())) + " nodes, " + (to_string (g.edgeCount())) + " edges")
+        def v:FlowView (FlowView.of(g))
+        v.notation = "plain"
+        style.applyToTheme(v.theme)
+        def title:string pk.title
+        if ((strlen title) == 0) {
+            title = "RangerFlow — Mermaid packet diagram"
+        }
+        this.writeAll(v g "rangerflow-mermaid-packet" title)
     }
 
     ; An xychart: bars and a line on an axis that means something.
