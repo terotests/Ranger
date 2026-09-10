@@ -28,7 +28,8 @@
 ; assertions — so a Mac and an emulator are needed only for the Swift and the
 ; Kotlin on top.
 
-Import "../../evg/EvgApp.rgr"
+Import "EvgApp.rgr"
+Import "EvgViewport.rgr"
 
 class EvgHost {
 
@@ -37,13 +38,11 @@ class EvgHost {
     def app:EvgApp (new EvgApp)
     def started:boolean false
 
-    ; The window, in points, and the part of it the system will not cover.
-    def screenW:double 0.0
-    def screenH:double 0.0
-    def insetTop:double 0.0
-    def insetBottom:double 0.0
-    def insetLeft:double 0.0
-    def insetRight:double 0.0
+    ; The window, the safe area and where the page sits inside them — all of
+    ; it in `EvgViewport`, which the dashboard's host owns one of too. This
+    ; one is in mode 0: the page IS the window, so the scale is one, the pan
+    ; is zero and a pinch has nothing to do.
+    def vp:EvgViewport (new EvgViewport)
 
     ; The last point a finger was seen at, in page pixels. A press is two
     ; events -- down marks the control, up activates it -- and the demo's
@@ -81,8 +80,7 @@ class EvgHost {
     ; and then calls this: the window is taken, the page is laid out for it,
     ; and the host is open for business.
     fn began:void (w:double h:double) {
-        screenW = w
-        screenH = h
+        vp.resize(w h)
         ; A finger, not a mouse: the stylesheet's `(pointer: coarse)` block
         ; gives the targets their size.
         app.setPointerCoarse(true)
@@ -93,35 +91,23 @@ class EvgHost {
     ; A rotation, Split View, Stage Manager, the keyboard. The page keeps every
     ; bit of its state; only its size changes, and the layout answers for it.
     fn resize:void (w:double h:double) {
-        screenW = w
-        screenH = h
+        vp.resize(w h)
         this.fitPage()
     }
 
     fn setSafeArea:void (top:double bottom:double left:double right:double) {
-        insetTop = top
-        insetBottom = bottom
-        insetLeft = left
-        insetRight = right
+        vp.setSafeArea(top bottom left right)
         this.fitPage()
     }
 
     ; --- the viewport ---------------------------------------------------------
 
     fn usableWidth:double () {
-        def w:double (screenW - insetLeft - insetRight)
-        if (w < 1.0) {
-            return 1.0
-        }
-        return w
+        return (vp.usableWidth())
     }
 
     fn usableHeight:double () {
-        def h:double (screenH - insetTop - insetBottom)
-        if (h < 1.0) {
-            return 1.0
-        }
-        return h
+        return (vp.usableHeight())
     }
 
     ; The page is the usable window, exactly: no scale, no offset but the
@@ -137,19 +123,19 @@ class EvgHost {
     ; scales by — one, always. The names are the dashboard port's, so the two
     ; hosts read alike.
     fn scale:double () {
-        return 1.0
+        return (vp.scale())
     }
 
     fn zoom:double () {
-        return 1.0
+        return (vp.zoom())
     }
 
     fn offsetX:double () {
-        return insetLeft
+        return (vp.offsetX())
     }
 
     fn offsetY:double () {
-        return insetTop
+        return (vp.offsetY())
     }
 
     fn pageWidth:double () {
@@ -162,11 +148,11 @@ class EvgHost {
 
     ; A window point to a page pixel, and whether it lands on the page at all.
     fn toPageX:double (x:double) {
-        return (x - insetLeft)
+        return (vp.toPageX(x))
     }
 
     fn toPageY:double (y:double) {
-        return (y - insetTop)
+        return (vp.toPageY(y))
     }
 
     fn onPage:boolean (x:double y:double) {
@@ -186,12 +172,25 @@ class EvgHost {
 
     ; No zoom on a page that is already the window's size: a pinch changes
     ; nothing and says so, and a double tap has nothing to reset.
+    ; A pinch and a double tap go to the viewport, which answers false in
+    ; mode 0 — a page that IS the window has nothing to zoom out of. A host
+    ; that later puts this class in mode 1 gets both for nothing.
     fn pinch:boolean (factor:double focusX:double focusY:double) {
-        return false
+        def moved:boolean (vp.pinch(factor focusX focusY))
+        if moved {
+            this.fitPage()
+            app.rebuild()
+        }
+        return moved
     }
 
     fn resetZoom:boolean () {
-        return false
+        def moved:boolean (vp.resetZoom())
+        if moved {
+            this.fitPage()
+            app.rebuild()
+        }
+        return moved
     }
 
     ; A drag scrolls the document, as a finger does in the browser: the

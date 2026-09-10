@@ -1,0 +1,313 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+; ==============================================================================
+; EvgViewport.rgr — a window, a safe area, and where the page sits inside them.
+; ==============================================================================
+;
+; PLAN_WEB_LOADING.md S8. Every port of an EVG app does this arithmetic, and
+; every port had written it out: take the system's insets off the window, work
+; out what the page is scaled by, convert a window point to a page point, keep
+; a pan inside the page's own edges. It was in `EvgHost` once and in
+; `UiWindowHost` again, and the second one was right about more of it.
+;
+; So it is here, with no app in it at all. A host owns one, tells it the
+; window and the page's width, and asks it where things are; two hosts with
+; entirely different ideas of what an app IS still agree about where a finger
+; landed.
+;
+; THE TWO MODELS ARE A MODE, and they are not a compromise between each other:
+;
+;   0  the page IS the window. It is laid out at the usable size and laid out
+;      again when that changes, so the scale is one, the pan is zero and a
+;      pinch has nothing to do. RealTrainer, and the browser at `?page=fit`.
+;   1  the page has a width of its own and is shown at the scale that fits it.
+;      What does not fit is panned to, and a pinch zooms in. The dashboard on
+;      a phone or a tablet.
+;   2  the same, with a floor: below `readableScale` the text stops being text
+;      and starts being texture, so the page is shown bigger than the window
+;      and the reader moves around it. The dashboard on a watch.
+;
+; Mode 0 is not a special case bolted on: it is mode 1 with the page's width
+; equal to the usable width, which makes the fit exactly one. It is a mode of
+; its own because a host that means it should not be able to zoom out of it by
+; arithmetic.
+
+class EvgViewport {
+
+    ; The window, in the host's own units — points on iOS, density-independent
+    ; pixels on Android, CSS pixels in a browser. Which of those it is, is the
+    ; host's business; the arithmetic is the same in all of them.
+    def screenW:double 0.0
+    def screenH:double 0.0
+
+    ; The part of the window the system will cover: a status bar, a notch, a
+    ; home indicator, a keyboard. Zero everywhere until a host says otherwise,
+    ; which is why an Android host that never calls `setSafeArea` gets the
+    ; identity conversions it used to write out by hand.
+    def insetTop:double 0.0
+    def insetBottom:double 0.0
+    def insetLeft:double 0.0
+    def insetRight:double 0.0
+
+    def fitMode:int 0
+    ; The smallest scale the readable mode will go to. 1336 page pixels at 0.5
+    ; is 668 of them across a 45mm watch — a column of the page, at a size the
+    ; text on it is text rather than texture.
+    def readableScale:double 0.5
+
+    ; The page's own width, when it has a fixed one. A host in mode 1 or 2
+    ; hands this over whenever the app's layout changes it.
+    def pageW:double 0.0
+
+    ; What the page is scaled by to fit, and what the reader zoomed in by on
+    ; top of that.
+    def fitScale:double 1.0
+    def zoomValue:double 1.0
+    ; How far right the page is panned, in PAGE pixels. Only ever non-zero when
+    ; the whole width does not fit, and clamped so the page cannot be dragged
+    ; off its own edge.
+    def panXValue:double 0.0
+
+    Constructor () {
+    }
+
+    ; --- what the host tells it -----------------------------------------------
+
+    fn resize:void (w:double h:double) {
+        screenW = w
+        screenH = h
+        this.refit()
+    }
+
+    fn setSafeArea:void (top:double bottom:double left:double right:double) {
+        insetTop = top
+        insetBottom = bottom
+        insetLeft = left
+        insetRight = right
+        this.refit()
+    }
+
+    ; The page's own width. Mode 0 ignores it — there the page is whatever the
+    ; window leaves — and modes 1 and 2 fit to it.
+    fn setPageWidth:void (w:double) {
+        pageW = w
+        this.refit()
+    }
+
+    ; The watch's floor. `minScale` of zero leaves the default alone.
+    fn useReadableFit:void (minScale:double) {
+        fitMode = 2
+        if (minScale > 0.0) {
+            readableScale = minScale
+        }
+        this.refit()
+    }
+
+    fn useWidthFit:void () {
+        fitMode = 1
+        this.refit()
+    }
+
+    ; --- the window -----------------------------------------------------------
+
+    fn usableWidth:double () {
+        def w:double (screenW - insetLeft - insetRight)
+        if (w < 1.0) {
+            return 1.0
+        }
+        return w
+    }
+
+    fn usableHeight:double () {
+        def h:double (screenH - insetTop - insetBottom)
+        if (h < 1.0) {
+            return 1.0
+        }
+        return h
+    }
+
+    ; --- the fit --------------------------------------------------------------
+
+    ; The one piece of arithmetic this file exists for.
+    ;
+    ; In mode 1 the page is a fixed-width document, so the scale is a ratio of
+    ; widths. In mode 2 that ratio is a FLOOR rather than an answer. In mode 0
+    ; there is nothing to fit: the page will be laid out at the window's size,
+    ; so the scale is one and stays one.
+    fn refit:void () {
+        if (fitMode == 0) {
+            fitScale = 1.0
+            zoomValue = 1.0
+            panXValue = 0.0
+            return
+        }
+        def usable:double (this.usableWidth())
+        if (pageW > 0.0) {
+            fitScale = (usable / pageW)
+        }
+        if (fitMode == 2) {
+            if (fitScale < readableScale) {
+                fitScale = readableScale
+            }
+        }
+        this.clampPan()
+    }
+
+    ; What the page's HEIGHT should be at the current scale. Getting this wrong
+    ; is what makes a ported page scroll to a stop halfway down the screen: an
+    ; app clamps its scroll to its own page height, and a page height that is
+    ; not the viewport is a clamp against a viewport nobody has.
+    fn pageHeightAt:double () {
+        def s:double (this.scale())
+        if (s <= 0.0) {
+            return (this.usableHeight())
+        }
+        return ((this.usableHeight()) / s)
+    }
+
+    ; Page pixels to screen points. A host scales its context by this and
+    ; leaves the display list alone — text then rasterises at the panel's real
+    ; resolution instead of being blown up from a bitmap made at some other
+    ; size, which is the same trick the WebGL host plays with `dpr` and the
+    ; Android port plays with `density`.
+    fn scale:double () {
+        return (fitScale * zoomValue)
+    }
+
+    fn zoom:double () {
+        return zoomValue
+    }
+
+    ; Where the page's top left corner sits in the window.
+    fn offsetX:double () {
+        return insetLeft
+    }
+
+    fn offsetY:double () {
+        return insetTop
+    }
+
+    fn panX:double () {
+        return panXValue
+    }
+
+    ; How much of the page is off the left edge at the current scale. Zero when
+    ; the whole width fits, which is the resting state on a phone and a tablet
+    ; and never the resting state on a watch.
+    fn maxPanX:double () {
+        if (fitMode == 0) {
+            return 0.0
+        }
+        def s:double (this.scale())
+        if (s <= 0.0) {
+            return 0.0
+        }
+        def visible:double ((this.usableWidth()) / s)
+        def over:double (pageW - visible)
+        if (over < 0.0) {
+            return 0.0
+        }
+        return over
+    }
+
+    fn clampPan:void () {
+        def limit:double (this.maxPanX())
+        if (panXValue > limit) {
+            panXValue = limit
+        }
+        if (panXValue < 0.0) {
+            panXValue = 0.0
+        }
+    }
+
+    fn canPan:boolean () {
+        return ((this.maxPanX()) > 0.5)
+    }
+
+    ; --- gestures over the viewport itself -------------------------------------
+    ;
+    ; True means something moved and the host should paint. Mode 0 answers
+    ; false to all of them, which is not a refusal to implement: a page that IS
+    ; the window has nothing to zoom out of and nowhere to pan to.
+
+    ; A pinch. The factor is relative — what the fingers did since the last
+    ; report — and the point under them is held still, which is the whole of
+    ; what a reader expects a pinch to do and the part a naive implementation
+    ; gets wrong by scaling about the origin instead.
+    fn pinch:boolean (factor:double focusX:double focusY:double) {
+        if (fitMode == 0) {
+            return false
+        }
+        def before:double zoomValue
+        def next@(mutable):double (zoomValue * factor)
+        if (next < 1.0) {
+            next = 1.0
+        }
+        if (next > 4.0) {
+            next = 4.0
+        }
+        if (next == before) {
+            return false
+        }
+        def pageX:double (this.toPageX(focusX))
+        zoomValue = next
+        this.refit()
+        def s:double (this.scale())
+        panXValue = (pageX - ((focusX - insetLeft) / s))
+        this.clampPan()
+        return true
+    }
+
+    ; Back to the whole width. What a double tap means.
+    fn resetZoom:boolean () {
+        if (fitMode == 0) {
+            return false
+        }
+        if ((zoomValue == 1.0) && (panXValue == 0.0)) {
+            return false
+        }
+        zoomValue = 1.0
+        panXValue = 0.0
+        this.refit()
+        return true
+    }
+
+    ; Sideways, and only ever inside the page. `dx` is in SCREEN points because
+    ; it comes from a finger; everything below it is page pixels.
+    fn panBy:boolean (dx:double) {
+        if (fitMode == 0) {
+            return false
+        }
+        def s:double (this.scale())
+        if (s <= 0.0) {
+            return false
+        }
+        def before:double panXValue
+        panXValue = (panXValue - (dx / s))
+        this.clampPan()
+        return (panXValue != before)
+    }
+
+    ; --- screen to page -------------------------------------------------------
+    ;
+    ; A touch arrives in WINDOW coordinates, which start at the window's corner
+    ; and not at the page's. The safe area is taken off first, then the scale,
+    ; then the pan. A host that skipped the first of those would be wrong by the
+    ; height of the status bar everywhere on the page, and by the notch on a
+    ; phone held sideways.
+
+    fn toPageX:double (x:double) {
+        def s:double (this.scale())
+        if (s <= 0.0) {
+            return x
+        }
+        return (((x - insetLeft) / s) + panXValue)
+    }
+
+    fn toPageY:double (y:double) {
+        def s:double (this.scale())
+        if (s <= 0.0) {
+            return y
+        }
+        return ((y - insetTop) / s)
+    }
+}

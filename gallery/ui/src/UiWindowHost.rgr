@@ -27,6 +27,7 @@
 ; Checked on Node by `ios/ranger/check_ios.rgr` — 82 assertions, driving this
 ; class through the iOS subclass — so a Mac is needed only for the Swift.
 
+Import "../../evg/EvgViewport.rgr"
 Import "../demo/DashboardDemo.rgr"
 
 class UiWindowHost {
@@ -34,38 +35,24 @@ class UiWindowHost {
     def app:DashboardDemo (new DashboardDemo)
     def started:boolean false
 
-    ; The window, in points, and the part of it the system will not cover.
-    ; `screenW`/`screenH` are the whole window; the insets are what the notch,
-    ; the status bar, the home indicator and (on an iPad in Slide Over) the
-    ; neighbouring app take out of it.
-    def screenW:double 0.0
-    def screenH:double 0.0
-    def insetTop:double 0.0
-    def insetBottom:double 0.0
-    def insetLeft:double 0.0
-    def insetRight:double 0.0
+    ; The window, the safe area and the fit — all of it in `EvgViewport`,
+    ; which RealTrainer's host owns one of too. This one is in mode 1: the
+    ; page has a width of its own and is shown at the scale that fits it, and
+    ; a watch host asks for mode 2 with `useWatchFit`.
+    def vp:EvgViewport (new EvgViewport)
 
-    ; What the page has to be scaled by to fit the usable width, and what the
-    ; reader has zoomed in by on top of that.
-    def fitScale:double 1.0
-    def zoomValue:double 1.0
-    ; How far right the page is panned, in PAGE pixels. Only ever non-zero when
-    ; the whole width does not fit, and clamped so the page cannot be dragged
-    ; off its own edge.
-    def panXValue:double 0.0
-
-    ; 0 = fit the width (phone, tablet). 1 = readable floor (watch).
-    def fitMode:int 0
-    ; The smallest scale the readable mode will go to. 1336 page pixels at 0.5
-    ; is 668 of them across a 45mm watch — a column of the page, at a size the
-    ; text on it is text rather than texture.
-    def readableScale:double 0.5
     ; How many page pixels one detent of the digital crown is worth. The crown
     ; reports a rotation in fractions of a turn; this is the page distance a
     ; whole turn scrolls.
     def crownPageTravel:double 320.0
 
     Constructor () {
+        ; THE FIT IS THIS HOST'S, not the viewport's default. The dashboard is
+        ; a fixed-width page shown at the scale that fits it, so mode 1 is what
+        ; it is from the moment it exists — and `useWatchFit`, which a watch
+        ; host calls BEFORE `start`, must not then be undone by anything
+        ; `start` does.
+        vp.useWidthFit()
     }
 
     ; --- lifecycle ------------------------------------------------------------
@@ -74,8 +61,7 @@ class UiWindowHost {
     ; same file the browser build styles the tree from — not a copy of it, the
     ; file — so the two cannot drift.
     fn start:void (w:double h:double css:string) {
-        screenW = w
-        screenH = h
+        vp.resize(w h)
         this.refit()
         app.init(css)
         started = true
@@ -86,8 +72,7 @@ class UiWindowHost {
     ; of its state; only the viewport the scroll container is told about
     ; changes.
     fn resize:void (w:double h:double) {
-        screenW = w
-        screenH = h
+        vp.resize(w h)
         this.refit()
         if started {
             app.rebuild()
@@ -98,10 +83,7 @@ class UiWindowHost {
     ; they arrive separately: a rotation changes both, the keyboard changes only
     ; the bottom, and Dynamic Island changes only the top.
     fn setSafeArea:void (top:double bottom:double left:double right:double) {
-        insetTop = top
-        insetBottom = bottom
-        insetLeft = left
-        insetRight = right
+        vp.setSafeArea(top bottom left right)
         this.refit()
         if started {
             app.rebuild()
@@ -110,10 +92,7 @@ class UiWindowHost {
 
     ; Switch to the watch's fit. Called once, by the watch host, before start.
     fn useWatchFit:void (minScale:double) {
-        fitMode = 1
-        if (minScale > 0.0) {
-            readableScale = minScale
-        }
+        vp.useReadableFit(minScale)
         this.refit()
     }
 
@@ -123,171 +102,78 @@ class UiWindowHost {
     ; derived from these two, which is why the insets only have to be right
     ; once.
     fn usableWidth:double () {
-        def w:double (screenW - insetLeft - insetRight)
-        if (w < 1.0) {
-            return 1.0
-        }
-        return w
+        return (vp.usableWidth())
     }
 
     fn usableHeight:double () {
-        def h:double (screenH - insetTop - insetBottom)
-        if (h < 1.0) {
-            return 1.0
-        }
-        return h
+        return (vp.usableHeight())
     }
 
-    ; The one piece of arithmetic this file exists for.
-    ;
-    ; The page is a fixed-width document, so the scale is a ratio of widths —
-    ; and the page's HEIGHT is then whatever the usable area is worth at that
-    ; scale. Getting that second half wrong is what makes a ported page scroll
-    ; to a stop halfway down the screen: the demo clamps the scroll to its own
-    ; `pageH`, and a `pageH` that is not the viewport is a clamp against a
-    ; viewport nobody has.
+    ; The page's width to the viewport, and the viewport's answer for the
+    ; page's height back to the app. Getting that second half wrong is what
+    ; makes a ported page scroll to a stop halfway down the screen: the demo
+    ; clamps the scroll to its own `pageH`, and a `pageH` that is not the
+    ; viewport is a clamp against a viewport nobody has.
     fn refit:void () {
-        def usable:double (this.usableWidth())
-        def pageW:double (app.widthPx())
-        if (pageW > 0.0) {
-            fitScale = (usable / pageW)
-        }
-        ; On a watch the width fit is unreadable, so it is a FLOOR rather than
-        ; an answer: the page is shown at a size its text survives and the
-        ; reader moves around it, which is what a watch face-sized viewport of a
-        ; desktop page can honestly be.
-        if (fitMode == 1) {
-            if (fitScale < readableScale) {
-                fitScale = readableScale
-            }
-        }
-        def s:double (this.scale())
-        if (s > 0.0) {
-            app.pageH = ((this.usableHeight()) / s)
-        }
-        this.clampPan()
+        vp.setPageWidth((app.widthPx()))
+        app.pageH = (vp.pageHeightAt())
+        vp.clampPan()
     }
 
-    ; Page pixels to screen points. The host scales its context by this and
-    ; leaves the display list alone — text then rasterises at the panel's real
-    ; resolution instead of being blown up from a bitmap made at some other
-    ; size, which is the same trick the WebGL host plays with `dpr` and the
-    ; Android port plays with `density`.
     fn scale:double () {
-        return (fitScale * zoomValue)
+        return (vp.scale())
     }
 
     fn zoom:double () {
-        return zoomValue
+        return (vp.zoom())
     }
 
     fn panX:double () {
-        return panXValue
+        return (vp.panX())
     }
 
-    ; How much of the page is off the left edge at the current scale. Zero when
-    ; the whole width fits, which is the resting state on a phone and a tablet
-    ; and never the resting state on a watch.
     fn maxPanX:double () {
-        def s:double (this.scale())
-        if (s <= 0.0) {
-            return 0.0
-        }
-        def visible:double ((this.usableWidth()) / s)
-        def over:double ((app.widthPx()) - visible)
-        if (over < 0.0) {
-            return 0.0
-        }
-        return over
+        return (vp.maxPanX())
     }
 
     fn clampPan:void () {
-        def limit:double (this.maxPanX())
-        if (panXValue > limit) {
-            panXValue = limit
-        }
-        if (panXValue < 0.0) {
-            panXValue = 0.0
-        }
+        vp.clampPan()
     }
 
-    ; A pinch. The factor is relative — what the fingers did since the last
-    ; report — and the point under them is held still, which is the whole of
-    ; what a reader expects a pinch to do and the part a naive implementation
-    ; gets wrong by scaling about the origin instead.
     fn pinch:boolean (factor:double focusX:double focusY:double) {
-        def before:double zoomValue
-        def next:double (zoomValue * factor)
-        if (next < 1.0) {
-            next = 1.0
+        def moved:boolean (vp.pinch(factor focusX focusY))
+        if moved {
+            this.refit()
+            if started {
+                app.rebuild()
+            }
         }
-        if (next > 4.0) {
-            next = 4.0
-        }
-        if (next == before) {
-            return false
-        }
-        def pageX:double (this.toPageX(focusX))
-        zoomValue = next
-        this.refit()
-        def s:double (this.scale())
-        panXValue = (pageX - ((focusX - insetLeft) / s))
-        this.clampPan()
-        if started {
-            app.rebuild()
-        }
-        return true
+        return moved
     }
 
-    ; Back to the whole width. What a double tap means.
     fn resetZoom:boolean () {
-        if ((zoomValue == 1.0) && (panXValue == 0.0)) {
-            return false
+        def moved:boolean (vp.resetZoom())
+        if moved {
+            this.refit()
+            if started {
+                app.rebuild()
+            }
         }
-        zoomValue = 1.0
-        panXValue = 0.0
-        this.refit()
-        if started {
-            app.rebuild()
-        }
-        return true
+        return moved
     }
 
-    ; Sideways, and only ever inside the page. `dx` is in SCREEN points because
-    ; it comes from a finger; everything below it is page pixels.
     fn panBy:boolean (dx:double) {
-        def s:double (this.scale())
-        if (s <= 0.0) {
-            return false
-        }
-        def before:double panXValue
-        panXValue = (panXValue - (dx / s))
-        this.clampPan()
-        return (panXValue != before)
+        return (vp.panBy(dx))
     }
 
     ; --- screen to page -------------------------------------------------------
-    ;
-    ; A touch arrives in WINDOW coordinates, which start at the window's corner
-    ; and not at the page's. The safe area is taken off first, then the scale,
-    ; then the pan. A host that skipped the first of those would be wrong by the
-    ; height of the status bar everywhere on the page, and by the notch on a
-    ; phone held sideways.
 
     fn toPageX:double (x:double) {
-        def s:double (this.scale())
-        if (s <= 0.0) {
-            return x
-        }
-        return (((x - insetLeft) / s) + panXValue)
+        return (vp.toPageX(x))
     }
 
     fn toPageY:double (y:double) {
-        def s:double (this.scale())
-        if (s <= 0.0) {
-            return y
-        }
-        return ((y - insetTop) / s)
+        return (vp.toPageY(y))
     }
 
     ; --- the frame ------------------------------------------------------------
