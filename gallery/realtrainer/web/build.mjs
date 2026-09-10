@@ -87,12 +87,17 @@ fs.writeFileSync(
     JSON.stringify(
       fs.readFileSync(path.join(HERE, "..", "fixtures", "machines", "chat.machine.json"), "utf8"),
     ) +
-    ";\n" +
-    "export const REALTRAINER_SEED = " +
-    JSON.stringify(
-      fs.readFileSync(path.join(HERE, "..", "fixtures", "reference", "seed.json"), "utf8"),
-    ) +
     ";\n",
+);
+// THE SEED IS NOT CODE. 407 KB of reference data — a year of it — used to be a
+// string literal in the bundle, downloaded before the first byte of the app
+// could run and parsed before the first pixel. It is a FILE now, fetched by
+// the document's head in parallel with the bundle and applied when it lands,
+// so the two downloads overlap instead of queueing and the page can paint
+// without it if it is slow. See index.html and main.js.
+fs.copyFileSync(
+  path.join(HERE, "..", "fixtures", "reference", "seed.json"),
+  path.join(HERE, "seed.json"),
 );
 
 // A browser has no filesystem, and the only thing in this bundle that asks for
@@ -159,5 +164,6 @@ if (OUT) {
   fs.copyFileSync(path.join(HERE, "bundle-worker.js"), path.join(OUT, "bundle-worker.js"));
   fs.copyFileSync(path.join(HERE, "worker-bundle.js"), path.join(OUT, "worker-bundle.js"));
   fs.copyFileSync(path.join(HERE, "index.html"), path.join(OUT, "index.html"));
+  fs.copyFileSync(path.join(HERE, "seed.json"), path.join(OUT, "seed.json"));
   console.log(`  wrote ${path.relative(process.cwd(), OUT)}/index.html and bundle.js`);
 }

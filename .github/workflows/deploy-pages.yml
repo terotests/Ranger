@@ -251,6 +251,11 @@ jobs:
           grep -q "evg-node" "$GITHUB_WORKSPACE/_site/realtrainer/bundle.js"
           test -s "$GITHUB_WORKSPACE/_site/realtrainer/bundle-worker.js"
           test -s "$GITHUB_WORKSPACE/_site/realtrainer/worker-bundle.js"
+          # The reference data is a FILE beside the page now, fetched in
+          # parallel with the bundle rather than compiled into it. A page
+          # deployed without it draws a real screen with an empty diary, and
+          # nothing else here would notice.
+          test -s "$GITHUB_WORKSPACE/_site/realtrainer/seed.json"
           test -s "$GITHUB_WORKSPACE/_site/evg/responsive/evg-dom.js"
 
       # ---- the firesim workbench at /firesim/ ------------------------------

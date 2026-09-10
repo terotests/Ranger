@@ -109,7 +109,9 @@ for (const VIEW of FIT_VIEWS) {
   armGate();
     const page = await browser.newPage({ viewport: VIEW });
     const errors = [];
+    const fetched = [];
     page.on("pageerror", (e) => errors.push(String(e)));
+    page.on("request", (r) => fetched.push(new URL(r.url()).pathname));
     // `domcontentloaded`, not `load`: the bundle is being held, so `load` would
     // wait for the very thing this check exists to look behind.
     await page.goto(url(""), { waitUntil: "domcontentloaded" });
@@ -190,7 +192,20 @@ for (const VIEW of FIT_VIEWS) {
     const cmds = JSON.parse(live.list).cmds;
     ok("and the app drew something on it", cmds.length > 0, `${cmds.length} commands`);
 
-    // --- the drift gate ------------------------------------------------------
+    // THE DATA ARRIVED, and by the route it is supposed to arrive by. The seed
+  // is a file now, fetched in parallel with the bundle; a page that silently
+  // failed to get it would still draw a real screen — with an empty diary —
+  // and every check above would pass. So: the request was made, and the frame
+  // carries something only the seed puts there.
+  ok("the seed was fetched as a file", fetched.some((u) => u.endsWith("/seed.json")), fetched.join(" "));
+  const texts = cmds.filter((c) => c.k === 3).map((c) => c.text || "");
+  ok(
+    "and the frame shows what only the seed knows",
+    texts.includes("Harjoitussuunnitelma"),
+    texts.slice(0, 6).join(" | "),
+  );
+
+  // --- the drift gate ------------------------------------------------------
     // The same rule the build used, applied to the frame the app actually
     // painted at this window size. Every box that was baked must be where the
     // live frame put it, and there must be no live chrome the picture missed.

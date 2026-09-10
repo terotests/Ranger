@@ -36,6 +36,14 @@
         // And start the bundle now rather than when the module script at the
         // end of the body runs. The script that imports it cannot execute
         // until the document has been parsed; this link does not wait.
+        // THE DATA, STARTED HERE. The seed is a file rather than a string in
+        // the bundle, and this line is why: the request goes out during the
+        // head, in parallel with the bundle's, so a visitor waits for the
+        // longer of the two rather than for their sum. The hosts read the
+        // promise; nothing here waits for it.
+        window.__rtSeed = fetch("./seed.json")
+          .then(function (r) { return r.ok ? r.text() : ""; })
+          .catch(function () { return ""; });
         var engine = new URLSearchParams(location.search).get("engine");
         var pre = document.createElement("link");
         pre.rel = "modulepreload";

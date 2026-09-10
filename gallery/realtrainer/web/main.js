@@ -23,7 +23,7 @@ import { RealTrainerDemo, RealTrainerModule } from "./generated-host.js";
 // `measureText` in the face the painter draws with, instead of the advance
 // table. Installed before the app is constructed — the app keeps a layout.
 import { installCanvasMeasurer } from "../../evg/gl/evg-measure.js";
-import { REALTRAINER_CSS, REALTRAINER_COMPACT, REALTRAINER_PLAN_MACHINE, REALTRAINER_CHAT_MACHINE, REALTRAINER_SEED } from "./generated.js";
+import { REALTRAINER_CSS, REALTRAINER_COMPACT, REALTRAINER_PLAN_MACHINE, REALTRAINER_CHAT_MACHINE } from "./generated.js";
 
 const stage = document.getElementById("stage");
 const canvas = document.getElementById("c");
@@ -54,7 +54,37 @@ app.loadChatMachine(REALTRAINER_CHAT_MACHINE);
 // it is yesterday for the first hours of the morning and the calendar opens on
 // the wrong day for anyone awake early.
 app.setToday(localIsoDay(new Date()));
-app.loadReference(REALTRAINER_SEED);
+
+// THE DATA, WHICH IS NOT PART OF THE PROGRAM. A year of reference data — 407 KB
+// of it — used to be a string literal inside this bundle: downloaded before
+// the first byte of the app could run, and parsed before the first pixel. The
+// document's head starts fetching it as a file instead (index.html), so the
+// two downloads overlap; it is applied the moment it lands.
+//
+// It is nearly always here before the first frame, because it is a sixth of
+// the bundle's size and started earlier. When it is not, the app paints what
+// it has — a real screen with an empty diary — and takes the data after.
+let seedPending = null;
+let seedDone = false;
+let booted = false;
+function applySeed(text) {
+  if (seedDone || !text) return;
+  seedDone = true;
+  if (!booted) { seedPending = text; return; }
+  app.loadReference(text);
+  app.rebuild();
+  paintAll();
+}
+const seedText = (window.__rtSeed || Promise.resolve("")).catch(() => "");
+seedText.then(applySeed);
+// What the first frame is allowed to wait for. Not the seed itself: a request
+// that never answers must not be able to hold the page, so this resolves on
+// the seed OR on a deadline, whichever is first.
+const SEED_WAIT_MS = 1500;
+const seedOrDeadline = Promise.race([
+  seedText,
+  new Promise((r) => setTimeout(r, SEED_WAIT_MS)),
+]);
 // `?page=390x844&route=/calendar/cal-plan?week=2026-02-09` opens the app the
 // way the reference recorder opens the original: a phone, on a route.
 // `page=fit` is the phone itself: the page is the viewport, and so is any
@@ -671,11 +701,16 @@ function step(now) {
 
 // The first frame waits for the faces the list names, so the wordmark is not
 // measured in one font and drawn in another.
-document.fonts.ready.then(() => {
+Promise.all([document.fonts.ready, seedOrDeadline]).then(() => {
   // The faces are in: forget what was measured with the fallback and lay
   // the page out again with the real ones.
   fontMeasure.refresh();
+  if (seedPending) {
+    app.loadReference(seedPending);
+    seedPending = null;
+  }
   app.rebuild();
+  booted = true;
   paintAll();
   requestAnimationFrame(step);
 });

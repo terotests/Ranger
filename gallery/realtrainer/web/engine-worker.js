@@ -15,7 +15,7 @@ import { serveEngine } from "../../evg/gl/evg-engine.js";
 import { installCanvasMeasurer } from "../../evg/gl/evg-measure.js";
 import { shiftsOf, effectOf } from "../../evg/gl/evg-list.js";
 import * as RT from "../bin/RealTrainerDemo.cjs";
-import { REALTRAINER_CSS, REALTRAINER_COMPACT, REALTRAINER_PLAN_MACHINE, REALTRAINER_CHAT_MACHINE, REALTRAINER_SEED } from "./generated.js";
+import { REALTRAINER_CSS, REALTRAINER_COMPACT, REALTRAINER_PLAN_MACHINE, REALTRAINER_CHAT_MACHINE } from "./generated.js";
 
 // The browser measures here too — `OffscreenCanvas` — and before the app
 // exists, because the app keeps a layout from the moment it is made.
@@ -37,7 +37,10 @@ serveEngine({
     // deciding what day it is either — see `RealTrainerDemo.setToday`. Before
     // the seed, whose entries are anchored to today.
     if (init.today) app.setToday(init.today);
-    app.loadReference(REALTRAINER_SEED);
+    // The seed is NOT here. It is a file the page fetches in parallel with
+    // this bundle, and it arrives as `loadReference` + `rebuild` posted from
+    // `main-worker.js` — usually before the first frame, and if not, the app
+    // draws what it has and takes the data when it comes.
     app.setPointerCoarse(!!init.coarse);
     if (init.w > 0 && init.h > 0) app.setPageSize(init.w, init.h);
     if (init.route) app.openRoute(init.route);

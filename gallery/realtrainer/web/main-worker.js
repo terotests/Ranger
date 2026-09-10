@@ -67,6 +67,18 @@ function localIsoDay(d) {
 }
 
 const engine = connectEngine(worker, { w: W, h: H, coarse, route, today: localIsoDay(new Date()) });
+// The seed, as a file the head started fetching in parallel with this bundle
+// (index.html). The worker's app is made without it and takes it as two posted
+// calls — which is the whole point of the engine protocol: what the page used
+// to do synchronously, it posts.
+(window.__rtSeed || Promise.resolve(""))
+  .then((text) => {
+    if (!text) return;
+    engine.post("loadReference", text);
+    engine.post("rebuild");
+    changed();
+  })
+  .catch(() => {});
 engine.onError((e) => { errEl.textContent = e.during + "\n" + e.message; });
 
 const dpr = Math.min(2, window.devicePixelRatio || 1);
