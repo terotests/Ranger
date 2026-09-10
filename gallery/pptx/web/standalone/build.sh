@@ -80,6 +80,40 @@ node --input-type=module -e "
   }
 " || exit 1
 
+# MINIFIED, WHEN THERE IS A MINIFIER. The generated bundle is machine-written
+# and reads like it — long identifiers, one statement per line, every temporary
+# named — and none of that survives to the browser usefully; the source it is
+# compiled from is a .rgr file in this repository. 3.49 MB becomes 2.27, and
+# 761 KB gzipped becomes 639.
+#
+# esbuild comes with the conformance host's dependencies, which this build does
+# not otherwise need, so a tree without them still builds — it just ships the
+# larger file and says so. `PPTX_NO_MINIFY=1` asks for the readable one.
+if [ "${PPTX_NO_MINIFY:-0}" != "1" ]; then
+  node --input-type=module -e "
+    import fs from 'fs';
+    import { createRequire } from 'node:module';
+    const p = '$STAGE/pptx_web.js';
+    let esbuild;
+    try {
+      esbuild = createRequire('$ROOT/gallery/ui/conformance/dom/package.json')('esbuild');
+    } catch (e) {
+      console.log('  (no esbuild — shipping the unminified bundle; npm run ui:conformance:install)');
+      process.exit(0);
+    }
+    const src = fs.readFileSync(p, 'utf8');
+    const out = esbuild.transformSync(src, { minify: true }).code;
+    // The one thing the page needs out of this file is the global the scope
+    // publishes. A minifier renames identifiers; it cannot rename a property.
+    if (!out.includes('PptxWeb')) {
+      console.error('minifying lost globalThis.PptxWeb');
+      process.exit(1);
+    }
+    fs.writeFileSync(p, out);
+    console.log('  minified ' + Math.round(src.length / 1024) + ' KB -> ' + Math.round(out.length / 1024) + ' KB');
+  " || exit 1
+fi
+
 if [ "$(cd "$OUT" && pwd)" != "$(cd "$STAGE" && pwd)" ]; then
   cp "$STAGE/pptx_web.js" "$OUT/pptx_web.js"
 fi
@@ -128,6 +162,28 @@ cp gallery/odp/fixtures/20-business-deck.odp "$OUT/sample.odp"
 # `?v=<hash of the build>` — the URL changes only when the bytes do — and the
 # same stamp is printed in the page's status bar, so "which build am I looking
 # at" is a thing you read rather than a thing you guess.
+# THE HEAD'S LIST AND THE MODULE'S MUST AGREE. `index.html` starts every asset
+# fetching before this module exists, and `standalone.mjs` picks the responses
+# up by name. A face named in one and not the other is a face fetched twice, or
+# one the page waits for and nobody started — neither of which shows up as an
+# error, only as a slower page.
+node -e "
+  const fs = require('fs');
+  const html = fs.readFileSync('$OUT/index.html', 'utf8');
+  const mod = fs.readFileSync('$OUT/standalone.mjs', 'utf8');
+  const inHead = new Set([...html.matchAll(/\"fonts\/([A-Za-z0-9_-]+\.ttf)\"/g)].map((m) => m[1]));
+  const inModule = new Set([...mod.matchAll(/\"([A-Za-z0-9_-]+\.ttf)\"/g)].map((m) => m[1]));
+  const missing = [...inModule].filter((f) => !inHead.has(f));
+  const extra = [...inHead].filter((f) => !inModule.has(f));
+  if (missing.length || extra.length) {
+    console.error('the head and standalone.mjs disagree about the fonts');
+    if (missing.length) console.error('  the module wants, the head does not start: ' + missing.join(', '));
+    if (extra.length) console.error('  the head starts, the module never asks for: ' + extra.join(', '));
+    process.exit(1);
+  }
+  if (!inHead.size) { console.error('the head starts no fonts at all'); process.exit(1); }
+" || exit 1
+
 STAMP=$(node -e "
   const fs = require('fs'), crypto = require('crypto');
   const h = crypto.createHash('sha1');

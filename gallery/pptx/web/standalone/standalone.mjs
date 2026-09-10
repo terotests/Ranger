@@ -99,16 +99,36 @@ async function registerBrowserFaces(bytes) {
     }
   }));
 }
-const DECK = "./deck.pptx";
+const DECK = "deck.pptx";
 
 function asRangerBuffer(ab) {
   ab._view = new DataView(ab);
   return ab;
 }
 
-async function bytesOf(url) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(url + " → " + res.status);
+// THE REQUEST WAS ALREADY MADE. `index.html` starts every asset in the head,
+// before this module exists, so what happens here is picking up a response
+// rather than asking for one — see the note there. A page that somehow lacks
+// the head's promises (an editor serving this file directly) still works: it
+// asks, as it always did.
+function responseFor(path) {
+  const name = path.replace(/^\.\//, "");
+  const started = (window.__pptxAssets || {})[name];
+  // A CLONE, and never the response itself. A body can be read once, and the
+  // deck is read twice — `boot` opens it, and `?selftest=1` opens it again to
+  // prove the editor can reopen what it just saved. Handing out the original
+  // made the second read fail with "body stream already read", which is what
+  // the smoke check said the moment this was written the obvious way.
+  if (started) {
+    return Promise.resolve(started).then((r) => (r instanceof Error ? r : r.clone()));
+  }
+  return fetch("./" + name);
+}
+
+async function bytesOf(name) {
+  const res = await responseFor(name);
+  if (res instanceof Error) throw res;
+  if (!res.ok) throw new Error(name + " → " + res.status);
   return asRangerBuffer(await res.arrayBuffer());
 }
 
@@ -1430,7 +1450,7 @@ async function selftest() {
 
 async function boot() {
   statusEl.textContent = "loading fonts";
-  const faces = await Promise.all(FONTS.map(([, file]) => bytesOf("./fonts/" + file)));
+  const faces = await Promise.all(FONTS.map(([, file]) => bytesOf("fonts/" + file)));
   FONTS.forEach(([family], i) => {
     if (family) web.addFont(family, faces[i]);
     else web.addFace(faces[i]);
@@ -1447,8 +1467,8 @@ async function boot() {
   // typed in — 153 of them — comes out as a rectangle.
   statusEl.textContent = "loading shapes";
   try {
-    const presets = await fetch("./presets.txt");
-    if (presets.ok) web.loadPresets(await presets.text());
+    const presets = await responseFor("presets.txt");
+    if (!(presets instanceof Error) && presets.ok) web.loadPresets(await presets.text());
   } catch (e) {
     // A page that cannot reach the catalogue still opens the deck; it draws
     // the shapes it always drew. Failing the whole load over it would be
@@ -1463,7 +1483,7 @@ async function boot() {
   const wanted = new URLSearchParams(location.search).get("open");
   const openName = wanted && /^[\w.-]+$/.test(wanted) ? wanted : null;
   statusEl.textContent = "loading " + (openName || "deck");
-  const deck = await bytesOf(openName ? "./" + openName : DECK);
+  const deck = await bytesOf(openName || DECK);
   if (web.openDeck(deck, openName || "deck.pptx")) {
     statusEl.textContent = web.deckName() + " · " + web.status()
       + (web.readOnly && web.readOnly() ? " · read-only" : "");
