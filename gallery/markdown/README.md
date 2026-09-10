@@ -6,7 +6,7 @@ document, measured once, comes out as a PDF with its fonts embedded and as a
 display list a GPU can paint.
 
 ```bash
-npm run markdown:test          # 130 assertions on the parser, the layout, the diagrams
+npm run markdown:test          # 139 assertions on the parser, the layout, the diagrams
 npm run markdown:test:go       # …the same 115 compiled to Go (and :python to Python)
 npm run markdown:spec          # score against CommonMark's own 652 examples
 npm run markdown:demo          # the samples and this repository's README → PDF + HTML
@@ -93,7 +93,7 @@ web/
   markdown_web.rgr  the host seam: the only file a browser talks to
   standalone/       build.sh, index.html, standalone.mjs, smoke.mjs
 tests/
-  MarkdownTest.rgr  130 assertions, run on three targets
+  MarkdownTest.rgr  139 assertions, run on three targets
   MdSpecDump.rgr    renders the specification's examples for the harness
   MdEmbedProbe.rgr  what landed inside each diagram's box, off the display list
 harness/

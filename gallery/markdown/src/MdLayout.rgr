@@ -105,6 +105,16 @@ class MdStyle {
 
     def listIndent:double 22.0
     def markerGap:double 8.0
+    ; What separates two items of a TIGHT list — one with no blank line
+    ; between its items.
+    ;
+    ; CommonMark's whole definition of tightness is that such an item's text
+    ; is not a paragraph, and a paragraph's spacing is what was being charged:
+    ; a five-item shopping list was set with the same air between the items as
+    ; between two paragraphs of prose, which is what a LOOSE list is for. The
+    ; distinction is in the parser, was on the node, and only the two extra
+    ; points a loose list adds were ever read.
+    def listTightSpacing:double 3.0
 
     def tableBorder:string "#d0d7de"
     def tableHeadBackground:string "#f6f8fa"
@@ -299,6 +309,13 @@ class MdLayout {
     ; How many block quotes deep the walk is, which is what `baseRun` reads to
     ; decide the colour of ordinary text.
     def quoteDepth:int 0
+
+    ; Inside an item of a TIGHT list, where a paragraph is not a paragraph.
+    def inTightItem:boolean false
+    ; How many lists deep. Only the outermost one is separated from what
+    ; follows it — a nested list is followed by its parent's next item, not by
+    ; a new block.
+    def listDepth:int 0
 
     ; the column being filled
     def contentX:double 0.0
@@ -684,7 +701,11 @@ class MdLayout {
         if (kind == "paragraph") {
             def runs:[MdRun] (this.inlineRuns(node (this.baseRun())))
             this.paragraph(runs x w)
-            cursorY = (cursorY + style.paraSpacing)
+            def gap:double style.paraSpacing
+            if inTightItem {
+                gap = style.listTightSpacing
+            }
+            cursorY = (cursorY + gap)
             return
         }
         if (kind == "heading") {
@@ -873,7 +894,12 @@ class MdLayout {
         def before:int (array_length boxes)
         cursorY = (cursorY + pad)
         quoteDepth = (quoteDepth + 1)
+        ; A quote is a block with paragraphs in it wherever it stands, even
+        ; inside a tight list item.
+        def wasTight:boolean inTightItem
+        inTightItem = false
         this.blocks(node innerX innerW)
+        inTightItem = wasTight
         quoteDepth = (quoteDepth - 1)
         ; Where the CONTENT ended, which is not where the cursor is: `blocks`
         ; leaves the cursor past the last child's own trailing space, and that
@@ -911,26 +937,56 @@ class MdLayout {
         def items:int (node.childCount())
         def i:int 0
         def number:int node.listStart
+        listDepth = (listDepth + 1)
+        def wasTight:boolean inTightItem
+        ; How far the text is indented, which is as far as the WIDEST marker
+        ; needs and never less than the style's own step.
+        ;
+        ; It was the step alone. `1.` fits inside it and `100.` does not, so a
+        ; list long enough to reach three digits wrote its numbers across the
+        ; first letters of its own items — and the box the marker claimed
+        ; stayed the same width as the number grew, which is a lie anything
+        ; that clips or hit-tests a box would have believed.
+        def probe:MdRun (this.baseRun())
+        def widest:double 0.0
+        def probeNum:int node.listStart
+        def k:int 0
+        while (k < items) {
+            def probeItem:MdNode (node.childAt(k))
+            def pm:string (MdLayout.markerFor(node probeItem probeNum))
+            if node.listOrdered {
+                probeNum = (probeNum + 1)
+            }
+            def pw:double (this.measureRun(pm probe))
+            if (pw > widest) {
+                widest = pw
+            }
+            k = (k + 1)
+        }
+        def indent:double style.listIndent
+        def need:double (widest + style.markerGap)
+        if (need > indent) {
+            indent = need
+        }
         while (i < items) {
             def item:MdNode (node.childAt(i))
-            def marker:string "•"
+            def marker:string (MdLayout.markerFor(node item number))
             if node.listOrdered {
-                marker = ((to_string number) + node.listDelim)
                 number = (number + 1)
             }
-            if (item.taskState >= 0) {
-                marker = (? (item.taskState == 1) "☑" "☐")
-            }
-            def innerX:double (x + style.listIndent)
-            def innerW:double (w - style.listIndent)
+            def innerX:double (x + indent)
+            def innerW:double (w - indent)
             def markerY:double cursorY
             def markerPage:int page
+            inTightItem = node.listTight
             this.blocks(item innerX innerW)
+            inTightItem = wasTight
             ; The marker is emitted with the page the item STARTED on, which
             ; is where its first line went.
             def savedPage:int page
             page = markerPage
-            def mb:MdBox (MdBox.text(marker x markerY (style.listIndent - style.markerGap) (style.bodySize * style.lineHeight)))
+            def markerW:double (this.measureRun(marker probe))
+            def mb:MdBox (MdBox.text(marker x markerY markerW (style.bodySize * style.lineHeight)))
             mb.family = style.bodyFamily
             mb.size = style.bodySize
             mb.color = style.mutedColor
@@ -940,6 +996,19 @@ class MdLayout {
                 cursorY = (cursorY + 2.0)
             }
             i = (i + 1)
+        }
+        listDepth = (listDepth - 1)
+        ; The list's own separation from whatever follows it, which the items
+        ; stopped providing when the list went tight. Only the OUTERMOST list
+        ; gets it: a nested list is followed by its parent's next item, and an
+        ; item's worth of air is what that wants.
+        if (listDepth == 0) {
+            if node.listTight {
+                def extra:double (style.paraSpacing - style.listTightSpacing)
+                if (extra > 0.0) {
+                    cursorY = (cursorY + extra)
+                }
+            }
         }
     }
 
@@ -978,6 +1047,19 @@ class MdLayout {
             this.emit(label)
         }
         cursorY = ((y + h) + style.embedSpacing)
+    }
+
+    ; What stands in front of an item: a bullet, a number, or a task box. One
+    ; place, because the measuring pass and the drawing pass have to agree —
+    ; they did not have to before, when the column was a constant.
+    sfn markerFor:string (list:MdNode item:MdNode number:int) {
+        if (item.taskState >= 0) {
+            return (? (item.taskState == 1) "☑" "☐")
+        }
+        if list.listOrdered {
+            return ((to_string number) + list.listDelim)
+        }
+        return "•"
     }
 
     sfn firstWord:string (info:string) {
