@@ -172,7 +172,8 @@ here, and the repository-root names are aliases in the same file.
 
 | Path | What it is |
 | --- | --- |
-| `ranger/ui_ios.rgr` | The facade — the only page-facing Ranger written for Apple, and it is a *viewport* |
+| `ranger/ui_ios.rgr` | The name the Swift imports — one line, `class UiIos extends UiWindowHost` |
+| `../src/UiWindowHost.rgr` | The facade, shared with Android: the *viewport*, and the only page-facing Ranger a port writes |
 | `ranger/build_ios.rgr` | **The build**, as a Ranger program: compiler, SDK, plist, swiftc, codesign, simctl |
 | `ranger/check_ios.rgr` | The port, driven off-device. 82 checks, no Mac |
 | `ios/DashboardView.swift` | The `UIView`: touches, the pinch, the fling, the key table |

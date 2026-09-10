@@ -33,7 +33,8 @@ port does not fork a line of any of them.
 
 | Path | What it is |
 | --- | --- |
-| `ranger/ui_android.rgr` | The facade — the only Ranger written for Android, and it is a *viewport* |
+| `ranger/ui_android.rgr` | The name the Kotlin imports — one line, `class UiAndroid extends UiWindowHost` |
+| `../src/UiWindowHost.rgr` | The facade, shared with iOS: the *viewport*, and the only page-facing Ranger a port writes |
 | `app/…/MainActivity.kt` | One asset in, one view on screen |
 | `app/…/DashboardView.kt` | The `View`: units, touch, gestures, the fling |
 | `desktop/…/CheckDashboard.kt` | The page through the shared painter, and every input rule |
@@ -127,7 +128,7 @@ command **no pptx fixture reaches**, so this page is the first thing in the
 repository that would notice if the shared painter dropped it.
 
 **Does the viewport arithmetic hold?** That is the one thing this port adds, and
-it is all in `ranger/ui_android.rgr`: the fit scale, the page height a screen is
+it is all in `../src/UiWindowHost.rgr`: the fit scale, the page height a screen is
 worth, a pinch that has to leave the point under the fingers where it was, and a
 pan that stops at the edge. Checked in the same generated Kotlin the app runs,
 not in a second implementation of the same sums.
