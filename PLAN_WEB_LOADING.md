@@ -63,9 +63,13 @@ warm; a mid-range phone is roughly 4–6×):
  218 ms  TOTAL
 ```
 
-And then the app plays a **2600 ms** loader animation (`fillMs` in
-`RealTrainerDemo.rgr`) plus a hold. The loading screen is inside the payload it
-is supposed to cover: it starts after the waiting is over.
+And on the pages that open on the loader — the pinned demo, and any URL with
+no route — the app then plays a **2600 ms** loader animation (`fillMs` in
+`RealTrainerDemo.rgr`) plus a hold. (The deployed URL is not one of them: with
+no query the host opens route `/`, so the loader scene is skipped and the first
+frame is the home shell. The animation is a demo of EVG, and it is timed
+rather than driven.) Either way the loading screen is inside the payload it is
+supposed to cover: it can only start once the waiting is over.
 
 ### 1.1 The flicker, specifically
 
@@ -409,7 +413,8 @@ this exists (`EVGStyleCache`) — and ship the serialised form; parse text in
 development only. This is the same move as the baked frame, one level up:
 compute at build time what does not depend on the visitor.
 
-**C3 — the loader should cover a wait, not follow it.** `fillMs = 2600` is a
+**C3 — the loader should cover a wait, not follow it.** On the pages that show
+it, `fillMs = 2600` is a
 scripted animation played when nothing is loading any more — a loader that
 *defines* the startup duration instead of covering it, which is backwards. Two
 rules replace it. A loader may never set the length of startup: it is driven by
