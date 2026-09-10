@@ -24,6 +24,9 @@ Import "../src/MdBlock.rgr"
 Import "../src/MdToHtml.rgr"
 Import "../src/MdLayout.rgr"
 Import "../src/MdToEvg.rgr"
+Import "../src/MdMermaid.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGDisplayList.rgr"
 
 class MarkdownTest {
     def passed:int 0
@@ -81,6 +84,7 @@ class MarkdownTest {
         this.sourceMap()
         this.layout()
         this.evg()
+        this.mermaid()
         print ""
         def p:string (to_string passed)
         def f:string (to_string failed)
@@ -267,6 +271,116 @@ class MarkdownTest {
         def firstSeg:MdSeg (itemAt second.segs 0)
         def lead:int (charAt firstSeg.text 0)
         this.ok("no leading space" (lead != 32))
+    }
+
+    ; ----------------------------------------------------------------------
+    ; A fenced diagram
+    ; ----------------------------------------------------------------------
+    fn mermaid:void () {
+        def src:string "text\n\n```mermaid\nflowchart LR\n  A[Write] --> B[Print]\n```\n\nafter\n"
+        def doc:MdNode (MdBlock.parseText(src))
+        this.eqInt("blocks around the fence" (doc.childCount()) 3)
+        def node:MdNode (doc.childAt(1))
+        ; A fence whose info names a drawing is not a code block
+        this.eq("fence became an embed" node.kind "embed")
+        this.eq("embed info" node.info "mermaid")
+
+        ; …but HTML has no diagram in it, so there it is code again
+        def html:string (MdToHtml.render(doc))
+        this.ok("html keeps the source" (MarkdownTest.hasSub(html "flowchart LR")))
+        this.ok("html marks it as a code block" (MarkdownTest.hasSub(html "<pre><code")))
+
+        ; A layout with nothing prepared leaves a labelled slot rather than a
+        ; hole: the reader is told what was there.
+        def bare:MdLayout (new MdLayout())
+        bare.layoutContinuous(doc 500.0)
+        def slots:int (MarkdownTest.countKind(bare 3))
+        this.eqInt("an unprepared fence is still a slot" slots 1)
+
+        ; Prepared, it is a drawing with a height of its own.
+        def l:MdLayout (new MdLayout())
+        ; The SAME width the layout will use. A diagram prepared at another
+        ; width is a diagram the layout will not find — it is keyed by the
+        ; width it was laid out at, so that re-flowing a document narrower
+        ; re-runs the graph layout instead of stretching a stale one.
+        def contentW:double (500.0 - (l.style.margin * 2.0))
+        MdMermaid.prepare(doc l.embeds contentW "default")
+        this.eqInt("one diagram prepared" (l.embeds.count()) 1)
+        def h:double (l.embeds.heightFor("mermaid" node.literal contentW))
+        this.ok("the diagram has a height" (h > 10.0))
+        l.layoutContinuous(doc 500.0)
+
+        ; And the marks really land inside its box. The HTML exporter cannot
+        ; draw a scene's paths — it emits every `<svg>` 24 pixels wide in the
+        ; corner, and RangerFlow's own HTML export has the same hole — so the
+        ; DISPLAY LIST is the evidence here, and it is also what the GPU
+        ; painter draws and what the PDF writer agrees with.
+        def root:EVGElement (MdToEvg.buildPage(l 500.0))
+        def layout:EVGLayout (new EVGLayout())
+        layout.setPageSize(500.0 l.documentHeight)
+        layout.layout(root)
+        def dl:EVGDisplayList (new EVGDisplayList())
+        dl.build(root)
+        def box:MdBox (MarkdownTest.firstOfKind(l 3))
+        def paths:int 0
+        def strokes:int 0
+        def i:int 0
+        def n:int (array_length dl.cmds)
+        while (i < n) {
+            def c:EVGDrawCmd (itemAt dl.cmds i)
+            def inside:boolean true
+            if (c.x < (box.x - 1.0)) { inside = false }
+            if (c.y < (box.y - 1.0)) { inside = false }
+            if (c.x > ((box.x + box.w) + 1.0)) { inside = false }
+            if (c.y > ((box.y + box.h) + 1.0)) { inside = false }
+            if inside {
+                if (c.kind == 6) { paths = (paths + 1) }
+                if (c.kind == 7) { strokes = (strokes + 1) }
+            }
+            i = (i + 1)
+        }
+        ; the node outlines are paths and the edges between them are strokes
+        this.ok("the diagram drew shapes in its box" (paths > 0))
+        this.ok("the diagram drew its edges" (strokes > 0))
+
+        ; A fence that is not a diagram stays code.
+        def plain:MdNode (MdBlock.parseText("```js\nconst x = 1;\n```\n"))
+        def code:MdNode (plain.childAt(0))
+        this.eq("a js fence is code" code.kind "code_block")
+    }
+
+    sfn countKind:int (l:MdLayout kind:int) {
+        def c:int 0
+        def i:int 0
+        def n:int (array_length l.boxes)
+        while (i < n) {
+            def b:MdBox (itemAt l.boxes i)
+            if (b.kind == kind) { c = (c + 1) }
+            i = (i + 1)
+        }
+        return c
+    }
+
+    sfn firstOfKind:MdBox (l:MdLayout kind:int) {
+        def i:int 0
+        def n:int (array_length l.boxes)
+        while (i < n) {
+            def b:MdBox (itemAt l.boxes i)
+            if (b.kind == kind) { return b }
+            i = (i + 1)
+        }
+        return (new MdBox())
+    }
+
+    sfn hasSub:boolean (v:string needle:string) {
+        def n:int (strlen needle)
+        def m:int (strlen v)
+        def i:int 0
+        while ((i + n) <= m) {
+            if ((substring v i (i + n)) == needle) { return true }
+            i = (i + 1)
+        }
+        return false
     }
 
     fn evg:void () {

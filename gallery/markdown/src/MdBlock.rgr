@@ -1228,6 +1228,13 @@ class MdBlock {
                     i = (i + 1)
                 }
                 node.literal = body
+                ; A fence whose info string names something drawable is not
+                ; code: it is a slot the layout has to leave a hole for. The
+                ; block structure is identical either way, so this is a
+                ; relabelling at the end rather than a second block start.
+                if (MdBlock.isEmbedInfo(node.info)) {
+                    node.kind = "embed"
+                }
             } {
                 def raw2:string (MdBlock.joinLines(node.lines))
                 node.literal = (MdBlock.stripTrailingBlankLines(raw2))
@@ -1238,6 +1245,27 @@ class MdBlock {
             node.listTight = (MdBlock.listIsTight(node))
         }
         removeLast stack
+    }
+
+    ; The info strings that name a drawing rather than a language. One entry
+    ; today; `vega` and `sql` are the next two, and each is a handler beside
+    ; MdMermaid rather than a branch in here.
+    sfn isEmbedInfo:boolean (info:string) {
+        def first:string (MdBlock.firstWord(info))
+        if (first == "mermaid") { return true }
+        return false
+    }
+
+    sfn firstWord:string (info:string) {
+        def n:int (strlen info)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt info i)
+            if (c == 32) { return (substring info 0 i) }
+            if (c == 9) { return (substring info 0 i) }
+            i = (i + 1)
+        }
+        return info
     }
 
     sfn stripTrailingNewlines:string (v:string) {

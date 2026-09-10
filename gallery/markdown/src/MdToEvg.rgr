@@ -27,6 +27,7 @@
 ; ============================================================================
 
 Import "MdLayout.rgr"
+Import "MdEmbed.rgr"
 Import "../../evg/EVGElement.rgr"
 Import "../../evg/EVGUnit.rgr"
 Import "../../evg/EVGColor.rgr"
@@ -95,11 +96,46 @@ class MdToEvg {
         while (i < n) {
             def b:MdBox (itemAt layout.boxes i)
             if (b.page == page) {
-                def el:EVGElement (MdToEvg.element(b yOffset))
-                parent.addChild(el)
+                if (b.kind == 3) {
+                    MdToEvg.fillEmbed(parent layout b yOffset)
+                } {
+                    def el:EVGElement (MdToEvg.element(b yOffset))
+                    parent.addChild(el)
+                }
             }
             i = (i + 1)
         }
+    }
+
+    ; A prepared diagram, placed on the page.
+    ;
+    ; The scene's ROOT is kept, not unwrapped. It is tempting to flatten the
+    ; diagram's elements into the page with their coordinates shifted, and it
+    ; silently loses every edge: a scene's paths carry their geometry in an
+    ; `svgPath` and a `viewBox` and are placed by the BOX their container
+    ; gives them, not by a left and a top of their own. Lifted out of that
+    ; container they have no box, and a painter draws them 24 pixels wide in
+    ; the corner. So the container moves, and everything inside it stays put.
+    sfn fillEmbed:void (parent:EVGElement layout:MdLayout b:MdBox yOffset:double) {
+        def idx:int (layout.embeds.find(b.embedKind b.embedSource b.w))
+        if (idx < 0) {
+            def slot:EVGElement (MdToEvg.element(b yOffset))
+            parent.addChild(slot)
+            return
+        }
+        def e:MdEmbedEntry (layout.embeds.entryAt(idx))
+        if (! e.ok) {
+            def slot2:EVGElement (MdToEvg.element(b yOffset))
+            parent.addChild(slot2)
+            return
+        }
+        def root:EVGElement (unwrap e.root)
+        root.position = "absolute"
+        root.left = (EVGUnit.px(b.x))
+        root.top = (EVGUnit.px((b.y + yOffset)))
+        root.width = (EVGUnit.px(b.w))
+        root.height = (EVGUnit.px(b.h))
+        parent.addChild(root)
     }
 
     sfn element:EVGElement (b:MdBox yOffset:double) {

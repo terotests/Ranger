@@ -176,7 +176,7 @@ class MdToHtml {
         if (kind == "front_matter") {
             return
         }
-        if (kind == "code_block") {
+        if ((kind == "code_block") || (kind == "embed")) {
             def cls:string ""
             def lang:string (MdToHtml.firstWord(node.info))
             def llen:int (strlen lang)

@@ -1,0 +1,93 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdEmbed.rgr — the slot a fenced diagram fills, and what fills it.
+; ============================================================================
+;
+; A ```mermaid fence is not code and it is not an image: it is a drawing that
+; has to be MEASURED before the page can be laid out around it, and DRAWN
+; afterwards. Those are two different moments, so what sits between them is
+; this: a small store, keyed by the fence's own text.
+;
+;   MdMermaid.prepare   ──► fills the store (this is the only file in the
+;                           module that knows RangerFlow exists)
+;   MdLayout            ──► asks it how tall the slot is
+;   MdToEvg             ──► asks it for the elements to put in the slot
+;
+; Neither of the last two imports a diagram library, and the store itself
+; holds only `EVGElement` — which both of them already speak. That is what
+; keeps a markdown layout from depending on a graph editor.
+;
+; The key is the fence's text and the width it was rendered at. Typing a
+; sentence three paragraphs below a diagram must not re-run a graph layout,
+; and re-flowing the same document at the same width must not either.
+; ============================================================================
+
+Import "../../evg/EVGElement.rgr"
+
+class MdEmbedEntry {
+    def kind:string ""
+    def source:string ""
+    def atWidth:double 0.0
+    def width:double 0.0
+    def height:double 0.0
+    def ok:boolean false
+    ; Why it is not drawn, when it is not. A reader is better served by
+    ; "a gantt diagram — recognised, and nothing draws one here yet" than by
+    ; an empty rectangle.
+    def note:string ""
+    def root@(optional):EVGElement
+
+    Constructor () {
+    }
+}
+
+class MdEmbedCache {
+    def entries:[MdEmbedEntry]
+
+    Constructor () {
+    }
+
+    fn find:int (kind:string source:string width:double) {
+        def i:int 0
+        def n:int (array_length entries)
+        while (i < n) {
+            def e:MdEmbedEntry (itemAt entries i)
+            if ((e.kind == kind) && (e.source == source)) {
+                def d:double (e.atWidth - width)
+                if (d < 0.0) { d = (0.0 - d) }
+                if (d < 0.5) { return i }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn entryAt:MdEmbedEntry (i:int) {
+        return (itemAt entries i)
+    }
+
+    fn add:void (e:MdEmbedEntry) {
+        push entries e
+    }
+
+    fn count:int () {
+        return (array_length entries)
+    }
+
+    ; The height the slot needs, or -1 when nothing has been prepared for it.
+    fn heightFor:double (kind:string source:string width:double) {
+        def i:int (this.find(kind source width))
+        if (i < 0) { return (0.0 - 1.0) }
+        def e:MdEmbedEntry (itemAt entries i)
+        if (! e.ok) { return (0.0 - 1.0) }
+        return e.height
+    }
+
+    fn noteFor:string (kind:string source:string width:double) {
+        def i:int (this.find(kind source width))
+        if (i < 0) { return "" }
+        def e:MdEmbedEntry (itemAt entries i)
+        return e.note
+    }
+}

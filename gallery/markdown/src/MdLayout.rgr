@@ -35,6 +35,7 @@
 
 Import "MdNode.rgr"
 Import "MdChar.rgr"
+Import "MdEmbed.rgr"
 Import "../../evg/EVGTextEngine.rgr"
 
 ; ----------------------------------------------------------------------------
@@ -255,6 +256,11 @@ class MdLayout {
 
     ; 0 means one page as tall as the document — the screen's mode.
     def paginate:boolean false
+
+    ; What a handler prepared for the fenced diagrams in this document. Empty
+    ; unless somebody filled it: the layout can lay a document out without
+    ; one, and leaves a labelled slot where a diagram would have gone.
+    def embeds:MdEmbedCache (new MdEmbedCache())
 
     ; The height the document turned out to be, in continuous mode.
     def documentHeight:double 0.0
@@ -492,11 +498,17 @@ class MdLayout {
         }
     }
 
+    ; A fenced diagram. The layout cannot draw one and must still leave a
+    ; hole of the right height — so it asks the cache, which a handler filled
+    ; before layout began. A diagram nobody prepared is a labelled slot: an
+    ; empty rectangle tells a reader nothing, and a silent omission tells
+    ; them less.
     fn embed:void (node:MdNode x:double w:double) {
-        ; The layout does not know how to draw a diagram and must still leave
-        ; the right hole for one. `MdEmbed` fills the slot in; until it does,
-        ; the slot is visible rather than silently absent.
-        def h:double 160.0
+        def kind:string (MdLayout.firstWord(node.info))
+        def known:double (embeds.heightFor(kind node.literal w))
+        def drawn:boolean (known > 0.0)
+        def h:double 64.0
+        if drawn { h = known }
         def y:double (this.reserve(h))
         def b:MdBox (new MdBox())
         b.kind = 3
@@ -504,12 +516,35 @@ class MdLayout {
         b.y = y
         b.w = w
         b.h = h
-        b.embedKind = node.info
+        b.embedKind = kind
         b.embedSource = node.literal
-        b.stroke = style.codeBorder
-        b.strokeWidth = 1.0
         this.emit(b)
+        if (! drawn) {
+            b.stroke = style.codeBorder
+            b.strokeWidth = 1.0
+            def note:string (embeds.noteFor(kind node.literal w))
+            def nlen:int (strlen note)
+            if (nlen == 0) { note = (kind + " — no handler prepared this one") }
+            def label:MdBox (MdBox.text(note (x + style.codePadding) (y + style.codePadding) (w - (style.codePadding * 2.0)) (style.bodySize * style.lineHeight)))
+            label.family = style.bodyFamily
+            label.size = style.bodySize
+            label.italic = true
+            label.color = style.mutedColor
+            this.emit(label)
+        }
         cursorY = ((y + h) + style.embedSpacing)
+    }
+
+    sfn firstWord:string (info:string) {
+        def n:int (strlen info)
+        def i:int 0
+        while (i < n) {
+            def c:int (charAt info i)
+            if (c == 32) { return (substring info 0 i) }
+            if (c == 9) { return (substring info 0 i) }
+            i = (i + 1)
+        }
+        return info
     }
 
     ; ----------------------------------------------------------------------

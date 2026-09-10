@@ -114,6 +114,21 @@ def d:MermaidDiagram (MermaidReader.parse(text))
 def g:FlowGraph (MermaidFlow.build(d))      ; parsed, laid out, routed, framed
 ```
 
+For anything that just wants a drawing — a printed page, a markdown document,
+another gallery — [`MermaidRender`](domains/mermaid/MermaidRender.rgr) is the
+door: text in, a `FlowScene` out, no editor, and every dialect below behind
+one call. It never scales a diagram UP, so a three-node flowchart in a column
+of prose stays a three-node flowchart.
+
+```ranger
+def sc:FlowScene (MermaidRender.sceneOf(text "default" columnWidth 10.0))
+def root:EVGElement (sc.toEvgTree())        ; → PDF, HTML; or toDisplayList() → GPU
+```
+
+`gallery/markdown` draws its ```mermaid fences through it. The web facade's
+own loaders still carry a copy of the dispatch, because they also report what
+each dialect counts; moving those summaries here is what collapses the two.
+
 ![Mermaid pasted into the page and drawn on the GPU](artifacts/scenario_mermaid.png)
 
 What it reads, which is the flowchart dialect people actually write:

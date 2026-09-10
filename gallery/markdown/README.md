@@ -6,11 +6,12 @@ document, measured once, comes out as a PDF with its fonts embedded and as a
 display list a GPU can paint.
 
 ```bash
-npm run markdown:test          # 62 assertions on the parser, the layout, the EVG tree
-npm run markdown:test:go       # …the same 62 compiled to Go (and :python to Python)
+npm run markdown:test          # 73 assertions on the parser, the layout, the diagrams
+npm run markdown:test:go       # …the same 73 compiled to Go (and :python to Python)
 npm run markdown:spec          # score against CommonMark's own 652 examples
-npm run markdown:demo          # the sample and this repository's README → PDF + HTML
+npm run markdown:demo          # the samples and this repository's README → PDF + HTML
 npm run markdown:pdf -- FILE   # …any file you name
+npm run markdown:embed         # where every diagram's marks actually landed
 ```
 
 **651 of 652** CommonMark 0.31.2 examples, compared as exact strings against
@@ -40,7 +41,7 @@ never builds a string of tags.
 | blocks | ATX and setext headings, paragraphs, thematic breaks, fenced and indented code, block quotes, bullet and ordered lists with tight/loose flow, HTML blocks (all seven start conditions), link reference definitions |
 | inlines | emphasis and strong (the full delimiter stack, including the rule of three), code spans, links and images in all four forms, autolinks, raw HTML, HTML5 named and numeric entities, backslash escapes, hard breaks |
 | GFM | tables with column alignment, task lists, strikethrough |
-| beyond both | YAML front matter |
+| beyond both | YAML front matter, and ```mermaid fences drawn as diagrams |
 
 Every block carries `srcStart` / `srcEnd` — byte offsets into the text it came
 from — so a viewer can put a caret back where a reader clicked.
@@ -80,10 +81,13 @@ src/
   MdToHtml.rgr      the exporter that exists to be scored
   MdLayout.rgr      the AST laid out: styles, runs, line breaking, pagination
   MdToEvg.rgr       boxes → EVGElement, continuous or `<print>`/`<page>`
+  MdEmbed.rgr       the slot a fenced diagram fills, keyed by source and width
+  MdMermaid.rgr     the ```mermaid handler — the only file that knows RangerFlow
   md_demo.rgr       the only file that touches a disk
 tests/
-  MarkdownTest.rgr  62 assertions, run on three targets
+  MarkdownTest.rgr  73 assertions, run on three targets
   MdSpecDump.rgr    renders the specification's examples for the harness
+  MdEmbedProbe.rgr  what landed inside each diagram's box, off the display list
 harness/
   spec/             CommonMark 0.31.2, pinned (CC-BY-SA-4.0)
   floor.json        the ratchet: a section may not score lower than this
@@ -92,6 +96,62 @@ tools/
   gen-entities.mjs      regenerates the entity table
   repl.mjs              a scratch console: parse something, print HTML or XML
 ```
+
+## Diagrams
+
+A ```mermaid fence is not code and not an image: it is a drawing that has to
+be **measured** before the page can be laid out around it and **drawn**
+afterwards.
+
+```
+fence text ──► MermaidRender.sceneOf ──► FlowScene ──► toEvgTree()
+                                                           │
+                                          the same elements the rest of the
+                                          document is made of
+```
+
+Nothing is rasterised on either path. In the PDF the diagram is vector
+geometry with the document's fonts embedded; on a canvas it is the same
+display-list commands the RangerFlow editor draws. And it is laid out at the
+width of the column it lands in — a printed diagram is laid out at the
+printed width rather than scaled up from a screen, which is the whole reason
+to keep it as geometry.
+
+`MermaidRender` is new, and lives in
+[`gallery/rangerflow/domains/mermaid/`](../rangerflow/domains/mermaid/MermaidRender.rgr):
+Mermaid text in, a `FlowScene` out, no editor. All twenty-six dialects
+RangerFlow reads go through it.
+
+**How it is checked.** Not by looking at the preview — the HTML exporter
+cannot draw a scene's paths (see below). `npm run markdown:embed` builds the
+page, lays it out, builds the display list and reports what landed inside
+each diagram's box:
+
+```
+embed mermaid at 56,143 708x160
+  marks inside  26
+  of them path  5
+  stroke        5
+  text          6
+  their bounds  56,143 .. 647,259
+```
+
+The same check is two assertions in the test suite, and the PDF carries it
+out: `mermaid.pdf` has 40 movetos, 224 linetos and 92 curves where the
+diagram-free `sample.pdf` has none.
+
+**Where the diagram sits in the tree.** The scene's root is kept, not
+unwrapped. Flattening the diagram's elements into the page with their
+coordinates shifted is the obvious thing to do and it silently loses every
+edge: a scene's paths carry their geometry in an `svgPath` and a `viewBox`
+and are placed by the box their container gives them, not by a left and a top
+of their own.
+
+**The cache is keyed by width.** Typing a sentence three paragraphs below a
+diagram must not re-run a graph layout; re-flowing the document *narrower*
+must. `MdEmbedCache` holds only `EVGElement` and two doubles, so `MdLayout`
+and `MdToEvg` never learn that a graph editor exists — `MdMermaid` is the
+only file in the module that imports one.
 
 ## Where it stops
 
@@ -103,10 +163,11 @@ tools/
   font, so code is set in the sans face that is there. It is measured and
   painted with the same one — the geometry is honest — but it is not
   monospaced. A missing asset, not a layout decision.
-- **`mermaid` fences are a slot, not a drawing.** `MdLayout` reserves the
-  box and marks it; nothing fills it in yet. The reader that would —
-  `rangerflow/domains/mermaid` — needs its dispatch lifted out of the web
-  facade first. [`PLAN.md`](PLAN.md) §5.2.
+- **The HTML preview cannot draw a diagram's edges.** `EVGHTMLRenderer`
+  emits every `<svg>` at 24 pixels in the corner; RangerFlow's own HTML
+  export has the same hole, so this is a defect in a shared exporter rather
+  than in the embedding. The PDF and the display list are correct — see
+  **Diagrams** above for how that is checked.
 - **Images are their alt text.** No bytes are loaded and no picture is drawn.
 - **Raw HTML is shown, not obeyed.** `MdToHtml` passes it through, because
   that is what the specification scores. The viewer draws it as a dimmed code

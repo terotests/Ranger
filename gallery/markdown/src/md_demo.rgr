@@ -22,6 +22,7 @@
 Import "MdBlock.rgr"
 Import "MdLayout.rgr"
 Import "MdToEvg.rgr"
+Import "MdMermaid.rgr"
 Import "../../pdf_writer/src/core/EVGPDFRenderer.rgr"
 Import "../../pdf_writer/src/core/EVGHTMLRenderer.rgr"
 Import "../../pdf_writer/src/fonts/FontManager.rgr"
@@ -82,6 +83,14 @@ class MdDemo {
         if fontsLoaded {
             paged.setMeasurer(measurer)
         }
+        ; The fences are drawn BEFORE the layout, because a page cannot be
+        ; broken around a diagram whose height nobody has asked for. They are
+        ; prepared at the width of the column they will land in, so a printed
+        ; diagram is laid out at the printed width rather than scaled from a
+        ; screen — which is the whole reason to keep it as geometry.
+        def printWidth:double (paged.style.pageWidth - (paged.style.margin * 2.0))
+        MdMermaid.prepare(doc paged.embeds printWidth "default")
+        def diagrams:int (paged.embeds.count())
         paged.layoutPaged(doc)
         def printRoot:EVGElement (MdToEvg.buildPrint(paged))
         def renderer (new EVGPDFRenderer())
@@ -100,6 +109,8 @@ class MdDemo {
         if fontsLoaded {
             flowing.setMeasurer(measurer)
         }
+        def screenWidth:double (820.0 - (flowing.style.margin * 2.0))
+        MdMermaid.prepare(doc flowing.embeds screenWidth "default")
         flowing.layoutContinuous(doc 820.0)
         def pageRoot:EVGElement (MdToEvg.buildPage(flowing 820.0))
         def html (new EVGHTMLRenderer())
@@ -131,6 +142,7 @@ class MdDemo {
         print ("    blocks      " + (to_string blocks))
         print ("    boxes       " + (to_string boxCount))
         print ("    pages       " + (to_string paged.pageCount))
+        print ("    diagrams    " + (to_string diagrams))
         print (("    scroll      " + (to_string tall)) + " pt tall")
         print ("    " + pdfPath)
         print ("    " + htmlPath)

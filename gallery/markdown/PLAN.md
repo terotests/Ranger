@@ -39,8 +39,9 @@ the design, including the parts that are not written.
 | **1** | blocks, inlines, `MdToHtml`, the spec harness | **done** — 651/652, ratcheted |
 | **2** | GFM, front matter | **done** — tables, task lists, strikethrough, YAML |
 | **3** | `MdLayout`, `MdToEvg`, PDF | **done** — `npm run markdown:demo` prints this repository's README as 38 pages |
-| **0** | the three seams (§5) | **one of three**: `breakRuns` exists, in `MdLayout` rather than in EVG (see below) |
-| **4** | the page: canvas, panes, sync, `mermaid` | not started |
+| **0** | the three seams (§5) | **two of three**: `breakRuns` exists (in `MdLayout`, not EVG — see below), and `MermaidRender` is extracted. `EVGPDFRenderer` with no filesystem is still unasked |
+| **`mermaid`** | the fence, drawn (§7) | **done** — `MermaidRender` extracted, all 26 dialects, geometry not raster |
+| **4** | the page: canvas, panes, sync | not started |
 | **5** | PDF in the tab | not started |
 | **6** | highlighting, TOC, incremental reparse | not started |
 
@@ -52,6 +53,15 @@ than quietly:
   It was written here first because the markdown layout needed it working
   before it could need it shared; moving it is a refactor with a test suite
   already behind it.
+- **`MermaidRender` is extracted, and the web facade has not moved onto it
+  yet.** §5.2 asked for one door so the page and the markdown module cannot
+  drift; the door exists and the markdown module uses it, but
+  `rangerflow_web.rgr` still has its own thirty branches. Collapsing them
+  needs each loader's per-kind status line ("3 entities, 2 relationships")
+  moved into `MermaidDrawing` first — mechanical, ~700 lines, and worth its
+  own change with `rangerflow:web:test` as the gate. Until then a new dialect
+  has to be added in two places to be drawn in both, which is the drift this
+  was meant to end. `rangerflow:test` (1222 assertions) is green either way.
 - **Raw HTML is passed through by `MdToHtml` and refused by the viewer.**
   §14 said it would be refused everywhere. That would have cost 44 spec
   examples for nothing: the exporter exists only to be scored, so it prints

@@ -1,0 +1,144 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; MdEmbedProbe.rgr — is the diagram really on the page, and where?
+; ============================================================================
+;
+;   node MdEmbedProbe.js <file.md> <width>
+;
+; The HTML exporter cannot draw a scene's edges — it emits every `<svg>` at
+; 24 pixels in the corner, and RangerFlow's own HTML export has the same hole
+; — so a screenshot of the preview is not evidence about a diagram. The
+; DISPLAY LIST is: it is what the GPU painter draws and what the PDF writer
+; agrees with, and it says where every mark ends up.
+;
+; This prints the command mix and the bounding box of the marks inside each
+; embed, so "the diagram is on the page, at the right place, with its edges"
+; is a thing that can be checked rather than looked at.
+; ============================================================================
+
+Import "../src/MdBlock.rgr"
+Import "../src/MdLayout.rgr"
+Import "../src/MdToEvg.rgr"
+Import "../src/MdMermaid.rgr"
+Import "../../evg/EVGLayout.rgr"
+Import "../../evg/EVGDisplayList.rgr"
+
+class MdEmbedProbe {
+    sfn main:void () {
+        def argc:int (shell_arg_cnt)
+        def path:string "gallery/markdown/fixtures/mermaid.md"
+        def width:double 820.0
+        if (argc > 0) { path = (shell_arg 0) }
+        if (argc > 1) {
+            def w:string (shell_arg 1)
+            def wi:int (?? (str2int w) 820)
+            width = (to_double wi)
+        }
+        def text:string (?? (read_file "." path) "")
+        def tlen:int (strlen text)
+        if (tlen == 0) {
+            print ("nothing to read at " + path)
+            return
+        }
+        def doc:MdNode (MdBlock.parseText(text))
+        def l:MdLayout (new MdLayout())
+        def inner:double (width - (l.style.margin * 2.0))
+        MdMermaid.prepare(doc l.embeds inner "default")
+        l.layoutContinuous(doc width)
+        def root:EVGElement (MdToEvg.buildPage(l width))
+
+        def layout:EVGLayout (new EVGLayout())
+        layout.setPageSize(width l.documentHeight)
+        layout.layout(root)
+        def dl:EVGDisplayList (new EVGDisplayList())
+        dl.build(root)
+
+        def counts:[int]
+        def k:int 0
+        while (k < 8) {
+            push counts 0
+            k = (k + 1)
+        }
+        def n:int (array_length dl.cmds)
+        def i:int 0
+        while (i < n) {
+            def c:EVGDrawCmd (itemAt dl.cmds i)
+            if ((c.kind >= 0) && (c.kind < 8)) {
+                def was:int (itemAt counts c.kind)
+                set_at counts c.kind (was + 1)
+            }
+            i = (i + 1)
+        }
+        print ("  " + path)
+        print ("    commands   " + (to_string n))
+        print ("    rect       " + (to_string (itemAt counts 0)))
+        print ("    border     " + (to_string (itemAt counts 1)))
+        print ("    image      " + (to_string (itemAt counts 2)))
+        print ("    text       " + (to_string (itemAt counts 3)))
+        print ("    path       " + (to_string (itemAt counts 6)))
+        print ("    stroke     " + (to_string (itemAt counts 7)))
+
+        ; Every embed, and what landed inside its box.
+        def b:int 0
+        def bn:int (array_length l.boxes)
+        while (b < bn) {
+            def box:MdBox (itemAt l.boxes b)
+            if (box.kind == 3) {
+                MdEmbedProbe.report(box dl)
+            }
+            b = (b + 1)
+        }
+    }
+
+    sfn report:void (box:MdBox dl:EVGDisplayList) {
+        def inside:int 0
+        def paths:int 0
+        def strokes:int 0
+        def texts:int 0
+        def minX:double 1000000.0
+        def minY:double 1000000.0
+        def maxX:double (0.0 - 1000000.0)
+        def maxY:double (0.0 - 1000000.0)
+        def n:int (array_length dl.cmds)
+        def i:int 0
+        while (i < n) {
+            def c:EVGDrawCmd (itemAt dl.cmds i)
+            def cx:double c.x
+            def cy:double c.y
+            def within:boolean true
+            if (cx < (box.x - 1.0)) { within = false }
+            if (cy < (box.y - 1.0)) { within = false }
+            if (cx > ((box.x + box.w) + 1.0)) { within = false }
+            if (cy > ((box.y + box.h) + 1.0)) { within = false }
+            if within {
+                inside = (inside + 1)
+                if (c.kind == 6) { paths = (paths + 1) }
+                if (c.kind == 7) { strokes = (strokes + 1) }
+                if (c.kind == 3) { texts = (texts + 1) }
+                if (cx < minX) { minX = cx }
+                if (cy < minY) { minY = cy }
+                if (cx > maxX) { maxX = cx }
+                if (cy > maxY) { maxY = cy }
+            }
+            i = (i + 1)
+        }
+        def bx:int (to_int box.x)
+        def by:int (to_int box.y)
+        def bw:int (to_int box.w)
+        def bh:int (to_int box.h)
+        print ("")
+        print ("    embed " + box.embedKind + " at " + (to_string bx) + "," + (to_string by) + " " + (to_string bw) + "x" + (to_string bh))
+        print ("      marks inside  " + (to_string inside))
+        print ("      of them path  " + (to_string paths))
+        print ("      stroke        " + (to_string strokes))
+        print ("      text          " + (to_string texts))
+        if (inside > 0) {
+            def x0:int (to_int minX)
+            def y0:int (to_int minY)
+            def x1:int (to_int maxX)
+            def y1:int (to_int maxY)
+            print ("      their bounds  " + (to_string x0) + "," + (to_string y0) + " .. " + (to_string x1) + "," + (to_string y1))
+        }
+    }
+}
