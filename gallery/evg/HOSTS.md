@@ -107,6 +107,69 @@ Swift and 504 of Kotlin, and it calls the host and nothing else.
 
 ---
 
+## A page in a browser
+
+A browser page is a host too, and the parts of one that are not about the
+viewport turned out to be the same in all seven gallery pages: fetch the
+assets, ship a bundle small enough to parse, and be able to say how long any
+of it took.
+
+| | what it does | where |
+|---|---|---|
+| `inline-assets.mjs` | writes the head that starts every asset before the body is parsed, from the list the build already has | `web/tools/` |
+| `assets-client.mjs` | the module half: picks those responses up by name | `web/tools/` |
+| `minify.mjs` | minifies a compiled bundle and checks the global its scope publishes survived | `web/tools/` |
+| `boot-bench.mjs` | first paint and first painted frame, on a throttled, gzipped connection | `web/tools/` |
+
+The order assets were fetched in was the same mistake everywhere: the page
+loaded its engine, ran its module, and only then asked for its fonts, then its
+catalogue, then its document — one await at a time. None of those requests
+needs any code to be running, so they go out in the head, and a visitor waits
+for the longest download rather than for their sum.
+
+```sh
+# in the build, after the assets are copied and the stamp is known
+node gallery/evg/web/tools/minify.mjs --file "$OUT/app_web.js" --keep AppWeb
+node gallery/evg/web/tools/inline-assets.mjs \
+  --html "$OUT/index.html" --start "$ASSETS" \
+  --preload "standalone.mjs,gl/evg-webgl.js" --stamp "$STAMP"
+```
+
+```js
+// in the page's module
+import { bytesOf, textOf, asRangerBuffer } from "./evg/assets-client.mjs";
+```
+
+Collect `$ASSETS` as the build copies the files, never as a second list: an
+asset named in one place and not the other is either fetched twice or waited
+for and never started, and neither shows up as an error.
+
+What it was worth, on the 4 Mbps / 60 ms / 4× CPU bench:
+
+| | before | now |
+|---|---:|---:|
+| datagrid | 5070 ms | 2890 ms |
+| pptx | 4813 ms | 2778 ms |
+| docx_viewer | 3517 ms | 2535 ms |
+| rangerdbviewer | — | 1920 ms |
+| RealTrainer | 2182 ms | 934 ms |
+
+RealTrainer is further along than the rest and its remaining tools are still
+its own: a first picture computed at build time from the app's own display
+list (`realtrainer/web/snapshot.mjs`), the check that holds that picture
+against the live frame, and a byte budget on what the first download may cost.
+Those generalise the same way these did, and have not been.
+
+The fonts are what is left, and they are most of what these pages still
+download: datagrid ships twenty faces and 4.5 MB, pptx eight and 2.4 MB, all
+of it uncompressed TrueType because both halves of the page read it — the
+browser to draw with, the app to measure with. RealTrainer ships none: it
+measures with the browser (`installCanvasMeasurer`) and lets CSS load the
+faces. That is the third answer and the best one, and it is an application
+change rather than a build line.
+
+---
+
 ## Where each platform stands
 
 **iOS and Android** share everything above. `RtIos` and `RtAndroid` are one
