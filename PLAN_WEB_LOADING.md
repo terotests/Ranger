@@ -348,6 +348,17 @@ frame. That alone is ~40 % of the app bundle.
 
 ### 4.3 Three mechanisms, in increasing cost and durability
 
+Built, for one seam. `web/build.mjs` cuts the compiled output in two along a
+declared cold root, `RtCharts.rgr` carries the seam in the app, and
+`rt:shell` holds the deferred chunk at the server to prove the page paints
+without it. Two things that the sizes hid until they were measured are worth
+carrying to the next seam: **a bundler splits at module boundaries, not class
+ones** — one compiled file cannot be split by any amount of care about what
+names what, which is why the output is cut into two modules — and **a
+re-export is an import**: a convenience re-export of the cold class from the
+page's shared module put a static edge back and folded the chunk into the
+first download, silently.
+
 **B1 — post-build splitter (prototype).** A tool that reads the generated file,
 groups classes per the manifest and emits one entry module plus N chunk
 modules. References to a cold class are the only hard part: turn top-level
@@ -688,14 +699,14 @@ a screen whose content is not knowable at build time.
 
 Cheap and certain first; nothing later depends on a bet made earlier.
 
-Rows 1–5 are built. What the deployed page costs now, against the commit this
-document was written on, in Chromium at 390×844 over 4 Mbps with 60 ms per
-request and a 4× CPU throttle (`npm run rt:boot`):
+Rows 1–5 are built and row 6 is begun. What the deployed page costs now,
+against the commit this document was written on, in Chromium at 390×844 over
+4 Mbps with 60 ms per request and a 4× CPU throttle (`npm run rt:boot`):
 
-| | first paint | app painted | on the wire |
+| | first paint | app painted | before the first frame |
 |---|---:|---:|---:|
 | before | 144 ms * | 2182 ms | 587 KB |
-| now | 140 ms | 1245 ms | 442 KB |
+| now | 148 ms | 1104 ms | 311 KB (+55 KB after) |
 
 \* and "before" is worse than it looks: that first paint is a header and a
 paragraph of English, which are then hidden. Now it is the app's own chrome,
@@ -708,7 +719,7 @@ which the app paints over.
 | 3 ✅ | A1: baked first frame inline, with the drift gate | **T0** — a real picture in one RTT | low; gate makes it safe |
 | 4 ◑ | C1 (done) + C2 (measured, deferred): seed and stylesheet out of the boot line | ~60 ms and 400 KB off the first frame | low |
 | 5 ✅ | §6: `?engine=worker` becomes the default | the app's parse and boot stop blocking the first paint and the compositor | medium; the worker host exists and is checked |
-| 6 | §4 B1 → B2: profile-guided split, charts and cold routes out of the entry chunk | **T1** at budget | medium |
+| 6 ◑ | §4 B1 → B2: profile-guided split, charts and cold routes out of the entry chunk | **T1** at budget | medium |
 | 7 | §4 B3: chunking in the compiler, with a manifest | every Ranger web app gets the ladder | large, but it is the point |
 | 8 | §7: streaming instantiation and `wasm-split` for the WASM builds | the same ladder on the other backend | medium |
 | 9 | §8.5: font dedup, WOFF2, metrics sidecar, one site-wide asset space | 11.9 MB → under 1 MB across the site, and none of it before the first pixel | low |
