@@ -1,6 +1,7 @@
 # PlantUML in RangerFlow — the plan
 
-Status: **phases 1, 2 and 3 are built** · `npm run rangerflow:plantuml` ·
+Status: **phases 1, 2, 3 and 8 are built** · `?scenario=plantuml` in the web
+editor · `npm run rangerflow:plantuml` ·
 `npm run rangerflow:plantuml:parity` → **65/65 checks over 16 examples**,
 computed by PlantUML 1.2025.4 · the type sniff, the sequence grammar, the
 entity core (class, object, component, deployment, use case, ArchiMate) and the
@@ -381,9 +382,21 @@ onto layouts that exist; several are a day each.
 
 **Phase 7 — style.** Skinparam, `<style>`, `!theme`, the 154 colours.
 
-**Phase 8 — the way in.** `?scenario=plantuml` in the web demo (paste PlantUML,
-press render, drag what comes out), `npm run rangerflow:plantuml`, README, the
-benchmark of §8, and the parity doc at whatever the truth is.
+**Phase 8 — the way in.** ✅ **Done for the part that matters.**
+`?scenario=plantuml` in the web demo, sharing one source panel with Mermaid —
+the demo dropdown decides which reader gets the text, and each format brings a
+gallery of examples. The panel moved to the left of the canvas rather than
+above it: a textarea across the whole window costs the drawing the height it
+needs, and the drawing is the part you are looking at. Driven by
+`rangerflow:web:test` like every other scenario.
+
+One thing that fell out of it: the PlantUML scenario opens on the **class**
+example, not the sequence one. A sequence diagram is placed — who across, when
+down — so its parts are not draggable, and the page's own self-test starts by
+dragging something. A demo whose first move is a drag should open on something
+that moves.
+
+Still open here: the benchmark of §8 is not wired up as a command.
 
 ---
 

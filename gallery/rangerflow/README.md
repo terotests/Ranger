@@ -66,12 +66,22 @@ dropdown in the page switches between them, and `?scenario=` picks one on load:
 | [`?scenario=force`](http://localhost:8080/?scenario=force) | React Flow's force-layout example: d3-force running live, and a node you drag pins while you hold it |
 | [`?scenario=flow`](http://localhost:8080/?scenario=flow) | a plain flowchart — the core with no domain on top of it |
 | [`?scenario=atk`](http://localhost:8080/?scenario=atk) | an ATK chart in the ISO 5807 shapes: diamond, drum, parallelogram, wavy-footed page |
-| [`?scenario=mermaid`](http://localhost:8080/?scenario=mermaid) | **paste Mermaid, press render** — the text box is the diagram, and what comes out is draggable, editable and exportable |
+| [`?scenario=mermaid`](http://localhost:8080/?scenario=mermaid) | **paste Mermaid, press render** — the text box is the diagram, and what comes out is draggable, editable and exportable. Eight examples in the dropdown beside it |
+| [`?scenario=plantuml`](http://localhost:8080/?scenario=plantuml) | **the same box, reading PlantUML** — class, sequence, component, use case, deployment and object, six examples to start from |
 | [`?scenario=org`](http://localhost:8080/?scenario=org) | an organisation chart, units coloured, the matrix report dashed |
 | [`?scenario=process`](http://localhost:8080/?scenario=process) | a swimlane process — drag a lane and its steps come with it |
 | [`?scenario=mindmap`](http://localhost:8080/?scenario=mindmap) | a mind map, branches balanced either side of the root |
 | [`?scenario=radial`](http://localhost:8080/?scenario=radial) | the same graph as a radial tree, a generation per ring |
 | [`?scenario=activity`](http://localhost:8080/?scenario=activity) | a UML **activity** diagram — actions, a fork and a join, signals sent and received, a wait |
+
+For those two the page splits: **the source on the left, the drawing on the
+right**, so the text you are editing and the diagram it makes are both full
+height. `example` is a gallery — picking one replaces the text and draws it —
+`render` and `Ctrl`/`⌘`+`Enter` draw what you have typed, and `?example=class`
+opens on one of them. Everything that comes out is a RangerFlow graph like any
+other: draggable, editable, exportable.
+
+![PlantUML on the left, the drawing on the right](artifacts/scenario_plantuml.png)
 
 Drag to pan, wheel to zoom, **two fingers to scroll around** and pinch to zoom,
 shift-drag to box select, drag *or click* a handle to connect, **right-click
@@ -175,7 +185,8 @@ that around for when the house style is the point.
 
 `%%{init: {'theme':'forest'}}%%` in the source picks a look by name, which is
 the same word Mermaid uses for it. In the browser page the Mermaid panel has a
-**look** dropdown, and `?scenario=mermaid&look=dark` picks one on load.
+**look** dropdown, and `?scenario=mermaid&look=dark` picks one on load. The
+same sheets style the PlantUML side, because what they style is the graph.
 
 ![the same diagram in the dark look, on the GPU](artifacts/scenario_mermaid_dark.png)
 
@@ -1016,6 +1027,15 @@ layer. A frame then cannot reach outside its column, two frames cannot overlap,
 and a package cannot claim a class it never declared. It is not what Graphviz
 does — it ranks inside a cluster as well — and a diagram with many packages comes
 out wide. A wide diagram is not a false one.
+
+### …in the browser, too
+
+PlantUML is a scenario of its own in the page —
+[`?scenario=plantuml`](https://terotests.github.io/Ranger/rangerflow/?scenario=plantuml)
+— sharing one source panel with Mermaid: the demo dropdown decides which reader
+gets the text, and each format brings its own gallery of examples. It is driven
+by `npm run rangerflow:web:test` like every other scenario, so it cannot rot
+behind the default one.
 
 ### Scored against PlantUML itself
 
