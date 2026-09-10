@@ -279,6 +279,46 @@ class MarkdownTest {
         def firstSeg:MdSeg (itemAt second.segs 0)
         def lead:int (charAt firstSeg.text 0)
         this.ok("no leading space" (lead != 32))
+
+        ; Every line is FULL: it fits, and the next word would not have.
+        ;
+        ; This is the invariant the width accumulator has to keep. `breakRuns`
+        ; no longer measures the whole open segment once per word — it carries
+        ; the total forward and charges each word its advance and its kern —
+        ; so an accumulator that drifted low would let a line run past the
+        ; column and one that drifted high would break it early. Both show up
+        ; here, and neither shows up in a test that only asks whether the text
+        ; wrapped.
+        def para:MdRun (new MdRun())
+        para.family = "Open Sans"
+        para.size = 11.0
+        para.text = "The quick brown fox jumps over the lazy dog while the printer waits for a line that is wide enough to be broken somewhere sensible and then broken again"
+        def paraRuns:[MdRun]
+        push paraRuns para
+        def wide:double 200.0
+        def filled:[MdLine] (l.breakRuns(paraRuns wide))
+        def fn:int (array_length filled)
+        this.ok("the paragraph took several lines" (fn > 3))
+        def tight:boolean true
+        def fits:boolean true
+        def fi:int 0
+        while (fi < fn) {
+            def ln:MdLine (itemAt filled fi)
+            if (ln.width > (wide + 0.001)) { fits = false }
+            if (fi < (fn - 1)) {
+                def here:MdSeg (itemAt ln.segs 0)
+                def nextLn:MdLine (itemAt filled (fi + 1))
+                def there:MdSeg (itemAt nextLn.segs 0)
+                def words:[string] (strsplit there.text " ")
+                def nextWord:string (itemAt words 0)
+                def joined:string ((here.text + " ") + nextWord)
+                def wouldBe:double (l.measureRun(joined para))
+                if (wouldBe <= wide) { tight = false }
+            }
+            fi = (fi + 1)
+        }
+        this.ok("no line runs past the column" fits)
+        this.ok("no line breaks before it had to" tight)
     }
 
     ; ----------------------------------------------------------------------
